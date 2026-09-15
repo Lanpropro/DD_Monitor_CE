@@ -12,16 +12,16 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(REPO, "cache", "avatars")
 
 
-def _cache_path(url: str) -> str:
+def _cache_path(url: str, subdir: str = "avatars") -> str:
     name = hashlib.md5(url.encode("utf-8")).hexdigest() + ".png"
-    return os.path.join(CACHE_DIR, name)
+    return os.path.join(REPO, "cache", subdir, name)
 
 
-def load_pixmap(url: str) -> QPixmap | None:
+def load_pixmap(url: str, subdir: str = "avatars") -> QPixmap | None:
     """先从本地缓存读，没有就下载并缓存。"""
     if not url:
         return None
-    path = _cache_path(url)
+    path = _cache_path(url, subdir)
     if os.path.isfile(path):
         pixmap = QPixmap(path)
         if not pixmap.isNull():
@@ -30,7 +30,7 @@ def load_pixmap(url: str) -> QPixmap | None:
         response = requests.get(url, headers=bili.HEADERS, timeout=10)
         if response.status_code != 200 or not response.content:
             return None
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as handle:
             handle.write(response.content)
         pixmap = QPixmap()
@@ -45,16 +45,17 @@ class AvatarLoader(QThread):
 
     loaded = Signal(str, QPixmap)
 
-    def __init__(self, items: dict[str, str], parent=None):
+    def __init__(self, items: dict[str, str], parent=None, subdir: str = "avatars"):
         super().__init__(parent)
         self.items = dict(items)          # key -> url
+        self.subdir = subdir
 
     def run(self) -> None:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         if not self.items:
             return
         with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {pool.submit(load_pixmap, url): key
+            futures = {pool.submit(load_pixmap, url, self.subdir): key
                        for key, url in self.items.items()}
             for future in as_completed(futures):
                 key = futures[future]

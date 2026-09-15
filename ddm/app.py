@@ -140,6 +140,8 @@ class MainWindow(QMainWindow):
 
         bili.set_sessdata(self.state.get("sessdata", ""))
         self._restore_ui()
+        self.apply_danmaku_settings()
+        self.apply_preview_settings()
         self._refresh_meta()
 
         QTimer.singleShot(0, self.start_all)
@@ -189,6 +191,8 @@ class MainWindow(QMainWindow):
         for player in self.players.values():
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         config_module.save(self.current_state())
+        self.apply_danmaku_settings()
+        self.apply_preview_settings()
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
 
     def current_state(self) -> dict:

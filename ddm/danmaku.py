@@ -35,7 +35,7 @@ except Exception as error:              # noqa: BLE001
 class DanmakuClient(QThread):
     """某个直播间的弹幕连接。"""
 
-    message = Signal(str, str, str)     # 类型 / 用户名 / 内容
+    message = Signal(dict)              # {kind, uname, text, medal, emoticon…}
     status = Signal(str)                # 给界面显示的状态文字
 
     def __init__(self, room_id: str, parent=None):
@@ -147,20 +147,52 @@ class _Client(_ClientBase):
 
 
 class _Handler(_HandlerBase):
-    """把 blivedm 的回调转成一条条信号。"""
+    """把 blivedm 的回调转成一条条信号（带粉丝牌和表情信息）。"""
 
     def __init__(self, emit):
         super().__init__()
         self._emit = emit
 
     def _on_danmaku(self, client, message):
-        self._emit("danmaku", message.uname, message.msg)
+        emoticon = message.emoticon_options_dict if message.dm_type == 1 else {}
+        self._emit({
+            "kind": "danmaku",
+            "uname": message.uname,
+            "text": message.msg,
+            "medal": _medal_info(message),
+            "emoticon": (emoticon or {}).get("url") or "",
+        })
 
     def _on_gift(self, client, message):
-        self._emit("gift", message.uname, f"投喂 {message.gift_name} ×{message.num}")
+        self._emit({
+            "kind": "gift",
+            "uname": message.uname,
+            "text": f"投喂 {message.gift_name} ×{message.num}",
+        })
 
     def _on_buy_guard(self, client, message):
-        self._emit("guard", message.username, f"开通了 {message.gift_name}")
+        self._emit({
+            "kind": "guard",
+            "uname": message.username,
+            "text": f"开通了 {message.gift_name}",
+        })
 
     def _on_super_chat(self, client, message):
-        self._emit("super_chat", message.uname, f"¥{message.price}　{message.message}")
+        self._emit({
+            "kind": "super_chat",
+            "uname": message.uname,
+            "text": f"¥{message.price}　{message.message}",
+        })
+
+
+def _medal_info(message) -> dict:
+    """粉丝牌（舰队/粉丝勋章）：名字、等级、颜色，没有就返回空。"""
+    name = str(getattr(message, "medal_name", "") or "")
+    if not name:
+        return {}
+    color = int(getattr(message, "mcolor", 0) or 0)
+    return {
+        "name": name,
+        "level": str(getattr(message, "medal_level", "") or ""),
+        "color": f"#{color & 0xFFFFFF:06x}" if color else "",
+    }

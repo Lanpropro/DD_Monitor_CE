@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -12,10 +12,28 @@ sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
+from ddm import app as app_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.widgets import LayoutPicker, Tile  # noqa: E402
 
-OUT = os.path.join(REPO, "dev", "preview")
+
+class PreviewDanmakuClient(QThread):
+    """预览不联网：假的弹幕连接，什么都不做。"""
+
+    message = Signal(dict)
+    status = Signal(str)
+
+    def __init__(self, room_id, parent=None):
+        super().__init__(parent)
+        self.room_id = str(room_id)
+
+    def run(self) -> None:
+        return
+
+    def stop(self) -> None:
+        return
+
+OUT = os.path.join(REPO, "work", "preview")
 NOW = int(time.time())
 
 ROOMS = [
@@ -48,7 +66,36 @@ DANMAKU = [
     ("小北", "刚来，前面发生了什么", "#c792ea"),
 ]
 
+MEDALS = [
+    {"name": "绿冻", "level": "10", "color": "#8d8366"},
+    {"name": "满皇", "level": "21", "color": "#f5c542"},
+    {},
+    {"name": "茶水间", "level": "7", "color": "#5c7cfa"},
+]
+
+EMOTICON_URL = "https://i0.hdslb.com/bfs/live/preview-emoticon.png"
+
 COLORS = ["#3d5a80", "#5f4b8b", "#2d6a4f", "#7a4a3a"]
+
+
+def emoticon_pixmap(size: int = 48) -> QPixmap:
+    """预览用的假表情（预览不联网）。"""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setBrush(QColor("#ffd43b"))
+    painter.setPen(QColor("#e0a800"))
+    painter.drawEllipse(1, 1, size - 2, size - 2)
+    painter.setBrush(QColor("#3d3d3d"))
+    painter.setPen(Qt.NoPen)
+    painter.drawEllipse(int(size * 0.30), int(size * 0.34), 4, 5)
+    painter.drawEllipse(int(size * 0.58), int(size * 0.34), 4, 5)
+    painter.setPen(QColor("#3d3d3d"))
+    painter.drawArc(int(size * 0.28), int(size * 0.40), int(size * 0.44), int(size * 0.36),
+                    200 * 16, 140 * 16)
+    painter.end()
+    return pixmap
 
 
 def cover_pixmap(name: str, color: str, size=(1280, 720)) -> QPixmap:
@@ -88,6 +135,7 @@ def main() -> None:
         pass
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    app_module.DanmakuClient = PreviewDanmakuClient
     os.makedirs(OUT, exist_ok=True)
 
     window = MainWindow([dict(room) for room in ROOMS], [], layout_id="dm_main3")
@@ -105,7 +153,16 @@ def main() -> None:
     window._refresh_meta()
     settle(app, 0.6)
 
-    window.wall.danmaku.set_sample(DANMAKU[:9])
+    panel = window.wall.danmaku
+    panel.set_status("已连接")
+    for index, (uname, text, color) in enumerate(DANMAKU[:8]):
+        panel.add_event({"kind": "danmaku", "uname": uname, "text": text,
+                         "color": color, "medal": MEDALS[index % len(MEDALS)]})
+    panel.add_event({"kind": "gift", "uname": "路人甲", "text": "投喂 小心心 ×5"})
+    panel.add_event({"kind": "danmaku", "uname": "表情党", "text": "[大笑]",
+                     "emoticon": EMOTICON_URL,
+                     "medal": {"name": "绿冻", "level": "12", "color": "#8d8366"}})
+    panel._on_emoticon_loaded(EMOTICON_URL, emoticon_pixmap())     # noqa: SLF001
     window.wall.tiles[1].set_controls_visible(True)      # 展示右上角控制条
     window.wall.tiles[2]._player_active = True
     window.wall.tiles[2].set_paused(True)                # 展示"已暂停"

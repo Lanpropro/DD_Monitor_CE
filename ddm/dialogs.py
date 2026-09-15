@@ -2,12 +2,12 @@
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QCursor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QKeySequenceEdit, QPushButton, QSlider, QSpinBox,
-    QStackedWidget, QVBoxLayout, QWidget,
+    QAbstractSpinBox, QCheckBox, QDialog, QFontComboBox, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
+    QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -173,10 +173,110 @@ class ShortcutSettingsPage(QWidget):
         return result
 
 
+class DanmakuSettingsPage(QWidget):
+    """弹幕：字体、字号、最多保留多少条、屏蔽词。"""
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        layout.addLayout(_page_head("弹幕", "只影响弹幕格；屏蔽词按内容匹配，命中的弹幕直接不显示"))
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(1, 1)
+
+        grid.addWidget(QLabel("字体"), 0, 0)
+        self.font_box = QFontComboBox()
+        self.font_box.setFixedWidth(220)
+        current = str(settings.get("danmaku_font") or "")
+        if current:
+            self.font_box.setCurrentFont(QFont(current))
+        grid.addWidget(self.font_box, 0, 1, Qt.AlignLeft)
+
+        grid.addWidget(QLabel("字号"), 1, 0)
+        self.size_spin = QSpinBox()
+        self.size_spin.setRange(8, 32)
+        self.size_spin.setAlignment(Qt.AlignCenter)
+        self.size_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.size_spin.setFixedWidth(90)
+        self.size_spin.setValue(int(settings.get("danmaku_font_size", 13)))
+        size_box = QHBoxLayout()
+        size_box.setSpacing(6)
+        size_box.addWidget(_step_button("−", "调小", self.size_spin.stepDown))
+        size_box.addWidget(self.size_spin)
+        size_box.addWidget(_step_button("+", "调大", self.size_spin.stepUp))
+        size_box.addStretch(1)
+        grid.addLayout(size_box, 1, 1)
+
+        grid.addWidget(QLabel("最多保留"), 2, 0)
+        self.keep_spin = QSpinBox()
+        self.keep_spin.setRange(50, 2000)
+        self.keep_spin.setSingleStep(50)
+        self.keep_spin.setAlignment(Qt.AlignCenter)
+        self.keep_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.keep_spin.setFixedWidth(100)
+        self.keep_spin.setSuffix(" 条")
+        self.keep_spin.setValue(int(settings.get("danmaku_max_blocks", 300)))
+        keep_box = QHBoxLayout()
+        keep_box.setSpacing(6)
+        keep_box.addWidget(_step_button("−", "少留一些", self.keep_spin.stepDown))
+        keep_box.addWidget(self.keep_spin)
+        keep_box.addWidget(_step_button("+", "多留一些", self.keep_spin.stepUp))
+        keep_box.addStretch(1)
+        grid.addLayout(keep_box, 2, 1)
+
+        layout.addLayout(grid)
+
+        tip = QLabel("字号也可以在弹幕格底部那条滑块上实时拖，不用每次进设置")
+        tip.setObjectName("SettingsHint")
+        layout.addWidget(tip)
+
+        keep_tip = QLabel("超过「最多保留」就从最早的一条开始丢，弹幕格不会越滚越长")
+        keep_tip.setObjectName("SettingsHint")
+        layout.addWidget(keep_tip)
+
+        layout.addWidget(QLabel("屏蔽词（每行一个）"))
+        self.block_edit = QPlainTextEdit()
+        self.block_edit.setObjectName("BlockWords")
+        self.block_edit.setPlaceholderText("例如：\n晚安\n打卡\n广告")
+        palette = self.block_edit.palette()          # 占位文字要能在深色底上看清
+        palette.setColor(QPalette.PlaceholderText, QColor("#8a8f98"))
+        self.block_edit.setPalette(palette)
+        self.block_edit.setPlainText("\n".join(settings.get("danmaku_block_words") or []))
+        self.block_edit.setFixedHeight(110)
+        layout.addWidget(self.block_edit)
+        layout.addStretch(1)
+
+    def reset(self) -> None:
+        from . import config as config_module
+
+        self.font_box.setCurrentIndex(0)
+        self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
+        self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
+        self.block_edit.setPlainText("")
+
+    def values(self) -> dict:
+        family = self.font_box.currentFont().family()
+        if family == theme.FONT_DEFAULT:
+            family = ""                     # 跟主题走，别把默认字体名写进配置
+        words = [line.strip() for line in self.block_edit.toPlainText().splitlines()]
+        return {
+            "danmaku_font": family,
+            "danmaku_font_size": int(self.size_spin.value()),
+            "danmaku_max_blocks": int(self.keep_spin.value()),
+            "danmaku_block_words": [word for word in words if word],
+        }
+
+
 class SettingsDialog(QDialog):
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
-    PAGES = [("general", "常规"), ("shortcuts", "快捷键")]
+    PAGES = [("general", "常规"), ("danmaku", "弹幕"), ("shortcuts", "快捷键")]
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None):
         super().__init__(parent)
@@ -203,8 +303,10 @@ class SettingsDialog(QDialog):
         self.stack = QStackedWidget()
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
+        self.danmaku_page = DanmakuSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.stack.addWidget(self.general_page)
+        self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.shortcut_page)
         right.addWidget(self.stack, 1)
 
@@ -234,13 +336,14 @@ class SettingsDialog(QDialog):
             self.reset_button.setText("恢复本页默认")
 
     def _reset_current(self) -> None:
-        if self.stack.currentIndex() == 1:
-            self.shortcut_page.reset()
-        else:
-            self.general_page.reset()
+        page = self.stack.currentWidget()
+        if hasattr(page, "reset"):
+            page.reset()
 
     def settings(self) -> dict:
-        return self.general_page.values()
+        values = self.general_page.values()
+        values.update(self.danmaku_page.values())
+        return values
 
     def shortcuts(self) -> dict:
         return self.shortcut_page.values()
