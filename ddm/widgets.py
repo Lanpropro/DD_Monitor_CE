@@ -7,11 +7,11 @@ import time
 
 from PySide6.QtCore import (
     QEasingCurve, QMimeData, QPoint, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QTimer,
-    Signal,
+    QUrl, Signal,
 )
 from PySide6.QtGui import (
-    QAction, QColor, QCursor, QDrag, QIcon, QMovie, QPainter, QPainterPath, QPen, QPixmap,
-    QPolygonF, QRegion,
+    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QMovie, QPainter,
+    QPainterPath, QPen, QPixmap, QPolygonF, QRegion, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import layouts, theme
+from .images import AvatarLoader
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -39,6 +40,54 @@ NAV_ITEM_GAP = 2              # 项与项之间的间距
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
+def _brightness(color: str) -> int:
+    """这个颜色够不够亮（用来决定徽章上写黑字还是白字）。"""
+    text = str(color).lstrip("#")
+    if len(text) != 6:
+        return 0
+    try:
+        red, green, blue = (int(text[index:index + 2], 16) for index in (0, 2, 4))
+    except ValueError:
+        return 0
+    return (red * 299 + green * 587 + blue * 114) // 1000
+
+
+def _is_running(thread) -> bool:
+    """QThread 已经被 Qt 回收时也算没在跑。"""
+    try:
+        return thread.isRunning()
+    except RuntimeError:
+        return False
+
+
+def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
+    """粉丝牌底：圆角小色块 + 名字和等级。
+
+    QTextDocument 的富文本不支持圆角，所以直接把牌子画成图片贴进弹幕行里。
+    """
+    font = QFont(theme.FONT_DEFAULT)
+    font.setPixelSize(max(8, round(font_size * 0.82)))
+    font.setBold(True)
+    text = f"{name}{level}"
+    metrics = QFontMetrics(font)
+    padding = max(4, round(font_size * 0.42))
+    height = max(12, round(font_size * 1.45))
+    width = metrics.horizontalAdvance(text) + padding * 2
+    pixmap = QPixmap(width, height)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    radius = max(3.0, height * 0.28)
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(0, 0, width, height), radius, radius)
+    painter.fillPath(path, QColor(color))
+    painter.setPen(QColor("#14161a" if _brightness(color) > 150 else "#ffffff"))
+    painter.setFont(font)
+    painter.drawText(QRectF(0, 0, width, height), int(Qt.AlignCenter), text)
+    painter.end()
+    return pixmap
 
 
 def circular_pixmap(source: QPixmap, size: int) -> QPixmap:
@@ -500,7 +549,12 @@ class DanmakuPanel(QFrame):
     整格可以像别的窗口一样拖动，换到别的格子上。
     """
 
-    MAX_BLOCKS = 120          # 太长会拖慢渲染，只留最近的若干条
+    MAX_BLOCKS = 300          # 默认最多留多少条（设置里可改）
+    MIN_BLOCKS = 20
+    EMOTICON_HEIGHT = 22      # 表情在弹幕里的显示高度
+    BASE_FONT_SIZE = 13       # 默认弹幕字号
+    MIN_FONT_SIZE = 8
+    MAX_FONT_SIZE = 32
     KIND_COLORS = {           # 不同消息的配色：弹幕蓝、礼物粉、上舰紫、SC 橙
         "danmaku": theme.ACCENT,
         "gift": theme.PINK,
@@ -509,6 +563,7 @@ class DanmakuPanel(QFrame):
     }
 
     roomDropped = Signal(str)          # 有直播间被拖到弹幕格上
+    fontSizeChanged = Signal(int)      # 面板上的字号滑块被拖动
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -516,6 +571,16 @@ class DanmakuPanel(QFrame):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAcceptDrops(True)
         self.setCursor(Qt.OpenHandCursor)
+        self._status = "未接入"
+        self._received = 0
+        self._blocks: list[dict] = []            # 每条消息的原始信息，表情下好之后整体重排
+        self._images: dict = {}                  # 表情图 / 粉丝牌底图：url -> 图片
+        self._loading_emoticons: set[str] = set()
+        self._emoticon_loaders: list = []
+        self._has_content = False
+        self._base_size = self.BASE_FONT_SIZE
+        self._font_family = theme.FONT_DEFAULT
+        self.max_blocks = self.MAX_BLOCKS
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -542,8 +607,31 @@ class DanmakuPanel(QFrame):
         self.body.setOpenExternalLinks(False)
         self.body.document().setDocumentMargin(8)
         layout.addWidget(self.body, 1)
-        self._status = "未接入"
-        self._received = 0
+
+        # 底部条：字号滑块（跟格子的音量条一个做法，拖了立刻生效）
+        self.bar = QWidget(self)
+        self.bar.setObjectName("DanmakuBar")
+        self.bar.setAttribute(Qt.WA_StyledBackground, True)
+        self.bar.setFixedHeight(28)
+        bar_box = QHBoxLayout(self.bar)
+        bar_box.setContentsMargins(10, 0, 10, 0)
+        bar_box.setSpacing(8)
+        bar_box.addStretch(1)
+        size_label = QLabel("字号")
+        size_label.setObjectName("DanmakuBarLabel")
+        bar_box.addWidget(size_label)
+        self.font_slider = QSlider(Qt.Horizontal)
+        self.font_slider.setRange(self.MIN_FONT_SIZE, self.MAX_FONT_SIZE)
+        self.font_slider.setFixedWidth(96)
+        self.font_slider.setValue(self._base_size)
+        self.font_slider.setToolTip("拖一下就能改弹幕字号，直接生效")
+        self.font_slider.valueChanged.connect(self._on_font_slider)
+        bar_box.addWidget(self.font_slider)
+        self.font_value = QLabel(str(self._base_size))
+        self.font_value.setObjectName("DanmakuBarValue")
+        self.font_value.setFixedWidth(22)
+        bar_box.addWidget(self.font_value)
+        layout.addWidget(self.bar)
         self.set_placeholder("把直播间放到主画面，这里就会显示它的弹幕")
 
     # ---- 拖动 ----
@@ -583,7 +671,8 @@ class DanmakuPanel(QFrame):
 
     # ---- 内容 ----
     def set_placeholder(self, text: str) -> None:
-        self._blocks: list[str] = []
+        self._blocks = []
+        self._has_content = False
         self._received = 0
         self._status = "未接入"
         self._refresh_count()
@@ -606,25 +695,146 @@ class DanmakuPanel(QFrame):
         self.count.setText(text)
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
+        """直接给文本的简写（预览、自检用）。"""
+        self.add_event({"kind": "danmaku", "uname": uname, "text": text, "color": color})
+
+    def add_event(self, event: dict) -> None:
+        """一条消息：带粉丝牌、表情（表情图下好之后会补上）。"""
+        entry = {
+            "uname": event.get("uname") or "",
+            "text": event.get("text") or "",
+            "color": event.get("color") or self.KIND_COLORS.get(
+                event.get("kind") or "danmaku", theme.ACCENT),
+            "medal": event.get("medal") or {},
+            "emoticon": event.get("emoticon") or "",
+        }
         self._received += 1
         self._refresh_count()
-        block = (f'<div style="line-height:150%;margin:0 0 4px 0">'
-                 f'<span style="color:{color}">{_escape(uname)}</span>'
-                 f'<span style="color:#e6e9ee">：{_escape(text)}</span></div>')
-        if not self._blocks:
-            self.body.setHtml("")
-        self._blocks.append(block)
-        if len(self._blocks) > self.MAX_BLOCKS:
-            self._blocks = self._blocks[-self.MAX_BLOCKS:]
-            self.body.setHtml("".join(self._blocks))
-        else:
+        if entry["emoticon"]:
+            self._ensure_emoticon(entry["emoticon"])
+        self._blocks.append(entry)
+        if len(self._blocks) > self.max_blocks:
+            self._blocks = self._blocks[-self.max_blocks:]
+            self._render_all()
+            return
+        block = self._block_html(entry)
+        if self._has_content:
             self.body.append(block)
+        else:
+            self.body.setHtml(block)              # 第一条：先把占位文字换掉
+            self._has_content = True
+        self._scroll_to_bottom()
+
+    def _scroll_to_bottom(self) -> None:
         self.body.verticalScrollBar().setValue(
             self.body.verticalScrollBar().maximum())
 
-    def add_event(self, kind: str, uname: str, text: str) -> None:
-        """按消息类型上色：普通弹幕 / 礼物 / 上舰 / 醒目留言。"""
-        self.add_message(uname, text, self.KIND_COLORS.get(kind, theme.ACCENT))
+    # ---- 渲染 ----
+    def apply_style(self, font_family: str = "", font_size: int = BASE_FONT_SIZE) -> None:
+        """设置里的字体和字号（字号也能在底部滑块上实时拖）。"""
+        self._font_family = font_family or theme.FONT_DEFAULT
+        self._base_size = max(self.MIN_FONT_SIZE,
+                              min(self.MAX_FONT_SIZE, int(font_size or self.BASE_FONT_SIZE)))
+        font = QFont(self._font_family)
+        font.setPixelSize(self._base_size)
+        self.body.setFont(font)          # 具体字号在 HTML 里，这里给个底
+        self.font_slider.blockSignals(True)
+        self.font_slider.setValue(self._base_size)
+        self.font_slider.blockSignals(False)
+        self.font_value.setText(str(self._base_size))
+        if self._blocks:
+            self._render_all()
+
+    def _font_size(self) -> int:
+        return self._base_size
+
+    def set_max_blocks(self, count: int) -> None:
+        """最多留多少条弹幕：超了就从最早的那条开始丢。"""
+        try:
+            value = int(count)
+        except (TypeError, ValueError):
+            value = self.MAX_BLOCKS
+        self.max_blocks = max(self.MIN_BLOCKS, value)
+        if len(self._blocks) > self.max_blocks:
+            self._blocks = self._blocks[-self.max_blocks:]
+            self._render_all()
+
+    def _on_font_slider(self, value: int) -> None:
+        """面板上拖字号：立刻重排，并通知外面存进配置。"""
+        self._base_size = int(value)
+        self.font_value.setText(str(self._base_size))
+        if self._blocks:
+            self._render_all()
+        self.fontSizeChanged.emit(self._base_size)
+
+    def _block_html(self, entry: dict) -> str:
+        size = self._font_size()
+        name = (f'<span style="color:{entry["color"]}">{_escape(entry["uname"])}</span>')
+        return (f'<div style="font-size:{size}px;line-height:150%;margin:0 0 4px 0">'
+                f'{self._medal_html(entry["medal"])}{name}'
+                f'<span style="color:#e6e9ee">：{self._body_html(entry)}</span></div>')
+
+    def _body_html(self, entry: dict) -> str:
+        url = entry["emoticon"]
+        image = self._images.get(url) if url else None
+        if image is not None and not image.isNull():
+            height = max(self.EMOTICON_HEIGHT // 2,
+                         round(self._font_size() * 1.7))     # 表情跟着字号一起放大
+            width = max(1, round(image.width() * height / max(1, image.height())))
+            return (f'<img src="{url}" width="{width}" height="{height}">'
+                    f'<span style="color:#8a8f98">&#160;{_escape(entry["text"])}</span>')
+        return _escape(entry["text"])
+
+    def _medal_html(self, medal: dict) -> str:
+        """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""
+        name = str(medal.get("name") or "")
+        if not name:
+            return ""
+        level = str(medal.get("level") or "")
+        color = str(medal.get("color") or "")
+        if not color:
+            return f'<span style="color:#c792ea">[{_escape(name)}{_escape(level)}]</span>&#160;'
+        size = self._font_size()
+        key = f"medal:{name}|{level}|{color}|{size}"
+        if key not in self._images:
+            self._images[key] = _medal_chip(name, level, color, size)
+        chip = self._images[key]
+        self._register_image(key, chip)          # 不注册的话新到的弹幕会画成白块
+        return (f'<img src="{key}" width="{chip.width()}" height="{chip.height()}">&#160;')
+
+    def _register_image(self, key: str, image) -> None:
+        """把图片挂到文本文档上，这样富文本里的 <img> 才画得出来。"""
+        self.body.document().addResource(QTextDocument.ImageResource, QUrl(key), image)
+
+    def _render_all(self) -> None:
+        """整体重排（表情图下好、或者消息太多要丢弃旧的时候用）。"""
+        html = "".join(self._block_html(entry) for entry in self._blocks)
+        self.body.setHtml(html or "")
+        for url, image in self._images.items():       # 图片按 url 注册成文档资源
+            self._register_image(url, image)
+        self._has_content = bool(self._blocks)
+        self._scroll_to_bottom()
+
+    # ---- 表情 ----
+    def _ensure_emoticon(self, url: str) -> None:
+        if url in self._images or url in self._loading_emoticons:
+            return
+        self._loading_emoticons.add(url)
+        loader = AvatarLoader({url: url}, self, subdir="emoticons")
+        loader.loaded.connect(self._on_emoticon_loaded)
+        loader.finished.connect(loader.deleteLater)
+        self._emoticon_loaders = [item for item in self._emoticon_loaders
+                                  if _is_running(item)]
+        self._emoticon_loaders.append(loader)
+        loader.start()
+
+    def _on_emoticon_loaded(self, url: str, pixmap) -> None:
+        self._loading_emoticons.discard(url)
+        image = pixmap.toImage()
+        if image.isNull():
+            return
+        self._images[url] = image
+        self._render_all()          # 之前显示成文字的那些，现在换成图
 
     def clear(self) -> None:
         self.set_placeholder("等待主画面的直播间…")

@@ -174,6 +174,25 @@ def main() -> None:
     print(f"  改过之后={changed}")
     assert changed["poll_minutes"] == 5 and changed["auto_quality"] is False
     assert changed["default_volume"] == 30 and changed["default_muted"] is False
+
+    danmaku_page = dialog.danmaku_page
+    danmaku_page.size_spin.setValue(20)
+    danmaku_page.keep_spin.setValue(150)
+    danmaku_page.block_edit.setPlainText("广告\n\n   \n打卡")
+    danmaku_page.font_box.setCurrentFont(QFont("Consolas"))
+    changed_danmaku = dialog.settings()
+    print(f"  弹幕页：字号={changed_danmaku['danmaku_font_size']}"
+          f" 最多保留={changed_danmaku['danmaku_max_blocks']}"
+          f" 屏蔽词={changed_danmaku['danmaku_block_words']}"
+          f" 字体={changed_danmaku['danmaku_font']!r}")
+    assert changed_danmaku["danmaku_font_size"] == 20
+    assert changed_danmaku["danmaku_max_blocks"] == 150
+    assert changed_danmaku["danmaku_block_words"] == ["广告", "打卡"], "空行要去掉"
+    if "Consolas" in QFontDatabase.families():        # 没有字体数据库的环境里跳过
+        assert changed_danmaku["danmaku_font"].startswith("Consolas")
+    else:
+        print("  （这台机器读不到系统字体，字体下拉的断言跳过）")
+    changed = changed_danmaku
     dialog.deleteLater()
 
     print("\n=== 6. 设置真的生效 ===")

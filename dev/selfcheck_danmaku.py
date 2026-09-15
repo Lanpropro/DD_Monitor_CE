@@ -44,6 +44,19 @@ class FakeDanmakuClient(QThread):
         self._stop = True
 
 
+class FakeImageLoader(QThread):
+    """顶掉表情下载：不联网，测试里手动把图塞进去。"""
+
+    loaded = Signal(str, QPixmap)
+
+    def __init__(self, items, parent=None, subdir="avatars"):
+        super().__init__(parent)
+        self.items = dict(items)
+
+    def run(self) -> None:
+        return
+
+
 ROOMS = [
     {"room_id": "1001", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
      "muted": True, "quality": 250},
@@ -74,6 +87,7 @@ def main() -> None:
         pass
     bili.play_url = boom
     app_module.DanmakuClient = FakeDanmakuClient
+    widgets_module.AvatarLoader = FakeImageLoader      # 表情图不真的去下
     FakeDanmakuClient.instances = []
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
@@ -96,9 +110,10 @@ def main() -> None:
 
     print("\n=== 2. 收到消息会进面板（弹幕 / 礼物 / SC 上色）===")
     client = FakeDanmakuClient.instances[-1]
-    client.message.emit("danmaku", "Asaki大人", "今天的直播好看")
-    client.message.emit("gift", "路人甲", "投喂 辣条 ×2")
-    client.message.emit("super_chat", "老板", "¥30　加油")
+    client.message.emit({"kind": "danmaku", "uname": "Asaki大人", "text": "今天的直播好看",
+                         "medal": {"name": "绿冻", "level": "10", "color": "#8d8366"}})
+    client.message.emit({"kind": "gift", "uname": "路人甲", "text": "投喂 辣条 ×2"})
+    client.message.emit({"kind": "super_chat", "uname": "老板", "text": "¥30　加油"})
     settle(app, 0.4)
     text = panel.body.toPlainText()
     print(f"  条数={panel._received} 状态位={panel.count.text()!r}")
@@ -108,6 +123,52 @@ def main() -> None:
     assert panel.count.text() == "已连接 · 3"
     html = panel.body.toHtml()
     assert theme.PINK in html and theme.WARNING in html, "礼物/SC 应该有自己的颜色"
+
+    print("\n=== 2b. 粉丝牌和表情 ===")
+    # 粉丝牌要画成圆角小图（富文本不支持圆角），所以这里看有没有插进图片
+    assert "medal:" in html, "粉丝牌要画成圆角小图贴进弹幕行"
+    print(f"  粉丝牌图片={'medal:' in html} 图片数={html.count('<img')}")
+    emoticon_url = "https://i0.hdslb.com/bfs/live/fake-emoticon.png"
+    client.message.emit({"kind": "danmaku", "uname": "表情党", "text": "[大笑]",
+                         "emoticon": emoticon_url})
+    settle(app, 0.3)
+    print(f"  还没下好时：正文={panel.body.toPlainText().splitlines()[-1]!r}")
+    assert "[大笑]" in panel.body.toPlainText(), "图没到时先显示文字"
+    image = QPixmap(32, 32)
+    image.fill(QColor("#7bc96f"))
+    panel._on_emoticon_loaded(emoticon_url, image)       # noqa: SLF001
+    settle(app, 0.3)
+    html = panel.body.toHtml()
+    print(f"  下好之后：文档里出现 <img>={'<img' in html}")
+    assert "<img" in html, "表情下好之后要换成图片"
+    assert panel._received == 4
+
+    print("\n=== 2c. 面板上的字号滑块 ===")
+    panel.apply_style("", 13)
+    settle(app, 0.3)
+    before = panel._font_size()              # noqa: SLF001
+    panel.font_slider.setValue(22)
+    settle(app, 0.3)
+    print(f"  字号 {before} -> {panel._font_size()}（标签 {panel.font_value.text()!r}）")
+    print(f"  滑块范围 {panel.font_slider.minimum()}–{panel.font_slider.maximum()}")
+    assert panel._font_size() == 22 and panel.font_value.text() == "22"
+    client.message.emit({"kind": "danmaku", "uname": "测试", "text": "换字号之后来的弹幕"})
+    settle(app, 0.3)
+    assert "font-size:22px" in panel.body.toHtml(), "新弹幕要用新字号"
+    print("  新来的弹幕用的是新字号")
+    panel.font_slider.setValue(13)
+    settle(app, 0.2)
+
+    print("\n=== 2d. 屏蔽词 ===")
+    window.settings["danmaku_block_words"] = ["广告", "打卡"]
+    before = panel._received                # noqa: SLF001
+    client.message.emit({"kind": "danmaku", "uname": "小号", "text": "这里有广告，快来看"})
+    client.message.emit({"kind": "danmaku", "uname": "小号", "text": "正常的一句弹幕"})
+    client.message.emit({"kind": "gift", "uname": "老板", "text": "投喂 广告位 ×1"})
+    settle(app, 0.4)
+    print(f"  发了 3 条（其中 1 条命中屏蔽词、1 条是礼物），面板条数 {before} -> {panel._received}")
+    assert panel._received == before + 2, "命中的弹幕要丢掉，礼物不受影响"
+    window.settings["danmaku_block_words"] = []
 
     print("\n=== 3. 换成普通布局：断开；切回弹幕布局：重新连，且不会重复连 ===")
     window.wall.set_layout("2x2")

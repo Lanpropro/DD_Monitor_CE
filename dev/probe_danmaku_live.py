@@ -63,7 +63,7 @@ def main() -> int:
     statuses: list = []
     app = QCoreApplication(sys.argv)
     client = DanmakuClient(room_id)
-    client.message.connect(lambda kind, user, text: received.append((kind, user, text)))
+    client.message.connect(received.append)
     client.status.connect(lambda text: (statuses.append(text), print(f"  状态：{text}")))
     client.start()
 
@@ -76,8 +76,15 @@ def main() -> int:
     seconds = int(time.time() - started)
     print(f"\n状态变化：{statuses}")
     print(f"{seconds} 秒内共收到 {len(received)} 条消息")
-    for kind, user, text in received[:15]:
-        print(f"  [{kind}] {user}：{text}")
+    kinds: dict = {}
+    for event in received:
+        kinds[event.get("kind")] = kinds.get(event.get("kind"), 0) + 1
+    print(f"按类型统计：{kinds}")
+    for event in received[:15]:
+        medal = event.get("medal") or {}
+        badge = f"{medal.get('name', '')}{medal.get('level', '')} " if medal else ""
+        emoticon = "（表情）" if event.get("emoticon") else ""
+        print(f"  [{event.get('kind')}] {badge}{event.get('uname')}：{event.get('text')}{emoticon}")
     if not received:
         print("没收到任何弹幕")
         return 1

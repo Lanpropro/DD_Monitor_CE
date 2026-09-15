@@ -8,6 +8,12 @@ Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻�
 """
 
 
+import os
+
+
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
 def _clamp(value: float) -> int:
     return max(0, min(255, round(value)))
 
@@ -22,6 +28,11 @@ def mix(color_a: str, color_b: str, ratio: float) -> str:
     a = _rgb(color_a)
     b = _rgb(color_b)
     return "#%02x%02x%02x" % tuple(_clamp(x + (y - x) * ratio) for x, y in zip(a, b))
+
+
+def asset(name: str) -> str:
+    """QSS 里引用图片用的路径（必须用正斜杠，Windows 的反斜杠 Qt 认不出来）。"""
+    return os.path.join(ASSETS_DIR, name).replace("\\", "/")
 
 
 BASE = "#2a2d32"
@@ -48,7 +59,8 @@ TEXT4 = "rgba(170, 175, 184, 0.55)"
 BORDER = "rgba(131, 131, 145, 0.16)"
 BORDER_STRONG = "rgba(255, 255, 255, 0.12)"
 
-FONT_FAMILY = '"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif'
+FONT_DEFAULT = "Microsoft YaHei UI"
+FONT_FAMILY = f'"{FONT_DEFAULT}", "Microsoft YaHei", "Segoe UI", sans-serif'
 
 FONT_CAPTION = 12
 FONT_CONTROL = 13
@@ -131,6 +143,50 @@ QSpinBox::up-button, QSpinBox::down-button {{
     width: 18px;
     border: none;
     background: transparent;
+}}
+QComboBox, QFontComboBox {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+    padding: 5px 8px;
+    color: {TEXT1};
+}}
+QComboBox:hover, QFontComboBox:hover {{
+    background: {CONTENT_HOVER};
+}}
+QComboBox:focus, QFontComboBox:focus {{
+    border: 1px solid {ACCENT};
+}}
+QComboBox::drop-down, QFontComboBox::drop-down {{
+    width: 20px;
+    border: none;
+    background: transparent;
+}}
+QComboBox::down-arrow, QFontComboBox::down-arrow {{
+    image: url({asset("arrow_down.png")});
+    width: 11px;
+    height: 7px;
+}}
+QComboBox QAbstractItemView, QFontComboBox QAbstractItemView {{
+    background: {ELEVATED};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px;
+    color: {TEXT1};
+    selection-background-color: {ACCENT_SOFT};
+    selection-color: {ACCENT};
+    outline: none;
+}}
+QPlainTextEdit {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+    padding: 6px 8px;
+    color: {TEXT1};
+    selection-background-color: {ACCENT};
+}}
+QPlainTextEdit:focus {{
+    border: 1px solid {ACCENT};
+    background: {CONTENT_HOVER};
 }}
 #StepButton {{
     background: {CONTENT};
