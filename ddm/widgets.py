@@ -1040,6 +1040,8 @@ class NavItem(QFrame):
     removeRequested = Signal(dict)
     checkedChanged = Signal()
     pinToggled = Signal(dict)
+    hovered = Signal(dict)             # 鼠标停在条目上（给悬停预览用）
+    unhovered = Signal(dict)
 
     def __init__(self, room: dict, index: int, parent=None):
         super().__init__(parent)

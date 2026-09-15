@@ -643,8 +643,30 @@ QSlider::handle:horizontal:hover {{
     background: transparent;
     height: 0;
 }}
+#DanmakuBar {{
+    background: rgba(10, 11, 13, 0.72);
+    border-radius: {RADIUS_MD}px;
+}}
+#DanmakuBarLabel {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+}}
+#DanmakuBarValue {{
+    color: {TEXT2};
+    font-size: {FONT_CAPTION}px;
+}}
 #PauseOverlay {{
     background: rgba(26, 29, 35, 0.92);
+}}
+
+/* ---------- 悬停预览小窗 ---------- */
+#PreviewWindow {{
+    background: {TILE_BG};
+    border: 1px solid {BORDER_STRONG};
+    border-radius: {RADIUS_MD}px;
+}}
+#PreviewVideo {{
+    background: #000000;
 }}
 #PauseOverlay QLabel {{
     color: {TEXT1};
