@@ -1,0 +1,176 @@
+"""自查：暂停图形按钮、标题浮窗、关注列表刷新图标、弹幕独立格（含拖动）。全程不联网。"""
+import os
+import sys
+import time
+
+from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtWidgets import QApplication
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
+os.environ.setdefault("DDM_NO_SAVE", "1")
+
+from ddm import bili, images, layouts, theme  # noqa: E402
+from ddm.app import MainWindow  # noqa: E402
+
+
+def boom(room_id, quality=250):        # noqa: ANN001, ANN201
+    raise RuntimeError("selfcheck：不联网取流")
+
+
+def fake_status(room_ids):             # noqa: ANN001, ANN201
+    time.sleep(0.5)                    # 慢一点，方便看按钮的刷新中状态
+    return {}
+
+
+def fake_pixmap(url):                  # noqa: ANN001, ANN201
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(QColor("#3b6ea5"))
+    return pixmap
+
+
+ROOMS = [
+    {"room_id": "1001", "uname": "主播A", "title": "房间A的直播标题", "live": True,
+     "viewers": "1.2万", "muted": True, "quality": 250, "face": "http://x/a.jpg"},
+    {"room_id": "1002", "uname": "主播B", "title": "房间B的直播标题", "live": True,
+     "viewers": "3456", "muted": True, "quality": 250, "face": "http://x/b.jpg"},
+    {"room_id": "1003", "uname": "主播C", "title": "房间C的直播标题", "live": True,
+     "viewers": "78", "muted": True, "quality": 250, "face": "http://x/c.jpg"},
+]
+
+
+class FakePlayer:
+    def __init__(self):
+        self.paused = False
+        self.calls = []
+
+    def set_paused(self, paused):
+        self.paused = bool(paused)
+        self.calls.append(bool(paused))
+
+    def release(self):
+        pass
+
+
+def settle(app, seconds):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.03)
+
+
+def main() -> None:
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+    bili.play_url = boom
+    bili.rooms_status = fake_status
+    images.load_pixmap = fake_pixmap
+
+    app = QApplication(sys.argv)
+    app.setStyleSheet(theme.qss())
+    window = MainWindow([dict(room) for room in ROOMS], [dict(room) for room in ROOMS],
+                        layout_id="dm_main3")
+    window.setGeometry(-8000, -8000, 1500, 860)
+    window.show()
+    settle(app, 1.5)
+
+    print("=== 1. 带弹幕布局：弹幕占独立一格，不挤压画面 ===")
+    print(f"  布局={window.wall.layout_id} 弹幕格={window.wall.danmaku_geometry_cell()}"
+          f" 可见={window.wall.danmaku.isVisible()}")
+    print(f"  画面路数={len(window.wall.tiles)}（布局格子总数=4）")
+    for index, tile in enumerate(window.wall.tiles):
+        print(f"  画面{index} cell={window.wall.cell_of(tile)} 视频宽={tile.video.width()}"
+              f" 格宽={tile.width()}")
+    assert window.wall.danmaku.isVisible()
+    assert len(window.wall.tiles) == 3, "主画面 + 2 小 + 弹幕 = 3 路画面"
+    main_tile = window.wall.tiles[0]
+    assert main_tile.video.width() >= main_tile.width() - 2, "画面不应该被弹幕挤窄"
+
+    print("\n=== 2. 弹幕格可以拖动换位 ===")
+    before_danmaku = window.wall.danmaku_geometry_cell()
+    before_cells = [window.wall.cell_of(tile) for tile in window.wall.tiles]
+    target = window.wall.tiles[2]
+    window.wall.move_danmaku_to_tile(target)
+    settle(app, 0.3)
+    after_danmaku = window.wall.danmaku_geometry_cell()
+    after_cells = [window.wall.cell_of(tile) for tile in window.wall.tiles]
+    print(f"  弹幕格：{before_danmaku} -> {after_danmaku}")
+    print(f"  画面格：{before_cells} -> {after_cells}")
+    assert after_danmaku == before_cells[2], "弹幕应该挪到被拖过去的那一格"
+    assert after_cells[2] == before_danmaku, "那一路应该挪到弹幕原来的位置"
+    assert [c for c in after_cells if c is not None] == sorted(after_cells, key=lambda c: (c[0], c[1]))
+
+    print("\n=== 3. 普通布局没有弹幕格 ===")
+    window.wall.set_layout("2x2")
+    settle(app, 0.3)
+    print(f"  2x2: 弹幕可见={window.wall.danmaku.isVisible()}"
+          f" 画面路数={len(window.wall.tiles)}")
+    assert not window.wall.danmaku.isVisible()
+    assert len(window.wall.tiles) == 4
+    window.wall.set_layout("dm_main3")
+    settle(app, 0.3)
+
+    print("\n=== 4. 暂停按钮（图形按钮 + 左下角） ===")
+    tile = window.wall.tiles[0]
+    fake = FakePlayer()
+    window.players[tile] = fake
+    tile._player_active = True
+    window._on_pause_toggled(tile.room)
+    settle(app, 0.2)
+    print(f"  点击后：paused={tile.paused} 按钮图标状态={tile.pause_button.paused}"
+          f" 提示={tile.pause_button.toolTip()!r} 播放器={fake.calls}")
+    assert tile.paused and tile.pause_button.paused and fake.calls == [True]
+    window._on_pause_toggled(tile.room)
+    settle(app, 0.2)
+    print(f"  再点击：paused={tile.paused} 按钮图标状态={tile.pause_button.paused}"
+          f" 提示={tile.pause_button.toolTip()!r}")
+    assert not tile.paused and fake.calls == [True, False]
+    bottom = tile.pause_button.geometry()
+    print(f"  位置：x={bottom.x()} y={bottom.y()} 信息条高={tile.bottom.height()}"
+          f" 是否在信息条里={tile.pause_button.parent() is tile.bottom}"
+          f" 是否贴左={bottom.x() <= 12}")
+    assert tile.pause_button.parent() is tile.bottom and bottom.x() <= 12
+
+    print("\n=== 5. 主播名 + 直播间标题变成 LIVE 右侧的浮窗 ===")
+    badge = tile.title_badge
+    print(f"  可见={badge.isVisible()} 位置=({badge.x()},{badge.y()})"
+          f" 宽度={badge.width()} LIVE 浮标宽={tile.stream_badge.width()}")
+    print(f"  文本={badge._name_text!r} + {badge._title_text!r}")
+    assert badge.isVisible()
+    assert badge.x() > tile.stream_badge.x() + tile.stream_badge.width() - 2
+    assert badge.y() < 40, "应该浮在画面上方"
+    assert badge._name_text and badge._title_text
+
+    print("\n=== 6. 关注列表刷新按钮是图形按钮 ===")
+    button = window.sidebar.refresh_button
+    print(f"  类型={type(button).__name__} 文案={button.text()!r}"
+          f" 尺寸={button.width()}x{button.height()}")
+    assert type(button).__name__ == "RefreshButton"
+    button.click()
+    settle(app, 0.2)
+    print(f"  点击后可用={button.isEnabled()} 提示={button.toolTip()!r}")
+    assert not button.isEnabled()
+    settle(app, 1.5)
+    print(f"  刷新完成：可用={button.isEnabled()} 提示={button.toolTip()!r}")
+    assert button.isEnabled()
+
+    print("\n=== 7. 布局菜单分组 ===")
+    for name, group in layouts.GROUPS:
+        print(f"  {name}: {len(group)} 个 -> "
+              + " / ".join(item["name"] for item in group[:3]) + " …")
+    assert len(layouts.GROUPS) == 2
+    for item in layouts.DANMAKU_LAYOUTS:
+        assert item["danmaku"] is not None
+        assert "danmaku" not in layouts.LAYOUTS[0]
+        cells = item["spec"][2]
+        assert 0 <= item["danmaku"] < len(cells)
+    print(f"  带弹幕布局的规格都合法（{len(layouts.DANMAKU_LAYOUTS)} 个）")
+
+    window.close()
+    print("\n全部通过")
+
+
+if __name__ == "__main__":
+    main()

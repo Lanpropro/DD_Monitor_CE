@@ -1,0 +1,21 @@
+# 运行期产生的东西，不进版本库
+__pycache__/
+*.pyc
+logs/
+cache/
+utils/config.json
+utils/config.json.bak
+dev/preview/
+
+# 虚拟环境
+.venv/
+venv/
+
+# VLC 运行库（体积大，从原仓库或 VLC 安装目录取，见 README）
+*.dll
+plugins/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

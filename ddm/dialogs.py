@@ -1,0 +1,414 @@
+"""对话框：设置（常规 / 快捷键）、添加直播间、从关注导入。"""
+import re
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor, QIcon, QPixmap
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import (
+    QAbstractSpinBox, QCheckBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QKeySequenceEdit, QPushButton, QSlider, QSpinBox,
+    QStackedWidget, QVBoxLayout, QWidget,
+)
+
+from . import theme
+
+# 快捷键动作：键名 -> (显示名, 默认按键)
+SHORTCUT_ACTIONS = [
+    ("focus", "把鼠标所在那一路放到主画面", "F"),
+    ("restore", "还原上一个布局", "Esc"),
+    ("solo", "只保留鼠标所在那一路的声音", "M"),
+]
+
+
+def _page_head(title: str, hint: str) -> QVBoxLayout:
+    """一页设置的开头：标题 + 说明。"""
+    box = QVBoxLayout()
+    box.setSpacing(4)
+    heading = QLabel(title)
+    heading.setObjectName("SettingsTitle")
+    box.addWidget(heading)
+    if hint:
+        note = QLabel(hint)
+        note.setObjectName("SettingsHint")
+        note.setWordWrap(True)
+        box.addWidget(note)
+    return box
+
+
+def _step_button(text: str, tooltip: str, slot) -> QPushButton:
+    """加减小按钮（系统自带的箭头在深色下看不见，自己画一个）。"""
+    button = QPushButton(text)
+    button.setObjectName("StepButton")
+    button.setFixedSize(28, 28)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setToolTip(tooltip)
+    button.clicked.connect(slot)
+    return button
+
+
+class GeneralSettingsPage(QWidget):
+    """常规：轮询、画质策略、重连、画面卡死检测、新房间默认音量。"""
+
+    ITEMS = [
+        ("auto_quality", "主画面自动用原画，其余自动 720P"),
+        ("auto_reconnect", "断流后自动重连"),
+        ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
+        ("default_muted", "新加入画面墙的直播间默认静音"),
+    ]
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        self._checks: dict[str, QCheckBox] = {}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        layout.addLayout(_page_head("常规", "这些设置对所有直播间生效，单路的画质/音量仍在各个格子里调"))
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(1, 1)
+        row = 0
+        grid.addWidget(QLabel("关注列表刷新间隔"), row, 0)
+        self.poll_spin = QSpinBox()
+        self.poll_spin.setRange(1, 30)
+        self.poll_spin.setSuffix(" 分钟")
+        self.poll_spin.setAlignment(Qt.AlignCenter)
+        # 系统样式的上下箭头在深色下看不见，改用自己画的加减按钮
+        self.poll_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.poll_spin.setFixedWidth(90)
+        self.poll_spin.setValue(int(settings.get("poll_minutes", 1)))
+        step_box = QHBoxLayout()
+        step_box.setSpacing(6)
+        minus = _step_button("−", "调小", self.poll_spin.stepDown)
+        plus = _step_button("+", "调大", self.poll_spin.stepUp)
+        step_box.addWidget(minus)
+        step_box.addWidget(self.poll_spin)
+        step_box.addWidget(plus)
+        step_box.addStretch(1)
+        grid.addLayout(step_box, row, 1)
+        row += 1
+        for key, label in self.ITEMS:
+            box = QCheckBox(label)
+            box.setChecked(bool(settings.get(key, True)))
+            grid.addWidget(box, row, 0, 1, 2)
+            self._checks[key] = box
+            row += 1
+        grid.addWidget(QLabel("新房间默认音量"), row, 0)
+        volume_box = QHBoxLayout()
+        volume_box.setSpacing(10)
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setFixedWidth(240)
+        self.volume_slider.setValue(int(settings.get("default_volume", 42)))
+        self.volume_label = QLabel(str(self.volume_slider.value()))
+        self.volume_label.setObjectName("NavSub")
+        self.volume_label.setFixedWidth(28)
+        self.volume_slider.valueChanged.connect(
+            lambda value: self.volume_label.setText(str(value)))
+        volume_box.addWidget(self.volume_slider)
+        volume_box.addWidget(self.volume_label)
+        volume_box.addStretch(1)
+        grid.addLayout(volume_box, row, 1)
+        layout.addLayout(grid)
+        layout.addStretch(1)
+
+    def reset(self) -> None:
+        from . import config as config_module
+
+        self.poll_spin.setValue(config_module.DEFAULT_SETTINGS["poll_minutes"])
+        for key, _label in self.ITEMS:
+            self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
+        self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
+
+    def values(self) -> dict:
+        result = {
+            "poll_minutes": int(self.poll_spin.value()),
+            "default_volume": int(self.volume_slider.value()),
+        }
+        for key, _label in self.ITEMS:
+            result[key] = bool(self._checks[key].isChecked())
+        return result
+
+
+class ShortcutSettingsPage(QWidget):
+    """快捷键：把鼠标所在那一路放大、还原布局、单路声音。"""
+
+    def __init__(self, shortcuts: dict, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        self._edits: dict[str, QKeySequenceEdit] = {}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        layout.addLayout(_page_head("快捷键", "点输入框后直接按下想要的按键组合（Esc 需要单独按一次）"))
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(1, 1)
+        for row, (key, label, default) in enumerate(SHORTCUT_ACTIONS):
+            grid.addWidget(QLabel(label), row, 0)
+            edit = QKeySequenceEdit(QKeySequence(shortcuts.get(key, default)))
+            edit.setObjectName("ShortcutEdit")
+            edit.setClearButtonEnabled(True)
+            edit.setFixedWidth(160)
+            grid.addWidget(edit, row, 1, Qt.AlignLeft)
+            self._edits[key] = edit
+        layout.addLayout(grid)
+        layout.addStretch(1)
+
+    def reset(self) -> None:
+        for key, _label, default in SHORTCUT_ACTIONS:
+            self._edits[key].setKeySequence(QKeySequence(default))
+
+    def values(self) -> dict:
+        result = {}
+        for key, _label, default in SHORTCUT_ACTIONS:
+            text = self._edits[key].keySequence().toString()
+            result[key] = text or default
+        return result
+
+
+class SettingsDialog(QDialog):
+    """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
+
+    PAGES = [("general", "常规"), ("shortcuts", "快捷键")]
+
+    def __init__(self, settings: dict, shortcuts: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("设置")
+        self.resize(720, 500)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.nav = QListWidget()
+        self.nav.setObjectName("SettingsNav")
+        self.nav.setFixedWidth(180)
+        self.nav.setFocusPolicy(Qt.NoFocus)
+        for key, label in self.PAGES:
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, key)
+            self.nav.addItem(item)
+        root.addWidget(self.nav)
+
+        right = QVBoxLayout()
+        right.setContentsMargins(20, 18, 20, 16)
+        right.setSpacing(14)
+        self.stack = QStackedWidget()
+        self.stack.setObjectName("SettingsStack")
+        self.general_page = GeneralSettingsPage(settings)
+        self.shortcut_page = ShortcutSettingsPage(shortcuts)
+        self.stack.addWidget(self.general_page)
+        self.stack.addWidget(self.shortcut_page)
+        right.addWidget(self.stack, 1)
+
+        buttons = QHBoxLayout()
+        self.reset_button = QPushButton("恢复默认")
+        self.reset_button.setObjectName("IconButton")
+        self.reset_button.clicked.connect(self._reset_current)
+        buttons.addWidget(self.reset_button)
+        buttons.addStretch(1)
+        cancel = QPushButton("取消")
+        cancel.setObjectName("IconButton")
+        cancel.clicked.connect(self.reject)
+        confirm = QPushButton("保存")
+        confirm.setObjectName("PrimaryButton")
+        confirm.clicked.connect(self.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(confirm)
+        right.addLayout(buttons)
+        root.addLayout(right, 1)
+
+        self.nav.currentRowChanged.connect(self._on_page_changed)
+        self.nav.setCurrentRow(0)
+
+    def _on_page_changed(self, index: int) -> None:
+        if index >= 0:
+            self.stack.setCurrentIndex(index)
+            self.reset_button.setText("恢复本页默认")
+
+    def _reset_current(self) -> None:
+        if self.stack.currentIndex() == 1:
+            self.shortcut_page.reset()
+        else:
+            self.general_page.reset()
+
+    def settings(self) -> dict:
+        return self.general_page.values()
+
+    def shortcuts(self) -> dict:
+        return self.shortcut_page.values()
+
+
+class AddRoomDialog(QDialog):
+    """输入房间号或直播间链接。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("添加直播间")
+        self.resize(400, 170)
+        self.room_id = ""
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        layout.addWidget(QLabel("房间号或直播间链接"))
+        self.edit = QLineEdit()
+        self.edit.setPlaceholderText("例如 6154037 或 https://live.bilibili.com/6154037")
+        self.edit.returnPressed.connect(self.accept)
+        layout.addWidget(self.edit)
+
+        self.hint = QLabel("支持直接粘贴直播间地址")
+        self.hint.setObjectName("AppSubtitle")
+        layout.addWidget(self.hint)
+        layout.addStretch(1)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton("取消")
+        cancel.setObjectName("IconButton")
+        cancel.clicked.connect(self.reject)
+        confirm = QPushButton("添加")
+        confirm.setObjectName("PrimaryButton")
+        confirm.clicked.connect(self.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(confirm)
+        layout.addLayout(buttons)
+
+    def accept(self) -> None:
+        text = self.edit.text().strip()
+        # 优先从直播间链接里取房间号（链接后面常带一堆参数，不能取最后一个数字）
+        match = re.search(r"live\.bilibili\.com/(?:blanc/)?(\d+)", text)
+        room_id = match.group(1) if match else ""
+        if not room_id:
+            digits = re.findall(r"\d+", text)
+            room_id = digits[0] if len(digits) == 1 else ""
+        if not room_id:
+            self.hint.setText("没识别到房间号，请检查输入")
+            self.hint.setStyleSheet(f"color: {theme.ERROR}")
+            return
+        self.room_id = room_id
+        super().accept()
+
+
+class FollowImportDialog(QDialog):
+    """从关注列表里挑要加入监控室的直播间。
+
+    整行点击即可切换勾选；已在关注列表里的会标注但仍可勾选（重复导入不会重复添加）。
+    """
+
+    INDICATOR_WIDTH = 30      # 勾选方块占据的左侧宽度
+
+    def __init__(self, rooms: list[dict], existing: set[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("导入关注")
+        self.resize(520, 620)
+        self.rooms = rooms
+        self.existing = {str(item) for item in existing}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        live_count = sum(1 for room in rooms if room["live"])
+        self.header = QLabel(f"共 {len(rooms)} 个直播间（{live_count} 个直播中）")
+        self.header.setObjectName("AppSubtitle")
+        layout.addWidget(self.header)
+
+        # 快捷筛选
+        filters = QHBoxLayout()
+        filters.setSpacing(6)
+        for text, handler in (("全选", lambda: self._check_all(True)),
+                              ("全不选", lambda: self._check_all(False)),
+                              ("只选直播中", self._check_live)):
+            button = QPushButton(text)
+            button.setObjectName("IconButton")
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(handler)
+            filters.addWidget(button)
+        filters.addStretch(1)
+        layout.addLayout(filters)
+
+        self.list = QListWidget()
+        self.list.setObjectName("FollowList")
+        self.list.itemClicked.connect(self._on_item_clicked)
+        for room in rooms:
+            room_id = str(room["room_id"])
+            flags = [f"{room['uname']}"]
+            flags.append("直播中" if room["live"] else "未开播")
+            if room["title"]:
+                flags.append(room["title"][:18])
+            if room_id in self.existing:
+                flags.append("已在列表")
+            item = QListWidgetItem("　".join(flags))
+            item.setData(Qt.UserRole, room)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Unchecked)
+            self.list.addItem(item)
+        layout.addWidget(self.list, 1)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton("取消")
+        cancel.setObjectName("IconButton")
+        cancel.clicked.connect(self.reject)
+        confirm = QPushButton("导入")
+        confirm.setObjectName("PrimaryButton")
+        confirm.clicked.connect(self.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(confirm)
+        layout.addLayout(buttons)
+
+        self._update_header()
+
+    # ---- 勾选交互：整行可点 ----
+    def _on_item_clicked(self, item: QListWidgetItem) -> None:
+        position = self.list.viewport().mapFromGlobal(QCursor.pos())
+        rect = self.list.visualItemRect(item)
+        if position.x() - rect.x() <= self.INDICATOR_WIDTH:
+            self._update_header()      # 点在方块上，Qt 已处理
+            return
+        item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+        self._update_header()
+
+    def _check_all(self, checked: bool) -> None:
+        for index in range(self.list.count()):
+            self.list.item(index).setCheckState(Qt.Checked if checked else Qt.Unchecked)
+        self._update_header()
+
+    def _check_live(self) -> None:
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            item.setCheckState(Qt.Checked if item.data(Qt.UserRole)["live"] else Qt.Unchecked)
+        self._update_header()
+
+    def _update_header(self) -> None:
+        selected = len(self.selected())
+        self.header.setText(f"共 {len(self.rooms)} 个直播间，已勾选 {selected} 个")
+
+    # ---- 结果 ----
+    def selected(self) -> list[dict]:
+        result = []
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            if item.checkState() == Qt.Checked:
+                result.append(item.data(Qt.UserRole))
+        return result
+
+    def set_avatar(self, room_id: str, pixmap: QPixmap) -> None:
+        """头像下好之后回填（下载是异步的）。"""
+        from .widgets import circular_pixmap
+        icon_pixmap = circular_pixmap(pixmap, 32)
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            room = item.data(Qt.UserRole)
+            if str(room.get("room_id")) == str(room_id):
+                item.setIcon(QIcon(icon_pixmap))
+                return
