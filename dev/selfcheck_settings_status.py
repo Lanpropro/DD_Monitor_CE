@@ -145,26 +145,67 @@ def main() -> None:
     assert account.isVisible(), "收起后底部要保留账号头像"
     assert account_avatar.isVisible() and not account.name.isVisible(), "收起后只留头像"
     assert abs(acc_left - acc_right) <= 2, "账号头像要居中"
+    assert account_avatar.width() == avatar.width() == theme.AVATAR_SIZE, "账号头像要和主播头像一样大"
+    assert account_avatar.x() == avatar.x(), "账号头像的横向位置要和主播头像一致"
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.5)
     print(f"  展开后卡片宽={item.width()} 头像 x={avatar.x()}（回到左边正常排布）")
     assert avatar.x() <= 12
     assert account.name.isVisible(), "展开后要恢复昵称"
 
+    # 列表长到必须滚动时，滚动条不能把头像挤歪（上下两排要在同一条竖线上）
+    for index in range(12):
+        sidebar.add_room({"room_id": f"90{index:02d}", "uname": f"主播{index}", "live": False,
+                          "title": "长列表测试"})
+    settle(app, 0.5)
+    sidebar.set_collapsed(True, animate=False)
+    settle(app, 0.5)
+    scrollbar = sidebar.scroll.verticalScrollBar()
+    items = sidebar.items()
+    centers = [entry.avatar.x() + entry.avatar.width() / 2 for entry in items]
+    account_center = account_avatar.x() + account_avatar.width() / 2
+    print(f"  列表 {len(items)} 项 视口宽={sidebar.scroll.viewport().width()}"
+          f" 卡片宽={items[0].width()} 滚动范围={scrollbar.maximum()}"
+          f" 滚动条可见={scrollbar.isVisible()}")
+    print(f"  列表头像中心={sorted(set(round(value, 1) for value in centers))}"
+          f" 账号头像中心={account_center:.1f}")
+    assert scrollbar.maximum() > 0, "这个用例要能触发滚动"
+    assert len(set(round(value) for value in centers)) == 1, "列表里的头像要在同一条竖线上"
+    assert abs(centers[0] - account_center) <= 1, "账号头像要和主播头像对齐"
+
+    # 滚动条藏起来了，滚轮必须还能滚
+    viewport = sidebar.scroll.viewport()
+    position = viewport.rect().center()
+    before = scrollbar.value()
+    QApplication.sendEvent(viewport, QWheelEvent(
+        QPointF(position), QPointF(viewport.mapToGlobal(position)),
+        QPoint(0, -120), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+    settle(app, 0.3)
+    print(f"  滚轮滚动：{before} -> {scrollbar.value()}")
+    assert scrollbar.value() > before, "收起后滚轮还要能滚列表"
+    sidebar.set_collapsed(False, animate=False)
+    settle(app, 0.4)
+
     print("\n=== 5. 设置窗口（左侧类别 + 右侧内容）===")
     assert sidebar.settings_button.menu() is None, "设置不该再弹二级菜单"
     dialog = SettingsDialog(window.settings, window.shortcuts)
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
-    assert pages == ["常规", "快捷键"] and dialog.stack.currentIndex() == 0
+    assert pages == ["常规", "弹幕", "快捷键"] and dialog.stack.currentIndex() == 0
+    dialog.nav.setCurrentRow(2)
+    assert dialog.stack.currentIndex() == 2
     dialog.nav.setCurrentRow(1)
-    assert dialog.stack.currentIndex() == 1
+    assert dialog.stack.currentIndex() == 1, "弹幕页要在中间"
     dialog.nav.setCurrentRow(0)
 
     general = dialog.general_page
     defaults = dialog.settings()
-    print(f"  默认值={defaults}")
-    assert defaults == config_module.DEFAULT_SETTINGS
+    print(f"  读到的设置={defaults}")
+    assert set(defaults) == set(config_module.DEFAULT_SETTINGS), "设置窗口要覆盖每个设置项"
+    for key, value in window.settings.items():
+        if key not in defaults or key == "danmaku_font":
+            continue      # 字体下拉会把「跟主题走」写成当前字体名，这一项单独看
+        assert defaults[key] == value, f"{key} 不该被设置窗口改掉：{defaults[key]!r} != {value!r}"
     assert dialog.shortcuts() == window.shortcuts
     general.poll_spin.setValue(5)
     general._checks["auto_quality"].setChecked(False)     # noqa: SLF001

@@ -181,6 +181,9 @@ class MainWindow(QMainWindow):
                 pass
         if (self.state.get("ui") or {}).get("sidebar_collapsed"):
             self.sidebar.set_collapsed(True, animate=False)
+        self.sidebar.set_import_order(self.state.get("import_order") or [])
+        self.sidebar.set_custom_order(self.state.get("custom_order") or [])
+        self.sidebar.set_sort_mode(str(self.state.get("sort") or "custom"), notify=False)
         self.sidebar.apply_pins(self.state.get("pinned") or [])
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
@@ -229,6 +232,9 @@ class MainWindow(QMainWindow):
                 "shortcuts": dict(self.shortcuts),
             },
             "pinned": list(self.sidebar.pinned),
+            "sort": self.sidebar.sort_mode,
+            "import_order": list(self.sidebar.import_order),
+            "custom_order": list(self.sidebar.custom_order),
             "settings": dict(self.settings),
             "geometry": str(self.saveGeometry().toBase64(), "ASCII"),
         }
@@ -270,6 +276,13 @@ class MainWindow(QMainWindow):
     def _on_pin_changed(self, pinned: list) -> None:
         self.state["pinned"] = list(pinned)
         config_module.save(self.current_state())
+
+    def _on_sort_changed(self, mode: str) -> None:
+        self.state["sort"] = mode
+        self.state["import_order"] = list(self.sidebar.import_order)
+        config_module.save(self.current_state())
+        print(f"[排序] 关注列表改为：{dict(self.sidebar.SORT_MODES).get(mode, mode)}",
+              file=sys.stderr, flush=True)
 
     # ---- 播放 ----
     def start_all(self) -> None:

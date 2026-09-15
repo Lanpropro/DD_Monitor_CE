@@ -1400,6 +1400,10 @@ class RoomListBox(QWidget):
 class Sidebar(QFrame):
     """左侧房间列表：可收起、可批量选择删除。"""
 
+    SORT_MODES = [("custom", "自定义顺序（拖动调整）"),
+                  ("live", "开播优先"),
+                  ("imported", "导入顺序")]
+
     roomSelected = Signal(dict)
     addRoomClicked = Signal()
     importFollowsClicked = Signal()
@@ -1409,7 +1413,10 @@ class Sidebar(QFrame):
     collapsedChanged = Signal(bool)
     logoutRequested = Signal()
     pinChanged = Signal(list)
+    sortChanged = Signal(str)
     refreshRequested = Signal()
+    previewHovered = Signal(dict)       # 鼠标停在某个直播间上
+    previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
     settingsRequested = Signal()
 
@@ -1421,6 +1428,9 @@ class Sidebar(QFrame):
         self.collapsed = False
         self.select_mode = False
         self.pinned: list[str] = []
+        self.sort_mode = "custom"
+        self.import_order: list[str] = []      # 导入/添加的先后顺序，用于「导入顺序」排序
+        self.custom_order: list[str] = []      # 拖动排出来的顺序，切换排序方式也不丢
         self._layout_id = "auto"
 
         layout = QVBoxLayout(self)
@@ -1472,9 +1482,15 @@ class Sidebar(QFrame):
         status_box.setSpacing(6)
         self.count_label = QLabel(f"关注中 · {len(rooms)}")
         self.count_label.setObjectName("SectionLabel")
+        self.sort_button = QPushButton("排序")
+        self.sort_button.setObjectName("ChipButton")
+        self.sort_button.setCursor(Qt.PointingHandCursor)
+        self.sort_button.setToolTip("关注列表的排序方式")
+        self.sort_button.setMenu(self._build_sort_menu())
         self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         status_box.addWidget(self.count_label, 1)
+        status_box.addWidget(self.sort_button, 0, Qt.AlignRight)
         status_box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         layout.addWidget(self.status_row)
 
@@ -1609,6 +1625,10 @@ class Sidebar(QFrame):
             widget.setVisible(not collapsed and (widget is not self.batch_bar or self.select_mode))
         self.account_row.set_compact(collapsed)
         self.account_row.setVisible(bool(self.account_row.uname))
+        # 窄条里列表一出现滚动条就会把内容挤窄，上下两排头像就对不齐了；
+        # 收起时干脆不显示滚动条，滚轮照样能滚
+        self.scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff if collapsed else Qt.ScrollBarAsNeeded)
         for index in range(self.title_box.count()):
             widget = self.title_box.itemAt(index).widget()
             if widget:
@@ -1665,12 +1685,19 @@ class Sidebar(QFrame):
 
     def _append_item(self, room: dict) -> NavItem:
         item = NavItem(room, len(self._items), parent=self.list_box)
+        room_id = str(room.get("room_id"))
+        if room_id and room_id not in self.import_order:
+            self.import_order.append(room_id)     # 「导入顺序」排序用
+        if room_id and room_id not in self.custom_order:
+            self.custom_order.append(room_id)     # 新加的房间先排在自定义顺序最后
         item.drop_host = self                 # 列表内部拖动排序
         item.clicked.connect(self.roomSelected.emit)
         item.addRequested.connect(self.addToWallRequested.emit)
         item.removeRequested.connect(self.removeRequested.emit)
         item.checkedChanged.connect(self._update_batch_label)
         item.pinToggled.connect(self.toggle_pin)
+        item.hovered.connect(self.previewHovered.emit)
+        item.unhovered.connect(self.previewUnhovered.emit)
         item.set_select_mode(self.select_mode)
         self._items.append(item)
         item.resize(self.list_box.width(), NAV_ITEM_HEIGHT)
@@ -1770,6 +1797,10 @@ class Sidebar(QFrame):
             return False
         self._items = items
         self.pinned = [str(entry.room.get("room_id")) for entry in items if entry.is_pinned]
+        self.custom_order = [str(entry.room.get("room_id")) for entry in items]
+        if self.sort_mode != "custom":
+            # 手动拖过就按用户排的来，否则下次「开播优先」会把刚拖的顺序冲掉
+            self.set_sort_mode("custom")
         self.list_box.relayout(animate=True)
         if self.pinned != pinned_before:
             self.pinChanged.emit(list(self.pinned))
@@ -1781,13 +1812,75 @@ class Sidebar(QFrame):
         self.pinned = [str(item) for item in pinned]
         for item in self._items:
             item.set_pinned(str(item.room.get("room_id")) in self.pinned)
-        ordered = sorted(
-            self._items,
-            key=lambda item: (str(item.room.get("room_id")) not in self.pinned,
-                              self.pinned.index(str(item.room.get("room_id")))
-                              if str(item.room.get("room_id")) in self.pinned else 0))
-        self._items = ordered                      # 顺序要连同内部列表一起更新
-        self.list_box.relayout(animate=False)
+        self.resort(animate=False)
+
+    # ---- 排序 ----
+    def _build_sort_menu(self) -> QMenu:
+        menu = QMenu(self)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        self._sort_actions: dict[str, QAction] = {}
+        for mode, label in self.SORT_MODES:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(mode == self.sort_mode)
+            action.triggered.connect(lambda _checked=False, value=mode: self.set_sort_mode(value))
+            group.addAction(action)
+            self._sort_actions[mode] = action
+        return menu
+
+    def _sync_sort_menu(self) -> None:
+        for mode, action in getattr(self, "_sort_actions", {}).items():
+            action.setChecked(mode == self.sort_mode)
+
+    def set_sort_mode(self, mode: str, notify: bool = True) -> None:
+        """切排序方式：自定义 / 开播优先 / 导入顺序。"""
+        if mode not in dict(self.SORT_MODES):
+            mode = "custom"
+        self.sort_mode = mode
+        self.resort(animate=False)
+        if notify:
+            self.sortChanged.emit(mode)
+
+    def set_import_order(self, order: list | None) -> None:
+        """导入顺序（配置里存的）；没存过就按当前列表顺序算。"""
+        known = [str(item) for item in (order or [])]
+        for item in self._items:
+            room_id = str(item.room.get("room_id"))
+            if room_id not in known:
+                known.append(room_id)
+        self.import_order = known
+        self.resort(animate=False)
+
+    def set_custom_order(self, order: list | None) -> None:
+        """自定义顺序（配置里存的）；没存过的房间按当前列表顺序补在后面。"""
+        known = list(dict.fromkeys(str(entry) for entry in (order or [])))
+        for item in self._items:
+            room_id = str(item.room.get("room_id"))
+            if room_id not in known:
+                known.append(room_id)
+        present = {str(item.room.get("room_id")) for item in self._items}
+        self.custom_order = [room_id for room_id in known if room_id in present]
+        self.resort(animate=False)
+
+    def resort(self, animate: bool = False) -> None:
+        """重排：置顶永远在最前，其余按当前排序方式（同组内保持原有先后）。"""
+        pinned_ids = list(self.pinned)
+        pinned = [item for room_id in pinned_ids for item in self._items
+                  if str(item.room.get("room_id")) == room_id]
+        rest = [item for item in self._items
+                if str(item.room.get("room_id")) not in pinned_ids]
+        if self.sort_mode == "custom":
+            position = {room_id: index for index, room_id in enumerate(self.custom_order)}
+            rest.sort(key=lambda item: position.get(str(item.room.get("room_id")), len(position)))
+        elif self.sort_mode == "live":
+            rest.sort(key=lambda item: 0 if item.room.get("live") else 1)
+        elif self.sort_mode == "imported":
+            position = {room_id: index for index, room_id in enumerate(self.import_order)}
+            rest.sort(key=lambda item: position.get(str(item.room.get("room_id")), len(position)))
+        self._items = pinned + rest
+        self.list_box.relayout(animate=animate)
+        self._sync_sort_menu()
 
     def toggle_pin(self, room: dict) -> None:
         room_id = str(room.get("room_id"))
