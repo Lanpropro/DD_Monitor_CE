@@ -48,6 +48,17 @@ def settle(app, seconds):
         time.sleep(0.02)
 
 
+def wait_for(predicate, timeout: float = 4.0) -> bool:
+    """等条件成立；有网络时播放器释放可能拖慢事件循环，别死等固定时间。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        QApplication.processEvents()
+        time.sleep(0.02)
+    return bool(predicate())
+
+
 def count_pixels(image, predicate) -> int:
     hits = 0
     for y in range(0, image.height(), 2):
@@ -105,7 +116,8 @@ def main() -> None:
         "2001": {"live": True, "viewers": "3.2万", "title": "开了", "face": ""},
         "2002": {"live": True, "viewers": "1万", "title": "播着呢", "face": ""},
     })
-    settle(app, 0.3)
+    assert wait_for(lambda: going_live._alert is not None and going_live._alert.isVisible()), \
+        "状态变化后应该播提醒"
     alert = going_live._alert                              # noqa: SLF001
     print(f"  动效可见={alert is not None and alert.isVisible()}"
           f" 计时器在跑={alert is not None and alert._timer.isActive()}")
@@ -215,7 +227,8 @@ def main() -> None:
     target = items["2002"]                      # 一直在播的那个
     assert target._alert is None or not target._alert.isVisible()   # noqa: SLF001
     target.play_live_alert_demo()                # 右键菜单里点的就是这个
-    settle(app, 0.2)
+    assert wait_for(lambda: target._alert is not None and target._alert.isVisible()), \
+        "演示应该能随时触发"
     demo_alert = target._alert                   # noqa: SLF001
     print(f"  触发现场：徽标={target.badge.text()!r}（动效开始时会先压回未开播）"
           f" 动效在跑={demo_alert is not None and demo_alert._timer.isActive()}")
