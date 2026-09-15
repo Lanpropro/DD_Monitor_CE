@@ -3,7 +3,8 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QPoint, QPointF, QThread, Qt, Signal
+from PySide6.QtGui import QFont, QFontDatabase, QWheelEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,6 +26,10 @@ class SilentPoller(QThread):
     """自检里别真的轮询：有网络时假的房间号会被查成"未开播"，把断言搞乱。"""
 
     updated = Signal(dict)
+
+    def __init__(self, room_ids, parent=None):
+        super().__init__(parent)
+        self.room_ids = list(room_ids)
 
     def run(self) -> None:
         return
@@ -257,9 +262,51 @@ def main() -> None:
     print(f"  新房间默认: muted={room['muted']} volume={room['volume']}")
     assert room["muted"] is False and room["volume"] == 30
 
+    window.apply_danmaku_settings()
+    panel = window.wall.danmaku
+    print(f"  弹幕面板：字号={panel._base_size} 滑块={panel.font_slider.value()}"
+          f" 字体={panel._font_family!r}")
+    assert panel._base_size == 20 and panel.font_slider.value() == 20
+    assert window._danmaku_blocked("我要发广告了") is True      # noqa: SLF001
+    assert window._danmaku_blocked("正常的弹幕") is False       # noqa: SLF001
+
+    print("\n=== 7. 弹幕字号滑块（在面板上实时改）===")
+    panel.font_slider.setValue(24)
+    settle(app, 0.3)
+    print(f"  拖到 24：面板字号={panel._base_size} 标签={panel.font_value.text()!r}"
+          f" 设置里={window.settings['danmaku_font_size']}")
+    assert panel._base_size == 24 and panel.font_value.text() == "24"
+    assert window.settings["danmaku_font_size"] == 24, "拖滑块要同步进设置"
+
+    print("\n=== 8. 关注列表排序 ===")
+    sidebar.set_sort_mode("live", notify=False)
+    settle(app, 0.3)
+    lives = [bool(item.room.get("live")) for item in sidebar.items()]
+    print(f"  开播优先：前 4 项={'直播' if lives[0] else '未开播'}…"
+          f"（共 {sum(lives)} 个直播中）")
+    assert lives == sorted(lives, reverse=True), "开播的要排在前面"
+    assert sidebar.sort_mode == "live"
+
+    sidebar.set_sort_mode("imported", notify=False)
+    settle(app, 0.3)
+    order = [str(item.room.get("room_id")) for item in sidebar.items()]
+    pinned_ids = list(sidebar.pinned)
+    expected = pinned_ids + [room_id for room_id in sidebar.import_order
+                             if room_id not in pinned_ids]
+    print(f"  导入顺序：前 4 项={order[:4]} 置顶={pinned_ids} 记录数={len(sidebar.import_order)}")
+    assert order == expected, "导入顺序要按加入的先后"
+
+    sidebar.set_sort_mode("custom", notify=False)
+    settle(app, 0.3)
+    print(f"  自定义：保持当前顺序（{len(sidebar.items())} 项）")
+
     window.close()
     print("\n全部通过")
 
 
 if __name__ == "__main__":
     main()
+    # 直接退出进程：Qt / VLC 在线程收尾时析构会偶发崩在退出瞬间（程序本体也是这么做的）
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
