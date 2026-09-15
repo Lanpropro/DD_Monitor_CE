@@ -12,6 +12,7 @@ sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import bili, theme  # noqa: E402
+from ddm import app as app_module  # noqa: E402
 from ddm import preview as preview_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
@@ -39,6 +40,19 @@ class FakeResolver(QThread):
                            self.quality, "web", [])
 
 
+class SilentPoller(QThread):
+    """顶掉状态 / 人数轮询：有网络时假房间号会被查成"未开播"，把断言搞乱。"""
+
+    updated = Signal(dict)
+
+    def __init__(self, room_ids=None, parent=None):
+        super().__init__(parent)
+        self.room_ids = list(room_ids or [])
+
+    def run(self) -> None:
+        return
+
+
 ROOMS = [
     {"room_id": "1001", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
      "viewers": "3.1万", "muted": True, "quality": 250},
@@ -54,6 +68,21 @@ def settle(app, seconds):
     while time.time() < deadline:
         app.processEvents()
         time.sleep(0.02)
+
+
+def wait_for(predicate, timeout: float = 4.0) -> bool:
+    """等条件成立再返回。
+
+    有网络时 VLC 释放播放器会卡一下 GUI 线程，定时器可能比预期晚触发，
+    所以"应该出现/应该消失"都按条件轮询，而不是死等固定时间。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        QApplication.processEvents()
+        time.sleep(0.02)
+    return bool(predicate())
 
 
 def item_of(window, room_id: str):
@@ -78,6 +107,8 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
     bili.play_url = boom
+    app_module.StatusPoller = SilentPoller
+    app_module.StatsPoller = SilentPoller
     preview_module.StreamResolver = FakeResolver
     FakeResolver.started = []
     app = QApplication(sys.argv)
@@ -97,7 +128,7 @@ def main() -> None:
     settle(app, 0.6)
     print(f"  停 0.6 秒：可见={widget.isVisible()}（应该还没有）")
     assert not widget.isVisible(), "不到 1 秒不该弹出来"
-    settle(app, 0.7)
+    assert wait_for(lambda: widget.isVisible()), "停够 1 秒应该弹出来"
     print(f"  停 1.3 秒：可见={widget.isVisible()} 房间={widget.room_id}"
           f" 内部状态={widget.state!r} 提示={widget.toolTip()!r}")
     assert widget.isVisible() and widget.room_id == "1001"
@@ -118,6 +149,7 @@ def main() -> None:
         "画面要占满整个小窗"
 
     print("\n=== 2. 预览是静音的 ===")
+    assert wait_for(lambda: widget._player is not None), "取流回调之后应该已经建好播放器"
     player = widget._player                      # noqa: SLF001
     assert player is not None, "应该已经建好播放器"
     print(f"  静音={player.muted} 音量={player.volume} 卡死检测={player.freeze_watch}")
@@ -151,21 +183,25 @@ def main() -> None:
 
     print("\n=== 4. 鼠标离开就收掉，播放器也释放 ===")
     hover(live_item, False)
-    settle(app, 0.6)
+    assert wait_for(lambda: not widget.isVisible() and widget._player is None), \
+        "离开后应该收掉并释放播放器"
     print(f"  离开后：可见={widget.isVisible()} 播放器={widget._player}")   # noqa: SLF001
     assert not widget.isVisible() and widget._player is None      # noqa: SLF001
 
     print("\n=== 4b. 直接移到另一个主播身上：旧画面立刻收掉 ===")
     hover(live_item, True)
-    settle(app, 1.4)
+    appeared = wait_for(lambda: widget.isVisible())
+    print(f"  再悬停：计时器在跑={preview._delay.isActive()} 可见={widget.isVisible()}"  # noqa: SLF001
+          f" 房间={widget.room_id!r} 播放器={widget._player} 开关={preview.enabled}")   # noqa: SLF001
+    assert appeared, "再停够 1 秒还应该能弹出来"
     assert widget.isVisible() and widget.room_id == "1001"
     other = item_of(window, "1002")
     hover(live_item, False)
     hover(other, True)
-    settle(app, 0.4)
+    assert wait_for(lambda: not widget.isVisible(), timeout=1.0), "换条目要立刻收掉旧画面"
     print(f"  换到另一个条目 0.4 秒后：可见={widget.isVisible()}（应该已经收掉）")
     assert not widget.isVisible(), "换条目要立刻收掉旧画面"
-    settle(app, 1.2)
+    assert wait_for(lambda: widget.isVisible()), "停够 1 秒应该弹出新房间"
     print(f"  再等 1.2 秒：可见={widget.isVisible()} 房间={widget.room_id}")
     assert widget.isVisible() and widget.room_id == "1002"
     hover(other, False)
@@ -174,7 +210,7 @@ def main() -> None:
     print("\n=== 5. 没开播的条目不会预览 ===")
     offline_item = item_of(window, "1003")
     hover(offline_item, True)
-    settle(app, 1.4)
+    settle(app, 1.6)
     print(f"  停在未开播上 1.4 秒：可见={widget.isVisible()}")
     assert not widget.isVisible()
     hover(offline_item, False)
@@ -184,7 +220,7 @@ def main() -> None:
     window.settings["preview_on_hover"] = False
     window.apply_preview_settings()
     hover(live_item, True)
-    settle(app, 1.4)
+    settle(app, 1.6)
     print(f"  关掉之后：可见={widget.isVisible()}")
     assert not widget.isVisible()
     hover(live_item, False)
@@ -194,7 +230,7 @@ def main() -> None:
     window.settings["preview_on_hover"] = True
     window.apply_preview_settings()
     hover(live_item, True)
-    settle(app, 1.4)
+    assert wait_for(lambda: widget.isVisible()), "重新打开开关应该还能用"
     assert widget.isVisible()
     print(f"  重新打开：可见={widget.isVisible()} 房间={widget.room_id}")
     window.close()
