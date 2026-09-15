@@ -496,11 +496,17 @@ class TitleBadge(QWidget):
 class DanmakuPanel(QFrame):
     """弹幕格：占画面墙里的一整格，风格和别的格子统一。
 
-    弹幕接口接进来之前先占位；add_message() 已经可用，接入时直接往里塞。
+    内容是主画面那一路的弹幕（app.py 里的 sync_danmaku 负责连谁）。
     整格可以像别的窗口一样拖动，换到别的格子上。
     """
 
     MAX_BLOCKS = 120          # 太长会拖慢渲染，只留最近的若干条
+    KIND_COLORS = {           # 不同消息的配色：弹幕蓝、礼物粉、上舰紫、SC 橙
+        "danmaku": theme.ACCENT,
+        "gift": theme.PINK,
+        "guard": "#c084fc",
+        "super_chat": theme.WARNING,
+    }
 
     roomDropped = Signal(str)          # 有直播间被拖到弹幕格上
 
@@ -536,7 +542,9 @@ class DanmakuPanel(QFrame):
         self.body.setOpenExternalLinks(False)
         self.body.document().setDocumentMargin(8)
         layout.addWidget(self.body, 1)
-        self.set_placeholder("弹幕接口接入后，这里会显示主画面这一路的弹幕")
+        self._status = "未接入"
+        self._received = 0
+        self.set_placeholder("把直播间放到主画面，这里就会显示它的弹幕")
 
     # ---- 拖动 ----
     def mousePressEvent(self, event) -> None:
@@ -577,16 +585,29 @@ class DanmakuPanel(QFrame):
     def set_placeholder(self, text: str) -> None:
         self._blocks: list[str] = []
         self._received = 0
-        self.count.setText("未接入")
+        self._status = "未接入"
+        self._refresh_count()
         self.body.setHtml(
             f'<div style="color:#8a8f98;line-height:160%">{text}</div>')
 
+    def set_status(self, text: str) -> None:
+        """连接状态（连接中… / 已连接 / 连接失败…），后面自动跟收到多少条。"""
+        self._status = text
+        self._refresh_count()
+
     def set_count(self, text: str) -> None:
+        self._status = text
+        self._refresh_count()
+
+    def _refresh_count(self) -> None:
+        text = self._status
+        if self._received:
+            text = f"{text} · {self._received}"
         self.count.setText(text)
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
-        self._received = getattr(self, "_received", 0) + 1
-        self.count.setText(str(self._received))
+        self._received += 1
+        self._refresh_count()
         block = (f'<div style="line-height:150%;margin:0 0 4px 0">'
                  f'<span style="color:{color}">{_escape(uname)}</span>'
                  f'<span style="color:#e6e9ee">：{_escape(text)}</span></div>')
@@ -601,8 +622,12 @@ class DanmakuPanel(QFrame):
         self.body.verticalScrollBar().setValue(
             self.body.verticalScrollBar().maximum())
 
+    def add_event(self, kind: str, uname: str, text: str) -> None:
+        """按消息类型上色：普通弹幕 / 礼物 / 上舰 / 醒目留言。"""
+        self.add_message(uname, text, self.KIND_COLORS.get(kind, theme.ACCENT))
+
     def clear(self) -> None:
-        self.set_placeholder("弹幕接口接入后，这里会显示主画面这一路的弹幕")
+        self.set_placeholder("等待主画面的直播间…")
 
     def set_sample(self, messages: list[tuple[str, str, str]]) -> None:
         """预览用：塞几条示例弹幕，看看排版效果。"""
@@ -683,21 +708,34 @@ class ElidedLabel(QLabel):
 class Avatar(QLabel):
     """圆形头像占位。"""
 
-    def __init__(self, name: str, index: int, size: int = 32, parent=None):
+    def __init__(self, name: str, index: int, size: int = theme.AVATAR_SIZE, parent=None):
         super().__init__(parent)
         self.setObjectName("NavAvatar")
         self._size = size
+        self._color = AVATAR_COLORS[index % len(AVATAR_COLORS)]
+        self._source: QPixmap | None = None
         self.setFixedSize(size, size)
         self.setAlignment(Qt.AlignCenter)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        color = AVATAR_COLORS[index % len(AVATAR_COLORS)]
-        self.setStyleSheet(f"background: {color}; border-radius: {size // 2}px;")
+        self.setStyleSheet(f"background: {self._color}; border-radius: {size // 2}px;")
         self.setText((name or "?")[0])
+
+    def set_size(self, size: int) -> None:
+        """换尺寸：侧栏收起时账号头像要跟列表里的头像一样大，得重新裁一次。"""
+        if size == self._size:
+            return
+        self._size = size
+        self.setFixedSize(size, size)
+        if self._source is not None:
+            self.set_pixmap_image(self._source)
+        else:
+            self.setStyleSheet(f"background: {self._color}; border-radius: {size // 2}px;")
 
     def set_pixmap_image(self, pixmap: QPixmap) -> None:
         """换成真实头像（圆形裁切）。"""
         if pixmap is None or pixmap.isNull():
             return
+        self._source = pixmap
         scaled = pixmap.scaled(self._size, self._size, Qt.KeepAspectRatioByExpanding,
                                Qt.SmoothTransformation)
         rounded = QPixmap(self._size, self._size)
@@ -753,13 +791,15 @@ class AccountRow(QFrame):
             self.avatar.setText(self.uname[0])
 
     def set_compact(self, compact: bool) -> None:
-        """侧栏收起后只留头像，并且居中（窄条里 34px 的整行放不下昵称）。"""
+        """侧栏收起后只留头像：尺寸跟列表里的主播头像一样，同样居中。"""
         compact = bool(compact)
         if compact == getattr(self, "_compact", False):
             return
         self._compact = compact
         self.name.setVisible(not compact)
         self.arrow.setVisible(not compact)
+        self.avatar.set_size(theme.AVATAR_SIZE if compact else 26)
+        self.setFixedHeight(theme.AVATAR_SIZE + 12 if compact else 34)
         if compact and not self._compact_spacer:
             self._layout.insertStretch(0, 1)
             self._layout.addStretch(1)
@@ -1305,10 +1345,10 @@ class Sidebar(QFrame):
 
     # ---- 账号 ----
     def set_layout_name(self, layout_id: str) -> None:
-        """按钮只写「布局」，当前用的是哪套放在悬停提示里。"""
+        """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
         self._layout_id = layout_id
         layout = layouts.BY_ID.get(layout_id, layouts.BY_ID["auto"])
-        self.layout_button.setText("布局")
+        self.layout_button.setText("布局预设")
         self.layout_button.setToolTip(f"当前布局：{layout['name']}　（点击切换）")
 
     def open_layout_picker(self) -> None:

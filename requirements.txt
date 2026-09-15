@@ -3,3 +3,6 @@ PySide6
 python-vlc
 requests
 qrcode
+# 弹幕（ddm/danmaku.py 用它的 websocket 客户端）
+aiohttp
+brotli

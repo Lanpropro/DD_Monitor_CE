@@ -64,6 +64,7 @@ SIDEBAR_WIDTH = 248
 SIDEBAR_RAIL_WIDTH = 60
 CONTROL_HEIGHT = 34
 TILE_CONTROL_HEIGHT = 26
+AVATAR_SIZE = 32              # 关注列表里的头像尺寸（收起侧栏后账号头像也用这个）
 
 
 def qss() -> str:

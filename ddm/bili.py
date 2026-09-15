@@ -108,6 +108,27 @@ def _resolve_room_id(room_id: str) -> str:
     return room_id
 
 
+def danmaku_conf(room_id: str) -> tuple[int, str, list]:
+    """弹幕连接要用的东西：(真实房间号, token, 服务器列表)。
+
+    官方新接口 xlive/web-room/v1/index/getDanmuInfo 现在一律返回 -352（风控），
+    老接口 room/v1/Danmu/getConf 还正常，所以用这个拿 token 和服务器。
+    """
+    real_id = _resolve_room_id(room_id)
+    try:
+        response = requests.get(
+            "https://api.live.bilibili.com/room/v1/Danmu/getConf",
+            params={"room_id": real_id, "platform": "pc", "player": "web"},
+            headers=HEADERS, cookies=_cookies(), timeout=10)
+        data = response.json().get("data") or {}
+    except Exception:  # noqa: BLE001
+        return int(real_id) if str(real_id).isdigit() else 0, "", []
+    hosts = [host for host in (data.get("host_server_list") or [])
+             if host.get("host") and host.get("wss_port")]
+    real = data.get("room_id") or real_id
+    return (int(real) if str(real).isdigit() else 0), (data.get("token") or ""), hosts
+
+
 def _fetchable(url: str, headers: dict) -> bool:
     """快速确认地址真的能拉流（CDN 防盗链规则按来源通道不同）。"""
     try:

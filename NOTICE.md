@@ -2,7 +2,7 @@
 
 ## 这是什么
 
-DD 监控室（重写版）是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本。
+DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本。
 
 - 原项目作者：智明神君
 - 原项目地址：https://gitee.com/zhimingshenjun/DD_Monitor_latest
@@ -10,18 +10,25 @@ DD 监控室（重写版）是 [DD监控室](https://gitee.com/zhimingshenjun/DD
 
 ## 改了什么
 
-- **界面层全部重写**：左侧关注列表（可收起、可拖动排序、可置顶）、画面墙布局系统（普通布局 + 独立弹幕格布局两组）、
+- **界面层全部重写**：左侧关注列表（可收起、可拖动排序、可置顶）、画面墙布局系统（普通布局 + 弹幕布局两组）、
   每个格子的控制条（画质 / 音量 / 静音 / 暂停 / 刷新 / 关闭）、设置窗口、快捷键。
 - **单路控制**：每格独立画质与音量，主画面自动原画、其余自动 720P。
 - **登录与导入**：扫码登录 + 内置浏览器登录，导入关注（多选、可只挑直播中的）。
 - **取流**：直连 http FLV 不落盘，App 通道优先、失败回退 web 通道；断流按指数退避自动重连。
+- **弹幕**：画面墙里可以放一整格弹幕，跟着主画面那一路走（换台/切布局自动跟随），
+  用 `blivedm` 收弹幕、礼物、上舰、醒目留言。
 - 播放仍使用 python-vlc，`libvlc.dll` / `libvlccore.dll` / `plugins/` 取自原仓库随包运行库。
 
 界面配色与尺度参考了 [BewlyCat](https://github.com/keleus/BewlyCat) 的设计令牌（基色、圆角、胶囊控件、字号层级）。
 
+## 第三方组件
+
+- `blivedm/`：B 站直播弹幕协议库，上游 https://github.com/xfgryujk/blivedm 。
+  这份是从原仓库带过来的，**仓库里没有附带它的许可文件**；如果以后要对外分发，需要补上上游的许可。
+- VLC（libvlc/plugins）：随包运行库，未放进本仓库，见 README。
+
 ## 还没做的
 
-- 弹幕：格子里的弹幕面板目前只有界面，没有接 `blivedm` 的实机弹幕。
 - 原项目的热榜、录制、悬浮窗没有搬过来。
 
 ## 关于分发

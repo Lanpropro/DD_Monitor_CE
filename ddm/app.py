@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from . import bili
 from . import config as config_module
 from . import theme
+from .danmaku import DanmakuClient
 from .bili import (
     AccountLoader, FollowLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
@@ -90,6 +91,8 @@ class MainWindow(QMainWindow):
         self._retry_count: dict[object, int] = {}
         self._retry_timers: dict[object, QTimer] = {}
         self._previous_layout: str | None = None
+        self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
+        self._danmaku_room = ""
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         self.settings.update(self.state.get("settings") or {})
@@ -216,6 +219,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         config_module.save(self.current_state())
+        self.stop_danmaku()
         for player in self.players.values():
             player.release()
         self._wait_background()
@@ -767,6 +771,9 @@ class MainWindow(QMainWindow):
         self.state["sessdata"] = sessdata
         config_module.save(self.current_state())
         self.refresh_account()
+        # 之前是匿名连的弹幕，服务端会把用户名打码；登录后重连一次
+        self.stop_danmaku()
+        self.sync_danmaku()
         print(f"登录成功，已保存登录状态（{len(sessdata)} 字符）", file=sys.stderr, flush=True)
 
     def open_import_follows(self) -> None:
@@ -822,6 +829,67 @@ class MainWindow(QMainWindow):
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
         self.wall.setVisible(bool(self.wall.tiles))
         self.empty_hint.setVisible(not self.wall.tiles)
+        self.sync_danmaku()
+
+    # ---- 弹幕 ----
+    def _danmaku_target_room(self) -> dict:
+        """弹幕格跟着主画面走；没有主画面就跟第一路有人的画面。"""
+        tiles = self.wall.tiles
+        main = self.wall.main_index()
+        if main is not None and 0 <= main < len(tiles):
+            return tiles[main].room or {}
+        for tile in tiles:
+            if tile.room.get("room_id"):
+                return tile.room
+        return {}
+
+    def sync_danmaku(self) -> None:
+        """让弹幕连接对上当前布局/主画面（布局里没有弹幕格就断开）。"""
+        panel = self.wall.danmaku
+        if not self.wall.has_danmaku:
+            self.stop_danmaku()
+            return
+        room = self._danmaku_target_room()
+        room_id = str(room.get("room_id") or "")
+        if room_id and room_id == self._danmaku_room and self._danmaku is not None:
+            return
+        self.stop_danmaku()
+        if not room_id:
+            panel.set_placeholder("把直播间拖到主画面，这里就会显示它的弹幕")
+            return
+        self.start_danmaku(room_id, room.get("uname", ""))
+
+    def start_danmaku(self, room_id: str, uname: str = "") -> None:
+        panel = self.wall.danmaku
+        panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
+        client = DanmakuClient(room_id, self)
+        client.message.connect(self._on_danmaku_message)
+        client.status.connect(self._on_danmaku_status)
+        client.finished.connect(client.deleteLater)
+        self._danmaku = client
+        self._danmaku_room = str(room_id)
+        client.start()
+        print(f"[弹幕] 开始接收 {uname or room_id}（房间 {room_id}）",
+              file=sys.stderr, flush=True)
+
+    def stop_danmaku(self) -> None:
+        client = self._danmaku
+        self._danmaku = None
+        self._danmaku_room = ""
+        if client is None:
+            return
+        client.stop()
+        try:
+            if client.isRunning():
+                client.wait(2000)         # 线程还在跑就析构，Qt 会直接崩
+        except RuntimeError:
+            pass
+
+    def _on_danmaku_message(self, kind: str, uname: str, text: str) -> None:
+        self.wall.danmaku.add_event(kind, uname, text)
+
+    def _on_danmaku_status(self, text: str) -> None:
+        self.wall.danmaku.set_status(text)
 
     # ---- 快捷键 ----
     def _tile_under_cursor(self):
