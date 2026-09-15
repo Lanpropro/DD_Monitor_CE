@@ -25,6 +25,7 @@ from .dialogs import (
 )
 from .images import AvatarLoader
 from .player import TilePlayer
+from .preview import HoverPreview
 from .widgets import Sidebar, Tile, WallGrid
 
 MAX_TILES = 16
@@ -128,10 +129,21 @@ class MainWindow(QMainWindow):
         self.sidebar.deleteRequested.connect(self.remove_rooms)
         self.sidebar.logoutRequested.connect(self.logout)
         self.sidebar.pinChanged.connect(self._on_pin_changed)
+        self.sidebar.sortChanged.connect(self._on_sort_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self.open_settings)
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
         self.sidebar.set_layout_name(self.wall.layout_id)
+        self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
+        # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
+        self.hover_preview = HoverPreview(self.sidebar, self)
+        self.sidebar.previewHovered.connect(self.hover_preview.on_hover)
+        self.sidebar.previewUnhovered.connect(self.hover_preview.on_unhover)
+        # 拖字号滑块时别每一步都写配置，停手后再存
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(700)
+        self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
         self.wall.tileClicked.connect(self._on_tile_clicked)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
@@ -224,6 +236,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         config_module.save(self.current_state())
         self.stop_danmaku()
+        self.hover_preview.stop()
         for player in self.players.values():
             player.release()
         self._wait_background()
@@ -889,8 +902,39 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             pass
 
-    def _on_danmaku_message(self, kind: str, uname: str, text: str) -> None:
-        self.wall.danmaku.add_event(kind, uname, text)
+    def apply_danmaku_settings(self) -> None:
+        """把设置里的弹幕字体、字号、保留条数交给弹幕格。"""
+        self.wall.danmaku.apply_style(
+            str(self.settings.get("danmaku_font") or ""),
+            int(self.settings.get("danmaku_font_size") or 13))
+        self.wall.danmaku.set_max_blocks(
+            int(self.settings.get("danmaku_max_blocks") or 300))
+
+    def _on_danmaku_font_size(self, value: int) -> None:
+        """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
+        self.settings["danmaku_font_size"] = int(value)
+        self._save_timer.start()
+
+    def apply_preview_settings(self) -> None:
+        """悬停预览的开关。"""
+        self.hover_preview.enabled = bool(self.settings.get("preview_on_hover", True))
+        if not self.hover_preview.enabled:
+            self.hover_preview.stop()
+
+    def _danmaku_blocked(self, text: str) -> bool:
+        """命中屏蔽词就不显示这条弹幕（大小写不敏感）。"""
+        words = [str(word).strip() for word in (self.settings.get("danmaku_block_words") or [])]
+        words = [word for word in words if word]
+        if not words:
+            return False
+        lowered = str(text).lower()
+        return any(word.lower() in lowered for word in words)
+
+    def _on_danmaku_message(self, event: dict) -> None:
+        kind = event.get("kind") or "danmaku"
+        if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
+            return
+        self.wall.danmaku.add_event(event)
 
     def _on_danmaku_status(self, text: str) -> None:
         self.wall.danmaku.set_status(text)
