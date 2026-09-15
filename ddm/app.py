@@ -170,7 +170,6 @@ class MainWindow(QMainWindow):
         self._stats_timer.timeout.connect(self.refresh_stats)
         self._stats_timer.start()
         QTimer.singleShot(3000, self.refresh_stats)
-
     # ---- 界面状态 ----
     def _restore_ui(self) -> None:
         geometry = self.state.get("geometry")

@@ -12,7 +12,7 @@ sys.path.insert(0, REPO)
 from ddm import theme  # noqa: E402
 from ddm.login import LoginWindow, make_qr_pixmap  # noqa: E402
 
-OUT = os.path.join(REPO, "dev", "preview")
+OUT = os.path.join(REPO, "work", "preview")
 
 
 def main() -> None:
@@ -51,3 +51,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # 直接退出进程：Qt / VLC 在线程收尾时析构会偶发崩在退出瞬间（程序本体也是这么做的）
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

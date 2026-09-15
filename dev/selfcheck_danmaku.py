@@ -4,6 +4,7 @@ import sys
 import time
 
 from PySide6.QtCore import QThread, Signal
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,6 +13,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
+from ddm import widgets as widgets_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 
@@ -22,7 +24,7 @@ def boom(room_id, quality=250):        # noqa: ANN001, ANN201
 class FakeDanmakuClient(QThread):
     """顶掉真的弹幕客户端：不联网，手动喂消息。"""
 
-    message = Signal(str, str, str)
+    message = Signal(dict)
     status = Signal(str)
 
     instances: list = []
@@ -218,3 +220,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # 直接退出进程：Qt / VLC 在线程收尾时析构会偶发崩在退出瞬间（程序本体也是这么做的）
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

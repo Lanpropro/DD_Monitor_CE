@@ -166,3 +166,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # 直接退出进程：Qt / VLC 在线程收尾时析构会偶发崩在退出瞬间（程序本体也是这么做的）
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

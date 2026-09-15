@@ -15,7 +15,7 @@ from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.dialogs import SettingsDialog  # noqa: E402
 
-OUT = os.path.join(REPO, "dev", "preview")
+OUT = os.path.join(REPO, "work", "preview")
 NOW = int(time.time())
 
 ROOMS = [
@@ -94,6 +94,10 @@ def main() -> None:
     dialog.grab().save(os.path.join(OUT, "dialog_settings.png"), "PNG")
     print("已保存 dialog_settings.png")
     dialog.nav.setCurrentRow(1)
+    settle(app, 0.4)
+    dialog.grab().save(os.path.join(OUT, "dialog_danmaku.png"), "PNG")
+    print("已保存 dialog_danmaku.png")
+    dialog.nav.setCurrentRow(2)
     settle(app, 0.4)
     dialog.grab().save(os.path.join(OUT, "dialog_shortcuts.png"), "PNG")
     print("已保存 dialog_shortcuts.png")
