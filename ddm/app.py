@@ -563,13 +563,23 @@ class MainWindow(QMainWindow):
             info = status.get(str(item.room.get("room_id")))
             if not info:
                 continue
+            was_live = bool(item.room.get("live"))
             if info["title"]:
                 item.room["title"] = info["title"]
-            item.set_live(info["live"])
+            if info["live"] and not was_live:
+                # 刚开播：让动效负责把「未开播」砸成「直播中」
+                if self.settings.get("live_alert", True):
+                    item.play_live_alert()
+                    print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
+                else:
+                    item.set_live(True)
+            elif was_live != bool(info["live"]):
+                item.set_live(info["live"])
             face = info.get("face")
             if face and face != item.room.get("face"):
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
+        self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
         if faces:
             loader = AvatarLoader(faces, self)
             loader.loaded.connect(self._on_room_avatar)
