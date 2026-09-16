@@ -661,9 +661,7 @@ QSlider::handle:horizontal:hover {{
 
 /* ---------- 关注列表的封面缩略图 ---------- */
 #NavThumb {{
-    background: rgba(12, 13, 16, 0.6);
-    border: 1px solid {BORDER};
-    border-radius: 6px;
+    background: transparent;      /* 镂空处露出的是侧栏底色，头像才像浮着 */
 }}
 #NavThumbCover {{
     background: transparent;
@@ -681,7 +679,8 @@ QSlider::handle:horizontal:hover {{
     border-radius: 6px;
 }}
 #NavThumbFace {{
-    border: 1px solid rgba(0, 0, 0, 0.55);
+    border-radius: 11px;          /* 头像始终是圆形（圆环浮在镂空里） */
+    border: 1px solid rgba(255, 255, 255, 0.22);
 }}
 #PauseOverlay QLabel {{
     color: {TEXT1};

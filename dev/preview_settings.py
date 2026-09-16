@@ -44,6 +44,18 @@ def cover_pixmap(name: str, color: str) -> QPixmap:
     return pixmap
 
 
+def face_pixmap(color: str) -> QPixmap:
+    """预览用的头像（纯色圆，不放名字）。"""
+    pixmap = QPixmap(QSize(128, 128))
+    painter = QPainter(pixmap)
+    gradient = QLinearGradient(0, 0, 128, 128)
+    gradient.setColorAt(0.0, QColor(color).lighter(125))
+    gradient.setColorAt(1.0, QColor(color).darker(115))
+    painter.fillRect(0, 0, 128, 128, gradient)
+    painter.end()
+    return pixmap
+
+
 def settle(app, seconds):
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -69,6 +81,7 @@ def main() -> None:
         tile.start_elapsed_timer()
     for index, entry in enumerate(window.sidebar.items()):
         entry.thumb.set_cover(cover_pixmap(entry.room["uname"], COLORS[index % len(COLORS)]))
+        entry.thumb.set_face(face_pixmap(COLORS[index % len(COLORS)]))
     window.sidebar.set_layout_name("1x2")
     window._refresh_meta()
     settle(app, 0.6)
