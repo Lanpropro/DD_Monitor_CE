@@ -4,7 +4,7 @@ import sys
 import time
 
 from PySide6.QtCore import QPoint, QPointF, QThread, Qt, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QWheelEvent
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -117,9 +117,9 @@ def main() -> None:
     tp = TilePlayer(holder)
     tp.freeze_watch = True
     tp._picture_signature = lambda: (1234, "same")     # 画面一直不变
-    results = [tp._check_picture(True) for _ in range(6)]
-    print(f"  连续 6 次相同画面 -> 判定卡住: {results}")
-    assert results[:4] == [False] * 4 and results[-1] is True
+    results = [tp._check_picture(True) for _ in range(3)]
+    print(f"  每秒检查、连续约 2 秒相同画面 -> 判定卡住: {results}")
+    assert results == [False, False, True]
     tp._picture_signature = lambda: (time.time(), "changing")   # 画面在变
     print(f"  画面恢复变化 -> {tp._check_picture(True)}")
     assert tp._check_picture(True) is False
@@ -128,12 +128,109 @@ def main() -> None:
     assert [tp._check_picture(True) for _ in range(6)] == [False] * 6
     print("  关掉检测后不再判定")
 
+    print("\n=== 3b. 静止画面自动刷新与恢复 ===")
+    restarts = []
+    status_checks = []
+    original_start_tile = window.start_tile
+    original_refresh_status = window.refresh_status
+    window.start_tile = lambda target: restarts.append(target)
+    window.refresh_status = lambda: status_checks.append(True)
+    window._on_player_state(tile, "frozen")
+    print(f"  首次静止：立即刷新={len(restarts)} 状态确认={len(status_checks)}"
+          f" 状态={tile.status_label.text()!r}")
+    assert restarts == [tile]
+    assert status_checks == [True], "画面静止时应立即查询真实直播状态"
+    assert tile in window._freeze_refreshed
+    window._on_player_state(tile, "frozen")
+    timer = window._freeze_retry_timers.get(tile)
+    print(f"  刷新后仍静止：5 秒定时器={timer is not None} 状态={tile.status_label.text()!r}")
+    assert timer is not None and timer.isActive()
+    assert "5 秒后再次刷新" in tile.status_label.text()
+    window._on_picture_activity(tile)
+    print(f"  画面恢复：定时器已取消={tile not in window._freeze_retry_timers}")
+    assert tile not in window._freeze_retry_timers
+    assert tile not in window._freeze_refreshed
+    window.start_tile = original_start_tile
+    window.refresh_status = original_refresh_status
+
+    print("\n=== 3c. 画面格与侧栏共享数据时也要刷新侧栏徽标 ===")
+    item = window.sidebar.items()[0]
+    tile.set_room(item.room)
+    item.set_live(True)
+    room_id = str(item.room["room_id"])
+    window.settings["live_alert"] = False
+    started = []
+    original_start_tile = window.start_tile
+    window.start_tile = lambda target: started.append(target)
+    before = time.perf_counter()
+    window._on_status_updated({room_id: {
+        "live": False, "viewers": "", "title": item.room.get("title", ""),
+        "cover_url": "", "face": "",
+    }})
+    offline_ms = (time.perf_counter() - before) * 1000
+    print(f"  下播刷新：画面 live={tile.room.get('live')} 侧栏徽标={item.badge.text()!r}"
+          f" 用时={offline_ms:.1f}ms")
+    assert tile.room is item.room
+    assert tile.room.get("live") is False
+    assert item.badge.text() == "未开播"
+    before = time.perf_counter()
+    window._on_status_updated({room_id: {
+        "live": True, "viewers": "1.2万", "title": item.room.get("title", ""),
+        "cover_url": "", "face": "",
+    }})
+    online_ms = (time.perf_counter() - before) * 1000
+    print(f"  开播刷新：画面 live={tile.room.get('live')} 侧栏徽标={item.badge.text()!r}"
+          f" 用时={online_ms:.1f}ms 自动播放={started == [tile]}")
+    assert tile.room.get("live") is True
+    assert item.badge.text() == "直播中"
+    assert started == [tile]
+    assert max(offline_ms, online_ms) < 100, "拿到状态结果后，界面切换应在 100ms 内完成"
+    window.start_tile = original_start_tile
+    window.settings["live_alert"] = True
+
+    print("\n=== 3d. 音量属于格子：换主播不变，并写入重启配置 ===")
+    first, second = window.wall.tiles[:2]
+    first.set_volume(40)
+    second.set_volume(73)
+    first.set_muted(False)
+    second.set_muted(True)
+    assert window._save_timer.isActive(), "调整格子音量后应排队保存配置"
+    first_room_id = str(first.room.get("room_id"))
+    second_room_id = str(second.room.get("room_id"))
+    original_start_tile = window.start_tile
+    original_stop_tile = window._stop_tile
+    window.start_tile = lambda _target: None
+    window._stop_tile = lambda _target: None
+    window._on_tile_swapped(first_room_id, second)
+    window.start_tile = original_start_tile
+    window._stop_tile = original_stop_tile
+    saved_wall = window.current_state()["wall"]
+    print(f"  交换后：格1={first.volume}/静音{first.muted}（房间 {first.room.get('room_id')}）"
+          f" 格2={second.volume}/静音{second.muted}（房间 {second.room.get('room_id')}）"
+          f" 保存值={[slot['volume'] for slot in saved_wall[:2]]}")
+    assert str(first.room.get("room_id")) == second_room_id
+    assert str(second.room.get("room_id")) == first_room_id
+    assert (first.volume, second.volume) == (40, 73), "音量必须留在原格子"
+    assert (first.muted, second.muted) == (False, True), "静音状态必须留在原格子"
+    assert [slot["muted"] for slot in saved_wall[:2]] == [False, True]
+    assert [slot["volume"] for slot in saved_wall[:2]] == [40, 73]
+    _, empty_wall = config_module.build_rooms({
+        "rooms": [], "wall": [{"room_id": "", "volume": 61, "muted": True}],
+    })
+    assert empty_wall[0]["volume"] == 61, "空格子的音量也必须在重启后恢复"
+
     print("\n=== 4. 侧栏收起后头像居中、底部还能看到账号 ===")
     sidebar = window.sidebar
     sidebar.set_account("Asaki大人")
+    item = sidebar.items()[0]
+    face_pixmap = QPixmap(64, 64)
+    face_pixmap.fill(QColor("#fb7299"))
+    cover_pixmap = QPixmap(160, 90)
+    cover_pixmap.fill(QColor("#223344"))
+    item.thumb.set_face(face_pixmap)
+    item.thumb.set_cover(cover_pixmap)
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.5)
-    item = sidebar.items()[0]
     avatar = item.thumb                    # 条目左边现在是封面缩略图
     left = avatar.x()
     right = item.width() - (avatar.x() + avatar.width())
@@ -141,6 +238,9 @@ def main() -> None:
           f" 左边距={left} 右边距={right}")
     assert avatar.x() >= 0 and avatar.x() + avatar.width() <= item.width(), "头像不能被裁"
     assert abs(left - right) <= 2, "头像要左右居中"
+    assert item.thumb.face.isVisible(), "收起关注栏后必须显示主播头像"
+    assert not item.thumb.cover.isVisible(), "收起关注栏后不能继续显示封面缩略图"
+    assert item.thumb.face.size() == item.thumb.size(), "收起后的主播头像要占满 32px 方框"
     account = sidebar.account_row
     account_avatar = account.avatar
     acc_left = account_avatar.x()
@@ -156,6 +256,13 @@ def main() -> None:
     settle(app, 0.5)
     print(f"  展开后卡片宽={item.width()} 头像 x={avatar.x()}（回到左边正常排布）")
     assert avatar.x() <= 12
+    assert item.thumb.width() >= 170, "展开后的封面应铺满条目可用宽度"
+    assert item.thumb.cover.isVisible(), "展开关注栏后要恢复封面缩略图"
+    assert item.thumb.face.width() == item.thumb.AVATAR_SIZE, "展开后恢复封面上的小头像"
+    assert item.name_label.parentWidget() is item.thumb
+    assert item.sub.parentWidget() is item.thumb
+    assert item.badge.parentWidget() is item.thumb, "名字、标题和状态都应叠在封面上"
+    assert item.name_label.isVisible() and item.sub.isVisible() and item.badge.isVisible()
     assert account.name.isVisible(), "展开后要恢复昵称"
 
     # 列表长到必须滚动时，滚动条不能把头像挤歪（上下两排要在同一条竖线上）
@@ -215,11 +322,13 @@ def main() -> None:
     general.poll_spin.setValue(5)
     general._checks["auto_quality"].setChecked(False)     # noqa: SLF001
     general._checks["default_muted"].setChecked(False)    # noqa: SLF001
+    general._checks["sidebar_card_mode"].setChecked(False)  # noqa: SLF001
     general.volume_slider.setValue(30)
     changed = dialog.settings()
     print(f"  改过之后={changed}")
     assert changed["poll_minutes"] == 5 and changed["auto_quality"] is False
     assert changed["default_volume"] == 30 and changed["default_muted"] is False
+    assert changed["sidebar_card_mode"] is False
 
     danmaku_page = dialog.danmaku_page
     danmaku_page.size_spin.setValue(20)
@@ -261,6 +370,13 @@ def main() -> None:
     window._prepare_room(room)                             # noqa: SLF001
     print(f"  新房间默认: muted={room['muted']} volume={room['volume']}")
     assert room["muted"] is False and room["volume"] == 30
+
+    window.apply_preview_settings()
+    print(f"  关注列表模式：{'大卡片' if sidebar.card_mode else '头像＋文字'}")
+    assert sidebar.card_mode is False
+    window.settings["sidebar_card_mode"] = True
+    window.apply_preview_settings()
+    assert sidebar.card_mode is True
 
     window.apply_danmaku_settings()
     panel = window.wall.danmaku

@@ -15,7 +15,7 @@ from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm import preview as preview_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.widgets import NAV_ITEM_HEIGHT, NavThumb  # noqa: E402
+from ddm.widgets import NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, NavThumb  # noqa: E402
 
 
 def boom(room_id, quality=250):        # noqa: ANN001, ANN201
@@ -128,12 +128,13 @@ def main() -> None:
 
     print("=== 1. 每一条都有封面缩略图 ===")
     thumbs = {str(item.room.get("room_id")): item.thumb for item in window.sidebar.items()}
-    print(f"  条目数={len(thumbs)} 缩略图={NavThumb.WIDTH}x{NavThumb.HEIGHT}"
+    print(f"  条目数={len(thumbs)} 缩略图={live_item.thumb.width()}x{live_item.thumb.height()}"
           f" 行高={NAV_ITEM_HEIGHT}")
     assert len(thumbs) == len(ROOMS)
-    assert live_item.thumb.width() == NavThumb.WIDTH
     assert live_item.thumb.height() == NavThumb.HEIGHT
     assert live_item.thumb.height() + 12 <= NAV_ITEM_HEIGHT, "行高要放得下缩略图"
+    assert abs(live_item.thumb.width() / live_item.thumb.height() - 16 / 9) < 0.08, \
+        "展开后的悬停预览应接近 16:9"
     live_item.thumb.set_cover(cover_pixmap("封面"))
     live_item.thumb.set_face(cover_pixmap("头像"))
     settle(app, 0.2)
@@ -143,21 +144,45 @@ def main() -> None:
     assert live_item.thumb.cover.pixmap() and not live_item.thumb.cover.pixmap().isNull()
     assert live_item.thumb.video.isVisible() is False, "没悬停时不该有画面"
 
-    print("  头像：圆形、中间偏右、封面给它挖了孔")
+    print("  头像：正圆，叠在封面左上角；文字和状态也都在封面内")
     face = live_item.thumb.face
-    rect = face.geometry()
-    centre_y = rect.y() + rect.height() / 2
-    print(f"    头像={rect.getRect()} 缩略图={live_item.thumb.width()}x"
-          f"{live_item.thumb.height()} 竖直中心={centre_y:.0f}"
-          f"（缩略图中心={live_item.thumb.height() / 2:.0f}）")
-    assert face.isVisible() and rect.width() == rect.height(), "头像必须是正方形（圆形裁切）"
-    assert rect.x() + rect.width() / 2 > live_item.thumb.width() / 2, "头像要在缩略图右半边"
-    assert abs(centre_y - live_item.thumb.height() / 2) <= 1, "头像要竖直居中"
-    hole = live_item.thumb.cover.mask()
-    assert not hole.contains(rect.center()), "头像位置必须是镂空的（不然头像会被封面压住）"
-    assert hole.contains(QPoint(2, live_item.thumb.height() // 2)), "封面别的地方还要在"
-    print(f"    镂空中心在内={hole.contains(rect.center())} 封面其它位置在内="
-          f"{hole.contains(QPoint(2, live_item.thumb.height() // 2))}")
+    rect = face.geometry()                                  # 相对整行
+    thumb_rect = live_item.thumb.geometry()                 # 缩略图在行里的位置
+    local = rect.translated(-thumb_rect.x(), -thumb_rect.y())   # 相对缩略图
+    thumb_w, thumb_h = live_item.thumb.width(), live_item.thumb.height()
+    centre_y = local.y() + local.height() / 2
+    print(f"    头像（相对缩略图）={local.getRect()} 缩略图={thumb_w}x{thumb_h}"
+          f" 竖直中心={centre_y:.0f}")
+    assert face.isVisible() and local.width() == local.height(), "头像必须是正方形（圆形裁切）"
+    assert local.x() <= 12 and local.y() <= 12, "头像要完整叠在封面左上角"
+    assert centre_y < thumb_h / 2, "头像应位于封面上半部分"
+    assert live_item.name_label.parentWidget() is live_item.thumb
+    assert live_item.sub.parentWidget() is live_item.thumb
+    assert live_item.badge.parentWidget() is live_item.thumb
+    row_w = live_item.width()
+    print(f"    头像（相对整行）={rect.getRect()} 行宽={row_w}"
+          f" 完整在行内={rect.x() >= 0 and rect.right() <= row_w}")
+    assert rect.x() >= 0 and rect.right() <= row_w, "头像必须完整在行内（不能被裁）"
+    assert face.parentWidget() is live_item, "头像要挂在行上，不能挂在缩略图里"
+    # 头像是正圆：粉色宽度自上而下连续变化
+    disc = face.pixmap().toImage()
+    widths = []
+    for y in range(0, disc.height()):
+        xs = [x for x in range(disc.width())
+              if (c := disc.pixelColor(x, y)).alpha() > 120]
+        widths.append(len(xs))
+    print(f"    头像圆形剖面：两端={widths[0]}/{widths[-1]} 最宽={max(widths)}"
+          f"（正圆应两端窄、中间最宽）")
+    assert widths[0] < max(widths) * 0.5 and widths[-1] < max(widths) * 0.5, \
+        "头像要裁成正圆，不能是圆角方"
+    assert widths[len(widths) // 2] >= max(widths) - 2
+    # 封面现在是完整背景，不再为了头像挖孔。
+    cover_img = live_item.thumb.cover.pixmap().toImage()
+    centre = local.center()
+    print(f"    头像下方封面 alpha={cover_img.pixelColor(centre.x(), centre.y()).alpha()}"
+          f" 封面左侧 alpha={cover_img.pixelColor(3, thumb_h // 2).alpha()}")
+    assert cover_img.pixelColor(centre.x(), centre.y()).alpha() > 200, "封面应完整铺底"
+    assert cover_img.pixelColor(3, thumb_h // 2).alpha() > 200, "封面别的地方要在"
 
     print("\n=== 2. 停够 1 秒，缩略图里直接放预览 ===")
     hover(live_item, True)
@@ -178,6 +203,8 @@ def main() -> None:
     assert player.freeze_watch is False
     print(f"  播放时角标已收起={not live_item.thumb.face.isVisible()}")
     assert not live_item.thumb.face.isVisible(), "原生画面会盖住角标，播放时要藏起来"
+    assert not live_item.name_label.isVisible() and not live_item.sub.isVisible(), \
+        "大卡片预览时不应把详细文字压在直播画面上"
 
     print("\n=== 4. 鼠标离开：回到封面，播放器释放 ===")
     hover(live_item, False)
@@ -235,9 +262,30 @@ def main() -> None:
     assert abs(left - right) <= 2, "收起时缩略图要居中"
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.4)
-    assert sidebar.items()[0].thumb.width() == NavThumb.WIDTH
+    expanded = sidebar.items()[0].thumb
+    assert expanded.width() > NavThumb.WIDTH
+    assert abs(expanded.width() / expanded.height() - 16 / 9) < 0.08
 
-    print("\n=== 9. 关窗会收掉预览 ===")
+    print("\n=== 9. 简洁列表：只留头像和文字，也能悬停预览 ===")
+    sidebar.set_card_mode(False)
+    settle(app, 0.4)
+    simple_item = sidebar.items()[0]
+    print(f"  行高={simple_item.height()} 封面可见={simple_item.thumb.cover.isVisible()}"
+          f" 头像={simple_item.thumb.face.isVisible()} 文字={simple_item.name_label.isVisible()}")
+    assert simple_item.height() == NAV_LIST_ITEM_HEIGHT
+    assert simple_item.thumb.height() == NavThumb.LIST_HEIGHT
+    assert not simple_item.thumb.cover.isVisible(), "简洁列表不应常驻显示封面"
+    assert simple_item.thumb.face.isVisible() and simple_item.name_label.isVisible()
+    hover(simple_item, True)
+    assert wait_for(lambda: simple_item.thumb.video.isVisible()), "简洁列表仍应支持悬停预览"
+    assert simple_item.thumb.video.x() >= int(simple_item.thumb.width() * 0.64)
+    assert simple_item.thumb.video.width() <= int(simple_item.thumb.width() * 0.37)
+    hover(simple_item, False)
+    assert wait_for(lambda: not simple_item.thumb.video.isVisible())
+    sidebar.set_card_mode(True)
+    settle(app, 0.3)
+
+    print("\n=== 10. 关窗会收掉预览 ===")
     hover(live_item, True)
     assert wait_for(lambda: live_item.thumb.video.isVisible())
     window.close()
