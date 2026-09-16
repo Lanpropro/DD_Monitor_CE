@@ -3,9 +3,11 @@
 取流走 web 端 playUrl —— app-room 接口返回的 FLV 地址现在会被 CDN 拒绝（403）。
 CDN 地址统一从 https 改成 http：随程序打包的 VLC 插件集里没有 TLS 插件。
 """
+import hashlib
 import json
 import sys
 import time
+import urllib.parse
 
 import requests
 from PySide6.QtCore import QThread, Signal
@@ -28,6 +30,11 @@ QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("�
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
 _UID_CACHE: dict = {"uid": None}
+_WBI_CACHE: dict = {"key": "", "expires": 0.0}
+_WBI_KEY_INDEX = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+    27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+]
 
 
 def set_sessdata(value: str) -> None:
@@ -108,23 +115,73 @@ def _resolve_room_id(room_id: str) -> str:
     return room_id
 
 
+def _wbi_key() -> str:
+    """从 nav 接口取 WBI 混淆密钥，并缓存到当前进程。"""
+    now = time.time()
+    if _WBI_CACHE["key"] and now < _WBI_CACHE["expires"]:
+        return str(_WBI_CACHE["key"])
+    try:
+        payload = requests.get("https://api.bilibili.com/x/web-interface/nav",
+                               headers=HEADERS, cookies=_cookies(), timeout=10).json()
+        wbi_img = (payload.get("data") or {}).get("wbi_img") or {}
+        img_key = str(wbi_img.get("img_url") or "").rsplit("/", 1)[-1].split(".", 1)[0]
+        sub_key = str(wbi_img.get("sub_url") or "").rsplit("/", 1)[-1].split(".", 1)[0]
+        source = img_key + sub_key
+        key = "".join(source[index] for index in _WBI_KEY_INDEX if index < len(source))
+    except Exception:  # noqa: BLE001
+        return ""
+    if key:
+        _WBI_CACHE.update(key=key, expires=now + 11 * 60 * 60)
+    return key
+
+
+def _wbi_signed_params(params: dict, key: str) -> dict:
+    """给 getDanmuInfo 参数加 wts / w_rid。"""
+    signed = {**params, "wts": str(int(time.time()))}
+    cleaned = {
+        name: "".join(ch for ch in str(signed[name]) if ch not in "!'()*")
+        for name in sorted(signed)
+    }
+    query = urllib.parse.urlencode(cleaned)
+    return {**signed, "w_rid": hashlib.md5((query + key).encode("utf-8")).hexdigest()}
+
+
 def danmaku_conf(room_id: str) -> tuple[int, str, list]:
     """弹幕连接要用的东西：(真实房间号, token, 服务器列表)。
 
-    官方新接口 xlive/web-room/v1/index/getDanmuInfo 现在一律返回 -352（风控），
-    老接口 room/v1/Danmu/getConf 还正常，所以用这个拿 token 和服务器。
+    优先使用带 WBI 签名的 getDanmuInfo；失败时再降级到老 getConf。
     """
     real_id = _resolve_room_id(room_id)
-    try:
-        response = requests.get(
-            "https://api.live.bilibili.com/room/v1/Danmu/getConf",
-            params={"room_id": real_id, "platform": "pc", "player": "web"},
-            headers=HEADERS, cookies=_cookies(), timeout=10)
-        data = response.json().get("data") or {}
-    except Exception:  # noqa: BLE001
-        return int(real_id) if str(real_id).isdigit() else 0, "", []
-    hosts = [host for host in (data.get("host_server_list") or [])
-             if host.get("host") and host.get("wss_port")]
+    data = {}
+    key = _wbi_key()
+    if key:
+        try:
+            response = requests.get(
+                "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+                params=_wbi_signed_params({"id": real_id, "type": 0}, key),
+                headers=HEADERS, cookies=_cookies(), timeout=10)
+            payload = response.json()
+            if payload.get("code") == 0:
+                data = payload.get("data") or {}
+        except Exception:  # noqa: BLE001
+            data = {}
+    if not data.get("host_list"):
+        try:
+            response = requests.get(
+                "https://api.live.bilibili.com/room/v1/Danmu/getConf",
+                params={"room_id": real_id, "platform": "pc", "player": "web"},
+                headers=HEADERS, cookies=_cookies(), timeout=10)
+            data = response.json().get("data") or {}
+        except Exception:  # noqa: BLE001
+            return int(real_id) if str(real_id).isdigit() else 0, "", []
+    hosts = []
+    seen_hosts = set()
+    for host in data.get("host_list") or data.get("host_server_list") or []:
+        key = (host.get("host"), host.get("wss_port"))
+        if not all(key) or key in seen_hosts:
+            continue
+        seen_hosts.add(key)
+        hosts.append(host)
     real = data.get("room_id") or real_id
     return (int(real) if str(real).isdigit() else 0), (data.get("token") or ""), hosts
 
