@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPointF, QThread, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QThread, Qt, Signal
 from PySide6.QtGui import QColor, QEnterEvent, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -135,12 +135,29 @@ def main() -> None:
     assert live_item.thumb.height() == NavThumb.HEIGHT
     assert live_item.thumb.height() + 12 <= NAV_ITEM_HEIGHT, "行高要放得下缩略图"
     live_item.thumb.set_cover(cover_pixmap("封面"))
+    live_item.thumb.set_face(cover_pixmap("头像"))
     settle(app, 0.2)
     print(f"  封面已设置={'是' if live_item.thumb.cover.pixmap() else '否'}"
           f" 覆盖区={live_item.thumb.cover.size().width()}x"
           f"{live_item.thumb.cover.size().height()}")
     assert live_item.thumb.cover.pixmap() and not live_item.thumb.cover.pixmap().isNull()
     assert live_item.thumb.video.isVisible() is False, "没悬停时不该有画面"
+
+    print("  头像：圆形、中间偏右、封面给它挖了孔")
+    face = live_item.thumb.face
+    rect = face.geometry()
+    centre_y = rect.y() + rect.height() / 2
+    print(f"    头像={rect.getRect()} 缩略图={live_item.thumb.width()}x"
+          f"{live_item.thumb.height()} 竖直中心={centre_y:.0f}"
+          f"（缩略图中心={live_item.thumb.height() / 2:.0f}）")
+    assert face.isVisible() and rect.width() == rect.height(), "头像必须是正方形（圆形裁切）"
+    assert rect.x() + rect.width() / 2 > live_item.thumb.width() / 2, "头像要在缩略图右半边"
+    assert abs(centre_y - live_item.thumb.height() / 2) <= 1, "头像要竖直居中"
+    hole = live_item.thumb.cover.mask()
+    assert not hole.contains(rect.center()), "头像位置必须是镂空的（不然头像会被封面压住）"
+    assert hole.contains(QPoint(2, live_item.thumb.height() // 2)), "封面别的地方还要在"
+    print(f"    镂空中心在内={hole.contains(rect.center())} 封面其它位置在内="
+          f"{hole.contains(QPoint(2, live_item.thumb.height() // 2))}")
 
     print("\n=== 2. 停够 1 秒，缩略图里直接放预览 ===")
     hover(live_item, True)

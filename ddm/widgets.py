@@ -1257,13 +1257,17 @@ class NavThumb(QFrame):
     WIDTH, HEIGHT = 76, 43          # 展开时的封面尺寸（16:9）
     COMPACT_SIZE = 32               # 收起成窄条时缩成正方
     RADIUS = 6
-    AVATAR_SIZE = 20
+    AVATAR_SIZE = 22                # 圆形头像（浮在封面右侧）
+    FACE_MARGIN = 5                 # 离缩略图右边多远
+    HOLE_GAP = 3                    # 镂空比头像大一圈，头像才像浮着
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NavThumb")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedSize(self.WIDTH, self.HEIGHT)
+        self._size = (self.WIDTH, self.HEIGHT)
+        self._player: TilePlayer | None = None
 
         self.cover = QLabel(self)
         self.cover.setObjectName("NavThumbCover")
@@ -1287,11 +1291,10 @@ class NavThumb(QFrame):
 
         self.face = Avatar("", 0, self.AVATAR_SIZE, parent=self)
         self.face.setObjectName("NavThumbFace")
-        self.face.move(2, self.HEIGHT - self.AVATAR_SIZE - 2)
+        self._place_face()
         self.face.setVisible(False)
 
-        self._player: TilePlayer | None = None
-        self._size = (self.WIDTH, self.HEIGHT)
+        self._apply_cover_mask()
 
     # ---- 外观 ----
     def set_cover(self, pixmap) -> None:
@@ -1300,12 +1303,38 @@ class NavThumb(QFrame):
         self.cover.setText("")
         self.cover.setPixmap(rounded_pixmap(pixmap, QSize(self._size[0], self._size[1]),
                                             self.RADIUS))
+        self._apply_cover_mask()
 
     def set_face(self, pixmap) -> None:
         if pixmap is None or pixmap.isNull():
             return
         self.face.set_pixmap_image(pixmap)
+        self.face.raise_()
         self.face.setVisible(not self._compact_thumb())
+
+    def _place_face(self) -> None:
+        """头像放在缩略图中间偏右（收起成窄条时居中）。"""
+        width, height = self._size
+        if self._compact_thumb():
+            self.face.move((width - self.AVATAR_SIZE) // 2,
+                           (height - self.AVATAR_SIZE) // 2)
+        else:
+            self.face.move(width - self.AVATAR_SIZE - self.FACE_MARGIN,
+                           (height - self.AVATAR_SIZE) // 2)
+
+    def _apply_cover_mask(self) -> None:
+        """封面挖一个圆孔，头像正好浮在孔里——和左上角 LIVE 浮标一样的镂空做法。"""
+        width, height = self._size
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, width, height), self.RADIUS, self.RADIUS)
+        if not self._compact_thumb():
+            hole = QPainterPath()
+            hole.addEllipse(QRectF(self.face.x() - self.HOLE_GAP,
+                                   self.face.y() - self.HOLE_GAP,
+                                   self.face.width() + self.HOLE_GAP * 2,
+                                   self.face.height() + self.HOLE_GAP * 2))
+            path = path.subtracted(hole)
+        self.cover.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def set_hint(self, text: str) -> None:
         """封面上的小提示（连接中…/取流失败），播放起来就藏掉。"""
@@ -1325,7 +1354,8 @@ class NavThumb(QFrame):
         self.cover.setGeometry(0, 0, width, height)
         self.video.setGeometry(0, 0, width, height)
         self.hint.setGeometry(0, 0, width, height)
-        self.face.move(2, max(0, height - self.AVATAR_SIZE - 2))
+        self._place_face()
+        self._apply_cover_mask()
         self.face.setVisible(bool(self.face.pixmap()) and not compact)
         if self.cover.pixmap() and not self.cover.pixmap().isNull():
             self.cover.setPixmap(rounded_pixmap(self.cover.pixmap(), QSize(width, height),
