@@ -154,10 +154,10 @@ def main() -> None:
     settle(app, 0.1)
     print(f"  砸中的瞬间：徽标={going_live.badge.text()!r}"
           f" 样式={going_live.badge.objectName()!r}"
-          f" 提示里有'刚开播'={'刚开播' in going_live.toolTip()}")
+          f" 详情提示={'有' if going_live.toolTip() else '无'}")
     assert going_live.badge.text() == "直播中", "砸中那一刻要变成「直播中」"
     assert going_live.badge.objectName() == "BadgeLive", "要变成粉色的直播中样式"
-    assert "刚开播" in going_live.toolTip(), "提示里要体现是刚开播"
+    assert not going_live.toolTip(), "鼠标停在缩略图上不应再弹出详细信息"
     assert going_live.room["live"] is True
 
     freeze(alert, LiveAlert.DROP_MS + LiveAlert.POP_MS * 0.5)      # 气泡正在弹出来

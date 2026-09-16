@@ -1,7 +1,10 @@
 """自查：弹幕格的连接对象、消息进面板、换布局/换台时断开与重连。不联网。"""
+import asyncio
 import os
 import sys
 import time
+
+import aiohttp
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QColor, QPixmap
@@ -15,6 +18,7 @@ from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm import widgets as widgets_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.danmaku import _Client, blivedm_ws_base  # noqa: E402
 
 
 def boom(room_id, quality=250):        # noqa: ANN001, ANN201
@@ -37,7 +41,7 @@ class FakeDanmakuClient(QThread):
         FakeDanmakuClient.instances.append(self)
 
     def run(self) -> None:
-        self.status.emit("已连接")
+        self.status.emit("连接中…")
         while not self._stop:
             time.sleep(0.03)
 
@@ -82,11 +86,52 @@ def is_running(thread) -> bool:
         return False
 
 
+class FakeWebSocket:
+    closed = False
+
+    async def send_bytes(self, _data) -> None:
+        return
+
+
+async def check_handshake_status() -> None:
+    """TCP 建连不算成功，必须收到鉴权成功响应后才能显示“已连接”。"""
+    async with aiohttp.ClientSession() as session:
+        statuses = []
+        client = _Client(1001, session=session,
+                         hosts=[{"host": "example.invalid", "wss_port": 443}],
+                         token="test", on_status=statuses.append)
+        client._websocket = FakeWebSocket()            # noqa: SLF001
+        await client._on_ws_connect()                  # noqa: SLF001
+        assert statuses == [], "只完成 WebSocket 建连时不能显示已连接"
+        header = blivedm_ws_base.HeaderTuple(
+            0, 16, blivedm_ws_base.ProtoVer.NORMAL,
+            blivedm_ws_base.Operation.AUTH_REPLY, 1)
+        await client._parse_business_message(header, b'{"code": 0}')  # noqa: SLF001
+        assert statuses == ["已连接"]
+        client._stopping = True                        # noqa: SLF001
+        await client._on_ws_close()                    # noqa: SLF001
+
+        failed = []
+        client = _Client(1001, session=session,
+                         hosts=[{"host": "example.invalid", "wss_port": 443}],
+                         token="bad", on_status=failed.append)
+        client._websocket = FakeWebSocket()            # noqa: SLF001
+        try:
+            await client._parse_business_message(      # noqa: SLF001
+                header, b'{"code": -101}')
+        except blivedm_ws_base.AuthError:
+            pass
+        assert failed == ["弹幕鉴权失败，准备切换服务器…"]
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
         pass
+    print("=== 0. 只有鉴权通过后才显示已连接 ===")
+    asyncio.run(check_handshake_status())
+    print("  WebSocket 建连、鉴权成功、鉴权失败三种状态区分正确")
     bili.play_url = boom
     app_module.DanmakuClient = FakeDanmakuClient
     widgets_module.AvatarLoader = FakeImageLoader      # 表情图不真的去下
@@ -108,10 +153,16 @@ def main() -> None:
     assert window.wall.has_danmaku
     assert len(FakeDanmakuClient.instances) == 1, "应该只连一路"
     assert FakeDanmakuClient.instances[-1].room_id == "1001", "要连主画面那一路"
-    assert panel.count.text() == "已连接", f"状态应显示已连接，实际 {panel.count.text()!r}"
+    assert panel.count.text() == "连接中…", "鉴权完成前右上角不能显示已连接"
+    assert panel.count.property("state") == "connecting"
+    client = FakeDanmakuClient.instances[-1]
+    window._on_danmaku_status(object(), "已连接")
+    assert panel.count.text() == "连接中…", "旧客户端的已连接信号必须被忽略"
+    window._on_danmaku_status(client, "已连接")
+    assert panel.count.text() == "已连接", f"当前客户端鉴权后应显示已连接，实际 {panel.count.text()!r}"
+    assert panel.count.property("state") == "connected"
 
     print("\n=== 2. 收到消息会进面板（弹幕 / 礼物 / SC 上色）===")
-    client = FakeDanmakuClient.instances[-1]
     client.message.emit({"kind": "danmaku", "uname": "Asaki大人", "text": "今天的直播好看",
                          "medal": {"name": "绿冻", "level": "10", "color": "#8d8366"}})
     client.message.emit({"kind": "gift", "uname": "路人甲", "text": "投喂 辣条 ×2"})
@@ -171,6 +222,31 @@ def main() -> None:
     print(f"  发了 3 条（其中 1 条命中屏蔽词、1 条是礼物），面板条数 {before} -> {panel._received}")
     assert panel._received == before + 2, "命中的弹幕要丢掉，礼物不受影响"
     window.settings["danmaku_block_words"] = []
+
+    print("\n=== 2e. 手动查看旧弹幕时不强制跳回最新 ===")
+    for index in range(45):
+        client.message.emit({"kind": "danmaku", "uname": f"用户{index}",
+                             "text": f"第 {index} 条测试消息"})
+    settle(app, 0.4)
+    scroll_bar = panel.body.verticalScrollBar()
+    assert scroll_bar.maximum() > 20
+    panel._on_scroll_pressed()                 # noqa: SLF001
+    scroll_bar.setValue(scroll_bar.maximum() // 2)
+    panel._on_scroll_released()                # noqa: SLF001
+    viewed_value = scroll_bar.value()
+    assert not panel._follow_tail              # noqa: SLF001
+    client.message.emit({"kind": "danmaku", "uname": "新消息", "text": "不要把我强行顶到底部"})
+    settle(app, 0.2)
+    print(f"  手动位置={viewed_value} 新消息后={scroll_bar.value()} 最大值={scroll_bar.maximum()}")
+    assert scroll_bar.value() == viewed_value, "用户查看旧弹幕时不能自动跳到底部"
+    panel._render_all()                        # noqa: SLF001
+    settle(app, 0.2)
+    assert scroll_bar.value() == viewed_value, "表情加载引起整页重排时也要保持阅读位置"
+    scroll_bar.setValue(scroll_bar.maximum())
+    panel._on_user_scroll()                     # noqa: SLF001
+    client.message.emit({"kind": "danmaku", "uname": "回到底部", "text": "应继续跟随最新消息"})
+    settle(app, 0.2)
+    assert scroll_bar.value() == scroll_bar.maximum(), "回到底部后应恢复自动跟随"
 
     print("\n=== 3. 换成普通布局：断开；切回弹幕布局：重新连，且不会重复连 ===")
     window.wall.set_layout("2x2")

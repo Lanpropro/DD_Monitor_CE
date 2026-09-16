@@ -47,6 +47,42 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
 
+    print("=== 0. 新增关注项立即排版，不与第一项重叠 ===")
+    added_sidebar = Sidebar([dict(ROOMS[0])])
+    added_sidebar.setGeometry(-8000, -8000, 248, 300)
+    added_sidebar.show()
+    settle(app, 0.2)
+    assert added_sidebar.add_room(dict(ROOMS[1]))
+    positions = [item.y() for item in added_sidebar.items()]
+    print("  新增后位置:", positions)
+    assert positions == [0, NAV_ITEM_HEIGHT + NAV_ITEM_GAP]
+    added_sidebar.close()
+
+    print("\n=== 0b. 开播优先持续生效，且拖动不能跨直播状态组 ===")
+    live_rooms = [
+        {"room_id": "l1", "uname": "直播1", "live": True},
+        {"room_id": "o1", "uname": "下播1", "live": False},
+        {"room_id": "l2", "uname": "直播2", "live": True},
+        {"room_id": "o2", "uname": "下播2", "live": False},
+    ]
+    live_sidebar = Sidebar([dict(room) for room in live_rooms])
+    live_sidebar.set_sort_mode("live", notify=False)
+    print("  初始分组:", order(live_sidebar))
+    assert order(live_sidebar) == ["l1", "l2", "o1", "o2"]
+    live_sidebar.reorder_item("l1", len(live_sidebar.items()))
+    print("  直播项拖到最底部后:", order(live_sidebar), "模式:", live_sidebar.sort_mode)
+    assert order(live_sidebar) == ["l2", "l1", "o1", "o2"]
+    assert live_sidebar.sort_mode == "live", "拖动后不能退出开播优先模式"
+    next(item for item in live_sidebar.items() if item.room["room_id"] == "o1").set_live(True)
+    live_sidebar.resort(animate=False)
+    print("  o1 开播后自动重排:", order(live_sidebar))
+    assert order(live_sidebar) == ["l2", "l1", "o1", "o2"]
+    next(item for item in live_sidebar.items() if item.room["room_id"] == "l2").set_live(False)
+    live_sidebar.resort(animate=False)
+    print("  l2 下播后自动重排:", order(live_sidebar))
+    assert order(live_sidebar) == ["l1", "o1", "l2", "o2"]
+    live_sidebar.close()
+
     sidebar = Sidebar([dict(room) for room in ROOMS])
     sidebar.setGeometry(-8000, -8000, 248, 700)
     sidebar.show()
@@ -143,6 +179,7 @@ def main() -> None:
     print(f"  子菜单: {tabs} 当前={picker.group()}")
     assert tabs == ["普通布局", "弹幕布局"]
     assert picker.group() == "弹幕布局", "当前布局在弹幕组里，默认应该停在这一栏"
+    compact_size = picker.size()
     visible = [card.text() for card in picker._cards["弹幕布局"] if card.isVisible()]
     print(f"  弹幕布局可见: {len(visible)} 个 -> {visible[:3]} …")
     assert len(visible) == len(layouts.DANMAKU_LAYOUTS)
@@ -156,6 +193,7 @@ def main() -> None:
     assert len(visible) == len(layouts.LAYOUTS)
     assert not any(card.isVisible() for card in picker._cards["弹幕布局"])
     assert picker._tabs["普通布局"].isChecked()
+    assert picker.size() == compact_size, "切换到普通布局时弹层不能突然向屏幕外增长"
 
     chosen: list[str] = []
     picker.chosen.connect(chosen.append)
@@ -164,6 +202,24 @@ def main() -> None:
     assert chosen == [layouts.LAYOUTS[0]["id"]]
 
     picker.close()
+    print("  打开侧栏布局菜单时应自动限制在屏幕可用区域")
+    sidebar.setGeometry(-8000, -8000, 248, 700)
+    sidebar.open_layout_picker()
+    popup = sidebar._picker
+    settle(app, 0.2)
+    screen = QApplication.primaryScreen()
+    if screen is not None:
+        area = screen.availableGeometry()
+        rect = popup.frameGeometry()
+        print(f"  菜单全局位置={rect.getRect()} 可用区域={area.getRect()}")
+        assert rect.top() >= area.top() and rect.bottom() <= area.bottom()
+        before = popup.frameGeometry()
+        popup.set_group("普通布局")
+        settle(app, 0.2)
+        after = popup.frameGeometry()
+        assert after.size() == before.size(), "切换普通布局后弹层尺寸必须保持不变"
+        assert after.top() >= area.top() and after.bottom() <= area.bottom()
+    popup.close()
     sidebar.close()
     print("\n全部通过")
 
