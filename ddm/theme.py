@@ -300,12 +300,15 @@ QSlider::handle:horizontal:hover {{
     background: rgba(0, 161, 214, 0.24);
 }}
 #NavName {{
+    color: #ffffff;
     font-size: {FONT_CONTROL}px;
-    font-weight: 600;
+    font-weight: 700;
+    background: transparent;
 }}
 #NavSub {{
-    color: {TEXT3};
+    color: rgba(238, 241, 246, 0.88);
     font-size: {FONT_CAPTION}px;
+    background: transparent;
 }}
 #NavAvatar {{
     color: {TEXT1};
@@ -599,28 +602,64 @@ QSlider::handle:horizontal:hover {{
     background: rgba(0, 161, 214, 0.85);
     color: #04161f;
 }}
+#BiliVolumeButton {{
+    background: transparent;
+    border: none;
+    border-radius: 13px;
+    padding: 0;
+}}
+#BiliVolumeButton:hover {{
+    background: rgba(0, 174, 236, 0.14);
+}}
+#BiliVolumeButton:pressed {{
+    background: rgba(0, 174, 236, 0.24);
+}}
 #TileCtrlStrip {{
     background: transparent;
 }}
 
 /* 弹幕格：占画面墙里的一整格，和别的格子同一套规格 */
 #DanmakuPanel {{
-    background: {TILE_BG};
-    border: 1px solid {BORDER};
+    background: rgba(18, 20, 25, 0.96);
+    border: none;
     border-radius: 10px;
 }}
 #DanmakuHeader {{
+    background: rgba(255, 255, 255, 0.025);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}}
+#DanmakuDot {{
+    color: {PINK};
+    font-size: 8px;
     background: transparent;
-    border-bottom: 1px solid {BORDER};
 }}
 #DanmakuTitle {{
     color: {TEXT1};
     font-size: {FONT_CAPTION}px;
-    font-weight: 600;
+    font-weight: 700;
 }}
 #DanmakuCount {{
-    color: {TEXT4};
+    color: {TEXT3};
+    background: rgba(131, 131, 145, 0.16);
+    border-radius: 9px;
+    padding: 0 8px;
     font-size: {FONT_CAPTION}px;
+}}
+#DanmakuCount[state="connected"] {{
+    color: #6bd8ff;
+    background: rgba(0, 174, 236, 0.16);
+}}
+#DanmakuCount[state="connecting"] {{
+    color: {WARNING};
+    background: rgba(251, 191, 36, 0.14);
+}}
+#DanmakuCount[state="error"] {{
+    color: #ff9abb;
+    background: rgba(251, 114, 153, 0.15);
+}}
+#DanmakuCount[state="idle"] {{
+    color: {TEXT4};
+    background: rgba(131, 131, 145, 0.13);
 }}
 #DanmakuBody {{
     background: transparent;
@@ -644,8 +683,8 @@ QSlider::handle:horizontal:hover {{
     height: 0;
 }}
 #DanmakuBar {{
-    background: rgba(10, 11, 13, 0.72);
-    border-radius: {RADIUS_MD}px;
+    background: rgba(10, 11, 13, 0.52);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
 }}
 #DanmakuBarLabel {{
     color: {TEXT3};
@@ -659,12 +698,12 @@ QSlider::handle:horizontal:hover {{
     background: rgba(26, 29, 35, 0.92);
 }}
 
-/* ---------- 关注列表的封面缩略图 ---------- */
+/* ---------- 关注列表的封面卡片 ---------- */
 #NavThumb {{
-    background: transparent;      /* 镂空处露出的是侧栏底色，头像才像浮着 */
+    background: transparent;
 }}
 #NavThumbCover {{
-    background: transparent;
+    background: rgba(18, 20, 25, 0.82);
     color: {TEXT4};
     font-size: {FONT_CAPTION}px;
     border-radius: 6px;
@@ -679,8 +718,7 @@ QSlider::handle:horizontal:hover {{
     border-radius: 6px;
 }}
 #NavThumbFace {{
-    border-radius: 11px;          /* 头像始终是圆形（圆环浮在镂空里） */
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 14px;          /* 没头像时的字母底色也保持圆形 */
 }}
 #PauseOverlay QLabel {{
     color: {TEXT1};

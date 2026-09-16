@@ -23,6 +23,7 @@ DEFAULT_SETTINGS = {
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
     "default_muted": True,    # 新加进画面墙的直播间默认静音
     "default_volume": DEFAULT_VOLUME,
+    "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
     "live_alert": True,         # 关注的主播开播时，列表上播水滴 + 「开播了」气泡
     "danmaku_font": "",       # 弹幕字体（空 = 跟主题默认字体）
@@ -100,7 +101,14 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     for slot in wall_slots:
         room_id = str(slot.get("room_id") or "")
         if not room_id:
-            wall.append({"room_id": ""})        # 空格子：布局里保留位置
+            # 空格子也保留格子设置；之后拖入主播时音量应沿用这个位置的值。
+            wall.append({
+                "room_id": "",
+                "muted": bool(slot.get("muted", True)),
+                "volume": int(slot.get("volume", DEFAULT_VOLUME)),
+                "quality": int(slot.get("quality", 250)),
+                "audio_channel": int(slot.get("audio_channel", 0)),
+            })
             continue
         room = dict(infos.get(room_id) or {})
         room["muted"] = bool(slot.get("muted", True))
