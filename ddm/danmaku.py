@@ -20,6 +20,7 @@ if config_module.REPO not in sys.path:
 try:
     import aiohttp
     import blivedm
+    from blivedm.clients import ws_base as blivedm_ws_base
     IMPORT_ERROR = ""
     # blivedm 会把没处理的消息类型（LIKE_INFO_V3_CLICK、INTERACT_WORD_V2…）
     # 一条条写进 stderr，控制台会被刷屏，这里只留错误
@@ -29,6 +30,7 @@ except Exception as error:              # noqa: BLE001
     # aiohttp / brotli 没装时，弹幕用不了，但别让整个程序起不来
     aiohttp = None
     blivedm = None
+    blivedm_ws_base = None
     IMPORT_ERROR = f"{type(error).__name__}: {error}"
 
 
@@ -123,9 +125,12 @@ class _Client(_ClientBase):
         self._host_server_list = list(hosts or [])
         self._host_server_token = token or None
         self._on_status = on_status
+        self._authenticated = False
+        self._auth_failed = False
+        self._stopping = False
 
     async def init_room(self) -> bool:
-        """跳过官方的初始化流程（getDanmuInfo 会 403/-352），只用取好的服务器信息。"""
+        """服务器信息已在外面签名取得，这里补齐用户和浏览器标识。"""
         if self._uid is None:
             try:
                 await self._init_uid()          # 有 SESSDATA 才会真的发请求
@@ -133,12 +138,46 @@ class _Client(_ClientBase):
                 pass
             if self._uid is None:
                 self._uid = 0
+        if self._get_buvid() == "":
+            try:
+                await self._init_buvid()
+            except Exception:                   # noqa: BLE001
+                pass
         return bool(self._host_server_list)
 
     async def _on_ws_connect(self):
+        self._authenticated = False
+        self._auth_failed = False
         await super()._on_ws_connect()
-        if self._on_status is not None:
-            self._on_status("已连接")
+
+    async def _parse_business_message(self, header, body):
+        """必须等服务端鉴权响应成功，才能向界面报告“已连接”。"""
+        try:
+            await super()._parse_business_message(header, body)
+        except blivedm_ws_base.AuthError:
+            self._auth_failed = True
+            if self._on_status is not None:
+                self._on_status("弹幕鉴权失败，准备切换服务器…")
+            raise
+        if header.operation == blivedm_ws_base.Operation.AUTH_REPLY:
+            self._authenticated = True
+            if self._on_status is not None:
+                self._on_status("已连接")
+
+    async def _on_ws_close(self):
+        was_authenticated = self._authenticated
+        await super()._on_ws_close()
+        self._authenticated = False
+        if self._stopping or self._on_status is None or self._auth_failed:
+            return
+        if was_authenticated:
+            self._on_status("弹幕连接中断，准备重连…")
+        else:
+            self._on_status("弹幕连接失败，准备切换服务器…")
+
+    def stop(self):
+        self._stopping = True
+        super().stop()
 
     async def _on_before_ws_connect(self, retry_count):
         await super()._on_before_ws_connect(retry_count)

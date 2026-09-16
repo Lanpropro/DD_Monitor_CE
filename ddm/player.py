@@ -46,6 +46,10 @@ class TilePlayer(QObject):
     """一个格子的播放器：直连 http FLV，带 Referer / UA。"""
 
     stateChanged = Signal(str)   # idle / connecting / playing / error
+    pictureActivity = Signal()   # 截图重新发生变化；用来取消画面静止后的重试
+
+    PICTURE_POLL_MS = 1000
+    FROZEN_TICKS = 2             # 连续 2 秒截图不变就认为画面停止更新
 
     def __init__(self, video_widget, parent=None):
         super().__init__(parent)
@@ -74,6 +78,9 @@ class TilePlayer(QObject):
         self._watch = QTimer(self)
         self._watch.setInterval(1500)
         self._watch.timeout.connect(self._check)
+        self._picture_watch = QTimer(self)
+        self._picture_watch.setInterval(self.PICTURE_POLL_MS)
+        self._picture_watch.timeout.connect(self._check_picture_tick)
 
     # ---- 生命周期 ----
     def bind(self) -> None:
@@ -98,12 +105,18 @@ class TilePlayer(QObject):
         self.player.play()
         self._stall_ticks = 0
         self._last_time = None
+        self._last_picture = None
+        self._frozen_ticks = 0
         self._set_state("connecting")
         self._watch.start()
+        self._picture_watch.start()
 
     def stop(self) -> None:
         self._watch.stop()
+        self._picture_watch.stop()
         self.player.stop()
+        self._last_picture = None
+        self._frozen_ticks = 0
         self._set_state("idle")
 
     def release(self) -> None:
@@ -111,6 +124,7 @@ class TilePlayer(QObject):
             return
         self._released = True
         self._watch.stop()
+        self._picture_watch.stop()
         try:
             self.player.stop()
         except Exception:  # noqa: BLE001
@@ -142,10 +156,17 @@ class TilePlayer(QObject):
         """暂停 / 继续（不停取流，继续时直接接上）。"""
         self.paused = bool(paused)
         self.player.set_pause(1 if self.paused else 0)
-        if not self.paused:
+        if self.paused:
+            self._picture_watch.stop()
+            self._last_picture = None
+            self._frozen_ticks = 0
+        else:
             self._last_time = None          # 继续后重新计时，避免被误判成卡顿
             self._stall_ticks = 0
+            self._last_picture = None
+            self._frozen_ticks = 0
             self._watch.start()
+            self._picture_watch.start()
 
     # ---- 画面卡死检测 ----
     def _picture_signature(self):
@@ -174,12 +195,27 @@ class TilePlayer(QObject):
         signature = self._picture_signature()
         if signature is None:
             return False
-        if signature == self._last_picture:
+        previous = self._last_picture
+        if signature == previous:
             self._frozen_ticks += 1
         else:
             self._frozen_ticks = 0
         self._last_picture = signature
-        return self._frozen_ticks >= 5      # 约 7.5 秒画面完全没变
+        if previous is not None and signature != previous:
+            self.pictureActivity.emit()
+            if self.state == "frozen":
+                self._set_state("playing")
+        return self._frozen_ticks >= self.FROZEN_TICKS
+
+    def _check_picture_tick(self) -> None:
+        """独立于缓冲检测，每秒检查一次真实画面是否仍在变化。"""
+        if self.paused:
+            self._check_picture(False)
+            return
+        state = self.player.get_state()
+        width, _ = self.player.video_get_size(0)
+        if self._check_picture(state == vlc.State.Playing and bool(width)):
+            self._set_state("frozen")
 
     # ---- 状态 ----
     def _set_state(self, state: str) -> None:
@@ -199,12 +235,9 @@ class TilePlayer(QObject):
 
         if state == vlc.State.Playing and width and (advanced or self._stall_ticks == 0):
             self._stall_ticks = 0
-            if self._check_picture(True):
-                self._set_state("frozen")   # 只提示，不重连（静止画面也可能误报）
-            else:
+            if self.state != "frozen":
                 self._set_state("playing")
             return
-        self._check_picture(False)
         if state in (vlc.State.Ended, vlc.State.Error, vlc.State.Stopped):
             self._stall_ticks += 2
         else:
