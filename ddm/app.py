@@ -32,6 +32,7 @@ MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
 RETRY_BASE_SECONDS = 5           # 断流后的重连间隔（指数退避）
 RETRY_MAX_SECONDS = 60
+FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
 DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 
@@ -91,6 +92,8 @@ class MainWindow(QMainWindow):
         self._stats_poller = None
         self._retry_count: dict[object, int] = {}
         self._retry_timers: dict[object, QTimer] = {}
+        self._freeze_refreshed: set[object] = set()
+        self._freeze_retry_timers: dict[object, QTimer] = {}
         self._previous_layout: str | None = None
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
@@ -104,7 +107,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.sidebar = Sidebar(rooms)
+        self.sidebar = Sidebar(
+            rooms,
+            card_mode=bool(self.settings.get("sidebar_card_mode", True)),
+        )
         layout.addWidget(self.sidebar)
 
         right = QWidget()
@@ -219,7 +225,8 @@ class MainWindow(QMainWindow):
                 {
                     "room_id": str(tile.room.get("room_id") or ""),
                     "muted": bool(tile.muted),
-                    "volume": int(tile.room.get("volume", config_module.DEFAULT_VOLUME)),
+                    # 音量属于格子；即使格子为空也要保存，重启后继续沿用。
+                    "volume": int(tile.volume),
                     "quality": int(tile.quality),
                     "audio_channel": int(tile.audio_channel),
                 }
@@ -242,6 +249,9 @@ class MainWindow(QMainWindow):
         config_module.save(self.current_state())
         self.stop_danmaku()
         self.hover_preview.stop()
+        for timer in self._freeze_retry_timers.values():
+            timer.stop()
+        self._freeze_retry_timers.clear()
         for player in self.players.values():
             player.release()
         self._wait_background()
@@ -340,6 +350,7 @@ class MainWindow(QMainWindow):
         if player is None:
             player = TilePlayer(tile.video, self)
             player.stateChanged.connect(lambda state, t=tile: self._on_player_state(t, state))
+            player.pictureActivity.connect(lambda t=tile: self._on_picture_activity(t))
             self.players[tile] = player
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         player.set_volume(int(tile.volume))
@@ -350,6 +361,9 @@ class MainWindow(QMainWindow):
     def _on_resolve_failed(self, tile, reason: str) -> None:
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
+        self.refresh_status()       # 取不到流时立刻确认是否已经下播
+        if tile in self._freeze_refreshed:
+            self._on_picture_frozen(tile)
 
     def _on_player_state(self, tile, state: str) -> None:
         if not tile.room.get("room_id"):
@@ -366,16 +380,63 @@ class MainWindow(QMainWindow):
         elif state == "buffering":
             tile.set_buffering(True)         # 卡顿时也显示缓冲动画
         elif state == "frozen":
-            # 时钟还在走但画面完全没变化：只提示，不重连（静止画面可能误报）
-            tile.set_status("画面已停止更新…")
+            self._on_picture_frozen(tile)
         elif state == "error":
+            self._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
+            self.refresh_status()           # 断流可能来自下播，立即向接口确认
             self._schedule_retry(tile)
         else:
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
         tile.raise_overlays()
+
+    def _on_picture_frozen(self, tile) -> None:
+        """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
+        if not tile.room.get("room_id") or tile.paused:
+            return
+        if tile not in self._freeze_refreshed:
+            self._freeze_refreshed.add(tile)
+            tile.set_status("画面停止更新，正在自动刷新…")
+            print(f"[画面静止] {tile.room.get('uname')} 自动刷新",
+                  file=sys.stderr, flush=True)
+            self.refresh_status()           # 静止可能来自下播；接口确认后会同步清屏和侧栏
+            self.start_tile(tile)
+            return
+        if tile in self._freeze_retry_timers:
+            return
+        tile.set_status(f"画面仍停止更新，{FREEZE_RETRY_SECONDS} 秒后再次刷新…")
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda t=tile: self._retry_frozen_picture(t))
+        self._freeze_retry_timers[tile] = timer
+        timer.start(FREEZE_RETRY_SECONDS * 1000)
+
+    def _retry_frozen_picture(self, tile) -> None:
+        self._freeze_retry_timers.pop(tile, None)
+        if not tile.room.get("room_id") or tile.paused:
+            return
+        tile.set_status("画面仍停止更新，正在再次刷新…")
+        print(f"[画面静止] {tile.room.get('uname')} 5 秒后再次刷新",
+              file=sys.stderr, flush=True)
+        self.start_tile(tile)
+
+    def _on_picture_activity(self, tile) -> None:
+        """画面重新变化后结束静止恢复流程，不再执行排队中的刷新。"""
+        was_recovering = tile in self._freeze_refreshed
+        self._clear_freeze_recovery(tile)
+        if was_recovering:
+            tile.set_status("")
+            print(f"[画面恢复] {tile.room.get('uname')} 已恢复更新",
+                  file=sys.stderr, flush=True)
+
+    def _clear_freeze_recovery(self, tile) -> None:
+        timer = self._freeze_retry_timers.pop(tile, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._freeze_refreshed.discard(tile)
 
     def _schedule_retry(self, tile) -> None:
         """断流自动重连：5 秒起，逐次翻倍，最多 60 秒。"""
@@ -405,6 +466,7 @@ class MainWindow(QMainWindow):
             self.start_tile(tile)
 
     def _stop_tile(self, tile) -> None:
+        self._clear_freeze_recovery(tile)
         player = self.players.pop(tile, None)
         if player is not None:
             player.release()
@@ -544,13 +606,17 @@ class MainWindow(QMainWindow):
             self.sidebar.set_refreshing(False)
 
     def _on_status_updated(self, status: dict) -> None:
+        # 画面格可能直接持有侧栏条目的 room 字典。必须先记住两边旧状态，
+        # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
+        tile_was_live = {tile: bool(tile.room.get("live")) for tile in self.wall.tiles}
+        item_was_live = {item: bool(item.room.get("live")) for item in self.sidebar._items}
         faces: dict[str, str] = {}
         covers: dict[str, str] = {}
         for tile in self.wall.tiles:
             info = status.get(str(tile.room.get("room_id") or ""))
             if not info:
                 continue
-            was_live = bool(tile.room.get("live"))
+            was_live = tile_was_live[tile]
             tile.set_live(info["live"], info["viewers"])
             if was_live and not info["live"]:
                 self._offline_tile(tile)          # 刚下播：黑屏但保留这一格
@@ -563,9 +629,9 @@ class MainWindow(QMainWindow):
             info = status.get(str(item.room.get("room_id")))
             if not info:
                 continue
-            was_live = bool(item.room.get("live"))
+            was_live = item_was_live[item]
             if info["title"]:
-                item.room["title"] = info["title"]
+                item.set_title(info["title"])
             cover = info.get("cover_url") or ""
             if cover and cover != item.room.get("cover_url"):
                 item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
@@ -577,7 +643,8 @@ class MainWindow(QMainWindow):
                     print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
                 else:
                     item.set_live(True)
-            elif was_live != bool(info["live"]):
+            else:
+                # 即使数据字典已被画面格更新，也要强制刷新侧栏徽标样式和文字。
                 item.set_live(info["live"])
             face = info.get("face")
             if face and face != item.room.get("face"):
@@ -608,6 +675,7 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_volume(value)
+        self._save_timer.start()       # 滑块停下 700ms 后保存每个格子的音量
 
     def _on_audio_changed(self, room: dict, value: int) -> None:
         tile = self._tile_of(str(room.get("room_id")))
@@ -630,10 +698,12 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_muted(muted)
+        self._save_timer.start()       # 静音也是格子状态，和音量一起记住
 
     def _on_reload(self, room: dict) -> None:
         tile = self._tile_of(str(room.get("room_id")))
         if tile is not None:
+            self._clear_freeze_recovery(tile)
             self.start_tile(tile)
 
     def _on_pause_toggled(self, room: dict) -> None:
@@ -922,9 +992,12 @@ class MainWindow(QMainWindow):
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         panel = self.wall.danmaku
         panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
+        panel.set_status("连接中…")
         client = DanmakuClient(room_id, self)
-        client.message.connect(self._on_danmaku_message)
-        client.status.connect(self._on_danmaku_status)
+        client.message.connect(
+            lambda event, source=client: self._on_danmaku_message(source, event))
+        client.status.connect(
+            lambda text, source=client: self._on_danmaku_status(source, text))
         client.finished.connect(client.deleteLater)
         self._danmaku = client
         self._danmaku_room = str(room_id)
@@ -959,7 +1032,11 @@ class MainWindow(QMainWindow):
         self._save_timer.start()
 
     def apply_preview_settings(self) -> None:
-        """悬停预览的开关。"""
+        """关注列表样式与悬停预览开关。"""
+        card_mode = bool(self.settings.get("sidebar_card_mode", True))
+        if self.sidebar.card_mode != card_mode:
+            self.hover_preview.stop()
+            self.sidebar.set_card_mode(card_mode)
         self.hover_preview.enabled = bool(self.settings.get("preview_on_hover", True))
         if not self.hover_preview.enabled:
             self.hover_preview.stop()
@@ -973,13 +1050,17 @@ class MainWindow(QMainWindow):
         lowered = str(text).lower()
         return any(word.lower() in lowered for word in words)
 
-    def _on_danmaku_message(self, event: dict) -> None:
+    def _on_danmaku_message(self, source, event: dict) -> None:
+        if source is not self._danmaku:
+            return                         # 已切换房间，忽略旧线程排队中的消息
         kind = event.get("kind") or "danmaku"
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
         self.wall.danmaku.add_event(event)
 
-    def _on_danmaku_status(self, text: str) -> None:
+    def _on_danmaku_status(self, source, text: str) -> None:
+        if source is not self._danmaku:
+            return                         # 旧连接不能覆盖当前连接的状态
         self.wall.danmaku.set_status(text)
 
     # ---- 快捷键 ----
