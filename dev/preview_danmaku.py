@@ -148,6 +148,9 @@ def main() -> None:
         tile.set_cover(cover_pixmap(room["uname"], COLORS[index % len(COLORS)]))
         tile.set_watched(room["online"])
         tile.start_elapsed_timer()
+    for index, entry in enumerate(window.sidebar.items()):
+        entry.thumb.set_cover(cover_pixmap(entry.room["uname"],
+                                           COLORS[index % len(COLORS)]))
     window.wall.set_layout("dm_main3")
     window.sidebar.set_layout_name("dm_main3")
     window._refresh_meta()

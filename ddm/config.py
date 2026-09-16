@@ -23,7 +23,7 @@ DEFAULT_SETTINGS = {
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
     "default_muted": True,    # 新加进画面墙的直播间默认静音
     "default_volume": DEFAULT_VOLUME,
-    "preview_on_hover": True,   # 鼠标停在关注列表的直播上 2 秒，弹个小画面预览
+    "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
     "live_alert": True,         # 关注的主播开播时，列表上播水滴 + 「开播了」气泡
     "danmaku_font": "",       # 弹幕字体（空 = 跟主题默认字体）
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）

@@ -134,7 +134,7 @@ def main() -> None:
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.5)
     item = sidebar.items()[0]
-    avatar = item.avatar
+    avatar = item.thumb                    # 条目左边现在是封面缩略图
     left = avatar.x()
     right = item.width() - (avatar.x() + avatar.width())
     print(f"  侧栏宽={sidebar.width()} 卡片宽={item.width()} 头像={avatar.geometry().getRect()}"
@@ -167,7 +167,7 @@ def main() -> None:
     settle(app, 0.5)
     scrollbar = sidebar.scroll.verticalScrollBar()
     items = sidebar.items()
-    centers = [entry.avatar.x() + entry.avatar.width() / 2 for entry in items]
+    centers = [entry.thumb.x() + entry.thumb.width() / 2 for entry in items]
     account_center = account_avatar.x() + account_avatar.width() / 2
     print(f"  列表 {len(items)} 项 视口宽={sidebar.scroll.viewport().width()}"
           f" 卡片宽={items[0].width()} 滚动范围={scrollbar.maximum()}"

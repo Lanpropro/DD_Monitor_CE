@@ -545,6 +545,7 @@ class MainWindow(QMainWindow):
 
     def _on_status_updated(self, status: dict) -> None:
         faces: dict[str, str] = {}
+        covers: dict[str, str] = {}
         for tile in self.wall.tiles:
             info = status.get(str(tile.room.get("room_id") or ""))
             if not info:
@@ -565,6 +566,10 @@ class MainWindow(QMainWindow):
             was_live = bool(item.room.get("live"))
             if info["title"]:
                 item.room["title"] = info["title"]
+            cover = info.get("cover_url") or ""
+            if cover and cover != item.room.get("cover_url"):
+                item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
+                covers[str(item.room.get("room_id"))] = cover
             if info["live"] and not was_live:
                 # 刚开播：让动效负责把「未开播」砸成「直播中」
                 if self.settings.get("live_alert", True):
@@ -579,6 +584,9 @@ class MainWindow(QMainWindow):
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
+        if covers:
+            self._aside_cover_loader = self._start_avatar_loader(
+                covers, self._on_room_cover, subdir="covers")
         if faces:
             loader = AvatarLoader(faces, self)
             loader.loaded.connect(self._on_room_avatar)
@@ -753,23 +761,30 @@ class MainWindow(QMainWindow):
         loader.start()
 
     def load_room_avatars(self) -> None:
-        """把关注列表里的主播头像换成真实头像。"""
-        items = {str(room.get("room_id")): room.get("face")
-                 for room in self.sidebar.rooms() if room.get("face")}
-        loader = self._start_avatar_loader(items, self._on_room_avatar)
-        self._room_avatar_loader = loader
+        """把关注列表里的主播头像和封面缩略图换成真实的。"""
+        rooms = self.sidebar.rooms()
+        faces = {str(room.get("room_id")): room.get("face")
+                 for room in rooms if room.get("face")}
+        covers = {str(room.get("room_id")): room.get("cover_url")
+                  for room in rooms if room.get("cover_url")}
+        self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
+        self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
+                                                       subdir="covers")
 
     def load_avatars_for(self, rooms: list) -> None:
-        """刚加进来的房间立刻取头像，不用等下一轮状态刷新。"""
-        items = {str(room.get("room_id")): room.get("face")
+        """刚加进来的房间立刻取头像和封面，不用等下一轮状态刷新。"""
+        faces = {str(room.get("room_id")): room.get("face")
                  for room in rooms if room.get("face")}
-        self._start_avatar_loader(items, self._on_room_avatar)
+        covers = {str(room.get("room_id")): room.get("cover_url")
+                  for room in rooms if room.get("cover_url")}
+        self._start_avatar_loader(faces, self._on_room_avatar)
+        self._start_avatar_loader(covers, self._on_room_cover, subdir="covers")
 
-    def _start_avatar_loader(self, items: dict, slot):
+    def _start_avatar_loader(self, items: dict, slot, subdir: str = "avatars"):
         """统一的头像下载：线程都留个引用，关窗时好等它们收尾。"""
         if not items:
             return None
-        loader = AvatarLoader(items, self)
+        loader = AvatarLoader(items, self, subdir=subdir)
         loader.loaded.connect(slot)
         loader.finished.connect(loader.deleteLater)
         self._avatar_loaders = [item for item in self._avatar_loaders
@@ -788,7 +803,13 @@ class MainWindow(QMainWindow):
     def _on_room_avatar(self, room_id: str, pixmap) -> None:
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
-                item.avatar.set_pixmap_image(pixmap)
+                item.thumb.set_face(pixmap)
+                return
+
+    def _on_room_cover(self, room_id: str, pixmap) -> None:
+        for item in self.sidebar._items:            # noqa: SLF001
+            if str(item.room.get("room_id")) == str(room_id):
+                item.thumb.set_cover(pixmap)
                 return
 
     def logout(self) -> None:
