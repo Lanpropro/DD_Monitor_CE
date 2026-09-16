@@ -107,6 +107,10 @@ def main() -> None:
     settle(app, 1.0)
 
     item = window.sidebar.items()[1]          # 第二行：气泡正好能盖到上面那一行
+    for index, entry in enumerate(window.sidebar.items()):     # 缩略图也给张封面
+        pixmap = QPixmap(320, 180)
+        pixmap.fill(QColor(["#3d5a80", "#5f4b8b", "#2d6a4f"][index % 3]))
+        entry.thumb.set_cover(pixmap)
     item.play_live_alert_demo()
     settle(app, 0.1)
     alert = item._alert                       # noqa: SLF001

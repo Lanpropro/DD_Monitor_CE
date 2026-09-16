@@ -12,7 +12,9 @@ sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import layouts, theme  # noqa: E402
-from ddm.widgets import LayoutPicker, Sidebar  # noqa: E402
+from ddm.widgets import (  # noqa: E402
+    NAV_ITEM_GAP, NAV_ITEM_HEIGHT, LayoutPicker, Sidebar,
+)
 
 ROOMS = [{"room_id": f"100{index}", "uname": f"主播{index}", "title": f"房间{index}",
           "live": index % 2 == 0}
@@ -101,13 +103,15 @@ def main() -> None:
           f" 其余卡片位置={[entry.y() for entry in others]}"
           f" 列表高度={sidebar.list_box.minimumHeight()}")
     assert not held.isVisible(), "抓起来的那张要从列表里拿掉"
-    assert others[1].y() >= others[0].y() + 56, "落点位置要空出一格"
+    pitch = NAV_ITEM_HEIGHT + NAV_ITEM_GAP
+    assert others[1].y() >= others[0].y() + pitch - NAV_ITEM_GAP, "落点位置要空出一格"
     sidebar.show_drop_indicator(None, 0)
     settle(app, 0.4)
     print(f"  恢复后：全部可见={all(entry.isVisible() for entry in sidebar.items())}"
           f" 位置={[entry.y() for entry in sidebar.items()]}")
     assert all(entry.isVisible() for entry in sidebar.items())
-    assert [entry.y() for entry in sidebar.items()] == [0, 58, 116, 174, 232]
+    assert [entry.y() for entry in sidebar.items()] == [index * pitch
+                                                       for index in range(5)]
 
     print("\n=== 8. 松手结算：列表内排序 / 列表外只放回去 ===")
     inside = sidebar.list_box.mapToGlobal(QPointF(20, sidebar.list_box.slot_height() * 1.2)

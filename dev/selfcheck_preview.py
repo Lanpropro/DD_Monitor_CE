@@ -1,10 +1,10 @@
-"""自查：悬停 2 秒预览（开播才弹、静音、离开就收、开关生效）。不联网。"""
+"""自查：关注列表缩略图（封面）+ 悬停 1 秒在缩略图里放预览。不联网。"""
 import os
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QThread, Qt, Signal
-from PySide6.QtGui import QEnterEvent
+from PySide6.QtCore import QEvent, QPointF, QThread, Qt, Signal
+from PySide6.QtGui import QColor, QEnterEvent, QPixmap
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +15,7 @@ from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm import preview as preview_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.widgets import NAV_ITEM_HEIGHT, NavThumb  # noqa: E402
 
 
 def boom(room_id, quality=250):        # noqa: ANN001, ANN201
@@ -36,6 +37,7 @@ class FakeResolver(QThread):
         FakeResolver.started.append((self.room_id, self.quality))
 
     def run(self) -> None:
+        time.sleep(0.05)
         self.resolved.emit(self.room_id, "https://example.invalid/live.flv",
                            self.quality, "web", [])
 
@@ -63,7 +65,7 @@ ROOMS = [
 ]
 
 
-def settle(app, seconds):
+def settle(app, seconds: float) -> None:
     deadline = time.time() + seconds
     while time.time() < deadline:
         app.processEvents()
@@ -71,11 +73,7 @@ def settle(app, seconds):
 
 
 def wait_for(predicate, timeout: float = 4.0) -> bool:
-    """等条件成立再返回。
-
-    有网络时 VLC 释放播放器会卡一下 GUI 线程，定时器可能比预期晚触发，
-    所以"应该出现/应该消失"都按条件轮询，而不是死等固定时间。
-    """
+    """等条件成立再返回（有网络时播放器释放可能拖慢事件循环，别死等固定时间）。"""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
@@ -101,6 +99,12 @@ def hover(item, entering: bool) -> None:
         QApplication.sendEvent(item, QEvent(QEvent.Leave))
 
 
+def cover_pixmap(text: str) -> QPixmap:
+    pixmap = QPixmap(320, 180)
+    pixmap.fill(QColor("#3d5a80"))
+    return pixmap
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(errors="replace")
@@ -120,123 +124,109 @@ def main() -> None:
     window.show()
     settle(app, 1.0)
     preview = window.hover_preview
-    widget = preview.widget
-
-    print("=== 1. 停在开播的条目上 1 秒才弹 ===")
     live_item = item_of(window, "1001")
+
+    print("=== 1. 每一条都有封面缩略图 ===")
+    thumbs = {str(item.room.get("room_id")): item.thumb for item in window.sidebar.items()}
+    print(f"  条目数={len(thumbs)} 缩略图={NavThumb.WIDTH}x{NavThumb.HEIGHT}"
+          f" 行高={NAV_ITEM_HEIGHT}")
+    assert len(thumbs) == len(ROOMS)
+    assert live_item.thumb.width() == NavThumb.WIDTH
+    assert live_item.thumb.height() == NavThumb.HEIGHT
+    assert live_item.thumb.height() + 12 <= NAV_ITEM_HEIGHT, "行高要放得下缩略图"
+    live_item.thumb.set_cover(cover_pixmap("封面"))
+    settle(app, 0.2)
+    print(f"  封面已设置={'是' if live_item.thumb.cover.pixmap() else '否'}"
+          f" 覆盖区={live_item.thumb.cover.size().width()}x"
+          f"{live_item.thumb.cover.size().height()}")
+    assert live_item.thumb.cover.pixmap() and not live_item.thumb.cover.pixmap().isNull()
+    assert live_item.thumb.video.isVisible() is False, "没悬停时不该有画面"
+
+    print("\n=== 2. 停够 1 秒，缩略图里直接放预览 ===")
     hover(live_item, True)
     settle(app, 0.6)
-    print(f"  停 0.6 秒：可见={widget.isVisible()}（应该还没有）")
-    assert not widget.isVisible(), "不到 1 秒不该弹出来"
-    assert wait_for(lambda: widget.isVisible()), "停够 1 秒应该弹出来"
-    print(f"  停 1.3 秒：可见={widget.isVisible()} 房间={widget.room_id}"
-          f" 内部状态={widget.state!r} 提示={widget.toolTip()!r}")
-    assert widget.isVisible() and widget.room_id == "1001"
-    assert widget.toolTip() == "", "小窗上不该再有任何悬停提示"
+    print(f"  停 0.6 秒：画面可见={live_item.thumb.video.isVisible()}（应该还没有）")
+    assert not live_item.thumb.video.isVisible()
+    assert wait_for(lambda: live_item.thumb.video.isVisible()), "停够 1 秒应该开始播"
+    player = live_item.thumb._player                       # noqa: SLF001
+    print(f"  停 1 秒后：画面可见=True 播放器={player is not None}"
+          f" 请求画质={FakeResolver.started[-1][1]}")
+    assert player is not None
     assert FakeResolver.started and FakeResolver.started[-1][0] == "1001"
-    assert FakeResolver.started[-1][1] <= 250, "预览要用低画质，别占带宽"
+    assert FakeResolver.started[-1][1] <= 250, "预览要用低画质"
 
-    print("\n=== 1b. 窗口里只有画面，没有标题栏 ===")
-    video = widget.video
-    print(f"  窗口={widget.width()}x{widget.height()}"
-          f" 画面区={video.width()}x{video.height()}"
-          f" 有标题栏={hasattr(widget, 'title')}")
-    from PySide6.QtWidgets import QLabel
-    assert not hasattr(widget, "title"), "标题栏应该去掉"
-    assert isinstance(widget.state, str), "状态只是一段文字（写日志用），不该是控件"
-    assert not widget.findChildren(QLabel), "小窗里不该有任何文字控件"
-    assert video.width() == widget.width() and video.height() == widget.height(), \
-        "画面要占满整个小窗"
-
-    print("\n=== 2. 预览是静音的 ===")
-    assert wait_for(lambda: widget._player is not None), "取流回调之后应该已经建好播放器"
-    player = widget._player                      # noqa: SLF001
-    assert player is not None, "应该已经建好播放器"
+    print("\n=== 3. 预览是静音的 ===")
     print(f"  静音={player.muted} 音量={player.volume} 卡死检测={player.freeze_watch}")
     assert player.muted is True and player.volume == 0
-    assert player.freeze_watch is False, "预览不用做卡死检测"
+    assert player.freeze_watch is False
+    print(f"  播放时角标已收起={not live_item.thumb.face.isVisible()}")
+    assert not live_item.thumb.face.isVisible(), "原生画面会盖住角标，播放时要藏起来"
 
-    print("\n=== 3. 位置：往左压住侧栏约 1/3，并且是圆角 ===")
-    sidebar_width = window.sidebar.width()
-    item_right = live_item.mapToGlobal(
-        QPoint(live_item.width() + 6, 0)).x()          # 和 preview 内部用的是同一个锚点
-    anchor = preview._anchor(live_item.room, clamp=False)          # noqa: SLF001
-    expected_x = item_right - sidebar_width // 3
-    print(f"  侧栏宽={sidebar_width} 条目右边={item_right}"
-          f" 小窗左边={anchor.x()}（期望 {expected_x}）"
-          f" 尺寸={widget.width()}x{widget.height()}")
-    assert anchor.x() == expected_x, "应该往左挪侧栏宽度的 1/3"
-    assert sidebar_width // 3 < sidebar_width, "复查：只压住一部分，不会盖满整个列表"
-    if hasattr(widget, "mask"):
-        region = widget.mask()
-        corners = [QPoint(0, 0), QPoint(widget.width() - 1, 0),
-                   QPoint(0, widget.height() - 1),
-                   QPoint(widget.width() - 1, widget.height() - 1)]
-        centre = QPoint(widget.width() // 2, widget.height() // 2)
-        cut = [not region.contains(point) for point in corners]
-        print(f"  圆角遮罩：四个角被切掉={cut} 中心还在={region.contains(centre)}"
-              f"（{widget.width()}x{widget.height()}）")
-        assert not region.isEmpty(), "圆角遮罩应该生效"
-        assert all(cut), "四个角应该被切掉（这就是圆角）"
-        assert region.contains(centre), "窗口中间不能被裁掉"
-        assert not region.contains(QPoint(2, 2)), "靠角的地方也要裁掉"
-
-    print("\n=== 4. 鼠标离开就收掉，播放器也释放 ===")
+    print("\n=== 4. 鼠标离开：回到封面，播放器释放 ===")
     hover(live_item, False)
-    assert wait_for(lambda: not widget.isVisible() and widget._player is None), \
-        "离开后应该收掉并释放播放器"
-    print(f"  离开后：可见={widget.isVisible()} 播放器={widget._player}")   # noqa: SLF001
-    assert not widget.isVisible() and widget._player is None      # noqa: SLF001
+    assert wait_for(lambda: not live_item.thumb.video.isVisible()
+                    and live_item.thumb._player is None), \
+        "离开后应该回到封面并释放播放器"
+    print(f"  离开后：画面可见={live_item.thumb.video.isVisible()}"
+          f" 播放器={live_item.thumb._player}")           # noqa: SLF001
 
-    print("\n=== 4b. 直接移到另一个主播身上：旧画面立刻收掉 ===")
-    hover(live_item, True)
-    appeared = wait_for(lambda: widget.isVisible())
-    print(f"  再悬停：计时器在跑={preview._delay.isActive()} 可见={widget.isVisible()}"  # noqa: SLF001
-          f" 房间={widget.room_id!r} 播放器={widget._player} 开关={preview.enabled}")   # noqa: SLF001
-    assert appeared, "再停够 1 秒还应该能弹出来"
-    assert widget.isVisible() and widget.room_id == "1001"
+    print("\n=== 5. 移到另一个主播：旧缩略图立刻回封面 ===")
     other = item_of(window, "1002")
+    hover(live_item, True)
+    assert wait_for(lambda: live_item.thumb.video.isVisible())
     hover(live_item, False)
     hover(other, True)
-    assert wait_for(lambda: not widget.isVisible(), timeout=1.0), "换条目要立刻收掉旧画面"
-    print(f"  换到另一个条目 0.4 秒后：可见={widget.isVisible()}（应该已经收掉）")
-    assert not widget.isVisible(), "换条目要立刻收掉旧画面"
-    assert wait_for(lambda: widget.isVisible()), "停够 1 秒应该弹出新房间"
-    print(f"  再等 1.2 秒：可见={widget.isVisible()} 房间={widget.room_id}")
-    assert widget.isVisible() and widget.room_id == "1002"
+    assert wait_for(lambda: not live_item.thumb.video.isVisible(), timeout=1.5), \
+        "换条目要立刻收掉旧画面"
+    assert wait_for(lambda: other.thumb.video.isVisible()), "新条目停够 1 秒要开始播"
+    print(f"  旧条目画面={live_item.thumb.video.isVisible()}"
+          f" 新条目画面={other.thumb.video.isVisible()}")
     hover(other, False)
     settle(app, 0.4)
 
-    print("\n=== 5. 没开播的条目不会预览 ===")
-    offline_item = item_of(window, "1003")
-    hover(offline_item, True)
+    print("\n=== 6. 没开播的条目不会预览 ===")
+    offline = item_of(window, "1003")
+    hover(offline, True)
     settle(app, 1.6)
-    print(f"  停在未开播上 1.4 秒：可见={widget.isVisible()}")
-    assert not widget.isVisible()
-    hover(offline_item, False)
+    print(f"  停在未开播上 1.6 秒：画面可见={offline.thumb.video.isVisible()}")
+    assert not offline.thumb.video.isVisible()
+    hover(offline, False)
     settle(app, 0.3)
 
-    print("\n=== 6. 设置里关掉就不弹了 ===")
+    print("\n=== 7. 设置里关掉就不播了 ===")
     window.settings["preview_on_hover"] = False
     window.apply_preview_settings()
     hover(live_item, True)
     settle(app, 1.6)
-    print(f"  关掉之后：可见={widget.isVisible()}")
-    assert not widget.isVisible()
+    print(f"  关掉之后：画面可见={live_item.thumb.video.isVisible()}")
+    assert not live_item.thumb.video.isVisible()
     hover(live_item, False)
     settle(app, 0.3)
-
-    print("\n=== 7. 重新打开还能用；关窗会收掉 ===")
     window.settings["preview_on_hover"] = True
     window.apply_preview_settings()
+
+    print("\n=== 8. 收起侧栏：缩略图缩小并居中 ===")
+    sidebar = window.sidebar
+    sidebar.set_collapsed(True, animate=False)
+    settle(app, 0.5)
+    compact = sidebar.items()[0].thumb
+    left = compact.x()
+    right = compact.parentWidget().width() - (compact.x() + compact.width())
+    print(f"  收起后缩略图={compact.width()}x{compact.height()}"
+          f" 左边距={left} 右边距={right}")
+    assert compact.width() == NavThumb.COMPACT_SIZE
+    assert abs(left - right) <= 2, "收起时缩略图要居中"
+    sidebar.set_collapsed(False, animate=False)
+    settle(app, 0.4)
+    assert sidebar.items()[0].thumb.width() == NavThumb.WIDTH
+
+    print("\n=== 9. 关窗会收掉预览 ===")
     hover(live_item, True)
-    assert wait_for(lambda: widget.isVisible()), "重新打开开关应该还能用"
-    assert widget.isVisible()
-    print(f"  重新打开：可见={widget.isVisible()} 房间={widget.room_id}")
+    assert wait_for(lambda: live_item.thumb.video.isVisible())
     window.close()
     settle(app, 0.5)
-    print(f"  关窗之后：可见={widget.isVisible()}")
-    assert not widget.isVisible()
+    print(f"  关窗之后：画面可见={live_item.thumb.video.isVisible()}")
+    assert not live_item.thumb.video.isVisible()
 
     print("\n全部通过")
 

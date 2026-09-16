@@ -54,7 +54,7 @@ class GeneralSettingsPage(QWidget):
         ("auto_reconnect", "断流后自动重连"),
         ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
         ("default_muted", "新加入画面墙的直播间默认静音"),
-        ("preview_on_hover", "鼠标停在关注列表的直播上 2 秒，弹出小画面预览（静音）"),
+        ("preview_on_hover", "鼠标停在关注列表的直播上 1 秒，缩略图里直接播放静音预览"),
         ("live_alert", "关注的主播开播时，列表上播一滴粉色水滴 + 「开播了」气泡"),
     ]
 

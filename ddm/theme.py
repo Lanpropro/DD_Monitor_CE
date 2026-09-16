@@ -659,14 +659,29 @@ QSlider::handle:horizontal:hover {{
     background: rgba(26, 29, 35, 0.92);
 }}
 
-/* ---------- 悬停预览小窗 ---------- */
-#PreviewWindow {{
-    background: {TILE_BG};
-    border: 1px solid {BORDER_STRONG};
-    border-radius: {RADIUS_MD}px;
+/* ---------- 关注列表的封面缩略图 ---------- */
+#NavThumb {{
+    background: rgba(12, 13, 16, 0.6);
+    border: 1px solid {BORDER};
+    border-radius: 6px;
 }}
-#PreviewVideo {{
+#NavThumbCover {{
+    background: transparent;
+    color: {TEXT4};
+    font-size: {FONT_CAPTION}px;
+    border-radius: 6px;
+}}
+#NavThumbVideo {{
     background: #000000;
+}}
+#NavThumbHint {{
+    background: rgba(10, 11, 13, 0.66);
+    color: {TEXT2};
+    font-size: {FONT_CAPTION}px;
+    border-radius: 6px;
+}}
+#NavThumbFace {{
+    border: 1px solid rgba(0, 0, 0, 0.55);
 }}
 #PauseOverlay QLabel {{
     color: {TEXT1};

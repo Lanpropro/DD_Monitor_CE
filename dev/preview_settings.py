@@ -67,6 +67,8 @@ def main() -> None:
         tile = window.wall.add_room(dict(room))
         tile.set_cover(cover_pixmap(room["uname"], COLORS[index % len(COLORS)]))
         tile.start_elapsed_timer()
+    for index, entry in enumerate(window.sidebar.items()):
+        entry.thumb.set_cover(cover_pixmap(entry.room["uname"], COLORS[index % len(COLORS)]))
     window.sidebar.set_layout_name("1x2")
     window._refresh_meta()
     settle(app, 0.6)

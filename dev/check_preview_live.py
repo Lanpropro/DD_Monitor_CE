@@ -1,4 +1,7 @@
-"""联网验证悬停预览：停在真开播的房间上，等它起播，再抓一帧看看画面真的出来了。"""
+"""联网验证：关注列表的封面缩略图 + 悬停后在缩略图里真的播起来（抓一帧看）。
+
+用法：python work/check_preview_live.py [房间号]
+"""
 import os
 import sys
 import time
@@ -19,7 +22,8 @@ def pick_room() -> dict:
     if len(sys.argv) > 1:
         info = bili.room_info(sys.argv[1]) or {}
         return {"room_id": sys.argv[1], "uname": info.get("uname", ""),
-                "title": info.get("title", ""), "live": True, "muted": True}
+                "title": info.get("title", ""), "live": True, "muted": True,
+                "cover_url": info.get("cover_url", "")}
     state = config_module.load()
     best: dict = {}
     best_score = -1.0
@@ -36,7 +40,7 @@ def pick_room() -> dict:
     return best
 
 
-def settle(app, seconds):
+def settle(app, seconds: float) -> None:
     deadline = time.time() + seconds
     while time.time() < deadline:
         app.processEvents()
@@ -66,60 +70,51 @@ def main() -> int:
     if not room or not room.get("live"):
         print("现在没有正在直播的房间，可以手动传房间号")
         return 1
-    print(f"用 {room.get('uname')}（房间 {room['room_id']}）试悬停预览")
+    print(f"用 {room.get('uname')}（房间 {room['room_id']}）试缩略图预览")
 
-    app = QApplication(sys.argv)
+    app = QApplication(sys.argv[:1])
     app.setStyleSheet(theme.qss())
     window = MainWindow([dict(room)], [], layout_id="1x1")
-    # 默认摆在屏幕外（不打扰）；加 --onscreen 才摆到屏幕里，方便截屏看效果
-    if "--onscreen" in sys.argv:
-        window.setGeometry(40, 40, 1080, 660)
-    else:
-        window.setGeometry(-8000, -8000, 1200, 700)
+    window.setGeometry(-8000, -8000, 1200, 700)
     window.show()
-    settle(app, 1.5)
+    settle(app, 3.0)                      # 等封面下载
 
     item = window.sidebar.items()[0]
+    thumb = item.thumb
+    cover = thumb.cover.pixmap()
+    print(f"缩略图 {thumb.width()}x{thumb.height()} 封面已加载="
+          f"{bool(cover and not cover.isNull())}")
+
     centre = QPointF(item.rect().center())
     QApplication.sendEvent(item, QEnterEvent(centre, centre,
                                              QPointF(item.mapToGlobal(item.rect().center()))))
-    print("已模拟鼠标停在条目上，等 2 秒触发 + 等起播…")
-    settle(app, 12)
+    print("已模拟鼠标停在条目上，等 1 秒触发 + 等起播…")
+    deadline = time.time() + 15
+    while time.time() < deadline and thumb._player is None:      # noqa: SLF001
+        app.processEvents()
+        time.sleep(0.05)
+    settle(app, 8)
 
-    widget = window.hover_preview.widget
-    player = widget._player                      # noqa: SLF001
-    print(f"小窗可见={widget.isVisible()} 悬停提示={widget.toolTip()!r}")
+    player = thumb._player                                        # noqa: SLF001
+    print(f"缩略图里画面可见={thumb.video.isVisible()} 播放器={player is not None}")
     if player is None:
         print("没建起播放器")
         return 1
-    shot = os.path.join(REPO, "work", "preview", "preview_frame.png")
-    result = player.player.video_take_snapshot(0, shot, 480, 270)
+    shot = os.path.join(REPO, "work", "preview", "thumb_frame.png")
+    result = player.player.video_take_snapshot(0, shot, 320, 180)
     settle(app, 1.0)
     width, colors = snapshot_stats(shot)
     print(f"抓帧返回={result} 尺寸={width} 不同颜色数={colors}")
 
-    widget.grab().save(os.path.join(REPO, "work", "preview", "preview_window.png"), "PNG")
-    print("小窗截图：work/preview/preview_window.png")
-    print(f"整帧截图：{shot}")
-
-    if "--onscreen" in sys.argv:
-        # 从屏幕上抓一块（含 VLC 的原生画面），用来看圆角和实际观感
-        screen = widget.screen()
-        box = widget.frameGeometry()
-        padding = 16
-        on_screen = screen.grabWindow(0, box.x() - padding, box.y() - padding,
-                                      box.width() + padding * 2, box.height() + padding * 2)
-        on_screen_path = os.path.join(REPO, "work", "preview", "preview_on_screen.png")
-        on_screen.save(on_screen_path, "PNG")
-        print(f"屏幕截图（含画面）：{on_screen_path}")
+    window.sidebar.grab().save(
+        os.path.join(REPO, "work", "preview", "sidebar_thumbs.png"), "PNG")
+    print("侧栏截图：work/preview/sidebar_thumbs.png")
+    print(f"缩略图抓帧：{shot}")
     window.close()
-    if width == 0:
-        print("没有抓到画面")
+    if width == 0 or colors < 20:
+        print("缩略图里没抓到有效画面")
         return 1
-    if colors < 20:
-        print("画面几乎是纯色，可能还没起播")
-        return 1
-    print("画面正常（颜色足够丰富，说明真的在放）")
+    print("缩略图里确实在播（颜色足够丰富）")
     return 0
 
 

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from . import layouts, theme
 from .images import AvatarLoader
+from .player import TilePlayer
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -35,7 +36,7 @@ NAV_MIME = "application/x-ddm-nav"          # 关注列表内部排序用
 
 BADGE_HEIGHT = 24             # 左上角浮标高度
 WATCHING_TEXT = "正在获取人数"   # 还没拉到实时在线人数时的占位（不能用"人气"顶上）
-NAV_ITEM_HEIGHT = 56          # 关注列表每一项的高度
+NAV_ITEM_HEIGHT = 60          # 关注列表每一项的高度（放得下 76x43 的封面缩略图）
 NAV_ITEM_GAP = 2              # 项与项之间的间距
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
@@ -1246,6 +1247,124 @@ class LiveAlert(QWidget):
         return QRectF(left, top, width, self.BUBBLE_HEIGHT)
 
 
+class NavThumb(QFrame):
+    """关注列表每条左边的缩略图。
+
+    平时显示直播间封面（右下角叠一个小圆形主播头像），鼠标停够时间后
+    直接在缩略图里播放静音预览，移开就回到封面。
+    """
+
+    WIDTH, HEIGHT = 76, 43          # 展开时的封面尺寸（16:9）
+    COMPACT_SIZE = 32               # 收起成窄条时缩成正方
+    RADIUS = 6
+    AVATAR_SIZE = 20
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("NavThumb")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFixedSize(self.WIDTH, self.HEIGHT)
+
+        self.cover = QLabel(self)
+        self.cover.setObjectName("NavThumbCover")
+        self.cover.setAlignment(Qt.AlignCenter)
+        self.cover.setText("封面")
+        self.cover.setGeometry(0, 0, self.WIDTH, self.HEIGHT)
+        _ignore_mouse(self.cover)
+
+        self.video = QFrame(self)
+        self.video.setObjectName("NavThumbVideo")
+        self.video.setAttribute(Qt.WA_StyledBackground, True)
+        self.video.setGeometry(0, 0, self.WIDTH, self.HEIGHT)
+        self.video.setVisible(False)
+
+        self.hint = QLabel(self)
+        self.hint.setObjectName("NavThumbHint")
+        self.hint.setAlignment(Qt.AlignCenter)
+        self.hint.setGeometry(0, 0, self.WIDTH, self.HEIGHT)
+        self.hint.setVisible(False)
+        _ignore_mouse(self.hint)
+
+        self.face = Avatar("", 0, self.AVATAR_SIZE, parent=self)
+        self.face.setObjectName("NavThumbFace")
+        self.face.move(2, self.HEIGHT - self.AVATAR_SIZE - 2)
+        self.face.setVisible(False)
+
+        self._player: TilePlayer | None = None
+        self._size = (self.WIDTH, self.HEIGHT)
+
+    # ---- 外观 ----
+    def set_cover(self, pixmap) -> None:
+        if pixmap is None or pixmap.isNull():
+            return
+        self.cover.setText("")
+        self.cover.setPixmap(rounded_pixmap(pixmap, QSize(self._size[0], self._size[1]),
+                                            self.RADIUS))
+
+    def set_face(self, pixmap) -> None:
+        if pixmap is None or pixmap.isNull():
+            return
+        self.face.set_pixmap_image(pixmap)
+        self.face.setVisible(not self._compact_thumb())
+
+    def set_hint(self, text: str) -> None:
+        """封面上的小提示（连接中…/取流失败），播放起来就藏掉。"""
+        self.hint.setText(text or "")
+        self.hint.setVisible(bool(text) and not self.video.isVisible())
+
+    def _compact_thumb(self) -> bool:
+        return self._size[0] == self.COMPACT_SIZE
+
+    def set_thumb_size(self, compact: bool) -> None:
+        width = self.COMPACT_SIZE if compact else self.WIDTH
+        height = self.COMPACT_SIZE if compact else self.HEIGHT
+        if (width, height) == self._size:
+            return
+        self._size = (width, height)
+        self.setFixedSize(width, height)
+        self.cover.setGeometry(0, 0, width, height)
+        self.video.setGeometry(0, 0, width, height)
+        self.hint.setGeometry(0, 0, width, height)
+        self.face.move(2, max(0, height - self.AVATAR_SIZE - 2))
+        self.face.setVisible(bool(self.face.pixmap()) and not compact)
+        if self.cover.pixmap() and not self.cover.pixmap().isNull():
+            self.cover.setPixmap(rounded_pixmap(self.cover.pixmap(), QSize(width, height),
+                                                self.RADIUS))
+
+    # ---- 预览播放 ----
+    def play(self, url: str, profile: str = "web") -> None:
+        """在这个缩略图里放预览（静音、低画质）。"""
+        if self._player is None:
+            self._player = TilePlayer(self.video, self)
+            self._player.freeze_watch = False        # 缩略图不用卡死检测
+            self._player.stateChanged.connect(self._on_player_state)
+        self.video.setVisible(True)
+        self.video.raise_()
+        self.face.setVisible(False)      # VLC 是原生窗口，会盖住角标，播放时先收起来
+        self.hint.setVisible(False)
+        self._player.set_muted(True)                 # 预览永远静音
+        self._player.set_volume(0)
+        self._player.play(url, profile)
+
+    def stop(self) -> None:
+        """收掉预览，回到封面。"""
+        if self._player is not None:
+            self._player.release()
+            self._player = None
+        self.video.setVisible(False)
+        self.hint.setVisible(False)
+        self.face.setVisible(bool(self.face.pixmap()) and not self._compact_thumb())
+
+    def _on_player_state(self, state: str) -> None:
+        if state == "playing":
+            self.hint.setVisible(False)
+        elif state == "buffering":
+            self.set_hint("缓冲中…")
+        elif state == "error":
+            self.video.setVisible(False)
+            self.set_hint("播放失败")
+
+
 class NavItem(QFrame):
     """侧栏里的一个直播间条目。"""
 
@@ -1282,8 +1401,8 @@ class NavItem(QFrame):
         self.check.clicked.connect(lambda: self.checkedChanged.emit())
         self._layout.addWidget(self.check)
 
-        self.avatar = Avatar(room.get("uname", ""), index)
-        self._layout.addWidget(self.avatar)
+        self.thumb = NavThumb(self)
+        self._layout.addWidget(self.thumb)
 
         self._text_box = QVBoxLayout()
         self._text_box.setSpacing(2)
@@ -1291,16 +1410,22 @@ class NavItem(QFrame):
         self.name_label.setObjectName("NavName")
         self.sub = ElidedLabel(room.get("title") or "未开播")
         self.sub.setObjectName("NavSub")
-        for label in (self.name_label, self.sub):
-            _ignore_mouse(label)
-            _allow_shrink(label)
-            self._text_box.addWidget(label)
+        _ignore_mouse(self.name_label)
+        _allow_shrink(self.name_label)
+        self._text_box.addWidget(self.name_label)
         self._layout.addLayout(self._text_box, 1)
 
+        # 第二行：直播间标题 + 直播中/未开播徽标（徽标放这里，名字才够宽）
+        self._second_line = QHBoxLayout()
+        self._second_line.setSpacing(6)
+        _ignore_mouse(self.sub)
+        _allow_shrink(self.sub)
         self.badge = QLabel("直播中" if room.get("live") else "未开播")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
-        self._layout.addWidget(self.badge, 0, Qt.AlignVCenter)
+        self._second_line.addWidget(self.sub, 1)
+        self._second_line.addWidget(self.badge, 0, Qt.AlignVCenter)
+        self._text_box.addLayout(self._second_line)
         self.setToolTip(f"{room.get('uname', '')}\n{room.get('title', '')}".strip())
 
     def set_compact(self, compact: bool) -> None:
@@ -1309,6 +1434,7 @@ class NavItem(QFrame):
         self._compact = compact
         for widget in (self.name_label, self.sub, self.badge):
             widget.setVisible(not compact)
+        self.thumb.set_thumb_size(compact)
         # 收起成窄条时把头像单独夹在中间，否则会被挤到右边、右侧还被裁掉
         if compact and not self._compact_spacers:
             self._layout.insertStretch(0, 1)
@@ -1983,6 +2109,7 @@ class Sidebar(QFrame):
             return
         item.hide()
         item.drop_live_alert()
+        item.thumb.stop()               # 缩略图里可能正在放预览
         item.setParent(None)
         item.deleteLater()
         self._items.remove(item)

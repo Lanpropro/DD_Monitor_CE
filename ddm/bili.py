@@ -381,6 +381,9 @@ def rooms_status(room_ids: list[str]) -> dict[str, dict]:
             "title": info.get("title") or "",
             "uname": info.get("uname") or "",
             "face": info.get("face") or "",
+            # 开播时用直播画面当封面，没开播用房间封面（关注列表的缩略图要用）
+            "cover_url": (info.get("keyframe") if live else info.get("cover"))
+                          or info.get("cover") or "",
             "viewers": (f"{online / 10000:.1f}万" if online >= 10000 else str(online)) if live else "",
         }
     return result
