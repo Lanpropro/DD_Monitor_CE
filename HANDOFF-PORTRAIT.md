@@ -23,10 +23,9 @@
 4. 横屏的一切行为保持不变。
 5. 切布局**不改窗口方向**（窗口形状由用户拖，摆放跟着窗口走）。
 
-**代码位置**：分支 `main`，本地与 `origin/main` 同步，HEAD = `25f4507`
-（本次交接提交会在这之后；以 `git log --oneline -1` 为准）。
-工作区在本文件写入前是干净的（只有 `dev/mock_portrait.py`、`dev/portrait_mock.html`
-两个未跟踪的草稿）。
+**代码位置**：分支 `main`，本地与 `origin/main` 同步，HEAD = `ae9ff57`
+（本次交接提交；`25f4507` 是它之前的功能提交）。以 `git log --oneline -1` 为准。
+工作区在本文件写入后只剩两个未跟踪草稿：`dev/mock_portrait.py`、`dev/portrait_mock.html`。
 
 ## 二、权威资料
 
