@@ -1,10 +1,10 @@
-"""回归自检：跨屏切竖屏不产生悬浮格子，已有播放器继续显示画面。"""
+"""回归自检：跨屏切方向不换视频 HWND，也不产生悬浮格子。"""
 import os
 import sys
 import time
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QBoxLayout
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -29,11 +29,7 @@ class SilentPoller(QThread):
 
 class SpyPlayer:
     def __init__(self):
-        self.bind_count = 0
         self.release_count = 0
-
-    def bind(self) -> None:
-        self.bind_count += 1
 
     def release(self) -> None:
         self.release_count += 1
@@ -111,16 +107,10 @@ def main() -> None:
     tile.set_video_active(True)
     tile.set_buffering(False)
     tile.set_paused(False)
-
-    # 原生窗口降级/提回必须保留各叠层自己的状态，不能凭类型强制显隐。
     tile.set_controls_visible(True)
-    window._demote_native_windows()  # noqa: SLF001
-    window.wall.relayout(force=True)
-    window._promote_native_windows()  # noqa: SLF001
-    assert tile.controls.isVisible(), "切换排布不能吞掉正在显示的右上角控制条"
-    assert not tile.spinner.isVisible(), "非连接状态不能凭空显示『连接中』"
-    assert not tile.pause_overlay.isVisible(), "未暂停时不能凭空显示『已暂停』"
-    tile.set_controls_visible(False)
+    original_content_parent = window._content.parentWidget()  # noqa: SLF001
+    original_video_hwnd = int(tile.video.winId())
+    assert original_video_hwnd, "测试前视频区必须有有效 HWND"
 
     restarts = []
     window.start_tile = lambda item: restarts.append(item)
@@ -129,24 +119,39 @@ def main() -> None:
     visible_strays = [widget for widget in app.topLevelWidgets()
                       if isinstance(widget, Tile) and widget.isVisible()]
     print(f"竖屏：格子={len(window.wall.tiles)} 顶层可见 Tile={len(visible_strays)} "
-          f"播放器绑定={spy.bind_count} 视频可见={tile.video.isVisible()}")
+          f"视频 HWND={int(tile.video.winId())} 视频可见={tile.video.isVisible()}")
     assert window.orientation == "portrait"
+    assert window._root_layout.direction() == QBoxLayout.TopToBottom  # noqa: SLF001
+    assert window._content.parentWidget() is original_content_parent, \
+        "切竖屏只能改变根布局方向，不能给画面墙换父窗口"
     assert all(item.parentWidget() is window.wall for item in window.wall.tiles), \
         "竖屏手动摆放的格子必须预先挂在 WallGrid 下"
     assert not visible_strays, "竖屏切换不能产生顶层悬浮格子"
-    assert spy.release_count == 1, "换父容器前必须先完整释放正在使用旧 HWND 的 VLC"
-    assert restarts == [tile], "新排布完成后必须重新启动原来正在播放的格子"
+    assert window.players.get(tile) is spy, "切方向不能替换正在播放的播放器"
+    assert spy.release_count == 0, "切方向不能释放仍绑定有效 HWND 的 VLC"
+    assert restarts == [], "切方向不能重新取流"
+    assert int(tile.video.winId()) == original_video_hwnd, \
+        "切竖屏后 VLC 视频 HWND 必须保持不变"
     assert tile.video.isVisible(), "方向切换后已有直播的视频区必须保持可见"
+    assert tile.controls.isVisible(), "切换排布不能吞掉正在显示的右上角控制条"
     assert not tile.spinner.isVisible(), "竖屏后不能残留『连接中』叠层"
     assert not tile.pause_overlay.isVisible(), "竖屏后不能残留『已暂停』叠层"
 
     window.resize(1600, 900)
     settle(app, 0.8)
-    print(f"回横屏：方向={window.orientation} 播放器绑定={spy.bind_count} "
+    print(f"回横屏：方向={window.orientation} 视频 HWND={int(tile.video.winId())} "
           f"视频可见={tile.video.isVisible()}")
     assert window.orientation == "landscape"
-    assert spy.release_count == 1, "已释放的旧播放器不能再次参与回横屏重排"
+    assert window._root_layout.direction() == QBoxLayout.LeftToRight  # noqa: SLF001
+    assert window._content.parentWidget() is original_content_parent, \
+        "回横屏也不能给画面墙换父窗口"
+    assert window.players.get(tile) is spy
+    assert spy.release_count == 0
+    assert restarts == []
+    assert int(tile.video.winId()) == original_video_hwnd, \
+        "回横屏后 VLC 视频 HWND 仍必须保持不变"
     assert tile.video.isVisible(), "回横屏后已有直播的视频区必须保持可见"
+    assert tile.controls.isVisible(), "回横屏后右上角控制条必须保持原状态"
     assert not tile.spinner.isVisible(), "回横屏后不能残留『连接中』叠层"
     assert not tile.pause_overlay.isVisible(), "回横屏后不能残留『已暂停』叠层"
 

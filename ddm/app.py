@@ -10,7 +10,8 @@ import time
 from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QCursor, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMainWindow, QStackedWidget, QVBoxLayout, QWidget,
+    QApplication, QBoxLayout, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
+    QVBoxLayout, QWidget,
 )
 
 from . import bili
@@ -247,141 +248,25 @@ class MainWindow(QMainWindow):
         竖屏：侧栏变成顶部横栏（撑满宽）+ 下面画面墙。
         """
         layout = self._root_layout
-        while layout.count():
-            layout.takeAt(0)
-        # 侧栏和画面墙里有些控件是原生窗口（VLC 视频、浮标、控制条）。原生窗口在
-        # 换父容器/换布局时容易脱离父窗口，变成一个单独留着的小悬浮窗 ——
-        # 换排布前先降级成普通控件，换完再让各自恢复。
-        # 构造阶段主窗口还没 show，不能碰原生窗口。6893af9 起这里会连续两次
-        # hide / 降级所有 Tile，导致墙面 HWND 在第一次播放前就被重建；悬停预览
-        # 不走这条路径，所以才会出现「预览正常、墙面黑屏」。
-        manage_native = self.isVisible()
-        if manage_native:
-            self._demote_native_windows()
-        # 竖屏的容器布局也要清空：`_content` 挂在它里面，不清掉的话
-        # 再 addWidget 到根布局会两个布局抢同一个控件，结果谁都没挂上
-        portrait_layout = getattr(self, "_portrait_layout", None)
-        if portrait_layout is not None:
-            while portrait_layout.count():
-                portrait_layout.takeAt(0)
-        if orientation == "portrait":
-            if getattr(self, "_portrait_host", None) is None:
-                self._portrait_host = QWidget()
-                self._portrait_layout = QVBoxLayout(self._portrait_host)
-                self._portrait_layout.setContentsMargins(0, 0, 0, 0)
-                self._portrait_layout.setSpacing(0)
-                portrait_layout = self._portrait_layout
-            self._portrait_layout.addWidget(self.sidebar)
-            self._portrait_layout.addWidget(self._content, 1)
-            layout.addWidget(self._portrait_host)
-        else:
-            # 横屏：把侧栏从竖屏容器里取出来挂回根布局
-            central = self.centralWidget()
-            self.sidebar.setParent(central)
-            self._content.setParent(central)
-            self.sidebar.setMaximumHeight(16_777_215)
+        # 只改变同一个根布局的排列方向。侧栏和画面墙始终挂在 root 下，
+        # VLC 正在使用的原生视频 HWND 就不会因换父窗口而被 Qt 销毁。
+        layout.setDirection(
+            QBoxLayout.TopToBottom if orientation == "portrait"
+            else QBoxLayout.LeftToRight
+        )
+        if layout.indexOf(self.sidebar) < 0:
             layout.addWidget(self.sidebar)
+        if layout.indexOf(self._content) < 0:
             layout.addWidget(self._content, 1)
+        layout.setStretch(layout.indexOf(self.sidebar), 0)
+        layout.setStretch(layout.indexOf(self._content), 1)
+        if orientation == "landscape":
+            self.sidebar.setMaximumHeight(16_777_215)
         self.sidebar.set_side("top" if orientation == "portrait" else "left")
         # 换完排布再同步一次可见性：收起/展开只影响「露哪些控件」，
         # 而 set_collapsed 在换排布之前就设过了，不补这一下头像排不会露出来。
         self.sidebar._sync_top_mode()      # noqa: SLF001
-        # 排布换完再让画面墙重算并提回原生窗口（换父容器会让它们掉出原生状态）
         self.wall.relayout(force=True)
-        if manage_native:
-            self._promote_native_windows()
-            self._adopt_stray_tiles()      # 换完再兜一次，收掉中途漏出去的
-
-    def _demote_native_windows(self) -> None:
-        """换排布前把画面墙里的原生窗口降级，免得多出一个单独留着的悬浮窗。
-
-        原生窗口（VLC 视频区、浮标、控制条）一旦脱离父窗口就会自己留一个顶层
-        小窗口。切方向要重新挂父容器，所以先降级；各自的 showEvent 会再提回原生。
-        """
-        for tile in self.wall.tiles:
-            widgets = (tile.video, tile.stream_badge, tile.title_badge,
-                       tile.time_badge, tile.controls, tile.spinner,
-                       tile.pause_overlay)
-            # hide() 会改变控件自己的显隐状态；先记住真实意图，提回原生窗口时
-            # 才不会把「连接中」「已暂停」或悬停控制条一股脑全部显示/隐藏。
-            if not hasattr(tile, "_native_visibility"):
-                tile._native_visibility = [
-                    (widget, not widget.isHidden())
-                    for widget in widgets if widget is not None
-                ]
-            player = self.players.get(tile)
-            if player is not None and hasattr(player, "invalidate_binding"):
-                player.invalidate_binding()
-            # 隐藏的格子也要处理：它们虽然当前不可见，但换父容器时
-            # 一旦被 Qt 提成原生窗口，就会变成一个单独留着的 344x344 悬浮窗
-            tile.setAttribute(Qt.WA_NativeWindow, False)
-            tile.hide()
-            for widget in widgets:
-                if widget is None or not widget.testAttribute(Qt.WA_NativeWindow):
-                    continue
-                widget.setAttribute(Qt.WA_NativeWindow, False)
-                widget.hide()          # 先藏起来，避免降级瞬间闪一个独立窗口
-        # 兜底：已经变成顶层窗口的格子也收掉（换父容器失败时会漏出去）
-        self._adopt_stray_tiles()
-
-    def _adopt_stray_tiles(self) -> None:
-        """把漏成顶层窗口的格子收回来挂到画面墙上。
-
-        原生窗口一旦脱离父窗口就会自己变成一个顶层小窗口（用户看到的
-        「单独留着的悬浮窗」就是它）。每次换完排布都要兜一次。
-        """
-        for widget in QApplication.topLevelWidgets():
-            if isinstance(widget, Tile) and widget is not self:
-                widget.setAttribute(Qt.WA_NativeWindow, False)
-                widget.hide()
-                widget.setParent(self.wall)
-
-
-    def _promote_native_windows(self) -> None:
-        """换完排布把原生窗口提回来（和 _demote_native_windows 成对）。"""
-        for tile in self.wall.tiles:
-            widgets = (tile.video, tile.stream_badge, tile.title_badge,
-                       tile.time_badge, tile.controls, tile.spinner,
-                       tile.pause_overlay)
-            saved = getattr(tile, "_native_visibility", None)
-            if saved is None:
-                saved = [(widget, not widget.isHidden())
-                         for widget in widgets if widget is not None]
-            elif hasattr(tile, "_native_visibility"):
-                del tile._native_visibility
-
-            # 布局容量外的格子只恢复自己的显隐意图；等以后真的显示时，
-            # Tile.showEvent 会把需要的叠层提成原生窗口。
-            if tile.isHidden():
-                for widget, visible in saved:
-                    widget.setVisible(visible)
-                continue
-
-            # 先恢复实际显隐状态，再按新尺寸排版。播放器重新绑定可能把 VLC
-            # 原生视频窗口抬到最上层，所以最后再 raise 可见叠层。
-            for widget, visible in saved:
-                if widget is not tile.video and not widget.testAttribute(Qt.WA_NativeWindow):
-                    widget.setAttribute(Qt.WA_NativeWindow, True)
-                widget.setVisible(visible)
-            tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
-            player = self.players.get(tile)
-            if player is not None:
-                player.bind()
-            for widget, _visible in saved:
-                if widget is not tile.video and not widget.isHidden():
-                    widget.raise_()
-
-    def _suspend_players_for_arrangement(self) -> list[tuple[object, bool]]:
-        """换父容器前完整释放 VLC；不能边播放边销毁它绑定的 HWND。"""
-        active = set(self.players) | set(self._resolvers)
-        resume = []
-        for tile in self.wall.tiles:
-            if tile not in active:
-                continue
-            if tile.room.get("room_id") and tile.room.get("live"):
-                resume.append((tile, bool(tile.paused)))
-            self._stop_tile(tile)
-        return resume
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -408,9 +293,6 @@ class MainWindow(QMainWindow):
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         orientation = "portrait" if self.is_portrait() else "landscape"
         changed = orientation != self.orientation
-        resume = []
-        if changed and self.isVisible():
-            resume = self._suspend_players_for_arrangement()
         if changed:
             self._build_arrangement(orientation)
         self.orientation = orientation
@@ -437,15 +319,6 @@ class MainWindow(QMainWindow):
             self.sidebar.set_layout_name(layout_id)
         # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
         self.wall.relayout(force=True)
-        # set_layout() 可能在 _build_arrangement() 之后才把新方向的格子显示出来；
-        # 这些格子和视频区都要在最终排布完成后再恢复原生状态。
-        if self.isVisible():
-            self._promote_native_windows()
-            self._adopt_stray_tiles()
-        for tile, paused in resume:
-            if paused:
-                tile._resume_paused_after_arrangement = True
-            self.start_tile(tile)
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
 
@@ -692,10 +565,6 @@ class MainWindow(QMainWindow):
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()
-                if getattr(tile, "_resume_paused_after_arrangement", False):
-                    del tile._resume_paused_after_arrangement
-                    player.set_paused(True)
-                    tile.set_paused(True)
             self.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
                               room=dict(tile.room or {}))
         elif state == "connecting":
