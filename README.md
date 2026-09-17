@@ -22,7 +22,7 @@ DD 监控室 CE 是一款基于 Python、PySide6 和 VLC 的 B 站多窗口直�
 
 它可以将多个直播间集中显示在同一个画面墙中，并提供直播状态监控、关注导入、弹幕显示、自动布局和单路播放控制等功能。
 
-本项目是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本，在保留原项目取流与播放能力的基础上，尝试重构界面及部分交互功能。
+本项目是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本，原作者：[执明神君](https://space.bilibili.com/637783)。在保留原项目取流与播放能力的基础上，尝试重构了界面及部分交互功能。
 
 > CE 代表 Community Edition。
 
