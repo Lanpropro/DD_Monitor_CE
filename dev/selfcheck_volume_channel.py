@@ -100,20 +100,35 @@ def main() -> None:
     assert audio_menu is not None, "右键菜单里应该有「声道」子菜单"
     entries = [a.text() for a in audio_menu.actions()]
     print(f"  声道菜单: {entries}")
-    assert entries == ["左右都听（原始）", "只播左声道", "只播右声道"], entries
+    assert entries == ["默认（跟随片源）", "只播左声道", "只播右声道",
+                       "反向立体声", "杜比音效"], entries
 
-    print("\n=== 4. 切声道会写回格子并重连这一路 ===")
-    started: list = []
-    original_start = window.start_tile
-    window.start_tile = lambda t, _o=original_start, _s=started: (_s.append(t), _o(t))[1]
+    print("\n=== 4. 切声道写回格子，并在播放中重新下发 ===")
+    class StubPlayer:
+        """不联网时格子拿不到真播放器，这里塞一个替身，只记录调用。"""
+
+        def __init__(self):
+            self.calls: list = []
+
+        def set_audio_channel(self, value):
+            self.calls.append(("set", int(value)))
+
+        def reapply_audio_channel(self):
+            self.calls.append(("reapply",))
+
+    stub = StubPlayer()
+    window.players[tile] = stub
     tile.set_audio_channel(VolumeButton.CHANNEL_LEFT)
     settle(app, 0.3)
     print(f"  tile.audio_channel={tile.audio_channel} room={tile.room.get('audio_channel')} "
-          f"按钮={tile.volume_button.audio_channel} 重连={tile in started}")
+          f"按钮={tile.volume_button.audio_channel} 播放器调用={stub.calls}")
     assert tile.audio_channel == VolumeButton.CHANNEL_LEFT
     assert tile.room.get("audio_channel") == VolumeButton.CHANNEL_LEFT, "要写回 room，才能持久化"
     assert tile.volume_button.audio_channel == VolumeButton.CHANNEL_LEFT, "按钮要跟着显示 L/R"
-    assert tile in started, "正在播的格子换声道后要重连一次才生效"
+    assert ("set", VolumeButton.CHANNEL_LEFT) in stub.calls, "要把声道下发给播放器"
+    assert ("reapply",) in stub.calls, \
+        "设置之后还要再下发一次（play() 之前的设置会被音频输出模块初始化冲掉）"
+    del window.players[tile]
 
     print("\n=== 5. 声道随配置保存 / 恢复 ===")
     state = {"version": 1, "rooms": ["7001"], "wall": [

@@ -3361,7 +3361,7 @@ class Tile(QFrame):
         self.build_menu().exec(event.globalPos())
 
     def build_menu(self) -> QMenu:
-        """右键菜单：音量滑条 + 画质 + 音效通道 + 常规操作。"""
+        """右键菜单：音量滑条 + 画质 + 声道 + 常规操作。"""
         menu = QMenu(self)
 
         # 音量（菜单里嵌滑条）
@@ -3391,8 +3391,11 @@ class Tile(QFrame):
             action.setChecked(value == self.quality)
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
 
+        # 声道：0 默认、3 只左、4 只右、2 反向立体声、5 杜比。
+        # 只有「只左 / 只右」能把两路画面分到两只耳朵，其余是原程序的音效档。
         audio_menu = menu.addMenu("声道")
-        for name, value in (("左右都听（原始）", 0), ("只播左声道", 3), ("只播右声道", 4)):
+        for name, value in (("默认（跟随片源）", 0), ("只播左声道", 3),
+                            ("只播右声道", 4), ("反向立体声", 2), ("杜比音效", 5)):
             action = audio_menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(value == self.audio_channel)

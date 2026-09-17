@@ -374,6 +374,10 @@ class MainWindow(QMainWindow):
             tile.set_status("")
             tile.start_elapsed_timer()
             self._retry_count.pop(tile, None)
+            player = self.players.get(tile)
+            if player is not None:
+                # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
+                player.reapply_audio_channel()
         elif state == "connecting":
             tile.set_video_active(False)
             tile.set_status("连接中…")
@@ -686,9 +690,8 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_audio_channel(value)
-        # 声道是在取流那一层生效的（:stereo-mode），想立刻听到就得重连一次
-        if tile is not None and tile.room.get("live"):
-            self.start_tile(tile)
+            # 播放中的这一路要等音频输出模块起来后再补一次，否则会被初始化冲掉
+            player.reapply_audio_channel()
         self._save_timer.start()       # 声道属于格子，和音量一起记住
 
     def _on_quality_changed(self, room: dict, quality: int) -> None:
