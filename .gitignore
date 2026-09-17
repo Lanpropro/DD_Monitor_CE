@@ -15,8 +15,10 @@ venv/
 *.dll
 plugins/
 
-# 插件：用户插件放 plugins_user/，插件自己产生的数据放它下面的 _ 开头目录
-plugins_user/_*/
+# 插件：用户插件放 plugins_user/
+# 只忽略插件自己产生的数据目录；`_template_platform` 这种「下划线开头 = 不自动装载」
+# 的模板是要进版本库的，所以不能写成 plugins_user/_*/
+plugins_user/_danmaku_log/
 
 # 编辑器
 .vscode/
