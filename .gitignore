@@ -15,6 +15,9 @@ venv/
 *.dll
 plugins/
 
+# 插件：用户插件放 plugins_user/，插件自己产生的数据放它下面的 _ 开头目录
+plugins_user/_*/
+
 # 编辑器
 .vscode/
 .idea/

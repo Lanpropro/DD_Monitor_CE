@@ -2784,10 +2784,17 @@ class Tile(QFrame):
     volumeChanged = Signal(dict, int)
     audioChannelChanged = Signal(dict, int)
     pauseToggled = Signal(dict)
+    pluginMenuRequested = Signal()     # 右键菜单要弹了，请外部先把插件菜单项填好
 
     def __init__(self, room: dict, parent=None):
         super().__init__(parent)
         self.setObjectName("Tile")
+        #: 插件往本格右键菜单加的项目：[(显示文字, 回调), …]，由外层填
+        self.plugin_actions: list = []
+        #: 当前这一路的取流结果，插件（录像等）从这里拿
+        self.stream_url = ""
+        self.stream_profile = ""
+        self.stream_headers: dict = {}
         self.room = room
         self._cover_source = room.get("cover")
         self._status_text = ""
@@ -3361,6 +3368,8 @@ class Tile(QFrame):
     def contextMenuEvent(self, event) -> None:
         if not self.room.get("room_id"):
             return
+        # 插件要先把自己那一组菜单项登记进来（本体不认识它们）
+        self.pluginMenuRequested.emit()
         self.build_menu().exec(event.globalPos())
 
     def build_menu(self) -> QMenu:
@@ -3407,6 +3416,11 @@ class Tile(QFrame):
         menu.addAction("取消静音" if self.muted else "静音", self._toggle_mute)
         menu.addAction("刷新重连", lambda: self.reloadRequested.emit(self.room))
         menu.addAction("放到主画面", lambda: self.fullscreenRequested.emit(self.room))
+        if self.plugin_actions:
+            # 插件加的一项占一行；组与组之间用分隔线断开，免得和本体的项混在一起
+            menu.addSeparator()
+            for label, callback in self.plugin_actions:
+                menu.addAction(label, callback)
         menu.addSeparator()
         menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room))
         return menu

@@ -17,7 +17,8 @@ CALLS: list[tuple[str, int]] = []
 
 def fake_play_url(room_id, quality=250):        # noqa: ANN001, ANN201
     CALLS.append((str(room_id), int(quality)))
-    return f"http://127.0.0.1:9/{quality}.flv", int(quality), "app"
+    # 第四个是请求头：取流结果要连头一起交出去（插件录像要用）
+    return f"http://127.0.0.1:9/{quality}.flv", int(quality), "app", {"User-Agent": "x"}
 
 
 ROOMS = [

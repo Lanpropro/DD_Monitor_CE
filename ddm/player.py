@@ -51,6 +51,13 @@ class TilePlayer(QObject):
     PICTURE_POLL_MS = 1000
     FROZEN_TICKS = 2             # 连续 2 秒截图不变就认为画面停止更新
 
+    #: 各取流通道该带的请求头。插件解析出来的流地址要自带对应的头，
+    #: 否则 CDN 会 403（app 通道不能带 Referer，web 通道必须带）。
+    PROFILE_HEADERS = {
+        "app": {"User-Agent": APP_UA},
+        "web": {"User-Agent": UA, "Referer": REFERRER},
+    }
+
     def __init__(self, video_widget, parent=None):
         super().__init__(parent)
         self.video_widget = video_widget
@@ -88,18 +95,27 @@ class TilePlayer(QObject):
         self.player.set_hwnd(int(self.video_widget.winId()))
         self._bound = True
 
-    def play(self, url: str, profile: str = "web") -> None:
+    def play(self, url: str, profile: str = "web", headers: dict | None = None) -> None:
         if not self._bound:
             self.bind()
         self.paused = False               # 换流后从"播放中"重新开始
         self.url = url
         media = self._instance.media_new(url)
-        if profile == "app":
-            # app-room 的流地址：只认 App UA，带 Referer 会被 CDN 拒绝
-            media.add_option(f":http-user-agent={APP_UA}")
-        else:
+        # 插件解析出来的流可以自带请求头；没给就按通道用默认的
+        request_headers = dict(headers) if headers else dict(
+            self.PROFILE_HEADERS.get(profile, self.PROFILE_HEADERS["web"]))
+        for name, value in request_headers.items():
+            if not value:
+                continue
+            if name.lower() == "user-agent":
+                media.add_option(f":http-user-agent={value}")
+            elif name.lower() == "referer":
+                media.add_option(f":http-referrer={value}")
+            else:
+                media.add_option(f":http-header={name}: {value}")
+        if not any(name.lower() == "user-agent" for name in request_headers):
+            # 后端一律要 UA，插件忘了给就补上通用的
             media.add_option(f":http-user-agent={UA}")
-            media.add_option(f":http-referrer={REFERRER}")
         media.add_option(":network-caching=800")
         self.player.set_media(media)
         self.player.play()

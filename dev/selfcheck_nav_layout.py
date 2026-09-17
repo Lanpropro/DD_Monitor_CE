@@ -4,7 +4,7 @@ import sys
 import time
 
 from PySide6.QtCore import QMimeData, QPointF, Qt
-from PySide6.QtGui import QDropEvent
+from PySide6.QtGui import QCursor, QDropEvent
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -207,12 +207,19 @@ def main() -> None:
     sidebar.open_layout_picker()
     popup = sidebar._picker
     settle(app, 0.2)
-    screen = QApplication.primaryScreen()
+    rect = popup.frameGeometry()
+    # 别拿 primaryScreen() 硬套：窗口在离屏位置时，选择器可能被摆到副屏上，
+    # 这时用主屏的可用区域去断言必然失败。按它实际所在的屏幕来判。
+    screen = (QApplication.screenAt(rect.center())
+              or QApplication.screenAt(QCursor.pos())
+              or QApplication.primaryScreen())
     if screen is not None:
         area = screen.availableGeometry()
-        rect = popup.frameGeometry()
-        print(f"  菜单全局位置={rect.getRect()} 可用区域={area.getRect()}")
-        assert rect.top() >= area.top() and rect.bottom() <= area.bottom()
+        print(f"  菜单全局位置={rect.getRect()} 所在屏可用区域={area.getRect()}")
+        assert rect.top() >= area.top() and rect.bottom() <= area.bottom(), \
+            f"弹层纵向超出屏幕：{rect.getRect()} vs {area.getRect()}"
+        assert rect.left() >= area.left() and rect.right() <= area.right(), \
+            f"弹层横向超出屏幕：{rect.getRect()} vs {area.getRect()}"
         before = popup.frameGeometry()
         popup.set_group("普通布局")
         settle(app, 0.2)

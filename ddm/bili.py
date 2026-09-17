@@ -240,12 +240,15 @@ def _app_play_url(room_id: str, quality: int) -> tuple[str, int]:
     raise RuntimeError("app-room 接口没有返回 FLV 地址")
 
 
-def play_url(room_id: str, quality: int = 250) -> tuple[str, int, str]:
+def play_url(room_id: str, quality: int = 250) -> tuple[str, int, str, dict]:
     """取可播放的 http FLV 地址，附带接口实际给到的画质。
 
     优先用尊重画质的 app-room 接口（App UA、不带 Referer 拉流）；
     失败时退回 web 端接口（Chrome UA + Referer）。VLC 插件集没有 TLS，
-    所以统一把 https 换成 http。返回 (地址, 实际画质, 通道名)。
+    所以统一把 https 换成 http。
+
+    返回 ``(地址, 实际画质, 通道名, 请求头)``。请求头必须一起带走：插件要
+    拿这个地址去录像，头不对 CDN 直接 403。
     """
     errors = []
     for source, profile, headers in ((_app_play_url, "app", STREAM_APP),
@@ -259,7 +262,7 @@ def play_url(room_id: str, quality: int = 250) -> tuple[str, int, str]:
         if _fetchable(http_url, headers):
             print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
                   file=sys.stderr, flush=True)
-            return http_url, current, profile
+            return http_url, current, profile, dict(headers)
         errors.append(f"{source.__name__}: 地址不可用（CDN 拒绝）")
     raise RuntimeError("；".join(errors) or "取流失败")
 
@@ -274,10 +277,12 @@ class StreamResolver(QThread):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.quality = quality
+        self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
 
     def run(self) -> None:
         try:
-            url, current, profile = play_url(self.room_id, self.quality)
+            url, current, profile, headers = play_url(self.room_id, self.quality)
+            self.headers = headers
         except Exception as error:  # noqa: BLE001
             self.failed.emit(self.room_id, str(error))
             return

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from . import bili
 from . import config as config_module
+from . import plugins as plugin_api
 from . import theme
 from .danmaku import DanmakuClient
 from .bili import (
@@ -162,6 +163,20 @@ class MainWindow(QMainWindow):
         self.apply_preview_settings()
         self._refresh_meta()
 
+        # 插件：在界面都搭好之后再装载，插件里的注册/回调这时能拿到完整的窗口
+        self.plugins = plugin_api.PluginManager(
+            window=self,
+            enabled=self.state.get("plugins_enabled"),
+        )
+        self.plugins.plugin_settings = self.state.setdefault("plugins", {})
+        self.plugins._save_settings = lambda: config_module.save(self.current_state())
+        plugin_api.set_manager(self.plugins)
+        self.plugins.load()
+        print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
+        for entry, reason in self.plugins.skipped:
+            print(f"[插件] 跳过 {entry}：{reason}", file=sys.stderr, flush=True)
+        QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
+
         QTimer.singleShot(0, self.start_all)
         QTimer.singleShot(800, self.refresh_account)
         QTimer.singleShot(1200, self.load_room_avatars)
@@ -243,9 +258,15 @@ class MainWindow(QMainWindow):
             "custom_order": list(self.sidebar.custom_order),
             "settings": dict(self.settings),
             "geometry": str(self.saveGeometry().toBase64(), "ASCII"),
+            # 插件自己的配置项，以及「启用了哪些插件」（None = 全启用）
+            "plugins": self.plugins.plugin_settings,
+            "plugins_enabled": (None if self.plugins.enabled is None
+                                else sorted(self.plugins.enabled)),
         }
 
     def closeEvent(self, event) -> None:
+        self.plugins.emit(plugin_api.EVENT_CLOSING)
+        self.plugins.unload()
         config_module.save(self.current_state())
         self.stop_danmaku()
         self.hover_preview.stop()
@@ -333,7 +354,7 @@ class MainWindow(QMainWindow):
         resolver = StreamResolver(room_id, quality, self)
         resolver.resolved.connect(
             lambda _rid, url, qn, profile, options, t=tile:
-            self._play_on(t, url, qn, profile, options))
+            self._play_on(t, url, qn, profile, options, headers=resolver.headers))
         resolver.failed.connect(lambda rid, reason, t=tile: self._on_resolve_failed(t, reason))
         resolver.finished.connect(lambda t=tile: self._resolvers.pop(t, None))
         self._resolvers[tile] = resolver
@@ -341,7 +362,7 @@ class MainWindow(QMainWindow):
         self.refresh_stats()          # 人数不用等下一轮轮询，立刻拉一次
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
-                 options: list | None = None) -> None:
+                 options: list | None = None, headers: dict | None = None) -> None:
         if options:
             tile.set_quality_options(options)
         if quality:
@@ -356,11 +377,33 @@ class MainWindow(QMainWindow):
         player.set_volume(int(tile.volume))
         player.set_audio_channel(int(tile.audio_channel))
         player.set_muted(tile.muted)
-        player.play(url, profile)
+        # 把这一路的取流结果记在格子上：插件（录像等）要拿它去拉同一路流
+        room = tile.room or {}
+        tile.stream_url = url
+        tile.stream_profile = profile
+        tile.stream_headers = dict(headers or TilePlayer.PROFILE_HEADERS.get(
+            profile, TilePlayer.PROFILE_HEADERS["web"]))
+        player.play(url, profile, tile.stream_headers)
+        self.plugins.emit(
+            plugin_api.EVENT_STREAM_RESOLVED,
+            source=plugin_api.StreamSource(
+                room_id=str(room.get("room_id") or ""),
+                url=url,
+                quality=int(quality or 0),
+                channel=profile,
+                headers=dict(tile.stream_headers),
+                platform=str(room.get("platform") or "bilibili"),
+                uname=str(room.get("uname") or ""),
+                title=str(room.get("title") or ""),
+            ),
+            tile=tile,
+        )
 
     def _on_resolve_failed(self, tile, reason: str) -> None:
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
+        self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
+                          room=dict(tile.room or {}))
         self.refresh_status()       # 取不到流时立刻确认是否已经下播
         if tile in self._freeze_refreshed:
             self._on_picture_frozen(tile)
@@ -378,6 +421,8 @@ class MainWindow(QMainWindow):
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()
+            self.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
+                              room=dict(tile.room or {}))
         elif state == "connecting":
             tile.set_video_active(False)
             tile.set_status("连接中…")
@@ -477,6 +522,8 @@ class MainWindow(QMainWindow):
         resolver = self._resolvers.pop(tile, None)
         if resolver is not None and resolver.isRunning():
             resolver.terminate()
+        self.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
+                          room=dict(tile.room or {}))
 
     def _offline_tile(self, tile) -> None:
         """这一路下播：停掉播放（画面变黑），格子继续留给它，等重新开播自动接上。"""
@@ -624,9 +671,13 @@ class MainWindow(QMainWindow):
             tile.set_live(info["live"], info["viewers"])
             if was_live and not info["live"]:
                 self._offline_tile(tile)          # 刚下播：黑屏但保留这一格
+                self.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
+                                  room=dict(tile.room or {}))
             elif not was_live and info["live"]:
                 print(f"[开播] {tile.room.get('uname')} 自动开始播放",
                       file=sys.stderr, flush=True)
+                self.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile,
+                                  room=dict(tile.room or {}))
                 self.start_tile(tile)             # 重新开播：自动接上
                 self.refresh_stats()              # 刚开播：马上补一次在线人数
         just_went_live: list = []
@@ -754,6 +805,18 @@ class MainWindow(QMainWindow):
         tile.pauseToggled.connect(self._on_pause_toggled)
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
+        tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
+
+    def _fill_plugin_menu(self, tile) -> None:
+        """右键菜单弹出前，把插件要加的项收进格子（插件异常不会影响菜单）。"""
+        manager = getattr(self, "plugins", None)
+        if manager is None:               # 插件还没装载（例如启动早期）
+            tile.plugin_actions = []
+            return
+        collected = []
+        for label, callback, name in manager.tile_actions(tile):
+            collected.append((label, lambda cb=callback: manager.run_action(cb)))
+        tile.plugin_actions = collected
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -791,6 +854,8 @@ class MainWindow(QMainWindow):
             empty.set_room(room)
             self._wire_tile(empty)
             self.start_tile(empty)
+            self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
+                              room=dict(empty.room or {}))
             self._refresh_meta()
             self.refresh_stats()               # 新加的一路马上拉在线人数，不用等下一轮
             return
@@ -800,12 +865,16 @@ class MainWindow(QMainWindow):
         tile = self.wall.add_room(room)
         self._wire_tile(tile)
         self.start_tile(tile)
+        self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,
+                          room=dict(tile.room or {}))
         self._refresh_meta()
         self.refresh_stats()
 
     def remove_room(self, room: dict) -> None:
         tile = self._tile_of(str(room.get("room_id")))
         if tile is not None:
+            self.plugins.emit(plugin_api.EVENT_TILE_REMOVED, tile=tile,
+                              room=dict(tile.room or {}))
             self._stop_tile(tile)
             self.wall.remove_room(tile.room)
         self.sidebar.remove_room(room)
@@ -1068,11 +1137,15 @@ class MainWindow(QMainWindow):
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
         self.wall.danmaku.add_event(event)
+        self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=self._danmaku_room,
+                          message=dict(event))
 
     def _on_danmaku_status(self, source, text: str) -> None:
         if source is not self._danmaku:
             return                         # 旧连接不能覆盖当前连接的状态
         self.wall.danmaku.set_status(text)
+        self.plugins.emit(plugin_api.EVENT_DANMAKU_STATUS,
+                          room_id=self._danmaku_room, status=text)
 
     # ---- 快捷键 ----
     def _tile_under_cursor(self):
