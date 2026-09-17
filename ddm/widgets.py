@@ -4063,7 +4063,9 @@ class WallGrid(QWidget):
         return tile
 
     def _make_tile(self, room: dict) -> Tile:
-        tile = Tile(room)
+        # 竖屏布局是手动 setGeometry，不经过 QGridLayout 的 addWidget；
+        # 先挂到画面墙，新增空格才不会在 setVisible() 时变成顶层悬浮窗。
+        tile = Tile(room, self)
         tile.clicked.connect(self.tileClicked.emit)
         tile.roomDropped.connect(lambda rid, t=tile: self.roomDropped.emit(t, rid))
         tile.tileDropped.connect(lambda rid, t=tile: self.tileSwapped.emit(rid, t))

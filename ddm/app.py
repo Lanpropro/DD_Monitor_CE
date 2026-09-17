@@ -323,7 +323,10 @@ class MainWindow(QMainWindow):
     def _promote_native_windows(self) -> None:
         """换完排布把原生窗口提回来（和 _demote_native_windows 成对）。"""
         for tile in self.wall.tiles:
-            if not tile.isVisible():
+            # 方向切换可能发生在父窗口暂时隐藏的 resize 事件里；此时
+            # isVisible() 会是 False，但 relayout 已经把格子标成应显示。
+            # 用 isHidden() 区分真正被布局隐藏的格子，避免播放器视频区漏恢复。
+            if tile.isHidden():
                 continue
             tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
             for widget in (tile.stream_badge, tile.title_badge, tile.time_badge,
@@ -335,6 +338,11 @@ class MainWindow(QMainWindow):
                     widget.setAttribute(Qt.WA_NativeWindow, True)
                 widget.raise_()
             tile.video.show()
+            player = self.players.get(tile)
+            if player is not None:
+                # 跨屏时视频区的原生句柄可能已经换父窗口；重新绑定后 VLC
+                # 才能继续把画面送到当前格子，而不是保持 playing 但黑屏。
+                player.bind()
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -386,6 +394,10 @@ class MainWindow(QMainWindow):
             self.sidebar.set_layout_name(layout_id)
         # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
         self.wall.relayout(force=True)
+        # set_layout() 可能在 _build_arrangement() 之后才把新方向的格子显示出来；
+        # 这些格子和视频区都要在最终排布完成后再恢复原生状态。
+        self._promote_native_windows()
+        self._adopt_stray_tiles()
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
 
