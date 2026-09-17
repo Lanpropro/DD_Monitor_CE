@@ -2135,7 +2135,9 @@ class RoomListBox(QWidget):
                 self._glide_to(entry, run, 0, animate)
                 run += CAROUSEL_WIDTH + NAV_ITEM_GAP
             else:
-                self._glide_to(entry, entry.x(), run, animate)
+                # 回到左栏时必须把横栏留下的 x 清零，否则卡片会继续沿用
+                # 横向卡片条的位置，只剩第一张完整可见。
+                self._glide_to(entry, 0, run, animate)
                 run += self.slot_height()
         if dragging is not None:
             held = next((item for item in self.sidebar.items()
