@@ -1,6 +1,6 @@
 # DD Monitor CE 项目状态
 
-更新时间：2026-09-17（Asia/Hong_Kong）
+更新时间：2026-09-17（Asia/Hong_Kong，接手核验）
 项目目录：`F:\\CodexAppManager\\Code\\DD_Monitor_CE`（仅本机路径）
 远程仓库：`https://github.com/Lanpropro/DD_Monitor_CE`
 当前分支：`main`
@@ -31,6 +31,13 @@
 
 ## 当前版本与并发状态
 
+接手核验时：`HEAD` 为 `0274e18 docs: prepare handoff continuation`，`origin/main` 为 `46e9c26 fix(portrait): 横向卡片条 + 回横屏左栏恢复 + 主画面不再被压扁`；当前分支 `main` 较远端超前 4 个文档提交。工作区没有已跟踪文件改动，但仍有以下未跟踪竖屏原型文件：
+
+- `dev/mock_portrait.py`
+- `dev/portrait_mock.html`
+
+因此竖屏适配尚未视为完全收拢，接手任务保持只读等待，暂不进入业务审查或测试。
+
 保存材料时的 HEAD：`55a2520 fix(portrait): 修一批竖屏实机问题`，且 `origin/main` 同步指向该提交。其之前包括：
 
 - `ec68ba9 fix(portrait): 顶部横栏收起时只留头像排`
@@ -60,7 +67,7 @@
 
 ## 接续动作
 
-第一步只读执行：核对当前 `HEAD`、`origin/main`、工作区状态和另一个 Agent 的竖屏修改是否已经收拢。若上述文件仍有未提交改动，停止业务写入并报告仍在等待；若已经提交且工作区稳定，再阅读竖屏相关差异、运行其针对性测试，并向用户报告审查结果与手动验证方法。未经新授权不推送。
+已完成接手核验：当前仍有未跟踪竖屏原型文件，故停止业务写入并等待负责 Agent 收拢。收拢后重新核对 `HEAD`、`origin/main`、`git status --short --branch` 和 `git log -5 --oneline --decorate`，再阅读竖屏相关差异并运行针对性测试；未经新授权不推送。
 
 ## 交接登记
 
@@ -68,4 +75,4 @@
 - 源任务编号：未提供
 - 用户确认范围：保存当前进度，在同一项目原目录新建任务并继续；当前继续范围为等待、核对并在竖屏适配收拢后审查验证。
 - 接手任务编号：`01a0affe-9021-7391-ba8c-a828e9801df4`
-- 交接状态：准备接续
+- 交接状态：已接手
