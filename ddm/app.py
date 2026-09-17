@@ -122,7 +122,9 @@ class MainWindow(QMainWindow):
         self.empty_hint = QLabel(EMPTY_HINT)
         self.empty_hint.setObjectName("EmptyHint")
         self.empty_hint.setAlignment(Qt.AlignCenter)
-        self.wall = WallGrid(wall_rooms if wall_rooms is not None else rooms, layout_id)
+        # 没有显式墙面房间时，墙面应从空位开始；关注列表不等于已上墙房间。
+        # 否则布局变大时，原本隐藏的关注会被误显示成新格子的主播。
+        self.wall = WallGrid(wall_rooms if wall_rooms is not None else [], layout_id)
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()
