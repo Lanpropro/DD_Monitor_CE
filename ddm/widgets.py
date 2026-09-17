@@ -40,6 +40,7 @@ NAV_ITEM_HEIGHT = 128         # 展开时：206x116 左右，接近 16:9，悬�
 NAV_LIST_ITEM_HEIGHT = 60     # 简洁模式：头像 + 两行文字
 NAV_COMPACT_ITEM_HEIGHT = 60  # 收起时保持此前的头像间距和滚动手感
 NAV_ITEM_GAP = 2              # 项与项之间的间距
+CAROUSEL_WIDTH = 206          # 竖屏顶部横栏里横向卡片的宽度（和侧栏展开时一样宽）
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -2026,6 +2027,11 @@ class RoomListBox(QWidget):
         self._scroll_timer.timeout.connect(self._scroll_tick)
 
     # ---- 拖到上下边缘时自动滚动 ----
+    @property
+    def horizontal(self) -> bool:
+        """竖屏顶部横栏里，卡片是横向排的（关注多了就左右滚）。"""
+        return getattr(self.sidebar, "side", "left") == "top"
+
     def set_scroll_dir(self, direction: int) -> None:
         self._scroll_dir = int(direction)
         if self._scroll_dir and not self._scroll_timer.isActive():
@@ -2037,17 +2043,27 @@ class RoomListBox(QWidget):
         area = self.sidebar.scroll
         if area is None or not self._scroll_dir:
             return
-        bar = area.verticalScrollBar()
+        bar = area.horizontalScrollBar() if self.horizontal else area.verticalScrollBar()
         bar.setValue(bar.value() + self._scroll_dir * 12)
 
     def auto_scroll(self, y: float) -> None:
-        """光标贴近上下边缘就自动滚，方便把卡片拖到看不见的位置。"""
+        """光标贴近边缘就自动滚，方便把卡片拖到看不见的位置。"""
         if y < 28:
             self.set_scroll_dir(-1)
-        elif y > self.height() - 28:
+        elif y > (self.width() if self.horizontal else self.height()) - 28:
             self.set_scroll_dir(1)
         else:
             self.set_scroll_dir(0)
+
+    def item_size(self) -> tuple[int, int]:
+        """卡片尺寸。竖屏横栏里用固定宽度，横向排一长条。"""
+        if self.horizontal:
+            return CAROUSEL_WIDTH, NAV_ITEM_HEIGHT
+        if self.sidebar.collapsed:
+            height = NAV_COMPACT_ITEM_HEIGHT
+        else:
+            height = NAV_ITEM_HEIGHT if self.sidebar.card_mode else NAV_LIST_ITEM_HEIGHT
+        return self.width(), height
 
     def slot_height(self) -> int:
         if self.sidebar.collapsed:
@@ -2057,13 +2073,20 @@ class RoomListBox(QWidget):
         return height + NAV_ITEM_GAP
 
     def content_height(self) -> int:
+        if self.horizontal:
+            return NAV_ITEM_HEIGHT + NAV_ITEM_GAP
         return self.slot_height() * max(1, len(self.sidebar.items()))
 
-    def sizeHint(self) -> QSize:
-        return QSize(super().sizeHint().width(), self.content_height())
+    def content_width(self) -> int:
+        if not self.horizontal:
+            return super().sizeHint().width()
+        return (CAROUSEL_WIDTH + NAV_ITEM_GAP) * max(1, len(self.sidebar.items()))
 
-    def _glide(self, item: NavItem, y: int, animate: bool) -> None:
-        target = QPoint(item.x(), y)
+    def sizeHint(self) -> QSize:
+        return QSize(self.content_width(), self.content_height())
+
+    def _glide_to(self, item: NavItem, x: int, y: int, animate: bool) -> None:
+        target = QPoint(x, y)
         if item.pos() == target:
             return
         previous = self._animations.get(item)
@@ -2082,7 +2105,10 @@ class RoomListBox(QWidget):
 
     def relayout(self, animate: bool = False, gap_index: int | None = None,
                  dragging: str | None = None) -> None:
-        """按当前顺序摆卡片；gap_index 处留一个空位给正在拖的那一张。"""
+        """按当前顺序摆卡片；gap_index 处留一个空位给正在拖的那一张。
+
+        竖屏顶部横栏里改成横向排（卡片向右排开，多了就左右滚）。
+        """
         items = self.sidebar.items()
         if dragging is not None:
             items = [item for item in items
@@ -2092,35 +2118,46 @@ class RoomListBox(QWidget):
             order.insert(index, None)
         else:
             order = list(items)
-        y = 0
-        if self.sidebar.collapsed:
-            item_height = NAV_COMPACT_ITEM_HEIGHT
-        else:
-            item_height = NAV_ITEM_HEIGHT if self.sidebar.card_mode else NAV_LIST_ITEM_HEIGHT
+        width, item_height = self.item_size()
+        horizontal = self.horizontal
+        run = 0
         for entry in order:
             if entry is None:
-                y += self.slot_height()          # 空出来的位置
+                run += (CAROUSEL_WIDTH if horizontal else 0) + self.slot_height()
                 continue
             entry.setVisible(True)
-            entry.resize(self.width(), item_height)
-            self._glide(entry, y, animate)
-            y += self.slot_height()
+            entry.resize(width, item_height)
+            if horizontal:
+                self._glide_to(entry, run, 0, animate)
+                run += CAROUSEL_WIDTH + NAV_ITEM_GAP
+            else:
+                self._glide_to(entry, entry.x(), run, animate)
+                run += self.slot_height()
         if dragging is not None:
             held = next((item for item in self.sidebar.items()
                          if str(item.room.get("room_id")) == str(dragging)), None)
             if held is not None:
                 held.hide()                      # 原卡片藏起来，鼠标上跟着的是它的影子
-        self.setMinimumHeight(max(y, 1))
+        if horizontal:
+            self.setMinimumHeight(NAV_ITEM_HEIGHT + NAV_ITEM_GAP)
+            self.setMinimumWidth(max(run, 1))
+        else:
+            self.setMinimumWidth(0)
+            self.setMinimumHeight(max(run, 1))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.relayout(animate=False)
 
     def index_at(self, y: float) -> int:
-        """鼠标落在第几个位置（0 = 最上面，len = 追加到最后）。
+        """鼠标落在第几个位置（0 = 最前面，len = 追加到最后）。
 
-        按格子高度直接算，拖动中卡片位置在动也不影响判断。
+        按格子尺寸直接算，拖动中卡片位置在动也不影响判断。竖屏横栏里按 x 算。
         """
+        if self.horizontal:
+            slot = CAROUSEL_WIDTH + NAV_ITEM_GAP
+            return max(0, min(int((y + CAROUSEL_WIDTH / 2) // slot),
+                              len(self.sidebar.items())))
         slot = self.slot_height()
         if self.sidebar.collapsed:
             item_height = NAV_COMPACT_ITEM_HEIGHT
@@ -2149,6 +2186,25 @@ class RoomListBox(QWidget):
         event.acceptProposedAction()
         room_id = bytes(event.mimeData().data(NAV_MIME)).decode("utf-8", "ignore")
         self.sidebar.finish_drag(room_id, self.mapToGlobal(event.position().toPoint()))
+
+
+class CarouselScroll(QScrollArea):
+    """竖向滚轮也能用来横向滚动的滚动区（竖屏卡片条用）。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.horizontal_only = False
+
+    def wheelEvent(self, event) -> None:
+        if not self.horizontal_only:
+            super().wheelEvent(event)
+            return
+        # 竖屏时列表是横着排的：把竖直滚轮换算成横向滚动，
+        # 这样鼠标滚轮照样能把后面的主播翻出来
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        bar = self.horizontalScrollBar()
+        bar.setValue(bar.value() - delta)
+        event.accept()
 
 
 class RoomStrip(QFrame):
@@ -2461,7 +2517,7 @@ class Sidebar(QFrame):
         status_box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         layout.addWidget(self.status_row)
 
-        scroll = QScrollArea()
+        scroll = CarouselScroll()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -2703,13 +2759,29 @@ class Sidebar(QFrame):
         self.side = side
         horizontal = side == "top"
         if not horizontal:
-            # 切回左栏：头像排收掉（它只服务于顶部横栏），展开键还回标题行
+            # 切回左栏：头像排收掉（它只服务于顶部横栏），展开键还回标题行，
+            # 并把「顶部横栏收起时藏起来的控件」逐个恢复 —— 只显示标题行容器
+            # 是不够的，搜索/列表/按钮行会一直是隐藏状态，左栏就只剩一小条。
             strip = getattr(self, "_head_strip", None)
             if strip is not None:
                 strip.setVisible(False)
             header = getattr(self, "_header_row", None)
             if header is not None:
                 header.setVisible(True)
+            for index in range(self.title_box.count()):
+                holder = self.title_box.itemAt(index).widget()
+                if holder is not None:
+                    holder.setVisible(True)
+            self.dot.setVisible(True)
+            self.batch_button.setVisible(True)
+            for widget, visible in ((self.search, True), (self.status_row, True),
+                                    (self.scroll, True),
+                                    (self.normal_bar, not self.select_mode),
+                                    (self.batch_bar, self.select_mode),
+                                    (self.tool_row, True)):
+                widget.setVisible(visible)
+            self.tool_row_more.setVisible(False)     # 那是竖屏专属的「⋯」
+            self.account_row.setVisible(bool(self.account_row.uname))
             self._restore_toggle_to_header()
         self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
         if horizontal:
@@ -2753,11 +2825,11 @@ class Sidebar(QFrame):
         header = getattr(self, "_header_row", None)
         toggle = getattr(self, "toggle_button", None)
         if strip is not None:
-            # 展开时少摆几个，给标题/搜索那一行留地方
-            strip.LIMIT = 9 if self.collapsed else 6
-            if not strip.isVisible():
-                strip.setVisible(True)
-            strip.rebuild()
+            # 展开时收起来：用户要求展开后不显示头像排，那点高度留给卡片
+            strip.LIMIT = 9
+            strip.setVisible(self.collapsed)
+            if self.collapsed:
+                strip.rebuild()
         if toggle is not None:
             # 从标题行里摘出来，横栏右上角常驻；换成紧凑样式，
             # 否则标题行那套 24px 最小尺寸 + padding 会把横栏撑高一截
@@ -2784,13 +2856,43 @@ class Sidebar(QFrame):
             self.dot.setVisible(True)
             self.batch_button.setVisible(True)
             self.search.setVisible(True)
-            self.status_row.setVisible(True)
+            # 竖屏不显示「关注中 · N / 排序 / 刷新」那一行：横栏高度很宝贵，
+            # 这些入口都在「⋯」里（用户明确要求展开后不要占额外的高度）
+            self.status_row.setVisible(False)
             self.scroll.setVisible(True)
             self.normal_bar.setVisible(not self.select_mode)
             self.batch_bar.setVisible(self.select_mode)
-            self.account_row.setVisible(False)       # 展开时账号头像在头像排里
+            self.account_row.setVisible(False)       # 展开时账号菜单在「⋯」里
             self.tool_row.setVisible(True)           # 只留「布局预设」
             self.tool_row_more.setVisible(True)      # 其余收进「⋯」
+            # 标题文字在横栏里没意义，只留「多选 + 展开/收起」这两个真按钮
+            self._set_title_texts_visible(False)
+
+    def _set_title_texts_visible(self, visible: bool) -> None:
+        for index in range(self.title_box.count()):
+            holder = self.title_box.itemAt(index).widget()
+            if holder is not None:
+                holder.setVisible(visible)
+        self._apply_scroll_axis()
+
+    def _apply_scroll_axis(self) -> None:
+        """竖屏横栏里关注列表是横向卡片条：左右滚，只占一条高度。"""
+        top = self.side == "top"
+        if top:
+            rows = NAV_ITEM_HEIGHT + NAV_ITEM_GAP
+            self.scroll.setMinimumHeight(rows)
+            self.scroll.setMaximumHeight(rows)
+            self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.scroll.horizontal_only = True
+        else:
+            self.scroll.setMinimumHeight(0)
+            self.scroll.setMaximumHeight(16_777_215)
+            self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.scroll.setVerticalScrollBarPolicy(
+                Qt.ScrollBarAlwaysOff if self.collapsed else Qt.ScrollBarAsNeeded)
+            self.scroll.horizontal_only = False
+        self.list_box.relayout(animate=False)
 
     def toggle_collapsed(self) -> None:
         self.set_collapsed(not self.collapsed)
@@ -4145,9 +4247,9 @@ class WallGrid(QWidget):
             self._columns = columns
             return
 
-        # 主画面：整宽 + 16:9（超出可用高度就压回来，别把下面的格子挤没）
-        # 注意不要再 addWidget 回网格：一旦交给布局管理，它就会覆盖下面算好的几何。
-        main_height = min(int(width * 9 / 16), max(80, available // 2))
+        # 主画面：整宽 + 16:9。**不给它加上限** —— 它是主角，先满足它；
+        # 小画面去适应剩下的高度（挤不下就矮一点，也比主画面变形好）。
+        main_height = max(80, int(width * 9 / 16))
         main.setGeometry(QRect(left, top, width, main_height))
         main.setVisible(True)
 

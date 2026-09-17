@@ -13,7 +13,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QMimeData, QPointF, Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -212,8 +212,8 @@ def part_orientation_roundtrip(app) -> None:
         settle(app, 0.2)
         expected = max(10, main.video.width() + 1 - controls.width() - 10)
         print(f"  [{tag}] 方向={window.orientation} 布局={wall.layout_id} "
-              f"侧栏side={sidebar.side} 头排可见={strip.isVisible()} "
-              f"头排主播数={len(strip._rooms)}")
+              f"侧栏side={sidebar.side} collapsed={sidebar.collapsed} "
+              f"头排可见={strip.isVisible()} 头排主播数={len(strip._rooms)}")
         print(f"        主画面 {main.width()}x{main.height()} "
               f"比例 {main.width() / max(1, main.height()):.3f} "
               f"控件条x={controls.x()} 期望={expected}")
@@ -222,7 +222,9 @@ def part_orientation_roundtrip(app) -> None:
         assert layouts.is_portrait_layout(wall.layout_id) == want_portrait, \
             f"{tag}: 布局 {wall.layout_id} 和方向不符（这就是拖回横屏后错位的原因）"
         assert controls.x() == expected, f"{tag}: 控件条没贴住画面右上角"
-        assert strip.isVisible() == want_portrait, f"{tag}: 头排该显示/隐藏不对"
+        # 头排只在竖屏收起时露出来（展开后由卡片条承担）
+        expected_strip = want_portrait and sidebar.collapsed
+        assert strip.isVisible() == expected_strip, f"{tag}: 头排该显示/隐藏不对"
         assert sidebar.toggle_button.isVisible(), f"{tag}: 展开键必须一直在"
         return main
 
@@ -230,7 +232,10 @@ def part_orientation_roundtrip(app) -> None:
 
     window.resize(1080, 1920)
     settle(app, 1.0)
-    main = check("拖成竖屏", True)
+    # 竖屏默认收起（横栏只占一条），这时头排必须露出来
+    sidebar.set_collapsed(True, animate=False)
+    settle(app, 0.4)
+    main = check("拖成竖屏（收起）", True)
     strip = sidebar._head_strip
     print(f"        头排头像数={strip._layout.count()} "
           f"（关注 {len(sidebar.rooms())} 个）")
@@ -254,6 +259,8 @@ def part_strip_interaction(app) -> None:
     settle(app, 1.2)
     sidebar = window.sidebar
     strip = sidebar._head_strip
+    sidebar.set_collapsed(True, animate=False)   # 竖屏默认收起，看头排
+    settle(app, 0.4)
     rooms_now = sidebar.rooms()
     print(f"  收起：头排可见={strip.isVisible()} 账号头像="
           f"{strip.account_avatar() is not None} "
@@ -280,20 +287,71 @@ def part_strip_interaction(app) -> None:
     print(f"  点第 3 个头像 -> roomSelected={picked}")
     assert picked == [target], f"头排点击应该选中对应直播间，实际 {picked}"
 
-    print("\n=== 12. 竖屏展开：头排还在，多出按钮行 ===")
+    print("\n=== 11b. 头排头像拖到画面墙 = 真的能换画布 ===")
+    # 竖屏收起时没有列表可拖，唯一能拖的就是头排头像，所以这条必须通。
+    # 无鼠标环境里不模拟 QDrag（会弹模态门），直接构造落点事件走同一条路径。
+    from PySide6.QtGui import QDropEvent
+    from ddm.widgets import ROOM_MIME
+
+    def drop_room_on(tile, room_id: str) -> None:
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, room_id.encode("utf-8"))
+        event = QDropEvent(QPointF(20, 20), Qt.CopyAction, mime,
+                           Qt.LeftButton, Qt.NoModifier)
+        tile.dropEvent(event)
+
+    wall = window.wall
+    # 找一个空格子和一个已占用的格子
+    empty = next((tile for tile in wall.visible_tiles() if not tile.room.get("room_id")), None)
+    occupied = next((tile for tile in wall.visible_tiles()
+                     if str(tile.room.get("room_id")) == target), None)
+    print(f"  空格子={empty is not None} 目标格={occupied is not None} "
+          f"（拖的是 {target}）")
+    assert empty is not None, "竖屏布局应该留出空格子"
+    assert occupied is not None, "示例房间应该在墙上的某一格"
+
+    # 1) 拖到空格子上：填进去
+    drop_room_on(empty, target)
+    settle(app, 0.4)
+    print(f"  拖到空格子后：该格房间={empty.room.get('room_id')}")
+    assert str(empty.room.get("room_id")) == target, "拖到空格子上应该填进去"
+
+    # 2) 再拖回原格子：两边交换，不会出现重复
+    drop_room_on(occupied, target)
+    settle(app, 0.4)
+    landed = [str(tile.room.get("room_id") or "") for tile in wall.tiles]
+    counted = [rid for rid in landed if rid == target]
+    print(f"  拖回原格子后：墙上房间={landed} 其中 {target} 出现 {len(counted)} 次")
+    assert len(counted) == 1, "同一个直播间不能同时占两格"
+
+    print("\n=== 12. 竖屏展开：收起头排，换成横向卡片条 ===")
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.4)
+    box = sidebar.list_box
     print(f"  展开：头排={strip.isVisible()} 搜索={sidebar.search.isVisible()} "
           f"布局按钮={sidebar.tool_row.isVisible()} "
           f"更多={sidebar.tool_row_more.isVisible()} "
           f"列表={sidebar.scroll.isVisible()} 高={sidebar.height()}")
-    assert strip.isVisible(), "展开时头排也留着，这样随时能收起"
+    assert not strip.isVisible(), "展开后不保留头像排（用户要求）"
     assert sidebar.search.isVisible() and sidebar.tool_row.isVisible()
     assert sidebar.tool_row_more.isVisible(), "放不下的入口要在「⋯」里"
-    assert sidebar.height() > 52, "展开后横栏应该变高"
+    assert box.horizontal, "展开后关注列表应该是横向卡片条"
+    # 卡片横向排开：第一张在左边，第二张在它右边
+    entries = sidebar.items()
+    assert len(entries) >= 2, "至少要两张卡片才能验横向排列"
+    first, second = entries[0], entries[1]
+    print(f"  卡片位置：第1张 x={first.x()} 第2张 x={second.x()} "
+          f"宽={first.width()} 高={first.height()} "
+          f"滚动={sidebar.scroll.horizontalScrollBarPolicy().name}")
+    assert second.x() > first.x(), "卡片要向右排"
+    assert first.y() == second.y(), "卡片应该在同一行"
+    assert sidebar.height() < 420, f"展开后横栏别太高，实际 {sidebar.height()}"
+    # 竖向滚轮要能横向滚（竖屏没有横向滚轮的鼠标）
+    assert sidebar.scroll.horizontal_only, "竖屏列表要靠竖向滚轮横向滚"
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.3)
     assert not sidebar.search.isVisible(), "收起后搜索框要收掉"
+    assert strip.isVisible(), "收起后头排要回来"
 
     print("\n=== 13. 切布局不动窗口方向（摆放跟着窗口形状走）===")
     window.resize(1600, 900)
@@ -304,12 +362,12 @@ def part_strip_interaction(app) -> None:
           f"布局={window.wall.layout_id}")
     assert window.orientation == "landscape", "套用预设不该把窗口方向改掉"
     assert sidebar.side == "left", "窗口还是横屏，侧栏就该在左边"
-    # 竖屏预设套在横屏窗口上不好看，这是预期的（提示用户去拖窗口），
-    # 但必须不能崩、也不能把格子摆到墙外
-    wall = window.wall
-    for tile in wall.visible_tiles():
-        assert tile.geometry().right() <= wall.width() + 2
-        assert tile.geometry().bottom() <= wall.height() + 2
+    # 竖屏预设套在横屏窗口上不好看，这是预期内的（提示用户去拖窗口），
+    # 但主画面仍然要按整宽 16:9 —— 摆放规则跟着窗口形状走
+    main = window.wall.tiles[0]
+    print(f"  横屏里的竖屏预设：主画面 {main.width()}x{main.height()} "
+          f"比例 {ratio(main):.3f}")
+    assert abs(ratio(main) - 16 / 9) < 0.06, "竖屏摆放放在横屏窗口里主画面仍是 16:9"
     window._on_layout_changed("2x2")
     settle(app, 0.6)
     print(f"  改回横屏预设：方向={window.orientation} side={sidebar.side} "

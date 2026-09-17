@@ -293,7 +293,9 @@ class MainWindow(QMainWindow):
         self.orientation = orientation
         portrait = orientation == "portrait"
 
-        self.sidebar.set_collapsed(portrait, animate=False)
+        # 竖屏不再强制「收起」：顶部横栏本来就只占一条，横屏的收起语义（60px 窄条）
+        # 混进来会在拖回横屏时留下一堆隐藏控件。竖屏保持展开（头像排 + 按钮行）。
+        self.sidebar.set_collapsed(False, animate=False)
 
         saved = self._saved_layout(orientation)
         # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
