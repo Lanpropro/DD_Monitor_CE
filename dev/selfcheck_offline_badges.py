@@ -128,6 +128,13 @@ def main() -> None:
     settle(app, 0.6)
     print(f"  live={tile.room.get('live')} 状态={tile._status_text!r}"
           f" 自动重新取流={tile in started}")
+    if tile.room.get("live") is not True:
+        items = {str(item.room.get("room_id")): item for item in window.sidebar.items()}
+        it = items.get(str(tile.room.get("room_id")))
+        print(f"  [诊断] 侧栏条目={it!r} 侧栏 live={it.room.get('live') if it else None} "
+              f"侧栏 alert={it._alert if it else None} "
+              f"侧栏 badge={it.badge.text() if it else None} "
+              f"同一字典={it is not None and it.room is tile.room}")
     assert tile.room.get("live") is True
     assert tile in started, "回开播应该自动重新取流"
     assert tile._status_text != "已下播"

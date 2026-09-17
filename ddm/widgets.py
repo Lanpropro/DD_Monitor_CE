@@ -369,7 +369,9 @@ class VolumeButton(QPushButton):
         path.closeSubpath()
         painter.drawPath(path)
         if self.muted:
-            painter.drawLine(left + 10, top + 2, left + 16, top + 10)
+            # 静音：一条斜线从左下穿到右上，横跨整个音量表（喇叭 + 声波）。
+            # 只画在声波上会像划掉了半边，看不出「整路禁声」。
+            painter.drawLine(QPointF(left - 1.5, top + 15.5), QPointF(left + 19.5, top - 3.5))
         else:
             painter.drawArc(QRectF(left + 5, center.y() - 5, 9, 10), -55 * 16, 110 * 16)
             if self.level >= 45:
@@ -2654,6 +2656,26 @@ class Sidebar(QFrame):
         self.list_box.relayout(animate=animate)
         self._sync_sort_menu()
 
+    def play_live_alerts(self, items: list) -> None:
+        """重排之后再播开播动效。
+
+        调用方要先把 room["live"] 置位、再 resort()，卡片才会先挪到「开播优先」
+        该在的位置；动效放到下一个事件循环里播，那时卡片已经就位，水滴和气泡
+        才会落在卡片身上，而不是留在它挪走之前的那一行。
+        """
+        pending = [item for item in items if item is not None]
+        if not pending:
+            return
+        QTimer.singleShot(0, lambda: self._play_live_alerts_now(pending))
+
+    @staticmethod
+    def _play_live_alerts_now(items: list) -> None:
+        for item in items:
+            if item.parentWidget() is None:      # 已经不在列表里了
+                continue
+            item.play_live_alert()
+            print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
+
     def toggle_pin(self, room: dict) -> None:
         room_id = str(room.get("room_id"))
         if room_id in self.pinned:
@@ -2786,6 +2808,8 @@ class Tile(QFrame):
         self.reload_button.setToolTip("重新连接这一路")
         self.reload_button.clicked.connect(lambda: self.reloadRequested.emit(self.room))
         self.close_button = self._make_control("×", "关闭这一路")
+        # 固定成方钮：宽度不再依赖样式表，免得被 min-width 撑成画质按钮那么宽
+        self.close_button.setFixedSize(theme.TILE_CONTROL_HEIGHT, theme.TILE_CONTROL_HEIGHT)
         self.close_button.clicked.connect(lambda: self.closeRequested.emit(self.room))
         for button in (self.quality_button, self.reload_button, self.close_button):
             control_layout.addWidget(button)
@@ -3067,7 +3091,9 @@ class Tile(QFrame):
         self.controls.setVisible(visible)
         if visible:
             self._controls_hide_timer.stop()
-            self._update_controls_mask()
+            # 显示之前先按文本把按钮宽度摆好：否则会沿用上一次的尺寸，
+            # 画质文字换了之后整条控制条看起来就是错位的。
+            self._layout_controls()
             self._sync_control_hover()
             self._control_hover_timer.start()
         else:
@@ -3178,17 +3204,37 @@ class Tile(QFrame):
                             9, 9)
         self.video.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
+    def _quality_button_width(self) -> int:
+        """按画质文字算按钮宽度。
+
+        用样式表里那号字来量，不能拿 button.fontMetrics()：QSS 的 font-size 不会
+        改到控件的 QFont，量出来是默认字号的宽度，几个画质档位会算出同一个数，
+        按钮就宽得离谱、文字也没居中。
+        """
+        font = QFont(theme.FONT_DEFAULT)
+        font.setPixelSize(theme.FONT_CAPTION)
+        font.setBold(True)                     # #TileCtrl 是 font-weight: 600
+        advance = QFontMetrics(font).horizontalAdvance(self.quality_button.text())
+        return max(theme.TILE_CONTROL_HEIGHT, advance + 16)
+
     def _layout_controls(self) -> None:
-        """控制条浮在画面右上角，只显示按钮本身。"""
-        for button in (self.quality_button, self.reload_button, self.close_button):
-            button.setMinimumWidth(button.fontMetrics().horizontalAdvance(button.text()) + 24)
+        """控制条浮在画面右上角，只显示按钮本身。
+
+        每个按钮的宽度都按文本算好并固定下来，然后才让布局排位置。样式表给
+        按钮带了 offset（min-width / padding），若交给布局分配，短文本的「×」
+        会被撑成和画质按钮一样宽，整条控制条看起来就是错位的。
+        """
+        # 高度统一由代码给：样式表不再写 min-height，交给布局量出来会矮一截
+        self.quality_button.setFixedHeight(theme.TILE_CONTROL_HEIGHT)
+        self.quality_button.setFixedWidth(self._quality_button_width())
+        self.close_button.setFixedSize(theme.TILE_CONTROL_HEIGHT, theme.TILE_CONTROL_HEIGHT)
         layout = self.controls.layout()
         layout.invalidate()
         size = layout.sizeHint()
         self.controls.resize(size)
-        # 原生窗口遮罩必须使用布局完成后的按钮坐标，否则缩放或画质文字改变时会错位。
         layout.setGeometry(self.controls.rect())
         layout.activate()
+        # 原生窗口遮罩必须使用布局完成后的按钮坐标，否则缩放或画质文字改变时会错位。
         video_right = self.video.width() + 1
         self.controls.move(max(10, video_right - size.width() - 10), 8)
         self._update_controls_mask()

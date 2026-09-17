@@ -625,6 +625,7 @@ class MainWindow(QMainWindow):
                       file=sys.stderr, flush=True)
                 self.start_tile(tile)             # 重新开播：自动接上
                 self.refresh_stats()              # 刚开播：马上补一次在线人数
+        just_went_live: list = []
         for item in self.sidebar._items:            # noqa: SLF001
             info = status.get(str(item.room.get("room_id")))
             if not info:
@@ -637,10 +638,11 @@ class MainWindow(QMainWindow):
                 item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
                 covers[str(item.room.get("room_id"))] = cover
             if info["live"] and not was_live:
-                # 刚开播：让动效负责把「未开播」砸成「直播中」
+                # 刚开播：马上置位并重排，让「开播优先」先把卡片挪上去；
+                # 动效等重排落地后再播，否则水滴会留在卡片原来的行上（两者错开）。
                 if self.settings.get("live_alert", True):
-                    item.play_live_alert()
-                    print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
+                    item.room["live"] = True        # 徽标由动效砸中时再换
+                    just_went_live.append(item)
                 else:
                     item.set_live(True)
             else:
@@ -651,6 +653,8 @@ class MainWindow(QMainWindow):
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
+        if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
+            self.sidebar.play_live_alerts(just_went_live)
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")

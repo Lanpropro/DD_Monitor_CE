@@ -583,14 +583,13 @@ QSlider::handle:horizontal:hover {{
 }}
 
 /* 格子内的独立控制（画质 / 静音 / 刷新 / 全屏 / 关闭） */
+/* 这里不写 min-width / padding：宽度由 widgets._layout_controls 按文本算好并
+   固定，样式表再加 offset 会把「×」这类短文本按钮撑成和画质按钮一样宽。 */
 #TileCtrl {{
     background: rgba(12, 13, 16, 0.78);   /* 每个按钮各自一个底，靠间距分开 */
     color: {TEXT2};
     border: none;
     border-radius: {TILE_CONTROL_HEIGHT // 2}px;
-    min-width: {TILE_CONTROL_HEIGHT}px;
-    min-height: {TILE_CONTROL_HEIGHT}px;
-    padding: 0 8px;
     font-size: {FONT_CAPTION}px;
     font-weight: 600;
 }}

@@ -166,11 +166,36 @@ def main() -> None:
                for rect in geometries), "按钮不能超出控制区"
     assert all(geometries[index + 1].left() - geometries[index].right() - 1 == 6
                for index in range(len(geometries) - 1)), "按钮间距应稳定为 6px"
+
+    # 「×」宽度曾经被样式表的 min-width + padding 撑到和画质按钮一样宽（81px），
+    # 整条控制条看起来就是错位的。现在宽度由代码算好，必须是个方钮。
+    print(f"  按钮宽度：画质={tile.quality_button.width()} "
+          f"刷新={tile.reload_button.width()} 关闭={tile.close_button.width()}")
+    assert tile.close_button.width() == theme.TILE_CONTROL_HEIGHT, \
+        f"关闭按钮应是 {theme.TILE_CONTROL_HEIGHT}px 的方钮，实际 {tile.close_button.width()}px"
+    assert tile.close_button.height() == theme.TILE_CONTROL_HEIGHT
+    assert tile.close_button.width() != tile.quality_button.width() or \
+        tile.quality_button.text() == "×", "关闭按钮不该被撑成画质按钮那么宽"
+    assert tile.quality_button.width() == tile._quality_button_width(), \
+        "画质按钮宽度应该正好按文本算出来"
+    assert tile.quality_button.width() > theme.TILE_CONTROL_HEIGHT, \
+        "画质按钮要比方钮宽，才放得下档位文字"
+    # 再调一次布局，宽度必须完全不变（这是原来「hover 之后错位」的可测形式）
+    widths_before = [button.width() for button in buttons]
+    tile._layout_controls()
+    settle(app, 0.2)
+    widths_after = [button.width() for button in buttons]
+    print(f"  重排前后宽度：{widths_before} -> {widths_after}")
+    assert widths_before == widths_after, "重复布局不能让控制按钮宽度变化"
+    assert all(tile.controls.mask().contains(button.geometry()) for button in buttons), \
+        "重排后遮罩仍要覆盖三个按钮"
     for button in buttons:
         tile._sync_control_hover(button.mapToGlobal(button.rect().center()))
         states = [candidate.property("hovered") is True for candidate in buttons]
         print(f"  划过 {button.toolTip()}：{states}")
         assert states == [candidate is button for candidate in buttons]
+        assert [candidate.width() for candidate in buttons] == widths_before, \
+            "悬停不能改变按钮宽度"
     tile.set_controls_visible(False)
 
     print("\n=== 7. 关注列表刷新按钮是图形按钮 ===")
