@@ -385,6 +385,46 @@ def part_strip_interaction(app) -> None:
     settle(app, 0.4)
 
 
+def part_layout_grow_keeps_slots_empty(app) -> None:
+    """布局变大时，新格子必须是空的，不能自动补一个关注的主播。
+
+    关注列表里留着第 4 个候选，墙上只放 3 个；把布局从 1+2 加到 1+3、1+4，
+    多出来的位置必须显示「拖入直播间」。
+    """
+    print("\n=== 14. 布局变大：新格子保持空位 ===")
+    names = ["恩骨", "纱依shayi", "三理mit3uri", "皮特174"]
+    all_rooms = [{"room_id": str(2000 + index), "uname": name, "title": "标题",
+                  "live": True, "muted": True, "quality": 250, "volume": 42}
+                 for index, name in enumerate(names, start=1)]
+    window = MainWindow([dict(room) for room in all_rooms],
+                        [dict(room) for room in all_rooms[:3]], layout_id="main2")
+    window.setGeometry(-9000, -9000, *LANDSCAPE)
+    window.show()
+    settle(app, 1.2)
+
+    def occupants() -> list:
+        return [str(tile.room.get("uname") or "") for tile in window.wall.tiles
+                if tile.isVisible()]
+
+    def empties() -> int:
+        return sum(1 for tile in window.wall.tiles
+                   if tile.isVisible() and not tile.room.get("room_id"))
+
+    print(f"  main2：{occupants()}")
+    assert occupants() == names[:3], f"初始应该是前三个，实际 {occupants()}"
+    for layout_id, expected_count in (("main3", 4), ("main4", 5)):
+        window._on_layout_changed(layout_id)
+        settle(app, 0.5)
+        print(f"  {layout_id}：{occupants()}  空位={empties()}")
+        assert len(window.wall.visible_tiles()) == expected_count, \
+            f"{layout_id} 应该有 {expected_count} 个格子"
+        assert empties() == expected_count - 3, \
+            f"{layout_id} 多出来的位置必须是空位，不能自动补主播：{occupants()}"
+        assert names[3] not in occupants(), "第 4 个候选不该被自动填上墙"
+    window.close()
+    settle(app, 0.4)
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(errors="replace")
@@ -402,6 +442,7 @@ def main() -> None:
     part_landscape_unchanged(app)
     part_orientation_roundtrip(app)
     part_strip_interaction(app)
+    part_layout_grow_keeps_slots_empty(app)
     print("\n全部通过")
 
 if __name__ == "__main__":
