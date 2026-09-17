@@ -3,6 +3,7 @@ import os
 import sys
 import time
 
+from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -114,6 +115,7 @@ def main() -> None:
 
     print("\n=== 4. 暂停按钮（图形按钮 + 左下角） ===")
     tile = window.wall.tiles[0]
+    assert tile.volume_button.objectName() == "BiliVolumeButton", "音量按钮应使用独立的 B 站风格外观"
     fake = FakePlayer()
     window.players[tile] = fake
     tile._player_active = True
@@ -143,7 +145,35 @@ def main() -> None:
     assert badge.y() < 40, "应该浮在画面上方"
     assert badge._name_text and badge._title_text
 
-    print("\n=== 6. 关注列表刷新按钮是图形按钮 ===")
+    print("\n=== 6. 右上角控制区只保留圆角按钮，横向划过能稳定高亮 ===")
+    tile.set_controls_visible(True)
+    tile._layout_controls()
+    controls_mask = tile.controls.mask()
+    buttons = (tile.quality_button, tile.reload_button, tile.close_button)
+    centres = [button.geometry().center() for button in buttons]
+    gap = QPoint((buttons[0].geometry().right() + buttons[1].geometry().left()) // 2,
+                 buttons[0].geometry().center().y())
+    print(f"  控制区遮罩为空={controls_mask.isEmpty()} 按钮中心="
+          f"{[controls_mask.contains(point) for point in centres]}"
+          f" 按钮间隙={controls_mask.contains(gap)}")
+    assert not controls_mask.isEmpty()
+    assert all(controls_mask.contains(point) for point in centres)
+    assert not controls_mask.contains(gap), "按钮间隙不能残留矩形黑底"
+    geometries = [button.geometry() for button in buttons]
+    print(f"  按钮坐标={[rect.getRect() for rect in geometries]}")
+    assert len({rect.y() for rect in geometries}) == 1, "三个按钮应在同一水平线上"
+    assert all(rect.top() >= 0 and rect.bottom() < tile.controls.height()
+               for rect in geometries), "按钮不能超出控制区"
+    assert all(geometries[index + 1].left() - geometries[index].right() - 1 == 6
+               for index in range(len(geometries) - 1)), "按钮间距应稳定为 6px"
+    for button in buttons:
+        tile._sync_control_hover(button.mapToGlobal(button.rect().center()))
+        states = [candidate.property("hovered") is True for candidate in buttons]
+        print(f"  划过 {button.toolTip()}：{states}")
+        assert states == [candidate is button for candidate in buttons]
+    tile.set_controls_visible(False)
+
+    print("\n=== 7. 关注列表刷新按钮是图形按钮 ===")
     button = window.sidebar.refresh_button
     print(f"  类型={type(button).__name__} 文案={button.text()!r}"
           f" 尺寸={button.width()}x{button.height()}")
@@ -156,7 +186,7 @@ def main() -> None:
     print(f"  刷新完成：可用={button.isEnabled()} 提示={button.toolTip()!r}")
     assert button.isEnabled()
 
-    print("\n=== 7. 布局菜单分组 ===")
+    print("\n=== 8. 布局菜单分组 ===")
     for name, group in layouts.GROUPS:
         print(f"  {name}: {len(group)} 个 -> "
               + " / ".join(item["name"] for item in group[:3]) + " …")

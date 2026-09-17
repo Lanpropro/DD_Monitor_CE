@@ -260,8 +260,24 @@ def main() -> None:
           f" 左边距={left} 右边距={right}")
     assert compact.width() == NavThumb.COMPACT_SIZE
     assert abs(left - right) <= 2, "收起时缩略图要居中"
+    live_dot = sidebar.items()[0].live_dot
+    offline_dot = item_of(window, "1003").live_dot
+    print(f"  直播圆点：直播中={live_dot.isVisible()} 未开播={offline_dot.isVisible()}"
+          f" 位置=({live_dot.x()},{live_dot.y()})")
+    assert live_dot.isVisible(), "收起时直播中的头像应显示粉色圆点"
+    assert not offline_dot.isVisible(), "未开播头像不应显示粉色圆点"
+    assert live_dot.x() + live_dot.width() == live_item.thumb.face.width()
+    assert live_dot.y() + live_dot.height() == live_item.thumb.face.height()
+    hover(live_item, True)
+    settle(app, 0.1)
+    print(f"  从上往下移入头像：悬停状态={live_item.property('hovered')}")
+    assert live_item.property("hovered") is True, "收起模式移入头像时条目必须进入悬停状态"
+    hover(live_item, False)
+    settle(app, 0.15)
+    assert live_item.property("hovered") is False
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.4)
+    assert not live_dot.isVisible(), "展开后继续使用文字徽标，不应重复显示圆点"
     expanded = sidebar.items()[0].thumb
     assert expanded.width() > NavThumb.WIDTH
     assert abs(expanded.width() / expanded.height() - 16 / 9) < 0.08

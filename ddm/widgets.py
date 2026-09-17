@@ -378,7 +378,7 @@ class VolumeButton(QPushButton):
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
-    if button.underMouse():
+    if button.underMouse() or button.property("hovered") is True:
         return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
     return QColor("#e7ebf0")
 
@@ -1651,6 +1651,7 @@ class NavItem(QFrame):
         self.setObjectName("NavItem")
         self.room = room
         self.setProperty("selected", room.get("selected", False))
+        self.setProperty("hovered", False)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(NAV_ITEM_HEIGHT)
         self._compact = False
@@ -1660,6 +1661,10 @@ class NavItem(QFrame):
         self._pinned = bool(room.get("pinned"))
         self.drop_host = None            # 侧栏：拖动排序时由它来排
         self._alert: LiveAlert | None = None
+        self._hover_leave_timer = QTimer(self)
+        self._hover_leave_timer.setSingleShot(True)
+        self._hover_leave_timer.setInterval(60)
+        self._hover_leave_timer.timeout.connect(self._clear_hover_if_outside)
         self.setAcceptDrops(True)
 
         self._layout = QHBoxLayout(self)
@@ -1675,6 +1680,17 @@ class NavItem(QFrame):
         self.thumb = NavThumb(self)
         self._layout.addWidget(self.thumb, 1)
 
+        # 收起关注栏时不再有文字徽标，用头像右下角的小圆点提示正在直播。
+        self.live_dot = QWidget(self.thumb.face)
+        self.live_dot.setObjectName("NavLiveDot")
+        self.live_dot.setAttribute(Qt.WA_StyledBackground, True)
+        self.live_dot.setFixedSize(12, 12)
+        # Avatar 会用内联样式切换占位色/透明背景；圆点也用内联样式，避免被父级覆盖。
+        self.live_dot.setStyleSheet(
+            f"background: {theme.PINK}; border: 2px solid {theme.SIDEBAR}; border-radius: 6px;")
+        self.live_dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.live_dot.setVisible(False)
+
         self.name_label = ElidedLabel(room.get("uname") or room.get("room_id", ""))
         self.name_label.setObjectName("NavName")
         self.sub = ElidedLabel(room.get("title") or "未开播")
@@ -1689,6 +1705,13 @@ class NavItem(QFrame):
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge)
         self.setToolTip("")
 
+    def _sync_live_dot(self) -> None:
+        size = self.live_dot.width()
+        self.live_dot.move(max(0, self.thumb.face.width() - size),
+                           max(0, self.thumb.face.height() - size))
+        self.live_dot.setVisible(self._compact and bool(self.room.get("live")))
+        self.live_dot.raise_()
+
     def set_compact(self, compact: bool) -> None:
         if compact == self._compact:
             return
@@ -1698,6 +1721,7 @@ class NavItem(QFrame):
         for widget in (self.name_label, self.sub, self.badge):
             widget.setVisible(not compact)
         self.thumb.set_thumb_size(compact)
+        self._sync_live_dot()
         # 收起成窄条时把头像单独夹在中间，否则会被挤到右边、右侧还被裁掉
         if compact and not self._compact_spacers:
             self._layout.insertStretch(0, 1)
@@ -1741,6 +1765,7 @@ class NavItem(QFrame):
         self.badge.setText("直播中" if live else "未开播")
         self.badge.setObjectName("BadgeLive" if live else "BadgeOff")
         _repolish(self.badge)
+        self._sync_live_dot()
         self.thumb._layout_overlay()
 
     def set_title(self, title: str) -> None:
@@ -1846,6 +1871,20 @@ class NavItem(QFrame):
             self.addRequested.emit(self.room)
 
     # ---- 悬停（给预览用）----
+    def _set_hovered(self, hovered: bool) -> None:
+        hovered = bool(hovered)
+        if self.property("hovered") is hovered:
+            return
+        self.setProperty("hovered", hovered)
+        _repolish(self)
+
+    def _clear_hover_if_outside(self) -> None:
+        if self.rect().contains(self.mapFromGlobal(QCursor.pos())):
+            return
+        self._set_hovered(False)
+        if self.room.get("room_id"):
+            self.unhovered.emit(self.room)
+
     def play_live_alert(self) -> None:
         """刚从「未开播」变成「直播中」：先落一滴粉色水滴，砸中徽标再把它切成「直播中」。"""
         self.room["live"] = True          # 状态先记下（排序要用），徽标等砸中再换
@@ -1881,13 +1920,16 @@ class NavItem(QFrame):
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
+        self._hover_leave_timer.stop()
+        self._set_hovered(True)
         if self.room.get("room_id"):
             self.hovered.emit(self.room)
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
-        if self.room.get("room_id"):
-            self.unhovered.emit(self.room)
+        # 头像、封面都是子控件，从上往下跨过它们时 Qt 可能短暂发出 leave。
+        # 延迟后按全局坐标确认，避免收起模式的悬停底色一闪即灭。
+        self._hover_leave_timer.start()
 
     # ---- 拖动排序（列表内部）----
     def _nav_room_id(self, event) -> str:
@@ -2734,7 +2776,7 @@ class Tile(QFrame):
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角
         self.controls = QWidget(self)
         self.controls.setObjectName("TileControls")
-        self.controls.setAttribute(Qt.WA_StyledBackground, True)
+        self.controls.setAttribute(Qt.WA_StyledBackground, False)
         control_layout = QHBoxLayout(self.controls)
         control_layout.setContentsMargins(0, 0, 0, 0)
         control_layout.setSpacing(6)          # 按钮之间留缝，不会连成一条底
@@ -2748,6 +2790,13 @@ class Tile(QFrame):
         for button in (self.quality_button, self.reload_button, self.close_button):
             control_layout.addWidget(button)
         self.controls.setVisible(False)
+        self._control_hover_timer = QTimer(self)
+        self._control_hover_timer.setInterval(35)
+        self._control_hover_timer.timeout.connect(self._sync_control_hover)
+        self._controls_hide_timer = QTimer(self)
+        self._controls_hide_timer.setSingleShot(True)
+        self._controls_hide_timer.setInterval(90)
+        self._controls_hide_timer.timeout.connect(self._hide_controls_if_outside)
         self.paused = False
         self._player_active = False
         self.spinner = LoadingIndicator(self)
@@ -2763,7 +2812,7 @@ class Tile(QFrame):
         empty = not self.room.get("room_id")
         self.setProperty("empty", empty)
         _repolish(self)
-        self.controls.setVisible(False)
+        self.set_controls_visible(False)
         self.set_paused(False)
         self.set_video_active(False)
         self.set_buffering(False)
@@ -3014,15 +3063,52 @@ class Tile(QFrame):
         self.muteToggled.emit(self.room, muted)
 
     def set_controls_visible(self, visible: bool) -> None:
+        visible = bool(visible)
         self.controls.setVisible(visible)
+        if visible:
+            self._controls_hide_timer.stop()
+            self._update_controls_mask()
+            self._sync_control_hover()
+            self._control_hover_timer.start()
+        else:
+            self._control_hover_timer.stop()
+            self._set_control_hover(None)
+
+    def _set_control_hover(self, hovered: QPushButton | None) -> None:
+        """同步一份不依赖原生窗口 enter/leave 的悬停状态。"""
+        for button in (self.quality_button, self.reload_button, self.close_button):
+            active = button is hovered
+            if button.property("hovered") is active:
+                continue
+            button.setProperty("hovered", active)
+            _repolish(button)
+            button.update()
+
+    def _sync_control_hover(self, global_pos: QPoint | None = None) -> None:
+        global_pos = global_pos or QCursor.pos()
+        hovered = None
+        for button in (self.quality_button, self.reload_button, self.close_button):
+            local = button.mapFromGlobal(global_pos)
+            if button.rect().contains(local):
+                hovered = button
+                break
+        self._set_control_hover(hovered)
+
+    def _hide_controls_if_outside(self) -> None:
+        local = self.mapFromGlobal(QCursor.pos())
+        if self.rect().contains(local):
+            return
+        self.set_controls_visible(False)
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
-        self.controls.setVisible(True)
+        self.set_controls_visible(True)
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
-        self.controls.setVisible(False)
+        # VLC 画面和控制条都是原生子窗口，横向划过时会产生短暂 leave；
+        # 稍后按全局坐标复核，避免按钮还在鼠标下却被提前隐藏。
+        self._controls_hide_timer.start()
 
     # ---- 画面 ----
     def set_cover(self, pixmap: QPixmap | None) -> None:
@@ -3096,11 +3182,27 @@ class Tile(QFrame):
         """控制条浮在画面右上角，只显示按钮本身。"""
         for button in (self.quality_button, self.reload_button, self.close_button):
             button.setMinimumWidth(button.fontMetrics().horizontalAdvance(button.text()) + 24)
-        self.controls.adjustSize()
-        size = self.controls.sizeHint()
+        layout = self.controls.layout()
+        layout.invalidate()
+        size = layout.sizeHint()
         self.controls.resize(size)
+        # 原生窗口遮罩必须使用布局完成后的按钮坐标，否则缩放或画质文字改变时会错位。
+        layout.setGeometry(self.controls.rect())
+        layout.activate()
         video_right = self.video.width() + 1
         self.controls.move(max(10, video_right - size.width() - 10), 8)
+        self._update_controls_mask()
+
+    def _update_controls_mask(self) -> None:
+        """裁掉原生控制窗口的矩形底，只留下三个圆角按钮的轮廓。"""
+        region = QRegion()
+        for button in (self.quality_button, self.reload_button, self.close_button):
+            rect = QRectF(button.geometry())
+            path = QPainterPath()
+            radius = min(rect.height() / 2, theme.TILE_CONTROL_HEIGHT / 2)
+            path.addRoundedRect(rect, radius, radius)
+            region = region.united(QRegion(path.toFillPolygon().toPolygon()))
+        self.controls.setMask(region)
 
     def showEvent(self, event) -> None:
         # 需要在窗口真正显示之后再设为原生窗口，否则 Qt 会抱怨不是顶层窗口

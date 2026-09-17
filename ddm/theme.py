@@ -290,13 +290,13 @@ QSlider::handle:horizontal:hover {{
     border-radius: {RADIUS_MD}px;
     background: transparent;
 }}
-#NavItem:hover {{
+#NavItem:hover, #NavItem[hovered="true"] {{
     background: {CONTENT_HOVER};
 }}
 #NavItem[selected="true"] {{
     background: {ACCENT_SOFT};
 }}
-#NavItem[selected="true"]:hover {{
+#NavItem[selected="true"]:hover, #NavItem[selected="true"][hovered="true"] {{
     background: rgba(0, 161, 214, 0.24);
 }}
 #NavName {{
@@ -594,7 +594,7 @@ QSlider::handle:horizontal:hover {{
     font-size: {FONT_CAPTION}px;
     font-weight: 600;
 }}
-#TileCtrl:hover {{
+#TileCtrl:hover, #TileCtrl[hovered="true"] {{
     background: {ACCENT};
     color: #04161f;
 }}
