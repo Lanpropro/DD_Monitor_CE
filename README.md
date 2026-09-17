@@ -196,18 +196,18 @@ dev\run-checks.cmd
 - 依赖 B 站非公开接口，接口调整可能导致部分功能失效。
 - VLC 运行库需要用户自行准备。
 - 原项目的热榜和悬浮窗功能尚未迁移。
-- 录制、抖音/YouTube/Twitch 等其它平台、发送弹幕都**不放在本体里**，走插件接口。
+- 录制、发送弹幕、接别的直播平台都不放在本体里，走插件接口。
 
 ## 插件
 
-不想塞进本体的功能可以做成插件：录像、接别的直播平台、发弹幕、给画面格加菜单项。
+不想塞进本体的功能可以做成插件。插件放 `plugins_user/<插件名>/plugin.py`，
+接口说明见 [`docs/plugins.md`](docs/plugins.md)。
 
-- 插件放 `plugins_user/<插件名>/plugin.py`
-- 接口说明见 [`docs/plugins.md`](docs/plugins.md)
 - 可直接用的例子：`plugins_user/danmaku_log/`（弹幕落盘 + 发弹幕）
 - 接别的平台的骨架：`plugins_user/_template_platform/plugin.py`
 
 插件是受信任代码，和本体同进程运行 —— 只装自己看过源码的插件。
+还没做、打算怎么做的，记在 [`idea.txt`](idea.txt)。
 
 ## 贡献
 
