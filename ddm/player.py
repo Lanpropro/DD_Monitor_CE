@@ -6,6 +6,8 @@ import tempfile
 import vlc
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .audio_output import StereoOutput, vlc_channel_for
+
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 REFERRER = "https://live.bilibili.com/"
@@ -69,6 +71,18 @@ class TilePlayer(QObject):
         self.state = "idle"
         self._instance = PlayerPool.instance()
         self.player = self._instance.media_player_new()
+        self._audio_output = StereoOutput()
+        callbacks = vlc.CallbackDecorators
+        self._audio_play_cb = callbacks.AudioPlayCb(self._play_audio)
+        self._audio_pause_cb = callbacks.AudioPauseCb(self._pause_audio)
+        self._audio_resume_cb = callbacks.AudioResumeCb(self._resume_audio)
+        self._audio_flush_cb = callbacks.AudioFlushCb(self._flush_audio)
+        self._audio_drain_cb = callbacks.AudioDrainCb(self._drain_audio)
+        self.player.audio_set_callbacks(
+            self._audio_play_cb, self._audio_pause_cb, self._audio_resume_cb,
+            self._audio_flush_cb, self._audio_drain_cb, None,
+        )
+        self.player.audio_set_format("S16N", 48_000, 2)
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
         self.player.audio_set_volume(self.volume)
@@ -153,33 +167,49 @@ class TilePlayer(QObject):
             self.player.release()
         except Exception:  # noqa: BLE001
             pass
+        self._audio_output.close()
 
     # ---- 音频 ----
     def set_muted(self, muted: bool) -> None:
         self.muted = muted
         self.player.audio_set_mute(muted)
+        self._audio_output.set_enabled(not muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
         self.player.audio_set_volume(volume)
 
     def set_audio_channel(self, channel: int) -> None:
-        """声道模式：0=原始，1=立体声，2=反向立体声，3=只左，4=只右，5=杜比。
+        """声道模式：3/4 将完整声音混为单声道后只送左/右输出。
 
-        只调库的 audio_set_channel，不加 media 滤镜。原因：
-        - :stereo-mode / :audio-filter=remap 这类 media 选项在这套 libvlc 里
-          对真实输出没有效果（用环回录音量过，左右声道内容完全没变）；
-        - 而 audio_set_channel 是**在播放过程中**调的（见 app 里 stateChanged
-          的处理），这才是它能生效的时机：play() 之前调会被音频输出模块初始化
-          冲掉。
+        VLC 3 的“左/右”模式只是挑选片源中的一条轨道，并会以居中的
+        单声道输出。这里让 VLC 保持立体声，再在解码回调中完成真正的
+        左右定位；其他 VLC 原生模式仍交给 VLC。
         """
         self.audio_channel = int(channel)
-        self.player.audio_set_channel(int(channel))
+        self._audio_output.set_channel(self.audio_channel)
+        self.player.audio_set_channel(vlc_channel_for(self.audio_channel))
 
     def reapply_audio_channel(self) -> None:
         """播放起来之后再补一次声道设置（音频输出模块初始化会重置它）。"""
-        if self.audio_channel:
-            self.player.audio_set_channel(int(self.audio_channel))
+        channel = vlc_channel_for(self.audio_channel)
+        if channel:
+            self.player.audio_set_channel(channel)
+
+    def _play_audio(self, _opaque, samples, count, _pts) -> None:
+        self._audio_output.write(samples, count)
+
+    def _pause_audio(self, _opaque, _pts) -> None:
+        self._audio_output.pause()
+
+    def _resume_audio(self, _opaque, _pts) -> None:
+        self._audio_output.resume()
+
+    def _flush_audio(self, _opaque, _pts) -> None:
+        self._audio_output.flush()
+
+    def _drain_audio(self, _opaque) -> None:
+        self._audio_output.drain()
 
     def set_paused(self, paused: bool) -> None:
         """暂停 / 继续（不停取流，继续时直接接上）。"""

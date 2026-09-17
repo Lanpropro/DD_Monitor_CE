@@ -2,6 +2,8 @@
 PySide6
 python-vlc
 requests
+# 每个播放格子的独立左右声道路由（PortAudio）
+sounddevice
 qrcode
 # 弹幕（ddm/danmaku.py 用它的 websocket 客户端）
 aiohttp
