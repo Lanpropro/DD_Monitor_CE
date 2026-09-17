@@ -10,11 +10,12 @@ import time
 from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QCursor, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget,
+    QApplication, QHBoxLayout, QLabel, QMainWindow, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from . import bili
 from . import config as config_module
+from . import layouts
 from . import plugins as plugin_api
 from . import theme
 from .danmaku import DanmakuClient
@@ -31,6 +32,8 @@ from .widgets import Sidebar, Tile, WallGrid
 
 MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
+#: 窗口「宽 / 高」小于这个值就按竖屏处理（含接近方形）
+PORTRAIT_MAX_RATIO = 0.9
 RETRY_BASE_SECONDS = 5           # 断流后的重连间隔（指数退避）
 RETRY_MAX_SECONDS = 60
 FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
@@ -102,30 +105,38 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         self.settings.update(self.state.get("settings") or {})
 
+        # 侧栏和画面墙总共只有一份，方向切换时**重新摆放**它们。
+        # 注意：不要「构建期就造好两套排布」——Qt 里 addWidget 会把控件从旧布局
+        # 里移走，两套都挂同一个控件的结果是它只留在最后那一套里。
         root = QWidget()
         root.setObjectName("Root")
-        layout = QHBoxLayout(root)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self._root_layout = QHBoxLayout(root)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
+        self._root_layout.setSpacing(0)
 
         self.sidebar = Sidebar(
             rooms,
             card_mode=bool(self.settings.get("sidebar_card_mode", True)),
         )
-        layout.addWidget(self.sidebar)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-        self.wall = WallGrid(wall_rooms if wall_rooms is not None else rooms, layout_id)
         self.empty_hint = QLabel(EMPTY_HINT)
         self.empty_hint.setObjectName("EmptyHint")
         self.empty_hint.setAlignment(Qt.AlignCenter)
-        right_layout.addWidget(self.wall, 1)
-        right_layout.addWidget(self.empty_hint, 1)
-        layout.addWidget(right, 1)
+        self.wall = WallGrid(wall_rooms if wall_rooms is not None else rooms, layout_id)
+
+        #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
+        self._content = QWidget()
+        content_layout = QVBoxLayout(self._content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self.wall, 1)
+        content_layout.addWidget(self.empty_hint, 1)
+
         self.setCentralWidget(root)
+        self.orientation = ""                  # 由 _apply_orientation 填
+        self._build_arrangement("landscape")
+        #: 构造时显式指定的布局（交给 _apply_orientation 决定用哪个方向的）
+        self._pending_layout = ""
 
         # 信号接线
         self.sidebar.roomSelected.connect(self.wall.tileClicked.emit)
@@ -159,6 +170,18 @@ class MainWindow(QMainWindow):
 
         bili.set_sessdata(self.state.get("sessdata", ""))
         self._restore_ui()
+        # 如果构造时显式指定了布局（自检/预览脚本会这么干），别被配置里的覆盖掉。
+        # 记到哪个方向名下要看**布局本身**——构造时窗口还没尺寸，is_portrait() 不可靠。
+        if layout_id not in ("", "auto"):
+            key = ("layout_portrait" if layouts.is_portrait_layout(layout_id)
+                   else "layout_landscape")
+            self.state.setdefault("ui", {})[key] = layout_id
+            self._pending_layout = layout_id
+            # 显式指定了就尊重它：调用方可能就是想看看这个布局在各个尺寸下的样子，
+            # 不要因为窗口方向不符就换成别的（自检/预览脚本依赖这一点）
+            self.orientation = ("portrait" if layouts.is_portrait_layout(layout_id)
+                                else "landscape")
+        self._apply_orientation()          # 先按窗口方向把排布和布局定下来
         self.apply_danmaku_settings()
         self.apply_preview_settings()
         self._refresh_meta()
@@ -207,6 +230,81 @@ class MainWindow(QMainWindow):
         self.sidebar.apply_pins(self.state.get("pinned") or [])
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
+        # 布局按方向分别记：老配置只有一个 layout，当作横屏的
+        ui = self.state.setdefault("ui", {})
+        if "layout" in ui and "layout_landscape" not in ui:
+            ui["layout_landscape"] = ui.pop("layout")
+        ui.setdefault("layout_landscape", "auto")
+        ui.setdefault("layout_portrait", "auto")
+
+    # ---- 竖屏 / 横屏 ----
+    def _build_arrangement(self, orientation: str) -> None:
+        """按方向重新摆放侧栏和画面墙。
+
+        横屏：侧栏在左（固定宽）+ 右侧画面墙。
+        竖屏：侧栏变成顶部横栏（撑满宽）+ 下面画面墙。
+        """
+        layout = self._root_layout
+        while layout.count():
+            layout.takeAt(0)
+        if self.orientation == "portrait" or orientation == "portrait":
+            if getattr(self, "_portrait_host", None) is None:
+                self._portrait_host = QWidget()
+                self._portrait_layout = QVBoxLayout(self._portrait_host)
+                self._portrait_layout.setContentsMargins(0, 0, 0, 0)
+                self._portrait_layout.setSpacing(0)
+            self._portrait_layout.addWidget(self.sidebar)
+            self._portrait_layout.addWidget(self._content, 1)
+            layout.addWidget(self._portrait_host)
+        else:
+            layout.addWidget(self.sidebar)
+            layout.addWidget(self._content, 1)
+        self.sidebar.set_side("top" if orientation == "portrait" else "left")
+
+    def is_portrait(self) -> bool:
+        """窗口比高度矮（含接近方形）就算竖屏。"""
+        width, height = max(self.width(), 1), max(self.height(), 1)
+        return width <= height * PORTRAIT_MAX_RATIO
+
+    def _saved_layout(self, orientation: str) -> str:
+        ui = self.state.get("ui") or {}
+        return str(ui.get(f"layout_{orientation}") or "auto")
+
+    def _apply_orientation(self) -> None:
+        """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
+        orientation = "portrait" if self.is_portrait() else "landscape"
+        if orientation != self.orientation:
+            self._build_arrangement(orientation)
+        self.orientation = orientation
+        portrait = orientation == "portrait"
+
+        self.sidebar.set_collapsed(portrait, animate=False)
+
+        saved = self._saved_layout(orientation)
+        # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
+        pending = getattr(self, "_pending_layout", "")
+        if pending and ((layouts.is_portrait_layout(pending)) == portrait):
+            layout_id = pending
+            self._pending_layout = ""
+        elif saved == "auto":
+            # 竖屏的「自动」用竖屏专用预设，否则主画面会被拉成竖长条
+            layout_id = layouts.PORTRAIT_AUTO if portrait else "auto"
+        else:
+            layout_id = saved
+        if layout_id != self.wall.layout_id:
+            self.wall.set_layout(layout_id)
+            self.sidebar.set_layout_name(layout_id)
+        # 换了页/换了布局，画面墙的尺寸和格子可见性都要重算一次
+        self.wall.relayout(force=True)
+        print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
+              file=sys.stderr, flush=True)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # 只有方向真的翻转时才动手，避免每次拖窗口都重排
+        if getattr(self, "orientation", "") != ("portrait" if self.is_portrait()
+                                                else "landscape"):
+            self._apply_orientation()
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:
@@ -249,7 +347,8 @@ class MainWindow(QMainWindow):
             ],
             "ui": {
                 "sidebar_collapsed": self.sidebar.collapsed,
-                "layout": self.wall.layout_id,
+                "layout_landscape": self._saved_layout("landscape"),
+                "layout_portrait": self._saved_layout("portrait"),
                 "shortcuts": dict(self.shortcuts),
             },
             "pinned": list(self.sidebar.pinned),
@@ -299,7 +398,9 @@ class MainWindow(QMainWindow):
     def _on_layout_changed(self, layout_id: str) -> None:
         self.wall.set_layout(layout_id)
         self.sidebar.set_layout_name(self.wall.layout_id)
-        self.state.setdefault("ui", {})["layout"] = layout_id
+        # 记在**当前方向**名下：横屏选的布局不该被竖屏覆盖，反之亦然
+        key = f"layout_{self.orientation or 'landscape'}"
+        self.state.setdefault("ui", {})[key] = layout_id
         self.apply_quality_policy()
         self._refresh_meta()
 

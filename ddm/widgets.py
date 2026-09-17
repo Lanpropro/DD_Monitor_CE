@@ -2151,6 +2151,140 @@ class RoomListBox(QWidget):
         self.sidebar.finish_drag(room_id, self.mapToGlobal(event.position().toPoint()))
 
 
+class RoomStrip(QFrame):
+    """竖屏顶部横栏里的一排头像：账号头像在最前，后面是关注的主播。
+
+    收起横栏时这是唯一露出来的东西（所以头像尺寸和列表里的一致、对齐成一排）；
+    展开时它上面还会多出一行标题 + 搜索 + 按钮。
+    """
+
+    accountClicked = Signal()
+    roomClicked = Signal(str)
+
+    AVATAR = 34
+    SPACING = 8
+    #: 一排最多显示几个；多出来的由侧栏的列表滚动承担
+    LIMIT = 9
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("RoomStrip")
+        self.setFixedHeight(self.AVATAR + 2)
+        self._uname = ""
+        self._face: QPixmap | None = None
+        self._rooms: list[dict] = []
+        self._entries: list[tuple] = []          # [(room_id, live, pinned)]
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(2, 0, 2, 0)
+        self._layout.setSpacing(self.SPACING)
+        self._layout.addStretch(1)
+        self.setCursor(Qt.PointingHandCursor)
+
+    # ---- 数据 ----
+    def set_account(self, uname: str, pixmap=None) -> None:
+        self._uname = uname or ""
+        self._face = pixmap if isinstance(pixmap, QPixmap) else None
+        self._rebuild()
+
+    def set_rooms(self, rooms: list) -> None:
+        self._rooms = list(rooms or [])
+        self._rebuild()
+
+    # ---- 交互 ----
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() != Qt.LeftButton:
+            return
+        super().mouseReleaseEvent(event)
+        hit = self.childAt(event.position().toPoint())
+        if hit is self:
+            # 点空白处等于点账号头像：横栏收起时整条都能点开
+            self.accountClicked.emit()
+            return
+        room_id = hit.property("roomId") if hit is not None else None
+        if room_id:
+            self.roomClicked.emit(str(room_id))
+        else:
+            self.accountClicked.emit()
+
+    def _rebuild(self) -> None:
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+        self._entries = []
+        self._add_avatar("我" if not self._uname else self._uname[0], live=True,
+                         tooltip=self._uname or "账号", face=self._face, account=True)
+        shown = 0
+        for room in self._rooms:
+            if shown >= self.LIMIT:
+                break
+            uname = str(room.get("uname") or "")
+            self._add_avatar(uname[0] if uname else "?", bool(room.get("live")),
+                             tooltip=uname or str(room.get("room_id") or ""),
+                             room_id=str(room.get("room_id") or ""),
+                             pinned=bool(room.get("pinned")))
+            shown += 1
+        self._layout.addStretch(1)
+
+    def _add_avatar(self, text: str, live: bool, tooltip: str = "",
+                    face=None, room_id: str = "", pinned: bool = False,
+                    account: bool = False) -> None:
+        avatar = Avatar(text, 2, self.AVATAR)
+        avatar.setFixedSize(self.AVATAR, self.AVATAR)
+        avatar.setProperty("roomId", room_id)
+        if face is not None:
+            try:
+                avatar.set_pixmap_image(face)
+            except Exception:                      # noqa: BLE001
+                pass
+        tip = tooltip
+        if pinned:
+            tip += "（已置顶）"
+        avatar.setToolTip(tip)
+        self._layout.addWidget(avatar)
+        # 右下角开播小圆点：直接用 QSS 画一个圆，省得再加一个控件
+        if live and not account:
+            dot = QLabel(avatar)
+            dot.setFixedSize(12, 12)
+            dot.setStyleSheet(f"background: {theme.PINK}; border-radius: 6px;"
+                              f" border: 2px solid {theme.SIDEBAR};")
+            dot.move(self.AVATAR - 12, self.AVATAR - 12)
+            dot.show()
+        if pinned:
+            mark = QLabel(avatar)
+            mark.setFixedSize(14, 14)
+            mark.setStyleSheet(f"background: {theme.ACCENT};"
+                               " border-top-left-radius: 7px;")
+            mark.move(0, 0)
+            mark.show()
+        avatar.show()
+
+
+class RowMoreButton(QPushButton):
+    """竖屏横栏里的「⋯」：一个按钮装下放不下的入口。"""
+
+    def __init__(self, actions_provider, parent=None):
+        super().__init__("⋯  更多", parent)
+        self.setObjectName("IconButton")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("排序、多选、导入、添加、设置…")
+        self._provider = actions_provider
+        self.clicked.connect(self._popup)
+
+    def _popup(self) -> None:
+        menu = QMenu(self)
+        for item in self._provider() or []:
+            if item is None:
+                menu.addSeparator()
+                continue
+            label, callback = item
+            menu.addAction(str(label), callback)
+        menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+
+
 class Sidebar(QFrame):
     """左侧房间列表：可收起、可批量选择删除。"""
 
@@ -2173,6 +2307,8 @@ class Sidebar(QFrame):
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
     settingsRequested = Signal()
+    addRoomRequested = Signal()
+    importFollowsRequested = Signal()
 
     def __init__(self, rooms: list[dict], parent=None, card_mode: bool = True):
         super().__init__(parent)
@@ -2182,6 +2318,7 @@ class Sidebar(QFrame):
         self.collapsed = False
         self.card_mode = bool(card_mode)
         self.select_mode = False
+        self.side = "left"                     # left = 横屏的左栏；top = 竖屏的顶部横栏
         self.pinned: list[str] = []
         self.sort_mode = "custom"
         self.import_order: list[str] = []      # 导入/添加的先后顺序，用于「导入顺序」排序
@@ -2192,6 +2329,13 @@ class Sidebar(QFrame):
         layout.setContentsMargins(12, 14, 12, 12)
         layout.setSpacing(10)
         self._layout = layout
+
+        # 竖屏顶部横栏里的头像排；横屏时一直是隐藏的
+        self._head_strip = RoomStrip(self)
+        self._head_strip.accountClicked.connect(self._open_account_menu)
+        self._head_strip.roomClicked.connect(self._on_strip_room)
+        self._head_strip.setVisible(False)
+        layout.addWidget(self._head_strip)
 
         # 标题行
         header = QHBoxLayout()
@@ -2307,6 +2451,11 @@ class Sidebar(QFrame):
         tool_box.addWidget(self.layout_button, 1)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
+
+        # 竖屏展开态：只留「布局预设」，其余入口收进这一个「⋯」里
+        self.tool_row_more = RowMoreButton(self._more_actions)
+        self.tool_row_more.setVisible(False)
+        layout.addWidget(self.tool_row_more)
         self.set_layout_name("auto")
 
         self.normal_bar = QWidget()
@@ -2382,11 +2531,15 @@ class Sidebar(QFrame):
     def set_account(self, uname: str, pixmap=None) -> None:
         self.account_row.set_account(uname, pixmap)
         self.account_row.set_compact(self.collapsed)
-        self.account_row.setVisible(bool(uname))
+        # 竖屏横栏里账号头像跟关注头像排在一起，所以收起时它也得留着
+        self._head_strip.set_account(uname, pixmap)
+        self.account_row.setVisible(bool(uname) and self.side != "top")
+        self.refresh_strip()
 
     def clear_account(self) -> None:
         self.account_row.set_account("")
         self.account_row.setVisible(False)
+        self._head_strip.set_account("")
 
     def account_menu(self) -> QMenu:
         """账号菜单：退出登录；侧栏收起时把藏起来的「布局预设 / 设置」也放进来。
@@ -2425,7 +2578,101 @@ class Sidebar(QFrame):
         elif label == "设置…":
             self.settingsRequested.emit()
 
+    # ---- 竖屏横栏 ----
+    def _on_strip_room(self, room_id: str) -> None:
+        """点横栏里的头像 = 点列表里那一条（行为和横屏一致）。"""
+        item = next((entry for entry in self._items
+                     if str(entry.room.get("room_id")) == str(room_id)), None)
+        if item is not None:
+            self.roomSelected.emit(item.room)
+
+    def _more_actions(self) -> list:
+        """「⋯」里的入口：横栏放不下的那些。"""
+        return [
+            ("排序方式…", self._popup_sort_menu),
+            ("多选" if not self.select_mode else "退出多选",
+             lambda: self.set_select_mode(not self.select_mode)),
+            ("刷新关注列表", self.refreshRequested.emit),
+            None,
+            ("导入关注…", self.importFollowsRequested.emit),
+            ("+ 添加直播间…", self.addRoomRequested.emit),
+            None,
+            ("布局预设…", self.open_layout_picker),
+            ("设置…", self.settingsRequested.emit),
+        ]
+
+    def _popup_sort_menu(self) -> None:
+        menu = self._build_sort_menu()
+        menu.exec(QCursor.pos())
+
+    def refresh_strip(self) -> None:
+        """把当前关注列表同步到顶部横栏（竖屏才会显示）。"""
+        strip = getattr(self, "_head_strip", None)
+        if strip is None:
+            return
+        strip.set_rooms([dict(item.room) for item in self._items])
+
     # ---- 收起 / 展开 ----
+    def set_side(self, side: str) -> None:
+        """摆放方式：left = 横屏的左栏（默认）；top = 竖屏的顶部横栏。
+
+        竖屏下侧栏变成一条顶部横栏：宽度撑满、搜索框变宽、列表只留一行头像
+        （收起时只剩头像，展开时多一行按钮），逻辑和横屏的收起/展开一致。
+        """
+        side = "top" if side == "top" else "left"
+        if side == self.side:
+            return
+        self.side = side
+        horizontal = side == "top"
+        self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
+        if horizontal:
+            self._layout.setContentsMargins(10, 8, 10, 8)
+            self._layout.setSpacing(6)
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(16_777_215)
+        else:
+            self._layout.setContentsMargins(12 if not self.collapsed else 8, 14,
+                                            12 if not self.collapsed else 8, 12)
+            self._layout.setSpacing(10)
+            self.setFixedWidth(
+                theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
+        self._sync_top_mode()
+        self.list_box.relayout(animate=False)
+
+    def _sync_top_mode(self) -> None:
+        """按 side + collapsed 决定哪些控件可见。"""
+        if self.side != "top":
+            return
+        strip = getattr(self, "_head_strip", None)
+        if strip is not None:
+            strip.setVisible(not self.collapsed)
+        if self.collapsed:
+            # 收起：只剩头像一排
+            for widget in (self.search, self.status_row, self.normal_bar, self.batch_bar,
+                           self.dot, self.batch_button, self.tool_row, self.tool_row_more,
+                           self.account_row):
+                widget.setVisible(False)
+            for index in range(self.title_box.count()):
+                holder = self.title_box.itemAt(index).widget()
+                if holder:
+                    holder.setVisible(False)
+            self.scroll.setVisible(False)
+        else:
+            self.dot.setVisible(True)
+            self.batch_button.setVisible(True)
+            for index in range(self.title_box.count()):
+                holder = self.title_box.itemAt(index).widget()
+                if holder:
+                    holder.setVisible(True)
+            self.search.setVisible(True)
+            self.status_row.setVisible(True)
+            self.scroll.setVisible(True)
+            self.normal_bar.setVisible(not self.select_mode)
+            self.batch_bar.setVisible(self.select_mode)
+            self.account_row.setVisible(False)       # 展开时账号头像在 _head_strip 里
+            self.tool_row.setVisible(True)           # 只留「布局预设」
+            self.tool_row_more.setVisible(True)      # 其余收进「⋯」
+
     def toggle_collapsed(self) -> None:
         self.set_collapsed(not self.collapsed)
 
@@ -2433,6 +2680,16 @@ class Sidebar(QFrame):
         if collapsed == self.collapsed:
             return
         self.collapsed = collapsed
+        if self.side == "top":
+            # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件
+            self._layout.setContentsMargins(10, 8, 10, 8)
+            self.toggle_button.setText("»" if collapsed else "«")
+            self._sync_top_mode()
+            for item in self._items:
+                item.set_compact(collapsed)
+            self.list_box.relayout(animate=False)
+            self.collapsedChanged.emit(collapsed)
+            return
         target = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
         for widget in (self.search, self.status_row, self.normal_bar, self.batch_bar,
                        self.dot, self.batch_button, self.tool_row):
@@ -2541,6 +2798,7 @@ class Sidebar(QFrame):
         # 直到用户拖动列表才恢复。
         self.resort(animate=False)
         self._sync_count()
+        self.refresh_strip()
         return True
 
     def remove_room(self, room: dict) -> None:
@@ -2561,6 +2819,7 @@ class Sidebar(QFrame):
             self.custom_order.remove(room_id)
         self.list_box.relayout(animate=False)
         self._sync_count()
+        self.refresh_strip()
 
     def rooms(self) -> list[dict]:
         return [item.room for item in self._items]
@@ -3696,6 +3955,9 @@ class WallGrid(QWidget):
             return
 
         rows, columns, cells = spec
+        if layouts.is_portrait_layout(self.layout_id):
+            self._relayout_portrait(rows, columns, cells)
+            return
         order = self._cell_order()
         for index, tile in enumerate(self.tiles):
             if index < len(order):
@@ -3718,6 +3980,86 @@ class WallGrid(QWidget):
             self.grid.setRowStretch(row, 1)
         self._columns = columns
 
+    # ---- 竖屏摆放 ----
+    def _relayout_portrait(self, rows: int, columns: int, cells: list) -> None:
+        """竖屏：主画面按 16:9 固定高度，其余格子用自动网格填满剩下的空间。
+
+        为什么不用等分网格：竖屏里主画面要 16:9（占整宽时高度 = 宽 × 9/16），
+        小画面也要接近 16:9；等分网格只能满足一个 —— 主画面占整宽 1 行时，
+        小格子会被拉成 0.8 左右的竖条，画面缩成中间一条。这里改成手动摆。
+        """
+        margin = self.grid.contentsMargins()
+        spacing = self.grid.spacing()
+        # 竖屏是自己算坐标摆的，先把格子从网格布局里摘出来，否则布局会覆盖几何。
+        # removeWidget 只是解除管理，不改变父子关系，可以安全地再 addWidget 回去。
+        for tile in self.tiles:
+            self.grid.removeWidget(tile)
+        self.grid.removeWidget(self.danmaku)
+        for index in range(24):
+            self.grid.setColumnStretch(index, 0)
+            self.grid.setRowStretch(index, 0)
+
+        left = margin.left()
+        top = margin.top()
+        width = max(1, self.width() - margin.left() - margin.right())
+        height = max(1, self.height() - margin.top() - margin.bottom())
+
+        # 弹幕：最底下整宽一条，先把它和主画面的高度扣掉
+        danmaku_height = 0
+        if self.has_danmaku:
+            danmaku_height = max(140, int(height * 0.22))
+            self.danmaku.setGeometry(
+                QRect(left, top + height - danmaku_height, width, danmaku_height))
+            self.danmaku.setVisible(True)
+            self.danmaku.raise_()
+            danmaku_height += spacing
+        else:
+            self.danmaku.setVisible(False)
+
+        main = self.tiles[0] if self.tiles else None
+        rest = self.tiles[1:]
+        available = height - danmaku_height
+
+        if main is None:
+            self._columns = columns
+            return
+
+        # 主画面：整宽 + 16:9（超出可用高度就压回来，别把下面的格子挤没）
+        # 注意不要再 addWidget 回网格：一旦交给布局管理，它就会覆盖下面算好的几何。
+        main_height = min(int(width * 9 / 16), max(80, available // 2))
+        main.setGeometry(QRect(left, top, width, main_height))
+        main.setVisible(True)
+
+        grid_top = top + main_height + spacing
+        grid_height = max(1, top + available - grid_top)
+        for index, tile in enumerate(rest):
+            if index < self._portrait_capacity() - 1:
+                tile.setVisible(True)
+            else:
+                tile.setVisible(False)
+        visible = [tile for tile in rest if tile.isVisible()]
+        self._place_auto(visible, QRect(left, grid_top, width, grid_height), spacing)
+        self._columns = columns
+
+    def _portrait_capacity(self) -> int:
+        return max(1, len(self._cell_order()))
+
+    def _place_auto(self, tiles: list, area: QRect, spacing: int) -> None:
+        """在一个矩形里按自动网格摆这些格子（复用自动布局的列数选择）。"""
+        if not tiles:
+            return
+        columns = best_columns(len(tiles), max(area.width(), 1), max(area.height(), 1))
+        lines = math.ceil(len(tiles) / columns)
+        cell_width = (area.width() - spacing * (columns - 1)) / columns
+        cell_height = (area.height() - spacing * (lines - 1)) / lines
+        for index, tile in enumerate(tiles):
+            line, column = divmod(index, columns)
+            tile.setGeometry(QRect(
+                int(area.left() + column * (cell_width + spacing)),
+                int(area.top() + line * (cell_height + spacing)),
+                int(cell_width), int(cell_height)))
+
+
     def visible_tiles(self) -> list[Tile]:
         return [tile for tile in self.tiles if tile.isVisible()]
 
@@ -3726,7 +4068,9 @@ class WallGrid(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if self.layout_id == "auto":
+        # 自动布局和竖屏布局都是按当前尺寸算坐标的，尺寸变了必须重排；
+        # 固定行列的布局由 Qt 自己按 stretch 摆，不用管。
+        if self.layout_id == "auto" or layouts.is_portrait_layout(self.layout_id):
             self._relayout_timer.start()
 
 

@@ -2,7 +2,12 @@
 
 每个方案用 (rows, cols, cells) 描述，cells 是 [(row, col, rowspan, colspan), ...]，
 cells 的数量就是这个方案一屏能放几路；多出来的窗口按同样的列数继续往下排。
+
+竖屏方案多一个 ``"portrait": "stack"`` 标记：那些方案不按行列等分摆，而是
+「主画面按 16:9 固定 + 小画面自动网格填满剩余」，具体摆放见 WallGrid。
 """
+import math
+
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 
@@ -63,10 +68,77 @@ DANMAKU_LAYOUTS: list[dict] = [
      "danmaku": 0},
 ]
 
-# 布局菜单里的两个子菜单，用顶部的按钮来回切
-GROUPS: list[tuple[str, list[dict]]] = [("普通布局", LAYOUTS), ("弹幕布局", DANMAKU_LAYOUTS)]
 
-BY_ID = {layout["id"]: layout for layout in LAYOUTS + DANMAKU_LAYOUTS}
+# ---------------------------------------------------------------- 竖屏布局
+#
+# 竖屏不能沿用上面「行列等分」那套：主画面要 16:9，小画面也要接近 16:9，
+# 而等分网格只能满足其中一个（主画面占整宽 1 行时，小格子会被拉成 0.8 左右的
+# 竖条）。所以竖屏预设带 "portrait": "stack"，由 WallGrid 单独摆放：
+#   - 主画面：整宽、按 16:9 固定高度（所以不会变形）
+#   - 小画面：用自动网格填满主画面下面剩下的空间
+# 下面的 cells 仍然给出来，供缩略图和「哪一格是弹幕格」这类查询使用。
+def portrait_main_cells(small: int) -> list:
+    """主画面（第一格，整宽）+ small 个小画面，供缩略图/容量查询用。"""
+    rows = 1 + max(1, math.ceil(small / 2))
+    cells = [(0, 0, 1, 4)]
+    for index in range(small):
+        line, column = divmod(index, 2)
+        cells.append((1 + line, column * 2, 1, 2))
+    return rows, 4, cells
+
+
+def portrait_danmaku_cells(small: int) -> tuple[int, int, list, int]:
+    """竖屏 + 弹幕：主画面、small 个小画面，弹幕在最底下整宽一条。"""
+    rows, columns, cells = portrait_main_cells(small)
+    danmaku_index = len(cells)
+    cells = cells + [(rows, 0, 1, columns)]
+    return rows + 1, columns, cells, danmaku_index
+
+
+def _portrait_layouts() -> tuple[list[dict], list[dict]]:
+    plain, with_danmaku = [], []
+    for small, name in ((2, "主画面 + 2 小"), (4, "主画面 + 4 小"), (6, "主画面 + 6 小")):
+        rows, columns, cells = portrait_main_cells(small)
+        plain.append({
+            "id": f"portrait_main{small}",
+            "name": name,
+            "hint": "竖屏：主画面按 16:9 占满宽度，小画面填满下面",
+            "spec": (rows, columns, cells),
+            "portrait": "stack",
+        })
+        rows, columns, cells, danmaku_index = portrait_danmaku_cells(small)
+        with_danmaku.append({
+            "id": f"portrait_dm{small}",
+            "name": f"{name} + 弹幕",
+            "hint": "竖屏：主画面 + 小画面，弹幕占最底下一条",
+            "spec": (rows, columns, cells),
+            "portrait": "stack",
+            "danmaku": danmaku_index,
+        })
+    return plain, with_danmaku
+
+
+PORTRAIT_LAYOUTS, PORTRAIT_DANMAKU_LAYOUTS = _portrait_layouts()
+
+#: 竖屏下「自动」布局用哪个（主画面 + 6 小，竖屏里最能把空间用满）
+PORTRAIT_AUTO = "portrait_main6"
+
+# 布局菜单里的子菜单，用顶部的按钮来回切
+GROUPS: list[tuple[str, list[dict]]] = [
+    ("普通布局", LAYOUTS),
+    ("弹幕布局", DANMAKU_LAYOUTS),
+    ("竖屏布局", PORTRAIT_LAYOUTS + PORTRAIT_DANMAKU_LAYOUTS),
+]
+
+BY_ID = {layout["id"]: layout
+         for layout in LAYOUTS + DANMAKU_LAYOUTS + PORTRAIT_LAYOUTS + PORTRAIT_DANMAKU_LAYOUTS}
+
+
+def is_portrait_layout(layout_id: str) -> bool:
+    """这个布局是不是那种「主画面固定 16:9 + 小画面自动排」的竖屏预设。"""
+    layout = BY_ID.get(layout_id)
+    return bool(layout and layout.get("portrait") == "stack")
+
 
 
 def danmaku_cell(layout_id: str) -> int | None:
