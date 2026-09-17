@@ -247,16 +247,28 @@ class MainWindow(QMainWindow):
         layout = self._root_layout
         while layout.count():
             layout.takeAt(0)
-        if self.orientation == "portrait" or orientation == "portrait":
+        # 竖屏的容器布局也要清空：`_content` 挂在它里面，不清掉的话
+        # 再 addWidget 到根布局会两个布局抢同一个控件，结果谁都没挂上
+        portrait_layout = getattr(self, "_portrait_layout", None)
+        if portrait_layout is not None:
+            while portrait_layout.count():
+                portrait_layout.takeAt(0)
+        if orientation == "portrait":
             if getattr(self, "_portrait_host", None) is None:
                 self._portrait_host = QWidget()
                 self._portrait_layout = QVBoxLayout(self._portrait_host)
                 self._portrait_layout.setContentsMargins(0, 0, 0, 0)
                 self._portrait_layout.setSpacing(0)
+                portrait_layout = self._portrait_layout
             self._portrait_layout.addWidget(self.sidebar)
             self._portrait_layout.addWidget(self._content, 1)
             layout.addWidget(self._portrait_host)
         else:
+            # 横屏：把侧栏从竖屏容器里取出来挂回根布局
+            central = self.centralWidget()
+            self.sidebar.setParent(central)
+            self._content.setParent(central)
+            self.sidebar.setMaximumHeight(16_777_215)
             layout.addWidget(self.sidebar)
             layout.addWidget(self._content, 1)
         self.sidebar.set_side("top" if orientation == "portrait" else "left")

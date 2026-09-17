@@ -2123,7 +2123,10 @@ class RoomListBox(QWidget):
         run = 0
         for entry in order:
             if entry is None:
-                run += (CAROUSEL_WIDTH if horizontal else 0) + self.slot_height()
+                # 竖屏横排时拖动不留空位：卡片是横向滑的，让位只会留一截空白，
+                # 而且横向没有「上下让位」的语义（用户反馈一拖就出现空位）
+                if not horizontal:
+                    run += self.slot_height()
                 continue
             entry.setVisible(True)
             entry.resize(width, item_height)
@@ -2138,12 +2141,17 @@ class RoomListBox(QWidget):
                          if str(item.room.get("room_id")) == str(dragging)), None)
             if held is not None:
                 held.hide()                      # 原卡片藏起来，鼠标上跟着的是它的影子
-        if horizontal:
-            self.setMinimumHeight(NAV_ITEM_HEIGHT + NAV_ITEM_GAP)
+        if self.horizontal:
             self.setMinimumWidth(max(run, 1))
+            self.setMaximumWidth(16_777_215)
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16_777_215)
         else:
+            # 竖向时必须清掉横排留下的宽度/高度约束，否则左栏会被撑歪
             self.setMinimumWidth(0)
+            self.setMaximumWidth(16_777_215)
             self.setMinimumHeight(max(run, 1))
+            self.setMaximumHeight(16_777_215)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -2750,11 +2758,23 @@ class Sidebar(QFrame):
         （收起时只剩头像，展开时多一行按钮），逻辑和横屏的收起/展开一致。
         """
         side = "top" if side == "top" else "left"
+        # 无论走哪个分支，先把约束解掉：
+        # - 滚动区的高度上限（竖屏那条「只占一条」的限制留着，切回左栏就只剩一条）
+        # - 侧栏的竖直策略（竖屏时被压成一条，切回左栏必须重新撑满）
+        self.scroll.setMinimumHeight(0)
+        self.scroll.setMaximumHeight(16_777_215)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(16_777_215)
         if side == self.side:
             # 已经是这个摆放方式：不重复设置宽度，但仍要同步一次可见性 ——
             # 调用方（换排布 / 刚设过收起状态）可能正等着头像排露出来
             if side == "top":
                 self._sync_top_mode()
+            else:
+                # 竖向时务必把滚动区的高度上限解掉：竖屏那条 130px 的限制留着，
+                # 左栏就只剩一条（用户看到的就是这个）
+                self._apply_scroll_axis()
             return
         self.side = side
         horizontal = side == "top"

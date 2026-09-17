@@ -226,6 +226,14 @@ def part_orientation_roundtrip(app) -> None:
         expected_strip = want_portrait and sidebar.collapsed
         assert strip.isVisible() == expected_strip, f"{tag}: 头排该显示/隐藏不对"
         assert sidebar.toggle_button.isVisible(), f"{tag}: 展开键必须一直在"
+        # 左栏必须整条撑满、列表是竖排：竖屏留下的横向/高度约束没清掉的话，
+        # 左栏会只剩一条、卡片还是横着排的（用户看到的就是这个）
+        if not want_portrait:
+            assert sidebar.height() > wall.height() * 0.9, \
+                f"{tag}: 侧栏应该撑满高度，实际 {sidebar.height()} / {wall.height()}"
+            assert not sidebar.list_box.horizontal, f"{tag}: 左栏列表应该是竖向的"
+            assert sidebar.scroll.maximumHeight() > 10_000, \
+                f"{tag}: 竖屏的滚动区高度上限没被解掉"
         return main
 
     check("横屏启动", False)
