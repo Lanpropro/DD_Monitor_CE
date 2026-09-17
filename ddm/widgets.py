@@ -2120,13 +2120,14 @@ class RoomListBox(QWidget):
             order = list(items)
         width, item_height = self.item_size()
         horizontal = self.horizontal
+        # 不要在这里改 width：卡片宽度必须和侧栏内容宽度一致，
+        # 差几个像素就会让头像和列表对不齐（自检里钉着这一条）
         run = 0
         for entry in order:
             if entry is None:
-                # 竖屏横排时拖动不留空位：卡片是横向滑的，让位只会留一截空白，
-                # 而且横向没有「上下让位」的语义（用户反馈一拖就出现空位）
-                if not horizontal:
-                    run += self.slot_height()
+                # 落点让位：竖屏横排时也要让（用户要求动效和横屏一致），
+                # 横排的让位就是往右挪一格
+                run += CAROUSEL_WIDTH + NAV_ITEM_GAP if horizontal else self.slot_height()
                 continue
             entry.setVisible(True)
             entry.resize(width, item_height)
@@ -2147,11 +2148,20 @@ class RoomListBox(QWidget):
             self.setMinimumHeight(0)
             self.setMaximumHeight(16_777_215)
         else:
-            # 竖向时必须清掉横排留下的宽度/高度约束，否则左栏会被撑歪
+            # 竖向时必须清掉横排留下的宽度约束，否则左栏会被撑歪
             self.setMinimumWidth(0)
             self.setMaximumWidth(16_777_215)
             self.setMinimumHeight(max(run, 1))
             self.setMaximumHeight(16_777_215)
+        self._clamp_vertical_scroll()
+
+    def _clamp_vertical_scroll(self) -> None:
+        """竖向时把可滚动范围压在视口高度内：留着横排时的宽度会让 Qt 判成
+        「横向内容更宽」，于是弹出横滚条、挤掉高度，列表看起来只剩一张卡片。"""
+        if self.horizontal:
+            return
+        self.setMinimumWidth(0)
+        self.setMaximumWidth(16_777_215)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -2766,6 +2776,7 @@ class Sidebar(QFrame):
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.setMinimumHeight(0)
         self.setMaximumHeight(16_777_215)
+        self.list_box._clamp_vertical_scroll()
         if side == self.side:
             # 已经是这个摆放方式：不重复设置宽度，但仍要同步一次可见性 ——
             # 调用方（换排布 / 刚设过收起状态）可能正等着头像排露出来
@@ -2908,6 +2919,8 @@ class Sidebar(QFrame):
         else:
             self.scroll.setMinimumHeight(0)
             self.scroll.setMaximumHeight(16_777_215)
+            # 横滚条必须显式关掉：留着 AsNeeded 时，卡片宽度正好等于视口宽度，
+            # Qt 会把滚动条弹出来，挤掉高度后就只剩一张卡片可见了
             self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             self.scroll.setVerticalScrollBarPolicy(
                 Qt.ScrollBarAlwaysOff if self.collapsed else Qt.ScrollBarAsNeeded)
@@ -3070,13 +3083,16 @@ class Sidebar(QFrame):
 
     def drop_index_at(self, global_pos) -> int:
         """全局坐标 -> 列表里的落点下标（给 NavItem 转发拖动用）。"""
-        return self.list_box.index_at(self.list_box.mapFromGlobal(global_pos).y())
+        local = self.list_box.mapFromGlobal(global_pos)
+        return self.list_box.index_at(local.x() if self.list_box.horizontal
+                                      else local.y())
 
     def hover_drag(self, room_id: str, global_pos) -> None:
         """拖动过程中：贴近边缘自动滚，并在落点让出一格。"""
         local = self.list_box.mapFromGlobal(global_pos)
-        self.list_box.auto_scroll(local.y())
-        self.show_drop_indicator(room_id, self.list_box.index_at(local.y()))
+        along = local.x() if self.list_box.horizontal else local.y()
+        self.list_box.auto_scroll(along)
+        self.show_drop_indicator(room_id, self.list_box.index_at(along))
 
     def finish_drag(self, room_id: str, global_pos) -> None:
         """松手时结算：鼠标还在列表里就按落点排序，否则只把卡片放回去。"""
@@ -3085,7 +3101,8 @@ class Sidebar(QFrame):
         inside = (0 <= local.x() <= self.list_box.width()
                   and 0 <= local.y() <= self.list_box.height())
         if inside:
-            self.reorder_item(str(room_id), self.list_box.index_at(local.y()))
+            along = local.x() if self.list_box.horizontal else local.y()
+            self.reorder_item(str(room_id), self.list_box.index_at(along))
         self.list_box.relayout(animate=True)
 
     # ---- 拖动排序 ----

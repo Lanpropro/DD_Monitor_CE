@@ -247,6 +247,10 @@ class MainWindow(QMainWindow):
         layout = self._root_layout
         while layout.count():
             layout.takeAt(0)
+        # 侧栏和画面墙里有些控件是原生窗口（VLC 视频、浮标、控制条）。原生窗口在
+        # 换父容器/换布局时容易脱离父窗口，变成一个单独留着的小悬浮窗 ——
+        # 换排布前先降级成普通控件，换完再让各自恢复。
+        self._demote_native_windows()
         # 竖屏的容器布局也要清空：`_content` 挂在它里面，不清掉的话
         # 再 addWidget 到根布局会两个布局抢同一个控件，结果谁都没挂上
         portrait_layout = getattr(self, "_portrait_layout", None)
@@ -275,6 +279,60 @@ class MainWindow(QMainWindow):
         # 换完排布再同步一次可见性：收起/展开只影响「露哪些控件」，
         # 而 set_collapsed 在换排布之前就设过了，不补这一下头像排不会露出来。
         self.sidebar._sync_top_mode()      # noqa: SLF001
+        # 排布换完再让画面墙重算并提回原生窗口（换父容器会让它们掉出原生状态）
+        self.wall.relayout(force=True)
+        self._promote_native_windows()
+        self._adopt_stray_tiles()          # 换完再兜一次，收掉中途漏出去的
+
+    def _demote_native_windows(self) -> None:
+        """换排布前把画面墙里的原生窗口降级，免得多出一个单独留着的悬浮窗。
+
+        原生窗口（VLC 视频区、浮标、控制条）一旦脱离父窗口就会自己留一个顶层
+        小窗口。切方向要重新挂父容器，所以先降级；各自的 showEvent 会再提回原生。
+        """
+        for tile in self.wall.tiles:
+            # 隐藏的格子也要处理：它们虽然当前不可见，但换父容器时
+            # 一旦被 Qt 提成原生窗口，就会变成一个单独留着的 344x344 悬浮窗
+            tile.setAttribute(Qt.WA_NativeWindow, False)
+            tile.hide()
+            for widget in (tile.video, tile.stream_badge, tile.title_badge,
+                           tile.time_badge, tile.controls, tile.spinner,
+                           tile.pause_overlay):
+                if widget is None or not widget.testAttribute(Qt.WA_NativeWindow):
+                    continue
+                widget.setAttribute(Qt.WA_NativeWindow, False)
+                widget.hide()          # 先藏起来，避免降级瞬间闪一个独立窗口
+        # 兜底：已经变成顶层窗口的格子也收掉（换父容器失败时会漏出去）
+        self._adopt_stray_tiles()
+
+    def _adopt_stray_tiles(self) -> None:
+        """把漏成顶层窗口的格子收回来挂到画面墙上。
+
+        原生窗口一旦脱离父窗口就会自己变成一个顶层小窗口（用户看到的
+        「单独留着的悬浮窗」就是它）。每次换完排布都要兜一次。
+        """
+        for widget in QApplication.topLevelWidgets():
+            if isinstance(widget, Tile) and widget is not self:
+                widget.setAttribute(Qt.WA_NativeWindow, False)
+                widget.hide()
+                widget.setParent(self.wall)
+
+
+    def _promote_native_windows(self) -> None:
+        """换完排布把原生窗口提回来（和 _demote_native_windows 成对）。"""
+        for tile in self.wall.tiles:
+            if not tile.isVisible():
+                continue
+            tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
+            for widget in (tile.stream_badge, tile.title_badge, tile.time_badge,
+                           tile.controls, tile.spinner, tile.pause_overlay):
+                if widget is None:
+                    continue
+                widget.setVisible(widget is not tile.controls)
+                if not widget.testAttribute(Qt.WA_NativeWindow):
+                    widget.setAttribute(Qt.WA_NativeWindow, True)
+                widget.raise_()
+            tile.video.show()
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
