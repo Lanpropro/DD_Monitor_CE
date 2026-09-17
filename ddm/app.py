@@ -252,7 +252,12 @@ class MainWindow(QMainWindow):
         # 侧栏和画面墙里有些控件是原生窗口（VLC 视频、浮标、控制条）。原生窗口在
         # 换父容器/换布局时容易脱离父窗口，变成一个单独留着的小悬浮窗 ——
         # 换排布前先降级成普通控件，换完再让各自恢复。
-        self._demote_native_windows()
+        # 构造阶段主窗口还没 show，不能碰原生窗口。6893af9 起这里会连续两次
+        # hide / 降级所有 Tile，导致墙面 HWND 在第一次播放前就被重建；悬停预览
+        # 不走这条路径，所以才会出现「预览正常、墙面黑屏」。
+        manage_native = self.isVisible()
+        if manage_native:
+            self._demote_native_windows()
         # 竖屏的容器布局也要清空：`_content` 挂在它里面，不清掉的话
         # 再 addWidget 到根布局会两个布局抢同一个控件，结果谁都没挂上
         portrait_layout = getattr(self, "_portrait_layout", None)
@@ -283,8 +288,9 @@ class MainWindow(QMainWindow):
         self.sidebar._sync_top_mode()      # noqa: SLF001
         # 排布换完再让画面墙重算并提回原生窗口（换父容器会让它们掉出原生状态）
         self.wall.relayout(force=True)
-        self._promote_native_windows()
-        self._adopt_stray_tiles()          # 换完再兜一次，收掉中途漏出去的
+        if manage_native:
+            self._promote_native_windows()
+            self._adopt_stray_tiles()      # 换完再兜一次，收掉中途漏出去的
 
     def _demote_native_windows(self) -> None:
         """换排布前把画面墙里的原生窗口降级，免得多出一个单独留着的悬浮窗。
@@ -360,9 +366,22 @@ class MainWindow(QMainWindow):
             tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
             player = self.players.get(tile)
             if player is not None:
-                tile.prepare_video_surface()
                 player.bind()
-            tile.raise_overlays()
+            for widget, _visible in saved:
+                if widget is not tile.video and not widget.isHidden():
+                    widget.raise_()
+
+    def _suspend_players_for_arrangement(self) -> list[tuple[object, bool]]:
+        """换父容器前完整释放 VLC；不能边播放边销毁它绑定的 HWND。"""
+        active = set(self.players) | set(self._resolvers)
+        resume = []
+        for tile in self.wall.tiles:
+            if tile not in active:
+                continue
+            if tile.room.get("room_id") and tile.room.get("live"):
+                resume.append((tile, bool(tile.paused)))
+            self._stop_tile(tile)
+        return resume
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -388,7 +407,11 @@ class MainWindow(QMainWindow):
     def _apply_orientation(self) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         orientation = "portrait" if self.is_portrait() else "landscape"
-        if orientation != self.orientation:
+        changed = orientation != self.orientation
+        resume = []
+        if changed and self.isVisible():
+            resume = self._suspend_players_for_arrangement()
+        if changed:
             self._build_arrangement(orientation)
         self.orientation = orientation
         portrait = orientation == "portrait"
@@ -416,8 +439,13 @@ class MainWindow(QMainWindow):
         self.wall.relayout(force=True)
         # set_layout() 可能在 _build_arrangement() 之后才把新方向的格子显示出来；
         # 这些格子和视频区都要在最终排布完成后再恢复原生状态。
-        self._promote_native_windows()
-        self._adopt_stray_tiles()
+        if self.isVisible():
+            self._promote_native_windows()
+            self._adopt_stray_tiles()
+        for tile, paused in resume:
+            if paused:
+                tile._resume_paused_after_arrangement = True
+            self.start_tile(tile)
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
 
@@ -610,9 +638,6 @@ class MainWindow(QMainWindow):
             tile.set_quality_options(options)
         if quality:
             tile.set_actual_quality(quality)
-        # 悬停预览会在播放前主动 show/raise 视频区；墙面也必须先准备好稳定的
-        # 原生 HWND，再交给 VLC。否则 VLC 能解码、截图也有画面，窗口上却是黑的。
-        tile.prepare_video_surface()
         player = self.players.get(tile)
         if player is None:
             player = TilePlayer(tile.video, self)
@@ -667,6 +692,10 @@ class MainWindow(QMainWindow):
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()
+                if getattr(tile, "_resume_paused_after_arrangement", False):
+                    del tile._resume_paused_after_arrangement
+                    player.set_paused(True)
+                    tile.set_paused(True)
             self.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
                               room=dict(tile.room or {}))
         elif state == "connecting":

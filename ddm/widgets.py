@@ -3519,18 +3519,7 @@ class Tile(QFrame):
         drag.exec(Qt.MoveAction)
 
     def raise_overlays(self) -> None:
-        """把视频区上的原生浮层重新抬到 VLC 输出窗口上面。"""
-        for widget in (self.stream_badge, self.title_badge, self.time_badge,
-                       self.controls, self.spinner, self.pause_overlay):
-            if not widget.isHidden():
-                widget.raise_()
-
-    def prepare_video_surface(self) -> None:
-        """在 VLC 绑定前创建并抬起稳定的原生视频表面。"""
-        if not self.video.testAttribute(Qt.WA_NativeWindow):
-            self.video.setAttribute(Qt.WA_NativeWindow, True)
-        self.video.show()
-        self.video.raise_()
+        """信息条已经在画面之外，不需要再抢层级。"""
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -3871,7 +3860,7 @@ class Tile(QFrame):
                        self.spinner, self.pause_overlay):
             if not widget.testAttribute(Qt.WA_NativeWindow):
                 widget.setAttribute(Qt.WA_NativeWindow, True)
-        self.raise_overlays()
+            widget.raise_()
 
     # ---- 直播时长 ----
     def _refresh_elapsed(self) -> None:

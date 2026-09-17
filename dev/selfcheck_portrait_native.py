@@ -28,17 +28,15 @@ class SilentPoller(QThread):
 
 
 class SpyPlayer:
-    def __init__(self, video):
-        self.video = video
+    def __init__(self):
         self.bind_count = 0
-        self.bound_hwnds = []
+        self.release_count = 0
 
     def bind(self) -> None:
         self.bind_count += 1
-        self.bound_hwnds.append(int(self.video.winId()))
 
     def release(self) -> None:
-        return
+        self.release_count += 1
 
 
 def boom(room_id, quality=250):  # noqa: ANN001, ARG001
@@ -74,6 +72,13 @@ def main() -> None:
 
     rooms = make_rooms(28)
     window = MainWindow(rooms, rooms[:3], layout_id="dm_main3")
+    native_widgets = []
+    for tile in window.wall.tiles:
+        native_widgets.extend((tile, tile.video, tile.stream_badge, tile.title_badge,
+                               tile.time_badge, tile.controls, tile.spinner,
+                               tile.pause_overlay))
+    assert not any(widget.testAttribute(Qt.WA_NativeWindow) for widget in native_widgets), \
+        "主窗口显示前不能降级/提回 Tile 原生窗口；启动阶段应保持旧版生命周期"
     window.setGeometry(-9000, -9000, 1600, 900)
     window.show()
     settle(app, 0.8)
@@ -100,12 +105,7 @@ def main() -> None:
     window._refresh_meta = original_refresh  # noqa: SLF001
     tile.set_room(original_room)
 
-    tile.prepare_video_surface()
-    assert tile.video.testAttribute(Qt.WA_NativeWindow), \
-        "播放器绑定前，墙面视频区必须先准备成原生窗口"
-    initial_hwnd = int(tile.video.winId())
-    assert initial_hwnd, "视频表面必须提前拿到有效 HWND"
-    spy = SpyPlayer(tile.video)
+    spy = SpyPlayer()
     window.players[tile] = spy
     tile.video.show()
     tile.set_video_active(True)
@@ -122,6 +122,8 @@ def main() -> None:
     assert not tile.pause_overlay.isVisible(), "未暂停时不能凭空显示『已暂停』"
     tile.set_controls_visible(False)
 
+    restarts = []
+    window.start_tile = lambda item: restarts.append(item)
     window.resize(914, 1463)
     settle(app, 0.8)
     visible_strays = [widget for widget in app.topLevelWidgets()
@@ -132,10 +134,8 @@ def main() -> None:
     assert all(item.parentWidget() is window.wall for item in window.wall.tiles), \
         "竖屏手动摆放的格子必须预先挂在 WallGrid 下"
     assert not visible_strays, "竖屏切换不能产生顶层悬浮格子"
-    assert spy.bind_count > 0, "方向切换后播放器必须重新绑定视频区"
-    assert all(spy.bound_hwnds), "播放器不能绑定到空 HWND"
-    assert spy.bound_hwnds[-1] == int(tile.video.winId()), \
-        "播放器必须绑定当前视频表面，而不是已经失效的旧窗口"
+    assert spy.release_count == 1, "换父容器前必须先完整释放正在使用旧 HWND 的 VLC"
+    assert restarts == [tile], "新排布完成后必须重新启动原来正在播放的格子"
     assert tile.video.isVisible(), "方向切换后已有直播的视频区必须保持可见"
     assert not tile.spinner.isVisible(), "竖屏后不能残留『连接中』叠层"
     assert not tile.pause_overlay.isVisible(), "竖屏后不能残留『已暂停』叠层"
@@ -145,7 +145,7 @@ def main() -> None:
     print(f"回横屏：方向={window.orientation} 播放器绑定={spy.bind_count} "
           f"视频可见={tile.video.isVisible()}")
     assert window.orientation == "landscape"
-    assert spy.bind_count > 1, "回横屏也必须重新绑定播放器"
+    assert spy.release_count == 1, "已释放的旧播放器不能再次参与回横屏重排"
     assert tile.video.isVisible(), "回横屏后已有直播的视频区必须保持可见"
     assert not tile.spinner.isVisible(), "回横屏后不能残留『连接中』叠层"
     assert not tile.pause_overlay.isVisible(), "回横屏后不能残留『已暂停』叠层"
