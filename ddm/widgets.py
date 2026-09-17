@@ -311,29 +311,43 @@ class LoadingIndicator(QWidget):
 
 
 class VolumeButton(QPushButton):
-    """音量按钮：图标随状态变化，点击切换静音，滚轮调音量。"""
+    """音量按钮：细线喇叭 + 声道标记，静音时喇叭右边打一个 ×。
+
+    点击切换静音，滚轮调音量；声道（原始 / 仅左 / 仅右）由右键菜单切换，
+    这里只用 L / R 标出当前在听哪一路。
+    """
 
     volumeChanged = Signal(int)
+
+    CHANNEL_LEFT = 3
+    CHANNEL_RIGHT = 4
 
     def __init__(self, parent=None, size: int = theme.CONTROL_HEIGHT):
         super().__init__(parent)
         self.setObjectName("BiliVolumeButton")
         self._size = size
-        self.setFixedSize(size + (4 if size >= 30 else 0), size)
+        # 喇叭 + 右边的 L / R 两个标记：比纯图标按钮宽一点，字才不会贴边
+        self.setFixedSize(size + (8 if size >= 30 else 14), size)
         self.setCursor(Qt.PointingHandCursor)
         self.muted = False
         self.level = 42
+        self.audio_channel = 0
         self._update_tooltip()
 
-    def set_state(self, muted: bool, level: int) -> None:
+    def set_state(self, muted: bool, level: int, audio_channel: int = 0) -> None:
         self.muted = bool(muted)
         self.level = max(0, min(100, int(level)))
+        self.audio_channel = int(audio_channel)
         self._update_tooltip()
         self.update()
 
     def _update_tooltip(self) -> None:
         state = "已静音" if self.muted else f"音量 {self.level}"
-        self.setToolTip(f"{state}　（点击静音，滚轮调音量）")
+        channel = {
+            self.CHANNEL_LEFT: "　仅左声道",
+            self.CHANNEL_RIGHT: "　仅右声道",
+        }.get(self.audio_channel, "")
+        self.setToolTip(f"{state}{channel}　（点击静音，滚轮调音量，右键调声道）")
 
     def wheelEvent(self, event) -> None:
         step = 5 if event.angleDelta().y() > 0 else -5
@@ -347,7 +361,7 @@ class VolumeButton(QPushButton):
         super().paintEvent(event)          # 背景由样式表画
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        # B 站播放器风格：细线喇叭、分级声波；悬停时切成主题蓝。
+        # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
         color = QColor("#9499a0" if self.muted else "#f1f2f3")
         if self.underMouse():
             color = QColor(theme.ACCENT)
@@ -369,13 +383,32 @@ class VolumeButton(QPushButton):
         path.closeSubpath()
         painter.drawPath(path)
         if self.muted:
-            # 静音：一条斜线从左下穿到右上，横跨整个音量表（喇叭 + 声波）。
-            # 只画在声波上会像划掉了半边，看不出「整路禁声」。
-            painter.drawLine(QPointF(left - 1.5, top + 15.5), QPointF(left + 19.5, top - 3.5))
+            # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
+            cross = center.y() - 3.5
+            right = center.x() + 8.5
+            painter.drawLine(right, cross, right + 7, cross + 7)
+            painter.drawLine(right + 7, cross, right, cross + 7)
         else:
-            painter.drawArc(QRectF(left + 5, center.y() - 5, 9, 10), -55 * 16, 110 * 16)
-            if self.level >= 45:
-                painter.drawArc(QRectF(left + 5, center.y() - 8, 15, 16), -55 * 16, 110 * 16)
+            self._paint_channel(painter, top, left)
+
+    def _paint_channel(self, painter: QPainter, top: float, left: float) -> None:
+        """在喇叭右边标出当前声道：L / R，选中的那一路更亮。"""
+        font = QFont(theme.FONT_DEFAULT)
+        font.setPixelSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        for label, x, selected in (
+            ("L", left + 10.0, self.audio_channel == self.CHANNEL_LEFT),
+            ("R", left + 15.5, self.audio_channel == self.CHANNEL_RIGHT),
+        ):
+            if selected:
+                colour = QColor(theme.ACCENT)
+            else:
+                colour = QColor("#9499a0" if self.muted else "#6d737d")
+                colour.setAlpha(150)
+            painter.setPen(colour)
+            painter.drawText(QRectF(x, top + 2, 7, 9), int(Qt.AlignCenter), label)
+
 
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
@@ -2304,25 +2337,37 @@ class Sidebar(QFrame):
     def open_layout_picker(self) -> None:
         picker = LayoutPicker(self._layout_id, self)
         picker.chosen.connect(self._on_layout_chosen)
-        anchor = self.layout_button.mapToGlobal(self.layout_button.rect().topLeft())
+        # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
+        source = self.account_row if self.collapsed else self.layout_button
+        anchor = source.mapToGlobal(source.rect().topLeft())
         picker.adjustSize()
         screen = (QApplication.screenAt(anchor)
                   or QApplication.screenAt(QCursor.pos())
                   or QApplication.primaryScreen())
+        # screenAt 偶尔全落空（窗口还在屏幕外、或显示器刚改过配置），
+        # 这时千万别把窗口摆到屏幕外去：退回主屏可用区域，至少还能看见。
         available = screen.availableGeometry() if screen is not None else QRect()
+        if not available.isValid():
+            primary = QApplication.primaryScreen()
+            if primary is not None:
+                available = primary.availableGeometry()
         x = anchor.x()
+        if self.collapsed:
+            x = anchor.x() + source.width() + 6
         y = anchor.y() - picker.height() - 6
         if available.isValid():
             x = max(available.left() + 6,
                     min(x, available.right() - picker.width() - 6))
             if y < available.top() + 6:
-                y = anchor.y() + self.layout_button.height() + 6
+                y = anchor.y() + source.height() + 6
             min_y = available.top() + 6
             max_y = available.bottom() - picker.height() - 6
             if max_y < min_y:
                 y = min_y
             else:
                 y = max(min_y, min(y, max_y))
+        else:
+            y = max(6, y)
         picker.move(x, y)
         picker.show()
         self._picker = picker
@@ -2340,15 +2385,42 @@ class Sidebar(QFrame):
         self.account_row.set_account("")
         self.account_row.setVisible(False)
 
-    def _open_account_menu(self) -> None:
+    def account_menu(self) -> QMenu:
+        """账号菜单：退出登录；侧栏收起时把藏起来的「布局预设 / 设置」也放进来。
+
+        单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
+        """
         menu = QMenu(self)
-        action = menu.addAction("退出登录")
-        # 账号栏在最底部，菜单往上弹，右对齐
+        menu.addAction("退出登录")
+        if self.collapsed:
+            # 收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
+            # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
+            menu.addSeparator()
+            menu.addAction("布局预设…")
+            menu.addAction("设置…")
+        return menu
+
+    def _open_account_menu(self) -> None:
+        menu = self.account_menu()
+        texts = [action.text() for action in menu.actions() if action.text()]
         size = menu.sizeHint()
         anchor = self.account_row.mapToGlobal(self.account_row.rect().topRight())
-        chosen = menu.exec(QPoint(anchor.x() - size.width(), anchor.y() - size.height() - 6))
-        if chosen == action:
+        if self.collapsed:
+            # 收起时只有头像，菜单贴着头像右侧展开
+            position = QPoint(anchor.x() + 6, anchor.y() - size.height() - 6)
+        else:
+            # 账号栏在最底部，菜单往上弹、右对齐整行
+            position = QPoint(anchor.x() - size.width(), anchor.y() - size.height() - 6)
+        chosen = menu.exec(position)
+        if chosen is None:
+            return
+        label = chosen.text()
+        if label == texts[0]:
             self.logoutRequested.emit()
+        elif label == "布局预设…":
+            self.open_layout_picker()
+        elif label == "设置…":
+            self.settingsRequested.emit()
 
     # ---- 收起 / 展开 ----
     def toggle_collapsed(self) -> None:
@@ -2778,7 +2850,7 @@ class Tile(QFrame):
         # 音量条直接放在信息条里，不用翻右键菜单
         # 音量图标按钮 + 滑条 + 数值，都在信息条里
         self.volume_button = VolumeButton(size=26)
-        self.volume_button.set_state(self.muted, self.volume)
+        self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.volume_button.clicked.connect(self._toggle_mute)
         self.volume_button.volumeChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_button)
@@ -2864,7 +2936,7 @@ class Tile(QFrame):
         self.volume_slider.setValue(self.volume)
         self.volume_slider.blockSignals(False)
         self.volume_label.setText(str(self.volume))
-        self.volume_button.set_state(self.muted, self.volume)
+        self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.set_status("" if self.room.get("live") else "未开播")
         self.stop_elapsed_timer()
         self._layout_cover()
@@ -3082,7 +3154,7 @@ class Tile(QFrame):
     def set_muted(self, muted: bool) -> None:
         self.muted = bool(muted)
         self.room["muted"] = self.muted
-        self.volume_button.set_state(muted, self.volume)
+        self.volume_button.set_state(muted, self.volume, self.audio_channel)
         self._layout_controls()
         self.muteToggled.emit(self.room, muted)
 
@@ -3319,8 +3391,8 @@ class Tile(QFrame):
             action.setChecked(value == self.quality)
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
 
-        audio_menu = menu.addMenu("音效通道")
-        for name, value in (("原始音效", 0), ("杜比音效", 5)):
+        audio_menu = menu.addMenu("声道")
+        for name, value in (("左右都听（原始）", 0), ("只播左声道", 3), ("只播右声道", 4)):
             action = audio_menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(value == self.audio_channel)
@@ -3347,6 +3419,7 @@ class Tile(QFrame):
     def set_audio_channel(self, value: int) -> None:
         self.audio_channel = int(value)
         self.room["audio_channel"] = int(value)
+        self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.audioChannelChanged.emit(self.room, int(value))
 
     def mouseReleaseEvent(self, event) -> None:

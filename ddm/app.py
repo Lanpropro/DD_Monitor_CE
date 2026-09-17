@@ -686,6 +686,10 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_audio_channel(value)
+        # 声道是在取流那一层生效的（:stereo-mode），想立刻听到就得重连一次
+        if tile is not None and tile.room.get("live"):
+            self.start_tile(tile)
+        self._save_timer.start()       # 声道属于格子，和音量一起记住
 
     def _on_quality_changed(self, room: dict, quality: int) -> None:
         # 注意：Qt 信号传过来的 dict 是副本，必须写回格子自己的字典

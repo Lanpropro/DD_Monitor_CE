@@ -101,6 +101,9 @@ class TilePlayer(QObject):
             media.add_option(f":http-user-agent={UA}")
             media.add_option(f":http-referrer={REFERRER}")
         media.add_option(":network-caching=800")
+        if self.audio_channel:
+            # 只播一路声道：3=左，4=右（0 表示左右都听，不加这个选项）
+            media.add_option(f":stereo-mode={int(self.audio_channel)}")
         self.player.set_media(media)
         self.player.play()
         self._stall_ticks = 0
@@ -148,9 +151,14 @@ class TilePlayer(QObject):
         self.player.audio_set_volume(volume)
 
     def set_audio_channel(self, channel: int) -> None:
-        """音效通道：0=原始，5=杜比（与原程序一致）。"""
-        self.audio_channel = channel
-        self.player.audio_set_channel(channel)
+        """只播左声道 / 只播右声道。
+
+        实测这一版 libvlc（3.0.12）里 audio_set_channel() 对输出没有影响，
+        所以走 media 的 :stereo-mode 选项，并且在下一次 load 时生效——
+        已经播起来的流要重新取一次才能换声道。
+        """
+        self.audio_channel = int(channel)
+        self.player.audio_set_channel(int(channel))     # 能生效的构建上算白拿
 
     def set_paused(self, paused: bool) -> None:
         """暂停 / 继续（不停取流，继续时直接接上）。"""
