@@ -1,4 +1,4 @@
-# 重启 DD 监控室客户端（无控制台方式，等同双击 run.cmd）。
+﻿# 重启 DD 监控室客户端（无控制台方式，等同双击 run.cmd）。
 #
 # 先按命令行里的 main.py 找到正在跑的本项目实例并结束，再重新起一个，
 # 这样改完代码不用手动关窗口、也不用担心起出两个实例。
@@ -28,8 +28,14 @@ if (-not (Test-Path $venvPython)) { $venvPython = Join-Path $fallback 'python.ex
 if (-not (Test-Path $venvPythonw)) { $venvPythonw = Join-Path $fallback 'pythonw.exe' }
 
 function Get-DdmProcesses {
+    # 命令行里认「本项目目录 + main」：main.py 被引号或反斜杠包着的写法都要认出来
+    # （只匹配 'main.py' 时漏掉过一个用别的方式启动的实例）
     Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like '*main.py*' -and $_.CommandLine -like '*DD_Monitor_CE*' }
+        Where-Object {
+            $cmd = $_.CommandLine
+            if (-not $cmd -or $cmd -notlike '*DD_Monitor_CE*') { return $false }
+            $cmd -like '*main.py*' -or $cmd -like '*\main*'
+        }
 }
 
 # ---- 1. 停掉正在跑的实例 ----
