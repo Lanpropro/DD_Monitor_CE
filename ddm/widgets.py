@@ -2174,6 +2174,10 @@ class RoomStrip(QFrame):
         self._face: QPixmap | None = None
         self._rooms: list[dict] = []
         self._entries: list[tuple] = []          # [(room_id, live, pinned)]
+        self._account_avatar: QWidget | None = None
+        self.LIMIT = 9                           # 一排最多摆几个（竖屏展开时调小）
+        self._press_pos = None
+        self._press_room = None
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(2, 0, 2, 0)
         self._layout.setSpacing(self.SPACING)
@@ -2191,20 +2195,67 @@ class RoomStrip(QFrame):
         self._rebuild()
 
     # ---- 交互 ----
+    def mousePressEvent(self, event) -> None:
+        self._press_pos = event.position().toPoint()
+        self._press_room = None
+        if event.button() == Qt.LeftButton:
+            widget = self.childAt(event.position().toPoint())
+            while widget is not None and widget is not self:
+                room_id = widget.property("roomId")
+                if room_id:
+                    self._press_room = str(room_id)
+                    break
+                widget = widget.parentWidget()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        """把某个主播头像拖出去 = 拖进画面墙（和从列表里拖一样）。"""
+        if not self._press_room or not (event.buttons() & Qt.LeftButton):
+            return
+        start = getattr(self, "_press_pos", None)
+        if start is None or (event.position().toPoint() - start).manhattanLength() \
+                < QApplication.startDragDistance():
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, self._press_room.encode("utf-8"))
+        mime.setText(self._press_room)
+        drag.setMimeData(mime)
+        drag.exec(Qt.CopyAction)
+
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
         super().mouseReleaseEvent(event)
         hit = self.childAt(event.position().toPoint())
         if hit is self:
-            # 点空白处等于点账号头像：横栏收起时整条都能点开
+            # 点空白处等于点账号头像：收起时整条都能点开
             self.accountClicked.emit()
             return
-        room_id = hit.property("roomId") if hit is not None else None
+        # 头像上的开播小圆点 / 置顶角标是子控件，childAt 会返回它们，
+        # 所以要往上找到真正带 roomId 的那个头像，否则点圆点会被当成点账号。
+        widget = hit
+        room_id = None
+        while widget is not None and widget is not self:
+            room_id = widget.property("roomId")
+            if room_id:
+                break
+            widget = widget.parentWidget()
         if room_id:
             self.roomClicked.emit(str(room_id))
         else:
             self.accountClicked.emit()
+
+    def account_avatar(self) -> QWidget | None:
+        """账号头像控件（竖屏下账号菜单要贴着它弹）。"""
+        return self._account_avatar
+
+    def account_global_rect(self) -> QRect:
+        """账号头像在屏幕上的矩形；拿不到就退回本控件自己的矩形。"""
+        avatar = self._account_avatar
+        target = avatar if avatar is not None else self
+        top_left = target.mapToGlobal(QPoint(0, 0))
+        return QRect(top_left, target.size())
 
     def _rebuild(self) -> None:
         while self._layout.count():
@@ -2215,8 +2266,9 @@ class RoomStrip(QFrame):
                 widget.setParent(None)
                 widget.deleteLater()
         self._entries = []
-        self._add_avatar("我" if not self._uname else self._uname[0], live=True,
-                         tooltip=self._uname or "账号", face=self._face, account=True)
+        self._account_avatar = self._add_avatar(
+            "我" if not self._uname else self._uname[0], live=True,
+            tooltip=self._uname or "账号", face=self._face, account=True)
         shown = 0
         for room in self._rooms:
             if shown >= self.LIMIT:
@@ -2227,11 +2279,24 @@ class RoomStrip(QFrame):
                              room_id=str(room.get("room_id") or ""),
                              pinned=bool(room.get("pinned")))
             shown += 1
+        # 放不下的用 +N 标出来：直接吞掉会让人以为关注丢了
+        rest = max(0, len(self._rooms) - shown)
+        if rest:
+            more = QLabel(f"+{rest}")
+            more.setObjectName("NavSub")
+            more.setFixedHeight(self.AVATAR)
+            more.setToolTip(f"还有 {rest} 个没显示，展开横栏看完整列表")
+            more.setAlignment(Qt.AlignCenter)
+            self._layout.addWidget(more)
         self._layout.addStretch(1)
+
+    def rebuild(self) -> None:
+        """关注列表变了（增删/排序/状态）时重建这一排。"""
+        self._rebuild()
 
     def _add_avatar(self, text: str, live: bool, tooltip: str = "",
                     face=None, room_id: str = "", pinned: bool = False,
-                    account: bool = False) -> None:
+                    account: bool = False) -> QWidget:
         avatar = Avatar(text, 2, self.AVATAR)
         avatar.setFixedSize(self.AVATAR, self.AVATAR)
         avatar.setProperty("roomId", room_id)
@@ -2261,6 +2326,7 @@ class RoomStrip(QFrame):
             mark.move(0, 0)
             mark.show()
         avatar.show()
+        return avatar
 
 
 class RowMoreButton(QPushButton):
@@ -2562,12 +2628,18 @@ class Sidebar(QFrame):
         menu = self.account_menu()
         texts = [action.text() for action in menu.actions() if action.text()]
         size = menu.sizeHint()
-        anchor = self.account_row.mapToGlobal(self.account_row.rect().topRight())
-        if self.collapsed:
-            # 收起时只有头像，菜单贴着头像右侧展开
+        if self.side == "top":
+            # 竖屏：贴着头排里的账号头像弹（account_row 这时候是藏起来的，
+            # 用它的坐标会把菜单弹到屏幕角落去）
+            avatar = self._head_strip.account_global_rect()
+            position = QPoint(avatar.left(), avatar.bottom() + 6)
+        elif self.collapsed:
+            # 横屏收起：只剩头像，菜单贴着头像右侧展开
+            anchor = self.account_row.mapToGlobal(self.account_row.rect().topRight())
             position = QPoint(anchor.x() + 6, anchor.y() - size.height() - 6)
         else:
             # 账号栏在最底部，菜单往上弹、右对齐整行
+            anchor = self.account_row.mapToGlobal(self.account_row.rect().topRight())
             position = QPoint(anchor.x() - size.width(), anchor.y() - size.height() - 6)
         chosen = menu.exec(position)
         if chosen is None:
@@ -2631,13 +2703,14 @@ class Sidebar(QFrame):
         self.side = side
         horizontal = side == "top"
         if not horizontal:
-            # 切回左栏时必须把头排收掉：它只服务于顶部横栏，横屏下留着会占位
+            # 切回左栏：头像排收掉（它只服务于顶部横栏），展开键还回标题行
             strip = getattr(self, "_head_strip", None)
             if strip is not None:
                 strip.setVisible(False)
             header = getattr(self, "_header_row", None)
             if header is not None:
                 header.setVisible(True)
+            self._restore_toggle_to_header()
         self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
         if horizontal:
             self._layout.setContentsMargins(10, 8, 10, 8)
@@ -2653,16 +2726,47 @@ class Sidebar(QFrame):
         self._sync_top_mode()
         self.list_box.relayout(animate=False)
 
+    def _restore_toggle_to_header(self) -> None:
+        """把「收起/展开」按钮放回标题行（竖屏时它是摘出来放在横栏右上角的）。"""
+        toggle = getattr(self, "toggle_button", None)
+        header = getattr(self, "_header_row", None)
+        if toggle is None or header is None:
+            return
+        self._layout.removeWidget(toggle)
+        toggle.setObjectName("SidebarToggle")      # 换回标题行那套样式
+        toggle.setFixedSize(24, 24)
+        toggle.setParent(header)
+        header.layout().addWidget(toggle, 0, Qt.AlignTop)
+        toggle.setVisible(True)
+        _repolish(toggle)
+
     def _sync_top_mode(self) -> None:
         """按 side + collapsed 决定顶部横栏露哪些控件。
 
-        收起：只留一排头像（账号头像在最前，后面是关注的主播）。
-        展开：头像排收起来，换成「标题行 + 搜索 + 列表 + 布局预设 + ⋯」。
+        头像排在**收起和展开时都留着**：它既是关注列表在竖屏下的主要形态，
+        也是「展开/收起」按钮的落点（横屏的收起按钮在标题行里，竖屏标题行
+        收起时是隐藏的，跟着一起藏掉就没有展开键了）。
         """
         if self.side != "top":
             return
         strip = getattr(self, "_head_strip", None)
         header = getattr(self, "_header_row", None)
+        toggle = getattr(self, "toggle_button", None)
+        if strip is not None:
+            # 展开时少摆几个，给标题/搜索那一行留地方
+            strip.LIMIT = 9 if self.collapsed else 6
+            if not strip.isVisible():
+                strip.setVisible(True)
+            strip.rebuild()
+        if toggle is not None:
+            # 从标题行里摘出来，横栏右上角常驻；换成紧凑样式，
+            # 否则标题行那套 24px 最小尺寸 + padding 会把横栏撑高一截
+            toggle.setObjectName("BarToggle")
+            toggle.setFixedSize(22, 22)
+            toggle.setParent(self)
+            self._layout.addWidget(toggle, 0, Qt.AlignRight | Qt.AlignVCenter)
+            toggle.setVisible(True)
+            _repolish(toggle)
         if self.collapsed:
             if header is not None:
                 header.setVisible(False)
@@ -2670,11 +2774,7 @@ class Sidebar(QFrame):
                            self.batch_bar, self.tool_row, self.tool_row_more,
                            self.account_row):
                 widget.setVisible(False)
-            if strip is not None:
-                strip.setVisible(True)
         else:
-            if strip is not None:
-                strip.setVisible(False)
             if header is not None:
                 header.setVisible(True)
             for index in range(self.title_box.count()):
@@ -3008,6 +3108,8 @@ class Sidebar(QFrame):
         self._items = pinned + rest
         self.list_box.relayout(animate=animate)
         self._sync_sort_menu()
+        # 顺手把顶部横栏那一排头像也刷新：竖屏下它就是关注列表
+        self.refresh_strip()
 
     def play_live_alerts(self, items: list) -> None:
         """重排之后再播开播动效。

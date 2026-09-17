@@ -182,14 +182,139 @@ def part_landscape_unchanged(app) -> None:
     print(f"  2x2 在 {LANDSCAPE} 下的格子尺寸：{sizes}")
     assert len(sizes) == 1, f"横屏 2x2 应该四格等大，实际 {sizes}"
     tile_w, tile_h = sizes.pop()
-    # 等分布局本来就是按行列切，横屏下比例接近 16:9
     print(f"  单格比例 {tile_w / tile_h:.3f}")
     assert 1.2 < tile_w / tile_h < 2.4, "横屏 2x2 单格比例不该离谱"
+    window.close()
+    settle(app, 0.4)
 
-    window.wall.set_layout("portrait_main4")
-    settle(app, 0.5)
-    print("  横屏也可以手动选竖屏布局（不拦），主画面比例 "
-          f"{ratio(wall.tiles[0]):.3f}")
+
+def part_orientation_roundtrip(app) -> None:
+    """竖屏 ↔ 横屏 来回拖：排布、布局、头排、控件条都要跟着回到正确状态。
+
+    这几条都是实际遇到过的问题：
+    - 竖屏存了 portrait 预设，拖回横屏被原样套用，画面错位
+    - 拖回横屏不重排，格子留着竖屏时的几何
+    - 顶部横栏头像排没同步关注列表 / 展开键跟着标题行一起藏掉
+    """
+    print("\n=== 9. 竖屏 ↔ 横屏 来回拖 ===")
+    window = MainWindow(rooms(8), rooms(8))
+    window.setGeometry(-9000, -9000, *LANDSCAPE)
+    window.show()
+    settle(app, 1.2)
+    sidebar = window.sidebar
+
+    def check(tag, want_portrait):
+        wall = window.wall
+        main = wall.tiles[0]
+        strip = sidebar._head_strip
+        controls = main.controls
+        main.set_controls_visible(True)
+        settle(app, 0.2)
+        expected = max(10, main.video.width() + 1 - controls.width() - 10)
+        print(f"  [{tag}] 方向={window.orientation} 布局={wall.layout_id} "
+              f"侧栏side={sidebar.side} 头排可见={strip.isVisible()} "
+              f"头排主播数={len(strip._rooms)}")
+        print(f"        主画面 {main.width()}x{main.height()} "
+              f"比例 {main.width() / max(1, main.height()):.3f} "
+              f"控件条x={controls.x()} 期望={expected}")
+        assert window.orientation == ("portrait" if want_portrait else "landscape"), tag
+        assert sidebar.side == ("top" if want_portrait else "left"), tag
+        assert layouts.is_portrait_layout(wall.layout_id) == want_portrait, \
+            f"{tag}: 布局 {wall.layout_id} 和方向不符（这就是拖回横屏后错位的原因）"
+        assert controls.x() == expected, f"{tag}: 控件条没贴住画面右上角"
+        assert strip.isVisible() == want_portrait, f"{tag}: 头排该显示/隐藏不对"
+        assert sidebar.toggle_button.isVisible(), f"{tag}: 展开键必须一直在"
+        return main
+
+    check("横屏启动", False)
+
+    window.resize(1080, 1920)
+    settle(app, 1.0)
+    main = check("拖成竖屏", True)
+    strip = sidebar._head_strip
+    print(f"        头排头像数={strip._layout.count()} "
+          f"（关注 {len(sidebar.rooms())} 个）")
+    assert len(strip._rooms) == len(sidebar.rooms()), \
+        "头排必须同步关注列表，否则竖屏下看不到关注的主播"
+    assert main.width() > main.video.height(), "竖屏主画面应该是横的（16:9）"
+
+    window.resize(1600, 900)
+    settle(app, 1.0)
+    check("拖回横屏", False)
+
+    window.close()
+    settle(app, 0.4)
+
+
+def part_strip_interaction(app) -> None:
+    print("\n=== 10. 顶部横栏：头排内容 + 展开/收起 ===")
+    window = MainWindow(rooms(6), rooms(6))
+    window.setGeometry(-9000, -9000, *PORTRAIT)
+    window.show()
+    settle(app, 1.2)
+    sidebar = window.sidebar
+    strip = sidebar._head_strip
+    rooms_now = sidebar.rooms()
+    print(f"  收起：头排可见={strip.isVisible()} 账号头像="
+          f"{strip.account_avatar() is not None} "
+          f"同步关注={len(strip._rooms)}/{len(rooms_now)} "
+          f"展开键可见={sidebar.toggle_button.isVisible()} "
+          f"侧栏高={sidebar.height()}")
+    assert strip.isVisible(), "竖屏收起时头排必须可见（它就是关注列表）"
+    assert strip.account_avatar() is not None, "头排要有账号头像"
+    assert len(strip._rooms) == len(rooms_now), "头排必须同步全部关注"
+    assert sidebar.toggle_button.isVisible(), "没有展开键就没法展开了"
+    # 一行头像 36 + 展开按钮 18 + 边距 16 + 间距 6 = 76px 是当前设计值；
+    # 这里只保证它明显比展开态矮，别把横栏做成第二条侧栏
+    assert sidebar.height() <= 90, f"收起时横栏应该很矮，实际 {sidebar.height()}"
+    # 放不下时要有 +N 提示
+    window.add_to_wall(dict(rooms_now[0])) if rooms_now else None
+    settle(app, 0.3)
+
+    print("\n=== 11. 点关注头像 = 选中该直播间 ===")
+    picked: list = []
+    sidebar.roomSelected.connect(lambda room: picked.append(room.get("room_id")))
+    target = str(rooms_now[2].get("room_id")) if len(rooms_now) > 2 else ""
+    sidebar._on_strip_room(target)
+    settle(app, 0.2)
+    print(f"  点第 3 个头像 -> roomSelected={picked}")
+    assert picked == [target], f"头排点击应该选中对应直播间，实际 {picked}"
+
+    print("\n=== 12. 竖屏展开：头排还在，多出按钮行 ===")
+    sidebar.set_collapsed(False, animate=False)
+    settle(app, 0.4)
+    print(f"  展开：头排={strip.isVisible()} 搜索={sidebar.search.isVisible()} "
+          f"布局按钮={sidebar.tool_row.isVisible()} "
+          f"更多={sidebar.tool_row_more.isVisible()} "
+          f"列表={sidebar.scroll.isVisible()} 高={sidebar.height()}")
+    assert strip.isVisible(), "展开时头排也留着，这样随时能收起"
+    assert sidebar.search.isVisible() and sidebar.tool_row.isVisible()
+    assert sidebar.tool_row_more.isVisible(), "放不下的入口要在「⋯」里"
+    assert sidebar.height() > 52, "展开后横栏应该变高"
+    sidebar.set_collapsed(True, animate=False)
+    settle(app, 0.3)
+    assert not sidebar.search.isVisible(), "收起后搜索框要收掉"
+
+    print("\n=== 13. 切布局不动窗口方向（摆放跟着窗口形状走）===")
+    window.resize(1600, 900)
+    settle(app, 0.8)
+    window._on_layout_changed("portrait_main4")
+    settle(app, 0.6)
+    print(f"  横屏窗口里选竖屏预设：方向={window.orientation} side={sidebar.side} "
+          f"布局={window.wall.layout_id}")
+    assert window.orientation == "landscape", "套用预设不该把窗口方向改掉"
+    assert sidebar.side == "left", "窗口还是横屏，侧栏就该在左边"
+    # 竖屏预设套在横屏窗口上不好看，这是预期的（提示用户去拖窗口），
+    # 但必须不能崩、也不能把格子摆到墙外
+    wall = window.wall
+    for tile in wall.visible_tiles():
+        assert tile.geometry().right() <= wall.width() + 2
+        assert tile.geometry().bottom() <= wall.height() + 2
+    window._on_layout_changed("2x2")
+    settle(app, 0.6)
+    print(f"  改回横屏预设：方向={window.orientation} side={sidebar.side} "
+          f"布局={window.wall.layout_id}")
+    assert window.wall.layout_id == "2x2"
     window.close()
     settle(app, 0.4)
 
@@ -209,8 +334,9 @@ def main() -> None:
     part_portrait(app)
     part_portrait_danmaku(app)
     part_landscape_unchanged(app)
+    part_orientation_roundtrip(app)
+    part_strip_interaction(app)
     print("\n全部通过")
-
 
 if __name__ == "__main__":
     main()

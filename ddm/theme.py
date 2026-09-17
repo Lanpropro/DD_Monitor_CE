@@ -409,6 +409,22 @@ QSlider::handle:horizontal:hover {{
     background: {ACCENT_SOFT};
     color: {ACCENT};
 }}
+/* 竖屏顶部横栏右上角的收起/展开：比侧栏那个更紧凑，别把横栏撑高 */
+#BarToggle {{
+    background: transparent;
+    border: none;
+    color: {TEXT3};
+    font-size: 12px;
+    min-width: 18px;
+    max-width: 26px;
+    min-height: 18px;
+    max-height: 22px;
+    border-radius: 11px;
+}}
+#BarToggle:hover {{
+    background: {CONTENT_HOVER};
+    color: {TEXT1};
+}}
 #DangerButton {{
     background: rgba(229, 72, 77, 0.18);
     border: 1px solid rgba(229, 72, 77, 0.45);

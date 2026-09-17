@@ -273,6 +273,18 @@ class MainWindow(QMainWindow):
         ui = self.state.get("ui") or {}
         return str(ui.get(f"layout_{orientation}") or "auto")
 
+    @staticmethod
+    def _layout_fits(layout_id: str, portrait: bool) -> bool:
+        """这个布局能不能用在这个方向上。
+
+        竖屏预设只会在竖屏下摆对（它是「主画面 16:9 + 小画面自动排」）；
+        横屏的等分布局在竖屏下会把格子拉成竖长条。所以两边不能混用 ——
+        混用就是拖回横屏后画面错位的原因。
+        """
+        if layout_id == "auto":
+            return False
+        return layouts.is_portrait_layout(layout_id) == bool(portrait)
+
     def _apply_orientation(self) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         orientation = "portrait" if self.is_portrait() else "landscape"
@@ -286,18 +298,19 @@ class MainWindow(QMainWindow):
         saved = self._saved_layout(orientation)
         # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
         pending = getattr(self, "_pending_layout", "")
-        if pending and ((layouts.is_portrait_layout(pending)) == portrait):
+        if pending and self._layout_fits(pending, portrait):
             layout_id = pending
             self._pending_layout = ""
-        elif saved == "auto":
-            # 竖屏的「自动」用竖屏专用预设，否则主画面会被拉成竖长条
+        elif not self._layout_fits(saved, portrait):
+            # 配置里的布局不适合这个方向（比如竖屏选了竖屏预设，现在拖回横屏）：
+            # 回落到该方向的自动布局，别把不合适的预设硬套上去
             layout_id = layouts.PORTRAIT_AUTO if portrait else "auto"
         else:
             layout_id = saved
         if layout_id != self.wall.layout_id:
             self.wall.set_layout(layout_id)
             self.sidebar.set_layout_name(layout_id)
-        # 换了页/换了布局，画面墙的尺寸和格子可见性都要重算一次
+        # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
         self.wall.relayout(force=True)
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
@@ -399,7 +412,15 @@ class MainWindow(QMainWindow):
         self._avatar_loaders.clear()
 
     def _on_layout_changed(self, layout_id: str) -> None:
+        # 只换画面墙的摆放方式，**不动窗口方向**：窗口是什么形状由用户拖，
+        # 套用竖屏预设不会把窗口变竖，所以摆放必须跟着窗口走，否则画面会被压扁。
+        want_portrait = layouts.is_portrait_layout(layout_id)
+        if want_portrait != (self.orientation == "portrait"):
+            print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的；"
+                  f"当前窗口是{'竖屏' if self.orientation == 'portrait' else '横屏'}，"
+                  f"想要那种排布请把窗口拖成竖的", file=sys.stderr, flush=True)
         self.wall.set_layout(layout_id)
+        self.wall.relayout(force=True)
         self.sidebar.set_layout_name(self.wall.layout_id)
         # 记在**当前方向**名下：横屏选的布局不该被竖屏覆盖，反之亦然
         key = f"layout_{self.orientation or 'landscape'}"
