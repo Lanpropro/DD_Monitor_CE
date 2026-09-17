@@ -293,13 +293,24 @@ class MainWindow(QMainWindow):
         小窗口。切方向要重新挂父容器，所以先降级；各自的 showEvent 会再提回原生。
         """
         for tile in self.wall.tiles:
+            widgets = (tile.video, tile.stream_badge, tile.title_badge,
+                       tile.time_badge, tile.controls, tile.spinner,
+                       tile.pause_overlay)
+            # hide() 会改变控件自己的显隐状态；先记住真实意图，提回原生窗口时
+            # 才不会把「连接中」「已暂停」或悬停控制条一股脑全部显示/隐藏。
+            if not hasattr(tile, "_native_visibility"):
+                tile._native_visibility = [
+                    (widget, not widget.isHidden())
+                    for widget in widgets if widget is not None
+                ]
+            player = self.players.get(tile)
+            if player is not None and hasattr(player, "invalidate_binding"):
+                player.invalidate_binding()
             # 隐藏的格子也要处理：它们虽然当前不可见，但换父容器时
             # 一旦被 Qt 提成原生窗口，就会变成一个单独留着的 344x344 悬浮窗
             tile.setAttribute(Qt.WA_NativeWindow, False)
             tile.hide()
-            for widget in (tile.video, tile.stream_badge, tile.title_badge,
-                           tile.time_badge, tile.controls, tile.spinner,
-                           tile.pause_overlay):
+            for widget in widgets:
                 if widget is None or not widget.testAttribute(Qt.WA_NativeWindow):
                     continue
                 widget.setAttribute(Qt.WA_NativeWindow, False)
@@ -323,26 +334,36 @@ class MainWindow(QMainWindow):
     def _promote_native_windows(self) -> None:
         """换完排布把原生窗口提回来（和 _demote_native_windows 成对）。"""
         for tile in self.wall.tiles:
-            # 方向切换可能发生在父窗口暂时隐藏的 resize 事件里；此时
-            # isVisible() 会是 False，但 relayout 已经把格子标成应显示。
-            # 用 isHidden() 区分真正被布局隐藏的格子，避免播放器视频区漏恢复。
+            widgets = (tile.video, tile.stream_badge, tile.title_badge,
+                       tile.time_badge, tile.controls, tile.spinner,
+                       tile.pause_overlay)
+            saved = getattr(tile, "_native_visibility", None)
+            if saved is None:
+                saved = [(widget, not widget.isHidden())
+                         for widget in widgets if widget is not None]
+            elif hasattr(tile, "_native_visibility"):
+                del tile._native_visibility
+
+            # 布局容量外的格子只恢复自己的显隐意图；等以后真的显示时，
+            # Tile.showEvent 会把需要的叠层提成原生窗口。
             if tile.isHidden():
+                for widget, visible in saved:
+                    widget.setVisible(visible)
                 continue
-            tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
-            for widget in (tile.stream_badge, tile.title_badge, tile.time_badge,
-                           tile.controls, tile.spinner, tile.pause_overlay):
-                if widget is None:
-                    continue
-                widget.setVisible(widget is not tile.controls)
-                if not widget.testAttribute(Qt.WA_NativeWindow):
+
+            # 先恢复实际显隐状态，再按新尺寸排版。播放器重新绑定可能把 VLC
+            # 原生视频窗口抬到最上层，所以最后再 raise 可见叠层。
+            for widget, visible in saved:
+                if widget is not tile.video and not widget.testAttribute(Qt.WA_NativeWindow):
                     widget.setAttribute(Qt.WA_NativeWindow, True)
-                widget.raise_()
-            tile.video.show()
+                widget.setVisible(visible)
+            tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
             player = self.players.get(tile)
             if player is not None:
-                # 跨屏时视频区的原生句柄可能已经换父窗口；重新绑定后 VLC
-                # 才能继续把画面送到当前格子，而不是保持 playing 但黑屏。
                 player.bind()
+            for widget, _visible in saved:
+                if widget is not tile.video and not widget.isHidden():
+                    widget.raise_()
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -527,17 +548,20 @@ class MainWindow(QMainWindow):
 
     # ---- 播放 ----
     def start_all(self) -> None:
-        self.apply_quality_policy()
+        # 启动阶段先静默写好主次画质，再统一启动；否则 set_quality 的信号会
+        # 先取一次流，下面的循环又取一次，同一格两个 resolver 会互相抢播放器。
+        self.apply_quality_policy(restart=False)
         for tile in self.wall.tiles:
             self.start_tile(tile)
 
-    def apply_quality_policy(self) -> None:
+    def apply_quality_policy(self, *, restart: bool = True) -> list:
         """有主次布局时：主画面自动用原画，其余用 720P。"""
+        changed = []
         if not self.settings.get("auto_quality", True):
-            return
+            return changed
         main = self.wall.main_index()
         if main is None:
-            return
+            return changed
         for index, tile in enumerate(self.wall.tiles):
             if not tile.room.get("room_id"):
                 continue
@@ -545,7 +569,16 @@ class MainWindow(QMainWindow):
             if tile.quality != target:
                 print(f"[画质策略] {tile.room.get('uname')} -> "
                       f"{'原画' if target == 10000 else '720P'}", file=sys.stderr, flush=True)
-                tile.set_quality(target)
+                blocked = tile.blockSignals(True)
+                try:
+                    tile.set_quality(target)
+                finally:
+                    tile.blockSignals(blocked)
+                tile.room["quality"] = target
+                changed.append(tile)
+                if restart and tile.room.get("live"):
+                    self.start_tile(tile)
+        return changed
 
     def start_tile(self, tile) -> None:
         room = tile.room or {}
@@ -775,6 +808,7 @@ class MainWindow(QMainWindow):
             print(f"拖入的直播间 {room_id} 查询失败")
             return
         self._prepare_room(room)
+        to_start = []
         other = self._tile_of(room_id)
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
@@ -782,13 +816,16 @@ class MainWindow(QMainWindow):
             self._stop_tile(other)
             other.set_room(previous)
             if previous and previous.get("room_id"):
-                self.start_tile(other)
+                to_start.append(other)
         self._stop_tile(tile)
         tile.set_room(room)
-        self.start_tile(tile)
+        to_start.append(tile)
+        restarted = self.apply_quality_policy()
+        for candidate in to_start:
+            if candidate not in restarted:
+                self.start_tile(candidate)
         self._refresh_meta()
         print(f"{room.get('uname')} → 第 {self.wall.tiles.index(tile) + 1} 个格子")
-        self.apply_quality_policy()
 
     def _on_tile_swapped(self, source_room_id: str, target_tile) -> None:
         """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。"""
@@ -800,11 +837,11 @@ class MainWindow(QMainWindow):
         self._stop_tile(target_tile)
         source.set_room(second if second.get("room_id") else None)
         target_tile.set_room(first if first.get("room_id") else None)
+        restarted = self.apply_quality_policy()
         for tile in (source, target_tile):
-            if tile.room.get("room_id"):
+            if tile.room.get("room_id") and tile not in restarted:
                 self.start_tile(tile)
         self._refresh_meta()
-        self.apply_quality_policy()
         print("两个格子的直播间已互换")
 
     # ---- 直播状态轮询 ----

@@ -76,9 +76,43 @@ def main() -> None:
     settle(app, 0.8)
 
     tile = window.wall.tiles[0]
+    original_room = dict(tile.room)
+    original_start = window.start_tile
+    original_stop = window._stop_tile  # noqa: SLF001
+    original_lookup = window._room_dict  # noqa: SLF001
+    original_refresh = window._refresh_meta  # noqa: SLF001
+    starts = []
+    window.start_tile = lambda item: starts.append(item)
+    window._stop_tile = lambda _item: None  # noqa: SLF001
+    window._room_dict = lambda _rid: {  # noqa: SLF001
+        "room_id": "20000", "uname": "新主播", "title": "", "live": True,
+        "viewers": "", "muted": True, "volume": 42, "quality": 250,
+    }
+    window._refresh_meta = lambda: None  # noqa: SLF001
+    window._on_room_dropped(tile, "20000")  # noqa: SLF001
+    assert starts.count(tile) == 1, "拖入主画面只能启动一次取流，不能被画质策略重复启动"
+    window.start_tile = original_start
+    window._stop_tile = original_stop  # noqa: SLF001
+    window._room_dict = original_lookup  # noqa: SLF001
+    window._refresh_meta = original_refresh  # noqa: SLF001
+    tile.set_room(original_room)
+
     spy = SpyPlayer()
     window.players[tile] = spy
     tile.video.show()
+    tile.set_video_active(True)
+    tile.set_buffering(False)
+    tile.set_paused(False)
+
+    # 原生窗口降级/提回必须保留各叠层自己的状态，不能凭类型强制显隐。
+    tile.set_controls_visible(True)
+    window._demote_native_windows()  # noqa: SLF001
+    window.wall.relayout(force=True)
+    window._promote_native_windows()  # noqa: SLF001
+    assert tile.controls.isVisible(), "切换排布不能吞掉正在显示的右上角控制条"
+    assert not tile.spinner.isVisible(), "非连接状态不能凭空显示『连接中』"
+    assert not tile.pause_overlay.isVisible(), "未暂停时不能凭空显示『已暂停』"
+    tile.set_controls_visible(False)
 
     window.resize(914, 1463)
     settle(app, 0.8)
@@ -92,6 +126,8 @@ def main() -> None:
     assert not visible_strays, "竖屏切换不能产生顶层悬浮格子"
     assert spy.bind_count > 0, "方向切换后播放器必须重新绑定视频区"
     assert tile.video.isVisible(), "方向切换后已有直播的视频区必须保持可见"
+    assert not tile.spinner.isVisible(), "竖屏后不能残留『连接中』叠层"
+    assert not tile.pause_overlay.isVisible(), "竖屏后不能残留『已暂停』叠层"
 
     window.resize(1600, 900)
     settle(app, 0.8)
@@ -100,6 +136,8 @@ def main() -> None:
     assert window.orientation == "landscape"
     assert spy.bind_count > 1, "回横屏也必须重新绑定播放器"
     assert tile.video.isVisible(), "回横屏后已有直播的视频区必须保持可见"
+    assert not tile.spinner.isVisible(), "回横屏后不能残留『连接中』叠层"
+    assert not tile.pause_overlay.isVisible(), "回横屏后不能残留『已暂停』叠层"
 
     window.close()
     settle(app, 0.2)

@@ -88,6 +88,7 @@ class TilePlayer(QObject):
         self.player.audio_set_volume(self.volume)
         self.player.audio_set_mute(True)
         self._bound = False
+        self._bound_hwnd = 0
         self._stall_ticks = 0
         self._last_time = None
         self._last_picture = None
@@ -106,8 +107,16 @@ class TilePlayer(QObject):
     # ---- 生命周期 ----
     def bind(self) -> None:
         """把播放器绑定到格子的视频区域。"""
-        self.player.set_hwnd(int(self.video_widget.winId()))
+        hwnd = int(self.video_widget.winId())
+        if self._bound and self._bound_hwnd == hwnd:
+            return
+        self.player.set_hwnd(hwnd)
         self._bound = True
+        self._bound_hwnd = hwnd
+
+    def invalidate_binding(self) -> None:
+        """原生窗口重排前标记绑定失效；排布完成后只重新绑定一次。"""
+        self._bound = False
 
     def play(self, url: str, profile: str = "web", headers: dict | None = None) -> None:
         if not self._bound:
@@ -163,6 +172,8 @@ class TilePlayer(QObject):
             self.player.set_hwnd(0)     # 摘掉画面，格子不会留着最后一帧
         except Exception:  # noqa: BLE001
             pass
+        self._bound = False
+        self._bound_hwnd = 0
         try:
             self.player.release()
         except Exception:  # noqa: BLE001
