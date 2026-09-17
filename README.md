@@ -24,7 +24,6 @@ DD 监控室 CE 是一款基于 Python、PySide6 和 VLC 的 B 站多窗口直�
 
 本项目是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本，原作者：[执明神君](https://space.bilibili.com/637783)。在保留原项目取流与播放能力的基础上，尝试重构了界面及部分交互功能。
 
-> CE 代表 Community Edition。
 
 ## 项目展示
 
@@ -201,7 +200,7 @@ dev\run-checks.cmd
 ## 贡献
 
 欢迎提交 Issue 或 Pull Request。提交问题时，建议附上 Windows、Python 和 VLC 版本、问题复现步骤、对应日志及必要的界面截图。
-
+你也可以尝试直接私信[b站账号](https://space.bilibili.com/193559518)
 请在分享日志前检查并移除账号凭证等敏感信息。
 
 ## 致谢
