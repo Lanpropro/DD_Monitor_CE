@@ -2337,8 +2337,10 @@ class Sidebar(QFrame):
         self._head_strip.setVisible(False)
         layout.addWidget(self._head_strip)
 
-        # 标题行
-        header = QHBoxLayout()
+        # 标题行（做成一个容器，竖屏收起时整行收掉）
+        self._header_row = QWidget(self)
+        header = QHBoxLayout(self._header_row)
+        header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(9)
         self.dot = QLabel()
         self.dot.setFixedSize(10, 10)
@@ -2367,7 +2369,7 @@ class Sidebar(QFrame):
         header.addLayout(self.title_box, 1)
         header.addWidget(self.batch_button, 0, Qt.AlignTop)
         header.addWidget(self.toggle_button, 0, Qt.AlignTop)
-        layout.addLayout(header)
+        layout.addWidget(self._header_row)
 
         self.search = QLineEdit()
         self.search.setObjectName("Search")
@@ -2621,9 +2623,21 @@ class Sidebar(QFrame):
         """
         side = "top" if side == "top" else "left"
         if side == self.side:
+            # 已经是这个摆放方式：不重复设置宽度，但仍要同步一次可见性 ——
+            # 调用方（换排布 / 刚设过收起状态）可能正等着头像排露出来
+            if side == "top":
+                self._sync_top_mode()
             return
         self.side = side
         horizontal = side == "top"
+        if not horizontal:
+            # 切回左栏时必须把头排收掉：它只服务于顶部横栏，横屏下留着会占位
+            strip = getattr(self, "_head_strip", None)
+            if strip is not None:
+                strip.setVisible(False)
+            header = getattr(self, "_header_row", None)
+            if header is not None:
+                header.setVisible(True)
         self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
         if horizontal:
             self._layout.setContentsMargins(10, 8, 10, 8)
@@ -2640,36 +2654,41 @@ class Sidebar(QFrame):
         self.list_box.relayout(animate=False)
 
     def _sync_top_mode(self) -> None:
-        """按 side + collapsed 决定哪些控件可见。"""
+        """按 side + collapsed 决定顶部横栏露哪些控件。
+
+        收起：只留一排头像（账号头像在最前，后面是关注的主播）。
+        展开：头像排收起来，换成「标题行 + 搜索 + 列表 + 布局预设 + ⋯」。
+        """
         if self.side != "top":
             return
         strip = getattr(self, "_head_strip", None)
-        if strip is not None:
-            strip.setVisible(not self.collapsed)
+        header = getattr(self, "_header_row", None)
         if self.collapsed:
-            # 收起：只剩头像一排
-            for widget in (self.search, self.status_row, self.normal_bar, self.batch_bar,
-                           self.dot, self.batch_button, self.tool_row, self.tool_row_more,
+            if header is not None:
+                header.setVisible(False)
+            for widget in (self.search, self.status_row, self.scroll, self.normal_bar,
+                           self.batch_bar, self.tool_row, self.tool_row_more,
                            self.account_row):
                 widget.setVisible(False)
+            if strip is not None:
+                strip.setVisible(True)
+        else:
+            if strip is not None:
+                strip.setVisible(False)
+            if header is not None:
+                header.setVisible(True)
             for index in range(self.title_box.count()):
                 holder = self.title_box.itemAt(index).widget()
-                if holder:
-                    holder.setVisible(False)
-            self.scroll.setVisible(False)
-        else:
+                if holder is not None:
+                    holder.setVisible(True)
             self.dot.setVisible(True)
             self.batch_button.setVisible(True)
-            for index in range(self.title_box.count()):
-                holder = self.title_box.itemAt(index).widget()
-                if holder:
-                    holder.setVisible(True)
             self.search.setVisible(True)
             self.status_row.setVisible(True)
             self.scroll.setVisible(True)
             self.normal_bar.setVisible(not self.select_mode)
             self.batch_bar.setVisible(self.select_mode)
-            self.account_row.setVisible(False)       # 展开时账号头像在 _head_strip 里
+            self.account_row.setVisible(False)       # 展开时账号头像在头像排里
             self.tool_row.setVisible(True)           # 只留「布局预设」
             self.tool_row_more.setVisible(True)      # 其余收进「⋯」
 

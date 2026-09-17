@@ -260,6 +260,9 @@ class MainWindow(QMainWindow):
             layout.addWidget(self.sidebar)
             layout.addWidget(self._content, 1)
         self.sidebar.set_side("top" if orientation == "portrait" else "left")
+        # 换完排布再同步一次可见性：收起/展开只影响「露哪些控件」，
+        # 而 set_collapsed 在换排布之前就设过了，不补这一下头像排不会露出来。
+        self.sidebar._sync_top_mode()      # noqa: SLF001
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
