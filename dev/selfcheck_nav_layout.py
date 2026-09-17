@@ -170,14 +170,14 @@ def main() -> None:
     assert order(sidebar) == before, "拖到列表外面不应该改顺序"
     assert all(entry.isVisible() for entry in sidebar.items()), "卡片要放回去"
 
-    print("\n=== 9. 布局菜单：普通布局 / 弹幕布局两个按钮 ===")
+    print("\n=== 9. 布局菜单：普通 / 弹幕 / 竖屏 三栏 ===")
     picker = LayoutPicker("dm_main3")
     picker.move(-8000, -8000)
     picker.show()
     settle(app, 0.5)
     tabs = list(picker._tabs)
     print(f"  子菜单: {tabs} 当前={picker.group()}")
-    assert tabs == ["普通布局", "弹幕布局"]
+    assert tabs == ["普通布局", "弹幕布局", "竖屏布局"]
     assert picker.group() == "弹幕布局", "当前布局在弹幕组里，默认应该停在这一栏"
     compact_size = picker.size()
     visible = [card.text() for card in picker._cards["弹幕布局"] if card.isVisible()]

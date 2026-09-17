@@ -215,7 +215,10 @@ def main() -> None:
     for name, group in layouts.GROUPS:
         print(f"  {name}: {len(group)} 个 -> "
               + " / ".join(item["name"] for item in group[:3]) + " …")
-    assert len(layouts.GROUPS) == 2
+    assert len(layouts.GROUPS) == 3, "普通 / 弹幕 / 竖屏 三组"
+    # 竖屏组的每个预设都要能被 WallGrid 识别成竖屏摆放
+    for item in layouts.PORTRAIT_LAYOUTS + layouts.PORTRAIT_DANMAKU_LAYOUTS:
+        assert layouts.is_portrait_layout(item["id"]), item["id"]
     for item in layouts.DANMAKU_LAYOUTS:
         assert item["danmaku"] is not None
         assert "danmaku" not in layouts.LAYOUTS[0]
