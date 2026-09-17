@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,11 +28,14 @@ class SilentPoller(QThread):
 
 
 class SpyPlayer:
-    def __init__(self):
+    def __init__(self, video):
+        self.video = video
         self.bind_count = 0
+        self.bound_hwnds = []
 
     def bind(self) -> None:
         self.bind_count += 1
+        self.bound_hwnds.append(int(self.video.winId()))
 
     def release(self) -> None:
         return
@@ -97,7 +100,12 @@ def main() -> None:
     window._refresh_meta = original_refresh  # noqa: SLF001
     tile.set_room(original_room)
 
-    spy = SpyPlayer()
+    tile.prepare_video_surface()
+    assert tile.video.testAttribute(Qt.WA_NativeWindow), \
+        "播放器绑定前，墙面视频区必须先准备成原生窗口"
+    initial_hwnd = int(tile.video.winId())
+    assert initial_hwnd, "视频表面必须提前拿到有效 HWND"
+    spy = SpyPlayer(tile.video)
     window.players[tile] = spy
     tile.video.show()
     tile.set_video_active(True)
@@ -125,6 +133,9 @@ def main() -> None:
         "竖屏手动摆放的格子必须预先挂在 WallGrid 下"
     assert not visible_strays, "竖屏切换不能产生顶层悬浮格子"
     assert spy.bind_count > 0, "方向切换后播放器必须重新绑定视频区"
+    assert all(spy.bound_hwnds), "播放器不能绑定到空 HWND"
+    assert spy.bound_hwnds[-1] == int(tile.video.winId()), \
+        "播放器必须绑定当前视频表面，而不是已经失效的旧窗口"
     assert tile.video.isVisible(), "方向切换后已有直播的视频区必须保持可见"
     assert not tile.spinner.isVisible(), "竖屏后不能残留『连接中』叠层"
     assert not tile.pause_overlay.isVisible(), "竖屏后不能残留『已暂停』叠层"

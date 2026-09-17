@@ -360,10 +360,9 @@ class MainWindow(QMainWindow):
             tile.layout_areas() if hasattr(tile, "layout_areas") else tile._layout_areas()
             player = self.players.get(tile)
             if player is not None:
+                tile.prepare_video_surface()
                 player.bind()
-            for widget, _visible in saved:
-                if widget is not tile.video and not widget.isHidden():
-                    widget.raise_()
+            tile.raise_overlays()
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -611,6 +610,9 @@ class MainWindow(QMainWindow):
             tile.set_quality_options(options)
         if quality:
             tile.set_actual_quality(quality)
+        # 悬停预览会在播放前主动 show/raise 视频区；墙面也必须先准备好稳定的
+        # 原生 HWND，再交给 VLC。否则 VLC 能解码、截图也有画面，窗口上却是黑的。
+        tile.prepare_video_surface()
         player = self.players.get(tile)
         if player is None:
             player = TilePlayer(tile.video, self)
