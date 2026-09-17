@@ -6,7 +6,8 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QRect
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,18 +66,20 @@ def main() -> None:
     print(f"  未静音图标像素={normal} 静音图标像素={muted} 按钮宽={button.width()}")
     assert normal > 40, "未静音时应该有喇叭图标"
     assert muted > 40, "静音时应该有喇叭 + ×"
-    assert "仅左声道" not in button.toolTip() and "仅右声道" not in button.toolTip()
+    assert "声道：左" not in button.toolTip() and "声道：右" not in button.toolTip()
     print(f"  静音提示={button.toolTip()!r}")
 
     print("\n=== 2. L / R 标记与提示同步 ===")
-    for value, expect in ((0, None), (VolumeButton.CHANNEL_LEFT, "仅左声道"),
-                          (VolumeButton.CHANNEL_RIGHT, "仅右声道")):
+    # 提示只说「当前选的是哪一路」，不宣称「已经只出这一路」：这台机器上
+    # VLC 的声道模式还没确认生效，别让提示替它打包票。
+    for value, expect in ((0, None), (VolumeButton.CHANNEL_LEFT, "声道：左"),
+                          (VolumeButton.CHANNEL_RIGHT, "声道：右")):
         button.set_state(False, 42, value)
         settle(app, 0.15)
         tip = button.toolTip()
         print(f"  audio_channel={value} 提示={tip!r}")
         if expect is None:
-            assert "仅左声道" not in tip and "仅右声道" not in tip
+            assert "声道：左" not in tip and "声道：右" not in tip
         else:
             assert expect in tip, f"{value} 的提示里应该有「{expect}」"
     # 三种状态都要画得出来（不抛异常）且有内容
@@ -164,18 +167,27 @@ def main() -> None:
     print(f"  展开时菜单项: {texts}")
     assert texts == ["退出登录"], texts
 
-    print("\n=== 8. 收起时布局选择器从头像位置弹出 ===")
+    print("\n=== 8. 收起时布局选择器从头像位置弹出，且一定落在屏幕里 ===")
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.3)
     sidebar.open_layout_picker()
     settle(app, 0.3)
     picker = sidebar._picker
-    avatar_right = sidebar.account_row.mapToGlobal(
-        QPoint(sidebar.account_row.width(), 0)).x()
-    print(f"  选择器位置=({picker.x()},{picker.y()}) 头像右边缘x={avatar_right} "
-          f"可见={picker.isVisible()}")
+    rect = picker.frameGeometry()
+    screen = (QApplication.screenAt(rect.center())
+              or QApplication.screenAt(QCursor.pos())
+              or QApplication.primaryScreen())
+    area = screen.availableGeometry() if screen is not None else QRect()
+    print(f"  选择器={rect.getRect()} 可见={picker.isVisible()} 屏幕可用区域={area.getRect()}")
     assert picker.isVisible()
-    assert picker.x() > avatar_right, "收起时选择器应该在头像右边弹出来，不能压住头像"
+    # 关键不变量：它必须完全落在某个屏幕的可用区域内。
+    # （不要拿「头像右边缘」比大小：窗口被摆到屏幕外做离屏测试时，
+    #   头像坐标和屏幕坐标根本不是一个坐标系，比出来没有意义。）
+    if area.isValid():
+        assert rect.left() >= area.left() and rect.right() <= area.right(), \
+            f"选择器横向超出屏幕：{rect.getRect()} vs {area.getRect()}"
+        assert rect.top() >= area.top() and rect.bottom() <= area.bottom(), \
+            f"选择器纵向超出屏幕：{rect.getRect()} vs {area.getRect()}"
     picker.close()
 
     window.close()

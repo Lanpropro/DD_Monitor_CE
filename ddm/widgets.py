@@ -344,8 +344,8 @@ class VolumeButton(QPushButton):
     def _update_tooltip(self) -> None:
         state = "已静音" if self.muted else f"音量 {self.level}"
         channel = {
-            self.CHANNEL_LEFT: "　仅左声道",
-            self.CHANNEL_RIGHT: "　仅右声道",
+            self.CHANNEL_LEFT: "　声道：左",
+            self.CHANNEL_RIGHT: "　声道：右",
         }.get(self.audio_channel, "")
         self.setToolTip(f"{state}{channel}　（点击静音，滚轮调音量，右键调声道）")
 
@@ -2367,6 +2367,9 @@ class Sidebar(QFrame):
             else:
                 y = max(min_y, min(y, max_y))
         else:
+            # 连主屏都问不到时，至少把它压进屏幕左上角能看见的范围，
+            # 别让 x 也跟着锚点跑到屏幕外去
+            x = max(6, min(x, max(6, 1200 - picker.width() - 6)))
             y = max(6, y)
         picker.move(x, y)
         picker.show()

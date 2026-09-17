@@ -207,6 +207,7 @@ dev\run-checks.cmd
 
 - [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest)：原始项目及主要播放、取流实现参考。
 - [blivedm](https://github.com/xfgryujk/blivedm)：B 站直播弹幕协议实现。
+- [BewlyCat](https://github.com/keleus/BewlyCat)：界面配色和部分视觉设计参考。
 
 详细来源说明请参阅 [`NOTICE.md`](NOTICE.md)。
 
