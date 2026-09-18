@@ -74,17 +74,8 @@
   侧栏和画面墙始终挂在 root 下，VLC 的原生 HWND 就不会被 Qt 销毁。
 
 **未决 / 待确认**：
-- **竖屏下「放到主画面」会切到横屏布局**（用户 2026-09-18 实测报的，**先记录、不改**）：
-  竖屏 `portrait_main2`（主画面 + 2 小）时，右键某一路选「放到主画面」，
-  墙面会变成横屏的 `main4`（主画面 + 4 小）。位置：`WallGrid.focus_room()`
-  （`ddm/widgets.py`，`menu.addAction("放到主画面")` → `fullscreenRequested` → 这个方法）
-  把 `self.layout_id` 直接写死成 `f"main{sidebar_count}"`，既没按窗口方向挑竖屏预设，
-  又是直接赋值、不经过 `MainWindow._on_layout_changed()`，所以方向校验也没拦住。
-  改法待定（竖屏时应切到对应的 `portrait_mainN`，同时同步侧栏布局名与
-  `layout_portrait` 存档）。用户说「等会我们再修改布局切换逻辑问题」。
-- 新版横栏的**真机验收**：只跑了离屏自检 + 离屏截图，还没有真鼠标点过。
-- 「多选」那一行已经收掉（多选搬成搜索框右边的图标），横栏现在只有一行；
-  还想再压高度的话只能动卡片条那 130px。
+→ **所有待办、未决、暂缓项统一收在第七节「待办与未决清单」**，这里不再重复，
+免得两处不同步。
 
 **已否决的路线（不要重试，除非条件变了）**：
 - `:stereo-mode`、`--audio-filter=remap` 的 `aout-remap-*` 写法：用 WASAPI 环回录音
@@ -232,3 +223,28 @@
   11 小时（`ddm/widgets.py` 被双方先后改过）。接手方核验结论：两者互不覆盖，
   当前 `git diff` 只剩接手方自己的改动，已在 `2a67f40` 提交，全量自检通过。
   **教训**：同一目录里两方并行时，未提交改动不要跨小时放着，尽早 commit 或先声明归属。
+
+## 七、待办与未决清单（2026-09-18 整合）
+
+之前散在「未决 / 待确认」、`idea.txt` 和用户逐次实测反馈里的问题，统一收在这里。
+每条都写清范围、线索位置和当前状态；**没做的一律不写进第四节「已完成」**。
+
+### A. 用户 2026-09-18 新报（还没动）
+
+| # | 范围 | 要改成什么 | 线索位置 |
+| --- | --- | --- | --- |
+| A1 | 竖屏 | **缩短搜索框**：左边给 logo 留一块位置；右侧那排按钮现在展示不全 / 看着错位 | `Sidebar._bar_row` 第一行是 `[search(1), head_scroll(1), 多选, 排序, 刷新, 展开键]`，搜索框吃满；logo（`dot` + `AppTitle`/`AppSubtitle`）现在只在横屏标题行 `_header_row`，竖屏整行收掉了 —— 要么把 logo 搬进横栏第一行，要么给它留固定宽度的位置 |
+| A2 | 竖屏 | 收起态头像左上角的**置顶角标**要更贴合（圆形）按钮的边缘；可以放弃三角、改画圆弧 | `RoomStrip._add_avatar`：14x14 QLabel，`border-top-left-radius: 7px` + `ACCENT`，贴在 (0,0)；头像本身是直径 34 的圆，直角/方角对不上 |
+| A3 | 竖屏 | 账号那一块的**按钮之间不要有空隙**（三个按钮竖排时的缝与宽度不齐） | `Sidebar._bar_right_box`（`right.setSpacing(6)`）；账号条宽度按昵称算（`_sync_account_row_width`），下面「布局预设 / 设置」宽度各不相同，看着一块一块的 |
+| A4 | 横屏 | 卡片左上角的**置顶小三角换成圆角**，更契合卡片圆角边框 | `NavThumb.paintEvent`：`path.moveTo(2, 2) → (14, 2) → (2, 14)` 画的直角三角（竖屏卡片条用的是同一个类） |
+
+### B. 之前记录、仍然开着
+
+| # | 范围 | 问题 | 线索位置 |
+| --- | --- | --- | --- |
+| B1 | 竖屏 | 「放到主画面」会切到横屏 `main4`，而不是竖屏预设 | `WallGrid.focus_room()`（`ddm/widgets.py`）把 `layout_id` 写死成 `f"main{sidebar_count}"`，且直接赋值、不走 `MainWindow._on_layout_changed()`。用户说随布局切换逻辑一起改 |
+| B2 | 竖屏 | 展开态账号条昵称被截成「凰Pr...」：要不要固定成放得下完整昵称的宽度（上限 220px） | `Sidebar.ACCOUNT_PILL_MAX` / `_sync_account_row_width`；和 A3 一起改最省事 |
+| B3 | 通用 | `selfcheck_offline_badges` 的产品判断：**取流失败的格子算不算「在播」** —— 定了才改断言 | `dev/selfcheck_offline_badges.py` + `idea.txt` 第 4 条 |
+| B4 | 通用 | 「布局变大自动填充」**用户要求暂缓**（`d7801ba` 已把 `wall_rooms=None` 那条路改成不再复制关注） | `idea.txt` 最后一段 + `dev/selfcheck_layout_none.py` |
+| B5 | 验收 | 真机（真鼠标）验收尾巴：点顶部头像排 = **高亮/选中该路**（用户已澄清，不是切主画面）；账号菜单贴头像弹出（用户会再改 UI）；拖头像换画布 **已验 ✓** | `dev\restart-client.ps1` |
+| B6 | 环境 | `work/tmp/` 下 3 个受限临时目录删不掉，`git status` 会带 `could not open directory` 警告 | `work/` 已在 `.gitignore` 里，不进版本库；普通 shell 里 `rmdir /s /q work\tmp` 可清 |
