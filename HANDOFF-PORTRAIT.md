@@ -280,9 +280,20 @@
 
 | # | 范围 | 问题 | 线索位置 |
 | --- | --- | --- | --- |
-| B1 | 竖屏 | 「放到主画面」会切到横屏 `main4`，而不是竖屏预设 | `WallGrid.focus_room()`（`ddm/widgets.py`）把 `layout_id` 写死成 `f"main{sidebar_count}"`，且直接赋值、不走 `MainWindow._on_layout_changed()`。用户说随布局切换逻辑一起改 |
-| B2 | 竖屏 | 展开态账号条昵称被截成「凰Pr...」：要不要固定成放得下完整昵称的宽度（上限 220px） | `Sidebar.ACCOUNT_PILL_MAX` / `_sync_account_row_width`；和 A3 一起改最省事 |
-| B3 | 通用 | `selfcheck_offline_badges` 的产品判断：**取流失败的格子算不算「在播」** —— 定了才改断言 | `dev/selfcheck_offline_badges.py` + `idea.txt` 第 4 条 |
-| B4 | 通用 | 「布局变大自动填充」**用户要求暂缓**（`d7801ba` 已把 `wall_rooms=None` 那条路改成不再复制关注） | `idea.txt` 最后一段 + `dev/selfcheck_layout_none.py` |
-| B5 | 验收 | 真机（真鼠标）验收尾巴：点顶部头像排 = **高亮/选中该路**（用户已澄清，不是切主画面）；账号菜单贴头像弹出（用户会再改 UI）；拖头像换画布 **已验 ✓** | `dev\restart-client.ps1` |
-| B6 | 环境 | `work/tmp/` 下 3 个受限临时目录删不掉，`git status` 会带 `could not open directory` 警告 | `work/` 已在 `.gitignore` 里，不进版本库；普通 shell 里 `rmdir /s /q work\tmp` 可清 |
+| B1 | 竖屏 | ~~「放到主画面」会切到横屏 `main4`~~ **已修 ✓**：`focus_room()` 现在按当前方向挑（竖屏→`portrait_mainN`），并改走 `set_layout()`（顺带修好 `_danmaku_cell` 没跟着换的老毛病）；`_on_fullscreen()` 也把布局记到当前方向名下 | `ddm/widgets.py:focus_room` + `ddm/app.py:_on_fullscreen`；自检第 16 组 |
+| B2 | 竖屏 | 展开态账号条昵称被截成「凰Pr...」 | **用户 2026-09-18：「不用太在意」，暂不动** |
+| B3 | 通用 | `selfcheck_offline_badges` 的产品判断：**取流失败的格子算不算「在播」**；另外它**不稳定**（单跑 3/3 红，连跑偶尔绿，像时序/顺序依赖） | `dev/selfcheck_offline_badges.py` + `idea.txt` 第 4 条；**等用户拍产品判断** |
+| B4 | 通用 | ~~「布局变大自动填充」~~ **用户 2026-09-18：「已经解决」**；自检第 14 组 + `dev/selfcheck_layout_none.py` 仍钉着「新格子保持空位」 | `idea.txt` 最后一段 |
+| B5 | 验收 | 真机（真鼠标）验收尾巴：点顶部头像排 = **高亮/选中该路**（用户已澄清，不是切主画面）；账号菜单贴头像弹出（用户会再改 UI）；拖头像换画布 **已验 ✓** | `dev\restart-client.ps1`；**用户 2026-09-18：不太理解，待解释后再定** |
+| B6 | 环境 | `work/tmp/` 下 3 个受限临时目录删不掉 | **用户 2026-09-18：「自己考虑」→ 低影响（`work/` 已 gitignore，只是 `git status` 多几行警告），不再列为待办** |
+
+### C. 用户 2026-09-18 的布局逻辑大改（**已做完**，详情见第四节）
+
+| # | 范围 | 结果 |
+| --- | --- | --- |
+| C1 | 横竖屏 | **对映切换**：拖窗口换方向时按「能放几路」找最相似的那套（横屏 `main2` ↔ 竖屏 `portrait_main2`，弹幕对弹幕），不再一律退成「自动」——`layouts.counterpart()`，自检第 17 组 |
+| C2 | 菜单 | **只列本方向的布局**：横屏不给竖屏预设（套上去画面会变形），竖屏只列竖屏那一栏——`LayoutPicker(portrait=…)`，自检第 15 组 + `selfcheck_nav_layout` 第 9 组 |
+| C3 | 菜单 | 普通布局里在「主画面 + 2 小」处**换行 + 小标题「大带小」**，把平分布局和大带小分开（`"section"` 字段） |
+| C4 | 菜单 | 命名规范化（`上主画面 + 下 2 小`、`主画面 + 5 小环绕`、`双主画面 + 4 小`…），并把镜像的一对挨着放：`主画面 + 2 小` 后面紧跟 `2 小 + 主画面（镜像）` |
+| C5 | 菜单 | **去掉 1+6**（`main6`）；竖屏「自动」用的 `portrait_main6` 不受影响；老配置里存着 `main6` 会被安全折回「自动」 |
+| C6 | 画面墙 | 「布局变大保留空位、不把留存直播间填入」——自检第 14 组 + `selfcheck_layout_none.py` 覆盖（用户说已解决，本轮复核仍通过） |
