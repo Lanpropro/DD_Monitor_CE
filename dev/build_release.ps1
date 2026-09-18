@@ -41,8 +41,8 @@ Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 
 # ---- 1) 源码（不含用户数据、缓存、工作目录、虚拟环境）----
-$skipDirs = @(".git", ".venv", "venv", "cache", "logs", "work", "__pycache__",
-              ".vscode", ".idea", "build", "dist")
+$skipDirs = @(".git", ".venv", "venv", "cache", "logs", "work", "results",
+              "__pycache__", ".vscode", ".idea", "build", "dist")
 foreach ($item in Get-ChildItem $repo -Force) {
     if ($skipDirs -contains $item.Name) { continue }
     if ($item.Name -in @("utils", "plugins")) { continue }   # 单独处理

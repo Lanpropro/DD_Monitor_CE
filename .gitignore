@@ -9,6 +9,8 @@ dev/preview/
 
 # 打包 / 临时工作目录（dev/build_release.ps1、PyInstaller 的中间产物都放这儿）
 work/
+# 发布产物（用户习惯把 zip 收在这里）
+results/
 
 # 虚拟环境
 .venv/
