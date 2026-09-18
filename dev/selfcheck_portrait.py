@@ -531,9 +531,9 @@ def part_strip_interaction(app) -> None:
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
     assert sidebar.batch_button.text() != "多选" and sidebar.sort_button.text() != "排序", \
         "横栏里这三个是图标按钮，不是文字按钮"
-    # 用户要求：最后一张卡片右边单独开一块，账号 / 布局预设 / 设置 竖排
-    assert block.isVisible() and block.parentWidget() is sidebar._bar_row2, \
-        "右侧那一块要和卡片条在同一行"
+    # 用户要求：最后一张卡片右边单独开一块，账号 / 布局预设 / 设置 竖排、占满高度
+    assert block.isVisible() and block.parentWidget() is sidebar._bar_host, \
+        "右侧那一块要挂在横栏容器里（和左边那一列并排）"
     assert block.x() >= sidebar.scroll.x() + sidebar.scroll.width(), \
         "这一块要在卡片条的右边"
     assert account.parentWidget() is block and sidebar.tool_row.parentWidget() is block, \
@@ -544,22 +544,28 @@ def part_strip_interaction(app) -> None:
         "布局预设和设置也要竖排（设置在下）"
     assert abs(sidebar.settings_button.x() - sidebar.layout_button.x()) <= 2, \
         "竖排时两个按钮左边对齐"
-    # 用户要求：这一块的按钮之间不要有空隙 —— 三个按钮同宽、贴在一起
+    # 用户要求：三个按钮占满整条关注栏的高度，中间「适当给予分割」
+    heights = [account.height(), sidebar.layout_button.height(),
+               sidebar.settings_button.height()]
+    dividers = [sidebar._bar_divider_label, sidebar._bar_divider_tool]
+    print(f"  这一块：高={block.height()}（横栏 {sidebar.height()}）"
+          f" 三段高度={heights} 分割线={[d.height() for d in dividers]} "
+          f"宽度={sorted({account.width(), sidebar.layout_button.width(), sidebar.settings_button.width()})}")
+    assert block.height() >= sidebar.height() - 20, \
+        f"这一块要占满整条关注栏的高度：块 {block.height()} vs 横栏 {sidebar.height()}"
+    assert max(heights) - min(heights) <= 2, f"三个按钮要等分这一块的高度，实际 {heights}"
+    assert all(divider.isVisible() and divider.height() == 1 for divider in dividers), \
+        "三个按钮之间要有 1px 分割线"
+    assert account.y() + account.height() + 1 == sidebar.tool_row.y(), \
+        "账号和工具行之间只隔那条分割线"
+    assert sidebar.layout_button.y() + sidebar.layout_button.height() + 1 \
+        == sidebar.settings_button.y(), "布局预设和设置之间只隔那条分割线"
+    # 这一块的按钮同宽、彼此只隔一条分割线
     widths = {account.width(), sidebar.layout_button.width(),
               sidebar.settings_button.width()}
-    print(f"  这一块的间距：块内={sidebar._bar_right_box.spacing()} "
-          f"工具行内={sidebar.tool_row.layout().spacing()}；三个按钮宽度={sorted(widths)}")
     assert sidebar._bar_right_box.spacing() == 0, "账号和工具行之间不该留缝"
     assert sidebar.tool_row.layout().spacing() == 0, "布局预设和设置之间不该留缝"
     assert max(widths) - min(widths) <= 2, f"三个按钮要一样宽（撑满这一块），实际 {widths}"
-    print(f"  竖排坐标：账号 y={account.y()}+{account.height()} "
-          f"工具行 y={sidebar.tool_row.y()}+{sidebar.tool_row.height()} "
-          f"布局预设 y={sidebar.layout_button.y()}+{sidebar.layout_button.height()} "
-          f"设置 y={sidebar.settings_button.y()}")
-    assert account.y() + account.height() == sidebar.tool_row.y(), \
-        "账号条和工具行要紧挨着（不留缝）"
-    assert sidebar.layout_button.y() + sidebar.layout_button.height() \
-        == sidebar.settings_button.y(), "布局预设和设置要紧挨着（不留缝）"
     # 卡片上的置顶角标（用户要求：小三角改圆角，贴合圆角边框）
     pinned_item = sidebar.items()[0]
     sidebar.apply_pins([str(pinned_item.room.get("room_id"))])

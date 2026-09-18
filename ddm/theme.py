@@ -477,6 +477,11 @@ QSlider::handle:horizontal:hover {{
     border: 1px solid rgba(0, 161, 214, 0.45);
     color: {ACCENT};
 }}
+/* 竖屏关心栏右侧那一块里，三个按钮之间的分割线 */
+#BarDivider {{
+    background: {BORDER};
+    border: none;
+}}
 #TileControls {{
     background: transparent;
     border: none;
