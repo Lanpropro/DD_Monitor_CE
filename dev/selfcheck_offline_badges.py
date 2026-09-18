@@ -3,14 +3,34 @@ import os
 import sys
 import time
 
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
+from ddm import app as app_module  # noqa: E402
 from ddm import bili, theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+
+
+class IdlePoller(QThread):
+    """替掉真的轮询线程。
+
+    `_on_resolve_failed()` 里会 `refresh_status()` 立刻去确认真实状态；不挡住的话
+    这个自查会拿 1001/1002 这些**假房间号**去问 B 站，B 站说「没这个房间」，
+    格子就被当成下播，断言 `live is True` 随机变红（这就是它一直不稳的原因）。
+    """
+
+    updated = Signal(dict)
+
+    def __init__(self, room_ids, parent=None):
+        super().__init__(parent)
+        self.room_ids = list(room_ids)
+
+    def run(self) -> None:
+        return
 
 
 def boom(room_id, quality=250):        # noqa: ANN001, ANN201
@@ -71,6 +91,9 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
     bili.play_url = boom
+    # 轮询线程换成空转：这个自查只关心状态机，不该去问真接口
+    app_module.StatusPoller = IdlePoller
+    app_module.StatsPoller = IdlePoller
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
 
@@ -138,6 +161,11 @@ def main() -> None:
     assert tile.room.get("live") is True
     assert tile in started, "回开播应该自动重新取流"
     assert tile._status_text != "已下播"
+    # B3 的结论（用户 2026-09-18 用实机截图确认过）：**取流失败 ≠ 下播**。
+    # 房间在不在播由接口说了算；取流失败只让这一格显示「连接失败」并继续重试，
+    # 不能把房间标成已下播、也不能停掉自动接上的逻辑。
+    assert tile.stream_badge._text() != "已下播", "取流失败不能当成已下播"
+    print("  取流失败时：live 仍为接口给的值、浮标不是「已下播」✓")
 
     print("\n=== 5. 快捷键里没有隐藏顶栏了 ===")
     from ddm.dialogs import SHORTCUT_ACTIONS

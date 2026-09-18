@@ -282,7 +282,7 @@
 | --- | --- | --- | --- |
 | B1 | 竖屏 | ~~「放到主画面」会切到横屏 `main4`~~ **已修 ✓**：`focus_room()` 现在按当前方向挑（竖屏→`portrait_mainN`），并改走 `set_layout()`（顺带修好 `_danmaku_cell` 没跟着换的老毛病）；`_on_fullscreen()` 也把布局记到当前方向名下 | `ddm/widgets.py:focus_room` + `ddm/app.py:_on_fullscreen`；自检第 16 组 |
 | B2 | 竖屏 | 展开态账号条昵称被截成「凰Pr...」 | **用户 2026-09-18：「不用太在意」，暂不动** |
-| B3 | 通用 | `selfcheck_offline_badges` 的产品判断：**取流失败的格子算不算「在播」**；另外它**不稳定**（单跑 3/3 红，连跑偶尔绿，像时序/顺序依赖） | `dev/selfcheck_offline_badges.py` + `idea.txt` 第 4 条；**用户 2026-09-18：「当我注意到我会告诉你」→ 挂着等用户** |
+| B3 | 通用 | ~~`selfcheck_offline_badges` 的产品判断：取流失败的格子算不算「在播」~~ **已解决（不是产品问题，是自查自己的毛病）**：它没挡住轮询线程，`_on_resolve_failed()` 里的 `refresh_status()` 会拿**假房间号** 1001/1002/1003 去问 B 站，B 站说「没这个房间」→ 格子被当已下播 → `assert live is True` 时红时绿（这就是它一直不稳的原因）。把 `StatusPoller` / `StatsPoller` 换成空转线程后：**下播→黑屏保留格子→回开播自动接上** 整条状态机全过，一行产品代码都没改 | `dev/selfcheck_offline_badges.py`（`IdlePoller`） |
 | B4 | 通用 | ~~「布局变大自动填充」~~ **用户 2026-09-18：「已经解决」**；自检第 14 组 + `dev/selfcheck_layout_none.py` 仍钉着「新格子保持空位」 | `idea.txt` 最后一段 |
 | B5 | 验收 | ~~真机验收尾巴~~ **用户 2026-09-18：「应该不存在问题」→ 关闭** | — |
 | B6 | 环境 | `work/tmp/` 下 3 个受限临时目录删不掉 | **用户 2026-09-18：「自己考虑」→ 低影响（`work/` 已 gitignore，只是 `git status` 多几行警告），不再列为待办** |
