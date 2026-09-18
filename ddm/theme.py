@@ -10,6 +10,31 @@ Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻�
 
 import os
 
+from PySide6.QtGui import QColor
+
+
+def qcolor(value, fallback: str = "#000000") -> QColor:
+    """把主题里的颜色变成 QColor。
+
+    主题常量有两种写法：`#rrggbb` 和 CSS 的 `rgba(r, g, b, a)`。注意
+    **`QColor("rgba(...)")` 解析不了**，它不抛错、直接给出无效色（画出来是黑的）——
+    以前 `QColor(theme.TEXT3)` 这类调用就踩了这个坑（布局缩略图里的占位格子、
+    描边全是黑的）。要画主题色一律走这里。
+    """
+    text = str(value or "").strip()
+    if text.lower().startswith("rgba(") and text.endswith(")"):
+        parts = [item.strip() for item in text[5:-1].split(",")]
+        if len(parts) == 4:
+            try:
+                red, green, blue = (int(round(float(item))) for item in parts[:3])
+                alpha = int(round(float(parts[3]) * 255))
+            except ValueError:
+                return QColor(fallback)
+            clamp = lambda item: max(0, min(255, item))       # noqa: E731
+            return QColor(clamp(red), clamp(green), clamp(blue), clamp(alpha))
+    colour = QColor(text)
+    return colour if colour.isValid() else QColor(fallback)
+
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 

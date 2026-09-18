@@ -304,6 +304,61 @@ def part_layout_mapping(app) -> None:
     settle(app, 0.4)
 
 
+def part_toggle_arrow(app) -> None:
+    print("\n=== 19. 收起箭头在竖屏是上下、横屏是左右 ===")
+    window = MainWindow(rooms(3), rooms(3), layout_id="portrait_main2")
+    window.setGeometry(-9000, -9000, *PORTRAIT)
+    window.show()
+    settle(app, 1.0)
+    sidebar = window.sidebar
+    toggle = sidebar.toggle_button
+    for collapsed in (False, True):
+        sidebar.set_collapsed(collapsed, animate=False)
+        settle(app, 0.4)
+        image = toggle.grab().toImage()
+        pixels = [(x, y) for y in range(image.height()) for x in range(image.width())
+                  if image.pixelColor(x, y).alpha() > 60]
+        assert pixels, "竖屏收起键要真的画出箭头来"
+        xs = [x for x, _y in pixels]
+        ys = [y for _x, y in pixels]
+        top, bottom = min(ys), max(ys)
+        top_xs = [x for x, y in pixels if y <= top + 1]
+        bottom_xs = [x for x, y in pixels if y >= bottom - 1]
+        top_span = max(top_xs) - min(top_xs)
+        bottom_span = max(bottom_xs) - min(bottom_xs)
+        print(f"  竖屏 collapsed={collapsed}：方向={sidebar.side} 文字={toggle.text()!r} "
+              f"箭头 {max(xs) - min(xs) + 1}x{max(ys) - min(ys) + 1} "
+              f"上沿宽={top_span} 下沿宽={bottom_span}")
+        assert sidebar.side == "top"
+        assert toggle.text() == "", "竖屏不该再用左右字形"
+        assert toggle.portrait is True and toggle.collapsed == collapsed
+        assert abs((min(xs) + max(xs)) / 2 - image.width() / 2) <= 3, "箭头要横向居中"
+        assert abs((min(ys) + max(ys)) / 2 - image.height() / 2) <= 3, "箭头要纵向居中"
+        if collapsed:
+            assert bottom_span < top_span, \
+                f"收起时箭头要朝下（尖端在下）：上沿 {top_span} 下沿 {bottom_span}"
+        else:
+            assert top_span < bottom_span, \
+                f"展开时箭头要朝上（尖端在上）：上沿 {top_span} 下沿 {bottom_span}"
+    sidebar.set_collapsed(False, animate=False)
+    settle(app, 0.4)
+    # 横屏回到左右字形
+    window.resize(1600, 900)
+    settle(app, 1.0)
+    other = window.sidebar
+    other.set_collapsed(False, animate=False)
+    settle(app, 0.4)
+    print(f"  横屏：方向={other.side} 文字={other.toggle_button.text()!r} "
+          f"portrait={other.toggle_button.portrait}")
+    assert other.side == "left" and other.toggle_button.text() == "«"
+    assert other.toggle_button.portrait is False
+    other.set_collapsed(True, animate=False)
+    settle(app, 0.4)
+    assert other.toggle_button.text() == "»", "横屏收起时还是原来的右箭头"
+    window.close()
+    settle(app, 0.4)
+
+
 def part_portrait_danmaku(app) -> None:
     print("\n=== 7. 竖屏 + 弹幕：弹幕贴底、整宽；主画面仍是 16:9 ===")
     window = MainWindow(rooms(3), rooms(3), layout_id="portrait_dm2")
@@ -900,6 +955,7 @@ def main() -> None:
     part_strip_interaction(app)
     part_layout_grow_keeps_slots_empty(app)
     part_layout_mapping(app)
+    part_toggle_arrow(app)
     print("\n全部通过")
 
 if __name__ == "__main__":

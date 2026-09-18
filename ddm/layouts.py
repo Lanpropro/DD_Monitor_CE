@@ -210,20 +210,20 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
         h = cell_height * rowspan + gap * (rowspan - 1)
         if spec and index == danmaku:
             # 弹幕格：主题色描边 + 三道横线
-            painter.setBrush(QColor(theme.ACCENT_SOFT))
-            painter.setPen(QPen(QColor(theme.ACCENT), 1))
+            painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
+            painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
             painter.drawRoundedRect(QRectF(x, y, w, h), 2.0, 2.0)
-            painter.setPen(QPen(QColor(theme.TEXT3), 1))
+            painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
             for line in range(3):
                 line_y = y + h * (0.3 + line * 0.2)
                 painter.drawRect(QRectF(x + 2, line_y, max(1.0, w - 4), 1.0))
             continue
         if spec:
-            painter.setBrush(QColor(theme.CONTENT_HOVER))
-            painter.setPen(QPen(QColor(theme.BORDER), 1))
+            painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
+            painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
         else:
-            painter.setBrush(QColor(theme.ACCENT_SOFT))
-            pen = QPen(QColor(theme.ACCENT), 1, Qt.DashLine)
+            painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
+            pen = QPen(theme.qcolor(theme.ACCENT), 1, Qt.DashLine)
             painter.setPen(pen)
         painter.drawRoundedRect(QRectF(x, y, w, h), 2.0, 2.0)
     painter.end()

@@ -434,6 +434,50 @@ def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     return QColor("#e7ebf0")
 
 
+class SidebarToggleButton(QPushButton):
+    """收起 / 展开的箭头键。
+
+    横屏（侧栏在左）沿用原来的左右字形「« / »」；竖屏时侧栏变成顶部横栏，
+    左右箭头方向不对，改成**自己画的上下箭头**（用户要求）。上下箭头不用
+    `⌃`/`⌄` 这类字形 —— 雅黑下不可靠，和 `BarIconButton` 一个路子自己画。
+    展开时箭头朝上（点一下收起来），收起时朝下（点一下放下来）。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__("«", parent)
+        self.setObjectName("SidebarToggle")
+        self.setCursor(Qt.PointingHandCursor)
+        self.portrait = False
+        self.collapsed = False
+
+    def set_orientation(self, portrait: bool, collapsed: bool) -> None:
+        """竖屏走自绘的上下箭头，横屏回到原来的字形。"""
+        self.portrait = bool(portrait)
+        self.collapsed = bool(collapsed)
+        self.setText("" if self.portrait else ("»" if self.collapsed else "«"))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)          # 背景 / 悬停底色交给样式表
+        if not self.portrait:
+            return                         # 横屏：字形已经由 QPushButton 画好
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(theme.qcolor(theme.TEXT1 if self.underMouse() else theme.TEXT3), 1.8)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        center = self.rect().center()
+        half = 4.2
+        up = not self.collapsed
+        tip_y = center.y() - 3.4 if up else center.y() + 3.4
+        base_y = center.y() + 3.4 if up else center.y() - 3.4
+        painter.drawLine(QPointF(center.x() - half, base_y),
+                         QPointF(center.x(), tip_y))
+        painter.drawLine(QPointF(center.x() + half, base_y),
+                         QPointF(center.x(), tip_y))
+
+
 class PauseButton(QPushButton):
     """暂停 / 继续：最常见的 ⏸ / ▶ 图形按钮。"""
 
@@ -2586,9 +2630,7 @@ class Sidebar(QFrame):
         self.batch_button.setCheckable(True)
         self.batch_button.setFixedHeight(22)
         self.batch_button.clicked.connect(lambda: self.set_select_mode(not self.select_mode))
-        self.toggle_button = QPushButton("«")
-        self.toggle_button.setObjectName("SidebarToggle")
-        self.toggle_button.setCursor(Qt.PointingHandCursor)
+        self.toggle_button = SidebarToggleButton(self)
         self.toggle_button.setToolTip("收起 / 展开房间列表")
         self.toggle_button.clicked.connect(self.toggle_collapsed)
         header.addWidget(self.dot, 0, Qt.AlignVCenter)
@@ -3260,6 +3302,7 @@ class Sidebar(QFrame):
         三个小图标，右边一块是账号头像 + 布局预设 + 设置 + 展开/收起键；
         下面只剩横向卡片条。头像排在收起时露出来（它就是关注列表）。
         """
+        self._sync_toggle_arrow()          # 竖屏要上下箭头，横屏左右
         if self.side != "top":
             return
         self._adopt_bar_row()
@@ -3350,6 +3393,14 @@ class Sidebar(QFrame):
     def toggle_collapsed(self) -> None:
         self.set_collapsed(not self.collapsed)
 
+    def _sync_toggle_arrow(self) -> None:
+        """收起键的箭头方向：横屏左右、竖屏上下（用户要求）。"""
+        toggle = getattr(self, "toggle_button", None)
+        if toggle is None:
+            return
+        if hasattr(toggle, "set_orientation"):
+            toggle.set_orientation(self.side == "top", self.collapsed)
+
     def set_collapsed(self, collapsed: bool, animate: bool = True) -> None:
         if collapsed == self.collapsed:
             return
@@ -3357,7 +3408,6 @@ class Sidebar(QFrame):
         if self.side == "top":
             # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件
             self._layout.setContentsMargins(10, 8, 10, 8)
-            self.toggle_button.setText("»" if collapsed else "«")
             self._sync_top_mode()
             for item in self._items:
                 item.set_compact(collapsed)
@@ -3379,7 +3429,7 @@ class Sidebar(QFrame):
             if widget:
                 widget.setVisible(not collapsed)
         self._layout.setContentsMargins(8 if collapsed else 12, 14, 8 if collapsed else 12, 12)
-        self.toggle_button.setText("»" if collapsed else "«")
+        self._sync_toggle_arrow()
         for item in self._items:
             item.set_compact(collapsed)
         self.list_box.relayout(animate=False)

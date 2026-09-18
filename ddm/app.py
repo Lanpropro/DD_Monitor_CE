@@ -19,6 +19,7 @@ from . import config as config_module
 from . import layouts
 from . import plugins as plugin_api
 from . import theme
+from . import version as version_module
 from .danmaku import DanmakuClient
 from .bili import (
     AccountLoader, FollowLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
@@ -85,7 +86,7 @@ class MainWindow(QMainWindow):
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "auto", state: dict | None = None):
         super().__init__()
-        self.setWindowTitle("DD 监控室")
+        self.setWindowTitle(f"{version_module.DISPLAY_NAME} {version_module.VERSION_TAG}")
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
         self.rooms = rooms
         self.state = state or {}
@@ -1378,7 +1379,7 @@ def main(argv: list[str] | None = None) -> int:
         pass
     setup_file_log()
     app = QApplication(argv)
-    app.setApplicationName("DD 监控室")
+    app.setApplicationName(version_module.DISPLAY_NAME)
     app.setStyleSheet(theme.qss())
     for icon_path in (os.path.join(config_module.REPO, "assets", "favicon.ico"),
                       os.path.join(config_module.REPO, "favicon.ico")):
