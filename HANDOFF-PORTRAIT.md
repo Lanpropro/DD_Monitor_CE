@@ -300,7 +300,9 @@
 | E7 | exe 的两个坑（已修） | ① **VLC 运行库要放 `_internal`**：`main.py` 按 `_MEIPASS` 找 `libvlc.dll`，onedir 的 `_MEIPASS` 就是 `_internal`（放 exe 旁边找不到，报 FileNotFoundError）；`plugins` 也必须和 dll 挨着。② **冻结后数据目录**：`ddm/config.py` 里 `REPO` 在 frozen 时改成 exe 所在目录，否则 `utils`/`cache`/`logs` 会跑进 `_internal`（用户找不到） |
 | E8 | 验证方法（重要） | 冻出来的 **windowed exe「进程活着」不等于能跑** —— 启动报错时会弹框僵住，看着也像活着。改成**看日志**：跑 20 秒后检查 exe 旁边 `logs\ddm-*.log` 里有没有 `[方向]` 启动行，没有就判失败（脚本里就是这么验的，之前就是被「活着」骗过一次） |
 | E9 | LIVE 浮标改悬停才显示（用户要求） | 用户 2026-09-18：LIVE 和人数要「和右上角悬浮按钮一样，自动消失、鼠标移上出现」。做法：`Tile._overlay_visible` 跟着 `set_controls_visible()` 走，`_refresh_badge()` / `_layout_areas()` / `set_room()` 里的浮标显隐都看它；标题浮窗一起收。自查：`selfcheck_portrait` 第 6c 组（默认不挂 → 悬停出现，按 LIVE 的粉色像素数确认真的画出来）+ `selfcheck_tile_ui` 第 5 组（不悬停不挂、悬停才露、移开收掉）。**注意**：构造期间不能调 `_layout_areas()`（spinner 等还没建好，会崩），用 `_overlay_ready` 挡住 |
-| E10 | 发布位置 | 用户指定：发布物放仓库里的 `results\`（不再是 `work\release`，也不往 `F:\CodexAppManager\Project\...` 写了——那次覆盖提权被用户拒了）。`dev/build_release.ps1` 默认输出 `results\`，出 `DD监控室-v0.1-exe\`（626MB，免装 Python）+ `DD监控室-v0.1\`（源码包） |
+| E10 | 发布位置 | 用户指定：发布物放仓库里的 `results\`（不再是 `work\release`，也不往 `F:\CodexAppManager\Project\...` 写了——那次覆盖提权被用户拒了）。`dev/build_release.ps1` 默认输出 `results\`，出 `DD监控室CE-v0.1-exe\`（624MB，免装 Python）+ `DD监控室CE-v0.1\`（源码包） |
+| E11 | 竖屏 1+4 的 ✕ 点不动（已修） | 用户报「下方两个直播间点右上角 ✕ 关不掉」。信号链没问题（自查里逐个 `click()` 都能关），是**原生窗口层级**：画面是原生子窗口，压在所有 Qt 子控件上面，浮层必须自己也是原生窗口并且被 raise 过才点得到 —— 而 `raise_overlays()` 原来是**空函数**，只有 `showEvent` 抬过一次；下排格子播放起得晚，视频重新盖上浮层后就再没人抬。现在 `raise_overlays()` 真的抬（controls + 三个浮标 + spinner + pause_overlay），并在 `_layout_areas()` / `set_controls_visible(True)` / `set_video_active()` 之后都调；另外 `_round_video()` 在控制条可见时**把它那块从视频遮罩里挖掉**（系统层面保证点击不会被视频吃掉）。自查第 6d 组钉住「每格 ✕ 中心不在视频遮罩里、在控制条可点区域里」 |
+| E12 | 改名 | 用户要求改成 **DD监控室CE**：`ddm/version.py` 的 `DISPLAY_NAME`（窗口标题、应用名、侧栏 logo 都取自它）+ `main.py` / `run.cmd` / `ddm/__init__.py` / 发布说明 / 打包脚本的包名统一；发布包重打为 `results\DD监控室CE-v0.1-exe\`。**注意**：`dev/build_release.ps1` 是 PowerShell 5.1 读的脚本，**必须带 UTF-8 BOM**（edit 工具会去掉 BOM，改完要重新加，否则报一堆 ParseError） |
 
 ### D. 用户 2026-09-18 第二批实测 bug（**已修**）
 
