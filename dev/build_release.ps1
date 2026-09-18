@@ -184,6 +184,14 @@ _internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
     Write-Output "  exe 启动验证通过 ✓ -> $exeDir"
     # 验证时写出来的 logs / cache 不留在发布包里
     Remove-Item (Join-Path $exeDir "logs"), (Join-Path $exeDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
+    # 再压一个 zip：用户要的就是「下载一个 zip、解压直接双击 exe 用」
+    if (-not $SkipZip) {
+        $exeZip = Join-Path $OutDir "$name-exe.zip"
+        Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
+        Write-Output "=== 压缩 exe 包 $exeZip ==="
+        Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
+        Write-Output ("  {0:N0} MB" -f ((Get-Item $exeZip).Length / 1MB))
+    }
     $exeFiles = Get-ChildItem $exeDir -Recurse -File
     Write-Output ("  exe 包：{0:N0} 个文件，{1:N0} MB" -f $exeFiles.Count,
                   (($exeFiles | Measure-Object Length -Sum).Sum / 1MB))
