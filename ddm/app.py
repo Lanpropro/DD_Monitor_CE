@@ -92,6 +92,9 @@ class MainWindow(QMainWindow):
         self.layout_id = layout_id
         self.players: dict[object, TilePlayer] = {}      # 按格子持有播放器
         self._resolvers: dict[object, StreamResolver] = {}
+        #: 正在关窗。取流线程的 resolved 是队列连接，关窗之后还会再投递一次；
+        #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
+        self._closing = False
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._poller = None
         self._stats_poller = None
@@ -387,6 +390,12 @@ class MainWindow(QMainWindow):
         }
 
     def closeEvent(self, event) -> None:
+        # 关窗前先把「正在关闭」钉住，并**清空**播放器表：release() 只是把
+        # libvlc 实例还回去，self.players 里还留着它的话，取流线程排队中的
+        # resolved 会在关窗后再投递一次，_play_on 就从表里拿到已经释放的实例
+        # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
+        # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
+        self._closing = True
         self.plugins.emit(plugin_api.EVENT_CLOSING)
         self.plugins.unload()
         config_module.save(self.current_state())
@@ -395,9 +404,12 @@ class MainWindow(QMainWindow):
         for timer in self._freeze_retry_timers.values():
             timer.stop()
         self._freeze_retry_timers.clear()
-        for player in self.players.values():
+        players = list(self.players.values())
+        self.players.clear()
+        for player in players:
             player.release()
         self._wait_background()
+        self._resolvers.clear()
         super().closeEvent(event)
 
     def _wait_background(self) -> None:
@@ -481,6 +493,8 @@ class MainWindow(QMainWindow):
         return changed
 
     def start_tile(self, tile) -> None:
+        if self._closing:
+            return                    # 关窗途中别再起取流/播放器
         room = tile.room or {}
         room_id = str(room.get("room_id") or "")
         if not room_id:
@@ -507,6 +521,9 @@ class MainWindow(QMainWindow):
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None) -> None:
+        if self._closing:
+            # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
+            return
         if options:
             tile.set_quality_options(options)
         if quality:
@@ -544,6 +561,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_resolve_failed(self, tile, reason: str) -> None:
+        if self._closing:
+            return                    # 关窗后迟到的取流失败：别再拉轮询线程
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
