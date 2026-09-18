@@ -3118,10 +3118,11 @@ class Sidebar(QFrame):
             tool_box.insertWidget(1, self._bar_divider_tool)
             tool_box.setStretch(0, 1)
             tool_box.setStretch(2, 1)
-            # 两个按钮都要撑满这一块（宽和高），不然它们只按提示高度排，
-            # 下面会空出一截（用户要求：三个按钮 + 两条分割正好分完那一行）
+            # 两个按钮只按高度撑满；宽度保持各自本来的大小（用户要求：别调
+            # 单个按钮的宽度）—— 竖排布局默认会把它们拉满整块，这里给个上限
             for button in (self.layout_button, self.settings_button):
-                button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+                button.setMaximumWidth(button.sizeHint().width())
 
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
             self._layout.insertWidget(index + 2 if index >= 0 else 2, self._bar_row2)
@@ -3149,6 +3150,7 @@ class Sidebar(QFrame):
         tool_box.setSpacing(6)
         for button, policy in self._tool_button_policies.items():
             button.setSizePolicy(policy)
+            button.setMaximumWidth(16_777_215)   # 竖屏时按自身宽度限过
         self.account_row.setSizePolicy(self._account_policy)
         self._bar_in_use = False
         self._sync_account_row_shape()          # 账号条恢复原来的固定高度

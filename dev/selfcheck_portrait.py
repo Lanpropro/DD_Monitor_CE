@@ -77,6 +77,26 @@ def accent_pixels(image, rect: tuple) -> int:
     return hits
 
 
+def ink_box(image, pad: int = 3) -> tuple:
+    """图标内容的包围盒（相对最常见的底色）——检查图标正不正、有没有多画东西。"""
+    counts: dict = {}
+    for y in range(image.height()):
+        for x in range(image.width()):
+            colour = image.pixelColor(x, y).getRgb()
+            counts[colour] = counts.get(colour, 0) + 1
+    background = max(counts, key=counts.get)
+    min_x, min_y, max_x, max_y = image.width(), image.height(), -1, -1
+    for y in range(pad, image.height() - pad):
+        for x in range(pad, image.width() - pad):
+            colour = image.pixelColor(x, y).getRgb()
+            if sum(abs(a - b) for a, b in zip(colour[:3], background[:3])) > 90:
+                min_x = min(min_x, x)
+                min_y = min(min_y, y)
+                max_x = max(max_x, x)
+                max_y = max(max_y, y)
+    return min_x, min_y, max_x, max_y
+
+
 def part_layouts() -> None:
     print("=== 1. 布局表：竖屏预设已注册、并且被标成 portrait ===")
     ids = [layout["id"] for layout in layouts.PORTRAIT_LAYOUTS]
@@ -561,6 +581,21 @@ def part_strip_interaction(app) -> None:
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
     assert sidebar.batch_button.text() != "多选" and sidebar.sort_button.text() != "排序", \
         "横栏里这三个是图标按钮，不是文字按钮"
+    # 三个图标要正（自绘的那两个 + 手绘圆环的刷新）：墨迹包围盒的中心得和按钮中心重合。
+    # 这条能抓到两类问题：字形/图案本身偏，以及「排序」带菜单时 Qt 多画的那个下拉小三角
+    for name, button in (("多选", sidebar.batch_button), ("排序", sidebar.sort_button),
+                         ("刷新", sidebar.refresh_button)):
+        image = button.grab().toImage()
+        scale = image.width() / max(1, button.width())
+        box = ink_box(image)
+        center_x = (box[0] + box[2]) / 2 / scale
+        center_y = (box[1] + box[3]) / 2 / scale
+        print(f"  {name}图标：墨迹框={box} 中心=({center_x:.1f},{center_y:.1f}) "
+              f"按钮中心=({button.width() / 2:.1f},{button.height() / 2:.1f})")
+        assert abs(center_x - button.width() / 2) <= 2, f"{name}图标横向偏了"
+        assert abs(center_y - button.height() / 2) <= 2, f"{name}图标纵向偏了"
+    assert "BarIcon::menu-indicator" in theme.qss(), \
+        "「排序」带菜单，得靠 #BarIcon::menu-indicator 去掉那个下拉小三角"
     # 用户要求：最后一张卡片右边单独开一块，账号 / 布局预设 / 设置 竖排；
     # 这一块只占卡片条那一行，三个按钮 + 两条分割线正好把那一行分完
     assert block.isVisible() and block.parentWidget() is sidebar._bar_row2, \
@@ -595,12 +630,20 @@ def part_strip_interaction(app) -> None:
         "账号和工具行之间只隔那条分割线"
     assert sidebar.layout_button.y() + sidebar.layout_button.height() + 1 \
         == sidebar.settings_button.y(), "布局预设和设置之间只隔那条分割线"
-    # 这一块的按钮同宽、彼此只隔一条分割线
-    widths = {account.width(), sidebar.layout_button.width(),
-              sidebar.settings_button.width()}
+    # 这一块的按钮只按高度排：宽度不被动过（用户要求），彼此只隔一条分割线
     assert sidebar._bar_right_box.spacing() == 0, "账号和工具行之间不该留缝"
     assert sidebar.tool_row.layout().spacing() == 0, "布局预设和设置之间不该留缝"
-    assert max(widths) - min(widths) <= 2, f"三个按钮要一样宽（撑满这一块），实际 {widths}"
+    print(f"  宽度：账号={account.width()} 布局预设={sidebar.layout_button.width()}"
+          f"（自身 {sidebar.layout_button.sizeHint().width()}）"
+          f" 设置={sidebar.settings_button.width()}"
+          f"（自身 {sidebar.settings_button.sizeHint().width()}）"
+          f" 分割线={[d.width() for d in dividers]}")
+    assert sidebar.layout_button.width() == sidebar.layout_button.sizeHint().width(), \
+        "布局预设的宽度不该被改（用户要求别调单个按钮的宽度）"
+    assert sidebar.settings_button.width() == sidebar.settings_button.sizeHint().width(), \
+        "设置的宽度不该被改"
+    assert all(divider.width() >= account.width() for divider in dividers), \
+        "两条分割线要横跨这一块"
     # 卡片上的置顶角标（用户要求：小三角改圆角，贴合圆角边框）
     pinned_item = sidebar.items()[0]
     sidebar.apply_pins([str(pinned_item.room.get("room_id"))])

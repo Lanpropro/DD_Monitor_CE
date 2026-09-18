@@ -477,6 +477,13 @@ QSlider::handle:horizontal:hover {{
     border: 1px solid rgba(0, 161, 214, 0.45);
     color: {ACCENT};
 }}
+/* 「排序」带着菜单，Qt 会在按钮里再画一个下拉小三角；横栏里那个图标是自绘的，
+   多出来的小三角就叠在箭头上（用户报的「图案下面还藏了一个图案」），去掉它，
+   顺便别让它占掉内容宽度把图标挤偏。横屏的「排序」是 ChipButton，不受影响。 */
+#BarIcon::menu-indicator {{
+    image: none;
+    width: 0;
+}}
 /* 竖屏关心栏右侧那一块里，三个按钮之间的分割线 */
 #BarDivider {{
     background: {BORDER};
