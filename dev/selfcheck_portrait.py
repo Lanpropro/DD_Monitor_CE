@@ -13,7 +13,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QMimeData, QPointF, Qt, QThread, Signal
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -234,6 +234,16 @@ def part_orientation_roundtrip(app) -> None:
             assert not sidebar.list_box.horizontal, f"{tag}: 左栏列表应该是竖向的"
             assert sidebar.scroll.maximumHeight() > 10_000, \
                 f"{tag}: 竖屏的滚动区高度上限没被解掉"
+            # 竖屏那套滚动轴状态（横排 + 竖条常关）也必须还原，否则回横屏后
+            # 竖向滚动条一直藏着、滚轮还被 CarouselScroll 当成横滚吞掉 ——
+            # 用户报的「从竖屏回横屏后滚动条失效」就是这两条没回滚
+            assert not sidebar.scroll.horizontal_only, \
+                f"{tag}: 竖屏的横滚模式没还原，滚轮会被当成横滚"
+            assert sidebar.scroll.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded, \
+                f"{tag}: 左栏竖向滚动条应该按需出现，实际 " \
+                f"{sidebar.scroll.verticalScrollBarPolicy().name}"
+            assert sidebar.scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff, \
+                f"{tag}: 左栏不该留横滚条"
         return main
 
     check("横屏启动", False)
@@ -254,6 +264,24 @@ def part_orientation_roundtrip(app) -> None:
     window.resize(1600, 900)
     settle(app, 1.0)
     check("拖回横屏", False)
+
+    # 把标志位改回去还不够：真的滚一下，确认左栏滚轮还能用
+    # （用户报的失效现象就是这一步没有任何反应）
+    from PySide6.QtGui import QWheelEvent
+
+    viewport = sidebar.scroll.viewport()
+    bar = sidebar.scroll.verticalScrollBar()
+    center = viewport.rect().center()
+    before = bar.value()
+    QApplication.sendEvent(viewport, QWheelEvent(
+        QPointF(center), QPointF(viewport.mapToGlobal(center)),
+        QPoint(0, -120), QPoint(0, -120), Qt.NoButton, Qt.NoModifier,
+        Qt.NoScrollPhase, False))
+    settle(app, 0.3)
+    print(f"  回横屏滚轮：{before} -> {bar.value()}（范围 {bar.maximum()}，"
+          f"关注 {len(sidebar.rooms())} 个）")
+    assert bar.maximum() > 0, "这个用例要能触发滚动（关注列表要长过视口）"
+    assert bar.value() > before, "回横屏后左栏滚轮必须还能滚"
 
     window.close()
     settle(app, 0.4)
@@ -357,8 +385,12 @@ def part_strip_interaction(app) -> None:
     assert second.x() > first.x(), "卡片要向右排"
     assert first.y() == second.y(), "卡片应该在同一行"
     # 横栏高度：原来「布局预设 / ⋯ / 导入关注 + 添加直播间」三行堆在下面，
-    # 横栏 362px；现在它们并进横栏右侧那一块，216px（还留着「多选」那一行）。
+    # 横栏 362px；现在它们并进横栏右侧那一块，224px（还留着「多选」那一行，
+    # 以及横向滚动条自己占的 8px —— 不留这 8px 卡片底边会被滚动条切掉）
     assert sidebar.height() < 300, f"展开后横栏要比 362px 那版矮，实际 {sidebar.height()}"
+    assert sidebar.scroll.viewport().height() >= first.height(), \
+        f"卡片不能被横向滚动条切掉：视口 {sidebar.scroll.viewport().height()} " \
+        f"< 卡片 {first.height()}"
     # 竖向滚轮要能横向滚（竖屏没有横向滚轮的鼠标）
     assert sidebar.scroll.horizontal_only, "竖屏列表要靠竖向滚轮横向滚"
     # 横向滚动条要和横屏那条竖向滚动条同一套风格：主题里两轴都要有规则、

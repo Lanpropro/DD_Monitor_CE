@@ -2843,6 +2843,10 @@ class Sidebar(QFrame):
             self.tool_row_more.setVisible(False)     # 那是竖屏专属的「⋯」
             self.account_row.setVisible(self._account_row_should_show())
             self._restore_toggle_to_header()
+            # 竖屏那套滚动轴状态必须在这里还原：横排时 horizontal_only=True、
+            # 竖条常关、横条 AsNeeded，不回滚的话回横屏后竖向滚动条一直藏着，
+            # 滚轮还会被 CarouselScroll 当成横滚吞掉 —— 左栏整列就滚不动了。
+            self._apply_scroll_axis()
         self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
         if horizontal:
             self._layout.setContentsMargins(10, 8, 10, 8)
@@ -3032,7 +3036,9 @@ class Sidebar(QFrame):
         """竖屏横栏里关注列表是横向卡片条：左右滚，只占一条高度。"""
         top = self.side == "top"
         if top:
-            rows = NAV_ITEM_HEIGHT + NAV_ITEM_GAP
+            # 一条卡片 + 间距 + 横向滚动条自己的高度：滚动条是占位的，
+            # 不留这 8px 卡片底边会被它切掉（「直播中」角标会缺一角）
+            rows = NAV_ITEM_HEIGHT + NAV_ITEM_GAP + theme.SCROLLBAR_SIZE
             self.scroll.setMinimumHeight(rows)
             self.scroll.setMaximumHeight(rows)
             self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)

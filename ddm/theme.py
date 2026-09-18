@@ -77,6 +77,7 @@ SIDEBAR_RAIL_WIDTH = 60
 CONTROL_HEIGHT = 34
 TILE_CONTROL_HEIGHT = 26
 AVATAR_SIZE = 32              # 关注列表里的头像尺寸（收起侧栏后账号头像也用这个）
+SCROLLBAR_SIZE = 8            # 滚动条粗细（两轴同一个值；横排列表要按它留高度）
 
 
 def qss() -> str:
@@ -823,7 +824,7 @@ QScrollArea, QScrollArea > QWidget > QWidget {{
 }}
 QScrollBar:vertical {{
     background: transparent;
-    width: 8px;
+    width: {SCROLLBAR_SIZE}px;
     margin: 2px 0;
 }}
 QScrollBar::handle:vertical {{
@@ -844,7 +845,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
    同粗、同样去掉两端箭头），否则会掉回系统原生那条灰底带箭头的滚动条。 */
 QScrollBar:horizontal {{
     background: transparent;
-    height: 8px;
+    height: {SCROLLBAR_SIZE}px;
     margin: 0 2px;
 }}
 QScrollBar::handle:horizontal {{
