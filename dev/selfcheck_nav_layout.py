@@ -170,14 +170,15 @@ def main() -> None:
     assert order(sidebar) == before, "拖到列表外面不应该改顺序"
     assert all(entry.isVisible() for entry in sidebar.items()), "卡片要放回去"
 
-    print("\n=== 9. 布局菜单：普通 / 弹幕 / 竖屏 三栏 ===")
+    print("\n=== 9. 布局菜单：横屏只列横屏那两栏（不列竖屏预设）===")
     picker = LayoutPicker("dm_main3")
     picker.move(-8000, -8000)
     picker.show()
     settle(app, 0.5)
     tabs = list(picker._tabs)
     print(f"  子菜单: {tabs} 当前={picker.group()}")
-    assert tabs == ["普通布局", "弹幕布局", "竖屏布局"]
+    assert tabs == ["普通布局", "弹幕布局"], \
+        "横屏不该列出竖屏预设（套上去画面会变形）"
     assert picker.group() == "弹幕布局", "当前布局在弹幕组里，默认应该停在这一栏"
     compact_size = picker.size()
     visible = [card.text() for card in picker._cards["弹幕布局"] if card.isVisible()]
@@ -194,6 +195,17 @@ def main() -> None:
     assert not any(card.isVisible() for card in picker._cards["弹幕布局"])
     assert picker._tabs["普通布局"].isChecked()
     assert picker.size() == compact_size, "切换到普通布局时弹层不能突然向屏幕外增长"
+    # 用户要求：主画面 + 2 小那里换行 + 小标题，把平分布局和大带小分开
+    section_rows = [heading.text() for heading in picker._sections["普通布局"]]
+    print(f"  普通布局里的小标题: {section_rows}")
+    assert section_rows == ["大带小"], f"应该有且只有「大带小」这一段：{section_rows}"
+    big_small = [card.text() for card in picker._cards["普通布局"]
+                 if card.property("layoutId") in ("main2", "left2_right1")]
+    print(f"  镜像对: {big_small}")
+    assert len(big_small) == 2, "主画面 + 2 小 和它的镜像都要在"
+    assert all("2 小" in text for text in big_small), big_small
+    assert "主画面 + 6 小" not in [card.text() for card in picker._cards["普通布局"]], \
+        "1+6 已经按用户要求去掉"
 
     chosen: list[str] = []
     picker.chosen.connect(chosen.append)

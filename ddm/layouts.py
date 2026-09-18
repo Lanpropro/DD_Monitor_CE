@@ -35,20 +35,27 @@ def danmaku_side(count: int) -> tuple[int, int, list]:
 LAYOUTS: list[dict] = [
     {"id": "auto", "name": "自动", "spec": None,
      "hint": "按窗口大小自动决定行列"},
+    # ---- 平分布局：每格一样大 ----
     {"id": "1x1", "name": "单画面", "spec": (1, 1, even_cells(1, 1))},
     {"id": "2x1", "name": "上下两分", "spec": (2, 1, even_cells(2, 1))},
     {"id": "1x2", "name": "左右两分", "spec": (1, 2, even_cells(1, 2))},
     {"id": "2x2", "name": "四分", "spec": (2, 2, even_cells(2, 2))},
     {"id": "3x2", "name": "六分", "spec": (2, 3, even_cells(2, 3))},
     {"id": "3x3", "name": "九分", "spec": (3, 3, even_cells(3, 3))},
-    {"id": "main2", "name": "主画面 + 2 小", "spec": main_plus_side(2)},
+    # ---- 大带小：一（两）路主画面 + 若干小画面（菜单里在这一段前换行加小标题）----
+    {"id": "main2", "name": "主画面 + 2 小", "spec": main_plus_side(2),
+     "section": "大带小"},
+    {"id": "left2_right1", "name": "2 小 + 主画面（镜像）",
+     "hint": "主画面在右、两路小画面在左：和「主画面 + 2 小」左右相反",
+     "spec": (2, 2, [(0, 0, 1, 1), (1, 0, 1, 1), (0, 1, 2, 1)])},
     {"id": "main3", "name": "主画面 + 3 小", "spec": main_plus_side(3)},
     {"id": "main4", "name": "主画面 + 4 小", "spec": main_plus_side(4)},
-    {"id": "main6", "name": "主画面 + 6 小", "spec": main_plus_side(6)},
-    {"id": "top1_2", "name": "上 1 大 + 下 2", "spec": (2, 2, [(0, 0, 1, 2), (1, 0, 1, 1), (1, 1, 1, 1)])},
-    {"id": "left2_right1", "name": "左 2 小 + 右 1 大", "spec": (2, 2, [(0, 0, 1, 1), (1, 0, 1, 1), (0, 1, 2, 1)])},
-    {"id": "corner", "name": "一大 + 一圈小", "spec": (3, 3, [(0, 0, 2, 2), (0, 2, 1, 1), (1, 2, 1, 1), (2, 0, 1, 1), (2, 1, 1, 1), (2, 2, 1, 1)])},
-    {"id": "two_rows", "name": "两大 + 侧 4 小", "spec": (4, 3, [(0, 0, 2, 2), (2, 0, 2, 2)] + [(row, 2, 1, 1) for row in range(4)])},
+    {"id": "top1_2", "name": "上主画面 + 下 2 小",
+     "spec": (2, 2, [(0, 0, 1, 2), (1, 0, 1, 1), (1, 1, 1, 1)])},
+    {"id": "corner", "name": "主画面 + 5 小环绕",
+     "spec": (3, 3, [(0, 0, 2, 2), (0, 2, 1, 1), (1, 2, 1, 1), (2, 0, 1, 1), (2, 1, 1, 1), (2, 2, 1, 1)])},
+    {"id": "two_rows", "name": "双主画面 + 4 小",
+     "spec": (4, 3, [(0, 0, 2, 2), (2, 0, 2, 2)] + [(row, 2, 1, 1) for row in range(4)])},
 ]
 
 DANMAKU_LAYOUTS: list[dict] = [
@@ -138,6 +145,37 @@ def is_portrait_layout(layout_id: str) -> bool:
     """这个布局是不是那种「主画面固定 16:9 + 小画面自动排」的竖屏预设。"""
     layout = BY_ID.get(layout_id)
     return bool(layout and layout.get("portrait") == "stack")
+
+
+def capacity(layout_id: str) -> int:
+    """这一套一屏能放几路（cells 数量）；「自动」没有固定规格，返回 0。"""
+    layout = BY_ID.get(layout_id)
+    spec = (layout or {}).get("spec")
+    return len(spec[2]) if spec else 0
+
+
+def counterpart(layout_id: str, portrait: bool) -> str | None:
+    """换方向时找**最相似**的那一套：按「能放几路」比，最接近的胜；平手取大的。
+
+    横屏的等分/大带小和竖屏的「主画面 16:9 + 小画面」是两套摆放规则，切方向时
+    既不能把别的那套硬套过去（画面会变形），也不该一律退到「自动」—— 用户要的是
+    对映，例如横屏「主画面 + 2 小」↔ 竖屏「主画面 + 2 小」。
+    带不带弹幕也要跟着：弹幕布局只找弹幕布局。
+    """
+    source = BY_ID.get(layout_id)
+    if source is None or source.get("spec") is None:
+        return None
+    wanted_danmaku = source.get("danmaku") is not None
+    target = capacity(layout_id)
+    candidates = [item for item in BY_ID.values()
+                  if item.get("spec") is not None
+                  and is_portrait_layout(item["id"]) == bool(portrait)
+                  and (item.get("danmaku") is not None) == wanted_danmaku]
+    if not candidates:
+        return None
+    best = min(candidates, key=lambda item: (abs(capacity(item["id"]) - target),
+                                             -capacity(item["id"])))
+    return best["id"]
 
 
 

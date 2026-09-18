@@ -24,6 +24,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm import bili, layouts, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.widgets import LayoutPicker  # noqa: E402
 
 # 竖屏：典型手机/竖屏显示器
 PORTRAIT = (1080, 1920)
@@ -208,6 +209,73 @@ def part_narrow_tile_badge(app) -> None:
         checked += 1
     assert checked >= 2, f"这一段要能测到格子，实际 {checked} 个"
     window.close()
+    settle(app, 0.4)
+
+
+def part_layout_mapping(app) -> None:
+    """横竖屏对映 + 竖屏「放到主画面」+ 布局菜单只列本方向的预设。"""
+    print("\n=== 15. 布局菜单在竖屏只列竖屏预设 ===")
+    window = MainWindow(rooms(4), rooms(4), layout_id="portrait_main2")
+    window.setGeometry(-9000, -9000, *PORTRAIT)
+    window.show()
+    settle(app, 1.0)
+    sidebar = window.sidebar
+    picker = LayoutPicker(sidebar._layout_id, sidebar, portrait=True)
+    picker.move(-9000, -9000)
+    picker.show()
+    settle(app, 0.4)
+    ids = [card.property("layoutId") for card in picker._cards[picker.group()]
+           if card.isVisible()]
+    print(f"  竖屏菜单：栏={list(picker._cards)} 当前={picker.group()} 可见={ids}")
+    assert list(picker._cards) == ["竖屏布局"], f"竖屏只该列竖屏那一栏：{list(picker._cards)}"
+    assert ids and all(layouts.is_portrait_layout(item) for item in ids), \
+        f"竖屏菜单里混进了横屏预设：{ids}"
+    assert sidebar._layout_id in ids, "当前布局要在列表里"
+    picker.close()
+    settle(app, 0.2)
+
+    print("\n=== 16. 竖屏「放到主画面」切竖屏预设（原来会跳成横屏 main4）===")
+    target = dict(window.wall.tiles[1].room)
+    window._on_fullscreen(target)
+    settle(app, 0.6)
+    main_tile = window.wall.tiles[0]
+    print(f"  放到主画面后：布局={window.wall.layout_id} "
+          f"第一格={main_tile.room.get('uname')} "
+          f"主画面 {main_tile.width()}x{main_tile.height()} 比例={ratio(main_tile):.3f}")
+    assert layouts.is_portrait_layout(window.wall.layout_id), \
+        f"竖屏下切成了非竖屏布局：{window.wall.layout_id}"
+    assert abs(ratio(main_tile) - 16 / 9) < 0.06, "竖屏主画面仍要保持 16:9（不能变形）"
+    assert str(main_tile.room.get("room_id")) == str(target.get("room_id")), \
+        "点「放到主画面」的那一路要真的在第一格"
+    window.close()
+    settle(app, 0.4)
+
+    print("\n=== 17. 横竖屏对映：1+2 横屏 ↔ 1+2 竖屏（不是「自动」）===")
+    landscape = MainWindow(rooms(4), rooms(4), layout_id="main2")
+    landscape.setGeometry(-9000, -9000, 1600, 900)
+    landscape.show()
+    settle(app, 1.0)
+    print(f"  横屏：布局={landscape.wall.layout_id}")
+    landscape.resize(*PORTRAIT)
+    settle(app, 1.2)
+    print(f"  拖成竖屏：方向={landscape.orientation} 布局={landscape.wall.layout_id}")
+    assert landscape.wall.layout_id == "portrait_main2", \
+        f"1+2 横屏拖成竖屏应该对映到 portrait_main2，实际 {landscape.wall.layout_id}"
+    assert layouts.is_portrait_layout(landscape.wall.layout_id)
+    landscape.close()
+    settle(app, 0.4)
+
+    portrait = MainWindow(rooms(4), rooms(4), layout_id="portrait_main2")
+    portrait.setGeometry(-9000, -9000, *PORTRAIT)
+    portrait.show()
+    settle(app, 1.0)
+    print(f"  竖屏：布局={portrait.wall.layout_id}")
+    portrait.resize(1600, 900)
+    settle(app, 1.2)
+    print(f"  拖回横屏：方向={portrait.orientation} 布局={portrait.wall.layout_id}")
+    assert portrait.wall.layout_id == "main2", \
+        f"1+2 竖屏拖回横屏应该对映回 main2，实际 {portrait.wall.layout_id}"
+    portrait.close()
     settle(app, 0.4)
 
 
@@ -806,6 +874,7 @@ def main() -> None:
     part_orientation_roundtrip(app)
     part_strip_interaction(app)
     part_layout_grow_keeps_slots_empty(app)
+    part_layout_mapping(app)
     print("\n全部通过")
 
 if __name__ == "__main__":

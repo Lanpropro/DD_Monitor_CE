@@ -312,9 +312,12 @@ class MainWindow(QMainWindow):
             layout_id = pending
             self._pending_layout = ""
         elif not self._layout_fits(saved, portrait):
-            # 配置里的布局不适合这个方向（比如竖屏选了竖屏预设，现在拖回横屏）：
-            # 回落到该方向的自动布局，别把不合适的预设硬套上去
-            layout_id = layouts.PORTRAIT_AUTO if portrait else "auto"
+            # 配置里那套不适合这个方向（比如竖屏存的是竖屏预设，现在拖回横屏）：
+            # 找**最相似**的那一套对映过去（横屏 1+2 ↔ 竖屏 1+2），
+            # 实在找不到才退回该方向的自动布局 —— 用户要的就是这个对映，
+            # 不是一律变成「自动」。
+            layout_id = (layouts.counterpart(self.wall.layout_id, portrait)
+                         or (layouts.PORTRAIT_AUTO if portrait else "auto"))
         else:
             layout_id = saved
         if layout_id != self.wall.layout_id:
@@ -958,7 +961,10 @@ class MainWindow(QMainWindow):
     def _on_fullscreen(self, room: dict) -> None:
         self.wall.focus_room(room)
         self.sidebar.set_layout_name(self.wall.layout_id)
-        self.state.setdefault("ui", {})["layout"] = self.wall.layout_id
+        # 布局按方向分别记：竖屏切到的是竖屏预设，别写进横屏那一格
+        ui = self.state.setdefault("ui", {})
+        ui[f"layout_{self.orientation or 'landscape'}"] = self.wall.layout_id
+        ui["layout"] = self.wall.layout_id          # 老配置兼容
         self._refresh_meta()
 
     def _on_close_tile(self, room: dict) -> None:

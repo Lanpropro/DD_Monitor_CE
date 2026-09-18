@@ -2723,7 +2723,8 @@ class Sidebar(QFrame):
         self.layout_button.setToolTip(f"当前布局：{layout['name']}　（点击切换）")
 
     def open_layout_picker(self) -> None:
-        picker = LayoutPicker(self._layout_id, self)
+        # 只列当前方向能用的布局：横屏不列竖屏预设（套上去画面会变形）
+        picker = LayoutPicker(self._layout_id, self, portrait=self.side == "top")
         picker.chosen.connect(self._on_layout_chosen)
         # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
         source = self.account_row if self.collapsed else self.layout_button
@@ -4459,17 +4460,23 @@ class WallGrid(QWidget):
         self.relayout(force=True)
 
     def focus_room(self, room: dict) -> None:
-        """把某一路挪到主画面（切到带主画面的布局）。"""
+        """把某一路挪到主画面（切到带主画面的布局）。
+
+        目标布局要跟着**当前方向**走：竖屏下不能硬套横屏那套 `main{N}`
+        （摆法不一样，画面会被压变形），得挑对应的竖屏预设（用户报的 bug）。
+        """
         room_id = str(room.get("room_id") or "")
         tile = next((item for item in self.tiles
                      if room_id and str(item.room.get("room_id") or "") == room_id), None)
         if tile is not None:
             self.tiles.remove(tile)
             self.tiles.insert(0, tile)
-        sidebar_count = max(2, min(6, len(self.tiles) - 1))
-        self.layout_id = f"main{sidebar_count}"
-        self._columns = -1
-        self.relayout(force=True)
+        small = max(2, min(6, len(self.tiles) - 1))
+        target = f"main{small}"
+        if layouts.is_portrait_layout(self.layout_id):
+            target = (layouts.counterpart(target, portrait=True)
+                      or layouts.PORTRAIT_AUTO)
+        self.set_layout(target)
 
     def remove_room(self, room: dict) -> None:
         room_id = str(room.get("room_id") or "")
@@ -4762,44 +4769,74 @@ class WallGrid(QWidget):
 
 
 class LayoutPicker(QFrame):
-    """布局选择弹层：顶上两个按钮切「普通布局 / 弹幕布局」，下面还是缩略图卡片。"""
+    """布局选择弹层：顶上按钮切组，下面是缩略图卡片。
+
+    只列**当前方向能用**的布局：横屏不给竖屏预设、竖屏不给横屏预设 —— 两套摆放
+    规则不一样，套错方向画面会被压变形（用户报的）。组里带 ``section`` 的布局
+    表示换一段，上面插一行小标题（用户要求把平分布局和大带小布局分开）。
+    """
 
     chosen = Signal(str)
 
-    def __init__(self, current: str, parent=None):
+    #: 一行摆几张卡片
+    COLUMNS = 4
+
+    def __init__(self, current: str, parent=None, portrait: bool = False):
         super().__init__(parent, Qt.Popup)
         self.setObjectName("LayoutPicker")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._cards: dict[str, list[QToolButton]] = {}
+        self._sections: dict[str, list[QLabel]] = {}
+
+        groups = [(name, [item for item in group
+                          if layouts.is_portrait_layout(item["id"]) == bool(portrait)])
+                  for name, group in layouts.GROUPS]
+        groups = [(name, group) for name, group in groups if group]
+        if not groups:                       # 兜底：定位不到就照旧全列
+            groups = list(layouts.GROUPS)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 10, 10, 10)
         outer.setSpacing(8)
 
-        tabs = QHBoxLayout()
-        tabs.setSpacing(6)
         self._tabs: dict[str, QPushButton] = {}
-        for name, _group in layouts.GROUPS:
-            button = QPushButton(name)
-            button.setObjectName("PickerTab")
-            button.setCheckable(True)
-            button.setCursor(Qt.PointingHandCursor)
-            button.clicked.connect(lambda _checked=False, key=name: self.set_group(key))
-            tabs.addWidget(button)
-            self._tabs[name] = button
-        tabs.addStretch(1)
-        outer.addLayout(tabs)
+        if len(groups) > 1:                  # 只剩一组时不用摆标签栏
+            tabs = QHBoxLayout()
+            tabs.setSpacing(6)
+            for name, _group in groups:
+                button = QPushButton(name)
+                button.setObjectName("PickerTab")
+                button.setCheckable(True)
+                button.setCursor(Qt.PointingHandCursor)
+                button.clicked.connect(
+                    lambda _checked=False, key=name: self.set_group(key))
+                tabs.addWidget(button)
+                self._tabs[name] = button
+            tabs.addStretch(1)
+            outer.addLayout(tabs)
 
         self._grid = QGridLayout()
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(6)
         outer.addLayout(self._grid)
-        outer.addStretch(1)          # 两组行数不同，多出来的高度留在下面
+        outer.addStretch(1)          # 各组行数不同，多出来的高度留在下面
 
-        active = layouts.GROUPS[0][0]
-        for name, group in layouts.GROUPS:
+        active = groups[0][0]
+        for name, group in groups:
             cards: list[QToolButton] = []
-            for index, layout in enumerate(group):
+            sections: list[QLabel] = []
+            row, column, current_section = 0, 0, None
+            for layout in group:
+                section = layout.get("section")
+                if section and section != current_section:
+                    if column:              # 上一段没排满也换行
+                        row, column = row + 1, 0
+                    heading = QLabel(section)
+                    heading.setObjectName("SectionLabel")
+                    self._grid.addWidget(heading, row, 0, 1, self.COLUMNS)
+                    sections.append(heading)
+                    current_section = section
+                    row += 1
                 button = QToolButton(self)
                 button.setObjectName("LayoutCard")
                 button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
@@ -4809,20 +4846,25 @@ class LayoutPicker(QFrame):
                 button.setText(layout["name"])
                 button.setCheckable(True)
                 button.setChecked(layout["id"] == current)
+                button.setProperty("layoutId", layout["id"])
                 button.setToolTip(layout.get("hint") or layout["name"])
                 button.setCursor(Qt.PointingHandCursor)
                 button.clicked.connect(
                     lambda _checked=False, lid=layout["id"]: self._choose(lid))
-                self._grid.addWidget(button, index // 4, index % 4)
+                self._grid.addWidget(button, row, column)
                 cards.append(button)
+                column += 1
+                if column >= self.COLUMNS:
+                    row, column = row + 1, 0
             self._cards[name] = cards
+            self._sections[name] = sections
             if any(item["id"] == current for item in group):
                 active = name
         self.set_group(active)
         self._lock_size()
 
     def set_group(self, name: str) -> None:
-        """切到某一组布局（普通 / 弹幕）。"""
+        """切到某一组布局（普通 / 弹幕 / 竖屏）。"""
         if name not in self._cards:
             return
         for key, button in self._tabs.items():
@@ -4831,13 +4873,20 @@ class LayoutPicker(QFrame):
         for key, cards in self._cards.items():
             for card in cards:
                 card.setVisible(key == name)
+        for key, headings in self._sections.items():
+            for heading in headings:
+                heading.setVisible(key == name)
         self._group = name
         self.adjustSize()
         # 宽度固定（右边对齐布局按钮），高度跟着这一组卡片走
         self.resize(getattr(self, "_width", self.width()), self.sizeHint().height())
 
     def group(self) -> str:
-        return getattr(self, "_group", layouts.GROUPS[0][0])
+        return getattr(self, "_group", next(iter(self._cards)))
+
+    def card_ids(self) -> list:
+        """当前这一栏里列出来的布局 id（自检用来确认没把别方向的预设列出来）。"""
+        return [card.property("layoutId") for card in self._cards.get(self.group(), [])]
 
     def _lock_size(self) -> None:
         """两组卡片行数不一样，尺寸锁成最大值，切换时不会向屏幕外增长。"""
