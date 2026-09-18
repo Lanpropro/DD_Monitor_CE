@@ -279,9 +279,11 @@ def part_strip_interaction(app) -> None:
     assert strip.account_avatar() is not None, "头排要有账号头像"
     assert len(strip._rooms) == len(rooms_now), "头排必须同步全部关注"
     assert sidebar.toggle_button.isVisible(), "没有展开键就没法展开了"
-    # 一行头像 36 + 展开按钮 18 + 边距 16 + 间距 6 = 76px 是当前设计值；
-    # 这里只保证它明显比展开态矮，别把横栏做成第二条侧栏
-    assert sidebar.height() <= 90, f"收起时横栏应该很矮，实际 {sidebar.height()}"
+    # 收起时横栏就是**一行**：头像排（36）+ 展开键挤在同一行里，边距上下各 8，
+    # 一共 52px。展开键原来自己占一行，横栏是 76px。
+    assert strip.parentWidget() is sidebar.toggle_button.parentWidget(), \
+        "收起时展开键要和头像排在同一行（别再单独占一行）"
+    assert sidebar.height() <= 70, f"收起时横栏应该很矮，实际 {sidebar.height()}"
     # 放不下时要有 +N 提示
     window.add_to_wall(dict(rooms_now[0])) if rooms_now else None
     settle(app, 0.3)
@@ -333,6 +335,7 @@ def part_strip_interaction(app) -> None:
     assert len(counted) == 1, "同一个直播间不能同时占两格"
 
     print("\n=== 12. 竖屏展开：收起头排，换成横向卡片条 ===")
+    sidebar.set_account("测试账号")          # 横栏右侧那一块要有账号头像
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.4)
     box = sidebar.list_box
@@ -353,13 +356,45 @@ def part_strip_interaction(app) -> None:
           f"滚动={sidebar.scroll.horizontalScrollBarPolicy().name}")
     assert second.x() > first.x(), "卡片要向右排"
     assert first.y() == second.y(), "卡片应该在同一行"
-    assert sidebar.height() < 420, f"展开后横栏别太高，实际 {sidebar.height()}"
+    # 横栏高度：原来「布局预设 / ⋯ / 导入关注 + 添加直播间」三行堆在下面，
+    # 横栏 362px；现在它们并进横栏右侧那一块，216px（还留着「多选」那一行）。
+    assert sidebar.height() < 300, f"展开后横栏要比 362px 那版矮，实际 {sidebar.height()}"
     # 竖向滚轮要能横向滚（竖屏没有横向滚轮的鼠标）
     assert sidebar.scroll.horizontal_only, "竖屏列表要靠竖向滚轮横向滚"
+
+    print("\n=== 12b. 横栏右侧那一块：账号头像 + 布局预设 + ⋯ 挤在同一行 ===")
+    account = sidebar.account_row
+    right = [account, sidebar.tool_row, sidebar.tool_row_more]
+    centers = [widget.y() + widget.height() / 2 for widget in right]
+    print(f"  账号条 {account.width()}x{account.height()} @x={account.x()} "
+          f"布局预设 x={sidebar.tool_row.x()} ⋯ x={sidebar.tool_row_more.x()} "
+          f"展开键 x={sidebar.toggle_button.x()} 搜索框右边缘="
+          f"{sidebar.search.x() + sidebar.search.width()}")
+    assert account.isVisible() and account.avatar.isVisible(), \
+        "展开态横栏右侧要有账号头像（用户要求，和横屏一致）"
+    assert account.name.isVisible(), "横栏里的账号条要露出昵称，不是只剩一个头像"
+    assert len({widget.parentWidget() for widget in right}) == 1, \
+        "账号头像和两个按钮必须在同一个容器里"
+    assert max(centers) - min(centers) <= 4, f"账号头像要和按钮并排同一行：{centers}"
+    assert account.x() >= sidebar.search.x() + sidebar.search.width(), \
+        "账号头像那一块要在搜索框右边（右侧划出来的一块）"
+    assert sidebar.toggle_button.x() > sidebar.tool_row_more.x(), \
+        "展开/收起键在最右端"
+    # 原来堆在横栏下面的那一行：导入关注 / 添加直播间 并进了「⋯」，
+    # 设置也一样（「布局预设」留在横栏里当按钮）
+    labels = [item[0] for item in sidebar._more_actions() if item]
+    print(f"  ⋯ 里装着：{labels}")
+    assert not sidebar.normal_bar.isVisible(), "导入/添加并进「⋯」了，不该再占一行"
+    assert "导入关注…" in labels and "+ 添加直播间…" in labels, labels
+    assert "布局预设…" not in labels, "布局预设已经摆在横栏上，⋯ 里不用再来一份"
+    assert not sidebar.settings_button.isVisible(), "设置收进「⋯」，横栏里不再单占一个按钮"
+    assert "设置…" in labels, labels
+
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.3)
     assert not sidebar.search.isVisible(), "收起后搜索框要收掉"
     assert strip.isVisible(), "收起后头排要回来"
+    assert not account.isVisible(), "收起后账号头像由头排最前面那个承担，别冒出两个"
 
     print("\n=== 13. 切布局不动窗口方向（摆放跟着窗口形状走）===")
     window.resize(1600, 900)

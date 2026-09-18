@@ -2434,6 +2434,9 @@ class Sidebar(QFrame):
                   ("live", "开播优先"),
                   ("imported", "导入顺序")]
 
+    #: 竖屏横栏里账号条的宽度上限（昵称太长就省略，别把搜索框挤没）
+    ACCOUNT_PILL_MAX = 220
+
     roomSelected = Signal(dict)
     addRoomClicked = Signal()
     importFollowsClicked = Signal()
@@ -2619,6 +2622,17 @@ class Sidebar(QFrame):
         normal_layout.addWidget(self.add_button, 1)
         layout.addWidget(self.normal_bar)
 
+        # 竖屏横栏那一行（见 _adopt_bar_row）：搜索框 + 右边一块
+        # 「账号头像 / 布局预设 / ⋯ / 展开键」。横屏要拆回竖排，
+        # 所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
+        self._column_order = [self._head_strip, self._header_row, self.search,
+                              self.status_row, self.scroll, self.batch_bar,
+                              self.account_row, self.tool_row, self.tool_row_more,
+                              self.normal_bar]
+        self._bar_row: QWidget | None = None
+        self._bar_row_box: QHBoxLayout | None = None
+        self._bar_in_use = False
+
     # ---- 账号 ----
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
@@ -2674,10 +2688,13 @@ class Sidebar(QFrame):
 
     def set_account(self, uname: str, pixmap=None) -> None:
         self.account_row.set_account(uname, pixmap)
-        self.account_row.set_compact(self.collapsed)
+        # 横屏收起时只留头像（占满窄条居中）；竖屏横栏里是跟「布局预设 / ⋯」
+        # 并排的一条，留着昵称才看得出是哪个账号
+        self.account_row.set_compact(self.collapsed and self.side != "top")
         # 竖屏横栏里账号头像跟关注头像排在一起，所以收起时它也得留着
         self._head_strip.set_account(uname, pixmap)
-        self.account_row.setVisible(bool(uname) and self.side != "top")
+        self.account_row.setVisible(self._account_row_should_show())
+        self._sync_account_row_width()
         self.refresh_strip()
 
     def clear_account(self) -> None:
@@ -2705,10 +2722,14 @@ class Sidebar(QFrame):
         texts = [action.text() for action in menu.actions() if action.text()]
         size = menu.sizeHint()
         if self.side == "top":
-            # 竖屏：贴着头排里的账号头像弹（account_row 这时候是藏起来的，
+            # 竖屏：贴着头排/横栏里的账号头像弹（account_row 收起时是藏起来的，
             # 用它的坐标会把菜单弹到屏幕角落去）
-            avatar = self._head_strip.account_global_rect()
-            position = QPoint(avatar.left(), avatar.bottom() + 6)
+            if self.account_row.isVisible():
+                anchor = QRect(self.account_row.mapToGlobal(
+                    self.account_row.rect().topLeft()), self.account_row.size())
+            else:
+                anchor = self._head_strip.account_global_rect()
+            position = QPoint(anchor.left(), anchor.bottom() + 6)
         elif self.collapsed:
             # 横屏收起：只剩头像，菜单贴着头像右侧展开
             anchor = self.account_row.mapToGlobal(self.account_row.rect().topRight())
@@ -2737,7 +2758,11 @@ class Sidebar(QFrame):
             self.roomSelected.emit(item.room)
 
     def _more_actions(self) -> list:
-        """「⋯」里的入口：横栏放不下的那些。"""
+        """「⋯」里的入口：横栏放不下的那些。
+
+        「布局预设」不在这里 —— 它就摆在横栏右侧那一块上；「设置」收进来，
+        横栏里不再单占一个按钮。
+        """
         return [
             ("排序方式…", self._popup_sort_menu),
             ("多选" if not self.select_mode else "退出多选",
@@ -2747,7 +2772,6 @@ class Sidebar(QFrame):
             ("导入关注…", self.importFollowsRequested.emit),
             ("+ 添加直播间…", self.addRoomRequested.emit),
             None,
-            ("布局预设…", self.open_layout_picker),
             ("设置…", self.settingsRequested.emit),
         ]
 
@@ -2792,9 +2816,11 @@ class Sidebar(QFrame):
         self.side = side
         horizontal = side == "top"
         if not horizontal:
-            # 切回左栏：头像排收掉（它只服务于顶部横栏），展开键还回标题行，
-            # 并把「顶部横栏收起时藏起来的控件」逐个恢复 —— 只显示标题行容器
-            # 是不够的，搜索/列表/按钮行会一直是隐藏状态，左栏就只剩一小条。
+            # 切回左栏：横栏那一行先拆掉（控件按原顺序挂回竖排），头像排收掉
+            # （它只服务于顶部横栏），展开键还回标题行，并把「顶部横栏收起时
+            # 藏起来的控件」逐个恢复 —— 只显示标题行容器是不够的，
+            # 搜索/列表/按钮行会一直是隐藏状态，左栏就只剩一小条。
+            self._release_bar_row()
             strip = getattr(self, "_head_strip", None)
             if strip is not None:
                 strip.setVisible(False)
@@ -2813,8 +2839,9 @@ class Sidebar(QFrame):
                                     (self.batch_bar, self.select_mode),
                                     (self.tool_row, True)):
                 widget.setVisible(visible)
+            self.settings_button.setVisible(True)    # 竖屏时它收进「⋯」里了
             self.tool_row_more.setVisible(False)     # 那是竖屏专属的「⋯」
-            self.account_row.setVisible(bool(self.account_row.uname))
+            self.account_row.setVisible(self._account_row_should_show())
             self._restore_toggle_to_header()
         self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
         if horizontal:
@@ -2837,7 +2864,7 @@ class Sidebar(QFrame):
         header = getattr(self, "_header_row", None)
         if toggle is None or header is None:
             return
-        self._layout.removeWidget(toggle)
+        self._detach_from_rows(toggle)
         toggle.setObjectName("SidebarToggle")      # 换回标题行那套样式
         toggle.setFixedSize(24, 24)
         toggle.setParent(header)
@@ -2845,15 +2872,105 @@ class Sidebar(QFrame):
         toggle.setVisible(True)
         _repolish(toggle)
 
+    # ---- 横栏那一行 ----
+    def _detach_from_rows(self, widget: QWidget) -> None:
+        """把控件从「竖排布局」和「横栏那一行」里都摘出来。"""
+        for holder in (self._layout, self._bar_row_box):
+            if holder is not None:
+                holder.removeWidget(widget)
+
+    def _ensure_bar_row(self) -> None:
+        if self._bar_row is None:
+            self._bar_row = QWidget(self)
+            box = QHBoxLayout(self._bar_row)
+            box.setContentsMargins(0, 0, 0, 0)
+            box.setSpacing(6)
+            self._bar_row_box = box
+
+    def _bar_widgets(self) -> list:
+        """要挤进横栏这一行的控件：搜索框 + 右边那一块。"""
+        return [self.search, self._head_strip, self.account_row, self.tool_row,
+                self.tool_row_more, self.toggle_button]
+
+    def _adopt_bar_row(self) -> None:
+        """竖屏：把搜索框和右上那一块并成**同一行**。
+
+        这一行从左到右是：搜索框（收起时换成头像排）、账号头像、布局预设、
+        ⋯、展开/收起键 —— 横屏的账号栏和工具行也是这么并排的。
+        原来是三行竖着堆在横栏下面（布局预设 / ⋯ / 导入关注 + 添加直播间），
+        横栏因此高到 362px，现在并成一行，省下的高度全给画面墙。
+        """
+        self._ensure_bar_row()
+        if not self._bar_in_use:
+            index = self._layout.indexOf(self._header_row)
+            for widget in self._bar_widgets():
+                self._detach_from_rows(widget)
+                widget.setParent(self._bar_row)
+            # 搜索框和头像排轮流坐左边（收起时显示头像排），谁在就由谁撑满
+            self._bar_row_box.addWidget(self.search, 1)
+            self._bar_row_box.addWidget(self._head_strip, 1)
+            for widget in (self.account_row, self.tool_row, self.tool_row_more,
+                           self.toggle_button):
+                self._bar_row_box.addWidget(widget)
+            self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
+            self._bar_in_use = True
+        self._bar_row.setVisible(True)
+
+    def _release_bar_row(self) -> None:
+        """回左栏：把那一行拆掉，控件按 __init__ 里的原始顺序挂回竖排布局。"""
+        if not self._bar_in_use:
+            return
+        self._layout.removeWidget(self._bar_row)
+        self._bar_row.setVisible(False)
+        for widget in self._bar_widgets():
+            self._detach_from_rows(widget)
+        for widget in self._column_order:
+            self._detach_from_rows(widget)
+            self._layout.addWidget(widget)
+        self._bar_in_use = False
+        self._sync_account_row_width()          # 左栏的账号条恢复撑满
+
+    def _account_row_should_show(self) -> bool:
+        """账号头像什么时候露出来。
+
+        横屏：登录了就露（在侧栏底部）；竖屏展开时它跟「布局预设 / ⋯」同排，
+        收起时账号头像改由头排最前面那个承担（不然一行里会冒出两个头像）。
+        """
+        if not self.account_row.uname:
+            return False
+        if self.side == "top":
+            return not self.collapsed
+        return True
+
+    def _sync_account_row_width(self) -> None:
+        """横栏里的账号条要放得下昵称，否则会被挤成「A…」。
+
+        横屏时它本来就撑满侧栏，不需要这个宽度限制；竖屏横栏里它是自然宽度
+        （名字的 size policy 是 Ignored，不点名就给一个头像的宽度）。
+        """
+        row = self.account_row
+        if self.side != "top":
+            row.setMinimumWidth(0)
+            return
+        box = row._layout
+        margins = box.contentsMargins()
+        # +8：留一点余量，正好卡着算出来的宽度会让昵称尾字差几个像素被省略
+        need = (margins.left() + margins.right() + box.spacing() * 2
+                + row.avatar.width() + row.name.sizeHint().width()
+                + row.arrow.sizeHint().width() + 8)
+        row.setMinimumWidth(min(self.ACCOUNT_PILL_MAX, need))
+
     def _sync_top_mode(self) -> None:
         """按 side + collapsed 决定顶部横栏露哪些控件。
 
-        头像排在**收起和展开时都留着**：它既是关注列表在竖屏下的主要形态，
-        也是「展开/收起」按钮的落点（横屏的收起按钮在标题行里，竖屏标题行
-        收起时是隐藏的，跟着一起藏掉就没有展开键了）。
+        横栏是**一行**：左边搜索框（收起时换成头像排），右边一块是
+        账号头像 + 布局预设 + ⋯ + 展开/收起键；下面只剩横向卡片条。
+        头像排在收起时露出来（它就是关注列表，也是展开键的邻居）。
         """
         if self.side != "top":
             return
+        self._adopt_bar_row()
+        self._sync_account_row_width()
         strip = getattr(self, "_head_strip", None)
         header = getattr(self, "_header_row", None)
         toggle = getattr(self, "toggle_button", None)
@@ -2864,12 +2981,13 @@ class Sidebar(QFrame):
             if self.collapsed:
                 strip.rebuild()
         if toggle is not None:
-            # 从标题行里摘出来，横栏右上角常驻；换成紧凑样式，
+            # 摘到横栏这一行的右端常驻；换成紧凑样式，
             # 否则标题行那套 24px 最小尺寸 + padding 会把横栏撑高一截
             toggle.setObjectName("BarToggle")
             toggle.setFixedSize(22, 22)
-            toggle.setParent(self)
-            self._layout.addWidget(toggle, 0, Qt.AlignRight | Qt.AlignVCenter)
+            if toggle.parentWidget() is not self._bar_row:
+                toggle.setParent(self._bar_row)
+                self._bar_row_box.addWidget(toggle)
             toggle.setVisible(True)
             _repolish(toggle)
         if self.collapsed:
@@ -2893,10 +3011,12 @@ class Sidebar(QFrame):
             # 这些入口都在「⋯」里（用户明确要求展开后不要占额外的高度）
             self.status_row.setVisible(False)
             self.scroll.setVisible(True)
-            self.normal_bar.setVisible(not self.select_mode)
+            # 导入关注 / 添加直播间也收进「⋯」，别再占一行
+            self.normal_bar.setVisible(False)
             self.batch_bar.setVisible(self.select_mode)
-            self.account_row.setVisible(False)       # 展开时账号菜单在「⋯」里
+            self.account_row.setVisible(self._account_row_should_show())
             self.tool_row.setVisible(True)           # 只留「布局预设」
+            self.settings_button.setVisible(False)   # 设置也在「⋯」里
             self.tool_row_more.setVisible(True)      # 其余收进「⋯」
             # 标题文字在横栏里没意义，只留「多选 + 展开/收起」这两个真按钮
             self._set_title_texts_visible(False)
@@ -2951,7 +3071,7 @@ class Sidebar(QFrame):
                        self.dot, self.batch_button, self.tool_row):
             widget.setVisible(not collapsed and (widget is not self.batch_bar or self.select_mode))
         self.account_row.set_compact(collapsed)
-        self.account_row.setVisible(bool(self.account_row.uname))
+        self.account_row.setVisible(self._account_row_should_show())
         # 窄条里列表一出现滚动条就会把内容挤窄，上下两排头像就对不齐了；
         # 收起时干脆不显示滚动条，滚轮照样能滚
         self.scroll.setVerticalScrollBarPolicy(
