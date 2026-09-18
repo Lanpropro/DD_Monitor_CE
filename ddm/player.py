@@ -72,17 +72,12 @@ class TilePlayer(QObject):
         self._instance = PlayerPool.instance()
         self.player = self._instance.media_player_new()
         self._audio_output = StereoOutput()
-        callbacks = vlc.CallbackDecorators
-        self._audio_play_cb = callbacks.AudioPlayCb(self._play_audio)
-        self._audio_pause_cb = callbacks.AudioPauseCb(self._pause_audio)
-        self._audio_resume_cb = callbacks.AudioResumeCb(self._resume_audio)
-        self._audio_flush_cb = callbacks.AudioFlushCb(self._flush_audio)
-        self._audio_drain_cb = callbacks.AudioDrainCb(self._drain_audio)
-        self.player.audio_set_callbacks(
-            self._audio_play_cb, self._audio_pause_cb, self._audio_resume_cb,
-            self._audio_flush_cb, self._audio_drain_cb, None,
-        )
-        self.player.audio_set_format("S16N", 48_000, 2)
+        self._audio_callbacks_enabled = False
+        self._audio_play_cb = None
+        self._audio_pause_cb = None
+        self._audio_resume_cb = None
+        self._audio_flush_cb = None
+        self._audio_drain_cb = None
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
         self.player.audio_set_volume(self.volume)
@@ -181,14 +176,41 @@ class TilePlayer(QObject):
         self._audio_output.close()
 
     # ---- 音频 ----
+    @property
+    def uses_pcm_routing(self) -> bool:
+        return self._audio_callbacks_enabled
+
+    def needs_audio_restart(self, channel: int) -> bool:
+        """Switching between native VLC output and PCM routing needs a new player."""
+        routed = int(channel) in (3, 4)
+        return routed != self._audio_callbacks_enabled
+
+    def _enable_pcm_routing(self) -> None:
+        """Install callbacks before playback; default audio keeps VLC's native output."""
+        if self._audio_callbacks_enabled:
+            return
+        callbacks = vlc.CallbackDecorators
+        self._audio_play_cb = callbacks.AudioPlayCb(self._play_audio)
+        self._audio_pause_cb = callbacks.AudioPauseCb(self._pause_audio)
+        self._audio_resume_cb = callbacks.AudioResumeCb(self._resume_audio)
+        self._audio_flush_cb = callbacks.AudioFlushCb(self._flush_audio)
+        self._audio_drain_cb = callbacks.AudioDrainCb(self._drain_audio)
+        self.player.audio_set_callbacks(
+            self._audio_play_cb, self._audio_pause_cb, self._audio_resume_cb,
+            self._audio_flush_cb, self._audio_drain_cb, None,
+        )
+        self.player.audio_set_format("S16N", 48_000, 2)
+        self._audio_callbacks_enabled = True
+
     def set_muted(self, muted: bool) -> None:
         self.muted = muted
         self.player.audio_set_mute(muted)
-        self._audio_output.set_enabled(not muted)
+        self._audio_output.set_enabled(self.uses_pcm_routing and not muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
         self.player.audio_set_volume(volume)
+        self._audio_output.set_volume(volume)
 
     def set_audio_channel(self, channel: int) -> None:
         """声道模式：3/4 将完整声音混为单声道后只送左/右输出。
@@ -198,6 +220,8 @@ class TilePlayer(QObject):
         左右定位；其他 VLC 原生模式仍交给 VLC。
         """
         self.audio_channel = int(channel)
+        if self.audio_channel in (3, 4) and not self.uses_pcm_routing:
+            self._enable_pcm_routing()
         self._audio_output.set_channel(self.audio_channel)
         self.player.audio_set_channel(vlc_channel_for(self.audio_channel))
 

@@ -907,6 +907,14 @@ class MainWindow(QMainWindow):
         tile = self._tile_of(str(room.get("room_id")))
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
+            if player.needs_audio_restart(value):
+                # libVLC 要求 audio callbacks 在播放前设置；默认输出与左右路由
+                # 之间切换时重建这一格，不能在运行中的播放器上硬换回调。
+                self._stop_tile(tile)
+                if tile.room.get("live"):
+                    self.start_tile(tile)
+                self._save_timer.start()
+                return
             player.set_audio_channel(value)
             # 播放中的这一路要等音频输出模块起来后再补一次，否则会被初始化冲掉
             player.reapply_audio_channel()

@@ -29,6 +29,21 @@ def route_pcm_s16_stereo(data: bytes, channel: int) -> bytes:
     return bytes(output)
 
 
+def apply_volume_s16_stereo(data: bytes, volume: int) -> bytes:
+    """Apply the tile's 0-100 volume to callback PCM samples."""
+    if len(data) % BYTES_PER_FRAME:
+        raise ValueError("stereo S16 PCM must contain complete frames")
+    level = max(0, min(100, int(volume)))
+    if level == 100:
+        return bytes(data)
+    output = bytearray(len(data))
+    source = memoryview(data).cast("h")
+    target = memoryview(output).cast("h")
+    for index, sample in enumerate(source):
+        target[index] = int(int(sample) * level / 100)
+    return bytes(output)
+
+
 def vlc_channel_for(channel: int) -> int:
     """Keep VLC stereo while left/right placement is handled after decoding."""
     return 1 if int(channel) in (CHANNEL_LEFT, CHANNEL_RIGHT) else int(channel)
@@ -44,6 +59,7 @@ class StereoOutput:
 
     def __init__(self, stream_factory=None):
         self.channel = 0
+        self.volume = 100
         self.enabled = False
         self._stream_factory = stream_factory or self._new_stream
         self._stream = None
@@ -65,6 +81,9 @@ class StereoOutput:
     def set_channel(self, channel: int) -> None:
         self.channel = int(channel)
 
+    def set_volume(self, volume: int) -> None:
+        self.volume = max(0, min(100, int(volume)))
+
     def set_enabled(self, enabled: bool) -> None:
         enabled = bool(enabled)
         if self.enabled == enabled:
@@ -79,6 +98,7 @@ class StereoOutput:
         try:
             pcm = ctypes.string_at(samples, int(count) * BYTES_PER_FRAME)
             pcm = route_pcm_s16_stereo(pcm, self.channel)
+            pcm = apply_volume_s16_stereo(pcm, self.volume)
             with self._lock:
                 if not self.enabled:
                     return

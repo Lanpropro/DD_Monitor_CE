@@ -112,9 +112,13 @@ def main() -> None:
 
         def __init__(self):
             self.calls: list = []
+            self.restart = False
 
         def set_audio_channel(self, value):
             self.calls.append(("set", int(value)))
+
+        def needs_audio_restart(self, _value):
+            return self.restart
 
         def reapply_audio_channel(self):
             self.calls.append(("reapply",))
@@ -131,6 +135,24 @@ def main() -> None:
     assert ("set", VolumeButton.CHANNEL_LEFT) in stub.calls, "要把声道下发给播放器"
     assert ("reapply",) in stub.calls, \
         "设置之后还要再下发一次（play() 之前的设置会被音频输出模块初始化冲掉）"
+
+    print("\n=== 4b. 原生输出与左右路由之间切换要安全重启该格 ===")
+    stopped = []
+    restarted = []
+    original_stop = window._stop_tile  # noqa: SLF001
+    original_start = window.start_tile
+    window._stop_tile = lambda item: stopped.append(item)  # noqa: SLF001
+    window.start_tile = lambda item: restarted.append(item)
+    stub.restart = True
+    stub.calls.clear()
+    tile.set_audio_channel(0)
+    settle(app, 0.2)
+    print(f"  停止={len(stopped)} 重启={len(restarted)} 旧播放器调用={stub.calls}")
+    assert stopped == [tile] and restarted == [tile], \
+        "切换音频输出路径时必须重建该格播放器"
+    assert stub.calls == [], "不能在运行中的旧播放器上硬换 audio callbacks"
+    window._stop_tile = original_stop  # noqa: SLF001
+    window.start_tile = original_start
     del window.players[tile]
 
     print("\n=== 5. 声道随配置保存 / 恢复 ===")
