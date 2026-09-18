@@ -38,11 +38,11 @@ def boom(room_id, quality=250):        # noqa: ANN001, ANN201
 
 
 ROOMS = [
-    {"room_id": "1001", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "viewers": "3.1万", "muted": True, "quality": 250, "live_start_ts": int(time.time()) - 600},
-    {"room_id": "1002", "uname": "七海Nana7mi", "title": "和队友最后练一次大米", "live": True,
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二", "live": True,
      "viewers": "1.8万", "muted": True, "quality": 250, "live_start_ts": int(time.time()) - 300},
-    {"room_id": "1003", "uname": "烛不遥", "title": "看新三国吐槽——", "live": True,
+    {"room_id": "1003", "uname": "示例主播C", "title": "示例标题三", "live": True,
      "viewers": "6.1万", "muted": True, "quality": 250, "live_start_ts": int(time.time()) - 900},
 ]
 
@@ -145,7 +145,7 @@ def main() -> None:
     started: list = []
     original_start = window.start_tile
     window.start_tile = lambda t, _o=original_start, _s=started: (_s.append(t), _o(t))[1]
-    status = {"1001": {"live": True, "title": "随便玩玩战狗", "uname": "Asaki大人",
+    status = {"1001": {"live": True, "title": "示例直播标题", "uname": "示例主播A",
                        "viewers": "2万", "face": ""}}
     window._on_status_updated(status)
     settle(app, 0.6)

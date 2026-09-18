@@ -19,9 +19,9 @@ OUT = os.path.join(REPO, "work", "preview")
 NOW = int(time.time())
 
 ROOMS = [
-    {"room_id": "6154037", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "viewers": "3.1万", "muted": True, "volume": 55, "live_start_ts": NOW - 4512},
-    {"room_id": "21452505", "uname": "七海Nana7mi", "title": "和队友最后练一次大米",
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二",
      "live": True, "viewers": "1.8万", "online": "2288", "muted": True, "volume": 42,
      "live_start_ts": NOW - 890},
 ]
@@ -94,7 +94,7 @@ def main() -> None:
     print("已保存 wall_status.png")
 
     # 收起侧栏：头像要居中
-    window.sidebar.set_account("Asaki大人")
+    window.sidebar.set_account("示例主播A")
     window.sidebar.set_collapsed(True, animate=False)
     settle(app, 0.6)
     window.sidebar.grab().save(os.path.join(OUT, "sidebar_rail.png"), "PNG")

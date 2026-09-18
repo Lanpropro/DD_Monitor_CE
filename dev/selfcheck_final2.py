@@ -12,7 +12,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
-ROOMS = [{"room_id": "6154037", "uname": "Asaki大人", "title": "玩玩战狗", "live": True,
+ROOMS = [{"room_id": "1001", "uname": "示例主播A", "title": "示例标题", "live": True,
           "viewers": "3.1万", "muted": True, "volume": 55}]
 
 

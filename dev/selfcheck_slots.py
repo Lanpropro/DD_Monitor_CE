@@ -13,9 +13,9 @@ from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 ROOMS = [
-    {"room_id": "6154037", "uname": "Asaki大人", "title": "玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例标题", "live": True,
      "viewers": "3.1万", "muted": True},
-    {"room_id": "21452505", "uname": "七海Nana7mi", "title": "练大米", "live": True,
+    {"room_id": "1002", "uname": "示例主播B", "title": "练大米", "live": True,
      "viewers": "1.8万", "muted": True},
 ]
 

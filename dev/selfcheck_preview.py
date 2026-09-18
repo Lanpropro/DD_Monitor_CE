@@ -56,11 +56,11 @@ class SilentPoller(QThread):
 
 
 ROOMS = [
-    {"room_id": "1001", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "viewers": "3.1万", "muted": True, "quality": 250},
-    {"room_id": "1002", "uname": "七海Nana7mi", "title": "练习", "live": True,
+    {"room_id": "1002", "uname": "示例主播B", "title": "练习", "live": True,
      "muted": True, "quality": 250},
-    {"room_id": "1003", "uname": "永雏塔菲", "title": "没在播", "live": False,
+    {"room_id": "1003", "uname": "示例主播D", "title": "没在播", "live": False,
      "muted": True, "quality": 250},
 ]
 

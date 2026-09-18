@@ -35,8 +35,8 @@ ROUND = 10
 CTRL_BAR = 36          # 画面里的底部信息条
 
 ROOMS = [
-    ("Asaki大人", "玩玩战狗", True, "2.1万"),
-    ("七海Nana7mi", "最后练一次大米", True, "1.8万"),
+    ("示例主播A", "示例标题", True, "2.1万"),
+    ("示例主播B", "最后练一次大米", True, "1.8万"),
     ("嘉然今天吃什么", "晚饭是火锅", True, "6.1万"),
     ("贝拉kira", "练舞日常", False, ""),
     ("向晚大魔王", "写歌中", True, "9.4万"),
@@ -44,9 +44,9 @@ ROOMS = [
 ]
 
 DM_LINES = [
-    ("ASAKI 26", "安***", "哈哈哈哈，尖鼻位置很危险，要被炸了"),
+    ("示例账号 26", "安***", "哈哈哈哈，尖鼻位置很危险，要被炸了"),
     ("", "燕云冷墨", "传说炮手"),
-    ("ASAKI 27", "幸运值MAX", "打咩"),
+    ("示例账号 27", "幸运值MAX", "打咩"),
     ("", "小***", "冲鸭"),
 ]
 
@@ -125,7 +125,7 @@ def tile(painter, rect: QRect, index: int, label: str, big: bool = False) -> Non
     if big:
         title = QRect(badge.right() + 8, y, min(430, rect.width() - 300), 26)
         pill(painter, title, QColor(12, 13, 16, 205))
-        text(painter, title.adjusted(12, 0, -10, 0), "Asaki大人 · 玩玩战狗", 14, theme.TEXT2)
+        text(painter, title.adjusted(12, 0, -10, 0), "示例主播A · 示例标题", 14, theme.TEXT2)
         x = rect.right() - 9
         for label_text, width in (("×", 26), ("⟳", 32), ("原画", 74)):
             x -= width
@@ -209,7 +209,7 @@ def topbar_collapsed(painter, rect: QRect) -> None:
         if x + 34 > row.right() - 40:
             break
         avatar(painter, QRect(x, row.top() + 1, 34, 34), name[0], live,
-               pinned=(name.startswith("Asaki")))
+               pinned=(name.startswith("示例账号")))
         x += 42
     text(painter, QRect(row.right() - 34, row.top(), 34, row.height()), "≫", 18,
          theme.TEXT3, align=Qt.AlignCenter)
@@ -226,7 +226,7 @@ def topbar_expanded(painter, rect: QRect) -> None:
         if x + 34 > strip.right() - 40:
             break
         avatar(painter, QRect(x, strip.top() + 1, 34, 34), name[0], live,
-               pinned=(name.startswith("Asaki")))
+               pinned=(name.startswith("示例账号")))
         x += 42
     text(painter, QRect(strip.right() - 34, strip.top(), 34, strip.height()), "≪", 18,
          theme.TEXT3, align=Qt.AlignCenter)

@@ -34,7 +34,7 @@ def main() -> None:
 
     room = None
     for room_id in [str(item) for item in state.get("rooms", [])] + \
-            ["6154037", "56237", "21733448", "22603245"]:
+            ["1001", "56237", "21733448", "1004"]:
         info = bili.room_info(room_id)
         if info and info["live"]:
             room = info

@@ -36,9 +36,9 @@ class SilentPoller(QThread):
 
 
 ROOMS = [
-    {"room_id": "1001", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "viewers": "3.1万", "muted": True, "quality": 250},
-    {"room_id": "1002", "uname": "七海Nana7mi", "title": "和队友最后练一次大米", "live": True,
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二", "live": True,
      "viewers": "1.8万", "muted": True, "quality": 250},
 ]
 
@@ -221,7 +221,7 @@ def main() -> None:
 
     print("\n=== 4. 侧栏收起后头像居中、底部还能看到账号 ===")
     sidebar = window.sidebar
-    sidebar.set_account("Asaki大人")
+    sidebar.set_account("示例主播A")
     item = sidebar.items()[0]
     face_pixmap = QPixmap(64, 64)
     face_pixmap.fill(QColor("#fb7299"))

@@ -74,7 +74,7 @@ def shoot(app, path: str, collapsed: bool) -> QImage:
     window.show()
     settle(app, 1.4)
     sidebar = window.sidebar
-    sidebar.set_account("Asaki大人")
+    sidebar.set_account("示例主播A")
     # 置顶标记要真的走一次 apply_pins 才亮（房间字典里的 pinned 会被它覆盖）
     sidebar.apply_pins([str(rooms[0]["room_id"])])
     settle(app, 0.3)

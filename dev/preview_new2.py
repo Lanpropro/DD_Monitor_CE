@@ -39,7 +39,7 @@ def main() -> None:
 
     # 1) 主界面：右上角浮标 + 账号栏
     rooms = []
-    for candidate in ("6154037", "56237", "22603245", "21452505", "26376408", "8725120"):
+    for candidate in ("1001", "56237", "1004", "1002", "1003", "8725120"):
         info = bili.room_info(candidate)
         if info and info["live"] and len(rooms) < 4:
             info["muted"] = True

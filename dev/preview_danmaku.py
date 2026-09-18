@@ -37,16 +37,16 @@ OUT = os.path.join(REPO, "work", "preview")
 NOW = int(time.time())
 
 ROOMS = [
-    {"room_id": "6154037", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "viewers": "3.1万", "online": "7124", "muted": True, "volume": 55,
      "live_start_ts": NOW - 4512},
-    {"room_id": "21452505", "uname": "七海Nana7mi", "title": "和队友最后练一次大米",
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二",
      "live": True, "viewers": "1.8万", "online": "2288", "muted": True, "volume": 42,
      "live_start_ts": NOW - 890},
-    {"room_id": "26376408", "uname": "烛不遥", "title": "看新三国吐槽——", "live": True,
+    {"room_id": "1003", "uname": "示例主播C", "title": "示例标题三", "live": True,
      "viewers": "6.1万", "online": "1043", "muted": True, "volume": 70,
      "live_start_ts": NOW - 12800},
-    {"room_id": "22603245", "uname": "永雏塔菲", "title": "守望先锋（9）", "live": True,
+    {"room_id": "1004", "uname": "示例主播D", "title": "示例标题四", "live": True,
      "viewers": "9.4万", "online": "5602", "muted": True, "volume": 36,
      "live_start_ts": NOW - 305},
 ]

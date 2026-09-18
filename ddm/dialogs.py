@@ -367,7 +367,7 @@ class AddRoomDialog(QDialog):
 
         layout.addWidget(QLabel("房间号或直播间链接"))
         self.edit = QLineEdit()
-        self.edit.setPlaceholderText("例如 6154037 或 https://live.bilibili.com/6154037")
+        self.edit.setPlaceholderText("例如 1001 或 https://live.bilibili.com/1001")
         self.edit.returnPressed.connect(self.accept)
         layout.addWidget(self.edit)
 

@@ -33,9 +33,9 @@ os.makedirs(OUT, exist_ok=True)
 
 # 假房间足够多，才能看出侧栏在竖屏里占多少、列表还能不能读
 ROOMS = [
-    {"room_id": "6154037", "uname": "Asaki大人", "title": "玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例标题", "live": True,
      "viewers": "3.1万", "muted": True, "quality": 250, "volume": 55},
-    {"room_id": "21452505", "uname": "七海Nana7mi", "title": "和队友最后练一次大米",
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二",
      "live": True, "viewers": "1.8万", "muted": True, "quality": 250, "volume": 42},
     {"room_id": "22637261", "uname": "嘉然今天吃什么", "title": "今天的晚饭是火锅",
      "live": True, "viewers": "6.1万", "muted": True, "quality": 250, "volume": 70},

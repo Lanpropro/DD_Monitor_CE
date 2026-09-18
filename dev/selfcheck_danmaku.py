@@ -64,9 +64,9 @@ class FakeImageLoader(QThread):
 
 
 ROOMS = [
-    {"room_id": "1001", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "muted": True, "quality": 250},
-    {"room_id": "1002", "uname": "七海Nana7mi", "title": "练习", "live": True,
+    {"room_id": "1002", "uname": "示例主播B", "title": "练习", "live": True,
      "muted": True, "quality": 250},
 ]
 
@@ -163,7 +163,7 @@ def main() -> None:
     assert panel.count.property("state") == "connected"
 
     print("\n=== 2. 收到消息会进面板（弹幕 / 礼物 / SC 上色）===")
-    client.message.emit({"kind": "danmaku", "uname": "Asaki大人", "text": "今天的直播好看",
+    client.message.emit({"kind": "danmaku", "uname": "示例主播A", "text": "今天的直播好看",
                          "medal": {"name": "绿冻", "level": "10", "color": "#8d8366"}})
     client.message.emit({"kind": "gift", "uname": "路人甲", "text": "投喂 辣条 ×2"})
     client.message.emit({"kind": "super_chat", "uname": "老板", "text": "¥30　加油"})

@@ -16,9 +16,9 @@ OUT = os.path.join(REPO, "dev", "preview")
 NOW = int(time.time())
 
 ROOMS = [
-    {"room_id": "6154037", "uname": "Asaki大人", "title": "玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例标题", "live": True,
      "viewers": "3.1万", "muted": True, "volume": 60, "live_start_ts": NOW - 3725},
-    {"room_id": "21452505", "uname": "七海Nana7mi", "title": "和队友最后练一次大米",
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二",
      "live": True, "viewers": "1.8万", "muted": True, "live_start_ts": NOW - 890},
 ]
 

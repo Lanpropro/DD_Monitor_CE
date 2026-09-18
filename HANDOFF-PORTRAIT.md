@@ -281,7 +281,7 @@
 | # | 范围 | 问题 | 线索位置 |
 | --- | --- | --- | --- |
 | B1 | 竖屏 | ~~「放到主画面」会切到横屏 `main4`~~ **已修 ✓**：`focus_room()` 现在按当前方向挑（竖屏→`portrait_mainN`），并改走 `set_layout()`（顺带修好 `_danmaku_cell` 没跟着换的老毛病）；`_on_fullscreen()` 也把布局记到当前方向名下 | `ddm/widgets.py:focus_room` + `ddm/app.py:_on_fullscreen`；自检第 16 组 |
-| B2 | 竖屏 | 展开态账号条昵称被截成「凰Pr...」 | **用户 2026-09-18：「不用太在意」，暂不动** |
+| B2 | 竖屏 | 展开态账号条昵称被截成「一个很长的昵称...」 | **用户 2026-09-18：「不用太在意」，暂不动** |
 | B3 | 通用 | ~~`selfcheck_offline_badges` 的产品判断：取流失败的格子算不算「在播」~~ **已解决（不是产品问题，是自查自己的毛病）**：它没挡住轮询线程，`_on_resolve_failed()` 里的 `refresh_status()` 会拿**假房间号** 1001/1002/1003 去问 B 站，B 站说「没这个房间」→ 格子被当已下播 → `assert live is True` 时红时绿（这就是它一直不稳的原因）。把 `StatusPoller` / `StatsPoller` 换成空转线程后：**下播→黑屏保留格子→回开播自动接上** 整条状态机全过，一行产品代码都没改 | `dev/selfcheck_offline_badges.py`（`IdlePoller`） |
 | B4 | 通用 | ~~「布局变大自动填充」~~ **用户 2026-09-18：「已经解决」**；自检第 14 组 + `dev/selfcheck_layout_none.py` 仍钉着「新格子保持空位」 | `idea.txt` 最后一段 |
 | B5 | 验收 | ~~真机验收尾巴~~ **用户 2026-09-18：「应该不存在问题」→ 关闭** | — |
@@ -303,6 +303,10 @@
 | E10 | 发布位置 | 用户指定：发布物放仓库里的 `results\`（不再是 `work\release`，也不往 `F:\CodexAppManager\Project\...` 写了——那次覆盖提权被用户拒了）。`dev/build_release.ps1` 默认输出 `results\`，出 `DD监控室CE-v0.1-exe\`（624MB，免装 Python）+ `DD监控室CE-v0.1\`（源码包） |
 | E11 | 竖屏 1+4 的 ✕ 点不动（已修） | 用户报「下方两个直播间点右上角 ✕ 关不掉」。信号链没问题（自查里逐个 `click()` 都能关），是**原生窗口层级**：画面是原生子窗口，压在所有 Qt 子控件上面，浮层必须自己也是原生窗口并且被 raise 过才点得到 —— 而 `raise_overlays()` 原来是**空函数**，只有 `showEvent` 抬过一次；下排格子播放起得晚，视频重新盖上浮层后就再没人抬。现在 `raise_overlays()` 真的抬（controls + 三个浮标 + spinner + pause_overlay），并在 `_layout_areas()` / `set_controls_visible(True)` / `set_video_active()` 之后都调；另外 `_round_video()` 在控制条可见时**把它那块从视频遮罩里挖掉**（系统层面保证点击不会被视频吃掉）。自查第 6d 组钉住「每格 ✕ 中心不在视频遮罩里、在控制条可点区域里」 |
 | E12 | 改名 | 用户要求改成 **DD监控室CE**：`ddm/version.py` 的 `DISPLAY_NAME`（窗口标题、应用名、侧栏 logo 都取自它）+ `main.py` / `run.cmd` / `ddm/__init__.py` / 发布说明 / 打包脚本的包名统一；发布包重打为 `results\DD监控室CE-v0.1-exe\`。**注意**：`dev/build_release.ps1` 是 PowerShell 5.1 读的脚本，**必须带 UTF-8 BOM**（edit 工具会去掉 BOM，改完要重新加，否则报一堆 ParseError） |
+
+| E13 | 去掉「自动」布局 | 用户报：「选 2 行 3 列再切自动会变成 3 行 2 列，跟当前有几路在播没关系」。做法：`LAYOUTS` 里删掉 `auto` 条目，新增 `layouts.DEFAULT_LAYOUT = "3x3"` 兜底；`app._saved_layout()` 把老配置里的 `auto`（以及任何已删掉的 id）折算成 `DEFAULT_LAYOUT`，`app/widgets` 里原先写死 `"auto"` 的兜底位置全部改成它（`WallGrid` 内部那段 `_auto_columns` 逻辑留着但已经没有入口）。自查第 20 组钉住「菜单里没有自动 / 老配置 auto → 3x3」 |
+| E14 | 未登录时的「登录」按钮 | 用户要求：没登录也要把账号按钮放出来、名字叫「登录」，点了连「导入关注」那条扫码登录。做法：`_account_row_should_show()` 恒为真、`clear_account()` 不再隐藏、`AccountRow.set_account("")` 显示「登录」+「登」头像并藏掉 ⋯、`_open_account_menu()` 未登录且未收起时直接发 `importFollowsRequested`（收起态仍给菜单，里面第一条是「登录…」，免得丢掉布局预设/设置入口）。自查第 20 组覆盖两种方向 |
+| E15 | 上传前清隐私 | 用户要求 push 前删掉他测试用的直播间和账号凭证。凭证本来就不在版本库（`utils/config.json` 从没被跟踪/提交过）；换掉的是**当样例用的真实房间号/主播名/标题**（23 个跟踪文件 + `mock_portrait2.py` / `selfcheck_portrait.py` / `idea.txt`）与**真人客户端截图**（`docs/overview1*`、`overview2*`、`portrait-current.png` 删掉，用中性样例重新渲染成同样文件名，README 不用改）。提交信息里也没有这类数据 |
 
 ### D. 用户 2026-09-18 第二批实测 bug（**已修**）
 

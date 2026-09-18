@@ -17,7 +17,7 @@ from ddm.app import MainWindow  # noqa: E402
 OUT = os.path.join(REPO, "dev", "preview")
 SCALE = 4
 
-ROOM = {"room_id": "6154037", "uname": "Asaki大人", "title": "随便玩玩战狗", "live": True,
+ROOM = {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
         "viewers": "3.1万", "online": "7124", "muted": True, "volume": 55}
 
 

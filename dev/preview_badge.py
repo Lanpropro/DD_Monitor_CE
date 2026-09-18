@@ -16,13 +16,13 @@ from ddm.images import load_pixmap  # noqa: E402
 OUT = os.path.join(REPO, "dev", "preview")
 
 ROOMS = [
-    {"room_id": "6154037", "uname": "Asaki大人", "title": "玩玩战狗", "live": True,
+    {"room_id": "1001", "uname": "示例主播A", "title": "示例标题", "live": True,
      "viewers": "54.4万", "muted": True},
-    {"room_id": "21452505", "uname": "七海Nana7mi", "title": "和队友最后练一次大米",
+    {"room_id": "1002", "uname": "示例主播B", "title": "示例标题二",
      "live": True, "viewers": "12.8万", "muted": True},
-    {"room_id": "26376408", "uname": "烛不遥", "title": "看新三国吐槽——", "live": True,
+    {"room_id": "1003", "uname": "示例主播C", "title": "示例标题三", "live": True,
      "viewers": "6.1万", "muted": True},
-    {"room_id": "22603245", "uname": "永雏塔菲", "title": "守望先锋（9）", "live": False,
+    {"room_id": "1004", "uname": "示例主播D", "title": "示例标题四", "live": False,
      "muted": True},
 ]
 
