@@ -1,4 +1,4 @@
-"""DD 监控室（重写版界面）启动入口。
+"""DD监控室CE（重写版界面）启动入口。
 
     python main.py       # 带控制台，日志直接看
     pythonw main.py      # 不带控制台（run.cmd 用这个）

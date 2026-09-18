@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import layouts, theme
+from . import version as version_module
 from .images import AvatarLoader
 from .player import TilePlayer
 
@@ -2614,7 +2615,7 @@ class Sidebar(QFrame):
         self.dot.setStyleSheet(f"background: {theme.ACCENT}; border-radius: 5px;")
         self.title_box = QVBoxLayout()
         self.title_box.setSpacing(0)
-        title = QLabel("DD 监控室")
+        title = QLabel(version_module.DISPLAY_NAME)
         title.setObjectName("AppTitle")
         subtitle = QLabel("多窗口直播监控")
         subtitle.setObjectName("AppSubtitle")
@@ -3147,7 +3148,7 @@ class Sidebar(QFrame):
     def _adopt_bar_row(self) -> None:
         """竖屏：把横栏排成两行。
 
-        第一行：logo（圆点 + 「DD 监控室」）+ 搜索框（收起时换成头排）
+        第一行：logo（圆点 + 「DD监控室CE」）+ 搜索框（收起时换成头排）
         + 多选/排序/刷新三个小图标 + 展开键。
         第二行：横向卡片条 + 右侧单独一块，那块里「账号 / 布局预设 / 设置」竖排、
         中间两条 1px 分割线 —— 三个按钮 + 两条线正好把卡片条那一行的高度分完，
@@ -3339,7 +3340,7 @@ class Sidebar(QFrame):
             self.account_row.setVisible(self._account_row_should_show())
         else:
             # 标题行留在第一行最前面当 logo（用户要求左侧给 logo 留位置）：
-            # 只露「DD 监控室」，副标题藏起来；搜索框因此短了一截
+            # 只露「DD监控室CE」，副标题藏起来；搜索框因此短了一截
             if header is not None:
                 header.setVisible(True)
             self._show_logo_title()
@@ -3362,7 +3363,7 @@ class Sidebar(QFrame):
             self._apply_scroll_axis()
 
     def _show_logo_title(self) -> None:
-        """竖屏横栏的 logo：圆点 + 「DD 监控室」（副标题占地方，藏起来）。"""
+        """竖屏横栏的 logo：圆点 + 「DD监控室CE」（副标题占地方，藏起来）。"""
         self.dot.setVisible(True)
         self.title_label.setVisible(True)
         self.subtitle_label.setVisible(False)
@@ -3997,7 +3998,15 @@ class Tile(QFrame):
         drag.exec(Qt.MoveAction)
 
     def raise_overlays(self) -> None:
-        """信息条已经在画面之外，不需要再抢层级。"""
+        """把浮层重新抬到**原生视频窗口**之上。
+
+        画面是原生子窗口（HWND），默认压在所有 Qt 子控件上面；浮层只有也是原生
+        窗口、并且被 raise 过，才既画得出来也点得到。所以每次摆完位都要再抬一次
+        —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
+        """
+        for widget in (self.controls, self.stream_badge, self.title_badge,
+                       self.time_badge, self.spinner, self.pause_overlay):
+            widget.raise_()
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -4180,6 +4189,8 @@ class Tile(QFrame):
             # 构造过程中（spinner 等还没建好）不能走这里，否则会碰空控件。
             self._layout_areas()
         if visible:
+            self.raise_overlays()          # 视频是原生窗口，浮层要重新抬上来
+            self._round_video()            # 控制条那块从视频遮罩里挖掉
             self._controls_hide_timer.stop()
             # 显示之前先按文本把按钮宽度摆好：否则会沿用上一次的尺寸，
             # 画质文字换了之后整条控制条看起来就是错位的。
@@ -4190,6 +4201,7 @@ class Tile(QFrame):
             self._control_hover_timer.stop()
             self._set_control_hover(None)
             self.title_badge.setVisible(False)   # 收起时标题一起收
+            self._round_video()                  # 收起来就把视频遮罩补回圆角
 
     def _set_control_hover(self, hovered: QPushButton | None) -> None:
         """同步一份不依赖原生窗口 enter/leave 的悬停状态。"""
@@ -4289,11 +4301,25 @@ class Tile(QFrame):
         self.pause_overlay.raise_()
         self.bottom.setGeometry(0, video_height, width, height - video_height)
         self._layout_cover()
+        # 摆完位重新抬一次浮层，并且按控制条当前位置重做视频遮罩：
+        # 视频是原生窗口，压在浮层上就点不到按钮（用户报的竖屏 1+4 关不掉）
+        self.raise_overlays()
+        self._round_video()
 
     def _round_video(self) -> None:
+        """视频窗口的圆角遮罩，并把控制条占的那块**挖掉**。
+
+        挖掉之后，控制条那一片就不属于原生视频窗口了 —— 即使层级被系统调乱，
+        点在那个区域的鼠标也不会被视频吃掉，一定能落到控制条上。
+        """
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, max(1, self.video.width()), max(1, self.video.height())),
                             9, 9)
+        if self.controls.isVisible():
+            controls = self.controls.geometry()
+            hole = QPainterPath()
+            hole.addRect(QRectF(controls))
+            path = path.subtracted(hole)
         self.video.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def _quality_button_width(self) -> int:

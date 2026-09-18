@@ -1,4 +1,4 @@
-# DD 监控室 v0.1
+# DD监控室CE v0.1
 
 第一个公开发布版。多路 B 站直播间监控画面墙，横竖屏两套排布，自带弹幕与音频路由。
 
@@ -63,11 +63,11 @@
 
 ## 运行
 
-- **exe 便携版（推荐）**：`results\DD监控室-v0.1-exe\` 整个目录拷走，双击
-  `DD监控室-v0.1-exe.exe`。不需要装 Python；配置 / 缓存 / 日志都在这个目录下
+- **exe 便携版（推荐）**：`results\DD监控室CE-v0.1-exe\` 整个目录拷走，双击
+  `DD监控室CE-v0.1-exe.exe`。不需要装 Python；配置 / 缓存 / 日志都在这个目录下
   （`utils\config.json`、`cache\`、`logs\`），删掉 `utils\config.json` 等于恢复出厂。
   里面的 `_internal\`（含 `libvlc.dll` 和 `plugins\`）是运行库，别删。
-- **源码便携包**：`results\DD监控室-v0.1\` 整个目录拷走 →
+- **源码便携包**：`results\DD监控室CE-v0.1\` 整个目录拷走 →
   ① 机器上有 Python 3.12/3.13：`python -m venv .venv` →
   `.venv\Scripts\pip install -r requirements.txt` → 双击 `run.cmd`；
   ② 本机已有现成虚拟环境（`F:\CodexAppManager\Code\DD_Monitor-venv`）时

@@ -1,4 +1,4 @@
-# 打出 DD 监控室 的发布包（Windows / PowerShell 5.1+）
+﻿# 打出 DD 监控室 的发布包（Windows / PowerShell 5.1+）
 #
 #   powershell -File dev\build_release.ps1                 # 默认输出到仓库里的 results\
 #   powershell -File dev\build_release.ps1 -OutDir D:\xx   # 换输出目录
@@ -33,7 +33,9 @@ $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
 $version = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.VERSION_TAG)").Trim()
 if (-not $version) { throw "读不到版本号（ddm/version.py）" }
-$name = "DD监控室-$version"
+$display = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.DISPLAY_NAME)").Trim()
+if (-not $display) { $display = "DD监控室CE" }
+$name = "$display-$version"
 $app = Join-Path $OutDir $name
 Write-Output "=== 打包 $name -> $OutDir ==="
 

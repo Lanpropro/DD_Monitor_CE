@@ -5,4 +5,5 @@
 
 VERSION = "0.1"
 VERSION_TAG = f"v{VERSION}"
-DISPLAY_NAME = "DD 监控室"
+#: 界面/窗口标题/发布包都认这一个名字（用户 2026-09-18：改成 DD监控室CE）
+DISPLAY_NAME = "DD监控室CE"

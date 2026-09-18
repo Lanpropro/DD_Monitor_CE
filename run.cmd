@@ -1,5 +1,5 @@
 @echo off
-rem 双击启动 DD 监控室（不开控制台窗口）。要看日志请用 run-console.cmd
+rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 run-console.cmd
 setlocal
 set "PROJ=%~dp0"
 

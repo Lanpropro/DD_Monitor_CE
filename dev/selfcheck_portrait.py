@@ -23,6 +23,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import bili, layouts, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
+from ddm import version as version_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.widgets import LayoutPicker  # noqa: E402
 
@@ -246,6 +247,32 @@ def part_narrow_tile_badge(app) -> None:
     settle(app, 0.4)
     assert not tile.stream_badge.isVisible() and not tile.controls.isVisible(), \
         "浮标和控制条要一起收掉"
+    window.close()
+    settle(app, 0.4)
+
+    print("\n=== 6d. 竖屏 1+4：每一格的 ✕ 都要点得到（原生视频窗口不能吃掉点击）===")
+    window = MainWindow(rooms(5), rooms(5), layout_id="portrait_main4")
+    window.setGeometry(-9000, -9000, *PORTRAIT)
+    window.show()
+    settle(app, 1.3)
+    tiles = window.wall.visible_tiles()
+    assert len(tiles) >= 5, f"竖屏 1+4 应该有 5 格，实际 {len(tiles)}"
+    for item in tiles:
+        item.set_controls_visible(True)          # ✕ 是悬停才露
+    settle(app, 0.5)
+    for index, item in enumerate(tiles):
+        button = item.close_button
+        # 视频是原生子窗口：它的遮罩必须把控制条那块挖掉，否则点在那个区域的
+        # 鼠标会被视频吃掉 —— 用户报的「竖屏 1+4 下方两格 ✕ 关不掉」就是这个
+        in_video = item.video.mask().contains(
+            button.mapTo(item.video, button.rect().center()))
+        in_controls = item.controls.mask().contains(
+            button.mapTo(item.controls, button.rect().center()))
+        print(f"  格子{index} {item.width()}x{item.height()}：✕ 中心在视频遮罩里="
+              f"{in_video} 在控制条可点区域里={in_controls}")
+        assert item.controls.isVisible(), "悬停时控制条要露出来"
+        assert not in_video, "视频遮罩必须挖掉控制条那块（不然原生窗口吃掉点击）"
+        assert in_controls, "✕ 必须落在控制条的可点区域里"
     window.close()
     settle(app, 0.4)
 
@@ -757,7 +784,7 @@ def part_strip_interaction(app) -> None:
     assert header.isVisible() and header.parentWidget() is sidebar._bar_row, \
         "logo（标题行）要摆在横栏第一行左边"
     assert sidebar.title_label.isVisible() and not sidebar.subtitle_label.isVisible(), \
-        "竖屏 logo 只露「DD 监控室」，副标题藏起来"
+        f"竖屏 logo 只露「{version_module.DISPLAY_NAME}」，副标题藏起来"
     assert header.x() < sidebar.search.x(), "logo 要在搜索框左边"
     assert header.x() + header.width() <= sidebar.search.x() + 2, "logo 不能压到搜索框"
     assert sidebar.search.width() < 900, \
