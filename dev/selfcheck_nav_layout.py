@@ -195,6 +195,21 @@ def main() -> None:
     assert not any(card.isVisible() for card in picker._cards["弹幕布局"])
     assert picker._tabs["普通布局"].isChecked()
     assert picker.size() == compact_size, "切换到普通布局时弹层不能突然向屏幕外增长"
+    # 用户报的：不同布局的卡片大小不一样、上下没对齐 —— 卡片尺寸必须统一
+    sizes = {(card.width(), card.height())
+             for group in picker._cards.values() for card in group}
+    row_tops = sorted({card.y() for card in picker._cards["普通布局"]})
+    row_heights = {card.y(): card.height() for card in picker._cards["普通布局"]}
+    print(f"  卡片尺寸: {sizes} 各行 y={row_tops} 行高={sorted(set(row_heights.values()))}")
+    assert len(sizes) == 1, f"布局卡片要一样大（用户报的错位）：{sizes}"
+    card_height = sizes.pop()[1]
+    step = card_height + picker._grid.spacing()
+    heading = picker._sections["普通布局"][0]
+    heading_step = step + heading.height() + picker._grid.spacing()
+    pitches = {b - a for a, b in zip(row_tops, row_tops[1:])}
+    print(f"  行间距: {sorted(pitches)}（正常 {step}、跨小标题那一行 {heading_step}）")
+    assert all(pitch in (step, heading_step) for pitch in pitches), \
+        f"行间距只该有「正常」和「跨小标题」两种，不然就是没对齐：{sorted(pitches)}"
     # 用户要求：主画面 + 2 小那里换行 + 小标题，把平分布局和大带小分开
     section_rows = [heading.text() for heading in picker._sections["普通布局"]]
     print(f"  普通布局里的小标题: {section_rows}")

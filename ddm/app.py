@@ -311,15 +311,18 @@ class MainWindow(QMainWindow):
         if pending and self._layout_fits(pending, portrait):
             layout_id = pending
             self._pending_layout = ""
-        elif not self._layout_fits(saved, portrait):
-            # 配置里那套不适合这个方向（比如竖屏存的是竖屏预设，现在拖回横屏）：
-            # 找**最相似**的那一套对映过去（横屏 1+2 ↔ 竖屏 1+2），
-            # 实在找不到才退回该方向的自动布局 —— 用户要的就是这个对映，
-            # 不是一律变成「自动」。
-            layout_id = (layouts.counterpart(self.wall.layout_id, portrait)
-                         or (layouts.PORTRAIT_AUTO if portrait else "auto"))
         else:
-            layout_id = saved
+            # **先按「对映」走**：换方向时跟着当前这套布局找最相似的那套
+            # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
+            # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
+            # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
+            mapped = layouts.counterpart(self.wall.layout_id, portrait)
+            if mapped:
+                layout_id = mapped
+            elif self._layout_fits(saved, portrait):
+                layout_id = saved
+            else:
+                layout_id = layouts.PORTRAIT_AUTO if portrait else "auto"
         if layout_id != self.wall.layout_id:
             self.wall.set_layout(layout_id)
             self.sidebar.set_layout_name(layout_id)

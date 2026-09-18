@@ -4780,6 +4780,10 @@ class LayoutPicker(QFrame):
 
     #: 一行摆几张卡片
     COLUMNS = 4
+    #: 卡片图标尺寸（所有卡片统一，否则格子会错开）
+    _icon_size = QSize(52, 34)
+    #: 卡片最小宽度（名字都很短时也别挤成一条）
+    _min_card_width = 108
 
     def __init__(self, current: str, parent=None, portrait: bool = False):
         super().__init__(parent, Qt.Popup)
@@ -4842,7 +4846,7 @@ class LayoutPicker(QFrame):
                 button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
                 button.setIcon(QIcon(layouts.thumbnail(layout["spec"],
                                                        danmaku=layout.get("danmaku"))))
-                button.setIconSize(QSize(52, 34))
+                button.setIconSize(self._icon_size)
                 button.setText(layout["name"])
                 button.setCheckable(True)
                 button.setChecked(layout["id"] == current)
@@ -4860,8 +4864,23 @@ class LayoutPicker(QFrame):
             self._sections[name] = sections
             if any(item["id"] == current for item in group):
                 active = name
+        self._even_cards()
         self.set_group(active)
         self._lock_size()
+
+    def _even_cards(self) -> None:
+        """把所有卡片做成一样大 —— 名字长短不一，不统一就会出现「大小不一样、
+        上下没对齐」（用户报的）。宽度按最长的名字算，高度按图标 + 一行文字算。"""
+        cards = [card for group in self._cards.values() for card in group]
+        if not cards:
+            return
+        metrics = QFontMetrics(self.font())
+        label = max(metrics.horizontalAdvance(card.text()) for card in cards)
+        height = (self._icon_size.height() + metrics.height() + 14)
+        self._card_size = QSize(max(self._min_card_width, label + 18), height)
+        for card in cards:
+            card.setFixedSize(self._card_size)
+            card.setIconSize(self._icon_size)
 
     def set_group(self, name: str) -> None:
         """切到某一组布局（普通 / 弹幕 / 竖屏）。"""

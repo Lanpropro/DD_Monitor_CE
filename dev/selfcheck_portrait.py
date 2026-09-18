@@ -278,6 +278,31 @@ def part_layout_mapping(app) -> None:
     portrait.close()
     settle(app, 0.4)
 
+    print("\n=== 18. 换方向按「当前这套」对映，配置里存的别的竖屏布局不能顶掉 ===")
+    stale = MainWindow(rooms(5), rooms(5), layout_id="main2")
+    stale.setGeometry(-9000, -9000, 1600, 900)
+    stale.show()
+    settle(app, 1.0)
+    # 模拟用户以前在竖屏选过「1+2+弹幕」：配置里就躺着它
+    stale.state.setdefault("ui", {})["layout_portrait"] = "portrait_dm2"
+    stale.resize(*PORTRAIT)
+    settle(app, 1.2)
+    print(f"  横屏 main2（配置里 portrait_dm2）-> 竖屏布局={stale.wall.layout_id}")
+    assert stale.wall.layout_id == "portrait_main2", \
+        f"换方向要对映当前这套，不能被配置里存着的布局顶掉：{stale.wall.layout_id}"
+    stale.resize(1600, 900)
+    settle(app, 1.2)
+    stale._on_layout_changed("2x2")
+    settle(app, 0.6)
+    stale.resize(*PORTRAIT)
+    settle(app, 1.2)
+    chosen = stale.wall.layout_id
+    print(f"  横屏 2x2 -> 竖屏布局={chosen}")
+    assert chosen in ("portrait_main2", "portrait_main4"), \
+        f"4 分（4 路）该对映到 1+2 或 1+4 的竖屏版（不能是带弹幕的那套），实际 {chosen}"
+    stale.close()
+    settle(app, 0.4)
+
 
 def part_portrait_danmaku(app) -> None:
     print("\n=== 7. 竖屏 + 弹幕：弹幕贴底、整宽；主画面仍是 16:9 ===")
