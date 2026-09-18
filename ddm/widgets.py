@@ -1173,11 +1173,20 @@ class AccountRow(QFrame):
 
     def set_account(self, uname: str, pixmap=None) -> None:
         self.uname = uname or ""
-        self.name.setText(self.uname or "")
-        if pixmap is not None:
-            self.avatar.set_pixmap_image(pixmap)
-        elif self.uname:
-            self.avatar.setText(self.uname[0])
+        if self.uname:
+            self.name.setText(self.uname)
+            self.arrow.setVisible(True)
+            self.setToolTip("")
+            if pixmap is not None:
+                self.avatar.set_pixmap_image(pixmap)
+            else:
+                self.avatar.setText(self.uname[0])
+            return
+        # 未登录：这一格当「登录」按钮（用户要求：没登录也放出来）
+        self.name.setText("登录")
+        self.avatar.setText("登")
+        self.arrow.setVisible(False)
+        self.setToolTip("登录 B 站账号（扫码）")
 
     def set_compact(self, compact: bool, *, avatar: int | None = None,
                     margin: int = 6) -> None:
@@ -2582,7 +2591,7 @@ class Sidebar(QFrame):
         self.sort_mode = "custom"
         self.import_order: list[str] = []      # 导入/添加的先后顺序，用于「导入顺序」排序
         self.custom_order: list[str] = []      # 拖动排出来的顺序，切换排序方式也不丢
-        self._layout_id = "auto"
+        self._layout_id = layouts.DEFAULT_LAYOUT
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 14, 12, 12)
@@ -2701,7 +2710,9 @@ class Sidebar(QFrame):
         # 已登录账号（在底部操作之上）
         self.account_row = AccountRow()
         self.account_row.clicked.connect(self._open_account_menu)
-        self.account_row.setVisible(False)
+        # 未登录时它就是「登录」按钮，所以一开始就要露出来
+        self.account_row.set_account("")
+        self.account_row.setVisible(self._account_row_should_show())
         layout.addWidget(self.account_row)
 
         # 布局 + 设置：原来挂在右侧顶栏，现在跟着列表放左下角
@@ -2722,7 +2733,7 @@ class Sidebar(QFrame):
         tool_box.addWidget(self.layout_button, 1)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
-        self.set_layout_name("auto")
+        self.set_layout_name(layouts.DEFAULT_LAYOUT)
 
         self.normal_bar = QWidget()
         normal_layout = QHBoxLayout(self.normal_bar)
@@ -2761,7 +2772,7 @@ class Sidebar(QFrame):
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
         self._layout_id = layout_id
-        layout = layouts.BY_ID.get(layout_id, layouts.BY_ID["auto"])
+        layout = layouts.BY_ID.get(layout_id) or layouts.BY_ID[layouts.DEFAULT_LAYOUT]
         self.layout_button.setText("布局预设")
         self.layout_button.setToolTip(f"当前布局：{layout['name']}　（点击切换）")
 
@@ -2819,8 +2830,11 @@ class Sidebar(QFrame):
         self.refresh_strip()
 
     def clear_account(self) -> None:
+        # 退出登录后**不隐藏**：这一格要当「登录」按钮继续露着（用户要求）
         self.account_row.set_account("")
-        self.account_row.setVisible(False)
+        self.account_row.setVisible(self._account_row_should_show())
+        self._sync_account_row_shape()
+        self._sync_account_row_width()
 
     def set_room_face(self, room_id: str, pixmap) -> None:
         """某个主播的头像下载好了：头排那一张也换掉（横屏走列表，竖屏走头排）。"""
@@ -2836,7 +2850,12 @@ class Sidebar(QFrame):
         单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
         """
         menu = QMenu(self)
-        menu.addAction("退出登录")
+        if not self.account_row.uname:
+            # 未登录时这一格就是「登录」按钮（用户要求：没登录也要放出来）
+            menu.addAction("登录…")
+            menu.addSeparator()
+        else:
+            menu.addAction("退出登录")
         if self.side == "top":
             menu.addSeparator()
             menu.addAction("导入关注…")
@@ -2854,6 +2873,11 @@ class Sidebar(QFrame):
         return menu
 
     def _open_account_menu(self) -> None:
+        if not self.account_row.uname and not self.collapsed:
+            # 未登录：这个位置就是「登录」按钮 —— 直接走「导入关注」那条路，
+            # 它没登录时会弹扫码登录（用户要求：连的就是那个扫码页面）
+            self.importFollowsRequested.emit()
+            return
         menu = self.account_menu()
         texts = [action.text() for action in menu.actions() if action.text()]
         size = menu.sizeHint()
@@ -2874,8 +2898,11 @@ class Sidebar(QFrame):
         if chosen is None:
             return
         label = chosen.text()
-        if label == texts[0]:
-            self.logoutRequested.emit()
+        if label in ("退出登录", "登录…"):
+            if label == "登录…":
+                self.importFollowsRequested.emit()    # 没登录时走扫码登录
+            else:
+                self.logoutRequested.emit()
         elif label == "布局预设…":
             self.open_layout_picker()
         elif label == "设置…":
@@ -3249,13 +3276,12 @@ class Sidebar(QFrame):
         self._sync_account_row_width()          # 左栏的账号条恢复撑满
 
     def _account_row_should_show(self) -> bool:
-        """账号头像什么时候露出来。
+        """账号按钮什么时候露出来。
 
-        横屏：登录了就露（在侧栏底部）。竖屏：收起/展开都露 —— 展开时它跟
-        「布局预设 / 设置」并排，收起时它是横栏右端唯一的账号入口
-        （头像排里不再混一个账号头像）。
+        用户 2026-09-18：**没登录也要露**（显示「登录」，点了弹扫码登录）；
+        登录后横屏在侧栏底部、竖屏在横栏右侧那一块 / 收起态头像排旁边。
         """
-        return bool(self.account_row.uname)
+        return True
 
     def _sync_account_row_shape(self) -> None:
         """账号条的形状跟着「横屏/竖屏 + 收起/展开」走。
@@ -4513,11 +4539,11 @@ class WallGrid(QWidget):
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
 
-    def __init__(self, rooms: list[dict], layout_id: str = "auto", parent=None):
+    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("WallGrid")
         # 老配置里可能存着已经删掉的布局，回落到自动布局
-        self.layout_id = layout_id if layout_id in layouts.BY_ID else "auto"
+        self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
         self._columns = 0
         self._last_height = 0

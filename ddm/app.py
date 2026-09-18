@@ -84,7 +84,7 @@ EMPTY_HINT = ("还没有直播间\n\n"
 
 class MainWindow(QMainWindow):
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
-                 layout_id: str = "auto", state: dict | None = None):
+                 layout_id: str = "", state: dict | None = None):
         super().__init__()
         self.setWindowTitle(f"{version_module.DISPLAY_NAME} {version_module.VERSION_TAG}")
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
@@ -241,8 +241,8 @@ class MainWindow(QMainWindow):
         ui = self.state.setdefault("ui", {})
         if "layout" in ui and "layout_landscape" not in ui:
             ui["layout_landscape"] = ui.pop("layout")
-        ui.setdefault("layout_landscape", "auto")
-        ui.setdefault("layout_portrait", "auto")
+        ui.setdefault("layout_landscape", layouts.DEFAULT_LAYOUT)
+        ui.setdefault("layout_portrait", layouts.DEFAULT_LAYOUT)
 
     # ---- 竖屏 / 横屏 ----
     def _build_arrangement(self, orientation: str) -> None:
@@ -279,7 +279,12 @@ class MainWindow(QMainWindow):
 
     def _saved_layout(self, orientation: str) -> str:
         ui = self.state.get("ui") or {}
-        return str(ui.get(f"layout_{orientation}") or "auto")
+        saved = str(ui.get(f"layout_{orientation}") or "")
+        # 老配置里的 "auto"（以及任何已经删掉的布局 id）折算成兜底布局：
+        # 「自动」已经按用户要求从菜单里去掉了
+        if saved not in layouts.BY_ID:
+            return layouts.DEFAULT_LAYOUT
+        return saved
 
     @staticmethod
     def _layout_fits(layout_id: str, portrait: bool) -> bool:
@@ -323,7 +328,7 @@ class MainWindow(QMainWindow):
             elif self._layout_fits(saved, portrait):
                 layout_id = saved
             else:
-                layout_id = layouts.PORTRAIT_AUTO if portrait else "auto"
+                layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
         if layout_id != self.wall.layout_id:
             self.wall.set_layout(layout_id)
             self.sidebar.set_layout_name(layout_id)
@@ -1393,7 +1398,7 @@ def main(argv: list[str] | None = None) -> int:
           + ("" if state else "（全新配置）"))
 
     window = MainWindow(sidebar, wall,
-                        layout_id=(state.get("ui") or {}).get("layout", "auto"),
+                        layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
     window.resize(1600, 900)
     window.showMaximized()

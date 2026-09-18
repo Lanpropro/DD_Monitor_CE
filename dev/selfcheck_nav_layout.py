@@ -221,6 +221,12 @@ def main() -> None:
     assert all("2 小" in text for text in big_small), big_small
     assert "主画面 + 6 小" not in [card.text() for card in picker._cards["普通布局"]], \
         "1+6 已经按用户要求去掉"
+    # 用户 2026-09-18：把「自动」从菜单里去掉（切回自动会按上一个布局的行列走，误导）
+    assert "自动" not in [card.text() for card in picker._cards["普通布局"]], \
+        "「自动」已经从布局菜单里去掉"
+    assert "auto" not in [card.property("layoutId") for card in picker._cards["普通布局"]]
+    assert "auto" not in layouts.BY_ID and layouts.DEFAULT_LAYOUT in layouts.BY_ID, \
+        "老配置里的 auto 要折算成 DEFAULT_LAYOUT"
 
     chosen: list[str] = []
     picker.chosen.connect(chosen.append)

@@ -967,7 +967,7 @@ def part_layout_grow_keeps_slots_empty(app) -> None:
     多出来的位置必须显示「拖入直播间」。
     """
     print("\n=== 14. 布局变大：新格子保持空位 ===")
-    names = ["恩骨", "纱依shayi", "三理mit3uri", "皮特174"]
+    names = ["示例主播甲", "示例主播乙", "示例主播丙", "示例主播丁"]
     all_rooms = [{"room_id": str(2000 + index), "uname": name, "title": "标题",
                   "live": True, "muted": True, "quality": 250, "volume": 42}
                  for index, name in enumerate(names, start=1)]
@@ -1021,7 +1021,46 @@ def main() -> None:
     part_layout_grow_keeps_slots_empty(app)
     part_layout_mapping(app)
     part_toggle_arrow(app)
+    part_login_button(app)
     print("\n全部通过")
+
+
+def part_login_button(app) -> None:
+    """用户要求：没登录时也要把账号按钮放出来，名字叫「登录」，
+    点了连的是「导入关注」那条扫码登录；顺带确认「自动」布局已经去掉。"""
+    print("\n=== 20. 未登录时的「登录」按钮 + 老配置里的 auto ===")
+    for layout, size in (("3x3", LANDSCAPE), ("portrait_main4", PORTRAIT)):
+        window = MainWindow(rooms(3), rooms(3), layout_id=layout)
+        window.setGeometry(-9000, -9000, *size)
+        window.show()
+        settle(app, 1.1)
+        sidebar = window.sidebar
+        row = sidebar.account_row
+        fired: list = []
+        sidebar.importFollowsRequested.connect(lambda box=fired: box.append(True))
+        sidebar._open_account_menu()
+        print(f"  {layout}：账号按钮可见={row.isVisible()} 文本={row.name.text()!r} "
+              f"头像={row.avatar.text()!r} 点了去扫码登录={bool(fired)} "
+              f"菜单={[a.text() for a in sidebar.account_menu().actions() if a.text()]}")
+        assert row.isVisible(), "没登录也要露出来（用户要求）"
+        assert row.name.text() == "登录", f"名字要叫「登录」，实际 {row.name.text()!r}"
+        assert fired, "点「登录」要走导入关注那条扫码登录"
+        assert "自动" not in [item["name"] for item in layouts.LAYOUTS], \
+            "「自动」已经从布局菜单里去掉"
+        window.close()
+        settle(app, 0.4)
+    # 老配置里存着 auto：要折算成兜底布局，不然「自动」的粘人行为还在
+    legacy = MainWindow(rooms(3), rooms(3), layout_id="",
+                        state={"ui": {"layout_landscape": "auto", "layout_portrait": "auto"},
+                               "rooms": [], "wall_rooms": []})
+    legacy.setGeometry(-9000, -9000, *LANDSCAPE)
+    legacy.show()
+    settle(app, 1.0)
+    print(f"  老配置 auto -> 布局={legacy.wall.layout_id}（期望 {layouts.DEFAULT_LAYOUT}）")
+    assert legacy.wall.layout_id == layouts.DEFAULT_LAYOUT, \
+        "老配置里的 auto 要折算成 DEFAULT_LAYOUT"
+    legacy.close()
+    settle(app, 0.4)
 
 if __name__ == "__main__":
     main()

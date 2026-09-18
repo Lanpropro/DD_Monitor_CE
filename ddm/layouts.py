@@ -33,8 +33,9 @@ def danmaku_side(count: int) -> tuple[int, int, list]:
 
 
 LAYOUTS: list[dict] = [
-    {"id": "auto", "name": "自动", "spec": None,
-     "hint": "按窗口大小自动决定行列"},
+    # 用户 2026-09-18 要求**去掉「自动」**：切回自动时它按上一个布局的行列走
+    # （2 行 3 列 → 自动 → 3 行 2 列），跟当前有几路在播没关系，容易误解。
+    # 配置里存着 "auto" 的会被折算成 DEFAULT_LAYOUT（见 app._saved_layout）。
     # ---- 平分布局：每格一样大 ----
     {"id": "1x1", "name": "单画面", "spec": (1, 1, even_cells(1, 1))},
     {"id": "2x1", "name": "上下两分", "spec": (2, 1, even_cells(2, 1))},
@@ -129,6 +130,10 @@ PORTRAIT_LAYOUTS, PORTRAIT_DANMAKU_LAYOUTS = _portrait_layouts()
 
 #: 竖屏下「自动」布局用哪个（主画面 + 6 小，竖屏里最能把空间用满）
 PORTRAIT_AUTO = "portrait_main6"
+
+#: 没有可用布局时的兜底（以前是「自动」，用户要求去掉自动之后用它）：
+#: 九分能一次摆下最多路，屏再小也只是格子变小。
+DEFAULT_LAYOUT = "3x3"
 
 # 布局菜单里的子菜单，用顶部的按钮来回切
 GROUPS: list[tuple[str, list[dict]]] = [
