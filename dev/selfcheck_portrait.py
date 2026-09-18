@@ -613,26 +613,43 @@ def part_strip_interaction(app) -> None:
     heights = [account.height(), sidebar.layout_button.height(),
                sidebar.settings_button.height()]
     dividers = [sidebar._bar_divider_label, sidebar._bar_divider_tool]
+    # 两条「空白」= 账号下沿到工具行上沿、布局预设下沿到设置上沿（里面各含 1px 线）
+    gap_label = sidebar.tool_row.y() - (account.y() + account.height())
+    gap_tool = sidebar.settings_button.y() - (sidebar.layout_button.y()
+                                              + sidebar.layout_button.height())
     print(f"  这一块：高={block.height()}（卡片条 {sidebar.scroll.height()}）"
-          f" 三段高度={heights} 分割线={[d.height() for d in dividers]} "
-          f"宽={sorted({account.width(), sidebar.layout_button.width(), sidebar.settings_button.width()})}")
+          f" 三段高度={heights}（自身 {[account.sizeHint().height(), sidebar.layout_button.sizeHint().height(), sidebar.settings_button.sizeHint().height()]}）"
+          f" 两条空白={gap_label}/{gap_tool} 分割线={[d.height() for d in dividers]}")
     assert abs(block.height() - sidebar.scroll.height()) <= 2, \
         f"这一块要和卡片条同高（不占别处）：块 {block.height()} vs 卡片条 {sidebar.scroll.height()}"
     assert block.y() >= sidebar.scroll.y() and \
         block.y() + block.height() <= sidebar.scroll.y() + sidebar.scroll.height() + 2, \
         "这一块不能超到卡片条那一行外面（比如爬上去挤搜索框）"
-    assert max(heights) - min(heights) <= 2, f"三个按钮要等分这一块的高度，实际 {heights}"
-    assert sum(heights) + sum(d.height() for d in dividers) == block.height(), \
-        "三个按钮 + 两条分割线要正好分完这一块的高度"
-    assert all(divider.isVisible() and divider.height() == 1 for divider in dividers), \
-        "三个按钮之间要有 1px 分割线"
-    assert account.y() + account.height() + 1 == sidebar.tool_row.y(), \
-        "账号和工具行之间只隔那条分割线"
-    assert sidebar.layout_button.y() + sidebar.layout_button.height() + 1 \
-        == sidebar.settings_button.y(), "布局预设和设置之间只隔那条分割线"
-    # 这一块的按钮只按高度排：宽度不被动过（用户要求），彼此只隔一条分割线
-    assert sidebar._bar_right_box.spacing() == 0, "账号和工具行之间不该留缝"
-    assert sidebar.tool_row.layout().spacing() == 0, "布局预设和设置之间不该留缝"
+    # 用户要求：单个按钮高度用横屏那套（不去拉伸），最上面/最下面的按钮
+    # 正好贴着卡片条那一行的上下沿，多出来的高度做成两条一样大的空白
+    assert account.height() == theme.CONTROL_HEIGHT, \
+        f"账号高度该是横屏那套，实际 {account.height()} / 期望 {theme.CONTROL_HEIGHT}"
+    for name, button in (("布局预设", sidebar.layout_button), ("设置", sidebar.settings_button)):
+        assert button.height() == button.sizeHint().height(), \
+            f"{name}高度该是横屏那套，实际 {button.height()} / 自身 {button.sizeHint().height()}"
+    assert account.y() == 0, f"最上面的按钮要贴着上沿，实际 y={account.y()}"
+    bottom = sidebar.tool_row.y() + sidebar.settings_button.y() \
+        + sidebar.settings_button.height()
+    assert bottom == block.height(), \
+        f"最下面的按钮要贴着下沿：底部 {bottom} vs 这一块 {block.height()}"
+    assert gap_label > 2 and gap_tool > 2, f"两条空白要真的留出来：{gap_label}/{gap_tool}"
+    assert abs(gap_label - gap_tool) <= 1, \
+        f"两条空白要一样大（均匀），实际 {gap_label}/{gap_tool}"
+    for name, divider, above, below in (
+            ("账号下", dividers[0], account.y() + account.height(), sidebar.tool_row.y()),
+            ("设置上", dividers[1], sidebar.layout_button.y() + sidebar.layout_button.height(),
+             sidebar.settings_button.y())):
+        upper = divider.y() - above
+        lower = below - (divider.y() + divider.height())
+        print(f"    {name}的分割线：上面留 {upper}px、下面留 {lower}px")
+        assert divider.isVisible() and divider.height() == 1, "分割线在、且只有 1px"
+        assert abs(upper - lower) <= 1, f"{name}的分割线要在空白正中间"
+    # 这一块的按钮宽度不被动过（用户要求）
     print(f"  宽度：账号={account.width()} 布局预设={sidebar.layout_button.width()}"
           f"（自身 {sidebar.layout_button.sizeHint().width()}）"
           f" 设置={sidebar.settings_button.width()}"

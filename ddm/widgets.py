@@ -2994,6 +2994,10 @@ class Sidebar(QFrame):
             divider.setObjectName("BarDivider")
             divider.setFixedHeight(1)
             divider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        #: 分割线两侧的空白：高度由 _sync_bar_gaps() 按卡片条那一行算出来
+        self._bar_gaps = tuple(QWidget(self._bar_right) for _ in range(4))
+        for gap in self._bar_gaps:
+            gap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
@@ -3015,19 +3019,36 @@ class Sidebar(QFrame):
             self._bar_row_box.insertWidget(self._bar_row_box.count() - 1,
                                            self.account_row)
 
-    def _apply_bar_block_stretches(self) -> None:
-        """账号 / 分割线 / 工具行 = 1 : 0 : 2（工具行里面再对半分）。
+    def _sync_bar_gaps(self) -> None:
+        """算两条空白的高度。
 
-        每次挪动账号都要重设一遍：`insertWidget` / `removeWidget` 会让布局里
-        其它项的下标平移，把之前设好的比例冲掉（收起再展开过账号就只剩提示高度）。
+        卡片条那一行的高度减掉三个按钮（各用横屏那套高度）和两条 1px 分割线，
+        剩下的**均分**给两条空白 —— 这样最上面的按钮贴着上沿、最下面的贴着下沿，
+        两条空白一样大、里面的分割线居中。
+        """
+        row = NAV_ITEM_HEIGHT + NAV_ITEM_GAP + theme.SCROLLBAR_SIZE
+        buttons = (theme.CONTROL_HEIGHT + self.layout_button.sizeHint().height()
+                   + self.settings_button.sizeHint().height())
+        slack = max(0, row - buttons - 2)          # 四条空白加起来的高度
+        # 每条空白 = 线上那段 + 1px 线 + 线下那段，所以先把那 1px 加回来再对半分
+        per_gap, extra = divmod(slack + 2, 2)
+        blank, blank_extra = divmod(max(0, per_gap - 1), 2)
+        for index, gap in enumerate(self._bar_gaps):
+            # 每条空白里「线上 / 线下」两段：先按对半分，余数给上面那段
+            height = blank + (blank_extra if index % 2 == 0 else 0)
+            if index >= 2:
+                height += extra                    # 除不尽的那 1px 给第二条空白
+            gap.setFixedHeight(height)
+
+    def _apply_bar_block_stretches(self) -> None:
+        """账号和工具行自己不占 stretch（高度全由按钮 + 空白算出来）。
+
+        每次挪动账号都要重设：`insertWidget` / `removeWidget` 会让布局里其它项
+        的下标平移。
         """
         for index in range(self._bar_right_box.count()):
             widget = self._bar_right_box.itemAt(index).widget()
-            if widget is self.account_row:
-                self._bar_right_box.setStretch(index, 1)
-            elif widget is self.tool_row:
-                self._bar_right_box.setStretch(index, 2)
-            else:
+            if widget is self.account_row or widget is self.tool_row:
                 self._bar_right_box.setStretch(index, 0)
 
     def _bar_icons(self) -> tuple:
@@ -3106,22 +3127,29 @@ class Sidebar(QFrame):
             self.scroll.setParent(self._bar_row2)
             self._bar_row2_box.addWidget(self.scroll, 1)
             self._bar_row2_box.addWidget(self._bar_right)
-            # 右边那一块：账号 / 分割线 / 工具行，各占三分之一的高度
+            # 右边那一块：账号 / 空白 / 分割线 / 空白 / 工具行。
+            # 三个按钮都用横屏那套自然高度，两条空白（含中间的 1px 线）一样高，
+            # 最上面、最下面的按钮正好贴着卡片条那一行的上下沿。
             self._place_account(True)
-            self._bar_right_box.insertWidget(1, self._bar_divider_label)
-            self._bar_right_box.insertWidget(2, self.tool_row)
+            self._bar_right_box.insertWidget(1, self._bar_gaps[0])
+            self._bar_right_box.insertWidget(2, self._bar_divider_label)
+            self._bar_right_box.insertWidget(3, self._bar_gaps[1])
+            self._bar_right_box.insertWidget(4, self.tool_row)
             self._apply_bar_block_stretches()
-            # 布局预设 / 设置竖排，中间也来一条分割线
             tool_box = self.tool_row.layout()
             tool_box.setDirection(QBoxLayout.TopToBottom)
             tool_box.setSpacing(0)
-            tool_box.insertWidget(1, self._bar_divider_tool)
-            tool_box.setStretch(0, 1)
-            tool_box.setStretch(2, 1)
-            # 两个按钮只按高度撑满；宽度保持各自本来的大小（用户要求：别调
-            # 单个按钮的宽度）—— 竖排布局默认会把它们拉满整块，这里给个上限
+            tool_box.insertWidget(1, self._bar_gaps[2])
+            tool_box.insertWidget(2, self._bar_divider_tool)
+            tool_box.insertWidget(3, self._bar_gaps[3])
+            # 两个按钮自己不吃 stretch（横屏时布局预设是 stretch 1）
+            tool_box.setStretch(0, 0)
+            tool_box.setStretch(4, 0)
+            self._sync_bar_gaps()
+            # 宽度保持各自本来的大小（用户要求：别调单个按钮的宽度）；高度也
+            # 不拉伸，用横屏那套自然高度
             for button in (self.layout_button, self.settings_button):
-                button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+                button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
                 button.setMaximumWidth(button.sizeHint().width())
 
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
@@ -3142,12 +3170,16 @@ class Sidebar(QFrame):
         for widget in self._column_order:
             self._detach_from_rows(widget)
             self._layout.addWidget(widget)
-        # 布局预设 / 设置回到横排一行，分割线从工具行里拿出来
+        # 布局预设 / 设置回到横排一行，把竖排时插进去的空白和分割线拿出来
         tool_box = self.tool_row.layout()
         tool_box.removeWidget(self._bar_divider_tool)
+        for gap in self._bar_gaps[2:]:
+            tool_box.removeWidget(gap)
         tool_box.setDirection(QBoxLayout.LeftToRight)
         tool_box.setStretch(0, 1)
         tool_box.setSpacing(6)
+        for gap in self._bar_gaps[:2]:
+            self._bar_right_box.removeWidget(gap)
         for button, policy in self._tool_button_policies.items():
             button.setSizePolicy(policy)
             button.setMaximumWidth(16_777_215)   # 竖屏时按自身宽度限过
@@ -3169,14 +3201,14 @@ class Sidebar(QFrame):
         """账号条的形状跟着「横屏/竖屏 + 收起/展开」走。
 
         竖屏收起时横栏只有 36px 高，账号头像要按头排头像的尺寸（34）挤进去；
-        竖屏展开时它在右侧那一块里，要撑满上面三分之一的高度（`set_compact`
-        会把高度定成 34，所以这里要再放开）；其它情况沿用原来的样子。
+        竖屏展开时它在右侧那一块里，高度就用横屏那套（34），多出来的高度留给
+        两条空白；其它情况沿用原来的样子。
         """
         if self.side == "top" and not self.collapsed:
             self.account_row.set_compact(False)
-            self.account_row.setMinimumHeight(0)
-            self.account_row.setMaximumHeight(16_777_215)
-            self.account_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            # 高度用横屏那套（34），多出来的高度留给这一块里的两条空白
+            self.account_row.setFixedHeight(theme.CONTROL_HEIGHT)
+            self.account_row.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         elif self.side == "top":
             self.account_row.set_compact(True, avatar=RoomStrip.AVATAR, margin=1)
         else:
