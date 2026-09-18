@@ -148,6 +148,8 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     Copy-Item (Join-Path $repo "libvlc.dll") $internal -Force
     Copy-Item (Join-Path $repo "libvlccore.dll") $internal -Force
     robocopy (Join-Path $repo "plugins") (Join-Path $internal "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    # 运行时侧栏会从 exe 同级 assets\logo.png 读取品牌图；favicon 也供 Qt 设置窗口图标。
+    robocopy (Join-Path $repo "assets") (Join-Path $exeDir "assets") /E /NFL /NDL /NJH /NJS /NP | Out-Null
     foreach ($file in @("LICENSE", "NOTICE.md", "RELEASE-v$($version.TrimStart('v')).md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }

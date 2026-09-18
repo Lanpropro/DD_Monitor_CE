@@ -45,6 +45,12 @@ CAROUSEL_WIDTH = 206          # 竖屏顶部横栏里横向卡片的宽度（和
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+BRAND_ASSETS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(sys.executable))
+    if getattr(sys, "frozen", False)
+    else os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "assets",
+)
 
 
 def _brightness(color: str) -> int:
@@ -2619,9 +2625,10 @@ class Sidebar(QFrame):
         header = QHBoxLayout(self._header_row)
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(9)
-        self.dot = QLabel()
-        self.dot.setFixedSize(10, 10)
-        self.dot.setStyleSheet(f"background: {theme.ACCENT}; border-radius: 5px;")
+        self.logo_label = QLabel()
+        self.logo_label.setObjectName("AppLogo")
+        self.logo_label.setToolTip(version_module.DISPLAY_NAME)
+        self._brand_logo = QPixmap(os.path.join(BRAND_ASSETS_DIR, "logo.png"))
         self.title_box = QVBoxLayout()
         self.title_box.setSpacing(0)
         title = QLabel(version_module.DISPLAY_NAME)
@@ -2633,6 +2640,7 @@ class Sidebar(QFrame):
         self.subtitle_label = subtitle
         self.title_box.addWidget(title)
         self.title_box.addWidget(subtitle)
+        self._set_brand_header(compact=False)
         self.batch_button = BarIconButton("多选", "check")
         self.batch_button.setObjectName("ChipButton")
         self.batch_button.setCursor(Qt.PointingHandCursor)
@@ -2643,7 +2651,7 @@ class Sidebar(QFrame):
         self.toggle_button = SidebarToggleButton(self)
         self.toggle_button.setToolTip("收起 / 展开房间列表")
         self.toggle_button.clicked.connect(self.toggle_collapsed)
-        header.addWidget(self.dot, 0, Qt.AlignVCenter)
+        header.addWidget(self.logo_label, 0, Qt.AlignVCenter)
         header.addLayout(self.title_box, 1)
         header.addWidget(self.batch_button, 0, Qt.AlignTop)
         header.addWidget(self.toggle_button, 0, Qt.AlignTop)
@@ -2978,7 +2986,7 @@ class Sidebar(QFrame):
                 holder = self.title_box.itemAt(index).widget()
                 if holder is not None:
                     holder.setVisible(True)
-            self.dot.setVisible(True)
+            self._set_brand_header(compact=False)
             self.batch_button.setVisible(True)
             for widget, visible in ((self.search, True), (self.status_row, True),
                                     (self.scroll, True),
@@ -3389,10 +3397,21 @@ class Sidebar(QFrame):
             self._apply_scroll_axis()
 
     def _show_logo_title(self) -> None:
-        """竖屏横栏的 logo：圆点 + 「DD监控室CE」（副标题占地方，藏起来）。"""
-        self.dot.setVisible(True)
-        self.title_label.setVisible(True)
+        """竖屏横栏只挂紧凑 Logo，不改变原有第一行高度。"""
+        self._set_brand_header(compact=True)
+
+    def _set_brand_header(self, compact: bool) -> None:
+        """横屏显示 Logo + 名称；紧凑横栏只显示 Logo。"""
+        size = 30 if compact else 28
+        self.logo_label.setFixedSize(size, size)
+        if not self._brand_logo.isNull():
+            self.logo_label.setPixmap(self._brand_logo.scaled(
+                size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.logo_label.setVisible(True)
+        self.title_label.setVisible(not compact)
         self.subtitle_label.setVisible(False)
+        if not compact:
+            self.subtitle_label.setVisible(True)
 
     def _apply_scroll_axis(self) -> None:
         """竖屏横栏里关注列表是横向卡片条：左右滚，只占一条高度。"""
@@ -3443,7 +3462,7 @@ class Sidebar(QFrame):
             return
         target = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
         for widget in (self.search, self.status_row, self.normal_bar, self.batch_bar,
-                       self.dot, self.batch_button, self.tool_row):
+                       self.logo_label, self.batch_button, self.tool_row):
             widget.setVisible(not collapsed and (widget is not self.batch_bar or self.select_mode))
         self._sync_account_row_shape()
         self.account_row.setVisible(self._account_row_should_show())

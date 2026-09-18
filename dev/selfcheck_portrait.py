@@ -532,6 +532,12 @@ def part_orientation_roundtrip(app) -> None:
             assert sidebar.refresh_button.parentWidget() is sidebar.status_row, \
                 f"{tag}: 刷新要回状态行"
             assert sidebar.settings_button.isVisible(), f"{tag}: 设置按钮要回来"
+            assert (sidebar.logo_label.isVisible()
+                    and sidebar.logo_label.pixmap() is not None
+                    and not sidebar.logo_label.pixmap().isNull()), \
+                f"{tag}: 横屏侧栏必须显示应用 Logo"
+            assert sidebar.title_label.isVisible() and sidebar.subtitle_label.isVisible(), \
+                f"{tag}: 横屏侧栏保留 Logo + 名称 + 副标题"
         return main
 
     check("横屏启动", False)
@@ -775,20 +781,26 @@ def part_strip_interaction(app) -> None:
     assert min(button.x() for button in icons) > sidebar.search.x(), "图标在搜索框右边"
     assert all(button.parentWidget() is sidebar._bar_row for button in icons + [
         sidebar.toggle_button]), "图标和展开键在第一行"
-    # 用户要求：缩短搜索框、左侧给 logo 留位置（标题行搬进横栏第一行当 logo）
+    # 竖屏第一行直接挂紧凑 Logo，不增加原有高度，也不再拿名称挤搜索框。
     header = sidebar._header_row
     print(f"  第一行 logo：x={header.x()} 宽={header.width()} "
+          f"图标={sidebar.logo_label.width()}x{sidebar.logo_label.height()} "
           f"标题可见={sidebar.title_label.isVisible()} "
           f"副标题可见={sidebar.subtitle_label.isVisible()} "
           f"搜索框 x={sidebar.search.x()} 宽={sidebar.search.width()}")
     assert header.isVisible() and header.parentWidget() is sidebar._bar_row, \
         "logo（标题行）要摆在横栏第一行左边"
-    assert sidebar.title_label.isVisible() and not sidebar.subtitle_label.isVisible(), \
-        f"竖屏 logo 只露「{version_module.DISPLAY_NAME}」，副标题藏起来"
+    assert (sidebar.logo_label.isVisible()
+            and sidebar.logo_label.pixmap() is not None
+            and not sidebar.logo_label.pixmap().isNull()), "竖屏横栏必须显示应用 Logo"
+    assert not sidebar.title_label.isVisible() and not sidebar.subtitle_label.isVisible(), \
+        "竖屏横栏只挂紧凑 Logo，不再用产品名挤搜索框"
+    assert sidebar.logo_label.width() == 30 and sidebar.logo_label.height() == 30, \
+        "竖屏 Logo 尺寸应保持紧凑"
     assert header.x() < sidebar.search.x(), "logo 要在搜索框左边"
     assert header.x() + header.width() <= sidebar.search.x() + 2, "logo 不能压到搜索框"
-    assert sidebar.search.width() < 900, \
-        f"搜索框要让出 logo 那一段宽度，实际 {sidebar.search.width()}"
+    assert sidebar.search.width() > 850, \
+        f"紧凑 Logo 应给搜索框留出足够宽度，实际 {sidebar.search.width()}"
     print(f"  图标文字：多选={sidebar.batch_button.text()!r} "
           f"排序={sidebar.sort_button.text()!r} 尺寸="
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
