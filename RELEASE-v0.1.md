@@ -40,13 +40,12 @@
 ## 已知问题
 
 - 昵称很长的账号，横栏右上角的账号条会省略号截断（`ACCOUNT_PILL_MAX`）。
-- **免装 Python 的 exe 还没打通**：本机 PySide6 6.11 + PyInstaller 6.22 冻出来的
-  exe 一 `import QtCore` 就报「DLL load failed while importing QtCore」。
-  已经查清的部分：`Qt6Core.dll` / `pyside6.abi3.dll` 都在包里、没缺文件；用干净的
-  Python 手动 `os.add_dll_directory` 加载同一批文件是成功的，所以也不是搜索路径；
-  失败点在 `Qt6Core.dll` 自身加载（它的依赖单独加载都 OK）。暂时无解，
-  这一版因此发**源码便携包**（`dev/build_release.ps1 -Frozen` 留了开关，
-  而且会实跑验证，起不来就报错、不产出半成品）。
+- exe 便携版是用 **PySide6 6.9** 冻结的（主开发环境是 6.11）：6.11 冻出来的 exe
+  一 `import QtCore` 就报「DLL load failed while importing QtCore」。排查结论：
+  不是缺文件、也不是搜索路径（干净的 Python 手动 `os.add_dll_directory` 加载同一批
+  DLL 是成功的），失败点收窄在 `Qt6Core.dll` 自身加载；换成 6.9 的老布局就正常。
+  程序在 6.9 下自查全过。
+- exe 包 626 MB（PySide6 带整套 Qt 运行库，这一版没做裁剪）。
 
 ## 自查状态
 
@@ -64,13 +63,18 @@
 
 ## 运行
 
-- 源码便携包（这一版的形式）：整个目录拷走 →
+- **exe 便携版（推荐）**：`results\DD监控室-v0.1-exe\` 整个目录拷走，双击
+  `DD监控室-v0.1-exe.exe`。不需要装 Python；配置 / 缓存 / 日志都在这个目录下
+  （`utils\config.json`、`cache\`、`logs\`），删掉 `utils\config.json` 等于恢复出厂。
+  里面的 `_internal\`（含 `libvlc.dll` 和 `plugins\`）是运行库，别删。
+- **源码便携包**：`results\DD监控室-v0.1\` 整个目录拷走 →
   ① 机器上有 Python 3.12/3.13：`python -m venv .venv` →
   `.venv\Scripts\pip install -r requirements.txt` → 双击 `run.cmd`；
   ② 本机已有现成虚拟环境（`F:\CodexAppManager\Code\DD_Monitor-venv`）时
   双击 `run.cmd` 即可，它会自己找到解释器。
-- 直接跑源码：同上，只是不用拷贝目录。
-- 重新打包：`powershell -File dev\build_release.ps1`（源码包 + zip）。
+- **重新打包**：`powershell -File dev\build_release.ps1`（默认出 exe 包 + 源码包，
+  输出到仓库里的 `results\`；只要源码包加 `-SourceOnly`）。冻结用的 PySide6 6.9
+  放在 `work\deps`，脚本缺了会提示怎么装。
 
 ## 许可
 
