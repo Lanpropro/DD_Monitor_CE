@@ -35,8 +35,6 @@ DD 监控室 CE 是一款基于 Python、PySide6 和 VLC 的 B 站多窗口直�
 
 ![DD 监控室 CE 竖屏布局](docs/overview1_Portrait_Mode.png)
 
-![DD 监控室 CE 竖屏展开态](docs/portrait-current.png)
-
 ## 功能特性
 
 - 📺 最多同时管理 16 路直播画面
