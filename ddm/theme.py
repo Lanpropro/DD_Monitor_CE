@@ -839,4 +839,25 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
     background: none;
     height: 0;
 }}
+/* ---------- 滚动条：横向 ----------
+   竖屏顶部横栏的横向卡片条靠它滚。样式和上面的竖向条一一对应（同一组颜色、
+   同粗、同样去掉两端箭头），否则会掉回系统原生那条灰底带箭头的滚动条。 */
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
+    margin: 0 2px;
+}}
+QScrollBar::handle:horizontal {{
+    background: rgba(131, 131, 145, 0.35);
+    border-radius: 4px;
+    min-width: 32px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: rgba(131, 131, 145, 0.55);
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: none;
+    width: 0;
+}}
 """

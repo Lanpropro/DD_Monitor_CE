@@ -361,6 +361,20 @@ def part_strip_interaction(app) -> None:
     assert sidebar.height() < 300, f"展开后横栏要比 362px 那版矮，实际 {sidebar.height()}"
     # 竖向滚轮要能横向滚（竖屏没有横向滚轮的鼠标）
     assert sidebar.scroll.horizontal_only, "竖屏列表要靠竖向滚轮横向滚"
+    # 横向滚动条要和横屏那条竖向滚动条同一套风格：主题里两轴都要有规则、
+    # 滑块同色、两端不带箭头的原生按钮；渲染出来的粗细也得是主题写的 8px
+    # （掉回系统原生是 12px，还带左右箭头）
+    qss = theme.qss()
+    hbar = sidebar.scroll.horizontalScrollBar()
+    print(f"  横向滚动条 {hbar.width()}x{hbar.height()}（原生 12px、带箭头）；"
+          f"主题里 handle 同色出现 {qss.count('rgba(131, 131, 145, 0.35)')} 次")
+    for rule in ("QScrollBar:horizontal", "QScrollBar::handle:horizontal",
+                 "QScrollBar::add-line:horizontal", "QScrollBar::sub-line:horizontal",
+                 "QScrollBar::add-page:horizontal", "QScrollBar::sub-page:horizontal"):
+        assert rule in qss, f"主题里缺 {rule}，横向条会掉回系统原生样式"
+    assert qss.count("rgba(131, 131, 145, 0.35)") == 2, \
+        "横向和竖向滚动条的滑块要用同一种颜色（各一处）"
+    assert hbar.height() <= 10, f"横向滚动条没走主题样式，实际 {hbar.height()}px"
 
     print("\n=== 12b. 横栏右侧那一块：账号头像 + 布局预设 + ⋯ 挤在同一行 ===")
     account = sidebar.account_row
