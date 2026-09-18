@@ -3127,10 +3127,10 @@ class Sidebar(QFrame):
             self._bar_row_box.addWidget(self.batch_bar, 1)
             for widget in self._bar_icons() + (self.toggle_button,):
                 self._bar_row_box.addWidget(widget)
-            # 多选条压到和第一行一样高（它的按钮比搜索框高，不压就会顶高整条横栏）
-            self.batch_bar.setFixedHeight(self.search.sizeHint().height())
-            for button in (self.delete_button, self.cancel_button):
-                button.setFixedHeight(self.search.sizeHint().height() - 4)
+            # 第一行的高度固定成标准控件那一档（多选条里的删除/取消就是原来那两个
+            # 按钮，压矮了圆角就和样式表对不上）。固定住之后，搜索框和多选条谁在
+            # 这一行里都一样高 —— 点「多选」不会让横栏变高、画布不抖。
+            self._bar_row.setFixedHeight(self.batch_bar.sizeHint().height())
 
             self._detach_from_rows(self.scroll)
             self._detach_from_rows(self.tool_row)
@@ -3192,6 +3192,8 @@ class Sidebar(QFrame):
             button.setSizePolicy(policy)
             button.setMaximumWidth(16_777_215)   # 竖屏时按自身宽度限过
         # 多选条回左栏：高度限制解掉，按钮恢复样式表那套高度
+        self._bar_row.setMinimumHeight(0)
+        self._bar_row.setMaximumHeight(16_777_215)
         self.batch_bar.setMinimumHeight(0)
         self.batch_bar.setMaximumHeight(16_777_215)
         for button in (self.delete_button, self.cancel_button):

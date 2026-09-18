@@ -694,6 +694,13 @@ def part_strip_interaction(app) -> None:
     assert sidebar.batch_bar.isVisible() and not sidebar.search.isVisible(), \
         "多选条要顶掉第一行的搜索框，而不是在下面新占一行"
     assert sidebar.batch_bar.parentWidget() is sidebar._bar_row, "多选条要在横栏第一行里"
+    # 删除 / 取消就是原来那两个按钮，样式（标准控件高度）不能因为横栏窄就被压矮
+    delete_height = sidebar.delete_button.height()
+    cancel_height = sidebar.cancel_button.height()
+    print(f"  多选条按钮高：删除={delete_height} 取消={cancel_height} "
+          f"（标准 {theme.CONTROL_HEIGHT}）")
+    assert min(delete_height, cancel_height) >= theme.CONTROL_HEIGHT, \
+        f"删除/取消被压矮了（圆角会和样式表对不上）：{delete_height}/{cancel_height}"
     sidebar.set_select_mode(False)
     settle(app, 0.4)
     assert sidebar.height() == height_before, "退出多选也不能让横栏变高"
