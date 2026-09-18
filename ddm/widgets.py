@@ -109,6 +109,18 @@ def circular_pixmap(source: QPixmap, size: int) -> QPixmap:
     return result
 
 
+def _badge_font() -> QFont:
+    """画面浮标用的字体。
+
+    量文字宽度和画文字都必须用它，**不能用 `widget.fontMetrics()`**：
+    QSS 里的 font-size 是 polish 之后才落到控件上的，构造时量出来的宽度会偏小，
+    等真正画的时候字变大，人数就被自己的遮罩截掉了（用户报的「人数被遮挡」）。
+    """
+    font = QFont(theme.FONT_DEFAULT)
+    font.setPixelSize(theme.FONT_CONTROL)
+    return font
+
+
 class StreamBadge(QWidget):
     """画面左上角的浮标：左侧圆形镂空，右边是 LIVE 和直播间人数。"""
 
@@ -150,7 +162,7 @@ class StreamBadge(QWidget):
 
     def full_width(self) -> int:
         """不压缩时（带人数）需要的宽度，用来判断放不放得下。"""
-        metrics = self.fontMetrics()
+        metrics = QFontMetrics(_badge_font())
         meta = self.viewers if (self.live and self.viewers) else ""
         width = HOLE_MARGIN * 2 + HOLE_SIZE + 6 + metrics.horizontalAdvance("LIVE")
         if meta:
@@ -163,7 +175,7 @@ class StreamBadge(QWidget):
         return "LIVE" if self.live else "未开播"
 
     def _rebuild(self) -> None:
-        metrics = self.fontMetrics()
+        metrics = QFontMetrics(_badge_font())
         meta = ""
         if self.live and self.viewers and not getattr(self, "_compact", False):
             meta = self.viewers
@@ -194,7 +206,9 @@ class StreamBadge(QWidget):
         painter.setBrush(QColor("#fb7299" if self.live else "#7b828c"))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(QRectF(dot - 4.5, BADGE_HEIGHT / 2 - 4.5, 9, 9))
-        metrics = self.fontMetrics()
+        font = _badge_font()
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
         x = float(HOLE_MARGIN * 2 + HOLE_SIZE + 6)
         painter.setPen(QColor("#fb7299"))
         painter.drawText(QRectF(x, 0, 120, BADGE_HEIGHT),
@@ -225,7 +239,7 @@ class TimeBadge(QWidget):
         self.update()
 
     def _rebuild(self) -> None:
-        metrics = self.fontMetrics()
+        metrics = QFontMetrics(_badge_font())
         width = metrics.horizontalAdvance(self.text or "0:00:00") + 20
         self.resize(width, BADGE_HEIGHT)
         path = QPainterPath()
@@ -239,6 +253,7 @@ class TimeBadge(QWidget):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.fillPath(self._mask_path, QColor("#15171c"))
         painter.setPen(QColor("#d7dbe2"))
+        painter.setFont(_badge_font())
         painter.drawText(self.rect(), int(Qt.AlignCenter), self.text)
 
 
@@ -2434,19 +2449,20 @@ class BarIconButton(QPushButton):
             path.lineTo(center.x() + 5.2, center.y() - 4.0)
             painter.drawPath(path)
         else:
-            # 上箭头 + 下箭头 = 「排序」
+            # 上箭头 + 下箭头 = 「排序」。两根杆子要拉开、箭头别画太宽，
+            # 否则两个箭头的三角会和旁边那根杆子叠在一起（用户报过重叠）。
             pen = QPen(color, 1.8)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
-            for offset, up in ((-2.6, True), (2.6, False)):
+            for offset, up in ((-4.0, True), (4.0, False)):
                 x = center.x() + offset
-                top = center.y() - 5.4
-                bottom = center.y() + 5.4
+                top = center.y() - 5.5
+                bottom = center.y() + 5.5
                 painter.drawLine(QPointF(x, top), QPointF(x, bottom))
                 tip = top if up else bottom
                 base = top + 3.4 if up else bottom - 3.4
-                painter.drawLine(QPointF(x, tip), QPointF(x - 3.0, base))
-                painter.drawLine(QPointF(x, tip), QPointF(x + 3.0, base))
+                painter.drawLine(QPointF(x, tip), QPointF(x - 2.2, base))
+                painter.drawLine(QPointF(x, tip), QPointF(x + 2.2, base))
 
 
 class PinnedArc(QWidget):
@@ -2940,42 +2956,33 @@ class Sidebar(QFrame):
 
     # ---- 横栏那一行 ----
     def _detach_from_rows(self, widget: QWidget) -> None:
-        """把控件从「竖排布局」和横栏那几个容器里都摘出来。"""
+        """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
         for holder in (self._layout, self._bar_row_box, self._bar_row2_box,
-                       self._bar_right_box, self._bar_left_box):
+                       self._bar_right_box):
             if holder is not None:
                 holder.removeWidget(widget)
 
     def _ensure_bar_row(self) -> None:
-        """建出横栏的容器（只建一次）。
+        """建出横栏的两行容器（只建一次）。
 
-        外层 `_bar_host` 是一行两块：左边一列（第一行搜索/图标、第二行卡片条），
-        右边那一块竖排「账号 / 布局预设 / 设置」，**占满整条关注栏的高度**
-        （用户要求：三个按钮占满关注栏高度，中间适当分割）。
+        第一行：logo + 搜索框（收起时换成头像排）+ 多选/排序/刷新小图标 + 展开键。
+        第二行：横向卡片条 + 右侧单独一块（账号 / 布局预设 / 设置 竖排）。
+        右侧那一块只占第二行，不侵占第一行的地方（用户要求）；高度就是卡片条
+        那一行的高度，三个按钮 + 两条分割线把它正好分完。
         """
         if self._bar_row is not None:
             return
-        self._bar_host = QWidget(self)
-        host = QHBoxLayout(self._bar_host)
-        host.setContentsMargins(0, 0, 0, 0)
-        host.setSpacing(6)
-        self._bar_host_box = host
-        self._bar_left = QWidget(self._bar_host)
-        left = QVBoxLayout(self._bar_left)
-        left.setContentsMargins(0, 0, 0, 0)
-        left.setSpacing(6)
-        self._bar_left_box = left
-        self._bar_row = QWidget(self._bar_left)
+        self._bar_row = QWidget(self)
         box = QHBoxLayout(self._bar_row)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(6)
         self._bar_row_box = box
-        self._bar_row2 = QWidget(self._bar_left)
+        self._bar_row2 = QWidget(self)
         box2 = QHBoxLayout(self._bar_row2)
         box2.setContentsMargins(0, 0, 0, 0)
         box2.setSpacing(6)
         self._bar_row2_box = box2
-        self._bar_right = QWidget(self._bar_host)
+        self._bar_right = QWidget(self._bar_row2)
         right = QVBoxLayout(self._bar_right)
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(0)
@@ -3071,12 +3078,13 @@ class Sidebar(QFrame):
         self._sync_bar_icons()
 
     def _adopt_bar_row(self) -> None:
-        """竖屏：把横栏排成「左一列 + 右一块」。
+        """竖屏：把横栏排成两行。
 
-        左边一列：第一行 logo（圆点 + 「DD 监控室」）+ 搜索框（收起时换成头排）
-        + 多选/排序/刷新三个小图标 + 展开键；第二行横向卡片条。
-        右边那一块竖排「账号 / 布局预设 / 设置」，**占满整条关注栏的高度**，
-        三个按钮之间用 1px 分割线隔开（用户要求：适当给予分割、占满高度）。
+        第一行：logo（圆点 + 「DD 监控室」）+ 搜索框（收起时换成头排）
+        + 多选/排序/刷新三个小图标 + 展开键。
+        第二行：横向卡片条 + 右侧单独一块，那块里「账号 / 布局预设 / 设置」竖排、
+        中间两条 1px 分割线 —— 三个按钮 + 两条线正好把卡片条那一行的高度分完，
+        不占第一行的地方（用户要求：加起来和左侧展开关注栏同高，别占用别处）。
         """
         self._ensure_bar_row()
         if not self._bar_in_use:
@@ -3097,9 +3105,7 @@ class Sidebar(QFrame):
             self._detach_from_rows(self.tool_row)
             self.scroll.setParent(self._bar_row2)
             self._bar_row2_box.addWidget(self.scroll, 1)
-            self._bar_left_box.addWidget(self._bar_row)
-            self._bar_left_box.addWidget(self._bar_row2, 1)
-
+            self._bar_row2_box.addWidget(self._bar_right)
             # 右边那一块：账号 / 分割线 / 工具行，各占三分之一的高度
             self._place_account(True)
             self._bar_right_box.insertWidget(1, self._bar_divider_label)
@@ -3112,29 +3118,24 @@ class Sidebar(QFrame):
             tool_box.insertWidget(1, self._bar_divider_tool)
             tool_box.setStretch(0, 1)
             tool_box.setStretch(2, 1)
+            # 两个按钮都要撑满这一块（宽和高），不然它们只按提示高度排，
+            # 下面会空出一截（用户要求：三个按钮 + 两条分割正好分完那一行）
             for button in (self.layout_button, self.settings_button):
                 button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            # 账号条的高度/策略由 _sync_account_row_shape 放开（它每轮都会调）
 
-            self._bar_host_box.addWidget(self._bar_left, 1)
-            self._bar_host_box.addWidget(self._bar_right)
-            self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_host)
+            self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
+            self._layout.insertWidget(index + 2 if index >= 0 else 2, self._bar_row2)
             self._bar_in_use = True
             self._sync_bar_icons()
         self._bar_row.setVisible(True)
 
     def _release_bar_row(self) -> None:
-        """回左栏：把横栏那几个容器拆掉，控件按 __init__ 里的原始顺序挂回竖排布局。"""
+        """回左栏：把这两行拆掉，控件按 __init__ 里的原始顺序挂回竖排布局。"""
         if not self._bar_in_use:
             return
-        self._layout.removeWidget(self._bar_host)
-        self._bar_host.setVisible(False)
-        self._bar_host_box.removeWidget(self._bar_left)
-        self._bar_host_box.removeWidget(self._bar_right)
-        self._bar_left_box.removeWidget(self._bar_row)
-        self._bar_left_box.removeWidget(self._bar_row2)
-        self._bar_row.setVisible(False)
-        self._bar_row2.setVisible(False)
+        for row in (self._bar_row, self._bar_row2):
+            self._layout.removeWidget(row)
+            row.setVisible(False)
         for widget in self._bar_widgets() + [self.scroll, self._header_row]:
             self._detach_from_rows(widget)
         for widget in self._column_order:
@@ -3213,8 +3214,6 @@ class Sidebar(QFrame):
         self._adopt_bar_row()
         self._sync_account_row_shape()
         self._sync_account_row_width()
-        self._bar_host.setVisible(True)
-        self._bar_left.setVisible(True)
         header = getattr(self, "_header_row", None)
         toggle = getattr(self, "toggle_button", None)
         # 展开时收起头排（用户要求展开后不显示头像排，那点高度留给卡片）；
@@ -4137,9 +4136,10 @@ class Tile(QFrame):
         self.stream_badge.move(10, 8)
         self.stream_badge.raise_()
         self._layout_controls()
-        # 挤不下时先收起 LIVE 里的人数是；还是挤不下就把控制条折到第二行
-        self.stream_badge.set_compact(
-            self.controls.x() < self.stream_badge.full_width() + 26)
+        # 人数优先留着（用户要求：别把人数藏掉、浮标该跟着变长）：
+        # 只有格子窄到连「LIVE + 人数」都摆不下时才收起人数，一般情况让
+        # 控制条折到第二行去腾地方
+        self.stream_badge.set_compact(width < self.stream_badge.full_width() + 20)
         if self.controls.x() < self.stream_badge.width() + 22:
             self.controls.move(self.controls.x(), 8 + BADGE_HEIGHT + 6)
         # 标题浮标紧跟在 LIVE 右边，剩下的宽度让给控制条那一行

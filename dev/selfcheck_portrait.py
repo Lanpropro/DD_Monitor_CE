@@ -161,6 +161,36 @@ def part_portrait(app) -> None:
     settle(app, 0.4)
 
 
+def part_narrow_tile_badge(app) -> None:
+    """格子被挤窄时，LIVE 浮标要跟着文字变长，不能把人数藏掉。
+
+    用户实测报的：竖屏下左上角 LIVE 的人数被遮挡、浮标没有自适应变长。
+    原来一挤不下就 `set_compact(True)` 把人数收起来；现在改成让控制条折到
+    第二行，人数留着。
+    """
+    print("\n=== 6b. 窄格子里人数不被藏掉、浮标跟着变长 ===")
+    window = MainWindow(rooms(7), rooms(7), layout_id="portrait_main6")
+    window.setGeometry(-9000, -9000, 700, 1400)      # 小格子会被挤到 ~330 宽
+    window.show()
+    settle(app, 1.2)
+    checked = 0
+    for tile in window.wall.visible_tiles():
+        badge = tile.stream_badge
+        if not badge.isVisible():
+            continue
+        print(f"  格子 {tile.width()}x{tile.height()}：浮标宽={badge.width()} "
+              f"人数={badge.viewers!r} 收起人数={getattr(badge, '_compact', False)} "
+              f"需要={badge.full_width()} 控制条 y={tile.controls.y()}")
+        assert not getattr(badge, "_compact", False), \
+            f"格子 {tile.width()} 宽还收起了人数（用户报的就是这个）"
+        assert badge.width() == badge.full_width(), \
+            "浮标宽度要按人数文字算出来，不然人数会被截断"
+        checked += 1
+    assert checked >= 2, f"这一段要能测到格子，实际 {checked} 个"
+    window.close()
+    settle(app, 0.4)
+
+
 def part_portrait_danmaku(app) -> None:
     print("\n=== 7. 竖屏 + 弹幕：弹幕贴底、整宽；主画面仍是 16:9 ===")
     window = MainWindow(rooms(3), rooms(3), layout_id="portrait_dm2")
@@ -531,9 +561,10 @@ def part_strip_interaction(app) -> None:
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
     assert sidebar.batch_button.text() != "多选" and sidebar.sort_button.text() != "排序", \
         "横栏里这三个是图标按钮，不是文字按钮"
-    # 用户要求：最后一张卡片右边单独开一块，账号 / 布局预设 / 设置 竖排、占满高度
-    assert block.isVisible() and block.parentWidget() is sidebar._bar_host, \
-        "右侧那一块要挂在横栏容器里（和左边那一列并排）"
+    # 用户要求：最后一张卡片右边单独开一块，账号 / 布局预设 / 设置 竖排；
+    # 这一块只占卡片条那一行，三个按钮 + 两条分割线正好把那一行分完
+    assert block.isVisible() and block.parentWidget() is sidebar._bar_row2, \
+        "右侧那一块要和卡片条在同一行"
     assert block.x() >= sidebar.scroll.x() + sidebar.scroll.width(), \
         "这一块要在卡片条的右边"
     assert account.parentWidget() is block and sidebar.tool_row.parentWidget() is block, \
@@ -544,16 +575,20 @@ def part_strip_interaction(app) -> None:
         "布局预设和设置也要竖排（设置在下）"
     assert abs(sidebar.settings_button.x() - sidebar.layout_button.x()) <= 2, \
         "竖排时两个按钮左边对齐"
-    # 用户要求：三个按钮占满整条关注栏的高度，中间「适当给予分割」
     heights = [account.height(), sidebar.layout_button.height(),
                sidebar.settings_button.height()]
     dividers = [sidebar._bar_divider_label, sidebar._bar_divider_tool]
-    print(f"  这一块：高={block.height()}（横栏 {sidebar.height()}）"
+    print(f"  这一块：高={block.height()}（卡片条 {sidebar.scroll.height()}）"
           f" 三段高度={heights} 分割线={[d.height() for d in dividers]} "
-          f"宽度={sorted({account.width(), sidebar.layout_button.width(), sidebar.settings_button.width()})}")
-    assert block.height() >= sidebar.height() - 20, \
-        f"这一块要占满整条关注栏的高度：块 {block.height()} vs 横栏 {sidebar.height()}"
+          f"宽={sorted({account.width(), sidebar.layout_button.width(), sidebar.settings_button.width()})}")
+    assert abs(block.height() - sidebar.scroll.height()) <= 2, \
+        f"这一块要和卡片条同高（不占别处）：块 {block.height()} vs 卡片条 {sidebar.scroll.height()}"
+    assert block.y() >= sidebar.scroll.y() and \
+        block.y() + block.height() <= sidebar.scroll.y() + sidebar.scroll.height() + 2, \
+        "这一块不能超到卡片条那一行外面（比如爬上去挤搜索框）"
     assert max(heights) - min(heights) <= 2, f"三个按钮要等分这一块的高度，实际 {heights}"
+    assert sum(heights) + sum(d.height() for d in dividers) == block.height(), \
+        "三个按钮 + 两条分割线要正好分完这一块的高度"
     assert all(divider.isVisible() and divider.height() == 1 for divider in dividers), \
         "三个按钮之间要有 1px 分割线"
     assert account.y() + account.height() + 1 == sidebar.tool_row.y(), \
@@ -679,6 +714,7 @@ def main() -> None:
 
     part_layouts()
     part_portrait(app)
+    part_narrow_tile_badge(app)
     part_portrait_danmaku(app)
     part_landscape_unchanged(app)
     part_orientation_roundtrip(app)
