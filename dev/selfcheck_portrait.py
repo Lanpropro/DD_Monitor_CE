@@ -677,6 +677,28 @@ def part_strip_interaction(app) -> None:
     assert "导入关注…" in labels and "+ 添加直播间…" in labels, labels
     assert "设置…" not in labels, "设置已经摆在右侧那一块上，展开态菜单里不用再来一份"
 
+    print("\n=== 12c. 点「多选」不能把横栏顶高（画面墙不抖）===")
+    height_before = sidebar.height()
+    tile_before = window.wall.tiles[0].height()
+    sidebar.set_select_mode(True)
+    settle(app, 0.5)
+    print(f"  多选态：横栏 {height_before} -> {sidebar.height()} "
+          f"主画面高 {tile_before} -> {window.wall.tiles[0].height()}；"
+          f"多选条可见={sidebar.batch_bar.isVisible()} "
+          f"搜索框可见={sidebar.search.isVisible()} "
+          f"多选条父控件={type(sidebar.batch_bar.parentWidget()).__name__}")
+    assert sidebar.height() == height_before, \
+        f"点「多选」不能让横栏变高（用户报的抖动）：{height_before} -> {sidebar.height()}"
+    assert window.wall.tiles[0].height() == tile_before, \
+        "画面墙也不能跟着变（不然画布会抖一下）"
+    assert sidebar.batch_bar.isVisible() and not sidebar.search.isVisible(), \
+        "多选条要顶掉第一行的搜索框，而不是在下面新占一行"
+    assert sidebar.batch_bar.parentWidget() is sidebar._bar_row, "多选条要在横栏第一行里"
+    sidebar.set_select_mode(False)
+    settle(app, 0.4)
+    assert sidebar.height() == height_before, "退出多选也不能让横栏变高"
+    assert sidebar.search.isVisible() and not sidebar.batch_bar.isVisible(), "搜索框要回来"
+
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.3)
     assert not sidebar.search.isVisible(), "收起后搜索框要收掉"

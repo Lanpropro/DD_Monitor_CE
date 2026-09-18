@@ -2645,13 +2645,13 @@ class Sidebar(QFrame):
         self.delete_button.setObjectName("DangerButton")
         self.delete_button.setCursor(Qt.PointingHandCursor)
         self.delete_button.clicked.connect(self._emit_delete)
-        cancel_button = QPushButton("取消")
-        cancel_button.setObjectName("IconButton")
-        cancel_button.setCursor(Qt.PointingHandCursor)
-        cancel_button.clicked.connect(lambda: self.set_select_mode(False))
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.setObjectName("IconButton")
+        self.cancel_button.setCursor(Qt.PointingHandCursor)
+        self.cancel_button.clicked.connect(lambda: self.set_select_mode(False))
         batch_layout.addWidget(self.batch_label, 1)
         batch_layout.addWidget(self.delete_button)
-        batch_layout.addWidget(cancel_button)
+        batch_layout.addWidget(self.cancel_button)
         self.batch_bar.setVisible(False)
         layout.addWidget(self.batch_bar)
 
@@ -3006,7 +3006,7 @@ class Sidebar(QFrame):
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
         return [self.search, self._head_scroll, self.batch_button, self.sort_button,
                 self.refresh_button, self.account_row, self.tool_row,
-                self.toggle_button]
+                self.batch_bar, self.toggle_button]
 
     def _place_account(self, in_right_block: bool) -> None:
         """账号头像的位置：展开时在整块里排第一，收起时回到第一行最右端。"""
@@ -3114,16 +3114,23 @@ class Sidebar(QFrame):
         if not self._bar_in_use:
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
-                           self.batch_button, self.sort_button, self.refresh_button,
-                           self.toggle_button):
+                           self.batch_bar, self.batch_button, self.sort_button,
+                           self.refresh_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
-            # 左边是 logo，然后是搜索框（收起时换成头像排）、图标、展开键
+            # 左边是 logo，然后是搜索框（收起时换成头像排）、多选条、图标、展开键。
+            # 多选条和搜索框轮流坐第一行：**不额外占一行**，横栏高度不变，
+            # 画面墙就不会因为点「多选」抖一下（用户报的）。
             self._bar_row_box.addWidget(self._header_row)
             self._bar_row_box.addWidget(self.search, 1)
             self._bar_row_box.addWidget(self._head_scroll, 1)
+            self._bar_row_box.addWidget(self.batch_bar, 1)
             for widget in self._bar_icons() + (self.toggle_button,):
                 self._bar_row_box.addWidget(widget)
+            # 多选条压到和第一行一样高（它的按钮比搜索框高，不压就会顶高整条横栏）
+            self.batch_bar.setFixedHeight(self.search.sizeHint().height())
+            for button in (self.delete_button, self.cancel_button):
+                button.setFixedHeight(self.search.sizeHint().height() - 4)
 
             self._detach_from_rows(self.scroll)
             self._detach_from_rows(self.tool_row)
@@ -3184,6 +3191,12 @@ class Sidebar(QFrame):
         for button, policy in self._tool_button_policies.items():
             button.setSizePolicy(policy)
             button.setMaximumWidth(16_777_215)   # 竖屏时按自身宽度限过
+        # 多选条回左栏：高度限制解掉，按钮恢复样式表那套高度
+        self.batch_bar.setMinimumHeight(0)
+        self.batch_bar.setMaximumHeight(16_777_215)
+        for button in (self.delete_button, self.cancel_button):
+            button.setMinimumHeight(0)
+            button.setMaximumHeight(16_777_215)
         self.account_row.setSizePolicy(self._account_policy)
         self._bar_in_use = False
         self._sync_account_row_shape()          # 账号条恢复原来的固定高度
@@ -3284,16 +3297,19 @@ class Sidebar(QFrame):
             if header is not None:
                 header.setVisible(True)
             self._show_logo_title()
-            self.search.setVisible(True)
+            # 第一行：平时是搜索框 + 三个图标；进多选态就让多选条顶掉它们，
+            # 这一行的高度不变 —— 点「多选」时画面墙不会跟着抖（用户报的）
+            select = self.select_mode
+            self.search.setVisible(not select)
+            self.batch_bar.setVisible(select)
             for button in self._bar_icons():
-                button.setVisible(True)
+                button.setVisible(not select)
             self.batch_button.setVisible(True)
             # 排序/刷新已经在搜索那一行当图标了，「关注中 · N」那一行不再出来
             self.status_row.setVisible(False)
             self.scroll.setVisible(True)
             # 导入关注 / 添加直播间收进账号菜单，别再占一行
             self.normal_bar.setVisible(False)
-            self.batch_bar.setVisible(self.select_mode)
             self.account_row.setVisible(self._account_row_should_show())
             self.tool_row.setVisible(True)           # 布局预设 + 设置并排
             self.settings_button.setVisible(True)
@@ -3399,8 +3415,13 @@ class Sidebar(QFrame):
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
         self.batch_button.setChecked(enabled)
-        self.batch_bar.setVisible(enabled and not self.collapsed)
-        self.normal_bar.setVisible(not enabled and not self.collapsed)
+        # 竖屏时 batch_bar 被借到横栏第一行里（见 _adopt_bar_row），
+        # 露不露由 _sync_top_mode 统一决定，这里只管横屏那一列。
+        if self.side != "top":
+            self.batch_bar.setVisible(enabled and not self.collapsed)
+            self.normal_bar.setVisible(not enabled and not self.collapsed)
+        else:
+            self._sync_top_mode()
         for item in self._items:
             item.set_select_mode(enabled and not self.collapsed)
         self._update_batch_label()
