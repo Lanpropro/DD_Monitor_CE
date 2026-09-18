@@ -63,6 +63,20 @@ def ratio(widget) -> float:
     return widget.width() / max(1, widget.height())
 
 
+def accent_pixels(image, rect: tuple) -> int:
+    """数一块区域里的强调色像素——用来确认「画出来了」，而不是只看了标志位。"""
+    accent = QColor(theme.ACCENT)
+    hits = 0
+    for y in range(rect[1], min(rect[3], image.height())):
+        for x in range(rect[0], min(rect[2], image.width())):
+            colour = image.pixelColor(x, y)
+            if abs(colour.red() - accent.red()) < 40 \
+                    and abs(colour.green() - accent.green()) < 40 \
+                    and abs(colour.blue() - accent.blue()) < 40:
+                hits += 1
+    return hits
+
+
 def part_layouts() -> None:
     print("=== 1. 布局表：竖屏预设已注册、并且被标成 portrait ===")
     ids = [layout["id"] for layout in layouts.PORTRAIT_LAYOUTS]
@@ -334,15 +348,33 @@ def part_strip_interaction(app) -> None:
         "账号头像也要在这同一行里"
     assert sidebar.height() <= 70, f"收起时横栏应该很矮，实际 {sidebar.height()}"
 
-    print("\n=== 10b. 头排：真实头像 + 关注多了横向滚 ===")
+    print("\n=== 10b. 头排：真实头像 + 置顶角标 + 关注多了横向滚 ===")
+    # 置顶角标：原来是方角按钮，会戳到圆头像外面；现在应该是一段贴着圆周的弧
+    from ddm.widgets import PinnedArc
+
+    first_id = str(rooms_now[0].get("room_id"))
+    sidebar.apply_pins([first_id])               # 这一下会把头排整排重建
+    settle(app, 0.3)
+    shown = strip._avatars.get(first_id)         # 重建之后要重新拿控件
+    mark = next((child for child in shown.children() if isinstance(child, PinnedArc)), None)
+    corner = accent_pixels(shown.grab().toImage(), (0, 0, 20, 20))
+    print(f"  置顶角标={type(mark).__name__ if mark else None} "
+          f"左上 20x20 里的强调色像素={corner}")
+    assert mark is not None, "置顶的主播头像上要有角标"
+    assert mark.geometry().size() == shown.size(), "弧要铺满头像，才能贴着圆周画"
+    assert corner > 20, "角标要真的画出来（贴着头像左上边缘的一段弧）"
+    sidebar.apply_pins([])
+    settle(app, 0.2)
+
+    # 头像图：列表里下载好之后，头排那一张要跟着换（增量更新，不重建整排）
     face = QPixmap(64, 64)
     face.fill(QColor("#fb7299"))
-    first_id = str(rooms_now[0].get("room_id"))
     sidebar.set_room_face(first_id, face)
     settle(app, 0.3)
     shown = strip._avatars.get(first_id)
-    print(f"  换头像图：{first_id} -> {shown.pixmap() is not None and not shown.pixmap().isNull()}")
-    assert shown is not None and shown.pixmap() is not None and not shown.pixmap().isNull(), \
+    pixmap = shown.pixmap() if shown is not None else None
+    print(f"  换头像图：{first_id} -> {pixmap is not None and not pixmap.isNull()}")
+    assert shown is not None and pixmap is not None and not pixmap.isNull(), \
         "横栏里的头像要能用列表里已下载的那张图"
     # 关注多到一行放不下时：头排横向可滚，滚轮也能滚（没有滚动条占位）
     for index in range(30):
@@ -480,8 +512,20 @@ def part_strip_interaction(app) -> None:
     assert min(button.x() for button in icons) > sidebar.search.x(), "图标在搜索框右边"
     assert all(button.parentWidget() is sidebar._bar_row for button in icons + [
         sidebar.toggle_button]), "图标和展开键在第一行"
-    assert sidebar._header_row.isVisible() is False, \
-        "多选搬下来之后，标题行整行收掉（横栏只有一行放搜索）"
+    # 用户要求：缩短搜索框、左侧给 logo 留位置（标题行搬进横栏第一行当 logo）
+    header = sidebar._header_row
+    print(f"  第一行 logo：x={header.x()} 宽={header.width()} "
+          f"标题可见={sidebar.title_label.isVisible()} "
+          f"副标题可见={sidebar.subtitle_label.isVisible()} "
+          f"搜索框 x={sidebar.search.x()} 宽={sidebar.search.width()}")
+    assert header.isVisible() and header.parentWidget() is sidebar._bar_row, \
+        "logo（标题行）要摆在横栏第一行左边"
+    assert sidebar.title_label.isVisible() and not sidebar.subtitle_label.isVisible(), \
+        "竖屏 logo 只露「DD 监控室」，副标题藏起来"
+    assert header.x() < sidebar.search.x(), "logo 要在搜索框左边"
+    assert header.x() + header.width() <= sidebar.search.x() + 2, "logo 不能压到搜索框"
+    assert sidebar.search.width() < 900, \
+        f"搜索框要让出 logo 那一段宽度，实际 {sidebar.search.width()}"
     print(f"  图标文字：多选={sidebar.batch_button.text()!r} "
           f"排序={sidebar.sort_button.text()!r} 尺寸="
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
@@ -500,6 +544,33 @@ def part_strip_interaction(app) -> None:
         "布局预设和设置也要竖排（设置在下）"
     assert abs(sidebar.settings_button.x() - sidebar.layout_button.x()) <= 2, \
         "竖排时两个按钮左边对齐"
+    # 用户要求：这一块的按钮之间不要有空隙 —— 三个按钮同宽、贴在一起
+    widths = {account.width(), sidebar.layout_button.width(),
+              sidebar.settings_button.width()}
+    print(f"  这一块的间距：块内={sidebar._bar_right_box.spacing()} "
+          f"工具行内={sidebar.tool_row.layout().spacing()}；三个按钮宽度={sorted(widths)}")
+    assert sidebar._bar_right_box.spacing() == 0, "账号和工具行之间不该留缝"
+    assert sidebar.tool_row.layout().spacing() == 0, "布局预设和设置之间不该留缝"
+    assert max(widths) - min(widths) <= 2, f"三个按钮要一样宽（撑满这一块），实际 {widths}"
+    print(f"  竖排坐标：账号 y={account.y()}+{account.height()} "
+          f"工具行 y={sidebar.tool_row.y()}+{sidebar.tool_row.height()} "
+          f"布局预设 y={sidebar.layout_button.y()}+{sidebar.layout_button.height()} "
+          f"设置 y={sidebar.settings_button.y()}")
+    assert account.y() + account.height() == sidebar.tool_row.y(), \
+        "账号条和工具行要紧挨着（不留缝）"
+    assert sidebar.layout_button.y() + sidebar.layout_button.height() \
+        == sidebar.settings_button.y(), "布局预设和设置要紧挨着（不留缝）"
+    # 卡片上的置顶角标（用户要求：小三角改圆角，贴合圆角边框）
+    pinned_item = sidebar.items()[0]
+    sidebar.apply_pins([str(pinned_item.room.get("room_id"))])
+    settle(app, 0.3)
+    card_corner = accent_pixels(pinned_item.grab().toImage(), (0, 0, 20, 20))
+    print(f"  卡片置顶角标：pinned={pinned_item.is_pinned} "
+          f"左上 20x20 里的强调色像素={card_corner}")
+    assert pinned_item.is_pinned
+    assert card_corner > 20, "卡片的置顶角标要真的画出来（贴着圆角的那段弧）"
+    sidebar.apply_pins([])
+    settle(app, 0.2)
     # 「⋯」整个去掉了：导入关注 / 添加直播间 收进账号菜单
     labels = [action.text() for action in sidebar.account_menu().actions() if action.text()]
     print(f"  账号菜单里装着：{labels}")

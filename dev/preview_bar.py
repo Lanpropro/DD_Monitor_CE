@@ -66,7 +66,8 @@ def shoot(app, path: str, collapsed: bool) -> QImage:
     """渲染一张横栏裁切图；返回 QImage 供拼接。"""
     rooms = [{"room_id": str(8000 + index), "uname": f"主播{index + 1}",
               "title": "标题", "live": True, "viewers": "1万", "muted": True,
-              "volume": 42, "quality": 250} for index in range(6)]
+              "volume": 42, "quality": 250,
+              "pinned": index == 0} for index in range(6)]
     window = MainWindow([dict(room) for room in rooms],
                         [dict(room) for room in rooms])
     window.setGeometry(-9000, -9000, *SIZE)
@@ -74,6 +75,9 @@ def shoot(app, path: str, collapsed: bool) -> QImage:
     settle(app, 1.4)
     sidebar = window.sidebar
     sidebar.set_account("Asaki大人")
+    # 置顶标记要真的走一次 apply_pins 才亮（房间字典里的 pinned 会被它覆盖）
+    sidebar.apply_pins([str(rooms[0]["room_id"])])
+    settle(app, 0.3)
     # 头排用的是「列表里已下载的那张头像」：这里喂几张假图，免得截图里全是字母
     for index, room in enumerate(rooms):
         pixmap = QPixmap(64, 64)

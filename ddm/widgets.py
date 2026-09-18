@@ -1835,17 +1835,19 @@ class NavItem(QFrame):
         super().paintEvent(event)
         if not self._pinned:
             return
-        # 左上角一个蓝色小三角标
+        # 左上角的置顶角标：顺着卡片圆角（QSS 里 #NavItem 用的 RADIUS_MD）
+        # 画一段弧，而不是原来那个直角三角 —— 这样标记是贴着圆角边框走的
+        thickness = 3.0
+        corner = float(theme.RADIUS_MD)
+        radius = corner - thickness / 2
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(theme.ACCENT))
-        path = QPainterPath()
-        path.moveTo(2, 2)
-        path.lineTo(14, 2)
-        path.lineTo(2, 14)
-        path.closeSubpath()
-        painter.drawPath(path)
+        pen = QPen(QColor(theme.ACCENT), thickness)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawArc(QRectF(corner - radius, corner - radius, radius * 2, radius * 2),
+                        90 * 16, 90 * 16)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
@@ -2384,14 +2386,42 @@ class RoomStrip(QFrame):
             dot.move(self.AVATAR - 12, self.AVATAR - 12)
             dot.show()
         if pinned:
-            mark = QLabel(avatar)
-            mark.setFixedSize(14, 14)
-            mark.setStyleSheet(f"background: {theme.ACCENT};"
-                               " border-top-left-radius: 7px;")
-            mark.move(0, 0)
+            mark = PinnedArc(avatar)
+            mark.setGeometry(0, 0, self.AVATAR, self.AVATAR)
             mark.show()
         avatar.show()
         return avatar
+
+
+class PinnedArc(QWidget):
+    """置顶标记：沿圆形头像左上边缘画一段弧。
+
+    原来是 14x14 的方块按钮（`border-top-left-radius: 7px`），贴在直径 34 的
+    圆头像左上角，方角会戳到圆外面；改成贴着圆周的一段圆弧，边缘就贴合了。
+    """
+
+    #: 弧的起止角度（Qt 的角度：0° 在 3 点钟方向，逆时针为正）；90°..180° 是左上
+    #: 和卡片上那个角标的画法保持一致（都是一段贴着圆角走的弧）
+    START_ANGLE = 90
+    SPAN_ANGLE = 90
+    THICKNESS = 3
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # 别抢鼠标：点头像仍然要能选中 / 拖出这一路
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor(theme.ACCENT), self.THICKNESS)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        inset = self.THICKNESS / 2 + 0.5
+        rect = QRectF(inset, inset, self.width() - inset * 2, self.height() - inset * 2)
+        painter.drawArc(rect, self.START_ANGLE * 16, self.SPAN_ANGLE * 16)
 
 
 class Sidebar(QFrame):
@@ -2472,6 +2502,9 @@ class Sidebar(QFrame):
         title.setObjectName("AppTitle")
         subtitle = QLabel("多窗口直播监控")
         subtitle.setObjectName("AppSubtitle")
+        #: 竖屏横栏第一行只留标题当 logo（副标题藏起来，横栏高度很紧）
+        self.title_label = title
+        self.subtitle_label = subtitle
         self.title_box.addWidget(title)
         self.title_box.addWidget(subtitle)
         self.batch_button = QPushButton("多选")
@@ -2599,6 +2632,11 @@ class Sidebar(QFrame):
         self._column_order = [self._head_scroll, self._header_row, self.search,
                               self.status_row, self.scroll, self.batch_bar,
                               self.account_row, self.tool_row, self.normal_bar]
+        # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
+        self._tool_button_policies = {
+            self.layout_button: self.layout_button.sizePolicy(),
+            self.settings_button: self.settings_button.sizePolicy(),
+        }
         self._bar_row: QWidget | None = None
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
@@ -2946,18 +2984,21 @@ class Sidebar(QFrame):
     def _adopt_bar_row(self) -> None:
         """竖屏：把横栏排成两行。
 
-        第一行：搜索框（收起时换成头排）+ 多选/排序/刷新三个小图标 + 展开/收起键。
+        第一行：logo（标题行里的圆点 + 「DD 监控室」）+ 搜索框
+        （收起时换成头排）+ 多选/排序/刷新三个小图标 + 展开/收起键。
         第二行：横向卡片条 + 右侧单独一块，那块里「账号 / 布局预设 / 设置」竖排
         （用户要求：在最后一张卡片右边单独开一块地放这几个按钮）。
         """
         self._ensure_bar_row()
         if not self._bar_in_use:
             index = self._layout.indexOf(self._header_row)
-            for widget in (self.search, self._head_scroll, self.batch_button,
-                           self.sort_button, self.refresh_button, self.toggle_button):
+            for widget in (self._header_row, self.search, self._head_scroll,
+                           self.batch_button, self.sort_button, self.refresh_button,
+                           self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
-            # 搜索框和头像排轮流坐左边（收起时显示头像排），谁在就由谁撑满
+            # 左边是 logo，然后是搜索框（收起时换成头像排）、图标、展开键
+            self._bar_row_box.addWidget(self._header_row)
             self._bar_row_box.addWidget(self.search, 1)
             self._bar_row_box.addWidget(self._head_scroll, 1)
             for widget in self._bar_icons() + (self.toggle_button,):
@@ -2968,11 +3009,18 @@ class Sidebar(QFrame):
             self.scroll.setParent(self._bar_row2)
             self._bar_row2_box.addWidget(self.scroll, 1)
             self._bar_row2_box.addWidget(self._bar_right)
+            # 顺序：账号在最上面，工具行紧跟其后，末尾那条 stretch 把这一列顶到上边
+            # （先放账号再插工具行，否则 stretch 会被挤到中间留出一条缝）
+            self._place_account(True)
             self._bar_right_box.insertWidget(1, self.tool_row)
-            # 布局预设 / 设置从横排改成竖排
+            # 布局预设 / 设置从横排改成竖排，并且和账号条一样撑满这一块的宽度、
+            # 按钮之间不留缝（用户要求：这一块的按钮不要产生空隙）
             self.tool_row.layout().setDirection(QBoxLayout.TopToBottom)
             self.tool_row.layout().setStretch(0, 0)
-            self._place_account(True)
+            self.tool_row.layout().setSpacing(0)
+            self._bar_right_box.setSpacing(0)
+            for button in (self.layout_button, self.settings_button):
+                button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
             self._layout.insertWidget(index + 2 if index >= 0 else 2, self._bar_row2)
@@ -2987,7 +3035,7 @@ class Sidebar(QFrame):
         for row in (self._bar_row, self._bar_row2):
             self._layout.removeWidget(row)
             row.setVisible(False)
-        for widget in self._bar_widgets() + [self.scroll]:
+        for widget in self._bar_widgets() + [self.scroll, self._header_row]:
             self._detach_from_rows(widget)
         for widget in self._column_order:
             self._detach_from_rows(widget)
@@ -2995,6 +3043,9 @@ class Sidebar(QFrame):
         # 布局预设 / 设置回到横排一行
         self.tool_row.layout().setDirection(QBoxLayout.LeftToRight)
         self.tool_row.layout().setStretch(0, 1)
+        self.tool_row.layout().setSpacing(6)
+        for button, policy in self._tool_button_policies.items():
+            button.setSizePolicy(policy)
         self._bar_in_use = False
         self._sync_account_row_width()          # 左栏的账号条恢复撑满
 
@@ -3082,10 +3133,11 @@ class Sidebar(QFrame):
                 widget.setVisible(False)
             self.account_row.setVisible(self._account_row_should_show())
         else:
-            # 多选搬到了搜索那一行，标题行在这边就空了：整行收掉，
-            # 横栏因此又矮了 22px（多选原来自己占一行的那点高度）
+            # 标题行留在第一行最前面当 logo（用户要求左侧给 logo 留位置）：
+            # 只露「DD 监控室」，副标题藏起来；搜索框因此短了一截
             if header is not None:
-                header.setVisible(False)
+                header.setVisible(True)
+            self._show_logo_title()
             self.search.setVisible(True)
             for button in self._bar_icons():
                 button.setVisible(True)
@@ -3099,14 +3151,13 @@ class Sidebar(QFrame):
             self.account_row.setVisible(self._account_row_should_show())
             self.tool_row.setVisible(True)           # 布局预设 + 设置并排
             self.settings_button.setVisible(True)
-            self._set_title_texts_visible(False)
+            self._apply_scroll_axis()
 
-    def _set_title_texts_visible(self, visible: bool) -> None:
-        for index in range(self.title_box.count()):
-            holder = self.title_box.itemAt(index).widget()
-            if holder is not None:
-                holder.setVisible(visible)
-        self._apply_scroll_axis()
+    def _show_logo_title(self) -> None:
+        """竖屏横栏的 logo：圆点 + 「DD 监控室」（副标题占地方，藏起来）。"""
+        self.dot.setVisible(True)
+        self.title_label.setVisible(True)
+        self.subtitle_label.setVisible(False)
 
     def _apply_scroll_axis(self) -> None:
         """竖屏横栏里关注列表是横向卡片条：左右滚，只占一条高度。"""
