@@ -42,17 +42,19 @@ Write-Output "=== 打包 $name -> $OutDir ==="
 Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 
-# ---- 1) 源码（不含用户数据、缓存、工作目录、虚拟环境）----
-$skipDirs = @(".git", ".venv", "venv", "cache", "logs", "work", "results",
-              "__pycache__", ".vscode", ".idea", "build", "dist")
-foreach ($item in Get-ChildItem $repo -Force) {
-    if ($skipDirs -contains $item.Name) { continue }
-    if ($item.Name -in @("utils", "plugins")) { continue }   # 单独处理
-    if ($item.PSIsContainer) {
-        robocopy $item.FullName (Join-Path $app $item.Name) /E /XD __pycache__ .git /NFL /NDL /NJH /NJS /NP | Out-Null
-    } else {
-        Copy-Item $item.FullName $app -Force
-    }
+# ---- 1) 源码：**只打包 git 跟踪的文件** ----
+# 不是简单拷目录：未跟踪的草稿/私有残留（比如 dev/mock_portrait.py 这种本地
+# 试做文件）不能进发布包 —— 用户要求上传/发布前不能带他自己的测试数据。
+$tracked = & git -C $repo ls-files
+if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件列表（$repo 是 git 仓库吗？）" }
+foreach ($rel in $tracked) {
+    if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
+    if ($rel -like "plugins_user/_danmaku_log/*") { continue }
+    $src = Join-Path $repo ($rel -replace "/", "\")
+    $dst = Join-Path $app ($rel -replace "/", "\")
+    $dir = Split-Path $dst -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Copy-Item $src $dst -Force
 }
 
 # ---- 2) VLC 运行库（.gitignore 里不含它，得手动带上）----
