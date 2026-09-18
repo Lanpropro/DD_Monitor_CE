@@ -21,6 +21,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:PYTHONIOENCODING = "utf-8"
 $repo = Split-Path -Parent $PSScriptRoot
 $py = Join-Path $repo ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
