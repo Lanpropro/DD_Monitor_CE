@@ -3890,6 +3890,9 @@ class Tile(QFrame):
         for button in (self.quality_button, self.reload_button, self.close_button):
             control_layout.addWidget(button)
         self.controls.setVisible(False)
+        #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
+        #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
+        self._overlay_visible = False
         self._control_hover_timer = QTimer(self)
         self._control_hover_timer.setInterval(35)
         self._control_hover_timer.timeout.connect(self._sync_control_hover)
@@ -3902,6 +3905,8 @@ class Tile(QFrame):
         self.spinner = LoadingIndicator(self)
         self.pause_overlay = LoadingIndicator(self, text="已暂停", icon=False)
         self.pause_overlay.setObjectName("PauseOverlay")
+        #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
+        self._overlay_ready = True
         if not room.get("room_id"):
             self.set_room(None)          # 空格子：显示"拖入直播间"
 
@@ -3927,10 +3932,10 @@ class Tile(QFrame):
 
         self.room["volume"] = self.volume
         self.room["muted"] = self.muted
-        self.stream_badge.setVisible(True)
+        self.stream_badge.setVisible(bool(self._overlay_visible))
         self._cover_source = cover if cover is not None else self.room.get("cover")
         self.title_badge.set_text(self.room.get("uname", ""), self.room.get("title", ""))
-        self.title_badge.setVisible(bool(self.room.get("uname")))
+        self.title_badge.setVisible(bool(self.room.get("uname")) and self._overlay_visible)
         self._refresh_badge()
         self.quality = int(self.room.get("quality", 250))
         self.actual_quality = 0
@@ -4075,7 +4080,9 @@ class Tile(QFrame):
         live = bool(self.room.get("live"))
         # 优先显示实时在线人数；还没拉到就别拿人气值顶上（那个数看着很像异常）
         self.stream_badge.set_state(live, watched or (WATCHING_TEXT if live else ""))
-        self.stream_badge.setVisible(bool(self.room.get("room_id")))
+        # 悬停才露（和控制条同步）；不然一屏好几格的 LIVE 一直挂着太吵
+        self.stream_badge.setVisible(bool(self.room.get("room_id"))
+                                     and self._overlay_visible)
         self._layout_areas()          # 浮标宽度会变（人数位数不同），标题要跟着重新让位
         if watched and popularity:
             self.stream_badge.setToolTip(f"{watched} 人在线 · 人气 {popularity}")
@@ -4165,6 +4172,13 @@ class Tile(QFrame):
     def set_controls_visible(self, visible: bool) -> None:
         visible = bool(visible)
         self.controls.setVisible(visible)
+        # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
+        self._overlay_visible = visible
+        self.stream_badge.setVisible(visible and bool(self.room.get("room_id")))
+        if visible and getattr(self, "_overlay_ready", False):
+            # 露出来之前按当前宽度重摆一遍（标题要重新让位）。
+            # 构造过程中（spinner 等还没建好）不能走这里，否则会碰空控件。
+            self._layout_areas()
         if visible:
             self._controls_hide_timer.stop()
             # 显示之前先按文本把按钮宽度摆好：否则会沿用上一次的尺寸，
@@ -4175,6 +4189,7 @@ class Tile(QFrame):
         else:
             self._control_hover_timer.stop()
             self._set_control_hover(None)
+            self.title_badge.setVisible(False)   # 收起时标题一起收
 
     def _set_control_hover(self, hovered: QPushButton | None) -> None:
         """同步一份不依赖原生窗口 enter/leave 的悬停状态。"""
@@ -4256,7 +4271,7 @@ class Tile(QFrame):
                          if self.controls.y() > 20 else self.controls.x())
         title_left = self.stream_badge.x() + self.stream_badge.width() + 6
         room = max(0, controls_left - title_left - 8)
-        show_title = bool(self.room.get("uname")) and room >= 110
+        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible
         self.title_badge.setVisible(show_title)
         if show_title:
             self.title_badge.set_max_width(room)

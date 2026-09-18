@@ -1,23 +1,23 @@
-﻿# 打出 DD 监控室 的发布包（Windows / PowerShell 5.1+）
+# 打出 DD 监控室 的发布包（Windows / PowerShell 5.1+）
 #
-#   powershell -File dev\build_release.ps1                 # 源码便携包（默认，已验证可用）
+#   powershell -File dev\build_release.ps1                 # 默认输出到仓库里的 results\
 #   powershell -File dev\build_release.ps1 -OutDir D:\xx   # 换输出目录
-#   powershell -File dev\build_release.ps1 -Frozen         # 另试：PyInstaller 免装 Python 版（见下）
+#   powershell -File dev\build_release.ps1 -SourceOnly     # 只要源码包，不冻 exe
 #
-# 默认产出 <OutDir>\DD监控室-v<版本>：
-#   程序源码（ddm / blivedm / dev / docs / plugins_user）、启动脚本、
-#   libVLC 运行库（libvlc.dll / libvlccore.dll / plugins）、许可证与运行说明，
-#   再加上同名 .zip。**不含**用户的 utils\config.json、cache、logs。
+# 默认产出（都落在 <OutDir>，默认就是仓库里的 results\）：
+#   DD监控室-v<版本>-exe\   **免装 Python 的 exe 便携版**（双击 exe 即用）
+#   DD监控室-v<版本>\       源码便携包（要 Python；-SourceOnly 时只出这个）
+#   DD监控室-v<版本>.zip    源码包的压缩包
 #
-# -Frozen 会额外尝试 PyInstaller 冻一个免装 Python 的 exe。注意：本机
-#   PySide6 6.11 + PyInstaller 6.22 冻出来的 exe 目前**起不来**（Qt6Core.dll
-#   加载失败；已确认不是文件缺失、也不是搜索路径问题，用干净的 Python 手动
-#   add_dll_directory 加载同一批文件是成功的），所以这个开关默认关闭，而且
-#   打开时会**实跑一次**，起不来就报错退出、不产出半成品。
+# exe 用 PyInstaller 冻结，但走**单独的依赖目录** `work\deps`（PySide6 6.9）：
+#   主环境是 PySide6 6.11，冻出来的 exe 一 import QtCore 就报
+#   「DLL load failed while importing QtCore」（文件不缺、路径也对，失败点在
+#   Qt6Core.dll 自身加载）；6.9 的老布局没这个问题，程序在 6.9 下自查全过。
+#   `work\deps` 缺了脚本会提示你怎么装（pip 要写系统临时目录，得在普通命令行跑）。
 param(
     [string]$OutDir = "",
     [switch]$SkipZip,
-    [switch]$Frozen
+    [switch]$SourceOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +28,7 @@ if (-not (Test-Path $py)) {
 }
 if (-not (Test-Path $py)) { throw "没找到 Python 解释器（.venv 或 DD_Monitor-venv）" }
 
-if (-not $OutDir) { $OutDir = Join-Path $repo "work\release" }
+if (-not $OutDir) { $OutDir = Join-Path $repo "results" }
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
 $version = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.VERSION_TAG)").Trim()
@@ -112,31 +112,77 @@ RELEASE-$version.md         这一版改了什么
 "@
 Set-Content -Path (Join-Path $app "运行说明.txt") -Value $readme -Encoding UTF8
 
-# ---- 4) 可选：PyInstaller 免装 Python 版（默认关闭，见文件头说明）----
-if ($Frozen) {
-    Write-Output "=== -Frozen：试打 PyInstaller 版 ==="
-    $build = Join-Path $repo "work\build"
+# ---- 4) exe 便携版（默认做；Q:\-SourceOnly 可跳过）----
+if (-not $SourceOnly) {
+    $deps = Join-Path $repo "work\deps"
+    if (-not (Test-Path (Join-Path $deps "PySide6"))) {
+        throw @"
+缺少 $deps（PySide6 6.9，冻结专用）。
+先在**普通命令行**里执行一次（沙箱里 pip 写不了系统临时目录）：
+    $py -m pip install --target "$deps" "PySide6==6.9.*"
+为什么要单独装一份：主环境是 PySide6 6.11，冻出来的 exe 一 import QtCore 就报
+「DLL load failed while importing QtCore」（文件不缺、路径也对，失败点在
+Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9 下自查全过。
+"@
+    }
+    Write-Output "=== 冻 exe（PySide6 6.9）==="
+    $exeDir = Join-Path $OutDir "$name-exe"
+    $build = Join-Path $repo "work\exebuild"
+    Remove-Item $exeDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $build | Out-Null
-    $frozenDir = Join-Path $OutDir "$name-frozen"
-    & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name "$name-frozen" `
+    $env:PYTHONPATH = $deps
+    & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name "$name-exe" `
         --icon (Join-Path $repo "favicon.ico") `
         --distpath $OutDir --workpath $build --specpath $build `
         --runtime-hook (Join-Path $repo "dev\pyi_rth_pyside6_paths.py") `
         (Join-Path $repo "main.py")
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
-    $exe = Join-Path $frozenDir "$name-frozen.exe"
-    Copy-Item (Join-Path $repo "libvlc.dll") $frozenDir -Force
-    Copy-Item (Join-Path $repo "libvlccore.dll") $frozenDir -Force
-    robocopy (Join-Path $repo "plugins") (Join-Path $frozenDir "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
-    Write-Output "=== 实跑一次冻出来的 exe（起不来就报错）==="
-    $proc = Start-Process -FilePath $exe -WorkingDirectory $frozenDir -PassThru
-    Start-Sleep -Seconds 18
-    if ($proc.HasExited) {
-        throw "冻出来的 exe 起不来（exit $($proc.ExitCode)）—— 见文件头说明，别交付半成品"
+    # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
+    # 而 onedir 的 _MEIPASS 就是 _internal）；插件也必须和 dll 挨着
+    $internal = Join-Path $exeDir "_internal"
+    Copy-Item (Join-Path $repo "libvlc.dll") $internal -Force
+    Copy-Item (Join-Path $repo "libvlccore.dll") $internal -Force
+    robocopy (Join-Path $repo "plugins") (Join-Path $internal "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    foreach ($file in @("LICENSE", "NOTICE.md", "RELEASE-v$($version.TrimStart('v')).md")) {
+        $src = Join-Path $repo $file
+        if (Test-Path $src) { Copy-Item $src $exeDir -Force }
     }
-    Stop-Process -Id $proc.Id -Force
-    Write-Output "  冻出来的 exe 能起来 ✓ -> $frozenDir"
+    $exeReadme = @"
+DD 监控室 $version（exe 便携版）
+================================
+
+双击 DD监控室-$version-exe.exe 启动。不需要装 Python。
+配置 / 缓存 / 日志都在这个目录下（utils\config.json、cache\、logs\），
+整个目录拷到别的 Windows 10/11 64 位机器就能用。
+_internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
+"@
+    Set-Content -Path (Join-Path $exeDir "运行说明.txt") -Value $exeReadme -Encoding UTF8
+
+    # 实跑验证：**看日志**，不看「进程还活着」——出错时 windowed 进程会弹框僵住，
+    # 看起来也像活着，只有日志才说明真的进了 main()。
+    Write-Output "=== 实跑 20 秒验证（看有没有写出启动日志）==="
+    $logDir = Join-Path $exeDir "logs"
+    Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
+    $proc = Start-Process -FilePath (Join-Path $exeDir "$name-exe.exe") -WorkingDirectory $exeDir -PassThru
+    Start-Sleep -Seconds 20
+    $alive = -not $proc.HasExited
+    if ($alive) { Stop-Process -Id $proc.Id -Force }
+    $log = Get-ChildItem $logDir -Filter "ddm-*.log" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $started = $false
+    if ($log) {
+        $started = [bool](Select-String -Path $log.FullName -Pattern '\[方向\]' -Quiet)
+        Write-Output ("  日志：{0}" -f $log.Name)
+    }
+    if (-not $started) {
+        throw "冻出来的 exe 没能启动（没写出 [方向] 启动日志）—— 别交付这半成品。日志目录：$logDir"
+    }
+    Write-Output "  exe 启动验证通过 ✓ -> $exeDir"
+    # 验证时写出来的 logs / cache 不留在发布包里
+    Remove-Item (Join-Path $exeDir "logs"), (Join-Path $exeDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
+    $exeFiles = Get-ChildItem $exeDir -Recurse -File
+    Write-Output ("  exe 包：{0:N0} 个文件，{1:N0} MB" -f $exeFiles.Count,
+                  (($exeFiles | Measure-Object Length -Sum).Sum / 1MB))
 }
 
 if (-not $SkipZip) {
@@ -148,4 +194,4 @@ if (-not $SkipZip) {
 
 $files = Get-ChildItem $app -Recurse -File
 $size = ($files | Measure-Object -Property Length -Sum).Sum / 1MB
-Write-Output ("=== 完成：{0}（{1:N0} 个文件，{2:N1} MB）===" -f $app, $files.Count, $size)
+Write-Output ("=== 完成：源码包 {0}（{1:N0} 个文件，{2:N1} MB）===" -f $app, $files.Count, $size)

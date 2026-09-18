@@ -7,10 +7,15 @@ import io
 import json
 import os
 import shutil
+import sys
 
 from . import bili
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if getattr(sys, "frozen", False):
+    # 打包成 exe 后代码在 _internal 里，而 utils / cache / logs 要放在 exe
+    # **旁边**（便携版：配置跟着包走，用户找得到、也删得掉）
+    REPO = os.path.dirname(os.path.abspath(sys.executable))
 CONFIG_PATH = os.path.join(REPO, "utils", "config.json")
 
 DEFAULT_VOLUME = 42

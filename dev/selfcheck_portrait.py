@@ -78,6 +78,18 @@ def accent_pixels(image, rect: tuple) -> int:
     return hits
 
 
+def pink_pixels(image, rect: tuple) -> int:
+    """数一块区域里 LIVE 那个粉色（#fb7299）的像素——用来确认浮标真的画出来了。"""
+    hits = 0
+    for y in range(rect[1], min(rect[3], image.height())):
+        for x in range(rect[0], min(rect[2], image.width())):
+            colour = image.pixelColor(x, y)
+            if abs(colour.red() - 0xFB) < 30 and abs(colour.green() - 0x72) < 30 \
+                    and abs(colour.blue() - 0x99) < 30:
+                hits += 1
+    return hits
+
+
 def ink_box(image, pad: int = 3) -> tuple:
     """图标内容的包围盒（相对最常见的底色）——检查图标正不正、有没有多画东西。"""
     counts: dict = {}
@@ -197,6 +209,8 @@ def part_narrow_tile_badge(app) -> None:
     checked = 0
     for tile in window.wall.visible_tiles():
         badge = tile.stream_badge
+        tile.set_controls_visible(True)      # 浮标现在是悬停才露，自查里手动打开
+        settle(app, 0.2)
         if not badge.isVisible():
             continue
         print(f"  格子 {tile.width()}x{tile.height()}：浮标宽={badge.width()} "
@@ -208,6 +222,30 @@ def part_narrow_tile_badge(app) -> None:
             "浮标宽度要按人数文字算出来，不然人数会被截断"
         checked += 1
     assert checked >= 2, f"这一段要能测到格子，实际 {checked} 个"
+
+    print("\n=== 6c. LIVE 浮标和人数：默认不挂，鼠标移上（悬停）才出现 ===")
+    tile = window.wall.visible_tiles()[0]
+    rect = (0, 0, min(360, tile.width()), 44)
+    tile.set_controls_visible(False)
+    settle(app, 0.4)
+    hidden_pink = pink_pixels(tile.grab().toImage(), rect)
+    print(f"  鼠标不在格子上：浮标可见={tile.stream_badge.isVisible()} "
+          f"标题可见={tile.title_badge.isVisible()} 粉色像素={hidden_pink}")
+    assert not tile.stream_badge.isVisible(), "不悬停时 LIVE 浮标不该一直挂着"
+    assert not tile.title_badge.isVisible(), "不悬停时标题浮标也不该一直挂着"
+    tile.set_controls_visible(True)          # 等价于鼠标移进来
+    settle(app, 0.4)
+    shown_pink = pink_pixels(tile.grab().toImage(), rect)
+    print(f"  鼠标移到格子上：浮标可见={tile.stream_badge.isVisible()} "
+          f"标题可见={tile.title_badge.isVisible()} 粉色像素={shown_pink}")
+    assert tile.stream_badge.isVisible(), "鼠标移上来要出现"
+    assert shown_pink > hidden_pink + 20, \
+        f"悬停时要真的画出来（Live 是粉色的）：{hidden_pink} -> {shown_pink}"
+    # 和控制条同一套显隐：收起来时一起收
+    tile.set_controls_visible(False)
+    settle(app, 0.4)
+    assert not tile.stream_badge.isVisible() and not tile.controls.isVisible(), \
+        "浮标和控制条要一起收掉"
     window.close()
     settle(app, 0.4)
 

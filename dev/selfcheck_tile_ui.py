@@ -135,15 +135,29 @@ def main() -> None:
           f" 是否贴左={bottom.x() <= 12}")
     assert tile.pause_button.parent() is tile.bottom and bottom.x() <= 12
 
-    print("\n=== 5. 主播名 + 直播间标题变成 LIVE 右侧的浮窗 ===")
+    print("\n=== 5. 主播名 + 直播间标题变成 LIVE 右侧的浮窗（悬停才露）===")
     badge = tile.title_badge
-    print(f"  可见={badge.isVisible()} 位置=({badge.x()},{badge.y()})"
+    # 用户 2026-09-18 的要求：LIVE 浮标和人数不再一直挂着，鼠标移上来才出现
+    tile.set_controls_visible(False)         # 先按「鼠标不在格子上」摆好
+    settle(app, 0.2)
+    assert not tile.stream_badge.isVisible(), "不悬停时 LIVE 浮标不该挂着"
+    assert not badge.isVisible(), "不悬停时标题浮窗也不该挂着"
+    tile.set_controls_visible(True)          # 等价于鼠标移进这一格
+    settle(app, 0.3)
+    print(f"  悬停后可见={badge.isVisible()} 位置=({badge.x()},{badge.y()})"
           f" 宽度={badge.width()} LIVE 浮标宽={tile.stream_badge.width()}")
     print(f"  文本={badge._name_text!r} + {badge._title_text!r}")
+    assert tile.stream_badge.isVisible(), "悬停时 LIVE 浮标要出现"
     assert badge.isVisible()
     assert badge.x() > tile.stream_badge.x() + tile.stream_badge.width() - 2
     assert badge.y() < 40, "应该浮在画面上方"
     assert badge._name_text and badge._title_text
+    tile.set_controls_visible(False)
+    settle(app, 0.2)
+    assert not badge.isVisible() and not tile.stream_badge.isVisible(), \
+        "鼠标移开要一起收掉"
+    tile.set_controls_visible(True)
+    settle(app, 0.2)
 
     print("\n=== 6. 右上角控制区只保留圆角按钮，横向划过能稳定高亮 ===")
     tile.set_controls_visible(True)

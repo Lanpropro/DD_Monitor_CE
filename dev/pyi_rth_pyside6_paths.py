@@ -32,7 +32,9 @@ for _base in _bases:
             os.environ["PATH"] = _path + os.pathsep + os.environ.get("PATH", "")
             _added.append(_path)
 
-if getattr(sys, "frozen", False):
+if getattr(sys, "frozen", False) and os.environ.get("DDM_PYI_DEBUG") == "1":
+    # 默认不写文件：发布包里不该多出排查用的东西。要查的时候
+    # 设 DDM_PYI_DEBUG=1 跑一次，信息会落在 exe 旁边。
     try:
         with open(os.path.join(_exe_dir, "ddm-pyinstaller-paths.txt"), "w",
                   encoding="utf-8") as handle:
