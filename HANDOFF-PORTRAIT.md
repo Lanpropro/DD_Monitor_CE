@@ -73,6 +73,8 @@
 
 **未决 / 待确认**：
 - 新版横栏的**真机验收**：只跑了离屏自检 + 离屏截图，还没有真鼠标点过。
+- 横向卡片条底部还被滚动条占掉 6px（视口 122 / 卡片 128，改样式前是 10px）。
+  要不要给滚动区多留 8px（横栏 216 → 224px）把卡片露全，等用户定。
 - 「多选」那一行（22px）还单独占一行；要不要也并进右侧那一块、把横栏再压 22px
   （现在是 8 + 多选 22 + 间距 6 + 横栏 36 + 间距 6 + 卡片条 130 + 8 = 216px），
   等用户定。
@@ -107,6 +109,14 @@
   收进「⋯」。横栏高度展开 **362 → 216px**、收起 **76 → 52px**。
   自检第 12b 组钉住「账号头像与按钮同一行、横栏更矮、入口仍在 ⋯ 里」；
   截图 `dev/preview_bar.py` → `docs/portrait-bar.png`。
+- **关注栏横向滚动条对齐主题**（`fbc8931`，接手方）：横向卡片条原来掉回系统原生
+  滚动条（灰底 + 两端箭头、12px），现在和横屏那条竖向条同源同色同粗（8px、无箭头），
+  被滚动条吃掉的高度还了 4px 给卡片。第 12 组加了对应断言（两轴规则都在、滑块同色）。
+- **关窗释放播放器后的野指针**（`a7b51a2`，接手方，对应下面第 4 条）：取证定位到
+  `444b1e4` 那版代码 —— `closeEvent` 只 `release()` 不清 `players`，关窗后投递的
+  `resolved` 会在 `_play_on` 里拿到已释放的实例（日志里的 access violation）。
+  现在关窗前清表 + 关窗后迟到的回调直接返回；新自检
+  `dev/selfcheck_close_release.py`（撤掉修复即变红）。
 - 源任务在材料写完之后继续做的 6 个提交（`a3c6391` → `e958a73`，01:02–04:19）：
   - `a3c6391`：回横屏时把横栏留下的卡片 x 清零（**交接里第 3 项**：回横屏只剩一张卡）
     + 新自检 `selfcheck_portrait_sidebar_return.py`。
@@ -127,6 +137,7 @@
 3. ~~竖屏→横屏后左栏只剩一个卡片~~ —— `a3c6391` 修掉，自检
    `selfcheck_portrait_sidebar_return.py` 通过；真机上还没复测过。
 4. `selfcheck_offline_badges` 失败（**改动前就红**）+ 会崩溃退出 `0xC0000409`。
+   这条自检自己的 0xC0000409 还没查；客户端那次「自行退出」已单独取证并修（`a7b51a2`）。
 5. 「布局变大自动填充」——**用户要求暂缓**，见 `idea.txt`。
 
 **未验证**：
@@ -138,8 +149,8 @@
 **运行状态**：
 - 客户端由 `dev/restart-client.ps1` 启动（PID 会变）。补记时**没有确认到客户端在运行**
   （只有本会话自己的 python 进程），要真机验收得先跑这个脚本。
-- 全套自检：`dev/selfcheck_*.py` 现在 **24 个**（材料写时 22 个）：
-  22 个通过，`selfcheck_offline_badges` 仍是已知红，`selfcheck_plugins` 只在
+- 全套自检：`dev/selfcheck_*.py` 现在 **25 个**（材料写时 22 个）：
+  23 个通过，`selfcheck_offline_badges` 仍是已知红，`selfcheck_plugins` 只在
   「沙箱禁止在 mkdtemp 目录下建子目录」时失败（放宽权限后通过，与竖屏改动无关）。
 - 跑自检的环境变量：`DDM_NO_SAVE=1`、`PYTHON_VLC_LIB_PATH=<repo>\libvlc.dll`、
   `PYTHONIOENCODING=utf-8`；解释器 `F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\python.exe`
