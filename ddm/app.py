@@ -1121,6 +1121,8 @@ class MainWindow(QMainWindow):
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_face(pixmap)
+                # 竖屏顶部横栏的头像排用的是同一张图（那边不走 NavItem）
+                self.sidebar.set_room_face(room_id, pixmap)
                 return
 
     def _on_room_cover(self, room_id: str, pixmap) -> None:

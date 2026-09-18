@@ -14,6 +14,7 @@ import sys
 import time
 
 from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QThread, Signal
+from PySide6.QtGui import QColor, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -295,23 +296,67 @@ def part_strip_interaction(app) -> None:
     settle(app, 1.2)
     sidebar = window.sidebar
     strip = sidebar._head_strip
+    sidebar.set_account("测试账号")              # 账号头像只在登录后才出现
     sidebar.set_collapsed(True, animate=False)   # 竖屏默认收起，看头排
     settle(app, 0.4)
     rooms_now = sidebar.rooms()
-    print(f"  收起：头排可见={strip.isVisible()} 账号头像="
-          f"{strip.account_avatar() is not None} "
-          f"同步关注={len(strip._rooms)}/{len(rooms_now)} "
+    print(f"  收起：头排可见={strip.isVisible()} 头排头像={len(strip._avatars)}/"
+          f"{len(rooms_now)} 账号头像可见={sidebar.account_row.isVisible()} "
           f"展开键可见={sidebar.toggle_button.isVisible()} "
           f"侧栏高={sidebar.height()}")
     assert strip.isVisible(), "竖屏收起时头排必须可见（它就是关注列表）"
-    assert strip.account_avatar() is not None, "头排要有账号头像"
     assert len(strip._rooms) == len(rooms_now), "头排必须同步全部关注"
+    # 头像不设上限：6 个关注就要有 6 个头像（原来硬编码最多 9 个、超出显示 +N）
+    assert len(strip._avatars) == len(rooms_now), \
+        f"头排要显示全部关注，实际 {len(strip._avatars)}/{len(rooms_now)}"
+    assert sidebar._head_scroll.widget() is strip, "头像排要挂在滚动区里（放不下能横滚）"
     assert sidebar.toggle_button.isVisible(), "没有展开键就没法展开了"
-    # 收起时横栏就是**一行**：头像排（36）+ 展开键挤在同一行里，边距上下各 8，
-    # 一共 52px。展开键原来自己占一行，横栏是 76px。
-    assert strip.parentWidget() is sidebar.toggle_button.parentWidget(), \
-        "收起时展开键要和头像排在同一行（别再单独占一行）"
+    # 账号头像不在头排里（用户在报告里明确说「用户头像错误的出现在了左边」），
+    # 它和展开键一起在横栏最右侧那一块
+    assert sidebar.account_row.isVisible(), "收起时账号头像要留在横栏右侧"
+    assert sidebar.account_row.avatar.isVisible(), "账号头像要露出来"
+    assert strip.isAncestorOf(sidebar.account_row) is False, "账号头像不该混进头排"
+    # 收起时横栏就是**一行**：头像排（36）+ 账号头像 + 展开键挤在同一行里，
+    # 边距上下各 8，一共 52px。
+    assert sidebar._head_scroll.parentWidget() is sidebar.toggle_button.parentWidget(), \
+        "收起时头像排和展开键要在同一行（别再单独占一行）"
+    assert sidebar.account_row.parentWidget() is sidebar.toggle_button.parentWidget(), \
+        "账号头像也要在这同一行里"
     assert sidebar.height() <= 70, f"收起时横栏应该很矮，实际 {sidebar.height()}"
+
+    print("\n=== 10b. 头排：真实头像 + 关注多了横向滚 ===")
+    face = QPixmap(64, 64)
+    face.fill(QColor("#fb7299"))
+    first_id = str(rooms_now[0].get("room_id"))
+    sidebar.set_room_face(first_id, face)
+    settle(app, 0.3)
+    shown = strip._avatars.get(first_id)
+    print(f"  换头像图：{first_id} -> {shown.pixmap() is not None and not shown.pixmap().isNull()}")
+    assert shown is not None and shown.pixmap() is not None and not shown.pixmap().isNull(), \
+        "横栏里的头像要能用列表里已下载的那张图"
+    # 关注多到一行放不下时：头排横向可滚，滚轮也能滚（没有滚动条占位）
+    for index in range(30):
+        sidebar.add_room({"room_id": f"88{index:02d}", "uname": f"补{index}",
+                          "title": "标题", "live": False, "muted": True,
+                          "volume": 42, "quality": 250})
+    settle(app, 0.5)
+    viewport = sidebar._head_scroll.viewport()
+    bar = sidebar._head_scroll.horizontalScrollBar()
+    center = viewport.rect().center()
+    before = bar.value()
+    QApplication.sendEvent(viewport, QWheelEvent(
+        QPointF(center), QPointF(viewport.mapToGlobal(center)),
+        QPoint(0, -240), QPoint(0, -240), Qt.NoButton, Qt.NoModifier,
+        Qt.NoScrollPhase, False))
+    settle(app, 0.3)
+    print(f"  关注 {len(sidebar.rooms())} 个：头像 {len(strip._avatars)} 个，"
+          f"可滚范围={bar.maximum()} 滚轮 {before} -> {bar.value()}，"
+          f"滚动条可见={bar.isVisible()}")
+    assert len(strip._avatars) == len(sidebar.rooms()), "补进来的关注也要有头像"
+    assert bar.maximum() > 0, "一行放不下时要能横向滚"
+    assert bar.value() > before, "滚轮要能横向滚头排"
+    assert not bar.isVisible(), "收起态不显示滚动条（不占头像那一行的高度）"
+    assert sidebar.height() <= 70, f"加关注不能把横栏撑高，实际 {sidebar.height()}"
     # 放不下时要有 +N 提示
     window.add_to_wall(dict(rooms_now[0])) if rooms_now else None
     settle(app, 0.3)
@@ -440,7 +485,12 @@ def part_strip_interaction(app) -> None:
     settle(app, 0.3)
     assert not sidebar.search.isVisible(), "收起后搜索框要收掉"
     assert strip.isVisible(), "收起后头排要回来"
-    assert not account.isVisible(), "收起后账号头像由头排最前面那个承担，别冒出两个"
+    # 账号头像现在收起/展开都在横栏最右侧那一块（用户要求从左边挪走），
+    # 而且收起时缩成和头排头像一样大
+    assert account.isVisible() and account.avatar.isVisible(), \
+        "收起后账号头像仍要在横栏右侧（账号菜单只有这一个入口）"
+    assert account.avatar.width() == strip.AVATAR, \
+        f"收起时账号头像要和头排头像同尺寸，实际 {account.avatar.width()}"
 
     print("\n=== 13. 切布局不动窗口方向（摆放跟着窗口形状走）===")
     window.resize(1600, 900)

@@ -74,6 +74,11 @@ def shoot(app, path: str, collapsed: bool) -> QImage:
     settle(app, 1.4)
     sidebar = window.sidebar
     sidebar.set_account("Asaki大人")
+    # 头排用的是「列表里已下载的那张头像」：这里喂几张假图，免得截图里全是字母
+    for index, room in enumerate(rooms):
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(QColor(("#3b6ea5", "#7a4a8c", "#2f6f5e", "#8c5a3b")[index % 4]))
+        sidebar.set_room_face(str(room["room_id"]), pixmap)
     sidebar.set_collapsed(collapsed, animate=False)
     settle(app, 0.5)
     bar_height = sidebar.height()
