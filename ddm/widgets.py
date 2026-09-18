@@ -2994,10 +2994,13 @@ class Sidebar(QFrame):
             divider.setObjectName("BarDivider")
             divider.setFixedHeight(1)
             divider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        #: 分割线两侧的空白：高度由 _sync_bar_gaps() 按卡片条那一行算出来
+        #: 分割线两侧的空白：高度由 _sync_bar_gaps() 按缩略图高度算出来
         self._bar_gaps = tuple(QWidget(self._bar_right) for _ in range(4))
         for gap in self._bar_gaps:
             gap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # 末尾留一条 stretch：三个按钮的总高只到缩略图下沿，剩下的高度（滚动条
+        # 那条）不参与分配，这一块本身仍然撑满卡片条那一行
+        right.addStretch(1)
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
@@ -3022,14 +3025,14 @@ class Sidebar(QFrame):
     def _sync_bar_gaps(self) -> None:
         """算两条空白的高度。
 
-        卡片条那一行的高度减掉三个按钮（各用横屏那套高度）和两条 1px 分割线，
-        剩下的**均分**给两条空白 —— 这样最上面的按钮贴着上沿、最下面的贴着下沿，
-        两条空白一样大、里面的分割线居中。
+        目标是让**最下面的按钮下沿和直播间缩略图的下沿齐平**，所以减的是缩略图
+        高度（`NAV_ITEM_HEIGHT`），不是整条卡片行 —— 卡片行还含那 8px 滚动条。
+        三个按钮各用横屏那套高度，两条线各 1px，剩下的**均分**给两条空白。
         """
-        row = NAV_ITEM_HEIGHT + NAV_ITEM_GAP + theme.SCROLLBAR_SIZE
+        target = NAV_ITEM_HEIGHT
         buttons = (theme.CONTROL_HEIGHT + self.layout_button.sizeHint().height()
                    + self.settings_button.sizeHint().height())
-        slack = max(0, row - buttons - 2)          # 四条空白加起来的高度
+        slack = max(0, target - buttons - 2)       # 四条空白加起来的高度
         # 每条空白 = 线上那段 + 1px 线 + 线下那段，所以先把那 1px 加回来再对半分
         per_gap, extra = divmod(slack + 2, 2)
         blank, blank_extra = divmod(max(0, per_gap - 1), 2)
@@ -3146,11 +3149,9 @@ class Sidebar(QFrame):
             tool_box.setStretch(0, 0)
             tool_box.setStretch(4, 0)
             self._sync_bar_gaps()
-            # 宽度保持各自本来的大小（用户要求：别调单个按钮的宽度）；高度也
-            # 不拉伸，用横屏那套自然高度
+            # 三个按钮左右长度一样（都撑满这一块）；高度用横屏那套自然高度
             for button in (self.layout_button, self.settings_button):
-                button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-                button.setMaximumWidth(button.sizeHint().width())
+                button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
             self._layout.insertWidget(index + 2 if index >= 0 else 2, self._bar_row2)
@@ -3206,9 +3207,9 @@ class Sidebar(QFrame):
         """
         if self.side == "top" and not self.collapsed:
             self.account_row.set_compact(False)
-            # 高度用横屏那套（34），多出来的高度留给这一块里的两条空白
+            # 高度用横屏那套（34），宽度跟着这一块走（三个按钮左右一样长）
             self.account_row.setFixedHeight(theme.CONTROL_HEIGHT)
-            self.account_row.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self.account_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         elif self.side == "top":
             self.account_row.set_compact(True, avatar=RoomStrip.AVATAR, margin=1)
         else:

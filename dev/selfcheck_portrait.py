@@ -635,8 +635,10 @@ def part_strip_interaction(app) -> None:
     assert account.y() == 0, f"最上面的按钮要贴着上沿，实际 y={account.y()}"
     bottom = sidebar.tool_row.y() + sidebar.settings_button.y() \
         + sidebar.settings_button.height()
-    assert bottom == block.height(), \
-        f"最下面的按钮要贴着下沿：底部 {bottom} vs 这一块 {block.height()}"
+    card_height = entries[0].height()
+    print(f"  最下面按钮的下沿={bottom} 缩略图下沿={card_height}")
+    assert bottom == card_height, \
+        f"最下面的按钮下沿要和直播间缩略图下沿齐平：{bottom} vs {card_height}"
     assert gap_label > 2 and gap_tool > 2, f"两条空白要真的留出来：{gap_label}/{gap_tool}"
     assert abs(gap_label - gap_tool) <= 1, \
         f"两条空白要一样大（均匀），实际 {gap_label}/{gap_tool}"
@@ -649,18 +651,13 @@ def part_strip_interaction(app) -> None:
         print(f"    {name}的分割线：上面留 {upper}px、下面留 {lower}px")
         assert divider.isVisible() and divider.height() == 1, "分割线在、且只有 1px"
         assert abs(upper - lower) <= 1, f"{name}的分割线要在空白正中间"
-    # 这一块的按钮宽度不被动过（用户要求）
-    print(f"  宽度：账号={account.width()} 布局预设={sidebar.layout_button.width()}"
-          f"（自身 {sidebar.layout_button.sizeHint().width()}）"
-          f" 设置={sidebar.settings_button.width()}"
-          f"（自身 {sidebar.settings_button.sizeHint().width()}）"
-          f" 分割线={[d.width() for d in dividers]}")
-    assert sidebar.layout_button.width() == sidebar.layout_button.sizeHint().width(), \
-        "布局预设的宽度不该被改（用户要求别调单个按钮的宽度）"
-    assert sidebar.settings_button.width() == sidebar.settings_button.sizeHint().width(), \
-        "设置的宽度不该被改"
-    assert all(divider.width() >= account.width() for divider in dividers), \
-        "两条分割线要横跨这一块"
+    # 这一块的按钮左右长度一样（都撑满这块），宽度不再各自为政
+    widths = {account.width(), sidebar.layout_button.width(),
+              sidebar.settings_button.width()}
+    print(f"  宽度：账号/布局预设/设置={sorted(widths)} 分割线={[d.width() for d in dividers]}")
+    assert len(widths) == 1, f"三个按钮左右长度要一样，实际 {sorted(widths)}"
+    assert all(divider.width() == account.width() for divider in dividers), \
+        "两条分割线要和按钮一样宽"
     # 卡片上的置顶角标（用户要求：小三角改圆角，贴合圆角边框）
     pinned_item = sidebar.items()[0]
     sidebar.apply_pins([str(pinned_item.room.get("room_id"))])
