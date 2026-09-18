@@ -29,7 +29,7 @@ assert samples(route_pcm_s16_stereo(source, CHANNEL_RIGHT)) == (
     0, 2000, 0, -1000, 0, 32767,
 )
 assert samples(apply_volume_s16_stereo(source, 50)) == (
-    500, 1500, -1500, 500, 16383, 16383,
+    125, 375, -375, 125, 4095, 4095,
 )
 assert apply_volume_s16_stereo(source, 100) == source
 assert samples(apply_volume_s16_stereo(source, 0)) == (0, 0, 0, 0, 0, 0)
@@ -97,8 +97,8 @@ assert samples(created[0].writes[-1]) == (0, 2000, 0, -1000, 0, 32767)
 
 output.set_volume(50)
 output.write(ctypes.addressof(buffer), 3)
-assert samples(created[0].writes[-1]) == (0, 1000, 0, -500, 0, 16383), \
-    "PCM 路由必须自行应用格子音量；libVLC 音量不会作用到回调样本"
+assert samples(created[0].writes[-1]) == (0, 250, 0, -125, 0, 4095), \
+    "PCM 路由必须使用 VLC Windows 输出相同的三次方音量曲线"
 
 output.set_enabled(False)
 assert created[0].aborts == 1

@@ -30,17 +30,21 @@ def route_pcm_s16_stereo(data: bytes, channel: int) -> bytes:
 
 
 def apply_volume_s16_stereo(data: bytes, volume: int) -> bytes:
-    """Apply the tile's 0-100 volume to callback PCM samples."""
+    """Apply VLC's Windows volume curve to callback PCM samples."""
     if len(data) % BYTES_PER_FRAME:
         raise ValueError("stereo S16 PCM must contain complete frames")
     level = max(0, min(100, int(volume)))
     if level == 100:
         return bytes(data)
+    # VLC 3 的 Windows mmdevice 输出也把 0..1 音量取三次方后交给
+    # ISimpleAudioVolume。PCM 回调绕开了那层，必须在这里使用同一曲线，
+    # 否则 50% 会按 0.5 而不是 0.125 输出，单独声道听起来明显更响。
+    gain = (level / 100) ** 3
     output = bytearray(len(data))
     source = memoryview(data).cast("h")
     target = memoryview(output).cast("h")
     for index, sample in enumerate(source):
-        target[index] = int(int(sample) * level / 100)
+        target[index] = int(int(sample) * gain)
     return bytes(output)
 
 
