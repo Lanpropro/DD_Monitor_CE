@@ -2394,28 +2394,6 @@ class RoomStrip(QFrame):
         return avatar
 
 
-class RowMoreButton(QPushButton):
-    """竖屏横栏里的「⋯」：一个按钮装下放不下的入口。"""
-
-    def __init__(self, actions_provider, parent=None):
-        super().__init__("⋯  更多", parent)
-        self.setObjectName("IconButton")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("排序、多选、导入、添加、设置…")
-        self._provider = actions_provider
-        self.clicked.connect(self._popup)
-
-    def _popup(self) -> None:
-        menu = QMenu(self)
-        for item in self._provider() or []:
-            if item is None:
-                menu.addSeparator()
-                continue
-            label, callback = item
-            menu.addAction(str(label), callback)
-        menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
-
-
 class Sidebar(QFrame):
     """左侧房间列表：可收起、可批量选择删除。"""
 
@@ -2596,11 +2574,6 @@ class Sidebar(QFrame):
         tool_box.addWidget(self.layout_button, 1)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
-
-        # 竖屏展开态：只留「布局预设」，其余入口收进这一个「⋯」里
-        self.tool_row_more = RowMoreButton(self._more_actions)
-        self.tool_row_more.setVisible(False)
-        layout.addWidget(self.tool_row_more)
         self.set_layout_name("auto")
 
         self.normal_bar = QWidget()
@@ -2620,13 +2593,12 @@ class Sidebar(QFrame):
         normal_layout.addWidget(self.add_button, 1)
         layout.addWidget(self.normal_bar)
 
-        # 竖屏横栏那一行（见 _adopt_bar_row）：搜索框 + 右边一块
-        # 「账号头像 / 布局预设 / ⋯ / 展开键」。横屏要拆回竖排，
-        # 所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
+        # 竖屏横栏那一行（见 _adopt_bar_row）：左边搜索框/头像排，右边一块
+        # 「账号头像 / 布局预设 / 设置」，中间夹着「多选 / 排序 / 刷新」三个小图标。
+        # 横屏要拆回竖排，所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
         self._column_order = [self._head_scroll, self._header_row, self.search,
                               self.status_row, self.scroll, self.batch_bar,
-                              self.account_row, self.tool_row, self.tool_row_more,
-                              self.normal_bar]
+                              self.account_row, self.tool_row, self.normal_bar]
         self._bar_row: QWidget | None = None
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
@@ -2702,14 +2674,24 @@ class Sidebar(QFrame):
             strip.set_room_face(room_id, pixmap)
 
     def account_menu(self) -> QMenu:
-        """账号菜单：退出登录；侧栏收起时把藏起来的「布局预设 / 设置」也放进来。
+        """账号菜单：退出登录；放不进横栏的入口也在这里。
 
+        竖屏横栏只有一行：导入关注 / 添加直播间收进这个菜单；「布局预设 / 设置」
+        是并排摆在横栏上的按钮，只有收起时（按钮藏起来）才需要放进菜单。
         单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
         """
         menu = QMenu(self)
         menu.addAction("退出登录")
-        if self.collapsed:
-            # 收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
+        if self.side == "top":
+            menu.addSeparator()
+            menu.addAction("导入关注…")
+            menu.addAction("+ 添加直播间…")
+            if self.collapsed:
+                menu.addSeparator()
+                menu.addAction("布局预设…")
+                menu.addAction("设置…")
+        elif self.collapsed:
+            # 横屏收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
             # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
             menu.addSeparator()
             menu.addAction("布局预设…")
@@ -2743,6 +2725,10 @@ class Sidebar(QFrame):
             self.open_layout_picker()
         elif label == "设置…":
             self.settingsRequested.emit()
+        elif label == "导入关注…":
+            self.importFollowsRequested.emit()
+        elif label == "+ 添加直播间…":
+            self.addRoomRequested.emit()
 
     # ---- 竖屏横栏 ----
     def _on_strip_room(self, room_id: str) -> None:
@@ -2751,28 +2737,6 @@ class Sidebar(QFrame):
                      if str(entry.room.get("room_id")) == str(room_id)), None)
         if item is not None:
             self.roomSelected.emit(item.room)
-
-    def _more_actions(self) -> list:
-        """「⋯」里的入口：横栏放不下的那些。
-
-        「布局预设」不在这里 —— 它就摆在横栏右侧那一块上；「设置」收进来，
-        横栏里不再单占一个按钮。
-        """
-        return [
-            ("排序方式…", self._popup_sort_menu),
-            ("多选" if not self.select_mode else "退出多选",
-             lambda: self.set_select_mode(not self.select_mode)),
-            ("刷新关注列表", self.refreshRequested.emit),
-            None,
-            ("导入关注…", self.importFollowsRequested.emit),
-            ("+ 添加直播间…", self.addRoomRequested.emit),
-            None,
-            ("设置…", self.settingsRequested.emit),
-        ]
-
-    def _popup_sort_menu(self) -> None:
-        menu = self._build_sort_menu()
-        menu.exec(QCursor.pos())
 
     def refresh_strip(self) -> None:
         """把当前关注列表（连已经下载好的头像）同步到顶部横栏。"""
@@ -2841,7 +2805,9 @@ class Sidebar(QFrame):
                                     (self.tool_row, True)):
                 widget.setVisible(visible)
             self.settings_button.setVisible(True)    # 竖屏时它收进「⋯」里了
-            self.tool_row_more.setVisible(False)     # 那是竖屏专属的「⋯」
+            # 竖屏时被摘进横栏那一行的控件要各回各家：多选回标题行、
+            # 排序/刷新回状态行，图标样式也换回文字按钮
+            self._restore_side_children()
             self.account_row.setVisible(self._account_row_should_show())
             self._restore_toggle_to_header()
             # 竖屏那套滚动轴状态必须在这里还原：横排时 horizontal_only=True、
@@ -2893,17 +2859,65 @@ class Sidebar(QFrame):
             self._bar_row_box = box
 
     def _bar_widgets(self) -> list:
-        """要挤进横栏这一行的控件：搜索框/头像排 + 右边那一块。"""
-        return [self.search, self._head_scroll, self.account_row, self.tool_row,
-                self.tool_row_more, self.toggle_button]
+        """要挤进横栏这一行的控件：搜索框/头像排 + 图标 + 右边那一块。"""
+        return [self.search, self._head_scroll, self.batch_button, self.sort_button,
+                self.refresh_button, self.account_row, self.tool_row,
+                self.toggle_button]
+
+    def _bar_icons(self) -> tuple:
+        """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
+        return (self.batch_button, self.sort_button, self.refresh_button)
+
+    def _sync_bar_icons(self) -> None:
+        """竖屏那一行把「多选 / 排序 / 刷新」压成小图标；横屏还原成文字按钮。
+
+        横屏的多选在标题行、排序/刷新在状态行，都是带文字的；横栏一行里
+        放不下三块文字，所以只留图标（悬停提示照旧说明用途）。
+        """
+        top = self.side == "top"
+        if top:
+            # 字体里 ⇅ / ☑ 这类组合符号在雅黑下会掉成怪字形，所以用最普通的
+            # 勾和上下箭头（这两个字形雅黑一定有）；按钮换成 #BarIcon 那套
+            # 方形样式，ChipButton 的 10px 左右内边距会把字形挤掉
+            self.batch_button.setText("✓")
+            self.sort_button.setText("↑↓")
+            for button in self._bar_icons():
+                button.setObjectName("BarIcon")
+                button.setFixedSize(30, 30)
+        else:
+            self.batch_button.setText("多选")
+            self.sort_button.setText("排序")
+            for button in self._bar_icons():
+                button.setObjectName("ChipButton")
+                button.setMinimumSize(0, 0)
+                button.setMaximumSize(16_777_215, 16_777_215)
+            self.batch_button.setFixedHeight(22)     # 标题行里那套矮样式
+            self.refresh_button.setFixedSize(28, 22)  # RefreshButton 的原始尺寸
+        for button in self._bar_icons():
+            _repolish(button)
+
+    def _restore_side_children(self) -> None:
+        """回左栏：多选回标题行、排序/刷新回状态行（顺序和 __init__ 里一致）。"""
+        self._detach_from_rows(self.batch_button)
+        self.batch_button.setParent(self._header_row)
+        self._header_row.layout().addWidget(self.batch_button, 0, Qt.AlignTop)
+
+        box = self.status_row.layout()
+        for widget in (self.count_label, self.sort_button, self.refresh_button):
+            box.removeWidget(widget)
+        box.addWidget(self.count_label, 1)
+        box.addWidget(self.sort_button, 0, Qt.AlignRight)
+        box.addWidget(self.refresh_button, 0, Qt.AlignRight)
+        self.sort_button.setParent(self.status_row)
+        self.refresh_button.setParent(self.status_row)
+        self._sync_bar_icons()
 
     def _adopt_bar_row(self) -> None:
-        """竖屏：把搜索框（或头像排）和右上那一块并成**同一行**。
+        """竖屏：把搜索框（或头像排）、图标和右上那一块并成**同一行**。
 
-        这一行从左到右是：搜索框（收起时换成头排）、账号头像、布局预设、
-        ⋯、展开/收起键 —— 横屏的账号栏和工具行也是这么并排的。
-        原来是三行竖着堆在横栏下面（布局预设 / ⋯ / 导入关注 + 添加直播间），
-        横栏因此高到 362px，现在并成一行，省下的高度全给画面墙。
+        这一行从左到右是：搜索框（收起时换成头排）、多选 / 排序 / 刷新三个小图标、
+        账号头像、布局预设、设置、展开/收起键。原来是好几行竖着堆在横栏下面
+        （多选 / 布局预设 / ⋯ / 导入关注 + 添加直播间），横栏因此高到 362px。
         """
         self._ensure_bar_row()
         if not self._bar_in_use:
@@ -2914,11 +2928,12 @@ class Sidebar(QFrame):
             # 搜索框和头像排轮流坐左边（收起时显示头像排），谁在就由谁撑满
             self._bar_row_box.addWidget(self.search, 1)
             self._bar_row_box.addWidget(self._head_scroll, 1)
-            for widget in (self.account_row, self.tool_row, self.tool_row_more,
-                           self.toggle_button):
+            for widget in self._bar_icons() + (self.account_row, self.tool_row,
+                                               self.toggle_button):
                 self._bar_row_box.addWidget(widget)
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
             self._bar_in_use = True
+            self._sync_bar_icons()
         self._bar_row.setVisible(True)
 
     def _release_bar_row(self) -> None:
@@ -2976,9 +2991,9 @@ class Sidebar(QFrame):
     def _sync_top_mode(self) -> None:
         """按 side + collapsed 决定顶部横栏露哪些控件。
 
-        横栏是**一行**：左边搜索框（收起时换成头像排），右边一块是
-        账号头像 + 布局预设 + ⋯ + 展开/收起键；下面只剩横向卡片条。
-        头像排在收起时露出来（它就是关注列表，也是展开键的邻居）。
+        横栏是**一行**：左边搜索框（收起时换成头像排），中间「多选 / 排序 / 刷新」
+        三个小图标，右边一块是账号头像 + 布局预设 + 设置 + 展开/收起键；
+        下面只剩横向卡片条。头像排在收起时露出来（它就是关注列表）。
         """
         if self.side != "top":
             return
@@ -3007,31 +3022,27 @@ class Sidebar(QFrame):
                 header.setVisible(False)
             # 收起时这一行只剩：头像排 + 账号头像 + 展开键
             for widget in (self.search, self.status_row, self.scroll, self.normal_bar,
-                           self.batch_bar, self.tool_row, self.tool_row_more):
+                           self.batch_bar, self.tool_row) + self._bar_icons():
                 widget.setVisible(False)
             self.account_row.setVisible(self._account_row_should_show())
         else:
+            # 多选搬到了搜索那一行，标题行在这边就空了：整行收掉，
+            # 横栏因此又矮了 22px（多选原来自己占一行的那点高度）
             if header is not None:
-                header.setVisible(True)
-            for index in range(self.title_box.count()):
-                holder = self.title_box.itemAt(index).widget()
-                if holder is not None:
-                    holder.setVisible(True)
-            self.dot.setVisible(True)
-            self.batch_button.setVisible(True)
+                header.setVisible(False)
             self.search.setVisible(True)
-            # 竖屏不显示「关注中 · N / 排序 / 刷新」那一行：横栏高度很宝贵，
-            # 这些入口都在「⋯」里（用户明确要求展开后不要占额外的高度）
+            for button in self._bar_icons():
+                button.setVisible(True)
+            self.batch_button.setVisible(True)
+            # 排序/刷新已经在搜索那一行当图标了，「关注中 · N」那一行不再出来
             self.status_row.setVisible(False)
             self.scroll.setVisible(True)
-            # 导入关注 / 添加直播间也收进「⋯」，别再占一行
+            # 导入关注 / 添加直播间收进账号菜单，别再占一行
             self.normal_bar.setVisible(False)
             self.batch_bar.setVisible(self.select_mode)
             self.account_row.setVisible(self._account_row_should_show())
-            self.tool_row.setVisible(True)           # 只留「布局预设」
-            self.settings_button.setVisible(False)   # 设置也在「⋯」里
-            self.tool_row_more.setVisible(True)      # 其余收进「⋯」
-            # 标题文字在横栏里没意义，只留「多选 + 展开/收起」这两个真按钮
+            self.tool_row.setVisible(True)           # 布局预设 + 设置并排
+            self.settings_button.setVisible(True)
             self._set_title_texts_visible(False)
 
     def _set_title_texts_visible(self, visible: bool) -> None:

@@ -456,6 +456,27 @@ QSlider::handle:horizontal:hover {{
     border: 1px solid rgba(0, 161, 214, 0.45);
     color: {ACCENT};
 }}
+/* 竖屏顶部横栏里的小图标按钮（多选 / 排序 / 刷新）：方形、无内边距，
+   不然 ChipButton 那 10px 左右内边距会把图标字形挤掉一半 */
+#BarIcon {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: 15px;
+    padding: 0;
+    min-width: 28px;
+    min-height: 28px;
+    color: {TEXT2};
+    font-size: 14px;
+}}
+#BarIcon:hover {{
+    background: {CONTENT_HOVER};
+    color: {TEXT1};
+}}
+#BarIcon:checked {{
+    background: {ACCENT_SOFT};
+    border: 1px solid rgba(0, 161, 214, 0.45);
+    color: {ACCENT};
+}}
 #TileControls {{
     background: transparent;
     border: none;

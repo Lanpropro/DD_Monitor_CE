@@ -245,6 +245,16 @@ def part_orientation_roundtrip(app) -> None:
                 f"{sidebar.scroll.verticalScrollBarPolicy().name}"
             assert sidebar.scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff, \
                 f"{tag}: 左栏不该留横滚条"
+            # 竖屏借走的三个按钮要各回各家、文字样式也要还原（别把横屏搞坏）
+            assert sidebar.batch_button.text() == "多选", f"{tag}: 多选要还原成文字按钮"
+            assert sidebar.sort_button.text() == "排序", f"{tag}: 排序要还原成文字按钮"
+            assert sidebar.batch_button.parentWidget() is sidebar._header_row, \
+                f"{tag}: 多选要回标题行"
+            assert sidebar.sort_button.parentWidget() is sidebar.status_row, \
+                f"{tag}: 排序要回状态行"
+            assert sidebar.refresh_button.parentWidget() is sidebar.status_row, \
+                f"{tag}: 刷新要回状态行"
+            assert sidebar.settings_button.isVisible(), f"{tag}: 设置按钮要回来"
         return main
 
     check("横屏启动", False)
@@ -414,11 +424,9 @@ def part_strip_interaction(app) -> None:
     box = sidebar.list_box
     print(f"  展开：头排={strip.isVisible()} 搜索={sidebar.search.isVisible()} "
           f"布局按钮={sidebar.tool_row.isVisible()} "
-          f"更多={sidebar.tool_row_more.isVisible()} "
           f"列表={sidebar.scroll.isVisible()} 高={sidebar.height()}")
     assert not strip.isVisible(), "展开后不保留头像排（用户要求）"
     assert sidebar.search.isVisible() and sidebar.tool_row.isVisible()
-    assert sidebar.tool_row_more.isVisible(), "放不下的入口要在「⋯」里"
     assert box.horizontal, "展开后关注列表应该是横向卡片条"
     # 卡片横向排开：第一张在左边，第二张在它右边
     entries = sidebar.items()
@@ -429,10 +437,11 @@ def part_strip_interaction(app) -> None:
           f"滚动={sidebar.scroll.horizontalScrollBarPolicy().name}")
     assert second.x() > first.x(), "卡片要向右排"
     assert first.y() == second.y(), "卡片应该在同一行"
-    # 横栏高度：原来「布局预设 / ⋯ / 导入关注 + 添加直播间」三行堆在下面，
-    # 横栏 362px；现在它们并进横栏右侧那一块，224px（还留着「多选」那一行，
-    # 以及横向滚动条自己占的 8px —— 不留这 8px 卡片底边会被滚动条切掉）
+    # 横栏高度：原来「多选 / 布局预设 / ⋯ / 导入关注 + 添加直播间」好几行堆在
+    # 下面，横栏 362px；现在并成一行，196px（多选搬到搜索那一行、标题行整行收掉，
+    # 加上横向滚动条自己占的 8px —— 不留这 8px 卡片底边会被滚动条切掉）
     assert sidebar.height() < 300, f"展开后横栏要比 362px 那版矮，实际 {sidebar.height()}"
+    assert sidebar.height() <= 210, f"多选搬下来之后横栏应该只有一行，实际 {sidebar.height()}"
     assert sidebar.scroll.viewport().height() >= first.height(), \
         f"卡片不能被横向滚动条切掉：视口 {sidebar.scroll.viewport().height()} " \
         f"< 卡片 {first.height()}"
@@ -453,33 +462,46 @@ def part_strip_interaction(app) -> None:
         "横向和竖向滚动条的滑块要用同一种颜色（各一处）"
     assert hbar.height() <= 10, f"横向滚动条没走主题样式，实际 {hbar.height()}px"
 
-    print("\n=== 12b. 横栏右侧那一块：账号头像 + 布局预设 + ⋯ 挤在同一行 ===")
+    print("\n=== 12b. 横栏一行：图标 + 账号头像 + 布局预设 + 设置 并排 ===")
     account = sidebar.account_row
-    right = [account, sidebar.tool_row, sidebar.tool_row_more]
-    centers = [widget.y() + widget.height() / 2 for widget in right]
+    icons = [sidebar.batch_button, sidebar.sort_button, sidebar.refresh_button]
+    right = [account, sidebar.tool_row, sidebar.settings_button]
+    row_widgets = icons + right
+    centers = [widget.y() + widget.height() / 2 for widget in row_widgets]
     print(f"  账号条 {account.width()}x{account.height()} @x={account.x()} "
-          f"布局预设 x={sidebar.tool_row.x()} ⋯ x={sidebar.tool_row_more.x()} "
+          f"图标 x={[w.x() for w in icons]} 布局预设 x={sidebar.tool_row.x()} "
           f"展开键 x={sidebar.toggle_button.x()} 搜索框右边缘="
           f"{sidebar.search.x() + sidebar.search.width()}")
     assert account.isVisible() and account.avatar.isVisible(), \
         "展开态横栏右侧要有账号头像（用户要求，和横屏一致）"
     assert account.name.isVisible(), "横栏里的账号条要露出昵称，不是只剩一个头像"
-    assert len({widget.parentWidget() for widget in right}) == 1, \
-        "账号头像和两个按钮必须在同一个容器里"
-    assert max(centers) - min(centers) <= 4, f"账号头像要和按钮并排同一行：{centers}"
+    assert len({widget.parentWidget() for widget in icons + [account, sidebar.tool_row]}) == 1, \
+        "图标、账号头像和工具行必须在同一个容器里（设置按钮在工具行里面）"
+    assert sidebar.settings_button.parentWidget() is sidebar.tool_row, \
+        "设置和布局预设并排在同一个工具行里"
+    assert max(centers) - min(centers) <= 4, f"这些控件要并排同一行：{centers}"
     assert account.x() >= sidebar.search.x() + sidebar.search.width(), \
         "账号头像那一块要在搜索框右边（右侧划出来的一块）"
-    assert sidebar.toggle_button.x() > sidebar.tool_row_more.x(), \
-        "展开/收起键在最右端"
-    # 原来堆在横栏下面的那一行：导入关注 / 添加直播间 并进了「⋯」，
-    # 设置也一样（「布局预设」留在横栏里当按钮）
-    labels = [item[0] for item in sidebar._more_actions() if item]
-    print(f"  ⋯ 里装着：{labels}")
-    assert not sidebar.normal_bar.isVisible(), "导入/添加并进「⋯」了，不该再占一行"
+    assert sidebar.toggle_button.x() > sidebar.tool_row.x(), "展开/收起键在最右端"
+    # 用户要求：多选从最上方下移到和搜索同高度，和排序/刷新一起做成小图标按钮
+    assert all(button.isVisible() for button in icons), "三个小图标都要露出来"
+    assert min(button.x() for button in icons) > sidebar.search.x(), "图标在搜索框右边"
+    assert sidebar._header_row.isVisible() is False, \
+        "多选搬下来之后，标题行整行收掉（横栏只有一行）"
+    print(f"  图标文字：多选={sidebar.batch_button.text()!r} "
+          f"排序={sidebar.sort_button.text()!r} 尺寸="
+          f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
+    assert sidebar.batch_button.text() != "多选" and sidebar.sort_button.text() != "排序", \
+        "横栏里这三个是图标按钮，不是文字按钮"
+    # 「⋯」整个去掉了：导入关注 / 添加直播间 收进账号菜单，设置和布局预设摆在横栏上
+    labels = [action.text() for action in sidebar.account_menu().actions() if action.text()]
+    print(f"  账号菜单里装着：{labels}")
+    assert not hasattr(sidebar, "tool_row_more"), "「更多」按钮已经去掉"
+    assert not sidebar.normal_bar.isVisible(), "导入/添加收进账号菜单，不该再占一行"
     assert "导入关注…" in labels and "+ 添加直播间…" in labels, labels
-    assert "布局预设…" not in labels, "布局预设已经摆在横栏上，⋯ 里不用再来一份"
-    assert not sidebar.settings_button.isVisible(), "设置收进「⋯」，横栏里不再单占一个按钮"
-    assert "设置…" in labels, labels
+    assert sidebar.tool_row.isVisible() and sidebar.settings_button.isVisible(), \
+        "布局预设 + 设置要并排摆在横栏右侧"
+    assert "设置…" not in labels, "设置已经摆在横栏上，展开态菜单里不用再来一份"
 
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.3)
