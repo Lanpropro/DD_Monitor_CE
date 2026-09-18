@@ -287,6 +287,17 @@
 | B5 | 验收 | ~~真机验收尾巴~~ **用户 2026-09-18：「应该不存在问题」→ 关闭** | — |
 | B6 | 环境 | `work/tmp/` 下 3 个受限临时目录删不掉 | **用户 2026-09-18：「自己考虑」→ 低影响（`work/` 已 gitignore，只是 `git status` 多几行警告），不再列为待办** |
 
+### E. v0.1 发版（接手方，2026-09-18）
+
+| # | 事项 | 结果 |
+| --- | --- | --- |
+| E1 | 竖屏收起箭头 | 用户要求「竖屏的收起箭头改成上下」：新增 `SidebarToggleButton`（`ddm/widgets.py`）—— 横屏沿用原来的左右字形「« / »」，竖屏**自绘上下箭头**（`⌃/⌄` 字形在雅黑下不可靠），展开时朝上、收起时朝下。自检第 19 组：竖屏箭头文字为空、上沿/下沿宽度能区分方向（展开时上沿窄、收起时下沿窄）、居中；横屏仍是 « / » |
+| E2 | 版本号 | 新增 `ddm/version.py`（`VERSION = "0.1"` / `VERSION_TAG` / `DISPLAY_NAME`），窗口标题改为「DD 监控室 v0.1」 |
+| E3 | 发布脚本 | 新增 `dev/build_release.ps1`：默认打**源码便携包**（源码 + VLC 运行库 + 运行说明 + zip，不含用户的 `utils/config.json`、`cache`、`logs`），`-Frozen` 才试 PyInstaller 版 |
+| E4 | 发布物 | `RELEASE-v0.1.md`（这一版改了什么 / 已知问题 / 运行方式）；包已放到用户指定位置 `F:\CodexAppManager\Project\DD_Monitor_CE\DD监控室-v0.1\` + 同名 zip（46.8 MB），实测能起来（跑 `main.py` 15 秒无异常，插件装载正常） |
+| E5 | 顺带修的主题色坑 | `QColor("rgba(...)")` **解析不了**（静默变黑）：`theme.TEXT3` 等常量都是 rgba 写法，`layouts.thumbnail()` 里 `QColor(theme.TEXT3)` 这类调用一直在画黑色。新增 `theme.qcolor()` 解析 CSS 颜色，布局缩略图的描边/占位格子颜色跟着对了 |
+| E6 | 未打通（已知问题） | PyInstaller 免装 Python 的 exe **起不来**：`import QtCore` 报「DLL load failed while importing QtCore: 找不到指定的程序」。已排除：文件缺失（`Qt6Core.dll`/`pyside6.abi3.dll` 都在包里）、搜索路径（干净 Python 手动 `os.add_dll_directory` 加载同一批文件成功）、`_internal` 布局（`--contents-directory .` 扁平布局同样失败）、包里的 `MSVCP140`/`VCRUNTIME140`/`ucrtbase`/`api-ms-*` 副本（换过、删过都不行）。失败点收窄到 **`Qt6Core.dll` 自身加载**（它的依赖单独加载都 OK）。要么等 PyInstaller 支持 PySide6 6.11，要么换 `pyside6-deploy`（需要 C 编译器） |
+
 ### D. 用户 2026-09-18 第二批实测 bug（**已修**）
 
 | # | 范围 | 现象 | 修法 |
