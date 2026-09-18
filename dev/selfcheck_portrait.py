@@ -462,57 +462,68 @@ def part_strip_interaction(app) -> None:
         "横向和竖向滚动条的滑块要用同一种颜色（各一处）"
     assert hbar.height() <= 10, f"横向滚动条没走主题样式，实际 {hbar.height()}px"
 
-    print("\n=== 12b. 横栏一行：图标 + 账号头像 + 布局预设 + 设置 并排 ===")
+    print("\n=== 12b. 横栏两行：图标在第一行，卡片右边单独一块放账号/布局预设/设置 ===")
     account = sidebar.account_row
     icons = [sidebar.batch_button, sidebar.sort_button, sidebar.refresh_button]
-    right = [account, sidebar.tool_row, sidebar.settings_button]
-    row_widgets = icons + right
-    centers = [widget.y() + widget.height() / 2 for widget in row_widgets]
-    print(f"  账号条 {account.width()}x{account.height()} @x={account.x()} "
-          f"图标 x={[w.x() for w in icons]} 布局预设 x={sidebar.tool_row.x()} "
-          f"展开键 x={sidebar.toggle_button.x()} 搜索框右边缘="
-          f"{sidebar.search.x() + sidebar.search.width()}")
-    assert account.isVisible() and account.avatar.isVisible(), \
-        "展开态横栏右侧要有账号头像（用户要求，和横屏一致）"
-    assert account.name.isVisible(), "横栏里的账号条要露出昵称，不是只剩一个头像"
-    assert len({widget.parentWidget() for widget in icons + [account, sidebar.tool_row]}) == 1, \
-        "图标、账号头像和工具行必须在同一个容器里（设置按钮在工具行里面）"
-    assert sidebar.settings_button.parentWidget() is sidebar.tool_row, \
-        "设置和布局预设并排在同一个工具行里"
-    assert max(centers) - min(centers) <= 4, f"这些控件要并排同一行：{centers}"
-    assert account.x() >= sidebar.search.x() + sidebar.search.width(), \
-        "账号头像那一块要在搜索框右边（右侧划出来的一块）"
-    assert sidebar.toggle_button.x() > sidebar.tool_row.x(), "展开/收起键在最右端"
-    # 用户要求：多选从最上方下移到和搜索同高度，和排序/刷新一起做成小图标按钮
+    block = sidebar._bar_right
+    stacked = [account, sidebar.tool_row]
+    print(f"  第一行：图标 x={[w.x() for w in icons]} 搜索框右边缘="
+          f"{sidebar.search.x() + sidebar.search.width()} 展开键 x="
+          f"{sidebar.toggle_button.x()}")
+    print(f"  第二行：卡片条 {sidebar.scroll.width()}x{sidebar.scroll.height()} "
+          f"右侧一块 x={block.x()} 宽={block.width()}；账号条 "
+          f"{account.width()}x{account.height()} @y={account.y()} "
+          f"布局预设/设置 x={sidebar.layout_button.x()} y="
+          f"{sidebar.layout_button.y()}/{sidebar.settings_button.y()}")
+    # 用户要求：多选这些图标留在搜索框旁边
     assert all(button.isVisible() for button in icons), "三个小图标都要露出来"
     assert min(button.x() for button in icons) > sidebar.search.x(), "图标在搜索框右边"
+    assert all(button.parentWidget() is sidebar._bar_row for button in icons + [
+        sidebar.toggle_button]), "图标和展开键在第一行"
     assert sidebar._header_row.isVisible() is False, \
-        "多选搬下来之后，标题行整行收掉（横栏只有一行）"
+        "多选搬下来之后，标题行整行收掉（横栏只有一行放搜索）"
     print(f"  图标文字：多选={sidebar.batch_button.text()!r} "
           f"排序={sidebar.sort_button.text()!r} 尺寸="
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
     assert sidebar.batch_button.text() != "多选" and sidebar.sort_button.text() != "排序", \
         "横栏里这三个是图标按钮，不是文字按钮"
-    # 「⋯」整个去掉了：导入关注 / 添加直播间 收进账号菜单，设置和布局预设摆在横栏上
+    # 用户要求：最后一张卡片右边单独开一块，账号 / 布局预设 / 设置 竖排
+    assert block.isVisible() and block.parentWidget() is sidebar._bar_row2, \
+        "右侧那一块要和卡片条在同一行"
+    assert block.x() >= sidebar.scroll.x() + sidebar.scroll.width(), \
+        "这一块要在卡片条的右边"
+    assert account.parentWidget() is block and sidebar.tool_row.parentWidget() is block, \
+        "账号和工具行都要放进这一块"
+    assert account.y() + account.height() <= sidebar.tool_row.y(), \
+        f"账号要在布局预设上面（竖排）：账号 y={account.y()} 工具行 y={sidebar.tool_row.y()}"
+    assert sidebar.settings_button.y() > sidebar.layout_button.y(), \
+        "布局预设和设置也要竖排（设置在下）"
+    assert abs(sidebar.settings_button.x() - sidebar.layout_button.x()) <= 2, \
+        "竖排时两个按钮左边对齐"
+    # 「⋯」整个去掉了：导入关注 / 添加直播间 收进账号菜单
     labels = [action.text() for action in sidebar.account_menu().actions() if action.text()]
     print(f"  账号菜单里装着：{labels}")
     assert not hasattr(sidebar, "tool_row_more"), "「更多」按钮已经去掉"
     assert not sidebar.normal_bar.isVisible(), "导入/添加收进账号菜单，不该再占一行"
     assert "导入关注…" in labels and "+ 添加直播间…" in labels, labels
-    assert sidebar.tool_row.isVisible() and sidebar.settings_button.isVisible(), \
-        "布局预设 + 设置要并排摆在横栏右侧"
-    assert "设置…" not in labels, "设置已经摆在横栏上，展开态菜单里不用再来一份"
+    assert "设置…" not in labels, "设置已经摆在右侧那一块上，展开态菜单里不用再来一份"
 
     sidebar.set_collapsed(True, animate=False)
     settle(app, 0.3)
     assert not sidebar.search.isVisible(), "收起后搜索框要收掉"
     assert strip.isVisible(), "收起后头排要回来"
-    # 账号头像现在收起/展开都在横栏最右侧那一块（用户要求从左边挪走），
-    # 而且收起时缩成和头排头像一样大
+    # 收起时账号头像回到第一行最右端，并且缩成和头排头像一样大的小圆点
+    # （用户报的「不需要那么大的按钮 / 保持和横屏一样的小圆点」）
     assert account.isVisible() and account.avatar.isVisible(), \
         "收起后账号头像仍要在横栏右侧（账号菜单只有这一个入口）"
+    assert account.parentWidget() is sidebar._bar_row, "收起时账号要回到头像排那一行"
     assert account.avatar.width() == strip.AVATAR, \
         f"收起时账号头像要和头排头像同尺寸，实际 {account.avatar.width()}"
+    print(f"  收起态账号按钮 {account.width()}x{account.height()}（头排头像 "
+          f"{strip.AVATAR}x{strip.AVATAR}）")
+    assert abs(account.width() - account.height()) <= 6, \
+        f"收起时账号按钮应该是个小圆点，不是长胶囊：{account.width()}x{account.height()}"
+    assert not sidebar._bar_right.isVisible(), "收起时右侧那一块整块收掉"
 
     print("\n=== 13. 切布局不动窗口方向（摆放跟着窗口形状走）===")
     window.resize(1600, 900)

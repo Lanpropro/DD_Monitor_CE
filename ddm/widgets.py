@@ -14,9 +14,9 @@ from PySide6.QtGui import (
     QMovie, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion, QTextDocument,
 )
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
-    QPushButton, QScrollArea, QSizePolicy, QSlider, QTextBrowser, QToolButton, QVBoxLayout,
-    QWidget, QWidgetAction,
+    QApplication, QBoxLayout, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QTextBrowser,
+    QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import layouts, theme
@@ -2845,24 +2845,55 @@ class Sidebar(QFrame):
 
     # ---- 横栏那一行 ----
     def _detach_from_rows(self, widget: QWidget) -> None:
-        """把控件从「竖排布局」和「横栏那一行」里都摘出来。"""
-        for holder in (self._layout, self._bar_row_box):
+        """把控件从「竖排布局」和横栏那几个容器里都摘出来。"""
+        for holder in (self._layout, self._bar_row_box, self._bar_row2_box,
+                       self._bar_right_box):
             if holder is not None:
                 holder.removeWidget(widget)
 
     def _ensure_bar_row(self) -> None:
-        if self._bar_row is None:
-            self._bar_row = QWidget(self)
-            box = QHBoxLayout(self._bar_row)
-            box.setContentsMargins(0, 0, 0, 0)
-            box.setSpacing(6)
-            self._bar_row_box = box
+        """建出横栏的两行容器（只建一次）。
+
+        第一行：搜索框（收起时换成头像排）+ 多选/排序/刷新小图标 + 展开键。
+        第二行：横向卡片条 + 右侧单独一块（账号 / 布局预设 / 设置 竖排）。
+        """
+        if self._bar_row is not None:
+            return
+        self._bar_row = QWidget(self)
+        box = QHBoxLayout(self._bar_row)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        self._bar_row_box = box
+        self._bar_row2 = QWidget(self)
+        box2 = QHBoxLayout(self._bar_row2)
+        box2.setContentsMargins(0, 0, 0, 0)
+        box2.setSpacing(6)
+        self._bar_row2_box = box2
+        self._bar_right = QWidget(self._bar_row2)
+        right = QVBoxLayout(self._bar_right)
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(6)
+        right.addStretch(1)                    # 三个按钮按自然高度贴顶排
+        self._bar_right_box = right
 
     def _bar_widgets(self) -> list:
-        """要挤进横栏这一行的控件：搜索框/头像排 + 图标 + 右边那一块。"""
+        """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
         return [self.search, self._head_scroll, self.batch_button, self.sort_button,
                 self.refresh_button, self.account_row, self.tool_row,
                 self.toggle_button]
+
+    def _place_account(self, in_right_block: bool) -> None:
+        """账号头像的位置：展开时在卡片条右侧那一块，收起时回到第一行最右端。"""
+        wanted = self._bar_right if in_right_block else self._bar_row
+        if self.account_row.parentWidget() is wanted:
+            return
+        self._detach_from_rows(self.account_row)
+        self.account_row.setParent(wanted)
+        if in_right_block:
+            self._bar_right_box.insertWidget(0, self.account_row)
+        else:
+            self._bar_row_box.insertWidget(self._bar_row_box.count() - 1,
+                                           self.account_row)
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
@@ -2913,40 +2944,57 @@ class Sidebar(QFrame):
         self._sync_bar_icons()
 
     def _adopt_bar_row(self) -> None:
-        """竖屏：把搜索框（或头像排）、图标和右上那一块并成**同一行**。
+        """竖屏：把横栏排成两行。
 
-        这一行从左到右是：搜索框（收起时换成头排）、多选 / 排序 / 刷新三个小图标、
-        账号头像、布局预设、设置、展开/收起键。原来是好几行竖着堆在横栏下面
-        （多选 / 布局预设 / ⋯ / 导入关注 + 添加直播间），横栏因此高到 362px。
+        第一行：搜索框（收起时换成头排）+ 多选/排序/刷新三个小图标 + 展开/收起键。
+        第二行：横向卡片条 + 右侧单独一块，那块里「账号 / 布局预设 / 设置」竖排
+        （用户要求：在最后一张卡片右边单独开一块地放这几个按钮）。
         """
         self._ensure_bar_row()
         if not self._bar_in_use:
             index = self._layout.indexOf(self._header_row)
-            for widget in self._bar_widgets():
+            for widget in (self.search, self._head_scroll, self.batch_button,
+                           self.sort_button, self.refresh_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
             # 搜索框和头像排轮流坐左边（收起时显示头像排），谁在就由谁撑满
             self._bar_row_box.addWidget(self.search, 1)
             self._bar_row_box.addWidget(self._head_scroll, 1)
-            for widget in self._bar_icons() + (self.account_row, self.tool_row,
-                                               self.toggle_button):
+            for widget in self._bar_icons() + (self.toggle_button,):
                 self._bar_row_box.addWidget(widget)
+
+            self._detach_from_rows(self.scroll)
+            self._detach_from_rows(self.tool_row)
+            self.scroll.setParent(self._bar_row2)
+            self._bar_row2_box.addWidget(self.scroll, 1)
+            self._bar_row2_box.addWidget(self._bar_right)
+            self._bar_right_box.insertWidget(1, self.tool_row)
+            # 布局预设 / 设置从横排改成竖排
+            self.tool_row.layout().setDirection(QBoxLayout.TopToBottom)
+            self.tool_row.layout().setStretch(0, 0)
+            self._place_account(True)
+
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
+            self._layout.insertWidget(index + 2 if index >= 0 else 2, self._bar_row2)
             self._bar_in_use = True
             self._sync_bar_icons()
         self._bar_row.setVisible(True)
 
     def _release_bar_row(self) -> None:
-        """回左栏：把那一行拆掉，控件按 __init__ 里的原始顺序挂回竖排布局。"""
+        """回左栏：把这两行拆掉，控件按 __init__ 里的原始顺序挂回竖排布局。"""
         if not self._bar_in_use:
             return
-        self._layout.removeWidget(self._bar_row)
-        self._bar_row.setVisible(False)
-        for widget in self._bar_widgets():
+        for row in (self._bar_row, self._bar_row2):
+            self._layout.removeWidget(row)
+            row.setVisible(False)
+        for widget in self._bar_widgets() + [self.scroll]:
             self._detach_from_rows(widget)
         for widget in self._column_order:
             self._detach_from_rows(widget)
             self._layout.addWidget(widget)
+        # 布局预设 / 设置回到横排一行
+        self.tool_row.layout().setDirection(QBoxLayout.LeftToRight)
+        self.tool_row.layout().setStretch(0, 1)
         self._bar_in_use = False
         self._sync_account_row_width()          # 左栏的账号条恢复撑满
 
@@ -2971,14 +3019,18 @@ class Sidebar(QFrame):
             self.account_row.set_compact(self.collapsed)
 
     def _sync_account_row_width(self) -> None:
-        """横栏里的账号条要放得下昵称，否则会被挤成「A…」。
+        """横栏里的账号条宽度。
 
-        横屏时它本来就撑满侧栏，不需要这个宽度限制；竖屏横栏里它是自然宽度
-        （名字的 size policy 是 Ignored，不点名就给一个头像的宽度）。
+        展开时放得下昵称（否则会被挤成「A…」）；收起时它就是一个和头排头像
+        一样大的小圆点 —— 不这么算的话它会一直沿用昵称的宽度，变成一条长胶囊。
+        横屏时它本来就撑满侧栏，不需要这个限制。
         """
         row = self.account_row
         if self.side != "top":
             row.setMinimumWidth(0)
+            return
+        if self.collapsed:
+            row.setMinimumWidth(row.avatar.width() + 2)
             return
         box = row._layout
         margins = box.contentsMargins()
@@ -2998,8 +3050,8 @@ class Sidebar(QFrame):
         if self.side != "top":
             return
         self._adopt_bar_row()
-        self._sync_account_row_width()
         self._sync_account_row_shape()
+        self._sync_account_row_width()
         header = getattr(self, "_header_row", None)
         toggle = getattr(self, "toggle_button", None)
         # 展开时收起头排（用户要求展开后不显示头像排，那点高度留给卡片）；
@@ -3007,6 +3059,10 @@ class Sidebar(QFrame):
         self._head_scroll.setVisible(self.collapsed)
         if self.collapsed:
             self._head_strip.rebuild()
+        # 账号头像：展开时在卡片条右边那一块里，收起时回到第一行最右端
+        self._place_account(not self.collapsed)
+        self._bar_right.setVisible(not self.collapsed)
+        self._bar_row2.setVisible(not self.collapsed)
         if toggle is not None:
             # 摘到横栏这一行的右端常驻；换成紧凑样式，
             # 否则标题行那套 24px 最小尺寸 + padding 会把横栏撑高一截
