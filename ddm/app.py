@@ -1621,15 +1621,16 @@ def main(argv: list[str] | None = None) -> int:
 
     state = config_module.load()
     t_load = time.perf_counter()
+    settings = dict(config_module.DEFAULT_SETTINGS)
+    settings.update(state.get("settings") or {})
     # libvlc 放到后台线程去建：第一次运行要扫 200 多个 VLC 插件，用户机器上
-    # 这一步在主线程里卡了 4.5 秒（看门狗日志），界面就跟着冻住
-    TilePlayer.warm_up_vlc()
+    # 这一步在主线程里卡了 4.5 秒（看门狗日志），界面就跟着冻住。悬停预览
+    # 关掉时第二个实例不用建，省一点内存。
+    TilePlayer.warm_up_vlc(preview=bool(settings.get("preview_on_hover", True)))
     sidebar, wall = config_module.build_rooms(state) if state else ([], [])
     t_rooms = time.perf_counter()
     print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
           + ("" if state else "（全新配置）"))
-    settings = dict(config_module.DEFAULT_SETTINGS)
-    settings.update(state.get("settings") or {})
     print(f"[VLC] libvlc {TilePlayer.vlc_version()} 硬件解码="
           f"{'开' if settings.get('hw_decode', True) else '关（软解）'}",
           file=sys.stderr, flush=True)

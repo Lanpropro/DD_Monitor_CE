@@ -61,16 +61,19 @@ class PlayerPool:
             return cls._preview
 
     @classmethod
-    def warm_up_async(cls) -> threading.Thread:
-        """后台先把 libvlc（两个实例）建出来，别等第一次播放才建。
+    def warm_up_async(cls, preview: bool = True) -> threading.Thread:
+        """后台先把 libvlc 建出来，别等第一次播放才建。
 
         用户机器上的看门狗日志显示 ``libvlc_new()`` 在主线程里卡了 4.5 秒
         （第一次运行要扫 200 多个 VLC 插件，加上杀软扫刚解压的包），
         那一下整个界面就冻住了。放到后台线程建，启动时就把这段时间错开。
+
+        ``preview``：悬停预览的实例只在设置里开了「悬停预览」时才建，省一点内存。
         """
         def build() -> None:
             cls.instance()
-            cls.preview_instance()
+            if preview:
+                cls.preview_instance()
 
         thread = threading.Thread(target=build, name="ddm-vlc-warmup", daemon=True)
         thread.start()
@@ -109,9 +112,9 @@ class TilePlayer(QObject):
     }
 
     @staticmethod
-    def warm_up_vlc():
+    def warm_up_vlc(preview: bool = True):
         """启动时在后台把 libvlc 建好（见 PlayerPool.warm_up_async）。"""
-        return PlayerPool.warm_up_async()
+        return PlayerPool.warm_up_async(preview=preview)
 
     @staticmethod
     def vlc_version() -> str:
