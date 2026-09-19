@@ -1,5 +1,9 @@
 <template>
   <style>
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Microsoft YaHei"; src: local("Microsoft YaHei"); font-display: block; }
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Segoe UI"; src: local("Segoe UI"); font-display: block; }
     /* ------------------------------------------------------------------
        15-outro — field-black · logo 拼装 → 定格 → 仓库地址
        The official mark assets/logo.svg is INLINED here — every path keeps
@@ -358,8 +362,8 @@
       );
       tl.fromTo(
         ".ddf15-url",
-        { y: 12, opacity: 0, letterSpacing: "0.32em" },
-        { y: 0, opacity: 1, letterSpacing: "0.16em", duration: 0.66, ease: "power3.out" },
+        { y: 12, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.66, ease: "power3.out" },
         3.34,
       );
       /* the hold breathes — an almost imperceptible continuation, never a freeze */

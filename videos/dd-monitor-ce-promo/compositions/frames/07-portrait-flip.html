@@ -1,0 +1,247 @@
+<template>
+  <style>
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Microsoft YaHei"; src: local("Microsoft YaHei"); font-display: block; }
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Segoe UI"; src: local("Segoe UI"); font-display: block; }
+    /* ------------------------------------------------------------------
+       07-portrait-flip — field-dark · 拖成竖的，它自己接上
+
+       THE FILM'S LONGEST SHOT: one continuous take, no cut, no seam.
+
+       Every software pixel is the real screen recording
+       assets/rec-portrait-flip.mp4 — a 1080×1920 window that reflows from its
+       landscape arrangement (关注列表 as a top row) into its portrait one
+       (top bar + 16:9 main + two lower rows) as it is dragged narrower.
+       Nothing about the app is redrawn in DOM.
+
+       THE ONE-TAKE MECHANIC -------------------------------------------------
+       The recording is the SAME window, natively 9:16 and playing continuously
+       for the whole shot; it is never swapped, cut or re-fitted. The shot's
+       drag is the recording's own right-hand edge sweeping left across it:
+         0.00 s  clip-path inset(0 0 888 0)  → a 1784×888 landscape window, the
+                                             list still up top as a side rail
+         4.05 s  clip-path inset(0 0   0 0)  → the dragged-to 432×888 (9:16)
+                                             window at right 8cqw, where the
+                                             list has reflowed into the top bar
+       Because the clip's rounded corner and edge tighten to the recording's own
+       left edge, the wall is dragged, not revealed: ONE window changing shape
+       for 4.05 s with no within-frame seam. Then it stops dead and holds —
+       this is one of the film's three allocated held frames.
+       ------------------------------------------------------------------ */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 600;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ——— the flat dark field: full-bleed clip layer, no gradient, no texture ——— */
+    .ddm07-field {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #222428;
+      transform-origin: 50% 55%;
+      will-change: transform, opacity;
+    }
+
+    /* ——— title block: LEFT-aligned, upper-left (this frame's approved anchor) ——— */
+    .ddm07-title {
+      position: absolute;
+      left: 6cqw;
+      top: 7cqw;
+      width: 40cqw;
+      text-align: left;
+      will-change: transform, opacity;
+    }
+    .ddm07-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 1.02;
+      letter-spacing: -0.005em;
+      color: #f1f2f5;
+      will-change: transform, opacity;
+    }
+    .ddm07-w {
+      display: inline-block;
+      white-space: pre;
+      will-change: transform, opacity;
+    }
+    .ddm07-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      color: rgba(241, 242, 245, 0.72);
+      will-change: transform, opacity;
+    }
+
+    /* ——— the format tag: the sketch's right-edge annotation. It sits in the
+           margin clear of the whole drag path, and is gone before the window
+           lands, so the landed canvas is window + copy only. ——— */
+    .ddm07-tag {
+      position: absolute;
+      right: 4cqw;
+      top: 26cqw;
+      font-size: 1.6cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-indent: 0.12em;
+      color: rgba(241, 242, 245, 0.45);
+      white-space: nowrap;
+      will-change: transform, opacity;
+    }
+
+    /* ——— the window fixture: the recording's landed geometry, right 8cqw /
+           width 22.5cqw / top 9cqw / bottom −6cqw. The recording itself is
+           hoisted to the host root at this same rect; this element only declares
+           the aperture, and the clip-path tween below drives the drag. ——— */
+    .ddm07-window {
+      position: absolute;
+      right: 8cqw;
+      width: 22.5cqw;
+      top: 9cqw;
+      bottom: -6cqw;
+      will-change: opacity;
+    }
+  </style>
+
+  <div
+    id="root"
+    data-composition-id="07-portrait-flip"
+    data-width="1920"
+    data-height="1080"
+    data-start="0"
+    data-duration="5.5"
+  >
+    <!-- the flat dark field -->
+    <div class="clip ddm07-field" data-start="0" data-duration="5.5" data-track-index="0"></div>
+
+    <!-- the same window: the real screen recording, hoisted to the host root.
+         x 1352 = 1920 − 153.6 − 432 · y 96 = 1920·0.05 · 432×888 = 22.5cqw × 888. -->
+    <!-- approved frame video hoisted by assemble-index -->
+
+    <!-- the aperture the recording lands in -->
+    <div class="clip ddm07-window" data-start="0" data-duration="5.5" data-track-index="1"></div>
+
+    <!-- left-anchored title block -->
+    <div class="clip ddm07-title" data-start="0" data-duration="5.5" data-track-index="2">
+      <h1 class="ddm07-head">
+        <span class="ddm07-w">拖</span><span class="ddm07-w">成</span><span class="ddm07-w">竖</span><span class="ddm07-w">的</span><span class="ddm07-w">，</span><br><span class="ddm07-w">它</span><span class="ddm07-w">自</span><span class="ddm07-w">己</span><span class="ddm07-w">接</span><span class="ddm07-w">上</span>
+      </h1>
+      <div class="ddm07-sub">按能放几路 自动对映最相似的预设</div>
+    </div>
+
+    <!-- the drag's readout, in the margin the window never reaches -->
+    <div class="clip ddm07-tag" data-start="0" data-duration="5.5" data-track-index="3">16:9 → 9:16</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+
+      /* Scene 1 (24.5–26.2s → 0.00–1.70): zoom-through into the dark field. The
+         window is already there — in its landscape 16:9 shape, right edge at the
+         frame edge, list still riding the top as a side rail (whoosh-cinematic
+         fires on this first move). The headline lands word by word, and the
+         format tag fades in with it. */
+      tl.fromTo(
+        ".ddm07-field",
+        { scale: 1.14, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.55, ease: "power3.out" },
+        0,
+      );
+      tl.fromTo(
+        ".ddm07-plate",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.5, ease: "power3.out" },
+        0.05,
+      );
+
+      /* the drag itself opens here and never stops, never cuts: the recording's
+         own right edge sweeps left across the wall for the next 4.05 s. */
+      tl.fromTo(
+        ".ddm07-plate",
+        { clipPath: "inset(0px 888px 0px 0px round 10px)" },
+        { clipPath: "inset(0px 0px 0px 0px round 10px)", duration: 4.05, ease: "power3.inOut" },
+        0.15,
+      );
+
+      gsap.utils.toArray(".ddm07-w").forEach(function (el, i) {
+        tl.fromTo(
+          el,
+          { yPercent: 34, opacity: 0 },
+          { yPercent: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
+          0.2 + i * 0.055,
+        );
+      });
+      tl.fromTo(
+        ".ddm07-tag",
+        { opacity: 0, x: 16 },
+        { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" },
+        0.62,
+      );
+
+      /* Scene 2 (26.2–28.6s → 1.70–4.05): the drag, and the layout answering it
+         live inside the same window — the side rail collapses into a top bar,
+         the main picture takes the full width, the two lower rows re-set. This
+         window needs no entrance of its own: the wall is the motion. The riser
+         lifts 0.6 s on the reflow, and the readout leaves before the window
+         arrives under it. */
+      tl.fromTo(
+        ".ddm07-tag",
+        { opacity: 1 },
+        { opacity: 0, duration: 0.45, ease: "power3.in" },
+        3.1,
+      );
+
+      /* Scene 3 (28.6–30.0s → 4.05–5.50): the window stops at 9:16, the wall
+         has settled portrait (impact-bass-1 lands), and the closing line drops
+         in under the headline. Then NOTHING moves for the last 0.67 s — this is
+         the held read. No second push, no breathing, no drift. */
+      tl.fromTo(
+        ".ddm07-sub",
+        { y: 18, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.62, ease: "power3.out" },
+        4.21,
+      );
+
+      /* pin the composition to its fixed 5.5s — the tail is the deliberate hold */
+      tl.to({}, { duration: 0.01 }, 5.49);
+
+      window.__timelines["07-portrait-flip"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

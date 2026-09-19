@@ -1,5 +1,7 @@
 <template>
   <style>
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Segoe UI"; src: local("Segoe UI"); font-display: block; }
     /* ------------------------------------------------------------------
        09-follow-list — field-light · 悬停就能预览 / 开播提醒 置顶 拖动排序 导入关注
        Every software pixel below is the real screen recording
@@ -209,28 +211,12 @@
     <div id="ddf09-field" class="clip ddf09-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
 
     <!-- the window: the real follow-list recording. The wrapper is an untimed visual
-         container (clip + radius); the timed media element is the <video> itself, so
+         container (clip + radius); the timed media element is the video element itself, so
          the two never disagree about its slot. Top 30cqw / bottom -8cqw is the approved
          placement — the window deliberately runs off the bottom edge of the canvas, so
          the overflow is intentional, not a layout bug. -->
     <div id="ddf09-window" class="ddf09-window" data-layout-allow-overflow>
-      <video
-        id="ddf09-plate"
-        class="ddf09-plate"
-        data-frame-video="approved"
-        data-frame-video-x="115"
-        data-frame-video-y="576"
-        data-frame-video-width="1690"
-        data-frame-video-height="658"
-        data-frame-video-fit="cover"
-        data-start="0"
-        data-duration="3.5"
-        data-track-index="1"
-        src="assets/rec-follow-list.mp4"
-        muted
-        playsinline
-        preload="auto"
-      ></video>
+      <!-- approved frame video hoisted by assemble-index -->
 
       <!-- marks: hover ring on the row the real pointer is on -->
       <div class="ddf09-mark ddf09-ring"></div>

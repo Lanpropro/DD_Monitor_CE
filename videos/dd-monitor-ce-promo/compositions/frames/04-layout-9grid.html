@@ -1,0 +1,304 @@
+<template>
+  <!-- 04-layout-9grid — 九路同屏，一眼看全 · field-blue #00a1d6 · 3.5s · captions disabled.
+       HANDOFF (03 -> 04 -> 05) is a hard pin: the window (right 5cqw / width 52cqw /
+       top 31cqw / bottom -7cqw) and the chip (left 5cqw / top 36cqw / 15cqw square, scale 1)
+       are never tweened — no entrance, no camera, no exit — so the outer frame is
+       pixel-still at both boundaries. That is why the Scene-3 push-in (1.00 -> 1.03) runs
+       on a separate camera wrapper around the type block only.
+       The window interior is the real screen recording, hoisted to the host root by
+       assemble-index: assets/rec-layout-9grid.mp4, framed to the window's inner box
+       (825.6, 656.64 / 998.4 x 557.76). No software pixel is drawn in DOM. -->
+  <style>
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 400 500;
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei");
+      font-display: block;
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 600 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"),
+        local("Microsoft YaHei UI"), local("Microsoft YaHei");
+      font-display: block;
+    }
+    #root {
+      position: absolute;
+      inset: 0;
+      container-type: size;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* --- full-bleed ground: field-blue, flat, no gradient, no texture --- */
+    .f04-field {
+      position: absolute;
+      inset: 0;
+      background: #00a1d6;
+    }
+    .f04-stage {
+      position: absolute;
+      inset: 0;
+    }
+    /* --- the pinned window: chrome only — its interior is the hoisted real recording --- */
+    .f04-win {
+      position: absolute;
+      right: 5cqw;
+      width: 52cqw;
+      top: 31cqw;
+      bottom: -7cqw;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
+    }
+    .f04-wbar {
+      height: 3.2cqw;
+      background: #15171a;
+      display: flex;
+      align-items: center;
+      gap: 1cqw;
+      padding: 0 1.4cqw;
+    }
+    .f04-wbar i {
+      width: 0.9cqw;
+      height: 0.9cqw;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      display: block;
+    }
+    .f04-wbar s {
+      flex: 1;
+      height: 1.4cqw;
+      border-radius: 0.7cqw;
+      background: rgba(255, 255, 255, 0.1);
+      display: block;
+      text-decoration: none;
+    }
+    /* --- camera layer: the only thing that moves in this beat --- */
+    .f04-cam {
+      position: absolute;
+      inset: 0;
+      transform-origin: 50% 50%;
+    }
+    .f04-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 6.5cqw;
+      padding: 0 8cqw;
+    }
+    .f04-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.98;
+      letter-spacing: -0.01em;
+      text-align: center;
+      color: #0d1114;
+    }
+    .f04-sub {
+      margin: 1.4cqw 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.05;
+      letter-spacing: 0.16em;
+      text-align: center;
+      color: rgba(13, 17, 20, 0.72);
+    }
+    .f04-sub span {
+      display: inline-block;
+    }
+    /* --- hero prop: the layout-diagram chip. Box is pinned; only the cell count steps. --- */
+    .f04-chip {
+      position: absolute;
+      left: 5cqw;
+      top: 36cqw;
+      width: 15cqw;
+      height: 15cqw;
+      box-sizing: border-box;
+      border-radius: 8px;
+      background: rgba(13, 17, 20, 0.14);
+      border: 1px solid rgba(13, 17, 20, 0.22);
+    }
+    .f04-grid {
+      position: absolute;
+      inset: 0.9cqw;
+      display: grid;
+      gap: 0.6cqw;
+      transform-origin: 50% 50%;
+    }
+    .f04-g4 {
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+    }
+    .f04-g6 {
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+    }
+    .f04-g9 {
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+    }
+    .f04-grid i {
+      display: block;
+      background: rgba(13, 17, 20, 0.55);
+      border-radius: 0.35cqw;
+    }
+    .f04-chiplabel {
+      position: absolute;
+      left: 5cqw;
+      top: 53.5cqw;
+      font-size: 1.5cqw;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: rgba(13, 17, 20, 0.58);
+    }
+  </style>
+
+  <div
+    id="root"
+    data-composition-id="04-layout-9grid"
+    data-width="1920"
+    data-height="1080"
+  >
+    <div class="f04-field clip" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <div class="f04-stage clip" data-start="0" data-duration="3.5" data-track-index="1">
+      <!-- pinned window: bar + shadow; the recording lands exactly on its inner box -->
+      <div class="f04-win" data-layout-allow-overflow>
+        <div class="f04-wbar"><i></i><i></i><i></i><s></s></div>
+      </div>
+
+      <div class="f04-cam">
+        <div class="f04-title">
+          <h1 class="f04-head" id="f04-head">九路同屏，一眼看全</h1>
+          <p class="f04-sub" id="f04-sub">
+            <span id="f04-s1">单画面</span> <span id="f04-s2">两分</span>
+            <span id="f04-s3">四分</span> <span id="f04-s4">六分</span>
+            <span id="f04-s5">九分</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- hero prop: 4 -> 6 -> 9 even-split wall, the app's own preset geometry
+           (2x2 四分 · 3 cols x 2 rows 六分 · 3x3 九分). Box never moves. -->
+      <div class="f04-chip" id="f04-chip">
+        <div class="f04-grid f04-g4" id="f04-g4">
+          <i></i><i></i><i></i><i></i>
+        </div>
+        <div class="f04-grid f04-g6" id="f04-g6">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="f04-grid f04-g9" id="f04-g9">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+      <div class="f04-chiplabel" id="f04-chiplabel">四分 → 九分</div>
+
+      <!-- approved motion source: assemble-index hoists this to the host root with explicit
+           host geometry and frame-relative timing; on the next pass it is replaced in place
+           by the hoist marker, so re-running the assembler is safe. -->
+      <!-- approved frame video hoisted by assemble-index -->
+    </div>
+
+    <script>
+      // IIFE: a top-level `const tl` here would be a global lexical binding, so every
+      // sibling frame script in the assembled page that also declares `const tl` would
+      // throw "Identifier 'tl' has already been declared" and lose its timeline
+      // registration. Scoped, this frame neither breaks nor is broken by a sibling.
+      (function () {
+        window.__timelines = window.__timelines || {};
+        const tl = gsap.timeline({ paused: true });
+
+        // Scene 1 (0.0–0.8s) — the handoff state holds: window + chip are never tweened.
+        // Only the headline settles on the beat.
+        tl.fromTo(
+          "#f04-head",
+          { opacity: 0, y: 42 },
+          { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" },
+          0.06,
+        );
+
+        // Scene 2 (0.8–2.2s) — the chip's cell count steps 4 -> 6 -> 9, one step per beat:
+        // outgoing shrinks away, incoming arrives on a long-tail power3 settle.
+        tl.fromTo(
+          "#f04-chiplabel",
+          { opacity: 0, y: 14 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+          0.85,
+        );
+
+        tl.fromTo(
+          "#f04-g4",
+          { scale: 1, opacity: 1 },
+          { scale: 0.82, opacity: 0, duration: 0.22, ease: "power2.in", immediateRender: false },
+          1.05,
+        );
+        tl.fromTo(
+          "#f04-g6",
+          { scale: 0.82, opacity: 0 },
+          { scale: 1, opacity: 1, duration: 0.42, ease: "power3.out" },
+          1.13,
+        );
+
+        tl.fromTo(
+          "#f04-g6",
+          { scale: 1, opacity: 1 },
+          { scale: 0.82, opacity: 0, duration: 0.22, ease: "power2.in", immediateRender: false },
+          1.6,
+        );
+        tl.fromTo(
+          "#f04-g9",
+          { scale: 0.82, opacity: 0 },
+          { scale: 1, opacity: 1, duration: 0.44, ease: "power3.out" },
+          1.68,
+        );
+
+        // Scene 3 (2.2–3.5s) — nines land: the subtitle lays in with its 0.16em tracking,
+        // then the beat's single slight push-in completes in the front half and holds.
+        tl.fromTo(
+          "#f04-s1",
+          { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+          2.2,
+        );
+        tl.fromTo(
+          "#f04-s2",
+          { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+          2.27,
+        );
+        tl.fromTo(
+          "#f04-s3",
+          { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+          2.34,
+        );
+        tl.fromTo(
+          "#f04-s4",
+          { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+          2.41,
+        );
+        tl.fromTo(
+          "#f04-s5",
+          { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+          2.48,
+        );
+
+        tl.fromTo(
+          "#f04-cam",
+          { scale: 1 },
+          { scale: 1.03, duration: 0.85, ease: "power3.out" },
+          2.25,
+        );
+
+        window.__timelines["04-layout-9grid"] = tl;
+      })();
+    </script>
+  </div>
+</template>

@@ -1,0 +1,334 @@
+﻿﻿<template>
+  <style>
+    /* ---- fonts: declared locally (OS-bundled Microsoft YaHei UI) ---- */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei UI Regular");
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      src: local("Microsoft YaHei UI Bold");
+      font-weight: 600 700;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Microsoft YaHei";
+      src: local("Microsoft YaHei"), local("Microsoft YaHei Regular");
+      font-weight: 400 600;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Microsoft YaHei";
+      src: local("Microsoft YaHei Bold");
+      font-weight: 700 900;
+      font-style: normal;
+    }
+
+    /* ---- root: styled by #root only ---- */
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      container-type: size;
+      overflow: hidden;
+    }
+
+    #f05-layout-bigplus-field {
+      position: absolute;
+      inset: 0;
+      background: #00a1d6;
+    }
+
+    #f05-layout-bigplus-stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      color: #0d1114;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---- title block: centred, above the window ---- */
+    #f05-layout-bigplus-head {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 6.5cqw;
+      padding: 0 8cqw;
+      text-align: center;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      color: #0d1114;
+      will-change: opacity, transform;
+    }
+    #f05-layout-bigplus-head span {
+      display: inline-block;
+      will-change: opacity, transform;
+    }
+
+    #f05-layout-bigplus-sub {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 12.9cqw;
+      text-align: center;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.05;
+      letter-spacing: 0.16em;
+      color: rgba(13, 17, 20, 0.72);
+      will-change: opacity, transform;
+    }
+
+    /* ---- the window: outer frame held still from frame 04 ---- */
+    #f05-layout-bigplus-win {
+      position: absolute;
+      right: 5cqw;
+      width: 52cqw;
+      top: 31cqw;
+      bottom: -7cqw;
+      border-radius: 10px;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
+      overflow: hidden;
+      background: #0b0c0f;
+    }
+    #f05-layout-bigplus-winbar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 3.2cqw;
+      background: #15171a;
+      display: flex;
+      align-items: center;
+      gap: 1cqw;
+      padding: 0 1.4cqw;
+    }
+    #f05-layout-bigplus-winbar i {
+      display: block;
+      width: 0.9cqw;
+      height: 0.9cqw;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+    }
+    #f05-layout-bigplus-winbar s {
+      display: block;
+      flex: 1;
+      height: 1.4cqw;
+      border-radius: 0.7cqw;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    #f05-layout-bigplus-content {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 3.2cqw;
+      bottom: 0;
+      overflow: hidden;
+    }
+    /* real screen-recording, cropped to the app's 1+5 wall */
+    #f05-layout-bigplus-wall {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 50.39cqw;
+      height: 25.786cqw;
+      object-fit: fill;
+      will-change: clip-path;
+    }
+
+    /* ---- hero prop: the layout-diagram chip ---- */
+    #f05-layout-bigplus-chip {
+      position: absolute;
+      left: 5cqw;
+      top: 36cqw;
+      width: 15cqw;
+      height: 15cqw;
+      border-radius: 8px;
+      background: rgba(13, 17, 20, 0.14);
+      border: 1px solid rgba(13, 17, 20, 0.22);
+    }
+    #f05-layout-bigplus-chip > div {
+      position: absolute;
+      inset: 0.9cqw;
+      display: grid;
+      gap: 0.6cqw;
+    }
+    #f05-layout-bigplus-chip i {
+      display: block;
+      border-radius: 0.35cqw;
+      background: rgba(13, 17, 20, 0.55);
+      will-change: opacity;
+    }
+    #f05-layout-bigplus-chip i.hot {
+      background: #0d1114;
+    }
+    #f05-layout-bigplus-oldgrid {
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+    }
+    #f05-layout-bigplus-newgrid {
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      transform-origin: 0% 0%;
+      will-change: opacity, transform;
+    }
+    #f05-layout-bigplus-chiplabel {
+      position: absolute;
+      left: 5cqw;
+      top: 52.5cqw;
+      white-space: nowrap;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      font-size: 1.5cqw;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: rgba(13, 17, 20, 0.75);
+    }
+    #f05-layout-bigplus-chiplabel span {
+      display: inline-block;
+      will-change: opacity, transform;
+    }
+  </style>
+
+  <div id="root" data-composition-id="05-layout-bigplus" data-width="1920" data-height="1080">
+    <div
+      id="f05-layout-bigplus-field"
+      class="clip"
+      data-start="0"
+      data-duration="3.5"
+      data-track-index="0"
+    ></div>
+
+    <div id="f05-layout-bigplus-stage" data-layout-allow-overflow>
+      <div id="f05-layout-bigplus-head">
+        <span>主画面不动，</span><span>小画面环绕</span>
+      </div>
+      <div id="f05-layout-bigplus-sub">1 + 5 主画面加五小</div>
+
+      <div id="f05-layout-bigplus-win">
+        <div id="f05-layout-bigplus-winbar"><i></i><i></i><i></i><s></s></div>
+        <div id="f05-layout-bigplus-content">
+          <!-- approved frame video hoisted by assemble-index -->
+        </div>
+      </div>
+
+      <div id="f05-layout-bigplus-chip">
+        <div
+          id="f05-layout-bigplus-oldgrid"
+          class="f05-layout-bigplus-grid"
+        >
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div
+          id="f05-layout-bigplus-newgrid"
+          class="f05-layout-bigplus-grid"
+        >
+          <i class="hot" style="grid-column: span 2; grid-row: span 2"></i>
+          <i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
+      <div id="f05-layout-bigplus-chiplabel"><span>1 大 + 5 小</span></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      // Clip-path states over the wall video, in % of its border box.
+      // The anchor state shows the main picture alone (upper-left 2x2 cell);
+      // each following state opens one more small picture, left -> right.
+      var S = [
+        "inset(6.386% 97.179% 0% 1.875%)",
+        "inset(6.386% 64.772% 0% 1.875%)",
+        "inset(6.386% 46.681% 0% 1.875%)",
+        "inset(6.386% 28.589% 0% 1.875%)",
+        "inset(6.386% 10.498% 0% 1.875%)",
+        "inset(6.386% 0% 0% 1.875%)",
+      ];
+      var HIDDEN = "inset(6.386% 97.179% 0% 1.875%)";
+
+      var tl = gsap.timeline({ paused: true });
+
+      // ── Scene 1 (0.0–1.0s): the main picture pins at the upper-left 2x2 ──
+      tl.fromTo(
+        "#f05-layout-bigplus-wall",
+        { clipPath: HIDDEN },
+        { clipPath: S[0], duration: 0.72, ease: "power3.out" },
+        0.1,
+      );
+
+      // the chip swaps the 3x3 wireframe for the 1 + 5 one
+      tl.fromTo(
+        "#f05-layout-bigplus-oldgrid",
+        { opacity: 1, scale: 1 },
+        { opacity: 0, scale: 0.94, duration: 0.3, ease: "power3.inOut" },
+        0.16,
+      );
+      tl.fromTo(
+        "#f05-layout-bigplus-newgrid",
+        { opacity: 0, scale: 0.86 },
+        { opacity: 1, scale: 1, duration: 0.42, ease: "power3.out" },
+        0.24,
+      );
+      tl.fromTo(
+        "#f05-layout-bigplus-chiplabel span",
+        { opacity: 0, yPercent: 55 },
+        { opacity: 1, yPercent: 0, duration: 0.34, ease: "power3.out" },
+        1.74,
+      );
+
+      // ── Scene 2 (1.0–2.6s): the five small pictures arrive, left -> right ──
+      for (var k = 0; k < 5; k++) {
+        var at = 1.02 + k * 0.36;
+        tl.fromTo(
+          "#f05-layout-bigplus-wall",
+          { clipPath: S[k] },
+          { clipPath: S[k + 1], duration: 0.3, ease: "power3.out" },
+          at,
+        );
+        tl.fromTo(
+          "#f05-layout-bigplus-newgrid i:nth-child(" + (k + 2) + ")",
+          { opacity: 0.34 },
+          { opacity: 1, duration: 0.26, ease: "power3.out" },
+          at + 0.05,
+        );
+      }
+
+      // the headline lands word-group by word-group as the smalls settle
+      tl.fromTo(
+        "#f05-layout-bigplus-head span:nth-child(1)",
+        { opacity: 0, yPercent: 42 },
+        { opacity: 1, yPercent: 0, duration: 0.46, ease: "power3.out" },
+        1.62,
+      );
+      tl.fromTo(
+        "#f05-layout-bigplus-head span:nth-child(2)",
+        { opacity: 0, yPercent: 42 },
+        { opacity: 1, yPercent: 0, duration: 0.46, ease: "power3.out" },
+        2.02,
+      );
+
+      // ── Scene 3 (2.6–3.5s): subtitle lands, everything holds ──
+      tl.fromTo(
+        "#f05-layout-bigplus-sub",
+        { opacity: 0, yPercent: 38 },
+        { opacity: 1, yPercent: 0, duration: 0.5, ease: "power3.out" },
+        2.72,
+      );
+
+      tl.seek(0);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["05-layout-bigplus"] = tl;
+    })();
+  </script>
+</template>

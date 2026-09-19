@@ -104,22 +104,7 @@
     <!-- The wall itself: the real screen recording (16 live tiles filling in).
          assemble-index hoists this to the host root and translates its timing;
          the geometry below is the window at the beat's handoff scale (1.04). -->
-    <video
-      id="f01-wall-ignite-screen"
-      data-frame-video="approved"
-      src="assets/rec-wall-build.mp4"
-      muted
-      playsinline
-      preload="auto"
-      data-frame-video-x="101"
-      data-frame-video-y="289"
-      data-frame-video-width="1717"
-      data-frame-video-height="924"
-      data-frame-video-fit="cover"
-      data-start="0"
-      data-duration="6"
-      data-track-index="0"
-    ></video>
+    <!-- approved frame video hoisted by assemble-index -->
 
     <div id="f01-wall-ignite-cam">
       <div id="f01-wall-ignite-matte"></div>
@@ -204,8 +189,8 @@
         const ramp = index === IGNITE.length - 1 ? 0.3 : 0.18;
         tl.fromTo(
           "#f01-wall-ignite-grid-" + (index + 1),
-          { autoAlpha: 1 },
-          { autoAlpha: 0, duration: ramp, ease: "power2.out" },
+          { opacity: 1 },
+          { opacity: 0, duration: ramp, ease: "power2.out" },
           at,
         );
       });

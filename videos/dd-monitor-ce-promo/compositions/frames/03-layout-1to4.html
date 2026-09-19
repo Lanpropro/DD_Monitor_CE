@@ -25,7 +25,7 @@
       height: 1080px;
       overflow: hidden;
       container-type: size;
-      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+      font-family: "Microsoft YaHei UI";
       -webkit-font-smoothing: antialiased;
     }
 
@@ -68,9 +68,18 @@
       font-weight: 600;
       line-height: 1.1;
       letter-spacing: 0.16em;
-      text-indent: 0.16em;
       color: rgba(13, 17, 20, 0.72);
       will-change: transform, opacity;
+    }
+    .ddf03-sc {
+      display: inline-block;
+      white-space: pre;
+      will-change: transform, opacity;
+    }
+    /* letter-spacing trails the last inline-block too — pull it back so the
+       tracked line stays optically centred */
+    .ddf03-sc:last-child {
+      margin-right: -0.16em;
     }
 
     /* ——— the window: real recording, right 5cqw / width 52cqw / top 31cqw / bottom -7cqw ——— */
@@ -100,7 +109,10 @@
        四分 split, timed to the chip changing 1 → 4. No glow, no border highlight. */
     .ddf03-split {
       position: absolute;
-      inset: 0;
+      right: 5cqw;
+      width: 52cqw;
+      top: 31cqw;
+      bottom: -7cqw;
       pointer-events: none;
     }
     .ddf03-div {
@@ -162,44 +174,32 @@
 
   <div id="root" data-composition-id="03-layout-1to4" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
     <!-- scene field -->
-    <div class="clip ddf03-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+    <div id="ddf03-field" class="clip ddf03-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
 
     <!-- hero prop: layout chip, single cell → four -->
-    <div class="clip ddf03-chip" data-start="0" data-duration="3.5" data-track-index="1">
+    <div id="ddf03-chip" class="clip ddf03-chip" data-start="0" data-duration="3.5" data-track-index="1">
       <div class="ddf03-cell ddf03-cell-1"></div>
       <div class="ddf03-cell ddf03-cell-2"></div>
       <div class="ddf03-cell ddf03-cell-3"></div>
       <div class="ddf03-cell ddf03-cell-4"></div>
     </div>
 
-    <!-- the window: real screen recording, outer frame fixed all frame long -->
-    <div class="clip ddf03-window" data-start="0" data-duration="3.5" data-track-index="2">
-      <video
-        class="ddf03-plate"
-        data-frame-video="approved"
-        data-frame-video-x="825"
-        data-frame-video-y="335"
-        data-frame-video-width="998"
-        data-frame-video-height="821"
-        data-frame-video-fit="cover"
-        data-start="0"
-        data-duration="3.5"
-        data-track-index="2"
-        src="assets/rec-layout-1to4.mp4"
-        muted
-        playsinline
-        preload="auto"
-      ></video>
-      <div class="ddf03-split">
-        <div class="ddf03-div ddf03-div-v"></div>
-        <div class="ddf03-div ddf03-div-h"></div>
-      </div>
+    <!-- the window: real screen recording, outer frame fixed all frame long.
+         The wrapper is an untimed container; the timed element is the video. -->
+    <div class="clip ddf03-window">
+      <!-- approved frame video hoisted by assemble-index -->
+    </div>
+
+    <!-- the 四分 wireframe that closes over the live recording, one cut at a time -->
+    <div id="ddf03-split" class="clip ddf03-split" data-start="0" data-duration="3.5" data-track-index="3">
+      <div class="ddf03-div ddf03-div-v"></div>
+      <div class="ddf03-div ddf03-div-h"></div>
     </div>
 
     <!-- centred title block -->
-    <div class="clip ddf03-title" data-start="0" data-duration="3.5" data-track-index="3">
+    <div id="ddf03-title" class="clip ddf03-title" data-start="0" data-duration="3.5" data-track-index="4">
       <h1 class="ddf03-head"><span class="ddf03-w">想</span><span class="ddf03-w">怎</span><span class="ddf03-w">么</span><span class="ddf03-w">看</span><span class="ddf03-w">，</span><span class="ddf03-w">就</span><span class="ddf03-w">怎</span><span class="ddf03-w">么</span><span class="ddf03-w">排</span></h1>
-      <div class="ddf03-sub">平分布局</div>
+      <div class="ddf03-sub"><span class="ddf03-sc">平</span><span class="ddf03-sc">分</span><span class="ddf03-sc">布</span><span class="ddf03-sc">局</span></div>
     </div>
   </div>
 
@@ -219,8 +219,8 @@
       tl.fromTo(
         ".ddf03-chip",
         { scale: 0, opacity: 0 },
-        { scale: 1, opacity: 1, duration: 0.56, ease: "power3.out" },
-        0.1,
+        { scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" },
+        0.04,
       );
 
       /* Scene 2 (11.3–12.6s → 0.80–2.10): the headline lands word by word, the
@@ -271,12 +271,14 @@
         { scaleX: 1, duration: 0.42, ease: "power3.out" },
         2.34,
       );
-      tl.fromTo(
-        ".ddf03-sub",
-        { y: 16, opacity: 0, letterSpacing: "0.34em" },
-        { y: 0, opacity: 1, letterSpacing: "0.16em", duration: 0.62, ease: "power3.out" },
-        2.62,
-      );
+      gsap.utils.toArray(".ddf03-sc").forEach(function (el, i) {
+        tl.fromTo(
+          el,
+          { y: 18, x: i * 7, opacity: 0 },
+          { y: 0, x: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
+          2.62 + i * 0.03,
+        );
+      });
 
       /* pin the composition length to the fixed 3.5s so the last entrance still
          has ~0.4s of stillness before the root transition takes over */

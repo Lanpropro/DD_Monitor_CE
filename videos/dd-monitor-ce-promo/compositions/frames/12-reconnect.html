@@ -1,0 +1,303 @@
+<template>
+  <style>
+    /* ------------------------------------------------------------------
+       12-reconnect — field-dark · 断了自己连回来 / 断流重连 画面卡死检测
+
+       Every software pixel is the real screen recording
+       assets/rec-wall-build.mp4 (a live 5-tile picture wall). Nothing about
+       the app's picture is redrawn in DOM.
+
+       The one tile that dies is the recording's OWN bottom-middle tile:
+       a hard-cropped black plate laid exactly on its measured geometry
+       (source rect x 462..1059, y 753..1080), painted on when the stream
+       drops and taken off when it comes back. The wall keeps playing
+       underneath the whole time — the tile's status pill is the only
+       thing the app itself contributes.
+       ------------------------------------------------------------------ */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 600;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      font-family: "Microsoft YaHei UI";
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ——— the flat dark field: full-bleed clip layer, no gradient, no texture ——— */
+    .ddm12-field {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #222428;
+      will-change: opacity;
+    }
+
+    /* ——— centred title block, title above / window below ——— */
+    .ddm12-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 6.2cqw;
+      height: 12cqw;
+      text-align: center;
+      will-change: transform, opacity;
+    }
+    .ddm12-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.005em;
+      color: #f1f2f5;
+      will-change: transform, opacity;
+    }
+    .ddm12-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      color: rgba(241, 242, 245, 0.66);
+      will-change: transform, opacity;
+    }
+
+    /* ——— the window: centred, 12cqw each side, cropped by the bottom edge.
+           It is a viewport onto the recording's tile area — the app's own title
+           bar and the picture's top row are above it, and the window runs off
+           the bottom edge of the canvas with the recording still going. ——— */
+    .ddm12-window {
+      position: absolute;
+      left: 12cqw;
+      right: 12cqw;
+      top: 26cqw;
+      height: 29cqw; /* 556.8px — the bottom edge lands on the canvas edge */
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
+      will-change: transform, opacity;
+    }
+    /* the window's own thin edge — the app frame, not the picture */
+    .ddm12-edge {
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      border: 1px solid rgba(241, 242, 245, 0.10);
+      pointer-events: none;
+      z-index: 4;
+      will-change: opacity;
+    }
+    /* the aperture the recording is scaled into. The recording is mapped in at
+       exactly half size and offset up by 366 recording px, so the picture region
+       that stays on screen is recording y 366..1080 — the two bottom rows of the
+       tile wall. Geometry, not a second scale: 1920 * 0.5 = 960 = the aperture
+       width, so every overlay below is authored in recording px and never drifts. */
+    .ddm12-screen {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1459.2px;
+      height: 556.8px;
+      background: #000;
+    }
+    .ddm12-wall {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1459.2px;
+      height: 820.8px;
+      object-fit: fill;
+      display: block;
+      background: #000;
+    }
+
+    /* the overlay plane shares the recording's coordinate space exactly */
+    .ddm12-overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      transform: translateY(-366px) scale(0.76);
+      transform-origin: 0 0;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    /* ——— the dead tile: the recording's own bottom-middle tile
+           (source x 462..1059, y 753..1080). Its picture goes black; the neutral
+           tile chrome along its top edge stays, so it reads as a panel that is
+           off rather than a hole punched in the window. ——— */
+    .ddm12-dead {
+      position: absolute;
+      left: 462px;
+      top: 753px;
+      width: 597px;
+      height: 327px;
+      background: #05060a;
+      box-shadow: inset 0 5px 0 0 #1b1d22;
+      will-change: opacity;
+    }
+
+    /* ——— the app's own tile status pill, in its connecting state:
+           dark translucent surface · amber #f59e0b · soft corner. It rides the
+           tile's own status position at the bottom-left of the dead panel — the
+           one non-blue accent in the film, and only ever here. ——— */
+    .ddm12-pill {
+      position: absolute;
+      left: 522px;
+      top: 1140px;
+      height: 56px;
+      padding: 0 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 28px;
+      background: rgba(12, 13, 16, 0.86);
+      color: #f59e0b;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-indent: 0.10em;
+      white-space: nowrap;
+      will-change: transform, opacity;
+    }
+  </style>
+
+  <div
+    id="root"
+    data-composition-id="12-reconnect"
+    data-width="1920"
+    data-height="1080"
+    data-start="0"
+    data-duration="3.5"
+  >
+    <!-- the flat dark field — this is what makes a dead tile readable -->
+    <div class="clip ddm12-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- the wall: the real screen recording, hoisted to the host root -->
+    <!-- approved frame video hoisted by assemble-index -->
+
+    <!-- the app window frame, cropped by the bottom edge of the canvas -->
+    <div class="clip ddm12-window" data-start="0" data-duration="3.5" data-track-index="1">
+      <div class="ddm12-screen">
+        <!-- overlay plane: same 1920x1080 recording coordinate space, one scale -->
+        <div class="ddm12-overlay">
+          <!-- the one tile that drops out, on its measured recording geometry -->
+          <div class="ddm12-dead"></div>
+
+          <!-- 重连中… — the only amber in the film, and it lives only on this pill -->
+          <div class="ddm12-pill">重连中…</div>
+        </div>
+      </div>
+
+      <div class="ddm12-edge"></div>
+    </div>
+
+    <!-- centred title block -->
+    <div class="clip ddm12-title" data-start="0" data-duration="3.5" data-track-index="2">
+      <h1 class="ddm12-head">断了自己连回来</h1>
+      <div class="ddm12-sub">断流重连 画面卡死检测</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+
+      /* Scene 1 (44.0–44.9s → 0.00–0.90): crossfade into the dark field. The window
+         is already centred and already cropped by the bottom edge; the headline
+         lands first, and on its landing the one tile drops out — the picture goes
+         black and the app's status pill turns amber. The wall keeps playing. */
+      tl.fromTo(
+        ".ddm12-field",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.5, ease: "power3.out" },
+        0,
+      );
+      tl.fromTo(
+        ".ddm12-window",
+        { opacity: 0, yPercent: 3 },
+        { opacity: 1, yPercent: 0, duration: 0.6, ease: "power3.out" },
+        0.06,
+      );
+      tl.fromTo(
+        ".ddm12-head",
+        { y: 26, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" },
+        0.2,
+      );
+      /* the drop-out: a fast ramp, not a fade — a stream does not dim */
+      tl.fromTo(
+        ".ddm12-dead",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.11, ease: "power2.out" },
+        0.62,
+      );
+      /* the pill rises into the tile's bottom-left corner */
+      tl.fromTo(
+        ".ddm12-pill",
+        { y: 46, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.34, ease: "power3.out" },
+        0.7,
+      );
+
+      /* Scene 2 (44.9–46.1s → 0.90–2.10): the wait. 1.2s of riser, the tile stays
+         black, the pill stays amber, the rest of the wall keeps playing. This
+         window reveals NOTHING on purpose — the pause is the beat. */
+
+      /* Scene 3 (46.1–47.5s → 2.10–3.50): it reconnects on its own. The tile's
+         picture comes back under its own power, the pill returns to nothing, and
+         the closing line lands. Then it stops — no camera move. */
+      tl.fromTo(
+        ".ddm12-dead",
+        { opacity: 1 },
+        { opacity: 0, duration: 0.5, ease: "power3.out" },
+        2.13,
+      );
+      tl.fromTo(
+        ".ddm12-pill",
+        { opacity: 1 },
+        { opacity: 0, duration: 0.3, ease: "power3.out" },
+        2.13,
+      );
+      tl.fromTo(
+        ".ddm12-sub",
+        { y: 18, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
+        2.9,
+      );
+
+      /* pin the composition to its fixed 3.5s */
+      tl.to({}, { duration: 0.01 }, 3.49);
+
+      window.__timelines["12-reconnect"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

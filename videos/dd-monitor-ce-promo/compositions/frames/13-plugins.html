@@ -1,0 +1,285 @@
+<template>
+  <style>
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Microsoft YaHei"; src: local("Microsoft YaHei"); font-display: block; }
+    /* 系统自带字族：用 local() 声明，满足 font_family_without_font_face 校验 */
+    @font-face { font-family: "Segoe UI"; src: local("Segoe UI"); font-display: block; }
+    /* ------------------------------------------------------------------
+       13-plugins — field-dark · 本体不带的功能 插件带
+       The "real material" here is the software's own on-disk plugin tree:
+       plugins_user/ → danmaku_log/plugin.py · _template_platform/plugin.py
+       (both verified present in the repo). The ground is the real machine
+       screenshot assets/overview2_Landscape_mode.png, dimmed to 0.22.
+       No app window is redrawn in DOM — only the file tree is typed out.
+       ------------------------------------------------------------------ */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 600;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    @font-face {
+      font-family: "Consolas";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Consolas");
+    }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ——— flat field-dark ground: the base field, nothing on it ——— */
+    .ddf13-field {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #222428;
+      transform-origin: 50% 55%;
+
+      will-change: transform, opacity;
+    }
+
+    /* ——— the real machine screenshot, full-bleed, dimmed to 0.22 ——— */
+    .ddf13-bg {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      display: block;
+      object-fit: cover;
+      opacity: 0.22;
+      transform-origin: 50% 50%;
+
+      will-change: transform, opacity, filter;
+    }
+
+    /* ——— centred title block, pad-top position ——— */
+    .ddf13-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 7cqw;
+      text-align: center;
+      z-index: 3;
+    }
+    .ddf13-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      color: #f1f2f5;
+    }
+    .ddf13-w {
+      display: inline-block;
+      white-space: pre;
+      will-change: transform, opacity;
+    }
+    .ddf13-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      color: rgba(241, 242, 245, 0.72);
+      will-change: transform, opacity;
+    }
+
+    /* ——— the directory-tree panel: mono, centred, cropped by the lower edge ——— */
+    .ddf13-panel {
+      position: absolute;
+      left: 14cqw;
+      right: 14cqw;
+      top: 36cqw;
+      bottom: -4cqw;
+      background: #15171a;
+      border-radius: 8px;
+      padding: 2.4cqw 2.6cqw;
+      overflow: hidden;
+      z-index: 2;
+      transform-origin: 50% 22%;
+
+      will-change: transform, opacity, filter;
+    }
+    .ddf13-tree {
+      margin: 0;
+      font-family: "Consolas", ui-monospace, monospace;
+      font-size: 1.7cqw;
+      font-weight: 400;
+      line-height: 2.1;
+      color: rgba(241, 242, 245, 0.82);
+      white-space: pre;
+    }
+    .ddf13-row {
+      margin: 0;
+      will-change: transform, opacity;
+    }
+    .ddf13-kids {
+      padding-left: 2.6cqw;
+    }
+    .ddf13-deep {
+      padding-left: 4.2cqw;
+    }
+    /* the two real plugin directory names — dim until they are named */
+    .ddf13-dir {
+      color: rgba(241, 242, 245, 0.82);
+      will-change: color;
+    }
+    .ddf13-note {
+      color: rgba(241, 242, 245, 0.5);
+    }
+    .ddf13-ghost {
+      opacity: 0.6;
+    }
+  </style>
+
+  <div id="root" data-composition-id="13-plugins" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+    <!-- scene field -->
+    <div class="clip ddf13-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- real machine screenshot: full-bleed ground, dimmed -->
+    <img
+      class="clip ddf13-bg"
+      data-start="0"
+      data-duration="3.5"
+      data-track-index="1"
+      src="assets/overview2_Landscape_mode.png"
+      alt=""
+    />
+
+    <!-- the software's real plugin directory tree -->
+    <div class="clip ddf13-panel" data-start="0" data-duration="3.5" data-track-index="2">
+      <div class="ddf13-tree">
+        <div class="ddf13-row ddf13-row-root">plugins_user/</div>
+        <div class="ddf13-row ddf13-kids">├─ <span class="ddf13-dir ddf13-dir-a">danmaku_log/</span></div>
+        <div class="ddf13-row ddf13-kids ddf13-ghost ddf13-row-a2">│&nbsp;&nbsp;&nbsp;└─ plugin.py&nbsp;&nbsp;<span class="ddf13-note">弹幕落盘 + 发弹幕</span></div>
+        <div class="ddf13-row ddf13-kids">└─ <span class="ddf13-dir ddf13-dir-b">_template_platform/</span></div>
+        <div class="ddf13-row ddf13-kids ddf13-ghost ddf13-row-b2">│&nbsp;&nbsp;&nbsp;└─ plugin.py&nbsp;&nbsp;<span class="ddf13-note">接别的平台</span></div>
+      </div>
+    </div>
+
+    <!-- centred title block -->
+    <div class="clip ddf13-title" data-start="0" data-duration="3.5" data-track-index="3">
+      <h1 class="ddf13-head"><span class="ddf13-w">本</span><span class="ddf13-w">体</span><span class="ddf13-w">不</span><span class="ddf13-w">带</span><span class="ddf13-w">的</span><span class="ddf13-w">功</span><span class="ddf13-w">能</span><span class="ddf13-w"> </span><span class="ddf13-w">插</span><span class="ddf13-w">件</span><span class="ddf13-w">带</span></h1>
+      <div class="ddf13-sub">plugins_user/名字/plugin.py</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+
+      /* ---- Scene 1 (47.5–48.4s → 0.00–0.90): blur-crossfade into the dark
+         field. The real screenshot resolves out of a soft blur and settles at
+         0.22; the headline lands over it. The camera does not move (this is
+         the blueprint's static-hold floor). ---- */
+      tl.fromTo(
+        ".ddf13-field",
+        { scale: 1.12, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.58, ease: "power3.out" },
+        0,
+      );
+      tl.fromTo(
+        ".ddf13-bg",
+        { opacity: 0, scale: 1.06, filter: "blur(10px)" },
+        {
+          opacity: 0.22,
+          scale: 1,
+          filter: "blur(0px)",
+          duration: 0.94,
+          ease: "power3.out" },
+        0.06,
+      );
+      /* the dimmed ground keeps easing in under everything — reads as depth,
+         never as a second texture */
+      tl.fromTo(
+        ".ddf13-bg",
+        { xPercent: -0.8 },
+        { xPercent: 0.8, duration: 3.0, ease: "power3.out" },
+        0.7,
+      );
+      gsap.utils.toArray(".ddf13-w").forEach(function (el, i) {
+        tl.fromTo(
+          el,
+          { yPercent: 34, opacity: 0 },
+          { yPercent: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
+          0.2 + i * 0.026,
+        );
+      });
+
+      /* ---- Scene 2 (48.4–49.8s → 0.90–3.00): the tree types itself out line
+         by line, then the two real plugin directory names light in turn. ---- */
+      tl.fromTo(
+        ".ddf13-panel",
+        { opacity: 0, scale: 0.985, filter: "blur(8px)" },
+        {
+          opacity: 1,
+          scale: 1,
+          filter: "blur(0px)",
+          duration: 0.66,
+          ease: "power3.out" },
+        0.62,
+      );
+      var rows = [".ddf13-row-root", ".ddf13-dir-a", ".ddf13-row-a2", ".ddf13-dir-b", ".ddf13-row-b2"];
+      gsap.utils.toArray(rows.join(", ")).forEach(function (el, i) {
+        tl.fromTo(
+          el,
+          { y: 13, opacity: 0, filter: "blur(3px)" },
+          { y: 0, opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power3.out" },
+          0.82 + i * 0.22,
+        );
+      });
+      /* danmaku_log/ is named first … */
+      tl.fromTo(
+        ".ddf13-dir-a",
+        { color: "rgba(241,242,245,0.82)", scale: 1, x: 0 },
+        { color: "#00a1d6", scale: 1.045, x: 4, duration: 0.36, ease: "power3.out" },
+        1.86,
+      );
+      tl.to(".ddf13-dir-a", { scale: 1, x: 0, duration: 0.5, ease: "power3.out" }, 2.22);
+      /* … _template_platform/ answers a beat later — sequential, never together */
+      tl.fromTo(
+        ".ddf13-dir-b",
+        { color: "rgba(241,242,245,0.82)", scale: 1, x: 0 },
+        { color: "#00a1d6", scale: 1.045, x: 4, duration: 0.36, ease: "power3.out" },
+        2.38,
+      );
+      tl.to(".ddf13-dir-b", { scale: 1, x: 0, duration: 0.5, ease: "power3.out" }, 2.74);
+
+      /* ---- Scene 3 (49.8–51.0s → 3.00–3.50): the subtitle lands and the shot
+         holds still — no camera move. ---- */
+      tl.fromTo(
+        ".ddf13-sub",
+        { y: 14, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.52, ease: "power3.out" },
+        3.04,
+      );
+
+      /* pin the length to the fixed 3.5s */
+      tl.to({}, { duration: 0.1 }, 3.4);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["13-plugins"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

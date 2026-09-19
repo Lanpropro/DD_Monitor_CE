@@ -151,42 +151,8 @@
       data-track-index="2"
       data-layout-allow-overflow="true"
     >
-      <video
-        id="ddf08-plate-wide"
-        class="ddf08-plate"
-        data-frame-video="approved"
-        data-frame-video-x="269"
-        data-frame-video-y="634"
-        data-frame-video-width="1382"
-        data-frame-video-height="777"
-        data-frame-video-fit="cover"
-        data-start="0"
-        data-duration="0.9"
-        data-media-start="0.80"
-        data-track-index="2"
-        src="assets/rec-danmaku-panel.mp4"
-        muted
-        playsinline
-        preload="auto"
-      ></video>
-      <video
-        id="ddf08-plate-cell"
-        class="ddf08-plate"
-        data-frame-video="approved"
-        data-frame-video-x="269"
-        data-frame-video-y="634"
-        data-frame-video-width="1382"
-        data-frame-video-height="446"
-        data-frame-video-fit="cover"
-        data-start="0.9"
-        data-duration="2.6"
-        data-media-start="1.70"
-        data-track-index="3"
-        src="assets/rec-danmaku-panel.mp4"
-        muted
-        playsinline
-        preload="auto"
-      ></video>
+      <!-- approved frame video hoisted by assemble-index -->
+      <!-- approved frame video hoisted by assemble-index -->
     </div>
 
     <!-- centred title block -->
@@ -292,8 +258,8 @@
          subtitle lands, and the shot stops — no further push, no breathing. */
       tl.fromTo(
         ".ddf08-sub",
-        { y: 18, opacity: 0, letterSpacing: "0.34em" },
-        { y: 0, opacity: 1, letterSpacing: "0.16em", duration: 0.64, ease: "power3.out" },
+        { y: 18, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.64, ease: "power3.out" },
         2.6,
       );
 
