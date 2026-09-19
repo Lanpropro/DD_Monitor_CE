@@ -241,36 +241,52 @@ def main() -> None:
         player.stream_headers = {"User-Agent": "x"}
         tile.stream_url = player.stream_url
     ids = (id(player_a), id(player_b))
+    order_before = list(window.wall.tiles)
+    moved: list = []                       # 秒切**不该**去搬播放器的原生窗口
+    real_move = getattr(TilePlayer, "move_to", None)
+
     started: list = []
     original_start = window.start_tile
     window.start_tile = lambda target: started.append(target)
-    window._on_tile_swapped("1001", second)              # noqa: SLF001
-    window.start_tile = original_start
+    try:
+        window._on_tile_swapped("1001", second)          # noqa: SLF001
+    finally:
+        window.start_tile = original_start
     same_players = (id(player_a), id(player_b)) == ids
-    print(f"  交换后：格1={first.room.get('room_id')} 格2={second.room.get('room_id')}"
+    swapped = (window.wall.tiles[0] is second and window.wall.tiles[1] is first)
+    print(f"  交换后：第 1 格={window.wall.tiles[0].room.get('room_id')}"
+          f" 第 2 格={window.wall.tiles[1].room.get('room_id')}"
           f" 重新取流次数={len(started)} 播放器原样={same_players}")
-    print(f"  绑定：甲→{player_a.video_widget is second.video}"
-          f" 乙→{player_b.video_widget is first.video}")
-    print(f"  音量/静音按目的地格子：甲={player_a.volume}/{player_a.muted}"
-          f" 乙={player_b.volume}/{player_b.muted}")
-    print(f"  取流结果跟着画面：格2 url={second.stream_url.rsplit('/', 1)[-1]}")
-    assert str(first.room.get("room_id")) == "1002"
-    assert str(second.room.get("room_id")) == "1001"
+    print(f"  格子换位置={swapped}（原来是 {[t.room.get('room_id') for t in order_before[:2]]}）")
+    players_kept_widgets = (player_a.video_widget is first.video
+                            and player_b.video_widget is second.video)
+    print(f"  音量/静音按位置下发：甲格={player_a.volume}/{player_a.muted}"
+          f" 乙格={player_b.volume}/{player_b.muted}"
+          f" 播放器没搬家={players_kept_widgets}")
+    print(f"  取流结果跟着画面：格2 url={second.stream_url.rsplit('/', 1)[-1]}"
+          f" | move_to 已删除={real_move is None}")
+    assert str(first.room.get("room_id")) == "1001"
+    assert str(second.room.get("room_id")) == "1002"
+    assert window.wall.tiles[0] is second and window.wall.tiles[1] is first, \
+        "秒切靠两个格子换位置实现"
     assert same_players, "秒切不许重建播放器"
     assert not started, "秒切不应该重新取流（用户要的就是不黑屏）"
-    assert window.players[second] is player_a and window.players[first] is player_b
-    assert player_a.video_widget is second.video and player_b.video_widget is first.video
-    assert player_a.volume == 77 and player_a.muted is True, "声音按目的地格子下发"
+    assert player_a.video_widget is first.video and player_b.video_widget is second.video, \
+        "播放器不许换原生窗口（实测 set_hwnd 搬不动画面，还会冒出 VLC 悬浮窗）"
+    assert real_move is None, "move_to 那套已经证明不能用，别再出现在代码里"
+    assert player_a.volume == 77 and player_a.muted is True, "声音按格子（位置）下发"
     assert player_b.volume == 41 and player_b.muted is False
-    assert second.stream_url.endswith("1001.flv"), "取流结果要跟着画面一起搬"
+    assert (first.volume, second.volume) == (77, 41), "音量留在原来的位置上"
+    assert second.stream_url.endswith("1002.flv"), "取流结果跟着格子一起走"
 
     print("  迟到的取流结果不能播到已经换台的格子上：")
     stale_before = str(first.stream_url)
     window._play_on(first, "https://example.invalid/stale.flv", 250, "web",
-                    room_id="1001")                       # noqa: SLF001
-    print(f"    换台后旧房间的取流结果：{stale_before.rsplit('/', 1)[-1]}"
-          f" → 还是 {first.stream_url.rsplit('/', 1)[-1]}")
-    assert "stale" not in str(first.stream_url), "旧房间的取流结果必须丢掉"
+                    room_id="1002")                       # noqa: SLF001
+    print(f"    格子上是 1001，塞一个 1002 的取流结果："
+          f"{stale_before.rsplit('/', 1)[-1]} → 还是 "
+          f"{first.stream_url.rsplit('/', 1)[-1]}")
+    assert "stale" not in str(first.stream_url), "不属于这个格子的取流结果必须丢掉"
     player_a.release()
     player_b.release()
     window.players.pop(first, None)

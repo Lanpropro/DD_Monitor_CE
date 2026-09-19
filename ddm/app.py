@@ -862,79 +862,58 @@ class MainWindow(QMainWindow):
         print("两个格子的直播间已互换")
 
     def _hot_swap(self, source, target) -> bool:
-        """能秒切就直接对调播放器；返回是否成功（失败就走老流程）。"""
+        """两个格子互换：**把两个格子本身换个位置**，播放器一个都不动。
+
+        为什么不搬播放器：实测（work/probe_sethwnd.py、work/repro_canvas_swap2.py）
+        正在播的时候 `set_hwnd` 到别的窗口，画面不会乖乖跟过去 —— 旧窗口留着最后一帧、
+        新窗口里只铺一小块；改用「关掉视频轨重建」能让画面动，但 VLC 会另外冒一个
+        独立的播放窗（用户看到的「悬浮窗」，还会把另一格弄黑）。
+        格子换位置就没这些事：画面、控制条、原生窗口一起搬，媒体一直在播，
+        连 set_hwnd 都不用碰。
+        """
         source_player = self.players.get(source)
         target_player = self.players.get(target)
-        source_room = dict(source.room or {})
-        target_room = dict(target.room or {})
-        source_live = bool(source_room.get("room_id") and source_room.get("live"))
-        target_live = bool(target_room.get("room_id") and target_room.get("live"))
+        source_live = bool(source.room.get("room_id") and source.room.get("live"))
+        target_live = bool(target.room.get("room_id") and target.room.get("live"))
         if not source_live and not target_live:
             return False
         if (source_live and source_player is None) or (target_live and target_player is None):
-            return False                       # 取流还没回来，没有播放器可搬
-        # 声道在「原生输出」和「左右路由」之间切换必须重建播放器，别硬搬
-        for room, player in ((target_room, source_player), (source_room, target_player)):
-            if player is not None and room.get("live") and player.needs_audio_restart(
-                    int(room.get("audio_channel", 0))):
-                return False
+            return False                       # 取流还没回来，没有画面可换
+        tiles = self.wall.tiles
+        try:
+            first_index, second_index = tiles.index(source), tiles.index(target)
+        except ValueError:
+            return False
+        # 1) 两个格子换位置（房间里的一切跟着格子走：画质、取流结果、计时都还在）
+        tiles[first_index], tiles[second_index] = tiles[second_index], tiles[first_index]
+        # 2) 音量 / 静音 / 声道属于**格子（位置）**，不跟着主播走：
+        #    两个格子的这几项设置对调，再把它们下发给自己那个（没挪窝的）播放器
+        source.volume, target.volume = target.volume, source.volume
+        source.muted, target.muted = target.muted, source.muted
+        source.audio_channel, target.audio_channel = \
+            target.audio_channel, source.audio_channel
         for tile in (source, target):
-            timer = self._retry_timers.pop(tile, None)   # 换台后旧的断流重连作废
-            if timer is not None:
-                timer.stop()
-            self._retry_count.pop(tile, None)
-        self.players.pop(source, None)
-        self.players.pop(target, None)
-        if source_live:
-            self._attach_stream(target, source_room, source_player)
-        else:
-            target.set_room(None)              # 拖到空格子上：目标变空
-            target.video.repaint()
-        if target_live:
-            self._attach_stream(source, target_room, target_player)
-        else:
-            source.set_room(None)
-            source.video.repaint()
+            tile.room["volume"] = tile.volume
+            tile.room["muted"] = tile.muted
+            tile.room["audio_channel"] = tile.audio_channel
+            player = self.players.get(tile)
+            if player is None:
+                continue
+            player.set_volume(int(tile.volume))
+            player.set_muted(tile.muted)
+            player.set_audio_channel(int(tile.audio_channel))
+            player.reapply_audio_channel()
+            tile.raise_overlays()
+        self.wall.relayout(force=True)         # 换完位置重新摆一遍
+        for tile in (source, target):
+            tile.raise_overlays()
         self._refresh_meta()
-        print("两个格子的直播间已秒切（画面直接对调，没有重新取流）",
+        print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",
               file=sys.stderr, flush=True)
         return True
 
-    def _attach_stream(self, tile, room: dict, player) -> None:
-        """把一个**已经在播**的播放器挂到另一个格子上（秒切用）。
-
-        原生窗口只要重新 set_hwnd 就行，取流结果和缓冲都留着。
-        """
-        tile.set_room(room)
-        tile.video.repaint()                  # 擦掉这个格子上残留的上一帧
-        player.video_widget = tile.video
-        player.invalidate_binding()           # 原生窗口换了，重新绑一次
-        player.bind()
-        player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        # 声音/声道是**格子**的设置：搬过去之后按目的地格子重新下发
-        player.set_volume(int(tile.volume))
-        player.set_muted(tile.muted)
-        player.set_audio_channel(int(tile.audio_channel))
-        player.reapply_audio_channel()
-        self.players[tile] = player
-        # 画质按**实际在播的那一路**显示：秒切不动流，所以请求值和实际值可能不同
-        actual = int(getattr(player, "actual_quality", 0) or tile.quality)
-        tile.quality = actual
-        tile.room["quality"] = actual
-        tile.set_actual_quality(actual)
-        tile.set_paused(bool(player.paused))
-        tile.set_video_active(True)
-        tile.set_status("")
-        tile.start_elapsed_timer()
-        tile.raise_overlays()                 # 画面是原生窗口，浮层要重新抬起来
-        # 取流结果跟着画面走：插件（录像等）要拿它认格子
-        tile.stream_url = str(getattr(player, "stream_url", "") or "")
-        tile.stream_profile = str(getattr(player, "stream_profile", "web") or "web")
-        tile.stream_headers = dict(getattr(player, "stream_headers", {}) or {})
-        self._emit_stream_resolved(tile, actual)
-
     def _tile_of_player(self, player):
-        """播放器现在挂在哪个格子上（秒切之后连接不用重接，靠这个现查）。"""
+        """播放器现在挂在哪个格子上（格子换位置之后连接不用重接，靠这个现查）。"""
         for tile, candidate in self.players.items():
             if candidate is player:
                 return tile
