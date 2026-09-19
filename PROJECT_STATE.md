@@ -77,9 +77,20 @@
 - 用户侧曾报的三个问题都已定位并修复（预览出声、预览卡死/悬浮窗、切换画布失效）；
   最新一次用户反馈（2026-09-20 两份日志）指向 `video_take_snapshot`，已按上面的方式改掉。
 
-未开始：
+本次任务（关闭/启动提速，`DDMCE-20260920-SPEEDUP-01`）已完成：
 
-- **关闭/启动提速**（本次任务的主体），尚未动代码。
+- `cee6160` 关闭提速：`closeEvent()` 最开头先 `self.hide()`，窗口 ~2 ms 内消失
+  （`[关闭]` 日志量化），随后照旧收尾释放播放器；`selfcheck_close_release.py` 钉住
+  「先隐藏窗口」。
+- `89d8d95` 启动提速：`build_rooms()` 不再启动时同步逐个拉房间（单个超时 10 秒），
+  改成只造占位条目、窗口立刻出现，真实信息由 `refresh_status()` 后台批量补齐
+  （侧栏/画面格补主播名+标题+直播时长）。新增 `dev/selfcheck_startup.py`。
+- `2aa1a0e` 启动量化：`main()` 打印 `[启动]` 各阶段耗时（日志时间戳）。
+- `f1f866c` 减占用：设置里关掉「悬停预览」时不再建第二个 libvlc 实例。
+- 自检现状：全量 28 项里 26 项稳定通过；`selfcheck_plugins.py` 因本机沙箱限制
+  `tempfile.mkdtemp`（建出的目录 ACL 拒绝写子目录）无法运行，`selfcheck_delete.py` /
+  `selfcheck_slots.py` 偶发 `0xC0000409`（VLC/Qt 退出瞬间的既有偶发崩溃，单跑均通过），
+  均与本任务改动无关。未推送、未更新 Release 附件、未碰 `utils/config.json`。
 
 ## 接续动作
 
