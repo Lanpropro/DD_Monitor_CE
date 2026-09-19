@@ -13,7 +13,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QThread, Signal
+from PySide6.QtCore import QMimeData, QPoint, QPointF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
@@ -1048,15 +1048,19 @@ def part_login_button(app) -> None:
         settle(app, 1.1)
         sidebar = window.sidebar
         row = sidebar.account_row
-        fired: list = []
-        sidebar.importFollowsRequested.connect(lambda box=fired: box.append(True))
+        # 关键：要验**整条接线**（点按钮 → 信号 → MainWindow 的槽 → 弹扫码登录），
+        # 不能只连一个自己发的信号 —— 之前就是这么漏掉的：发的是没人接的空信号，
+        # 自查却「通过」了（用户实测点登录没反应）
+        opened: list = []
+        window.open_login = lambda box=opened: box.append(True)
+        row.clicked.emit()                       # 等价于用户点了这一格
         sidebar._open_account_menu()
         print(f"  {layout}：账号按钮可见={row.isVisible()} 文本={row.name.text()!r} "
-              f"头像={row.avatar.text()!r} 点了去扫码登录={bool(fired)} "
+              f"头像={row.avatar.text()!r} 点完弹了扫码登录={bool(opened)} "
               f"菜单={[a.text() for a in sidebar.account_menu().actions() if a.text()]}")
         assert row.isVisible(), "没登录也要露出来（用户要求）"
         assert row.name.text() == "登录", f"名字要叫「登录」，实际 {row.name.text()!r}"
-        assert fired, "点「登录」要走导入关注那条扫码登录"
+        assert opened, "点「登录」要真的走到 MainWindow.open_login（扫码登录）"
         # 用户要求：底色别太突出、内容居中不偏移；这一格是按钮，不该带菜单的 ⋯
         row_center = row.height() / 2
         name_center = row.name.y() + row.name.height() / 2
@@ -1072,6 +1076,65 @@ def part_login_button(app) -> None:
             "「自动」已经从布局菜单里去掉"
         window.close()
         settle(app, 0.4)
+    print("\n=== 20b. 账号菜单各项发的必须是**已经接上**的信号 ===")
+    window = MainWindow(rooms(3), rooms(3), layout_id="portrait_main4")
+    window.setGeometry(-9000, -9000, *PORTRAIT)
+    window.show()
+    settle(app, 1.1)
+    sidebar = window.sidebar
+    # 收起态才会走「弹菜单」那条路：展开且未登录时是直接发登录信号，不弹菜单
+    sidebar.set_collapsed(True, animate=False)
+    settle(app, 0.5)
+    # 之前的 bug：菜单项和登录按钮发的是 importFollowsRequested / addRoomRequested
+    # 这种「声明了但没人 connect」的空信号 → 点了完全没反应（用户实测）
+    for name in ("importFollowsRequested", "addRoomRequested"):
+        assert not hasattr(sidebar, name), f"又冒出一个没人接的空信号 {name}"
+    # PySide6 里没有好用的「谁连了这个信号」查询，直接对源码断言这两个名字被接上
+    source = open(os.path.join(REPO, "ddm", "app.py"), encoding="utf-8").read()
+    for name in ("importFollowsClicked", "addRoomClicked"):
+        assert f"sidebar.{name}.connect" in source, f"app.py 没把 {name} 接上"
+    # 菜单里那几项也要走这两个信号：把模态菜单换成「直接返回某一项」来验
+    items = {action.text(): action for action in sidebar.account_menu().actions()}
+    fired: list = []
+    # 先把 app 的真槽摘掉：不然选「+ 添加直播间…」会弹真的模态对话框，自查会卡住
+    sidebar.importFollowsClicked.disconnect()
+    sidebar.addRoomClicked.disconnect()
+    sidebar.importFollowsClicked.connect(lambda box=fired: box.append("import"))
+    sidebar.addRoomClicked.connect(lambda box=fired: box.append("add"))
+    try:
+        for label, expect in (("登录…", "import"), ("导入关注…", "import"),
+                              ("+ 添加直播间…", "add")):
+            assert label in items, f"菜单里应该有「{label}」"
+            fired.clear()
+
+            class FakeMenu:
+                """把模态菜单换成「直接返回指定的那一项」。"""
+
+                def __init__(self, action):
+                    self._action = action
+
+                def actions(self):
+                    return [self._action]
+
+                def sizeHint(self):
+                    return QSize(20, 20)
+
+                def exec(self, _pos):
+                    return self._action
+
+            sidebar.account_menu = lambda item=items[label]: FakeMenu(item)
+            sidebar._open_account_menu()
+            print(f"  菜单「{label}」→ 发出的信号={fired}")
+            assert expect in fired, f"菜单「{label}」没发 {expect} 那个信号"
+    finally:
+        del sidebar.account_menu                  # 去掉打桩，恢复类上的原方法
+        sidebar.importFollowsClicked.disconnect()
+        sidebar.addRoomClicked.disconnect()
+        sidebar.importFollowsClicked.connect(window.open_import_follows)
+        sidebar.addRoomClicked.connect(window.open_add_room)
+    window.close()
+    settle(app, 0.4)
+
     # 老配置里存着 auto：要折算成兜底布局，不然「自动」的粘人行为还在
     legacy = MainWindow(rooms(3), rooms(3), layout_id="",
                         state={"ui": {"layout_landscape": "auto", "layout_portrait": "auto"},

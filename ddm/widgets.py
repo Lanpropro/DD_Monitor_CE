@@ -2600,8 +2600,9 @@ class Sidebar(QFrame):
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
     settingsRequested = Signal()
-    addRoomRequested = Signal()
-    importFollowsRequested = Signal()
+    # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
+    # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
+    # （用户报的「登录按钮点了没反应」就是踩了这个）。
 
     def __init__(self, rooms: list[dict], parent=None, card_mode: bool = True):
         super().__init__(parent)
@@ -2903,7 +2904,7 @@ class Sidebar(QFrame):
         if not self.account_row.uname and not self.collapsed:
             # 未登录：这个位置就是「登录」按钮 —— 直接走「导入关注」那条路，
             # 它没登录时会弹扫码登录（用户要求：连的就是那个扫码页面）
-            self.importFollowsRequested.emit()
+            self.importFollowsClicked.emit()
             return
         menu = self.account_menu()
         texts = [action.text() for action in menu.actions() if action.text()]
@@ -2927,7 +2928,7 @@ class Sidebar(QFrame):
         label = chosen.text()
         if label in ("退出登录", "登录…"):
             if label == "登录…":
-                self.importFollowsRequested.emit()    # 没登录时走扫码登录
+                self.importFollowsClicked.emit()    # 没登录时走扫码登录
             else:
                 self.logoutRequested.emit()
         elif label == "布局预设…":
@@ -2935,9 +2936,9 @@ class Sidebar(QFrame):
         elif label == "设置…":
             self.settingsRequested.emit()
         elif label == "导入关注…":
-            self.importFollowsRequested.emit()
+            self.importFollowsClicked.emit()
         elif label == "+ 添加直播间…":
-            self.addRoomRequested.emit()
+            self.addRoomClicked.emit()
 
     # ---- 竖屏横栏 ----
     def _on_strip_room(self, room_id: str) -> None:
