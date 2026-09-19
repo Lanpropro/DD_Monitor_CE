@@ -152,6 +152,11 @@ class TilePlayer(QObject):
         self.player.audio_set_mute(True)
         self._bound = False
         self._bound_hwnd = 0
+        #: 这一段流的取流结果（「秒切」时跟着播放器一起搬到别的格子）
+        self.stream_url = ""
+        self.stream_profile = "web"
+        self.stream_headers: dict = {}
+        self.actual_quality = 0
         self._stall_ticks = 0
         self._last_time = None
         self._last_picture = None

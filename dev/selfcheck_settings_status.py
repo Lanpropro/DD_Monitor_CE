@@ -220,6 +220,62 @@ def main() -> None:
     })
     assert empty_wall[0]["volume"] == 61, "空格子的音量也必须在重启后恢复"
 
+    print("\n=== 3e. 交换画面「秒切」：播放器直接搬过去，不重新取流 ===")
+    first, second = window.wall.tiles[:2]
+    for tile, room_id, uname in ((first, "1001", "主播甲"), (second, "1002", "主播乙")):
+        tile.set_room({"room_id": room_id, "uname": uname, "title": "", "live": True,
+                       "muted": True, "quality": 250})
+        tile.set_video_active(True)
+    first.set_volume(41)
+    second.set_volume(77)
+    first.set_muted(False)
+    second.set_muted(True)
+    player_a = TilePlayer(first.video, window)
+    player_b = TilePlayer(second.video, window)
+    for tile, player in ((first, player_a), (second, player_b)):
+        window.players[tile] = player
+        player.bind()
+        player.actual_quality = 400
+        player.stream_url = f"https://example.invalid/{tile.room['room_id']}.flv"
+        player.stream_profile = "app"
+        player.stream_headers = {"User-Agent": "x"}
+        tile.stream_url = player.stream_url
+    ids = (id(player_a), id(player_b))
+    started: list = []
+    original_start = window.start_tile
+    window.start_tile = lambda target: started.append(target)
+    window._on_tile_swapped("1001", second)              # noqa: SLF001
+    window.start_tile = original_start
+    same_players = (id(player_a), id(player_b)) == ids
+    print(f"  交换后：格1={first.room.get('room_id')} 格2={second.room.get('room_id')}"
+          f" 重新取流次数={len(started)} 播放器原样={same_players}")
+    print(f"  绑定：甲→{player_a.video_widget is second.video}"
+          f" 乙→{player_b.video_widget is first.video}")
+    print(f"  音量/静音按目的地格子：甲={player_a.volume}/{player_a.muted}"
+          f" 乙={player_b.volume}/{player_b.muted}")
+    print(f"  取流结果跟着画面：格2 url={second.stream_url.rsplit('/', 1)[-1]}")
+    assert str(first.room.get("room_id")) == "1002"
+    assert str(second.room.get("room_id")) == "1001"
+    assert same_players, "秒切不许重建播放器"
+    assert not started, "秒切不应该重新取流（用户要的就是不黑屏）"
+    assert window.players[second] is player_a and window.players[first] is player_b
+    assert player_a.video_widget is second.video and player_b.video_widget is first.video
+    assert player_a.volume == 77 and player_a.muted is True, "声音按目的地格子下发"
+    assert player_b.volume == 41 and player_b.muted is False
+    assert second.stream_url.endswith("1001.flv"), "取流结果要跟着画面一起搬"
+
+    print("  迟到的取流结果不能播到已经换台的格子上：")
+    stale_before = str(first.stream_url)
+    window._play_on(first, "https://example.invalid/stale.flv", 250, "web",
+                    room_id="1001")                       # noqa: SLF001
+    print(f"    换台后旧房间的取流结果：{stale_before.rsplit('/', 1)[-1]}"
+          f" → 还是 {first.stream_url.rsplit('/', 1)[-1]}")
+    assert "stale" not in str(first.stream_url), "旧房间的取流结果必须丢掉"
+    player_a.release()
+    player_b.release()
+    window.players.pop(first, None)
+    window.players.pop(second, None)
+
     print("\n=== 4. 侧栏收起后头像居中、底部还能看到账号 ===")
     sidebar = window.sidebar
     sidebar.set_account("示例主播A")

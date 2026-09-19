@@ -562,7 +562,8 @@ class MainWindow(QMainWindow):
         resolver = StreamResolver(room_id, quality, self)
         resolver.resolved.connect(
             lambda _rid, url, qn, profile, options, t=tile:
-            self._play_on(t, url, qn, profile, options, headers=resolver.headers))
+            self._play_on(t, url, qn, profile, options, headers=resolver.headers,
+                          room_id=room_id))
         resolver.failed.connect(lambda rid, reason, t=tile: self._on_resolve_failed(t, reason))
         resolver.finished.connect(lambda t=tile: self._resolvers.pop(t, None))
         self._resolvers[tile] = resolver
@@ -570,10 +571,13 @@ class MainWindow(QMainWindow):
         self.refresh_stats()          # 人数不用等下一轮轮询，立刻拉一次
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
-                 options: list | None = None, headers: dict | None = None) -> None:
+                 options: list | None = None, headers: dict | None = None,
+                 room_id: str = "") -> None:
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
+        if room_id and str(tile.room.get("room_id") or "") != str(room_id):
+            return                    # 迟到的取流结果（格子已经换台/被换走了）
         if options:
             tile.set_quality_options(options)
         if quality:
@@ -581,29 +585,43 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile)
         if player is None:
             player = TilePlayer(tile.video, self)
-            player.stateChanged.connect(lambda state, t=tile: self._on_player_state(t, state))
-            player.pictureActivity.connect(lambda t=tile: self._on_picture_activity(t))
+            # 连接里不锁死格子：秒切之后播放器会挂到别的格子上，回调现查
+            player.stateChanged.connect(
+                lambda state, p=player:
+                self._on_player_state(self._tile_of_player(p), state))
+            player.pictureActivity.connect(
+                lambda p=player: self._on_picture_activity(self._tile_of_player(p)))
             self.players[tile] = player
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         player.set_volume(int(tile.volume))
         player.set_audio_channel(int(tile.audio_channel))
         player.set_muted(tile.muted)
-        # 把这一路的取流结果记在格子上：插件（录像等）要拿它去拉同一路流
+        # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
+        # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}
         tile.stream_url = url
         tile.stream_profile = profile
         tile.stream_headers = dict(headers or TilePlayer.PROFILE_HEADERS.get(
             profile, TilePlayer.PROFILE_HEADERS["web"]))
+        player.stream_url = tile.stream_url
+        player.stream_profile = profile
+        player.stream_headers = dict(tile.stream_headers)
+        player.actual_quality = int(quality or 0)
         player.play(url, profile, tile.stream_headers,
                     options=self.media_options())
+        self._emit_stream_resolved(tile, quality)
+
+    def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
+        """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
+        room = tile.room or {}
         self.plugins.emit(
             plugin_api.EVENT_STREAM_RESOLVED,
             source=plugin_api.StreamSource(
                 room_id=str(room.get("room_id") or ""),
-                url=url,
+                url=str(tile.stream_url or ""),
                 quality=int(quality or 0),
-                channel=profile,
-                headers=dict(tile.stream_headers),
+                channel=str(tile.stream_profile or "web"),
+                headers=dict(tile.stream_headers or {}),
                 platform=str(room.get("platform") or "bilibili"),
                 uname=str(room.get("uname") or ""),
                 title=str(room.get("title") or ""),
@@ -634,6 +652,8 @@ class MainWindow(QMainWindow):
             self._on_picture_frozen(tile)
 
     def _on_player_state(self, tile, state: str) -> None:
+        if tile is None:
+            return                        # 播放器已经不在任何格子上（刚被停掉）
         if not tile.room.get("room_id"):
             return
         if state == "playing":
@@ -698,6 +718,8 @@ class MainWindow(QMainWindow):
 
     def _on_picture_activity(self, tile) -> None:
         """画面重新变化后结束静止恢复流程，不再执行排队中的刷新。"""
+        if tile is None:
+            return                        # 播放器已经不在任何格子上
         was_recovering = tile in self._freeze_refreshed
         self._clear_freeze_recovery(tile)
         if was_recovering:
@@ -791,8 +813,13 @@ class MainWindow(QMainWindow):
             print(f"拖入的直播间 {room_id} 查询失败")
             return
         self._prepare_room(room)
-        to_start = []
         other = self._tile_of(room_id)
+        if other is not None and other is not tile and self._hot_swap(other, tile):
+            # 拖进来的这个直播间本来就在别的格子里：两边直接对调画面
+            print(f"{room.get('uname')} ↔ 第 {self.wall.tiles.index(tile) + 1} 个格子",
+                  file=sys.stderr, flush=True)
+            return
+        to_start = []
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
             previous = dict(tile.room) if tile.room.get("room_id") else None
@@ -811,9 +838,16 @@ class MainWindow(QMainWindow):
         print(f"{room.get('uname')} → 第 {self.wall.tiles.index(tile) + 1} 个格子")
 
     def _on_tile_swapped(self, source_room_id: str, target_tile) -> None:
-        """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。"""
+        """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。
+
+        两边都在播的时候走**秒切**：播放器和它绑定的原生窗口都还在，只是换个
+        格子挂上去 —— 不重新取流、不重新缓冲，画面直接对调。有一边没有播放器
+        （空格子、取流还没回来）或者要换音频输出路径时，退回「停掉再各自起」。
+        """
         source = self._tile_of(source_room_id)
         if source is None or source is target_tile:
+            return
+        if self._hot_swap(source, target_tile):
             return
         first, second = dict(source.room), dict(target_tile.room)
         self._stop_tile(source)
@@ -826,6 +860,85 @@ class MainWindow(QMainWindow):
                 self.start_tile(tile)
         self._refresh_meta()
         print("两个格子的直播间已互换")
+
+    def _hot_swap(self, source, target) -> bool:
+        """能秒切就直接对调播放器；返回是否成功（失败就走老流程）。"""
+        source_player = self.players.get(source)
+        target_player = self.players.get(target)
+        source_room = dict(source.room or {})
+        target_room = dict(target.room or {})
+        source_live = bool(source_room.get("room_id") and source_room.get("live"))
+        target_live = bool(target_room.get("room_id") and target_room.get("live"))
+        if not source_live and not target_live:
+            return False
+        if (source_live and source_player is None) or (target_live and target_player is None):
+            return False                       # 取流还没回来，没有播放器可搬
+        # 声道在「原生输出」和「左右路由」之间切换必须重建播放器，别硬搬
+        for room, player in ((target_room, source_player), (source_room, target_player)):
+            if player is not None and room.get("live") and player.needs_audio_restart(
+                    int(room.get("audio_channel", 0))):
+                return False
+        for tile in (source, target):
+            timer = self._retry_timers.pop(tile, None)   # 换台后旧的断流重连作废
+            if timer is not None:
+                timer.stop()
+            self._retry_count.pop(tile, None)
+        self.players.pop(source, None)
+        self.players.pop(target, None)
+        if source_live:
+            self._attach_stream(target, source_room, source_player)
+        else:
+            target.set_room(None)              # 拖到空格子上：目标变空
+            target.video.repaint()
+        if target_live:
+            self._attach_stream(source, target_room, target_player)
+        else:
+            source.set_room(None)
+            source.video.repaint()
+        self._refresh_meta()
+        print("两个格子的直播间已秒切（画面直接对调，没有重新取流）",
+              file=sys.stderr, flush=True)
+        return True
+
+    def _attach_stream(self, tile, room: dict, player) -> None:
+        """把一个**已经在播**的播放器挂到另一个格子上（秒切用）。
+
+        原生窗口只要重新 set_hwnd 就行，取流结果和缓冲都留着。
+        """
+        tile.set_room(room)
+        tile.video.repaint()                  # 擦掉这个格子上残留的上一帧
+        player.video_widget = tile.video
+        player.invalidate_binding()           # 原生窗口换了，重新绑一次
+        player.bind()
+        player.freeze_watch = bool(self.settings.get("freeze_watch", True))
+        # 声音/声道是**格子**的设置：搬过去之后按目的地格子重新下发
+        player.set_volume(int(tile.volume))
+        player.set_muted(tile.muted)
+        player.set_audio_channel(int(tile.audio_channel))
+        player.reapply_audio_channel()
+        self.players[tile] = player
+        # 画质按**实际在播的那一路**显示：秒切不动流，所以请求值和实际值可能不同
+        actual = int(getattr(player, "actual_quality", 0) or tile.quality)
+        tile.quality = actual
+        tile.room["quality"] = actual
+        tile.set_actual_quality(actual)
+        tile.set_paused(bool(player.paused))
+        tile.set_video_active(True)
+        tile.set_status("")
+        tile.start_elapsed_timer()
+        tile.raise_overlays()                 # 画面是原生窗口，浮层要重新抬起来
+        # 取流结果跟着画面走：插件（录像等）要拿它认格子
+        tile.stream_url = str(getattr(player, "stream_url", "") or "")
+        tile.stream_profile = str(getattr(player, "stream_profile", "web") or "web")
+        tile.stream_headers = dict(getattr(player, "stream_headers", {}) or {})
+        self._emit_stream_resolved(tile, actual)
+
+    def _tile_of_player(self, player):
+        """播放器现在挂在哪个格子上（秒切之后连接不用重接，靠这个现查）。"""
+        for tile, candidate in self.players.items():
+            if candidate is player:
+                return tile
+        return None
 
     # ---- 直播状态轮询 ----
     def refresh_stats(self) -> None:
