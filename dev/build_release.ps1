@@ -189,6 +189,10 @@ _internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
     Start-Sleep -Seconds 20
     $alive = -not $proc.HasExited
     if ($alive) { Stop-Process -Id $proc.Id -Force }
+    # 等进程真的收工再往下走：句柄还开着的时候 Remove-Item 会静默失败，
+    # 上一次就把验证用的 logs 留在了交付目录里（zip 里倒是干净的）。
+    try { $null = $proc.WaitForExit(5000) } catch { }
+    Start-Sleep -Milliseconds 300
     $log = Get-ChildItem $logDir -Filter "ddm-*.log" -ErrorAction SilentlyContinue | Select-Object -First 1
     $started = $false
     if ($log) {
@@ -199,8 +203,9 @@ _internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
         throw "冻出来的 exe 没能启动（没写出 [方向] 启动日志）—— 别交付这半成品。日志目录：$logDir"
     }
     Write-Output "  exe 启动验证通过 ✓ -> $exeDir"
-    # 验证时写出来的 logs / cache 不留在发布包里
+    # 验证时写出来的 logs / cache / 插件的运行目录不留在发布包里
     Remove-Item (Join-Path $exeDir "logs"), (Join-Path $exeDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $exeDir "plugins_user\_danmaku_log") -Recurse -Force -ErrorAction SilentlyContinue
     # 再压一个 zip：用户要的就是「下载一个 zip、解压直接双击 exe 用」
     if (-not $SkipZip) {
         $exeZip = Join-Path $OutDir "$name-exe.zip"
