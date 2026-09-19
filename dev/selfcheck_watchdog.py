@@ -1,4 +1,5 @@
 """自查：界面卡死看门狗 —— 主线程不报平安时，把调用栈写进日志。不联网。"""
+import faulthandler
 import io
 import os
 import sys
@@ -33,14 +34,20 @@ def main() -> None:
         os.remove(LOG)
 
     print("=== 1. 主线程一直在报平安：不写调用栈 ===")
+    print(f"  默认阈值={watchdog.DEFAULT_TIMEOUT} 秒"
+          f"（用户实测卡死 6 秒左右就把程序关了，阈值不能比这还宽）")
+    assert watchdog.DEFAULT_TIMEOUT <= 6.0, "看门狗阈值要够短，否则用户关掉就没线索了"
     guard = watchdog.UiWatchdog(LOG, timeout=TIMEOUT)
     assert guard.start() and guard.running
+    assert faulthandler.is_enabled(), "顺带把 faulthandler 打开：硬崩也得留下调用栈"
     for _ in range(6):
         guard.tick()
         time.sleep(0.15)
     print(f"  报平安 6 次、共 0.9 秒：写了 {guard.dumps} 次调用栈（应该是 0）")
     assert guard.dumps == 0
-    assert not os.path.isfile(LOG), "没卡死就不该动日志文件"
+    text = io.open(LOG, encoding="utf-8").read() if os.path.isfile(LOG) else ""
+    print(f"  日志文件里目前 {len(text)} 字（只该有「崩溃转储已开启」那一行）")
+    assert watchdog.MARK not in text, "没卡死就不该写卡死调用栈"
 
     print("\n=== 2. 主线程停住：阈值之后写出所有线程的调用栈 ===")
     stopped_at = time.time()

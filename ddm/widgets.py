@@ -1747,8 +1747,11 @@ class NavThumb(QFrame):
             self._player.stateChanged.connect(self._on_player_state)
         return self._player
 
-    def play(self, url: str, profile: str = "web") -> None:
-        """在这个缩略图里放预览（静音、低画质）。"""
+    def play(self, url: str, profile: str = "web", options=None) -> None:
+        """在这个缩略图里放预览（静音、低画质）。
+
+        ``options`` 由预览那边给（见 ddm/preview.py 的 PREVIEW_MEDIA_OPTIONS）。
+        """
         if self._compact_thumb():
             return                         # 收起的关注栏固定显示主播头像
         player = self._ensure_player()
@@ -1762,7 +1765,7 @@ class NavThumb(QFrame):
         self.hint.setVisible(False)
         player.set_muted(True)                       # 预览永远静音
         player.set_volume(0)
-        player.play(url, profile)
+        player.play(url, profile, options=options)
 
     def stop(self) -> None:
         """收掉预览，回到封面（播放器留着复用，下回悬停直接 play）。"""

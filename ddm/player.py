@@ -114,7 +114,13 @@ class TilePlayer(QObject):
         """原生窗口重排前标记绑定失效；排布完成后只重新绑定一次。"""
         self._bound = False
 
-    def play(self, url: str, profile: str = "web", headers: dict | None = None) -> None:
+    def play(self, url: str, profile: str = "web", headers: dict | None = None,
+             options=None) -> None:
+        """开始播放。
+
+        ``options`` 是额外的 media 选项（例如预览用的 ``:no-audio``）：留在这里
+        而不是写死在播放器上，是因为同一路流在画面墙和预览里要的配置不一样。
+        """
         if not self._bound:
             self.bind()
         self.paused = False               # 换流后从"播放中"重新开始
@@ -137,6 +143,8 @@ class TilePlayer(QObject):
             # 后端一律要 UA，插件忘了给就补上通用的
             media.add_option(f":http-user-agent={UA}")
         media.add_option(":network-caching=800")
+        for option in options or ():
+            media.add_option(str(option))
         self.player.set_media(media)
         self.player.play()
         self._stall_ticks = 0

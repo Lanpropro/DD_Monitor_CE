@@ -16,10 +16,13 @@ import sys
 import threading
 import time
 
-DEFAULT_TIMEOUT = 8.0            # 主线程多久没报平安算卡死
+DEFAULT_TIMEOUT = 4.0            # 主线程多久没报平安算卡死
+#: 4 秒而不是 8 秒：用户实测卡死 6 秒左右就把程序关了，8 秒的阈值还没到就
+#: 没留下任何线索。界面上 4 秒不动已经绝对是异常了。
 TICK_MS = 500                    # 主线程报平安的间隔（给 QTimer 用）
 CHECK_INTERVAL = 1.0             # 看门狗自己检查的间隔
 MARK = "[卡死]"                  # 日志里的标记，方便直接搜
+CRASH_MARK = "[崩溃]"            # faulthandler 抓到的致命异常
 
 
 class UiWatchdog:
@@ -43,10 +46,27 @@ class UiWatchdog:
         self._last_tick = time.monotonic()
         self._reported = False
         self._running = True
+        self._enable_faulthandler()
         self._thread = threading.Thread(target=self._watch, name="ddm-watchdog",
                                         daemon=True)
         self._thread.start()
         return True
+
+    def _enable_faulthandler(self) -> None:
+        """让 faulthandler 接管致命异常：访问违例之类的硬崩也留下调用栈。
+
+        卡死由看门狗线程负责转储；**硬崩**（比如解码器/显卡驱动里 access
+        violation）进程直接没了，只能靠 faulthandler 在崩溃瞬间写下来。
+        """
+        handle = self._open()
+        if handle is None:
+            return
+        try:
+            handle.write(f"{CRASH_MARK} 崩溃转储已开启（faulthandler）\n")
+            handle.flush()
+            faulthandler.enable(file=handle, all_threads=True)
+        except Exception as error:  # noqa: BLE001
+            print(f"{CRASH_MARK} 开启崩溃转储失败: {error}", file=sys.stderr, flush=True)
 
     def stop(self) -> None:
         self._running = False

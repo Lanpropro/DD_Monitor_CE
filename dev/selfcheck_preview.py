@@ -16,6 +16,8 @@ from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm import preview as preview_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.player import TilePlayer  # noqa: E402
+from ddm.preview import PREVIEW_MEDIA_OPTIONS  # noqa: E402
 from ddm.widgets import NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, NavThumb  # noqa: E402
 
 
@@ -215,6 +217,14 @@ def main() -> None:
     assert cover_img.pixelColor(3, thumb_h // 2).alpha() > 200, "封面别的地方要在"
 
     print("\n=== 2. 停够 1 秒，缩略图里直接放预览 ===")
+    played: list = []                       # 记录预览给播放器的 media 选项
+    real_play = TilePlayer.play
+
+    def spy_play(self, url, profile="web", headers=None, options=None):  # noqa: ANN001
+        played.append((profile, options))
+        return real_play(self, url, profile, headers, options)
+
+    TilePlayer.play = spy_play
     hover(live_item, True)
     settle(app, 0.6)
     print(f"  停 0.6 秒：画面可见={live_item.thumb.video.isVisible()}（应该还没有）")
@@ -226,6 +236,12 @@ def main() -> None:
     assert player is not None
     assert FakeResolver.started and FakeResolver.started[-1][0] == "1001"
     assert FakeResolver.started[-1][1] <= 250, "预览要用低画质"
+    options = played[-1][1] if played else None
+    print(f"  预览的 media 选项={options}（期望 {PREVIEW_MEDIA_OPTIONS}）")
+    assert options == PREVIEW_MEDIA_OPTIONS, \
+        "预览要「不建音频输出 + 软解」，别和画面墙那一路抢音频/显卡设备"
+    assert ":no-audio" in options and ":avcodec-hw=none" in options
+    TilePlayer.play = real_play
 
     print("\n=== 3. 预览是静音的 ===")
     print(f"  静音={player.muted} 音量={player.volume} 卡死检测={player.freeze_watch}")

@@ -11,6 +11,15 @@ from .bili import StreamResolver
 
 PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
 
+#: 预览专用的 media 选项。预览是**静音的小画面**，两样都不需要：
+#:   :no-audio        —— 干脆别建音频输出。省掉第二个 WASAPI/mmdevice 输出，
+#:                       也就没有「两个播放器抢音频设备」这种卡死的机会。
+#:   :avcodec-hw=none —— 走软解。缩略图只有两百来像素宽，软解毫无压力，
+#:                       却少了一个和画面墙那一路抢 D3D11 解码器的实例
+#:                       （用户机器上正好卡死在「预览开始播」这一步：
+#:                        Windows 26200 + NVIDIA 616.64）。
+PREVIEW_MEDIA_OPTIONS = (":no-audio", ":avcodec-hw=none")
+
 
 class HoverPreview(QObject):
     """管悬停计时，并把预览发到对应条目的缩略图上。"""
@@ -91,7 +100,7 @@ class HoverPreview(QObject):
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
         try:
-            item.thumb.play(url, profile)
+            item.thumb.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
         except RuntimeError:
             self._item = None
 
