@@ -35,7 +35,7 @@ class SpyPlayer:
         self.release_count += 1
 
 
-def boom(room_id, quality=250):  # noqa: ANN001, ARG001
+def boom(room_id, quality=250, **_kwargs):  # noqa: ANN001, ARG001
     raise RuntimeError("selfcheck：不联网")
 
 

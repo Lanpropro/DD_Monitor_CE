@@ -90,7 +90,7 @@ def main() -> None:
 
     print("\n=== 3. 右键菜单三个声道选项 ===")
     from ddm import bili
-    bili.play_url = lambda room_id, quality=250: (_ for _ in ()).throw(
+    bili.play_url = lambda room_id, quality=250, **_kwargs: (_ for _ in ()).throw(
         RuntimeError("selfcheck：不联网"))
     window = MainWindow([dict(r) for r in ROOMS], [dict(r) for r in ROOMS], layout_id="1x2")
     window.setGeometry(-8000, -8000, 1000, 620)

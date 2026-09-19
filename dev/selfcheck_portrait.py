@@ -44,7 +44,7 @@ class SilentPoller(QThread):
         return
 
 
-def boom(room_id, quality=250):        # noqa: ANN001, ANN201
+def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
     raise RuntimeError("selfcheck：不联网")
 
 

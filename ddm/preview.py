@@ -25,6 +25,7 @@ class HoverPreview(QObject):
         self._room: dict = {}
         self._item = None                       # 正在预览的条目
         self._resolver: StreamResolver | None = None
+        self._generation = 0                    # 取流编号：旧编号的结果一律丢掉
         self._delay = QTimer(self)
         self._delay.setSingleShot(True)
         self._delay.setInterval(self.DELAY_MS)
@@ -61,7 +62,7 @@ class HoverPreview(QObject):
         item = self._item_of(room)
         if item is None:
             return
-        self._stop_now()
+        self._stop_now()                        # 顺带把编号推进一格
         self._item = item
         try:
             item.thumb.set_hint("连接中…")
@@ -69,15 +70,23 @@ class HoverPreview(QObject):
             self._item = None
             return
         print(f"[预览] {room.get('uname')} → 缩略图", file=sys.stderr, flush=True)
+        generation = self._generation
         resolver = StreamResolver(str(room["room_id"]), PREVIEW_QUALITY, self)
-        resolver.resolved.connect(self._on_resolved)
-        resolver.failed.connect(self._on_failed)
-        resolver.finished.connect(self._on_finished)
+        # 回调都带上编号：编号过期就说明这次取流早就作废了（鼠标移开、换了条目）
+        resolver.resolved.connect(
+            lambda room_id, url, quality, profile, options, gen=generation:
+            self._on_resolved(gen, room_id, url, quality, profile, options))
+        resolver.failed.connect(
+            lambda room_id, reason, gen=generation: self._on_failed(gen, room_id, reason))
+        resolver.finished.connect(lambda r=resolver: self._on_finished(r))
+        resolver.finished.connect(resolver.deleteLater)
         self._resolver = resolver
         resolver.start()
 
-    def _on_resolved(self, room_id: str, url: str, quality: int, profile: str,
-                     options: list | None) -> None:
+    def _on_resolved(self, generation: int, room_id: str, url: str, quality: int,
+                     profile: str, options: list | None) -> None:
+        if generation != self._generation:
+            return                              # 这次取流已经作废
         item = self._item
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
@@ -86,7 +95,9 @@ class HoverPreview(QObject):
         except RuntimeError:
             self._item = None
 
-    def _on_failed(self, room_id: str, reason: str) -> None:
+    def _on_failed(self, generation: int, room_id: str, reason: str) -> None:
+        if generation != self._generation:
+            return
         print(f"[预览取流失败] {room_id}: {reason}", file=sys.stderr, flush=True)
         item = self._item
         if item is not None:
@@ -95,18 +106,23 @@ class HoverPreview(QObject):
             except RuntimeError:
                 self._item = None
 
-    def _on_finished(self) -> None:
-        self._resolver = None
+    def _on_finished(self, resolver) -> None:
+        if self._resolver is resolver:           # 迟到的旧线程别把新线程顶掉
+            self._resolver = None
 
     def _stop_now(self) -> None:
-        """终止取流并让缩略图回到封面。"""
+        """让缩略图回到封面，并让正在跑的取流作废。
+
+        注意这里**不杀线程**：只 cancel()，线程自己跑完最后一步就结束。强杀
+        （QThread.terminate）会带走线程本地存储和锁，主线程之后可能整个卡死。
+        """
+        self._generation += 1                   # 之前那次的结果从此一律作废
         resolver = self._resolver
         self._resolver = None
         if resolver is not None:
             try:
-                if resolver.isRunning():
-                    resolver.terminate()
-            except RuntimeError:
+                resolver.cancel()
+            except RuntimeError:                # 已经被 Qt 回收
                 pass
         item = self._item
         self._item = None

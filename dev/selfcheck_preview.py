@@ -1,4 +1,5 @@
 """自查：关注列表缩略图（封面）+ 悬停 1 秒在缩略图里放预览。不联网。"""
+import io
 import os
 import sys
 import time
@@ -18,7 +19,7 @@ from ddm.app import MainWindow  # noqa: E402
 from ddm.widgets import NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, NavThumb  # noqa: E402
 
 
-def boom(room_id, quality=250):        # noqa: ANN001, ANN201
+def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
     raise RuntimeError("selfcheck：不联网取流")
 
 
@@ -29,15 +30,36 @@ class FakeResolver(QThread):
     failed = Signal(str, str)
 
     started: list = []
+    cancelled: list = []
+    terminated: list = []
+    slow = False                    # True 时挂住，模拟「取流还没回来」
 
     def __init__(self, room_id, quality=250, parent=None):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.quality = int(quality)
+        self._cancelled = False
         FakeResolver.started.append((self.room_id, self.quality))
 
+    def cancel(self) -> None:       # 与 ddm.bili.StreamResolver 同一套协议
+        self._cancelled = True
+        FakeResolver.cancelled.append(self.room_id)
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled
+
+    def terminate(self) -> None:    # 自检里钉死：谁也不许再强杀取流线程
+        FakeResolver.terminated.append(self.room_id)
+
     def run(self) -> None:
+        if FakeResolver.slow:
+            # 挂住不返回：模拟「网络慢，取流还没回来」，这时鼠标移开
+            for _ in range(100):
+                time.sleep(0.02)
+            return
         time.sleep(0.05)
+        if self._cancelled:
+            return
         self.resolved.emit(self.room_id, "https://example.invalid/live.flv",
                            self.quality, "web", [])
 
@@ -86,6 +108,14 @@ def wait_for(predicate, timeout: float = 4.0) -> bool:
 def item_of(window, room_id: str):
     return next((item for item in window.sidebar.items()
                  if str(item.room.get("room_id")) == str(room_id)), None)
+
+
+def thread_done(thread) -> bool:
+    """线程是不是已经收工；对象被 Qt 回收（deleteLater 生效）也算收工。"""
+    try:
+        return not thread.isRunning()
+    except RuntimeError:
+        return True
 
 
 def hover(item, entering: bool) -> None:
@@ -301,7 +331,44 @@ def main() -> None:
     sidebar.set_card_mode(True)
     settle(app, 0.3)
 
-    print("\n=== 10. 关窗会收掉预览 ===")
+    print("\n=== 10. 悬停后马上移开：取流只作废、不强杀 ===")
+    # 用户报的现象就是这一路：取流还在跑的时候鼠标移开，老代码 QThread.terminate()
+    # 强杀线程，留下坏掉的线程本地存储 / 没释放的锁，主线程随后整个卡死。
+    FakeResolver.slow = True
+    FakeResolver.cancelled = []
+    FakeResolver.terminated = []
+    hover(live_item, True)
+    assert wait_for(lambda: preview._resolver is not None, timeout=3.0), \
+        "停够 1 秒应该开始取流"
+    slow_resolver = preview._resolver                    # noqa: SLF001
+    print(f"  取流中：running={slow_resolver.isRunning()}")
+    assert slow_resolver.isRunning()
+    hover(live_item, False)
+    assert wait_for(lambda: preview._resolver is None, timeout=3.0), \
+        "移开之后应该把这次取流交出去（等它自己结束）"
+    print(f"  移开后：cancel 次数={len(FakeResolver.cancelled)}"
+          f" terminate 次数={len(FakeResolver.terminated)}")
+    assert FakeResolver.cancelled == ["1001"], "移开时要 cancel() 这次取流"
+    assert not FakeResolver.terminated, "不许再强杀取流线程"
+    assert not live_item.thumb.video.isVisible()
+    # 作废之后迟到的结果不能再往卡片上播（编号已经翻页了）
+    slow_resolver.resolved.emit("1001", "https://example.invalid/live.flv", 250, "web", [])
+    settle(app, 0.4)
+    print(f"  迟到结果：画面={live_item.thumb.video.isVisible()}"
+          f" 播放器={live_item.thumb._player}")           # noqa: SLF001
+    assert live_item.thumb._player is None, "作废的取流结果不该再起播放器"
+    assert not live_item.thumb.video.isVisible()
+    assert wait_for(lambda: thread_done(slow_resolver), timeout=6.0)
+    FakeResolver.slow = False
+
+    print("\n=== 11. 源码里不再有 QThread.terminate() ===")
+    for name in ("preview.py", "app.py"):
+        with io.open(os.path.join(REPO, "ddm", name), encoding="utf-8") as handle:
+            text = handle.read()
+        print(f"  ddm/{name}: terminate() 调用={text.count('.terminate(')}")
+        assert ".terminate(" not in text, f"ddm/{name} 里不该再强杀取流线程"
+
+    print("\n=== 12. 关窗会收掉预览 ===")
     hover(live_item, True)
     assert wait_for(lambda: live_item.thumb.video.isVisible())
     window.close()

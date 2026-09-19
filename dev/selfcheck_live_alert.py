@@ -16,7 +16,7 @@ from ddm.app import MainWindow  # noqa: E402
 from ddm.widgets import LiveAlert  # noqa: E402
 
 
-def boom(room_id, quality=250):        # noqa: ANN001, ANN201
+def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
     raise RuntimeError("selfcheck：不联网取流")
 
 

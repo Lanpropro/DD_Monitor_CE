@@ -240,7 +240,15 @@ def _app_play_url(room_id: str, quality: int) -> tuple[str, int]:
     raise RuntimeError("app-room 接口没有返回 FLV 地址")
 
 
-def play_url(room_id: str, quality: int = 250) -> tuple[str, int, str, dict]:
+class Cancelled(Exception):
+    """这次取流已经被调用方作废（鼠标早就移开了、格子被停掉了）。
+
+    只用它做「安静收尾」的信号，不当成失败上报 —— 见 StreamResolver.cancel()。
+    """
+
+
+def play_url(room_id: str, quality: int = 250,
+             cancelled=None) -> tuple[str, int, str, dict]:
     """取可播放的 http FLV 地址，附带接口实际给到的画质。
 
     优先用尊重画质的 app-room 接口（App UA、不带 Referer 拉流）；
@@ -249,17 +257,30 @@ def play_url(room_id: str, quality: int = 250) -> tuple[str, int, str, dict]:
 
     返回 ``(地址, 实际画质, 通道名, 请求头)``。请求头必须一起带走：插件要
     拿这个地址去录像，头不对 CDN 直接 403。
+
+    ``cancelled`` 是个可选回调，返回 True 表示这次取流已经没人要了：每换一条
+    通道、每次探测地址之前都会问一次，问到 True 就抛 Cancelled 早点收工，
+    不把带宽和连接白耗在后面几条通道上。
     """
+    def _cancelled() -> bool:
+        return bool(cancelled is not None and cancelled())
+
     errors = []
     for source, profile, headers in ((_app_play_url, "app", STREAM_APP),
                                      (_web_play_url, "web", STREAM_WEB)):
+        if _cancelled():
+            raise Cancelled()
         try:
             url, current = source(room_id, quality)
         except Exception as error:  # noqa: BLE001
             errors.append(f"{source.__name__}: {error}")
             continue
+        if _cancelled():
+            raise Cancelled()
         http_url = url.replace("https://", "http://", 1)
         if _fetchable(http_url, headers):
+            if _cancelled():               # 探测期间被作废：别把这个地址交出去
+                raise Cancelled()
             print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
                   file=sys.stderr, flush=True)
             return http_url, current, profile, dict(headers)
@@ -278,15 +299,40 @@ class StreamResolver(QThread):
         self.room_id = str(room_id)
         self.quality = quality
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """作废这次取流：跑完当前这步就收工，结果不再发出来。
+
+        以前这里是 ``QThread.terminate()`` —— 强杀一个正阻塞在 socket 读上的
+        线程，会留下没释放的锁 / GIL 和坏掉的线程本地存储（控制台里那几行
+        "QThreadStorage: entry ... destroyed before end of thread" 就是证据），
+        主线程随后可能直接卡死：窗口不动、也不退出。只置个标志、让线程自己
+        跑完最后一步，代价是最多再等一次请求超时，换来的是绝不会卡死。
+        """
+        self._cancelled = True
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled
 
     def run(self) -> None:
+        if self._cancelled:
+            return
         try:
-            url, current, profile, headers = play_url(self.room_id, self.quality)
-            self.headers = headers
+            url, current, profile, headers = play_url(self.room_id, self.quality,
+                                                      cancelled=self.is_cancelled)
+        except Cancelled:
+            return                       # 作废：不发结果，也不算失败
         except Exception as error:  # noqa: BLE001
-            self.failed.emit(self.room_id, str(error))
+            if not self._cancelled:
+                self.failed.emit(self.room_id, str(error))
+            return
+        if self._cancelled:
             return
         options = room_quality_options(self.room_id)
+        if self._cancelled:
+            return
+        self.headers = headers
         if options:
             print(f"[画质档位] {self.room_id}: "
                   + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
