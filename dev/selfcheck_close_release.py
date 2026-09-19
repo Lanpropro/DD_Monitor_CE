@@ -18,6 +18,7 @@
 
 不联网：不开真流，只建一个播放器对象验证生命周期。
 """
+import inspect
 import os
 import sys
 import time
@@ -121,6 +122,29 @@ def main() -> None:
     settle(app, 0.3)
     assert not window2.players
     print("  重复关窗无异常")
+
+    print("\n=== 5. closeEvent 最开头先隐藏窗口（关闭不再逐格拆）===")
+    # 钉住「先 hide 再收尾」：hide() 必须排在钉住关窗状态、释放播放器之前，
+    # 否则窗口会一直可见到播放器逐格 release 完，用户又能看到「一格一格拆掉」。
+    src = inspect.getsource(app_module.MainWindow.closeEvent)
+    hide_at = src.find("self.hide()")
+    closing_at = src.find("self._closing = True")
+    release_at = src.find("player.release()")
+    assert hide_at != -1, "closeEvent 必须调用 self.hide()"
+    assert -1 < hide_at < closing_at < release_at, (
+        "self.hide() 必须排在 closeEvent 最开头（先于钉住关窗状态和释放播放器），"
+        "否则窗口还是会被逐格拆掉")
+    # 运行期也确认：关窗之后窗口不再可见
+    window3 = MainWindow([dict(room) for room in ROOMS],
+                         [dict(room) for room in ROOMS], layout_id="1x1")
+    window3.setGeometry(-9000, -9000, 900, 600)
+    window3.show()
+    settle(app, 0.5)
+    assert window3.isVisible(), "关窗前窗口必须是可见的"
+    window3.close()
+    settle(app, 0.3)
+    assert not window3.isVisible(), "closeEvent 藏掉窗口后，窗口必须不可见"
+    print("  源码顺序 hide < 钉住关窗 < release，且关窗后窗口不可见")
 
     print("\n全部通过")
 

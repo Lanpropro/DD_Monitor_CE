@@ -439,6 +439,13 @@ class MainWindow(QMainWindow):
         }
 
     def closeEvent(self, event) -> None:
+        # 【关闭提速】最开头先把窗口藏起来：release() 要逐格调用 stop()/
+        # set_hwnd(0)/release()（每格都是主线程上的阻塞 libvlc 调用，上百毫秒
+        # 量级），不先藏起来，用户就会眼睁睁看着画面一格一格被拆掉。先 hide()
+        # 把窗口连同所有格子的原生画面瞬间藏掉，后面的收尾用户完全看不见。
+        t0 = time.perf_counter()
+        self.hide()
+        hide_ms = (time.perf_counter() - t0) * 1000
         # 关窗前先把「正在关闭」钉住，并**清空**播放器表：release() 只是把
         # libvlc 实例还回去，self.players 里还留着它的话，取流线程排队中的
         # resolved 会在关窗后再投递一次，_play_on 就从表里拿到已经释放的实例
@@ -460,6 +467,9 @@ class MainWindow(QMainWindow):
             player.release()
         self._wait_background()
         self._resolvers.clear()
+        total_ms = (time.perf_counter() - t0) * 1000
+        print(f"[关闭] 窗口 {hide_ms:.1f} ms 内隐藏；收尾（释放播放器+等线程）共 {total_ms:.1f} ms",
+              file=sys.stderr, flush=True)
         super().closeEvent(event)
 
     def _wait_background(self) -> None:
