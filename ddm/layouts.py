@@ -131,6 +131,10 @@ PORTRAIT_LAYOUTS, PORTRAIT_DANMAKU_LAYOUTS = _portrait_layouts()
 #: 竖屏下「自动」布局用哪个（主画面 + 6 小，竖屏里最能把空间用满）
 PORTRAIT_AUTO = "portrait_main6"
 
+#: **第一次启动**（配置里还没存过布局）时的默认布局：1 主画面 + 5 小环绕。
+#: 用户 2026-09-19 指定：新用户一打开就是一屏 6 路、主画面在角上、五路围着它。
+FIRST_LAYOUT = "corner"
+
 #: 没有可用布局时的兜底（以前是「自动」，用户要求去掉自动之后用它）：
 #: 九分能一次摆下最多路，屏再小也只是格子变小。
 DEFAULT_LAYOUT = "3x3"
@@ -166,6 +170,10 @@ def counterpart(layout_id: str, portrait: bool) -> str | None:
     既不能把别的那套硬套过去（画面会变形），也不该一律退到「自动」—— 用户要的是
     对映，例如横屏「主画面 + 2 小」↔ 竖屏「主画面 + 2 小」。
     带不带弹幕也要跟着：弹幕布局只找弹幕布局。
+
+    自己已经是对应方向的那一套时，返回它自己，绝不拿等容量的另一套顶掉：
+    横屏「主画面 + 5 小环绕」和「六分」都是 6 路，早先按顺序取第一个，
+    结果一启动就被悄悄换成六分（用户选的「双主画面 + 4 小」同理会变成六分）。
     """
     source = BY_ID.get(layout_id)
     if source is None or source.get("spec") is None:
@@ -178,6 +186,8 @@ def counterpart(layout_id: str, portrait: bool) -> str | None:
                   and (item.get("danmaku") is not None) == wanted_danmaku]
     if not candidates:
         return None
+    if any(item["id"] == layout_id for item in candidates):
+        return layout_id                    # 方向本来就对，不用映射
     best = min(candidates, key=lambda item: (abs(capacity(item["id"]) - target),
                                              -capacity(item["id"])))
     return best["id"]

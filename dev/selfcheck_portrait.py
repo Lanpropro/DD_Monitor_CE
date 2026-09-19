@@ -1056,6 +1056,7 @@ def main() -> None:
     part_layout_mapping(app)
     part_toggle_arrow(app)
     part_login_button(app)
+    part_first_run_layout(app)
     print("\n全部通过")
 
 
@@ -1169,6 +1170,81 @@ def part_login_button(app) -> None:
         "老配置里的 auto 要折算成 DEFAULT_LAYOUT"
     legacy.close()
     settle(app, 0.4)
+
+def part_first_run_layout(app) -> None:
+    """第一次启动的默认布局 = 1 主画面 + 5 小环绕（用户 2026-09-19 指定）。"""
+    print("\n=== 21. 第一次启动（全新配置）= 1 主画面 + 5 小环绕 ===")
+    first = layouts.BY_ID[layouts.FIRST_LAYOUT]
+    print(f"  FIRST_LAYOUT={layouts.FIRST_LAYOUT} 名称={first['name']} "
+          f"容量={layouts.capacity(layouts.FIRST_LAYOUT)}")
+    assert layouts.FIRST_LAYOUT == "corner"
+    assert layouts.capacity("corner") == 6, "1 主画面 + 5 小环绕要能放 6 路"
+
+    fresh = MainWindow([], [], layout_id="", state={})
+    fresh.setGeometry(-9000, -9000, *LANDSCAPE)
+    fresh.show()
+    settle(app, 0.8)
+    main_tile = fresh.wall.tiles[0]
+    print(f"  全新配置启动：布局={fresh.wall.layout_id} 格子={len(fresh.wall.tiles)} "
+          f"主画面 {main_tile.width()}x{main_tile.height()}")
+    assert fresh.wall.layout_id == "corner", "第一次启动要用「主画面 + 5 小环绕」"
+    assert len(fresh.wall.tiles) == 6
+    assert main_tile.width() > main_tile.height(), "主画面是 2x2 那块，应该是横的"
+    assert fresh.state["ui"]["layout_landscape"] == "corner", "默认值也要写回配置里"
+    fresh.close()
+    settle(app, 0.4)
+
+    print("\n=== 21b. 存过的布局照旧（含老配置的单 layout 键）===")
+    for state, expected in (
+        ({"ui": {"layout": "main2"}}, "main2"),
+        ({"ui": {"layout_landscape": "3x2"}}, "3x2"),
+        ({"ui": {"layout_landscape": "two_rows"}}, "two_rows"),
+    ):
+        window = MainWindow([], [], layout_id="", state=dict(state))
+        window.setGeometry(-9000, -9000, *LANDSCAPE)
+        window.show()
+        settle(app, 0.8)
+        print(f"  {state['ui']} -> {window.wall.layout_id}")
+        assert window.wall.layout_id == expected, \
+            f"存过的布局不能被默认值顶掉：{window.wall.layout_id} != {expected}"
+        window.close()
+        settle(app, 0.3)
+
+    print("\n=== 21c. 同方向不再被「等容量的另一套」顶掉 ===")
+    for layout_id in ("corner", "two_rows", "3x2", "main2"):
+        mapped = layouts.counterpart(layout_id, False)
+        print(f"  counterpart({layout_id}, 横屏)={mapped}")
+        assert mapped == layout_id, f"{layout_id} 自己方向就对，不该被换成 {mapped}"
+    print(f"  counterpart(corner, 竖屏)={layouts.counterpart('corner', True)}")
+    assert layouts.counterpart("corner", True) == layouts.PORTRAIT_AUTO
+    assert layouts.counterpart("main2", True) == "portrait_main2", "横竖对映照旧"
+
+    print("\n=== 21d. 启动就是竖屏时，用竖屏存过的那套 ===")
+    tall = MainWindow([], [], layout_id="",
+                      state={"ui": {"layout_landscape": "main2",
+                                    "layout_portrait": "portrait_main4"}})
+    tall.setGeometry(-9000, -9000, *PORTRAIT)
+    tall.show()
+    tall.orientation = ""            # 假装刚启动，让 _apply_orientation 走「第一次」那条路
+    tall._apply_orientation()        # noqa: SLF001
+    settle(app, 0.6)
+    print(f"  竖屏启动：布局={tall.wall.layout_id}（期望 portrait_main4）")
+    assert tall.wall.layout_id == "portrait_main4", "竖屏存过的布局要照用"
+    tall.close()
+    settle(app, 0.4)
+
+    print("  全新配置的竖屏启动用竖屏默认：")
+    tall_fresh = MainWindow([], [], layout_id="", state={})
+    tall_fresh.setGeometry(-9000, -9000, *PORTRAIT)
+    tall_fresh.show()
+    tall_fresh.orientation = ""      # noqa: SLF001
+    tall_fresh._apply_orientation()  # noqa: SLF001
+    settle(app, 0.6)
+    print(f"    布局={tall_fresh.wall.layout_id}（期望 {layouts.PORTRAIT_AUTO}）")
+    assert tall_fresh.wall.layout_id == layouts.PORTRAIT_AUTO
+    tall_fresh.close()
+    settle(app, 0.4)
+
 
 if __name__ == "__main__":
     main()

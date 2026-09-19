@@ -111,6 +111,13 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         self.settings.update(self.state.get("settings") or {})
 
+        # 布局按方向分别记；老配置只有一个 layout 键，当作横屏的。
+        # 这一步必须在建画面墙**之前**做：第一次摆就要按存过的那套布局来，
+        # 否则老配置会被当成「没存过布局」而退回默认。
+        ui = self.state.setdefault("ui", {})
+        if "layout" in ui and "layout_landscape" not in ui:
+            ui["layout_landscape"] = ui.pop("layout")
+
         # 侧栏和画面墙总共只有一份，方向切换时**重新摆放**它们。
         # 注意：不要「构建期就造好两套排布」——Qt 里 addWidget 会把控件从旧布局
         # 里移走，两套都挂同一个控件的结果是它只留在最后那一套里。
@@ -130,7 +137,12 @@ class MainWindow(QMainWindow):
         self.empty_hint.setAlignment(Qt.AlignCenter)
         # 没有显式墙面房间时，墙面应从空位开始；关注列表不等于已上墙房间。
         # 否则布局变大时，原本隐藏的关注会被误显示成新格子的主播。
-        self.wall = WallGrid(wall_rooms if wall_rooms is not None else [], layout_id)
+        # 没显式指定布局（正式启动就是这样）时，先按配置里存的那套摆；
+        # 新配置也就是第一次启动，用 FIRST_LAYOUT（1 主画面 + 5 小环绕）。
+        self.wall = WallGrid(
+            wall_rooms if wall_rooms is not None else [],
+            layout_id if layout_id and layout_id != "auto"
+            else self._saved_layout("landscape"))
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()
@@ -238,12 +250,11 @@ class MainWindow(QMainWindow):
         self.sidebar.apply_pins(self.state.get("pinned") or [])
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
-        # 布局按方向分别记：老配置只有一个 layout，当作横屏的
+        # 布局按方向分别记（老配置的 layout 键在 __init__ 里已经并到横屏那格）；
+        # 第一次启动（配置里还没有这一项）＝ 第一次启动的默认布局
         ui = self.state.setdefault("ui", {})
-        if "layout" in ui and "layout_landscape" not in ui:
-            ui["layout_landscape"] = ui.pop("layout")
-        ui.setdefault("layout_landscape", layouts.DEFAULT_LAYOUT)
-        ui.setdefault("layout_portrait", layouts.DEFAULT_LAYOUT)
+        ui.setdefault("layout_landscape", layouts.FIRST_LAYOUT)
+        ui.setdefault("layout_portrait", layouts.PORTRAIT_AUTO)
 
     # ---- 竖屏 / 横屏 ----
     def _build_arrangement(self, orientation: str) -> None:
@@ -281,6 +292,11 @@ class MainWindow(QMainWindow):
     def _saved_layout(self, orientation: str) -> str:
         ui = self.state.get("ui") or {}
         saved = str(ui.get(f"layout_{orientation}") or "")
+        if not saved:
+            # 配置里还没有这一项 = 第一次启动（或从很老的配置升上来）：
+            # 用第一次启动的默认布局，别退成兜底的九分
+            return (layouts.FIRST_LAYOUT if orientation == "landscape"
+                    else layouts.PORTRAIT_AUTO)
         # 老配置里的 "auto"（以及任何已经删掉的布局 id）折算成兜底布局：
         # 「自动」已经按用户要求从菜单里去掉了
         if saved not in layouts.BY_ID:
@@ -302,6 +318,9 @@ class MainWindow(QMainWindow):
     def _apply_orientation(self) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         orientation = "portrait" if self.is_portrait() else "landscape"
+        # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
+        # 否则 first 永远是 False，第一次也会走「对映」那条路。
+        first = not self.orientation
         changed = orientation != self.orientation
         if changed:
             self._build_arrangement(orientation)
@@ -318,6 +337,13 @@ class MainWindow(QMainWindow):
         if pending and self._layout_fits(pending, portrait):
             layout_id = pending
             self._pending_layout = ""
+        elif first:
+            # 启动：配置里存过哪套就用哪套（第一次启动就是 FIRST_LAYOUT /
+            # PORTRAIT_AUTO）；只有存的那套跟当前方向不匹配（老配置、
+            # 或者上次是在另一个方向下用的）才按「对映」折算一套出来。
+            layout_id = saved if self._layout_fits(saved, portrait) else (
+                layouts.counterpart(self.wall.layout_id, portrait)
+                or (layouts.PORTRAIT_AUTO if portrait else layouts.FIRST_LAYOUT))
         else:
             # **先按「对映」走**：换方向时跟着当前这套布局找最相似的那套
             # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
