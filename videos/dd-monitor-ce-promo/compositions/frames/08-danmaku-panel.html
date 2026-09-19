@@ -1,0 +1,309 @@
+<template>
+  <style>
+    /* ------------------------------------------------------------------
+       08-danmaku-panel — field-light · 粉丝牌 表情 屏蔽词 / 字体字号可调
+
+       Every software pixel inside the window is the real screen recording
+       assets/rec-danmaku-panel.mp4. Nothing about the app is redrawn in DOM:
+       no fake cursor, no fake danmaku, no fake emoji.
+
+       The two approved clips are hoisted to the host root by assemble-index
+       and get this exact host geometry:
+         wide  (0.00–0.90s): x269 y634 w1382 h777  → app shown from its top,
+                             the framing the confirmed sketch approved
+         cell  (0.90–3.50s): x269 y634 w1382 h446  → the camera drops onto the
+                             danmaku cell: 弹幕 chips + 弹幕面板 + the
+                             粉丝牌徽章 rows and the input's 表情 picker
+       Both play the same source back to back (media-start .80 → 1.70), so the
+       cut at 0.90s changes the framing only — the footage keeps running.
+       ------------------------------------------------------------------ */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 600;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    /* the two fallbacks actually named in the stack, declared so no family is
+       referenced without a face (the render machine only has Windows system fonts) */
+    @font-face {
+      font-family: "Microsoft YaHei";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei"), local("msyh");
+    }
+    @font-face {
+      font-family: "Segoe UI";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Segoe UI"), local("segoeui");
+    }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ——— the flat near-white field: one clip layer, no gradient, no texture ——— */
+    .ddf08-field {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #f1f2f5;
+    }
+
+    /* ——— the window: centred, 14cqw either side, running off the bottom edge ——— */
+    .ddf08-window {
+      position: absolute;
+      left: 14cqw;
+      right: 14cqw;
+      top: 33cqw;
+      bottom: -8cqw;
+      border-radius: 10px;
+      background: #000;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
+      overflow: hidden;
+      will-change: opacity;
+    }
+    /* the approved clips carry their host geometry inline after hoisting */
+    .ddf08-plate {
+      position: absolute;
+    }
+
+    /* ——— centred title block, pad-top position ——— */
+    .ddf08-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 6.5cqw;
+      padding: 0 8cqw;
+      text-align: center;
+      transform-origin: 50% 46%;
+      will-change: transform, opacity, filter;
+    }
+    .ddf08-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      word-spacing: 0.22em;
+      color: #101114;
+    }
+    /* kwi = entrance wrapper (y/opacity); kw = the word itself (glow scale) —
+       two elements so the entrance transform and the glow transform never fight */
+    .ddf08-kwi {
+      display: inline-block;
+      will-change: transform, opacity;
+    }
+    .ddf08-kw {
+      display: inline-block;
+      transform-origin: 50% 50%;
+      will-change: transform, text-shadow;
+    }
+    .ddf08-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      color: rgba(16, 17, 20, 0.62);
+      will-change: transform, opacity;
+    }
+  </style>
+
+  <div
+    id="root"
+    data-composition-id="08-danmaku-panel"
+    data-start="0"
+    data-duration="3.5"
+    data-width="1920"
+    data-height="1080"
+  >
+    <!-- scene field -->
+    <div class="clip ddf08-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- the window: frame + shadow only; the real recording rides on top of it -->
+    <div
+      class="clip ddf08-window"
+      data-start="0"
+      data-duration="3.5"
+      data-track-index="2"
+      data-layout-allow-overflow="true"
+    >
+      <video
+        id="ddf08-plate-wide"
+        class="ddf08-plate"
+        data-frame-video="approved"
+        data-frame-video-x="269"
+        data-frame-video-y="634"
+        data-frame-video-width="1382"
+        data-frame-video-height="777"
+        data-frame-video-fit="cover"
+        data-start="0"
+        data-duration="0.9"
+        data-media-start="0.80"
+        data-track-index="2"
+        src="assets/rec-danmaku-panel.mp4"
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+      <video
+        id="ddf08-plate-cell"
+        class="ddf08-plate"
+        data-frame-video="approved"
+        data-frame-video-x="269"
+        data-frame-video-y="634"
+        data-frame-video-width="1382"
+        data-frame-video-height="446"
+        data-frame-video-fit="cover"
+        data-start="0.9"
+        data-duration="2.6"
+        data-media-start="1.70"
+        data-track-index="3"
+        src="assets/rec-danmaku-panel.mp4"
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+    </div>
+
+    <!-- centred title block -->
+    <div class="clip ddf08-title" data-start="0" data-duration="3.5" data-track-index="3">
+      <h1 class="ddf08-head"><span class="ddf08-kwi"><span class="ddf08-kw" data-word="fans">粉丝牌</span></span> <span class="ddf08-kwi"><span class="ddf08-kw" data-word="emoji">表情</span></span> <span class="ddf08-kwi"><span class="ddf08-kw" data-word="filter">屏蔽词</span></span></h1>
+      <div class="ddf08-sub">字体字号可调</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+
+      /* Scene 1 (30.0–30.9s → 0.00–0.90): the near-white field is already up; the
+         window's frame + soft shadow settle in over the live recording, the centred
+         copy line lands item by item, and at 0.90 the camera drops onto the danmaku
+         cell (the hoisted clip swap does the move — no fake cursor, no DOM zoom). */
+      tl.fromTo(
+        ".ddf08-window",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.52, ease: "power3.out" },
+        0.08,
+      );
+      tl.fromTo(
+        ".ddf08-title",
+        { scale: 1.07, opacity: 0, filter: "blur(7px)" },
+        { scale: 1, opacity: 1, filter: "blur(0px)", duration: 0.68, ease: "power3.out" },
+        0.14,
+      );
+      gsap.utils.toArray(".ddf08-kwi").forEach(function (el, i) {
+        tl.fromTo(
+          el,
+          { yPercent: 34, opacity: 0 },
+          { yPercent: 0, opacity: 1, duration: 0.46, ease: "power3.out" },
+          0.28 + i * 0.06,
+        );
+      });
+
+      /* Scene 2 (30.9–32.3s → 0.90–2.40): the three named details are called out
+         one at a time — 粉丝牌 → 表情 → 屏蔽词 — one light keyword glow each, never
+         together, the other two perfectly still. asr-keyword-glow, karaoke style,
+         inverted for dark ink on a light field: the resting word sits at 45% ink,
+         the called word goes to full ink with a soft glyph-hugging halo + a 12%
+         swell. One linear driver for all three words, ease "none". */
+      var ATTACK = 0.16;
+      var RELEASE = 0.5;
+      var REST_LEVEL = 0.08;
+      var REST_INK = 0.45;
+      var MAX_BLUR = 26;
+      var GLOW_ALPHA = 0.3;
+      var MAX_SCALE = 0.12;
+      var NORM_START = 2.5;
+      var NORM_DUR = 0.52;
+      var DRIVER_END = 3.02;
+      var WINDOWS = {
+        fans: [0.98, 1.34],
+        emoji: [1.48, 1.84],
+        filter: [1.9, 2.44],
+      };
+
+      function envelope(t, start, end) {
+        if (t < start) return 0;
+        if (t < end) return Math.min((t - start) / ATTACK, 1);
+        var releaseEnd = end + RELEASE;
+        if (t < releaseEnd) return 1 - ((t - end) / RELEASE) * (1 - REST_LEVEL);
+        return REST_LEVEL;
+      }
+
+      var kws = gsap.utils.toArray(".ddf08-kw");
+      var driver = { t: 0 };
+      tl.to(
+        driver,
+        {
+          t: DRIVER_END,
+          duration: DRIVER_END,
+          ease: "none",
+          onUpdate: function () {
+            var n = Math.min(Math.max((driver.t - NORM_START) / NORM_DUR, 0), 1);
+            for (var i = 0; i < kws.length; i++) {
+              var el = kws[i];
+              var w = WINDOWS[el.getAttribute("data-word")];
+              var e = envelope(driver.t, w[0], w[1]);
+              var s = e * (1 - n);
+              var ink = REST_INK + (1 - REST_INK) * Math.max(e, n);
+              el.style.color = "rgba(16,17,20," + ink.toFixed(3) + ")";
+              el.style.textShadow =
+                s > 0.002
+                  ? "0 0 " +
+                    (MAX_BLUR * s).toFixed(2) +
+                    "px rgba(16,17,20," +
+                    (GLOW_ALPHA * s).toFixed(3) +
+                    ")"
+                  : "none";
+              el.style.transform = "scale(" + (1 + MAX_SCALE * s).toFixed(4) + ")";
+            }
+          },
+        },
+        0,
+      );
+
+      /* Scene 3 (32.3–33.5s → 2.40–3.50): the three highlights return to normal, the
+         subtitle lands, and the shot stops — no further push, no breathing. */
+      tl.fromTo(
+        ".ddf08-sub",
+        { y: 18, opacity: 0, letterSpacing: "0.34em" },
+        { y: 0, opacity: 1, letterSpacing: "0.16em", duration: 0.64, ease: "power3.out" },
+        2.6,
+      );
+
+      /* pin the composition length to the fixed 3.5s so the last entrance still has
+         ~0.25s of stillness before the root transition takes over */
+      tl.to({}, { duration: 0.48 }, 3.02);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["08-danmaku-panel"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>
