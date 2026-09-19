@@ -29,6 +29,7 @@ from .dialogs import (
     SHORTCUT_ACTIONS, AddRoomDialog, FollowImportDialog, SettingsDialog,
 )
 from .images import AvatarLoader
+from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
 from .widgets import Sidebar, Tile, WallGrid
@@ -381,6 +382,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self.shortcuts, self)
         if dialog.exec() != SettingsDialog.Accepted:
             return
+        hw_before = bool(self.settings.get("hw_decode", True))
         self.settings.update(dialog.settings())
         self.shortcuts = dialog.shortcuts()
         self.state["settings"] = dict(self.settings)
@@ -388,6 +390,14 @@ class MainWindow(QMainWindow):
         self._poll_timer.setInterval(self.poll_interval_ms())
         for player in self.players.values():
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
+        if bool(self.settings.get("hw_decode", True)) != hw_before:
+            # 硬解开关是 media 级选项：改完得让每一路重新取一次流才生效
+            print(f"[设置] 硬件解码改成 "
+                  f"{'开' if self.settings.get('hw_decode') else '关（软解）'}"
+                  f"，重新取流各路画面", file=sys.stderr, flush=True)
+            for tile in self.wall.tiles:
+                if tile.room.get("room_id") and tile.room.get("live"):
+                    self.start_tile(tile)
         config_module.save(self.current_state())
         self.apply_danmaku_settings()
         self.apply_preview_settings()
@@ -584,7 +594,8 @@ class MainWindow(QMainWindow):
         tile.stream_profile = profile
         tile.stream_headers = dict(headers or TilePlayer.PROFILE_HEADERS.get(
             profile, TilePlayer.PROFILE_HEADERS["web"]))
-        player.play(url, profile, tile.stream_headers)
+        player.play(url, profile, tile.stream_headers,
+                    options=self.media_options())
         self.plugins.emit(
             plugin_api.EVENT_STREAM_RESOLVED,
             source=plugin_api.StreamSource(
@@ -599,6 +610,17 @@ class MainWindow(QMainWindow):
             ),
             tile=tile,
         )
+
+    def media_options(self) -> tuple[str, ...]:
+        """按设置给每一路 media 的额外选项。
+
+        现在只有「硬件解码」：关掉时改用软解。VLC 在个别显卡驱动上硬解会卡住
+        甚至访问违例（用户那边的看门狗日志里就是 libvlc 调用卡了 6.5 秒 +
+        一次 access violation），关掉硬解是最省事的排查手段。
+        """
+        if self.settings.get("hw_decode", True):
+            return ()
+        return (player_module.HW_DECODE_OFF_OPTION,)
 
     def _on_resolve_failed(self, tile, reason: str) -> None:
         if self._closing:
@@ -1442,9 +1464,17 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     state = config_module.load()
+    # libvlc 放到后台线程去建：第一次运行要扫 200 多个 VLC 插件，用户机器上
+    # 这一步在主线程里卡了 4.5 秒（看门狗日志），界面就跟着冻住
+    TilePlayer.warm_up_vlc()
     sidebar, wall = config_module.build_rooms(state) if state else ([], [])
     print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
           + ("" if state else "（全新配置）"))
+    settings = dict(config_module.DEFAULT_SETTINGS)
+    settings.update(state.get("settings") or {})
+    print(f"[VLC] libvlc {TilePlayer.vlc_version()} 硬件解码="
+          f"{'开' if settings.get('hw_decode', True) else '关（软解）'}",
+          file=sys.stderr, flush=True)
 
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",

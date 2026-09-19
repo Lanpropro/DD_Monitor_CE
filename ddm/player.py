@@ -2,6 +2,7 @@
 import hashlib
 import os
 import tempfile
+import threading
 
 import vlc
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -14,19 +15,38 @@ REFERRER = "https://live.bilibili.com/"
 APP_UA = ("Mozilla/5.0 BiliDroid/6.25.0 (bbcallen@gmail.com) os/android model/MuMu "
           "mobi_app/android build/6250300 channel/bili innerVer/6250300 osVer/6.0.1 network/2")
 
+#: 硬件解码开关（设置里可关）：关掉时给每个 media 加这一条，改用软解。
+HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
+
 
 class PlayerPool:
     """整个程序共用一个 libvlc 实例（比每格一个实例省内存）。"""
 
     _instance: vlc.Instance | None = None
+    _lock = threading.Lock()
 
     @classmethod
     def instance(cls) -> vlc.Instance:
-        if cls._instance is None:
-            cls._instance = vlc.Instance("--no-video-title-show", "--quiet",
-                                         "--no-snapshot-preview", "--avcodec-hw=any")
-            _silence_libvlc(cls._instance)
-        return cls._instance
+        with cls._lock:                     # 预热线程和主线程可能同时进来
+            if cls._instance is None:
+                cls._instance = vlc.Instance(
+                    "--no-video-title-show", "--quiet",
+                    "--no-snapshot-preview", "--avcodec-hw=any")
+                _silence_libvlc(cls._instance)
+            return cls._instance
+
+    @classmethod
+    def warm_up_async(cls) -> threading.Thread:
+        """后台先把 libvlc 建出来，别等第一次播放才建。
+
+        用户机器上的看门狗日志显示 ``libvlc_new()`` 在主线程里卡了 4.5 秒
+        （第一次运行要扫 200 多个 VLC 插件，加上杀软扫刚解压的包），
+        那一下整个界面就冻住了。放到后台线程建，启动时就把这段时间错开。
+        """
+        thread = threading.Thread(target=cls.instance, name="ddm-vlc-warmup",
+                                  daemon=True)
+        thread.start()
+        return thread
 
 
 def _silence_libvlc(instance: vlc.Instance) -> None:
@@ -59,6 +79,21 @@ class TilePlayer(QObject):
         "app": {"User-Agent": APP_UA},
         "web": {"User-Agent": UA, "Referer": REFERRER},
     }
+
+    @staticmethod
+    def warm_up_vlc():
+        """启动时在后台把 libvlc 建好（见 PlayerPool.warm_up_async）。"""
+        return PlayerPool.warm_up_async()
+
+    @staticmethod
+    def vlc_version() -> str:
+        try:
+            version = vlc.libvlc_get_version()
+        except Exception:  # noqa: BLE001
+            return "?"
+        if isinstance(version, bytes):
+            return version.decode("utf-8", "replace")
+        return str(version)
 
     def __init__(self, video_widget, parent=None):
         super().__init__(parent)

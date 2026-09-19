@@ -355,6 +355,22 @@ def main() -> None:
     window.settings.update(changed)
     window.state["settings"] = dict(window.settings)
     assert window.poll_interval_ms() == 5 * 60_000
+    # 硬件解码开关：关掉时每一路的 media 要带 :avcodec-hw=none（用户那边的
+    # libvlc 调用卡 6.5 秒 + 访问违例，第一步就是让他们能一键换成软解）
+    from ddm.player import HW_DECODE_OFF_OPTION, PlayerPool
+    window.settings["hw_decode"] = True
+    print(f"  硬解开：media 选项={window.media_options()}")
+    assert window.media_options() == ()
+    window.settings["hw_decode"] = False
+    print(f"  硬解关：media 选项={window.media_options()}")
+    assert window.media_options() == (HW_DECODE_OFF_OPTION,), "关硬解要真的下发软解选项"
+    print("  （这条设置也要能从设置窗口里读到）")
+    assert "hw_decode" in defaults, "「硬件解码」要出现在常规页里"
+    window.settings["hw_decode"] = True
+    print(f"  libvlc 预热：同一个实例={PlayerPool.instance() is PlayerPool.instance()}"
+          f" 版本={TilePlayer.vlc_version()!r}")
+    assert PlayerPool.instance() is PlayerPool.instance(), "预热和正常取用必须是同一个实例"
+    assert TilePlayer.vlc_version() not in ("", "?"), "要能读出版本号，日志里好对齐"
     calls: list = []
     original = window.apply_quality_policy
     window.apply_quality_policy()
