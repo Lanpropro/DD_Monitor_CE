@@ -70,7 +70,7 @@ DD监控室CE 是一款基于 Python、PySide6 和 VLC 的 B 站多窗口直播�
 ### 方式一：下载 exe（推荐，免装 Python）
 
 1. 到 [Releases](https://github.com/Lanpropro/DD_Monitor_CE/releases) 下载
-   `DD监控室CE-v0.1-exe.zip`。
+   `DDMonitorCE-v0.1-exe.zip`。
 2. 解压到任意目录（比如 `D:\DD监控室CE`）。
 3. 双击解压出来的 **`DD监控室CE-v0.1-exe.exe`** 就能用。
 

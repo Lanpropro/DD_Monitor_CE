@@ -63,7 +63,7 @@
 
 ## 运行
 
-- **exe 便携版（推荐）**：下载 `DD监控室CE-v0.1-exe.zip`，**解压后直接双击里面的
+- **exe 便携版（推荐）**：下载 `DDMonitorCE-v0.1-exe.zip`，**解压后直接双击里面的
   `DD监控室CE-v0.1-exe.exe`** 就能用（不需要装 Python）。配置 / 缓存 / 日志都在解压出来的
   那个目录下（`utils\config.json`、`cache\`、`logs\`），删掉 `utils\config.json` 等于恢复出厂。
   里面的 `_internal\`（含 `libvlc.dll` 和 `plugins\`）是运行库，别删。
@@ -76,7 +76,7 @@
 - **重新打包**：`powershell -File dev\build_release.ps1`（默认出 exe 包、exe 的 zip、
   源码包、源码 zip，输出到仓库里的 `results\`；只要源码包加 `-SourceOnly`）。
   冻结用的 PySide6 6.9 放在 `work\deps`，脚本缺了会提示怎么装。
-- **发布页附件**：`DD监控室CE-v0.1-exe.zip` 有 241MB，进不了仓库（单文件上限 100MB），
+- **发布页附件**：`DDMonitorCE-v0.1-exe.zip` 有 241MB，进不了仓库（单文件上限 100MB），
   要放到 GitHub Release 的附件里：仓库 → Releases → Draft a new release → 选标签 `v0.1`
   → 把这个 zip 拖进附件区 → Publish。
 
