@@ -31,7 +31,13 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from . import config as config_module
+
+#: 插件目录要和 utils / cache / logs 一样落在**程序旁边**：源码运行时是仓库根，
+#: 打包成 exe 后是 exe 所在目录。这里用 config.REPO（它已经处理了 frozen），
+#: 不能用 __file__ —— 冻结后 __file__ 在 _internal 里面，插件目录会找错地方，
+#: 结果就是 exe 版永远是「[插件] 0 个插件」。
+REPO = config_module.REPO
 DEFAULT_PLUGINS_DIR = os.path.join(REPO, "plugins_user")
 
 # ---- 事件名（字符串常量，插件里直接用字面量也行） ----

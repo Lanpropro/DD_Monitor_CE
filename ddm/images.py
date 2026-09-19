@@ -7,8 +7,12 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QPixmap
 
 from . import bili
+from . import config as config_module
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: 缓存也要落在程序旁边（源码运行时是仓库根，打包后是 exe 目录）。
+#: 不能用 __file__：冻结后在 _internal 里面，头像会写进运行库目录，用户找不到、
+#: 升级时也会被一起删掉。
+REPO = config_module.REPO
 CACHE_DIR = os.path.join(REPO, "cache", "avatars")
 
 

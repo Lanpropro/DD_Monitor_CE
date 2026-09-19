@@ -245,6 +245,16 @@ def part_two(app) -> None:
 
 def part_three() -> None:
     print("\n=== 10. 示例插件：弹幕落盘 ===")
+    # 打包成 exe 之后 __file__ 在 _internal 里面：插件目录和图片缓存都必须跟着
+    # config.REPO（它认得 frozen）走，否则 exe 版永远是「[插件] 0 个插件」，
+    # 头像也会写进运行库目录里。
+    from ddm import config as config_module
+    from ddm import images as images_module
+    print(f"  插件目录={plugin_api.DEFAULT_PLUGINS_DIR}")
+    print(f"  图片缓存根目录={images_module.REPO}")
+    assert plugin_api.DEFAULT_PLUGINS_DIR == os.path.join(config_module.REPO, "plugins_user"), \
+        "插件目录要放在程序旁边（config.REPO），不能用 __file__ 推"
+    assert images_module.REPO == config_module.REPO, "图片缓存也要放在程序旁边"
     root = tempfile.mkdtemp(prefix="ddm_demo_")
     manager = plugin_api.PluginManager(
         plugins_dir=os.path.join(REPO, "plugins_user"), enabled=None)

@@ -141,6 +141,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         --icon (Join-Path $repo "favicon.ico") `
         --distpath $OutDir --workpath $build --specpath $build `
         --runtime-hook (Join-Path $repo "dev\pyi_rth_pyside6_paths.py") `
+        --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
     # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
