@@ -151,6 +151,18 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     robocopy (Join-Path $repo "plugins") (Join-Path $internal "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
     # 运行时侧栏会从 exe 同级 assets\logo.png 读取品牌图；favicon 也供 Qt 设置窗口图标。
     robocopy (Join-Path $repo "assets") (Join-Path $exeDir "assets") /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    # 用户插件目录：和源码便携包一样要带模板和示例 —— 少了它，exe 版启动是
+    # 「[插件] 0 个插件」，新用户拿到的包里连自带的弹幕记录/发弹幕插件都没有。
+    # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
+    New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
+    foreach ($item in Get-ChildItem (Join-Path $repo "plugins_user") -Force -ErrorAction SilentlyContinue) {
+        if ($item.Name -in @("_danmaku_log", "__pycache__")) { continue }
+        if ($item.PSIsContainer) {
+            robocopy $item.FullName (Join-Path $exeDir "plugins_user\$($item.Name)") /E /XD __pycache__ /NFL /NDL /NJH /NJS /NP | Out-Null
+        } else {
+            Copy-Item $item.FullName (Join-Path $exeDir "plugins_user") -Force
+        }
+    }
     foreach ($file in @("LICENSE", "NOTICE.md", "RELEASE-v$($version.TrimStart('v')).md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }
@@ -161,6 +173,7 @@ DD 监控室 $version（exe 便携版）
 
 双击 DD监控室-$version-exe.exe 启动。不需要装 Python。
 配置 / 缓存 / 日志都在这个目录下（utils\config.json、cache\、logs\），
+plugins_user\ 里是插件（自带的弹幕记录 / 发弹幕就在里面，自己写的插件也放这里），
 整个目录拷到别的 Windows 10/11 64 位机器就能用。
 _internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
 "@
