@@ -1604,6 +1604,7 @@ class MainWindow(QMainWindow):
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
+    t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
     try:                                    # 控制台可能是 GBK，避免房间名里的特殊字符导致崩溃
         sys.stdout.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
@@ -1619,10 +1620,12 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     state = config_module.load()
+    t_load = time.perf_counter()
     # libvlc 放到后台线程去建：第一次运行要扫 200 多个 VLC 插件，用户机器上
     # 这一步在主线程里卡了 4.5 秒（看门狗日志），界面就跟着冻住
     TilePlayer.warm_up_vlc()
     sidebar, wall = config_module.build_rooms(state) if state else ([], [])
+    t_rooms = time.perf_counter()
     print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
           + ("" if state else "（全新配置）"))
     settings = dict(config_module.DEFAULT_SETTINGS)
@@ -1634,6 +1637,7 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈
     watchdog.start(log_path)
     ticker = QTimer(window)
@@ -1642,6 +1646,12 @@ def main(argv: list[str] | None = None) -> int:
     ticker.start()
     window.resize(1600, 900)
     window.showMaximized()
+    t_show = time.perf_counter()
+    print(f"[启动] 配置加载 {(t_load - t0) * 1000:.0f} ms | "
+          f"房间占位 {(t_rooms - t_load) * 1000:.0f} ms | "
+          f"界面构建 {(t_window - t_rooms) * 1000:.0f} ms | "
+          f"窗口显示 {(t_show - t0) * 1000:.0f} ms",
+          file=sys.stderr, flush=True)
     code = app.exec()
     watchdog.stop()
     # 关窗时可能还有网络线程在收尾，Qt / VLC 的析构顺序会偶发崩在退出瞬间，
