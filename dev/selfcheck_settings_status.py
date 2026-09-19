@@ -534,6 +534,41 @@ def main() -> None:
         print(f"  鼠标不在画面上按 Alt+M：全静音={target.muted and other.muted}")
         assert target.muted is True and other.muted is True
 
+    print("\n=== 9b. 鼠标压在画面上时，也要认得出是哪一格 ===")
+    # 画面区是 VLC 的原生窗口，不是 Qt 控件：以前用 QApplication.widgetAt 找格子，
+    # 鼠标停在画面上时它给回主窗口，F / M / Alt+M 就全按不动（用户报「切换画布失效」）。
+    from PySide6.QtCore import QPoint as _QPoint
+    window.resize(1200, 700)
+    settle(app, 0.4)
+    for index, tile in enumerate(window.wall.tiles[:2]):
+        tile.set_room({"room_id": f"77{index}", "uname": f"格子{index}",
+                       "title": "", "live": True, "muted": True, "quality": 250})
+    settle(app, 0.4)
+
+    class FakeCursor:
+        point = _QPoint(0, 0)
+
+        @classmethod
+        def pos(cls):
+            return cls.point
+
+    with mock.patch.object(app_module, "QCursor", FakeCursor), \
+            mock.patch.object(QApplication, "widgetAt",
+                              side_effect=AssertionError("不许再靠 widgetAt 找格子")):
+        hits = []
+        for index, tile in enumerate(window.wall.tiles[:2]):
+            # 取画面区正中（不是信息条）：以前正是这个位置认不出来
+            local = _QPoint(tile.video.width() // 2, tile.video.height() // 2)
+            FakeCursor.point = tile.video.mapToGlobal(local)
+            found = window._tile_under_cursor()                 # noqa: SLF001
+            hits.append(found is tile)
+            print(f"  光标在格{index + 1}画面上：认出来={found is tile}"
+                  f" 房间={getattr(getattr(found, 'room', {}), 'get', lambda *_: '')('room_id')}")
+        assert all(hits), "鼠标压在画面上时必须认出对应格子"
+        FakeCursor.point = _QPoint(-5000, -5000)
+        print(f"  光标在窗口外：{window._tile_under_cursor()}（应该是 None）")   # noqa: SLF001
+        assert window._tile_under_cursor() is None                   # noqa: SLF001
+
     window.close()
     print("\n全部通过")
 

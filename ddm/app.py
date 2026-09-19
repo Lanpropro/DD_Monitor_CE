@@ -32,7 +32,7 @@ from .images import AvatarLoader
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
-from .widgets import Sidebar, Tile, WallGrid
+from .widgets import Sidebar, WallGrid
 
 MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
@@ -1506,11 +1506,20 @@ class MainWindow(QMainWindow):
 
     # ---- 快捷键 ----
     def _tile_under_cursor(self):
-        widget = QApplication.widgetAt(QCursor.pos())
-        while widget is not None:
-            if isinstance(widget, Tile):
-                return widget
-            widget = widget.parentWidget()
+        """鼠标现在压在哪一格的画面上（没有就 None）。
+
+        **不能用 QApplication.widgetAt**：格子的画面区是 VLC 的原生窗口，不是 Qt
+        控件；鼠标停在画面上时 widgetAt 拿不到那一格（顶多给回主窗口），
+        于是 F（放到主画面）/ M / Alt+M 全都按不动 —— 用户报的「切换画布完全失效」
+        就是这个。改成拿光标全局坐标和每个格子的矩形比，跟画面是不是原生窗口无关。
+        """
+        point = QCursor.pos()
+        tiles = self.wall.tiles if hasattr(self, "wall") else []
+        for tile in tiles:
+            if not tile.isVisible():
+                continue
+            if tile.rect().contains(tile.mapFromGlobal(point)):
+                return tile
         return None
 
     def keyPressEvent(self, event) -> None:
