@@ -481,13 +481,15 @@ class MainWindow(QMainWindow):
         self._avatar_loaders.clear()
 
     def _on_layout_changed(self, layout_id: str) -> None:
-        # 只换画面墙的摆放方式，**不动窗口方向**：窗口是什么形状由用户拖，
-        # 套用竖屏预设不会把窗口变竖，所以摆放必须跟着窗口走，否则画面会被压扁。
+        # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
+        # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
+        # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
         want_portrait = layouts.is_portrait_layout(layout_id)
         if want_portrait != (self.orientation == "portrait"):
-            print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的；"
-                  f"当前窗口是{'竖屏' if self.orientation == 'portrait' else '横屏'}，"
-                  f"想要那种排布请把窗口拖成竖的", file=sys.stderr, flush=True)
+            print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
+                  f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
+                  file=sys.stderr, flush=True)
+            self._reshape_window(want_portrait)
         self.wall.set_layout(layout_id)
         self.wall.relayout(force=True)
         self.sidebar.set_layout_name(self.wall.layout_id)
@@ -496,6 +498,42 @@ class MainWindow(QMainWindow):
         self.state.setdefault("ui", {})[key] = layout_id
         self.apply_quality_policy()
         self._refresh_meta()
+
+    def _reshape_window(self, portrait: bool) -> None:
+        """把主窗口改成竖屏/横屏的形状（宽高对调，并夹在当前屏幕里）。
+
+        窗口尺寸系统（Alt+Tab / 任务栏预览）拿的是**窗口本身**的形状：竖屏排布
+        塞在横屏窗口里，预览就是一张拉伸的横屏。所以选另一个方向的布局时顺手把
+        窗口也摆成那个方向；最大化状态下先还原，否则改不动尺寸。
+        """
+        if self.isMaximized():
+            self.showNormal()
+        screen = self.screen() or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen is not None else None
+        width, height = max(self.width(), 480), max(self.height(), 360)
+        if portrait:
+            new_height = max(height, width)                 # 高的那一维当高度
+            if area is not None:
+                new_height = min(new_height, area.height())  # 先夹进屏幕
+            new_width = max(360, int(new_height * 9 / 16))   # 再按 9:16 算宽度
+            if area is not None:
+                new_width = min(new_width, area.width())
+        else:
+            new_width = max(width, height)                  # 宽的那一维当宽度
+            if area is not None:
+                new_width = min(new_width, area.width())
+            new_height = max(360, int(new_width * 9 / 16))
+            if area is not None:
+                new_height = min(new_height, area.height())
+        # 别让窗口跑到屏幕外：贴进可用区域
+        left, top = self.x(), self.y()
+        if area is not None:
+            left = min(max(left, area.left()), max(area.left(), area.right() - new_width))
+            top = min(max(top, area.top()), max(area.top(), area.bottom() - new_height))
+            self.move(left, top)
+        self.resize(new_width, new_height)
+        print(f"[窗口] 改成 {'竖屏' if portrait else '横屏'} {new_width}x{new_height}",
+              file=sys.stderr, flush=True)
 
     def _on_pin_changed(self, pinned: list) -> None:
         self.state["pinned"] = list(pinned)

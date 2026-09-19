@@ -970,26 +970,30 @@ def part_strip_interaction(app) -> None:
         f"收起时账号按钮应该是个小圆点，不是长胶囊：{account.width()}x{account.height()}"
     assert not sidebar._bar_right.isVisible(), "收起时右侧那一块整块收掉"
 
-    print("\n=== 13. 切布局不动窗口方向（摆放跟着窗口形状走）===")
+    print("\n=== 13. 选另一个方向的预设：窗口也跟着变成那个方向 ===")
+    # 用户要求：切成竖屏之后，Alt+Tab / 任务栏里的窗口预览也得是竖的 ——
+    # 竖屏排布塞在横屏窗口里，那边看到的永远是一张拉伸的横屏。
     window.resize(1600, 900)
     settle(app, 0.8)
     window._on_layout_changed("portrait_main4")
-    settle(app, 0.6)
-    print(f"  横屏窗口里选竖屏预设：方向={window.orientation} side={sidebar.side} "
-          f"布局={window.wall.layout_id}")
-    assert window.orientation == "landscape", "套用预设不该把窗口方向改掉"
-    assert sidebar.side == "left", "窗口还是横屏，侧栏就该在左边"
-    # 竖屏预设套在横屏窗口上不好看，这是预期内的（提示用户去拖窗口），
-    # 但主画面仍然要按整宽 16:9 —— 摆放规则跟着窗口形状走
+    settle(app, 1.2)
+    print(f"  横屏窗口里选竖屏预设：窗口={window.width()}x{window.height()}"
+          f" 方向={window.orientation} side={sidebar.side} 布局={window.wall.layout_id}")
+    assert window.height() > window.width(), "选了竖屏预设，窗口本身也要变竖"
+    assert window.orientation == "portrait"
+    assert sidebar.side == "top", "窗口变竖之后侧栏要到上面去"
+    # 主画面按整宽 16:9 —— 摆放规则依旧跟着窗口形状走
     main = window.wall.tiles[0]
-    print(f"  横屏里的竖屏预设：主画面 {main.width()}x{main.height()} "
+    print(f"  竖屏窗口里的竖屏预设：主画面 {main.width()}x{main.height()} "
           f"比例 {ratio(main):.3f}")
-    assert abs(ratio(main) - 16 / 9) < 0.06, "竖屏摆放放在横屏窗口里主画面仍是 16:9"
+    assert abs(ratio(main) - 16 / 9) < 0.06, "竖屏摆放的主画面要保持 16:9"
     window._on_layout_changed("2x2")
-    settle(app, 0.6)
-    print(f"  改回横屏预设：方向={window.orientation} side={sidebar.side} "
-          f"布局={window.wall.layout_id}")
+    settle(app, 1.2)
+    print(f"  改回横屏预设：窗口={window.width()}x{window.height()}"
+          f" 方向={window.orientation} side={sidebar.side} 布局={window.wall.layout_id}")
     assert window.wall.layout_id == "2x2"
+    assert window.width() > window.height(), "选回横屏预设，窗口也要变回横的"
+    assert sidebar.side == "left"
     window.close()
     settle(app, 0.4)
 
@@ -1057,6 +1061,7 @@ def main() -> None:
     part_toggle_arrow(app)
     part_login_button(app)
     part_first_run_layout(app)
+    part_window_reshape(app)
     print("\n全部通过")
 
 
@@ -1243,6 +1248,45 @@ def part_first_run_layout(app) -> None:
     print(f"    布局={tall_fresh.wall.layout_id}（期望 {layouts.PORTRAIT_AUTO}）")
     assert tall_fresh.wall.layout_id == layouts.PORTRAIT_AUTO
     tall_fresh.close()
+    settle(app, 0.4)
+
+
+def part_window_reshape(app) -> None:
+    """选了另一个方向的布局，窗口本身也要变成那个形状（Alt+Tab 预览才会对）。"""
+    print("\n=== 22. 选另一个方向的布局：窗口跟着变成竖屏/横屏 ===")
+    window = MainWindow(rooms(3), rooms(3), layout_id="main3")
+    window.setGeometry(-9000, -9000, 1400, 800)
+    window.show()
+    settle(app, 1.0)
+    print(f"  起始：{window.width()}x{window.height()} 方向={window.orientation}")
+
+    window._on_layout_changed("portrait_main4")          # noqa: SLF001
+    settle(app, 1.2)
+    print(f"  选竖屏布局后：{window.width()}x{window.height()}"
+          f"（宽/高={window.width() / max(window.height(), 1):.2f}）"
+          f" 方向={window.orientation} 布局={window.wall.layout_id}")
+    assert window.height() > window.width(), "选了竖屏布局，窗口本身也要变成竖的"
+    assert window.orientation == "portrait"
+    assert layouts.is_portrait_layout(window.wall.layout_id)
+
+    window._on_layout_changed("3x2")                     # noqa: SLF001
+    settle(app, 1.2)
+    print(f"  再选横屏布局后：{window.width()}x{window.height()}"
+          f"（宽/高={window.width() / max(window.height(), 1):.2f}）"
+          f" 方向={window.orientation} 布局={window.wall.layout_id}")
+    assert window.width() > window.height(), "选回横屏布局，窗口也要跟着变回横的"
+    assert window.orientation == "landscape"
+
+    print("  窗口是最大化时也要能改（先还原再改尺寸）")
+    window.showMaximized()
+    settle(app, 0.8)
+    window._on_layout_changed("portrait_main2")          # noqa: SLF001
+    settle(app, 1.2)
+    print(f"    最大化状态选竖屏布局：最大化={window.isMaximized()}"
+          f" {window.width()}x{window.height()} 方向={window.orientation}")
+    assert not window.isMaximized(), "最大化时改不动尺寸，必须先还原"
+    assert window.height() > window.width()
+    window.close()
     settle(app, 0.4)
 
 
