@@ -25,6 +25,9 @@ plugins/
 # 的模板是要进版本库的，所以不能写成 plugins_user/_*/
 plugins_user/_danmaku_log/
 
+# 宣传片参考素材：别人的视频，只用来对风格，不进版本库
+Video_reference/
+
 # 编辑器
 .vscode/
 .idea/

@@ -1,0 +1,11 @@
+# HyperFrames 生成物 / 依赖：本地产物，不进版本库
+node_modules/
+.hyperframes/frame-packets/
+renders/
+snapshots/
+output/
+capture/BLOCKED.md
+
+# 录屏母版（4K 原始素材，体积以 GB 计）
+work/
+raw/
