@@ -1734,14 +1734,24 @@ class NavThumb(QFrame):
         self.face.setVisible(bool(self.face.pixmap()))
 
     # ---- 预览播放 ----
-    def play(self, url: str, profile: str = "web") -> None:
-        """在这个缩略图里放预览（静音、低画质）。"""
-        if self._compact_thumb():
-            return                         # 收起的关注栏固定显示主播头像
+    def _ensure_player(self) -> TilePlayer:
+        """预览播放器一个卡片只建一次，之后换台只 stop / play（和画面墙的格子一样）。
+
+        以前每次悬停都新建 TilePlayer、鼠标一移开就 release()：libvlc 的
+        media_player 建了又拆比 stop / play 重得多，而且建和拆都发生在主线程上，
+        卡死风险高得多 —— 用户报的「悬停预览时窗口卡死」就出在这一带。
+        """
         if self._player is None:
             self._player = TilePlayer(self.video, self)
             self._player.freeze_watch = False        # 缩略图不用卡死检测
             self._player.stateChanged.connect(self._on_player_state)
+        return self._player
+
+    def play(self, url: str, profile: str = "web") -> None:
+        """在这个缩略图里放预览（静音、低画质）。"""
+        if self._compact_thumb():
+            return                         # 收起的关注栏固定显示主播头像
+        player = self._ensure_player()
         self.video.setGeometry(self._preview_rect())
         self.hint.setGeometry(self._preview_rect())
         self.video.setVisible(True)
@@ -1750,15 +1760,14 @@ class NavThumb(QFrame):
         self._set_overlay_visible(not self._card_mode)
         self.face.setVisible(not self._card_mode)
         self.hint.setVisible(False)
-        self._player.set_muted(True)                 # 预览永远静音
-        self._player.set_volume(0)
-        self._player.play(url, profile)
+        player.set_muted(True)                       # 预览永远静音
+        player.set_volume(0)
+        player.play(url, profile)
 
     def stop(self) -> None:
-        """收掉预览，回到封面。"""
+        """收掉预览，回到封面（播放器留着复用，下回悬停直接 play）。"""
         if self._player is not None:
-            self._player.release()
-            self._player = None
+            self._player.stop()
         self.video.setVisible(False)
         self.hint.setVisible(False)
         self.video.setGeometry(self.rect())
@@ -1766,6 +1775,13 @@ class NavThumb(QFrame):
         self.cover.setVisible(self._card_mode and not self._compact_thumb())
         self.face.setVisible(bool(self.face.pixmap()))
         self._set_overlay_visible(True)
+
+    def release_player(self) -> None:
+        """真正放掉预览播放器：只在关窗时用，平时留着复用。"""
+        if self._player is None:
+            return
+        self._player.release()
+        self._player = None
 
     def _on_player_state(self, state: str) -> None:
         if state == "playing":

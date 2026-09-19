@@ -236,13 +236,14 @@ def main() -> None:
     assert not live_item.name_label.isVisible() and not live_item.sub.isVisible(), \
         "大卡片预览时不应把详细文字压在直播画面上"
 
-    print("\n=== 4. 鼠标离开：回到封面，播放器释放 ===")
+    print("\n=== 4. 鼠标离开：回到封面，播放器留着复用 ===")
     hover(live_item, False)
-    assert wait_for(lambda: not live_item.thumb.video.isVisible()
-                    and live_item.thumb._player is None), \
-        "离开后应该回到封面并释放播放器"
+    assert wait_for(lambda: not live_item.thumb.video.isVisible()), "离开后应该回到封面"
+    reused = live_item.thumb._player                       # noqa: SLF001
     print(f"  离开后：画面可见={live_item.thumb.video.isVisible()}"
-          f" 播放器={live_item.thumb._player}")           # noqa: SLF001
+          f" 播放器还在={reused is not None} 状态={getattr(reused, 'state', None)}")
+    assert reused is player, "预览播放器要复用同一个实例，别每次悬停都新建/销毁"
+    assert reused.state == "idle", "离开后播放器要停住（不接受还有画面在跑）"
 
     print("\n=== 5. 移到另一个主播：旧缩略图立刻回封面 ===")
     other = item_of(window, "1002")
@@ -254,7 +255,10 @@ def main() -> None:
         "换条目要立刻收掉旧画面"
     assert wait_for(lambda: other.thumb.video.isVisible()), "新条目停够 1 秒要开始播"
     print(f"  旧条目画面={live_item.thumb.video.isVisible()}"
-          f" 新条目画面={other.thumb.video.isVisible()}")
+          f" 新条目画面={other.thumb.video.isVisible()}"
+          f" 两个格子各一个播放器={live_item.thumb._player is not other.thumb._player}")
+    assert live_item.thumb._player is not other.thumb._player, \
+        "每个卡片的预览播放器是独立实例"
     hover(other, False)
     settle(app, 0.4)
 
@@ -354,10 +358,8 @@ def main() -> None:
     # 作废之后迟到的结果不能再往卡片上播（编号已经翻页了）
     slow_resolver.resolved.emit("1001", "https://example.invalid/live.flv", 250, "web", [])
     settle(app, 0.4)
-    print(f"  迟到结果：画面={live_item.thumb.video.isVisible()}"
-          f" 播放器={live_item.thumb._player}")           # noqa: SLF001
-    assert live_item.thumb._player is None, "作废的取流结果不该再起播放器"
-    assert not live_item.thumb.video.isVisible()
+    print(f"  迟到结果：画面={live_item.thumb.video.isVisible()}")
+    assert not live_item.thumb.video.isVisible(), "作废的取流结果不该让卡片播起来"
     assert wait_for(lambda: thread_done(slow_resolver), timeout=6.0)
     FakeResolver.slow = False
 
@@ -368,13 +370,17 @@ def main() -> None:
         print(f"  ddm/{name}: terminate() 调用={text.count('.terminate(')}")
         assert ".terminate(" not in text, f"ddm/{name} 里不该再强杀取流线程"
 
-    print("\n=== 12. 关窗会收掉预览 ===")
+    print("\n=== 12. 关窗会收掉预览，并放掉预览播放器 ===")
     hover(live_item, True)
     assert wait_for(lambda: live_item.thumb.video.isVisible())
+    reused = live_item.thumb._player                       # noqa: SLF001
     window.close()
     settle(app, 0.5)
-    print(f"  关窗之后：画面可见={live_item.thumb.video.isVisible()}")
+    print(f"  关窗之后：画面可见={live_item.thumb.video.isVisible()}"
+          f" 播放器={live_item.thumb._player}")           # noqa: SLF001
     assert not live_item.thumb.video.isVisible()
+    assert reused is not None, "关窗前应该还是复用着那个播放器"
+    assert live_item.thumb._player is None, "关窗要把预览播放器真正放掉"
 
     print("\n全部通过")
 

@@ -139,6 +139,12 @@ class HoverPreview(QObject):
         self._grace.stop()
         self._room = {}
         self._stop_now()
+        # 预览播放器平时留着复用（只有关窗 / 关掉开关时才真放掉）
+        for item in self.sidebar.items():
+            try:
+                item.thumb.release_player()
+            except RuntimeError:                    # 条目已经被删掉
+                pass
 
     # ---- 小工具 ----
     def _room_id(self) -> str:
