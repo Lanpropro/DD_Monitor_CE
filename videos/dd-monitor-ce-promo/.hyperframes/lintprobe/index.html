@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  </head>
+  <body>
+    <div id="root" data-composition-id="lintprobe" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+      <div class="clip" data-composition-src="compositions/frames/03-layout-1to4.html" data-start="0" data-duration="3.5" data-track-index="0"></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["lintprobe"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

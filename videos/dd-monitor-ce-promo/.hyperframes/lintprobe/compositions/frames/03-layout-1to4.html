@@ -1,0 +1,290 @@
+<template>
+  <style>
+    /* ------------------------------------------------------------------
+       03-layout-1to4 — field-blue · 想怎么看，就怎么排 / 平分布局
+       Every software pixel below is the real screen recording
+       assets/rec-layout-1to4.mp4 — nothing about the app is redrawn in DOM.
+       ------------------------------------------------------------------ */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ——— the flat blue field: full-bleed clip layer, no gradient, no texture ——— */
+    .ddf03-field {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #00a1d6;
+      transform-origin: 50% 55%;
+      will-change: transform, opacity;
+    }
+
+    /* ——— centred title block, pad-top position ——— */
+    .ddf03-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 7cqw;
+      text-align: center;
+    }
+    .ddf03-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      color: #0d1114;
+    }
+    .ddf03-w {
+      display: inline-block;
+      white-space: pre;
+      will-change: transform, opacity;
+    }
+    .ddf03-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      color: rgba(13, 17, 20, 0.72);
+      will-change: transform, opacity;
+    }
+
+    /* ——— the window: real recording, right 5cqw / width 52cqw / top 31cqw / bottom -7cqw ——— */
+    .ddf03-window {
+      position: absolute;
+      right: 5cqw;
+      width: 52cqw;
+      top: 31cqw;
+      bottom: -7cqw;
+      border-radius: 10px;
+      background: #000;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
+      overflow: hidden;
+      transform-origin: 100% 100%;
+      will-change: transform, opacity;
+    }
+    .ddf03-plate {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #000;
+    }
+    /* thin layout wireframe that closes over the live recording — the app's own
+       四分 split, timed to the chip changing 1 → 4. No glow, no border highlight. */
+    .ddf03-split {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .ddf03-div {
+      position: absolute;
+      background: rgba(241, 242, 245, 0.5);
+    }
+    .ddf03-div-v {
+      left: calc(50% - 1.5px);
+      top: 0;
+      width: 3px;
+      height: 100%;
+      transform-origin: 50% 0%;
+      transform: scaleY(0);
+    }
+    .ddf03-div-h {
+      top: calc(50% - 1.5px);
+      left: 0;
+      height: 3px;
+      width: 100%;
+      transform-origin: 0% 50%;
+      transform: scaleX(0);
+    }
+
+    /* ——— hero prop: the layout-diagram chip ——— */
+    .ddf03-chip {
+      position: absolute;
+      left: 5cqw;
+      top: 36cqw;
+      width: 15cqw;
+      height: 15cqw;
+      border-radius: 8px;
+      background: rgba(241, 242, 245, 0.10);
+      box-shadow: inset 0 0 0 1.5px rgba(13, 17, 20, 0.22);
+      transform-origin: 6% 6%;
+      will-change: transform, opacity;
+    }
+    .ddf03-cell {
+      position: absolute;
+      left: 6%;
+      top: 6%;
+      width: 42%;
+      height: 42%;
+      border-radius: 2px;
+      background: rgba(13, 17, 20, 0.55);
+      transform-origin: 0% 0%;
+      will-change: transform, opacity;
+    }
+    .ddf03-cell-2 {
+      left: 52%;
+    }
+    .ddf03-cell-3 {
+      top: 52%;
+    }
+    .ddf03-cell-4 {
+      left: 52%;
+      top: 52%;
+    }
+  </style>
+
+  <div id="root" data-composition-id="03-layout-1to4" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+    <!-- scene field -->
+    <div class="clip ddf03-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- hero prop: layout chip, single cell → four -->
+    <div class="clip ddf03-chip" data-start="0" data-duration="3.5" data-track-index="1">
+      <div class="ddf03-cell ddf03-cell-1"></div>
+      <div class="ddf03-cell ddf03-cell-2"></div>
+      <div class="ddf03-cell ddf03-cell-3"></div>
+      <div class="ddf03-cell ddf03-cell-4"></div>
+    </div>
+
+    <!-- the window: real screen recording, outer frame fixed all frame long -->
+    <div class="clip ddf03-window" data-start="0" data-duration="3.5" data-track-index="2">
+      <video
+        class="ddf03-plate"
+        data-frame-video="approved"
+        data-frame-video-x="825"
+        data-frame-video-y="335"
+        data-frame-video-width="998"
+        data-frame-video-height="821"
+        data-frame-video-fit="cover"
+        data-start="0"
+        data-duration="3.5"
+        data-track-index="2"
+        src="assets/rec-layout-1to4.mp4"
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+      <div class="ddf03-split">
+        <div class="ddf03-div ddf03-div-v"></div>
+        <div class="ddf03-div ddf03-div-h"></div>
+      </div>
+    </div>
+
+    <!-- centred title block -->
+    <div class="clip ddf03-title" data-start="0" data-duration="3.5" data-track-index="3">
+      <h1 class="ddf03-head"><span class="ddf03-w">想</span><span class="ddf03-w">怎</span><span class="ddf03-w">么</span><span class="ddf03-w">看</span><span class="ddf03-w">，</span><span class="ddf03-w">就</span><span class="ddf03-w">怎</span><span class="ddf03-w">么</span><span class="ddf03-w">排</span></h1>
+      <div class="ddf03-sub">平分布局</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+
+      /* Scene 1 (10.5–11.3s → 0.00–0.80): zoom-through — the flat blue field
+         drives in past the lens; the chip lands first, alone in the lower left. */
+      tl.fromTo(
+        ".ddf03-field",
+        { scale: 1.16, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" },
+        0,
+      );
+      tl.fromTo(
+        ".ddf03-chip",
+        { scale: 0, opacity: 0 },
+        { scale: 1, opacity: 1, duration: 0.56, ease: "power3.out" },
+        0.1,
+      );
+
+      /* Scene 2 (11.3–12.6s → 0.80–2.10): the headline lands word by word, the
+         window slides in from the lower right and settles, and the chip is lit —
+         its diagram recut 1 → 4. */
+      gsap.utils.toArray(".ddf03-w").forEach(function (el, i) {
+        tl.fromTo(
+          el,
+          { yPercent: 32, opacity: 0 },
+          { yPercent: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
+          0.8 + i * 0.035,
+        );
+      });
+      tl.fromTo(
+        ".ddf03-window",
+        { xPercent: 22, yPercent: 26, scale: 0.94, opacity: 0 },
+        { xPercent: 0, yPercent: 0, scale: 1, opacity: 1, duration: 0.78, ease: "power3.out" },
+        1.05,
+      );
+      /* chip: cell 1 steps back into the top-left slot, the other three fill in */
+      tl.fromTo(
+        ".ddf03-cell-1",
+        { scaleX: 2.3333, scaleY: 2.3333 },
+        { scaleX: 1, scaleY: 1, duration: 0.34, ease: "power3.out" },
+        1.22,
+      );
+      [".ddf03-cell-2", ".ddf03-cell-3", ".ddf03-cell-4"].forEach(function (sel, i) {
+        tl.fromTo(
+          sel,
+          { scale: 0, opacity: 0 },
+          { scale: 1, opacity: 1, duration: 0.3, ease: "power3.out" },
+          1.62 + i * 0.07,
+        );
+      });
+
+      /* Scene 3 (12.6–14.0s → 2.10–3.50): the window really splits — first cut,
+         then the second cut that completes the 四分; the subtitle lands last and
+         everything holds still to the end. */
+      tl.fromTo(
+        ".ddf03-div-v",
+        { scaleY: 0 },
+        { scaleY: 1, duration: 0.42, ease: "power3.out" },
+        2.12,
+      );
+      tl.fromTo(
+        ".ddf03-div-h",
+        { scaleX: 0 },
+        { scaleX: 1, duration: 0.42, ease: "power3.out" },
+        2.34,
+      );
+      tl.fromTo(
+        ".ddf03-sub",
+        { y: 16, opacity: 0, letterSpacing: "0.34em" },
+        { y: 0, opacity: 1, letterSpacing: "0.16em", duration: 0.62, ease: "power3.out" },
+        2.62,
+      );
+
+      /* pin the composition length to the fixed 3.5s so the last entrance still
+         has ~0.4s of stillness before the root transition takes over */
+      tl.to({}, { duration: 0.26 }, 3.24);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["03-layout-1to4"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>
