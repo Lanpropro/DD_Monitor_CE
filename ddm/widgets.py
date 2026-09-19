@@ -2071,15 +2071,6 @@ class NavItem(QFrame):
         """水滴砸中的那一刻：徽标变成粉色的「直播中」+ 直播中该有的提示。"""
         self.set_live(True)
 
-    def play_live_alert_demo(self) -> None:
-        """手动演示开播提醒（右键菜单里那个「播放开播提醒（测试）」）。
-
-        不看开播状态，先把徽标压回「未开播」再播一遍完整动效，
-        所以随时都能检查水滴 + 气泡长什么样；下一个轮询周期会把真实状态刷回来。
-        """
-        self.set_live(False)
-        self.play_live_alert()
-
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
         self._hover_leave_timer.stop()
@@ -2118,25 +2109,27 @@ class NavItem(QFrame):
         self.drop_host.finish_drag(self._nav_room_id(event),
                                    self.mapToGlobal(event.position().toPoint()))
 
+    def _context_menu(self) -> QMenu:
+        """卡片右键菜单。
+
+        内容单独一个方法，好处是自检可以直接看有哪些项、并触发某一项验证接线，
+        不用真的把菜单弹出来（弹出来会挡住自检、也没法断言）。
+        """
+        menu = QMenu(self)
+        menu.addAction("取消置顶" if self._pinned else "置顶").triggered.connect(
+            lambda _checked=False: self.pinToggled.emit(self.room))
+        menu.addSeparator()
+        menu.addAction("加入画面墙").triggered.connect(
+            lambda _checked=False: self.addRequested.emit(self.room))
+        menu.addSeparator()
+        menu.addAction("移除关注").triggered.connect(
+            lambda _checked=False: self.removeRequested.emit(self.room))
+        return menu
+
     def contextMenuEvent(self, event) -> None:
         if self.select_mode:
             return
-        menu = QMenu(self)
-        pin_action = menu.addAction("取消置顶" if self._pinned else "置顶")
-        menu.addSeparator()
-        demo_action = menu.addAction("播放开播提醒（测试）")
-        add_action = menu.addAction("加入画面墙")
-        menu.addSeparator()
-        remove_action = menu.addAction("移除关注")
-        action = menu.exec(event.globalPos())
-        if action == pin_action:
-            self.pinToggled.emit(self.room)
-        elif action == demo_action:
-            self.play_live_alert_demo()
-        elif action == add_action:
-            self.addRequested.emit(self.room)
-        elif action == remove_action:
-            self.removeRequested.emit(self.room)
+        self._context_menu().exec(event.globalPos())
 
 
 class RoomListBox(QWidget):

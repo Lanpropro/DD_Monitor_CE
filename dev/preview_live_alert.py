@@ -111,7 +111,8 @@ def main() -> None:
         pixmap = QPixmap(320, 180)
         pixmap.fill(QColor(["#3d5a80", "#5f4b8b", "#2d6a4f"][index % 3]))
         entry.thumb.set_cover(pixmap)
-    item.play_live_alert_demo()
+    item.set_live(False)                      # 手动走一遍完整动效（原右键测试项已删）
+    item.play_live_alert()
     settle(app, 0.1)
     alert = item._alert                       # noqa: SLF001
     assert alert is not None, "动效没起来"

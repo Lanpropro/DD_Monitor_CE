@@ -222,17 +222,35 @@ def main() -> None:
     assert new_item.badge.text() == "直播中", "但状态还是要正常更新"
     window.settings["live_alert"] = True
 
-    print("\n=== 6. 右键「播放开播提醒（测试）」随时能看 ===")
+    print("\n=== 6. 右键菜单里已经没有「播放开播提醒（测试）」 ===")
     from ddm.widgets import LiveAlert as _LiveAlert
     target = items["2002"]                      # 一直在播的那个
     assert target._alert is None or not target._alert.isVisible()   # noqa: SLF001
-    target.play_live_alert_demo()                # 右键菜单里点的就是这个
+    menu = target._context_menu()                # noqa: SLF001
+    labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+    print(f"  卡片右键菜单={labels}")
+    assert labels == ["置顶", "加入画面墙", "移除关注"], "模拟开播提醒那一项要撤掉"
+    assert not any("开播提醒" in text for text in labels), \
+        "「播放开播提醒（测试）」已经按要求删掉"
+    assert not hasattr(target, "play_live_alert_demo"), "演示用的方法也要一起删掉"
+    # 剩下的项要照旧接上：点「加入画面墙」应该发出 addRequested
+    requested: list = []
+    target.addRequested.connect(lambda room: requested.append(room))
+    next(action for action in menu.actions()
+         if action.text() == "加入画面墙").trigger()
+    print(f"  点「加入画面墙」→ 发出 addRequested={bool(requested)}")
+    assert requested and str(requested[0].get("room_id")) == "2002"
+    menu.deleteLater()
+
+    # 动效本身还在：真开播时照旧会播（这里手动走一遍，覆盖水滴 + 砸中 + 收尾）
+    target.set_live(False)
+    target.play_live_alert()
     assert wait_for(lambda: target._alert is not None and target._alert.isVisible()), \
-        "演示应该能随时触发"
+        "开播时该播的动效不能因为删了测试项就没了"
     demo_alert = target._alert                   # noqa: SLF001
-    print(f"  触发现场：徽标={target.badge.text()!r}（动效开始时会先压回未开播）"
+    print(f"  真开播触发现场：徽标={target.badge.text()!r}（动效开始时会先压回未开播）"
           f" 动效在跑={demo_alert is not None and demo_alert._timer.isActive()}")
-    assert demo_alert is not None and demo_alert.isVisible(), "演示应该能随时触发"
+    assert demo_alert is not None and demo_alert.isVisible(), "开播时该播的动效不能没了"
     freeze(demo_alert, _LiveAlert.DROP_MS - 100)
     settle(app, 0.05)
     print(f"  下落中徽标={target.badge.text()!r}（应该是未开播）")
