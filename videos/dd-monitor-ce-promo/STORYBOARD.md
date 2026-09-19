@@ -50,7 +50,7 @@ music: driving electronic, punchy four-on-the-floor kick, syncopated bass, 129 B
 - poster: 5s
 - transition_in: cut
 - field: field-black
-- status: outline
+- status: built
 - src: compositions/frames/01-wall-ignite.html
 - type: hook
 - persuasion: Show-don't-tell proof
@@ -64,12 +64,12 @@ keyMessage: 这场面是一个窗口，不是十六个。
 ## Frame 02 — 标题
 
 - scene: 墙面压暗退到背景。标题块居中打出：重磅主标题在上、副标题在下，块内做 2–3 次极快的字替（参考片 6.75–9.6s 那次标题爆发）。落定后停住。
-- onscreen: "十六路直播，不必开十六个窗口" / "DD监控室CE 专为 B 站直播设计的多窗口监控工具"
+- onscreen: "十六路直播，不必开十六个窗口" / "DD监控室CE 专为 DD 设计的多窗口监控工具"
 - duration: 4.5s
 - poster: 4s
 - transition_in: blur-crossfade
 - field: field-dark
-- status: outline
+- status: built
 - src: compositions/frames/02-title.html
 - type: product_intro
 - persuasion: Future pacing
@@ -89,7 +89,7 @@ keyMessage: 十六路 = 一个窗口。
 - transition_in: zoom-through
 - field: field-blue
 - prop: 布局图 chip —— 单格 → 四分
-- status: outline
+- status: built
 - src: compositions/frames/03-layout-1to4.html
 - type: feature_showcase
 - persuasion: Friction reduction
@@ -109,7 +109,7 @@ keyMessage: 排布是免费的，不是一个高级功能。
 - transition_in: crossfade
 - field: field-blue
 - prop: 布局图 chip —— 四分 → 九分
-- status: outline
+- status: built
 - src: compositions/frames/04-layout-9grid.html
 - type: feature_showcase
 - persuasion: Value stacking
@@ -122,14 +122,14 @@ keyMessage: 平分布局有从一到九的完整梯度。
 
 ## Frame 05 — 大带小
 
-- scene: 蓝场。chip 换成"一大五小"的线框；窗口里主画面钉死在左侧不动，右侧五路小画面依次归位环绕。
-- onscreen: "主画面不动，小画面环绕" / "主画面 加 2 3 4 5 小"
+- scene: 蓝场。chip 换成 **1+5** 的线框（主画面占 2×2，余下五格是小画面）；窗口里主画面钉死在左上不动，五路小画面依次归位环绕。
+- onscreen: "主画面不动，小画面环绕" / "1 + 5 主画面加五小"
 - duration: 3.5s
 - poster: 3s
 - transition_in: push-slide LEFT
 - field: field-blue
 - prop: 布局图 chip —— 一大五小（主画面位置高亮）
-- status: outline
+- status: built
 - src: compositions/frames/05-layout-bigplus.html
 - type: feature_showcase
 - persuasion: Show-don't-tell proof
@@ -142,22 +142,22 @@ keyMessage: 有主有次，不是一律等分。
 
 ## Frame 06 — 弹幕进墙
 
-- scene: 蓝场收尾。chip 换成"主画面 + 弹幕"；窗口右侧一整格变成弹幕面板，弹幕从下往上滚动，其余格子继续播。
-- onscreen: "弹幕跟着主画面走" / "弹幕布局"
+- scene: 蓝场收尾。chip 换成 **1+1+弹幕**（主画面 / 一路小画面 / 弹幕面板）；窗口右侧上格是一路小画面、下格是弹幕面板，弹幕自下而上滚。
+- onscreen: "弹幕跟着主画面走" / "1 + 1 + 弹幕"
 - duration: 3.5s
 - poster: 3s
 - transition_in: push-slide LEFT
 - field: field-blue
-- prop: 布局图 chip —— 主画面 + 右侧弹幕格
-- status: outline
+- prop: 布局图 chip —— 1+1+弹幕
+- status: built
 - src: compositions/frames/06-layout-danmaku.html
 - type: feature_showcase
 - persuasion: Friction reduction
 - beat: 沉浸
 - blueprint: device-surface-showcase
-- asset_candidates: assets/rec-layout-danmaku.mp4 — 切「主画面 + 弹幕」并让弹幕滚动的真实录屏
+- asset_candidates: assets/rec-layout-danmaku.mp4 — 切「主画面 + 1 小 + 弹幕」并让弹幕滚动的真实录屏
 
-narrativeRole: 弹幕不是外挂窗口，是画面墙里的一格——解决了"看直播还要另开一个弹幕页"的老麻烦。这一拍结束，蓝色的布局整段收束。
+narrativeRole: 弹幕不是外挂窗口，是画面墙里的一格——解决了"看直播还要另开一个弹幕页"的老麻烦。1+1+弹幕这个排布也顺手证明了：弹幕格和视频格是可以共存的，不是二选一。这一拍结束，蓝色的布局整段收束。
 keyMessage: 弹幕是墙的一部分。
 
 ## Frame 07 — 拖成竖的
@@ -168,7 +168,7 @@ keyMessage: 弹幕是墙的一部分。
 - poster: 4.5s
 - transition_in: zoom-through
 - field: field-dark
-- status: outline
+- status: built
 - src: compositions/frames/07-portrait-flip.html
 - type: feature_showcase
 - persuasion: Friction reduction
@@ -187,7 +187,7 @@ keyMessage: 连拖窗口这件事它都想到了。
 - poster: 3s
 - transition_in: zoom-through
 - field: field-light
-- status: outline
+- status: built
 - src: compositions/frames/08-danmaku-panel.html
 - type: feature_showcase
 - persuasion: Feature-to-benefit translation
@@ -206,7 +206,7 @@ keyMessage: 弹幕面板是按 B 站生态做的。
 - poster: 3s
 - transition_in: push-slide LEFT
 - field: field-light
-- status: outline
+- status: built
 - src: compositions/frames/09-follow-list.html
 - type: feature_showcase
 - persuasion: Friction reduction
@@ -225,7 +225,7 @@ keyMessage: 关注列表直接就是素材库。
 - poster: 3s
 - transition_in: crossfade
 - field: field-light
-- status: outline
+- status: built
 - src: compositions/frames/10-tile-audio.html
 - type: benefit_highlight
 - persuasion: Feature-to-benefit translation
@@ -244,7 +244,7 @@ keyMessage: 十六路不是一个整体，是十六个独立的路。
 - poster: 3s
 - transition_in: push-slide LEFT
 - field: field-light
-- status: outline
+- status: built
 - src: compositions/frames/11-channel-route.html
 - type: benefit_highlight
 - persuasion: Show-don't-tell proof
@@ -263,7 +263,7 @@ keyMessage: 声音的去向是可控的。
 - poster: 3s
 - transition_in: crossfade
 - field: field-dark
-- status: outline
+- status: built
 - src: compositions/frames/12-reconnect.html
 - type: benefit_highlight
 - persuasion: Risk reversal
@@ -282,7 +282,7 @@ keyMessage: 不用一直盯着它有没有掉。
 - poster: 3s
 - transition_in: blur-crossfade
 - field: field-dark
-- status: outline
+- status: built
 - src: compositions/frames/13-plugins.html
 - type: feature_showcase
 - persuasion: Authority by association
@@ -297,12 +297,12 @@ keyMessage: 边界是可以自己往外推的。
 
 - scene: 近白场，暗字。**全片唯一停住不动的一拍**：标题块居中，右下角把 03–06 用过的布局图 chip 摊成一整面阵列（大约十二个），全部静止。没有任何位移。
 - onscreen: "把十六个窗口，收成一个" / "Windows 开源免费 LGPL-2.1"
-- duration: 5s
-- poster: 5s
+- duration: 4.5s
+- poster: 4.5s
 - transition_in: zoom-through
 - field: field-light
 - prop: 布局图 chip —— 回收：03–06 出现过的 chip 全部摊成阵列
-- status: outline
+- status: built
 - src: compositions/frames/14-manifesto.html
 - type: branding
 - persuasion: Negative contrast
@@ -315,26 +315,27 @@ keyMessage: 一切都在一个窗口里。
 
 ## Frame 15 — 片尾
 
-- scene: 纯黑。字标从笔画组装成形，下面一行仓库地址，最后定格。
+- scene: 纯黑。**官方 logo 拼装成形**：三层错位的圆角窗格先逐层描边走笔画出（从最外那层开始），然后两个 D 字标从左往右扫出，接着 CE 亮起，最后中间那条青→紫→粉的渐变缝合线合上。定格后下方淡入仓库地址。
 - onscreen: "DD监控室CE" / "github.com/Lanpropro/DD_Monitor_CE"
-- duration: 4s
-- poster: 4s
+- duration: 4.5s
+- poster: 4.5s
 - transition_in: crossfade
 - field: field-black
-- status: outline
+- prop: logo —— 三层错位窗格是"画面墙"的抽象，片尾用拼装把它和全片的布局母题接上
+- status: built
 - src: compositions/frames/15-outro.html
 - type: cta
 - persuasion: Risk reversal
 - beat: 行动的冲动
 - blueprint: logo-assemble-lockup
-- asset_candidates: （纯字体排版拍，不引用素材）
+- asset_candidates: assets/logo.svg — 官方 logo（三层错位窗格 + DD 字标 + CE + 青紫粉渐变缝）；描边走笔 + 遮罩扫出做拼装；assets/logo.png — 同款位图，作为降级备份
 
-narrativeRole: 把"开源免费"和"去哪拿"两件事说完，落地成一个地址。
+narrativeRole: 把"开源免费"和"去哪拿"两件事说完，落地成一个地址。logo 的三层错位窗格正是"多路画面墙"的抽象——用它收尾，等于把全片的布局母题在最后一拍点上句号。
 keyMessage: 开源免费，GitHub 自取。
 
 ## 时长核算
 
-6.0 + 4.5 + 3.5 + 3.5 + 3.5 + 3.5 + 5.5 + 3.5 + 3.5 + 3.5 + 3.5 + 3.5 + 3.5 + 5.0 + 4.0 = **60.0 秒**（15 拍）
+6.0 + 4.5 + 3.5 + 3.5 + 3.5 + 3.5 + 5.5 + 3.5 + 3.5 + 3.5 + 3.5 + 3.5 + 3.5 + 4.5 + 4.5 = **60.0 秒**（15 拍）
 
 节奏核对（对齐参考片实测）：开场 6.0s 长镜头（参考 6.75s）→ 标题 4.5s 含内部快切
 （参考 6.75–9.6s 的爆发）→ 中段每拍 3.5s（参考 3–6s）→ 竖屏 5.5s 作为次高潮

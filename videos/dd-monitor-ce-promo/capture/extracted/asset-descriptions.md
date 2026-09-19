@@ -43,6 +43,11 @@
 
 | 资产 | 状态 | 说明 |
 | --- | --- | --- |
-| logo | **无** | 仓库里没有 logo 文件（只有 `favicon.ico`）。片尾用字体排出来的字标，不做假 logo |
+| `assets/logo.svg` | **有** | 官方 logo（1024×1024）。结构天生适合拼装动效：三层错位的圆角窗格（源码注释写明 "echo the app's multi-room video wall"——它本身就是画面墙的抽象）+ 两个 D 字标矢量路径 + CE 路径 + 中间一条青→紫→粉渐变缝合线。Frame 15 用它做逐层描边走笔 + 遮罩扫出的拼装动画 |
+| `assets/logo.png` | **有** | 同款位图（113KB），作为 SVG 渲染失败时的降级备份 |
+| `assets/favicon.ico` | 有 | 46KB，不用 |
 | 音乐 | 待定 | 纯 BGM，无口播 |
 | 字体 | 系统自带 | Microsoft YaHei UI / Microsoft YaHei / Segoe UI —— 均为 Windows 系统字体，无版权问题 |
+
+> logo 自带 `#00a1d6 → #756bf2 → #fb7299` 的青紫粉渐变。**这是真实品牌资产的一部分**，
+> 片尾按原样使用；但片子其余部分的设计系统仍保持暗底 + B 站蓝，不引入紫色。
