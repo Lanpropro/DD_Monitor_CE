@@ -307,7 +307,7 @@
 | E13 | 去掉「自动」布局 | 用户报：「选 2 行 3 列再切自动会变成 3 行 2 列，跟当前有几路在播没关系」。做法：`LAYOUTS` 里删掉 `auto` 条目，新增 `layouts.DEFAULT_LAYOUT = "3x3"` 兜底；`app._saved_layout()` 把老配置里的 `auto`（以及任何已删掉的 id）折算成 `DEFAULT_LAYOUT`，`app/widgets` 里原先写死 `"auto"` 的兜底位置全部改成它（`WallGrid` 内部那段 `_auto_columns` 逻辑留着但已经没有入口）。自查第 20 组钉住「菜单里没有自动 / 老配置 auto → 3x3」 |
 | E14 | 未登录时的「登录」按钮 | 用户要求：没登录也要把账号按钮放出来、名字叫「登录」，点了连「导入关注」那条扫码登录。做法：`_account_row_should_show()` 恒为真、`clear_account()` 不再隐藏、`AccountRow.set_account("")` 显示「登录」+「登」头像并藏掉 ⋯、`_open_account_menu()` 未登录且未收起时直接发 `importFollowsRequested`（收起态仍给菜单，里面第一条是「登录…」，免得丢掉布局预设/设置入口）。自查第 20 组覆盖两种方向 |
 | E15 | 上传前清隐私 | 用户要求 push 前删掉他测试用的直播间和账号凭证。凭证本来就不在版本库（`utils/config.json` 从没被跟踪/提交过）；换掉的是**当样例用的真实房间号/主播名/标题**（23 个跟踪文件 + `mock_portrait2.py` / `selfcheck_portrait.py` / `idea.txt`）与**真人客户端截图**（`docs/overview1*`、`overview2*`、`portrait-current.png` 删掉，用中性样例重新渲染成同样文件名，README 不用改）。提交信息里也没有这类数据 |
-
+| E16 | 发 Release 附件（踩坑记录） | 本机没有 `gh`、环境里也没有 `GITHUB_TOKEN`，用的是 git 凭据管理器里的凭据（`git credential fill`，全程不打印）。三个坑：① **GitHub 会把附件名里的中文清成残名**（`DD监控室CE-...` → `DD.CE-...`），所以附件名用 ASCII：`DDMonitorCE-v0.1-exe.zip`；② **PS 5.1 的 `ConvertTo-Json` 会把中文变成残码**（Release 标题/说明都中招），要用 `[Text.Encoding]::UTF8.GetBytes($json)` 当 `-Body` 发；③ **这台机器上 `curl.exe` 传 240MB 附件会报 `schannel ... 证书无法验证是否吊销`**（且这版 curl 不认 `--ssl-revoke-best-effort`），改用 .NET 的 `Invoke-RestMethod -Body ([IO.File]::ReadAllBytes($zip))` 就成功。顺序上先删旧附件再传新的（中途 Release 会短暂没有附件）。 |
 ### D. 用户 2026-09-18 第二批实测 bug（**已修**）
 
 | # | 范围 | 现象 | 修法 |
