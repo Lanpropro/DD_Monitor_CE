@@ -92,6 +92,7 @@ class TilePlayer(QObject):
         self._shot_path = os.path.join(tempfile.gettempdir(),
                                        f"ddm_shot_{id(self):x}.png")
         self._released = False
+        self._audio_ready = False         # aout 起来之后补过静音/音量没有
         self._watch = QTimer(self)
         self._watch.setInterval(1500)
         self._watch.timeout.connect(self._check)
@@ -118,6 +119,7 @@ class TilePlayer(QObject):
             self.bind()
         self.paused = False               # 换流后从"播放中"重新开始
         self.url = url
+        self._audio_ready = False         # 新的 aout 还没建，起来之后再补静音/音量
         media = self._instance.media_new(url)
         # 插件解析出来的流可以自带请求头；没给就按通道用默认的
         request_headers = dict(headers) if headers else dict(
@@ -231,6 +233,30 @@ class TilePlayer(QObject):
         if channel:
             self.player.audio_set_channel(channel)
 
+    def _ensure_audio_settings(self) -> None:
+        """音频输出模块起来之后，补一次静音 / 音量。
+
+        VLC 的 aout 是**真正开始播放时**才建的：在那之前设的静音、音量会被
+        这次初始化冲掉。关注列表的悬停预览复用一个播放器反复 stop / play，
+        第二次起 VLC 那边的音量就弹回构造时的 42（Python 这边明明记着 0），
+        用户听到的就是「预览会出声」。用音轨数判断 aout 起来没有，每次播放只补一次。
+        """
+        if self._audio_ready:
+            return
+        try:
+            if self.player.audio_get_track_count() <= 0:
+                return                      # aout 还没起来
+        except Exception:  # noqa: BLE001
+            return
+        self._audio_ready = True
+        try:
+            self.player.audio_set_mute(self.muted)
+            self.player.audio_set_volume(self.volume)
+        except Exception:  # noqa: BLE001
+            pass
+        self._audio_output.set_volume(self.volume)
+        self._audio_output.set_enabled(self.uses_pcm_routing and not self.muted)
+
     def _play_audio(self, _opaque, samples, count, _pts) -> None:
         self._audio_output.write(samples, count)
 
@@ -321,6 +347,7 @@ class TilePlayer(QObject):
     def _check(self) -> None:
         if self.paused:
             return                          # 暂停时画面本来就不动，不能当成卡顿
+        self._ensure_audio_settings()       # aout 起来了就把静音/音量补回去
         state = self.player.get_state()
         width, _ = self.player.video_get_size(0)
         current = self.player.get_time()

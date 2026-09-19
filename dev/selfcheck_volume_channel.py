@@ -8,7 +8,7 @@ import time
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -154,6 +154,66 @@ def main() -> None:
     window._stop_tile = original_stop  # noqa: SLF001
     window.start_tile = original_start
     del window.players[tile]
+
+    print("\n=== 4c. 音频输出起来之后再补一次静音/音量（预览会出声的那个坑）===")
+    from ddm.player import TilePlayer
+
+    class FakeVlc:
+        """替身播放器：只回答「音频输出起来没有」，并记录静音/音量下发。"""
+
+        def __init__(self, tracks: int = 0):
+            self.calls: list = []
+            self.tracks = tracks
+
+        def audio_get_track_count(self):
+            return self.tracks
+
+        def audio_set_mute(self, muted):
+            self.calls.append(("mute", bool(muted)))
+
+        def audio_set_volume(self, volume):
+            self.calls.append(("volume", int(volume)))
+
+        def set_hwnd(self, _hwnd):
+            pass
+
+        def set_media(self, _media):
+            pass
+
+        def play(self):
+            pass
+
+    holder = TilePlayer(QWidget())
+    real_player = holder.player
+    fake = FakeVlc(tracks=0)
+    holder.player = fake
+    holder.set_muted(True)          # 预览：永远静音
+    holder.set_volume(0)
+    fake.calls.clear()
+    holder._audio_ready = False      # noqa: SLF001
+    holder._ensure_audio_settings()  # noqa: SLF001
+    print(f"  aout 还没起来：{fake.calls}（应该什么都不下发）")
+    assert fake.calls == [] and holder._audio_ready is False      # noqa: SLF001
+
+    fake.tracks = 2                  # 音轨出来了 = aout 建好了
+    holder._ensure_audio_settings()  # noqa: SLF001
+    print(f"  aout 起来之后：{fake.calls}")
+    assert ("mute", True) in fake.calls and ("volume", 0) in fake.calls, \
+        "aout 起来之后要补静音/音量，否则预览第二次起会带着 42 的音量出声"
+    assert holder._audio_ready is True                            # noqa: SLF001
+
+    fake.calls.clear()
+    holder._ensure_audio_settings()  # noqa: SLF001
+    print(f"  再补一次：{fake.calls}（每次播放只补一次，不刷调用）")
+    assert fake.calls == []
+
+    holder.play("https://example.invalid/x.flv")     # 重新播放要重新补
+    print(f"  play() 之后：_audio_ready={holder._audio_ready}")    # noqa: SLF001
+    assert holder._audio_ready is False                            # noqa: SLF001
+    holder._watch.stop()             # noqa: SLF001
+    holder._picture_watch.stop()     # noqa: SLF001
+    holder.player = real_player
+    holder.release()
 
     print("\n=== 5. 声道随配置保存 / 恢复 ===")
     state = {"version": 1, "rooms": ["7001"], "wall": [
