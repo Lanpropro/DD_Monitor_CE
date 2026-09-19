@@ -1057,6 +1057,17 @@ def part_login_button(app) -> None:
         assert row.isVisible(), "没登录也要露出来（用户要求）"
         assert row.name.text() == "登录", f"名字要叫「登录」，实际 {row.name.text()!r}"
         assert fired, "点「登录」要走导入关注那条扫码登录"
+        # 用户要求：底色别太突出、内容居中不偏移；这一格是按钮，不该带菜单的 ⋯
+        row_center = row.height() / 2
+        name_center = row.name.y() + row.name.height() / 2
+        avatar_center = row.avatar.y() + row.avatar.height() / 2
+        print(f"  居中/配色：行中心={row_center} 文本中心={name_center} "
+              f"头像中心={avatar_center} 底色={row.avatar._color} ⋯可见={row.arrow.isVisible()}")
+        assert row.avatar._color == theme.CONTENT_HOVER, \
+            f"登录按钮的头像要用中性底色，实际 {row.avatar._color}"
+        assert abs(name_center - row_center) <= 1.5, "「登录」文字要垂直居中"
+        assert abs(avatar_center - row_center) <= 2, "头像要垂直居中（别偏）"
+        assert not row.arrow.isVisible(), "未登录时不该带菜单的 ⋯"
         assert "自动" not in [item["name"] for item in layouts.LAYOUTS], \
             "「自动」已经从布局菜单里去掉"
         window.close()

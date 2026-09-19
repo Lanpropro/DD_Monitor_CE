@@ -1107,6 +1107,7 @@ class Avatar(QLabel):
         super().__init__(parent)
         self.setObjectName("NavAvatar")
         self._size = size
+        self._index = index
         self._color = AVATAR_COLORS[index % len(AVATAR_COLORS)]
         self._source: QPixmap | None = None
         self.setFixedSize(size, size)
@@ -1125,6 +1126,17 @@ class Avatar(QLabel):
             self.set_pixmap_image(self._source)
         else:
             self.setStyleSheet(f"background: {self._color}; border-radius: {size // 2}px;")
+
+    def set_color(self, color: str | None = None) -> None:
+        """换底色；传 None 回到按序号取的那个彩色。
+
+        未登录的「登录」按钮用中性底色（用户要求「颜色不要这么突出」），
+        有真实头像时底色反正看不见，不用管。
+        """
+        self._color = color or AVATAR_COLORS[self._index % len(AVATAR_COLORS)]
+        if self._source is None:
+            self.setStyleSheet(f"background: {self._color}; "
+                               f"border-radius: {self._size // 2}px;")
 
     def set_pixmap_image(self, pixmap: QPixmap) -> None:
         """换成真实头像（圆形裁切）。"""
@@ -1161,7 +1173,9 @@ class AccountRow(QFrame):
         self.uname = ""
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
+        # 头像 26px：上下各留 4px 正好 34px 高，内容才能真的垂直居中
+        # （原来留 6px，26 的头像塞不进 22 的空间，整行看着是偏的）
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(8)
         self.avatar = Avatar("?", 3, 26)
         layout.addWidget(self.avatar)
@@ -1183,14 +1197,17 @@ class AccountRow(QFrame):
             self.name.setText(self.uname)
             self.arrow.setVisible(True)
             self.setToolTip("")
+            self.avatar.set_color(None)          # 回到彩色（哈希取的）
             if pixmap is not None:
                 self.avatar.set_pixmap_image(pixmap)
             else:
                 self.avatar.setText(self.uname[0])
             return
-        # 未登录：这一格当「登录」按钮（用户要求：没登录也放出来）
+        # 未登录：这一格当「登录」按钮（用户要求：没登录也放出来）。
+        # 底色用中性色，别像彩色头像那么显眼
         self.name.setText("登录")
         self.avatar.setText("登")
+        self.avatar.set_color(theme.CONTENT_HOVER)
         self.arrow.setVisible(False)
         self.setToolTip("登录 B 站账号（扫码）")
 
@@ -1209,7 +1226,8 @@ class AccountRow(QFrame):
         self._compact_state = state
         self._compact = compact
         self.name.setVisible(not compact)
-        self.arrow.setVisible(not compact)
+        # 未登录时这一格是「登录」按钮，不该带菜单那个 ⋯
+        self.arrow.setVisible(not compact and bool(self.uname))
         self.avatar.set_size(size if compact else 26)
         self.setFixedHeight(size + margin * 2 if compact else 34)
         if compact and not self._compact_spacer:
@@ -1225,7 +1243,8 @@ class AccountRow(QFrame):
         if compact:
             self._layout.setContentsMargins(0, margin, 0, margin)
         else:
-            self._layout.setContentsMargins(8, 6, 8, 6)
+            # 展开态：34 高的行里放 26 的头像，上下各 4 才真的居中
+            self._layout.setContentsMargins(8, 4, 8, 4)
         self._layout.setSpacing(0 if compact else 8)
         self.setToolTip(self.uname if compact else "")
 
