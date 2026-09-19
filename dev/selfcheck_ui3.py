@@ -3,12 +3,15 @@ import os
 import sys
 import time
 
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
+from ddm import bili  # noqa: E402
+from ddm import app as app_module  # noqa: E402
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
@@ -17,6 +20,23 @@ ROOMS = [
     {"room_id": "1001", "uname": "示例主播A", "title": "示例标题", "live": True,
      "viewers": "3.1万", "muted": True, "volume": 55, "live_start_ts": NOW - 4512},
 ]
+
+
+def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
+    raise RuntimeError("selfcheck：不联网取流")
+
+
+class IdlePoller(QThread):
+    """自检里别真去问接口：假房间号会被查成「未开播」，把状态机搞乱。"""
+
+    updated = Signal(dict)
+
+    def __init__(self, room_ids=None, parent=None):
+        super().__init__(parent)
+        self.room_ids = list(room_ids or [])
+
+    def run(self) -> None:
+        return
 
 
 def settle(app, seconds: float) -> None:
@@ -31,6 +51,9 @@ def main() -> None:
         sys.stdout.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
         pass
+    bili.play_url = boom
+    app_module.StatusPoller = IdlePoller
+    app_module.StatsPoller = IdlePoller
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
 
@@ -60,11 +83,31 @@ def main() -> None:
     tile.set_video_active(True)
     print(f"  播放后隐藏 {not tile.spinner.isVisible()}")
 
-    print("\n=== 直播时长只保留浮标 ===")
+    print("\n=== 直播时长只保留浮标，并且和别的浮标一样自动隐藏 ===")
     tile.start_elapsed_timer()
     settle(app, 1.1)
-    print(f"  浮标 {tile.time_badge.text!r} 可见 {tile.time_badge.isVisible()}"
+    print(f"  没悬停时：浮标 {tile.time_badge.text!r} 可见 {tile.time_badge.isVisible()}"
           f" | 信息条里还有 time_label: {hasattr(tile, 'time_label')}")
+    assert tile.time_badge.text, "在播、又知道开播时间时要算出时长"
+    assert not tile.time_badge.isVisible(), \
+        "用户要求：鼠标不在格子上时，右下角的时长不能一直挂着"
+
+    tile.set_controls_visible(True)          # 鼠标移进格子
+    settle(app, 0.2)
+    print(f"  悬停时：可见 {tile.time_badge.isVisible()}"
+          f"（LIVE 浮标 {tile.stream_badge.isVisible()}）")
+    assert tile.time_badge.isVisible(), "鼠标在格子上时要和 LIVE 浮标一起露出来"
+
+    tile.set_controls_visible(False)         # 鼠标移开
+    settle(app, 0.2)
+    print(f"  移开之后：可见 {tile.time_badge.isVisible()}")
+    assert not tile.time_badge.isVisible(), "移开要跟着收起来（和别的浮标一致）"
+
+    tile.set_live(False)                     # 下播
+    settle(app, 0.2)
+    print(f"  下播后：可见 {tile.time_badge.isVisible()} 计时器在跑={tile._elapsed_timer.isActive()}")
+    assert not tile.time_badge.isVisible() and not tile._elapsed_timer.isActive()
+    tile.set_live(True)
 
     print("\n=== 控制条 ===")
     labels = [button.text() for button in tile.controls.findChildren(type(tile.close_button))]

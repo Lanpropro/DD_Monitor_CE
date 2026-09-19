@@ -4151,6 +4151,7 @@ class Tile(QFrame):
             self.room["viewers"] = viewers
         if not live:
             self.room.pop("online", None)      # 下播后旧的在线人数不能再留着显
+            self.stop_elapsed_timer()          # 右下角的时长浮标也立刻收掉
         self._refresh_badge()
 
     def set_watched(self, watched_text: str) -> None:
@@ -4260,6 +4261,8 @@ class Tile(QFrame):
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
         self._overlay_visible = visible
         self.stream_badge.setVisible(visible and bool(self.room.get("room_id")))
+        # 右下角的直播时长和它们一样：鼠标在格子上才露出来
+        self.time_badge.setVisible(self._elapsed_visible())
         if visible and getattr(self, "_overlay_ready", False):
             # 露出来之前按当前宽度重摆一遍（标题要重新让位）。
             # 构造过程中（spinner 等还没建好）不能走这里，否则会碰空控件。
@@ -4367,6 +4370,8 @@ class Tile(QFrame):
             self.title_badge.raise_()
         self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
                              max(8, video_height - self.time_badge.height() - 10))
+        # 摆位和显隐放在一起：重排（改窗口大小、切布局）之后状态不会走丢
+        self.time_badge.setVisible(self._elapsed_visible())
         self.time_badge.raise_()
         self.spinner.move(max(0, (self.video.width() - self.spinner.width()) // 2),
                           max(8, (video_height - self.spinner.height()) // 2))
@@ -4451,6 +4456,18 @@ class Tile(QFrame):
             widget.raise_()
 
     # ---- 直播时长 ----
+    def _elapsed_visible(self) -> bool:
+        """直播时长浮标该不该露出来。
+
+        用户要求：它和 LIVE 浮标、标题、控制条一样**自动隐藏** —— 鼠标在格子上
+        才露，移开就跟着一起收（以前是只要在播就一直挂在右下角）。
+        """
+        return bool(self._overlay_visible
+                    and getattr(self, "_elapsed_timer", None) is not None
+                    and self._elapsed_timer.isActive()
+                    and self.room.get("live")
+                    and self.room.get("live_start_ts"))
+
     def _refresh_elapsed(self) -> None:
         start = int(self.room.get("live_start_ts") or 0)
         if not start or not self.room.get("live"):
@@ -4462,7 +4479,7 @@ class Tile(QFrame):
         minutes, secs = divmod(rest, 60)
         text = f"{hours}:{minutes:02d}:{secs:02d}"
         self.time_badge.set_text(text)
-        self.time_badge.setVisible(True)
+        self.time_badge.setVisible(self._elapsed_visible())
 
     def start_elapsed_timer(self) -> None:
         if self.room.get("live_start_ts"):
