@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DD监控室CE 宣传片 · 分镜表 v1</title>
+<style>
+  :root{
+    --dark:#222428; --black:#0d0e10; --blue:#00a1d6; --light:#f1f2f5;
+    --surface:#303338; --ink:#f1f2f5; --ink-dark:#101114;
+    --page:#15171a; --page-2:#1c1f23; --line:rgba(255,255,255,.10);
+    --muted:rgba(241,242,245,.62); --dim:rgba(241,242,245,.38);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--page); color:var(--ink);
+    font-family:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI",sans-serif;
+    padding:48px 40px 96px; -webkit-font-smoothing:antialiased;
+  }
+  header.top{max-width:1680px;margin:0 auto 14px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+  h1{font-size:30px;font-weight:700;letter-spacing:-.01em}
+  h1 .v{color:var(--blue);font-size:15px;font-weight:600;vertical-align:super;margin-left:8px;letter-spacing:.06em}
+  .dek{color:var(--muted);font-size:15px;margin-top:8px;max-width:900px;line-height:1.6}
+  .tagline{display:flex;gap:8px;flex-wrap:wrap}
+  .tag{border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:12.5px;color:var(--muted);font-weight:600;letter-spacing:.04em;white-space:nowrap}
+  .tag.on{border-color:rgba(0,161,214,.5);color:var(--blue)}
+
+  .actbar{max-width:1680px;margin:34px auto 14px;display:flex;align-items:center;gap:14px}
+  .actbar .t{font-size:13px;font-weight:700;letter-spacing:.18em;color:var(--dim)}
+  .actbar .l{flex:1;height:1px;background:var(--line)}
+
+  main{max-width:1680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:34px 26px}
+  @media (max-width:1180px){main{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:760px){main{grid-template-columns:1fr}}
+
+  .beat{display:flex;flex-direction:column;gap:11px}
+  .cell{
+    position:relative;aspect-ratio:16/9;container-type:inline-size;
+    border-radius:4px;overflow:hidden;border:1px solid var(--line);
+  }
+  .f-dark{background:var(--dark)} .f-black{background:var(--black)}
+  .f-blue{background:var(--blue)} .f-light{background:var(--light)}
+
+  /* — 排版：与 frame.md 的 headline / row-headline 对齐 — */
+  .head{font-size:4.6cqw;font-weight:700;line-height:.98;letter-spacing:-.01em;text-align:center}
+  .sub{font-size:2.1cqw;font-weight:600;letter-spacing:.16em;text-align:center;margin-top:1.4cqw}
+  .on-light{color:var(--ink-dark)} .on-dark{color:var(--ink)}
+  .titleblock{position:absolute;left:0;right:0;top:6.5cqw;padding:0 8cqw}
+  .titleblock.left{text-align:left;top:9cqw;bottom:auto;padding:0 6cqw}
+  .titleblock.left .head,.titleblock.left .sub{text-align:left}
+
+  /* — 窗口 mockup：圆角 10px、柔和投影、下沿被画面裁掉 — */
+  .win{position:absolute;border-radius:10px;box-shadow:0 2cqw 5cqw rgba(0,0,0,.28);overflow:hidden;background:#000}
+  .win img{width:100%;display:block}
+  .wbar{height:3.2cqw;background:#15171a;display:flex;align-items:center;gap:1cqw;padding:0 1.4cqw;flex:0 0 auto}
+  .wbar i{width:.9cqw;height:.9cqw;border-radius:50%;background:rgba(255,255,255,.22);display:block}
+  .wbar s{flex:1;height:1.4cqw;border-radius:.7cqw;background:rgba(255,255,255,.10);display:block;text-decoration:none}
+
+  /* — 占位格子（还没录到的画面） — */
+  .tiles{display:grid;gap:.7cqw;padding:.7cqw;height:100%}
+  .tiles b{background:rgba(255,255,255,.09);border-radius:.5cqw;display:block;position:relative;overflow:hidden}
+  .tiles b::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.10),rgba(255,255,255,0) 62%)}
+  .tiles b.off{background:rgba(255,255,255,.03)}
+  .tiles b.warn{background:rgba(245,158,11,.30)}
+
+  /* — 英雄道具：布局图 chip — */
+  .chip{position:absolute;border-radius:8px;background:rgba(241,242,245,.10);
+        display:grid;gap:.6cqw;padding:.9cqw;border:1px solid rgba(241,242,245,.16)}
+  .chip.on-blue{background:rgba(13,17,20,.14);border-color:rgba(13,17,20,.22)}
+  .chip i{background:rgba(241,242,245,.55);border-radius:.35cqw;display:block}
+  .chip.on-blue i{background:rgba(13,17,20,.55)}
+  .chip i.hot{background:var(--light)} .chip.on-blue i.hot{background:#0d1114}
+  .chiplabel{position:absolute;font-size:1.5cqw;font-weight:600;letter-spacing:.14em;opacity:.75}
+
+  .note{font-size:13px;line-height:1.62;color:var(--muted)}
+  .note b{color:var(--ink);font-weight:700}
+  .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .row .name{font-size:14px;font-weight:700;letter-spacing:.02em}
+  .row .id{font-size:11.5px;color:var(--dim);letter-spacing:.04em;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .c{font-size:11px;font-weight:700;letter-spacing:.05em;border-radius:999px;padding:2.5px 9px;border:1px solid var(--line);color:var(--muted)}
+  .c.seam{border-color:rgba(0,161,214,.45);color:var(--blue)}
+  .c.field{border-color:var(--line)}
+  .c.prop{border-color:rgba(251,114,153,.42);color:#fb7299}
+  .c.type{border-color:rgba(241,242,245,.22)}
+
+  /* — 收尾两张 — */
+  .seams{display:flex;flex-direction:column;gap:1.6cqw;justify-content:center;height:100%;padding:3cqw}
+  .seamrow{display:flex;align-items:center;gap:1.2cqw;font-size:1.7cqw;font-weight:600;color:rgba(241,242,245,.85)}
+  .seamrow .n{font-variant-numeric:tabular-nums;opacity:.5;min-width:4.5cqw}
+  .seamrow .bar{flex:1;height:.7cqw;border-radius:.35cqw;background:var(--blue);opacity:.75}
+  .seamrow .bar.soft{opacity:.35} .seamrow .bar.hard{opacity:1}
+  .tok{display:grid;grid-template-columns:1fr 1fr;gap:1.6cqw;padding:3cqw;height:100%;align-content:start}
+  .tok h4{font-size:1.6cqw;letter-spacing:.16em;color:rgba(241,242,245,.5);font-weight:700;grid-column:1/-1;margin-top:.6cqw}
+  .sw{display:flex;align-items:center;gap:1cqw;font-size:1.6cqw;font-weight:600;color:rgba(241,242,245,.9)}
+  .sw em{width:3.4cqw;height:3.4cqw;border-radius:.6cqw;display:block;border:1px solid rgba(255,255,255,.16)}
+  .bans{font-size:1.55cqw;line-height:1.75;color:rgba(241,242,245,.8);grid-column:1/-1}
+  .bans u{color:#ff8fb0;text-decoration:none}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>DD监控室CE · 60 秒宣传片分镜<span class="v">v1</span></h1>
+    <p class="dek">
+      说给「同时追好几个直播间的人」听：<b>十六路直播，不必开十六个窗口。</b>
+      全片无口播，靠真实录屏 + 字幕卡推进。版式与动效对齐参考片（LauncherX 启动器宣传片）。
+    </p>
+  </div>
+  <div class="tagline">
+    <span class="tag on">1920×1080</span>
+    <span class="tag">24 fps</span>
+    <span class="tag">60.0 秒</span>
+    <span class="tag">15 拍</span>
+    <span class="tag">无口播</span>
+    <span class="tag">真实录屏</span>
+  </div>
+</header>
+
+<div class="actbar"><span class="t">第一幕 · 钩子与命名（0–10.5s）</span><span class="l"></span></div>
+<main>
+
+  <!-- 01 -->
+  <section class="beat" id="frame-01">
+    <div class="cell f-black">
+      <div class="win" style="left:7cqw;right:7cqw;top:16cqw;bottom:-6cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);height:calc(100% - 3.2cqw)">
+          <b></b><b></b><b class="off"></b><b></b>
+          <b></b><b></b><b></b><b class="off"></b>
+          <b class="off"></b><b></b><b></b><b></b>
+        </div>
+      </div>
+    </div>
+    <div class="row"><span class="name">01 · 墙面亮起</span><span class="id">frame-01 · 0.0–6.0s</span></div>
+    <p class="note"><b>先动的是格子。</b>黑场里 16 格从左到右、从上到下逐格亮起，镜头极缓推近，一镜到底不切。参考片开场也是 6.75 秒不给信息。</p>
+    <div class="chips"><span class="c seam">cut</span><span class="c field">field-black</span><span class="c type">hook</span></div>
+  </section>
+
+  <!-- 02 -->
+  <section class="beat" id="frame-02">
+    <div class="cell f-dark">
+      <div class="win" style="left:9cqw;right:9cqw;top:26cqw;bottom:-8cqw;opacity:.30">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);height:calc(100% - 3.2cqw)">
+          <b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b>
+        </div>
+      </div>
+      <div class="titleblock">
+        <div class="head on-dark">十六路直播，<br>不必开十六个窗口</div>
+        <div class="sub on-dark">DD监控室CE 专为 B 站直播设计的多窗口监控工具</div>
+      </div>
+    </div>
+    <div class="row"><span class="name">02 · 标题</span><span class="id">frame-02 · 6.0–10.5s</span></div>
+    <p class="note"><b>先动的是主标题。</b>标题块内做 2–3 次极快字替（照参考片 6.75–9.6s 那次爆发），落定后停住；背景窗口压暗到 30%。</p>
+    <div class="chips"><span class="c seam">blur-crossfade</span><span class="c field">field-dark</span><span class="c type">product_intro</span></div>
+  </section>
+
+  <!-- 03 -->
+  <section class="beat" id="frame-03">
+    <div class="cell f-blue">
+      <div class="titleblock">
+        <div class="head" style="color:#0d1114">想怎么看，就怎么排</div>
+        <div class="sub" style="color:rgba(13,17,20,.72)">平分布局</div>
+      </div>
+      <div class="win" style="right:6cqw;width:44cqw;top:34cqw;bottom:-7cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);height:calc(100% - 3.2cqw)">
+          <b></b><b></b><b></b><b></b>
+        </div>
+      </div>
+      <div class="chip on-blue" style="left:6cqw;top:38cqw;width:14cqw;height:14cqw;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)">
+        <i></i><i></i><i></i><i></i>
+      </div>
+      <div class="chiplabel on-blue" style="left:6cqw;top:53.5cqw;color:rgba(13,17,20,.75)">单格 → 四分</div>
+    </div>
+    <div class="row"><span class="name">03 · 想怎么看，就怎么排</span><span class="id">frame-03 · 10.5–14.0s</span></div>
+    <p class="note"><b>先动的是 chip。</b>左下角布局图 chip 从单格变四分，右侧窗口里的画面同步被切开重排。蓝场是参考片那种「换场换色」的节拍器。</p>
+    <div class="chips"><span class="c seam">zoom-through</span><span class="c field">field-blue</span><span class="c prop">chip</span></div>
+  </section>
+
+  <!-- 04 -->
+  <section class="beat" id="frame-04">
+    <div class="cell f-blue">
+      <div class="titleblock">
+        <div class="head" style="color:#0d1114">九路同屏，一眼看全</div>
+        <div class="sub" style="color:rgba(13,17,20,.72)">单画面 两分 四分 六分 九分</div>
+      </div>
+      <div class="win" style="right:6cqw;width:52cqw;top:32cqw;bottom:-7cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);height:calc(100% - 3.2cqw)">
+          <b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b>
+        </div>
+      </div>
+      <div class="chip on-blue" style="left:6cqw;top:38cqw;width:14cqw;height:14cqw;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="chiplabel" style="left:6cqw;top:53.5cqw;color:rgba(13,17,20,.75)">四分 → 九分</div>
+    </div>
+    <div class="row"><span class="name">04 · 九路同屏</span><span class="id">frame-04 · 14.0–17.5s</span></div>
+    <p class="note"><b>先动的是 chip 的格子数。</b>四分走到九分，窗口里九路画面同时铺满，镜头轻微推近再停。梯度一次摊开，证明「多变」是一整套。</p>
+    <div class="chips"><span class="c seam">crossfade</span><span class="c field">field-blue</span><span class="c prop">chip</span></div>
+  </section>
+
+  <!-- 05 -->
+  <section class="beat" id="frame-05">
+    <div class="cell f-blue">
+      <div class="titleblock">
+        <div class="head" style="color:#0d1114">主画面不动，小画面环绕</div>
+        <div class="sub" style="color:rgba(13,17,20,.72)">主画面 加 2 3 4 5 小</div>
+      </div>
+      <div class="win" style="right:5cqw;width:50cqw;top:31cqw;bottom:-7cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:2fr 1fr;grid-template-rows:repeat(3,1fr);height:calc(100% - 3.2cqw)">
+          <b class="hot" style="grid-row:span 3"></b>
+          <b></b><b></b><b></b>
+        </div>
+      </div>
+      <div class="chip on-blue" style="left:5cqw;top:36cqw;width:15cqw;height:15cqw;grid-template-columns:2fr 1fr;grid-template-rows:repeat(3,1fr)">
+        <i class="hot" style="grid-row:span 3"></i><i></i><i></i><i></i>
+      </div>
+      <div class="chiplabel" style="left:5cqw;top:52.5cqw;color:rgba(13,17,20,.75)">一大五小</div>
+    </div>
+    <div class="row"><span class="name">05 · 大带小</span><span class="id">frame-05 · 17.5–21.0s</span></div>
+    <p class="note"><b>先动的是小画面。</b>主画面钉死在左侧一个像素不动，右侧五路依次归位环绕。主画面不动，就是这一拍全部的说服力。</p>
+    <div class="chips"><span class="c seam">push-slide LEFT</span><span class="c field">field-blue</span><span class="c prop">chip</span></div>
+  </section>
+
+  <!-- 06 -->
+  <section class="beat" id="frame-06">
+    <div class="cell f-blue">
+      <div class="titleblock">
+        <div class="head" style="color:#0d1114">弹幕跟着主画面走</div>
+        <div class="sub" style="color:rgba(13,17,20,.72)">弹幕布局</div>
+      </div>
+      <div class="win" style="right:5cqw;width:54cqw;top:32cqw;bottom:-7cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:2fr 1fr;grid-template-rows:1fr;height:calc(100% - 3.2cqw)">
+          <b></b>
+          <b style="background:rgba(18,20,25,.96)">
+            <span style="position:absolute;left:.9cqw;top:.8cqw;right:.9cqw;height:.6cqw;background:rgba(255,255,255,.12);border-radius:.3cqw"></span>
+            <span style="position:absolute;left:.9cqw;top:2.4cqw;width:72%;height:.5cqw;background:rgba(255,255,255,.22);border-radius:.3cqw"></span>
+            <span style="position:absolute;left:.9cqw;top:3.8cqw;width:58%;height:.5cqw;background:rgba(255,255,255,.16);border-radius:.3cqw"></span>
+            <span style="position:absolute;left:1.9cqw;top:5.2cqw;width:66%;height:.5cqw;background:rgba(255,255,255,.16);border-radius:.3cqw"></span>
+          </b>
+        </div>
+      </div>
+      <div class="chip on-blue" style="left:5cqw;top:36cqw;width:15cqw;height:15cqw;grid-template-columns:2fr 1fr;grid-template-rows:1fr">
+        <i class="hot"></i><i></i>
+      </div>
+      <div class="chiplabel" style="left:5cqw;top:52.5cqw;color:rgba(13,17,20,.75)">主画面 + 弹幕格</div>
+    </div>
+    <div class="row"><span class="name">06 · 弹幕进墙</span><span class="id">frame-06 · 21.0–24.5s</span></div>
+    <p class="note"><b>先动的是弹幕。</b>右侧一整格变弹幕面板，弹幕自下而上滚，其余格子继续播。这一拍结束，蓝色的布局整段收束。</p>
+    <div class="chips"><span class="c seam">push-slide LEFT</span><span class="c field">field-blue</span><span class="c prop">chip</span></div>
+  </section>
+
+</main>
+
+<div class="actbar"><span class="t">第二幕 · 演示（24.5–47.5s）</span><span class="l"></span></div>
+<main>
+
+  <!-- 07 -->
+  <section class="beat" id="frame-07">
+    <div class="cell f-dark">
+      <div class="titleblock left" style="left:6cqw;right:auto;width:38cqw">
+        <div class="head on-dark" style="text-align:left">拖成竖的，<br>它自己接上</div>
+        <div class="sub on-dark" style="text-align:left">按能放几路 自动对映最相似的预设</div>
+      </div>
+      <div class="win" style="right:8cqw;width:22.5cqw;top:9cqw;bottom:-6cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:1fr;grid-template-rows:3fr 1fr 1fr;gap:.8cqw;padding:.8cqw;height:calc(100% - 3.2cqw)">
+          <b></b>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.8cqw"><b></b><b></b><b></b></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.8cqw"><b></b><b></b><b></b></div>
+        </div>
+      </div>
+      <div style="position:absolute;right:32.5cqw;top:26cqw;font-size:2cqw;color:rgba(241,242,245,.45)">→</div>
+      <div style="position:absolute;right:12cqw;top:26cqw;font-size:1.6cqw;color:rgba(241,242,245,.45);letter-spacing:.12em">16:9 → 9:16</div>
+    </div>
+    <div class="row"><span class="name">07 · 拖成竖的</span><span class="id">frame-07 · 24.5–30.0s</span></div>
+    <p class="note"><b>先动的是窗口边框。</b>同一个窗口连续从 16:9 变成 9:16，顶部横栏替换掉侧栏。<b>一镜到底，不许切</b>——切了这拍就不成立了。全片最长的一拍。</p>
+    <div class="chips"><span class="c seam">zoom-through</span><span class="c field">field-dark</span><span class="c type">feature_showcase</span></div>
+  </section>
+
+  <!-- 08 -->
+  <section class="beat" id="frame-08">
+    <div class="cell f-light">
+      <div class="titleblock">
+        <div class="head on-light">粉丝牌 表情 屏蔽词</div>
+        <div class="sub on-light">字体字号可调</div>
+      </div>
+      <div class="win" style="left:14cqw;right:14cqw;top:33cqw;bottom:-8cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <img src="capture/assets/overview2_Landscape_mode.png" alt="">
+      </div>
+    </div>
+    <div class="row"><span class="name">08 · 弹幕面板</span><span class="id">frame-08 · 30.0–33.5s</span></div>
+    <p class="note"><b>先动的是窗口推近。</b>镜头推进到弹幕格，粉丝牌、表情、屏蔽词依次被点出。<b>下图已是真机截图</b>，最终版换成录屏。</p>
+    <div class="chips"><span class="c seam">zoom-through</span><span class="c field">field-light</span><span class="c type">feature_showcase</span></div>
+  </section>
+
+  <!-- 09 -->
+  <section class="beat" id="frame-09">
+    <div class="cell f-light">
+      <div class="titleblock left" style="left:6cqw;right:auto;width:52cqw;top:9cqw">
+        <div class="head on-light" style="text-align:left">悬停就能预览</div>
+        <div class="sub on-light" style="text-align:left">开播提醒 置顶 拖动排序 导入关注</div>
+      </div>
+      <div class="win" style="left:6cqw;right:6cqw;top:30cqw;bottom:-8cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <img src="capture/assets/overview2_Landscape_mode.png" alt="">
+      </div>
+    </div>
+    <div class="row"><span class="name">09 · 关注列表</span><span class="id">frame-09 · 33.5–37.0s</span></div>
+    <p class="note"><b>先动的是悬停卡片。</b>鼠标停在某一项上弹出封面预览，然后是置顶徽标、拖动排序的位移。补上「内容从哪来」这一段。</p>
+    <div class="chips"><span class="c seam">push-slide LEFT</span><span class="c field">field-light</span><span class="c type">feature_showcase</span></div>
+  </section>
+
+  <!-- 10 -->
+  <section class="beat" id="frame-10">
+    <div class="cell f-light">
+      <div class="titleblock">
+        <div class="head on-light">每一路 单独调</div>
+        <div class="sub on-light">音量 静音 画质</div>
+      </div>
+      <div class="win" style="left:10cqw;right:10cqw;top:31cqw;bottom:-8cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <img src="capture/assets/overview1_Landscape_mode.png" alt="">
+      </div>
+      <div style="position:absolute;left:24cqw;top:52cqw;height:3.4cqw;border-radius:1.7cqw;background:rgba(12,13,16,.86);display:flex;align-items:center;gap:.8cqw;padding:0 1.2cqw">
+        <span style="width:5cqw;height:.5cqw;border-radius:.25cqw;background:rgba(255,255,255,.25)"></span>
+        <span style="width:5cqw;height:.5cqw;border-radius:.25cqw;background:rgba(0,161,214,.9)"></span>
+        <span style="font-size:1.2cqw;color:rgba(241,242,245,.8);font-weight:700">音量 · 静音 · 画质</span>
+      </div>
+    </div>
+    <div class="row"><span class="name">10 · 每一路，单独调</span><span class="id">frame-10 · 37.0–40.5s</span></div>
+    <p class="note"><b>先动的是控制条。</b>单格底部展开音量/静音/画质，其余九格不受影响。多路同屏最容易崩的就是声音，这一拍直接回答。</p>
+    <div class="chips"><span class="c seam">crossfade</span><span class="c field">field-light</span><span class="c type">benefit_highlight</span></div>
+  </section>
+
+  <!-- 11 -->
+  <section class="beat" id="frame-11">
+    <div class="cell f-light">
+      <div class="titleblock" style="top:5.5cqw">
+        <div class="head on-light">这一路放左边，这一路放右边</div>
+        <div class="sub on-light">每路独立左右声道路由</div>
+      </div>
+      <div style="position:absolute;left:50%;top:32cqw;bottom:0;width:1px;background:rgba(16,17,20,.22)"></div>
+      <div class="win" style="left:7cqw;width:35cqw;top:34cqw;bottom:-8cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:1fr;grid-template-rows:1fr;height:calc(100% - 3.2cqw)"><b></b></div>
+      </div>
+      <div class="win" style="right:7cqw;width:35cqw;top:34cqw;bottom:-8cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:1fr;grid-template-rows:1fr;height:calc(100% - 3.2cqw)"><b></b></div>
+      </div>
+      <div style="position:absolute;left:2.5cqw;top:46cqw;right:50%;display:flex;flex-direction:column;gap:.5cqw;align-items:flex-start">
+        <span style="width:9cqw;height:.7cqw;border-radius:.35cqw;background:#00a1d6"></span>
+        <span style="width:6cqw;height:.7cqw;border-radius:.35cqw;background:rgba(0,161,214,.55)"></span>
+        <span style="width:3cqw;height:.7cqw;border-radius:.35cqw;background:rgba(0,161,214,.3)"></span>
+        <span style="font-size:1.5cqw;font-weight:700;letter-spacing:.16em;color:rgba(16,17,20,.6)">左</span>
+      </div>
+      <div style="position:absolute;right:2.5cqw;top:46cqw;left:50%;display:flex;flex-direction:column;gap:.5cqw;align-items:flex-end">
+        <span style="width:9cqw;height:.7cqw;border-radius:.35cqw;background:#00a1d6"></span>
+        <span style="width:6cqw;height:.7cqw;border-radius:.35cqw;background:rgba(0,161,214,.55)"></span>
+        <span style="width:3cqw;height:.7cqw;border-radius:.35cqw;background:rgba(0,161,214,.3)"></span>
+        <span style="font-size:1.5cqw;font-weight:700;letter-spacing:.16em;color:rgba(16,17,20,.6)">右</span>
+      </div>
+    </div>
+    <div class="row"><span class="name">11 · 这一路放左边</span><span class="id">frame-11 · 40.5–44.0s</span></div>
+    <p class="note"><b>先动的是声波。</b>两侧完全对称，中间一条细线分开。用对称把「左 / 右」变成看得见的东西——这是本项目独有、别人抄不动的一拍。</p>
+    <div class="chips"><span class="c seam">push-slide LEFT</span><span class="c field">field-light</span><span class="c type">benefit_highlight</span></div>
+  </section>
+
+  <!-- 12 -->
+  <section class="beat" id="frame-12">
+    <div class="cell f-dark">
+      <div class="titleblock" style="top:6cqw">
+        <div class="head on-dark">断了自己连回来</div>
+        <div class="sub on-dark">断流重连 画面卡死检测</div>
+      </div>
+      <div class="win" style="left:12cqw;right:12cqw;top:33cqw;bottom:-8cqw">
+        <div class="wbar"><i></i><i></i><i></i><s></s></div>
+        <div class="tiles" style="grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);height:calc(100% - 3.2cqw)">
+          <b></b><b class="warn"></b><b></b><b></b><b></b><b></b>
+        </div>
+      </div>
+      <span style="position:absolute;left:12cqw;top:33cqw;margin:4.2cqw 0 0 17.6cqw;font-size:1.3cqw;font-weight:700;color:#f59e0b;letter-spacing:.1em">重连中…</span>
+    </div>
+    <div class="row"><span class="name">12 · 断了自己连回来</span><span class="id">frame-12 · 44.0–47.5s</span></div>
+    <p class="note"><b>先动的是那一格。</b>格子黑掉、角标转琥珀色，2 秒后画面自己回来。暗场是这一拍成立的前提——黑掉的格子只有在暗底上才看得出来。</p>
+    <div class="chips"><span class="c seam">crossfade</span><span class="c field">field-dark</span><span class="c type">benefit_highlight</span></div>
+  </section>
+
+</main>
+
+<div class="actbar"><span class="t">第三幕 · 收束（47.5–60.0s）</span><span class="l"></span></div>
+<main>
+
+  <!-- 13 -->
+  <section class="beat" id="frame-13">
+    <div class="cell f-dark">
+      <div class="titleblock">
+        <div class="head on-dark">本体不带的功能 插件带</div>
+        <div class="sub on-dark">plugins_user/名字/plugin.py</div>
+      </div>
+      <div style="position:absolute;left:14cqw;right:14cqw;top:36cqw;bottom:-4cqw;background:#15171a;border-radius:8px;box-shadow:0 2cqw 5cqw rgba(0,0,0,.28);padding:2.4cqw 2.6cqw;font-size:1.7cqw;line-height:2.1;color:rgba(241,242,245,.82);font-family:Consolas,monospace">
+        <div>plugins_user/</div>
+        <div style="padding-left:2.6cqw">├─ <span style="color:#00a1d6">danmaku_log/</span></div>
+        <div style="padding-left:2.6cqw;opacity:.6">│&nbsp;&nbsp;&nbsp;└─ plugin.py&nbsp;&nbsp;<span style="opacity:.7">弹幕落盘 + 发弹幕</span></div>
+        <div style="padding-left:2.6cqw">└─ <span style="color:#00a1d6">_template_platform/</span></div>
+        <div style="padding-left:2.6cqw;opacity:.6">│&nbsp;&nbsp;&nbsp;└─ plugin.py&nbsp;&nbsp;<span style="opacity:.7">接别的平台</span></div>
+      </div>
+    </div>
+    <div class="row"><span class="name">13 · 想加功能，写个插件</span><span class="id">frame-13 · 47.5–51.0s</span></div>
+    <p class="note"><b>先动的是目录树。</b>逐行展开，两个真实插件目录名点出。说给愿意折腾的那部分用户听——这个工具的边界可以自己往外推。</p>
+    <div class="chips"><span class="c seam">blur-crossfade</span><span class="c field">field-dark</span><span class="c type">feature_showcase</span></div>
+  </section>
+
+  <!-- 14 -->
+  <section class="beat" id="frame-14">
+    <div class="cell f-light">
+      <div class="titleblock" style="top:16cqw">
+        <div class="head on-light">把十六个窗口，收成一个</div>
+        <div class="sub on-light">Windows 开源免费 LGPL-2.1</div>
+      </div>
+      <div style="position:absolute;left:0;right:0;bottom:0;height:30cqw;display:flex;justify-content:center;align-items:flex-end;padding-bottom:3.5cqw">
+        <div style="display:grid;grid-template-columns:repeat(6,8.5cqw);grid-auto-rows:8.5cqw;gap:1.1cqw">
+          <div class="chip on-blue" style="position:static;grid-template-columns:1fr;padding:1cqw"><i class="hot"></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:repeat(2,1fr);padding:1cqw"><i></i><i></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:repeat(3,1fr);padding:1cqw"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:2fr 1fr;grid-template-rows:repeat(3,1fr);padding:1cqw"><i class="hot" style="grid-row:span 3"></i><i></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:1fr;grid-template-rows:3fr 1fr;padding:1cqw"><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:2fr 1fr;padding:1cqw"><i class="hot"></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);padding:1cqw"><i class="hot"></i><i></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);padding:1cqw"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);padding:1cqw"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:1fr;grid-template-rows:repeat(2,1fr);padding:1cqw"><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:2fr 1fr;grid-template-rows:repeat(2,1fr);padding:1cqw"><i class="hot" style="grid-row:span 2"></i><i></i><i></i></div>
+          <div class="chip on-blue" style="position:static;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:1cqw"><i></i><i></i><i></i><i></i><i class="hot"></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+    </div>
+    <div class="row"><span class="name">14 · 收成一个</span><span class="id">frame-14 · 51.0–56.0s</span></div>
+    <p class="note"><b>什么都不动。</b>全片唯一静止的一拍。03–06 用过的布局图 chip 在这里摊成一整面阵列回收——它就是贯穿全片的那个「图形记忆点」。</p>
+    <div class="chips"><span class="c seam">zoom-through</span><span class="c field">field-light</span><span class="c prop">chip 回收</span></div>
+  </section>
+
+  <!-- 15 -->
+  <section class="beat" id="frame-15">
+    <div class="cell f-black">
+      <div style="position:absolute;left:0;right:0;top:34cqw;text-align:center">
+        <div style="font-size:7.4cqw;font-weight:700;letter-spacing:-.01em;color:var(--ink)">DD监控室CE</div>
+        <div style="font-size:1.9cqw;font-weight:600;letter-spacing:.16em;color:rgba(241,242,245,.55);margin-top:2.2cqw">github.com/Lanpropro/DD_Monitor_CE</div>
+      </div>
+    </div>
+    <div class="row"><span class="name">15 · 片尾</span><span class="id">frame-15 · 56.0–60.0s</span></div>
+    <p class="note"><b>先动的是字标笔画。</b>字标组装成形后停住，地址淡入。<b>纯字体排版，不引用素材</b>——软件本体没有 logo 文件，不硬造。</p>
+    <div class="chips"><span class="c seam">crossfade</span><span class="c field">field-black</span><span class="c type">cta</span></div>
+  </section>
+
+  <!-- 接缝总表 -->
+  <section class="beat" id="frame-seams">
+    <div class="cell f-black">
+      <div class="seams">
+        <div class="seamrow"><span class="n">01→02</span><span class="bar soft" style="flex:2"></span><span>blur-crossfade · 背景换场</span></div>
+        <div class="seamrow"><span class="n">02→03</span><span class="bar hard" style="flex:1"></span><span>zoom-through · 进入蓝场</span></div>
+        <div class="seamrow"><span class="n">03→04→05→06</span><span class="bar" style="flex:3"></span><span>push-slide LEFT · 同一场内的推进</span></div>
+        <div class="seamrow"><span class="n">06→07</span><span class="bar hard" style="flex:1"></span><span>zoom-through · 离开蓝场</span></div>
+        <div class="seamrow"><span class="n">07→08</span><span class="bar hard" style="flex:1"></span><span>zoom-through · 进白场</span></div>
+        <div class="seamrow"><span class="n">08→11</span><span class="bar" style="flex:3"></span><span>crossfade / push-slide · 白场内部</span></div>
+        <div class="seamrow"><span class="n">11→12</span><span class="bar soft" style="flex:2"></span><span>crossfade · 转暗场</span></div>
+        <div class="seamrow"><span class="n">13→14</span><span class="bar soft" style="flex:2"></span><span>zoom-through · 进白场收束</span></div>
+        <div class="seamrow"><span class="n">14→15</span><span class="bar" style="flex:2"></span><span>crossfade · 收黑</span></div>
+      </div>
+    </div>
+    <div class="row"><span class="name">接缝总表</span><span class="id">seam map · 全片 14 个接缝</span></div>
+    <p class="note"><b>方向规则只有一条：</b>同一场内一律向左推进（push-slide LEFT），换场一律用 zoom-through，同场同色之间的普通过渡用 crossfade。全片不出现第二次方向。</p>
+    <div class="chips"><span class="c seam">crossfade ×4</span><span class="c seam">push-slide ×4</span><span class="c seam">zoom-through ×4</span><span class="c seam">blur-crossfade ×2</span></div>
+  </section>
+
+  <!-- 令牌 -->
+  <section class="beat" id="frame-tokens">
+    <div class="cell f-dark">
+      <div class="tok">
+        <h4>色场（一帧只用一种）</h4>
+        <span class="sw"><em style="background:#0d0e10"></em>field-black</span>
+        <span class="sw"><em style="background:#222428"></em>field-dark</span>
+        <span class="sw"><em style="background:#00a1d6"></em>field-blue</span>
+        <span class="sw"><em style="background:#f1f2f5"></em>field-light</span>
+        <h4>字体阶梯</h4>
+        <span class="sw" style="font-size:2.6cqw">headline 4.6 · 700</span>
+        <span class="sw" style="font-size:1.8cqw">row-headline 2.1 · 600</span>
+        <h4>禁止</h4>
+        <div class="bans">
+          <u>不许画假的软件界面</u> —— 一切软件画面必须来自真机截图或真实录屏<br>
+          <u>不许用方格纸底纹 / 细线 / 像素故障块 / QR 块</u> —— 参考片里一个都没有<br>
+          <u>不许幻灯片</u>（一格一换）· <u>不许屏保</u>（在动但什么都没说）<br>
+          <u>不许发光描边</u> · <u>不许玻璃拟态</u> · 粉色只在真实录屏里出现
+        </div>
+      </div>
+    </div>
+    <div class="row"><span class="name">令牌与禁令</span><span class="id">tokens · frame.md 的投影</span></div>
+    <p class="note"><b>来源可查：</b>全部色值派生自软件本体的 <code>ddm/theme.py</code>，字体是 Windows 自带（Microsoft YaHei UI），不联网下载。</p>
+    <div class="chips"><span class="c">theme.py</span><span class="c">系统字体</span><span class="c">无外部资源</span></div>
+  </section>
+
+</main>
+
+</body>
+</html>
