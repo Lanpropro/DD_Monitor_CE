@@ -1,10 +1,13 @@
 # HyperFrames 生成物 / 依赖：本地产物，不进版本库
 node_modules/
-.hyperframes/frame-packets/
 renders/
 snapshots/
 output/
 capture/BLOCKED.md
+
+# .hyperframes/ 里只有 caption-skin.html 是源文件，其余都是构建与排查产物
+.hyperframes/*
+!.hyperframes/caption-skin.html
 
 # 录屏母版（4K 原始素材，体积以 GB 计）
 work/
