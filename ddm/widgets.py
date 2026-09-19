@@ -1939,6 +1939,13 @@ class NavItem(QFrame):
         self.sub.setText(title or "未开播")
         self.thumb._layout_overlay()
 
+    def set_uname(self, uname: str) -> None:
+        """补上主播名：启动时占位条目只有「房间 X」，状态刷新后才拿到真名。"""
+        self.room["uname"] = uname or ""
+        self.name_label.setText(self.room["uname"]
+                                or str(self.room.get("room_id") or ""))
+        self.thumb._layout_overlay()
+
     def set_pinned(self, pinned: bool) -> None:
         self._pinned = bool(pinned)
         self.room["pinned"] = self._pinned
@@ -4158,6 +4165,13 @@ class Tile(QFrame):
             self.room.pop("online", None)      # 下播后旧的在线人数不能再留着显
             self.stop_elapsed_timer()          # 右下角的时长浮标也立刻收掉
         self._refresh_badge()
+
+    def set_uname_title(self, uname: str, title: str) -> None:
+        """补上主播名/标题：启动占位后由状态刷新补齐（悬停浮标显示用）。"""
+        self.room["uname"] = uname or ""
+        self.room["title"] = title or ""
+        self.title_badge.set_text(self.room["uname"], self.room["title"])
+        self.title_badge.setVisible(bool(self.room["uname"]) and self._overlay_visible)
 
     def set_watched(self, watched_text: str) -> None:
         """实时在线人数（高能榜 onlineNum，和 B 站页面一致）。"""

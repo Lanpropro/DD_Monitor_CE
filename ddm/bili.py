@@ -76,9 +76,19 @@ def room_info(room_id: str) -> dict | None:
 
 
 def _parse_live_time(text) -> int:
-    """把 "2026-09-15 01:23:45" 转成时间戳，用来算直播时长。"""
+    """把直播开始时间转成时间戳，用来算直播时长。
+
+    有的接口给 "2026-09-15 01:23:45"，有的给 Unix 秒数；两种都收。
+    """
     try:
-        return int(time.mktime(time.strptime(str(text), "%Y-%m-%d %H:%M:%S")))
+        if text is None:
+            return 0
+        if isinstance(text, (int, float)):
+            return int(text)
+        text = str(text).strip()
+        if text.isdigit():
+            return int(text)
+        return int(time.mktime(time.strptime(text, "%Y-%m-%d %H:%M:%S")))
     except Exception:  # noqa: BLE001
         return 0
 
@@ -493,6 +503,7 @@ def rooms_status(room_ids: list[str]) -> dict[str, dict]:
             "cover_url": (info.get("keyframe") if live else info.get("cover"))
                           or info.get("cover") or "",
             "viewers": (f"{online / 10000:.1f}万" if online >= 10000 else str(online)) if live else "",
+            "live_start_ts": _parse_live_time(info.get("live_time")),
         }
     return result
 

@@ -9,8 +9,6 @@ import os
 import shutil
 import sys
 
-from . import bili
-
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if getattr(sys, "frozen", False):
     # 打包成 exe 后代码在 _internal 里，而 utils / cache / logs 要放在 exe
@@ -91,20 +89,25 @@ def save(state: dict) -> None:
 
 
 def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
-    """(侧栏房间, 画面墙房间)。房间信息实时拉取，格子设置从配置里带。"""
+    """(侧栏房间, 画面墙房间)。格子设置从配置里带。
+
+    房间的实时信息（直播状态/标题/主播名/头像）**不在启动时同步拉**：以前这里
+    对每个房间逐个同步请求（单个超时 10 秒），房间一多窗口就要在主线程上干等
+    几十秒才出现。现在只造占位条目让窗口立刻出现，真实信息由启动后的
+    ``refresh_status()``（后台线程、批量一次请求）补上，见 app 的
+    ``_on_status_updated``。
+    """
     room_ids = _unique(state.get("rooms", []))
     wall_slots = state.get("wall", []) or []
-    wall_ids = _unique(slot.get("room_id", "") for slot in wall_slots)
 
-    infos: dict[str, dict] = {}
-    for room_id in _unique(room_ids + wall_ids):
-        info = bili.room_info(room_id)
-        infos[room_id] = info or {
+    def placeholder(room_id: str) -> dict:
+        return {
             "room_id": room_id, "uname": f"房间 {room_id}",
             "title": "", "live": False, "viewers": "",
+            "face": "", "cover_url": "",
         }
 
-    sidebar = [infos[room_id] for room_id in room_ids if room_id in infos]
+    sidebar = [placeholder(room_id) for room_id in room_ids]
     wall = []
     for slot in wall_slots:
         room_id = str(slot.get("room_id") or "")
@@ -118,7 +121,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
                 "audio_channel": int(slot.get("audio_channel", 0)),
             })
             continue
-        room = dict(infos.get(room_id) or {})
+        room = placeholder(room_id)
         room["muted"] = bool(slot.get("muted", True))
         room["volume"] = int(slot.get("volume", DEFAULT_VOLUME))
         room["quality"] = int(slot.get("quality", 250))
