@@ -4978,11 +4978,12 @@ class LayoutPicker(QFrame):
         self._cards: dict[str, list[QToolButton]] = {}
         self._sections: dict[str, list[QLabel]] = {}
 
-        groups = [(name, [item for item in group
-                          if layouts.is_portrait_layout(item["id"]) == bool(portrait)])
-                  for name, group in layouts.GROUPS]
-        groups = [(name, group) for name, group in groups if group]
-        if not groups:                       # 兜底：定位不到就照旧全列
+        # 两组都列出来（横屏也能点竖屏预设）：选中另一个方向的预设时，本体
+        # 会把**窗口**也改成那个方向（见 MainWindow._on_layout_changed /
+        # _reshape_window），所以不会再出现「竖屏排布塞在横屏窗口里被压扁」。
+        # 用户要的「切成竖屏后 alt+tab 的窗口预览也是竖的」就是靠这条路。
+        groups = [(name, group) for name, group in layouts.GROUPS if group]
+        if not groups:                       # 兜底：一张都没有就照旧全列
             groups = list(layouts.GROUPS)
 
         outer = QVBoxLayout(self)

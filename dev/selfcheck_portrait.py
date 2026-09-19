@@ -300,8 +300,8 @@ def part_narrow_tile_badge(app) -> None:
 
 
 def part_layout_mapping(app) -> None:
-    """横竖屏对映 + 竖屏「放到主画面」+ 布局菜单只列本方向的预设。"""
-    print("\n=== 15. 布局菜单在竖屏只列竖屏预设 ===")
+    """横竖屏对映 + 竖屏「放到主画面」+ 布局菜单（三栏都列，选另一方向会改窗口）。"""
+    print("\n=== 15. 布局菜单三栏都列；竖屏默认停在竖屏那一栏 ===")
     window = MainWindow(rooms(4), rooms(4), layout_id="portrait_main2")
     window.setGeometry(-9000, -9000, *PORTRAIT)
     window.show()
@@ -314,9 +314,11 @@ def part_layout_mapping(app) -> None:
     ids = [card.property("layoutId") for card in picker._cards[picker.group()]
            if card.isVisible()]
     print(f"  竖屏菜单：栏={list(picker._cards)} 当前={picker.group()} 可见={ids}")
-    assert list(picker._cards) == ["竖屏布局"], f"竖屏只该列竖屏那一栏：{list(picker._cards)}"
+    assert list(picker._cards) == ["普通布局", "弹幕布局", "竖屏布局"], \
+        f"三栏都要列（选横屏预设时窗口会跟着变横）：{list(picker._cards)}"
+    assert picker.group() == "竖屏布局", "当前是竖屏布局，默认就该停在竖屏那一栏"
     assert ids and all(layouts.is_portrait_layout(item) for item in ids), \
-        f"竖屏菜单里混进了横屏预设：{ids}"
+        f"竖屏那一栏里混进了横屏预设：{ids}"
     assert sidebar._layout_id in ids, "当前布局要在列表里"
     picker.close()
     settle(app, 0.2)
