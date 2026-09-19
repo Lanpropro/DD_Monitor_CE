@@ -1,8 +1,6 @@
 """VLC 播放封装：共享一个 libvlc 实例，每个格子一个 media_player。"""
-import hashlib
-import os
+import ctypes
 import sys
-import tempfile
 import threading
 
 import vlc
@@ -162,8 +160,7 @@ class TilePlayer(QObject):
         self._last_picture = None
         self._frozen_ticks = 0
         self.freeze_watch = True          # 画面卡死检测（可在全局设置里关掉）
-        self._shot_path = os.path.join(tempfile.gettempdir(),
-                                       f"ddm_shot_{id(self):x}.png")
+        self._media = None                # 当前媒体：画面卡死检测要读它的解码计数
         self._released = False
         self._audio_ready = False         # aout 起来之后补过静音/音量没有
         self._watch = QTimer(self)
@@ -218,6 +215,7 @@ class TilePlayer(QObject):
         media.add_option(":network-caching=800")
         for option in options or ():
             media.add_option(str(option))
+        self._media = media
         self.player.set_media(media)
         self.player.play()
         self._stall_ticks = 0
@@ -242,6 +240,7 @@ class TilePlayer(QObject):
         self._released = True
         self._watch.stop()
         self._picture_watch.stop()
+        self._media = None              # 画面卡死检测别再碰这个媒体
         try:
             self.player.stop()
         except Exception:  # noqa: BLE001
@@ -389,21 +388,28 @@ class TilePlayer(QObject):
 
     # ---- 画面卡死检测 ----
     def _picture_signature(self):
-        """抓一张小图当"指纹"，用来判断画面到底有没有在动。
+        """抓一个「画面有没有在动」的指纹。
 
-        VLC 有时状态还是 Playing、时钟也在走，画面其实已经不动了，
-        只靠时间判断不出来，所以再比一次画面内容。
+        VLC 有时状态还是 Playing、时钟也在走，画面其实已经不动了，只靠时间判断
+        不出来，所以要另看一个信号。
+
+        以前是 `video_take_snapshot` 写一张 PNG 再比文件内容 —— 那是重活，而且
+        **用户机器上正好崩在它里面**：看门狗日志显示主线程卡在 _picture_signature
+        7.1 秒，同时一次 access violation（把「硬件解码」关掉改用软解也照样崩）。
+        现在改成读 VLC 自己的解码计数：画面不动时 decoded_video /
+        displayed_pictures 就不再涨（实测暂停后两者定格），效果一样，
+        但不用截图、不用写临时文件，也就没有那个崩溃面。
         """
+        media = self._media
+        if media is None:
+            return None
+        stats = vlc.MediaStats()
         try:
-            if self.player.video_take_snapshot(0, self._shot_path, 160, 90) != 0:
+            if vlc.libvlc_media_get_stats(media, ctypes.byref(stats)) != 1:
                 return None
-            with open(self._shot_path, "rb") as handle:
-                data = handle.read()
         except Exception:  # noqa: BLE001
             return None
-        if not data:
-            return None
-        return (len(data), hashlib.md5(data).hexdigest())
+        return (int(stats.decoded_video), int(stats.displayed_pictures))
 
     def _check_picture(self, playing: bool) -> bool:
         """画面是不是停了；返回 True 表示判定为卡住。"""

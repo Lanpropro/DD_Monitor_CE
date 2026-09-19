@@ -129,6 +129,17 @@ def main() -> None:
     assert [tp._check_picture(True) for _ in range(6)] == [False] * 6
     print("  关掉检测后不再判定")
 
+    print("  指纹来源：VLC 解码计数，不再截图（用户机器上就是崩在截图那条路上）")
+    assert not hasattr(tp, "_shot_path"), "不该再往临时目录写截图"
+    del tp._picture_signature            # 把上面打桩的 lambda 摘掉，看真实现
+    print(f"    没在播时指纹={tp._picture_signature()!r}（None）")
+    assert tp._picture_signature() is None
+    import io as _io
+    _player_source = _io.open(os.path.join(REPO, "ddm", "player.py"),
+                              encoding="utf-8").read()
+    assert ".video_take_snapshot(" not in _player_source, \
+        "截图判定会在用户机器上卡 7 秒 + access violation，别再回来"
+
     print("\n=== 3b. 静止画面自动刷新与恢复 ===")
     restarts = []
     status_checks = []
