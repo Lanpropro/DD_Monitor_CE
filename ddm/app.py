@@ -20,6 +20,7 @@ from . import layouts
 from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
+from . import watchdog
 from .danmaku import DanmakuClient
 from .bili import (
     AccountLoader, FollowLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
@@ -408,6 +409,7 @@ class MainWindow(QMainWindow):
         # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
         # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
         self._closing = True
+        watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
         self.plugins.unload()
         config_module.save(self.current_state())
@@ -1403,7 +1405,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
         pass
-    setup_file_log()
+    log_path = setup_file_log()
     app = QApplication(argv)
     app.setApplicationName(version_module.DISPLAY_NAME)
     app.setStyleSheet(theme.qss())
@@ -1421,9 +1423,16 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈
+    watchdog.start(log_path)
+    ticker = QTimer(window)
+    ticker.setInterval(watchdog.TICK_MS)
+    ticker.timeout.connect(watchdog.tick)
+    ticker.start()
     window.resize(1600, 900)
     window.showMaximized()
     code = app.exec()
+    watchdog.stop()
     # 关窗时可能还有网络线程在收尾，Qt / VLC 的析构顺序会偶发崩在退出瞬间，
     # 配置在 closeEvent 里已经存好了，这里直接退出进程最稳。
     try:
