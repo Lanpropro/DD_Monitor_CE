@@ -1,0 +1,340 @@
+<template>
+  <style>
+    /* ------------------------------------------------------------------
+       09-follow-list — field-light · 悬停就能预览 / 开播提醒 置顶 拖动排序 导入关注
+       Every software pixel below is the real screen recording
+       assets/rec-follow-list.mp4 (关注列表 · 悬停预览 / 拖动排序) — the app is
+       never redrawn in DOM, and the real pointer lives inside the recording.
+       Only three small editorial callout marks are authored on top of it.
+       ------------------------------------------------------------------ */
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei UI";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei";
+      font-style: normal;
+      font-weight: 400;
+      src: local("Microsoft YaHei"), local("Microsoft YaHei UI"), local("msyh");
+    }
+    @font-face {
+      font-family: "Microsoft YaHei";
+      font-style: normal;
+      font-weight: 700;
+      src: local("Microsoft YaHei Bold"), local("Microsoft YaHei UI Bold"), local("msyhbd");
+    }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ——— flat light field: one full-bleed clip layer, no gradient, no texture ——— */
+    .ddf09-field {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      background: #f1f2f5;
+      transform-origin: 58% 74%;
+      will-change: transform, opacity;
+    }
+
+    /* ——— the window: real recording, 6cqw gutters, top 30cqw, cropped by the
+           bottom edge of the frame so the list reads as still extending down ——— */
+    .ddf09-window {
+      position: absolute;
+      left: 6cqw;
+      right: 6cqw;
+      top: 30cqw;
+      bottom: -8cqw;
+      border-radius: 10px;
+      background: #000;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
+      overflow: hidden;
+      transform-origin: 6% 12%;
+      will-change: transform, opacity;
+    }
+    .ddf09-plate {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #000;
+    }
+
+    /* ——— editorial callout marks, in the recording's own window coordinates ———
+       the rotating ring sits on the follow-list row the real pointer is on; the
+       pin mark sits at that row's right edge; the reorder mark is one thin bar in
+       the tile gutter. All three are marks, not software. */
+    .ddf09-mark {
+      position: absolute;
+      pointer-events: none;
+    }
+    .ddf09-ring {
+      left: 0px;
+      top: 156px;
+      width: 140px;
+      height: 64px;
+      border-radius: 7px;
+      box-shadow: inset 0 0 0 2px rgba(241, 242, 245, 0.95);
+      background: rgba(16, 17, 20, 0.10);
+      transform-origin: 6% 50%;
+      will-change: transform, opacity;
+    }
+    .ddf09-ring-pill {
+      left: 4px;
+      top: 224px;
+      width: 92px;
+      height: 28px;
+      border-radius: 6px;
+      background: rgba(16, 17, 20, 0.90);
+      color: #f1f2f5;
+      font-size: 0.94cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      line-height: 28px;
+      text-align: center;
+      text-indent: 0.12em;
+      will-change: transform, opacity;
+    }
+    .ddf09-pin {
+      left: 152px;
+      top: 150px;
+      width: 4px;
+      height: 62px;
+      border-radius: 2px;
+      background: #00a1d6;
+      transform-origin: 50% 0%;
+      will-change: transform, opacity;
+    }
+    .ddf09-pin-pill {
+      left: 166px;
+      top: 167px;
+      width: 92px;
+      height: 28px;
+      border-radius: 6px;
+      background: rgba(16, 17, 20, 0.90);
+      color: #f1f2f5;
+      font-size: 0.94cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      line-height: 28px;
+      text-align: center;
+      text-indent: 0.12em;
+      will-change: transform, opacity;
+    }
+    .ddf09-caret {
+      left: 0px;
+      top: 304px;
+      width: 240px;
+      height: 28px;
+      will-change: transform, opacity;
+    }
+    .ddf09-caret-bar {
+      position: absolute;
+      left: 0;
+      top: 12px;
+      width: 44px;
+      height: 4px;
+      border-radius: 2px;
+      background: #00a1d6;
+      transform-origin: 0% 50%;
+      will-change: transform;
+    }
+    .ddf09-caret-card {
+      position: absolute;
+      left: 54px;
+      top: 0;
+      height: 28px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      border-radius: 6px;
+      background: rgba(16, 17, 20, 0.90);
+      color: #f1f2f5;
+      font-size: 0.94cqw;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      white-space: nowrap;
+    }
+
+    /* ——— title block: LEFT-aligned, upper-left, above the window ——— */
+    .ddf09-head {
+      position: absolute;
+      left: 6cqw;
+      top: 9cqw;
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.98;
+      letter-spacing: -0.01em;
+      color: #101114;
+      white-space: nowrap;
+      will-change: transform, opacity;
+    }
+    .ddf09-sub {
+      position: absolute;
+      left: 6cqw;
+      top: 23.4cqw;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      color: rgba(16, 17, 20, 0.66);
+      white-space: nowrap;
+      will-change: transform, opacity;
+    }
+  </style>
+
+  <div id="root" data-composition-id="09-follow-list" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+    <!-- scene field, flat -->
+    <div id="ddf09-field" class="clip ddf09-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- the window: the real follow-list recording. The wrapper is an untimed visual
+         container (clip + radius); the timed media element is the <video> itself, so
+         the two never disagree about its slot. Top 30cqw / bottom -8cqw is the approved
+         placement — the window deliberately runs off the bottom edge of the canvas, so
+         the overflow is intentional, not a layout bug. -->
+    <div id="ddf09-window" class="ddf09-window" data-layout-allow-overflow>
+      <video
+        id="ddf09-plate"
+        class="ddf09-plate"
+        data-frame-video="approved"
+        data-frame-video-x="115"
+        data-frame-video-y="576"
+        data-frame-video-width="1690"
+        data-frame-video-height="658"
+        data-frame-video-fit="cover"
+        data-start="0"
+        data-duration="3.5"
+        data-track-index="1"
+        src="assets/rec-follow-list.mp4"
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+
+      <!-- marks: hover ring on the row the real pointer is on -->
+      <div class="ddf09-mark ddf09-ring"></div>
+      <div class="ddf09-mark ddf09-ring-pill">悬停预览</div>
+      <!-- mark: 置顶 set on that row -->
+      <div class="ddf09-mark ddf09-pin"></div>
+      <div class="ddf09-mark ddf09-pin-pill">置顶</div>
+      <!-- mark: one reorder displacement -->
+      <div class="ddf09-mark ddf09-caret">
+        <div class="ddf09-caret-bar"></div>
+        <div class="ddf09-caret-card">拖动排序</div>
+      </div>
+    </div>
+
+    <!-- title block: left-aligned in the upper left -->
+    <h1 id="ddf09-head" class="clip ddf09-head" data-start="0" data-duration="3.5" data-track-index="2">悬停就能预览</h1>
+    <div id="ddf09-sub" class="clip ddf09-sub" data-start="0" data-duration="3.5" data-track-index="3">开播提醒 置顶 拖动排序 导入关注</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+
+      /* Scene 1 (33.5–34.3s → 0.00–1.00): push-slide LEFT into the light field.
+         The flat ground drives in past the lens, the headline lands, and the
+         window comes in from the right and settles left-of-centre on the list. */
+      tl.fromTo(
+        ".ddf09-field",
+        { xPercent: -2.4, scale: 1.03, opacity: 0 },
+        { xPercent: 0, scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" },
+        0,
+      );
+      tl.fromTo(
+        ".ddf09-head",
+        { xPercent: -4, opacity: 0 },
+        { xPercent: 0, opacity: 1, duration: 0.52, ease: "power3.out" },
+        0.06,
+      );
+      tl.fromTo(
+        ".ddf09-window",
+        { xPercent: 5, yPercent: 7, scale: 0.965, opacity: 0 },
+        { xPercent: 0, yPercent: 0, scale: 1, opacity: 1, duration: 0.72, ease: "power3.out" },
+        0.2,
+      );
+
+      /* Scene 2 (34.3–35.8s → 1.00–2.30): the real pointer is already resting on a
+         list row — the hover mark lands on it (spring-pop, smooth long-tail settle),
+         then the 置顶 mark sets on that same row. */
+      tl.fromTo(
+        ".ddf09-ring",
+        { scale: 0.94, opacity: 0, x: 14 },
+        { scale: 1, opacity: 1, x: 0, duration: 0.6, ease: "power3.out" },
+        1.0,
+      );
+      tl.fromTo(
+        ".ddf09-ring-pill",
+        { scale: 0.8, opacity: 0, x: -18 },
+        { scale: 1, opacity: 1, x: 0, duration: 0.52, ease: "power3.out" },
+        1.06,
+      );
+      tl.fromTo(
+        ".ddf09-pin",
+        { scaleY: 0, opacity: 0 },
+        { scaleY: 1, opacity: 1, duration: 0.5, ease: "power3.out" },
+        1.46,
+      );
+      tl.fromTo(
+        ".ddf09-pin-pill",
+        { scale: 0.8, opacity: 0, x: -18 },
+        { scale: 1, opacity: 1, x: 0, duration: 0.5, ease: "power3.out" },
+        1.52,
+      );
+
+      /* Scene 3 (35.8–37.0s → 2.30–3.50): one reorder displacement — the mark drops
+         to the slot below and lands; the sub-headline copy settles with it; then the
+         marks step back so the sub-headline reads unobstructed, and everything holds
+         still for the back half of the beat. */
+      tl.fromTo(
+        ".ddf09-caret",
+        { y: -76, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
+        1.86,
+      );
+      tl.fromTo(
+        ".ddf09-sub",
+        { y: 16, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
+        2.48,
+      );
+      tl.fromTo(
+        [".ddf09-ring", ".ddf09-ring-pill", ".ddf09-pin", ".ddf09-pin-pill", ".ddf09-caret"],
+        { opacity: 1 },
+        { opacity: 0.9, duration: 0.44, ease: "power3.out" },
+        2.72,
+      );
+
+      /* pin the composition length to the fixed 3.5s so the last reveal still has
+         ~0.5s of stillness before the root transition takes over */
+      tl.to({}, { duration: 0.2 }, 3.3);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["09-follow-list"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>
