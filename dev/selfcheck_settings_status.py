@@ -371,6 +371,11 @@ def main() -> None:
           f" 版本={TilePlayer.vlc_version()!r}")
     assert PlayerPool.instance() is PlayerPool.instance(), "预热和正常取用必须是同一个实例"
     assert TilePlayer.vlc_version() not in ("", "?"), "要能读出版本号，日志里好对齐"
+    print("  画面墙的播放器不是 silent（只有预览才是）：")
+    plain = TilePlayer(QWidget())
+    print(f"    silent={plain.silent} muted={plain.muted} volume={plain.volume}")
+    assert plain.silent is False and plain.muted is False and plain.volume == 42
+    plain.release()
     calls: list = []
     original = window.apply_quality_policy
     window.apply_quality_policy()

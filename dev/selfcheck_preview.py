@@ -243,6 +243,18 @@ def main() -> None:
     assert ":no-audio" in options and ":avcodec-hw=none" in options
     TilePlayer.play = real_play
 
+    print("  预览播放器用的是自己的、结构性静音的 libvlc 实例：")
+    from ddm.player import PlayerPool
+    wall_instance = PlayerPool.instance()
+    preview_instance = PlayerPool.preview_instance()
+    print(f"    silent={player.silent} muted={player.muted} volume={player.volume}"
+          f" 与画面墙实例不同={preview_instance is not wall_instance}"
+          f" 缓存同一个={preview_instance is PlayerPool.preview_instance()}")
+    assert player.silent is True, "预览播放器必须是 silent（自己的实例 + dummy 音频输出）"
+    assert player.muted is True and player.volume == 0
+    assert preview_instance is not wall_instance, "预览要用独立的 libvlc 实例"
+    assert preview_instance is PlayerPool.preview_instance(), "预览实例要缓存复用"
+
     print("\n=== 3. 预览是静音的 ===")
     print(f"  静音={player.muted} 音量={player.volume} 卡死检测={player.freeze_watch}")
     assert player.muted is True and player.volume == 0

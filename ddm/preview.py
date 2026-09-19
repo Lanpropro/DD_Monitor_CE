@@ -18,6 +18,8 @@ PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
 #:                       却少了一个和画面墙那一路抢 D3D11 解码器的实例
 #:                       （用户机器上正好卡死在「预览开始播」这一步：
 #:                        Windows 26200 + NVIDIA 616.64）。
+#: 注意这只是第二道保险：预览播放器本身用的是 PlayerPool.preview_instance()
+#: ——一个专门用 --aout=adummy / --no-audio 建出来的 libvlc 实例，见 ddm/player.py。
 PREVIEW_MEDIA_OPTIONS = (":no-audio", ":avcodec-hw=none")
 
 

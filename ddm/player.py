@@ -1,6 +1,7 @@
 """VLC 播放封装：共享一个 libvlc 实例，每个格子一个 media_player。"""
 import hashlib
 import os
+import sys
 import tempfile
 import threading
 
@@ -20,9 +21,13 @@ HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
 
 
 class PlayerPool:
-    """整个程序共用一个 libvlc 实例（比每格一个实例省内存）。"""
+    """整个程序共用一个 libvlc 实例（比每格一个实例省内存）。
+
+    关注列表的悬停预览另用一个**结构性静音**的实例，见 ``preview_instance()``。
+    """
 
     _instance: vlc.Instance | None = None
+    _preview: vlc.Instance | None = None
     _lock = threading.Lock()
 
     @classmethod
@@ -36,15 +41,40 @@ class PlayerPool:
             return cls._instance
 
     @classmethod
+    def preview_instance(cls) -> vlc.Instance:
+        """悬停预览专用的 libvlc 实例：**让预览不可能出声**。
+
+        预览在代码里本来就是 muted=True / volume=0，媒体上还带了 ``:no-audio``，
+        但用户那边（Windows 26200 + NVIDIA 616.64，音频模块 mmdevice）仍然听得到
+        声音。与其继续猜「哪一步没生效」，不如另开一个实例，从根上堵死：
+
+            --aout=adummy      音频输出走 dummy 模块，解出来的声音直接丢掉
+            --no-audio         连音频输出都不建
+            --avcodec-hw=none  也不抢显卡解码器（预览才两百来像素宽，软解足够）
+
+        顺带把预览和画面墙那一路彻底隔离：一边出问题不会牵连另一边。
+        """
+        with cls._lock:
+            if cls._preview is None:
+                cls._preview = vlc.Instance(
+                    "--no-video-title-show", "--quiet", "--no-snapshot-preview",
+                    "--aout=adummy", "--no-audio", "--avcodec-hw=none")
+                _silence_libvlc(cls._preview)
+            return cls._preview
+
+    @classmethod
     def warm_up_async(cls) -> threading.Thread:
-        """后台先把 libvlc 建出来，别等第一次播放才建。
+        """后台先把 libvlc（两个实例）建出来，别等第一次播放才建。
 
         用户机器上的看门狗日志显示 ``libvlc_new()`` 在主线程里卡了 4.5 秒
         （第一次运行要扫 200 多个 VLC 插件，加上杀软扫刚解压的包），
         那一下整个界面就冻住了。放到后台线程建，启动时就把这段时间错开。
         """
-        thread = threading.Thread(target=cls.instance, name="ddm-vlc-warmup",
-                                  daemon=True)
+        def build() -> None:
+            cls.instance()
+            cls.preview_instance()
+
+        thread = threading.Thread(target=build, name="ddm-vlc-warmup", daemon=True)
         thread.start()
         return thread
 
@@ -95,16 +125,19 @@ class TilePlayer(QObject):
             return version.decode("utf-8", "replace")
         return str(version)
 
-    def __init__(self, video_widget, parent=None):
+    def __init__(self, video_widget, parent=None, silent: bool = False):
         super().__init__(parent)
         self.video_widget = video_widget
         self.url = ""
-        self.muted = False
-        self.volume = 42
+        #: 预览用：结构性静音（自己的 libvlc 实例 + dummy 音频输出），见 PlayerPool
+        self.silent = bool(silent)
+        self.muted = self.silent
+        self.volume = 0 if self.silent else 42
         self.audio_channel = 0
         self.paused = False
         self.state = "idle"
-        self._instance = PlayerPool.instance()
+        self._instance = (PlayerPool.preview_instance() if self.silent
+                          else PlayerPool.instance())
         self.player = self._instance.media_player_new()
         self._audio_output = StereoOutput()
         self._audio_callbacks_enabled = False
@@ -283,6 +316,9 @@ class TilePlayer(QObject):
         这次初始化冲掉。关注列表的悬停预览复用一个播放器反复 stop / play，
         第二次起 VLC 那边的音量就弹回构造时的 42（Python 这边明明记着 0），
         用户听到的就是「预览会出声」。用音轨数判断 aout 起来没有，每次播放只补一次。
+
+        预览（``silent``）再补一刀：直接把音频轨关掉，并且把实际状态写进日志 ——
+        用户那边「预览还有声音」一直没能复现，日志里留下这一行才好对齐。
         """
         if self._audio_ready:
             return
@@ -293,12 +329,27 @@ class TilePlayer(QObject):
             return
         self._audio_ready = True
         try:
-            self.player.audio_set_mute(self.muted)
+            if self.silent:
+                self.player.audio_set_track(-1)      # 干脆不要音频轨
+            self.player.audio_set_mute(True if self.silent else self.muted)
             self.player.audio_set_volume(self.volume)
         except Exception:  # noqa: BLE001
             pass
         self._audio_output.set_volume(self.volume)
         self._audio_output.set_enabled(self.uses_pcm_routing and not self.muted)
+        if self.silent:
+            self._log_audio_state()
+
+    def _log_audio_state(self) -> None:
+        """预览的音频自检：把 VLC 侧真实读数写进日志（-1 = 没有音频输出）。"""
+        try:
+            print(f"[预览音频] mute={self.player.audio_get_mute()}"
+                  f" volume={self.player.audio_get_volume()}"
+                  f" 音轨数={self.player.audio_get_track_count()}"
+                  f" 当前轨={self.player.audio_get_track()}",
+                  file=sys.stderr, flush=True)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _play_audio(self, _opaque, samples, count, _pts) -> None:
         self._audio_output.write(samples, count)

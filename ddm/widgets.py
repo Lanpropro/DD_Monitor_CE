@@ -1742,7 +1742,9 @@ class NavThumb(QFrame):
         卡死风险高得多 —— 用户报的「悬停预览时窗口卡死」就出在这一带。
         """
         if self._player is None:
-            self._player = TilePlayer(self.video, self)
+            # silent=True：预览用**自己的** libvlc 实例（dummy 音频输出），
+            # 从根上保证它出不了声 —— 用户那边一直听得到预览的声音
+            self._player = TilePlayer(self.video, self, silent=True)
             self._player.freeze_watch = False        # 缩略图不用卡死检测
             self._player.stateChanged.connect(self._on_player_state)
         return self._player
