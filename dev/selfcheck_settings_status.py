@@ -2,9 +2,10 @@
 import os
 import sys
 import time
+from unittest import mock
 
-from PySide6.QtCore import QPoint, QPointF, QThread, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap, QWheelEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, QThread, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeyEvent, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +19,7 @@ from ddm.dialogs import SettingsDialog  # noqa: E402
 from ddm.player import TilePlayer  # noqa: E402
 
 
-def boom(room_id, quality=250):        # noqa: ANN001, ANN201
+def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
     raise RuntimeError("selfcheck：不联网取流")
 
 
@@ -415,6 +416,46 @@ def main() -> None:
     sidebar.set_sort_mode("custom", notify=False)
     settle(app, 0.3)
     print(f"  自定义：保持当前顺序（{len(sidebar.items())} 项）")
+
+    print("\n=== 9. 快捷键：M 静音这一路，Alt+M 只留这一路 ===")
+    print(f"  默认值：mute={window.shortcuts.get('mute')!r} "
+          f"solo={window.shortcuts.get('solo')!r}")
+    assert window.shortcuts.get("mute") == "M", "静音当前窗口的默认键是 M"
+    assert window.shortcuts.get("solo") == "Alt+M", "只留这一路的默认键要让给 Alt+M"
+    dialog = SettingsDialog(window.settings, window.shortcuts)
+    edits = dialog.shortcut_page._edits                      # noqa: SLF001
+    print(f"  设置窗口里读到：mute={edits['mute'].keySequence().toString()!r} "
+          f"solo={edits['solo'].keySequence().toString()!r}")
+    assert edits["mute"].keySequence().toString() == "M"
+    assert edits["solo"].keySequence().toString() == "Alt+M"
+
+    target, other = window.wall.tiles[0], window.wall.tiles[1]
+    target.set_muted(False)
+    other.set_muted(True)
+
+    def press(key, modifiers=Qt.NoModifier):
+        QApplication.sendEvent(window, QKeyEvent(QEvent.KeyPress, key, modifiers))
+
+    with mock.patch.object(window, "_tile_under_cursor", return_value=target):
+        press(Qt.Key_M)
+        print(f"  按 M：这一路 muted={target.muted}（别的路 muted={other.muted}）")
+        assert target.muted is True and other.muted is True, "M 只动鼠标下那一路"
+        press(Qt.Key_M)
+        assert target.muted is False, "再按一次 M 要取消静音"
+        press(Qt.Key_M, Qt.AltModifier)
+        print(f"  按 Alt+M：这一路 muted={target.muted} 别的路 muted={other.muted}")
+        assert target.muted is False, "Alt+M 要让鼠标下那一路出声"
+        assert other.muted is True, "Alt+M 要把别的路静音"
+        other.set_muted(False)
+        press(Qt.Key_M, Qt.AltModifier)
+        assert other.muted is True, "Alt+M 每次都要把别的路压成静音"
+    # 鼠标不在任何格子上：Alt+M 等于「全部静音」
+    with mock.patch.object(window, "_tile_under_cursor", return_value=None):
+        target.set_muted(False)
+        other.set_muted(False)
+        press(Qt.Key_M, Qt.AltModifier)
+        print(f"  鼠标不在画面上按 Alt+M：全静音={target.muted and other.muted}")
+        assert target.muted is True and other.muted is True
 
     window.close()
     print("\n全部通过")

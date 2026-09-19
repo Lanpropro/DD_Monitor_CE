@@ -695,8 +695,10 @@ class MainWindow(QMainWindow):
         if player is not None:
             player.release()
         resolver = self._resolvers.pop(tile, None)
-        if resolver is not None and resolver.isRunning():
-            resolver.terminate()
+        if resolver is not None:
+            # 只作废、不强杀：terminate() 会带走线程本地存储和锁，主线程可能
+            # 整个卡死（窗口不动也不退出，用户看到的就是「直接崩了」）
+            resolver.cancel()
         self.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
                           room=dict(tile.room or {}))
 
@@ -1356,6 +1358,8 @@ class MainWindow(QMainWindow):
             if tile is not None and tile.room.get("room_id"):
                 self._previous_layout = self.wall.layout_id
                 self._on_fullscreen(tile.room)
+        elif pressed and pressed == shortcuts.get("mute"):
+            self._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
         elif pressed and pressed == shortcuts.get("restore") and self._previous_layout:
@@ -1366,14 +1370,31 @@ class MainWindow(QMainWindow):
         else:
             super().keyPressEvent(event)
 
-    def _toggle_solo_audio(self) -> None:
-        """M/S：只让鼠标悬停的那一路有声，再按一次全部恢复静音。"""
+    def _toggle_mute_under_cursor(self) -> None:
+        """M：静音 / 取消静音鼠标所在的那一路（只动这一路，别的格子不变）。"""
         target = self._tile_under_cursor()
+        if target is None or not target.room.get("room_id"):
+            return
+        target.set_muted(not target.muted)
+        print(f"[快捷键] {target.room.get('uname')} "
+              f"{'已静音' if target.muted else '已取消静音'}",
+              file=sys.stderr, flush=True)
+
+    def _toggle_solo_audio(self) -> None:
+        """Alt+M：只让鼠标悬停的那一路有声，其他格子一律静音。
+
+        鼠标不在任何格子上时等于「全部静音」——这也是想安静下来时最顺手的按法。
+        """
+        target = self._tile_under_cursor()
+        if target is not None and not target.room.get("room_id"):
+            target = None
         for tile in self.wall.tiles:
             tile.set_muted(tile is not target)
         if target is not None:
             print(f"[快捷键] 只保留 {target.room.get('uname')} 的声音",
                   file=sys.stderr, flush=True)
+        else:
+            print("[快捷键] 全部静音", file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -13,10 +13,12 @@ from PySide6.QtWidgets import (
 from . import theme
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
+# 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
 SHORTCUT_ACTIONS = [
     ("focus", "把鼠标所在那一路放到主画面", "F"),
     ("restore", "还原上一个布局", "Esc"),
-    ("solo", "只保留鼠标所在那一路的声音", "M"),
+    ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
+    ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
 
 
@@ -137,7 +139,7 @@ class GeneralSettingsPage(QWidget):
 
 
 class ShortcutSettingsPage(QWidget):
-    """快捷键：把鼠标所在那一路放大、还原布局、单路声音。"""
+    """快捷键：把鼠标所在那一路放大、还原布局、静音 / 单路声音。"""
 
     def __init__(self, shortcuts: dict, parent=None):
         super().__init__(parent)
