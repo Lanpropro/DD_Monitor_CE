@@ -1,0 +1,11 @@
+{
+  "provider": "auto",
+  "speed": 1,
+  "lines": [],
+  "bgm": {
+    "mode": "retrieve",
+    "query": "driving electronic, punchy four-on-the-floor kick, syncopated bass, 129 BPM",
+    "blob": "十六路直播，不必开十六个窗口",
+    "arc": "Demo Loop（钩子 → 产品 → 演示循环 ×N → 宣言 → 行动）"
+  }
+}
