@@ -1,0 +1,240 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+    }
+
+    /* ── the ground: flat field-black, nothing else ───────────────────────── */
+    #f01-wall-ignite-field {
+      position: absolute;
+      inset: 0;
+      background: #0d0e10;
+    }
+
+    /* ── the camera group = the window mockup.
+          It is the frame's ONLY z-indexed element: the real recording is hoisted
+          to the host root (a later sibling), so the mockup has to paint above it
+          rather than rely on DOM order. ─────────────────────────────────────── */
+    #f01-wall-ignite-cam {
+      position: absolute;
+      left: 134px;
+      top: 307px;
+      width: 1651px;
+      height: 888px;
+      z-index: 5;
+      transform-origin: 50% 50%;
+    }
+
+    /* matte: field-black everywhere outside the window, rounded to the window
+       radius — this is what makes the opening read as one faint-edged window in
+       a black field (and it rounds the recording's square corners). */
+    #f01-wall-ignite-matte {
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      box-shadow:
+        0 38px 96px rgba(0, 0, 0, 0.28),
+        0 0 0 3000px #0d0e10;
+    }
+
+    /* the window edge, drawn over the recording */
+    #f01-wall-ignite-edge {
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(241, 242, 245, 0.14);
+      border-radius: 10px;
+    }
+
+    /* the aperture: the wall's grids and the danmaku streaks live in here */
+    #f01-wall-ignite-wall {
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    /* one unlit grid of the wall — field-black, exactly the ground's value, so
+       "off" is indistinguishable from the black the frame opens on. Authored
+       under the streaks so a streak cannot cross a grid that has not lit yet. */
+    .f01-wall-ignite-grid {
+      position: absolute;
+      background: #0d0e10;
+    }
+
+    /* danmaku streak: a hairline that crosses the already-lit grids */
+    .f01-wall-ignite-streak {
+      position: absolute;
+      left: 0;
+      width: 1651px;
+      height: 3px;
+      overflow: hidden;
+    }
+    .f01-wall-ignite-streak i {
+      display: block;
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 430px;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(241, 242, 245, 0.3);
+    }
+  </style>
+
+  <div
+    id="root"
+    data-composition-id="01-wall-ignite"
+    data-width="1920"
+    data-height="1080"
+    data-start="0"
+    data-duration="6"
+  >
+    <div
+      id="f01-wall-ignite-field"
+      class="clip"
+      data-start="0"
+      data-duration="6"
+      data-track-index="0"
+    ></div>
+
+    <!-- The wall itself: the real screen recording (16 live tiles filling in).
+         assemble-index hoists this to the host root and translates its timing;
+         the geometry below is the window at the beat's handoff scale (1.04). -->
+    <video
+      id="f01-wall-ignite-screen"
+      data-frame-video="approved"
+      src="assets/rec-wall-build.mp4"
+      muted
+      playsinline
+      preload="auto"
+      data-frame-video-x="101"
+      data-frame-video-y="289"
+      data-frame-video-width="1717"
+      data-frame-video-height="924"
+      data-frame-video-fit="cover"
+      data-start="0"
+      data-duration="6"
+      data-track-index="0"
+    ></video>
+
+    <div id="f01-wall-ignite-cam">
+      <div id="f01-wall-ignite-matte"></div>
+
+      <div id="f01-wall-ignite-wall">
+        <!-- danmaku hairlines (under the grids: they only read on lit glass) -->
+        <div class="f01-wall-ignite-streak" style="top: 93px">
+          <i id="f01-wall-ignite-streak-1"></i>
+        </div>
+        <div class="f01-wall-ignite-streak" style="top: 342px">
+          <i id="f01-wall-ignite-streak-2"></i>
+        </div>
+        <div class="f01-wall-ignite-streak" style="top: 285px">
+          <i id="f01-wall-ignite-streak-3"></i>
+        </div>
+        <div class="f01-wall-ignite-streak" style="top: 592px">
+          <i id="f01-wall-ignite-streak-4"></i>
+        </div>
+        <div class="f01-wall-ignite-streak" style="top: 518px">
+          <i id="f01-wall-ignite-streak-5"></i>
+        </div>
+        <div class="f01-wall-ignite-streak" style="top: 746px">
+          <i id="f01-wall-ignite-streak-6"></i>
+        </div>
+
+        <!-- 16 grids, row-major: left→right, top→bottom.
+             Each is 1px larger than its cell so neighbours overlap: two abutting
+             antialiased edges would each composite the recording underneath at
+             partial alpha and print a hairline seam across the wall. -->
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-1" style="left: 0; top: 0; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-2" style="left: 413px; top: 0; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-3" style="left: 826px; top: 0; width: 413px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-4" style="left: 1238px; top: 0; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-5" style="left: 0; top: 222px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-6" style="left: 413px; top: 222px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-7" style="left: 826px; top: 222px; width: 413px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-8" style="left: 1238px; top: 222px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-9" style="left: 0; top: 444px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-10" style="left: 413px; top: 444px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-11" style="left: 826px; top: 444px; width: 413px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-12" style="left: 1238px; top: 444px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-13" style="left: 0; top: 666px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-14" style="left: 413px; top: 666px; width: 414px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-15" style="left: 826px; top: 666px; width: 413px; height: 223px"></div>
+        <div class="f01-wall-ignite-grid" id="f01-wall-ignite-grid-16" style="left: 1238px; top: 666px; width: 414px; height: 223px"></div>
+      </div>
+
+      <div id="f01-wall-ignite-edge"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Scene 1–3: one extremely slow push, running from the first frame and
+      // giving nothing more in the back half — it has settled by the held read.
+      tl.fromTo(
+        "#f01-wall-ignite-cam",
+        { scale: 1 },
+        { scale: 1.04, duration: 6, ease: "power1.out" },
+        0,
+      );
+
+      // Scene 1: all black, and the window edge is only just legible.
+      tl.fromTo(
+        "#f01-wall-ignite-edge",
+        { opacity: 0 },
+        { opacity: 1, duration: 1.1, ease: "power2.out" },
+        0.15,
+      );
+
+      // The grids ignite left→right, top→bottom, tightening as they go
+      // (0.42s → 0.13s apart): 3 alone in the dark, then the rhythm takes over.
+      const IGNITE = [
+        0.45, 0.87, 1.29, 1.75, 2.11, 2.44, 2.74, 3.02,
+        3.3, 3.55, 3.78, 3.99, 4.18, 4.35, 4.5, 4.63,
+      ];
+      IGNITE.forEach((at, index) => {
+        // the last grid lands the whole wall: a slightly softer power-on
+        const ramp = index === IGNITE.length - 1 ? 0.3 : 0.18;
+        tl.fromTo(
+          "#f01-wall-ignite-grid-" + (index + 1),
+          { autoAlpha: 1 },
+          { autoAlpha: 0, duration: ramp, ease: "power2.out" },
+          at,
+        );
+      });
+
+      // Scene 2: hairlines start crossing the glass that is already lit — each
+      // one only lives where a grid has opened, because the unlit grids paint
+      // over this layer.
+      const STREAKS = [
+        { at: 2.05, duration: 0.95 },
+        { at: 2.55, duration: 0.9 },
+        { at: 3.1, duration: 0.85 },
+        { at: 3.5, duration: 0.85 },
+        { at: 3.95, duration: 0.8 },
+        { at: 4.45, duration: 0.7 },
+      ];
+      STREAKS.forEach((s, index) => {
+        tl.fromTo(
+          "#f01-wall-ignite-streak-" + (index + 1),
+          { x: -430 },
+          { x: 1651, duration: s.duration, ease: "none" },
+          s.at,
+        );
+      });
+
+      // Scene 3 (4.63s→6.0s) is the held read: the wall is whole, the camera has
+      // settled at 1.04, and nothing else moves.
+
+      window.__timelines["01-wall-ignite"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>
