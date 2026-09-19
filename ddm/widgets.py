@@ -4374,19 +4374,16 @@ class Tile(QFrame):
         self._round_video()
 
     def _round_video(self) -> None:
-        """视频窗口的圆角遮罩，并把控制条占的那块**挖掉**。
+        """视频窗口的圆角遮罩。
 
-        挖掉之后，控制条那一片就不属于原生视频窗口了 —— 即使层级被系统调乱，
-        点在那个区域的鼠标也不会被视频吃掉，一定能落到控制条上。
+        **不要**在这里挖掉控制条那一块：挖了就露出格子底色，按钮周围会出现
+        一条长方形黑底（用户报过好几次的老问题，`_update_controls_mask()` 那套
+        「只留按钮轮廓」的机制才是治它的）。让控制条能点到靠的是
+        `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, max(1, self.video.width()), max(1, self.video.height())),
                             9, 9)
-        if self.controls.isVisible():
-            controls = self.controls.geometry()
-            hole = QPainterPath()
-            hole.addRect(QRectF(controls))
-            path = path.subtracted(hole)
         self.video.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def _quality_button_width(self) -> int:

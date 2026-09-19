@@ -13,7 +13,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QMimeData, QPoint, QPointF, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QMimeData, QPoint, QPointF, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QPixmap, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -251,7 +251,7 @@ def part_narrow_tile_badge(app) -> None:
     window.close()
     settle(app, 0.4)
 
-    print("\n=== 6d. 竖屏 1+4：每一格的 ✕ 都要点得到（原生视频窗口不能吃掉点击）===")
+    print("\n=== 6d. 竖屏 1+4：控制条底下不能有黑底、✕ 要能点到 ===")
     window = MainWindow(rooms(5), rooms(5), layout_id="portrait_main4")
     window.setGeometry(-9000, -9000, *PORTRAIT)
     window.show()
@@ -263,16 +263,37 @@ def part_narrow_tile_badge(app) -> None:
     settle(app, 0.5)
     for index, item in enumerate(tiles):
         button = item.close_button
-        # 视频是原生子窗口：它的遮罩必须把控制条那块挖掉，否则点在那个区域的
-        # 鼠标会被视频吃掉 —— 用户报的「竖屏 1+4 下方两格 ✕ 关不掉」就是这个
-        in_video = item.video.mask().contains(
-            button.mapTo(item.video, button.rect().center()))
+        # ① 视频遮罩不能有洞：在视频区里撒一层网格点，全部都要落在遮罩内
+        #    （上一版把控制条那块挖掉了 → 按钮周围露出格子底色＝一条长方形黑底）
+        mask = item.video.mask()
+        rect = item.video.rect()
+        sampled = total = 0
+        for gx in range(1, 12):
+            for gy in range(1, 12):
+                x = rect.left() + int(rect.width() * gx / 12)
+                y = rect.top() + int(rect.height() * gy / 12)
+                if 10 < x < rect.width() - 10 and 10 < y < rect.height() - 10:
+                    total += 1
+                    sampled += int(mask.contains(QPoint(x, y)))
+        # ② 控制条自己的遮罩只留按钮轮廓（`_update_controls_mask`），✕ 要在里面
         in_controls = item.controls.mask().contains(
             button.mapTo(item.controls, button.rect().center()))
-        print(f"  格子{index} {item.width()}x{item.height()}：✕ 中心在视频遮罩里="
-              f"{in_video} 在控制条可点区域里={in_controls}")
+        # ③ 控制条**占的那块**在视频遮罩里也必须存在（就是「有没有挖洞」的直接检查）：
+        #    上一版挖了这块 → 按钮底下露出格子底色，一条长方形黑底。
+        #    坐标要经父控件（格子）换算 —— 视频是控制条的兄弟，mapTo 兄弟会掉成全局坐标
+        ctrl_local = QRect(0, 0, item.controls.width(), item.controls.height())
+        offset_x = item.controls.x() - item.video.x()
+        offset_y = item.controls.y() - item.video.y()
+        probes = [ctrl_local.topLeft(), ctrl_local.topRight(), ctrl_local.bottomLeft(),
+                  ctrl_local.bottomRight(), ctrl_local.center()]
+        inside = sum(int(mask.contains(QPoint(point.x() + offset_x, point.y() + offset_y)))
+                     for point in probes)
+        print(f"  格子{index} {item.width()}x{item.height()}：视频遮罩覆盖 {sampled}/{total} "
+              f"个采样点，控制条那 5 个探针在视频遮罩里={inside}/5，"
+              f"✕ 在控制条可点区域里={in_controls}")
         assert item.controls.isVisible(), "悬停时控制条要露出来"
-        assert not in_video, "视频遮罩必须挖掉控制条那块（不然原生窗口吃掉点击）"
+        assert sampled == total, f"视频遮罩被挖了洞（{sampled}/{total}），按钮周围会出现黑底"
+        assert inside == 5, "控制条那块被从视频遮罩里挖掉了 → 按钮周围就是黑底"
         assert in_controls, "✕ 必须落在控制条的可点区域里"
     window.close()
     settle(app, 0.4)
