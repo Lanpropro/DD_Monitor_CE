@@ -15,6 +15,7 @@ import time
 
 from PySide6.QtCore import QMimeData, QPoint, QPointF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QPixmap, QWheelEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1053,7 +1054,7 @@ def part_login_button(app) -> None:
         # 自查却「通过」了（用户实测点登录没反应）
         opened: list = []
         window.open_login = lambda box=opened: box.append(True)
-        row.clicked.emit()                       # 等价于用户点了这一格
+        QTest.mouseClick(row, Qt.LeftButton, pos=QPoint(row.width() // 2, row.height() // 2))
         sidebar._open_account_menu()
         print(f"  {layout}：账号按钮可见={row.isVisible()} 文本={row.name.text()!r} "
               f"头像={row.avatar.text()!r} 点完弹了扫码登录={bool(opened)} "

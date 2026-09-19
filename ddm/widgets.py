@@ -1249,7 +1249,9 @@ class AccountRow(QFrame):
         self.setToolTip(self.uname if compact else "")
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self.uname:
+        # 未登录时这一格是「登录」按钮，也要能点 —— 以前这里卡了 `and self.uname`，
+        # 登录按钮点下去什么也不发生（用户实测）
+        if event.button() == Qt.LeftButton:
             self.clicked.emit()
 
 
