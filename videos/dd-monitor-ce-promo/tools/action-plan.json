@@ -1,19 +1,124 @@
 [
-  { "at": 0.8,  "type": "maximize", "note": "窗口最大化（无桌面穿帮 + 菜单坐标有效）" },
-  { "at": 2.5,  "type": "move",   "x": 200,  "y": 700,  "note": "hover follow list item 1" },
-  { "at": 4.0,  "type": "move",   "x": 200,  "y": 950,  "note": "hover item 2" },
-  { "at": 5.5,  "type": "move",   "x": 200,  "y": 1200, "note": "hover item 3" },
-  { "at": 7.5,  "type": "click",  "x": 161,  "y": 2061, "note": "open layout picker" },
-  { "at": 8.8,  "type": "click",  "x": 156,  "y": 1601, "note": "pick single pane" },
-  { "at": 12.5, "type": "click",  "x": 161,  "y": 2061, "note": "open layout picker" },
-  { "at": 13.8, "type": "click",  "x": 919,  "y": 1601, "note": "pick 4-up" },
-  { "at": 17.5, "type": "click",  "x": 161,  "y": 2061, "note": "open layout picker" },
-  { "at": 18.8, "type": "click",  "x": 408,  "y": 1716, "note": "pick 9-up" },
-  { "at": 22.5, "type": "click",  "x": 161,  "y": 2061, "note": "open layout picker" },
-  { "at": 23.8, "type": "click",  "x": 411,  "y": 1854, "note": "pick 1+5" },
-  { "at": 27.5, "type": "click",  "x": 161,  "y": 2061, "note": "open layout picker" },
-  { "at": 28.8, "type": "click",  "x": 166,  "y": 1716, "note": "pick 6-up" },
-  { "at": 32.5, "type": "resize", "w": 810,  "h": 1440, "note": "drag into portrait" },
-  { "at": 39.5, "type": "maximize", "note": "back to landscape (maximized)" },
-  { "at": 44.0, "type": "move",   "x": 200,  "y": 700,  "note": "hover follow list" }
+ {
+  "at": 0.8,
+  "type": "maximize",
+  "note": "maximize window"
+ },
+ {
+  "at": 3,
+  "type": "move",
+  "x": 200,
+  "y": 620,
+  "note": "hover follow list item 1 (dwell 4s)"
+ },
+ {
+  "at": 7,
+  "type": "move",
+  "x": 200,
+  "y": 880,
+  "note": "hover item 2 (dwell 4s)"
+ },
+ {
+  "at": 11,
+  "type": "move",
+  "x": 200,
+  "y": 1140,
+  "note": "hover item 3 (dwell 4s)"
+ },
+ {
+  "at": 15,
+  "type": "move",
+  "x": 200,
+  "y": 1400,
+  "note": "hover item 4 (dwell 4s)"
+ },
+ {
+  "at": 19.5,
+  "type": "click",
+  "x": 161,
+  "y": 2061,
+  "note": "open layout picker (dwell 3s)"
+ },
+ {
+  "at": 23,
+  "type": "click",
+  "x": 156,
+  "y": 1601,
+  "note": "pick single pane"
+ },
+ {
+  "at": 29,
+  "type": "click",
+  "x": 161,
+  "y": 2061,
+  "note": "open layout picker"
+ },
+ {
+  "at": 32.5,
+  "type": "click",
+  "x": 919,
+  "y": 1601,
+  "note": "pick 4-up"
+ },
+ {
+  "at": 38.5,
+  "type": "click",
+  "x": 161,
+  "y": 2061,
+  "note": "open layout picker"
+ },
+ {
+  "at": 42,
+  "type": "click",
+  "x": 408,
+  "y": 1716,
+  "note": "pick 9-up"
+ },
+ {
+  "at": 48,
+  "type": "click",
+  "x": 161,
+  "y": 2061,
+  "note": "open layout picker"
+ },
+ {
+  "at": 51.5,
+  "type": "click",
+  "x": 411,
+  "y": 1854,
+  "note": "pick main + 5 small (1+5)"
+ },
+ {
+  "at": 57.5,
+  "type": "click",
+  "x": 161,
+  "y": 2061,
+  "note": "open layout picker"
+ },
+ {
+  "at": 61,
+  "type": "click",
+  "x": 166,
+  "y": 1716,
+  "note": "pick 6-up"
+ },
+ {
+  "at": 67,
+  "type": "resize",
+  "w": 810,
+  "h": 1440,
+  "note": "drag into portrait (dwell 9s)"
+ },
+ {
+  "at": 76,
+  "type": "maximize",
+  "note": "back to landscape maximized (dwell 7s)"
+ },
+ {
+  "at": 83,
+  "type": "move",
+  "x": 200,
+  "y": 620,
+  "note": "hover follow list again"
+ }
 ]
