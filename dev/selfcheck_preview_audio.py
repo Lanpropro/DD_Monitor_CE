@@ -39,12 +39,20 @@ class VideoRecorder:
     def __init__(self):
         self.stopped = False
         self.hwnd_calls: list = []
+        self.events: list = []
+        self.released = False
 
     def stop(self):
         self.stopped = True
+        self.events.append("stop")
 
     def set_hwnd(self, hwnd):
         self.hwnd_calls.append(hwnd)
+        self.events.append(f"set_hwnd({hwnd})")
+
+    def release(self):
+        self.released = True
+        self.events.append("release")
 
 
 def main() -> None:
@@ -86,8 +94,22 @@ def main() -> None:
     silent2.stop()
     assert rec.stopped is True, "stop() 要真的停掉播放"
     assert 0 in rec.hwnd_calls, "stop() 要在 widget 隐藏前 set_hwnd(0) 摘掉画面"
+    assert rec.events[:2] == ["set_hwnd(0)", "stop"], \
+        f"必须先摘 HWND 再进 libvlc_media_player_stop，实际顺序={rec.events}"
     assert silent2._bound is False, "stop() 后要重置绑定，下次 play 重新 bind"  # noqa: SLF001
-    print("  stop() 会 set_hwnd(0) 并重置绑定")
+    print(f"  调用顺序={rec.events}，并已重置绑定")
+
+    print("\n=== 5. release() 也要先摘画面，再 stop / release ===")
+    silent3 = TilePlayer(QWidget(), silent=True)
+    rec = VideoRecorder()
+    silent3.player = rec
+    silent3._bound = True          # noqa: SLF001
+    silent3._bound_hwnd = 54321    # noqa: SLF001
+    silent3.release()
+    assert rec.events == ["set_hwnd(0)", "stop", "release"], \
+        f"释放时必须先摘 HWND，实际顺序={rec.events}"
+    assert silent3._bound is False and silent3._bound_hwnd == 0  # noqa: SLF001
+    print(f"  调用顺序={rec.events}")
 
     print("\n全部通过")
 

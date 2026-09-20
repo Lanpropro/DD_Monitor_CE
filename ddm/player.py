@@ -233,13 +233,16 @@ class TilePlayer(QObject):
     def stop(self) -> None:
         self._watch.stop()
         self._picture_watch.stop()
-        self.player.stop()
         try:
-            self.player.set_hwnd(0)     # 摘掉画面：widget 马上要隐藏，别让 VLC 再往里渲染
+            # 必须在 stop 前摘掉 HWND。用户日志里的 access violation / 7 秒卡死
+            # 正发生在 libvlc_media_player_stop；让 VLC 仍绑着马上要隐藏的原生窗口
+            # 再 stop，会和 Qt 的窗口隐藏/销毁撞在一起。
+            self.player.set_hwnd(0)
         except Exception:  # noqa: BLE001
             pass
         self._bound = False             # 下次 play 重新 bind
         self._bound_hwnd = 0
+        self.player.stop()
         self._last_picture = None
         self._frozen_ticks = 0
         self._set_state("idle")
@@ -252,15 +255,15 @@ class TilePlayer(QObject):
         self._picture_watch.stop()
         self._media = None              # 画面卡死检测别再碰这个媒体
         try:
-            self.player.stop()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            self.player.set_hwnd(0)     # 摘掉画面，格子不会留着最后一帧
+            self.player.set_hwnd(0)     # 先摘画面，再进可能阻塞的 stop / release
         except Exception:  # noqa: BLE001
             pass
         self._bound = False
         self._bound_hwnd = 0
+        try:
+            self.player.stop()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             self.player.release()
         except Exception:  # noqa: BLE001
