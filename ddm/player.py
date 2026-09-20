@@ -236,6 +236,10 @@ class TilePlayer(QObject):
         self._set_state("connecting")
         self._watch.start()
         self._picture_watch.start()
+        # aout 比 _watch 的第一个 tick（1.5 s）起得早（实测 ~0.4 s）：补几个更早的
+        # 重试，免得静音/音量在开头那一两秒里还没生效。
+        for delay in (150, 400, 800, 1200):
+            QTimer.singleShot(delay, self._ensure_audio_settings)
 
     def stop(self) -> None:
         self._watch.stop()
@@ -308,14 +312,28 @@ class TilePlayer(QObject):
         if self.silent:                     # --no-audio 实例没有音频输出，别碰
             return
         self.player.audio_set_mute(muted)
+        self._apply_volume()
         self._audio_output.set_enabled(self.uses_pcm_routing and not muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
         if self.silent:                     # --no-audio 实例没有音频输出，别碰
             return
-        self.player.audio_set_volume(volume)
+        self._apply_volume()
         self._audio_output.set_volume(volume)
+
+    def _apply_volume(self) -> None:
+        """把「静音」也落实成音量 0。
+
+        个别机器（Windows 26200 + 某些 mmdevice 音频栈）上 ``audio_set_mute`` 不
+        生效 —— 用户那边连预览的 muted=True / volume=0 都还听得到声音，最后是靠
+        另建一个 ``--no-audio`` 实例才堵住的。画面墙的格子没法整路 --no-audio
+        （没静音的要出声），所以这里再压一道：静音时音量直接 0，取消静音再恢复。
+        """
+        try:
+            self.player.audio_set_volume(0 if self.muted else self.volume)
+        except Exception:  # noqa: BLE001
+            pass
 
     def set_audio_channel(self, channel: int) -> None:
         """声道模式：3/4 将完整声音混为单声道后只送左/右输出。
@@ -348,7 +366,7 @@ class TilePlayer(QObject):
         里「[预览音频]」那行之后紧跟 Windows fatal exception。``--no-audio`` 已经
         保证静音，这里一个音频调用都不该发。
         """
-        if self._audio_ready:
+        if self._audio_ready or self._released:
             return
         if self.silent:
             self._audio_ready = True
@@ -361,7 +379,7 @@ class TilePlayer(QObject):
         self._audio_ready = True
         try:
             self.player.audio_set_mute(self.muted)
-            self.player.audio_set_volume(self.volume)
+            self._apply_volume()
         except Exception:  # noqa: BLE001
             pass
         self._audio_output.set_volume(self.volume)

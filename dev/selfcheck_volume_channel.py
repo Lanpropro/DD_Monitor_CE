@@ -207,6 +207,19 @@ def main() -> None:
     print(f"  再补一次：{fake.calls}（每次播放只补一次，不刷调用）")
     assert fake.calls == []
 
+    print("\n=== 4d. 静音的格子：光靠 mute 不保险，音量也压到 0 ===")
+    holder.set_volume(42)
+    fake.calls.clear()
+    holder.set_muted(True)
+    print(f"  静音时下发：{fake.calls}")
+    assert ("mute", True) in fake.calls and ("volume", 0) in fake.calls, \
+        "静音要同时把音量压到 0：个别机器上 audio_set_mute 不生效，静音的格子照样出声"
+    fake.calls.clear()
+    holder.set_muted(False)
+    print(f"  取消静音：{fake.calls}")
+    assert ("mute", False) in fake.calls and ("volume", 42) in fake.calls, \
+        "取消静音要把用户音量恢复回去（不能停在 0）"
+
     holder.play("https://example.invalid/x.flv")     # 重新播放要重新补
     print(f"  play() 之后：_audio_ready={holder._audio_ready}")    # noqa: SLF001
     assert holder._audio_ready is False                            # noqa: SLF001
