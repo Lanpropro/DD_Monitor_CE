@@ -149,8 +149,9 @@ class TilePlayer(QObject):
         self._audio_drain_cb = None
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
-        self.player.audio_set_volume(self.volume)
-        self.player.audio_set_mute(True)
+        if not self.silent:                 # 预览是 --no-audio 实例，没有音频输出，别碰
+            self.player.audio_set_volume(self.volume)
+            self.player.audio_set_mute(True)
         self._bound = False
         self._bound_hwnd = 0
         #: 这一段流的取流结果（「秒切」时跟着播放器一起搬到别的格子）
@@ -289,11 +290,15 @@ class TilePlayer(QObject):
 
     def set_muted(self, muted: bool) -> None:
         self.muted = muted
+        if self.silent:                     # --no-audio 实例没有音频输出，别碰
+            return
         self.player.audio_set_mute(muted)
         self._audio_output.set_enabled(self.uses_pcm_routing and not muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
+        if self.silent:                     # --no-audio 实例没有音频输出，别碰
+            return
         self.player.audio_set_volume(volume)
         self._audio_output.set_volume(volume)
 
@@ -317,17 +322,21 @@ class TilePlayer(QObject):
             self.player.audio_set_channel(channel)
 
     def _ensure_audio_settings(self) -> None:
-        """音频输出模块起来之后，补一次静音 / 音量。
+        """音频输出模块起来之后，补一次静音 / 音量（只对画面墙的格子）。
 
         VLC 的 aout 是**真正开始播放时**才建的：在那之前设的静音、音量会被
-        这次初始化冲掉。关注列表的悬停预览复用一个播放器反复 stop / play，
-        第二次起 VLC 那边的音量就弹回构造时的 42（Python 这边明明记着 0），
-        用户听到的就是「预览会出声」。用音轨数判断 aout 起来没有，每次播放只补一次。
+        这次初始化冲掉，所以起来之后再补一次。
 
-        预览（``silent``）再补一刀：直接把音频轨关掉，并且把实际状态写进日志 ——
-        用户那边「预览还有声音」一直没能复现，日志里留下这一行才好对齐。
+        预览（``silent``）**什么都不做**：它用的是 ``--no-audio`` 实例，根本没
+        有音频输出（aout）；再对不存在的 aout 调 set_track / set_mute /
+        set_volume，用户机器上就是一次 access violation —— logs/ddm-2026-09-20.log
+        里「[预览音频]」那行之后紧跟 Windows fatal exception。``--no-audio`` 已经
+        保证静音，这里一个音频调用都不该发。
         """
         if self._audio_ready:
+            return
+        if self.silent:
+            self._audio_ready = True
             return
         try:
             if self.player.audio_get_track_count() <= 0:
@@ -336,27 +345,12 @@ class TilePlayer(QObject):
             return
         self._audio_ready = True
         try:
-            if self.silent:
-                self.player.audio_set_track(-1)      # 干脆不要音频轨
-            self.player.audio_set_mute(True if self.silent else self.muted)
+            self.player.audio_set_mute(self.muted)
             self.player.audio_set_volume(self.volume)
         except Exception:  # noqa: BLE001
             pass
         self._audio_output.set_volume(self.volume)
         self._audio_output.set_enabled(self.uses_pcm_routing and not self.muted)
-        if self.silent:
-            self._log_audio_state()
-
-    def _log_audio_state(self) -> None:
-        """预览的音频自检：把 VLC 侧真实读数写进日志（-1 = 没有音频输出）。"""
-        try:
-            print(f"[预览音频] mute={self.player.audio_get_mute()}"
-                  f" volume={self.player.audio_get_volume()}"
-                  f" 音轨数={self.player.audio_get_track_count()}"
-                  f" 当前轨={self.player.audio_get_track()}",
-                  file=sys.stderr, flush=True)
-        except Exception:  # noqa: BLE001
-            pass
 
     def _play_audio(self, _opaque, samples, count, _pts) -> None:
         self._audio_output.write(samples, count)
