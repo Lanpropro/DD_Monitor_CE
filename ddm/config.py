@@ -27,6 +27,9 @@ DEFAULT_SETTINGS = {
     #: 硬件解码。VLC 在个别显卡驱动上硬解会卡住甚至访问违例，关掉改用软解最稳，
     #: 代价是 CPU 高一些 —— 留成开关，方便在出问题的机器上一键排查。
     "hw_decode": True,
+    #: 画面兼容模式：整个软件改用 GDI 软件渲染，完全不碰 D3D11 / DXGI。
+    #: 装了 FPS Monitor / 游戏覆盖层（会注入进程 hook 画面）导致崩溃时打开。
+    "video_compat": False,
     "default_muted": True,    # 新加进画面墙的直播间默认静音
     "default_volume": DEFAULT_VOLUME,
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表

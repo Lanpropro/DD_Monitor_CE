@@ -28,13 +28,21 @@ class PlayerPool:
     _preview: vlc.Instance | None = None
     _lock = threading.Lock()
 
+    #: 画面墙那一路的视频输出模块覆盖（"" = 用 VLC 默认的 D3D11）。
+    #: 设成 "wingdi" 就整机走 GDI 软件渲染 —— FPS Monitor 这类注入进程、
+    #: hook DXGI Present 做叠加的覆盖层就碰不到画面了，代价是渲染吃 CPU。
+    #: 由 app 启动时按「画面兼容模式」或检测到的覆盖层来设置（要在建实例之前设）。
+    vout = ""
+
     @classmethod
     def instance(cls) -> vlc.Instance:
         with cls._lock:                     # 预热线程和主线程可能同时进来
             if cls._instance is None:
-                cls._instance = vlc.Instance(
-                    "--no-video-title-show", "--quiet",
-                    "--no-snapshot-preview", "--avcodec-hw=any")
+                options = ["--no-video-title-show", "--quiet",
+                           "--no-snapshot-preview", "--avcodec-hw=any"]
+                if cls.vout:
+                    options.append(f"--vout={cls.vout}")
+                cls._instance = vlc.Instance(*options)
                 _silence_libvlc(cls._instance)
             return cls._instance
 

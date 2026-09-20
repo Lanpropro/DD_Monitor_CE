@@ -56,6 +56,7 @@ class GeneralSettingsPage(QWidget):
         ("auto_reconnect", "断流后自动重连"),
         ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
         ("hw_decode", "硬件解码（画面卡住/崩溃时关掉试试：改用软解，CPU 会高一些）"),
+        ("video_compat", "画面兼容模式（装了 FPS Monitor / 游戏覆盖层导致崩溃时打开：画面改用软件渲染，CPU 会高一些，重启生效）"),
         ("default_muted", "新加入画面墙的直播间默认静音"),
         ("sidebar_card_mode", "关注列表使用大封面卡片（关闭后为头像＋文字列表）"),
         ("preview_on_hover", "鼠标停在关注列表的直播上 1 秒，缩略图里直接播放静音预览"),
