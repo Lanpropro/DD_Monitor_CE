@@ -87,10 +87,14 @@
   （侧栏/画面格补主播名+标题+直播时长）。新增 `dev/selfcheck_startup.py`。
 - `2aa1a0e` 启动量化：`main()` 打印 `[启动]` 各阶段耗时（日志时间戳）。
 - `f1f866c` 减占用：设置里关掉「悬停预览」时不再建第二个 libvlc 实例。
-- 自检现状：全量 28 项里 26 项稳定通过；`selfcheck_plugins.py` 因本机沙箱限制
-  `tempfile.mkdtemp`（建出的目录 ACL 拒绝写子目录）无法运行，`selfcheck_delete.py` /
-  `selfcheck_slots.py` 偶发 `0xC0000409`（VLC/Qt 退出瞬间的既有偶发崩溃，单跑均通过），
-  均与本任务改动无关。未推送、未更新 Release 附件、未碰 `utils/config.json`。
+- `222a3d5` 修崩溃：用户最新日志（13:38 段）里 `[预览音频] mute=-1 …` 之后
+  `access violation` —— 悬停预览（silent）对 `--no-audio` 实例（没有 aout）调
+  `audio_set_track` / `set_mute` / `set_volume` / `get_*` 触发。改成 silent 播放器
+  完全不再碰 libvlc 音频接口（`--no-audio` 已保证静音），新增
+  `dev/selfcheck_preview_audio.py` 钉住。
+- 自检现状：全量 29 项里 28 项稳定通过；`selfcheck_plugins.py` 因本机沙箱限制
+  `tempfile.mkdtemp`（建出的目录 ACL 拒绝写子目录）无法运行，与本任务改动无关。
+  未推送、未更新 Release 附件、未碰 `utils/config.json`。
 
 ## 接续动作
 
