@@ -146,6 +146,13 @@ def main() -> None:
         f"新 media 起播前必须重新绑定有效 HWND，实际顺序={rec.events}"
     print(f"  换流顺序={rec.events}")
 
+    print("\n=== 7. 预览实例走 GDI 软件输出（不碰 D3D11，避开覆盖层）===")
+    preview_src = src[src.index("def preview_instance"): src.index("def warm_up_async")]
+    assert "--vout=wingdi" in preview_src, \
+        "预览实例必须用 --vout=wingdi：FPS Monitor 这类 D3D11/DXGI 覆盖层会让预览 access violation"
+    assert "--avcodec-hw=any" not in preview_src, "预览不该开硬件解码"
+    print("  预览实例 = --aout=adummy --no-audio --avcodec-hw=none --vout=wingdi")
+
     print("\n全部通过")
 
 
