@@ -234,6 +234,12 @@ class TilePlayer(QObject):
         self._watch.stop()
         self._picture_watch.stop()
         self.player.stop()
+        try:
+            self.player.set_hwnd(0)     # 摘掉画面：widget 马上要隐藏，别让 VLC 再往里渲染
+        except Exception:  # noqa: BLE001
+            pass
+        self._bound = False             # 下次 play 重新 bind
+        self._bound_hwnd = 0
         self._last_picture = None
         self._frozen_ticks = 0
         self._set_state("idle")
