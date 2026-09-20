@@ -151,7 +151,11 @@ function Invoke-Plan($plan) {
     $elapsed = ((Get-Date) - $t0).TotalSeconds
     if ($target -gt $elapsed) { Start-Sleep -Milliseconds ([int](($target - $elapsed) * 1000)) }
     switch ($step.type) {
-      "resize" { Set-Window-Geometry ([int]$step.w) ([int]$step.h) }
+      "resize" {
+        Set-Window-Geometry ([int]$step.w) ([int]$step.h)
+        # Front() 结尾会摘掉 TOPMOST，拖完窗口就失去置顶、会被别的窗口盖住，补回来
+        [Win]::KeepTopmost($h)
+      }
       "click" {
         $r = New-Object Win+RECT
         [void][Win]::GetWindowRect($h, [ref]$r)

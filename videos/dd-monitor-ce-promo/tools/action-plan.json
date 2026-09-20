@@ -1,121 +1,146 @@
 [
  {
-  "at": 0.8,
+  "at": 1,
   "type": "maximize",
-  "note": "maximize window"
+  "note": "maximize (menu coords assume this)"
  },
  {
   "at": 3,
   "type": "move",
   "x": 200,
   "y": 620,
-  "note": "hover follow list item 1 (dwell 4s)"
+  "note": "hover follow list (dwell 4s)"
  },
  {
   "at": 7,
   "type": "move",
   "x": 200,
   "y": 880,
-  "note": "hover item 2 (dwell 4s)"
+  "note": "hover follow list (dwell 4s)"
  },
  {
   "at": 11,
   "type": "move",
   "x": 200,
   "y": 1140,
-  "note": "hover item 3 (dwell 4s)"
+  "note": "hover follow list (dwell 4s)"
  },
  {
   "at": 15,
   "type": "move",
   "x": 200,
   "y": 1400,
-  "note": "hover item 4 (dwell 4s)"
+  "note": "hover follow list (dwell 4s)"
  },
  {
-  "at": 19.5,
+  "at": 20,
+  "type": "maximize",
+  "note": "re-assert maximize before opening picker"
+ },
+ {
+  "at": 22,
   "type": "click",
   "x": 161,
   "y": 2061,
-  "note": "open layout picker (dwell 3s)"
+  "note": "open layout picker"
  },
  {
-  "at": 23,
+  "at": 25,
   "type": "click",
   "x": 156,
   "y": 1601,
-  "note": "pick single pane"
+  "note": "pick single"
  },
  {
-  "at": 29,
+  "at": 31,
+  "type": "maximize",
+  "note": "re-assert maximize before opening picker"
+ },
+ {
+  "at": 33,
   "type": "click",
   "x": 161,
   "y": 2061,
   "note": "open layout picker"
  },
  {
-  "at": 32.5,
+  "at": 36,
   "type": "click",
   "x": 919,
   "y": 1601,
-  "note": "pick 4-up"
- },
- {
-  "at": 38.5,
-  "type": "click",
-  "x": 161,
-  "y": 2061,
-  "note": "open layout picker"
+  "note": "pick four"
  },
  {
   "at": 42,
+  "type": "maximize",
+  "note": "re-assert maximize before opening picker"
+ },
+ {
+  "at": 44,
+  "type": "click",
+  "x": 161,
+  "y": 2061,
+  "note": "open layout picker"
+ },
+ {
+  "at": 47,
   "type": "click",
   "x": 408,
   "y": 1716,
-  "note": "pick 9-up"
+  "note": "pick nine"
  },
  {
-  "at": 48,
+  "at": 53,
+  "type": "maximize",
+  "note": "re-assert maximize before opening picker"
+ },
+ {
+  "at": 55,
   "type": "click",
   "x": 161,
   "y": 2061,
   "note": "open layout picker"
  },
  {
-  "at": 51.5,
+  "at": 58,
   "type": "click",
   "x": 411,
   "y": 1854,
-  "note": "pick main + 5 small (1+5)"
+  "note": "pick one5"
  },
  {
-  "at": 57.5,
+  "at": 64,
+  "type": "maximize",
+  "note": "re-assert maximize before opening picker"
+ },
+ {
+  "at": 66,
   "type": "click",
   "x": 161,
   "y": 2061,
   "note": "open layout picker"
  },
  {
-  "at": 61,
+  "at": 69,
   "type": "click",
   "x": 166,
   "y": 1716,
-  "note": "pick 6-up"
+  "note": "pick six"
  },
  {
-  "at": 67,
+  "at": 75,
   "type": "resize",
   "w": 810,
   "h": 1440,
-  "note": "drag into portrait (dwell 9s)"
+  "note": "drag into portrait (dwell 10s)"
  },
  {
-  "at": 76,
+  "at": 85,
   "type": "maximize",
-  "note": "back to landscape maximized (dwell 7s)"
+  "note": "back to landscape (dwell 8s)"
  },
  {
-  "at": 83,
+  "at": 93,
   "type": "move",
   "x": 200,
   "y": 620,
