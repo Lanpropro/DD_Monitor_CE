@@ -113,6 +113,31 @@ def main() -> None:
     assert tile.room["live_start_ts"] == 1700000000, "直播时长要跟着补上"
     assert started == [tile], "状态刷新发现开播后要自动开始播放"
 
+    print("\n=== 3b. 启动时补上真实状态不算「刚开播」，不该冒开播提醒 ===")
+    alerts: list = []
+    window.sidebar.play_live_alerts = lambda items: alerts.extend(items)
+    item2 = next(i for i in window.sidebar._items  # noqa: SLF001
+                 if i.room.get("room_id") == "7002")
+    print(f"  占位条目 live_known={item2.room.get('live_known')}")
+    assert item2.room.get("live_known") is False, "占位条目要标成「状态还没拉过」"
+    window._on_status_updated({
+        "7002": {"live": True, "title": "标题乙", "uname": "主播乙",
+                 "face": "", "cover_url": "", "viewers": ""},
+    })
+    assert alerts == [], "启动时补状态不该弹开播提醒（用户要的是「开播时」提醒）"
+    assert item2.room.get("live") is True, "但徽标状态要摆正"
+    # 之后真的下播再开播，才应该提醒
+    window._on_status_updated({
+        "7002": {"live": False, "title": "标题乙", "uname": "主播乙",
+                 "face": "", "cover_url": "", "viewers": ""},
+    })
+    window._on_status_updated({
+        "7002": {"live": True, "title": "标题乙", "uname": "主播乙",
+                 "face": "", "cover_url": "", "viewers": ""},
+    })
+    print(f"  启动补状态提醒 {0} 次，之后真开播提醒 {len(alerts)} 次")
+    assert len(alerts) == 1, "之后真的开播还是要提醒"
+
     print("\n=== 4. NavItem.set_uname 真把名字画出来 ===")
     item.set_uname("主播乙")
     assert item.name_label.text() == "主播乙"

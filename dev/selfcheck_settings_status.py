@@ -288,6 +288,11 @@ def main() -> None:
     assert player_a.volume == 77 and player_a.muted is True, "声音按格子（位置）下发"
     assert player_b.volume == 41 and player_b.muted is False
     assert (first.volume, second.volume) == (77, 41), "音量留在原来的位置上"
+    assert first.volume_slider.value() == 77 and first.volume_label.text() == "77", \
+        "秒切后音量条要重画：不然显示的数字跟着画面跑、和实际声音对不上"
+    assert second.volume_slider.value() == 41 and second.volume_label.text() == "41"
+    print(f"  音量条：甲格滑条={first.volume_slider.value()}"
+          f" 乙格滑条={second.volume_slider.value()}（跟实际下发一致）")
     assert second.stream_url.endswith("1002.flv"), "取流结果跟着格子一起走"
 
     print("  迟到的取流结果不能播到已经换台的格子上：")

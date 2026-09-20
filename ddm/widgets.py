@@ -4581,6 +4581,21 @@ class Tile(QFrame):
             self.volume_slider.blockSignals(False)
         self.volumeChanged.emit(self.room, value)
 
+    def sync_audio_ui(self) -> None:
+        """按自己的 volume / muted / audio_channel 重画音量条（不发信号）。
+
+        「秒切」把音量 / 静音 / 声道在对调的两个格子之间换了位，但只改了
+        ``self.volume`` 这几个值、没重画控件 —— 用户看到的就是「音量条跟着画面
+        跑过去，跟实际听到的声音对不上」。
+        """
+        if self.volume_slider.value() != self.volume:
+            self.volume_slider.blockSignals(True)
+            self.volume_slider.setValue(self.volume)
+            self.volume_slider.blockSignals(False)
+        self.volume_label.setText(str(self.volume))
+        self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
+        self._layout_controls()
+
     def set_audio_channel(self, value: int) -> None:
         self.audio_channel = int(value)
         self.room["audio_channel"] = int(value)

@@ -973,6 +973,7 @@ class MainWindow(QMainWindow):
             player.set_muted(tile.muted)
             player.set_audio_channel(int(tile.audio_channel))
             player.reapply_audio_channel()
+            tile.sync_audio_ui()            # 值换位了，音量条控件要跟着重画
             tile.raise_overlays()
         self.wall.relayout(force=True)         # 换完位置重新摆一遍
         for tile in (source, target):
@@ -1094,7 +1095,10 @@ class MainWindow(QMainWindow):
             if info["live"] and not was_live:
                 # 刚开播：马上置位并重排，让「开播优先」先把卡片挪上去；
                 # 动效等重排落地后再播，否则水滴会留在卡片原来的行上（两者错开）。
-                if self.settings.get("live_alert", True):
+                # 只有**本来就知道是没开播**的才算「刚开播」：启动时占位条目
+                # （live_known=False）第一次补上真实状态不算，否则一开软件满列表
+                # 冒气泡／弹提醒 —— 用户要的是「开播时」的提示。
+                if self.settings.get("live_alert", True) and item.room.get("live_known", True):
                     item.room["live"] = True        # 徽标由动效砸中时再换
                     just_went_live.append(item)
                 else:
@@ -1106,6 +1110,7 @@ class MainWindow(QMainWindow):
             if face and face != item.room.get("face"):
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
+            item.room["live_known"] = True          # 这一路的直播状态从此算已知
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)

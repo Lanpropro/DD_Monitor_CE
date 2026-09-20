@@ -105,6 +105,9 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             "room_id": room_id, "uname": f"房间 {room_id}",
             "title": "", "live": False, "viewers": "",
             "face": "", "cover_url": "",
+            # 直播状态还没拉过：第一次补上真实状态时不算「刚开播」，
+            # 否则一打开软件，所有已开播的房间都会冒一遍开播提醒（见 app）。
+            "live_known": False,
         }
 
     sidebar = [placeholder(room_id) for room_id in room_ids]
