@@ -271,6 +271,28 @@ class Driver:
             self.audio_on = False
         self.note("mute", f"软件音频 {action}：{step.get('note', '')}", t)
 
+    def act_slideout(self, step, t):
+        """把窗口**连续**移出画面（给 09「竖屏布局滑出画面」用）。
+
+        为什么不一步 MoveWindow：那在录屏里是"啪"地消失，看起来像卡了；
+        分步移动（每步 30ms、约 22 步）才像用户真的把窗口拖出去。
+        """
+        want = (int(step["w"]), int(step["h"]))
+        direction = step.get("direction", "right")
+        rect = force_geometry(self.win, want)
+        handle = ctypes.c_void_p(int(self.win.winId()))
+        screen_w = user32.GetSystemMetrics(0)
+        start_x = rect[0]
+        end_x = screen_w if direction == "right" else -rect[2]
+        width, height = rect[2] - rect[0], rect[3] - rect[1]
+        steps = 22
+        for index in range(1, steps + 1):
+            x = int(start_x + (end_x - start_x) * index / steps)
+            user32.MoveWindow(handle, x, 0, width, height, True)
+            QApplication.processEvents()
+            time.sleep(0.03)
+        self.note("slideout", f"窗口滑出到 x={end_x}（{step.get('note', '')}）", t)
+
     def act_resize(self, step, t):
         want = (int(step["w"]), int(step["h"]))
         rect = force_geometry(self.win, want)
@@ -470,20 +492,23 @@ class Driver:
     def apply_audio(self) -> None:
         """把「开录时该不该出声」按计划算出来并落实。
 
-        整条素材只有成片里要听声音的那两拍需要出声，所以默认按进程静音，
-        在计划里第一次 `unmute` 之前再打开。这样做还有个好处：
-        剪辑时只用看 unmute/mute 两个时刻就知道声音窗口在哪。
+        整条素材只有成片里要听声音的那一拍（12 的左右声道）需要出声，
+        所以默认按进程静音，到计划里第一次 `unmute` 之前 2 秒再打开。
+        这样做还有个好处：剪辑时只用看 unmute/mute 两个时刻就知道声音窗口在哪。
+
+        注意基准：`step["at"]` 是**相对开录 t0 的秒数**，而 apply_audio 正好在
+        t0 时刻被调用，所以延迟就是 `at - 2`。这里曾经拿它去减 monotonic 时间戳
+        （两个不同量纲），算出来是负数 → 立刻放开 → 整条素材全程出声（踩过）。
         """
         first = next((step for step in self._plan
                       if step.get("type") == "mute" and step.get("action") == "unmute"),
                      None)
         if first is None:
             return
-        lead = float(first.get("at", 0)) - self._time0
-        # 提前 2 秒打开，避免"第一声被切掉"；同时把这一路格子设成未静音，
-        # 否则会话就算开着，软件自己也不会出声
-        delay = max(0.0, lead - 2.0)
-        self.note("audio", f"计划 {delay:.1f} 秒后让软件出声（{first.get('note', '')}）", 0.0)
+        delay = max(0.0, float(first.get("at", 0)) - 2.0)
+        self.note("audio",
+                  f"{delay:.1f} 秒后让软件出声（{first.get('note', '')}；"
+                  f"在那之前保持静音）", 0.0)
 
         def open_audio() -> None:
             tile = self._tile_named(first.get("target", ""))
@@ -540,6 +565,8 @@ class Driver:
                 self.act_mute(step, t)
             elif kind == "resize":
                 self.act_resize(step, t)
+            elif kind == "slideout":
+                self.act_slideout(step, t)
             elif kind == "probe_menu":
                 self.act_probe_menu(step, t)
             else:

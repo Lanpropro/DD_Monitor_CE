@@ -248,6 +248,201 @@ def build_plan(win, live_slots: list, min_live: int) -> tuple[list, dict]:
     return plan, notes
 
 
+def build_plan_v2(win, live_slots: list, min_live: int) -> tuple[list, dict]:
+    """按 `SCRIPT-v2.md` 的排轴生成录制计划（14 拍、一条连续流程）。
+
+    和 v1 的区别：**不拍"逐格加人"的过程**，而是"一个窗口一路变过去"：
+      单窗口 → 左右两分 → 四分 → 九分 → 1+5 → 同布局弹幕版 → 竖屏 → 滑出
+      → 回横屏 1+5 → 关注栏预览 → 左右两分（两路分别只播左/只播右声道）。
+
+    所以这里只在必要的地方加人（先把墙填到 1 路，后面按布局容量补），
+    其余时间都留给"停在某个布局上、画面亮着在播"。
+
+    布局 id 对应关系：
+      1x1 单画面 / 1x2 左右两分 / 2x2 四分 / 3x3 九分 /
+      corner 主画面+5小环绕 / dm_main4 主画面+3小+弹幕
+      （弹幕布局里最接近 1+5 的那一套 —— 软件没有"1+5 + 弹幕"这个预设）
+    """
+    plan: list = []
+    notes = {"live_total": len(live_slots), "slots": [], "layout_version": "v2"}
+
+    wall = [""]
+    cursor = 0
+    used_slots: list = []
+
+    def capacity(layout_id: str) -> int:
+        layout = layouts.BY_ID.get(layout_id)
+        spec = layout.get("spec") if layout else None
+        return len(spec[2]) if spec else 0
+
+    def fit(layout_id: str) -> None:
+        """按布局容量补空格/裁空格，模拟软件的 ensure_slots。"""
+        need = capacity(layout_id)
+        used = sum(1 for item in wall if item)
+        target = max(need, used, 1)
+        while len(wall) < target:
+            wall.append("")
+        while len(wall) > target:
+            for index in range(len(wall) - 1, -1, -1):
+                if not wall[index]:
+                    del wall[index]
+                    break
+            else:
+                break
+
+    def add_room() -> int | None:
+        nonlocal cursor
+        if cursor >= len(live_slots):
+            return None
+        slot = live_slots[cursor]
+        cursor += 1
+        for index, item in enumerate(wall):
+            if not item:
+                wall[index] = f"nav_{slot}"
+                used_slots.append(index)
+                return slot
+        return None
+
+    def at(second: float, kind: str, note: str, **extra) -> None:
+        plan.append(dict(at=second, type=kind, note=note, **extra))
+
+    def nav_y(order: int) -> int:
+        """侧栏第 order 项（0 起）的窗口内 y。侧栏条目高 130，列表顶 y=154。"""
+        return 154 + 130 * (order % 5)
+
+    def add_nth(target_used: int, second: float) -> float:
+        """把墙补到 target_used 路，返回下一个可用时刻。"""
+        while len([item for item in wall if item]) < min(target_used, len(live_slots)):
+            slot = add_room()
+            if slot is None:
+                break
+            order = len(notes["slots"])
+            notes["slots"].append(slot)
+            at(second, "move", f"第 {order + 1} 路（在播）", x=110, y=nav_y(order),
+               target=f"nav_{slot}")
+            at(second + 2, "rightclick", "加入画面墙", x=110, y=nav_y(order),
+               target=f"nav_{slot}", menu={"note": "加入画面墙"})
+            second += 3.5
+        return second
+
+    # ---- A. 单窗口播放（给 03 开头）----
+    at(0, "wait", "起点：空墙 1 格 + 单画面布局")
+    at(2, "move", "光标进在播列表第 1 项", x=110, y=nav_y(0),
+       target=f"nav_{live_slots[0]}")
+    t = add_nth(1, 4)                                    # 第 1 路进墙
+    at(t, "move", "单窗口开始播（03 的单窗口播放段）", x=700, y=400,
+       target="tile_0")
+    at(t + 8, "move", "单窗口停住", x=900, y=520)
+    t += 10
+
+    # ---- B. 左右两分（点击动效 + 分裂）----
+    at(t, "resize", "摆回基准尺寸（菜单坐标的基准）", w=1920, h=1080)
+    fit("1x2")
+    at(t + 2, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 5, "click", "选「左右两分」（03 的分裂）", x=398, y=673,
+       target="card_1x2")
+    at(t + 8, "move", "左右两分停住（分裂过程本身是素材）", x=900, y=500)
+    at(t + 14, "move", "左右两分再停一下", x=1500, y=700)
+    t += 16
+
+    # ---- C. 四分 ----
+    fit("2x2")
+    at(t, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 3, "click", "选四分", x=561, y=673, target="card_2x2")
+    t = add_nth(4, t + 6)                                # 补到 4 路
+    at(t, "move", "四分停住", x=900, y=500)
+    t += 8
+
+    # ---- D. 九分 ----
+    fit("3x3")
+    at(t, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 3, "click", "选九分", x=235, y=742, target="card_3x3")
+    t = add_nth(9, t + 6)                                # 补到 9 路
+    at(t, "move", "九分铺满（05 的素材）", x=1500, y=800)
+    t += 10
+
+    # ---- E. 1+5 小画面环绕 ----
+    fit("corner")
+    at(t, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 3, "click", "选主画面 + 5 小环绕（1+5）", x=235, y=833,
+       target="card_corner")
+    at(t + 6, "move", "主画面钉住，五小环绕（06 的素材）", x=640, y=240)
+    at(t + 12, "move", "1+5 停住", x=1500, y=800)
+    t += 14
+
+    # ---- F. 同布局弹幕版（07，镜头后面推近弹幕格）----
+    fit("dm_main4")
+    at(t, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 3, "click", "切到「弹幕布局」标签页", x=117, y=603,
+       target="tab_弹幕布局")
+    at(t + 6, "click", "选「主画面 + 3 小 + 弹幕」（1+5 的弹幕版）",
+       x=72, y=723, target="card_dm_main4")
+    at(t + 9, "move", "弹幕开始滚（07 的聚焦素材，别碰鼠标）", x=1100, y=600)
+    at(t + 17, "move", "弹幕继续滚", x=1600, y=300)
+    t += 20
+
+    # ---- G. 动态切竖屏 ----
+    at(t, "resize", "动态切竖屏（布局自动接上对映预设）", w=810, h=1440)
+    at(t + 6, "move", "竖屏停住（08 的素材）", x=300, y=900)
+    at(t + 14, "move", "竖屏再停一下", x=400, y=1200)
+    t += 16
+
+    # ---- H. 竖屏滑出画面（09）----
+    at(t, "slideout", "竖屏窗口滑出画面（09 的素材）", w=810, h=1440,
+       direction="right")
+    at(t + 4, "move", "滑出后保持干净", x=300, y=900)
+    t += 6
+
+    # ---- I. 回横屏 1+5（10）----
+    at(t, "resize", "回横屏", w=1920, h=1080)
+    at(t + 3, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 6, "click", "回到 1+5（10 的素材）", x=235, y=833, target="card_corner")
+    at(t + 9, "move", "横屏 1+5 停住", x=900, y=500)
+    t += 12
+
+    # ---- J. 关注栏悬停预览（11）----
+    for offset in range(min(4, len(live_slots))):
+        slot = live_slots[offset]
+        at(t + offset * 5, "move", f"在播第 {offset + 1} 项：悬停出封面预览",
+           x=110, y=nav_y(offset), target=f"nav_{slot}")
+    at(t + 22, "move", "回到第 1 项，预览卡完整露一次", x=110, y=nav_y(0),
+       target=f"nav_{live_slots[0]}")
+    t += 25
+
+    # ---- K. 左右两个画面 + 左/右声道（12；用两个**不同**直播间）----
+    fit("1x2")
+    at(t, "resize", "分屏前摆回基准尺寸", w=1920, h=1080)
+    at(t + 2, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 5, "click", "选「左右两分」（左格第 1 路、右格第 2 路）", x=398, y=673,
+       target="card_1x2")
+    at(t + 9, "rightclick", "左格：声道 -> 只播左声道", x=1100, y=500,
+       target="volume_0", menu={"note": "声道", "item_note": "左声道"})
+    at(t + 15, "move", "光标停在左格音量按钮上（L 标记）", x=1100, y=500,
+       target="volume_0")
+    at(t + 19, "rightclick", "右格：声道 -> 只播右声道", x=2100, y=500,
+       target="volume_1", menu={"note": "声道", "item_note": "右声道"})
+    at(t + 25, "move", "光标停在右格音量按钮上（R 标记）", x=2100, y=500,
+       target="volume_1")
+    # 两格都要出声：会话层放开 + 两个格子各自未静音
+    at(t + 29, "mute", "两路都放开声音（会话层）", action="unmute",
+       target="volume_0", x=1100, y=500)
+    at(t + 31, "mute", "左格未静音", action="unmute", target="volume_1",
+       x=2100, y=500)
+    at(t + 34, "move", "左右两路各走各的声道，停住（12 的素材）", x=1600, y=540)
+    at(t + 44, "move", "再停一下，让左右声音听清楚", x=1600, y=540)
+    at(t + 52, "mute", "收尾：重新按进程静音", action="mute", target="volume_0",
+       x=1100, y=500)
+    at(t + 54, "move", "收尾", x=1500, y=900)
+    t += 56
+
+    notes["used_slots"] = used_slots
+    notes["planned_rooms"] = len(notes["slots"])
+    notes["plan_seconds"] = t
+    notes["min_live_required"] = min_live
+    notes["twins"] = notes["slots"][:2]      # 12 拍用的两路（不同的直播间）
+    return plan, notes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=os.path.join(
@@ -294,7 +489,7 @@ def main() -> int:
                                      f"{args.min_live}，不生成计划")
                 print("!! " + result["refused"], flush=True)
                 return
-            plan, notes = build_plan(win, live, args.min_live)
+            plan, notes = build_plan_v2(win, live, args.min_live)
             result["notes"] = notes
             result["plan_seconds"] = max(step["at"] for step in plan)
             with io.open(args.out, "w", encoding="utf-8") as handle:

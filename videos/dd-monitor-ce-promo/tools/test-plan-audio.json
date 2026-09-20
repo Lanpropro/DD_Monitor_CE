@@ -1,6 +1,7 @@
 [
- { "at": 0, "type": "wait", "note": "起始" },
- { "at": 1, "type": "mute", "action": "unmute", "target": "volume_0", "x": 1723, "y": 964,
-   "note": "两层都放开：格子 + 音频会话" },
- { "at": 6, "type": "wait", "note": "留 5 秒给外部的回环电平测量" }
+ { "at": 0, "type": "wait", "note": "起点" },
+ { "at": 8, "type": "mute", "action": "unmute", "target": "volume_0", "x": 1723, "y": 964,
+   "note": "测试：声音应该在 6 秒左右才被放开（不是第 0 秒）" },
+ { "at": 12, "type": "mute", "action": "mute", "target": "volume_0", "x": 1723, "y": 964,
+   "note": "收尾静音" }
 ]
