@@ -54,6 +54,22 @@ class VideoRecorder:
         self.released = True
         self.events.append("release")
 
+    def set_media(self, _media):
+        self.events.append("set_media")
+
+    def play(self):
+        self.events.append("play")
+
+
+class FakeMedia:
+    def add_option(self, _option):
+        pass
+
+
+class FakeInstance:
+    def media_new(self, _url):
+        return FakeMedia()
+
 
 def main() -> None:
     try:
@@ -110,6 +126,25 @@ def main() -> None:
         f"释放时必须先摘 HWND，实际顺序={rec.events}"
     assert silent3._bound is False and silent3._bound_hwnd == 0  # noqa: SLF001
     print(f"  调用顺序={rec.events}")
+
+    print("\n=== 6. 自动刷新复用播放器时先结束旧硬解会话 ===")
+    video = QWidget()
+    replay = TilePlayer(video, silent=True)
+    rec = VideoRecorder()
+    replay.player = rec
+    replay._instance = FakeInstance()  # noqa: SLF001
+    replay._media = FakeMedia()        # noqa: SLF001  模拟仍在播放的旧 media
+    replay._bound = True               # noqa: SLF001
+    replay._bound_hwnd = 12345         # noqa: SLF001
+    replay.play("https://example.invalid/live.flv")
+    assert rec.events[:2] == ["set_hwnd(0)", "stop"], \
+        f"换流前必须先摘 HWND 并停止旧硬解，实际顺序={rec.events}"
+    assert rec.events[-2:] == ["set_media", "play"], \
+        f"旧解码会话结束后才能设置并播放新 media，实际顺序={rec.events}"
+    rebound = [event for event in rec.events[2:-2] if event.startswith("set_hwnd(")]
+    assert rebound and rebound[-1] != "set_hwnd(0)", \
+        f"新 media 起播前必须重新绑定有效 HWND，实际顺序={rec.events}"
+    print(f"  换流顺序={rec.events}")
 
     print("\n全部通过")
 

@@ -195,6 +195,13 @@ class TilePlayer(QObject):
         ``options`` 是额外的 media 选项（例如预览用的 ``:no-audio``）：留在这里
         而不是写死在播放器上，是因为同一路流在画面墙和预览里要的配置不一样。
         """
+        if self._media is not None:
+            # 自动刷新 / 手动重载会复用同一个 media_player。不能让仍在硬解的旧
+            # media 直接被 set_media() 覆盖：NVIDIA D3D11 解码线程可能仍持有旧的
+            # HWND / surface，用户机器上会在 nvwgf2umx.dll 中 access violation。
+            # 先完整结束旧解码会话，再重新绑定窗口后起播新 media。
+            self._detach_and_stop()
+            self._media = None
         if not self._bound:
             self.bind()
         self.paused = False               # 换流后从"播放中"重新开始
@@ -233,6 +240,14 @@ class TilePlayer(QObject):
     def stop(self) -> None:
         self._watch.stop()
         self._picture_watch.stop()
+        self._detach_and_stop()
+        self._media = None
+        self._last_picture = None
+        self._frozen_ticks = 0
+        self._set_state("idle")
+
+    def _detach_and_stop(self) -> None:
+        """先解除原生窗口绑定，再停止 VLC 的解码 / 渲染线程。"""
         try:
             # 必须在 stop 前摘掉 HWND。用户日志里的 access violation / 7 秒卡死
             # 正发生在 libvlc_media_player_stop；让 VLC 仍绑着马上要隐藏的原生窗口
@@ -243,9 +258,6 @@ class TilePlayer(QObject):
         self._bound = False             # 下次 play 重新 bind
         self._bound_hwnd = 0
         self.player.stop()
-        self._last_picture = None
-        self._frozen_ticks = 0
-        self._set_state("idle")
 
     def release(self) -> None:
         if self._released:              # 关窗流程可能被调用两次，重复释放会让 libvlc 崩
@@ -255,13 +267,7 @@ class TilePlayer(QObject):
         self._picture_watch.stop()
         self._media = None              # 画面卡死检测别再碰这个媒体
         try:
-            self.player.set_hwnd(0)     # 先摘画面，再进可能阻塞的 stop / release
-        except Exception:  # noqa: BLE001
-            pass
-        self._bound = False
-        self._bound_hwnd = 0
-        try:
-            self.player.stop()
+            self._detach_and_stop()
         except Exception:  # noqa: BLE001
             pass
         try:
