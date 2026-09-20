@@ -363,6 +363,7 @@ class MainWindow(QMainWindow):
             self.sidebar.set_layout_name(layout_id)
         # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
         self.wall.relayout(force=True)
+        self._sync_tile_playback()
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
 
@@ -508,6 +509,7 @@ class MainWindow(QMainWindow):
         key = f"layout_{self.orientation or 'landscape'}"
         self.state.setdefault("ui", {})[key] = layout_id
         self.apply_quality_policy()
+        self._sync_tile_playback(start_visible=True)
         self._refresh_meta()
 
     def _reshape_window(self, portrait: bool) -> None:
@@ -822,6 +824,25 @@ class MainWindow(QMainWindow):
             resolver.cancel()
         self.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
                           room=dict(tile.room or {}))
+
+    def _sync_tile_playback(self, *, start_visible: bool = False) -> None:
+        """只让**看得见**的格子播放。
+
+        布局从 9 格换成 6 格时，多出来的格子以前只是 ``setVisible(False)``：播放器
+        一步没停，还在解码、**还在出声**（用户报「没显示出来的格子也在响」）。这里
+        把当前布局放不下的停掉；换回大布局、格子重新露出来时再接上。
+        """
+        if not getattr(self, "plugins", None):
+            start_visible = False       # 构造期间插件还没装好，不能在这里起流
+        for tile in self.wall.tiles:
+            player = self.players.get(tile)
+            if tile.isVisible():
+                if start_visible and player is None and tile.room.get("live"):
+                    self.start_tile(tile)
+            elif player is not None:
+                print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
+                      file=sys.stderr, flush=True)
+                self._stop_tile(tile)
 
     def _offline_tile(self, tile) -> None:
         """这一路下播：停掉播放（画面变黑），格子继续留给它，等重新开播自动接上。"""
