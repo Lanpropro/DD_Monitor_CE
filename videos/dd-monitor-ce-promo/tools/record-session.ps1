@@ -163,6 +163,12 @@ function Invoke-Plan($plan) {
         [System.Windows.Forms.SendKeys]::SendWait($step.keys)
         Write-Host ("  [{0,5:N1}s] 按键 {1}  {2}" -f $target, $step.keys, $step.note)
       }
+      "maximize" {
+        [Win]::ShowWindow($h, 3)
+        Start-Sleep -Milliseconds 900
+        [Win]::KeepTopmost($h)
+        Write-Host ("  [{0,5:N1}s] 最大化  {1}" -f $target, $step.note)
+      }
       "move" {
         $r = New-Object Win+RECT
         [void][Win]::GetWindowRect($h, [ref]$r)
