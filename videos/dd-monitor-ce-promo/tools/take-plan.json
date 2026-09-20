@@ -1,90 +1,535 @@
 [
- { "at": 0, "type": "wait", "note": "空墙起步（配置已预置成 1 格空墙 + 单画面布局）" },
-
- { "at": 2, "type": "move", "x": 110, "y": 154, "target": "nav_0", "note": "光标进关注列表第 1 项" },
- { "at": 4, "type": "move", "x": 600, "y": 800, "note": "空墙再静一下" },
- { "at": 6, "type": "rightclick", "x": 110, "y": 154, "target": "nav_0",
-   "menu": { "note": "加入画面墙" }, "note": "右键第 1 项 -> 加入画面墙" },
- { "at": 9, "type": "move", "x": 700, "y": 400, "target": "tile_0", "note": "第 1 格亮起来" },
-
- { "at": 11, "type": "resize", "w": 1920, "h": 1080, "note": "摆回基准尺寸（菜单坐标的基准）" },
- { "at": 13, "type": "click", "x": 95, "y": 967, "target": "layout_button", "note": "开布局弹层" },
- { "at": 16, "type": "click", "x": 561, "y": 673, "target": "card_2x2", "note": "选四分" },
- { "at": 18, "type": "move", "x": 110, "y": 154, "target": "nav_0", "note": "第 2 项" },
- { "at": 20, "type": "rightclick", "x": 110, "y": 154, "target": "nav_0",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 23, "type": "move", "x": 110, "y": 284, "target": "nav_1", "note": "第 3 项" },
- { "at": 25, "type": "rightclick", "x": 110, "y": 284, "target": "nav_1",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 28, "type": "move", "x": 110, "y": 414, "target": "nav_2", "note": "第 4 项" },
- { "at": 30, "type": "rightclick", "x": 110, "y": 414, "target": "nav_2",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 33, "type": "move", "x": 900, "y": 500, "note": "四分满了，停一下给成片留素材" },
-
- { "at": 35, "type": "resize", "w": 1920, "h": 1080, "note": "" },
- { "at": 37, "type": "click", "x": 95, "y": 967, "target": "layout_button", "note": "开布局弹层" },
- { "at": 40, "type": "click", "x": 235, "y": 742, "target": "card_3x3", "note": "选九分" },
- { "at": 42, "type": "move", "x": 110, "y": 154, "target": "nav_0", "note": "第 5 项" },
- { "at": 44, "type": "rightclick", "x": 110, "y": 154, "target": "nav_0",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 47, "type": "move", "x": 110, "y": 284, "target": "nav_1", "note": "第 6 项" },
- { "at": 49, "type": "rightclick", "x": 110, "y": 284, "target": "nav_1",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 52, "type": "move", "x": 110, "y": 414, "target": "nav_2", "note": "第 7 项" },
- { "at": 54, "type": "rightclick", "x": 110, "y": 414, "target": "nav_2",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 57, "type": "move", "x": 110, "y": 544, "target": "nav_3", "note": "第 8 项" },
- { "at": 59, "type": "rightclick", "x": 110, "y": 544, "target": "nav_3",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 62, "type": "move", "x": 110, "y": 674, "target": "nav_4", "note": "第 9 项" },
- { "at": 64, "type": "rightclick", "x": 110, "y": 674, "target": "nav_4",
-   "menu": { "note": "加入画面墙" }, "note": "加入画面墙" },
- { "at": 67, "type": "move", "x": 1500, "y": 800, "note": "九分铺满，停住给成片取窗" },
-
- { "at": 70, "type": "resize", "w": 1920, "h": 1080, "note": "" },
- { "at": 72, "type": "click", "x": 95, "y": 967, "target": "layout_button", "note": "开布局弹层" },
- { "at": 75, "type": "click", "x": 235, "y": 833, "target": "card_corner", "note": "选主画面 + 5 小环绕（1+5）" },
- { "at": 78, "type": "move", "x": 640, "y": 240, "note": "主画面钉住，五小环绕" },
- { "at": 83, "type": "move", "x": 1500, "y": 800, "note": "1+5 停住" },
-
- { "at": 86, "type": "resize", "w": 1920, "h": 1080, "note": "" },
- { "at": 88, "type": "click", "x": 95, "y": 967, "target": "layout_button", "note": "开布局弹层" },
- { "at": 91, "type": "click", "x": 117, "y": 603, "target": "tab_弹幕布局", "note": "切到「弹幕布局」标签页" },
- { "at": 94, "type": "click", "x": 398, "y": 654, "target": "card_dm_main2", "note": "选「主画面 + 1 小 + 弹幕」" },
- { "at": 96, "type": "move", "x": 1100, "y": 600, "note": "弹幕开始滚（全片唯一允许的持续运动）" },
- { "at": 104, "type": "move", "x": 1600, "y": 300, "note": "弹幕继续滚，别碰鼠标" },
-
- { "at": 112, "type": "resize", "w": 810, "h": 1440, "note": "拖成竖屏（布局自动接上对映预设）" },
- { "at": 122, "type": "move", "x": 300, "y": 900, "note": "竖屏停住" },
- { "at": 132, "type": "resize", "w": 1920, "h": 1080, "note": "回横屏" },
- { "at": 138, "type": "move", "x": 900, "y": 500, "note": "横屏停住" },
-
- { "at": 141, "type": "move", "x": 110, "y": 154, "target": "nav_0", "note": "关注第 1 项：悬停出封面预览" },
- { "at": 146, "type": "move", "x": 110, "y": 284, "target": "nav_1", "note": "第 2 项悬停" },
- { "at": 151, "type": "move", "x": 110, "y": 414, "target": "nav_2", "note": "第 3 项悬停" },
- { "at": 156, "type": "move", "x": 110, "y": 544, "target": "nav_3", "note": "第 4 项悬停" },
- { "at": 163, "type": "move", "x": 110, "y": 154, "target": "nav_0", "note": "回到第 1 项，预览卡完整露一次" },
-
- { "at": 166, "type": "resize", "w": 1920, "h": 1080, "note": "音量那两拍前摆回基准尺寸" },
- { "at": 168, "type": "click", "x": 95, "y": 967, "target": "layout_button", "note": "开布局弹层" },
- { "at": 171, "type": "click", "x": 235, "y": 742, "target": "card_3x3", "note": "回到九分（要看得见格子底栏）" },
- { "at": 175, "type": "move", "x": 1723, "y": 964, "target": "volume_0", "note": "鼠标停在主画面格的音量按钮上" },
- { "at": 180, "type": "mute", "action": "unmute", "note": "这一拍要真出声" },
- { "at": 186, "type": "click", "x": 1723, "y": 964, "target": "volume_0", "note": "左键点音量按钮 -> 静音这一路" },
- { "at": 192, "type": "click", "x": 1723, "y": 964, "target": "volume_0", "note": "再点一次 -> 取消静音" },
-
- { "at": 198, "type": "resize", "w": 1920, "h": 1080, "note": "" },
- { "at": 200, "type": "rightclick", "x": 1723, "y": 964, "target": "volume_0",
-   "menu": { "note": "声道", "item_note": "左声道" },
-   "note": "右键音量按钮 -> 声道 -> 只播左声道" },
- { "at": 206, "type": "move", "x": 1723, "y": 964, "target": "volume_0", "note": "L 标记亮起，这一路只走左耳" },
- { "at": 212, "type": "rightclick", "x": 1723, "y": 964, "target": "volume_0",
-   "menu": { "note": "声道", "item_note": "右声道" },
-   "note": "右键音量按钮 -> 声道 -> 只播右声道" },
- { "at": 218, "type": "move", "x": 1723, "y": 964, "target": "volume_0", "note": "R 标记亮起" },
- { "at": 222, "type": "rightclick", "x": 1723, "y": 964, "target": "volume_0",
-   "menu": { "note": "声道", "item_note": "跟随片源" },
-   "note": "声道调回「默认（跟随片源）」" },
- { "at": 226, "type": "mute", "action": "mute", "note": "这两拍拍完了，软件重新按进程静音" },
- { "at": 228, "type": "move", "x": 1500, "y": 900, "note": "收尾" }
+ {
+  "at": 0,
+  "type": "wait",
+  "note": "空墙起步（起点已预置成 1 格空墙 + 单画面）"
+ },
+ {
+  "at": 2,
+  "type": "move",
+  "note": "光标进在播列表第一项",
+  "x": 110,
+  "y": 154,
+  "target": "nav_0"
+ },
+ {
+  "at": 4,
+  "type": "move",
+  "note": "空墙再静一下",
+  "x": 600,
+  "y": 800,
+  "target": "nav_0"
+ },
+ {
+  "at": 6,
+  "type": "rightclick",
+  "note": "第 1 路（在播）进墙",
+  "x": 110,
+  "y": 154,
+  "target": "nav_0",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 9,
+  "type": "move",
+  "note": "第 1 格亮起来",
+  "x": 700,
+  "y": 400,
+  "target": "tile_0"
+ },
+ {
+  "at": 11,
+  "type": "resize",
+  "note": "摆回基准尺寸（菜单坐标的基准）",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 13,
+  "type": "click",
+  "note": "开布局弹层",
+  "x": 95,
+  "y": 967,
+  "target": "layout_button"
+ },
+ {
+  "at": 16,
+  "type": "click",
+  "note": "选四分",
+  "x": 561,
+  "y": 673,
+  "target": "card_2x2"
+ },
+ {
+  "at": 18,
+  "type": "move",
+  "note": "第 2 路",
+  "x": 110,
+  "y": 284,
+  "target": "nav_2"
+ },
+ {
+  "at": 20,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 284,
+  "target": "nav_2",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 21,
+  "type": "move",
+  "note": "第 3 路",
+  "x": 110,
+  "y": 414,
+  "target": "nav_3"
+ },
+ {
+  "at": 23,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 414,
+  "target": "nav_3",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 24,
+  "type": "move",
+  "note": "第 4 路",
+  "x": 110,
+  "y": 544,
+  "target": "nav_4"
+ },
+ {
+  "at": 26,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 544,
+  "target": "nav_4",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 29,
+  "type": "move",
+  "note": "四分满了，停一下给成片留素材",
+  "x": 900,
+  "y": 500
+ },
+ {
+  "at": 31,
+  "type": "resize",
+  "note": "摆回基准尺寸",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 33,
+  "type": "click",
+  "note": "开布局弹层",
+  "x": 95,
+  "y": 967,
+  "target": "layout_button"
+ },
+ {
+  "at": 36,
+  "type": "click",
+  "note": "选九分",
+  "x": 235,
+  "y": 742,
+  "target": "card_3x3"
+ },
+ {
+  "at": 38,
+  "type": "move",
+  "note": "第 5 路",
+  "x": 110,
+  "y": 674,
+  "target": "nav_5"
+ },
+ {
+  "at": 40,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 674,
+  "target": "nav_5",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 41,
+  "type": "move",
+  "note": "第 6 路",
+  "x": 110,
+  "y": 154,
+  "target": "nav_6"
+ },
+ {
+  "at": 43,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 154,
+  "target": "nav_6",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 44,
+  "type": "move",
+  "note": "第 7 路",
+  "x": 110,
+  "y": 284,
+  "target": "nav_7"
+ },
+ {
+  "at": 46,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 284,
+  "target": "nav_7",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 47,
+  "type": "move",
+  "note": "第 8 路",
+  "x": 110,
+  "y": 414,
+  "target": "nav_8"
+ },
+ {
+  "at": 49,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 414,
+  "target": "nav_8",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 50,
+  "type": "move",
+  "note": "第 9 路",
+  "x": 110,
+  "y": 544,
+  "target": "nav_9"
+ },
+ {
+  "at": 52,
+  "type": "rightclick",
+  "note": "加入画面墙",
+  "x": 110,
+  "y": 544,
+  "target": "nav_9",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 55,
+  "type": "move",
+  "note": "九分铺满，停住给成片取窗",
+  "x": 1500,
+  "y": 800
+ },
+ {
+  "at": 57,
+  "type": "resize",
+  "note": "摆回基准尺寸",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 59,
+  "type": "click",
+  "note": "开布局弹层",
+  "x": 95,
+  "y": 967,
+  "target": "layout_button"
+ },
+ {
+  "at": 62,
+  "type": "click",
+  "note": "选主画面 + 5 小环绕（1+5）",
+  "x": 235,
+  "y": 833,
+  "target": "card_corner"
+ },
+ {
+  "at": 65,
+  "type": "move",
+  "note": "主画面钉住，五小环绕",
+  "x": 640,
+  "y": 240
+ },
+ {
+  "at": 70,
+  "type": "move",
+  "note": "1+5 停住",
+  "x": 1500,
+  "y": 800
+ },
+ {
+  "at": 73,
+  "type": "resize",
+  "note": "摆回基准尺寸",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 75,
+  "type": "click",
+  "note": "开布局弹层",
+  "x": 95,
+  "y": 967,
+  "target": "layout_button"
+ },
+ {
+  "at": 78,
+  "type": "click",
+  "note": "切到「弹幕布局」标签页",
+  "x": 117,
+  "y": 603,
+  "target": "tab_弹幕布局"
+ },
+ {
+  "at": 81,
+  "type": "click",
+  "note": "选「主画面 + 1 小 + 弹幕」",
+  "x": 398,
+  "y": 654,
+  "target": "card_dm_main2"
+ },
+ {
+  "at": 83,
+  "type": "move",
+  "note": "弹幕开始滚（全片唯一允许的持续运动）",
+  "x": 1100,
+  "y": 600
+ },
+ {
+  "at": 91,
+  "type": "move",
+  "note": "弹幕继续滚，别碰鼠标",
+  "x": 1600,
+  "y": 300
+ },
+ {
+  "at": 99,
+  "type": "resize",
+  "note": "拖成竖屏（布局自动接上对映预设）",
+  "w": 810,
+  "h": 1440
+ },
+ {
+  "at": 109,
+  "type": "move",
+  "note": "竖屏停住",
+  "x": 300,
+  "y": 900
+ },
+ {
+  "at": 119,
+  "type": "resize",
+  "note": "回横屏",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 125,
+  "type": "move",
+  "note": "横屏停住",
+  "x": 900,
+  "y": 500
+ },
+ {
+  "at": 128,
+  "type": "move",
+  "note": "在播第 1 项：悬停出封面预览",
+  "x": 110,
+  "y": 154,
+  "target": "nav_0"
+ },
+ {
+  "at": 133,
+  "type": "move",
+  "note": "在播第 2 项：悬停出封面预览",
+  "x": 110,
+  "y": 284,
+  "target": "nav_2"
+ },
+ {
+  "at": 138,
+  "type": "move",
+  "note": "在播第 3 项：悬停出封面预览",
+  "x": 110,
+  "y": 414,
+  "target": "nav_3"
+ },
+ {
+  "at": 143,
+  "type": "move",
+  "note": "在播第 4 项：悬停出封面预览",
+  "x": 110,
+  "y": 544,
+  "target": "nav_4"
+ },
+ {
+  "at": 150,
+  "type": "move",
+  "note": "回到第 1 项，预览卡完整露一次",
+  "x": 110,
+  "y": 154,
+  "target": "nav_0"
+ },
+ {
+  "at": 153,
+  "type": "resize",
+  "note": "音量那两拍前摆回基准尺寸",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 155,
+  "type": "click",
+  "note": "开布局弹层",
+  "x": 95,
+  "y": 967,
+  "target": "layout_button"
+ },
+ {
+  "at": 158,
+  "type": "click",
+  "note": "回到九分（要看得见格子底栏）",
+  "x": 235,
+  "y": 742,
+  "target": "card_3x3"
+ },
+ {
+  "at": 162,
+  "type": "move",
+  "note": "鼠标停在主画面格的音量按钮上",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0"
+ },
+ {
+  "at": 167,
+  "type": "mute",
+  "note": "这一拍要真出声",
+  "action": "unmute",
+  "target": "volume_0",
+  "x": 1723,
+  "y": 964
+ },
+ {
+  "at": 173,
+  "type": "click",
+  "note": "左键点音量按钮 -> 静音这一路",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0"
+ },
+ {
+  "at": 179,
+  "type": "click",
+  "note": "再点一次 -> 取消静音",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0"
+ },
+ {
+  "at": 185,
+  "type": "resize",
+  "note": "摆回基准尺寸",
+  "w": 1920,
+  "h": 1080
+ },
+ {
+  "at": 187,
+  "type": "rightclick",
+  "note": "右键音量按钮 -> 声道 -> 只播左声道",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0",
+  "menu": {
+   "note": "声道",
+   "item_note": "左声道"
+  }
+ },
+ {
+  "at": 193,
+  "type": "move",
+  "note": "L 标记亮起，这一路只走左耳",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0"
+ },
+ {
+  "at": 199,
+  "type": "rightclick",
+  "note": "右键音量按钮 -> 声道 -> 只播右声道",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0",
+  "menu": {
+   "note": "声道",
+   "item_note": "右声道"
+  }
+ },
+ {
+  "at": 205,
+  "type": "move",
+  "note": "R 标记亮起",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0"
+ },
+ {
+  "at": 209,
+  "type": "rightclick",
+  "note": "声道调回「默认（跟随片源）」",
+  "x": 1723,
+  "y": 964,
+  "target": "volume_0",
+  "menu": {
+   "note": "声道",
+   "item_note": "跟随片源"
+  }
+ },
+ {
+  "at": 213,
+  "type": "mute",
+  "note": "这两拍拍完了，软件重新按进程静音",
+  "action": "mute",
+  "target": "volume_0",
+  "x": 1723,
+  "y": 964
+ },
+ {
+  "at": 215,
+  "type": "move",
+  "note": "收尾",
+  "x": 1500,
+  "y": 900
+ }
 ]

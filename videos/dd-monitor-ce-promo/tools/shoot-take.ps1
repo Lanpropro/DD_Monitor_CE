@@ -80,6 +80,7 @@ Write-Host "等动作驱动收尾 ..."
 $driver.WaitForExit(600000) | Out-Null
 if (-not $driver.HasExited) { $driver.Kill(); Write-Warning "动作驱动超时，已结束" }
 Write-Host "  动作驱动退出码 $($driver.ExitCode)"
+$AppPid = $driver.Id          # 驱动就是软件本体进程，按 PID 掐会话最准
 
 foreach ($proc in @($audio, $ff)) {
   if ($proc -and -not $proc.HasExited) { $proc.WaitForExit(180000) | Out-Null }
@@ -98,7 +99,9 @@ if ($hasAudio) {
 }
 
 if (-not $KeepMuted -and (Test-Path $MuteScript)) {
-  & $LoopbackPy $MuteScript "python" "mute" 2>$null | ForEach-Object { Write-Host "  $_" }
+  # 按 PID 收尾（按名字会命中这台机器上同时开着的其他 pythonw）
+  & $LoopbackPy $MuteScript "pid:$AppPid" "mute" 2>$null |
+    ForEach-Object { Write-Host "  $_" }
 }
 
 if (Test-Path $OutFile) {

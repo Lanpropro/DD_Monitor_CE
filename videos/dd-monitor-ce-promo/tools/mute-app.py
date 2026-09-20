@@ -23,16 +23,33 @@ def sessions():
 
 def main() -> int:
     if len(sys.argv) < 3:
-        print("用法: python mute-app.py <进程名关键字> <mute|unmute|status>")
+        print("用法: python mute-app.py <进程名关键字|pid:1234> <mute|unmute|status>")
         return 1
     key, action = sys.argv[1].lower(), sys.argv[2].lower()
+
+    # 目标既可以是「进程名关键字」也可以是「pid:1234」。
+    # 为什么一定要支持 PID：这台机器上同时开着好几个 pythonw（软件本体、探测脚本、
+    # 驱动脚本……），按名字找会**同时命中好几个会话**（实测同一进程名有的 MUTED
+    # 有的 unmuted），解静音可能落到别的会话上 —— 录出来的"要出声"那两拍就是死的。
+    want_pid = None
+    if key.startswith("pid:"):
+        try:
+            want_pid = int(key[4:])
+        except ValueError:
+            print(f"pid 解析失败：{key}")
+            return 1
+
     hit = 0
     for s in sessions():
         try:
+            pid = int(s.ProcessId)
             name = s.Process.name()
         except Exception:
             continue
-        if key not in name.lower():
+        if want_pid is not None:
+            if pid != want_pid:
+                continue
+        elif key not in name.lower():
             continue
         vol = s.SimpleAudioVolume
         if action == "mute":
@@ -43,7 +60,8 @@ def main() -> int:
         print(f"{name} (pid {s.ProcessId}) -> {state}")
         hit += 1
     if hit == 0:
-        print(f"没找到名字含「{key}」的音频会话（程序没在出声时不会创建会话）")
+        what = f"pid {want_pid}" if want_pid is not None else f"名字含「{key}」"
+        print(f"没找到 {what} 的音频会话（程序没在出声时不会创建会话）")
         return 2
     return 0
 

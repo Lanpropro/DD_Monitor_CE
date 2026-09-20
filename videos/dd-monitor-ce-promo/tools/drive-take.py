@@ -259,9 +259,11 @@ class Driver:
         elif tile is not None:
             self.note("mute", f"格子已经是{'静音' if want_muted else '出声'}状态", t)
 
-        # 2) 会话层 + 等生效
+        # 2) 会话层 + 等生效。**按 PID 挑会话**：这台机器上同时有多个 pythonw
+        #    （软件本体、探测脚本、驱动脚本），按名字找会命中好几个会话，
+        #    解静音可能落到别的会话上（这就是上一版录出来全程静音的原因）。
         if not self.dry and os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
-            subprocess.run([LOOPBACK_PY, MUTE_SCRIPT, "python", action],
+            subprocess.run([LOOPBACK_PY, MUTE_SCRIPT, f"pid:{os.getpid()}", action],
                            capture_output=True, text=True)
         if not want_muted:
             self.audio_on = True
@@ -491,7 +493,8 @@ class Driver:
                 self.note("audio", f"格子「{tile.room.get('uname', '?')}」改成未静音",
                           time.monotonic() - self._time0)
             if os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
-                result = subprocess.run([LOOPBACK_PY, MUTE_SCRIPT, "python", "unmute"],
+                result = subprocess.run([LOOPBACK_PY, MUTE_SCRIPT,
+                                         f"pid:{os.getpid()}", "unmute"],
                                         capture_output=True, text=True)
                 tail = (result.stdout or result.stderr or "").strip().splitlines()
                 self.note("audio", "会话解静音：" + (tail[-1] if tail else "（无输出）"),
