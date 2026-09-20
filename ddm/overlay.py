@@ -4,14 +4,15 @@ FPS Monitor 这类工具会注入目标进程、hook DXGI 的 Present 来做画�
 D3D11 渲染时，两边的生命周期撞在一起，就会在用户机器上出现
 ``Windows fatal exception: access violation``（2026-09-20 那个新用户机器正是）。
 
-这里只做两件事：把注入进来的可疑模块列出来写进日志（方便确认现场），并给上层
-一个「要不要退回软件渲染」的判断依据。所有调用都吞异常，检测失败不影响启动。
+这里只做一件事：把注入进来的可疑模块列出来写进日志，方便排查现场（哪个第三方
+工具挂在进程里）。所有调用都吞异常，检测失败不影响启动，也**不改动任何行为**。
 """
 import os
 
 #: 已知会 hook 图形管线的覆盖层/注入模块关键字（小写，按模块文件名匹配）
+#: FPS Monitor 实测注入的是 ``fps-mon64.dll``（带连字符），所以两种写法都要匹配。
 OVERLAY_HINTS = (
-    "fpsmon",                               # FPS Monitor
+    "fps-mon", "fpsmon",                    # FPS Monitor
     "rtss", "rivatuner", "afterburner",     # RivaTuner / MSI Afterburner
     "discord",                              # Discord 覆盖层
     "gameoverlay",                          # Steam 覆盖层

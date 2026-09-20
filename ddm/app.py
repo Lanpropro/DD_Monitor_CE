@@ -1624,22 +1624,16 @@ def main(argv: list[str] | None = None) -> int:
     t_load = time.perf_counter()
     settings = dict(config_module.DEFAULT_SETTINGS)
     settings.update(state.get("settings") or {})
-    # 覆盖层检测：FPS Monitor 这类工具会注入进程、hook DXGI 做画面叠加，把 VLC 的
-    # D3D11 渲染撞崩（2026-09-20 用户机器）。检测到（或用户开了兼容模式）就整机退回
-    # GDI 软件渲染 —— 必须在建 libvlc 实例之前设好，建完再改就不生效了。
+    # 诊断：把注入本进程的第三方模块（FPS Monitor / RTSS / 游戏覆盖层这类会 hook
+    # 画面的工具）写进日志，方便排查「画面莫名崩溃」时确认现场。只记录，不改行为。
     _paths = overlay.module_paths()
     _hits = overlay.overlays(_paths)
     _foreign = overlay.foreign_modules(_paths)
     if _foreign:
         print(f"[覆盖层] 进程内非系统注入模块：{_foreign}", file=sys.stderr, flush=True)
-    _compat = bool(settings.get("video_compat")) or bool(_hits)
     if _hits:
-        print(f"[覆盖层] 检测到 {_hits}（会 hook 画面）→ 启用画面兼容模式",
+        print(f"[覆盖层] 检测到可能 hook 画面的工具：{_hits}",
               file=sys.stderr, flush=True)
-    elif settings.get("video_compat"):
-        print("[覆盖层] 设置里开了「画面兼容模式」", file=sys.stderr, flush=True)
-    if _compat:
-        player_module.PlayerPool.vout = "wingdi"
     # libvlc 放到后台线程去建：第一次运行要扫 200 多个 VLC 插件，用户机器上
     # 这一步在主线程里卡了 4.5 秒（看门狗日志），界面就跟着冻住。悬停预览
     # 关掉时第二个实例不用建，省一点内存。
@@ -1649,9 +1643,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
           + ("" if state else "（全新配置）"))
     print(f"[VLC] libvlc {TilePlayer.vlc_version()} 硬件解码="
-          f"{'开' if settings.get('hw_decode', True) else '关（软解）'}"
-          f" 画面墙输出={player_module.PlayerPool.vout or '默认(d3d11)'}"
-          f" 预览输出=wingdi",
+          f"{'开' if settings.get('hw_decode', True) else '关（软解）'}",
           file=sys.stderr, flush=True)
 
     window = MainWindow(sidebar, wall,

@@ -28,27 +28,19 @@ class PlayerPool:
     _preview: vlc.Instance | None = None
     _lock = threading.Lock()
 
-    #: 画面墙那一路的视频输出模块覆盖（"" = 用 VLC 默认的 D3D11）。
-    #: 设成 "wingdi" 就整机走 GDI 软件渲染 —— FPS Monitor 这类注入进程、
-    #: hook DXGI Present 做叠加的覆盖层就碰不到画面了，代价是渲染吃 CPU。
-    #: 由 app 启动时按「画面兼容模式」或检测到的覆盖层来设置（要在建实例之前设）。
-    vout = ""
-
     @classmethod
     def instance(cls) -> vlc.Instance:
         with cls._lock:                     # 预热线程和主线程可能同时进来
             if cls._instance is None:
-                options = ["--no-video-title-show", "--quiet",
-                           "--no-snapshot-preview", "--avcodec-hw=any"]
-                if cls.vout:
-                    options.append(f"--vout={cls.vout}")
-                cls._instance = vlc.Instance(*options)
+                cls._instance = vlc.Instance(
+                    "--no-video-title-show", "--quiet",
+                    "--no-snapshot-preview", "--avcodec-hw=any")
                 _silence_libvlc(cls._instance)
             return cls._instance
 
     @classmethod
     def preview_instance(cls) -> vlc.Instance:
-        """悬停预览专用的 libvlc 实例：**声音和显卡都别碰**。
+        """悬停预览专用的 libvlc 实例：**让预览不可能出声**。
 
         预览在代码里本来就是 muted=True / volume=0，媒体上还带了 ``:no-audio``，
         但用户那边（Windows 26200 + NVIDIA 616.64，音频模块 mmdevice）仍然听得到
@@ -57,21 +49,14 @@ class PlayerPool:
             --aout=adummy      音频输出走 dummy 模块，解出来的声音直接丢掉
             --no-audio         连音频输出都不建
             --avcodec-hw=none  也不抢显卡解码器（预览才两百来像素宽，软解足够）
-            --vout=wingdi      **渲染也走 GDI 软件输出，完全不碰 D3D11 / DXGI**
 
-        最后这条是冲着 FPS Monitor 这类第三方覆盖层来的：它们注入进程、hook
-        DXGI Present 之后，预览这种「悬停就反复起停」的 D3D11 生命周期会被放大成
-        ``Windows fatal exception: access violation``（用户 2026-09-20 21:11 的
-        日志就是在反复悬停预览时崩的）。wingdi 走 GDI，覆盖层根本不 hook 这条路；
-        预览本来就是两百来像素的小图，软件渲染毫无压力。画面墙那一路照旧用默认
-        的 D3D11，不受影响。
+        顺带把预览和画面墙那一路彻底隔离：一边出问题不会牵连另一边。
         """
         with cls._lock:
             if cls._preview is None:
                 cls._preview = vlc.Instance(
                     "--no-video-title-show", "--quiet", "--no-snapshot-preview",
-                    "--aout=adummy", "--no-audio", "--avcodec-hw=none",
-                    "--vout=wingdi")
+                    "--aout=adummy", "--no-audio", "--avcodec-hw=none")
                 _silence_libvlc(cls._preview)
             return cls._preview
 
