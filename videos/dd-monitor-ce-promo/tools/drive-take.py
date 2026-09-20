@@ -96,6 +96,7 @@ class Driver:
         self._menu_action = None
         self._menu_point = None
         self.action_log = []
+        self.audio_on = False
 
     # ---- 记录 ----
     def note(self, kind, detail, t):
@@ -227,10 +228,45 @@ class Driver:
         self.note("click", f"{step.get('note', '')} -> {name}", t)
 
     def act_mute(self, step, t):
+        """把"软件到底出不出声"这件事同时管住两层。
+
+        踩过的坑：画面墙上的格子显示"已静音"但软件**实际还在出声**，反过来
+        按进程静音（mute-app.py）之后，格子就算点成"未静音"也不会有声音 ——
+        两层都要管，否则录出来的那两拍是死的（实测：整条 4 分钟 take 的音频
+        都是 -91dB，连"要出声"的窗口也静音）。
+
+          · 格子层：tile.set_muted(...) —— 决定软件自己要不要播声音
+          · 会话层：mute-app.py —— 决定系统混音里还有没有它
+
+        两个动作都要等到真正生效（会话开关是异步的），否则录到的还是旧状态。
+        """
         action = step.get("action", "mute")
+        want_muted = action == "mute"
+
+        # 1) 格子层：没有 target 就按计划坐标找那个格子
+        tile = None
+        if step.get("target"):
+            name, widget = self.locate(int(step.get("x", 0)), int(step.get("y", 0)),
+                                       step["target"], "volume")
+            tile = self.tile_of(widget) if widget is not None else None
+            if tile is None and widget is not None:
+                tile = self.tile_of(widget)
+        if tile is not None and bool(tile.muted) != want_muted:
+            tile.set_muted(want_muted)
+            QApplication.processEvents()
+            state = "已静音" if want_muted else "未静音"
+            self.note("mute", f"格子「{tile.room.get('uname', '?')}」{state}", t)
+        elif tile is not None:
+            self.note("mute", f"格子已经是{'静音' if want_muted else '出声'}状态", t)
+
+        # 2) 会话层 + 等生效
         if not self.dry and os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
             subprocess.run([LOOPBACK_PY, MUTE_SCRIPT, "python", action],
                            capture_output=True, text=True)
+        if not want_muted:
+            self.audio_on = True
+        else:
+            self.audio_on = False
         self.note("mute", f"软件音频 {action}：{step.get('note', '')}", t)
 
     def act_resize(self, step, t):
@@ -429,12 +465,56 @@ class Driver:
                 partial = action
         return exact or partial
 
+    def apply_audio(self) -> None:
+        """把「开录时该不该出声」按计划算出来并落实。
+
+        整条素材只有成片里要听声音的那两拍需要出声，所以默认按进程静音，
+        在计划里第一次 `unmute` 之前再打开。这样做还有个好处：
+        剪辑时只用看 unmute/mute 两个时刻就知道声音窗口在哪。
+        """
+        first = next((step for step in self._plan
+                      if step.get("type") == "mute" and step.get("action") == "unmute"),
+                     None)
+        if first is None:
+            return
+        lead = float(first.get("at", 0)) - self._time0
+        # 提前 2 秒打开，避免"第一声被切掉"；同时把这一路格子设成未静音，
+        # 否则会话就算开着，软件自己也不会出声
+        delay = max(0.0, lead - 2.0)
+        self.note("audio", f"计划 {delay:.1f} 秒后让软件出声（{first.get('note', '')}）", 0.0)
+
+        def open_audio() -> None:
+            tile = self._tile_named(first.get("target", ""))
+            if tile is not None and tile.muted:
+                tile.set_muted(False)
+                QApplication.processEvents()
+                self.note("audio", f"格子「{tile.room.get('uname', '?')}」改成未静音",
+                          time.monotonic() - self._time0)
+            if os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
+                result = subprocess.run([LOOPBACK_PY, MUTE_SCRIPT, "python", "unmute"],
+                                        capture_output=True, text=True)
+                tail = (result.stdout or result.stderr or "").strip().splitlines()
+                self.note("audio", "会话解静音：" + (tail[-1] if tail else "（无输出）"),
+                          time.monotonic() - self._time0)
+            self.audio_on = True
+
+        QTimer.singleShot(int(delay * 1000), open_audio)
+
+    def _tile_named(self, label):
+        if not label:
+            return None
+        name, widget = self.locate(0, 0, label, "volume")
+        return self.tile_of(widget) if widget is not None else None
+
     # ---- 主流程 ----
     def run(self, plan, lead):
+        self._plan = plan
         self.note("begin", f"模式={self.mode} 计划 {len(plan)} 步 窗口 {frame_rect(self.win)}",
                   0.0)
         time.sleep(lead)
         t0 = time.monotonic()
+        self._time0 = t0
+        self.apply_audio()
         for step in plan:
             target = float(step["at"])
             while True:
