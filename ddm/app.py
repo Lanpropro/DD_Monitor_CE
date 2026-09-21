@@ -156,6 +156,8 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self.orientation = ""                  # 由 _apply_orientation 填
+        #: 各方向「切走之前在用的布局」：切回来时还原，别被容量折算换掉
+        self._layout_by_orientation: dict[str, str] = {}
         self._build_arrangement("landscape")
         #: 构造时显式指定的布局（交给 _apply_orientation 决定用哪个方向的）
         self._pending_layout = ""
@@ -328,6 +330,10 @@ class MainWindow(QMainWindow):
         changed = orientation != self.orientation
         if changed:
             self._build_arrangement(orientation)
+        # 切走之前正在用的那套，记在**原来那个方向**名下：用户转个方向逛一圈再转回来，
+        # 原来那边的布局得原样还在，不能靠「按容量折算」猜回来。
+        if self.orientation and changed:
+            self._layout_by_orientation[self.orientation] = self.wall.layout_id
         self.orientation = orientation
         portrait = orientation == "portrait"
 
@@ -349,17 +355,24 @@ class MainWindow(QMainWindow):
                 layouts.counterpart(self.wall.layout_id, portrait)
                 or (layouts.PORTRAIT_AUTO if portrait else layouts.FIRST_LAYOUT))
         else:
-            # **先按「对映」走**：换方向时跟着当前这套布局找最相似的那套
-            # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
-            # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
-            # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
-            mapped = layouts.counterpart(self.wall.layout_id, portrait)
-            if mapped:
-                layout_id = mapped
-            elif self._layout_fits(saved, portrait):
-                layout_id = saved
+            # 回自己待过的方向：先把「切走之前在用的那套」摆回来。横屏的
+            # 「主画面 + 5 小环绕」和「六分」都是 6 路，只按容量折算的话，从竖屏
+            # 切回来会被换成六分 —— 用户报的「布局被改了」就是这个。
+            remembered = self._layout_by_orientation.get(orientation, "")
+            if remembered and self._layout_fits(remembered, portrait):
+                layout_id = remembered
             else:
-                layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
+                # 本次会话第一次进这个方向：跟着当前这套找最相似的那套
+                # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
+                # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
+                # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
+                mapped = layouts.counterpart(self.wall.layout_id, portrait)
+                if mapped:
+                    layout_id = mapped
+                elif self._layout_fits(saved, portrait):
+                    layout_id = saved
+                else:
+                    layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
         if layout_id != self.wall.layout_id:
             self.wall.set_layout(layout_id)
             self.sidebar.set_layout_name(layout_id)
@@ -504,6 +517,9 @@ class MainWindow(QMainWindow):
             print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
                   f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
                   file=sys.stderr, flush=True)
+            # 转窗口会同步触发 _apply_orientation，而那里会把「切走前的记忆」摆回来，
+            # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
+            self._pending_layout = layout_id
             self._reshape_window(want_portrait)
         self.wall.set_layout(layout_id)
         self.wall.relayout(force=True)

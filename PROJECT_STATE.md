@@ -126,7 +126,15 @@
   120 ms 就把上次那张顶上，不必等状态轮询；封面同时改走 B 站 CDN 缩放后缀
   （`@412w_232h.webp`，实测原图 52.8 KB → 8.1 KB），取不到会自动退回原图。
   新增 `dev/selfcheck_cover_cache.py`。
-- 自检现状：全量 **33 项里 32 项通过**，唯一失败的仍是 `selfcheck_plugins.py`
+- 横屏切到竖屏逛一圈再切回来，横屏的布局被改掉（用户报的「布局被改了」）：
+  `layouts.counterpart()` 是**按容量就近折算**的，横屏「主画面 + 5 小环绕」和
+  「六分」都是 6 路，从竖屏折回来平手取到排在前面那个（六分）—— 新用户默认就是
+  corner，一转就变六分。现在 `_apply_orientation()` 把「切走之前在用的那套」记在
+  原方向名下（`_layout_by_orientation`），切回来优先还原；只有本次会话第一次进
+  某个方向时才按容量折算（保住上一轮修的「进竖屏要跟着横屏走」）。另外
+  `_on_layout_changed()` 在转窗口前先把用户选的那套挂成 `_pending_layout`，
+  否则刚选的会被还原逻辑顶掉。新增 `dev/selfcheck_orientation_layout.py`（6 节）。
+- 自检现状：全量 **34 项里 33 项通过**，唯一失败的仍是 `selfcheck_plugins.py`
   （原因同上，与本轮改动无关）。未推送、未更新 Release 附件、未碰
   `utils/config.json`。
 - 跑自检的正确姿势（踩过的坑）：照 `dev\run-checks.cmd` 原样跑 —— 只设
