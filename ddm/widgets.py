@@ -2147,14 +2147,21 @@ class NavItem(QFrame):
 class RoomListBox(QWidget):
     """关注列表的滚动内容：卡片自己摆位置，拖动时让位、松手后滑动归位。"""
 
+    #: 光标离**视口**边缘多近就开始自动滚（像素）
+    SCROLL_EDGE = 30
+    #: 刚进边缘带 / 贴死边缘（或已经拖到视口外）时，一拍各滚多少像素
+    SCROLL_STEP_MIN = 4
+    SCROLL_STEP_MAX = 36
+
     def __init__(self, sidebar, parent=None):
         super().__init__(parent)
         self.sidebar = sidebar
         self.setAcceptDrops(True)
         self._animations: dict = {}
         self._scroll_dir = 0
+        self._scroll_step = float(self.SCROLL_STEP_MIN)
         self._scroll_timer = QTimer(self)
-        self._scroll_timer.setInterval(40)
+        self._scroll_timer.setInterval(30)      # 30ms 一拍：贴死边缘约 1200px/s
         self._scroll_timer.timeout.connect(self._scroll_tick)
 
     # ---- 拖到上下边缘时自动滚动 ----
@@ -2163,8 +2170,10 @@ class RoomListBox(QWidget):
         """竖屏顶部横栏里，卡片是横向排的（关注多了就左右滚）。"""
         return getattr(self.sidebar, "side", "left") == "top"
 
-    def set_scroll_dir(self, direction: int) -> None:
+    def set_scroll_dir(self, direction: int, step: float | None = None) -> None:
         self._scroll_dir = int(direction)
+        if step is not None:
+            self._scroll_step = float(step)
         if self._scroll_dir and not self._scroll_timer.isActive():
             self._scroll_timer.start()
         elif not self._scroll_dir:
@@ -2175,14 +2184,35 @@ class RoomListBox(QWidget):
         if area is None or not self._scroll_dir:
             return
         bar = area.horizontalScrollBar() if self.horizontal else area.verticalScrollBar()
-        bar.setValue(bar.value() + self._scroll_dir * 12)
+        bar.setValue(bar.value() + self._scroll_dir * int(round(self._scroll_step)))
 
-    def auto_scroll(self, y: float) -> None:
-        """光标贴近边缘就自动滚，方便把卡片拖到看不见的位置。"""
-        if y < 28:
-            self.set_scroll_dir(-1)
-        elif y > (self.width() if self.horizontal else self.height()) - 28:
-            self.set_scroll_dir(1)
+    def _scroll_step_for(self, depth: float) -> float:
+        """离边缘越近滚越快：刚进边缘带 4px/拍，贴死边缘 36px/拍。"""
+        return self.SCROLL_STEP_MIN + (self.SCROLL_STEP_MAX - self.SCROLL_STEP_MIN) * depth
+
+    def auto_scroll(self, global_pos) -> None:
+        """光标贴到视口的上/下（横排时是左/右）边缘就自动滚。
+
+        判据必须用**视口**坐标：本控件是 ``scroll.setWidget()`` 的内容 widget
+        （``widgetResizable=True``），``height()`` 是内容总高（40 个关注时 5200px），
+        不是能看见的视口高度（517px）。以前拿内容高度当边界，「往下」要等光标到
+        内容最底部才成立 —— 视口里根本够不着，等于只有「往上」能用。
+        """
+        area = self.sidebar.scroll
+        if area is None:
+            self.set_scroll_dir(0)
+            return
+        viewport = area.viewport()
+        local = viewport.mapFromGlobal(global_pos)
+        span = viewport.width() if self.horizontal else viewport.height()
+        along = local.x() if self.horizontal else local.y()
+        edge = self.SCROLL_EDGE
+        if along < edge:
+            depth = min(1.0, (edge - along) / edge)           # 拖出视口也继续滚
+            self.set_scroll_dir(-1, self._scroll_step_for(depth))
+        elif along > span - edge:
+            depth = min(1.0, (along - (span - edge)) / edge)
+            self.set_scroll_dir(1, self._scroll_step_for(depth))
         else:
             self.set_scroll_dir(0)
 
@@ -3653,9 +3683,11 @@ class Sidebar(QFrame):
 
     def hover_drag(self, room_id: str, global_pos) -> None:
         """拖动过程中：贴近边缘自动滚，并在落点让出一格。"""
+        # 自动滚吃**全局坐标**（它内部按视口算边界）；落点下标要的是**内容坐标**
+        # —— 以前把两者混成同一个变量，往下滚就永远触发不了。
+        self.list_box.auto_scroll(global_pos)
         local = self.list_box.mapFromGlobal(global_pos)
         along = local.x() if self.list_box.horizontal else local.y()
-        self.list_box.auto_scroll(along)
         self.show_drop_indicator(room_id, self.list_box.index_at(along))
 
     def finish_drag(self, room_id: str, global_pos) -> None:
