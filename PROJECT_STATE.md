@@ -139,23 +139,14 @@
 
 ## 接续动作
 
-第一步（关闭提速），已核实的线索：
+关闭/启动提速（`DDMCE-20260920-SPEEDUP-01`）和随后用户实测反馈的 7 个问题
+（静音串台、秒切后音量条、隐藏格子仍在播、拖动自动滚动、拖动中滚轮、启动误弹
+开播提示、封面慢/未开播没图）都已修完，全量自检 33 项 32 通过（唯一失败的
+`selfcheck_plugins.py` 是本机沙箱限制）。**当前没有必须马上做的改动。**
 
-- `ddm/app.py` 的 `MainWindow.closeEvent()`：`players = list(self.players.values())`
-  之后逐个 `player.release()`；`TilePlayer.release()` 里依次做 `player.stop()`、
-  `player.set_hwnd(0)`、`player.release()` —— 这几步都是阻塞的 libvlc 调用（每格
-  上百毫秒量级），而且都在主线程上，所以用户看到「一格一格关掉」。
-  `closeEvent` 里还有 `self._wait_background()`（最多等 2.5 秒）与 `config.save()`。
-- `ddm/app.py` 的 `main()`：`code = app.exec()` 之后才 `os._exit(code)`。
-- 建议做法（待验证，不要照抄）：`closeEvent` **最开头先 `self.hide()`**（窗口立刻消失，
-  用户不再看到逐格拆），再按现有顺序收尾；必要时先把各格 `video` 子窗口隐藏/摘掉画面，
-  最后统一释放播放器。改动要有量化依据（用日志时间戳量关闭耗时，别凭感觉）。
-
-验收方法：
-
-- 手感：点关闭后窗口立刻消失。
-- `dev/run-checks.cmd`（27 项）全绿；为「closeEvent 先隐藏窗口」补一条自检钉住。
-- 出包：`dev/build_release.ps1` 通过（含 20 秒实跑校验 + `[方向]` 日志）。
+接下来按 `idea.txt` 挑（8 条，用户自己排的队）。其中「8 修复搜索栏」卡点最少 ——
+控件和样式都已经在 `ddm/widgets.py` / `ddm/theme.py` 里躺好了，只差过滤逻辑
+（`ddm/app.py` 里一处 search 都没有）；插件接口的细节看 `docs/plugins.md`。
 
 不要重走的路（已验证无效或有副作用）：
 
