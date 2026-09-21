@@ -197,28 +197,50 @@ ddm/widgets.py（WallGrid 的排布）、ddm/dialogs.py（编辑界面）。
 
 
 --------------------------------------------------------------------
-8. 内嵌网页支持「按住左键拖动滚动」
+8. 关注栏拖动卡片时要能上下滚动
 --------------------------------------------------------------------
 
 想法
-    在网页上按住鼠标左键拖动就能滚动页面 —— 鼠标没滚轮、或者用触控板 /
-    触摸屏时，滚轮那条路不好使。
+    在关注列表里按住卡片拖动排序时，光标贴到列表的上/下边缘，列表要跟着自动
+    滚 —— 关注多了，不然卡片根本拖不到看不见的位置。
 
-现状
-    本体里唯一的内嵌网页是 ddm/web_login.py 的 WebLoginWindow：一个
-    QWebEngineView，打开 https://passport.bilibili.com/login（账号密码登录用，
-    拿到 SESSDATA 自动关窗）。QtWebEngine 默认只认滚轮，没有「拖拽滚动」这回事。
+现状 —— 已经有一套，但**「往上」能用，「往下」形同虚设**
+    RoomListBox（ddm/widgets.py）里已经有自动滚动：
+        _scroll_dir / _scroll_timer（40ms 一拍）/ _scroll_tick（每拍 ±12px）
+        auto_scroll(y)：y < 28 往上、y > 「高度」- 28 往下、否则停
+    拖动时由 NavItem.dragMoveEvent -> Sidebar.hover_drag() 驱动，
+    Sidebar.hover_drag 里确实在调 self.list_box.auto_scroll(along)。
 
-可以怎么做
-    子类化 QWebEngineView（或给它装事件过滤器）：
-      - 左键按下：记下起点和当前滚动位置，先不进入拖动
-      - 位移超过几个像素的阈值才当成拖动：换成抓取光标，按位移滚动
-        （page().runJavaScript 里调 window.scrollBy，或者读 scrollPosition）
-      - 没超过阈值就当普通点击放过去，别弄坏页面里的输入框和选字
-      - 松开 / 失焦要复位状态
+    坏在 auto_scroll 收到的是**内容控件**的局部坐标。RoomListBox 就是
+    scroll.setWidget(...) 那个 widget，而且 widgetResizable=True，所以它的
+    height() 是**内容总高**，不是视口高度。实测（40 个关注）：
+
+        viewport.height() = 517      box.height() = 5200
+        滚动条范围 0 ~ 4683
+        auto_scroll(5)    -> 往上滚
+        auto_scroll(300)  -> 不滚
+        auto_scroll(900)  -> 不滚
+        auto_scroll(5195) -> 往下滚        ← 要到内容最底下才触发
+
+    「往下」的判据是 y > 5200 - 28 = 5172，视口里够不着：光标在视口里 y 最多是
+    「滚动值 + 517」，要 ≥5172 得先滚到 4655 以上，而往下滚又得靠这个判据 ——
+    循环依赖，等于没有。往上那条（y < 28）碰巧是对的，因为滚到 0 时内容顶就是
+    视口顶。
+
+要做的
+    - 边界判据改用**视口坐标**：area.viewport().mapFromGlobal(pos)，和
+      viewport().height() / width() 比；算落点下标的 index_at() 该继续用内容
+      坐标，两者别混在一个变量里
+    - 速度做成渐变：离边缘越近滚越快（现在固定 12px/40ms ≈ 300px/s，5200px 的
+      列表要十几秒才到底；_scroll_timer 已经是 40ms，改成按距离算步长即可）
+    - 三种形态都要顾到：左侧竖列表（verticalScrollBar）、竖屏顶部横栏的横向
+      卡片条（list_box.horizontal -> horizontalScrollBar）、收起态的头像排
+    - 停的条件确认齐：松手（finish_drag 里已 set_scroll_dir(0)）、Esc 取消、
+      拖出列表、窗口失焦
 
 要动
-    ddm/web_login.py（QWebEngineView 子类 + 事件处理）。
+    ddm/widgets.py（RoomListBox.auto_scroll / _scroll_tick，必要时
+    Sidebar.hover_drag）。
 
 
 --------------------------------------------------------------------
