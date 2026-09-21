@@ -29,17 +29,32 @@ def route_pcm_s16_stereo(data: bytes, channel: int) -> bytes:
     return bytes(output)
 
 
+def linear_to_vlc_volume(volume: int) -> int:
+    """把「滑块 0..100」折算成传给 libvlc_audio_set_volume 的值，让最终增益 = v/100。
+
+    VLC 3 的 ``libvlc_audio_set_volume`` 内部对 0..1 取**三次方**（mmdevice 输出在
+    交给 ISimpleAudioVolume 之前会 ``powf(vol, 3)``）。三次方曲线「前面拖了没反应、
+    后面突然响」，用户要求线性 —— 所以这里先取立方根，抵消掉 VLC 那层三次方。
+    """
+    level = max(0, min(100, int(volume)))
+    if level <= 0:
+        return 0
+    return int(round(100 * (level / 100) ** (1.0 / 3.0)))
+
+
 def apply_volume_s16_stereo(data: bytes, volume: int) -> bytes:
-    """Apply VLC's Windows volume curve to callback PCM samples."""
+    """对回调 PCM 样本套**线性**音量：与原生路径对齐（见 linear_to_vlc_volume）。
+
+    PCM 回调绕开了 VLC 的三次方（实测 ``libvlc_audio_set_volume`` 对回调样本完全
+    不生效），所以这里直接乘 ``v/100``；原生路径那边则是「先立方根、再被 VLC 三次方
+    抵消」，两条声道路径最终得到同一个线性曲线，音量手感才一致。
+    """
     if len(data) % BYTES_PER_FRAME:
         raise ValueError("stereo S16 PCM must contain complete frames")
     level = max(0, min(100, int(volume)))
     if level == 100:
         return bytes(data)
-    # VLC 3 的 Windows mmdevice 输出也把 0..1 音量取三次方后交给
-    # ISimpleAudioVolume。PCM 回调绕开了那层，必须在这里使用同一曲线，
-    # 否则 50% 会按 0.5 而不是 0.125 输出，单独声道听起来明显更响。
-    gain = (level / 100) ** 3
+    gain = level / 100
     output = bytearray(len(data))
     source = memoryview(data).cast("h")
     target = memoryview(output).cast("h")

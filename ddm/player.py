@@ -6,7 +6,7 @@ import threading
 import vlc
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .audio_output import StereoOutput, vlc_channel_for
+from .audio_output import StereoOutput, linear_to_vlc_volume, vlc_channel_for
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -150,7 +150,7 @@ class TilePlayer(QObject):
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
         if not self.silent:                 # 预览是 --no-audio 实例，没有音频输出，别碰
-            self.player.audio_set_volume(self.volume)
+            self.player.audio_set_volume(linear_to_vlc_volume(self.volume))
             self.player.audio_set_mute(True)
         self._bound = False
         self._bound_hwnd = 0
@@ -331,7 +331,9 @@ class TilePlayer(QObject):
         （没静音的要出声），所以这里再压一道：静音时音量直接 0，取消静音再恢复。
         """
         try:
-            self.player.audio_set_volume(0 if self.muted else self.volume)
+            # 原生输出路径：先取立方根抵消 VLC 内部的三次方，最终就是线性音量
+            self.player.audio_set_volume(
+                0 if self.muted else linear_to_vlc_volume(self.volume))
         except Exception:  # noqa: BLE001
             pass
 

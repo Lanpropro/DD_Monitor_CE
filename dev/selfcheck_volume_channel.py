@@ -217,8 +217,8 @@ def main() -> None:
     fake.calls.clear()
     holder.set_muted(False)
     print(f"  取消静音：{fake.calls}")
-    assert ("mute", False) in fake.calls and ("volume", 42) in fake.calls, \
-        "取消静音要把用户音量恢复回去（不能停在 0）"
+    assert ("mute", False) in fake.calls and ("volume", 75) in fake.calls, \
+        "取消静音要把用户音量恢复回去（42 先立方根成 75 抵消 VLC 三次方，不能停在 0）"
 
     holder.play("https://example.invalid/x.flv")     # 重新播放要重新补
     print(f"  play() 之后：_audio_ready={holder._audio_ready}")    # noqa: SLF001

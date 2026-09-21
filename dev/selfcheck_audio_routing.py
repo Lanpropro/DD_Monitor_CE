@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ddm.audio_output import (
     CHANNEL_LEFT, CHANNEL_RIGHT, StereoOutput, apply_volume_s16_stereo,
-    route_pcm_s16_stereo,
+    linear_to_vlc_volume, route_pcm_s16_stereo,
     vlc_channel_for,
 )
 
@@ -29,13 +29,24 @@ assert samples(route_pcm_s16_stereo(source, CHANNEL_RIGHT)) == (
     0, 2000, 0, -1000, 0, 32767,
 )
 assert samples(apply_volume_s16_stereo(source, 50)) == (
-    125, 375, -375, 125, 4095, 4095,
+    500, 1500, -1500, 500, 16383, 16383,
 )
 assert apply_volume_s16_stereo(source, 100) == source
 assert samples(apply_volume_s16_stereo(source, 0)) == (0, 0, 0, 0, 0, 0)
 assert vlc_channel_for(CHANNEL_LEFT) == 1
 assert vlc_channel_for(CHANNEL_RIGHT) == 1
 assert vlc_channel_for(2) == 2
+
+# 原生路径：滑块值先立方根，抵消 VLC 内部的三次方，最终才是线性音量
+assert linear_to_vlc_volume(0) == 0
+assert linear_to_vlc_volume(100) == 100
+assert linear_to_vlc_volume(42) == 75
+assert linear_to_vlc_volume(50) == 79
+assert linear_to_vlc_volume(80) == 93
+# 往返校验：立方根值交回 VLC 三次方，应还原成「滑块值 / 100」
+for value in range(101):
+    restored = (linear_to_vlc_volume(value) / 100) ** 3
+    assert abs(restored - value / 100) < 0.02, (value, restored)
 
 try:
     route_pcm_s16_stereo(b"\0", CHANNEL_LEFT)
@@ -97,8 +108,8 @@ assert samples(created[0].writes[-1]) == (0, 2000, 0, -1000, 0, 32767)
 
 output.set_volume(50)
 output.write(ctypes.addressof(buffer), 3)
-assert samples(created[0].writes[-1]) == (0, 250, 0, -125, 0, 4095), \
-    "PCM 路由必须使用 VLC Windows 输出相同的三次方音量曲线"
+assert samples(created[0].writes[-1]) == (0, 1000, 0, -500, 0, 16383), \
+    "PCM 路由必须和原生输出一样是线性音量（50% = 一半）"
 
 output.set_enabled(False)
 assert created[0].aborts == 1

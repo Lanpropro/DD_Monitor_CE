@@ -144,6 +144,14 @@
   Esc 等价于点清空按钮，进多选态会自动清掉搜索（免得批量删掉看不见的条目）。
   新增 `dev/selfcheck_search.py`（10 节）。注意 `QShortcut` 在 Qt6 属于
   `QtGui` 而不是 `QtWidgets`。
+- 音量曲线从 VLC 的三次方改成**线性**（用户反馈「音量条调节很难受」）：三次方
+  曲线下 50% 只有约 12.5% 音量、30% 只有约 2.7%，声音全堆在最后 20~30%，前面拖了
+  没反应、后面突然响。现在原生输出路径在 `_apply_volume` 里先把滑块值取**立方根**
+  再交给 `libvlc_audio_set_volume`（`linear_to_vlc_volume`），抵消 VLC 内部的三次方；
+  PCM 回调路径（仅左/仅右）的 `apply_volume_s16_stereo` 直接乘 `v/100`。两条路径
+  最终都是「滑块值/100」的线性增益。用 `work/probe_volume_curve.py` 实测确认过：
+  `libvlc_audio_set_volume` 对回调样本**完全不起作用**（volume 从 10 到 100，回调
+  峰值都是满幅），所以手动曲线是回调路径的唯一曲线，不存在双重三次方。
 - 自检现状：全量 **35 项里 34 项通过**，唯一失败的仍是 `selfcheck_plugins.py`
   （原因同上，与本轮改动无关）。未推送、未更新 Release 附件、未碰
   `utils/config.json`。
