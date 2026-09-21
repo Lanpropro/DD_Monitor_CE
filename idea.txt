@@ -196,32 +196,6 @@ ddm/widgets.py（WallGrid 的排布）、ddm/dialogs.py（编辑界面）。
     ddm/widgets.py（全局控制条）、ddm/app.py（接线 + 策略优先级）、ddm/theme.py。
 
 
---------------------------------------------------------------------
-8. 修复搜索栏
---------------------------------------------------------------------
-
-现状 —— 现在是纯摆设
-    ddm/widgets.py 里 Sidebar 建了搜索框（self.search，QLineEdit，
-    ObjectName=Search，占位符「搜索主播 / 房间号」，带清空按钮），
-    ddm/theme.py 也写了 #Search / #Search:focus 样式，但
-    **没有接任何信号、也没有过滤逻辑**（ddm/app.py 里一处 search 都没有）：
-    输入什么都不起作用。
-
-要做的
-    - 输入时过滤关注列表：按主播名 / 房间号 / 直播间标题匹配，大小写不敏感
-    - 过滤只「隐藏」条目，别搅乱现有这几件事：
-        · 排序（sort_mode：开播优先 / 自定义 / 导入顺序）和置顶
-        · 多选态（select_mode）和批量删除
-        · 收起态（compact）下搜索框本来就隐藏
-        · 竖屏横栏里搜索框和多选条轮流坐第一行（_adopt_bar_row）
-    - 没有匹配时给个空态提示，别只留一片空白
-    - 定清楚：清空按钮 / 回车 / 过滤中收到新状态时怎么处理
-
-要动
-    ddm/widgets.py（Sidebar 的过滤 + NavItem 显隐）、ddm/app.py（接线）、
-    ddm/theme.py（空态提示样式）。
-
-
 插件？
 录制
 更多的直播间

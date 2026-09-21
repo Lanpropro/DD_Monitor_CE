@@ -10,8 +10,9 @@ from PySide6.QtCore import (
     QTimer, QUrl, Signal,
 )
 from PySide6.QtGui import (
-    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QLinearGradient,
-    QMovie, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion, QTextDocument,
+    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
+    QLinearGradient, QMovie, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion,
+    QShortcut, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
@@ -1823,6 +1824,7 @@ class NavItem(QFrame):
         self._card_mode = True
         self._compact_spacers = False
         self.select_mode = False
+        self.filtered_out = False        # 搜索过滤：不匹配就藏起来
         self._pinned = bool(room.get("pinned"))
         self.drop_host = None            # 侧栏：拖动排序时由它来排
         self._alert: LiveAlert | None = None
@@ -1910,6 +1912,14 @@ class NavItem(QFrame):
         self.thumb.set_card_mode(enabled)
         if not self._compact:
             self.setFixedHeight(NAV_ITEM_HEIGHT if enabled else NAV_LIST_ITEM_HEIGHT)
+
+    def set_filtered_out(self, hidden: bool) -> None:
+        """搜索不匹配就藏起来。只动可见性 —— 排序、置顶、多选态都不碰。"""
+        hidden = bool(hidden)
+        if hidden == self.filtered_out:
+            return
+        self.filtered_out = hidden
+        self.setVisible(not hidden)
 
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
@@ -2162,11 +2172,20 @@ class RoomListBox(QWidget):
     SCROLL_STEP_MAX = 36
     #: 拖动期间滚轮一格滚多少像素（钩子借来的滚轮，见 ddm/mouse_hook.py）
     WHEEL_PIXELS = 80
+    #: 搜索一条都没匹配上时，那句提示占多高（列表里只摆它一个）
+    EMPTY_HINT_HEIGHT = 72
 
     def __init__(self, sidebar, parent=None):
         super().__init__(parent)
         self.sidebar = sidebar
         self.setAcceptDrops(True)
+        #: 过滤到一条不剩（或本来就没关注）时顶上来的一句话，
+        #: 免得列表区一片空白，让人以为列表坏了
+        self.empty_hint = QLabel(self)
+        self.empty_hint.setObjectName("FilterHint")
+        self.empty_hint.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.empty_hint.setWordWrap(True)
+        self.empty_hint.setVisible(False)
         self._animations: dict = {}
         self._scroll_dir = 0
         self._scroll_step = float(self.SCROLL_STEP_MIN)
@@ -2179,6 +2198,10 @@ class RoomListBox(QWidget):
     def horizontal(self) -> bool:
         """竖屏顶部横栏里，卡片是横向排的（关注多了就左右滚）。"""
         return getattr(self.sidebar, "side", "left") == "top"
+
+    def _visible_items(self) -> list:
+        """摆放和拖动落点都只按露出来的那些算。"""
+        return self.sidebar.visible_items()
 
     def set_scroll_dir(self, direction: int, step: float | None = None) -> None:
         self._scroll_dir = int(direction)
@@ -2280,7 +2303,7 @@ class RoomListBox(QWidget):
 
         竖屏顶部横栏里改成横向排（卡片向右排开，多了就左右滚）。
         """
-        items = self.sidebar.items()
+        items = self._visible_items()
         if dragging is not None:
             items = [item for item in items
                      if str(item.room.get("room_id")) != str(dragging)]
@@ -2310,6 +2333,17 @@ class RoomListBox(QWidget):
                 # 横向卡片条的位置，只剩第一张完整可见。
                 self._glide_to(entry, 0, run, animate)
                 run += self.slot_height()
+        if not items:
+            # 一条都没有：摆上那句话，并且把它的高度算进 run —— 不然滚动区
+            # 高度是 0，提示会被压得看不见
+            self.empty_hint.setText(self.sidebar.empty_hint_text())
+            self.empty_hint.setFixedSize(max(self.width(), 1), self.EMPTY_HINT_HEIGHT)
+            self.empty_hint.move(0, 0)
+            self.empty_hint.setVisible(True)
+            self.empty_hint.raise_()
+            run = self.EMPTY_HINT_HEIGHT
+        else:
+            self.empty_hint.setVisible(False)
         if dragging is not None:
             held = next((item for item in self.sidebar.items()
                          if str(item.room.get("room_id")) == str(dragging)), None)
@@ -2345,17 +2379,17 @@ class RoomListBox(QWidget):
 
         按格子尺寸直接算，拖动中卡片位置在动也不影响判断。竖屏横栏里按 x 算。
         """
+        count = len(self._visible_items())
         if self.horizontal:
             slot = CAROUSEL_WIDTH + NAV_ITEM_GAP
-            return max(0, min(int((y + CAROUSEL_WIDTH / 2) // slot),
-                              len(self.sidebar.items())))
+            return max(0, min(int((y + CAROUSEL_WIDTH / 2) // slot), count))
         slot = self.slot_height()
         if self.sidebar.collapsed:
             item_height = NAV_COMPACT_ITEM_HEIGHT
         else:
             item_height = NAV_ITEM_HEIGHT if self.sidebar.card_mode else NAV_LIST_ITEM_HEIGHT
         index = int((y + item_height / 2) // slot)
-        return max(0, min(index, len(self.sidebar.items())))
+        return max(0, min(index, count))
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasFormat(NAV_MIME):
@@ -2744,6 +2778,15 @@ class Sidebar(QFrame):
         self.search.setObjectName("Search")
         self.search.setPlaceholderText("搜索主播 / 房间号")
         self.search.setClearButtonEnabled(True)
+        #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
+        self.filter_text = ""
+        self.search.textChanged.connect(self.apply_filter)      # 边打字边过滤
+        # 回车不再额外「执行搜索」（本来就实时），把焦点交给列表，接着就能直接
+        # 点选 / 拖动；Esc 等价于点清空按钮（清空按钮自己会走 textChanged）
+        self.search.returnPressed.connect(self._focus_room_list)
+        escape = QShortcut(QKeySequence(Qt.Key_Escape), self.search)
+        escape.setContext(Qt.WidgetShortcut)
+        escape.activated.connect(self.search.clear)
         layout.addWidget(self.search)
 
         self.status_row = QWidget(self)
@@ -3012,6 +3055,50 @@ class Sidebar(QFrame):
         if item is not None:
             self.roomSelected.emit(item.room)
 
+    # ---- 搜索过滤 ----
+    def apply_filter(self, text: str) -> None:
+        """搜索框一有动静就过滤。只改可见性，不碰排序 / 置顶 / 多选态。"""
+        wanted = (text or "").strip().lower()
+        if wanted == self.filter_text:
+            return
+        self.filter_text = wanted
+        self.refresh_filter()
+
+    def refresh_filter(self) -> None:
+        """按当前搜索词重算谁该露出来（状态刷新、增删、换排序之后都要走一遍）。"""
+        self._apply_filter_marks()
+        self.list_box.relayout(animate=False)
+        self.refresh_strip()
+
+    def _apply_filter_marks(self) -> None:
+        """只更新「谁被过滤掉了」，不动位置 —— 由调用方决定什么时候重排。"""
+        words = self.filter_text.split()
+        for item in self._items:
+            item.set_filtered_out(not self.matches(item, words))
+
+    def matches(self, item: NavItem, words: list[str]) -> bool:
+        """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
+        if not words:
+            return True
+        room = item.room
+        haystack = " ".join(str(room.get(key) or "")
+                            for key in ("uname", "room_id", "title")).lower()
+        return all(word in haystack for word in words)
+
+    def visible_items(self) -> list:
+        """当前露在外面的条目（过滤掉的不算）。"""
+        return [item for item in self._items if not item.filtered_out]
+
+    def empty_hint_text(self) -> str:
+        """列表一条都露不出来时说的话（列表区就摆它一个）。"""
+        if self.filter_text:
+            return f"没有匹配「{self.filter_text}」的直播间"
+        return "还没有关注任何直播间"
+
+    def _focus_room_list(self) -> None:
+        """回车：把焦点从搜索框让给列表，接着就能直接点选 / 拖动。"""
+        self.scroll.setFocus()
+
     def refresh_strip(self) -> None:
         """把当前关注列表（连已经下载好的头像）同步到顶部横栏。"""
         strip = getattr(self, "_head_strip", None)
@@ -3019,7 +3106,7 @@ class Sidebar(QFrame):
             return
         rooms = []
         faces = {}
-        for item in self._items:
+        for item in self.visible_items():          # 过滤时头像排也跟着缩
             room = dict(item.room)
             rooms.append(room)
             pixmap = item.thumb.face_pixmap()
@@ -3598,6 +3685,9 @@ class Sidebar(QFrame):
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
         self.batch_button.setChecked(enabled)
+        if enabled and self.filter_text:
+            # 进多选就把搜索清掉：藏起来的条目也还在「已选」里，批量删太危险
+            self.search.clear()
         # 竖屏时 batch_bar 被借到横栏第一行里（见 _adopt_bar_row），
         # 露不露由 _sync_top_mode 统一决定，这里只管横屏那一列。
         if self.side != "top":
@@ -3881,8 +3971,11 @@ class Sidebar(QFrame):
             position = {room_id: index for index, room_id in enumerate(self.import_order)}
             rest.sort(key=lambda item: position.get(str(item.room.get("room_id")), len(position)))
         self._items = pinned + rest
+        # 先按搜索词重算谁该藏起来，再摆位置 —— 顺序反了会留下「藏起来的还占位」
+        self._apply_filter_marks()
         self.list_box.relayout(animate=animate)
         self._sync_sort_menu()
+        self._sync_count()             # 过滤时这里写成「露出来几路 / 一共几路」
         # 顺手把顶部横栏那一排头像也刷新：竖屏下它就是关注列表
         self.refresh_strip()
 
@@ -3916,7 +4009,12 @@ class Sidebar(QFrame):
         self.pinChanged.emit(list(self.pinned))
 
     def _sync_count(self) -> None:
-        self.count_label.setText(f"关注中 · {len(self._items)}")
+        shown = len(self.visible_items())
+        if self.filter_text:
+            # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了
+            self.count_label.setText(f"关注中 · {shown} / {len(self._items)}")
+        else:
+            self.count_label.setText(f"关注中 · {shown}")
 
     def set_refreshing(self, busy: bool) -> None:
         self.refresh_button.setEnabled(not busy)

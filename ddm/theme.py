@@ -310,6 +310,12 @@ QSlider::handle:horizontal:hover {{
     border: 1px solid {ACCENT};
     background: {CONTENT_HOVER};
 }}
+/* 搜索没有匹配（或关注列表本来就空）时顶在列表位置上的提示 */
+#FilterHint {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+    padding: 20px 10px;
+}}
 
 /* 房间条目 */
 #NavItem {{
