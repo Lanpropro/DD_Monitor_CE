@@ -311,25 +311,28 @@ def build_plan_v2(win, live_slots: list, min_live: int) -> tuple[list, dict]:
         return 154 + 130 * (order % 5)
 
     def add_nth(target_used: int, second: float) -> float:
-        """把墙补到 target_used 路，返回下一个可用时刻。"""
+        """把墙补到 target_used 路，返回下一个可用时刻。
+
+        注意：加人这一步**不把光标停在关注卡片上**（用户要求：等待/操作时
+        不要停在卡片上，免得一直弹悬停预览）。driver 是按控件打事件的，
+        rightclick 自己会定位到条目上，不需要先"移过去"。
+        """
         while len([item for item in wall if item]) < min(target_used, len(live_slots)):
             slot = add_room()
             if slot is None:
                 break
             order = len(notes["slots"])
             notes["slots"].append(slot)
-            at(second, "move", f"第 {order + 1} 路（在播）", x=110, y=nav_y(order),
-               target=f"nav_{slot}")
-            at(second + 2, "rightclick", "加入画面墙", x=110, y=nav_y(order),
-               target=f"nav_{slot}", menu={"note": "加入画面墙"})
+            at(second, "rightclick", f"第 {order + 1} 路（在播）加入画面墙",
+               x=110, y=nav_y(order), target=f"nav_{slot}",
+               menu={"note": "加入画面墙"})
+            at(second + 2, "move", "加完把视线移回画面墙", x=900, y=520)
             second += 3.5
         return second
 
     # ---- A. 单窗口播放（给 03 开头）----
     at(0, "wait", "起点：空墙 1 格 + 单画面布局")
-    at(2, "move", "光标进在播列表第 1 项", x=110, y=nav_y(0),
-       target=f"nav_{live_slots[0]}")
-    t = add_nth(1, 4)                                    # 第 1 路进墙
+    t = add_nth(1, 2)                                    # 第 1 路进墙
     at(t, "move", "单窗口开始播（03 的单窗口播放段）", x=700, y=400,
        target="tile_0")
     at(t + 8, "move", "单窗口停住", x=900, y=520)
@@ -401,12 +404,14 @@ def build_plan_v2(win, live_slots: list, min_live: int) -> tuple[list, dict]:
     t += 12
 
     # ---- J. 关注栏悬停预览（11）----
+    # 只有这几步写 hover=True：driver 只对带这个标记的动作补 Enter 事件，
+    # 其它 move 一律不发 —— 否则等待时预览卡会莫名弹出来（用户报过）。
     for offset in range(min(4, len(live_slots))):
         slot = live_slots[offset]
         at(t + offset * 5, "move", f"在播第 {offset + 1} 项：悬停出封面预览",
-           x=110, y=nav_y(offset), target=f"nav_{slot}")
+           x=110, y=nav_y(offset), target=f"nav_{slot}", hover=True)
     at(t + 22, "move", "回到第 1 项，预览卡完整露一次", x=110, y=nav_y(0),
-       target=f"nav_{live_slots[0]}")
+       target=f"nav_{live_slots[0]}", hover=True)
     t += 25
 
     # ---- K. 左右两个画面 + 左/右声道（12；用两个**不同**直播间）----
@@ -415,24 +420,27 @@ def build_plan_v2(win, live_slots: list, min_live: int) -> tuple[list, dict]:
     at(t + 2, "click", "开布局弹层", x=95, y=967, target="layout_button")
     at(t + 5, "click", "选「左右两分」（左格第 1 路、右格第 2 路）", x=398, y=673,
        target="card_1x2")
+    # ★顺序照"专项验证"跑通的那一遍（tools/make-take-plan.py --channels-only 生成、
+    #   实测 side/mid = 0.997、波形相关 +0.003，也就是左右真分开了）：
+    #   **保持出声 → 直接切声道 → 留足 10 秒以上让它重建 → 再确认出声**。
+    #   之前两版都不对：一版"切完没留时间采样"（录到的是还没生效的混音），
+    #   一版"先静音再切"（把没开播的房间加进来，整条哑音，还误判成软件的问题）。
     at(t + 9, "rightclick", "左格：声道 -> 只播左声道", x=1100, y=500,
        target="volume_0", menu={"note": "声道", "item_note": "左声道"})
-    at(t + 15, "move", "光标停在左格音量按钮上（L 标记）", x=1100, y=500,
+    at(t + 16, "move", "等左格把播放器重建完（约 7 秒）", x=1100, y=500,
        target="volume_0")
     at(t + 19, "rightclick", "右格：声道 -> 只播右声道", x=2100, y=500,
        target="volume_1", menu={"note": "声道", "item_note": "右声道"})
-    at(t + 25, "move", "光标停在右格音量按钮上（R 标记）", x=2100, y=500,
-       target="volume_1")
-    # 两格都要出声：会话层放开 + 两个格子各自未静音
-    at(t + 29, "mute", "两路都放开声音（会话层）", action="unmute",
-       target="volume_0", x=1100, y=500)
-    at(t + 31, "mute", "左格未静音", action="unmute", target="volume_1",
-       x=2100, y=500)
-    at(t + 34, "move", "左右两路各走各的声道，停住（12 的素材）", x=1600, y=540)
-    at(t + 44, "move", "再停一下，让左右声音听清楚", x=1600, y=540)
-    at(t + 52, "mute", "12 拍收尾：重新按进程静音", action="mute", target="volume_0",
+    at(t + 26, "move", "等右格重建完（约 7 秒）", x=2100, y=500, target="volume_1")
+    at(t + 30, "mute", "确认左格出声（音量 50）", action="unmute", target="volume_0",
        x=1100, y=500)
-    t += 56
+    at(t + 32, "mute", "确认右格出声（音量 50）", action="unmute", target="volume_1",
+       x=2100, y=500)
+    at(t + 36, "move", "左右两路各走各的声道，停住（12 的素材从这里取）",
+       x=1600, y=540)
+    at(t + 50, "move", "再停一下，让左右声音听清楚", x=1600, y=540)
+    # 不收尾静音：用户要求整条素材一直有直播声音（要不要静音后期再定）
+    t += 54
 
     # ---- L. 15 拍要的「墙静置」素材（切回软件后做纵向滚动用）----
     # 两种墙各留一段：九分（信息量最大）+ 1+5（有主次）。全部在播、别碰鼠标。
@@ -463,6 +471,41 @@ def build_plan_v2(win, live_slots: list, min_live: int) -> tuple[list, dict]:
     return plan, notes
 
 
+def build_channels_probe(live_slots: list) -> tuple[list, dict]:
+    """只生成「左右声道专项验证」的短计划（约 45 秒）。
+
+    为什么要有这个：验证"左右耳是不是真的分开"必须**真录音**（dry-run 不录声音），
+    而写死 nav_0/nav_1 会踩坑 —— 那两路当时可能**没开播**，录出来整条是 -180dB
+    的哑音（踩过：以为"切声道导致没声音"，其实是加了未开播的房间）。
+    所以照正式计划一样，从**当前在播**的房间里挑两路。
+    """
+    plan: list = []
+
+    def at(second: float, kind: str, note: str, **extra) -> None:
+        plan.append(dict(at=second, type=kind, note=note, **extra))
+
+    a, b = live_slots[0], live_slots[1]
+    at(0, "wait", "专项验证：左右声道分不分得开")
+    at(1, "rightclick", f"第 1 路（在播 {a}）进墙", x=110, y=154,
+       target=f"nav_{a}", menu={"note": "加入画面墙"})
+    at(4, "rightclick", f"第 2 路（在播 {b}）进墙", x=110, y=284,
+       target=f"nav_{b}", menu={"note": "加入画面墙"})
+    at(7, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(10, "click", "左右两分", x=398, y=673, target="card_1x2")
+    at(13, "rightclick", "左格：声道 -> 只播左声道", x=1100, y=500,
+       target="volume_0", menu={"note": "声道", "item_note": "左声道"})
+    at(19, "rightclick", "右格：声道 -> 只播右声道", x=2100, y=500,
+       target="volume_1", menu={"note": "声道", "item_note": "右声道"})
+    at(25, "mute", "确认左格出声（音量 50）", action="unmute", target="volume_0",
+       x=1100, y=500)
+    at(27, "mute", "确认右格出声（音量 50）", action="unmute", target="volume_1",
+       x=2100, y=500)
+    at(32, "move", "停住给录音采样", x=1600, y=540)
+    at(44, "wait", "采样窗口收尾")
+    return plan, {"slots": [a, b], "live_total": len(live_slots),
+                  "layout_version": "channels-probe"}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=os.path.join(
@@ -471,6 +514,8 @@ def main() -> int:
                         help="在播房间少于这个数就拒绝生成（宁可等，也别录一堆黑格）")
     parser.add_argument("--wait", type=float, default=20.0,
                         help="等在播状态拉回来的最长时间（秒）")
+    parser.add_argument("--channels-only", action="store_true",
+                        help="只生成左右声道专项验证的短计划（用在播房间，别再写死 nav_0）")
     args = parser.parse_args()
 
     app = QApplication([sys.argv[0]])
@@ -509,7 +554,10 @@ def main() -> int:
                                      f"{args.min_live}，不生成计划")
                 print("!! " + result["refused"], flush=True)
                 return
-            plan, notes = build_plan_v2(win, live, args.min_live)
+            if args.channels_only:
+                plan, notes = build_channels_probe(live)
+            else:
+                plan, notes = build_plan_v2(win, live, args.min_live)
             result["notes"] = notes
             result["plan_seconds"] = max(step["at"] for step in plan)
             with io.open(args.out, "w", encoding="utf-8") as handle:

@@ -85,7 +85,10 @@ def force_geometry(win, logical=TARGET, tries=6):
 
 
 class Driver:
-    """按计划走动作。所有"点击"都打在真控件上，坐标只用来选控件和放光标。"""
+    """按计划走动作。所有"点击"都打在真控件上，坐标只用来选控件。"""
+
+    #: 出声的格子保持这个音量（用户 2026-09-21 指定：50）
+    TARGET_VOLUME = 50
 
     def __init__(self, win, mode, dry=False):
         self.win = win
@@ -97,6 +100,10 @@ class Driver:
         self._menu_point = None
         self.action_log = []
         self.audio_on = False
+        self._park = None            # 真光标停靠点（屏幕右下角，见 park_cursor）
+        self._session_unmuted = False
+        self._sound_locked = False   # 计划里显式 mute 过就不再自动补声
+        self._offline_warned = ()    # 上次警告过的"未开播房间"名单
 
     # ---- 记录 ----
     def note(self, kind, detail, t):
@@ -107,10 +114,25 @@ class Driver:
     def origin(self):
         return self.win.mapToGlobal(self.win.rect().topLeft())
 
+    def park_cursor(self):
+        """把真光标顶到屏幕最右下角（窗口区域之外）。
+
+        用户要求：**录制画面里不要有鼠标**，光标后期在合成里补（虚拟鼠标）。
+        成片只裁窗口区域（2880x1620），而屏幕是 3840x2160 —— 把光标停在
+        屏幕右下角就不会出现在裁切范围内。Qt 事件是直接打给控件的（不靠光标），
+        所以动作照常生效。
+        """
+        if self._park is None:
+            width = user32.GetSystemMetrics(0)
+            height = user32.GetSystemMetrics(1)
+            self._park = (width - 2, height - 2)
+        user32.SetCursorPos(int(self._park[0]), int(self._park[1]))
+
     def put_cursor(self, x, y):
-        """把**真光标**放到窗口内坐标 (x,y) 对应的屏幕点。"""
-        left, top = frame_rect(self.win)[:2]
-        user32.SetCursorPos(left + int(x), top + int(y))
+        """历史接口：以前是"把光标移到目标上"。现在按用户要求不录光标，
+        一律改成把光标停在屏幕角落；参数保留是为了不动调用点。"""
+        del x, y
+        self.park_cursor()
 
     def frame_of(self, widget):
         origin = self.origin()
@@ -191,21 +213,20 @@ class Driver:
     def act_move(self, step, t):
         x, y = int(step["x"]), int(step["y"])
         name, widget = self.locate(x, y, step.get("target"), step.get("pick"))
-        if widget is not None:
-            # 坐标只用来选控件；光标放到控件真实中心，成片里才看得出"停在它上面"
-            fx, fy, fw, fh = self.frame_of(widget)
-            self.put_cursor(fx + fw // 2, fy + fh // 2)
-            # 真光标移动不产生 Qt 事件，补一次 Enter/MouseMove：
-            # 关注条目的悬停预览、格子底栏的显隐都挂在 enterEvent 上
+        # ★只有**明确要求悬停**的步骤才补 Enter 事件。
+        #   关注列表的预览卡挂在 enterEvent 上，之前这里对所有 move 都发 Enter，
+        #   于是"光标明明停在屏幕角落，预览卡还是弹出来"（用户报的）。
+        #   现在改成：计划里写了 "hover": true 才发 —— 只有成片真正要预览卡的那几拍才写。
+        if widget is not None and step.get("hover"):
             QApplication.sendEvent(widget, QEvent(QEvent.Enter))
             QApplication.sendEvent(widget, QMouseEvent(
                 QEvent.MouseMove, QPointF(widget.rect().center()),
                 widget.mapToGlobal(widget.rect().center()),
                 Qt.NoButton, Qt.NoButton, Qt.NoModifier))
             QApplication.processEvents()
-        else:
-            self.put_cursor(x, y)
-        self.note("move", f"{step.get('note', '')} -> {name or '?'}", t)
+        self.put_cursor(x, y)
+        self.note("move", f"{step.get('note', '')} -> {name or '?'}"
+                          f"{'（悬停触发预览）' if step.get('hover') else ''}", t)
 
     def act_click(self, step, t):
         x, y = int(step["x"]), int(step["y"])
@@ -249,15 +270,33 @@ class Driver:
             name, widget = self.locate(int(step.get("x", 0)), int(step.get("y", 0)),
                                        step["target"], "volume")
             tile = self.tile_of(widget) if widget is not None else None
-            if tile is None and widget is not None:
-                tile = self.tile_of(widget)
-        if tile is not None and bool(tile.muted) != want_muted:
-            tile.set_muted(want_muted)
+        if tile is not None and not want_muted:
+            # ★解除静音要"双保险"（用户要求：第二个格子的静音也必须自己解掉，
+            #   不能靠用户手动点）：
+            #   1) tile.set_muted(False) —— 改格子状态 + 发 muteToggled 信号；
+            #   2) 直接 player.set_muted(False) —— 信号走事件循环可能慢一步，
+            #      直接同步到播放器最稳（切声道会重建播放器，靠信号容易被重置）。
+            changed = []
+            if tile.volume != self.TARGET_VOLUME:
+                tile.set_volume(self.TARGET_VOLUME)
+                changed.append(f"音量 -> {self.TARGET_VOLUME}")
+            tile.set_muted(False)
+            player = self.win.players.get(tile)
+            if player is not None:
+                try:
+                    player.set_muted(False)
+                    player.set_volume(self.TARGET_VOLUME)
+                except Exception:          # noqa: BLE001
+                    pass
             QApplication.processEvents()
-            state = "已静音" if want_muted else "未静音"
-            self.note("mute", f"格子「{tile.room.get('uname', '?')}」{state}", t)
-        elif tile is not None:
-            self.note("mute", f"格子已经是{'静音' if want_muted else '出声'}状态", t)
+            state = "、".join(changed) if changed else "本来就有声"
+            self.note("mute", f"格子「{tile.room.get('uname', '?')}」{state}"
+                              f"（声道={tile.audio_channel} 音量={tile.volume}"
+                              f" 静音={tile.muted}）", t)
+        elif tile is not None and want_muted and not tile.muted:
+            tile.set_muted(True)
+            QApplication.processEvents()
+            self.note("mute", f"格子「{tile.room.get('uname', '?')}」已静音", t)
 
         # 2) 会话层 + 等生效。**按 PID 挑会话**：这台机器上同时有多个 pythonw
         #    （软件本体、探测脚本、驱动脚本），按名字找会命中好几个会话，
@@ -265,10 +304,12 @@ class Driver:
         if not self.dry and os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
             subprocess.run([LOOPBACK_PY, MUTE_SCRIPT, f"pid:{os.getpid()}", action],
                            capture_output=True, text=True)
-        if not want_muted:
-            self.audio_on = True
+        self.audio_on = not want_muted
+        if want_muted:
+            # 计划里显式要求静音：别让 ensure_sound 又给补回来
+            self._sound_locked = True
         else:
-            self.audio_on = False
+            self._sound_locked = False
         self.note("mute", f"软件音频 {action}：{step.get('note', '')}", t)
 
     def act_slideout(self, step, t):
@@ -489,44 +530,58 @@ class Driver:
                 partial = action
         return exact or partial
 
-    def apply_audio(self) -> None:
-        """把「开录时该不该出声」按计划算出来并落实。
+    def warn_offline_tiles(self, t: float) -> None:
+        """墙上有**未在播**的房间就记一条警告（只在变化时记一次）。
 
-        整条素材只有成片里要听声音的那一拍（12 的左右声道）需要出声，
-        所以默认按进程静音，到计划里第一次 `unmute` 之前 2 秒再打开。
-        这样做还有个好处：剪辑时只用看 unmute/mute 两个时刻就知道声音窗口在哪。
-
-        注意基准：`step["at"]` 是**相对开录 t0 的秒数**，而 apply_audio 正好在
-        t0 时刻被调用，所以延迟就是 `at - 2`。这里曾经拿它去减 monotonic 时间戳
-        （两个不同量纲），算出来是负数 → 立刻放开 → 整条素材全程出声（踩过）。
+        为什么需要：录出来的格子黑着、还没声音，多半就是不小心把没开播的房间
+        拖上了墙（踩过：测试计划里写死 nav_0/nav_1，那两路当时没开播，
+        整条素材音频 -180dB，还误判成"软件切声道导致没声音"）。
         """
-        first = next((step for step in self._plan
-                      if step.get("type") == "mute" and step.get("action") == "unmute"),
-                     None)
-        if first is None:
+        offline = sorted(tile.room.get("uname", "?") for tile in self.win.wall.tiles
+                         if tile.isVisible() and tile.room.get("room_id")
+                         and not tile.room.get("live"))
+        key = tuple(offline)
+        if offline and key != self._offline_warned:
+            self._offline_warned = key
+            self.note("warn", "!! 墙上有未开播的房间：" + "、".join(offline), t)
+
+    def ensure_sound(self, t: float = 0.0) -> None:
+        """保证「至少一路在出声」，全程反复调用（幂等、便宜）。
+
+        用户要求（2026-09-21 修正）：**整条素材必须一直有直播声音** ——
+        需不需要静音后期再定，但不能录出来是哑的。所以不再"默认静音、
+        某一拍才放开"，改成开录之后就一路托住：
+          1) 会话层按 PID 放开（只做一次）；
+          2) 墙上有房间的格子里挑第一路，音量托到 MIN_AUDIBLE_VOLUME、取消静音。
+        每一步动作后都会调用它，所以中途切布局/换播放器导致静音也能自动补回来。
+        """
+        if self.dry or self._sound_locked:
             return
-        delay = max(0.0, float(first.get("at", 0)) - 2.0)
-        self.note("audio",
-                  f"{delay:.1f} 秒后让软件出声（{first.get('note', '')}；"
-                  f"在那之前保持静音）", 0.0)
+        if not self._session_unmuted \
+                and os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
+            result = subprocess.run([LOOPBACK_PY, MUTE_SCRIPT,
+                                     f"pid:{os.getpid()}", "unmute"],
+                                    capture_output=True, text=True)
+            tail = (result.stdout or result.stderr or "").strip().splitlines()
+            self._session_unmuted = True
+            self.note("audio", "会话解静音：" + (tail[-1] if tail else "（无输出）"), t)
 
-        def open_audio() -> None:
-            tile = self._tile_named(first.get("target", ""))
-            if tile is not None and tile.muted:
-                tile.set_muted(False)
-                QApplication.processEvents()
-                self.note("audio", f"格子「{tile.room.get('uname', '?')}」改成未静音",
-                          time.monotonic() - self._time0)
-            if os.path.isfile(MUTE_SCRIPT) and os.path.isfile(LOOPBACK_PY):
-                result = subprocess.run([LOOPBACK_PY, MUTE_SCRIPT,
-                                         f"pid:{os.getpid()}", "unmute"],
-                                        capture_output=True, text=True)
-                tail = (result.stdout or result.stderr or "").strip().splitlines()
-                self.note("audio", "会话解静音：" + (tail[-1] if tail else "（无输出）"),
-                          time.monotonic() - self._time0)
+        tile = next((item for item in self.win.wall.tiles
+                     if item.isVisible() and item.room.get("room_id")), None)
+        if tile is None:
+            return
+        changed = []
+        if tile.volume != self.TARGET_VOLUME:
+            tile.set_volume(self.TARGET_VOLUME)
+            changed.append(f"音量 -> {self.TARGET_VOLUME}")
+        if tile.muted:
+            tile.set_muted(False)
+            changed.append("取消静音")
+        if changed:
+            QApplication.processEvents()
             self.audio_on = True
-
-        QTimer.singleShot(int(delay * 1000), open_audio)
+            self.note("audio", f"「{tile.room.get('uname', '?')}」"
+                              f"{'、'.join(changed)}（全程保持有声）", t)
 
     def _tile_named(self, label):
         if not label:
@@ -542,7 +597,8 @@ class Driver:
         time.sleep(lead)
         t0 = time.monotonic()
         self._time0 = t0
-        self.apply_audio()
+        self.park_cursor()             # 开录前先把真光标藏到屏幕角落（不录进画面）
+        self.ensure_sound(0.0)
         for step in plan:
             target = float(step["at"])
             while True:
@@ -573,6 +629,9 @@ class Driver:
                 self.note("skip", f"未知动作 {kind}", t)
             # 弹层开着的这一小段要让它真的画出来（弹层是 Popup，需要事件循环）
             QApplication.processEvents()
+            # 全程保证有一路在出声（用户要求：素材不能是哑的）；幂等、便宜
+            self.ensure_sound(t)
+            self.warn_offline_tiles(t)
         self.note("end", f"窗口 {frame_rect(self.win)}", time.monotonic() - t0)
 
 

@@ -45,9 +45,10 @@ $lead = 3
 $recSecs = [int][math]::Ceiling($planSeconds + $lead + $Tail)
 Write-Host "动作计划：$($plan.Count) 步，$planSeconds 秒；录制 $recSecs 秒（含片头 $lead 秒 + 收尾 $Tail 秒）"
 
-# 录之前先把软件按进程静音：它在"要出声"的那一拍由计划里的 mute 动作解开
+# 开录前**不要**静音：用户要求整条素材全程都有直播声音（要不要静音后期再定）。
+# driver 每一步都会 ensure_sound：托音量 + 取消静音 + 按 PID 放开音频会话。
 if (Test-Path $MuteScript) {
-  & $LoopbackPy $MuteScript "python" "mute" 2>$null | ForEach-Object { Write-Host "  $_" }
+  & $LoopbackPy $MuteScript "python" "unmute" 2>$null | ForEach-Object { Write-Host "  $_" }
 }
 
 $videoOnly = Join-Path $Raw "take-video.mp4"

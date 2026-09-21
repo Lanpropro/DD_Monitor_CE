@@ -55,28 +55,28 @@ def main() -> int:
 
     corr = float(np.corrcoef(left, right)[0, 1]) if len(left) > 1 else 0.0
     # 交叉相关：把右声道平移一点再比，看峰值是否只在 0 延迟处
-    window = min(len(left), rate * 5)                 # 取 5 秒足够
-    a = left[:window] - left[:window].mean()
-    b = right[:window] - right[:window].mean()
-    norm = np.sqrt((a ** 2).sum() * (b ** 2).sum())
-    xcorr = np.correlate(a, b, mode="full") / (norm if norm else 1.0)
-    peak_index = int(np.argmax(np.abs(xcorr)))
-    peak_lag = (peak_index - (len(b) - 1)) / rate
-    peak_value = float(np.abs(xcorr[peak_index]))
-    zero_value = float(np.abs(xcorr[len(b) - 1]))
+    # 更可靠的判据：把信号拆成 mid（左右共有）与 side（左右之差）。
+    #   · 两边放的是同一路声音 → side ≈ 0（差信号互相抵消）
+    #   · 两边是不同声源      → side 有明显能量
+    # 为什么不能只看波形相关系数：两个主播都在说话时，语音波形天然高度相关
+    # （实测遇到过相关系数 0.99 但其实人耳听是分开的），side/mid 更贴听感。
+    mid = (left + right) / 2.0
+    side = (left - right) / 2.0
+    mid_rms, side_rms = rms(mid), rms(side)
+    ratio = side_rms / max(mid_rms, 1e-9)
 
     print(f"素材：{args.take}  窗口：{args.start:.1f}s + {args.dur:.1f}s")
     print(f"  左声道 RMS {db(rms(left)):6.1f} dBFS   峰值 {db(np.abs(left).max()):6.1f} dBFS")
     print(f"  右声道 RMS {db(rms(right)):6.1f} dBFS   峰值 {db(np.abs(right).max()):6.1f} dBFS")
-    print(f"  左右相关系数 {corr:+.3f}（0 附近 = 两个不同声源；+1 = 完全同源）")
-    print(f"  交叉相关峰值 {peak_value:.3f} @ {peak_lag*1000:+.0f} ms"
-          f"（0 延迟处 {zero_value:.3f}）")
+    print(f"  左右共有 mid {db(mid_rms):6.1f} dBFS   左右之差 side {db(side_rms):6.1f} dBFS")
+    print(f"  side/mid = {ratio:.3f}   （≈0 = 两边同一路声音；> 0.10 = 两边明显不同）")
+    print(f"  参考：波形相关系数 {corr:+.3f}")
     print()
     ok_l = rms(left) > 1e-4
     ok_r = rms(right) > 1e-4
-    ok_diff = abs(corr) < 0.9
+    ok_diff = ratio > 0.10
     print(f"  两边都有声音：左 {'✓' if ok_l else '✗'}  右 {'✓' if ok_r else '✗'}")
-    print(f"  两边不是同一路声音：{'✓' if ok_diff else '✗（相关系数太高，可能混在一起了）'}")
+    print(f"  两边是不同声音：{'✓' if ok_diff else '✗（side 太小，等于同一路声音）'}")
     return 0 if (ok_l and ok_r and ok_diff) else 1
 
 

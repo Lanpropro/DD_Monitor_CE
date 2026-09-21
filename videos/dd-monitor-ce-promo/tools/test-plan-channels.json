@@ -1,0 +1,99 @@
+[
+ {
+  "at": 0,
+  "type": "wait",
+  "note": "专项验证：左右声道分不分得开"
+ },
+ {
+  "at": 1,
+  "type": "rightclick",
+  "note": "第 1 路（在播 2）进墙",
+  "x": 110,
+  "y": 154,
+  "target": "nav_2",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 4,
+  "type": "rightclick",
+  "note": "第 2 路（在播 3）进墙",
+  "x": 110,
+  "y": 284,
+  "target": "nav_3",
+  "menu": {
+   "note": "加入画面墙"
+  }
+ },
+ {
+  "at": 7,
+  "type": "click",
+  "note": "开布局弹层",
+  "x": 95,
+  "y": 967,
+  "target": "layout_button"
+ },
+ {
+  "at": 10,
+  "type": "click",
+  "note": "左右两分",
+  "x": 398,
+  "y": 673,
+  "target": "card_1x2"
+ },
+ {
+  "at": 13,
+  "type": "rightclick",
+  "note": "左格：声道 -> 只播左声道",
+  "x": 1100,
+  "y": 500,
+  "target": "volume_0",
+  "menu": {
+   "note": "声道",
+   "item_note": "左声道"
+  }
+ },
+ {
+  "at": 19,
+  "type": "rightclick",
+  "note": "右格：声道 -> 只播右声道",
+  "x": 2100,
+  "y": 500,
+  "target": "volume_1",
+  "menu": {
+   "note": "声道",
+   "item_note": "右声道"
+  }
+ },
+ {
+  "at": 25,
+  "type": "mute",
+  "note": "确认左格出声（音量 50）",
+  "action": "unmute",
+  "target": "volume_0",
+  "x": 1100,
+  "y": 500
+ },
+ {
+  "at": 27,
+  "type": "mute",
+  "note": "确认右格出声（音量 50）",
+  "action": "unmute",
+  "target": "volume_1",
+  "x": 2100,
+  "y": 500
+ },
+ {
+  "at": 32,
+  "type": "move",
+  "note": "停住给录音采样",
+  "x": 1600,
+  "y": 540
+ },
+ {
+  "at": 44,
+  "type": "wait",
+  "note": "采样窗口收尾"
+ }
+]
