@@ -39,7 +39,11 @@
 ## 权威资料
 
 - `HANDOFF-PORTRAIT.md`：竖屏/顶部横栏、布局对映等决策与踩坑历史（E/D/C 编号表）。
-- `idea.txt`：待做清单（第 6 条「交换画面秒切」已完成并删除；其余 1–8 条仍在）。
+- `idea.txt`：待做清单，现为 8 条 —— 1 发送弹幕 / 2 录像（含单格独立录制方案）/
+  3 接别的直播平台 / 4 自定义布局 / 5 正在播放的卡片要能一眼看出来 /
+  6 右键卡片用默认浏览器打开直播间 / 7 全局音量·画质按钮 / 8 修复搜索栏
+  （搜索框现在是纯摆设：`Sidebar` 建了控件、`theme.py` 给了样式，但没有任何
+  信号连接和过滤逻辑，第 8 条已写清要动哪几处）。
 - `dev/selfcheck_*.py`：**27 个自检就是事实上的验收标准**；跑法见 `dev/run-checks.cmd`
   （离屏、`DDM_NO_SAVE=1`、`PYTHON_VLC_LIB_PATH=<仓库>\libvlc.dll`）。
 - `logs/ddm-*.log`：运行日志；卡死/硬崩会自动写入 `[卡死]`（各线程调用栈）与
@@ -95,6 +99,43 @@
 - 自检现状：全量 29 项里 28 项稳定通过；`selfcheck_plugins.py` 因本机沙箱限制
   `tempfile.mkdtemp`（建出的目录 ACL 拒绝写子目录）无法运行，与本任务改动无关。
   未推送、未更新 Release 附件、未碰 `utils/config.json`。
+
+用户实测反馈的后续修复（同一会话，均未推送）：
+
+- 秒切后音量条跟着画面走（`739dcb9c` 起就有的老毛病）：`_hot_swap()` 只换了
+  `tile.room` 和播放器，没刷新音量条控件 —— 画面换了、声音也对了，但条子还停在
+  原位。新增 `Tile.sync_audio_ui()` 在换位后按各自状态重画（不触发信号），
+  `dev/selfcheck_settings_status.py` 钉住。
+- 取消一个格子的静音，却把别的格子（含布局缩小后已隐藏的格子）一起解除了静音：
+  隐藏的格子只是 `setVisible(False)`、幕后仍在播放，而换位时
+  `muted/volume/audio_channel` 没跟着画面走。现在 `_sync_tile_playback()` 会把
+  没上墙的格子真的停掉（换布局时顺带启动新上墙的），`_hot_swap()` 把音量、静音、
+  声道一起跟着画面走。
+- 启动时对所有已在播的房间弹「开播了」：`build_rooms()` 改成占位条目之后，
+  第一次状态刷新被当成了「离线 → 开播」。用 `room["live_known"]` 抑制首轮
+  （只有真的离线转开播才提示），`dev/selfcheck_startup.py` §3b 钉住。
+- 关注栏拖动时不能自动滚动、拖动中滚轮无效：`RoomListBox.auto_scroll()` 改按
+  **视口**边缘滚动（原来错用内容高度，往下永远不触发）；拖动期间的滚轮用临时
+  `WH_MOUSE_LL` 钩子接管（`ddm/mouse_hook.py`，只读、不吞事件），因为 Qt 的
+  `QDrag::exec()` 走 Windows OLE `DoDragDrop`，拖动中滚轮事件根本到不了控件。
+  新增 `dev/selfcheck_drag_scroll.py`、`dev/selfcheck_drag_wheel.py`。
+- 封面慢 / 未开播没封面（本次）：以前只在状态刷新拿到 URL 后才下载封面，而未开播
+  的房间接口压根不给封面（实测 `rooms_status` 对未开播房间返回空 `cover_url`），
+  所以启动时卡片空着、主播没开播就没图。现在除按 URL 缓存外再按**房间号**留一份
+  （`cache/covers/room/<房间号>.png`），`load_cached_covers()` 在窗口出现后
+  120 ms 就把上次那张顶上，不必等状态轮询；封面同时改走 B 站 CDN 缩放后缀
+  （`@412w_232h.webp`，实测原图 52.8 KB → 8.1 KB），取不到会自动退回原图。
+  新增 `dev/selfcheck_cover_cache.py`。
+- 自检现状：全量 **33 项里 32 项通过**，唯一失败的仍是 `selfcheck_plugins.py`
+  （原因同上，与本轮改动无关）。未推送、未更新 Release 附件、未碰
+  `utils/config.json`。
+- 跑自检的正确姿势（踩过的坑）：照 `dev\run-checks.cmd` 原样跑 —— 只设
+  `DDM_NO_SAVE=1`、`PYTHON_VLC_LIB_PATH`、`PYTHONIOENCODING=utf-8`，
+  **不要自己加 `QT_QPA_PLATFORM=offscreen`**。只有
+  `selfcheck_audio_routing.py` / `build_brand_assets.py` 自己用 `setdefault`
+  设离屏；强行全局设会把虚拟屏压成 800x800，害得
+  `selfcheck_live_alert` / `selfcheck_nav_layout` / `selfcheck_portrait` /
+  `selfcheck_ui3` 在窗口几何和像素检测上误报失败。
 
 ## 接续动作
 

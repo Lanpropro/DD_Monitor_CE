@@ -29,7 +29,7 @@ from .bili import (
 from .dialogs import (
     SHORTCUT_ACTIONS, AddRoomDialog, FollowImportDialog, SettingsDialog,
 )
-from .images import AvatarLoader
+from .images import AvatarLoader, CachedCoverLoader
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
@@ -223,6 +223,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
 
         QTimer.singleShot(0, self.start_all)
+        # 封面先用本地留的那张顶上去（纯读文件、不联网），别让卡片空着等状态轮询
+        QTimer.singleShot(120, self.load_cached_covers)
         QTimer.singleShot(800, self.refresh_account)
         QTimer.singleShot(1200, self.load_room_avatars)
         self._poll_timer = QTimer(self)
@@ -478,6 +480,7 @@ class MainWindow(QMainWindow):
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
         names = ("_account_loader", "_account_avatar_loader", "_room_avatar_loader",
                  "_status_avatar_loader", "_follow_avatar_loader", "_follow_loader",
+                 "_cover_cache_loader", "_cover_loader", "_aside_cover_loader",
                  "_poller", "_stats_poller")
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
@@ -1323,6 +1326,23 @@ class MainWindow(QMainWindow):
             account.get("uname", ""), pixmap))
         loader.finished.connect(loader.deleteLater)
         self._account_avatar_loader = loader
+        loader.start()
+
+    def load_cached_covers(self) -> None:
+        """先把「上次那张封面」摆上（纯本地读文件，不联网、不等状态轮询）。
+
+        启动时 ``build_rooms`` 只给占位条目、主播没开播时接口也不给封面；靠
+        ``cache/covers/room/<房间号>.png`` 里留的那张，卡片一出来就有图。等状态
+        刷新拿到真 URL，``load_room_avatars`` / ``_on_status_updated`` 会换成最新的。
+        """
+        rooms = self.sidebar.rooms()
+        room_ids = [str(room.get("room_id")) for room in rooms if room.get("room_id")]
+        if not room_ids:
+            return
+        loader = CachedCoverLoader(room_ids, self)
+        loader.loaded.connect(self._on_room_cover)
+        loader.finished.connect(loader.deleteLater)
+        self._cover_cache_loader = loader
         loader.start()
 
     def load_room_avatars(self) -> None:
