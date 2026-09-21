@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import layouts, theme
+from . import layouts, mouse_hook, theme
 from . import version as version_module
 from .images import AvatarLoader
 from .player import TilePlayer
@@ -2006,7 +2006,15 @@ class NavItem(QFrame):
         drag.setHotSpot(QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
         # 抓起来的一瞬间就把自己那一格空出来
         self.drop_host.show_drop_indicator(room_id, self._index_in_host())
-        drag.exec(Qt.CopyAction | Qt.MoveAction)
+        # 拖动期间把滚轮借过来：DnD 里 Qt 收不到滚轮，只能靠低级鼠标钩子
+        host = self.drop_host
+        if host is not None:
+            host.begin_drag_scroll()
+        try:
+            drag.exec(Qt.CopyAction | Qt.MoveAction)
+        finally:
+            if host is not None:
+                host.end_drag_scroll()
         if self.drop_host is None:
             return
         if QApplication.mouseButtons() & Qt.LeftButton:
@@ -2152,6 +2160,8 @@ class RoomListBox(QWidget):
     #: 刚进边缘带 / 贴死边缘（或已经拖到视口外）时，一拍各滚多少像素
     SCROLL_STEP_MIN = 4
     SCROLL_STEP_MAX = 36
+    #: 拖动期间滚轮一格滚多少像素（钩子借来的滚轮，见 ddm/mouse_hook.py）
+    WHEEL_PIXELS = 80
 
     def __init__(self, sidebar, parent=None):
         super().__init__(parent)
@@ -2761,6 +2771,7 @@ class Sidebar(QFrame):
         self.scroll = scroll
         holder = RoomListBox(self)
         self.list_box = holder
+        self._wheel_hook: mouse_hook.WheelHook | None = None
         for room in rooms:
             self._append_item(room)
         holder.relayout(animate=False)
@@ -3680,6 +3691,35 @@ class Sidebar(QFrame):
         local = self.list_box.mapFromGlobal(global_pos)
         return self.list_box.index_at(local.x() if self.list_box.horizontal
                                       else local.y())
+
+    # ---- 拖动期间把滚轮借过来 ----
+    def begin_drag_scroll(self) -> None:
+        """装上低级鼠标钩子，让拖动时滚轮还能滚列表。
+
+        Windows 上拖动走 OLE 的 DoDragDrop，那期间 Qt 收不到滚轮（API 级限制，
+        见 ddm/mouse_hook.py）；钩子只在拖动这一下存在，松手 / 取消立刻卸掉。
+        装不上就静默降级 —— 拖动本身和「贴边自动滚」都照常。
+        """
+        if self._wheel_hook is not None:
+            return
+        hook = mouse_hook.WheelHook(self._scroll_from_wheel)
+        hook.start()
+        self._wheel_hook = hook
+
+    def end_drag_scroll(self) -> None:
+        hook, self._wheel_hook = self._wheel_hook, None
+        if hook is not None:
+            hook.stop()
+
+    def _scroll_from_wheel(self, delta: int) -> None:
+        """钩子回调（主线程）：一格滚轮滚 WHEEL_PIXELS 像素。"""
+        area = self.scroll
+        if area is None or not delta:
+            return
+        box = self.list_box
+        bar = area.horizontalScrollBar() if box.horizontal else area.verticalScrollBar()
+        steps = delta / mouse_hook.WHEEL_DELTA            # 高精度滚轮可能是小数格
+        bar.setValue(bar.value() - int(round(steps * box.WHEEL_PIXELS)))
 
     def hover_drag(self, room_id: str, global_pos) -> None:
         """拖动过程中：贴近边缘自动滚，并在落点让出一格。"""
