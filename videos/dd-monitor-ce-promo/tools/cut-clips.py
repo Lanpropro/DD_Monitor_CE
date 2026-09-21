@@ -25,57 +25,60 @@ os.chdir(PROJ)
 PROMO = os.path.join(PROJ, "videos", "dd-monitor-ce-promo")
 
 #: 软件的窗口矩形（物理像素，3840x2160 母版上的位置）。
-#: 横屏：MoveWindow(0,0,2880,1620)；竖屏 810x1440 -> 1215x2160 居中。
+#: 横屏：MoveWindow(0,0,2880,1620)；竖屏 810x1440 -> 1215x2160 @ (0,0)。
 LANDSCAPE = (0, 0, 2880, 1620)
-#: 竖屏那一拍窗口在屏幕中央（1215x2160 在 3840 宽里居中）
-PORTRAIT = ((3840 - 1215) // 2, 0, 1215, 2160)
+#: 竖屏窗口在 (0,0)（driver 的 force_geometry 用 MoveWindow(0,0,...)，不是居中）
+PORTRAIT = (0, 0, 1215, 2160)
 #: 只看画面墙（把左侧关注栏切掉）：窗口内 x 从 248 起
 WALL_X, WALL_W = 248, 2880 - 248
 
 #: 每一段：输出名 / 起点 / 时长 / 裁哪块 / 缩放成什么尺寸。
-#: 起点按 `raw/take-events.json` 里的实际动作时刻定（不是拍的脑袋），
-#: 括号里是那一步在事件表里的秒数。
+#: 起点照 `raw/take-events.json`（本次 282 秒那条）的实际动作时刻定。
 PLAN = [
-    # 01 墙面亮起 / 02 标题底 / 12 重连
-    {"out": "rec-wall-build.mp4", "start": 3.0, "dur": 9.0,
+    # 01/02 开场：墙已经在播（1+5 稳定段，给标题压上来当底）
+    {"out": "rec-wall-build.mp4", "start": 92.5, "dur": 9.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "空墙 -> 第一格亮 -> 继续加人（3.0 起，含 6.0 第一次加入）"},
-    # 03 单画面 -> 四分
-    {"out": "rec-layout-1to4.mp4", "start": 13.0, "dur": 8.0,
+     "note": "1+5 墙已经在播（01/02 开场底）"},
+    # 03 单窗口 + 点击动效 + 左右两分
+    {"out": "rec-layout-1to2.mp4", "start": 13.0, "dur": 11.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "布局 1x1 -> 2x2（含菜单与 3 路加入）"},
-    # 04 九分
-    {"out": "rec-layout-9grid.mp4", "start": 33.0, "dur": 9.0,
+     "note": "单窗口播放 -> 点击(15.5) -> 左右两分(20.5)"},
+    # 04 四分
+    {"out": "rec-layout-1to4.mp4", "start": 34.5, "dur": 11.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "2x2 -> 3x3 并继续加到 9 路"},
-    # 05 大带小 1+5
-    {"out": "rec-layout-bigplus.mp4", "start": 59.0, "dur": 8.0,
+     "note": "左右两分 -> 四分(34.5) + 加人到 4 路"},
+    # 05 九分
+    {"out": "rec-layout-9grid.mp4", "start": 59.0, "dur": 22.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "九分 -> 主画面 + 5 小环绕（62.0 那一步）"},
-    # 06 弹幕进墙
-    {"out": "rec-layout-danmaku.mp4", "start": 78.0, "dur": 10.0,
+     "note": "四分 -> 九分(59) + 加到 9 路(76)"},
+    # 06 1+5
+    {"out": "rec-layout-bigplus.mp4", "start": 92.5, "dur": 14.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "1+5 -> 主画面 + 1 小 + 弹幕，弹幕在滚（81.0 那一步）"},
-    # 07 拖成竖屏（含横->竖->横的连续过程）
-    {"out": "rec-portrait-flip.mp4", "start": 96.0, "dur": 26.0,
+     "note": "九分 -> 1+5(92.5)"},
+    # 07 同布局弹幕版
+    {"out": "rec-layout-danmaku.mp4", "start": 106.5, "dur": 16.0,
+     "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
+     "note": "1+5 -> 弹幕布局(106.5) -> dm_main4(109.5)，弹幕在滚"},
+    # 08 竖屏（动态切换 + 自动接上 portrait_dm4）
+    {"out": "rec-portrait-flip.mp4", "start": 123.5, "dur": 16.0,
      "crop": PORTRAIT, "size": "1080:1920",
-     "note": "横屏 -> 竖屏(99.0) -> 回横屏(119.0)，一镜到底"},
-    # 08 弹幕面板特写（弹幕格那一块，母版可推近）
-    {"out": "rec-danmaku-panel.mp4", "start": 82.0, "dur": 9.0,
-     "crop": (WALL_X + 700, 0, 1100, 1620), "size": "1080:1080",
-     "note": "punch-in 到弹幕格（粉丝牌/表情/屏蔽词）"},
-    # 09 关注列表：悬停预览
-    {"out": "rec-follow-list.mp4", "start": 127.0, "dur": 16.0,
+     "note": "横屏 -> 竖屏(123.5)，自动接上 portrait_dm4"},
+    # 09 竖屏滑出画面（整屏横移过程，剪辑时按窗口路径处理）
+    {"out": "rec-portrait-slideout.mp4", "start": 139.5, "dur": 6.0,
+     "crop": (0, 0, 3840, 2160), "size": "1920:1080",
+     "note": "竖屏窗口滑出到 x=3840(139.5)"},
+    # 11 关注列表悬停预览
+    {"out": "rec-follow-list.mp4", "start": 157.5, "dur": 25.0,
      "crop": (0, 0, 760, 1620), "size": "1080:1080",
-     "note": "关注列表四次悬停（127.0 起，每隔 5 秒一次）"},
-    # 10 单格音量 / 静音
-    {"out": "rec-tile-audio.mp4", "start": 164.0, "dur": 10.0,
+     "note": "关注栏四次悬停(157.5-182.5)"},
+    # 12 分屏 + 左右声道
+    {"out": "rec-channel-route.mp4", "start": 187.5, "dur": 48.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "音量按钮左键两次（静音 -> 取消静音，167/173 两步）"},
-    # 11 左/右声道
-    {"out": "rec-channel-route.mp4", "start": 188.0, "dur": 16.0,
+     "note": "左右两分(187.5) + 设声道 + 稳定出声(214-235)"},
+    # 15 墙滚动素材（九分静置）
+    {"out": "rec-wall-scroll.mp4", "start": 239.5, "dur": 18.0,
      "crop": (WALL_X, 0, WALL_W, 1620), "size": "1920:1080",
-     "note": "右键音量按钮 -> 声道 -> 只播左(189) / 只播右(201)"},
+     "note": "九分墙静置(239.5-257.5)，供纵向滚动"},
 ]
 
 
