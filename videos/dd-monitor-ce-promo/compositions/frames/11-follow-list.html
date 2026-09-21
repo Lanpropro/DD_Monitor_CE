@@ -1,0 +1,89 @@
+<template>
+  <style>
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .f11-field {
+      position: absolute;
+      inset: 0;
+      background: #f1f2f5;
+      transform-origin: 50% 50%;
+      will-change: transform, opacity;
+    }
+
+    .f11-plate {
+      position: absolute;
+      left: 6cqw;
+      width: 40cqw;
+      top: 10cqw;
+      bottom: -2cqw;
+      border-radius: 10px;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28), 0 0 0 3000px #f1f2f5;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .f11-title {
+      position: absolute;
+      left: 50cqw;
+      top: 12cqw;
+      z-index: 7;
+    }
+    .f11-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.98;
+      letter-spacing: -0.01em;
+      color: #101114;
+      will-change: transform, opacity;
+    }
+    .f11-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      color: rgba(16, 17, 20, 0.66);
+      will-change: transform, opacity;
+    }
+  </style>
+
+  <div id="root" data-composition-id="11-follow-list" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+    <div class="clip f11-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- the follow list panel, hover preview (real recording, hoisted) -->
+    <!-- approved frame video hoisted by assemble-index -->
+
+    <div class="clip f11-plate" data-start="0" data-duration="3.5" data-track-index="1" data-layout-allow-overflow></div>
+
+    <div class="clip f11-title" data-start="0" data-duration="3.5" data-track-index="2">
+      <h1 class="f11-head">悬停就能预览</h1>
+      <div class="f11-sub">开播提醒 置顶 拖动排序 导入关注</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+      tl.fromTo(".f11-field", { scale: 1.03, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0);
+      tl.fromTo(".f11-head", { xPercent: -4, opacity: 0 }, { xPercent: 0, opacity: 1, duration: 0.52, ease: "power3.out" }, 0.1);
+      tl.fromTo(".f11-sub", { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 1.6);
+      tl.to({}, { duration: 0.01 }, 3.49);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["11-follow-list"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

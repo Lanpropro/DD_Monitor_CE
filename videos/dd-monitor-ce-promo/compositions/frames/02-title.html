@@ -1,47 +1,7 @@
 <template>
   <style>
-    /* ------------------------------------------------------------------
-       02-title — field-dark · 十六路直播，不必开十六个窗口 / DD监控室CE 专为 DD 设计的多窗口监控工具
-
-       Every software pixel is the real screen recording assets/rec-wall-build.mp4
-       (the wall window handed over from frame 01) — nothing about the app is
-       redrawn in DOM. The recording itself is hoisted to the host root by
-       assemble-index.mjs, so the handoff's "window dims 1 → 0.28" is realised as a
-       flat #222428 scrim over it: over a #222428 field that compositing is exactly
-       equal to opacity 0.28, and it is authored here so the dim still lands on this
-       frame's own timeline.
-
-       NOTE — no `container-type` on #root on purpose: the scrim and the title must
-       paint ABOVE the host-root video, which only works while no ancestor between
-       the host stacking context and these layers creates a stacking context.
-       Geometry is authored in the 1920×1080 unit (4.6cqw = 88.32px, 2.1cqw =
-       40.32px, 1cqw = 19.2px).
-       ------------------------------------------------------------------ */
-
-    @font-face {
-      font-family: "Microsoft YaHei UI";
-      font-style: normal;
-      font-weight: 400;
-      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
-    }
-    @font-face {
-      font-family: "Microsoft YaHei UI";
-      font-style: normal;
-      font-weight: 700;
-      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
-    }
-    @font-face {
-      font-family: "Microsoft YaHei";
-      font-style: normal;
-      font-weight: 400;
-      src: local("Microsoft YaHei"), local("msyh");
-    }
-    @font-face {
-      font-family: "Microsoft YaHei";
-      font-style: normal;
-      font-weight: 700;
-      src: local("Microsoft YaHei Bold"), local("msyhbd");
-    }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd"); }
 
     #root {
       position: absolute;
@@ -49,217 +9,145 @@
       width: 1920px;
       height: 1080px;
       overflow: hidden;
-      font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      font-family: "Microsoft YaHei UI", sans-serif;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* shared box for timed clips (the assembled index only ships .scene) */
-    .clip {
+    .f02-field {
       position: absolute;
-      left: 0;
-      top: 0;
-      width: 1920px;
-      height: 1080px;
-    }
-
-    /* ——— the flat dark field: no gradient, no texture ——— */
-    .ddf02-field {
+      inset: 0;
       background: #222428;
     }
 
-    /* ——— window shadow plate: frame.md's soft window shadow, riding ABOVE the
-           recording so the handed-over window keeps reading as a real window.
-           Position = the handoff rect (left/right 7cqw · top 16cqw · bottom −6cqw)
-           scaled 1.04 about its own centre — the window itself never moves. ——— */
-    .ddf02-plate {
-      left: 101.376px;
-      top: 289.44px;
-      width: 1717.248px;
-      height: 923.52px;
+    .f02-plate {
+      position: absolute;
+      left: 7cqw;
+      right: 7cqw;
+      top: 16cqw;
+      bottom: -6cqw;
       border-radius: 10px;
-      box-shadow: 0 38.4px 96px rgba(0, 0, 0, 0.28);
-      z-index: 6;
-      pointer-events: none;
-    }
-
-    /* ——— the dim scrim: 0 → 0.72 over the first 0.45s == the wall window dimming
-           1 → 0.28. Flat field colour only; a light desaturate matches Scene 1. ——— */
-    .ddf02-scrim {
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
       z-index: 5;
       pointer-events: none;
     }
-    .ddf02-scrim-inner {
+
+    /* dim scrim: 0 → 0.72 over 0.45s == the wall dimming 1 → 0.28 */
+    .f02-scrim {
       position: absolute;
-      left: 0;
-      top: 0;
-      width: 1920px;
-      height: 1080px;
+      inset: 0;
       background: #222428;
-      -webkit-backdrop-filter: saturate(0.85);
-      backdrop-filter: saturate(0.85);
+      z-index: 6;
+      pointer-events: none;
       will-change: opacity;
     }
 
-    /* ——— centred title block — headline over subtitle, above the window ——— */
-    .ddf02-title {
+    .f02-title {
+      position: absolute;
       left: 0;
       right: 0;
-      width: auto;
-      top: 124.8px;
-      height: auto;
-      padding: 0 153.6px;
+      top: 4cqw;
+      padding: 0 8cqw;
       text-align: center;
       z-index: 7;
     }
-    .ddf02-head {
+    .f02-head {
       margin: 0;
-      font-size: 88.32px; /* 4.6cqw */
+      font-size: 4.6cqw;
       font-weight: 700;
-      /* frame.md 的 headline 行高是 0.95，那是给单行标题定的。
-         本帧标题是两行（第一行 + 字替槽），0.95 会让两行的行盒互相重叠，
-         layout 检查判定为 content_overlap。这里放宽到 1.06。 */
       line-height: 1.06;
       letter-spacing: -0.01em;
       color: #f1f2f5;
-      transform-origin: 50% 50%;
-      will-change: transform;
     }
-    .ddf02-line {
+    .f02-line {
       display: block;
       white-space: nowrap;
     }
-    /* the swap slot: reserved from t=0 so nothing below it ever jumps, filled
-       by an instant discrete text swap (never a fade). */
-    .ddf02-swap {
+    .f02-swap {
       display: block;
       white-space: nowrap;
-      min-height: 0.95em;
+      min-height: 1.06em;
     }
-    .ddf02-w {
+    .f02-w {
       display: inline-block;
       white-space: pre;
       will-change: transform, opacity, filter;
     }
-    .ddf02-sub {
-      margin: 26.88px 0 0 0; /* 1.4cqw */
-      font-size: 40.32px; /* 2.1cqw */
+    .f02-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
       font-weight: 600;
       line-height: 1.1;
       letter-spacing: 0.16em;
-      text-indent: 0.08em;
+      text-indent: 0.16em;
       white-space: nowrap;
-      color: #f1f2f5;
+      color: rgba(241, 242, 245, 0.72);
       will-change: transform, opacity;
     }
   </style>
 
-  <div id="root" data-composition-id="02-title" data-start="0" data-duration="4.5" data-width="1920" data-height="1080">
-    <!-- scene field: the only colour field on this frame -->
-    <div class="clip ddf02-field" data-start="0" data-duration="4.5" data-track-index="0"></div>
+  <div id="root" data-composition-id="02-title" data-start="0" data-duration="5.5" data-width="1920" data-height="1080">
+    <div class="clip f02-field" data-start="0" data-duration="5.5" data-track-index="0"></div>
 
-    <!-- the wall window handed over from frame 01: rect left/right 7cqw · top 16cqw ·
-         bottom −6cqw, scale 1.04 baked into the host geometry, media continues from
-         1.4s so the recording finishes its build with the title. Hoisted to the host
-         root by assemble-index.mjs; frame-local styling does not cross that boundary. -->
+    <!-- wall handed over from 01 (real recording, hoisted to the host root) -->
     <!-- approved frame video hoisted by assemble-index -->
 
-    <!-- window shadow, above the recording -->
-    <div class="clip ddf02-plate" data-start="0" data-duration="4.5" data-track-index="2"></div>
+    <div class="clip f02-plate" data-start="0" data-duration="5.5" data-track-index="1"></div>
+    <div class="clip f02-scrim" data-start="0" data-duration="5.5" data-track-index="2"></div>
 
-    <!-- handoff dim: 1 → 0.28 within 0.45s, then the window is still for the rest -->
-    <div class="clip ddf02-scrim" data-start="0" data-duration="4.5" data-track-index="3">
-      <div class="ddf02-scrim-inner"></div>
-    </div>
-
-    <!-- title block -->
-    <div class="clip ddf02-title" data-start="0" data-duration="4.5" data-track-index="4">
-      <h1 class="ddf02-head">
-        <span class="ddf02-line"><span class="ddf02-w">十</span><span class="ddf02-w">六</span><span class="ddf02-w">路</span><span class="ddf02-w">直</span><span class="ddf02-w">播</span><span class="ddf02-w">，</span></span><span class="ddf02-swap"></span>
+    <div class="clip f02-title" data-start="0" data-duration="5.5" data-track-index="3">
+      <h1 class="f02-head">
+        <span class="f02-line"><span class="f02-w">十</span><span class="f02-w">六</span><span class="f02-w">路</span><span class="f02-w">直</span><span class="f02-w">播</span><span class="f02-w">，</span></span>
+        <span class="f02-swap"></span>
       </h1>
-      <div class="ddf02-sub">DD监控室CE 专为 DD 设计的多窗口监控工具</div>
+      <div class="f02-sub">DD监控室CE 专为 DD 设计的多窗口监控工具</div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
   <script>
     (function () {
-      var DURATION = 4.5;
+      var DURATION = 5.5;
       var tl = gsap.timeline({ paused: true });
 
-      /* ——— Scene 1 (6.0–7.4s → 0.00–1.40): the wall hands over and dims to 0.28
-         inside 0.45s; the first headline line lands character by character,
-         centred. The stagger is derived from the content length, not hardcoded. ——— */
-      tl.fromTo(
-        ".ddf02-scrim-inner",
-        { opacity: 0 },
-        { opacity: 0.72, duration: 0.45, ease: "power3.out" },
-        0,
-      );
+      /* Scene 1: wall dims to 0.28 inside 0.45s; line 1 lands character by character */
+      tl.fromTo(".f02-scrim", { opacity: 0 }, { opacity: 0.72, duration: 0.45, ease: "power3.out" }, 0);
 
-      var REVEAL_START = 0.18;
-      var REVEAL_SPAN = 0.3;
-      var WORD_DUR = 0.42;
-      var words = gsap.utils.toArray(".ddf02-w");
-      var stagger = words.length > 1 ? REVEAL_SPAN / (words.length - 1) : 0;
+      var words = gsap.utils.toArray(".f02-w");
+      var stagger = 0.3 / (words.length - 1);
       words.forEach(function (el, i) {
         tl.fromTo(
           el,
           { yPercent: 30, opacity: 0, filter: "blur(9px)" },
-          { yPercent: 0, opacity: 1, filter: "blur(0px)", duration: WORD_DUR, ease: "power3.out" },
-          REVEAL_START + i * stagger,
+          { yPercent: 0, opacity: 1, filter: "blur(0px)", duration: 0.42, ease: "power3.out" },
+          0.18 + i * stagger,
         );
       });
 
-      /* ——— Scene 2 (7.4–8.8s → 1.40–2.80): the second headline line arrives by a
-         HARD CUT — discrete-text-sequence: sparse {t, text} states, the latest one
-         whose t has passed wins, and the DOM is written ONLY on a state change. The
-         jump is instant (no tween, no fade) and stays correct on any seek. ——— */
+      /* Scene 2: line 2 arrives by HARD CUT (instant discrete swap, seek-safe) */
       var SWAP = [
         { t: 0, text: "" },
-        { t: 1.4, text: "不必开十六个窗口" },
+        { t: 1.5, text: "不必开十六个窗口" },
       ];
-      var swapEl = gsap.utils.toArray(".ddf02-swap")[0];
-      var swapClock = { t: 0 };
-      var lastSwap = null;
+      var swapEl = gsap.utils.toArray(".f02-swap")[0];
+      var clock = { t: 0 };
+      var last = null;
       function textAt(time) {
-        for (var i = SWAP.length - 1; i >= 0; i--) {
-          if (time >= SWAP[i].t) return SWAP[i].text;
-        }
+        for (var i = SWAP.length - 1; i >= 0; i--) if (time >= SWAP[i].t) return SWAP[i].text;
         return "";
       }
-      tl.to(
-        swapClock,
-        {
-          t: DURATION,
-          duration: DURATION,
-          ease: "none",
-          onUpdate: function () {
-            var next = textAt(swapClock.t);
-            if (next !== lastSwap) {
-              swapEl.textContent = next;
-              lastSwap = next;
-            }
-          },
+      tl.to(clock, {
+        t: DURATION, duration: DURATION, ease: "none",
+        onUpdate: function () {
+          var next = textAt(clock.t);
+          if (next !== last) { swapEl.textContent = next; last = next; }
         },
-        0,
-      );
+      }, 0);
 
-      /* ——— Scene 3 (8.8–10.5s → 2.80–4.50): the subtitle lands under the finished
-         headline, the block takes the impact and locks at 3.50 — then nothing moves
-         for the last full second (the deliberate still read). ——— */
-      tl.fromTo(
-        ".ddf02-sub",
-        { y: 14, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
-        2.9,
-      );
-      tl.fromTo(
-        ".ddf02-title",
-        { scale: 1.014 },
-        { scale: 1, duration: 0.2, ease: "power3.out" },
-        3.3,
-      );
+      /* Scene 3: subtitle lands, then everything holds still for the last ~2s */
+      tl.fromTo(".f02-sub", { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 2.6);
+      tl.fromTo(".f02-title", { scale: 1.014 }, { scale: 1, duration: 0.2, ease: "power3.out" }, 3.1);
 
+      tl.to({}, { duration: 0.01 }, 5.49);
       window.__timelines = window.__timelines || {};
       window.__timelines["02-title"] = tl;
       tl.seek(0);

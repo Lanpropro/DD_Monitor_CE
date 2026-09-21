@@ -9,6 +9,8 @@
 // 几何全部按 cqw = 画布宽度的 1%（1920 -> 19.2px）从各帧窗口的 CSS 反算，
 // 保证视频和帧自己画的窗口框对齐（视频绘制在帧 DOM 之上，错位会盖住窗口装饰）。
 //
+// v2（16 拍）映射见 PLAN；每项可选 `fit`（默认 cover）与 `mediaStart`（源内偏移）。
+//
 // 用法：node restore-videos.mjs <projectDir>
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -20,21 +22,20 @@ const CQW = 1920 / 100; // 19.2px
 // 每帧：输出文件、视频源、窗口 CSS 意图（left/right/width/top/bottom，单位 cqw）、时长
 // 注意 bottom 是负值：窗口下沿跑出画布。
 const PLAN = [
-  { f: "01-wall-ignite",   src: "assets/rec-wall-build.mp4",     id: "f01-wall-ignite-screen", cls: "",                 dur: 6,   top: 16, l: 7,  r: 7,  b: -6,
-    // 帧 01 的窗口组有一个 1.00->1.04 的推近，但被提升的视频不在帧内、跟不了这个缩放，
-    // 只能对齐一个瞬间。取 1.04 的终态（这一段最后 1.4 秒是静止的），
-    // 视频宁可略大一点被裁，也不要在边缘露出黑缝。
-    ov: { x: 101, y: 289, w: 1717, h: 924 } },
-  { f: "02-title",         src: "assets/rec-wall-build.mp4",     id: "ddf02-plate",            cls: "ddf02-plate",      dur: 4.5, top: 26, l: 9,  r: 9,  b: -8, bottom: true },
-  { f: "03-layout-1to4",   src: "assets/rec-layout-1to4.mp4",    id: "ddf03-plate",            cls: "ddf03-plate",      dur: 3.5, top: 31, r: 5,  w: 52, b: -7 },
-  { f: "04-layout-9grid",  src: "assets/rec-layout-9grid.mp4",   id: "ddf04-plate",            cls: "ddf04-plate",      dur: 3.5, top: 31, r: 5,  w: 52, b: -7 },
-  { f: "05-layout-bigplus",src: "assets/rec-layout-bigplus.mp4", id: "ddf05-plate",            cls: "ddf05-plate",      dur: 3.5, top: 31, r: 5,  w: 52, b: -7 },
-  { f: "06-layout-danmaku",src: "assets/rec-layout-danmaku.mp4", id: "ddf06-plate",            cls: "ddf06-plate",      dur: 3.5, top: 31, r: 5,  w: 52, b: -7 },
-  { f: "07-portrait-flip", src: "assets/rec-portrait-flip.mp4",  id: "ddf07-plate",            cls: "ddf07-plate",      dur: 5.5, top: 9,  r: 8,  w: 22.5, b: -6 },
-  { f: "08-danmaku-panel", src: "assets/rec-danmaku-panel.mp4",  id: "ddf08-plate",            cls: "ddf08-plate",      dur: 3.5, top: 33, l: 14, r: 14, b: -8 },
-  { f: "09-follow-list",   src: "assets/rec-follow-list.mp4",    id: "ddf09-plate",            cls: "ddf09-plate",      dur: 3.5, top: 30, l: 6,  r: 6,  b: -8 },
-  { f: "10-tile-audio",    src: "assets/rec-tile-audio.mp4",     id: "ddf10-plate",            cls: "ddf10-plate",      dur: 3.5, top: 31, l: 10, r: 10, b: -8 },
-  { f: "12-reconnect",     src: "assets/rec-wall-build.mp4",     id: "ddf12-plate",            cls: "ddf12-plate",      dur: 3.5, top: 33, l: 12, r: 12, b: -8 },
+  { f: "01-wall-build",      src: "assets/rec-wall-build.mp4",      id: "ddf01-plate", cls: "",                 dur: 3.5, top: 16, l: 7,  r: 7,  b: -6 },
+  { f: "02-title",           src: "assets/rec-wall-build.mp4",      id: "ddf02-plate", cls: "ddf02-plate",      dur: 5.5, top: 16, l: 7,  r: 7,  b: -6, bottom: true },
+  { f: "03-layout-1to2",     src: "assets/rec-layout-1to2.mp4",     id: "ddf03-plate", cls: "ddf03-plate",      dur: 4,   top: 31, r: 5,  w: 52, b: -7, mediaStart: 4 },
+  { f: "04-layout-1to4",     src: "assets/rec-layout-1to4.mp4",     id: "ddf04-plate", cls: "ddf04-plate",      dur: 3,   top: 31, r: 5,  w: 52, b: -7 },
+  { f: "05-layout-9grid",    src: "assets/rec-layout-9grid.mp4",    id: "ddf05-plate", cls: "ddf05-plate",      dur: 3,   top: 31, r: 5,  w: 52, b: -7 },
+  { f: "06-layout-bigplus",  src: "assets/rec-layout-bigplus.mp4",  id: "ddf06-plate", cls: "ddf06-plate",      dur: 3.5, top: 31, r: 5,  w: 52, b: -7 },
+  { f: "07-layout-danmaku",  src: "assets/rec-layout-danmaku.mp4",  id: "ddf07-plate", cls: "ddf07-plate",      dur: 5.5, top: 29, r: 3,  w: 56, b: -9, mediaStart: 2 },
+  { f: "08-portrait-flip",   src: "assets/rec-portrait-flip.mp4",   id: "ddf08-plate", cls: "ddf08-plate",      dur: 5.5, top: 3,  r: 7,  w: 31, b: -3 },
+  { f: "09-portrait-slideout", src: "assets/rec-portrait-slideout.mp4", id: "ddf09-plate", cls: "ddf09-plate", dur: 2,   top: 0,  l: 0,  r: 0,  b: 0 },
+  { f: "10-layout-cutback",  src: "assets/rec-layout-bigplus.mp4",  id: "ddf10-plate", cls: "ddf10-plate",      dur: 1,   top: 31, r: 5,  w: 52, b: -7 },
+  { f: "11-follow-list",     src: "assets/rec-follow-list.mp4",     id: "ddf11-plate", cls: "ddf11-plate",      dur: 3.5, top: 10, l: 6,  w: 40, b: -2, fit: "fill" },
+  { f: "12-channel-route",   src: "assets/rec-channel-route.mp4",   id: "ddf12-plate", cls: "ddf12-plate",      dur: 6,   top: 18, l: 12, r: 12, b: -8, mediaStart: 31 },
+  { f: "13-reconnect",       src: "assets/rec-channel-route.mp4",   id: "ddf13-plate", cls: "ddf13-plate",      dur: 3,   top: 18, l: 12, r: 12, b: -8, mediaStart: 37 },
+  { f: "15-wall-scroll",     src: "assets/rec-wall-scroll-pan.mp4", id: "ddf15-plate", cls: "ddf15-plate",      dur: 5,   top: 0,  l: 0,  r: 0,  b: 0 },
 ];
 
 const px = (v) => Math.round(v * CQW * 10) / 10;
@@ -71,6 +72,8 @@ for (const p of PLAN) {
 
   const r = rect(p);
   const cls = p.cls ? `\n      class="${p.cls}"` : "";
+  const fit = p.fit ?? "cover";
+  const mediaStart = p.mediaStart != null ? `\n      data-media-start="${p.mediaStart}"` : "";
   const block =
     `<video\n` +
     `      id="${p.id}"${cls}\n` +
@@ -79,11 +82,11 @@ for (const p of PLAN) {
     `      data-frame-video-y="${r.y}"\n` +
     `      data-frame-video-width="${r.w}"\n` +
     `      data-frame-video-height="${r.h}"\n` +
-    `      data-frame-video-fit="cover"\n` +
+    `      data-frame-video-fit="${fit}"\n` +
     `      data-start="0"\n` +
     `      data-duration="${p.dur}"\n` +
     `      data-track-index="2"\n` +
-    `      src="${p.src}"\n` +
+    `      src="${p.src}"${mediaStart}\n` +
     `      muted\n` +
     `      playsinline\n` +
     `      preload="auto"\n` +
@@ -99,7 +102,7 @@ for (const p of PLAN) {
   }
   writeFileSync(path, next, "utf8");
   restored++;
-  report.push(`OK ${p.f}: x=${r.x} y=${r.y} w=${r.w} h=${r.h}  ${p.src.split("/").pop()}`);
+  report.push(`OK ${p.f}: x=${r.x} y=${r.y} w=${r.w} h=${r.h} fit=${fit}  ${p.src.split("/").pop()}`);
 }
 
 console.log(report.join("\n"));

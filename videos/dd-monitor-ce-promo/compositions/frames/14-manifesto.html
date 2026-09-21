@@ -1,37 +1,7 @@
 <template>
   <style>
-    /* ------------------------------------------------------------------
-       14-manifesto — field-light · 把十六个窗口，收成一个
-       The film's one true still. Centred title block up top; beneath it the
-       recurring hero prop (the layout-diagram chip from 03–06) paid off as a
-       full 12-chip array; lower right, the real machine screenshot
-       assets/overview1_Landscape_mode.png at 12cqw as the physical reference,
-       dimmed to 0.5. Nothing about the software is redrawn in DOM — the
-       thumbnail IS the real capture; the chips are diagrams, not app UI.
-
-       MOTION BUDGET: one slide-up crossfade on the headline, the chip array
-       settling in its first second, then the subtitle landing. After that the
-       frame is absolutely still to the last frame — no highlight, no breath,
-       no drift, no second push. The stillness is the payload.
-       ------------------------------------------------------------------ */
-    @font-face {
-      font-family: "Microsoft YaHei UI";
-      font-style: normal;
-      font-weight: 400;
-      src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh");
-    }
-    @font-face {
-      font-family: "Microsoft YaHei UI";
-      font-style: normal;
-      font-weight: 600;
-      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
-    }
-    @font-face {
-      font-family: "Microsoft YaHei UI";
-      font-style: normal;
-      font-weight: 700;
-      src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd");
-    }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd"); }
 
     #root {
       position: absolute;
@@ -39,147 +9,47 @@
       width: 1920px;
       height: 1080px;
       overflow: hidden;
-      container-type: size;
-      font-family: "Microsoft YaHei UI";
+      font-family: "Microsoft YaHei UI", sans-serif;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ——— the flat near-white field: one colour, no gradient, no texture ——— */
-    .ddf14-field {
+    .f14-field {
       position: absolute;
-      left: 0;
-      top: 0;
-      width: 1920px;
-      height: 1080px;
+      inset: 0;
       background: #f1f2f5;
       transform-origin: 50% 52%;
       will-change: transform, opacity;
     }
 
-    /* ——— centred title block, pushed down to make room for the array ——— */
-    .ddf14-title {
+    .f14-title {
       position: absolute;
       left: 0;
       right: 0;
-      top: 16cqw;
-      padding: 0 8cqw;
+      top: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6cqw;
       text-align: center;
-      z-index: 4;
+      z-index: 5;
     }
-    .ddf14-head {
+    .f14-head {
       margin: 0;
-      font-size: 4.6cqw;
+      font-size: 9.4cqw;
       font-weight: 700;
-      line-height: 0.95;
-      letter-spacing: -0.01em;
+      line-height: 1.0;
+      letter-spacing: -0.005em;
       color: #101114;
       will-change: transform, opacity;
     }
-    .ddf14-sub {
-      margin: 1.5cqw 0 0 0;
-      font-size: 2.1cqw;
-      font-weight: 600;
-      line-height: 1.1;
-      letter-spacing: 0.16em;
-      text-indent: 0.16em;
-      color: rgba(16, 17, 20, 0.72);
-      will-change: transform, opacity;
-    }
-
-    /* ——— hero prop payout: the 12-chip layout array, 6 per row, 2 rows ——— */
-    .ddf14-array-wrap {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 30cqw;
-      display: flex;
-      justify-content: center;
-      align-items: flex-end;
-      padding-bottom: 3.5cqw;
-      z-index: 2;
-    }
-    .ddf14-array {
-      display: grid;
-      grid-template-columns: repeat(6, 8.5cqw);
-      grid-auto-rows: 8.5cqw;
-      gap: 1.1cqw;
-    }
-    /* the same diagram family as 03–06: 8px radius, thin outline, rounded
-       pane blocks, one solid "hot" pane. Inverted onto the light field. */
-    .ddf14-chip {
-      position: static;
-      box-sizing: border-box;
-      border-radius: 8px;
-      background: rgba(16, 17, 20, 0.13);
-      border: 1px solid rgba(16, 17, 20, 0.2);
-      display: grid;
-      gap: 0.6cqw;
-      padding: 1cqw;
-      will-change: transform, opacity;
-    }
-    .ddf14-chip i {
-      display: block;
-      background: rgba(16, 17, 20, 0.5);
-      border-radius: 0.35cqw;
-    }
-    .ddf14-chip i.hot {
-      background: #101114;
-    }
-
-    /* ——— the real capture, small and dimmed: the array's physical reference ——— */
-    .ddf14-thumb {
-      position: absolute;
-      right: 4cqw;
-      bottom: 3.5cqw;
-      width: 12cqw;
-      height: 6.75cqw;
-      border-radius: 10px;
-      overflow: hidden;
-      background: #000;
-      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28);
-      z-index: 3;
-      will-change: transform, opacity;
-    }
-    .ddf14-thumb img {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
   </style>
 
-  <div id="root" data-composition-id="14-manifesto" data-start="0" data-duration="4.5" data-width="1920" data-height="1080">
-    <!-- scene field -->
-    <div class="clip ddf14-field" data-start="0" data-duration="4.5" data-track-index="0"></div>
+  <div id="root" data-composition-id="14-manifesto" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+    <div class="clip f14-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
 
-    <!-- hero prop payout: 12 layout-diagram chips, 6 per row -->
-    <div class="clip ddf14-array-wrap" data-start="0" data-duration="4.5" data-track-index="1">
-      <div class="ddf14-array">
-        <div class="ddf14-chip" style="grid-template-columns: 1fr"><i class="hot"></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: repeat(2, 1fr)"><i></i><i></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: repeat(3, 1fr)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: 2fr 1fr; grid-template-rows: repeat(3, 1fr)"><i class="hot" style="grid-row: span 3"></i><i></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: 1fr; grid-template-rows: 3fr 1fr"><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: 2fr 1fr"><i class="hot"></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr)"><i class="hot"></i><i></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr)"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr)"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: 1fr; grid-template-rows: repeat(2, 1fr)"><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: 2fr 1fr; grid-template-rows: repeat(2, 1fr)"><i class="hot" style="grid-row: span 2"></i><i></i><i></i></div>
-        <div class="ddf14-chip" style="grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr)"><i></i><i></i><i></i><i></i><i class="hot"></i><i></i><i></i><i></i><i></i></div>
-      </div>
-    </div>
-
-    <!-- the real machine screenshot, 12cqw, dimmed to 0.5 -->
-    <div class="clip ddf14-thumb" data-start="0" data-duration="4.5" data-track-index="2">
-      <img src="assets/overview1_Landscape_mode.png" alt="" />
-    </div>
-
-    <!-- centred title block -->
-    <div class="clip ddf14-title" data-start="0" data-duration="4.5" data-track-index="3">
-      <h1 class="ddf14-head">把十六个窗口，收成一个</h1>
-      <div class="ddf14-sub">Windows 开源免费 LGPL-2.1</div>
+    <div class="clip f14-title" data-start="0" data-duration="3.5" data-track-index="1">
+      <h1 class="f14-head">把多个窗口，收成一个</h1>
     </div>
   </div>
 
@@ -187,60 +57,10 @@
   <script>
     (function () {
       var tl = gsap.timeline({ paused: true });
-
-      /* ---- Scene 1 (51.0–52.0s → 0.00–1.00): zoom-through into the near-white
-         field. The flat ground drives in past the lens and settles; the headline
-         lands with the ONE move this whole beat is allowed — a single slide-up
-         crossfade of the line, no per-word stagger, no second push. ---- */
-      tl.fromTo(
-        ".ddf14-field",
-        { scale: 1.13, opacity: 0 },
-        { scale: 1, opacity: 1, duration: 0.46, ease: "power3.out" },
-        0,
-      );
-      tl.fromTo(
-        ".ddf14-head",
-        { y: 26, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
-        0.18,
-      );
-
-      /* ---- Scene 2 (52.0–53.0s → 1.00–2.00): the hero prop pays off — the 12
-         chips settle in two groups (row by row) inside ~0.6s, then the real
-         capture drops into the lower right at 0.5 as the physical reference. ---- */
-      gsap.utils.toArray(".ddf14-chip").forEach(function (el, i) {
-        var group = i < 6 ? 0 : 1;
-        tl.fromTo(
-          el,
-          { y: 15, opacity: 0, scale: 0.94 },
-          { y: 0, opacity: 1, scale: 1, duration: 0.36, ease: "power3.out" },
-          1.02 + group * 0.18 + (i % 6) * 0.02,
-        );
-      });
-      tl.fromTo(
-        ".ddf14-thumb",
-        { y: 13, opacity: 0 },
-        { y: 0, opacity: 0.5, duration: 0.46, ease: "power3.out" },
-        1.52,
-      );
-
-      /* ---- Scene 3 (53.0–55.5s → 2.00–4.50): the subtitle lands and the shot
-         goes completely still. From 2.54s to the last frame not one pixel
-         moves — no highlight, no breathing, no drift. That 2s of stillness is
-         what the density of the previous beats bought. Transform + opacity
-         only: the tracked 0.16em setting is authored statically, never tweened
-         (a text-reflow tween snaps glyph positions under frame capture). ---- */
-      tl.fromTo(
-        ".ddf14-sub",
-        { y: 15, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
-        2.04,
-      );
-
-      /* pin the timeline to the fixed 4.5s so the held read runs to the end
-         (the root transition is the exit; this frame authors none) */
-      tl.to({}, { duration: 0.2 }, 4.3);
-
+      tl.fromTo(".f14-field", { scale: 1.13, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.46, ease: "power3.out" }, 0);
+      tl.fromTo(".f14-head", { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.18);
+      /* the one true still: nothing moves from ~1s to the end */
+      tl.to({}, { duration: 0.01 }, 3.49);
       window.__timelines = window.__timelines || {};
       window.__timelines["14-manifesto"] = tl;
       tl.seek(0);

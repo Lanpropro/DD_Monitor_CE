@@ -1,0 +1,119 @@
+<template>
+  <style>
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .f01-field {
+      position: absolute;
+      inset: 0;
+      background: #0d0e10;
+    }
+
+    /* window plate: rounds the hoisted recording's square corners via the field-colour
+       matte and drops the soft window shadow. z-index above the host-root video. */
+    .f01-plate {
+      position: absolute;
+      left: 7cqw;
+      right: 7cqw;
+      top: 16cqw;
+      bottom: -6cqw;
+      border-radius: 10px;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28), 0 0 0 3000px #0d0e10;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .f01-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 4cqw;
+      padding: 0 8cqw;
+      text-align: center;
+      z-index: 7;
+    }
+    .f01-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 1.02;
+      letter-spacing: -0.01em;
+      color: #f1f2f5;
+      will-change: transform, opacity;
+    }
+    .f01-line {
+      display: block;
+      white-space: nowrap;
+    }
+    .f01-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      text-indent: 0.16em;
+      white-space: nowrap;
+      color: rgba(241, 242, 245, 0.72);
+      will-change: transform, opacity;
+    }
+  </style>
+
+  <div id="root" data-composition-id="01-wall-build" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+    <div class="clip f01-field" data-start="0" data-duration="3.5" data-track-index="0"></div>
+
+    <!-- the 1+5 wall, already playing (real recording, hoisted to the host root) -->
+    <!-- approved frame video hoisted by assemble-index -->
+
+    <!-- window shadow + corner matte -->
+    <div class="clip f01-plate" data-start="0" data-duration="3.5" data-track-index="1"></div>
+
+    <!-- the simple opening title, pressing down from above -->
+    <div class="clip f01-title" data-start="0" data-duration="3.5" data-track-index="2">
+      <h1 class="f01-head">
+        <span class="f01-line">十六路直播，不必开十六个窗口</span>
+      </h1>
+      <div class="f01-sub">DD监控室CE 专为 DD 设计的多窗口监控工具</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+
+      tl.fromTo(
+        ".f01-field",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.4, ease: "power2.out" },
+        0,
+      );
+      tl.fromTo(
+        ".f01-head",
+        { y: -56, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.7, ease: "power3.out" },
+        0.15,
+      );
+      tl.fromTo(
+        ".f01-sub",
+        { y: 18, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" },
+        0.75,
+      );
+
+      tl.to({}, { duration: 0.01 }, 3.49);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["01-wall-build"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

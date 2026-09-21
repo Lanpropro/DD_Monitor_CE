@@ -1,0 +1,134 @@
+<template>
+  <style>
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .f07-field { position: absolute; inset: 0; background: #00a1d6; }
+
+    /* slight push-in on the danmaku cell: rect a touch larger than 03–06 */
+    .f07-plate {
+      position: absolute;
+      right: 3cqw;
+      width: 56cqw;
+      top: 29cqw;
+      bottom: -9cqw;
+      border-radius: 10px;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28), 0 0 0 3000px #00a1d6;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .f07-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 6.5cqw;
+      text-align: center;
+      z-index: 7;
+    }
+    .f07-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      color: #0d1114;
+      will-change: opacity, transform;
+    }
+    .f07-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      color: rgba(13, 17, 20, 0.72);
+      will-change: opacity, transform;
+    }
+
+    .f07-chip {
+      position: absolute;
+      left: 5cqw;
+      top: 36cqw;
+      width: 15cqw;
+      height: 15cqw;
+      border-radius: 8px;
+      background: rgba(13, 17, 20, 0.14);
+      border: 1px solid rgba(13, 17, 20, 0.22);
+      z-index: 6;
+    }
+    .f07-grid {
+      position: absolute;
+      inset: 0.9cqw;
+      display: grid;
+      gap: 0.6cqw;
+      transform-origin: 50% 50%;
+      will-change: opacity, transform;
+    }
+    .f07-g15 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
+    .f07-gdm { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+    .f07-grid i { display: block; background: rgba(13, 17, 20, 0.55); border-radius: 0.35cqw; }
+    .f07-grid i.hot { background: #0d1114; }
+    .f07-chiplabel {
+      position: absolute;
+      left: 5cqw;
+      top: 53cqw;
+      font-size: 1.5cqw;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: rgba(13, 17, 20, 0.6);
+      z-index: 6;
+    }
+  </style>
+
+  <div id="root" data-composition-id="07-layout-danmaku" data-start="0" data-duration="5.5" data-width="1920" data-height="1080">
+    <div class="clip f07-field" data-start="0" data-duration="5.5" data-track-index="0"></div>
+
+    <!-- the window: 1+5 → 弹幕版 (real recording, hoisted) -->
+    <!-- approved frame video hoisted by assemble-index -->
+
+    <div class="clip f07-plate" data-start="0" data-duration="5.5" data-track-index="1" data-layout-allow-overflow></div>
+
+    <div class="clip f07-chip" data-start="0" data-duration="5.5" data-track-index="2">
+      <div class="f07-grid f07-g15" id="f07-g15">
+        <i class="hot" style="grid-column: span 2; grid-row: span 2"></i>
+        <i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="f07-grid f07-gdm" id="f07-gdm">
+        <i class="hot" style="grid-row: span 2"></i>
+        <i></i><i class="hot"></i>
+      </div>
+    </div>
+    <div class="clip f07-chiplabel" data-start="0" data-duration="5.5" data-track-index="3">1 + 1 + 弹幕</div>
+
+    <div class="clip f07-title" data-start="0" data-duration="5.5" data-track-index="4">
+      <h1 class="f07-head">弹幕跟着主画面走</h1>
+      <div class="f07-sub">1 + 1 + 弹幕</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+      tl.fromTo(".f07-head", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.2);
+      tl.fromTo("#f07-gdm", { opacity: 0, scale: 0.86 }, { opacity: 1, scale: 1, duration: 0.5, ease: "power3.out" }, 0.6);
+      tl.fromTo("#f07-g15", { opacity: 1, scale: 1 }, { opacity: 0, scale: 0.86, duration: 0.3, ease: "power2.in" }, 0.6);
+      tl.fromTo(".f07-chiplabel", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 2.0);
+      tl.fromTo(".f07-sub", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 3.6);
+      tl.to({}, { duration: 0.01 }, 5.49);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["07-layout-danmaku"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

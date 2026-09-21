@@ -1,0 +1,36 @@
+<template>
+  <style>
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .f09-field { position: absolute; inset: 0; background: #222428; }
+  </style>
+
+  <div id="root" data-composition-id="09-portrait-slideout" data-start="0" data-duration="2" data-width="1920" data-height="1080">
+    <div class="clip f09-field" data-start="0" data-duration="2" data-track-index="0"></div>
+
+    <!-- the portrait window sliding out of frame (real recording, hoisted) -->
+    <!-- approved frame video hoisted by assemble-index -->
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+      tl.fromTo(".f09-field", { opacity: 0 }, { opacity: 1, duration: 0.25, ease: "power2.out" }, 0);
+      tl.to({}, { duration: 0.01 }, 1.99);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["09-portrait-slideout"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>

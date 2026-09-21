@@ -1,0 +1,150 @@
+<template>
+  <style>
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"), local("msyh"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"), local("msyhbd"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Microsoft YaHei UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .f03-field {
+      position: absolute;
+      inset: 0;
+      background: #00a1d6;
+      transform-origin: 50% 55%;
+      will-change: transform, opacity;
+    }
+
+    /* window: right 5cqw / width 52cqw / top 31cqw / bottom -7cqw */
+    .f03-plate {
+      position: absolute;
+      right: 5cqw;
+      width: 52cqw;
+      top: 31cqw;
+      bottom: -7cqw;
+      border-radius: 10px;
+      box-shadow: 0 2cqw 5cqw rgba(0, 0, 0, 0.28), 0 0 0 3000px #00a1d6;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .f03-title {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 6.5cqw;
+      text-align: center;
+      z-index: 7;
+    }
+    .f03-head {
+      margin: 0;
+      font-size: 4.6cqw;
+      font-weight: 700;
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      color: #0d1114;
+    }
+    .f03-w {
+      display: inline-block;
+      white-space: pre;
+      will-change: transform, opacity;
+    }
+    .f03-sub {
+      margin: 1.5cqw 0 0 0;
+      font-size: 2.1cqw;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: 0.16em;
+      color: rgba(13, 17, 20, 0.72);
+      will-change: transform, opacity;
+    }
+
+    /* hero prop: layout chip, single cell → left/right two */
+    .f03-chip {
+      position: absolute;
+      left: 5cqw;
+      top: 36cqw;
+      width: 15cqw;
+      height: 15cqw;
+      border-radius: 8px;
+      background: rgba(13, 17, 20, 0.14);
+      border: 1px solid rgba(13, 17, 20, 0.22);
+      z-index: 6;
+    }
+    .f03-grid {
+      position: absolute;
+      inset: 0.9cqw;
+      display: grid;
+      gap: 0.6cqw;
+      transform-origin: 50% 50%;
+      will-change: opacity, transform;
+    }
+    .f03-g1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+    .f03-g2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+    .f03-grid i {
+      display: block;
+      background: rgba(13, 17, 20, 0.55);
+      border-radius: 0.35cqw;
+    }
+    .f03-chiplabel {
+      position: absolute;
+      left: 5cqw;
+      top: 53cqw;
+      font-size: 1.5cqw;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      color: rgba(13, 17, 20, 0.6);
+      z-index: 6;
+    }
+  </style>
+
+  <div id="root" data-composition-id="03-layout-1to2" data-start="0" data-duration="4" data-width="1920" data-height="1080">
+    <div class="clip f03-field" data-start="0" data-duration="4" data-track-index="0"></div>
+
+    <!-- the window: single → click → left/right split (real recording, hoisted) -->
+    <!-- approved frame video hoisted by assemble-index -->
+
+    <div class="clip f03-plate" data-start="0" data-duration="4" data-track-index="1" data-layout-allow-overflow></div>
+
+    <div class="clip f03-chip" data-start="0" data-duration="4" data-track-index="2">
+      <div class="f03-grid f03-g1" id="f03-g1"><i></i></div>
+      <div class="f03-grid f03-g2" id="f03-g2"><i></i><i></i></div>
+    </div>
+    <div class="clip f03-chiplabel" data-start="0" data-duration="4" data-track-index="3">1 → 2</div>
+
+    <div class="clip f03-title" data-start="0" data-duration="4" data-track-index="4">
+      <h1 class="f03-head"><span class="f03-w">想</span><span class="f03-w">怎</span><span class="f03-w">么</span><span class="f03-w">看</span><span class="f03-w">，</span><span class="f03-w">就</span><span class="f03-w">怎</span><span class="f03-w">么</span><span class="f03-w">排</span></h1>
+      <div class="f03-sub">平分布局</div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var tl = gsap.timeline({ paused: true });
+
+      tl.fromTo(".f03-field", { scale: 1.16, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0);
+      tl.fromTo(".f03-chip", { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.04);
+
+      gsap.utils.toArray(".f03-w").forEach(function (el, i) {
+        tl.fromTo(el, { yPercent: 32, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.6 + i * 0.04);
+      });
+
+      /* chip recut 1 → 2, timed to the click + split inside the recording */
+      tl.fromTo("#f03-g2", { opacity: 0, scale: 0.86 }, { opacity: 1, scale: 1, duration: 0.42, ease: "power3.out" }, 3.1);
+      tl.fromTo("#f03-g1", { opacity: 1, scale: 1 }, { opacity: 0, scale: 0.86, duration: 0.3, ease: "power2.in" }, 3.1);
+      tl.fromTo(".f03-sub", { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 3.3);
+
+      tl.to({}, { duration: 0.01 }, 3.99);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["03-layout-1to2"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</template>
