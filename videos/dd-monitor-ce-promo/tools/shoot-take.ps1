@@ -45,7 +45,7 @@ $lead = 3
 $recSecs = [int][math]::Ceiling($planSeconds + $lead + $Tail)
 Write-Host "动作计划：$($plan.Count) 步，$planSeconds 秒；录制 $recSecs 秒（含片头 $lead 秒 + 收尾 $Tail 秒）"
 
-# 录之前先把软件按进程静音：它在"要出声"的那两拍由计划里的 mute 动作解开
+# 录之前先把软件按进程静音：它在"要出声"的那一拍由计划里的 mute 动作解开
 if (Test-Path $MuteScript) {
   & $LoopbackPy $MuteScript "python" "mute" 2>$null | ForEach-Object { Write-Host "  $_" }
 }
@@ -53,6 +53,22 @@ if (Test-Path $MuteScript) {
 $videoOnly = Join-Path $Raw "take-video.mp4"
 $audioWav = Join-Path $Raw "take-audio.wav"
 Remove-Item -Force $videoOnly, $audioWav -ErrorAction SilentlyContinue
+
+# 给用户 10 秒准备时间（用户要求：开始录之前要留准备时间）。
+# 除了控制台倒计时，再弹一个不阻塞的提示窗口 —— 控制台不一定在眼前。
+$countdown = 10
+Write-Host "`n════════ 准备：$countdown 秒后开录，请现在停止操作鼠标键盘 ════════" -ForegroundColor Yellow
+try {
+  $shell = New-Object -ComObject WScript.Shell
+  [void]$shell.Popup("录制将在 $countdown 秒后开始。`n请现在不要碰鼠标和键盘。",
+                     $countdown, "DD监控室CE 宣传片 · 即将开录", 64)
+} catch {
+  for ($i = $countdown; $i -ge 1; $i--) {
+    Write-Host ("  倒计时 {0,2} 秒" -f $i)
+    Start-Sleep -Seconds 1
+  }
+}
+Write-Host "════════ 开录 ════════`n" -ForegroundColor Green
 
 Write-Host "开始录画面（ddagrab 主屏 4K$Fps）-> $videoOnly"
 $ff = Start-Process -FilePath "ffmpeg" -PassThru -WindowStyle Hidden -ArgumentList @(

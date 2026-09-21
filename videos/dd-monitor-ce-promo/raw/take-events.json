@@ -1,0 +1,461 @@
+{
+ "mode": "picker",
+ "plan": "take-plan.json",
+ "events": [
+  {
+   "t": 0.0,
+   "kind": "begin",
+   "detail": "模式=picker 计划 77 步 窗口 (0, 0, 2880, 1620)"
+  },
+  {
+   "t": 0.0,
+   "kind": "audio",
+   "detail": "211.5 秒后让软件出声（两路都放开声音（会话层）；在那之前保持静音）"
+  },
+  {
+   "t": 0.0,
+   "kind": "wait",
+   "detail": "起点：空墙 1 格 + 单画面布局"
+  },
+  {
+   "t": 1.984,
+   "kind": "move",
+   "detail": "光标进在播列表第 1 项 -> nav_2"
+  },
+  {
+   "t": 3.984,
+   "kind": "move",
+   "detail": "第 1 路（在播） -> nav_2"
+  },
+  {
+   "t": 5.984,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_2 / 加入画面墙"
+  },
+  {
+   "t": 7.5,
+   "kind": "move",
+   "detail": "单窗口开始播（03 的单窗口播放段） -> tile_0"
+  },
+  {
+   "t": 15.484,
+   "kind": "move",
+   "detail": "单窗口停住 -> tile_0"
+  },
+  {
+   "t": 17.5,
+   "kind": "resize",
+   "detail": "1920x1080 -> 物理 2880x1620 布局=1x1（摆回基准尺寸（菜单坐标的基准））"
+  },
+  {
+   "t": 19.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 22.484,
+   "kind": "click",
+   "detail": "选「左右两分」（03 的分裂） -> card_1x2"
+  },
+  {
+   "t": 25.484,
+   "kind": "move",
+   "detail": "左右两分停住（分裂过程本身是素材） -> tile_0"
+  },
+  {
+   "t": 31.484,
+   "kind": "move",
+   "detail": "左右两分再停一下 -> tile_1"
+  },
+  {
+   "t": 33.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 36.484,
+   "kind": "click",
+   "detail": "选四分 -> card_2x2"
+  },
+  {
+   "t": 39.484,
+   "kind": "move",
+   "detail": "第 2 路（在播） -> nav_3"
+  },
+  {
+   "t": 41.484,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_3 / 加入画面墙"
+  },
+  {
+   "t": 42.984,
+   "kind": "move",
+   "detail": "第 3 路（在播） -> nav_4"
+  },
+  {
+   "t": 44.984,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_4 / 加入画面墙"
+  },
+  {
+   "t": 46.484,
+   "kind": "move",
+   "detail": "第 4 路（在播） -> nav_5"
+  },
+  {
+   "t": 48.484,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_5 / 加入画面墙"
+  },
+  {
+   "t": 49.984,
+   "kind": "move",
+   "detail": "四分停住 -> volume_0"
+  },
+  {
+   "t": 57.984,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 60.984,
+   "kind": "click",
+   "detail": "选九分 -> card_3x3"
+  },
+  {
+   "t": 63.984,
+   "kind": "move",
+   "detail": "第 5 路（在播） -> nav_6"
+  },
+  {
+   "t": 65.984,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_6 / 加入画面墙"
+  },
+  {
+   "t": 67.484,
+   "kind": "move",
+   "detail": "第 6 路（在播） -> nav_7"
+  },
+  {
+   "t": 69.484,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_7 / 加入画面墙"
+  },
+  {
+   "t": 70.984,
+   "kind": "move",
+   "detail": "第 7 路（在播） -> nav_8"
+  },
+  {
+   "t": 72.984,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_8 / 加入画面墙"
+  },
+  {
+   "t": 74.484,
+   "kind": "move",
+   "detail": "第 8 路（在播） -> nav_9"
+  },
+  {
+   "t": 76.484,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_9 / 加入画面墙"
+  },
+  {
+   "t": 78.0,
+   "kind": "move",
+   "detail": "第 9 路（在播） -> nav_10"
+  },
+  {
+   "t": 79.984,
+   "kind": "rightclick",
+   "detail": "加入画面墙 -> nav_10 / 加入画面墙"
+  },
+  {
+   "t": 81.484,
+   "kind": "move",
+   "detail": "九分铺满（05 的素材） -> tile_8"
+  },
+  {
+   "t": 91.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 94.484,
+   "kind": "click",
+   "detail": "选主画面 + 5 小环绕（1+5） -> card_corner"
+  },
+  {
+   "t": 97.5,
+   "kind": "move",
+   "detail": "主画面钉住，五小环绕（06 的素材） -> tile_0"
+  },
+  {
+   "t": 103.484,
+   "kind": "move",
+   "detail": "1+5 停住 -> tile_5"
+  },
+  {
+   "t": 105.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 108.484,
+   "kind": "click",
+   "detail": "切到「弹幕布局」标签页 -> tab_弹幕布局"
+  },
+  {
+   "t": 111.5,
+   "kind": "click",
+   "detail": "选「主画面 + 3 小 + 弹幕」（1+5 的弹幕版） -> card_dm_main4"
+  },
+  {
+   "t": 114.484,
+   "kind": "move",
+   "detail": "弹幕开始滚（07 的聚焦素材，别碰鼠标） -> tile_0"
+  },
+  {
+   "t": 122.484,
+   "kind": "move",
+   "detail": "弹幕继续滚 -> tile_2"
+  },
+  {
+   "t": 125.5,
+   "kind": "resize",
+   "detail": "810x1440 -> 物理 1215x2160 布局=portrait_dm4（动态切竖屏（布局自动接上对映预设））"
+  },
+  {
+   "t": 131.484,
+   "kind": "move",
+   "detail": "竖屏停住（08 的素材） -> tile_3"
+  },
+  {
+   "t": 139.484,
+   "kind": "move",
+   "detail": "竖屏再停一下 -> volume_3"
+  },
+  {
+   "t": 141.484,
+   "kind": "slideout",
+   "detail": "窗口滑出到 x=3840（竖屏窗口滑出画面（09 的素材））"
+  },
+  {
+   "t": 145.484,
+   "kind": "move",
+   "detail": "滑出后保持干净 -> quality_3"
+  },
+  {
+   "t": 147.484,
+   "kind": "resize",
+   "detail": "1920x1080 -> 物理 2880x1620 布局=dm_main4（回横屏）"
+  },
+  {
+   "t": 150.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 153.5,
+   "kind": "click",
+   "detail": "回到 1+5（10 的素材） -> card_corner"
+  },
+  {
+   "t": 156.484,
+   "kind": "move",
+   "detail": "横屏 1+5 停住 -> tile_0"
+  },
+  {
+   "t": 159.484,
+   "kind": "move",
+   "detail": "在播第 1 项：悬停出封面预览 -> nav_2"
+  },
+  {
+   "t": 164.484,
+   "kind": "move",
+   "detail": "在播第 2 项：悬停出封面预览 -> nav_3"
+  },
+  {
+   "t": 169.5,
+   "kind": "move",
+   "detail": "在播第 3 项：悬停出封面预览 -> nav_4"
+  },
+  {
+   "t": 174.484,
+   "kind": "move",
+   "detail": "在播第 4 项：悬停出封面预览 -> nav_5"
+  },
+  {
+   "t": 181.5,
+   "kind": "move",
+   "detail": "回到第 1 项，预览卡完整露一次 -> nav_2"
+  },
+  {
+   "t": 184.484,
+   "kind": "resize",
+   "detail": "1920x1080 -> 物理 2880x1620 布局=corner（分屏前摆回基准尺寸）"
+  },
+  {
+   "t": 186.5,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 189.484,
+   "kind": "click",
+   "detail": "选「左右两分」（左格第 1 路、右格第 2 路） -> card_1x2"
+  },
+  {
+   "t": 193.5,
+   "kind": "menu",
+   "detail": "（找到「声道」 有子菜单=True）"
+  },
+  {
+   "t": 193.5,
+   "kind": "menu",
+   "detail": "（父项 声道 里找到 只播左声道）"
+  },
+  {
+   "t": 193.5,
+   "kind": "menu",
+   "detail": "选了「只播左声道」"
+  },
+  {
+   "t": 193.5,
+   "kind": "rightclick",
+   "detail": "左格：声道 -> 只播左声道 -> volume_0 / 格子状态 声道=3 静音=True"
+  },
+  {
+   "t": 199.484,
+   "kind": "move",
+   "detail": "光标停在左格音量按钮上（L 标记） -> volume_0"
+  },
+  {
+   "t": 203.484,
+   "kind": "menu",
+   "detail": "（找到「声道」 有子菜单=True）"
+  },
+  {
+   "t": 203.484,
+   "kind": "menu",
+   "detail": "（父项 声道 里找到 只播右声道）"
+  },
+  {
+   "t": 203.484,
+   "kind": "menu",
+   "detail": "选了「只播右声道」"
+  },
+  {
+   "t": 203.484,
+   "kind": "rightclick",
+   "detail": "右格：声道 -> 只播右声道 -> volume_1 / 格子状态 声道=4 静音=True"
+  },
+  {
+   "t": 209.484,
+   "kind": "move",
+   "detail": "光标停在右格音量按钮上（R 标记） -> volume_1"
+  },
+  {
+   "t": 212.0,
+   "kind": "audio",
+   "detail": "格子「莉蔻Liko」改成未静音"
+  },
+  {
+   "t": 212.203,
+   "kind": "audio",
+   "detail": "会话解静音：python.exe (pid 44140) -> unmuted"
+  },
+  {
+   "t": 213.484,
+   "kind": "mute",
+   "detail": "格子已经是出声状态"
+  },
+  {
+   "t": 213.484,
+   "kind": "mute",
+   "detail": "软件音频 unmute：两路都放开声音（会话层）"
+  },
+  {
+   "t": 215.484,
+   "kind": "mute",
+   "detail": "格子「克罗雅Kloa」未静音"
+  },
+  {
+   "t": 215.484,
+   "kind": "mute",
+   "detail": "软件音频 unmute：左格未静音"
+  },
+  {
+   "t": 218.484,
+   "kind": "move",
+   "detail": "左右两路各走各的声道，停住（12 的素材） -> tile_1"
+  },
+  {
+   "t": 228.484,
+   "kind": "move",
+   "detail": "再停一下，让左右声音听清楚 -> tile_1"
+  },
+  {
+   "t": 236.5,
+   "kind": "mute",
+   "detail": "格子「莉蔻Liko」已静音"
+  },
+  {
+   "t": 236.5,
+   "kind": "mute",
+   "detail": "软件音频 mute：12 拍收尾：重新按进程静音"
+  },
+  {
+   "t": 240.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 243.484,
+   "kind": "click",
+   "detail": "回到九分（15 拍的墙静置段） -> card_3x3"
+  },
+  {
+   "t": 246.484,
+   "kind": "move",
+   "detail": "九分静置：全墙在播，别碰鼠标 -> tile_8"
+  },
+  {
+   "t": 256.484,
+   "kind": "move",
+   "detail": "九分继续静置（纵向滚动的素材） -> tile_8"
+  },
+  {
+   "t": 258.484,
+   "kind": "click",
+   "detail": "开布局弹层 -> layout_button"
+  },
+  {
+   "t": 261.562,
+   "kind": "click",
+   "detail": "切到 1+5（15 拍的第二种墙） -> card_corner"
+  },
+  {
+   "t": 264.484,
+   "kind": "move",
+   "detail": "1+5 静置 -> tile_0"
+  },
+  {
+   "t": 272.484,
+   "kind": "move",
+   "detail": "1+5 继续静置（素材） -> tile_5"
+  },
+  {
+   "t": 274.484,
+   "kind": "move",
+   "detail": "全片收尾 -> tile_5"
+  },
+  {
+   "t": 274.5,
+   "kind": "end",
+   "detail": "窗口 (0, 0, 2880, 1620)"
+  }
+ ]
+}

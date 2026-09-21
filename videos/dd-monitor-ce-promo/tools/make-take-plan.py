@@ -430,10 +430,30 @@ def build_plan_v2(win, live_slots: list, min_live: int) -> tuple[list, dict]:
        x=2100, y=500)
     at(t + 34, "move", "左右两路各走各的声道，停住（12 的素材）", x=1600, y=540)
     at(t + 44, "move", "再停一下，让左右声音听清楚", x=1600, y=540)
-    at(t + 52, "mute", "收尾：重新按进程静音", action="mute", target="volume_0",
+    at(t + 52, "mute", "12 拍收尾：重新按进程静音", action="mute", target="volume_0",
        x=1100, y=500)
-    at(t + 54, "move", "收尾", x=1500, y=900)
     t += 56
+
+    # ---- L. 15 拍要的「墙静置」素材（切回软件后做纵向滚动用）----
+    # 两种墙各留一段：九分（信息量最大）+ 1+5（有主次）。全部在播、别碰鼠标。
+    fit("3x3")
+    at(t, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 3, "click", "回到九分（15 拍的墙静置段）", x=235, y=742,
+       target="card_3x3")
+    at(t + 6, "move", "九分静置：全墙在播，别碰鼠标", x=1500, y=800)
+    at(t + 16, "move", "九分继续静置（纵向滚动的素材）", x=1500, y=800)
+    t += 18
+
+    fit("corner")
+    at(t, "click", "开布局弹层", x=95, y=967, target="layout_button")
+    at(t + 3, "click", "切到 1+5（15 拍的第二种墙）", x=235, y=833,
+       target="card_corner")
+    at(t + 6, "move", "1+5 静置", x=640, y=240)
+    at(t + 14, "move", "1+5 继续静置（素材）", x=1500, y=800)
+    t += 16
+
+    at(t, "move", "全片收尾", x=1500, y=900)
+    t += 2
 
     notes["used_slots"] = used_slots
     notes["planned_rooms"] = len(notes["slots"])
