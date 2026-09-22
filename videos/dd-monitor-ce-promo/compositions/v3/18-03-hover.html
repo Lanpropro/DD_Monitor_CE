@@ -85,23 +85,22 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 放大两倍后**摆得下的张数**是 5 张（间距 326，每张露出约 55%，接近参考片的重叠度）。
-           其中 card-2 / card-5 / card-7 是**有预览录像的三张，必须保留**；
-           其余按"摆得下"优先留下。用户 2026-09-22：不是只留三张，摆得下就多摆。 -->
+      <!-- 按用户红框量出的比例排：卡片露出的宽度约占自身 84%（几乎不重叠），
+           左大右小比例 0.67。600 宽的卡按这个间距只能排 **4 张**。
+           其中 card-2 / card-5 / card-7 是**有预览录像的三张，必须保留**，另加 card-4。 -->
       <div class="stage" id="stage">
         <div class="card" id="k1">
           <img class="shot" src="assets/rec/card-2.png" alt="">
           <video class="vid" id="v1" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="0.762" data-duration="6.738"></video>
         </div>
-        <div class="card" id="k2"><img class="shot" src="assets/rec/card-3.png" alt=""></div>
-        <div class="card" id="k3"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
-        <div class="card" id="k4">
+        <div class="card" id="k2"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
+        <div class="card" id="k3">
           <img class="shot" src="assets/rec/card-5.png" alt="">
           <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="3.048" data-duration="4.452"></video>
         </div>
-        <div class="card" id="k5">
+        <div class="card" id="k4">
           <img class="shot" src="assets/rec/card-7.png" alt="">
           <video class="vid" id="v3" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="5.334" data-duration="2.166"></video>
@@ -119,15 +118,15 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* ---- 队列：五张，从左下到右上排过去 ----
-           左边近（大、低、**在前**），右边远（小、高、在后）—— 左边遮挡右边。
-           间距 326 < 卡宽 600，每张露出约 55%。 */
+        /* ---- 队列：四张，从左下到右上排过去 ----
+           间距 440 / 卡宽 600 —— 每张露出约 73%，接近用户红框里"几乎不重叠"的排布。
+           左边近（大、低、**在前**），右边远（小、高、在后）：左遮右。
+           缩小比例 1.000 -> 0.670，也是照红框量出来的（红框左宽 441、右宽 297）。 */
         var POS = [
-          { x:    6, y: 640, s: 1.000, z: 5 },
-          { x:  332, y: 606, s: 0.945, z: 4 },
-          { x:  658, y: 572, s: 0.890, z: 3 },
-          { x:  984, y: 538, s: 0.835, z: 2 },
-          { x: 1310, y: 504, s: 0.780, z: 1 }
+          { x:    6, y: 660, s: 1.000, z: 4 },
+          { x:  446, y: 615, s: 0.890, z: 3 },
+          { x:  886, y: 570, s: 0.780, z: 2 },
+          { x: 1326, y: 525, s: 0.670, z: 1 }
         ];
         var N = POS.length;
 
@@ -194,10 +193,10 @@
           });
         }
 
-        /* 三轮抽出的是**带录像的那三张**：#k1(card-2) / #k4(card-5) / #k5(card-7) */
+        /* 三轮抽出的是**带录像的那三张**：#k1(card-2) / #k3(card-5) / #k4(card-7) */
         round(0.762, 0, "#v1");
-        round(0.762 + ROUND, 3, "#v2");
-        round(0.762 + ROUND * 2, 4, "#v3");
+        round(0.762 + ROUND, 2, "#v2");
+        round(0.762 + ROUND * 2, 3, "#v3");
 
         tl.to("#cursor", { opacity: 0, duration: 0.30, immediateRender: false }, 7.05);
 
