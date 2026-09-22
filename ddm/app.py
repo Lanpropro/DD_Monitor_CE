@@ -22,6 +22,7 @@ from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
 from . import watchdog
+from .audio_output import linear_to_vlc_volume
 from .danmaku import DanmakuClient
 from .bili import (
     AccountLoader, FollowLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
@@ -34,6 +35,9 @@ from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
 from .widgets import Sidebar, Tile, WallGrid
+
+#: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
+AUDIO_AUDIT_MS = 2_000
 
 MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
@@ -186,6 +190,15 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
+        # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
+        # 要等真正开始播放才建。补设置靠 play() 后那几次重试 + 看门狗，个别机器上
+        # （慢启动、断流重连、切音频输出路径）会错过窗口，于是「静音标志亮着、声音
+        # 还在」—— 用户报的「音频连在一起」就是这一类。这里定时比一遍，走散了就按
+        # **格子**的值重新下发（格子是权威）。
+        self._audio_audit_timer = QTimer(self)
+        self._audio_audit_timer.setInterval(AUDIO_AUDIT_MS)
+        self._audio_audit_timer.timeout.connect(self._audit_audio)
+        self._audio_audit_timer.start()
         self.wall.tileClicked.connect(self._on_tile_clicked)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
@@ -469,6 +482,7 @@ class MainWindow(QMainWindow):
         # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
         # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
         self._closing = True
+        self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
         self.plugins.unload()
@@ -1204,6 +1218,55 @@ class MainWindow(QMainWindow):
         if player is not None:
             player.set_muted(muted)
         self._save_timer.start()       # 静音也是格子状态，和音量一起记住
+
+    def _audit_audio(self) -> None:
+        """巡检：格子记的静音 / 音量，和播放器**实际**的值有没有走散。
+
+        格子是权威（用户是按格子调的），走散了就按格子重新下发一次。需要这条
+        兜底是因为：`audio_set_mute` / `audio_set_volume` 作用在 aout 上，而 aout
+        要等真正开始播放才建 —— 补设置只能靠 `play()` 后那几次重试加看门狗，
+        慢启动 / 断流重连 / 切音频输出路径时可能整个错过那个窗口，结果就是
+        「静音标志亮着、这一格却还在出声」，用户听起来像「格子之间的音频连在
+        一起」。走散时打一行 `[音频]`，下次复现能直接从日志看出是哪一格、差多少。
+        """
+        for tile in self.wall.tiles:
+            player = self.players.get(tile)
+            if player is None or not tile.room.get("room_id"):
+                continue
+            if getattr(player, "silent", False) or getattr(player, "_released", False):
+                continue
+            vlc = getattr(player, "player", None)
+            if vlc is None:
+                continue
+            name = tile.room.get("uname") or tile.room.get("room_id")
+            try:
+                actual_mute = int(vlc.audio_get_mute())
+            except Exception:                      # noqa: BLE001
+                continue
+            if actual_mute < 0:                    # aout 还没起来，这个接口答不了
+                continue
+            if bool(actual_mute) != bool(tile.muted):
+                print(f"[音频] {name} 静音走散：格子={bool(tile.muted)} "
+                      f"播放器={bool(actual_mute)} → 按格子重新下发",
+                      file=sys.stderr, flush=True)
+                player.set_muted(bool(tile.muted))
+                continue
+            if tile.muted:
+                continue                           # 静音时音量本来就是 0，不必比
+            if getattr(player, "uses_pcm_routing", False):
+                continue        # PCM 路由下 VLC 不管音量（实测），比了会误判
+            try:
+                actual_volume = int(vlc.audio_get_volume())
+            except Exception:                      # noqa: BLE001
+                continue
+            if actual_volume < 0:
+                continue
+            expected = linear_to_vlc_volume(int(tile.volume))
+            if abs(actual_volume - expected) > 1:
+                print(f"[音频] {name} 音量走散：格子={tile.volume}（应为 {expected}）"
+                      f" 播放器={actual_volume} → 按格子重新下发",
+                      file=sys.stderr, flush=True)
+                player.set_volume(int(tile.volume))
 
     def _on_reload(self, room: dict) -> None:
         tile = self._tile_of(str(room.get("room_id")))

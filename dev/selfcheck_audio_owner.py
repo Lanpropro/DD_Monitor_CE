@@ -29,8 +29,26 @@ from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 
+class FakeVlc:
+    """假 media_player：只回答静音 / 音量，用来制造「走散」。"""
+
+    def __init__(self):
+        self.mute = 0
+        self.volume = 0
+
+    def audio_get_mute(self):
+        return self.mute
+
+    def audio_get_volume(self):
+        return self.volume
+
+
 class FakePlayer:
     """只记调用，不碰真实 libvlc（自检不联网）。"""
+
+    silent = False
+    uses_pcm_routing = False
+    _released = False
 
     def __init__(self, tag: str):
         self.tag = tag
@@ -38,6 +56,7 @@ class FakePlayer:
         self.volume = 0
         self.muted = False
         self.audio_channel = 0
+        self.player = FakeVlc()
 
     def set_volume(self, value):
         self.calls.append(("volume", int(value)))
@@ -159,6 +178,37 @@ def main() -> None:
             "换台后音量/静音/声道该全部留在格子上，不能被新房间覆盖"
         assert head.room.get("volume") == 50 and head.room.get("muted") is True
         assert head.room.get("audio_channel") == 4, "声道也要写回格子自己的房间"
+
+        print("\n=== 5. 巡检：格子和播放器走散了，要按**格子**拉回来 ===")
+        # 用户报的「静音标志亮着、声音却还在」就是这两边走散：标志画在格子上，
+        # 声音由播放器决定。audio_set_mute 作用在 aout 上，错过那个窗口就会这样。
+        head = window.wall.tiles[0]
+        head.room["room_id"] = "9501"
+        player = window.players[head] = FakePlayer("audit")
+        head.muted, head.volume = False, 60
+        player.muted, player.player.mute, player.player.volume = True, 1, 0
+        print(f"  制造「格子没静音、播放器静音了」："
+              f"tile.muted={head.muted} player.muted={player.muted}")
+        window._audit_audio()                          # noqa: SLF001
+        print(f"  巡检后 player.muted={player.muted}（该被拉回 False）")
+        assert player.muted is False, "巡检该按格子的值重新下发静音"
+
+        player.muted, player.player.mute, player.player.volume = False, 0, 5
+        print(f"\n  制造「音量走散」：tile.volume={head.volume} "
+              f"player.player.volume={player.player.volume}")
+        window._audit_audio()                          # noqa: SLF001
+        print(f"  巡检后 player.volume={player.volume}（该被拉回 {head.volume}）")
+        assert player.volume == head.volume, "巡检该按格子的音量重新下发"
+
+        print("\n  两边一致时不该乱下发：")
+        from ddm.audio_output import linear_to_vlc_volume
+        player.calls.clear()
+        player.muted = False
+        player.player.mute = 0
+        player.player.volume = linear_to_vlc_volume(head.volume)   # 和格子对得上
+        window._audit_audio()                          # noqa: SLF001
+        print(f"    一致时收到的调用={player.calls}（应该是空）")
+        assert player.calls == [], "两边一致时巡检不该再发一遍"
     finally:
         window.close()
         settle(app, 0.2)
