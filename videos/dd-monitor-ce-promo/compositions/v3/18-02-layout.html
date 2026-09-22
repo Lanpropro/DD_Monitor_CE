@@ -16,6 +16,8 @@
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+      @font-face { font-family: "Microsoft YaHei"; font-weight: 400; src: local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei"; font-weight: 600 700; src: local("Microsoft YaHei Bold"); }
 
       :root {
         --bg: #222428; --sidebar: #1d2023; --content: #303338; --elevated: #373a3e;
@@ -34,7 +36,7 @@
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
         -webkit-font-smoothing: antialiased; color: var(--ink);
       }
-      .scene { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
+      .scene { position: absolute; inset: 0; }
 
       /* ---------- 标题（深字压白底）---------- */
       .h {
@@ -53,7 +55,6 @@
         position: absolute; left: 250px; top: 252px; width: 1382px; height: 792px;
         display: flex; background: var(--bg); border: 1px solid var(--border-strong);
         border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
-        will-change: transform, opacity;
       }
       #appwin { left: 0; top: 0; }
       .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border);
@@ -87,9 +88,14 @@
 
       /* ---------- 画面墙：格子绝对定位，位置由 JS 按 layouts.py 的 cells 算 ---------- */
       .wall { position: relative; flex: 1; min-height: 0; }
+      /* 格子统一钉在 (0,0)，位移全部交给 transform 的 x/y。
+         不要补间 left/top —— 布局属性会吸附到整数设备像素，慢镜头或 ease-out
+         尾巴在逐帧 seek 的渲染器下会一顿一顿的。宽高仍用 CSS 补间：视频渲染是
+         离线逐帧截图，layout 成本不进成片，而 transform 缩放会把格子里的
+         文字/控制条一起拉变形。 */
       .tile {
-        position: absolute; background: var(--tile); border: 1px solid var(--border);
-        border-radius: 10px; overflow: hidden; will-change: left, top, width, height, opacity;
+        position: absolute; left: 0; top: 0; background: var(--tile); border: 1px solid var(--border);
+        border-radius: 10px; overflow: hidden; will-change: transform, opacity;
       }
       .tile.focus { border-color: rgba(0,161,214,.7); }
       .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -117,7 +123,7 @@
 
       /* ---------- 07 竖屏窗口 ---------- */
       .portrait {
-        position: absolute; top: 150px; width: 430px; height: 780px;
+        position: absolute; left: 0; top: 0; width: 430px; height: 780px;
         background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px;
         overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
         will-change: transform, opacity;
@@ -239,9 +245,10 @@
         }
 
         /* 把布局铺进时间轴。
-           用 left/top/width/height（不是 transform）——视频渲染是逐帧截图的离线
-           过程，layout 成本不进成片；而 transform 缩放会把格子里的文字/控制条一起
-           拉变形，那是错的。
+           位移用 transform 的 x/y —— left/top 会吸附到整数设备像素，慢镜头或 ease-out
+           尾巴在逐帧 seek 的渲染器下会一顿一顿的。
+           宽高仍用 CSS 补间：离线逐帧渲染不在乎 layout 成本，而 transform 缩放会把
+           格子里的文字/控制条一起拉变形，那是错的。
 
            ⚠ 不能用 tl.call()：渲染器是 seek(t, suppressEvents=true) 跳帧取画，
            callback 不会触发（实测：只有首帧的同步布局生效，后续全停住）。
@@ -268,7 +275,7 @@
               var cell = normal[i];
               if (cell) {
                 var g = geom(cell, spec);
-                tl.to(el, { left: g.x, top: g.y, width: g.w, height: g.h, opacity: 1,
+                tl.to(el, { x: g.x, y: g.y, width: g.w, height: g.h, opacity: 1,
                             duration: step.dur, ease: EASE_IO }, step.t);
               } else {
                 tl.to(el, { opacity: 0, duration: Math.min(0.22, step.dur) }, step.t);
@@ -276,7 +283,7 @@
             });
             if (dmCell) {
               var g2 = geom(dmCell, spec);
-              tl.to(dmEl, { left: g2.x, top: g2.y, width: g2.w, height: g2.h, opacity: 1,
+              tl.to(dmEl, { x: g2.x, y: g2.y, width: g2.w, height: g2.h, opacity: 1,
                             duration: step.dur, ease: EASE_IO }, step.t);
             } else {
               tl.to(dmEl, { opacity: 0, duration: Math.min(0.22, step.dur) }, step.t);
@@ -287,17 +294,17 @@
         var tl = gsap.timeline({ paused: true });
 
         /* ---- 基线（时间轴外）---- */
-        gsap.set("#appwin", { left: 250, top: 252, width: 1382, height: 792, opacity: 0, scale: 1 });
+        gsap.set("#appwin", { x: 250, y: 252, width: 1382, height: 792, opacity: 0, scale: 1 });
         gsap.set("#h05", { opacity: 0, y: 26 });
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
-        gsap.set("#portrait", { opacity: 0, x: 220 });
+        gsap.set("#portrait", { opacity: 0, width: 700, height: 480, x: 1140, y: 320 });
         gsap.set("#tileDm", { opacity: 0 });
         /* 格子初始收在 1x1 的位置，避免首帧闪一个错布局 */
         (function () {
           var spec = LAYOUTS["1x1"], g = geom([0, 0, 1, 1], spec);
           gsap.set(tiles.filter(function (t) { return t.id !== "tileDm"; }),
-                   { left: g.x, top: g.y, width: g.w, height: g.h, opacity: 0 });
+                   { x: g.x, y: g.y, width: g.w, height: g.h, opacity: 0 });
         })();
 
         /* 布局轨道铺进时间轴 */
@@ -312,7 +319,7 @@
 
         /* ============ 06（2.0–4.0）弹幕布局 + 弹幕上滚 + 镜头聚焦 ============ */
         tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.90);
-        tl.to("#appwin", { left: 140, top: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
+        tl.to("#appwin", { x: 140, y: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
         tl.fromTo("#h06", { opacity: 0, x: 40 },
           { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.06);
         /* 弹幕格点亮：直接补间描边（class 切换没法在时间轴上 seek） */
@@ -320,19 +327,21 @@
         /* 弹幕连续上滚（全片唯一持续运动，linear）—— 同样必须在时间轴上 */
         tl.fromTo("#dmRoll", { y: 0 }, { y: -230, duration: 2.0, ease: "none", immediateRender: false }, 2.30);
         /* 镜头聚焦弹幕栏：整体推近并右移，让弹幕格成为主体 */
-        tl.to("#appwin", { scale: 1.16, left: -40, top: 220, duration: 0.9, ease: EASE_IO, immediateRender: false }, 3.00);
+        tl.to("#appwin", { scale: 1.16, x: -40, y: 220, duration: 0.9, ease: EASE_IO, immediateRender: false }, 3.00);
 
         /* ============ 07（4.0–6.0）竖屏窗口飞入 + 16:9 → 9:16 连续变形 ============ */
         tl.to("#h06", { opacity: 0, x: 30, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 3.94);
         tl.fromTo("#h07", { opacity: 0, y: -22 },
           { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 4.02);
         /* 左半保留 06 定格（缩小推到左侧），右半飞入竖屏 */
-        tl.to("#appwin", { scale: 0.62, left: -420, top: 252, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
-        tl.fromTo("#portrait", { opacity: 0, x: 220 },
-          { opacity: 1, x: 0, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
-        /* 16:9 → 9:16 连续变形（宽度收窄、高度长出），内部重排 */
-        tl.fromTo("#portrait", { width: 700, height: 480, left: 1140, top: 320 },
-          { width: 430, height: 780, left: 1360, top: 150, duration: 0.9, ease: EASE_IO, immediateRender: false }, 4.30);
+        tl.to("#appwin", { scale: 0.62, x: -420, y: 252, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
+        /* 飞入的淡入与 16:9 → 9:16 的变形同时开始（4.16）——两个 tween 补的是不同属性，
+           不会互相抢占 transform；错开开始时间反而会让 x 在两个 tween 之间跳变。
+           16:9 → 9:16：宽度收窄、高度长出，位置从右侧移到右上。 */
+        tl.fromTo("#portrait", { opacity: 0 },
+          { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
+        tl.fromTo("#portrait", { width: 700, height: 480, x: 1140, y: 320 },
+          { width: 430, height: 780, x: 1360, y: 150, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
 
         tl.to({}, { duration: 0.01 }, 5.99);
 

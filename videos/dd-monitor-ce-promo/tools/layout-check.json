@@ -1,0 +1,13 @@
+{
+  "comp": "compositions/v3/18-02-layout.html",
+  "sels": ["#appwin", "#wall > div:nth-child(1)", "#wall > div:nth-child(2)", "#wall > div:nth-child(7)", "#portrait"],
+  "variants": [
+    { "name": "L0.4", "at": 0.4 },
+    { "name": "L0.85", "at": 0.85 },
+    { "name": "L1.35", "at": 1.35 },
+    { "name": "L1.85", "at": 1.85 },
+    { "name": "L2.6", "at": 2.6 },
+    { "name": "L3.6", "at": 3.6 },
+    { "name": "L5.2", "at": 5.2 }
+  ]
+}
