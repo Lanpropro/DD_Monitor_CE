@@ -172,7 +172,15 @@
   `Tile.set_room()` 换台时原来用新房间的 `audio_channel` 覆盖格子，会把用户调好的
   「只播左 / 只播右」丢掉 —— 声道和音量 / 静音一样属于格子，现在写回格子自己那份。
   新增 `dev/selfcheck_audio_owner.py`（4 节）。
-- 自检现状：全量 **37 项里 36 项通过**，唯一失败的仍是 `selfcheck_plugins.py`
+- 竖屏 1+2 的小画面「缩略图左右、真机上下」（用户报）：缩略图按
+  `layouts.portrait_main_cells()` 给的 cells 画（每行 2 个），实际摆放却走
+  `_relayout_portrait()` → `_place_auto()` → `best_columns()` 让它自己挑列数 ——
+  竖屏那块又高又窄的区域在它眼里「1 列画面更大」，于是摆成了上下。现在
+  「一行摆几个」只在 `layouts.PORTRAIT_SMALL_COLUMNS` 定义一处，缩略图和实际
+  摆放共用它（`_place_auto()` 多了个可选 `columns`）。新增
+  `dev/selfcheck_portrait_small.py`，钉的是「两边算出来是同一个数」而不是硬编码
+  2 列，以后调这个值也不会又对不上。
+- 自检现状：全量 **38 项里 36 项通过**，唯一失败的仍是 `selfcheck_plugins.py`
   （原因同上，与本轮改动无关）。未推送、未更新 Release 附件、未碰
   `utils/config.json`。
 - 跑自检的正确姿势（踩过的坑）：照 `dev\run-checks.cmd` 原样跑 —— 只设

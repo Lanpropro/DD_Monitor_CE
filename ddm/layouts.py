@@ -85,14 +85,23 @@ DANMAKU_LAYOUTS: list[dict] = [
 #   - 主画面：整宽、按 16:9 固定高度（所以不会变形）
 #   - 小画面：用自动网格填满主画面下面剩下的空间
 # 下面的 cells 仍然给出来，供缩略图和「哪一格是弹幕格」这类查询使用。
+#: 竖屏小画面一行摆几个。
+#: **缩略图和实际摆放必须用同一个数**，所以只在这里定义一处：
+#: `portrait_main_cells()` 按它画格子，`WallGrid._relayout_portrait()` 也读它。
+#: （以前缩略图按 2 列画、实际摆放却让 `best_columns` 自己挑 —— 竖屏那块又高又窄
+#:   的区域在它眼里「1 列画面更大」，于是缩略图显示左右、真机却是上下。）
+PORTRAIT_SMALL_COLUMNS = 2
+
+
 def portrait_main_cells(small: int) -> list:
     """主画面（第一格，整宽）+ small 个小画面，供缩略图/容量查询用。"""
-    rows = 1 + max(1, math.ceil(small / 2))
-    cells = [(0, 0, 1, 4)]
+    columns = PORTRAIT_SMALL_COLUMNS
+    rows = 1 + max(1, math.ceil(small / columns))
+    cells = [(0, 0, 1, columns * 2)]
     for index in range(small):
-        line, column = divmod(index, 2)
+        line, column = divmod(index, columns)
         cells.append((1 + line, column * 2, 1, 2))
-    return rows, 4, cells
+    return rows, columns * 2, cells
 
 
 def portrait_danmaku_cells(small: int) -> tuple[int, int, list, int]:

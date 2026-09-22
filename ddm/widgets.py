@@ -5145,17 +5145,28 @@ class WallGrid(QWidget):
             else:
                 tile.setVisible(False)
         visible = [tile for tile in rest if tile.isVisible()]
-        self._place_auto(visible, QRect(left, grid_top, width, grid_height), spacing)
+        # 小画面的列数**跟缩略图画的是同一个数**。交给 best_columns 自己挑的话，
+        # 竖屏这块又高又窄的区域在它眼里「1 列画面更大」，就会摆成上下，和缩略图
+        # （左右）对不上 —— 用户报的就是这个。
+        self._place_auto(visible, QRect(left, grid_top, width, grid_height), spacing,
+                         columns=layouts.PORTRAIT_SMALL_COLUMNS)
         self._columns = columns
 
     def _portrait_capacity(self) -> int:
         return max(1, len(self._cell_order()))
 
-    def _place_auto(self, tiles: list, area: QRect, spacing: int) -> None:
-        """在一个矩形里按自动网格摆这些格子（复用自动布局的列数选择）。"""
+    def _place_auto(self, tiles: list, area: QRect, spacing: int,
+                    columns: int | None = None) -> None:
+        """在一个矩形里按网格摆这些格子。
+
+        ``columns`` 给了就照用（竖屏小画面要跟缩略图一致）；没给才让
+        ``best_columns`` 挑一个「画面尽量大」的列数。
+        """
         if not tiles:
             return
-        columns = best_columns(len(tiles), max(area.width(), 1), max(area.height(), 1))
+        if columns is None:
+            columns = best_columns(len(tiles), max(area.width(), 1), max(area.height(), 1))
+        columns = max(1, min(int(columns), len(tiles)))
         lines = math.ceil(len(tiles) / columns)
         cell_width = (area.width() - spacing * (columns - 1)) / columns
         cell_height = (area.height() - spacing * (lines - 1)) / lines
