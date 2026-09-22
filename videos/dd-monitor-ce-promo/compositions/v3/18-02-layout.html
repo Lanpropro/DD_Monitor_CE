@@ -58,8 +58,10 @@
       #h07 { top: 250px; left: 110px; right: auto; width: 1080px; text-align: left; font-size: 76px; }
 
       /* ---------- 软件窗口（theme.py 深灰）---------- */
+      /* 窗口比例跟着素材走：录屏裁到内容边界后是 3271x1822 = 1.795，
+         所以窗口用 1382x770（而不是 792）—— 不然 cover 会再切掉一条边。 */
       .appwin {
-        position: absolute; left: 250px; top: 252px; width: 1382px; height: 792px;
+        position: absolute; left: 250px; top: 252px; width: 1382px; height: 770px;
         background: var(--bg); border: 1px solid var(--border-strong);
         border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
       }
@@ -68,19 +70,15 @@
          用户 2026-09-22：不要用合成的软件界面 —— 现在连侧栏都在素材里，
          窗口内没有任何我用 HTML 画的东西。 */
       .win-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      /* 竖屏录屏（切换竖屏.mp4 的 08–12s）里的内容只占源画面左侧约 1/3（x 0.7%–34.9%），
-         右边一大片是黑边。所以**不能按中央裁切** —— cover 默认取中央 9:16 会正好取到全黑
-         （实测竖屏窗口整块黑就是这个原因）。按内容中心（约 18%）对齐。 */
-      #vidPortrait { object-position: 18% center; }
 
       /* ---------- 07 竖屏窗口 ----------
-         尺寸**固定**成 9:16（572x1017），只做位移飞入。
+         尺寸按**素材真实比例**：切换竖屏.mp4 的 08–12s 裁到内容边界后是 1362x2160 = 0.631
+         （**不是 9:16**，用户指出的"右侧多一块黑边、左侧内容被切掉"就是硬套 9:16 造成的）。
+         这里取 642x1017 保持同比例，只做位移飞入。
          ⚠ 不要补间这个容器的 width/height：实测只要它在变形，里面的 <video> 帧就整个丢失、
-         竖屏窗口全黑（drawElement 捕获到的是空帧）。手稿原写「16:9 → 9:16 连续变形」，
-         这里按用户 2026-09-22 的排版截图改成固定比例飞入 —— 要变形就没法放真实录像。
-         ⚠ 同理不要写 will-change（SCRIPT 第十节那条禁忌）。 */
+         竖屏窗口全黑。也**不要写 will-change**（SCRIPT 第十节那条禁忌）。 */
       .portrait {
-        position: absolute; left: 0; top: 63px; width: 572px; height: 1017px;
+        position: absolute; left: 0; top: 63px; width: 642px; height: 1017px;
         background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px;
         overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
       }
@@ -130,7 +128,7 @@
         /* ---- 基线（时间轴外）----
            窗口里的素材全部先隐藏，由时间轴逐张点亮。 */
         gsap.set(".win-media", { opacity: 0 });
-        gsap.set("#appwin", { x: 250, y: 252, width: 1382, height: 792, opacity: 0, scale: 1 });
+        gsap.set("#appwin", { x: 250, y: 252, width: 1382, height: 770, opacity: 0, scale: 1 });
         gsap.set("#h05", { opacity: 0, y: 26 });
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
@@ -179,10 +177,10 @@
            淡入与 16:9 → 9:16 的变形同时开始（4.16）——补的是不同属性，不会互相抢占 transform；
            错开开始时间反而会让 x 在两个 tween 之间跳变。 */
         tl.to("#appwin", { scale: 0.675, x: -224, y: 417, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
-        /* 竖屏窗口尺寸写在 CSS 里（572x1017 = 9:16），这里只补位移 + 淡入 ——
-           尺寸不变 video 帧才不会丢（见 .portrait 的注释）。 */
+        /* 竖屏窗口尺寸按素材比例写在 CSS 里（642x1017），这里只补位移 + 淡入 ——
+           x 1169 = 绿框（1135–1846）里水平居中；尺寸不变 video 帧才不会丢。 */
         tl.fromTo("#portrait", { opacity: 0, x: 1600 },
-          { opacity: 1, x: 1204, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
+          { opacity: 1, x: 1169, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
         tl.to("#vidPortrait", { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
 
         tl.to({}, { duration: 0.01 }, 5.99);

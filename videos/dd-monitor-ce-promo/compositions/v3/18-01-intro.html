@@ -99,7 +99,7 @@
          —— 这就是「软件窗口 1.44s 出现」，而不是第 0 帧就露边。
          落位居中需要位移 2109 + 500 - 960 = 1649px。 */
       .appstage {
-        position: absolute; left: 2109px; top: 236px; width: 1000px; height: 547px;
+        position: absolute; left: 2109px; top: 236px; width: 1000px; height: 557px;
       }
       /* 光晕 / 影子：**.world 的直接子层**，且坐标全部落在 world 的框内。
          ⚠ 它们绝不能再放回 .appstage 里 —— 在 preserve-3d 的祖先下，任何溢出父层的
@@ -173,13 +173,17 @@
       }
       .pt { position: absolute; display: block; }
       /* 侧栏贴着窗口左缘和上下缘，自己带圆角（父层不再 overflow:hidden） */
-      .pt-sb  { left: 0;                top: 0;                width: calc(440px * var(--s));  height: calc(2100px * var(--s)); border-radius: 14px 0 0 14px; }
-      .pt-main{ left: calc(455px * var(--s));  top: calc(75px * var(--s));   width: calc(2215px * var(--s)); height: calc(1350px * var(--s)); }
-      .pt-s02 { left: calc(2680px * var(--s)); top: calc(75px * var(--s));   width: calc(1155px * var(--s)); height: calc(670px * var(--s)); }
-      .pt-s12 { left: calc(2680px * var(--s)); top: calc(755px * var(--s));  width: calc(1155px * var(--s)); height: calc(670px * var(--s)); }
-      .pt-s20 { left: calc(455px * var(--s));  top: calc(1435px * var(--s)); width: calc(1075px * var(--s)); height: calc(670px * var(--s)); }
-      .pt-s21 { left: calc(1540px * var(--s)); top: calc(1435px * var(--s)); width: calc(1130px * var(--s)); height: calc(670px * var(--s)); }
-      .pt-s22 { left: calc(2680px * var(--s)); top: calc(1435px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s)); }
+      /* 模块切片 = 从 `Video_reference/布局切换.mp4` 的 **1+5 帧**裁出的**真实画面**
+         （用户 2026-09-22：不要合成的界面）。源帧已裁到窗口边界 1600x892，
+         这里按 0.625 缩放进 1000x557 的窗口；每个切片的坐标由帧里的网格线量出
+         （侧栏边界 x=152、列线 635/1118、行线 297/594）。文件见 assets/rec/cell-*.png。 */
+      .pt-sb  { left: 0;     top: 0;     width: 95px;  height: 542px; border-radius: 14px 0 0 14px; }
+      .pt-main{ left: 95px;  top: 0;     width: 600px; height: 352px; }
+      .pt-s02 { left: 703px; top: 0;     width: 298px; height: 166px; }
+      .pt-s12 { left: 703px; top: 174px; width: 298px; height: 178px; }
+      .pt-s20 { left: 95px;  top: 359px; width: 298px; height: 183px; }
+      .pt-s21 { left: 401px; top: 359px; width: 294px; height: 183px; }
+      .pt-s22 { left: 703px; top: 359px; width: 298px; height: 183px; }
 
       .ph {
         position: absolute; display: flex; align-items: center; justify-content: center;
@@ -250,13 +254,13 @@
           <div class="appstage" id="appstage">
             <!-- 软件主体（窗口外壳，拆解后保留） -->
             <div class="appwin" id="appwin">
-              <img class="pt pt-sb"   id="pSb"   src="assets/real/real-sidebar.png" alt="">
-              <img class="pt pt-main" id="pMain" src="assets/real/real-main.png" alt="">
-              <img class="pt pt-s02"  id="pS02"  src="assets/real/real-s02.png" alt="">
-              <img class="pt pt-s12"  id="pS12"  src="assets/real/real-s12.png" alt="">
-              <img class="pt pt-s20"  id="pS20"  src="assets/real/real-s20.png" alt="">
-              <img class="pt pt-s21"  id="pS21"  src="assets/real/real-s21.png" alt="">
-              <img class="pt pt-s22"  id="pS22"  src="assets/real/real-s22.png" alt="">
+              <img class="pt pt-sb"   id="pSb"   src="assets/rec/cell-sb.png" alt="">
+              <img class="pt pt-main" id="pMain" src="assets/rec/cell-main.png" alt="">
+              <img class="pt pt-s02"  id="pS02"  src="assets/rec/cell-s02.png" alt="">
+              <img class="pt pt-s12"  id="pS12"  src="assets/rec/cell-s12.png" alt="">
+              <img class="pt pt-s20"  id="pS20"  src="assets/rec/cell-s20.png" alt="">
+              <img class="pt pt-s21"  id="pS21"  src="assets/rec/cell-s21.png" alt="">
+              <img class="pt pt-s22"  id="pS22"  src="assets/rec/cell-s22.png" alt="">
               <div class="ph" id="phMain" style="left: calc(455px * var(--s)); top: calc(75px * var(--s)); width: calc(2215px * var(--s)); height: calc(1350px * var(--s));"><span>[素材: 主画面]</span></div>
               <div class="ph" id="phS02" style="left: calc(2680px * var(--s)); top: calc(75px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
               <div class="ph" id="phS12" style="left: calc(2680px * var(--s)); top: calc(755px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
