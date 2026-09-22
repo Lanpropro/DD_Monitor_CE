@@ -8,28 +8,31 @@
       /* ==========================================================================
          18-01-intro  ——  A 组：01–04（0.0–8.0s）
          01 视角向右移动 · 左侧浮现软件标题
-         02 标题消失 · 空白软件出现 · 元素向软件飞入填充（1+5）
-         03 视角突然向前推进 · 软件拆开成各元素
-         04 各元素消散 · 出现标题「向您介绍 DDMonitorCE」
+         02 标题消失 · 空软件出现 · 各部件向软件飞入填充（1+5）
+         03 视角突然向前推进 · 软件按部件拆开
+         04 各部件消散 · 出现标题「向您介绍 DDMonitorCE」
 
-         配色：软件画面严格取自 ddm/theme.py；场景色场取自参考片实测 sc-void。
-         素材：未到位处画成 [素材: …] 虚线占位，不静默留白。
-         动效：只用 transform / opacity；入场 ease-out cubic-bezier(.23,1,.32,1)；
-               入场从 scale(.96) 起，不用 scale(0)；多元素错开 40–80ms。
+         ★ 软件画面 = **真实截图**（从 Video_reference/fullscreen.png 裁切），不再用 DOM 重绘：
+            real-sidebar.png  侧栏（含真实关注列表 + 底部设置按钮）
+            real-main.png     1+5 里的主画面「1」
+            real-s02 / s12 / s20 / s21 / s22.png   剩下 5 个小格子
+           格子内容为空（截图本身就是空 1+5），占位由 [素材] 层叠加。
+
+         坐标：fullscreen 的软件窗口是 3840×2100，按 --s = 0.36 缩放进帧。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
 
       :root {
-        /* —— 软件画面（ddm/theme.py）—— */
-        --bg: #222428; --sidebar: #1d2023; --content: #303338; --elevated: #373a3e;
-        --hover: #3b3e42; --tile: #101114; --accent: #00a1d6; --accent-soft: rgba(0,161,214,.16);
-        --pink: #fb7299; --text1: #f1f2f5; --text2: rgba(214,218,224,.9); --text3: rgba(184,189,197,.75);
-        --border: rgba(131,131,145,.16); --border-strong: rgba(255,255,255,.12);
-        /* —— 场景色场（参考片实测）—— */
         --sc-void: #0d0e10;
+        --accent: #00a1d6;
+        --text1: #f1f2f5; --text3: rgba(184,189,197,.75);
+        --tile: #101114;
+        --border: rgba(131,131,145,.16);
         --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
         --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+        /* 真实截图缩放：3840 -> 1382 */
+        --s: 0.3599;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
@@ -39,86 +42,41 @@
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
         color: var(--text1); -webkit-font-smoothing: antialiased;
       }
-      /* 相机层：01 右移、03 推进都作用在它上面 */
-      .camera {
-        position: absolute; inset: 0; transform-style: preserve-3d;
-        will-change: transform;
-      }
+      .camera { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
 
-      /* ---------- 软件窗口 ---------- */
+      /* ---------- 软件窗口：真实截图切片 ---------- */
       .appwin {
-        position: absolute; left: 300px; top: 130px; width: 1320px; height: 830px;
-        display: flex; background: var(--bg); border: 1px solid var(--border-strong);
-        border-radius: 12px; overflow: hidden;
-        box-shadow: 0 40px 90px rgba(0,0,0,.55);
+        position: absolute; left: 269px; top: 152px; width: 1382px; height: 756px;
         transform-style: preserve-3d; will-change: transform, opacity;
       }
-      .sb {
-        width: 248px; flex: 0 0 248px; background: var(--sidebar);
-        border-right: 1px solid var(--border);
-        display: flex; flex-direction: column;
-        transform-style: preserve-3d;
-      }
-      /* part1 = 关注栏上部分（列表） */
-      .sb-top { flex: 1; min-height: 0; padding: 14px 12px; overflow: hidden;
-                transform-style: preserve-3d; will-change: transform, opacity; }
-      /* part3 = 关注栏下侧设置按钮（圆角卡片 + 图标） */
-      .sb-foot { flex: 0 0 auto; padding: 10px 12px 12px; border-top: 1px solid var(--border);
-                 will-change: transform, opacity; }
-      .setbtn {
-        height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
-        border-radius: 10px; background: var(--content); border: 1px solid var(--border);
-        color: var(--text2); font-size: 13px; font-weight: 600;
-      }
-      .setbtn .ic { color: var(--text3); font-size: 15px; }
-      .setbtn .chev { margin-left: auto; color: var(--text3); font-size: 12px; }
-      .sb-t { font-size: 17px; font-weight: 600; }
-      .sb-s { font-size: 12px; color: var(--text3); margin-top: 3px; }
-      .sb-search { margin-top: 14px; height: 34px; background: var(--content); border: 1px solid var(--border); border-radius: 8px; display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--text3); }
-      .sb-lbl { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text3); }
-      .nav { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 8px; border-radius: 8px; will-change: transform, opacity; }
-      .nav.sel { background: var(--accent-soft); }
-      .av { width: 32px; height: 32px; border-radius: 16px; background: var(--hover); color: var(--text2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex: 0 0 32px; }
-      .nav-t { flex: 1; min-width: 0; }
-      .nav-n { font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .nav-d { font-size: 12px; color: rgba(238,241,244,.88); white-space: nowrap; }
-      .bd-live { background: var(--pink); color: #3a0d1c; border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; }
-      .bd-off { background: rgba(131,131,145,.28); color: var(--text2); border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
-
-      .mn { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); transform-style: preserve-3d; }
-      .tb { height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); }
-      .chip { height: 26px; padding: 0 12px; border-radius: 13px; background: var(--content); border: 1px solid var(--border); color: var(--text3); font-size: 12px; font-weight: 600; display: flex; align-items: center; }
-      .chip.on { background: var(--accent-soft); border-color: rgba(0,161,214,.45); color: var(--accent); }
-      .sp { flex: 1; }
-
-      /* ---------- 画面墙：cells 照 ddm/layouts.py 的 corner（1+5）---------- */
-      .wall { flex: 1; min-height: 0; padding: 10px; display: grid; gap: 6px;
-              grid-template-columns: repeat(3,1fr); grid-template-rows: repeat(3,1fr); }
-      .wall .t0 { grid-area: 1/1/span 2/span 2; } .wall .t1 { grid-area: 1/3; }
-      .wall .t2 { grid-area: 2/3; } .wall .t3 { grid-area: 3/1; }
-      .wall .t4 { grid-area: 3/2; } .wall .t5 { grid-area: 3/3; }
-      .tile {
-        position: relative; background: var(--tile); border: 1px solid var(--border);
-        border-radius: 10px; overflow: hidden; min-width: 0; min-height: 0;
+      .pt {
+        position: absolute; display: block;
+        image-rendering: auto;
         will-change: transform, opacity;
       }
-      .tile.flash { border-color: rgba(0,161,214,.75); }
-      .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-            background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px); }
-      .ph:after { content: ""; position: absolute; inset: 8px; border: 1px dashed rgba(131,131,145,.45); border-radius: 6px; }
-      .ph span { position: relative; z-index: 2; font-size: 12px; font-weight: 600; color: rgba(184,189,197,.75); }
-      .tb-bar { position: absolute; left: 7px; right: 7px; bottom: 7px; height: 24px; border-radius: 8px;
-                background: rgba(10,11,13,.78); display: flex; align-items: center; gap: 6px; padding: 0 9px; }
-      .tb-n { font-size: 12px; font-weight: 600; color: var(--text2); }
-      .tb-c { height: 17px; padding: 0 7px; border-radius: 9px; background: rgba(12,13,16,.85); color: var(--text2); font-size: 11px; font-weight: 600; display: flex; align-items: center; }
-      .tb-c.on { background: var(--accent); color: #04161f; }
-      .dot { position: absolute; left: 9px; top: 9px; background: var(--pink); color: #3a0d1c;
-             border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; z-index: 3; }
+      /* 侧栏（part1 + part3 已含在图里） */
+      .pt-sb  { left: 0;                top: 0;                width: calc(440px * var(--s));  height: calc(2100px * var(--s)); }
+      /* 主画面「1」 */
+      .pt-main{ left: calc(455px * var(--s));  top: calc(75px * var(--s));   width: calc(2215px * var(--s)); height: calc(1350px * var(--s)); }
+      /* 5 个小格 */
+      .pt-s02 { left: calc(2680px * var(--s)); top: calc(75px * var(--s));   width: calc(1155px * var(--s)); height: calc(670px * var(--s)); }
+      .pt-s12 { left: calc(2680px * var(--s)); top: calc(755px * var(--s));  width: calc(1155px * var(--s)); height: calc(670px * var(--s)); }
+      .pt-s20 { left: calc(455px * var(--s));  top: calc(1435px * var(--s)); width: calc(1075px * var(--s)); height: calc(670px * var(--s)); }
+      .pt-s21 { left: calc(1540px * var(--s)); top: calc(1435px * var(--s)); width: calc(1130px * var(--s)); height: calc(670px * var(--s)); }
+      .pt-s22 { left: calc(2680px * var(--s)); top: calc(1435px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s)); }
+
+      /* 格子上的素材占位（叠在真实截图之上） */
+      .ph {
+        position: absolute; display: flex; align-items: center; justify-content: center;
+        border-radius: 4px;
+        background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px);
+        will-change: transform, opacity;
+      }
+      .ph:after { content: ""; position: absolute; inset: 6px; border: 1px dashed rgba(131,131,145,.42); border-radius: 3px; }
+      .ph span { position: relative; z-index: 2; font-size: 11px; font-weight: 600; color: rgba(184,189,197,.72); }
 
       /* ---------- 标题层 ---------- */
-      .t1 {
-        position: absolute; left: 118px; top: 470px; will-change: transform, opacity;
-      }
+      .t1 { position: absolute; left: 118px; top: 470px; will-change: transform, opacity; }
       .t1 .n { font-size: 84px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
       .t1 .s { margin-top: 16px; font-size: 30px; font-weight: 600; letter-spacing: .18em; color: var(--text3); }
       .t1 .bar { width: 76px; height: 3px; background: var(--accent); margin-top: 22px; }
@@ -134,55 +92,31 @@
   <body>
     <div id="root" data-composition-id="18-01-intro" data-start="0" data-duration="8" data-width="1920" data-height="1080">
       <div class="camera" id="camera">
-
-        <!-- 软件窗口 -->
+        <!-- 软件窗口：真实截图切片（1+5） -->
         <div class="appwin" id="appwin">
-          <aside class="sb" id="sb">
-            <!-- part1：关注栏上部分 -->
-            <div class="sb-top" id="sbTop">
-              <div class="sb-t">DD监控室CE</div>
-              <div class="sb-s">多窗口直播监控</div>
-              <div class="sb-search">搜索关注</div>
-              <div class="sb-lbl">正在直播 6</div>
-              <div class="nav sel"><div class="av">莉</div><div class="nav-t"><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281 人气</div></div><span class="bd-live">直播</span></div>
-              <div class="nav"><div class="av">羽</div><div class="nav-t"><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
-              <div class="nav"><div class="av">星</div><div class="nav-t"><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
-              <div class="nav"><div class="av">柊</div><div class="nav-t"><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
-              <div class="nav"><div class="av">白</div><div class="nav-t"><div class="nav-n">白鹤Haku</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
-            </div>
-            <!-- part3：关注栏下侧设置按钮 -->
-            <div class="sb-foot" id="sbFoot">
-              <div class="setbtn"><span class="ic">⚙</span>设置<span class="chev">›</span></div>
-            </div>
-          </aside>
-          <main class="mn">
-            <div class="tb">
-              <div class="chip">平分布局</div><div class="chip on">大带小</div>
-              <div class="chip">弹幕布局</div><div class="chip">竖屏布局</div>
-              <div class="sp"></div><div class="chip">6 路在播</div>
-            </div>
-            <!-- corner = 主画面 + 5 小环绕 -->
-            <div class="wall" id="wall">
-              <div class="tile t0" data-tile><div class="ph"><span>[素材: 主画面 · 莉蔻Liko]</span></div><span class="dot">直播</span>
-                <div class="tb-bar"><span class="tb-n">莉蔻Liko</span><span class="sp"></span><span class="tb-c on">画质</span><span class="tb-c">静音</span></div></div>
-              <div class="tile t1" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile t2" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile t3" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile t4" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile t5" data-tile><div class="ph"><span>[素材]</span></div></div>
-            </div>
-          </main>
+          <img class="pt pt-sb"   id="pSb"   src="assets/real/real-sidebar.png" alt="">
+          <img class="pt pt-main" id="pMain" src="assets/real/real-main.png" alt="">
+          <img class="pt pt-s02"  id="pS02"  src="assets/real/real-s02.png" alt="">
+          <img class="pt pt-s12"  id="pS12"  src="assets/real/real-s12.png" alt="">
+          <img class="pt pt-s20"  id="pS20"  src="assets/real/real-s20.png" alt="">
+          <img class="pt pt-s21"  id="pS21"  src="assets/real/real-s21.png" alt="">
+          <img class="pt pt-s22"  id="pS22"  src="assets/real/real-s22.png" alt="">
+          <!-- 素材占位（叠在格子上） -->
+          <div class="ph" id="phMain" style="left: calc(455px * var(--s)); top: calc(75px * var(--s)); width: calc(2215px * var(--s)); height: calc(1350px * var(--s));"><span>[素材: 主画面]</span></div>
+          <div class="ph" id="phS02" style="left: calc(2680px * var(--s)); top: calc(75px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+          <div class="ph" id="phS12" style="left: calc(2680px * var(--s)); top: calc(755px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+          <div class="ph" id="phS20" style="left: calc(455px * var(--s)); top: calc(1435px * var(--s)); width: calc(1075px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+          <div class="ph" id="phS21" style="left: calc(1540px * var(--s)); top: calc(1435px * var(--s)); width: calc(1130px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+          <div class="ph" id="phS22" style="left: calc(2680px * var(--s)); top: calc(1435px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
         </div>
       </div>
 
-      <!-- 01 左侧标题 -->
       <div class="t1" id="t1">
         <div class="n">DD监控室CE</div>
         <div class="s">多窗口直播监控</div>
         <div class="bar"></div>
       </div>
 
-      <!-- 04 中央标题 -->
       <div class="t2" id="t2">向您介绍 <b>DDMonitorCE</b></div>
     </div>
 
@@ -192,80 +126,57 @@
         var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
 
-        /* ---- 初始态：都在画面外 / 不可见，避免首帧闪 ----
-           用 gsap.set（时间轴外）建立基线，fromTo 一律 immediateRender:false，
-           这样 seek 到任何位置都不会被"最后写入的 from"污染。 */
+        var PARTS = ["#pSb", "#pMain", "#pS02", "#pS12", "#pS20", "#pS21", "#pS22"];
+        var PLACEHOLDERS = ["#phMain", "#phS02", "#phS12", "#phS20", "#phS21", "#phS22"];
+
+        /* ---- 基线（时间轴外，避免首帧闪）---- */
         gsap.set("#appwin", { opacity: 0, scale: 0.97 });
         gsap.set("#t1", { opacity: 0, x: -60 });
         gsap.set("#t2", { opacity: 0, y: 24 });
-        gsap.set("#sbTop", { opacity: 0, x: -40 });
-        gsap.set("#sbFoot", { opacity: 0, x: -40, y: 22 });
-        gsap.set(".nav", { opacity: 0, x: -32 });
-        gsap.set("[data-tile]", { opacity: 0, z: -420, scale: 0.86 });
+        /* 部件飞入起点：从"用户视角"向软件冲入 */
+        gsap.set(["#pSb"], { opacity: 0, x: -170, z: -260 });
+        gsap.set(["#pMain"], { opacity: 0, z: -470, scale: 0.9 });
+        gsap.set(["#pS02", "#pS12", "#pS20", "#pS21", "#pS22"], { opacity: 0, z: -360, scale: 0.88 });
+        gsap.set(PLACEHOLDERS, { opacity: 1 });
 
-        /* ================= 01（0.0–2.0）视角向右移动 + 左侧标题浮现 =================
-           视角右移 = 相机右移 → 场景相对左移。 */
-        tl.fromTo("#camera",
-          { x: 0, z: 0 },
+        /* ================= 01（0.0–2.0）视角向右移动 + 左侧标题浮现 ================= */
+        tl.fromTo("#camera", { x: 0, z: 0 },
           { x: -120, z: 0, duration: 2.0, ease: EASE_IO, immediateRender: false }, 0);
-        tl.fromTo("#t1",
-          { opacity: 0, x: -60 },
+        tl.fromTo("#t1", { opacity: 0, x: -60 },
           { opacity: 1, x: 0, duration: 0.42, ease: EASE_OUT, immediateRender: false }, 0.30);
-        tl.fromTo("#t1 .bar",
-          { scaleX: 0 },
+        tl.fromTo("#t1 .bar", { scaleX: 0 },
           { scaleX: 1, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 0.56);
         tl.to("#t1", { opacity: 0, x: -40, duration: 0.32, ease: EASE_OUT, immediateRender: false }, 1.72);
 
-        /* ================= 02（2.0–4.0）空白软件出现 + 元素飞入填充 ================= */
-        tl.fromTo("#appwin",
-          { opacity: 0, scale: 0.97 },
+        /* ================= 02（2.0–4.0）空软件出现 + 各部件向软件飞入填充 ================= */
+        tl.fromTo("#appwin", { opacity: 0, scale: 0.97 },
           { opacity: 1, scale: 1, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 2.00);
-        /* part1：关注栏上部分整块落位，关注项再依次落位 */
-        tl.to("#sbTop", { opacity: 1, x: 0, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 2.24);
-        tl.to(".nav", { opacity: 1, x: 0, duration: 0.36, ease: EASE_OUT,
-                        stagger: 0.06, immediateRender: false }, 2.34);
-        /* part3：下侧设置按钮 */
-        tl.to("#sbFoot", { opacity: 1, x: 0, y: 0, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 2.46);
-        /* part2：1+5 里的主画面「1」先落位 */
-        tl.to(".t0", { opacity: 1, z: 0, scale: 1, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 2.40);
-        /* part4：剩下的 5 个小格子依次归位 */
-        tl.to([".t1", ".t2", ".t3", ".t4", ".t5"],
+        /* 侧栏先归位 */
+        tl.to("#pSb", { opacity: 1, x: 0, z: 0, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 2.22);
+        /* 主画面「1」随后冲入 */
+        tl.to("#pMain", { opacity: 1, z: 0, scale: 1, duration: 0.54, ease: EASE_OUT, immediateRender: false }, 2.40);
+        /* 剩下 5 个小格依次归位，落位时占位描边闪一次 accent */
+        tl.to(["#pS02", "#pS12", "#pS20", "#pS21", "#pS22"],
           { opacity: 1, z: 0, scale: 1, duration: 0.46, ease: EASE_OUT,
-            stagger: 0.07, immediateRender: false }, 2.56);
-        tl.to("[data-tile]", { borderColor: "rgba(0,161,214,.75)", duration: 0.10,
-                               stagger: 0.06, immediateRender: false }, 2.76);
-        tl.to("[data-tile]", { borderColor: "rgba(131,131,145,.16)", duration: 0.34,
-                               stagger: 0.06, immediateRender: false }, 2.88);
+            stagger: 0.07, immediateRender: false }, 2.58);
 
-        /* ================= 03（4.0–6.0）视角突然向前推进 + 软件拆开 =================
-           按 part1/2/3/4 的部件拆开：关注栏上部分 / 设置按钮 / 工具栏 / 主画面「1」/ 5 个小格子，
-           各自沿法线散开。整机同时冲向镜头。 */
-        tl.fromTo("#camera",
-          { x: -120, z: 0 },
+        /* ================= 03（4.0–6.0）视角突然向前推进 + 按部件拆开 ================= */
+        tl.fromTo("#camera", { x: -120, z: 0 },
           { x: -60, z: 240, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.00);
-        tl.to("#sbTop",
-          { x: -150, z: 40, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
-        tl.to("#sbFoot",
-          { x: -196, y: 48, z: 16, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.10);
-        tl.to(".tb",
-          { y: -88, z: 90, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.08);
-        /* 主画面冲得最前 */
-        tl.to(".t0",
-          { z: 210, scale: 1.03, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
-        /* 5 个小格子各朝自己的方向散开 */
-        tl.to(".t1", { x: 96, y: -56, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.08);
-        tl.to(".t2", { x: 106, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.10);
-        tl.to(".t3", { x: 62, y: 80, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.12);
-        tl.to(".t4", { y: 94, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.14);
-        tl.to(".t5", { x: 78, y: 86, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.16);
+        tl.to("#pSb", { x: -150, z: 40, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.to("#pMain", { z: 210, scale: 1.03, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.to("#phMain", { z: 210, scale: 1.03, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.to("#pS02", { x: 96, y: -56, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.08);
+        tl.to("#pS12", { x: 106, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.10);
+        tl.to("#pS20", { x: 62, y: 80, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.12);
+        tl.to("#pS21", { y: 94, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.14);
+        tl.to("#pS22", { x: 78, y: 86, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.16);
 
-        /* ================= 04（6.0–8.0）各元素消散 + 中央标题 ================= */
+        /* ================= 04（6.0–8.0）各部件消散 + 中央标题 ================= */
         tl.to("#appwin", { opacity: 0, scale: 1.06, duration: 0.42, ease: EASE_OUT, immediateRender: false }, 6.00);
-        tl.fromTo("#t2",
-          { opacity: 0, y: 24 },
+        tl.fromTo("#t2", { opacity: 0, y: 24 },
           { opacity: 1, y: 0, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 6.36);
 
-        /* 固定长度 8.0s：末帧静止，避免根过渡抢在最后落定前 */
         tl.to({}, { duration: 0.01 }, 7.99);
 
         window.__timelines = window.__timelines || {};
