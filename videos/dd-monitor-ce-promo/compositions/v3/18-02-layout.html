@@ -63,33 +63,14 @@
         border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
       }
       #appwin { left: 0; top: 0; }
-      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border);
-            position: relative; overflow: hidden; }
-      /* part1 = 关注栏上部分（绝对定位，避免被内容挤出可视区） */
-      .sb-top { position: absolute; left: 0; right: 0; top: 0; bottom: 62px; padding: 14px 12px; overflow: hidden; }
-      /* part3 = 关注栏下侧设置按钮（钉在底部） */
-      .sb-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 62px;
-                 padding: 10px 12px 12px; border-top: 1px solid var(--border); box-sizing: border-box; }
-      .setbtn {
-        height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
-        border-radius: 10px; background: var(--content); border: 1px solid var(--border);
-        color: var(--text2); font-size: 13px; font-weight: 600; box-sizing: border-box;
-      }
-      .setbtn .ic { color: var(--text3); font-size: 15px; }
-      .setbtn .chev { margin-left: auto; color: var(--text3); font-size: 12px; }
-      .sb-t { font-size: 17px; font-weight: 600; color: var(--text1); }
-      .sb-s { font-size: 12px; color: var(--text3); margin-top: 3px; }
-      .sb-lbl { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text3); }
-      .nav { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 8px; border-radius: 8px; }
-      .nav.sel { background: var(--accent-soft); }
-      .av { width: 32px; height: 32px; border-radius: 16px; background: var(--hover); color: var(--text2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex: 0 0 32px; }
-      .nav-n { font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; }
-      .nav-d { font-size: 12px; color: rgba(238,241,244,.88); white-space: nowrap; }
-      .bd-live { background: var(--pink); color: #3a0d1c; border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; margin-left: auto; }
+      /* 侧栏 = **真实截图切片** real-sidebar.png（从 Video_reference/fullscreen.png 裁出）。
+         用户 2026-09-22：不要用合成的软件界面。
+         尺寸按窗口高度等比缩放、不拉伸 —— 截图里侧栏是 440x2100，窗口高 792，
+         缩放 792/2100 = 0.3771 → 宽 166px。 */
+      .sb { width: 166px; flex: 0 0 166px; position: relative; overflow: hidden;
+            background: var(--sidebar); border-right: 1px solid var(--border); }
+      .sb-img { display: block; width: 100%; height: 100%; }
       .mn { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-      .tb { height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); }
-      .chip { height: 26px; padding: 0 12px; border-radius: 13px; background: var(--content); border: 1px solid var(--border); color: var(--text3); font-size: 12px; font-weight: 600; display: flex; align-items: center; }
-      .chip.on { background: var(--accent-soft); border-color: rgba(0,161,214,.45); color: var(--accent); }
       .sp { flex: 1; }
 
       /* ---------- 画面墙：格子绝对定位，位置由 JS 按 layouts.py 的 cells 算 ---------- */
@@ -104,17 +85,9 @@
         border-radius: 10px; overflow: hidden; will-change: transform, opacity;
       }
       .tile.focus { border-color: rgba(0,161,214,.7); }
-      .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-            background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px); }
-      .ph:after { content: ""; position: absolute; inset: 8px; border: 1px dashed rgba(131,131,145,.45); border-radius: 6px; }
-      .ph span { position: relative; z-index: 2; font-size: 12px; font-weight: 600; color: rgba(184,189,197,.75); }
-      .tb-bar { position: absolute; left: 7px; right: 7px; bottom: 7px; height: 24px; border-radius: 8px;
-                background: rgba(10,11,13,.78); display: flex; align-items: center; gap: 6px; padding: 0 9px; }
-      .tb-n { font-size: 12px; font-weight: 600; color: var(--text2); }
-      .tb-c { height: 17px; padding: 0 7px; border-radius: 9px; background: rgba(12,13,16,.85); color: var(--text2); font-size: 11px; font-weight: 600; display: flex; align-items: center; }
-      .tb-c.on { background: var(--accent); color: #04161f; }
-      .dot { position: absolute; left: 9px; top: 9px; background: var(--pink); color: #3a0d1c;
-             border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; z-index: 3; }
+      /* 格子内容 = **真实直播画面切片**（real-main / real-s02 … 同样是 fullscreen.png 裁出来的）。
+         用户 2026-09-22：不要用合成的画面。object-fit: cover 让切片填满任意格子比例。 */
+      .tile-img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
       /* 弹幕格 */
       .dm { position: absolute; inset: 0; background: rgba(18,20,25,.96); display: flex; flex-direction: column; }
@@ -135,53 +108,38 @@
         will-change: transform, opacity;
       }
       .portrait .mn { height: 100%; }
-      .pt-main { position: absolute; left: 10px; right: 10px; height: 236px; background: var(--tile);
-                 border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+      .pt-main { position: absolute; left: 10px; right: 10px; height: 236px; background-color: var(--tile);
+                 border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+                 background-size: cover; background-position: center; }
       .pt-row { position: absolute; left: 10px; right: 10px; height: 200px; display: flex; gap: 6px; }
-      .pt-row > div { flex: 1; background: var(--tile); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; position: relative; }
+      .pt-row > div { flex: 1; background-color: var(--tile); border: 1px solid var(--border); border-radius: 10px;
+                      overflow: hidden; position: relative; background-size: cover; background-position: center; }
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="18-02-layout" data-start="0" data-duration="6" data-width="1920" data-height="1080">
       <div class="scene" id="scene">
 
-        <div class="h" id="h05">想怎么看，就怎么排<span class="s">平分布局</span></div>
+        <div class="h" id="h05">想怎么看，就怎么排</div>
         <div class="h" id="h06">弹幕跟着画面走<span class="s">1 + 1 + 弹幕</span></div>
-        <div class="h" id="h07">拖着竖的，他自己跟上<span class="s">动态切换成竖屏，让你游戏之余，也能监控</span></div>
+        <div class="h" id="h07">拖着竖的，他自己跟上<span class="s">动态切换竖屏，让你游戏之余，也能监控</span></div>
 
-        <!-- 软件窗口 -->
+        <!-- 软件窗口：侧栏与格子内容**全部换成真实截图切片**（用户 2026-09-22：
+             不要用合成的软件界面）。窗口外壳仍是 DOM（布局重排必须重排格子），
+             但里面已经没有任何我用 HTML 画的假数据。 -->
         <div class="appwin" id="appwin">
-          <aside class="sb">
-            <div class="sb-top">
-              <div class="sb-t">DD监控室CE</div>
-              <div class="sb-s">多窗口直播监控</div>
-              <div class="sb-lbl">正在直播</div>
-              <div class="nav sel"><div class="av">莉</div><div><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281</div></div><span class="bd-live">直播</span></div>
-              <div class="nav"><div class="av">羽</div><div><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
-              <div class="nav"><div class="av">星</div><div><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
-              <div class="nav"><div class="av">柊</div><div><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div></div>
-            </div>
-            <div class="sb-foot">
-              <div class="setbtn"><span class="ic">⚙</span>设置<span class="chev">›</span></div>
-            </div>
-          </aside>
+          <aside class="sb"><img class="sb-img" src="assets/real/real-sidebar.png" alt=""></aside>
           <main class="mn">
-            <div class="tb">
-              <div class="chip on" id="chipL">平分布局</div>
-              <div class="chip" id="chipR">大带小</div>
-              <div class="sp"></div>
-              <div class="chip" id="chipState">1 × 1 单画面</div>
-            </div>
-            <!-- 9 个格子槽位：位置由 JS 按布局算，多余的淡出 -->
+            <!-- 9 个格子槽位：位置由 JS 按布局算，多余的淡出。
+                 内容 = 真实直播画面切片（real-main + 5 个小格，同 fullscreen.png 裁出）。 -->
             <div class="wall" id="wall">
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div><span class="dot">直播</span>
-                <div class="tb-bar"><span class="tb-n">莉蔻Liko</span><span class="sp"></span><span class="tb-c on">画质</span><span class="tb-c">静音</span></div></div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <!-- 第 7 格留给弹幕（06 用） -->
+              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-main.png" alt=""></div>
+              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s02.png" alt=""></div>
+              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s12.png" alt=""></div>
+              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s20.png" alt=""></div>
+              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s21.png" alt=""></div>
+              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s22.png" alt=""></div>
+              <!-- 弹幕格（06 用）—— 弹幕文本仍是占位，等真实素材（M3）替换 -->
               <div class="tile" data-tile id="tileDm">
                 <div class="dm">
                   <div class="dm-hd"><span class="dm-dot">●</span><span class="dm-t">弹幕</span><span class="dm-c">已连接</span></div>
@@ -201,8 +159,6 @@
                   </div></div>
                 </div>
               </div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
-              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
             </div>
           </main>
         </div>
@@ -210,9 +166,9 @@
         <!-- 07 竖屏窗口（右侧飞入） -->
         <div class="portrait" id="portrait">
           <main class="mn" style="position:relative;">
-            <div class="pt-main"><div class="ph"><span>[素材: 竖屏主画面]</span></div></div>
-            <div class="pt-row" style="top: 262px;"><div><div class="ph"><span>[素材]</span></div></div><div><div class="ph"><span>[素材]</span></div></div></div>
-            <div class="pt-row" style="top: 474px;"><div><div class="ph"><span>[素材]</span></div></div><div><div class="ph"><span>[素材]</span></div></div></div>
+            <div class="pt-main" style="background-image: url('assets/real/real-main.png')"></div>
+            <div class="pt-row" style="top: 262px;"><div style="background-image: url('assets/real/real-s02.png')"></div><div style="background-image: url('assets/real/real-s12.png')"></div></div>
+            <div class="pt-row" style="top: 474px;"><div style="background-image: url('assets/real/real-s20.png')"></div><div style="background-image: url('assets/real/real-s21.png')"></div></div>
           </main>
         </div>
       </div>
@@ -325,7 +281,10 @@
 
         /* ============ 06（2.0–4.0）弹幕布局 + 弹幕上滚 + 镜头聚焦 ============ */
         tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.90);
-        tl.to("#appwin", { x: 140, y: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
+        /* 接续 05 的画面把软件页面**左移**（用户 2026-09-22）：
+           x 250 → -250，左侧有 250px 被画面边缘遮掉 —— 手稿 06 就是「左侧软件页面
+           + 右侧标题」，让出右侧给飞入的标题。 */
+        tl.to("#appwin", { x: -250, y: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
         tl.fromTo("#h06", { opacity: 0, x: 40 },
           { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.06);
         /* 弹幕格点亮：直接补间描边（class 切换没法在时间轴上 seek） */
@@ -346,8 +305,11 @@
            16:9 → 9:16：宽度收窄、高度长出，位置从右侧移到右上。 */
         tl.fromTo("#portrait", { opacity: 0 },
           { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
+        /* 竖屏终态 x 880 / y 200（用户 2026-09-22：下方的两个软件页面排得靠近一些）。
+           左侧 06 缩到 scale .62 后 box 右缘约 700，竖屏左缘 880 → 间距 180px；
+           y 200 也避开上方标题（标题占 y 58–180）。 */
         tl.fromTo("#portrait", { width: 700, height: 480, x: 1140, y: 320 },
-          { width: 430, height: 780, x: 1360, y: 150, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
+          { width: 430, height: 780, x: 880, y: 200, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
 
         tl.to({}, { duration: 0.01 }, 5.99);
 
