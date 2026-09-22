@@ -19,29 +19,38 @@
            「卡片放大两倍；放不下就删掉没有录制视频的那几张；预览时间留长一点；
              三张卡片各完整展示一次，预览 1s 左右；卡片抽出时前后透视关系要正确。」
 
-         用户 2026-09-23 第三轮意见：
+         用户 2026-09-23 意见（依次）：
            ①（附红框标注截图）「按照截图样式重新摆放一下卡片，**不要动 3D 效果**，
              保持前后的透视关系，只是调整位置，让他在眼中看起来更倾斜」
-             → 只改 POS；红框实测 6 个位置，队列 5 张 -> 6 张。
+             → 只改 POS。红框实测 6 个位置，队列 5 张 -> 6 张。
            ②「将每张卡片放大为原来的 **1.5 倍**，多的部分删去，
-             但是不要删除有录制素材的卡片」
-             → 卡片 600x340 -> **900x510**；900 宽在 1920 画面里只摆得下 **5 张**，
-               所以删掉最右上那张没有录像的 `card-6`，重新按放大后的尺寸铺队列
-               （露出宽度统一约 216px），**有录制素材的 #k1 / #k4 / #k5 一张不少**。
-           ③「要保留的三张是 莉蔻 盐无 和 四时小路」→ 确认"有录制素材的三张"的卡面是
+             但是不要删除有录制素材的卡片」→ 卡片 600x340 -> 900x510；只摆得下 5 张。
+           ③「要保留的三张是 莉蔻 盐无 和 四时小路」→ 有录制素材的三张卡面是
              `card-1(莉蔻Liko)` / `card-3(盐无Shio)` / `card-4(四时小路Komichi)`，
-             它们正好放在会被抽出的 **#k1 / #k4 / #k5** 上，各挂一段预览录像；
-             没有录像的 #k2 / #k3 用 `card-2(三理Mit3uri)` / `card-5(恩骨)` 补满队列。
-           ④「**将卡片的封面中心对齐，裁剪掉灰色区域**；**对卡片做一点 3D 倾斜处理**，类似截图；
-             然后我们再来对齐视频素材」→ 素材按 a98ad16 的实测重裁（每张卡左右各有 12px 灰边，
-             内容实际 x 12–308 -> **297x182**），卡框按新比例 `297:182 = 1.632` 改成 **900x552**；
-             `.stage` 给 `perspective: 2400`，每张卡 `rotationY: 12`（右缘向后 = 左近右远）。
+             放在会被抽出的 **#k1 / #k4 / #k5** 上，各挂一段预览录像。
+           ④「将卡片的封面中心对齐，裁剪掉灰色区域；对卡片做一点 3D 倾斜处理，类似截图」
+             → 3D：`.stage` 给 `perspective: 2400`、每张卡 `rotationY: -12`
+               （符号是量出来的：+12 实测右端更高 = 右缘朝前，与截图/参考片相反）。
+           ⑤「3d 效果对了。把卡片的裁切完成，**下方还有灰边**；稍微缩小一点卡片，
+             使第一张弹出时不会遮盖标题；卡片截图有点不太清晰，有没有办法修复一下」
+             → 重裁量到真实边界：源图 321x1561 里卡片内容 **x 12..308（297 宽）**、
+               **y 13 起 / 两张之间 21 行纯背景 / 周期 195 / 卡高 174**
+               （旧参数 `321x182 起点 26 周期 192` 让每张卡底部多了 21 行灰边）。
+               素材 297x174 用 Lanczos4 放到 **760x445** 再轻锐化（源只有 297 宽，
+               放大 3 倍必虚，只能这样把边缘拉回来一点）。
+               卡片框 **900x552 -> 760x445**；抽出上移量 300 -> 250（按卡高比例缩），
+               第一张弹出时上缘约 281，标题底 258，不再压住标题。
+           ⑥「liko 用预览视频 02-05s、盐无用 13-16s、四时小路用 18-21s」
+             → 从 `聚焦卡片_卡片预览.mp4` 各裁 3s：`preview-liko.mp4` / `preview-shio.mp4` /
+               `preview-komichi.mp4`（760x428 @30fps，与旧 rec-preview.mp4 同规格）。
 
          每轮 **2.286s = 12 拍**（0.1905s 网格，与 01/02 同一张），整段 7.5s。
 
          ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
          ⚠ 承载 <video> 的容器不要补间 width/height、不要写 will-change —— 会让 video 丢帧。
          ⚠ 位置全部走 transform（x/y/scale），left/top 保持 0。
+         ⚠ `rotationY` 的符号别凭感觉改：改完必须 `python tools/measure-edge-slope.py` 复量，
+           正常应报"右端更低"。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -65,32 +74,26 @@
         -webkit-font-smoothing: antialiased; color: var(--ink);
       }
 
-      /* 左上标题 */
+      /* 左上标题（底缘 y≈258 —— 卡片抽出时的上缘必须留在它下面） */
       .head { position: absolute; left: 110px; top: 96px; will-change: transform, opacity; }
       .head .n { font-size: 84px; font-weight: 700; letter-spacing: -.01em; line-height: 1; color: #fff; text-shadow: 0 2px 18px rgba(16,17,20,.28); }
       .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
       .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
 
       /* 卡片队列：一排五张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
-         素材重裁：每张 `card-*.png` 左右各有 **12px 灰边**（卡外的灰色内容），
-         统一按 `297x182`（x 12–308）重裁 —— 封面内容居中，卡面上不再有灰边。
-         卡片框按重裁后的比例 `297:182 = 1.632` 取 **900x552**（宽度仍是 600 的 1.5 倍）；
-         圆角 33、投影 48/96 保持 1.5 倍时的观感。
-         3D 倾斜：`.stage` 给 `perspective: 2400`，每张卡 `rotationY: -12` ——
-         **右缘向后**（远）、左缘向前（近）。
-         ⚠ 符号是量出来的，不是推的：`rotationY: +12` 实测让上边缘右端**更高**（-1.39°，右缘朝前），
-           与参考片 19.5s（+4.32°）和你 2026-09-23 的截图（+1.59°）**方向相反**；
-           改成负值后右端更低 = 右缘向后，才对得上。改符号后要重新量
-           （`python tools/measure-edge-slope.py`：正常应报"右端更低"）。
-         ⚠ 缩放以元素中心为原点（transformOrigin 默认 50% 50%），所以卡中心 = (x+450, y+276)，
+         尺寸 **760x445** —— 与重裁后的素材 1:1（素材 297x174 放大到 760x445，
+         比例 297:174 = 1.707），所以 `object-fit: cover` 不会再裁掉卡面。
+         卡片比 900x552 那版小一圈，是为了让第一张抽出的卡不压住左上标题。
+         3D 倾斜：`.stage` 给 `perspective: 2400`，每张卡 `rotationY: -12` —— 右缘向后（远）。
+         ⚠ 缩放以元素中心为原点（transformOrigin 默认 50% 50%），所以卡中心 = (x+380, y+222.5)，
            改 scale 不会移动卡的位置。 */
       .stage { position: absolute; inset: 0; perspective: 2400px; }
       .card {
-        position: absolute; left: 0; top: 0; width: 900px; height: 552px;
-        border-radius: 33px; overflow: hidden;
+        position: absolute; left: 0; top: 0; width: 760px; height: 445px;
+        border-radius: 28px; overflow: hidden;
         background: var(--card);
         border: 1px solid var(--card-edge);
-        box-shadow: 0 48px 96px rgba(16,17,20,.22), 0 3px 0 rgba(255,255,255,.5) inset;
+        box-shadow: 0 40px 80px rgba(16,17,20,.22), 0 2px 0 rgba(255,255,255,.5) inset;
       }
       .card .shot { display: block; width: 100%; height: 100%; object-fit: cover; }
       /* 预览录像：抽出到位后才淡入，盖在卡面上 */
@@ -110,29 +113,29 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 队列 = 5 张（放大 1.5 倍后 1920 画面里只摆得下 5 张）。
-           **有录制素材的三张 = 莉蔻 / 盐无 / 四时小路**
+      <!-- 队列 = 5 张。**有录制素材的三张 = 莉蔻 / 盐无 / 四时小路**
            （用户 2026-09-23：「要保留的三张是 莉蔻 盐无 和 四时小路」）——
-           它们的卡面是 card-1(莉蔻Liko) / card-3(盐无Shio) / card-4(四时小路Komichi)，
-           放在会被抽出的 **#k1 / #k4 / #k5**（三轮各抽一张，位置分散），各挂一段预览录像。
+           卡面 card-1(莉蔻Liko) / card-3(盐无Shio) / card-4(四时小路Komichi)，
+           放在会被抽出的 **#k1 / #k4 / #k5**（三轮各抽一张，位置分散），
+           各自挂**自己那一段**预览录像（用户 2026-09-23 指定的时段）。
            另外两张没有录像的 #k2 / #k3 用 card-2(三理Mit3uri) / card-5(恩骨) 补满队列
            （用户 2026-09-22：不是只留三张，摆得下就多摆）。 -->
       <div class="stage" id="stage">
         <div class="card" id="k1">
           <img class="shot" src="assets/rec/card-1.png" alt="">
-          <video class="vid" id="v1" src="assets/rec/rec-preview.mp4" muted playsinline
+          <video class="vid" id="v1" src="assets/rec/preview-liko.mp4" muted playsinline
                  data-start="0.762" data-duration="6.738"></video>
         </div>
         <div class="card" id="k2"><img class="shot" src="assets/rec/card-2.png" alt=""></div>
         <div class="card" id="k3"><img class="shot" src="assets/rec/card-5.png" alt=""></div>
         <div class="card" id="k4">
           <img class="shot" src="assets/rec/card-3.png" alt="">
-          <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
+          <video class="vid" id="v2" src="assets/rec/preview-shio.mp4" muted playsinline
                  data-start="3.048" data-duration="4.452"></video>
         </div>
         <div class="card" id="k5">
           <img class="shot" src="assets/rec/card-4.png" alt="">
-          <video class="vid" id="v3" src="assets/rec/rec-preview.mp4" muted playsinline
+          <video class="vid" id="v3" src="assets/rec/preview-komichi.mp4" muted playsinline
                  data-start="5.334" data-duration="2.166"></video>
         </div>
       </div>
@@ -150,19 +153,19 @@
 
         /* ---- 队列：五张，从左下到右上排过去 ----
            左边近（大、低、**在前**），右边远（小、高、在后）—— 左边遮挡右边。
-           每张露出约 216px（中心间距 241.5）：
-             中心 x 500 / 741.5 / 983 / 1224.5 / 1466
-             中心 y 775 / 711   / 670 / 634    / 576   （卡高 552，比 510 那版整体上移 20px，
-                                                        最左卡底缘 1051，留在画面内）
-           ⚠ `rotationY` 取负值后，靠近镜头的是**右缘**，包围盒往右偏；
-             上一版为 +12（左缘向前）加的 30px 右移补偿已撤掉。
+           中心间距 285（卡宽 760，每张露出约 264px）：
+             中心 x 385 / 670 / 955 / 1240 / 1525
+             中心 y 802.5 / 738.5 / 697.5 / 661.5 / 603.5
+           ⚠ 3D 透视会把包围盒往外撑（实测 k5 右缘比 POS 坐标多 ~31px），
+             所以间距从 298 收到 285：实测 box 左缘 53、右缘 1879，都在 1920 内。
+           k1 的 y = 580 是**为标题让位**定的：抽出时卡上缘 = 580 - 250 - 0.11*445 ≈ 281 > 258。
            scale 1.000 -> 0.776 保持"近大远小"；zIndex 5..1 保持左前右后。 */
         var POS = [
-          { x:   20, y: 499, s: 1.000, z: 5 },
-          { x:  262, y: 435, s: 0.944, z: 4 },
-          { x:  503, y: 394, s: 0.888, z: 3 },
-          { x:  745, y: 358, s: 0.832, z: 2 },
-          { x:  986, y: 300, s: 0.776, z: 1 }
+          { x:    5, y: 580, s: 1.000, z: 5 },
+          { x:  290, y: 516, s: 0.944, z: 4 },
+          { x:  575, y: 475, s: 0.888, z: 3 },
+          { x:  860, y: 439, s: 0.832, z: 2 },
+          { x: 1145, y: 381, s: 0.776, z: 1 }
         ];
 
         /* ---- 基线 ---- */
@@ -186,7 +189,8 @@
         });
 
         /* ---- 三轮：向上抬起 → 光标上移 → 卡面换成预览录像（约 1s）→ 收回 ----
-           每轮 2.286s = 12 拍（0.1905s 网格）；起点 0.762 / 3.048 / 5.334。 */
+           每轮 2.286s = 12 拍（0.1905s 网格）；起点 0.762 / 3.048 / 5.334。
+           抬起量 250 / 下沉 28 都是按卡片高度（445 对 552）等比缩下来的，观感与上一版一致。 */
         var ROUND = 12 * 0.1905;      /* 2.286 */
         function round(base, idx, vidId) {
           var card = "#k" + (idx + 1);
@@ -200,18 +204,18 @@
              用户 2026-09-22：边缘出去一部分没有关系，但抽出后仍要保留「前遮后」的遮挡，
              所以它在队列里的前后次序必须原样保留（左边比它靠前的卡照样压住它）。
              只有等比放大，透视关系才不变。 */
-          tl.to(card, { y: p.y - 300, scale: p.s * 1.22, duration: LIFT, ease: EASE_IO, immediateRender: false }, base);
+          tl.to(card, { y: p.y - 250, scale: p.s * 1.22, duration: LIFT, ease: EASE_IO, immediateRender: false }, base);
           tl.to(card, { borderColor: "rgba(0,161,214,.85)", duration: LIFT, immediateRender: false }, base);
           /* 其它卡轻微下沉让位（它们的前后关系不变） */
           POS.forEach(function (q, j) {
             if (j === idx) return;
-            tl.to("#k" + (j + 1), { y: q.y + 34, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
+            tl.to("#k" + (j + 1), { y: q.y + 28, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
           });
 
-          /* 2) 光标**上移**到这张卡上（卡宽 900，中心在 x+450） */
+          /* 2) 光标**上移**到这张卡上（卡宽 760，中心在 x+380） */
           tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, base + 0.10);
           tl.fromTo("#cursor", { x: 1240, y: 940 },
-            { x: p.x + 450, y: p.y - 220, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
+            { x: p.x + 380, y: p.y - 170, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
 
           /* 3) 卡面换成真实预览录像 —— 到位置之后才淡入，留满 1s 不跳过 */
           tl.to(card + " .shot", { opacity: 0, duration: 0.30, ease: EASE_OUT, immediateRender: false }, atCard);
