@@ -8,21 +8,22 @@
       /* ==========================================================================
          18-01-intro  ——  A 组（0.0–12.0s）
 
-         —— 相机速率曲线照参考片前 4s 的实测值（逐帧相位相关，见下方 JS 注释）——
+         —— 相机速率曲线：形状照参考片前 4s，但去掉静止段并加快（用户 2026-09-22）——
          0.00–1.38  匀加速横移 189px（位移 ∝ t²，峰值 258px/s）
-         1.38–1.88  静止 0.5s
-         1.88–5.60  匀速横移（368px/s）
-         5.60–6.10  减速收尾（power2.out）
-                    · **软件窗口 1.44s 才贴上画布右缘进入**（不是第 0 帧就露边）
+         1.38–3.94  匀速横移 520px/s（**没有静止段**，加速一结束直接接上）
+         3.94–4.44  减速收尾（power2.out，130px）
+                    · **软件窗口 1.38s 才贴上画布右缘进入**（不是第 0 帧就露边）
                     · 窗口**平正、不倾斜**（照参考片那个 LauncherX 窗口）
-                    · 左侧标题 0.52s 起浮现，**1.79s 起 0.25s 隐去**（都照参考片）
-         6.10–6.90  落定后相机向前推进（elastic 回稳）
-         6.90–8.90  软件模块（侧栏 / 主画面 / 5 小格）分散拆解飞出画面
-                    **保留软件主体**（留下的窗口外壳，不透出背景）
-         8.90–10.5  继续向前推进 + 放大，直到看不到背景图
-         10.3–12.0  文字「向您介绍 DDMonitorCE」直接叠在保留的窗口壳上
-                    + **月光层：在窗口**内部**，透过窗口玻璃透出来**
-                    （上一版是铺满全屏的星光层，被用户否掉）
+                    · 左侧标题 0.52s 起浮现、**1.79s 起 0.25s 隐去**（都照参考片）
+         4.44–5.40  落定后相机向前推进（elastic 回稳，z 0→230）
+         5.40–6.72  **模块从下往上逐块拼合成窗口** —— 用户 2026-09-22 改：
+                    不要"散开飞出"，要和参考片一样往上拼。窗口先以空玻璃壳出现，
+                    然后底部 3 格 → 右中格 → 顶部主画面/小格 → 侧栏，
+                    依次从窗口内下方 y+120 浮起落位（stagger 80ms）
+         7.00–8.50  继续推进 + 放大到**铺满画布**（z 1100 → 2.22 倍）；
+                    **背景图不淡出**（用户要求「背景铺满画面」，银河一直留到最后）
+         8.30–12.0  月光光晕（在窗口**内部**，透过窗口玻璃）+ 文字「向您介绍 DDMonitorCE」
+                    （用户 2026-09-22：**去掉星光光点**，只留一层 .wash 光晕）
 
          软件画面 = 真实截图切片（Video_reference/fullscreen.png 裁切）。
          窗口外壳 = 类玻璃材质：大圆角 + 1px 亮棱边 + 顶部内侧高光 + 表面斜向反光
@@ -121,14 +122,20 @@
          1px 亮棱边 + 顶部内侧高光 + 表面反光 + 多层外阴影。
          「月光透过窗口」由窗口内部的 .moon 层承担，不依赖底色透明。
 
-         ⚠ 两件事都不能做：
+         ⚠ 关于 .appwin 的两件事：
          1) 不要写 will-change:transform —— 会让 Chrome 按布局尺寸给窗口建合成层，
             3D 投影超出该边界时下半部分被整块裁掉。
-         2) 不要写 overflow:hidden —— 模块拆解"飞出画面"的 tween 会被它整块剪掉，
-            看起来就是"在原点消失了"而不是飞出去。圆角裁切交给切片自己处理。 */
+         2) overflow:hidden 现在**可以**写（以前禁止）：原来禁止它，是因为它会把
+            "拆解飞出画面"的 tween 整块剪掉、模块看起来在原地消失。用户 2026-09-22
+            把 03 拍从"散开飞出"改成"从下往上拼入"之后已经没有飞出动画；而这里**必须**
+            裁切，否则模块从窗口下方升起时会露在窗口外面（实测 t=5.7s 就是漏的）。
+            加完必须用 probe-shot 数像素复查窗口下半部分有没有被裁 ——
+            will-change 那条坑的观感和这个一模一样。
+         3) 不要写 transform-style: preserve-3d（见下方 .world 的说明）。 */
       .appwin {
         position: absolute; inset: 0;
         border-radius: 14px;
+        overflow: hidden;
         background:
           linear-gradient(158deg,
             rgba(58,63,70,.93) 0%,
@@ -189,10 +196,9 @@
       .t2 b { color: var(--accent); }
 
       /* ---------- 月光层（**在软件窗口内部**，透过窗口玻璃透出来）----------
-         上一版这里是铺满全屏的 .stars 独立层，月光直接画在画面上 —— 改成月光后
-         必须收进窗口里：.moon 是 .appwin 的子层，inset:0 + overflow:hidden，
+         .moon 是 .appwin 的子层：inset:0 + overflow:hidden + 圆角，
          光只在窗口范围内可见，窗口移动/放大时光跟着一起走。
-         全部用 opacity / transform 做补间，光点位置写死（渲染必须确定性）。 */
+         用户 2026-09-22：**去掉星光光点**，只留这一层 .wash 光晕。 */
       .moon {
         position: absolute; inset: 0; border-radius: 14px;
         overflow: hidden; pointer-events: none;
@@ -204,25 +210,8 @@
           radial-gradient(ellipse 42% 46% at 80% 78%, rgba(158,192,255,.15) 0%, rgba(0,0,0,0) 72%),
           linear-gradient(196deg, rgba(184,216,255,.10) 0%, rgba(0,0,0,0) 48%);
       }
-      .moon i {
-        position: absolute; border-radius: 50%; background: #fff;
-        box-shadow: 0 0 6px 1px rgba(196,228,255,.92), 0 0 16px 5px rgba(0,161,214,.34);
-      }
-      /* 四芒星：一横一竖两道光束 */
-      .moon .fl { position: absolute; width: 0; height: 0; }
-      .moon .fl::before, .moon .fl::after {
-        content: ""; position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
-      }
-      .moon .fl::before {
-        width: 58px; height: 1.5px;
-        background: linear-gradient(90deg, rgba(255,255,255,0), rgba(232,246,255,.95) 50%, rgba(255,255,255,0));
-      }
-      .moon .fl::after {
-        width: 1.5px; height: 58px;
-        background: linear-gradient(180deg, rgba(255,255,255,0), rgba(232,246,255,.95) 50%, rgba(255,255,255,0));
-      }
-      .moon .fl.s::before { width: 34px; }
-      .moon .fl.s::after  { height: 34px; }
+      /* 用户 2026-09-22：**去掉星光光点** —— 月光只留上面那一层 .wash 光晕，
+         不再有点状星/四芒星（.moon i / .moon .fl 已删除）。 */
     </style>
   </head>
   <body>
@@ -258,25 +247,6 @@
                    不会像上一版那样直接铺在画面上。坐标按窗口 1000x547 布点。 -->
               <div class="moon" id="moon">
                 <div class="wash"></div>
-                <i style="left: 118px; top: 74px;  width: 2.5px; height: 2.5px;"></i>
-                <i style="left: 246px; top: 38px;  width: 2px;   height: 2px;"></i>
-                <i style="left: 392px; top: 96px;  width: 2px;   height: 2px;"></i>
-                <i style="left: 528px; top: 46px;  width: 2.5px; height: 2.5px;"></i>
-                <i style="left: 664px; top: 108px; width: 2px;   height: 2px;"></i>
-                <i style="left: 812px; top: 62px;  width: 2px;   height: 2px;"></i>
-                <i style="left: 906px; top: 132px; width: 2.5px; height: 2.5px;"></i>
-                <i style="left: 78px;  top: 208px; width: 2px;   height: 2px;"></i>
-                <i style="left: 318px; top: 264px; width: 2.5px; height: 2.5px;"></i>
-                <i style="left: 596px; top: 232px; width: 2px;   height: 2px;"></i>
-                <i style="left: 862px; top: 288px; width: 2px;   height: 2px;"></i>
-                <i style="left: 176px; top: 386px; width: 2.5px; height: 2.5px;"></i>
-                <i style="left: 452px; top: 428px; width: 2px;   height: 2px;"></i>
-                <i style="left: 726px; top: 392px; width: 3px;   height: 3px;"></i>
-                <i style="left: 914px; top: 452px; width: 2px;   height: 2px;"></i>
-                <i style="left: 388px; top: 496px; width: 2px;   height: 2px;"></i>
-                <b class="fl"   style="left: 268px; top: 168px;"></b>
-                <b class="fl s" style="left: 742px; top: 330px;"></b>
-                <b class="fl s" style="left: 486px; top: 74px;"></b>
               </div>
             </div>
           </div>
@@ -297,18 +267,19 @@
         var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
 
-        /* ---- 相机速率曲线：照参考片前 4s 的实测值（24fps 逐帧相位相关，1920 画布）----
+        /* ---- 相机速率曲线：形状照参考片前 4s，但**去掉静止段并加快**（用户 2026-09-22）----
            参考片实测：0.00–1.38s 匀加速走 189px（峰值 258px/s）→ 1.38–1.88s 完全静止
            → 1.88s 起恒定 315px/s → 4.0–4.96s 平滑减速到停。
-           参考片在 1.88s 处是原始素材的拼接点（从静止一帧内跳到 315px/s）；我们是一镜
-           到底，所以做成平滑起步后再匀速，否则看起来像卡帧。
-           曲线形状照抄，速度按我们的总位移折算成 368px/s（比参考片快约 17%）——
-           为的是让 A 组总长保持 12s 不变。 */
-        var D1 = 189, T1 = 1.38, T2 = 1.88;    /* 加速段行程 / 加速段结束 / 静止段结束 */
-        var D2 = 1368, T3 = 5.60, T4 = 6.10;   /* 匀速段行程 / 匀速段结束 / 减速段结束 */
+           用户反馈「人眼看起来很慢」+「移动去除静止段」，所以：
+             · 保留 1.38s 的匀加速起步（曲线形状照抄，窗口出现时刻不变）
+             · **删掉 0.5s 静止段**，加速一结束就直接进匀速
+             · 匀速从参考片的 315px/s 提到 **520px/s**，相机段总时长 6.10s → 4.44s */
+        var D1 = 189, T1 = 1.38;              /* 匀加速段：行程 189px，1.38s 结束 */
+        var D2 = 1330, T3 = 3.94;             /* 匀速段：1330px / 2.56s = 520px/s */
+        var T4 = 4.44;                        /* 减速收尾 0.5s 走 130px（起点速度 520 -> 0）*/
         /* 画面中心在世界 x = 2109 + 500 = 2609；推到 1649 时正好落到画布中心 960。
-           2109 - 189 = 1920 —— 相机走到 1.38s 时窗口左缘才贴上画布右缘，1.44s 开始进入。 */
-        var DOLLY = D1 + D2 + 92;              /* 189 + 1368 + 92 = 1649 */
+           2109 - 189 = 1920 —— 相机走到 1.38s 时窗口左缘才贴上画布右缘，随即开始进入。 */
+        var DOLLY = D1 + D2 + 130;            /* 189 + 1330 + 130 = 1649 */
 
         /* ---- 基线 ---- */
         gsap.set("#world", { x: 0, z: 0 });
@@ -318,13 +289,16 @@
         gsap.set("#glow", { opacity: 0 });
         gsap.set("#shadow", { opacity: 0 });
         gsap.set("#moon", { opacity: 0 });
-        gsap.set("#moon i, #moon .wash, #moon .fl", { opacity: 0 });
+        gsap.set("#moon .wash", { opacity: 0 });
         /* 窗口**平正**：照参考片那个窗口（正对镜头，没有俯视倾斜）。
            transformPerspective 留给后面的 z 推进 —— 直接写进元素的 transform，
            等价于父层透视，但不会引入 preserve-3d 上下文（那会把窗口下半部分裁掉）。 */
         gsap.set("#appstage", { transformPerspective: 2000 });
         /* 拆解飞出的切片各自也要透视，z 才有近大远小 */
-        gsap.set(".pt, .ph", { transformPerspective: 1000 });
+        /* 模块初始藏在窗口内部的下方（y +120）且透明：03 拍让它们从下往上逐块拼入。
+           y 偏移刻意小于窗口高度，模块始终落在窗口范围内、不会露到窗口外面
+           （.appwin 不能写 overflow:hidden，见文件头部的禁忌）。 */
+        gsap.set(".pt, .ph", { transformPerspective: 1000, y: 120, opacity: 0 });
         gsap.set("#appwin", { opacity: 1, scale: 1, z: 0 });
         gsap.set("#vignette", { opacity: 1 });
 
@@ -332,17 +306,16 @@
         tl.fromTo("#world", { x: 0 },
           { x: -D1, duration: T1, ease: "power2.in", immediateRender: false }, 0);
 
-        /* ====== 1.38–1.88 静止 0.5s —— 窗口在 1.44s 贴上画布右缘进入 ======
-           静止段不写补间：#world 的 x 停在 -D1 不动。 */
+        /* ====== 1.38–3.94 匀速横移（**没有静止段**：加速一结束就直接接上）====== */
         tl.fromTo("#world", { x: -D1 },
-          { x: -(D1 + D2), duration: T3 - T2, ease: "none", immediateRender: false }, T2);
+          { x: -(D1 + D2), duration: T3 - T1, ease: "none", immediateRender: false }, T1);
         /* 减速收尾（参考片 4.0–4.96s 也有同样一段平滑收尾） */
         tl.fromTo("#world", { x: -(D1 + D2) },
           { x: -DOLLY, duration: T4 - T3, ease: "power2.out", immediateRender: false }, T3);
 
-        /* 光晕 / 影子与窗口同时出现（窗口 1.44s 才进画面） */
-        tl.fromTo("#glow",   { opacity: 0 }, { opacity: 1, duration: 1.20, ease: EASE_OUT, immediateRender: false }, 1.44);
-        tl.fromTo("#shadow", { opacity: 0 }, { opacity: 1, duration: 1.20, ease: EASE_OUT, immediateRender: false }, 1.50);
+        /* 光晕 / 影子与窗口同时出现（窗口 1.38s 贴上画布右缘） */
+        tl.fromTo("#glow",   { opacity: 0 }, { opacity: 1, duration: 1.20, ease: EASE_OUT, immediateRender: false }, 1.38);
+        tl.fromTo("#shadow", { opacity: 0 }, { opacity: 1, duration: 1.20, ease: EASE_OUT, immediateRender: false }, 1.44);
 
         /* 左侧标题：0.52s 起浮现、1.79s 起 0.25s 隐去 —— 两个时刻都照参考片实测 */
         tl.fromTo("#t1", { opacity: 0, x: -70 },
@@ -351,50 +324,50 @@
           { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.80);
         tl.to("#t1", { opacity: 0, x: -48, duration: 0.25, ease: EASE_OUT, immediateRender: false }, 1.79);
 
-        /* ============ 6.10–6.90 落定后：相机向前推进（带弹性回稳）============ */
-        tl.to("#appstage", { z: 230, duration: 0.80, ease: "elastic.out(1, 0.62)", immediateRender: false }, 6.10);
-        tl.to("#glow",   { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 6.10);
-        tl.to("#shadow", { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 6.10);
+        /* ============ 4.44–5.40 落定后：相机向前推进（带弹性回稳）============ */
+        tl.to("#appstage", { z: 230, duration: 0.96, ease: "elastic.out(1, 0.62)", immediateRender: false }, 4.44);
+        tl.to("#glow",   { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 4.44);
+        tl.to("#shadow", { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 4.44);
 
-        /* ====== 6.9–8.9 模块分散拆解 · 飞出画面（保留软件主体）======
-           每个模块都给 x/y 位移 —— 只做 z+opacity 会看起来"在原地消失"，而不是飞出去。 */
-        var OUT = 1.85;
-        tl.to("#pSb",   { x: -1020, y: -280, z: 420, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.90);
-        tl.to("#pMain", { x: 190,  y: -620, z: 720, scale: 1.07, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.94);
-        tl.to("#phMain",{ x: 190,  y: -620, z: 720, scale: 1.07, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.94);
-        tl.to("#pS02",  { x: 340, y: -340, z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.00);
-        tl.to("#phS02", { x: 340, y: -340, z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.00);
-        tl.to("#pS12",  { x: 430, y: 90,   z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.06);
-        tl.to("#phS12", { x: 430, y: 90,   z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.06);
-        tl.to("#pS20",  { x: -380, y: 300, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.12);
-        tl.to("#phS20", { x: -380, y: 300, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.12);
-        tl.to("#pS21",  { y: 380, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.18);
-        tl.to("#phS21", { y: 380, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.18);
-        tl.to("#pS22",  { x: 360, y: 290, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.24);
-        tl.to("#phS22", { x: 360, y: 290, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.24);
+        /* ====== 5.40–6.72 模块**从下往上逐块拼合成窗口** ======
+           用户 2026-09-22：不要"散开飞出"，改成和参考片一样模块往上拼。
+           窗口先以空玻璃壳出现在画面里（01/02 内部是空的 —— 参考片开场也是空窗口先到位），
+           然后按**从下往上**的顺序：底部 3 格 → 右中格 → 顶部主画面/小格 → 侧栏，
+           每块从窗口内下方 y +120 浮起落位（stagger 80ms、0.75s 一块、EASE_OUT）。
+           每个 .pt（真实截图切片）与配对的 .ph（素材占位）同时补间。 */
+        var IN = 0.75;
+        tl.to("#pS20",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.40);
+        tl.to("#phS20", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.40);
+        tl.to("#pS21",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.48);
+        tl.to("#phS21", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.48);
+        tl.to("#pS22",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.56);
+        tl.to("#phS22", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.56);
+        tl.to("#pS12",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.64);
+        tl.to("#phS12", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.64);
+        tl.to("#pMain", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.72);
+        tl.to("#phMain",{ y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.72);
+        tl.to("#pS02",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.80);
+        tl.to("#phS02", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.80);
+        tl.to("#pSb",   { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.96);
 
-        /* ============ 8.9–10.5 继续推进 + 放大 ============
-           终点定在约 1.61 倍（z 760 / perspective 2000），**故意不铺满画布**：
-           月光出现的时段必须能看见窗口的边界和玻璃棱边，否则「透过窗口」无从体现
-           （上一版推到 5.44 倍铺满，月光层按窗口坐标布的 16 个光点只剩 1 个还在画布内）。 */
-        tl.to("#appstage", { z: 760, duration: 1.65, ease: EASE_IO, immediateRender: false }, 8.90);
-        tl.to("#bg",      { opacity: 0, duration: 0.75, ease: EASE_OUT, immediateRender: false }, 9.35);
-        tl.to("#vignette",{ opacity: 0, duration: 0.75, ease: EASE_OUT, immediateRender: false }, 9.35);
-        /* 注意：#appwin 不淡出 —— 最后的文字直接叠在保留下来的软件窗口壳上，
+        /* ============ 7.00–8.50 继续推进 + 放大到铺满画布 ============
+           用户 2026-09-22：最后的窗口放大到**铺满画面**。
+           z 1100 / perspective 2000 = 2.22 倍（窗口 2222x1215），宽高都盖过画布。
+           不能用刚好 2.0 倍 —— 窗口中心 y 是 509.5 而不是 540，2.0 倍时底部会差 23px 露出背景。 */
+        tl.to("#appstage", { z: 1100, duration: 1.50, ease: EASE_IO, immediateRender: false }, 7.00);
+        /* 背景图与暗角**不淡出** —— 用户要求「背景铺满画面」，银河湖面一直留到最后。 */
+
+        /* 注意：#appwin 不淡出 —— 最后的文字直接叠在保留下来的软件窗口上，
            而不是切到纯黑背景。 */
 
-        /* ============ 10.3–12.0 文字 + 月光（月光在窗口内部，透过窗口玻璃）============
-           .moon 是 .appwin 的子层，所以光只出现在窗口范围里；窗口此时已经被推到铺满画布，
-           但光依然被窗口的边界和圆角约束 —— 这就是「不要直接显示在画面，要透过窗口」。 */
-        tl.fromTo("#moon", { opacity: 0 }, { opacity: 1, duration: 0.90, ease: EASE_OUT, immediateRender: false }, 10.30);
+        /* ============ 8.30–12.0 月光 + 文字（月光在窗口内部，透过窗口玻璃）============
+           .moon 是 .appwin 的子层，光只出现在窗口范围里，透过窗口玻璃透出来。
+           用户 2026-09-22：**去掉星光光点**，只留这一层 .wash 光晕。 */
+        tl.fromTo("#moon", { opacity: 0 }, { opacity: 1, duration: 0.90, ease: EASE_OUT, immediateRender: false }, 8.30);
         tl.fromTo("#moon .wash", { opacity: 0, scale: 0.94 },
-          { opacity: 1, scale: 1, duration: 1.35, ease: EASE_OUT, immediateRender: false }, 10.30);
-        tl.fromTo("#moon i", { opacity: 0, scale: 0.3 },
-          { opacity: 1, scale: 1, duration: 0.55, ease: EASE_OUT, stagger: 0.05, immediateRender: false }, 10.42);
-        tl.fromTo("#moon .fl", { opacity: 0, scale: 0.35, rotation: -24 },
-          { opacity: 1, scale: 1, rotation: 0, duration: 0.75, ease: EASE_OUT, stagger: 0.17, immediateRender: false }, 10.62);
+          { opacity: 1, scale: 1, duration: 1.35, ease: EASE_OUT, immediateRender: false }, 8.30);
         tl.fromTo("#t2", { opacity: 0, y: 26 },
-          { opacity: 1, y: 0, duration: 0.70, ease: EASE_OUT, immediateRender: false }, 10.58);
+          { opacity: 1, y: 0, duration: 0.70, ease: EASE_OUT, immediateRender: false }, 8.60);
 
         tl.to({}, { duration: 0.01 }, 11.99);
 
