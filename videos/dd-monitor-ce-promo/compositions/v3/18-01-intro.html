@@ -55,9 +55,23 @@
       }
       .sb {
         width: 248px; flex: 0 0 248px; background: var(--sidebar);
-        border-right: 1px solid var(--border); padding: 14px 12px;
+        border-right: 1px solid var(--border);
+        display: flex; flex-direction: column;
         transform-style: preserve-3d;
       }
+      /* part1 = 关注栏上部分（列表） */
+      .sb-top { flex: 1; min-height: 0; padding: 14px 12px; overflow: hidden;
+                transform-style: preserve-3d; will-change: transform, opacity; }
+      /* part3 = 关注栏下侧设置按钮（圆角卡片 + 图标） */
+      .sb-foot { flex: 0 0 auto; padding: 10px 12px 12px; border-top: 1px solid var(--border);
+                 will-change: transform, opacity; }
+      .setbtn {
+        height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
+        border-radius: 10px; background: var(--content); border: 1px solid var(--border);
+        color: var(--text2); font-size: 13px; font-weight: 600;
+      }
+      .setbtn .ic { color: var(--text3); font-size: 15px; }
+      .setbtn .chev { margin-left: auto; color: var(--text3); font-size: 12px; }
       .sb-t { font-size: 17px; font-weight: 600; }
       .sb-s { font-size: 12px; color: var(--text3); margin-top: 3px; }
       .sb-search { margin-top: 14px; height: 34px; background: var(--content); border: 1px solid var(--border); border-radius: 8px; display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--text3); }
@@ -124,15 +138,22 @@
         <!-- 软件窗口 -->
         <div class="appwin" id="appwin">
           <aside class="sb" id="sb">
-            <div class="sb-t">DD监控室CE</div>
-            <div class="sb-s">多窗口直播监控</div>
-            <div class="sb-search">搜索关注</div>
-            <div class="sb-lbl">正在直播 6</div>
-            <div class="nav sel"><div class="av">莉</div><div class="nav-t"><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281 人气</div></div><span class="bd-live">直播</span></div>
-            <div class="nav"><div class="av">羽</div><div class="nav-t"><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
-            <div class="nav"><div class="av">星</div><div class="nav-t"><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
-            <div class="nav"><div class="av">柊</div><div class="nav-t"><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
-            <div class="nav"><div class="av">白</div><div class="nav-t"><div class="nav-n">白鹤Haku</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
+            <!-- part1：关注栏上部分 -->
+            <div class="sb-top" id="sbTop">
+              <div class="sb-t">DD监控室CE</div>
+              <div class="sb-s">多窗口直播监控</div>
+              <div class="sb-search">搜索关注</div>
+              <div class="sb-lbl">正在直播 6</div>
+              <div class="nav sel"><div class="av">莉</div><div class="nav-t"><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281 人气</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">羽</div><div class="nav-t"><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">星</div><div class="nav-t"><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">柊</div><div class="nav-t"><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
+              <div class="nav"><div class="av">白</div><div class="nav-t"><div class="nav-n">白鹤Haku</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
+            </div>
+            <!-- part3：关注栏下侧设置按钮 -->
+            <div class="sb-foot" id="sbFoot">
+              <div class="setbtn"><span class="ic">⚙</span>设置<span class="chev">›</span></div>
+            </div>
           </aside>
           <main class="mn">
             <div class="tb">
@@ -177,6 +198,8 @@
         gsap.set("#appwin", { opacity: 0, scale: 0.97 });
         gsap.set("#t1", { opacity: 0, x: -60 });
         gsap.set("#t2", { opacity: 0, y: 24 });
+        gsap.set("#sbTop", { opacity: 0, x: -40 });
+        gsap.set("#sbFoot", { opacity: 0, x: -40, y: 22 });
         gsap.set(".nav", { opacity: 0, x: -32 });
         gsap.set("[data-tile]", { opacity: 0, z: -420, scale: 0.86 });
 
@@ -197,28 +220,44 @@
         tl.fromTo("#appwin",
           { opacity: 0, scale: 0.97 },
           { opacity: 1, scale: 1, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 2.00);
-        /* 关注卡片依次飞入（stagger 60ms） */
-        tl.to(".nav", { opacity: 1, x: 0, duration: 0.40, ease: EASE_OUT,
-                        stagger: 0.06, immediateRender: false }, 2.26);
-        /* 1+5 的 6 格从画布外飞入（stagger 70ms），落位描边闪一次 accent */
-        tl.to("[data-tile]", { opacity: 1, z: 0, scale: 1, duration: 0.46, ease: EASE_OUT,
-                               stagger: 0.07, immediateRender: false }, 2.34);
+        /* part1：关注栏上部分整块落位，关注项再依次落位 */
+        tl.to("#sbTop", { opacity: 1, x: 0, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 2.24);
+        tl.to(".nav", { opacity: 1, x: 0, duration: 0.36, ease: EASE_OUT,
+                        stagger: 0.06, immediateRender: false }, 2.34);
+        /* part3：下侧设置按钮 */
+        tl.to("#sbFoot", { opacity: 1, x: 0, y: 0, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 2.46);
+        /* part2：1+5 里的主画面「1」先落位 */
+        tl.to(".t0", { opacity: 1, z: 0, scale: 1, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 2.40);
+        /* part4：剩下的 5 个小格子依次归位 */
+        tl.to([".t1", ".t2", ".t3", ".t4", ".t5"],
+          { opacity: 1, z: 0, scale: 1, duration: 0.46, ease: EASE_OUT,
+            stagger: 0.07, immediateRender: false }, 2.56);
         tl.to("[data-tile]", { borderColor: "rgba(0,161,214,.75)", duration: 0.10,
-                               stagger: 0.07, immediateRender: false }, 2.60);
+                               stagger: 0.06, immediateRender: false }, 2.76);
         tl.to("[data-tile]", { borderColor: "rgba(131,131,145,.16)", duration: 0.34,
-                               stagger: 0.07, immediateRender: false }, 2.72);
+                               stagger: 0.06, immediateRender: false }, 2.88);
 
         /* ================= 03（4.0–6.0）视角突然向前推进 + 软件拆开 =================
-           整机冲镜头，同时各元素沿各自法线散开。 */
+           按 part1/2/3/4 的部件拆开：关注栏上部分 / 设置按钮 / 工具栏 / 主画面「1」/ 5 个小格子，
+           各自沿法线散开。整机同时冲向镜头。 */
         tl.fromTo("#camera",
           { x: -120, z: 0 },
           { x: -60, z: 240, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.00);
-        tl.to("#sb",
-          { x: -140, z: 60, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
-        tl.to("[data-tile]",
-          { z: 160, duration: 0.62, ease: EASE_IO, stagger: 0.03, immediateRender: false }, 4.06);
+        tl.to("#sbTop",
+          { x: -150, z: 40, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.to("#sbFoot",
+          { x: -196, y: 48, z: 16, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.10);
         tl.to(".tb",
-          { z: 120, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
+          { y: -88, z: 90, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.08);
+        /* 主画面冲得最前 */
+        tl.to(".t0",
+          { z: 210, scale: 1.03, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.06);
+        /* 5 个小格子各朝自己的方向散开 */
+        tl.to(".t1", { x: 96, y: -56, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.08);
+        tl.to(".t2", { x: 106, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.10);
+        tl.to(".t3", { x: 62, y: 80, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.12);
+        tl.to(".t4", { y: 94, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.14);
+        tl.to(".t5", { x: 78, y: 86, z: 150, duration: 0.62, ease: EASE_IO, immediateRender: false }, 4.16);
 
         /* ================= 04（6.0–8.0）各元素消散 + 中央标题 ================= */
         tl.to("#appwin", { opacity: 0, scale: 1.06, duration: 0.42, ease: EASE_OUT, immediateRender: false }, 6.00);

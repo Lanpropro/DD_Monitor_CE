@@ -50,13 +50,26 @@
 
       /* ---------- 软件窗口（theme.py 深灰）---------- */
       .appwin {
-        position: absolute; left: 250px; top: 300px; width: 1382px; height: 830px;
+        position: absolute; left: 250px; top: 252px; width: 1382px; height: 792px;
         display: flex; background: var(--bg); border: 1px solid var(--border-strong);
         border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
         will-change: transform, opacity;
       }
       #appwin { left: 0; top: 0; }
-      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border); padding: 14px 12px; }
+      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border);
+            position: relative; overflow: hidden; }
+      /* part1 = 关注栏上部分（绝对定位，避免被内容挤出可视区） */
+      .sb-top { position: absolute; left: 0; right: 0; top: 0; bottom: 62px; padding: 14px 12px; overflow: hidden; }
+      /* part3 = 关注栏下侧设置按钮（钉在底部） */
+      .sb-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 62px;
+                 padding: 10px 12px 12px; border-top: 1px solid var(--border); box-sizing: border-box; }
+      .setbtn {
+        height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
+        border-radius: 10px; background: var(--content); border: 1px solid var(--border);
+        color: var(--text2); font-size: 13px; font-weight: 600; box-sizing: border-box;
+      }
+      .setbtn .ic { color: var(--text3); font-size: 15px; }
+      .setbtn .chev { margin-left: auto; color: var(--text3); font-size: 12px; }
       .sb-t { font-size: 17px; font-weight: 600; color: var(--text1); }
       .sb-s { font-size: 12px; color: var(--text3); margin-top: 3px; }
       .sb-lbl { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text3); }
@@ -127,13 +140,18 @@
         <!-- 软件窗口 -->
         <div class="appwin" id="appwin">
           <aside class="sb">
-            <div class="sb-t">DD监控室CE</div>
-            <div class="sb-s">多窗口直播监控</div>
-            <div class="sb-lbl">正在直播</div>
-            <div class="nav sel"><div class="av">莉</div><div><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281</div></div><span class="bd-live">直播</span></div>
-            <div class="nav"><div class="av">羽</div><div><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
-            <div class="nav"><div class="av">星</div><div><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
-            <div class="nav"><div class="av">柊</div><div><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div></div>
+            <div class="sb-top">
+              <div class="sb-t">DD监控室CE</div>
+              <div class="sb-s">多窗口直播监控</div>
+              <div class="sb-lbl">正在直播</div>
+              <div class="nav sel"><div class="av">莉</div><div><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">羽</div><div><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">星</div><div><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">柊</div><div><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div></div>
+            </div>
+            <div class="sb-foot">
+              <div class="setbtn"><span class="ic">⚙</span>设置<span class="chev">›</span></div>
+            </div>
           </aside>
           <main class="mn">
             <div class="tb">
@@ -269,7 +287,7 @@
         var tl = gsap.timeline({ paused: true });
 
         /* ---- 基线（时间轴外）---- */
-        gsap.set("#appwin", { left: 250, top: 300, width: 1382, height: 830, opacity: 0, scale: 1 });
+        gsap.set("#appwin", { left: 250, top: 252, width: 1382, height: 792, opacity: 0, scale: 1 });
         gsap.set("#h05", { opacity: 0, y: 26 });
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
@@ -294,7 +312,7 @@
 
         /* ============ 06（2.0–4.0）弹幕布局 + 弹幕上滚 + 镜头聚焦 ============ */
         tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.90);
-        tl.to("#appwin", { left: 140, top: 300, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
+        tl.to("#appwin", { left: 140, top: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
         tl.fromTo("#h06", { opacity: 0, x: 40 },
           { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.06);
         /* 弹幕格点亮：直接补间描边（class 切换没法在时间轴上 seek） */
@@ -309,7 +327,7 @@
         tl.fromTo("#h07", { opacity: 0, y: -22 },
           { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 4.02);
         /* 左半保留 06 定格（缩小推到左侧），右半飞入竖屏 */
-        tl.to("#appwin", { scale: 0.62, left: -420, top: 300, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.to("#appwin", { scale: 0.62, left: -420, top: 252, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
         tl.fromTo("#portrait", { opacity: 0, x: 220 },
           { opacity: 1, x: 0, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
         /* 16:9 → 9:16 连续变形（宽度收窄、高度长出），内部重排 */

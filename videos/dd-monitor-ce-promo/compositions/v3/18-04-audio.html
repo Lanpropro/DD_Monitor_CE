@@ -52,12 +52,25 @@
 
       /* ---------- 软件窗口 ---------- */
       .appwin {
-        position: absolute; left: 210px; top: 330px; width: 1500px; height: 800px;
+        position: absolute; left: 210px; top: 262px; width: 1500px; height: 770px;
         display: flex; background: var(--bg); border: 1px solid var(--border-strong);
         border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
         will-change: transform, opacity;
       }
-      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border); padding: 14px 12px; }
+      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border);
+            position: relative; overflow: hidden; }
+      /* part1 = 关注栏上部分（绝对定位） */
+      .sb-top { position: absolute; left: 0; right: 0; top: 0; bottom: 62px; padding: 14px 12px; overflow: hidden; }
+      /* part3 = 关注栏下侧设置按钮（钉在底部） */
+      .sb-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 62px;
+                 padding: 10px 12px 12px; border-top: 1px solid var(--border); box-sizing: border-box; }
+      .setbtn {
+        height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
+        border-radius: 10px; background: var(--content); border: 1px solid var(--border);
+        color: var(--text2); font-size: 13px; font-weight: 600; box-sizing: border-box;
+      }
+      .setbtn .ic { color: var(--text3); font-size: 15px; }
+      .setbtn .chev { margin-left: auto; color: var(--text3); font-size: 12px; }
       .sb-t { font-size: 17px; font-weight: 600; color: var(--text1); }
       .sb-lbl { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text3); }
       .nav { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 8px; border-radius: 8px; }
@@ -111,12 +124,17 @@
 
         <div class="appwin" id="appwin">
           <aside class="sb">
-            <div class="sb-t">DD监控室CE</div>
-            <div class="sb-lbl">正在直播</div>
-            <div class="nav sel"><div class="av">莉</div><div><div class="nav-n">莉蔻Liko</div></div></div>
-            <div class="nav"><div class="av">羽</div><div><div class="nav-n">羽啾chu2u</div></div></div>
-            <div class="nav"><div class="av">星</div><div><div class="nav-n">星野Aki</div></div></div>
-            <div class="nav"><div class="av">柊</div><div><div class="nav-n">柊镜Kagami</div></div></div>
+            <div class="sb-top">
+              <div class="sb-t">DD监控室CE</div>
+              <div class="sb-lbl">正在直播</div>
+              <div class="nav sel"><div class="av">莉</div><div><div class="nav-n">莉蔻Liko</div></div></div>
+              <div class="nav"><div class="av">羽</div><div><div class="nav-n">羽啾chu2u</div></div></div>
+              <div class="nav"><div class="av">星</div><div><div class="nav-n">星野Aki</div></div></div>
+              <div class="nav"><div class="av">柊</div><div><div class="nav-n">柊镜Kagami</div></div></div>
+            </div>
+            <div class="sb-foot">
+              <div class="setbtn"><span class="ic">⚙</span>设置<span class="chev">›</span></div>
+            </div>
           </aside>
           <main class="mn">
             <div class="tb">
@@ -196,7 +214,7 @@
         gsap.set("#h09", { opacity: 0, y: 26 });
         gsap.set("#h10a", { opacity: 0, scale: 0.96 });
         gsap.set("#h10b", { opacity: 0, y: -20 });
-        gsap.set("#appwin", { opacity: 0, left: 210, top: 330, scale: 1 });
+        gsap.set("#appwin", { opacity: 0, left: 210, top: 262, scale: 1 });
         gsap.set("[data-vol]", { opacity: 0, scaleX: 0.2 });
         gsap.set("#cursor", { opacity: 0, x: 260, y: 720 });
         (function () { var g = geom([0,0,1,1], LAYOUTS["3x3"]);
@@ -230,13 +248,13 @@
         tl.fromTo("#h10a", { opacity: 0, scale: 0.96 },
           { opacity: 1, scale: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 4.96);
         tl.to("#h10a", { scale: 1.85, y: -120, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
-        tl.to("#appwin", { top: 470, scale: 0.94, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
+        tl.to("#appwin", { top: 402, scale: 0.94, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
         /* ② 软件上移、布局 1x1 → 1x2、标题上移换文案 */
         tl.to("#h10a", { opacity: 0, duration: 0.24, immediateRender: false }, 6.40);
         track(tl, 6.30, "1x1", 0.30);
         tl.fromTo("#h10b", { opacity: 0, y: -20 },
           { opacity: 1, y: 0, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 6.52);
-        tl.to("#appwin", { top: 360, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
+        tl.to("#appwin", { top: 292, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
         track(tl, 6.90, "1x2", 0.46);
         /* ③ 光标点左格「只播左声道」、右格「只播右声道」 */
         tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, 7.42);
