@@ -33,7 +33,7 @@ from .images import AvatarLoader, CachedCoverLoader
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
-from .widgets import Sidebar, WallGrid
+from .widgets import Sidebar, Tile, WallGrid
 
 MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
@@ -878,6 +878,18 @@ class MainWindow(QMainWindow):
         return next((tile for tile in self.wall.tiles
                      if str(tile.room.get("room_id") or "") == str(room_id)), None)
 
+    def _sender_tile(self):
+        """发信号的那个格子；不是格子发的（定时器之类）返回 None。
+
+        定位操作对象**别用 room_id 反查**：同一个直播间占了两个格子时（配置里
+        存重了、或同一张卡片被拖上两次），反查只命中列表里第一个 —— 于是「静音
+        这一格」把另一格的播放器静音了，这一格反倒还在出声，而标志是画在自己
+        身上的、照样亮着。用户报的「开这格静音，旁边那格声音不对」就是这个。
+        这些信号都是直接连接的，sender() 可靠；反查只留作兜底。
+        """
+        sender = self.sender()
+        return sender if isinstance(sender, Tile) else None
+
     def _prepare_room(self, room: dict) -> dict:
         """按全局设置给新上墙的直播间补默认静音 / 音量。"""
         if "muted" not in room:
@@ -1153,14 +1165,14 @@ class MainWindow(QMainWindow):
 
     # ---- 单个格子的操作 ----
     def _on_volume_changed(self, room: dict, value: int) -> None:
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_volume(value)
         self._save_timer.start()       # 滑块停下 700ms 后保存每个格子的音量
 
     def _on_audio_changed(self, room: dict, value: int) -> None:
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             if player.needs_audio_restart(value):
@@ -1178,7 +1190,7 @@ class MainWindow(QMainWindow):
 
     def _on_quality_changed(self, room: dict, quality: int) -> None:
         # 注意：Qt 信号传过来的 dict 是副本，必须写回格子自己的字典
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         if tile is None:
             return
         tile.quality = quality
@@ -1187,7 +1199,7 @@ class MainWindow(QMainWindow):
             self.start_tile(tile)
 
     def _on_mute_changed(self, room: dict, muted: bool) -> None:
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_muted(muted)

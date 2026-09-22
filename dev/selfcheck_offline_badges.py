@@ -75,9 +75,11 @@ def check_badges(tile, label) -> None:
           f" 人数隐藏={getattr(badge, '_compact', False)}"
           f" 标题可见={title.isVisible()} 标题={title.geometry().getRect() if title.isVisible() else None}"
           f" 控制条=({controls.x()},{controls.y()}){'（换行）' if stacked else ''}")
-    if stacked:
-        assert badge.y() + badge.height() <= controls.y() - 2, "LIVE 浮标和控制条立体重叠"
-    else:
+    # 控制条现在**永远钉在右上角**（不再为浮标折到第二行 —— 那正是用户报的
+    # 「竖屏格子右上角按钮错位」）；第一行挤不下时改成把**浮标**收起来，
+    # 所以这里只要求「露出来的浮标不压控制条」。
+    assert not stacked, "控制条不该再折到第二行（该让位的是浮标）"
+    if badge.isVisible():
         assert badge.x() + badge.width() <= controls.x() - 4, "LIVE 浮标压到控制条了"
     if title.isVisible():
         assert badge.x() + badge.width() <= title.x() - 2, "标题压到 LIVE 了"

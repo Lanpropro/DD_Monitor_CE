@@ -4191,14 +4191,16 @@ class Tile(QFrame):
 
         self.room["volume"] = self.volume
         self.room["muted"] = self.muted
-        self.stream_badge.setVisible(bool(self._overlay_visible))
+        self._sync_stream_badge()
         self._cover_source = cover if cover is not None else self.room.get("cover")
         self.title_badge.set_text(self.room.get("uname", ""), self.room.get("title", ""))
         self.title_badge.setVisible(bool(self.room.get("uname")) and self._overlay_visible)
         self._refresh_badge()
         self.quality = int(self.room.get("quality", 250))
         self.actual_quality = 0
-        self.audio_channel = int(self.room.get("audio_channel", 0))
+        # 声道和音量 / 静音一样属于**格子**，不跟着房间走：换台不该把用户调好的
+        # 「只播左 / 只播右」丢掉。房间自带的那份只在第一次上墙时用（_prepare_room）。
+        self.room["audio_channel"] = self.audio_channel
         self.quality_button.setText(self._quality_text())
         self.volume_slider.blockSignals(True)
         self.volume_slider.setValue(self.volume)
@@ -4355,9 +4357,9 @@ class Tile(QFrame):
         live = bool(self.room.get("live"))
         # 优先显示实时在线人数；还没拉到就别拿人气值顶上（那个数看着很像异常）
         self.stream_badge.set_state(live, watched or (WATCHING_TEXT if live else ""))
-        # 悬停才露（和控制条同步）；不然一屏好几格的 LIVE 一直挂着太吵
-        self.stream_badge.setVisible(bool(self.room.get("room_id"))
-                                     and self._overlay_visible)
+        # 悬停才露（和控制条同步）；不然一屏好几格的 LIVE 一直挂着太吵。
+        # 宽度够不够同时放下它和控制条，交给 _sync_stream_badge() 一起算
+        self._sync_stream_badge()
         self._layout_areas()          # 浮标宽度会变（人数位数不同），标题要跟着重新让位
         if watched and popularity:
             self.stream_badge.setToolTip(f"{watched} 人在线 · 人气 {popularity}")
@@ -4449,7 +4451,7 @@ class Tile(QFrame):
         self.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
         self._overlay_visible = visible
-        self.stream_badge.setVisible(visible and bool(self.room.get("room_id")))
+        self._sync_stream_badge()
         # 右下角的直播时长和它们一样：鼠标在格子上才露出来
         self.time_badge.setVisible(self._elapsed_visible())
         if visible and getattr(self, "_overlay_ready", False):
@@ -4540,12 +4542,14 @@ class Tile(QFrame):
         self.stream_badge.move(10, 8)
         self.stream_badge.raise_()
         self._layout_controls()
-        # 人数优先留着（用户要求：别把人数藏掉、浮标该跟着变长）：
-        # 只有格子窄到连「LIVE + 人数」都摆不下时才收起人数，一般情况让
-        # 控制条折到第二行去腾地方
-        self.stream_badge.set_compact(width < self.stream_badge.full_width() + 20)
-        if self.controls.x() < self.stream_badge.width() + 22:
-            self.controls.move(self.controls.x(), 8 + BADGE_HEIGHT + 6)
+        # 第一行要同时站得下「LIVE 浮标」和「控制条」，控制条永远钉在右上角。
+        # 以前是让控制条折到第二行去给浮标腾地方，结果它跑出了右上角、还压在
+        # 画面中间的封面文字上（用户报的「竖屏格子右上角按钮错位」）。现在反过来
+        # 让浮标让位：先收起人数（浮标变短），实在不够再整个收起来。
+        # 浮标的宽度和显隐只由 _sync_stream_badge() 决定 —— 别在这里再写一套
+        # 「if overlay: setVisible(...)」，那样 overlay 收起来时它就不受控了
+        # （放不下的浮标会一直露着，压住右上角控制条）。
+        self._sync_stream_badge()
         # 标题浮标紧跟在 LIVE 右边，剩下的宽度让给控制条那一行
         controls_left = (video_right - 10
                          if self.controls.y() > 20 else self.controls.x())
@@ -4575,6 +4579,30 @@ class Tile(QFrame):
         # 视频是原生窗口，压在浮层上就点不到按钮（用户报的竖屏 1+4 关不掉）
         self.raise_overlays()
         self._round_video()
+
+    def _sync_stream_badge(self) -> bool:
+        """收窄 / 显隐 LIVE 浮标，让它和右上角的控制条在同一行站得下。
+
+        返回「浮标露出来了没有」。
+
+        第一行右边是控制条（画质 / 重连 / 关闭）—— 它是操作入口，必须钉在右上角，
+        跑掉了就点不准。所以空间不够时让浮标让位：先收起人数（`set_compact`），
+        再不够就整个收起来。
+
+        注意别再用「格子够不够宽放下浮标自己」来判定：浮标放得下、加上控制条就
+        不一定放得下，那正是控制条被挤到第二行的原因。
+
+        **可见性只在这里决定**：以前好几处各设各的（`set_room` / `_refresh_badge` /
+        `set_controls_visible`），漏一处就会出现「放不下却还露着」；`_layout_areas`
+        那句还带了个 `if self._overlay_visible`，overlay 收起来时干脆不设，浮标就
+        一直保持默认的可见。
+        """
+        room = self.width() - 10 - self.controls.width() - 12 - 10
+        self.stream_badge.set_compact(self.stream_badge.full_width() > room)
+        visible = (self._overlay_visible and bool(self.room.get("room_id"))
+                   and self.stream_badge.width() <= room)
+        self.stream_badge.setVisible(visible)
+        return visible
 
     def _round_video(self) -> None:
         """视频窗口的圆角遮罩。
