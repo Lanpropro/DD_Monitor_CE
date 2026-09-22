@@ -54,7 +54,8 @@
          压在深灰窗口上也读不出来。窗口在 06 段最高到 y252、最低到 y1044，
          标题高 120px 只有落在 y<252 才安全。 */
       #h06 { top: 60px; left: auto; right: 110px; width: 660px; text-align: right; font-size: 74px; }
-      #h07 { top: 58px; font-size: 76px; }
+      /* 07：标题放**左上**（用户 2026-09-22，照他给的排版截图） */
+      #h07 { top: 60px; left: 110px; right: auto; width: 1080px; text-align: left; font-size: 76px; }
 
       /* ---------- 软件窗口（theme.py 深灰）---------- */
       .appwin {
@@ -89,16 +90,17 @@
          用户 2026-09-22：不要用合成的画面。object-fit: cover 让切片填满任意格子比例。 */
       .tile-img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-      /* 弹幕格 */
-      .dm { position: absolute; inset: 0; background: rgba(18,20,25,.96); display: flex; flex-direction: column; }
-      .dm-hd { height: 30px; flex: 0 0 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px;
-               background: rgba(255,255,255,.025); border-bottom: 1px solid rgba(255,255,255,.07); }
-      .dm-dot { color: var(--pink); font-size: 9px; }
-      .dm-t { font-size: 12px; font-weight: 700; color: var(--text1); }
-      .dm-c { margin-left: auto; font-size: 11px; color: #6bd8ff; background: rgba(0,174,236,.16); border-radius: 9px; padding: 0 8px; }
-      .dm-body { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-      .dm-roll { position: absolute; left: 10px; right: 10px; top: 0; will-change: transform; }
-      .dm-line { font-size: 12px; line-height: 1.9; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      /* 弹幕格 —— 用户 2026-09-22：**这一屏也截真实画面**（他手动截取），
+         我方负责拼接与上滚动效。所以这里清掉我编的弹幕文本和那条"弹幕/已连接"标题栏，
+         只留滚动容器；真实截图到位后按顺序放 <img class="dm-img">，上滚补间自动把它们串起来。 */
+      .dm { position: absolute; inset: 0; background: rgba(18,20,25,.96); }
+      .dm-body { position: absolute; inset: 0; overflow: hidden; }
+      .dm-roll { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+      .dm-img { display: block; width: 100%; }
+      /* 素材未到位时的留空标注（手稿：没有素材的情况下先留空标注） */
+      .dm-slot { display: flex; align-items: center; justify-content: center; height: 420px; margin: 10px;
+                 border: 1px dashed rgba(131,131,145,.45); border-radius: 6px;
+                 font-size: 12px; font-weight: 600; color: rgba(184,189,197,.75); }
 
       /* ---------- 07 竖屏窗口 ---------- */
       .portrait {
@@ -108,10 +110,10 @@
         will-change: transform, opacity;
       }
       .portrait .mn { height: 100%; }
-      .pt-main { position: absolute; left: 10px; right: 10px; height: 236px; background-color: var(--tile);
+      .pt-main { position: absolute; left: 10px; right: 10px; height: 420px; background-color: var(--tile);
                  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
                  background-size: cover; background-position: center; }
-      .pt-row { position: absolute; left: 10px; right: 10px; height: 200px; display: flex; gap: 6px; }
+      .pt-row { position: absolute; left: 10px; right: 10px; height: 330px; display: flex; gap: 6px; }
       .pt-row > div { flex: 1; background-color: var(--tile); border: 1px solid var(--border); border-radius: 10px;
                       overflow: hidden; position: relative; background-size: cover; background-position: center; }
     </style>
@@ -139,23 +141,14 @@
               <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s20.png" alt=""></div>
               <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s21.png" alt=""></div>
               <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s22.png" alt=""></div>
-              <!-- 弹幕格（06 用）—— 弹幕文本仍是占位，等真实素材（M3）替换 -->
+              <!-- 弹幕格（06 用）—— **[素材: 弹幕画面] 由用户手动截取真实画面**（2026-09-22 确认），
+                   我方负责拼接与上滚动效。截图到位后放到 assets/real/real-danmaku-*.png，
+                   在这里按顺序放 <img class="dm-img" src="…"> —— #dmRoll 的 linear 上滚补间
+                   会把它们连成一串滚上去，排版不用再动。 -->
               <div class="tile" data-tile id="tileDm">
                 <div class="dm">
-                  <div class="dm-hd"><span class="dm-dot">●</span><span class="dm-t">弹幕</span><span class="dm-c">已连接</span></div>
                   <div class="dm-body"><div class="dm-roll" id="dmRoll">
-                    <div class="dm-line">莉蔻Liko：这个布局太爽了</div>
-                    <div class="dm-line">羽啾chu2u：九路同开不卡吗</div>
-                    <div class="dm-line">星野Aki：主画面钉住真好用</div>
-                    <div class="dm-line">路人甲：终于不用开一堆窗口</div>
-                    <div class="dm-line">柊镜Kagami：竖屏也能监控？</div>
-                    <div class="dm-line">夜见Yomi：左右声道是独一份</div>
-                    <div class="dm-line">白鹤Haku：这墙滚起来真有感觉</div>
-                    <div class="dm-line">莉蔻Liko：弹幕格还能单独调</div>
-                    <div class="dm-line">羽啾chu2u：缓冲速度确实快</div>
-                    <div class="dm-line">星野Aki：内存占用也低</div>
-                    <div class="dm-line">路人乙：开源免费好评</div>
-                    <div class="dm-line">柊镜Kagami：插件还能自己写</div>
+                    <div class="dm-slot">[素材: 弹幕画面]</div>
                   </div></div>
                 </div>
               </div>
@@ -165,10 +158,10 @@
 
         <!-- 07 竖屏窗口（右侧飞入） -->
         <div class="portrait" id="portrait">
+          <!-- 竖屏 1+2（手稿 07：「右侧飞入竖屏画面 1+2 布局」）：主画面整宽 + 下面 2 小 -->
           <main class="mn" style="position:relative;">
             <div class="pt-main" style="background-image: url('assets/real/real-main.png')"></div>
-            <div class="pt-row" style="top: 262px;"><div style="background-image: url('assets/real/real-s02.png')"></div><div style="background-image: url('assets/real/real-s12.png')"></div></div>
-            <div class="pt-row" style="top: 474px;"><div style="background-image: url('assets/real/real-s20.png')"></div><div style="background-image: url('assets/real/real-s21.png')"></div></div>
+            <div class="pt-row" style="top: 440px;"><div style="background-image: url('assets/real/real-s02.png')"></div><div style="background-image: url('assets/real/real-s12.png')"></div></div>
           </main>
         </div>
       </div>
@@ -260,7 +253,7 @@
         gsap.set("#h05", { opacity: 0, y: 26 });
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
-        gsap.set("#portrait", { opacity: 0, width: 700, height: 480, x: 1140, y: 320 });
+        gsap.set("#portrait", { opacity: 0, width: 700, height: 480, x: 1560, y: 300 });
         gsap.set("#tileDm", { opacity: 0 });
         /* 格子初始收在 1x1 的位置，避免首帧闪一个错布局 */
         (function () {
@@ -298,18 +291,19 @@
         tl.to("#h06", { opacity: 0, x: 30, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 3.94);
         tl.fromTo("#h07", { opacity: 0, y: -22 },
           { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 4.02);
-        /* 左半保留 06 定格（缩小推到左侧），右半飞入竖屏 */
-        tl.to("#appwin", { scale: 0.62, x: -420, y: 252, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
-        /* 飞入的淡入与 16:9 → 9:16 的变形同时开始（4.16）——两个 tween 补的是不同属性，
-           不会互相抢占 transform；错开开始时间反而会让 x 在两个 tween 之间跳变。
-           16:9 → 9:16：宽度收窄、高度长出，位置从右侧移到右上。 */
+        /* 07 的排版照用户 2026-09-22 给的截图：**左侧横屏窗口在左下、右侧竖屏窗口更高、
+           两者底边对齐**，标题移到左上。
+           - #appwin：scale .71 / x -200 / y 403 → box 约 (0, 518, 981, 562)，
+             左缘贴画面左边、下沿正好落 1080（贴底）
+           - #portrait：430x780 / x 1243 / y 300 → box 底边同样是 1080，与横屏窗口齐平；
+             左缘 1243 与横屏右缘 981 相距 262px
+           淡入与 16:9 → 9:16 的变形同时开始（4.16）——补的是不同属性，不会互相抢占 transform；
+           错开开始时间反而会让 x 在两个 tween 之间跳变。 */
+        tl.to("#appwin", { scale: 0.71, x: -200, y: 403, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
         tl.fromTo("#portrait", { opacity: 0 },
           { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
-        /* 竖屏终态 x 880 / y 200（用户 2026-09-22：下方的两个软件页面排得靠近一些）。
-           左侧 06 缩到 scale .62 后 box 右缘约 700，竖屏左缘 880 → 间距 180px；
-           y 200 也避开上方标题（标题占 y 58–180）。 */
-        tl.fromTo("#portrait", { width: 700, height: 480, x: 1140, y: 320 },
-          { width: 430, height: 780, x: 880, y: 200, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
+        tl.fromTo("#portrait", { width: 700, height: 480, x: 1560, y: 300 },
+          { width: 430, height: 780, x: 1243, y: 300, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
 
         tl.to({}, { duration: 0.01 }, 5.99);
 
