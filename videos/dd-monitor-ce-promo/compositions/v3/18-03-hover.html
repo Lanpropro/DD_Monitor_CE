@@ -6,7 +6,7 @@
     <script src="assets/lib/gsap.min.js"></script>
     <style>
       /* ==========================================================================
-         18-03-hover  ——  C 组：08（0.0–7.5s）「悬停预览 · 如此轻松」
+         18-03-hover  ——  C 组：08（0.0–8.382s）「悬停预览 · 如此轻松」
 
          照参考片 17.08–23.17s 那个画面做：
            · 背景 = 从参考片 19.0s 裁出的灰墙（已用 delogo 抹掉 bilibili 水印）
@@ -44,7 +44,12 @@
              → 从 `聚焦卡片_卡片预览.mp4` 各裁 3s：`preview-liko.mp4` / `preview-shio.mp4` /
                `preview-komichi.mp4`（760x428 @30fps，与旧 rec-preview.mp4 同规格）。
 
-         每轮 **2.286s = 12 拍**（0.1905s 网格，与 01/02 同一张），整段 7.5s。
+           ⑦「将悬停播放的时长稍微延长一点，就可以尝试对齐 01/02 了」→ 预览 1.00 -> **1.1905s**（+1 拍）、
+             每轮 12 -> **13 拍（2.4765s）**，整段 **7.5 -> 8.382s（44 拍）**；
+             顺带修掉旧版的尾巴：旧版三轮从 0.762 起、每轮 2.286s，最后一轮 7.62s 才收完
+             而片段只有 7.5s，片尾会留一张卡悬在半空。
+
+         每轮 **2.4765s = 13 拍**（0.1905s 网格，与 01/02 同一张），整段 **8.382s = 44 拍**。
 
          ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
          ⚠ 承载 <video> 的容器不要补间 width/height、不要写 will-change —— 会让 video 丢帧。
@@ -139,7 +144,7 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="7.5" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="8.382" data-width="1920" data-height="1080">
 
       <!-- 背景 / 暗角 / 灯光 / 阴影（与 01 同款，按 03 的构图重摆） -->
       <img class="bg" src="assets/real/bg-hall.jpg" alt="">
@@ -235,15 +240,18 @@
                 0.10 + i * 0.1905);
         });
 
-        /* ---- 三轮：向上抬起 → 光标上移 → 卡面换成预览录像（约 1s）→ 收回 ----
-           每轮 2.286s = 12 拍（0.1905s 网格）；起点 0.762 / 3.048 / 5.334。
-           抬起量 250 / 下沉 28 都是按卡片高度（445 对 552）等比缩下来的，观感与上一版一致。 */
-        var ROUND = 12 * 0.1905;      /* 2.286 */
+        /* ---- 三轮：向上抬起 → 光标上移 → 卡面换成预览录像（约 1.2s）→ 收回 ----
+           用户 2026-09-23：「将悬停播放的时长稍微延长一点，就可以尝试对齐 01/02 了」
+           → 预览 1.00 -> **1.1905s（+1 拍）**，每轮 12 -> **13 拍（2.4765s）**：
+             起点 0.762 / 3.2385 / 5.715，第三轮 7.7655 预览结束、8.1915 收完，
+             整段 8.382s（44 拍）留 0.19s 尾 —— 旧版"片尾一张卡悬在半空"就是这么修掉的。
+           抬起量 250 / 下沉 28 是按卡片高度（445 对 552）等比缩下来的，观感与上一版一致。 */
+        var ROUND = 13 * 0.1905;      /* 2.4765 */
         function round(base, idx, vidId) {
           var card = "#k" + (idx + 1);
           var vid = vidId;
           var p = POS[idx];
-          var LIFT = 0.40, MOVE = 0.46, HOLD = 1.00, BACK = 0.426;
+          var LIFT = 0.40, MOVE = 0.46, HOLD = 1.1905, BACK = 0.426;
           var atCard = base + LIFT + MOVE;          /* 光标到位，开始预览 */
           var endHold = atCard + HOLD;              /* 预览满 1s */
 
@@ -284,9 +292,9 @@
         round(0.762 + ROUND, 3, "#v2");
         round(0.762 + ROUND * 2, 4, "#v3");
 
-        tl.to("#cursor", { opacity: 0, duration: 0.30, immediateRender: false }, 7.05);
+        tl.to("#cursor", { opacity: 0, duration: 0.30, immediateRender: false }, 7.95);
 
-        tl.to({}, { duration: 0.01 }, 7.49);
+        tl.to({}, { duration: 0.01 }, 8.372);
 
         window.__timelines = window.__timelines || {};
         window.__timelines["18-03-hover"] = tl;
