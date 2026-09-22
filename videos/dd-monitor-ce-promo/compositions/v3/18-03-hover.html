@@ -15,19 +15,21 @@
            · 三轮：其中一张**向上抬起**（等比放大）→ 光标**上移**到卡上 →
              卡面换成**真实预览录像**（约 1s）→ 收回
 
-         用户 2026-09-22 的第二轮意见：
-           「卡片放大两倍；放不下就删掉没有录制视频的那几张；
-             预览时间留长一点、不要一移上去就跳过；三张卡片各完整展示一次，
-             预览 1s 左右；卡片抽出时前后透视关系要正确。」
+         用户 2026-09-22 第二轮意见：
+           「卡片放大两倍；放不下就删掉没有录制视频的那几张；预览时间留长一点；
+             三张卡片各完整展示一次，预览 1s 左右；卡片抽出时前后透视关系要正确。」
 
-         用户 2026-09-23 第三轮意见（附红框标注截图）：
-           「按照截图样式重新摆放一下卡片，**不要动 3D 效果**，保持前后的透视关系，
-             只是调整位置，让他在眼中看起来更倾斜。」
-           → 只改 POS（x/y/scale/zIndex），不加旋转、不改卡片尺寸、不动三段动效。
-             红框实测 6 个位置，所以队列 5 张 -> **6 张**。
+         用户 2026-09-23 第三轮意见：
+           ①（附红框标注截图）「按照截图样式重新摆放一下卡片，**不要动 3D 效果**，
+             保持前后的透视关系，只是调整位置，让他在眼中看起来更倾斜」
+             → 只改 POS；红框实测 6 个位置，队列 5 张 -> 6 张。
+           ②「将每张卡片放大为原来的 **1.5 倍**，多的部分删去，
+             但是不要删除有录制素材的卡片」
+             → 卡片 600x340 -> **900x510**；900 宽在 1920 画面里只摆得下 **5 张**，
+               所以删掉最右上那张没有录像的 `card-6`，重新按放大后的尺寸铺队列
+               （露出宽度统一约 216px），**有录像的 #k1 / #k4 / #k5 一张不少**。
 
-         于是：卡片 600x340（两倍），整段 5.0s -> **7.5s**，
-         每轮 **2.286s = 12 拍**（0.1905s 网格，与 01/02 同一张）。
+         每轮 **2.286s = 12 拍**（0.1905s 网格，与 01/02 同一张），整段 7.5s。
 
          ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
          ⚠ 承载 <video> 的容器不要补间 width/height、不要写 will-change —— 会让 video 丢帧。
@@ -61,21 +63,18 @@
       .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
       .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
 
-      /* 卡片队列：一排六张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
-         尺寸 600x340 = 原来的两倍（原 300x200，同时按素材比例 16:9 微调高度）。
-         用户 2026-09-23 红框实测（换算到 1920x1080）每个位置的中心：
-           x 333 / 647 / 940 / 1192 / 1436 / 1624
-           y 845 / 781 / 740 / 704 / 646 / 576
-         即越往右上越密（中心间距 313 -> 188）、落差越陡 —— 这就是"看起来更倾斜"。
-         ⚠ 缩放以元素中心为原点（transformOrigin 默认 50% 50%），所以卡中心 = (x+300, y+170)，
+      /* 卡片队列：一排五张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
+         尺寸 **900x510 = 600x340 的 1.5 倍**（保持素材 321:182 的比例，object-fit:cover 的裁切行为不变）。
+         圆角 22 -> 33、投影 32/64 -> 48/96 也按 1.5 倍走，观感与放大前一致。
+         ⚠ 缩放以元素中心为原点（transformOrigin 默认 50% 50%），所以卡中心 = (x+450, y+255)，
            改 scale 不会移动卡的位置。 */
       .stage { position: absolute; inset: 0; }
       .card {
-        position: absolute; left: 0; top: 0; width: 600px; height: 340px;
-        border-radius: 22px; overflow: hidden;
+        position: absolute; left: 0; top: 0; width: 900px; height: 510px;
+        border-radius: 33px; overflow: hidden;
         background: var(--card);
         border: 1px solid var(--card-edge);
-        box-shadow: 0 32px 64px rgba(16,17,20,.22), 0 2px 0 rgba(255,255,255,.5) inset;
+        box-shadow: 0 48px 96px rgba(16,17,20,.22), 0 3px 0 rgba(255,255,255,.5) inset;
       }
       .card .shot { display: block; width: 100%; height: 100%; object-fit: cover; }
       /* 预览录像：抽出到位后才淡入，盖在卡面上 */
@@ -95,10 +94,10 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 队列 = 6 张，逐一对着用户 2026-09-23 红框画的 6 个位置。
-           带预览录像的是 #k1(card-2) / #k4(card-5) / #k5(card-7)，这三张必须保留；
-           最右上的 #k6(card-6) 是按第 6 个红框补上的静态卡
-           （用户 2026-09-22：不是只留三张，摆得下就多摆）。 -->
+      <!-- 队列 = 5 张（放大 1.5 倍后 1920 画面里只摆得下 5 张）。
+           带预览录像的 #k1(card-2) / #k4(card-5) / #k5(card-7) 一张都不删；
+           删掉的是上一版最右上那张没有录像的 card-6
+           （用户 2026-09-23：多的部分删去，但不要删除有录制素材的卡片）。 -->
       <div class="stage" id="stage">
         <div class="card" id="k1">
           <img class="shot" src="assets/rec/card-2.png" alt="">
@@ -117,7 +116,6 @@
           <video class="vid" id="v3" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="5.334" data-duration="2.166"></video>
         </div>
-        <div class="card" id="k6"><img class="shot" src="assets/rec/card-6.png" alt=""></div>
       </div>
 
       <div class="cursor" id="cursor" style="opacity: 0;">
@@ -131,20 +129,20 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* ---- 队列：六张，从左下到右上排过去 ----
+        /* ---- 队列：五张，从左下到右上排过去 ----
            左边近（大、低、**在前**），右边远（小、高、在后）—— 左边遮挡右边。
-           坐标 = 用户红框实测中心 - 半个卡片（x-300 / y-170）：
-             中心 x 333 / 647 / 940 / 1192 / 1436 / 1624
-             中心 y 845 / 781 / 740 / 704 / 646 / 576
-           中心间距 313 -> 188 递密、落差 36~69 —— 比原来的等距 326 / 落差 34 斜得多。
-           scale 1.00 -> 0.72（原来 1.00 -> 0.78）让"近大远小"更明显。 */
+           放大 1.5 倍后按"每张露出约 216px"重铺（中心间距 241.5）：
+             中心 x 470 / 711.5 / 953 / 1194.5 / 1436
+             中心 y 795 / 731   / 690 / 654    / 596      （比红框那版整体上移 50px，
+                                                            因为卡高了 170px，底部要留在画面内）
+           最左卡左缘 20、最右卡右缘 1785 —— 五张都在 1920x1080 里。
+           scale 1.000 -> 0.776 保持"近大远小"；zIndex 5..1 保持左前右后。 */
         var POS = [
-          { x:   33, y: 676, s: 1.000, z: 6 },
-          { x:  347, y: 611, s: 0.944, z: 5 },
-          { x:  640, y: 570, s: 0.888, z: 4 },
-          { x:  892, y: 534, s: 0.832, z: 3 },
-          { x: 1136, y: 476, s: 0.776, z: 2 },
-          { x: 1324, y: 406, s: 0.720, z: 1 }
+          { x:   20, y: 540, s: 1.000, z: 5 },
+          { x:  262, y: 476, s: 0.944, z: 4 },
+          { x:  503, y: 435, s: 0.888, z: 3 },
+          { x:  745, y: 399, s: 0.832, z: 2 },
+          { x:  986, y: 341, s: 0.776, z: 1 }
         ];
 
         /* ---- 基线 ---- */
@@ -189,10 +187,10 @@
             tl.to("#k" + (j + 1), { y: q.y + 34, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
           });
 
-          /* 2) 光标**上移**到这张卡上 */
+          /* 2) 光标**上移**到这张卡上（卡宽 900，中心在 x+450） */
           tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, base + 0.10);
           tl.fromTo("#cursor", { x: 1240, y: 940 },
-            { x: p.x + 300 * p.s, y: p.y - 250, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
+            { x: p.x + 450, y: p.y - 220, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
 
           /* 3) 卡面换成真实预览录像 —— 到位置之后才淡入，留满 1s 不跳过 */
           tl.to(card + " .shot", { opacity: 0, duration: 0.30, ease: EASE_OUT, immediateRender: false }, atCard);
