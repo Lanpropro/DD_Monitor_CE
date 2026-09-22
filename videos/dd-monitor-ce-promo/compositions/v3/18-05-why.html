@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ==========================================================================
+         18-05-why  ——  E 组：11–13（0.0–7.5s）
+         11（0.0–2.5）「为啥不用浏览器」
+         12（2.5–5.0）「九路直播同开 / 超快的缓冲速度 / 平均时长约 [数值]」
+         13（5.0–7.5）「九路直播同开 / 超低的内存占用 / 平均占用约 [数值]」
+
+         色场：sc-deepblue #090c6d（照参考片 29.58–36.00s 的 #090c6d 50.7%）。
+         数值位留 [数值: …] 占位 —— 不编数字。
+         ========================================================================== */
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+
+      :root {
+        --sc-deepblue: #090c6d;
+        --acc-orange: #fcaa01;
+        --text1: #f1f2f5;
+        --text-dim: rgba(241,242,245,.62);
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root {
+        position: relative; width: 1920px; height: 1080px; overflow: hidden;
+        background: var(--sc-deepblue);
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+        -webkit-font-smoothing: antialiased; color: var(--text1);
+      }
+      .layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+      .block { text-align: center; will-change: transform, opacity; }
+      .q { font-size: 104px; font-weight: 700; letter-spacing: -.01em; line-height: 1.06; }
+      .cap { margin-top: 26px; font-size: 32px; font-weight: 600; letter-spacing: .18em; color: var(--text-dim); }
+
+      /* 12 / 13 共用「九路直播同开」这个头 —— 保持在原位不动，只换下面两行 */
+      .head-line { font-size: 92px; font-weight: 700; letter-spacing: -.01em; line-height: 1.06; }
+      .sub-line { margin-top: 22px; font-size: 46px; font-weight: 600; letter-spacing: .04em; }
+      .num-line { margin-top: 34px; font-size: 40px; font-weight: 600; letter-spacing: .08em; color: var(--text-dim); }
+      .slot {
+        display: inline-block; min-width: 200px; padding: 4px 18px; margin: 0 6px;
+        border: 1px dashed rgba(252,170,1,.7); border-radius: 10px;
+        color: var(--acc-orange); font-weight: 700;
+      }
+      /* 参考片深蓝段有斜向透视块，这里给一层极淡的对角结构而不是平铺 */
+      .diag {
+        position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+      }
+      .diag i {
+        position: absolute; display: block; width: 140%; height: 46%;
+        left: -20%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.045), transparent);
+        transform: rotate(-11deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="18-05-why" data-start="0" data-duration="7.5" data-width="1920" data-height="1080">
+      <div class="diag"><i style="top: 8%"></i><i style="top: 54%"></i></div>
+
+      <!-- 11 -->
+      <div class="layer" id="l11">
+        <div class="block">
+          <div class="q">为啥不用浏览器</div>
+          <div class="cap">九路同开，浏览器扛不住</div>
+        </div>
+      </div>
+
+      <!-- 12 -->
+      <div class="layer" id="l12" style="opacity: 0;">
+        <div class="block">
+          <div class="head-line" id="h12">九路直播同开</div>
+          <div class="sub-line" id="s12">超快的缓冲速度</div>
+          <div class="num-line" id="n12">平均时长约 <span class="slot">[数值: 平均缓冲时长]</span></div>
+        </div>
+      </div>
+
+      <!-- 13 -->
+      <div class="layer" id="l13" style="opacity: 0;">
+        <div class="block">
+          <div class="head-line" id="h13">九路直播同开</div>
+          <div class="sub-line" id="s13">超低的内存占用</div>
+          <div class="num-line" id="n13">平均占用约 <span class="slot">[数值: 平均内存占用]</span></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+        var tl = gsap.timeline({ paused: true });
+
+        /* ---- 基线 ---- */
+        gsap.set("#l11", { opacity: 0 });
+        gsap.set("#l11 .q", { opacity: 0, y: 30 });
+        gsap.set("#l11 .cap", { opacity: 0, y: 18 });
+        gsap.set("#l12", { opacity: 0 });
+        gsap.set("#h12", { opacity: 0, y: 26 });
+        gsap.set("#s12", { opacity: 0, y: 22 });
+        gsap.set("#n12", { opacity: 0, y: 18 });
+        gsap.set("#l13", { opacity: 0 });
+        gsap.set("#h13", { opacity: 0, y: 26 });
+        gsap.set("#s13", { opacity: 0, y: 22 });
+        gsap.set("#n13", { opacity: 0, y: 18 });
+
+        /* ============ 11（0.0–2.5）为啥不用浏览器 ============ */
+        tl.to("#l11", { opacity: 1, duration: 0.3, immediateRender: false }, 0);
+        tl.fromTo("#l11 .q", { opacity: 0, y: 30 },
+          { opacity: 1, y: 0, duration: 0.56, ease: EASE_OUT, immediateRender: false }, 0.10);
+        tl.fromTo("#l11 .cap", { opacity: 0, y: 18 },
+          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 0.42);
+        tl.to("#l11 .q", { opacity: 0, y: -24, duration: 0.3, ease: EASE_OUT, immediateRender: false }, 2.20);
+        tl.to("#l11 .cap", { opacity: 0, duration: 0.24, immediateRender: false }, 2.20);
+        tl.to("#l11", { opacity: 0, duration: 0.28, immediateRender: false }, 2.24);
+
+        /* ============ 12（2.5–5.0）超快的缓冲速度 ============ */
+        tl.to("#l12", { opacity: 1, duration: 0.3, immediateRender: false }, 2.48);
+        tl.fromTo("#h12", { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 2.54);
+        tl.fromTo("#s12", { opacity: 0, y: 22 },
+          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 2.86);
+        tl.fromTo("#n12", { opacity: 0, y: 18 },
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 3.14);
+        /* 出：只换下两行，「九路直播同开」留在原位接续到 13 */
+        tl.to("#s12", { opacity: 0, y: -16, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 4.62);
+        tl.to("#n12", { opacity: 0, y: -14, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 4.66);
+
+        /* ============ 13（5.0–7.5）超低的内存占用 ============ */
+        tl.to("#h12", { opacity: 0, duration: 0.22, immediateRender: false }, 4.92);
+        tl.fromTo("#h13", { opacity: 0, y: 0 },
+          { opacity: 1, y: 0, duration: 0.3, ease: EASE_OUT, immediateRender: false }, 4.94);
+        tl.fromTo("#s13", { opacity: 0, y: 22 },
+          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 5.10);
+        tl.fromTo("#n13", { opacity: 0, y: 18 },
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 5.38);
+
+        tl.to({}, { duration: 0.01 }, 7.49);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["18-05-why"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

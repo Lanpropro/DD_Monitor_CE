@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ============================================================
+         proto — DD监控室CE 软件界面前端原型
+         配色全部取自 ddm/theme.py（不是自造的）：
+           BG        = mix(#2a2d32, #000, .20) = #222428
+           SIDEBAR   = mix(#2a2d32, #000, .30) = #1d2023
+           CONTENT   = mix(#2a2d32, #fff, .03) = #303338
+           ELEVATED  = mix(#2a2d32, #fff, .06) = #373a3e
+           TILE_BG   = #101114   BORDER = rgba(131,131,145,.16)
+           ACCENT    = #00a1d6 (只作强调)  PINK = #fb7299 (直播徽标)
+         网格取自 ddm/layouts.py 的 cells 规格。
+         ============================================================ */
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+
+      :root {
+        --bg: #222428;
+        --sidebar: #1d2023;
+        --content: #303338;
+        --elevated: #373a3e;
+        --hover: #3b3e42;
+        --tile: #101114;
+        --accent: #00a1d6;
+        --accent-soft: rgba(0, 161, 214, 0.16);
+        --pink: #fb7299;
+        --text1: #f1f2f5;
+        --text2: rgba(214, 218, 224, 0.9);
+        --text3: rgba(184, 189, 197, 0.75);
+        --border: rgba(131, 131, 145, 0.16);
+        --border-strong: rgba(255, 255, 255, 0.12);
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+        color: var(--text1);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ---------- 应用外壳：左 248px 侧栏 + 右内容区 ---------- */
+      .app { position: absolute; inset: 0; display: flex; }
+
+      .sidebar {
+        width: 248px;                     /* theme.SIDEBAR_WIDTH */
+        flex: 0 0 248px;
+        background: var(--sidebar);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 12px 12px 8px;
+      }
+      .app-title { font-size: 16px; font-weight: 600; line-height: 1.2; }
+      .app-sub { font-size: 12px; color: var(--text3); margin-top: 2px; }
+      .search {
+        margin-top: 12px;
+        height: 34px;                     /* CONTROL_HEIGHT */
+        background: var(--content);
+        border: 1px solid var(--border);
+        border-radius: 8px;               /* RADIUS_MD */
+        padding: 0 10px;
+        display: flex; align-items: center;
+        font-size: 13px; color: var(--text3);
+      }
+      .section-label {
+        margin: 14px 0 6px; font-size: 12px; font-weight: 600;
+        color: var(--text3); letter-spacing: 0.04em;
+      }
+      .nav-item {
+        display: flex; align-items: center; gap: 8px;
+        height: 44px; padding: 0 8px; border-radius: 8px;
+        background: transparent;
+      }
+      .nav-item.sel { background: var(--accent-soft); }
+      .nav-avatar {
+        width: 32px; height: 32px; border-radius: 16px;
+        background: var(--hover); color: var(--text2);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 600; flex: 0 0 32px;
+      }
+      .nav-text { min-width: 0; flex: 1; }
+      .nav-name { font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .nav-sub { font-size: 12px; color: rgba(238, 241, 244, 0.88); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .badge-live {
+        background: var(--pink); color: #3a0d1c;
+        border-radius: 8px; padding: 1px 6px;
+        font-size: 11px; font-weight: 700; flex: 0 0 auto;
+      }
+      .badge-off {
+        background: rgba(131, 131, 145, 0.28); color: var(--text2);
+        border-radius: 8px; padding: 1px 6px;
+        font-size: 11px; font-weight: 600; flex: 0 0 auto;
+      }
+
+      /* ---------- 内容区 ---------- */
+      .main { flex: 1; min-width: 0; background: var(--bg); display: flex; flex-direction: column; }
+      .toolbar {
+        height: 48px; flex: 0 0 48px;
+        display: flex; align-items: center; gap: 8px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .chip {
+        height: 26px; padding: 0 12px; border-radius: 13px;
+        background: var(--content); border: 1px solid var(--border);
+        color: var(--text3); font-size: 12px; font-weight: 600;
+        display: flex; align-items: center;
+      }
+      .chip.on { background: var(--accent-soft); border-color: rgba(0, 161, 214, 0.45); color: var(--accent); }
+      .spacer { flex: 1; }
+
+      /* ---------- 画面墙：cells 规格来自 ddm/layouts.py ---------- */
+      .wall {
+        flex: 1; min-height: 0;
+        padding: 10px;
+        display: grid;
+        gap: 6px;
+      }
+      /* corner = 主画面 + 5 小环绕（layouts.py: LAYOUTS[corner]） */
+      .wall.corner {
+        grid-template-columns: repeat(3, 1fr);
+        grid-template-rows: repeat(3, 1fr);
+      }
+      .wall.corner .t0 { grid-area: 1 / 1 / span 2 / span 2; }
+      .wall.corner .t1 { grid-area: 1 / 3; }
+      .wall.corner .t2 { grid-area: 2 / 3; }
+      .wall.corner .t3 { grid-area: 3 / 1; }
+      .wall.corner .t4 { grid-area: 3 / 2; }
+      .wall.corner .t5 { grid-area: 3 / 3; }
+
+      /* 3x3 九分 */
+      .wall.nine { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
+
+      /* 1x2 左右两分 */
+      .wall.split { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr; }
+
+      /* 2x2 四分 */
+      .wall.four { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+
+      /* 1x1 单画面 */
+      .wall.single { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+
+      /* ---------- 格子：#Tile ---------- */
+      .tile {
+        position: relative;
+        background: var(--tile);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        min-width: 0; min-height: 0;
+      }
+      .tile.focused { border-color: rgba(0, 161, 214, 0.65); }
+      .tile-video {
+        position: absolute; inset: 0;
+        background: linear-gradient(135deg, #23262b 0%, #14161a 100%);
+      }
+      /* 格子底部控制条：#TileBottom */
+      .tile-bottom {
+        position: absolute; left: 6px; right: 6px; bottom: 6px;
+        height: 24px; border-radius: 8px;
+        background: rgba(10, 11, 13, 0.72);
+        display: flex; align-items: center; gap: 6px;
+        padding: 0 8px;
+      }
+      .tile-name { font-size: 12px; font-weight: 600; color: var(--text2); white-space: nowrap; }
+      .tile-ctrl {
+        height: 18px; padding: 0 7px; border-radius: 9px;
+        background: rgba(12, 13, 16, 0.78); color: var(--text2);
+        font-size: 11px; font-weight: 600;
+        display: flex; align-items: center;
+      }
+      .tile-ctrl.live { background: var(--accent); color: #04161f; }
+      .live-dot {
+        position: absolute; left: 8px; top: 8px;
+        background: var(--pink); color: #3a0d1c;
+        border-radius: 8px; padding: 1px 6px;
+        font-size: 11px; font-weight: 700;
+      }
+      .empty-hint {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--text3); font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="proto" data-start="0" data-duration="6" data-width="1920" data-height="1080">
+      <div class="app">
+        <!-- 侧栏（关注列表） -->
+        <aside class="sidebar">
+          <div class="app-title">DD监控室CE</div>
+          <div class="app-sub">多窗口直播监控</div>
+          <div class="search">搜索关注</div>
+          <div class="section-label">正在直播 6</div>
+          <div class="nav-item sel">
+            <div class="nav-avatar">莉</div>
+            <div class="nav-text"><div class="nav-name">莉蔻Liko</div><div class="nav-sub">唱歌 · 3281 人气</div></div>
+            <span class="badge-live">直播</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-avatar">羽</div>
+            <div class="nav-text"><div class="nav-name">羽啾chu2u</div><div class="nav-sub">杂谈 · 1204 人气</div></div>
+            <span class="badge-live">直播</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-avatar">星</div>
+            <div class="nav-text"><div class="nav-name">星野Aki</div><div class="nav-sub">游戏 · 862 人气</div></div>
+            <span class="badge-live">直播</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-avatar">柊</div>
+            <div class="nav-text"><div class="nav-name">柊镜Kagami</div><div class="nav-sub">未开播</div></div>
+            <span class="badge-off">离线</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-avatar">白</div>
+            <div class="nav-text"><div class="nav-name">白鹤Haku</div><div class="nav-sub">未开播</div></div>
+            <span class="badge-off">离线</span>
+          </div>
+        </aside>
+
+        <!-- 内容区 -->
+        <main class="main">
+          <div class="toolbar">
+            <div class="chip">平分布局</div>
+            <div class="chip on">大带小</div>
+            <div class="chip">弹幕布局</div>
+            <div class="chip">竖屏布局</div>
+            <div class="spacer"></div>
+            <div class="chip">6 路在播</div>
+          </div>
+          <!-- corner = 主画面 + 5 小环绕 -->
+          <div class="wall corner" id="wall">
+            <div class="tile t0"><div class="tile-video"></div><span class="live-dot">直播</span>
+              <div class="tile-bottom"><span class="tile-name">莉蔻Liko</span><span class="spacer"></span><span class="tile-ctrl live">画质</span><span class="tile-ctrl">静音</span></div></div>
+            <div class="tile t1"><div class="tile-video"></div>
+              <div class="tile-bottom"><span class="tile-name">羽啾chu2u</span></div></div>
+            <div class="tile t2"><div class="tile-video"></div>
+              <div class="tile-bottom"><span class="tile-name">星野Aki</span></div></div>
+            <div class="tile t3"><div class="tile-video"></div>
+              <div class="tile-bottom"><span class="tile-name">柊镜Kagami</span></div></div>
+            <div class="tile t4"><div class="tile-video"></div>
+              <div class="tile-bottom"><span class="tile-name">白鹤Haku</span></div></div>
+            <div class="tile t5"><div class="tile-video"></div>
+              <div class="tile-bottom"><span class="tile-name">夜见Yomi</span></div></div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["proto"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

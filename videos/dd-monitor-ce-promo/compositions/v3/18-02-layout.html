@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ==========================================================================
+         18-02-layout  ——  B 组：05–07（0.0–6.0s）
+         05（0.0–2.0）想怎么看，就怎么排 —— 单屏→两分→四分→1+5，格子真的重排
+         06（2.0–4.0）弹幕跟着画面走   —— dm_main2 + 弹幕上滚 + 镜头聚焦弹幕栏
+         07（4.0–6.0）拖着竖的，他自己跟上 —— 右侧竖屏窗口 16:9→9:16 连续变形
+
+         色场：sc-white（照参考片白底 7.92–15.33s），软件窗口仍是 theme.py 深灰。
+         布局：cells 规格逐条照 ddm/layouts.py。
+         ========================================================================== */
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+
+      :root {
+        --bg: #222428; --sidebar: #1d2023; --content: #303338; --elevated: #373a3e;
+        --hover: #3b3e42; --tile: #101114; --accent: #00a1d6; --accent-soft: rgba(0,161,214,.16);
+        --pink: #fb7299; --text1: #f1f2f5; --text2: rgba(214,218,224,.9); --text3: rgba(184,189,197,.75);
+        --border: rgba(131,131,145,.16); --border-strong: rgba(255,255,255,.12);
+        --sc-white: #f8f8f8; --ink: #101114; --ink-2: rgba(16,17,20,.66);
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root {
+        position: relative; width: 1920px; height: 1080px; overflow: hidden;
+        background: var(--sc-white);
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+        -webkit-font-smoothing: antialiased; color: var(--ink);
+      }
+      .scene { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
+
+      /* ---------- 标题（深字压白底）---------- */
+      .h {
+        position: absolute; left: 0; right: 0; text-align: center;
+        font-weight: 700; letter-spacing: -.01em; line-height: 1.02;
+        color: var(--ink); will-change: transform, opacity;
+      }
+      .h .s { display: block; margin-top: 14px; font-size: 30px; font-weight: 600;
+              letter-spacing: .16em; color: var(--ink-2); }
+      #h05 { top: 58px; font-size: 84px; }
+      #h06 { top: 250px; left: auto; right: 110px; width: 660px; text-align: right; font-size: 74px; }
+      #h07 { top: 58px; font-size: 76px; }
+
+      /* ---------- 软件窗口（theme.py 深灰）---------- */
+      .appwin {
+        position: absolute; left: 250px; top: 300px; width: 1382px; height: 830px;
+        display: flex; background: var(--bg); border: 1px solid var(--border-strong);
+        border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
+        will-change: transform, opacity;
+      }
+      #appwin { left: 0; top: 0; }
+      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border); padding: 14px 12px; }
+      .sb-t { font-size: 17px; font-weight: 600; color: var(--text1); }
+      .sb-s { font-size: 12px; color: var(--text3); margin-top: 3px; }
+      .sb-lbl { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text3); }
+      .nav { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 8px; border-radius: 8px; }
+      .nav.sel { background: var(--accent-soft); }
+      .av { width: 32px; height: 32px; border-radius: 16px; background: var(--hover); color: var(--text2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex: 0 0 32px; }
+      .nav-n { font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; }
+      .nav-d { font-size: 12px; color: rgba(238,241,244,.88); white-space: nowrap; }
+      .bd-live { background: var(--pink); color: #3a0d1c; border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; margin-left: auto; }
+      .mn { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+      .tb { height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+      .chip { height: 26px; padding: 0 12px; border-radius: 13px; background: var(--content); border: 1px solid var(--border); color: var(--text3); font-size: 12px; font-weight: 600; display: flex; align-items: center; }
+      .chip.on { background: var(--accent-soft); border-color: rgba(0,161,214,.45); color: var(--accent); }
+      .sp { flex: 1; }
+
+      /* ---------- 画面墙：格子绝对定位，位置由 JS 按 layouts.py 的 cells 算 ---------- */
+      .wall { position: relative; flex: 1; min-height: 0; }
+      .tile {
+        position: absolute; background: var(--tile); border: 1px solid var(--border);
+        border-radius: 10px; overflow: hidden; will-change: left, top, width, height, opacity;
+      }
+      .tile.focus { border-color: rgba(0,161,214,.7); }
+      .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px); }
+      .ph:after { content: ""; position: absolute; inset: 8px; border: 1px dashed rgba(131,131,145,.45); border-radius: 6px; }
+      .ph span { position: relative; z-index: 2; font-size: 12px; font-weight: 600; color: rgba(184,189,197,.75); }
+      .tb-bar { position: absolute; left: 7px; right: 7px; bottom: 7px; height: 24px; border-radius: 8px;
+                background: rgba(10,11,13,.78); display: flex; align-items: center; gap: 6px; padding: 0 9px; }
+      .tb-n { font-size: 12px; font-weight: 600; color: var(--text2); }
+      .tb-c { height: 17px; padding: 0 7px; border-radius: 9px; background: rgba(12,13,16,.85); color: var(--text2); font-size: 11px; font-weight: 600; display: flex; align-items: center; }
+      .tb-c.on { background: var(--accent); color: #04161f; }
+      .dot { position: absolute; left: 9px; top: 9px; background: var(--pink); color: #3a0d1c;
+             border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; z-index: 3; }
+
+      /* 弹幕格 */
+      .dm { position: absolute; inset: 0; background: rgba(18,20,25,.96); display: flex; flex-direction: column; }
+      .dm-hd { height: 30px; flex: 0 0 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px;
+               background: rgba(255,255,255,.025); border-bottom: 1px solid rgba(255,255,255,.07); }
+      .dm-dot { color: var(--pink); font-size: 9px; }
+      .dm-t { font-size: 12px; font-weight: 700; color: var(--text1); }
+      .dm-c { margin-left: auto; font-size: 11px; color: #6bd8ff; background: rgba(0,174,236,.16); border-radius: 9px; padding: 0 8px; }
+      .dm-body { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+      .dm-roll { position: absolute; left: 10px; right: 10px; top: 0; will-change: transform; }
+      .dm-line { font-size: 12px; line-height: 1.9; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      /* ---------- 07 竖屏窗口 ---------- */
+      .portrait {
+        position: absolute; top: 150px; width: 430px; height: 780px;
+        background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px;
+        overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
+        will-change: transform, opacity;
+      }
+      .portrait .mn { height: 100%; }
+      .pt-main { position: absolute; left: 10px; right: 10px; height: 236px; background: var(--tile);
+                 border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+      .pt-row { position: absolute; left: 10px; right: 10px; height: 200px; display: flex; gap: 6px; }
+      .pt-row > div { flex: 1; background: var(--tile); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; position: relative; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="18-02-layout" data-start="0" data-duration="6" data-width="1920" data-height="1080">
+      <div class="scene" id="scene">
+
+        <div class="h" id="h05">想怎么看，就怎么排<span class="s">平分布局</span></div>
+        <div class="h" id="h06">弹幕跟着画面走<span class="s">1 + 1 + 弹幕</span></div>
+        <div class="h" id="h07">拖着竖的，他自己跟上<span class="s">动态切换成竖屏，让你游戏之余，也能监控</span></div>
+
+        <!-- 软件窗口 -->
+        <div class="appwin" id="appwin">
+          <aside class="sb">
+            <div class="sb-t">DD监控室CE</div>
+            <div class="sb-s">多窗口直播监控</div>
+            <div class="sb-lbl">正在直播</div>
+            <div class="nav sel"><div class="av">莉</div><div><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281</div></div><span class="bd-live">直播</span></div>
+            <div class="nav"><div class="av">羽</div><div><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
+            <div class="nav"><div class="av">星</div><div><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
+            <div class="nav"><div class="av">柊</div><div><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div></div>
+          </aside>
+          <main class="mn">
+            <div class="tb">
+              <div class="chip on" id="chipL">平分布局</div>
+              <div class="chip" id="chipR">大带小</div>
+              <div class="sp"></div>
+              <div class="chip" id="chipState">1 × 1 单画面</div>
+            </div>
+            <!-- 9 个格子槽位：位置由 JS 按布局算，多余的淡出 -->
+            <div class="wall" id="wall">
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div><span class="dot">直播</span>
+                <div class="tb-bar"><span class="tb-n">莉蔻Liko</span><span class="sp"></span><span class="tb-c on">画质</span><span class="tb-c">静音</span></div></div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+              <!-- 第 7 格留给弹幕（06 用） -->
+              <div class="tile" data-tile id="tileDm">
+                <div class="dm">
+                  <div class="dm-hd"><span class="dm-dot">●</span><span class="dm-t">弹幕</span><span class="dm-c">已连接</span></div>
+                  <div class="dm-body"><div class="dm-roll" id="dmRoll">
+                    <div class="dm-line">莉蔻Liko：这个布局太爽了</div>
+                    <div class="dm-line">羽啾chu2u：九路同开不卡吗</div>
+                    <div class="dm-line">星野Aki：主画面钉住真好用</div>
+                    <div class="dm-line">路人甲：终于不用开一堆窗口</div>
+                    <div class="dm-line">柊镜Kagami：竖屏也能监控？</div>
+                    <div class="dm-line">夜见Yomi：左右声道是独一份</div>
+                    <div class="dm-line">白鹤Haku：这墙滚起来真有感觉</div>
+                    <div class="dm-line">莉蔻Liko：弹幕格还能单独调</div>
+                    <div class="dm-line">羽啾chu2u：缓冲速度确实快</div>
+                    <div class="dm-line">星野Aki：内存占用也低</div>
+                    <div class="dm-line">路人乙：开源免费好评</div>
+                    <div class="dm-line">柊镜Kagami：插件还能自己写</div>
+                  </div></div>
+                </div>
+              </div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" data-tile><div class="ph"><span>[素材]</span></div></div>
+            </div>
+          </main>
+        </div>
+
+        <!-- 07 竖屏窗口（右侧飞入） -->
+        <div class="portrait" id="portrait">
+          <main class="mn" style="position:relative;">
+            <div class="pt-main"><div class="ph"><span>[素材: 竖屏主画面]</span></div></div>
+            <div class="pt-row" style="top: 262px;"><div><div class="ph"><span>[素材]</span></div></div><div><div class="ph"><span>[素材]</span></div></div></div>
+            <div class="pt-row" style="top: 474px;"><div><div class="ph"><span>[素材]</span></div></div><div><div class="ph"><span>[素材]</span></div></div></div>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+        var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
+
+        /* ============ 布局引擎：cells 规格逐条照 ddm/layouts.py ============ */
+        var LAYOUTS = {
+          "1x1":  { rows: 1, cols: 1, cells: [[0,0,1,1]] },
+          "1x2":  { rows: 1, cols: 2, cells: [[0,0,1,1],[0,1,1,1]] },
+          "2x2":  { rows: 2, cols: 2, cells: [[0,0,1,1],[0,1,1,1],[1,0,1,1],[1,1,1,1]] },
+          /* corner 主画面 + 5 小环绕 */
+          "corner": { rows: 3, cols: 3, cells: [[0,0,2,2],[0,2,1,1],[1,2,1,1],[2,0,1,1],[2,1,1,1],[2,2,1,1]] },
+          /* danmaku_side(2)：主画面 + 1 小 + 弹幕（第 3 格是弹幕） */
+          "dm_main2": { rows: 2, cols: 3, cells: [[0,0,2,2],[0,2,1,1],[1,2,1,1]], danmaku: 2 }
+        };
+        var GAP = 6, PAD = 10;
+        var wall = document.getElementById("wall");
+        var tiles = Array.prototype.slice.call(document.querySelectorAll("[data-tile]"));
+
+        function geom(cell, spec) {
+          var w = wall.clientWidth - PAD * 2, h = wall.clientHeight - PAD * 2;
+          var cw = (w - GAP * (spec.cols - 1)) / spec.cols;
+          var ch = (h - GAP * (spec.rows - 1)) / spec.rows;
+          var row = cell[0], col = cell[1], rs = cell[2], cs = cell[3];
+          return {
+            x: PAD + col * (cw + GAP),
+            y: PAD + row * (ch + GAP),
+            w: cw * cs + GAP * (cs - 1),
+            h: ch * rs + GAP * (rs - 1)
+          };
+        }
+
+        /* 把布局铺进时间轴。
+           用 left/top/width/height（不是 transform）——视频渲染是逐帧截图的离线
+           过程，layout 成本不进成片；而 transform 缩放会把格子里的文字/控制条一起
+           拉变形，那是错的。
+
+           ⚠ 不能用 tl.call()：渲染器是 seek(t, suppressEvents=true) 跳帧取画，
+           callback 不会触发（实测：只有首帧的同步布局生效，后续全停住）。
+           所有布局变化都必须写成时间轴上的补间。 */
+        var SEQ = [
+          { t: 0.20, name: "1x1",      dur: 0.01 },
+          { t: 0.62, name: "1x2",      dur: 0.40 },
+          { t: 1.10, name: "2x2",      dur: 0.40 },
+          { t: 1.58, name: "corner",   dur: 0.40 },
+          { t: 2.30, name: "dm_main2", dur: 0.48 }
+        ];
+
+        function buildLayoutTrack(tl) {
+          var pool = tiles.filter(function (t) { return t.id !== "tileDm"; });
+          var dmEl = document.getElementById("tileDm");
+          SEQ.forEach(function (step) {
+            var spec = LAYOUTS[step.name];
+            var dmIdx = spec.danmaku != null ? spec.danmaku : -1;
+            var normal = [], dmCell = null;
+            spec.cells.forEach(function (c, i) {
+              if (i === dmIdx) { dmCell = c; } else { normal.push(c); }
+            });
+            pool.forEach(function (el, i) {
+              var cell = normal[i];
+              if (cell) {
+                var g = geom(cell, spec);
+                tl.to(el, { left: g.x, top: g.y, width: g.w, height: g.h, opacity: 1,
+                            duration: step.dur, ease: EASE_IO }, step.t);
+              } else {
+                tl.to(el, { opacity: 0, duration: Math.min(0.22, step.dur) }, step.t);
+              }
+            });
+            if (dmCell) {
+              var g2 = geom(dmCell, spec);
+              tl.to(dmEl, { left: g2.x, top: g2.y, width: g2.w, height: g2.h, opacity: 1,
+                            duration: step.dur, ease: EASE_IO }, step.t);
+            } else {
+              tl.to(dmEl, { opacity: 0, duration: Math.min(0.22, step.dur) }, step.t);
+            }
+          });
+        }
+
+        var tl = gsap.timeline({ paused: true });
+
+        /* ---- 基线（时间轴外）---- */
+        gsap.set("#appwin", { left: 250, top: 300, width: 1382, height: 830, opacity: 0, scale: 1 });
+        gsap.set("#h05", { opacity: 0, y: 26 });
+        gsap.set("#h06", { opacity: 0, x: 40 });
+        gsap.set("#h07", { opacity: 0, y: -22 });
+        gsap.set("#portrait", { opacity: 0, x: 220 });
+        gsap.set("#tileDm", { opacity: 0 });
+        /* 格子初始收在 1x1 的位置，避免首帧闪一个错布局 */
+        (function () {
+          var spec = LAYOUTS["1x1"], g = geom([0, 0, 1, 1], spec);
+          gsap.set(tiles.filter(function (t) { return t.id !== "tileDm"; }),
+                   { left: g.x, top: g.y, width: g.w, height: g.h, opacity: 0 });
+        })();
+
+        /* 布局轨道铺进时间轴 */
+        buildLayoutTrack(tl);
+
+        /* ============ 05（0.0–2.0）单屏 → 两分 → 四分 → 1+5 ============ */
+        tl.fromTo("#appwin", { opacity: 0, scale: 0.98 },
+          { opacity: 1, scale: 1, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 0);
+        tl.fromTo("#h05", { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 0.08);
+        tl.to({}, { duration: 0.01 }, 1.86);
+
+        /* ============ 06（2.0–4.0）弹幕布局 + 弹幕上滚 + 镜头聚焦 ============ */
+        tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.90);
+        tl.to("#appwin", { left: 140, top: 300, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
+        tl.fromTo("#h06", { opacity: 0, x: 40 },
+          { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.06);
+        /* 弹幕格点亮：直接补间描边（class 切换没法在时间轴上 seek） */
+        tl.to("#tileDm", { borderColor: "rgba(0,161,214,.7)", duration: 0.30, immediateRender: false }, 2.30);
+        /* 弹幕连续上滚（全片唯一持续运动，linear）—— 同样必须在时间轴上 */
+        tl.fromTo("#dmRoll", { y: 0 }, { y: -230, duration: 2.0, ease: "none", immediateRender: false }, 2.30);
+        /* 镜头聚焦弹幕栏：整体推近并右移，让弹幕格成为主体 */
+        tl.to("#appwin", { scale: 1.16, left: -40, top: 220, duration: 0.9, ease: EASE_IO, immediateRender: false }, 3.00);
+
+        /* ============ 07（4.0–6.0）竖屏窗口飞入 + 16:9 → 9:16 连续变形 ============ */
+        tl.to("#h06", { opacity: 0, x: 30, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 3.94);
+        tl.fromTo("#h07", { opacity: 0, y: -22 },
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 4.02);
+        /* 左半保留 06 定格（缩小推到左侧），右半飞入竖屏 */
+        tl.to("#appwin", { scale: 0.62, left: -420, top: 300, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.fromTo("#portrait", { opacity: 0, x: 220 },
+          { opacity: 1, x: 0, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
+        /* 16:9 → 9:16 连续变形（宽度收窄、高度长出），内部重排 */
+        tl.fromTo("#portrait", { width: 700, height: 480, left: 1140, top: 320 },
+          { width: 430, height: 780, left: 1360, top: 150, duration: 0.9, ease: EASE_IO, immediateRender: false }, 4.30);
+
+        tl.to({}, { duration: 0.01 }, 5.99);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["18-02-layout"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

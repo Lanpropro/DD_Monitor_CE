@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ==========================================================================
+         v3 原型图 —— 4 个关键拍的静帧定调
+         配色全部取自 ddm/theme.py；网格取自 ddm/layouts.py；
+         素材未到位处一律画成带 [素材: …] 的虚线占位，不静默留白。
+         ========================================================================== */
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+
+      :root {
+        --bg: #222428; --sidebar: #1d2023; --content: #303338; --elevated: #373a3e;
+        --hover: #3b3e42; --tile: #101114; --accent: #00a1d6; --accent-soft: rgba(0,161,214,.16);
+        --pink: #fb7299; --text1: #f1f2f5; --text2: rgba(214,218,224,.9); --text3: rgba(184,189,197,.75);
+        --border: rgba(131,131,145,.16); --border-strong: rgba(255,255,255,.12);
+        --bg-void: #0d0e10; --bg-soft: #222428; --bg-deep: #16181b; --bg-warm: #1f2126;
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root {
+        position: relative; width: 1920px; height: 1080px; overflow: hidden;
+        background: #000; font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+        color: var(--text1); -webkit-font-smoothing: antialiased;
+        display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+      }
+      .cell { position: relative; width: 960px; height: 540px; overflow: hidden; outline: 1px solid rgba(255,255,255,.06); }
+      .scene {
+        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+        transform: scale(.5); transform-origin: 0 0; overflow: hidden;
+      }
+      .tag {
+        position: absolute; left: 12px; bottom: 10px; z-index: 40;
+        font-size: 12px; font-weight: 600; letter-spacing: .06em;
+        color: var(--text3); background: rgba(10,11,13,.72);
+        border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px;
+      }
+
+      /* ---------- 复用：软件窗口 ---------- */
+      .win {
+        position: absolute; background: var(--bg); border-radius: 12px; overflow: hidden;
+        border: 1px solid var(--border-strong);
+        box-shadow: 0 40px 90px rgba(0,0,0,.55);
+        display: flex;
+      }
+      .sb { width: 248px; flex: 0 0 248px; background: var(--sidebar); border-right: 1px solid var(--border); padding: 14px 12px; }
+      .sb-t { font-size: 17px; font-weight: 600; }
+      .sb-s { font-size: 12px; color: var(--text3); margin-top: 3px; }
+      .sb-search { margin-top: 14px; height: 34px; background: var(--content); border: 1px solid var(--border); border-radius: 8px; display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--text3); }
+      .sb-lbl { margin: 16px 0 8px; font-size: 12px; font-weight: 600; color: var(--text3); }
+      .nav { display: flex; align-items: center; gap: 9px; height: 46px; padding: 0 8px; border-radius: 8px; }
+      .nav.sel { background: var(--accent-soft); }
+      .av { width: 32px; height: 32px; border-radius: 16px; background: var(--hover); color: var(--text2); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex: 0 0 32px; }
+      .nav-t { flex: 1; min-width: 0; }
+      .nav-n { font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .nav-d { font-size: 12px; color: rgba(238,241,244,.88); white-space: nowrap; }
+      .bd-live { background: var(--pink); color: #3a0d1c; border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; }
+      .bd-off { background: rgba(131,131,145,.28); color: var(--text2); border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
+      .mn { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+      .tb { height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+      .chip { height: 26px; padding: 0 12px; border-radius: 13px; background: var(--content); border: 1px solid var(--border); color: var(--text3); font-size: 12px; font-weight: 600; display: flex; align-items: center; }
+      .chip.on { background: var(--accent-soft); border-color: rgba(0,161,214,.45); color: var(--accent); }
+      .sp { flex: 1; }
+
+      /* ---------- 画面墙：cells 规格照 ddm/layouts.py ---------- */
+      .wall { flex: 1; min-height: 0; padding: 10px; display: grid; gap: 6px; }
+      .w-corner { grid-template-columns: repeat(3,1fr); grid-template-rows: repeat(3,1fr); }
+      .w-corner .t0 { grid-area: 1/1/span 2/span 2; } .w-corner .t1 { grid-area: 1/3; }
+      .w-corner .t2 { grid-area: 2/3; } .w-corner .t3 { grid-area: 3/1; }
+      .w-corner .t4 { grid-area: 3/2; } .w-corner .t5 { grid-area: 3/3; }
+      .w-four { grid-template-columns: repeat(2,1fr); grid-template-rows: repeat(2,1fr); }
+      .w-nine { grid-template-columns: repeat(3,1fr); grid-template-rows: repeat(3,1fr); }
+
+      .tile { position: relative; background: var(--tile); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-width: 0; min-height: 0; }
+      .tile.focus { border-color: rgba(0,161,214,.65); }
+      /* 素材未到位：虚线占位 + 显式标注 */
+      .ph {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 6px;
+        background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px);
+      }
+      .ph:after { content: ""; position: absolute; inset: 8px; border: 1px dashed rgba(131,131,145,.5); border-radius: 6px; }
+      .ph span { position: relative; z-index: 2; font-size: 12px; font-weight: 600; color: rgba(184,189,197,.8); letter-spacing: .04em; }
+      .tb-bar { position: absolute; left: 7px; right: 7px; bottom: 7px; height: 24px; border-radius: 8px; background: rgba(10,11,13,.78); display: flex; align-items: center; gap: 6px; padding: 0 9px; }
+      .tb-n { font-size: 12px; font-weight: 600; color: var(--text2); }
+      .tb-c { height: 17px; padding: 0 7px; border-radius: 9px; background: rgba(12,13,16,.85); color: var(--text2); font-size: 11px; font-weight: 600; display: flex; align-items: center; }
+      .tb-c.on { background: var(--accent); color: #04161f; }
+      .dot { position: absolute; left: 9px; top: 9px; background: var(--pink); color: #3a0d1c; border-radius: 8px; padding: 1px 6px; font-size: 11px; font-weight: 700; z-index: 3; }
+
+      /* ---------- 标题 ---------- */
+      .h1 { font-size: 92px; font-weight: 700; line-height: 1.02; letter-spacing: -.01em; }
+      .h2 { font-size: 40px; font-weight: 600; line-height: 1.15; letter-spacing: .16em; color: var(--text3); }
+      .h3 { font-size: 26px; font-weight: 600; line-height: 1.3; letter-spacing: .1em; color: var(--text3); }
+      .acc { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="proto-v3" data-start="0" data-duration="1" data-width="1920" data-height="1080">
+
+      <!-- ============ 01|02 元素飞入填充（1+5） ============ -->
+      <div class="cell">
+        <div class="scene" style="background: var(--bg-void);">
+          <div class="win" style="left: 300px; top: 120px; width: 1320px; height: 840px;">
+            <div class="sb">
+              <div class="sb-t">DD监控室CE</div>
+              <div class="sb-s">多窗口直播监控</div>
+              <div class="sb-search">搜索关注</div>
+              <div class="sb-lbl">正在直播 6</div>
+              <div class="nav sel"><div class="av">莉</div><div class="nav-t"><div class="nav-n">莉蔻Liko</div><div class="nav-d">唱歌 · 3281 人气</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">羽</div><div class="nav-t"><div class="nav-n">羽啾chu2u</div><div class="nav-d">杂谈 · 1204</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">星</div><div class="nav-t"><div class="nav-n">星野Aki</div><div class="nav-d">游戏 · 862</div></div><span class="bd-live">直播</span></div>
+              <div class="nav"><div class="av">柊</div><div class="nav-t"><div class="nav-n">柊镜Kagami</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
+              <div class="nav"><div class="av">白</div><div class="nav-t"><div class="nav-n">白鹤Haku</div><div class="nav-d">未开播</div></div><span class="bd-off">离线</span></div>
+            </div>
+            <div class="mn">
+              <div class="tb">
+                <div class="chip">平分布局</div><div class="chip on">大带小</div>
+                <div class="chip">弹幕布局</div><div class="chip">竖屏布局</div>
+                <div class="sp"></div><div class="chip">6 路在播</div>
+              </div>
+              <div class="wall w-corner">
+                <div class="tile t0"><div class="ph"><span>[素材: 主画面 莉蔻Liko]</span></div><span class="dot">直播</span>
+                  <div class="tb-bar"><span class="tb-n">莉蔻Liko</span><span class="sp"></span><span class="tb-c on">画质</span><span class="tb-c">静音</span></div></div>
+                <div class="tile t1"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile t2"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile t3"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile t4"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile t5"><div class="ph"><span>[素材]</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="tag">[02] 各元素向软件飞入填充 · 1+5 · 2.0–4.0s</div>
+      </div>
+
+      <!-- ============ 05 想怎么看，就怎么排 ============ -->
+      <div class="cell">
+        <div class="scene" style="background: var(--bg-soft);">
+          <div style="position: absolute; left: 0; right: 0; top: 54px; text-align: center;">
+            <div class="h1">想怎么看，就怎么排</div>
+          </div>
+          <div class="win" style="left: 500px; top: 330px; width: 920px; height: 620px;">
+            <div class="sb" style="width: 200px; flex: 0 0 200px; padding: 10px 9px;">
+              <div class="sb-t" style="font-size: 14px;">DD监控室CE</div>
+              <div class="sb-lbl" style="margin: 10px 0 6px;">正在直播</div>
+              <div class="nav" style="height: 38px;"><div class="av" style="width: 26px; height: 26px; flex: 0 0 26px; font-size: 11px;">莉</div><div class="nav-t"><div class="nav-n" style="font-size: 12px;">莉蔻Liko</div></div></div>
+              <div class="nav" style="height: 38px;"><div class="av" style="width: 26px; height: 26px; flex: 0 0 26px; font-size: 11px;">羽</div><div class="nav-t"><div class="nav-n" style="font-size: 12px;">羽啾chu2u</div></div></div>
+              <div class="nav" style="height: 38px;"><div class="av" style="width: 26px; height: 26px; flex: 0 0 26px; font-size: 11px;">星</div><div class="nav-t"><div class="nav-n" style="font-size: 12px;">星野Aki</div></div></div>
+              <div class="nav" style="height: 38px;"><div class="av" style="width: 26px; height: 26px; flex: 0 0 26px; font-size: 11px;">柊</div><div class="nav-t"><div class="nav-n" style="font-size: 12px;">柊镜Kagami</div></div></div>
+            </div>
+            <div class="mn">
+              <div class="tb" style="height: 40px; flex: 0 0 40px;">
+                <div class="chip on" style="height: 22px; font-size: 11px;">平分布局</div>
+                <div class="chip" style="height: 22px; font-size: 11px;">大带小</div>
+                <div class="sp"></div><div class="chip" style="height: 22px; font-size: 11px;">2×2 四分</div>
+              </div>
+              <div class="wall w-four">
+                <div class="tile"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile"><div class="ph"><span>[素材]</span></div></div>
+                <div class="tile"><div class="ph"><span>[素材]</span></div></div>
+              </div>
+            </div>
+          </div>
+          <!-- 布局阶梯指示 -->
+          <div style="position: absolute; left: 0; right: 0; bottom: 42px; display: flex; justify-content: center; gap: 14px;">
+            <span class="h3" style="font-size: 20px;">单画面</span>
+            <span class="h3" style="font-size: 20px; opacity: .45;">两分</span>
+            <span class="h3 acc" style="font-size: 20px;">四分</span>
+            <span class="h3" style="font-size: 20px; opacity: .45;">1 + 5</span>
+          </div>
+        </div>
+        <div class="tag">[05] 单屏→双屏→四分→1+5（格子真的重排）· 8.0–10.0s</div>
+      </div>
+
+      <!-- ============ 08 悬停预览 立体卡片 ============ -->
+      <div class="cell">
+        <div class="scene" style="background: var(--bg-void); perspective: 2200px;">
+          <div style="position: absolute; left: 96px; top: 96px;">
+            <div class="h1" style="font-size: 78px;">悬停预览</div>
+            <div class="h2" style="margin-top: 18px; font-size: 34px;">如此轻松</div>
+          </div>
+          <!-- 卡片栈：斜置 + 抽出一张 -->
+          <div style="position: absolute; left: 900px; top: 300px; width: 620px; height: 400px; transform-style: preserve-3d; transform: rotateX(14deg) rotateY(-16deg);">
+            <div style="position: absolute; inset: 0; background: var(--content); border: 1px solid var(--border); border-radius: 16px; transform: translateZ(-70px) translateY(56px); opacity: .45;"></div>
+            <div style="position: absolute; inset: 0; background: var(--content); border: 1px solid var(--border); border-radius: 16px; transform: translateZ(-35px) translateY(28px); opacity: .7;"></div>
+            <!-- 抽出的那张 -->
+            <div style="position: absolute; inset: 0; background: var(--elevated); border: 1px solid rgba(0,161,214,.55); border-radius: 16px; transform: translateZ(70px) scale(1.06); box-shadow: 0 50px 90px rgba(0,0,0,.6); overflow: hidden;">
+              <div class="ph" style="background: repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0 12px, transparent 12px 24px);">
+                <span style="font-size: 15px;">[素材: 直播预览 1/3]</span>
+              </div>
+              <div style="position: absolute; left: 18px; bottom: 16px; right: 18px; display: flex; align-items: center; gap: 10px;">
+                <span class="dot" style="position: static;">直播</span>
+                <span style="font-size: 16px; font-weight: 700; color: #fff;">莉蔻Liko</span>
+                <span class="sp"></span>
+                <span class="tb-c" style="height: 22px;">唱歌 · 3281</span>
+              </div>
+            </div>
+          </div>
+          <!-- 模拟光标 -->
+          <div style="position: absolute; left: 1180px; top: 620px; width: 26px; height: 34px;">
+            <svg viewBox="0 0 26 34" width="26" height="34"><path d="M4 2 L4 26 L10 20 L14 30 L19 28 L15 18 L23 18 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
+          </div>
+          <div style="position: absolute; left: 1180px; bottom: 70px; right: 90px; text-align: right;">
+            <span class="h3" style="font-size: 22px;">第 1 / 3 轮 · 抽出 → 悬停 → 预览 → 收回</span>
+          </div>
+        </div>
+        <div class="tag">[08] 卡片立体排列 · 向上抽出 · 悬停播预览 ×3 · 14.0–19.0s</div>
+      </div>
+
+      <!-- ============ 17 仰视拼接成画面墙 ============ -->
+      <div class="cell">
+        <div class="scene" style="background: var(--bg-soft); perspective: 1800px;">
+          <div style="position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(-14deg) translateY(120px) scale(1.12);">
+            <div class="wall w-nine" style="position: absolute; left: 160px; right: 160px; top: 90px; bottom: 20px; gap: 0; padding: 0;">
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+              <div class="tile" style="border-radius: 0; border-color: rgba(0,0,0,.5);"><div class="ph"><span>[素材]</span></div></div>
+            </div>
+          </div>
+          <!-- 仰视时压一条渐变压暗，强化"墙还在往上长" -->
+          <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(13,14,16,.9) 0%, transparent 42%);"></div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 54px; text-align: center;">
+            <span class="h3" style="font-size: 24px;">视角向上仰视 · 九格拼合成一整面墙</span>
+          </div>
+        </div>
+        <div class="tag">[17] 仰视 · 9 分 · 缝隙 6px→0 拼合 · 47.5–52.0s</div>
+      </div>
+
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["proto-v3"] = gsap.timeline({ paused: true });
+    </script>
+  </body>
+</html>

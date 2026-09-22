@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ==========================================================================
+         18-07-end  ——  G 组：18（0.0–3.5s）
+         收黑定格 → 官方 logo 拼装 → 字标「DD监控室CE」。
+         三层窗格描边走笔（由外向内）→ 两个 D 字标从左往右扫出 → CE 亮起
+         → 青→紫→粉 渐变缝合线合上。官方资产 assets/logo.svg，渐变按原样，不上仓库地址。
+
+         色场：sc-black #000000（照参考片 60.00–63.37s 的 97.9% 纯黑定格）。
+         ========================================================================== */
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+
+      :root {
+        --sc-black: #000000; --text1: #f1f2f5;
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root {
+        position: relative; width: 1920px; height: 1080px; overflow: hidden;
+        background: var(--sc-black);
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+        -webkit-font-smoothing: antialiased; color: var(--text1);
+      }
+      .stage {
+        position: absolute; left: 0; right: 0; top: 160px; text-align: center;
+        will-change: transform, opacity;
+      }
+      .logo { width: 380px; height: auto; display: inline-block; vertical-align: top;
+              transform-origin: 50% 50%; will-change: transform; }
+      .wordmark {
+        margin: 26px 0 0 0; font-size: 64px; font-weight: 700;
+        letter-spacing: .02em; will-change: transform, opacity;
+      }
+      .rule { width: 120px; height: 3px; margin: 24px auto 0; border-radius: 2px;
+              background: linear-gradient(90deg, #00a1d6, #756bf2, #fb7299);
+              transform-origin: 50% 50%; will-change: transform; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="18-07-end" data-start="0" data-duration="3.5" data-width="1920" data-height="1080">
+      <div class="stage" id="stage">
+        <!-- 官方 logo（结构与 assets/logo.svg 一致；渐变按原样）-->
+        <svg class="logo" xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="DD监控室CE">
+          <defs>
+            <linearGradient id="e-bg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#252c36" /><stop offset="0.55" stop-color="#171b22" /><stop offset="1" stop-color="#0f1116" />
+            </linearGradient>
+            <linearGradient id="e-accent" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#00a1d6" /><stop offset="0.52" stop-color="#756bf2" /><stop offset="1" stop-color="#fb7299" />
+            </linearGradient>
+            <filter id="e-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="10" /></filter>
+            <mask id="e-d1" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect x="0" y="0" width="0" height="1024" fill="#fff" /></mask>
+            <mask id="e-d2" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect x="0" y="0" width="0" height="1024" fill="#fff" /></mask>
+            <mask id="e-ce" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect x="0" y="0" width="0" height="1024" fill="#fff" /></mask>
+            <linearGradient id="e-ceglow" gradientUnits="userSpaceOnUse" x1="150" y1="0" x2="850" y2="0">
+              <stop class="e-g0" offset="0" stop-color="#000" /><stop class="e-g1" offset="0.02" stop-color="#000" />
+              <stop class="e-g2" offset="0.26" stop-color="#fff" /><stop class="e-g3" offset="0.5" stop-color="#fff" />
+              <stop class="e-g4" offset="0.74" stop-color="#000" /><stop class="e-g5" offset="1" stop-color="#000" />
+            </linearGradient>
+            <mask id="e-ceglowmask" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect x="0" y="0" width="1024" height="1024" fill="url(#e-ceglow)" /></mask>
+          </defs>
+
+          <rect x="16" y="16" width="992" height="992" rx="210" fill="url(#e-bg)" />
+          <rect x="26" y="26" width="972" height="972" rx="200" fill="none" stroke="#fff" stroke-opacity="0.07" stroke-width="4" />
+
+          <g class="e-panes" fill="none" stroke="url(#e-accent)" stroke-width="18">
+            <rect class="e-pane" x="274" y="128" width="610" height="540" rx="58" opacity="0.28" />
+            <rect class="e-pane" x="214" y="172" width="650" height="550" rx="60" opacity="0.48" />
+            <rect class="e-pane" x="104" y="222" width="806" height="496" rx="64" opacity="0.96" />
+          </g>
+          <g fill="none" stroke="url(#e-accent)" stroke-width="22" opacity="0.14" filter="url(#e-glow)">
+            <rect class="e-pane" x="104" y="222" width="806" height="496" rx="64" />
+          </g>
+
+          <path class="e-d1" fill="#f5f7fa" fill-rule="evenodd" mask="url(#e-d1)"
+            d="M154 292 H314 C434 292 502 365 502 474 C502 583 434 656 314 656 H154 Z M246 382 V566 H310 C372 566 408 531 408 474 C408 417 372 382 310 382 Z" />
+          <path class="e-d2" fill="#f5f7fa" fill-rule="evenodd" mask="url(#e-d2)"
+            d="M530 292 H690 C810 292 878 365 878 474 C878 583 810 656 690 656 H530 Z M622 382 V566 H686 C748 566 784 531 784 474 C784 417 748 382 686 382 Z" />
+
+          <path class="e-seam" d="M466 332 C497 374 510 421 510 474 C510 527 497 574 466 616"
+            fill="none" stroke="url(#e-accent)" stroke-width="13" stroke-linecap="round" />
+
+          <g class="e-ce" fill="url(#e-accent)" mask="url(#e-ce)">
+            <path d="M424 740 H376 C314 740 278 780 278 844 C278 908 314 948 376 948 H424 V894 H382 C349 894 334 876 334 844 C334 812 349 794 382 794 H424 Z" />
+            <path d="M476 740 H694 V794 H534 V818 H674 V870 H534 V894 H694 V948 H476 Z" />
+          </g>
+          <g class="e-celight" fill="#fff" mask="url(#e-ceglowmask)">
+            <path d="M424 740 H376 C314 740 278 780 278 844 C278 908 314 948 376 948 H424 V894 H382 C349 894 334 876 334 844 C334 812 349 794 382 794 H424 Z" />
+            <path d="M476 740 H694 V794 H534 V818 H674 V870 H534 V894 H694 V948 H476 Z" />
+          </g>
+        </svg>
+
+        <div class="wordmark" id="wordmark">DD监控室CE</div>
+        <div class="rule" id="rule"></div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+        var tl = gsap.timeline({ paused: true });
+
+        gsap.set(".e-celight", { opacity: 0 });
+        gsap.set("#stage", { opacity: 0, scale: 1.03 });
+        gsap.set("#wordmark", { opacity: 0, y: 16 });
+        gsap.set("#rule", { scaleX: 0 });
+        /* 三层窗格描边：按周长设 dash，再逐层画出来（由外向内） */
+        gsap.utils.toArray(".e-pane").forEach(function (r) {
+          var len = 2 * (r.width.baseVal.value + r.height.baseVal.value);
+          gsap.set(r, { strokeDasharray: len, strokeDashoffset: len });
+        });
+
+        /* ---- 收黑后 logo 入场 ---- */
+        tl.fromTo("#stage", { opacity: 0, scale: 1.03 },
+          { opacity: 1, scale: 1, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 0.08);
+
+        /* ---- Scene 1：三层错位窗格逐层描边走笔（由外向内）---- */
+        var PANE = 0.40;
+        var paneAt = [0.12, 0.40, 0.68, 0.96];
+        gsap.utils.toArray(".e-pane").forEach(function (r, i) {
+          tl.to(r, { strokeDashoffset: 0, duration: i === 3 ? 0.28 : PANE,
+                     ease: EASE_OUT, immediateRender: false }, paneAt[i]);
+        });
+
+        /* ---- Scene 2：两个 D 字标从左往右扫出 → CE 亮 → 缝合线合上 ---- */
+        function wipe(id, w, from, dur) {
+          return tl.fromTo(id + " rect", { attr: { width: 0 } },
+            { attr: { width: w }, duration: dur, ease: EASE_OUT, immediateRender: false }, from);
+        }
+        wipe("#e-d1", 512, 1.10, 0.56);
+        wipe("#e-d2", 512, 1.22, 0.56);
+
+        tl.fromTo(".e-ce", { opacity: 0 }, { opacity: 1, duration: 0.34,
+          ease: EASE_OUT, immediateRender: false }, 1.62);
+        wipe("#e-ce", 1024, 1.62, 0.56);
+        tl.to(".e-celight", { opacity: 0.62, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.66);
+        tl.fromTo(".e-g0", { attr: { offset: -0.3 } }, { attr: { offset: 0.84 }, duration: 0.62, ease: "power3.inOut", immediateRender: false }, 1.62);
+        tl.fromTo(".e-g1", { attr: { offset: -0.18 } }, { attr: { offset: 0.9 }, duration: 0.62, ease: "power3.inOut", immediateRender: false }, 1.62);
+        tl.fromTo(".e-g2", { attr: { offset: 0.06 } }, { attr: { offset: 1.02 }, duration: 0.62, ease: "power3.inOut", immediateRender: false }, 1.62);
+        tl.fromTo(".e-g3", { attr: { offset: 0.3 } }, { attr: { offset: 1.16 }, duration: 0.62, ease: "power3.inOut", immediateRender: false }, 1.62);
+        tl.fromTo(".e-g4", { attr: { offset: 0.54 } }, { attr: { offset: 1.3 }, duration: 0.62, ease: "power3.inOut", immediateRender: false }, 1.62);
+        tl.fromTo(".e-g5", { attr: { offset: 0.8 } }, { attr: { offset: 1.4 }, duration: 0.62, ease: "power3.inOut", immediateRender: false }, 1.62);
+        tl.to(".e-celight", { opacity: 0, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 2.04);
+
+        var seam = document.querySelector(".e-seam");
+        var seamLen = seam.getTotalLength();
+        gsap.set(seam, { strokeDasharray: seamLen, strokeDashoffset: seamLen });
+        tl.to(seam, { strokeDashoffset: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.12);
+
+        /* ---- Scene 3：字标 + 渐变细线淡入，定格 ---- */
+        tl.fromTo("#wordmark", { opacity: 0, y: 16 },
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.42);
+        tl.fromTo("#rule", { scaleX: 0 },
+          { scaleX: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 2.60);
+
+        tl.to({}, { duration: 0.01 }, 3.49);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["18-07-end"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

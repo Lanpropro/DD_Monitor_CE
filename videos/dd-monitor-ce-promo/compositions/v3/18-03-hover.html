@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* ==========================================================================
+         18-03-hover  ——  C 组：08（0.0–5.0s）
+         「悬停预览 · 如此轻松」—— 多张卡片立体排列，向上抽出 1 张，
+         模拟光标移过去，播放直播预览；重复 3 轮。
+
+         色场：照参考片 17.08–23.17s 的中灰（#abb0ba / #8a8d9a / #636473）。
+         注意：全部动效写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
+         ========================================================================== */
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+
+      :root {
+        --sc-mid: #8a8d9a; --sc-mid-2: #6f7280;
+        --card: #f4f5f7; --card-edge: rgba(16,17,20,.10);
+        --tile: #101114; --accent: #00a1d6; --pink: #fb7299;
+        --ink: #101114; --ink-2: rgba(16,17,20,.62);
+        --text1: #f1f2f5; --text2: rgba(214,218,224,.9); --text3: rgba(184,189,197,.75);
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root {
+        position: relative; width: 1920px; height: 1080px; overflow: hidden;
+        background: var(--sc-mid); perspective: 2400px;
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+        -webkit-font-smoothing: antialiased; color: var(--ink);
+      }
+      /* 左上标题（深字压中灰） */
+      .head { position: absolute; left: 110px; top: 104px; will-change: transform, opacity; }
+      .head .n { font-size: 88px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
+      .head .s { margin-top: 18px; font-size: 40px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
+      .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 24px; transform-origin: 0 50%; }
+
+      /* 卡片栈（3D） */
+      .stack {
+        position: absolute; left: 900px; top: 250px; width: 700px; height: 440px;
+        transform-style: preserve-3d; will-change: transform;
+      }
+      .card {
+        position: absolute; inset: 0; background: var(--card);
+        border: 1px solid var(--card-edge); border-radius: 18px; overflow: hidden;
+        box-shadow: 0 34px 70px rgba(16,17,20,.28);
+        will-change: transform, opacity;
+      }
+      .card .cover {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: repeating-linear-gradient(45deg, rgba(16,17,20,.035) 0 12px, transparent 12px 24px);
+      }
+      .card .cover:after { content: ""; position: absolute; inset: 14px; border: 1px dashed rgba(16,17,20,.28); border-radius: 10px; }
+      .card .cover span { position: relative; z-index: 2; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+      .card .meta {
+        position: absolute; left: 20px; right: 20px; bottom: 18px;
+        display: flex; align-items: center; gap: 10px;
+      }
+      .card .name { font-size: 18px; font-weight: 700; }
+      .card .sub { font-size: 13px; color: var(--ink-2); margin-left: auto; }
+      .tag-live {
+        background: var(--pink); color: #3a0d1c; border-radius: 9px;
+        padding: 2px 8px; font-size: 12px; font-weight: 700;
+      }
+      /* 抽出的那张：亮蓝描边 */
+      .card.lift { border-color: rgba(0,161,214,.75); box-shadow: 0 46px 90px rgba(16,17,20,.4); }
+
+      /* 模拟光标 */
+      .cursor { position: absolute; left: 0; top: 0; width: 26px; height: 34px; will-change: transform, opacity; }
+      .cursor svg { display: block; }
+
+      /* 轮次指示 */
+      .round {
+        position: absolute; right: 110px; bottom: 96px; text-align: right;
+        font-size: 26px; font-weight: 600; letter-spacing: .1em; color: var(--ink-2);
+        will-change: transform, opacity;
+      }
+      .ticks { position: absolute; right: 110px; bottom: 62px; display: flex; gap: 8px; justify-content: flex-end; }
+      .tick { width: 34px; height: 4px; border-radius: 2px; background: rgba(16,17,20,.2); }
+      .tick.on { background: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="5" data-width="1920" data-height="1080">
+
+      <div class="head" id="head">
+        <div class="n">悬停预览</div>
+        <div class="s">如此轻松</div>
+        <div class="bar" id="headBar"></div>
+      </div>
+
+      <div class="stack" id="stack">
+        <!-- 三张卡：底面、中层、顶层（每轮抽出的都是当轮顶层） -->
+        <div class="card" id="c3" style="transform: translateZ(-140px) translateY(104px); opacity: .5;">
+          <div class="cover"><span>[素材: 关注卡片封面 3]</span></div>
+        </div>
+        <div class="card" id="c2" style="transform: translateZ(-70px) translateY(52px); opacity: .75;">
+          <div class="cover"><span>[素材: 关注卡片封面 2]</span></div>
+        </div>
+        <div class="card" id="c1">
+          <div class="cover"><span>[素材: 关注卡片封面 1 / 直播预览]</span></div>
+          <div class="meta"><span class="tag-live">直播</span><span class="name">莉蔻Liko</span><span class="sub">唱歌 · 3281</span></div>
+        </div>
+      </div>
+
+      <div class="cursor" id="cursor" style="opacity: 0;">
+        <svg viewBox="0 0 26 34" width="26" height="34"><path d="M4 2 L4 26 L10 20 L14 30 L19 28 L15 18 L23 18 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
+      </div>
+
+      <div class="round" id="roundTxt">第 1 / 3 轮</div>
+      <div class="ticks"><span class="tick on" id="k1"></span><span class="tick" id="k2"></span><span class="tick" id="k3"></span></div>
+    </div>
+
+    <script>
+      (function () {
+        var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+        var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
+        var tl = gsap.timeline({ paused: true });
+
+        /* 卡片栈静态斜置（3D） */
+        gsap.set("#stack", { rotationX: 12, rotationY: -14, transformOrigin: "50% 60%" });
+        gsap.set("#c3", { z: -140, y: 104, opacity: 0.5, scale: 0.94 });
+        gsap.set("#c2", { z: -70, y: 52, opacity: 0.75, scale: 0.97 });
+        gsap.set("#c1", { z: 0, y: 0, opacity: 1, scale: 1 });
+        gsap.set("#head", { opacity: 0, x: -40 });
+        gsap.set("#headBar", { scaleX: 0 });
+        gsap.set("#roundTxt", { opacity: 0, x: 24 });
+        gsap.set(".tick", { opacity: 0.35 });
+        gsap.set("#cursor", { opacity: 0, x: 1180, y: 700 });
+
+        /* 入场 */
+        tl.fromTo("#head", { opacity: 0, x: -40 },
+          { opacity: 1, x: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 0.10);
+        tl.fromTo("#headBar", { scaleX: 0 },
+          { scaleX: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 0.34);
+        tl.fromTo("#stack", { opacity: 0, rotationY: -24 },
+          { opacity: 1, rotationY: -14, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 0.20);
+        tl.fromTo("#roundTxt", { opacity: 0, x: 24 },
+          { opacity: 1, x: 0, duration: 0.42, ease: EASE_OUT, immediateRender: false }, 0.52);
+        tl.to(".tick", { opacity: 1, duration: 0.3, stagger: 0.05, immediateRender: false }, 0.64);
+
+        /* ---- 三轮：抽出 → 光标移到卡上 → 预览淡入 → 收回 ----
+           每轮 1.42s，起点 0.80 / 2.22 / 3.64（末轮在 5.0s 前收干净）。 */
+        function round(base, cardId, tickId) {
+          var lift = 0.32, move = 0.42, prev = 0.34, back = 0.34;
+          /* 1) 抽出：向上 + 冲向镜头 + 放大 + 亮蓝描边（描边用补间，不用 class） */
+          tl.to(cardId, { y: -78, z: 120, scale: 1.06, duration: lift, ease: EASE_IO,
+                          immediateRender: false }, base);
+          tl.to(cardId, { borderColor: "rgba(0,161,214,.75)", duration: lift,
+                          immediateRender: false }, base);
+          /* 2) 光标移到这张卡上 */
+          tl.to("#cursor", { opacity: 1, duration: 0.12, immediateRender: false }, base + 0.06);
+          tl.fromTo("#cursor", { x: 1180, y: 700 },
+            { x: 906, y: 300, duration: move, ease: EASE_IO, immediateRender: false }, base + 0.06);
+          /* 3) 预览淡入（封面做一次极轻的推近，表示"开始播"） */
+          tl.fromTo(cardId + " .cover", { scale: 1 },
+            { scale: 1.04, duration: prev, ease: EASE_OUT, immediateRender: false }, base + 0.48);
+          tl.to(tickId, { opacity: 1, duration: 0.16, immediateRender: false }, base + 0.52);
+          /* 4) 收回：回到栈里的位置；描边回到常态 */
+          tl.to(cardId, { y: 0, z: 0, scale: 1, duration: back, ease: EASE_OUT,
+                          immediateRender: false }, base + lift + move + prev);
+          tl.to(cardId, { borderColor: "rgba(16,17,20,.10)", duration: back,
+                          immediateRender: false }, base + lift + move + prev);
+          tl.to(cardId + " .cover", { scale: 1, duration: back, ease: EASE_OUT,
+                          immediateRender: false }, base + lift + move + prev);
+        }
+
+        round(0.80, "#c1", "#k1");
+        round(2.22, "#c2", "#k2");
+        round(3.64, "#c3", "#k3");
+
+        /* 轮次文字换行 + 光标在轮间回位 */
+        tl.to("#roundTxt", { opacity: 0, duration: 0.12, immediateRender: false }, 2.10);
+        tl.fromTo("#roundTxt", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.22,
+          ease: EASE_OUT, immediateRender: false }, 2.22);
+        tl.to("#roundTxt", { opacity: 0, duration: 0.12, immediateRender: false }, 3.52);
+        tl.fromTo("#roundTxt", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.22,
+          ease: EASE_OUT, immediateRender: false }, 3.64);
+        /* 文字内容在时间轴上换不了，用一次交叉淡入代替（可接受） */
+        tl.to("#cursor", { opacity: 0, duration: 0.2, immediateRender: false }, 4.86);
+
+        tl.to({}, { duration: 0.01 }, 4.99);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["18-03-hover"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>
