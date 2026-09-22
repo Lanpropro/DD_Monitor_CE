@@ -60,47 +60,14 @@
       /* ---------- 软件窗口（theme.py 深灰）---------- */
       .appwin {
         position: absolute; left: 250px; top: 252px; width: 1382px; height: 792px;
-        display: flex; background: var(--bg); border: 1px solid var(--border-strong);
+        background: var(--bg); border: 1px solid var(--border-strong);
         border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
       }
       #appwin { left: 0; top: 0; }
-      /* 侧栏 = **真实截图切片** real-sidebar.png（从 Video_reference/fullscreen.png 裁出）。
-         用户 2026-09-22：不要用合成的软件界面。
-         尺寸按窗口高度等比缩放、不拉伸 —— 截图里侧栏是 440x2100，窗口高 792，
-         缩放 792/2100 = 0.3771 → 宽 166px。 */
-      .sb { width: 166px; flex: 0 0 166px; position: relative; overflow: hidden;
-            background: var(--sidebar); border-right: 1px solid var(--border); }
-      .sb-img { display: block; width: 100%; height: 100%; }
-      .mn { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-      .sp { flex: 1; }
-
-      /* ---------- 画面墙：格子绝对定位，位置由 JS 按 layouts.py 的 cells 算 ---------- */
-      .wall { position: relative; flex: 1; min-height: 0; }
-      /* 格子统一钉在 (0,0)，位移全部交给 transform 的 x/y。
-         不要补间 left/top —— 布局属性会吸附到整数设备像素，慢镜头或 ease-out
-         尾巴在逐帧 seek 的渲染器下会一顿一顿的。宽高仍用 CSS 补间：视频渲染是
-         离线逐帧截图，layout 成本不进成片，而 transform 缩放会把格子里的
-         文字/控制条一起拉变形。 */
-      .tile {
-        position: absolute; left: 0; top: 0; background: var(--tile); border: 1px solid var(--border);
-        border-radius: 10px; overflow: hidden; will-change: transform, opacity;
-      }
-      .tile.focus { border-color: rgba(0,161,214,.7); }
-      /* 格子内容 = **真实直播画面切片**（real-main / real-s02 … 同样是 fullscreen.png 裁出来的）。
-         用户 2026-09-22：不要用合成的画面。object-fit: cover 让切片填满任意格子比例。 */
-      .tile-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-
-      /* 弹幕格 —— 用户 2026-09-22：**这一屏也截真实画面**（他手动截取），
-         我方负责拼接与上滚动效。所以这里清掉我编的弹幕文本和那条"弹幕/已连接"标题栏，
-         只留滚动容器；真实截图到位后按顺序放 <img class="dm-img">，上滚补间自动把它们串起来。 */
-      .dm { position: absolute; inset: 0; background: rgba(18,20,25,.96); }
-      .dm-body { position: absolute; inset: 0; overflow: hidden; }
-      .dm-roll { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
-      .dm-img { display: block; width: 100%; }
-      /* 素材未到位时的留空标注（手稿：没有素材的情况下先留空标注） */
-      .dm-slot { display: flex; align-items: center; justify-content: center; height: 420px; margin: 10px;
-                 border: 1px dashed rgba(131,131,145,.45); border-radius: 6px;
-                 font-size: 12px; font-weight: 600; color: rgba(184,189,197,.75); }
+      /* 窗口内容 = **真实素材**（录屏截图 / 录屏视频），铺满整个窗口。
+         用户 2026-09-22：不要用合成的软件界面 —— 现在连侧栏都在素材里，
+         窗口内没有任何我用 HTML 画的东西。 */
+      .win-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
       /* ---------- 07 竖屏窗口 ---------- */
       .portrait {
@@ -109,17 +76,6 @@
         overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
         will-change: transform, opacity;
       }
-      .portrait .mn { height: 100%; }
-      /* 竖屏内部：主画面在上 + 2 小在下，用**百分比**而不是固定像素 ——
-         竖屏窗口本身是补间 width/height 长大的（430x780 → 572x1017），
-         内部若写死像素，窗口一大下面就会空出来。 */
-      .pt-main { position: absolute; left: 10px; right: 10px; top: 12px; height: 52%;
-                 background-color: var(--tile);
-                 border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
-                 background-size: cover; background-position: center; }
-      .pt-row { position: absolute; left: 10px; right: 10px; top: 56%; bottom: 12px; display: flex; gap: 6px; }
-      .pt-row > div { flex: 1; background-color: var(--tile); border: 1px solid var(--border); border-radius: 10px;
-                      overflow: hidden; position: relative; background-size: cover; background-position: center; }
     </style>
   </head>
   <body>
@@ -130,43 +86,24 @@
         <div class="h" id="h06">弹幕跟着画面走<span class="s">1 + 1 + 弹幕</span></div>
         <div class="h" id="h07">拖成竖的，他自己跟上<span class="s">动态切换竖屏，让你游戏之余，也能监控</span></div>
 
-        <!-- 软件窗口：侧栏与格子内容**全部换成真实截图切片**（用户 2026-09-22：
-             不要用合成的软件界面）。窗口外壳仍是 DOM（布局重排必须重排格子），
-             但里面已经没有任何我用 HTML 画的假数据。 -->
+        <!-- 软件窗口 —— 内容**全部是真实录屏素材**（用户 2026-09-22）：
+             05 用四张从 `Video_reference/布局切换.mp4` 裁出的布局截图
+             （1x1 / 1x2 / 2x2 / 1+5，手稿 05 写的就是"[图片形式]"），
+             06 起换成 `Video_reference/弹幕.mp4` 的真实录屏（1+1+弹幕布局）。
+             窗口内不再有任何 HTML 画的界面，连侧栏都含在素材里。 -->
         <div class="appwin" id="appwin">
-          <aside class="sb"><img class="sb-img" src="assets/real/real-sidebar.png" alt=""></aside>
-          <main class="mn">
-            <!-- 9 个格子槽位：位置由 JS 按布局算，多余的淡出。
-                 内容 = 真实直播画面切片（real-main + 5 个小格，同 fullscreen.png 裁出）。 -->
-            <div class="wall" id="wall">
-              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-main.png" alt=""></div>
-              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s02.png" alt=""></div>
-              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s12.png" alt=""></div>
-              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s20.png" alt=""></div>
-              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s21.png" alt=""></div>
-              <div class="tile" data-tile><img class="tile-img" src="assets/real/real-s22.png" alt=""></div>
-              <!-- 弹幕格（06 用）—— **[素材: 弹幕画面] 由用户手动截取真实画面**（2026-09-22 确认），
-                   我方负责拼接与上滚动效。截图到位后放到 assets/real/real-danmaku-*.png，
-                   在这里按顺序放 <img class="dm-img" src="…"> —— #dmRoll 的 linear 上滚补间
-                   会把它们连成一串滚上去，排版不用再动。 -->
-              <div class="tile" data-tile id="tileDm">
-                <div class="dm">
-                  <div class="dm-body"><div class="dm-roll" id="dmRoll">
-                    <div class="dm-slot">[素材: 弹幕画面]</div>
-                  </div></div>
-                </div>
-              </div>
-            </div>
-          </main>
+          <img class="win-media" id="shot1x1" src="assets/rec/layout-1x1.png" alt="">
+          <img class="win-media" id="shot1x2" src="assets/rec/layout-1x2.png" alt="">
+          <img class="win-media" id="shot2x2" src="assets/rec/layout-2x2.png" alt="">
+          <img class="win-media" id="shotCorner" src="assets/rec/layout-corner.png" alt="">
+          <video class="win-media" id="vidDm" src="assets/rec/rec-danmaku.mp4" muted playsinline
+                 data-start="1.96" data-duration="4.04"></video>
         </div>
 
-        <!-- 07 竖屏窗口（右侧飞入） -->
+        <!-- 07 竖屏窗口（右侧飞入）—— 真实录屏 切换竖屏.mp4 -->
         <div class="portrait" id="portrait">
-          <!-- 竖屏 1+2（手稿 07：「右侧飞入竖屏画面 1+2 布局」）：主画面整宽 + 下面 2 小 -->
-          <main class="mn" style="position:relative;">
-            <div class="pt-main" style="background-image: url('assets/real/real-main.png')"></div>
-            <div class="pt-row"><div style="background-image: url('assets/real/real-s02.png')"></div><div style="background-image: url('assets/real/real-s12.png')"></div></div>
-          </main>
+          <video class="win-media" id="vidPortrait" src="assets/rec/rec-portrait.mp4" muted playsinline
+                 data-start="4.16" data-duration="1.84"></video>
         </div>
       </div>
     </div>
@@ -176,119 +113,44 @@
         var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
 
-        /* ============ 布局引擎：cells 规格逐条照 ddm/layouts.py ============ */
-        var LAYOUTS = {
-          "1x1":  { rows: 1, cols: 1, cells: [[0,0,1,1]] },
-          "1x2":  { rows: 1, cols: 2, cells: [[0,0,1,1],[0,1,1,1]] },
-          "2x2":  { rows: 2, cols: 2, cells: [[0,0,1,1],[0,1,1,1],[1,0,1,1],[1,1,1,1]] },
-          /* corner 主画面 + 5 小环绕 */
-          "corner": { rows: 3, cols: 3, cells: [[0,0,2,2],[0,2,1,1],[1,2,1,1],[2,0,1,1],[2,1,1,1],[2,2,1,1]] },
-          /* danmaku_side(2)：主画面 + 1 小 + 弹幕（第 3 格是弹幕） */
-          "dm_main2": { rows: 2, cols: 3, cells: [[0,0,2,2],[0,2,1,1],[1,2,1,1]], danmaku: 2 }
-        };
-        var GAP = 6, PAD = 10;
-        var wall = document.getElementById("wall");
-        var tiles = Array.prototype.slice.call(document.querySelectorAll("[data-tile]"));
-
-        function geom(cell, spec) {
-          var w = wall.clientWidth - PAD * 2, h = wall.clientHeight - PAD * 2;
-          var cw = (w - GAP * (spec.cols - 1)) / spec.cols;
-          var ch = (h - GAP * (spec.rows - 1)) / spec.rows;
-          var row = cell[0], col = cell[1], rs = cell[2], cs = cell[3];
-          return {
-            x: PAD + col * (cw + GAP),
-            y: PAD + row * (ch + GAP),
-            w: cw * cs + GAP * (cs - 1),
-            h: ch * rs + GAP * (rs - 1)
-          };
-        }
-
-        /* 把布局铺进时间轴。
-           位移用 transform 的 x/y —— left/top 会吸附到整数设备像素，慢镜头或 ease-out
-           尾巴在逐帧 seek 的渲染器下会一顿一顿的。
-           宽高仍用 CSS 补间：离线逐帧渲染不在乎 layout 成本，而 transform 缩放会把
-           格子里的文字/控制条一起拉变形，那是错的。
-
-           ⚠ 不能用 tl.call()：渲染器是 seek(t, suppressEvents=true) 跳帧取画，
-           callback 不会触发（实测：只有首帧的同步布局生效，后续全停住）。
-           所有布局变化都必须写成时间轴上的补间。 */
-        var SEQ = [
-          { t: 0.20, name: "1x1",      dur: 0.01 },
-          { t: 0.62, name: "1x2",      dur: 0.40 },
-          { t: 1.10, name: "2x2",      dur: 0.40 },
-          { t: 1.58, name: "corner",   dur: 0.40 },
-          { t: 2.30, name: "dm_main2", dur: 0.48 }
-        ];
-
-        function buildLayoutTrack(tl) {
-          var pool = tiles.filter(function (t) { return t.id !== "tileDm"; });
-          var dmEl = document.getElementById("tileDm");
-          SEQ.forEach(function (step) {
-            var spec = LAYOUTS[step.name];
-            var dmIdx = spec.danmaku != null ? spec.danmaku : -1;
-            var normal = [], dmCell = null;
-            spec.cells.forEach(function (c, i) {
-              if (i === dmIdx) { dmCell = c; } else { normal.push(c); }
-            });
-            pool.forEach(function (el, i) {
-              var cell = normal[i];
-              if (cell) {
-                var g = geom(cell, spec);
-                tl.to(el, { x: g.x, y: g.y, width: g.w, height: g.h, opacity: 1,
-                            duration: step.dur, ease: EASE_IO }, step.t);
-              } else {
-                tl.to(el, { opacity: 0, duration: Math.min(0.22, step.dur) }, step.t);
-              }
-            });
-            if (dmCell) {
-              var g2 = geom(dmCell, spec);
-              tl.to(dmEl, { x: g2.x, y: g2.y, width: g2.w, height: g2.h, opacity: 1,
-                            duration: step.dur, ease: EASE_IO }, step.t);
-            } else {
-              tl.to(dmEl, { opacity: 0, duration: Math.min(0.22, step.dur) }, step.t);
-            }
-          });
-        }
-
         var tl = gsap.timeline({ paused: true });
 
-        /* ---- 基线（时间轴外）---- */
+        /* ---- 基线（时间轴外）----
+           窗口里的素材全部先隐藏，由时间轴逐张点亮。 */
+        gsap.set(".win-media", { opacity: 0 });
         gsap.set("#appwin", { x: 250, y: 252, width: 1382, height: 792, opacity: 0, scale: 1 });
         gsap.set("#h05", { opacity: 0, y: 26 });
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
         gsap.set("#portrait", { opacity: 0, width: 700, height: 480, x: 1600, y: 63 });
-        gsap.set("#tileDm", { opacity: 0 });
-        /* 格子初始收在 1x1 的位置，避免首帧闪一个错布局 */
-        (function () {
-          var spec = LAYOUTS["1x1"], g = geom([0, 0, 1, 1], spec);
-          gsap.set(tiles.filter(function (t) { return t.id !== "tileDm"; }),
-                   { x: g.x, y: g.y, width: g.w, height: g.h, opacity: 0 });
-        })();
 
-        /* 布局轨道铺进时间轴 */
-        buildLayoutTrack(tl);
-
-        /* ============ 05（0.0–2.0）单屏 → 两分 → 四分 → 1+5 ============ */
+        /* ============ 05（0.0–2.0）四档布局依次切换 ============
+           四张图都是从 `Video_reference/布局切换.mp4` 裁出来的**真实截图**，对应录屏里
+           1x1(0–10s) → 1x2(10.4s) → 2x2(15.6s) → 1+5(20.8s) 那四次切换。
+           叠放 + 依次点亮：后一张盖住前一张，不必把前面的淡出。 */
         tl.fromTo("#appwin", { opacity: 0, scale: 0.98 },
           { opacity: 1, scale: 1, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 0);
+        tl.to("#shot1x1", { opacity: 1, duration: 0.01, ease: "none", immediateRender: false }, 0.12);
+        tl.to("#shot1x2", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 0.62);
+        tl.to("#shot2x2", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.10);
+        tl.to("#shotCorner", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.58);
         tl.fromTo("#h05", { opacity: 0, y: 26 },
           { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 0.08);
         tl.to({}, { duration: 0.01 }, 1.86);
 
-        /* ============ 06（2.0–4.0）弹幕布局 + 弹幕上滚 + 镜头聚焦 ============ */
+        /* ============ 06（2.0–4.0）切到真实弹幕录屏 + 软件左移 + 镜头聚焦 ============ */
         tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.90);
+        /* 四张布局图一起退场，`弹幕.mp4`（1+1+弹幕的真实录屏）接上 */
+        tl.to("#shot1x1, #shot1x2, #shot2x2, #shotCorner",
+          { opacity: 0, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.96);
+        tl.to("#vidDm", { opacity: 1, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.96);
         /* 接续 05 的画面把软件页面**左移**（用户 2026-09-22）：
            x 250 → -250，左侧有 250px 被画面边缘遮掉 —— 手稿 06 就是「左侧软件页面
            + 右侧标题」，让出右侧给飞入的标题。 */
         tl.to("#appwin", { x: -250, y: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
         tl.fromTo("#h06", { opacity: 0, x: 40 },
           { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.06);
-        /* 弹幕格点亮：直接补间描边（class 切换没法在时间轴上 seek） */
-        tl.to("#tileDm", { borderColor: "rgba(0,161,214,.7)", duration: 0.30, immediateRender: false }, 2.30);
-        /* 弹幕连续上滚（全片唯一持续运动，linear）—— 同样必须在时间轴上 */
-        tl.fromTo("#dmRoll", { y: 0 }, { y: -230, duration: 2.0, ease: "none", immediateRender: false }, 2.30);
-        /* 镜头聚焦弹幕栏：整体推近并右移，让弹幕格成为主体 */
+        /* 镜头聚焦弹幕栏：整体推近并右移（弹幕滚动本身在录屏里，不用再自己补） */
         tl.to("#appwin", { scale: 1.16, x: -40, y: 220, duration: 0.9, ease: EASE_IO, immediateRender: false }, 3.00);
 
         /* ============ 07（4.0–6.0）竖屏窗口飞入 + 16:9 → 9:16 连续变形 ============ */
@@ -309,6 +171,7 @@
           { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
         tl.fromTo("#portrait", { width: 700, height: 480, x: 1600, y: 63 },
           { width: 572, height: 1017, x: 1204, y: 63, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
+        tl.to("#vidPortrait", { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
 
         tl.to({}, { duration: 0.01 }, 5.99);
 
