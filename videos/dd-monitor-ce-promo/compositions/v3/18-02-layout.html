@@ -68,13 +68,21 @@
          用户 2026-09-22：不要用合成的软件界面 —— 现在连侧栏都在素材里，
          窗口内没有任何我用 HTML 画的东西。 */
       .win-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      /* 竖屏录屏（切换竖屏.mp4 的 08–12s）里的内容只占源画面左侧约 1/3（x 0.7%–34.9%），
+         右边一大片是黑边。所以**不能按中央裁切** —— cover 默认取中央 9:16 会正好取到全黑
+         （实测竖屏窗口整块黑就是这个原因）。按内容中心（约 18%）对齐。 */
+      #vidPortrait { object-position: 18% center; }
 
-      /* ---------- 07 竖屏窗口 ---------- */
+      /* ---------- 07 竖屏窗口 ----------
+         尺寸**固定**成 9:16（572x1017），只做位移飞入。
+         ⚠ 不要补间这个容器的 width/height：实测只要它在变形，里面的 <video> 帧就整个丢失、
+         竖屏窗口全黑（drawElement 捕获到的是空帧）。手稿原写「16:9 → 9:16 连续变形」，
+         这里按用户 2026-09-22 的排版截图改成固定比例飞入 —— 要变形就没法放真实录像。
+         ⚠ 同理不要写 will-change（SCRIPT 第十节那条禁忌）。 */
       .portrait {
-        position: absolute; left: 0; top: 0; width: 430px; height: 780px;
+        position: absolute; left: 0; top: 63px; width: 572px; height: 1017px;
         background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px;
         overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.3);
-        will-change: transform, opacity;
       }
     </style>
   </head>
@@ -100,7 +108,11 @@
                  data-start="1.96" data-duration="4.04"></video>
         </div>
 
-        <!-- 07 竖屏窗口（右侧飞入）—— 真实录屏 切换竖屏.mp4 -->
+        <!-- 07 竖屏窗口（右侧飞入）—— 真实录屏。
+             用户 2026-09-22：取 `切换竖屏.mp4` 的 **08–12s** 那段（从 0 开始是黑场/不对的画面）。
+             这里直接把那 4 秒**预裁成独立文件**（`assets/rec/rec-portrait.mp4`，1382x778/30fps），
+             而不是用 data-media-start 让渲染器去 seek —— 实测 seek 到 8s 时首帧没就绪，
+             竖屏窗口会整块黑掉。预裁之后 video 从 0 播就是那一段。 -->
         <div class="portrait" id="portrait">
           <video class="win-media" id="vidPortrait" src="assets/rec/rec-portrait.mp4" muted playsinline
                  data-start="4.16" data-duration="1.84"></video>
@@ -122,7 +134,7 @@
         gsap.set("#h05", { opacity: 0, y: 26 });
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
-        gsap.set("#portrait", { opacity: 0, width: 700, height: 480, x: 1600, y: 63 });
+        gsap.set("#portrait", { opacity: 0, x: 1600 });
 
         /* ============ 05（0.0–2.0）四档布局依次切换 ============
            四张图都是从 `Video_reference/布局切换.mp4` 裁出来的**真实截图**，对应录屏里
@@ -167,10 +179,10 @@
            淡入与 16:9 → 9:16 的变形同时开始（4.16）——补的是不同属性，不会互相抢占 transform；
            错开开始时间反而会让 x 在两个 tween 之间跳变。 */
         tl.to("#appwin", { scale: 0.675, x: -224, y: 417, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
-        tl.fromTo("#portrait", { opacity: 0 },
-          { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
-        tl.fromTo("#portrait", { width: 700, height: 480, x: 1600, y: 63 },
-          { width: 572, height: 1017, x: 1204, y: 63, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
+        /* 竖屏窗口尺寸写在 CSS 里（572x1017 = 9:16），这里只补位移 + 淡入 ——
+           尺寸不变 video 帧才不会丢（见 .portrait 的注释）。 */
+        tl.fromTo("#portrait", { opacity: 0, x: 1600 },
+          { opacity: 1, x: 1204, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
         tl.to("#vidPortrait", { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
 
         tl.to({}, { duration: 0.01 }, 5.99);
