@@ -1,8 +1,9 @@
 {
   "comp": "compositions/v3/18-01-intro.html",
-  "sels": ["#t1", "#appstage", "#appwin", "#pMain", "#stars", "#t2"],
+  "sels": ["#t1", "#appstage", "#appwin", "#pMain", "#moon", "#t2"],
   "variants": [
     { "name": "t1.2", "at": 1.2 },
+    { "name": "t1.5", "at": 1.5 },
     { "name": "t2.0", "at": 2.0 },
     { "name": "t3.2", "at": 3.2 },
     { "name": "t5.3", "at": 5.3 },
