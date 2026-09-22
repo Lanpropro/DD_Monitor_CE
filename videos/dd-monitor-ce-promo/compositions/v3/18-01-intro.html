@@ -8,25 +8,27 @@
       /* ==========================================================================
          18-01-intro  ——  A 组（0.0–12.0s）
 
-         0.0–5.4  摄像机沿滑轨向右**匀速**推移（前半段的主体，占大半时长）
-                  · 软件画面从画布右侧进入并居中
-                  · 画面起初**略低于相机**（俯视，能看到它的顶面）→ 逐渐放平
-                  · 左侧标题在**画面露出约一半时**（约 1.95s）隐去
-         5.4–6.9  居中后相机向前推进（elastic 回稳）
-         6.9–8.9  软件模块（侧栏 / 主画面 / 5 小格）分散拆解飞出画面
+         0.0–5.0  视角向右移动。**只有背景在动**，软件窗口固定在画布正中不动，
+                  只做「图片 3D」式的立体效果（-13° → -8° 俯角 + 轻微偏转，全程保持透视）
+                  · 背景横移量照参考片开场实测：5.0s / 262px，峰值 125px/s、均速 52px/s
+                  · 左上角暖光从窗口下方透出来；窗口另有冷光晕 + 地面投影
+                  · 标题放在窗口上方，视角走到一半（约 2.4s）时隐去
+         5.0–6.5  相机向前推进（elastic 回稳）
+         6.5–8.35 软件模块（侧栏 / 主画面 / 5 小格）分散拆解飞出画面
                   **保留软件主体**（留下的窗口外壳，不透出背景）
-         8.9–10.5 继续向前推进 + 放大，直到看不到背景图
-         10.3–12.0 文字「向您介绍 DDMonitorCE」直接叠在保留的窗口壳上 + 星光光影
+         8.35–10.0 继续向前推进 + 放大，直到看不到背景图
+         10.1–12.0 文字「向您介绍 DDMonitorCE」叠在保留的窗口壳上
 
          软件画面 = 真实截图切片（Video_reference/fullscreen.png 裁切）。
          窗口本身铺软件底色 #222428 —— 切片之间的缝隙不会透出背后背景。
 
-         ⚠ 两条会毁掉画面的禁忌（都是实测踩出来的）：
-         · .world 不能写 transform-style: preserve-3d —— 子层做 3D 变换时 Chrome 会把
+         ⚠ 会毁掉画面的禁忌（都是实测踩出来的，详见 SCRIPT-v3.md 第十节）：
+         · 祖先层不能写 transform-style: preserve-3d —— 子层做 3D 变换时 Chrome 会把
            窗口绘制裁到局部 y≈363，下半部分连底色都不画，直接透出背景。
-           立体感用每个元素自带的 transformPerspective 实现。
+           立体感改用元素自带的 transformPerspective。
          · 参与 3D 的元素不要写 will-change:transform，也不要靠父层 overflow:hidden 裁圆角
            —— 前者让窗口被按布局尺寸裁切，后者会把"飞出画面"的模块整块剪掉。
+         · 大图（背景）横移必须给 will-change:transform，否则每帧重新光栅化会掉帧。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -46,47 +48,58 @@
       html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
       #root {
         position: relative; width: 1920px; height: 1080px; overflow: hidden;
-        background: #05060a; perspective: 2000px; perspective-origin: 50% 46%;
+        background: #05060a;
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
         color: var(--text1); -webkit-font-smoothing: antialiased;
       }
 
-      /* ---------- 世界层（摄像机右移作用在这上面）---------- */
-      /* ⚠ 这里**绝对不能**写 transform-style: preserve-3d。
+      /* ---------- 背景层：只有它随"视角右移"平移 ----------
+         窗口本身**固定不动**（不需要它靠过来，只给立体效果），所以位移全在背景上。
+         量级照参考片开场实测：5.0s 走 262px（峰值 125px/s，均速 52px/s）。
+         ⚠ 这里**绝对不能**写 transform-style: preserve-3d。
          在 preserve-3d 上下文里给子层做 3D 变换（rotationX / z），Chrome 会把该子层的
          绘制错误地裁切到局部 y≈363（实测窗口只剩 417/548 行可见，下半部分连窗口底色
          都不画，直接透出背景 —— 就是"软件缺少了下半部分图像"的真正原因）。
-         A/B 实测：.world{transform-style:flat} 后可见行数恢复到 548/548。
-         立体感改用「每个 3D 元素自带 transformPerspective」实现（见 JS 基线部分），
-         效果等价，且不产生 preserve-3d 上下文。 */
+         立体感改用「元素自带 transformPerspective」实现（见 JS 基线部分）。 */
       .world {
-        position: absolute; left: 0; top: 0; width: 3600px; height: 1080px;
+        position: absolute; left: 0; top: 0; width: 2220px; height: 1080px;
       }
-      /* ⚠ 背景图**不能**超出 .world 的高度：在 transform-style:preserve-3d 的
-         上下文里，子元素溢出父层会让 Chrome 用错误的边界做 3D 裁切，
-         把 .appstage 的下半部分整块切掉（实测可见高度只剩 272/547）。
-         所以这里用 object-fit:cover 把 3600×1990 的图裁进 3600×1080 的框，
-         再用 object-position 保住「银河 + 山脉 + 湖面」的取景。 */
+      /* 背景图不能超出 .world 的高度：在合成上下文里溢出父层会让 Chrome 用错误边界裁切。 */
       .bg {
-        position: absolute; left: 0; top: 0; width: 3600px; height: 1080px;
-        object-fit: cover; object-position: 50% 66%;
+        position: absolute; left: 0; top: 0; width: 2220px; height: 1080px;
+        object-fit: cover; object-position: 50% 58%;
         display: block;
+        /* 大图平移必须提升为合成层：否则每帧重新光栅化 2220×1080，
+           位移会看起来一顿一顿的（用户反馈的"掉帧"）。 */
+        will-change: transform;
       }
       .vignette {
-        position: absolute; left: 0; top: 0; width: 3600px; height: 1080px;
-        background: radial-gradient(ellipse 62% 58% at 62% 52%, transparent 0%, rgba(3,5,10,.42) 62%, rgba(3,5,10,.78) 100%);
+        position: absolute; left: 0; top: 0; width: 2220px; height: 1080px;
+        background: radial-gradient(ellipse 54% 58% at 58% 52%, transparent 0%, rgba(3,5,10,.42) 62%, rgba(3,5,10,.78) 100%);
       }
 
-      /* ---------- 悬浮的软件画面 ---------- */
-      .appstage {
-        position: absolute; left: 1900px; top: 236px; width: 1000px; height: 547px;
+      /* ---------- 左上角暖光 ----------
+         DOM 顺序排在 .appstage **之前**，所以它在窗口下方，只从窗口边缘透出来。
+         照参考片截图：光晕中心大致在画面左上 28%/28% 处。 */
+      .warm {
+        position: absolute; left: -300px; top: -250px; width: 1580px; height: 1200px;
+        background:
+          radial-gradient(ellipse 46% 44% at 25% 25%,
+            rgba(255,216,170,.92) 0%, rgba(255,176,116,.50) 32%, rgba(255,138,80,0) 70%),
+          radial-gradient(ellipse 64% 56% at 12% 8%,
+            rgba(255,190,138,.44) 0%, rgba(255,150,92,0) 66%);
+        filter: blur(9px);
       }
-      /* 光晕 / 影子：**.world 的直接子层**，且坐标全部落在 world 的框内。
-         ⚠ 它们绝不能再放回 .appstage 里 —— 在 preserve-3d 的祖先下，任何溢出父层的
-         子元素都会让 Chrome 用错误边界做 3D 裁切（实测把窗口下半部分整块切掉）。
-         坐标 = appstage(1900,236,1000×547) 向外扩，再夹进 0..1080 的高度范围。 */
+
+      /* ---------- 悬浮的软件画面：固定在画布正中 ---------- */
+      .appstage {
+        position: absolute; left: 460px; top: 236px; width: 1000px; height: 547px;
+      }
+      /* 光晕 / 影子：**屏幕坐标的独立子层**，同样排在 .appstage 之前（窗口下方）。
+         ⚠ 绝不能放回 .appstage 里 —— 那是参与 3D 的层，子元素溢出会让 Chrome
+         用错误边界做裁切。坐标 = 窗口(460,236,1000×547) 向外扩。 */
       .glow {
-        position: absolute; left: 1630px; top: 6px; width: 1540px; height: 957px;
+        position: absolute; left: 190px; top: 6px; width: 1540px; height: 957px;
         background:
           radial-gradient(ellipse 42% 46% at 50% 45%,
             rgba(226,246,255,.46) 0%, rgba(140,215,255,.26) 28%, rgba(0,161,214,0) 64%),
@@ -95,7 +108,7 @@
         filter: blur(12px);
       }
       .shadow {
-        position: absolute; left: 1960px; top: 811px; width: 880px; height: 64px;
+        position: absolute; left: 520px; top: 811px; width: 880px; height: 64px;
         background:
           radial-gradient(ellipse 46% 46% at 50% 40%, rgba(0,0,0,.96) 0%, rgba(0,0,0,.72) 34%, rgba(0,0,0,0) 72%),
           radial-gradient(ellipse 54% 52% at 50% 44%, rgba(0,0,0,.78) 0%, rgba(0,0,0,.34) 48%, rgba(0,0,0,0) 80%);
@@ -137,11 +150,12 @@
       .ph:after { content: ""; position: absolute; inset: 6px; border: 1px dashed rgba(131,131,145,.42); border-radius: 3px; }
       .ph span { position: relative; z-index: 2; font-size: 10px; font-weight: 600; color: rgba(184,189,197,.72); }
 
-      /* ---------- 标题层（固定在屏幕上）---------- */
-      .t1 { position: absolute; left: 118px; top: 452px; will-change: transform, opacity; }
-      .t1 .n { font-size: 84px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
-      .t1 .s { margin-top: 16px; font-size: 30px; font-weight: 600; letter-spacing: .18em; color: var(--text3); }
-      .t1 .bar { width: 76px; height: 3px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
+      /* ---------- 标题层（固定在屏幕上）----------
+         窗口固定在画布正中，左侧不再有空间，标题改放窗口**上方**并与窗口左对齐。 */
+      .t1 { position: absolute; left: 460px; top: 56px; will-change: transform, opacity; }
+      .t1 .n { font-size: 74px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
+      .t1 .s { margin-top: 14px; font-size: 26px; font-weight: 600; letter-spacing: .18em; color: var(--text3); }
+      .t1 .bar { width: 76px; height: 3px; background: var(--accent); margin-top: 20px; transform-origin: 0 50%; }
 
       .t2 {
         position: absolute; left: 0; right: 0; top: 452px; text-align: center;
@@ -150,36 +164,7 @@
       }
       .t2 b { color: var(--accent); }
 
-      /* ---------- 星光层（叠在保留下来的软件窗口壳上，不换纯黑背景）----------
-         全部用 opacity / transform 做补间，星点位置写死（渲染必须确定性）。 */
-      .stars { position: absolute; inset: 0; pointer-events: none; }
-      .stars i {
-        position: absolute; border-radius: 50%; background: #fff;
-        box-shadow: 0 0 6px 1px rgba(196,228,255,.92), 0 0 16px 5px rgba(0,161,214,.34);
-      }
-      .stars .neb {
-        position: absolute; left: 50%; top: 512px; width: 1700px; height: 940px;
-        margin: -470px 0 0 -850px;
-        background:
-          radial-gradient(ellipse 38% 40% at 50% 50%, rgba(0,161,214,.22) 0%, rgba(74,132,220,.10) 46%, rgba(0,0,0,0) 74%),
-          radial-gradient(ellipse 22% 26% at 22% 30%, rgba(140,205,255,.13) 0%, rgba(0,0,0,0) 70%),
-          radial-gradient(ellipse 20% 24% at 80% 68%, rgba(190,150,255,.11) 0%, rgba(0,0,0,0) 70%);
-      }
-      /* 四芒星：一横一竖两道光束 */
-      .stars .fl { position: absolute; width: 0; height: 0; }
-      .stars .fl::before, .stars .fl::after {
-        content: ""; position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
-      }
-      .stars .fl::before {
-        width: 72px; height: 1.5px;
-        background: linear-gradient(90deg, rgba(255,255,255,0), rgba(232,246,255,.95) 50%, rgba(255,255,255,0));
-      }
-      .stars .fl::after {
-        width: 1.5px; height: 72px;
-        background: linear-gradient(180deg, rgba(255,255,255,0), rgba(232,246,255,.95) 50%, rgba(255,255,255,0));
-      }
-      .stars .fl.s::before { width: 42px; }
-      .stars .fl.s::after  { height: 42px; }
+      /* 星光层已按反馈移除 —— 结尾的氛围改由左上角的暖光（.warm）承担。 */
     </style>
   </head>
   <body>
@@ -187,30 +172,32 @@
         <div class="world" id="world">
           <img class="bg" id="bg" src="assets/real/bg-hall.jpg" alt="">
           <div class="vignette" id="vignette"></div>
+        </div>
 
-          <!-- ⚠ 光晕与影子必须是 .world 的直接子层，且**不得溢出 .world**。
-               放在参与 3D 的 .appstage 里、或向上溢出父层，都会让 Chrome 用错误的
-               边界做 3D 裁切，把软件画面的下半部分整块切掉。 -->
-          <div class="glow" id="glow"></div>
-          <div class="shadow" id="shadow"></div>
+        <!-- ⚠ 暖光 / 冷光晕 / 地面投影都是**屏幕坐标的独立子层**，
+             顺序排在 .appstage 之前 = 压在窗口下方，只从窗口边缘透出来。
+             绝不要放回 .appstage 里：那是参与 3D 的层，子元素溢出会让 Chrome
+             用错误边界做裁切，把软件画面的下半部分整块切掉。 -->
+        <div class="warm" id="warm"></div>
+        <div class="glow" id="glow"></div>
+        <div class="shadow" id="shadow"></div>
 
-          <div class="appstage" id="appstage">
-            <!-- 软件主体（窗口外壳，拆解后保留） -->
-            <div class="appwin" id="appwin">
-              <img class="pt pt-sb"   id="pSb"   src="assets/real/real-sidebar.png" alt="">
-              <img class="pt pt-main" id="pMain" src="assets/real/real-main.png" alt="">
-              <img class="pt pt-s02"  id="pS02"  src="assets/real/real-s02.png" alt="">
-              <img class="pt pt-s12"  id="pS12"  src="assets/real/real-s12.png" alt="">
-              <img class="pt pt-s20"  id="pS20"  src="assets/real/real-s20.png" alt="">
-              <img class="pt pt-s21"  id="pS21"  src="assets/real/real-s21.png" alt="">
-              <img class="pt pt-s22"  id="pS22"  src="assets/real/real-s22.png" alt="">
-              <div class="ph" id="phMain" style="left: calc(455px * var(--s)); top: calc(75px * var(--s)); width: calc(2215px * var(--s)); height: calc(1350px * var(--s));"><span>[素材: 主画面]</span></div>
-              <div class="ph" id="phS02" style="left: calc(2680px * var(--s)); top: calc(75px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS12" style="left: calc(2680px * var(--s)); top: calc(755px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS20" style="left: calc(455px * var(--s)); top: calc(1435px * var(--s)); width: calc(1075px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS21" style="left: calc(1540px * var(--s)); top: calc(1435px * var(--s)); width: calc(1130px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS22" style="left: calc(2680px * var(--s)); top: calc(1435px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-            </div>
+        <!-- 软件主体：固定在画布正中，不做横向位移，只做立体（3D）效果 -->
+        <div class="appstage" id="appstage">
+          <div class="appwin" id="appwin">
+            <img class="pt pt-sb"   id="pSb"   src="assets/real/real-sidebar.png" alt="">
+            <img class="pt pt-main" id="pMain" src="assets/real/real-main.png" alt="">
+            <img class="pt pt-s02"  id="pS02"  src="assets/real/real-s02.png" alt="">
+            <img class="pt pt-s12"  id="pS12"  src="assets/real/real-s12.png" alt="">
+            <img class="pt pt-s20"  id="pS20"  src="assets/real/real-s20.png" alt="">
+            <img class="pt pt-s21"  id="pS21"  src="assets/real/real-s21.png" alt="">
+            <img class="pt pt-s22"  id="pS22"  src="assets/real/real-s22.png" alt="">
+            <div class="ph" id="phMain" style="left: calc(455px * var(--s)); top: calc(75px * var(--s)); width: calc(2215px * var(--s)); height: calc(1350px * var(--s));"><span>[素材: 主画面]</span></div>
+            <div class="ph" id="phS02" style="left: calc(2680px * var(--s)); top: calc(75px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+            <div class="ph" id="phS12" style="left: calc(2680px * var(--s)); top: calc(755px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+            <div class="ph" id="phS20" style="left: calc(455px * var(--s)); top: calc(1435px * var(--s)); width: calc(1075px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+            <div class="ph" id="phS21" style="left: calc(1540px * var(--s)); top: calc(1435px * var(--s)); width: calc(1130px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
+            <div class="ph" id="phS22" style="left: calc(2680px * var(--s)); top: calc(1435px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
           </div>
         </div>
 
@@ -218,29 +205,6 @@
         <div class="n">DD监控室CE</div>
         <div class="s">多窗口直播监控</div>
         <div class="bar" id="t1bar"></div>
-      </div>
-
-      <div class="stars" id="stars">
-        <div class="neb"></div>
-        <i style="left: 214px;  top: 168px;  width: 3px;   height: 3px;"></i>
-        <i style="left: 402px;  top: 92px;   width: 2px;   height: 2px;"></i>
-        <i style="left: 618px;  top: 214px;  width: 2.5px; height: 2.5px;"></i>
-        <i style="left: 846px;  top: 118px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 1088px; top: 246px;  width: 3px;   height: 3px;"></i>
-        <i style="left: 1314px; top: 128px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 1560px; top: 268px;  width: 2.5px; height: 2.5px;"></i>
-        <i style="left: 1742px; top: 152px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 268px;  top: 706px;  width: 2.5px; height: 2.5px;"></i>
-        <i style="left: 486px;  top: 848px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 742px;  top: 938px;  width: 3px;   height: 3px;"></i>
-        <i style="left: 1206px; top: 924px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 1436px; top: 836px;  width: 2.5px; height: 2.5px;"></i>
-        <i style="left: 1690px; top: 720px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 158px;  top: 384px;  width: 2px;   height: 2px;"></i>
-        <i style="left: 1806px; top: 452px;  width: 2.5px; height: 2.5px;"></i>
-        <b class="fl"   style="left: 356px;  top: 296px;"></b>
-        <b class="fl s" style="left: 1524px; top: 596px;"></b>
-        <b class="fl s" style="left: 962px;  top: 156px;"></b>
       </div>
 
       <div class="t2" id="t2">向您介绍 <b>DDMonitorCE</b></div>
@@ -252,102 +216,89 @@
         var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
 
-        /* 摄像机滑轨缓动。不要 ease-in-out 那种「慢—猛冲—慢」的对称曲线，
-           要的是「很短的起步加速 + 中间严格匀速 + 很短的收尾减速」。
-           k = 两端各自的平滑比例，其余区间严格线性。 */
-        function makeRail(k) {
-          var v = 1 / (1 - k);
-          return function (p) {
-            if (p <= 0) return 0;
-            if (p >= 1) return 1;
-            if (p < k) return v * p * p / (2 * k);
-            if (p > 1 - k) { var q = 1 - p; return 1 - v * q * q / (2 * k); }
-            return v * (p - k / 2);
-          };
-        }
-        gsap.registerEase("rail", makeRail(0.17));
-
-        /* 画面中心在世界 x = 1900 + 500 = 2400；推到 1440 时正好落到画布中心 960 */
-        var DOLLY = 1440;
+        /* 背景横移量。照参考片开场实测（tools/analyze-motion.py）：
+           5.0s 走 262px，峰值 125px/s、均速 52px/s。
+           之前是 1440px / 5.4s = 267px/s —— 速度是参考片的 5 倍，24fps 下每帧要跳
+           11px，看起来就是"掉帧"。现在降到 60px/s，每帧只跳 2.5px。 */
+        var CAM = -300;
 
         /* ---- 基线 ---- */
-        gsap.set("#world", { x: 0, z: 0 });
+        gsap.set("#world", { x: 0 });
+        gsap.set("#warm", { opacity: 0 });
         gsap.set("#t1", { opacity: 0, x: -70 });
         gsap.set("#t1bar", { scaleX: 0 });
         gsap.set("#t2", { opacity: 0, y: 26 });
         gsap.set("#glow", { opacity: 0 });
         gsap.set("#shadow", { opacity: 0 });
-        gsap.set("#stars", { opacity: 0 });
-        gsap.set("#stars i, #stars .neb, #stars .fl", { opacity: 0 });
-        /* 起初略低于相机：俯视，能看到软件顶面。
-           transformPerspective 直接写进元素的 transform，等价于父层透视，
+        /* 窗口固定在画布正中，**不做横向位移**，只给立体效果。
+           transformPerspective 直接写进元素自己的 transform —— 等价于父层透视，
            但不会引入 preserve-3d 上下文（那会把窗口下半部分裁掉）。 */
-        gsap.set("#appstage", { transformPerspective: 2000, rotationX: -15, y: 74, scale: 0.94 });
+        gsap.set("#appstage", { transformPerspective: 2400, rotationX: -13, rotateY: 3.2, scale: 0.985 });
         /* 拆解飞出的切片各自也要透视，z 才有近大远小 */
         gsap.set(".pt, .ph", { transformPerspective: 1000 });
         gsap.set("#appwin", { opacity: 1, scale: 1, z: 0 });
         gsap.set("#vignette", { opacity: 1 });
 
-        /* ====== 0.0–5.4 摄像机沿滑轨向右匀速推移（前半段的主体，占大半时长）====== */
-        tl.fromTo("#glow",   { opacity: 0 }, { opacity: 1, duration: 2.6, ease: EASE_OUT, immediateRender: false }, 0.30);
-        tl.fromTo("#shadow", { opacity: 0 }, { opacity: 1, duration: 2.6, ease: EASE_OUT, immediateRender: false }, 0.42);
+        /* ====== 0.0–5.0 视角右移：**只有背景动，窗口不动** ======
+           关键帧的位移比例直接抄参考片实测的归一化形状：
+           0.220(1.0s) / 0.313(2.0s) / 0.504(3.3s) / 0.653(4.0s) / 1.000(5.0s)。
+           "慢—中—快"两次呼吸都在里面，段内接近线性，没有 ease-in 的猛冲。 */
+        tl.to("#world", { keyframes: [
+          { x: CAM * 0.220, duration: 1.00, ease: "power1.out" },
+          { x: CAM * 0.313, duration: 1.00, ease: "power1.inOut" },
+          { x: CAM * 0.504, duration: 1.30, ease: "power1.inOut" },
+          { x: CAM * 0.653, duration: 0.70, ease: "power1.in" },
+          { x: CAM * 1.000, duration: 1.00, ease: "power1.out" }
+        ] }, 0);
 
-        tl.fromTo("#world", { x: 0 },
-          { x: -DOLLY, duration: 5.40, ease: "rail", immediateRender: false }, 0);
+        /* 窗口的立体效果：像一张被斜放的图片，缓慢把角度收正一点点，
+           **全程保持透视**（不做"放平到 0°"，那样立体感就没了）。 */
+        tl.fromTo("#appstage", { rotationX: -13, rotateY: 3.2, scale: 0.985 },
+          { rotationX: -8, rotateY: -1.4, scale: 1, duration: 5.00, ease: "power1.inOut", immediateRender: false }, 0);
 
-        /* 俯视 → 放平（画面被"看清"的过程） */
-        tl.fromTo("#appstage", { rotationX: -15, y: 74, scale: 0.94 },
-          { rotationX: 0, y: 0, scale: 1, duration: 3.20, ease: "rail", immediateRender: false }, 1.90);
-        /* 光晕/影子在 .world 里独立存在，跟随同一个落定节奏（中心 x 都是 2400） */
-        tl.fromTo("#glow",   { y: 74, scale: 0.94 }, { y: 0, scale: 1, duration: 3.20, ease: "rail", immediateRender: false }, 1.90);
-        tl.fromTo("#shadow", { y: 74, scale: 0.94 }, { y: 0, scale: 1, duration: 3.20, ease: "rail", immediateRender: false }, 1.90);
+        tl.fromTo("#warm",   { opacity: 0 }, { opacity: 1, duration: 1.60, ease: EASE_OUT, immediateRender: false }, 0.20);
+        tl.fromTo("#glow",   { opacity: 0 }, { opacity: 1, duration: 1.80, ease: EASE_OUT, immediateRender: false }, 0.34);
+        tl.fromTo("#shadow", { opacity: 0 }, { opacity: 1, duration: 2.20, ease: EASE_OUT, immediateRender: false }, 0.46);
 
-        /* 左侧标题：浮现 → **画面露出约一半时**（rail 曲线下约 t=1.95s）隐去 */
+        /* 标题：浮现 → 视角移动到一半（约 2.4s）时隐去 */
         tl.fromTo("#t1", { opacity: 0, x: -70 },
-          { opacity: 1, x: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 0.32);
+          { opacity: 1, x: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 0.30);
         tl.fromTo("#t1bar", { scaleX: 0 },
-          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.60);
-        tl.to("#t1", { opacity: 0, x: -48, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 1.90);
+          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.58);
+        tl.to("#t1", { opacity: 0, x: -48, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.36);
 
-        /* ============ 5.4–6.9 居中后：相机向前推进（带弹性回稳）============ */
-        tl.to("#appstage", { z: 230, duration: 1.50, ease: "elastic.out(1, 0.62)", immediateRender: false }, 5.40);
-        tl.to("#glow",   { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 5.55);
-        tl.to("#shadow", { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 5.55);
+        /* ============ 5.0–6.5 相机向前推进（带弹性回稳）============ */
+        tl.to("#appstage", { z: 230, duration: 1.50, ease: "elastic.out(1, 0.62)", immediateRender: false }, 5.00);
+        tl.to("#glow",   { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 5.15);
+        tl.to("#shadow", { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 5.15);
 
-        /* ====== 6.9–8.9 模块分散拆解 · 飞出画面（保留软件主体）======
+        /* ====== 6.5–8.35 模块分散拆解 · 飞出画面（保留软件主体）======
            每个模块都给 x/y 位移 —— 只做 z+opacity 会看起来"在原地消失"，而不是飞出去。 */
         var OUT = 1.85;
-        tl.to("#pSb",   { x: -1020, y: -280, z: 420, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.90);
-        tl.to("#pMain", { x: 190,  y: -620, z: 720, scale: 1.07, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.94);
-        tl.to("#phMain",{ x: 190,  y: -620, z: 720, scale: 1.07, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.94);
-        tl.to("#pS02",  { x: 340, y: -340, z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.00);
-        tl.to("#phS02", { x: 340, y: -340, z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.00);
-        tl.to("#pS12",  { x: 430, y: 90,   z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.06);
-        tl.to("#phS12", { x: 430, y: 90,   z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.06);
-        tl.to("#pS20",  { x: -380, y: 300, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.12);
-        tl.to("#phS20", { x: -380, y: 300, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.12);
-        tl.to("#pS21",  { y: 380, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.18);
-        tl.to("#phS21", { y: 380, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.18);
-        tl.to("#pS22",  { x: 360, y: 290, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.24);
-        tl.to("#phS22", { x: 360, y: 290, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 7.24);
+        tl.to("#pSb",   { x: -1020, y: -280, z: 420, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.50);
+        tl.to("#pMain", { x: 190,  y: -620, z: 720, scale: 1.07, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.54);
+        tl.to("#phMain",{ x: 190,  y: -620, z: 720, scale: 1.07, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.54);
+        tl.to("#pS02",  { x: 340, y: -340, z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.60);
+        tl.to("#phS02", { x: 340, y: -340, z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.60);
+        tl.to("#pS12",  { x: 430, y: 90,   z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.66);
+        tl.to("#phS12", { x: 430, y: 90,   z: 540, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.66);
+        tl.to("#pS20",  { x: -380, y: 300, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.72);
+        tl.to("#phS20", { x: -380, y: 300, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.72);
+        tl.to("#pS21",  { y: 380, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.78);
+        tl.to("#phS21", { y: 380, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.78);
+        tl.to("#pS22",  { x: 360, y: 290, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.84);
+        tl.to("#phS22", { x: 360, y: 290, z: 480, opacity: 0, duration: OUT, ease: EASE_IO, immediateRender: false }, 6.84);
 
-        /* ============ 8.9–10.5 继续推进 + 放大，直到看不到背景图 ============ */
-        tl.to("#appstage", { z: 1500, scale: 1.36, duration: 1.65, ease: EASE_IO, immediateRender: false }, 8.90);
-        tl.to("#bg",      { opacity: 0, duration: 0.75, ease: EASE_OUT, immediateRender: false }, 9.35);
-        tl.to("#vignette",{ opacity: 0, duration: 0.75, ease: EASE_OUT, immediateRender: false }, 9.35);
-        /* 注意：#appwin 不淡出 —— 最后的文字直接叠在保留下来的软件窗口壳上，
-           而不是切到纯黑背景。 */
+        /* ============ 8.35–10.0 继续推进 + 放大，直到看不到背景图 ============ */
+        tl.to("#appstage", { z: 1500, scale: 1.36, duration: 1.65, ease: EASE_IO, immediateRender: false }, 8.35);
+        tl.to("#bg",      { opacity: 0, duration: 0.75, ease: EASE_OUT, immediateRender: false }, 8.80);
+        tl.to("#vignette",{ opacity: 0, duration: 0.75, ease: EASE_OUT, immediateRender: false }, 8.80);
+        /* 注意：#appwin 不淡出，暖光也不淡出 —— 最后的文字直接叠在保留下来的
+           软件窗口壳上，而不是切到纯黑背景。 */
 
-        /* ============ 10.3–12.0 文字 + 星光 ============ */
-        tl.fromTo("#stars", { opacity: 0 }, { opacity: 1, duration: 0.90, ease: EASE_OUT, immediateRender: false }, 10.30);
-        tl.fromTo("#stars .neb", { opacity: 0, scale: 0.92 },
-          { opacity: 1, scale: 1, duration: 1.35, ease: EASE_OUT, immediateRender: false }, 10.30);
-        tl.fromTo("#stars i", { opacity: 0, scale: 0.3 },
-          { opacity: 1, scale: 1, duration: 0.55, ease: EASE_OUT, stagger: 0.05, immediateRender: false }, 10.42);
-        tl.fromTo("#stars .fl", { opacity: 0, scale: 0.35, rotation: -24 },
-          { opacity: 1, scale: 1, rotation: 0, duration: 0.75, ease: EASE_OUT, stagger: 0.17, immediateRender: false }, 10.62);
+        /* ============ 10.0–12.0 文字（星光层已按反馈去掉）============ */
         tl.fromTo("#t2", { opacity: 0, y: 26 },
-          { opacity: 1, y: 0, duration: 0.70, ease: EASE_OUT, immediateRender: false }, 10.58);
+          { opacity: 1, y: 0, duration: 0.70, ease: EASE_OUT, immediateRender: false }, 10.10);
 
         tl.to({}, { duration: 0.01 }, 11.99);
 

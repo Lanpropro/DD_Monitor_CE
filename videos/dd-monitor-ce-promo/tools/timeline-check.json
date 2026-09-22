@@ -1,14 +1,15 @@
 {
   "comp": "compositions/v3/18-01-intro.html",
-  "sels": ["#t1", "#appstage", "#appwin", "#pMain", "#stars", "#t2"],
+  "sels": ["#world", "#appstage", "#warm", "#t1", "#t2"],
   "variants": [
-    { "name": "t1.2", "at": 1.2 },
-    { "name": "t2.0", "at": 2.0 },
-    { "name": "t3.2", "at": 3.2 },
-    { "name": "t5.3", "at": 5.3 },
-    { "name": "t6.6", "at": 6.6 },
-    { "name": "t7.8", "at": 7.8 },
-    { "name": "t9.6", "at": 9.6 },
-    { "name": "t11.6", "at": 11.6 }
+    { "name": "c1.0", "at": 1.0 },
+    { "name": "c2.0", "at": 2.0 },
+    { "name": "c3.3", "at": 3.3 },
+    { "name": "c4.0", "at": 4.0 },
+    { "name": "c5.0", "at": 5.0 },
+    { "name": "c6.0", "at": 6.0 },
+    { "name": "c7.5", "at": 7.5 },
+    { "name": "c9.5", "at": 9.5 },
+    { "name": "c11.5", "at": 11.5 }
   ]
 }
