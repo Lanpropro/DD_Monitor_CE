@@ -55,13 +55,11 @@
       .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
       .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
 
-      /* 卡片队列：一排五张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
-         尺寸 600x340 = 原来的两倍。
-         `.stage` 给 perspective —— 卡片各自带 rotationY（用户 2026-09-22：倾斜角度不够），
-         右缘向后 = 左侧离镜头近，与「左边在前、遮挡右边」一致。 */
-      .stage { position: absolute; inset: 0; perspective: 2400px; }
+      /* 卡片队列：一排三张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
+         尺寸 600x340 = 原来的两倍（原 300x200，同时按素材比例 16:9 微调高度）。 */
+      .stage { position: absolute; inset: 0; }
       .card {
-        position: absolute; left: 0; top: 0; width: 600px; height: 368px;
+        position: absolute; left: 0; top: 0; width: 600px; height: 340px;
         border-radius: 22px; overflow: hidden;
         background: var(--card);
         border: 1px solid var(--card-edge);
@@ -85,22 +83,23 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 按用户红框量出的比例排：卡片露出的宽度约占自身 84%（几乎不重叠），
-           左大右小比例 0.67。600 宽的卡按这个间距只能排 **4 张**。
-           其中 card-2 / card-5 / card-7 是**有预览录像的三张，必须保留**，另加 card-4。 -->
+      <!-- 放大两倍后**摆得下的张数**是 5 张（间距 326，每张露出约 55%，接近参考片的重叠度）。
+           其中 card-2 / card-5 / card-7 是**有预览录像的三张，必须保留**；
+           其余按"摆得下"优先留下。用户 2026-09-22：不是只留三张，摆得下就多摆。 -->
       <div class="stage" id="stage">
         <div class="card" id="k1">
           <img class="shot" src="assets/rec/card-2.png" alt="">
           <video class="vid" id="v1" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="0.762" data-duration="6.738"></video>
         </div>
-        <div class="card" id="k2"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
-        <div class="card" id="k3">
+        <div class="card" id="k2"><img class="shot" src="assets/rec/card-3.png" alt=""></div>
+        <div class="card" id="k3"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
+        <div class="card" id="k4">
           <img class="shot" src="assets/rec/card-5.png" alt="">
           <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="3.048" data-duration="4.452"></video>
         </div>
-        <div class="card" id="k4">
+        <div class="card" id="k5">
           <img class="shot" src="assets/rec/card-7.png" alt="">
           <video class="vid" id="v3" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="5.334" data-duration="2.166"></video>
@@ -118,15 +117,15 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* ---- 队列：四张，从左下到右上排过去 ----
-           间距 440 / 卡宽 600 —— 每张露出约 73%，接近用户红框里"几乎不重叠"的排布。
-           左边近（大、低、**在前**），右边远（小、高、在后）：左遮右。
-           缩小比例 1.000 -> 0.670，也是照红框量出来的（红框左宽 441、右宽 297）。 */
+        /* ---- 队列：五张，从左下到右上排过去 ----
+           左边近（大、低、**在前**），右边远（小、高、在后）—— 左边遮挡右边。
+           间距 326 < 卡宽 600，每张露出约 55%。 */
         var POS = [
-          { x:    6, y: 660, s: 1.000, z: 4 },
-          { x:  446, y: 615, s: 0.890, z: 3 },
-          { x:  886, y: 570, s: 0.780, z: 2 },
-          { x: 1326, y: 525, s: 0.670, z: 1 }
+          { x:    6, y: 640, s: 1.000, z: 5 },
+          { x:  332, y: 606, s: 0.945, z: 4 },
+          { x:  658, y: 572, s: 0.890, z: 3 },
+          { x:  984, y: 538, s: 0.835, z: 2 },
+          { x: 1310, y: 504, s: 0.780, z: 1 }
         ];
         var N = POS.length;
 
@@ -136,8 +135,7 @@
         gsap.set(".vid", { opacity: 0 });
         gsap.set("#cursor", { opacity: 0, x: 1240, y: 940 });
         POS.forEach(function (p, i) {
-          gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0,
-                                     rotationY: 12, transformPerspective: 2400 });
+          gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0 });
         });
 
         /* ---- 入场：标题 + 三张卡依次浮现（0.10 / 0.29 / 0.48，落在拍上） ---- */
@@ -193,10 +191,10 @@
           });
         }
 
-        /* 三轮抽出的是**带录像的那三张**：#k1(card-2) / #k3(card-5) / #k4(card-7) */
+        /* 三轮抽出的是**带录像的那三张**：#k1(card-2) / #k4(card-5) / #k5(card-7) */
         round(0.762, 0, "#v1");
-        round(0.762 + ROUND, 2, "#v2");
-        round(0.762 + ROUND * 2, 3, "#v3");
+        round(0.762 + ROUND, 3, "#v2");
+        round(0.762 + ROUND * 2, 4, "#v3");
 
         tl.to("#cursor", { opacity: 0, duration: 0.30, immediateRender: false }, 7.05);
 
