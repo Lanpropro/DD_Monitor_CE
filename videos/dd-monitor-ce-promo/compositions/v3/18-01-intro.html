@@ -185,14 +185,6 @@
       .pt-s21 { left: 401px; top: 359px; width: 294px; height: 183px; }
       .pt-s22 { left: 703px; top: 359px; width: 298px; height: 183px; }
 
-      .ph {
-        position: absolute; display: flex; align-items: center; justify-content: center;
-        border-radius: 4px;
-        background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px);
-        /* ⚠ 这里**不能**写 will-change —— 见 .appwin 上方的说明。 */
-      }
-      .ph:after { content: ""; position: absolute; inset: 6px; border: 1px dashed rgba(131,131,145,.42); border-radius: 3px; }
-      .ph span { position: relative; z-index: 2; font-size: 10px; font-weight: 600; color: rgba(184,189,197,.72); }
 
       /* ---------- 标题层（固定在屏幕上）---------- */
       .t1 { position: absolute; left: 118px; top: 452px; will-change: transform, opacity; }
@@ -265,12 +257,6 @@
               <img class="pt pt-s20"  id="pS20"  src="assets/rec/cell-s20.png" alt="">
               <img class="pt pt-s21"  id="pS21"  src="assets/rec/cell-s21.png" alt="">
               <img class="pt pt-s22"  id="pS22"  src="assets/rec/cell-s22.png" alt="">
-              <div class="ph" id="phMain" style="left: calc(455px * var(--s)); top: calc(75px * var(--s)); width: calc(2215px * var(--s)); height: calc(1350px * var(--s));"><span>[素材: 主画面]</span></div>
-              <div class="ph" id="phS02" style="left: calc(2680px * var(--s)); top: calc(75px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS12" style="left: calc(2680px * var(--s)); top: calc(755px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS20" style="left: calc(455px * var(--s)); top: calc(1435px * var(--s)); width: calc(1075px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS21" style="left: calc(1540px * var(--s)); top: calc(1435px * var(--s)); width: calc(1130px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
-              <div class="ph" id="phS22" style="left: calc(2680px * var(--s)); top: calc(1435px * var(--s)); width: calc(1155px * var(--s)); height: calc(670px * var(--s));"><span>[素材]</span></div>
 
               <!-- 月光层：**在窗口内部**（.appwin 的子层），所以只透过窗口玻璃可见，
                    不会像上一版那样直接铺在画面上。坐标按窗口 1000x547 布点。 -->
@@ -336,7 +322,7 @@
         /* 模块初始藏在窗口内部的下方（y +120）且透明：03 拍让它们从下往上逐块拼入。
            y 偏移刻意小于窗口高度，模块始终落在窗口范围内、不会露到窗口外面
            （.appwin 不能写 overflow:hidden，见文件头部的禁忌）。 */
-        gsap.set(".pt, .ph", { transformPerspective: 1000, y: 120, opacity: 0, scale: 0.97 });
+        gsap.set(".pt", { transformPerspective: 1000, y: 120, opacity: 0, scale: 0.97 });
         gsap.set("#appwin", { opacity: 1, scale: 1, z: 0 });
         gsap.set("#vignette", { opacity: 1 });
 
@@ -387,17 +373,11 @@
            每块的持续时长收到 0.45s，让 7 块在 6.93s 前落定，不挤压后面的推进。 */
         var IN = 0.45;
         tl.to("#pS20",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.334);
-        tl.to("#phS20", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.334);
         tl.to("#pS21",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.5245);
-        tl.to("#phS21", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.5245);
         tl.to("#pS22",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.715);
-        tl.to("#phS22", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.715);
         tl.to("#pS12",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.9055);
-        tl.to("#phS12", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.9055);
         tl.to("#pMain", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.096);
-        tl.to("#phMain",{ y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.096);
         tl.to("#pS02",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.2865);
-        tl.to("#phS02", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.2865);
         tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.477);
 
         /* ============ 7.00–8.50 继续推进 + 放大到铺满画布 ============

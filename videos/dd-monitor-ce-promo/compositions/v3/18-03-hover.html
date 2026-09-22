@@ -6,12 +6,22 @@
     <script src="assets/lib/gsap.min.js"></script>
     <style>
       /* ==========================================================================
-         18-03-hover  ——  C 组：08（0.0–5.0s）
-         「悬停预览 · 如此轻松」—— 多张卡片立体排列，向上抽出 1 张，
-         模拟光标移过去，播放直播预览；重复 3 轮。
+         18-03-hover  ——  C 组：08（0.0–5.0s）「悬停预览 · 如此轻松」
 
-         色场：照参考片 17.08–23.17s 的中灰（#abb0ba / #8a8d9a / #636473）。
-         注意：全部动效写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
+         用户 2026-09-22：「03 是手稿有问题，我希望的画面是如截图的 ——
+         正常情况下立体排列，然后向上弹出，并且模拟光标上移展示预览视频。」
+         所以这一版改成照**参考片 17.08–23.17s** 那个画面重做：
+
+           · 背景 = 从参考片 19.0s 裁出的灰墙（取画面上部无卡片区域，拉伸铺满）
+           · 一排**真实关注卡片**（8 张，来自 `卡片截图_自行裁剪.png`）从左到右立体排列，
+             近大远小、彼此轻微重叠
+           · 三轮：其中一张**向上弹出**（放大 + 升到队列上方）→ 光标跟着**上移** →
+             卡面淡出、换成**真实预览录像**（`聚焦卡片_卡片预览.mp4` 的 8–13s）
+
+         ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek(t, suppressEvents=true) 不触发 callback）。
+         ⚠ 不要给承载 <video> 的容器补间 width/height，也不要写 will-change ——
+           两者都会让 video 的帧整个丢失（见 ASSET-CROPPING.md 第 6 节）。
+         ⚠ 卡片位置全部用 transform 的 x/y/scale，不碰 left/top（会吸附整数设备像素）。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -19,11 +29,10 @@
       @font-face { font-family: "Microsoft YaHei"; font-weight: 600 700; src: local("Microsoft YaHei Bold"); }
 
       :root {
-        --sc-mid: #8a8d9a; --sc-mid-2: #6f7280;
-        --card: #f4f5f7; --card-edge: rgba(16,17,20,.10);
-        --tile: #101114; --accent: #00a1d6; --pink: #fb7299;
+        --card: rgba(246,247,249,.94);
+        --card-edge: rgba(255,255,255,.60);
+        --accent: #00a1d6; --pink: #fb7299;
         --ink: #101114; --ink-2: rgba(16,17,20,.62);
-        --text1: #f1f2f5; --text2: rgba(214,218,224,.9); --text3: rgba(184,189,197,.75);
         --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
         --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
       }
@@ -31,46 +40,34 @@
       html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
       #root {
         position: relative; width: 1920px; height: 1080px; overflow: hidden;
-        background: var(--sc-mid); perspective: 2400px;
+        background: #969aa3 url("assets/rec/ref-wall.jpg") center / cover no-repeat;
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
         -webkit-font-smoothing: antialiased; color: var(--ink);
       }
-      /* 左上标题（深字压中灰） */
-      .head { position: absolute; left: 110px; top: 104px; will-change: transform, opacity; }
-      .head .n { font-size: 88px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
-      .head .s { margin-top: 18px; font-size: 40px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
-      .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 24px; transform-origin: 0 50%; }
 
-      /* 卡片栈（3D） */
-      .stack {
-        position: absolute; left: 900px; top: 250px; width: 700px; height: 394px;
-        transform-style: preserve-3d; will-change: transform;
-      }
+      /* 左上标题 */
+      .head { position: absolute; left: 110px; top: 96px; will-change: transform, opacity; }
+      .head .n { font-size: 84px; font-weight: 700; letter-spacing: -.01em; line-height: 1; color: #fff; text-shadow: 0 2px 18px rgba(16,17,20,.28); }
+      .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
+      .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
+
+      /* 卡片队列：一排，从左到右，近大远小。位置全部由 JS 用 x/y/scale 给。 */
+      .stage { position: absolute; inset: 0; }
       .card {
-        position: absolute; inset: 0; background: var(--card);
-        border: 1px solid var(--card-edge); border-radius: 18px; overflow: hidden;
-        box-shadow: 0 34px 70px rgba(16,17,20,.28);
-        will-change: transform, opacity;
+        position: absolute; left: 0; top: 0; width: 300px; height: 200px;
+        border-radius: 16px; overflow: hidden;
+        background: var(--card);
+        border: 1px solid var(--card-edge);
+        box-shadow: 0 24px 48px rgba(16,17,20,.20), 0 2px 0 rgba(255,255,255,.5) inset;
       }
-      /* 卡片封面 = 从 `Video_reference/卡片截图_自行裁剪.png` 裁出的**真实关注卡片**
-         （用户 2026-09-22 提供）。那张图是 8 张卡竖排，实测周期 192px、卡高 182px、起点 y=26。
-         这里用 object-fit: cover 填满卡片框；`.shot` 同时承担「开始播放预览」的轻微推近。 */
-      .card .shot { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
-      .card .meta {
-        position: absolute; left: 20px; right: 20px; bottom: 18px;
-        display: flex; align-items: center; gap: 10px;
-      }
-      .card .name { font-size: 18px; font-weight: 700; }
-      .card .sub { font-size: 13px; color: var(--ink-2); margin-left: auto; }
-      .tag-live {
-        background: var(--pink); color: #3a0d1c; border-radius: 9px;
-        padding: 2px 8px; font-size: 12px; font-weight: 700;
-      }
-      /* 抽出的那张：亮蓝描边 */
-      .card.lift { border-color: rgba(0,161,214,.75); box-shadow: 0 46px 90px rgba(16,17,20,.4); }
+      .card .shot { display: block; width: 100%; height: 100%; object-fit: cover; }
+      /* 预览录像：抽出时才淡入，盖在卡面上 */
+      .card .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+      /* 抽出时点亮描边 */
+      .card.lit { border-color: rgba(0,161,214,.85); box-shadow: 0 40px 80px rgba(16,17,20,.34), 0 0 0 2px rgba(0,161,214,.35); }
 
       /* 模拟光标 */
-      .cursor { position: absolute; left: 0; top: 0; width: 26px; height: 34px; will-change: transform, opacity; }
+      .cursor { position: absolute; left: 0; top: 0; width: 28px; height: 36px; will-change: transform, opacity; }
       .cursor svg { display: block; }
     </style>
   </head>
@@ -83,27 +80,33 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <div class="stack" id="stack">
-        <!-- 三张卡：底面、中层、顶层（每轮抽出的都是当轮顶层）。
-             ⚠ 不要在 CSS 里写 transform —— GSAP 已经用 gsap.set 设了 z/y/scale，
-             CSS 的 transform 会被整体覆盖（lint: gsap_css_transform_conflict）。
-             原来 #c2 / #c3 上的 translateZ/translateY 就是这么报错的。 -->
-        <div class="card" id="c3" style="opacity: .5;">
-          <img class="shot" src="assets/rec/card-3.png" alt="">
-          <div class="meta"><span class="tag-live">直播</span><span class="name">盐无Shio</span><span class="sub">主播你是男的女的。</span></div>
-        </div>
-        <div class="card" id="c2" style="opacity: .75;">
+      <!-- 卡片队列：8 张真实关注卡片（从卡片截图_自行裁剪.png 按周期 192px 裁出）。
+           只有会被抽出的那三张（k2 / k5 / k7）内嵌预览录像，其余是静态卡面。 -->
+      <div class="stage" id="stage">
+        <div class="card" id="k1"><img class="shot" src="assets/rec/card-1.png" alt=""></div>
+        <div class="card" id="k2">
           <img class="shot" src="assets/rec/card-2.png" alt="">
-          <div class="meta"><span class="tag-live">直播</span><span class="name">三理Mit3uri</span><span class="sub">证明！！</span></div>
+          <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
+                 data-start="0.762" data-duration="4.238"></video>
         </div>
-        <div class="card" id="c1">
-          <img class="shot" src="assets/rec/card-1.png" alt="">
-          <div class="meta"><span class="tag-live">直播</span><span class="name">莉蔻Liko</span><span class="sub">视频鉴赏来咯～！</span></div>
+        <div class="card" id="k3"><img class="shot" src="assets/rec/card-3.png" alt=""></div>
+        <div class="card" id="k4"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
+        <div class="card" id="k5">
+          <img class="shot" src="assets/rec/card-5.png" alt="">
+          <video class="vid" id="v5" src="assets/rec/rec-preview.mp4" muted playsinline
+                 data-start="2.0955" data-duration="2.9045"></video>
         </div>
+        <div class="card" id="k6"><img class="shot" src="assets/rec/card-6.png" alt=""></div>
+        <div class="card" id="k7">
+          <img class="shot" src="assets/rec/card-7.png" alt="">
+          <video class="vid" id="v7" src="assets/rec/rec-preview.mp4" muted playsinline
+                 data-start="3.429" data-duration="1.571"></video>
+        </div>
+        <div class="card" id="k8"><img class="shot" src="assets/rec/card-8.png" alt=""></div>
       </div>
 
       <div class="cursor" id="cursor" style="opacity: 0;">
-        <svg viewBox="0 0 26 34" width="26" height="34"><path d="M4 2 L4 26 L10 20 L14 30 L19 28 L15 18 L23 18 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
+        <svg viewBox="0 0 28 36" width="28" height="36"><path d="M4 2 L4 28 L11 21 L15 32 L20 30 L16 19 L25 19 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
       </div>
     </div>
 
@@ -113,79 +116,86 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* 卡片栈静态斜置（3D） */
-        gsap.set("#stack", { rotationX: 12, rotationY: -14, transformOrigin: "50% 60%" });
-        gsap.set("#c3", { z: -140, y: 104, opacity: 0.5, scale: 0.94 });
-        gsap.set("#c2", { z: -70, y: 52, opacity: 0.75, scale: 0.97 });
-        gsap.set("#c1", { z: 0, y: 0, opacity: 1, scale: 1 });
-        gsap.set("#head", { opacity: 0, x: -40 });
-        gsap.set("#headBar", { scaleX: 0 });
-        gsap.set("#cursor", { opacity: 0, x: 1180, y: 700 });
+        var N = 8;
+        var GAP = 228;              /* < 卡片宽（300）-> 彼此轻微重叠，照参考片 */
 
-        /* 入场 */
-        tl.fromTo("#head", { opacity: 0, x: -40 },
-          { opacity: 1, x: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 0.10);
-        tl.fromTo("#headBar", { scaleX: 0 },
-          { scaleX: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 0.34);
-        tl.fromTo("#stack", { opacity: 0, rotationY: -24 },
-          { opacity: 1, rotationY: -14, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 0.20);
-
-        /* ---- 三轮：抽出 → 光标移到卡上 → 预览淡入 → 收回 ----
-           每轮 1.42s，起点 0.80 / 2.22 / 3.64（末轮在 5.0s 前收干净）。
-
-           ⚠ 抽出时要让**其它两张卡先退到栈的更深处**，否则被抽出的卡会盖在它们身上、
-           看起来是两张叠在一起（实测第 2 轮 c2 抽出时 c1 还杵在原地）。
-           每轮末尾再让所有卡回到各自的栈位。 */
-        var BASE = {
-          "#c3": { z: -140, y: 104, opacity: 0.5,  scale: 0.94 },
-          "#c2": { z: -70,  y: 52,  opacity: 0.75, scale: 0.97 },
-          "#c1": { z: 0,    y: 0,   opacity: 1,    scale: 1 }
-        };
-        function round(base, cardId) {
-          var lift = 0.32, move = 0.42, prev = 0.34, back = 0.34;
-          var settle = base + lift + move + prev;
-
-          /* 0) 其它卡先退后，给抽出的那张让出景深 */
-          Object.keys(BASE).forEach(function (id) {
-            if (id === cardId) return;
-            tl.to(id, { z: -260, y: 150, opacity: 0.26, scale: 0.90,
-                        duration: lift + move, ease: EASE_IO, immediateRender: false }, base);
-          });
-
-          /* 1) 抽出：向上 + 冲向镜头 + 放大 + 亮蓝描边（描边用补间，不用 class） */
-          tl.to(cardId, { y: -78, z: 120, scale: 1.06, duration: lift, ease: EASE_IO,
-                          immediateRender: false }, base);
-          tl.to(cardId, { borderColor: "rgba(0,161,214,.75)", duration: lift,
-                          immediateRender: false }, base);
-          /* 2) 光标移到这张卡上 */
-          tl.to("#cursor", { opacity: 1, duration: 0.12, immediateRender: false }, base + 0.06);
-          tl.fromTo("#cursor", { x: 1180, y: 700 },
-            { x: 906, y: 300, duration: move, ease: EASE_IO, immediateRender: false }, base + 0.06);
-          /* 3) 预览淡入（封面做一次极轻的推近，表示"开始播"） */
-          tl.fromTo(cardId + " .shot", { scale: 1 },
-            { scale: 1.04, duration: prev, ease: EASE_OUT, immediateRender: false }, base + 0.48);
-          /* 4) 收回：回到栈里的位置；描边回到常态 */
-          tl.to(cardId, { y: 0, z: 0, scale: 1, duration: back, ease: EASE_OUT,
-                          immediateRender: false }, settle);
-          tl.to(cardId, { borderColor: "rgba(16,17,20,.10)", duration: back,
-                          immediateRender: false }, settle);
-          tl.to(cardId + " .shot", { scale: 1, duration: back, ease: EASE_OUT,
-                          immediateRender: false }, settle);
-          /* 5) 轮末：所有卡归位（含刚才退后的那两张） */
-          Object.keys(BASE).forEach(function (id) {
-            var b = BASE[id];
-            tl.to(id, { z: b.z, y: b.y, opacity: b.opacity, scale: b.scale,
-                        duration: back, ease: EASE_OUT, immediateRender: false }, settle);
+        /* 队列位置：从左到右，越往右越小、越靠下（参考片是相机在左侧看过去的透视）。
+           全部用 transform 的 x/y/scale，left/top 保持 0。 */
+        var POS = [];
+        for (var i = 0; i < N; i++) {
+          POS.push({
+            x: 8 + i * GAP,
+            y: 700 + i * 14,
+            s: 1 - i * 0.035,
+            z: N - i                      /* 左边（近）在上 */
           });
         }
 
-        round(0.80, "#c1");
-        round(2.22, "#c2");
-        round(3.64, "#c3");
+        /* ---- 基线 ---- */
+        gsap.set("#head", { opacity: 0, x: -40 });
+        gsap.set("#headBar", { scaleX: 0 });
+        gsap.set(".vid", { opacity: 0 });
+        gsap.set("#cursor", { opacity: 0, x: 1180, y: 860 });
+        POS.forEach(function (p, i) {
+          gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0 });
+        });
 
-        /* 光标在轮间回位（轮次文字已去掉 —— 手稿 08 只要"重复 3 轮"，
-           屏幕上不需要显示轮次；而且时间轴上换不了文字，留着反而是破绽） */
-        tl.to("#cursor", { opacity: 0, duration: 0.2, immediateRender: false }, 4.86);
+        /* ---- 入场：标题 + 卡片依次浮现 ---- */
+        tl.fromTo("#head", { opacity: 0, x: -40 },
+          { opacity: 1, x: 0, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.10);
+        tl.fromTo("#headBar", { scaleX: 0 },
+          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.34);
+        POS.forEach(function (p, i) {
+          tl.to("#k" + (i + 1), { opacity: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false },
+                0.10 + i * 0.06);
+        });
+
+        /* ---- 三轮：向上弹出 → 光标上移 → 卡面换成预览录像 → 收回 ----
+           起点对齐 BGM 网格 0.1905s（与 01/02 同一张）：0.762(n=4) / 2.0955(n=11) / 3.429(n=18)。 */
+        function round(base, idx, vidId) {
+          var card = "#k" + (idx + 1);
+          var p = POS[idx];
+          var LIFT = 0.42, MOVE = 0.46, PLAY = 1.00, BACK = 0.40;
+          var s0 = base + LIFT + MOVE;          /* 光标到位 */
+          var s1 = s0 + PLAY;                   /* 预览播完 */
+
+          /* 1) 向上弹出：升到队列上方 + 放大 + 描边点亮（全部补间，不用 class 切换） */
+          tl.to(card, { y: p.y - 330, scale: 1.55, duration: LIFT, ease: EASE_IO, immediateRender: false }, base);
+          tl.to(card, { zIndex: 100, duration: 0.01, ease: "none", immediateRender: false }, base);
+          tl.to(card, { borderColor: "rgba(0,161,214,.85)", duration: LIFT, immediateRender: false }, base);
+          /* 其它卡片轻微下沉，给抽出的那张让出空间（照参考片，队列本身会动） */
+          POS.forEach(function (q, j) {
+            if (j === idx) return;
+            tl.to("#k" + (j + 1), { y: q.y + 26, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
+          });
+
+          /* 2) 光标**上移**到这张卡上 */
+          tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, base + 0.10);
+          tl.fromTo("#cursor", { x: 1180, y: 860 },
+            { x: p.x + 150, y: p.y - 300, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
+
+          /* 3) 卡面换成真实预览录像（shot 淡出 / vid 淡入） */
+          tl.to(card + " .shot", { opacity: 0, duration: 0.30, ease: EASE_OUT, immediateRender: false }, s0);
+          tl.to("#" + vidId, { opacity: 1, duration: 0.30, ease: EASE_OUT, immediateRender: false }, s0);
+
+          /* 4) 收回：回到队列位置，录像淡出、卡面回来 */
+          tl.to("#" + vidId, { opacity: 0, duration: 0.24, ease: EASE_OUT, immediateRender: false }, s1);
+          tl.to(card + " .shot", { opacity: 1, duration: 0.24, ease: EASE_OUT, immediateRender: false }, s1);
+          tl.to(card, { y: p.y, scale: p.s, duration: BACK, ease: EASE_OUT, immediateRender: false }, s1);
+          tl.to(card, { zIndex: p.z, duration: 0.01, ease: "none", immediateRender: false }, s1 + BACK);
+          tl.to(card, { borderColor: "rgba(255,255,255,.60)", duration: BACK, immediateRender: false }, s1);
+          /* 队列归位 */
+          POS.forEach(function (q, j) {
+            if (j === idx) return;
+            tl.to("#k" + (j + 1), { y: q.y, duration: BACK, ease: EASE_OUT, immediateRender: false }, s1);
+          });
+        }
+
+        round(0.762,  1, "v2");
+        round(2.0955, 4, "v5");
+        round(3.429,  6, "v7");
+
+        tl.to("#cursor", { opacity: 0, duration: 0.24, immediateRender: false }, 4.72);
 
         tl.to({}, { duration: 0.01 }, 4.99);
 
