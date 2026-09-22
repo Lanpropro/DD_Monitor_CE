@@ -55,11 +55,13 @@
       .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
       .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
 
-      /* 卡片队列：一排三张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
-         尺寸 600x340 = 原来的两倍（原 300x200，同时按素材比例 16:9 微调高度）。 */
-      .stage { position: absolute; inset: 0; }
+      /* 卡片队列：一排五张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
+         尺寸 600x340 = 原来的两倍。
+         `.stage` 给 perspective —— 卡片各自带 rotationY（用户 2026-09-22：倾斜角度不够），
+         右缘向后 = 左侧离镜头近，与「左边在前、遮挡右边」一致。 */
+      .stage { position: absolute; inset: 0; perspective: 2400px; }
       .card {
-        position: absolute; left: 0; top: 0; width: 600px; height: 340px;
+        position: absolute; left: 0; top: 0; width: 600px; height: 368px;
         border-radius: 22px; overflow: hidden;
         background: var(--card);
         border: 1px solid var(--card-edge);
@@ -135,7 +137,8 @@
         gsap.set(".vid", { opacity: 0 });
         gsap.set("#cursor", { opacity: 0, x: 1240, y: 940 });
         POS.forEach(function (p, i) {
-          gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0 });
+          gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0,
+                                     rotationY: 12, transformPerspective: 2400 });
         });
 
         /* ---- 入场：标题 + 三张卡依次浮现（0.10 / 0.29 / 0.48，落在拍上） ---- */
