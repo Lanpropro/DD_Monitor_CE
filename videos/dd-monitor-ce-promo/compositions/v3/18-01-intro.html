@@ -29,6 +29,14 @@
          窗口外壳 = 类玻璃材质：大圆角 + 1px 亮棱边 + 顶部内侧高光 + 表面斜向反光
          + 多层柔和阴影。底色仍是**高不透明度**深灰渐变 —— 切片缝隙不透背后背景。
 
+         —— Emil 视角的动效审核（2026-09-22）改的六处 ——
+         · `#moon` 不再自己做 fade：原来父子两层 opacity 相乘，月光实际比设定慢一倍
+         · 模块入场补上 `scale .97→1`：入场要有初始 transform、要有实体感（但绝不用 scale(0)）
+         · 新增 `.sheen` 玻璃扫光：窗口进入时表面反光扫过一次（原来是 `::after` 上的静态渐变）
+         · 标题退场加 `blur(2.5px)`、主标题入场从 `blur(7px)` 显影 —— blur 能遮住两态重叠的双影
+         · glow / shadow 淡入 1.20s → 0.60s：光晕是窗口的伴生效果，不该比窗口晚 1s 才满
+         · 8.60–12.0 的定格改成极缓推进（3.4s 走 2.7%），3.4s 的死画面看起来像卡住了
+
          ⚠ 两条会毁掉画面的禁忌（都是实测踩出来的）：
          · .world 不能写 transform-style: preserve-3d —— 子层做 3D 变换时 Chrome 会把
            窗口绘制裁到局部 y≈363，下半部分连底色都不画，直接透出背景。
@@ -157,9 +165,9 @@
         content: ""; position: absolute; inset: 0; border-radius: 14px;
         pointer-events: none;
         background: linear-gradient(124deg,
-          rgba(255,255,255,.115) 0%,
-          rgba(255,255,255,.048) 13%,
-          rgba(255,255,255,.014) 26%,
+          rgba(255,255,255,.075) 0%,
+          rgba(255,255,255,.032) 13%,
+          rgba(255,255,255,.010) 26%,
           rgba(255,255,255,0) 40%,
           rgba(255,255,255,0) 100%);
       }
@@ -212,6 +220,19 @@
       }
       /* 用户 2026-09-22：**去掉星光光点** —— 月光只留上面那一层 .wash 光晕，
          不再有点状星/四芒星（.moon i / .moon .fl 已删除）。 */
+
+      /* ---------- 玻璃扫光（.appwin 表面那道反光，会随相机横移扫过去）----------
+         原来这道反光是 .appwin::after 上的**静态**渐变。玻璃的实体感来自「反光随视角变化」——
+         参考片那个窗口横向移动时，表面高光也在走。所以把它拆成独立层，进场时扫一次。
+         inset 用负值让光带比窗口大，超出部分由 .appwin 的 overflow:hidden 裁掉。 */
+      .sheen {
+        position: absolute; inset: -30% -80%; pointer-events: none;
+        background: linear-gradient(118deg,
+          rgba(255,255,255,0) 40%,
+          rgba(255,255,255,.115) 47%,
+          rgba(255,255,255,.03) 53%,
+          rgba(255,255,255,0) 60%);
+      }
     </style>
   </head>
   <body>
@@ -248,6 +269,9 @@
               <div class="moon" id="moon">
                 <div class="wash"></div>
               </div>
+
+              <!-- 玻璃扫光：进场时从右往左扫过一次（相机右移，反射光斑相对窗口左移） -->
+              <div class="sheen" id="sheen"></div>
             </div>
           </div>
         </div>
@@ -283,13 +307,17 @@
 
         /* ---- 基线 ---- */
         gsap.set("#world", { x: 0, z: 0 });
-        gsap.set("#t1", { opacity: 0, x: -70 });
+        gsap.set("#t1", { opacity: 0, x: -70, filter: "blur(0px)" });
         gsap.set("#t1bar", { scaleX: 0 });
-        gsap.set("#t2", { opacity: 0, y: 26 });
+        /* 主标题从模糊显影出来 —— blur 能遮住两态重叠时的"双影" */
+        gsap.set("#t2", { opacity: 0, y: 26, filter: "blur(7px)" });
         gsap.set("#glow", { opacity: 0 });
         gsap.set("#shadow", { opacity: 0 });
-        gsap.set("#moon", { opacity: 0 });
+        /* #moon 是纯容器，不再自己做 fade：原来父子两层 opacity 相乘（0.90s × 1.35s），
+           月光实际比设定慢了一倍。只让 .wash 自己淡入。 */
         gsap.set("#moon .wash", { opacity: 0 });
+        /* 玻璃扫光：进场时从右往左扫（相机右移 -> 反射光斑相对窗口左移） */
+        gsap.set("#sheen", { opacity: 0, x: 520 });
         /* 窗口**平正**：照参考片那个窗口（正对镜头，没有俯视倾斜）。
            transformPerspective 留给后面的 z 推进 —— 直接写进元素的 transform，
            等价于父层透视，但不会引入 preserve-3d 上下文（那会把窗口下半部分裁掉）。 */
@@ -298,7 +326,7 @@
         /* 模块初始藏在窗口内部的下方（y +120）且透明：03 拍让它们从下往上逐块拼入。
            y 偏移刻意小于窗口高度，模块始终落在窗口范围内、不会露到窗口外面
            （.appwin 不能写 overflow:hidden，见文件头部的禁忌）。 */
-        gsap.set(".pt, .ph", { transformPerspective: 1000, y: 120, opacity: 0 });
+        gsap.set(".pt, .ph", { transformPerspective: 1000, y: 120, opacity: 0, scale: 0.97 });
         gsap.set("#appwin", { opacity: 1, scale: 1, z: 0 });
         gsap.set("#vignette", { opacity: 1 });
 
@@ -313,16 +341,23 @@
         tl.fromTo("#world", { x: -(D1 + D2) },
           { x: -DOLLY, duration: T4 - T3, ease: "power2.out", immediateRender: false }, T3);
 
-        /* 光晕 / 影子与窗口同时出现（窗口 1.38s 贴上画布右缘） */
-        tl.fromTo("#glow",   { opacity: 0 }, { opacity: 1, duration: 1.20, ease: EASE_OUT, immediateRender: false }, 1.38);
-        tl.fromTo("#shadow", { opacity: 0 }, { opacity: 1, duration: 1.20, ease: EASE_OUT, immediateRender: false }, 1.44);
+        /* 光晕 / 影子与窗口同时出现（窗口 1.38s 贴上画布右缘）。
+           原来是 1.20s 淡入、比窗口晚 1s 才满 —— 光晕是窗口的伴生效果，迟到会显得脱节，
+           收到 0.60s，让它跟着窗口一起亮起来。 */
+        tl.fromTo("#glow",   { opacity: 0 }, { opacity: 1, duration: 0.60, ease: EASE_OUT, immediateRender: false }, 1.38);
+        tl.fromTo("#shadow", { opacity: 0 }, { opacity: 1, duration: 0.60, ease: EASE_OUT, immediateRender: false }, 1.42);
+
+        /* 玻璃扫光：窗口进入的整段时间里扫过一次。
+           opacity 与 x 两个 tween **同时开始**、各补不同属性（错开开始会中途跳变）。 */
+        tl.fromTo("#sheen", { opacity: 0 }, { opacity: 1, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 1.42);
+        tl.fromTo("#sheen", { x: 520 }, { x: -520, duration: 2.90, ease: "none", immediateRender: false }, 1.42);
 
         /* 左侧标题：0.52s 起浮现、1.79s 起 0.25s 隐去 —— 两个时刻都照参考片实测 */
         tl.fromTo("#t1", { opacity: 0, x: -70 },
           { opacity: 1, x: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 0.52);
         tl.fromTo("#t1bar", { scaleX: 0 },
           { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.80);
-        tl.to("#t1", { opacity: 0, x: -48, duration: 0.25, ease: EASE_OUT, immediateRender: false }, 1.79);
+        tl.to("#t1", { opacity: 0, x: -48, filter: "blur(2.5px)", duration: 0.25, ease: EASE_OUT, immediateRender: false }, 1.79);
 
         /* ============ 4.44–5.40 落定后：相机向前推进（带弹性回稳）============ */
         tl.to("#appstage", { z: 230, duration: 0.96, ease: "elastic.out(1, 0.62)", immediateRender: false }, 4.44);
@@ -336,19 +371,19 @@
            每块从窗口内下方 y +120 浮起落位（stagger 80ms、0.75s 一块、EASE_OUT）。
            每个 .pt（真实截图切片）与配对的 .ph（素材占位）同时补间。 */
         var IN = 0.75;
-        tl.to("#pS20",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.40);
-        tl.to("#phS20", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.40);
-        tl.to("#pS21",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.48);
-        tl.to("#phS21", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.48);
-        tl.to("#pS22",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.56);
-        tl.to("#phS22", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.56);
-        tl.to("#pS12",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.64);
-        tl.to("#phS12", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.64);
-        tl.to("#pMain", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.72);
-        tl.to("#phMain",{ y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.72);
-        tl.to("#pS02",  { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.80);
-        tl.to("#phS02", { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.80);
-        tl.to("#pSb",   { y: 0, opacity: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.96);
+        tl.to("#pS20",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.40);
+        tl.to("#phS20", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.40);
+        tl.to("#pS21",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.48);
+        tl.to("#phS21", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.48);
+        tl.to("#pS22",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.56);
+        tl.to("#phS22", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.56);
+        tl.to("#pS12",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.64);
+        tl.to("#phS12", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.64);
+        tl.to("#pMain", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.72);
+        tl.to("#phMain",{ y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.72);
+        tl.to("#pS02",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.80);
+        tl.to("#phS02", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.80);
+        tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.96);
 
         /* ============ 7.00–8.50 继续推进 + 放大到铺满画布 ============
            用户 2026-09-22：最后的窗口放大到**铺满画面**。
@@ -363,11 +398,15 @@
         /* ============ 8.30–12.0 月光 + 文字（月光在窗口内部，透过窗口玻璃）============
            .moon 是 .appwin 的子层，光只出现在窗口范围里，透过窗口玻璃透出来。
            用户 2026-09-22：**去掉星光光点**，只留这一层 .wash 光晕。 */
-        tl.fromTo("#moon", { opacity: 0 }, { opacity: 1, duration: 0.90, ease: EASE_OUT, immediateRender: false }, 8.30);
+        /* #moon 是容器、不再自己 fade（见基线说明），只让 .wash 淡入 */
         tl.fromTo("#moon .wash", { opacity: 0, scale: 0.94 },
           { opacity: 1, scale: 1, duration: 1.35, ease: EASE_OUT, immediateRender: false }, 8.30);
-        tl.fromTo("#t2", { opacity: 0, y: 26 },
-          { opacity: 1, y: 0, duration: 0.70, ease: EASE_OUT, immediateRender: false }, 8.60);
+        /* 主标题从模糊显影到清晰（blur 遮罩：两态重叠时人眼会看成"两个东西"） */
+        tl.fromTo("#t2", { opacity: 0, y: 26, filter: "blur(7px)" },
+          { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.70, ease: EASE_OUT, immediateRender: false }, 8.60);
+
+        /* 定格不再死停：8.60–12.0 极缓推进（3.4s 只走 30px，约 2.7%），画面"活着" */
+        tl.to("#appstage", { z: 1130, duration: 3.40, ease: "none", immediateRender: false }, 8.60);
 
         tl.to({}, { duration: 0.01 }, 11.99);
 
