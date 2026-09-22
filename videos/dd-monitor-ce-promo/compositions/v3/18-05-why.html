@@ -132,6 +132,9 @@
         tl.to("#n12", { opacity: 0, y: -14, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 4.66);
 
         /* ============ 13（5.0–7.5）超低的内存占用 ============ */
+        /* ⚠ 父层必须先亮：只补间 #h13 / #s13 / #n13 的 opacity 是不够的 ——
+           `#l13` 一直是 0，整段 2.5s 就永远是空蓝底（实测抽帧 t=6.2s 什么都没有）。 */
+        tl.to("#l13", { opacity: 1, duration: 0.3, immediateRender: false }, 4.92);
         tl.to("#h12", { opacity: 0, duration: 0.22, immediateRender: false }, 4.92);
         tl.fromTo("#h13", { opacity: 0, y: 0 },
           { opacity: 1, y: 0, duration: 0.3, ease: EASE_OUT, immediateRender: false }, 4.94);

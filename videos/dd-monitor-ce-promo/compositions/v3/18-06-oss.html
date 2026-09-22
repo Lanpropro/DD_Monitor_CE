@@ -13,6 +13,12 @@
          17（11.0–15.5）视角向上仰视 · 9 分布局 · 缝隙 6px→0 拼合成一整面墙
 
          色场：sc-white（照参考片 36.17–40.67s / 47.42–55.50s 的白底）。
+
+         素材位（见 SCRIPT-v3.md 第八节）：
+           14 —— 插件接口画面：**用 HTML 按 theme 画**（`.panel` 那棵目录树就是，M7 选"我重绘"）
+           15 —— GitHub 图标（可选）：现在用「评论区 / 私信 / GitHub」三个 chip 代替
+           17 —— 9 路直播画面：与 09 同源，可用 `assets/rec/rec-grid.mp4` 拆单格铺进去
+         分工：**17（画面墙）在本拍，18（收黑 + logo）在 `18-07-end.html`**。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -83,9 +89,13 @@
       .disc .l2 { font-size: 32px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); will-change: transform, opacity; }
       .disc .l3 { font-size: 28px; font-weight: 600; letter-spacing: .08em; color: var(--ink-3); will-change: transform, opacity; }
 
-      /* ---------- 17 画面墙（仰视 + 拼合）---------- */
+      /* ---------- 17 画面墙（仰视 + 拼合）----------
+         ⚠ 这里**不能**写 `transform-style: preserve-3d`：祖先层有它时，子层再做 rotationX
+           会被 Chrome 按错误边界裁切（实测可见行只剩 417/548，见 SCRIPT-v3 第十节）。
+         ⚠ 参与 3D 的层也**不能**写 `will-change: transform`（合成层按布局尺寸光栅化，投影超出即被裁）。
+         立体感由 `#root` 的 perspective + GSAP 的 `transformPerspective` 提供。 */
       .wallwrap {
-        position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform;
+        position: absolute; inset: 0;
       }
       .wall {
         position: absolute; left: 150px; right: 150px; top: 70px; bottom: 40px;
@@ -180,7 +190,7 @@
         gsap.set(".cchip", { opacity: 0, y: 14 });
         gsap.set("#fbL2", { opacity: 0, y: 12 });
         gsap.set(["#d1", "#d2", "#d3"], { opacity: 0, y: 20 });
-        gsap.set("#wallwrap", { rotationX: 0, y: 0, scale: 1 });
+        gsap.set("#wallwrap", { rotationX: 0, y: 0, scale: 1, transformPerspective: 1800 });
         gsap.set("#wall", { gap: "6px" });
         gsap.set("#vig", { opacity: 0 });
 
@@ -222,8 +232,10 @@
         /* 仰视：rotateX 负角 + 画面上移，同时把缝隙收到 0（拼合成一整面墙） */
         tl.fromTo("#wallwrap", { rotationX: 0, y: 0, scale: 1.06 },
           { rotationX: -14, y: 120, scale: 1.12, duration: 1.4, ease: EASE_IO, immediateRender: false }, 11.10);
-        tl.fromTo("#wall", { gap: "6px" },
-          { gap: "0px", duration: 1.4, ease: EASE_IO, immediateRender: false }, 11.10);
+        /* 合缝：**不要补间 gap** —— gap 是布局属性，会吸附到整数设备像素（SCRIPT-v3 第十节）。
+           改成每格各自 `scale` 放大一点点，邻格互相盖住那 6px 的缝，
+           观感同样是"拼成一整面墙"，但走的是 transform。 */
+        tl.to(".tile", { scale: 1.014, duration: 1.4, ease: EASE_IO, immediateRender: false }, 11.10);
         /* 仰视后底部压暗，强化"墙还在往上长" */
         tl.to("#vig", { opacity: 1, duration: 0.9, ease: EASE_OUT, immediateRender: false }, 11.70);
         tl.to("#wallwrap", { y: 150, duration: 1.2, ease: "none", immediateRender: false }, 12.50);

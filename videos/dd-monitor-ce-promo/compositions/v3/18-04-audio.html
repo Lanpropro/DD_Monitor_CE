@@ -15,6 +15,14 @@
 
          色场：sc-white（照参考片 23.17–28.75s 的白底）。
          布局：3x3 与 1x2 的 cells 照 ddm/layouts.py。
+
+         素材位（见 SCRIPT-v3.md 第八节）：
+           09 —— 9 路直播画面：`assets/rec/rec-grid.mp4`（源 `9格布局.mp4` 10.53s）可拆单格铺进去；
+                 3 路直播原声 **待提供（M5）**
+           10 —— 2 路直播画面：`assets/rec/rec-chL.mp4` / `rec-chR.mp4` 已就位；
+                 左/右声道原声 **待提供（M5）**
+         音频：1.90s 起 BGM 600ms 淡出、直播原声进 —— 这一层在**混音**时做，本拍不带 BGM
+               （与 01/02/03 一致：单拍渲染无音乐，拼整片时再铺）。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -87,9 +95,9 @@
 
       .wall { position: relative; flex: 1; min-height: 0; }
       .tile {
-        position: absolute; background: var(--tile); border: 1px solid var(--border);
+        position: absolute; left: 0; top: 0;      /* ⚠ 位置一律走 transform 的 x/y，别补 left/top */
+        background: var(--tile); border: 1px solid var(--border);
         border-radius: 10px; overflow: hidden;
-        will-change: left, top, width, height, opacity, border-color;
       }
       .tile.on { border-color: rgba(0,161,214,.75); }
       .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -202,7 +210,9 @@
             var cell = spec.cells[i];
             if (cell) {
               var g = geom(cell, spec);
-              tl.to(el, { left: g.x, top: g.y, width: g.w, height: g.h, opacity: 1,
+              /* ⚠ 位置用 x/y（transform），宽高才用 CSS —— 补 left/top 会吸附整数设备像素，
+                 而给整格做 scale 会把格子里的画面和控制条一起拉变形（SCRIPT-v3 第十节）。 */
+              tl.to(el, { x: g.x, y: g.y, width: g.w, height: g.h, opacity: 1,
                           duration: dur, ease: EASE_IO }, t);
             } else {
               tl.to(el, { opacity: 0, duration: Math.min(0.22, dur) }, t);
@@ -216,11 +226,11 @@
         gsap.set("#h09", { opacity: 0, y: 26 });
         gsap.set("#h10a", { opacity: 0, scale: 0.96 });
         gsap.set("#h10b", { opacity: 0, y: -20 });
-        gsap.set("#appwin", { opacity: 0, left: 210, top: 262, scale: 1 });
+        gsap.set("#appwin", { opacity: 0, x: 0, y: 0, scale: 1 });
         gsap.set("[data-vol]", { opacity: 0, scaleX: 0.2 });
         gsap.set("#cursor", { opacity: 0, x: 260, y: 720 });
         (function () { var g = geom([0,0,1,1], LAYOUTS["3x3"]);
-          gsap.set(tiles, { left: g.x, top: g.y, width: g.w, height: g.h, opacity: 0 }); })();
+          gsap.set(tiles, { x: g.x, y: g.y, width: g.w, height: g.h, opacity: 0 }); })();
 
         /* ================= 09（0.0–5.0）9 分布局 · 光标依次开三格声音 ================= */
         track(tl, 0.10, "3x3", 0.5);
@@ -231,15 +241,20 @@
         /* 光标移到第 1 格音量键 */
         tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, 0.86);
         tl.to("#cursor", { x: 420, y: 800, duration: 0.62, ease: EASE_IO, immediateRender: false }, 0.90);
-        /* 三格依次：光标到位 → 音量条长出 → 控制条点亮（每格 1.1s） */
+        /* 三格依次：光标到位 → 音量条长出 → 控制条点亮（每格 1.1s）
+           ⚠ 必须落在**第 k 格**上：以前这里写的是 `tl.to("[data-vol]", …)`，
+             全局选择器会让九格一起亮。 */
         [0, 1, 2].forEach(function (k) {
           var base = 1.52 + k * 1.10;
+          var tile = tiles[k];
+          var vol = tile.querySelector("[data-vol]");
+          var aud = tile.querySelector("[data-aud]");
           var tx = 420 + k * ((wall.clientWidth - 20) / 3);
           tl.to("#cursor", { x: tx, duration: 0.5, ease: EASE_IO, immediateRender: false }, base);
-          tl.to("[data-vol]", { opacity: 1, duration: 0.2, immediateRender: false }, base + 0.44);
-          tl.fromTo("[data-vol]", { scaleX: 0.2 }, { scaleX: 1, duration: 0.42,
+          tl.to(vol, { opacity: 1, duration: 0.2, immediateRender: false }, base + 0.44);
+          tl.fromTo(vol, { scaleX: 0.2 }, { scaleX: 1, duration: 0.42,
             ease: EASE_OUT, immediateRender: false }, base + 0.44);
-          tl.to("[data-aud]", { backgroundColor: "rgba(0,161,214,.85)", color: "#04161f",
+          tl.to(aud, { backgroundColor: "rgba(0,161,214,.85)", color: "#04161f",
             duration: 0.24, immediateRender: false }, base + 0.52);
         });
         /* 09 收尾：标题淡出 */
@@ -250,26 +265,31 @@
         tl.fromTo("#h10a", { opacity: 0, scale: 0.96 },
           { opacity: 1, scale: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 4.96);
         tl.to("#h10a", { scale: 1.85, y: -120, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
-        tl.to("#appwin", { top: 402, scale: 0.94, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
+        tl.to("#appwin", { y: 140, scale: 0.94, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
         /* ② 软件上移、布局 1x1 → 1x2、标题上移换文案 */
         tl.to("#h10a", { opacity: 0, duration: 0.24, immediateRender: false }, 6.40);
         track(tl, 6.30, "1x1", 0.30);
         tl.fromTo("#h10b", { opacity: 0, y: -20 },
           { opacity: 1, y: 0, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 6.52);
-        tl.to("#appwin", { top: 292, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
+        tl.to("#appwin", { y: 30, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
         track(tl, 6.90, "1x2", 0.46);
         /* ③ 光标点左格「只播左声道」、右格「只播右声道」 */
+        var pair = tiles.slice(0, 2);          /* ⚠ 只有前两格参与，别用全局选择器（九格会一起亮） */
         tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, 7.42);
         tl.to("#cursor", { x: 700, y: 780, duration: 0.56, ease: EASE_IO, immediateRender: false }, 7.46);
         tl.to("[data-chan]", { opacity: 0, duration: 0.01, immediateRender: false }, 8.00);
-        tl.to("[data-chan]", { opacity: 1, y: 0, duration: 0.3, stagger: 0.5, ease: EASE_OUT,
+        tl.to("[data-chan]", { opacity: 1, duration: 0.3, stagger: 0.5, ease: EASE_OUT,
           immediateRender: false }, 8.04);
         tl.to("#cursor", { x: 1240, duration: 0.5, ease: EASE_IO, immediateRender: false }, 8.56);
-        tl.to("[data-tile]", { borderColor: "rgba(0,161,214,.75)", duration: 0.3,
+        tl.to(pair, { borderColor: "rgba(0,161,214,.75)", duration: 0.3,
           stagger: 0.5, immediateRender: false }, 8.10);
-        /* 两格声波：左先起、右 0.5s 后应答（用边框呼吸示意，不是循环滚动） */
-        tl.fromTo("[data-tile]", { scale: 1 }, { scale: 1.012, duration: 0.3,
-          stagger: 0.5, yoyo: true, repeat: 1, ease: EASE_OUT, immediateRender: false }, 8.30);
+        /* 两格声波：左先起、右 0.5s 后应答。
+           ⚠ 不要用 scale 做呼吸 —— 缩放会把格子里的画面/控制条一起拉变形（见 SCRIPT-v3 第十节），
+             改成音量条与边框的亮度呼吸。 */
+        tl.fromTo(pair.map(function (t) { return t.querySelector("[data-vol]"); }),
+          { filter: "brightness(1)" },
+          { filter: "brightness(1.55)", duration: 0.42, stagger: 0.5,
+            yoyo: true, repeat: 1, ease: EASE_OUT, immediateRender: false }, 8.30);
 
         tl.to({}, { duration: 0.01 }, 9.99);
 

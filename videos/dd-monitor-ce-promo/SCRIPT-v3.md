@@ -348,6 +348,26 @@
   `renders/` 只留当前成片（01/02/03 各 24+30fps、连播、3 张核对帧 + 1 张素材对照），
   临时抽帧（`_*`）、旧产物（`proto*` / `video*` / 04-07 旧渲染 / `v3-full`）全部清掉
   （200MB → 90MB）。
+  ⚠ **教训**：这次连 `proto.mp4` / `proto-v3.mp4` / `video*.mp4` 一起删了（`Remove-Item` 不进回收站）。
+  源文件都在所以重渲回来了（`proto.html` / `proto-v3.html` / `index.html`+`compositions/frames`），
+  但**以后清理 renders 前先把"要删的清单"发给用户确认**。
+- **[用户 2026-09-23 改 · 其十二]** 「照着脚本和参考片把后面的模板先补全」→ 04–07 四拍补全：
+  ① `18-04-audio`（09/10 声道）：09 里 `[data-vol]` / `[data-aud]` 是**全局选择器**，三格会一起亮
+     —— 改成按 `tiles[k]` 逐格；`left/top` 补间全改 `x/y`（宽高保留 CSS，见第十节）；
+     10 的声波呼吸从 `scale` 改成音量条 `filter: brightness`（缩放会把格内画面/控制条一起拉变形）；
+     补齐素材位与音频说明（BGM 淡出在混音层做）。
+  ② `18-05-why`（11–13）原本已写完整，但 **13 段父层 `#l13` 从来没亮起来**，
+     那 2.5s 是空蓝底 —— 已修（前后对比见 `renders/v3-05-why-fix.png`）。
+  ③ `18-06-oss`（14–17）：`.wallwrap` 去掉 `transform-style: preserve-3d` 与 `will-change: transform`
+     （第十节两个坑），3D 改由 `#root` 的 perspective + GSAP `transformPerspective` 承担；
+     合缝不再补间 `gap`（布局属性会吸附整数像素），改成每格 `scale 1.014` 盖住那 6px 缝。
+  ④ `18-07-end`（18）：本身完整（内嵌 logo SVG + 三层描边 + D 扫出 + CE 亮 + 缝合线），
+     补了时长与"收黑在剪辑层"的分工说明。
+  → 四拍各渲一版：**04 = 10.0s、05 = 7.5s、06 = 15.5s、07 = 3.5s**；
+    **lint 从 3 个 error 降到 1 个**（只剩 `index.html` 的 `multiple_root_compositions`）。
+    抽帧总览：`renders/v3-beats-04-07-check.png`。
+  → 仍是模板状态（等素材）：04 的九格/两格、06 的九格画面墙都还是虚线占位；
+    04 要的 3 路直播原声、12/13 的两个真实数值（M6）仍未提供。
   三轮各抽一张：**原位向上抬起 + 等比放大 1.22**（**不动 x、不提 zIndex** ——
   前后次序原样保留，所以左边更靠前的卡照样压住它；等比放大也不破坏透视）
   → 光标上移 → 卡面换成真实预览录像满 1s → 收回
