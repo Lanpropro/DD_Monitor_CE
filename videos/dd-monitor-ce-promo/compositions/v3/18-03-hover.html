@@ -69,9 +69,43 @@
       html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
       #root {
         position: relative; width: 1920px; height: 1080px; overflow: hidden;
-        background: #969aa3 url("assets/rec/ref-wall.jpg") center / cover no-repeat;
+        background: #05060a;
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
         -webkit-font-smoothing: antialiased; color: var(--ink);
+      }
+
+      /* ---------- 背景：与 01 同款 ----------
+         用户 2026-09-23：「把背景换成 01 的背景，并且补上同款的灯光和阴影」。
+         01 的构成 = 银河夜景图 `assets/real/bg-hall.jpg`（object-position 50% 66%
+         保住「银河 + 山脉 + 湖面」的取景）+ 一层暗角 `.vignette`。
+         03 没有相机运动，背景直接铺满画布。 */
+      .bg {
+        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+        object-fit: cover; object-position: 50% 66%; display: block;
+      }
+      .vignette {
+        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+        background: radial-gradient(ellipse 62% 58% at 62% 52%, transparent 0%, rgba(3,5,10,.42) 62%, rgba(3,5,10,.78) 100%);
+      }
+      /* ---------- 灯光 / 阴影：色值与模糊照抄 01，位置按 03 的漂浮体重摆 ----------
+         01 里这两层是「悬浮窗背后的青色光晕 + 落地黑影」，围着窗口。
+         03 的漂浮体是那排卡片（x 5..1875 / y 380..1050），所以
+         `.glow` 铺在卡片带上方一圈做冷色补光，`.shadow` 压在卡片下方的地面上。 */
+      .glow {
+        position: absolute; left: -80px; top: 120px; width: 2080px; height: 940px;
+        background:
+          radial-gradient(ellipse 42% 46% at 50% 45%,
+            rgba(226,246,255,.46) 0%, rgba(140,215,255,.26) 28%, rgba(0,161,214,0) 64%),
+          radial-gradient(ellipse 60% 62% at 50% 52%,
+            rgba(0,161,214,.26) 0%, rgba(60,120,220,.12) 42%, rgba(0,161,214,0) 72%);
+        filter: blur(12px);
+      }
+      .shadow {
+        position: absolute; left: -60px; bottom: -30px; width: 2040px; height: 320px;
+        background:
+          radial-gradient(ellipse 46% 46% at 50% 40%, rgba(0,0,0,.96) 0%, rgba(0,0,0,.72) 34%, rgba(0,0,0,0) 72%),
+          radial-gradient(ellipse 54% 52% at 50% 44%, rgba(0,0,0,.78) 0%, rgba(0,0,0,.34) 48%, rgba(0,0,0,0) 80%);
+        filter: blur(14px);
       }
 
       /* 左上标题（底缘 y≈258 —— 卡片抽出时的上缘必须留在它下面） */
@@ -106,6 +140,12 @@
   </head>
   <body>
     <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="7.5" data-width="1920" data-height="1080">
+
+      <!-- 背景 / 暗角 / 灯光 / 阴影（与 01 同款，按 03 的构图重摆） -->
+      <img class="bg" src="assets/real/bg-hall.jpg" alt="">
+      <div class="vignette"></div>
+      <div class="glow" id="glowLayer"></div>
+      <div class="shadow" id="shadowLayer"></div>
 
       <div class="head" id="head">
         <div class="n">悬停预览</div>
@@ -172,6 +212,8 @@
         gsap.set("#head", { opacity: 0, x: -40 });
         gsap.set("#headBar", { scaleX: 0 });
         gsap.set(".vid", { opacity: 0 });
+        gsap.set("#glowLayer", { opacity: 0 });
+        gsap.set("#shadowLayer", { opacity: 0 });
         gsap.set("#cursor", { opacity: 0, x: 1240, y: 940 });
         POS.forEach(function (p, i) {
           gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0,
@@ -183,6 +225,11 @@
           { opacity: 1, x: 0, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.10);
         tl.fromTo("#headBar", { scaleX: 0 },
           { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.34);
+        /* 灯光 / 阴影跟着入场淡入（照 01 的做法：光晕是漂浮体的伴生效果） */
+        tl.fromTo("#glowLayer", { opacity: 0 },
+          { opacity: 1, duration: 0.60, ease: EASE_OUT, immediateRender: false }, 0.10);
+        tl.fromTo("#shadowLayer", { opacity: 0 },
+          { opacity: 1, duration: 0.60, ease: EASE_OUT, immediateRender: false }, 0.14);
         POS.forEach(function (p, i) {
           tl.to("#k" + (i + 1), { opacity: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false },
                 0.10 + i * 0.1905);
