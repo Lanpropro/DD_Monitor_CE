@@ -47,7 +47,13 @@
       .h .s { display: block; margin-top: 14px; font-size: 30px; font-weight: 600;
               letter-spacing: .16em; color: var(--ink-2); }
       #h05 { top: 58px; font-size: 84px; }
-      #h06 { top: 250px; left: auto; right: 110px; width: 660px; text-align: right; font-size: 74px; }
+      /* 06 的标题放在**右上角**：手稿是「左侧软件页面 + 右侧标题」，两者必须并排不重叠。
+         ⚠ 原来写 top: 250px —— 和 #appwin 的 y:252 同高，而窗口宽 1382（右缘 1522），
+         标题框 1150–1810 有 372px 压在窗口上；标题在 DOM 里先于窗口，直接被窗口盖住，
+         只剩右半截"着画面走"露在白底上（实测就是这样）。而且标题色是 #101114，
+         压在深灰窗口上也读不出来。窗口在 06 段最高到 y252、最低到 y1044，
+         标题高 120px 只有落在 y<252 才安全。 */
+      #h06 { top: 60px; left: auto; right: 110px; width: 660px; text-align: right; font-size: 74px; }
       #h07 { top: 58px; font-size: 76px; }
 
       /* ---------- 软件窗口（theme.py 深灰）---------- */
