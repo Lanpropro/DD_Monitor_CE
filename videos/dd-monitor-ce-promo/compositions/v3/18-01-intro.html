@@ -207,6 +207,10 @@
       }
       .t2 b { color: var(--accent); }
 
+      /* 转场用的白场：01 的结尾推向 02 的白底（`--sc-white` #f8f8f8），
+         02 开头再从白场淡出 —— 两段的接缝处都是"满白"，拼起来无缝。 */
+      .flash { position: absolute; inset: 0; background: #f8f8f8; opacity: 0; pointer-events: none; }
+
       /* ---------- 月光层（**在软件窗口内部**，透过窗口玻璃透出来）----------
          .moon 是 .appwin 的子层：inset:0 + overflow:hidden + 圆角，
          光只在窗口范围内可见，窗口移动/放大时光跟着一起走。
@@ -287,6 +291,8 @@
       </div>
 
       <div class="t2" id="t2">向您介绍 <b>DDMonitorCE</b></div>
+
+      <div class="flash" id="flash"></div>
     </div>
 
     <script>
@@ -420,6 +426,14 @@
 
         /* 定格不再死停：8.763–12.0 极缓推进（3.4s 只走 30px，约 2.7%），画面"活着" */
         tl.to("#appstage", { z: 1130, duration: 3.20, ease: "none", immediateRender: false }, 8.763);
+
+        /* ---- 转场：推向白场，接住 02 的白底开头 ----
+           11.5–12.0s 正好是 BGM 的段落静音段（合集拼接留下的断口），
+           所以「画面转白」与「音乐静下来」同时发生，接缝很自然。
+           02 的第一帧也是满白（它开头同样有一个 #flash 从 1 淡出），
+           两段拼起来在接缝处是「白 → 白」，不会跳。 */
+        tl.fromTo("#flash", { opacity: 0 },
+          { opacity: 1, duration: 0.45, ease: "power2.in", immediateRender: false }, 11.55);
 
         tl.to({}, { duration: 0.01 }, 11.99);
 

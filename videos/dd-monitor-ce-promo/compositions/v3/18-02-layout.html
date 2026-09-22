@@ -38,6 +38,10 @@
       }
       .scene { position: absolute; inset: 0; }
 
+      /* 转场用的白场：01 的结尾推向 `#f8f8f8`（它的 #flash 也是这个色），
+         02 开头从满白淡出 —— 两段接缝处都是白，拼起来无缝。 */
+      .flash { position: absolute; inset: 0; background: #f8f8f8; opacity: 0; pointer-events: none; }
+
       /* ---------- 标题（深字压白底）---------- */
       .h {
         position: absolute; left: 0; right: 0; text-align: center;
@@ -103,7 +107,7 @@
           <img class="win-media" id="shot2x2" src="assets/rec/layout-2x2.png" alt="">
           <img class="win-media" id="shotCorner" src="assets/rec/layout-corner.png" alt="">
           <video class="win-media" id="vidDm" src="assets/rec/rec-danmaku.mp4" muted playsinline
-                 data-start="1.96" data-duration="4.04"></video>
+                 data-start="1.905" data-duration="4.04"></video>
         </div>
 
         <!-- 07 竖屏窗口（右侧飞入）—— 真实录屏。
@@ -113,8 +117,11 @@
              竖屏窗口会整块黑掉。预裁之后 video 从 0 播就是那一段。 -->
         <div class="portrait" id="portrait">
           <video class="win-media" id="vidPortrait" src="assets/rec/rec-portrait.mp4" muted playsinline
-                 data-start="4.16" data-duration="1.84"></video>
+                 data-start="4.191" data-duration="1.84"></video>
         </div>
+
+        <!-- 转场白场：接 01 结尾推过来的满白，从这里淡出 -->
+        <div class="flash" id="flash"></div>
       </div>
     </div>
 
@@ -133,40 +140,43 @@
         gsap.set("#h06", { opacity: 0, x: 40 });
         gsap.set("#h07", { opacity: 0, y: -22 });
         gsap.set("#portrait", { opacity: 0, x: 1600 });
+        gsap.set("#flash", { opacity: 1 });   /* 开头满白，接 01 推过来的白场 */
 
         /* ============ 05（0.0–2.0）四档布局依次切换 ============
            四张图都是从 `Video_reference/布局切换.mp4` 裁出来的**真实截图**，对应录屏里
            1x1(0–10s) → 1x2(10.4s) → 2x2(15.6s) → 1+5(20.8s) 那四次切换。
            叠放 + 依次点亮：后一张盖住前一张，不必把前面的淡出。 */
+        /* 白场淡出：接住 01 结尾推过来的满白（两段接缝处都是白，拼起来无缝） */
+        tl.to("#flash", { opacity: 0, duration: 0.50, ease: "power2.out", immediateRender: false }, 0);
         tl.fromTo("#appwin", { opacity: 0, scale: 0.98 },
           { opacity: 1, scale: 1, duration: 0.44, ease: EASE_OUT, immediateRender: false }, 0);
-        tl.to("#shot1x1", { opacity: 1, duration: 0.01, ease: "none", immediateRender: false }, 0.12);
-        tl.to("#shot1x2", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 0.62);
-        tl.to("#shot2x2", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.10);
-        tl.to("#shotCorner", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.58);
+        tl.to("#shot1x1", { opacity: 1, duration: 0.01, ease: "none", immediateRender: false }, 0.1905);
+        tl.to("#shot1x2", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 0.5715);
+        tl.to("#shot2x2", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.143);
+        tl.to("#shotCorner", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 1.524);
         tl.fromTo("#h05", { opacity: 0, y: 26 },
           { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 0.08);
         tl.to({}, { duration: 0.01 }, 1.86);
 
         /* ============ 06（2.0–4.0）切到真实弹幕录屏 + 软件左移 + 镜头聚焦 ============ */
-        tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.90);
+        tl.to("#h05", { opacity: 0, y: -20, duration: 0.28, ease: EASE_OUT, immediateRender: false }, 1.905);
         /* 四张布局图一起退场，`弹幕.mp4`（1+1+弹幕的真实录屏）接上 */
         tl.to("#shot1x1, #shot1x2, #shot2x2, #shotCorner",
-          { opacity: 0, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.96);
-        tl.to("#vidDm", { opacity: 1, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.96);
+          { opacity: 0, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.905);
+        tl.to("#vidDm", { opacity: 1, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.905);
         /* 接续 05 的画面把软件页面**左移**（用户 2026-09-22）：
            x 250 → -250，左侧有 250px 被画面边缘遮掉 —— 手稿 06 就是「左侧软件页面
            + 右侧标题」，让出右侧给飞入的标题。 */
-        tl.to("#appwin", { x: -250, y: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.00);
+        tl.to("#appwin", { x: -250, y: 252, duration: 0.5, ease: EASE_IO, immediateRender: false }, 2.0955);
         tl.fromTo("#h06", { opacity: 0, x: 40 },
-          { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.06);
+          { opacity: 1, x: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.0955);
         /* 镜头聚焦弹幕栏：整体推近并右移（弹幕滚动本身在录屏里，不用再自己补） */
-        tl.to("#appwin", { scale: 1.16, x: -40, y: 220, duration: 0.9, ease: EASE_IO, immediateRender: false }, 3.00);
+        tl.to("#appwin", { scale: 1.16, x: -40, y: 220, duration: 0.9, ease: EASE_IO, immediateRender: false }, 3.048);
 
         /* ============ 07（4.0–6.0）竖屏窗口飞入 + 16:9 → 9:16 连续变形 ============ */
-        tl.to("#h06", { opacity: 0, x: 30, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 3.94);
+        tl.to("#h06", { opacity: 0, x: 30, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 3.81);
         tl.fromTo("#h07", { opacity: 0, y: -22 },
-          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 4.02);
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 4.0005);
         /* 07 的排版照用户 2026-09-22 给的标注截图（绿框=竖屏区、红框=横屏区、黄框=标题区）：
            **左侧横屏窗口在左下、右侧竖屏窗口更大、两者底边对齐**，标题在左上（黄框，再往下移）。
            - #appwin（红框）：scale .675 / x -224 / y 417 → box (0, 546, 933, 534)，
@@ -176,12 +186,12 @@
              左缘 1204 与横屏右缘 933 相距 271px
            淡入与 16:9 → 9:16 的变形同时开始（4.16）——补的是不同属性，不会互相抢占 transform；
            错开开始时间反而会让 x 在两个 tween 之间跳变。 */
-        tl.to("#appwin", { scale: 0.675, x: -224, y: 417, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.06);
+        tl.to("#appwin", { scale: 0.675, x: -224, y: 417, duration: 0.7, ease: EASE_IO, immediateRender: false }, 4.0005);
         /* 竖屏窗口尺寸按素材比例写在 CSS 里（642x1017），这里只补位移 + 淡入 ——
            x 1169 = 绿框（1135–1846）里水平居中；尺寸不变 video 帧才不会丢。 */
         tl.fromTo("#portrait", { opacity: 0, x: 1600 },
-          { opacity: 1, x: 1169, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.16);
-        tl.to("#vidPortrait", { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.16);
+          { opacity: 1, x: 1169, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.191);
+        tl.to("#vidPortrait", { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.191);
 
         tl.to({}, { duration: 0.01 }, 5.99);
 
