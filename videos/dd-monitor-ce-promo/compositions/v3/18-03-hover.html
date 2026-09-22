@@ -27,7 +27,11 @@
              但是不要删除有录制素材的卡片」
              → 卡片 600x340 -> **900x510**；900 宽在 1920 画面里只摆得下 **5 张**，
                所以删掉最右上那张没有录像的 `card-6`，重新按放大后的尺寸铺队列
-               （露出宽度统一约 216px），**有录像的 #k1 / #k4 / #k5 一张不少**。
+               （露出宽度统一约 216px），**有录制素材的 #k1 / #k4 / #k5 一张不少**。
+           ③「要保留的三张是 莉蔻 盐无 和 四时小路」→ 确认"有录制素材的三张"的卡面是
+             `card-1(莉蔻Liko)` / `card-3(盐无Shio)` / `card-4(四时小路Komichi)`，
+             它们正好放在会被抽出的 **#k1 / #k4 / #k5** 上，各挂一段预览录像；
+             没有录像的 #k2 / #k3 用 `card-2(三理Mit3uri)` / `card-5(恩骨)` 补满队列。
 
          每轮 **2.286s = 12 拍**（0.1905s 网格，与 01/02 同一张），整段 7.5s。
 
@@ -95,24 +99,27 @@
       </div>
 
       <!-- 队列 = 5 张（放大 1.5 倍后 1920 画面里只摆得下 5 张）。
-           带预览录像的 #k1(card-2) / #k4(card-5) / #k5(card-7) 一张都不删；
-           删掉的是上一版最右上那张没有录像的 card-6
-           （用户 2026-09-23：多的部分删去，但不要删除有录制素材的卡片）。 -->
+           **有录制素材的三张 = 莉蔻 / 盐无 / 四时小路**
+           （用户 2026-09-23：「要保留的三张是 莉蔻 盐无 和 四时小路」）——
+           它们的卡面是 card-1(莉蔻Liko) / card-3(盐无Shio) / card-4(四时小路Komichi)，
+           放在会被抽出的 **#k1 / #k4 / #k5**（三轮各抽一张，位置分散），各挂一段预览录像。
+           另外两张没有录像的 #k2 / #k3 用 card-2(三理Mit3uri) / card-5(恩骨) 补满队列
+           （用户 2026-09-22：不是只留三张，摆得下就多摆）。 -->
       <div class="stage" id="stage">
         <div class="card" id="k1">
-          <img class="shot" src="assets/rec/card-2.png" alt="">
+          <img class="shot" src="assets/rec/card-1.png" alt="">
           <video class="vid" id="v1" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="0.762" data-duration="6.738"></video>
         </div>
-        <div class="card" id="k2"><img class="shot" src="assets/rec/card-3.png" alt=""></div>
-        <div class="card" id="k3"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
+        <div class="card" id="k2"><img class="shot" src="assets/rec/card-2.png" alt=""></div>
+        <div class="card" id="k3"><img class="shot" src="assets/rec/card-5.png" alt=""></div>
         <div class="card" id="k4">
-          <img class="shot" src="assets/rec/card-5.png" alt="">
+          <img class="shot" src="assets/rec/card-3.png" alt="">
           <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="3.048" data-duration="4.452"></video>
         </div>
         <div class="card" id="k5">
-          <img class="shot" src="assets/rec/card-7.png" alt="">
+          <img class="shot" src="assets/rec/card-4.png" alt="">
           <video class="vid" id="v3" src="assets/rec/rec-preview.mp4" muted playsinline
                  data-start="5.334" data-duration="2.166"></video>
         </div>
@@ -207,7 +214,7 @@
           });
         }
 
-        /* 三轮抽出的是**带录像的那三张**：#k1(card-2) / #k4(card-5) / #k5(card-7) */
+        /* 三轮抽出的是**有录制素材的那三张**：#k1(莉蔻) / #k4(盐无) / #k5(四时小路) */
         round(0.762, 0, "#v1");
         round(0.762 + ROUND, 3, "#v2");
         round(0.762 + ROUND * 2, 4, "#v3");
