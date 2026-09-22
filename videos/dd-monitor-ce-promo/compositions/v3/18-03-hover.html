@@ -6,22 +6,26 @@
     <script src="assets/lib/gsap.min.js"></script>
     <style>
       /* ==========================================================================
-         18-03-hover  ——  C 组：08（0.0–5.0s）「悬停预览 · 如此轻松」
+         18-03-hover  ——  C 组：08（0.0–7.5s）「悬停预览 · 如此轻松」
 
-         用户 2026-09-22：「03 是手稿有问题，我希望的画面是如截图的 ——
-         正常情况下立体排列，然后向上弹出，并且模拟光标上移展示预览视频。」
-         所以这一版改成照**参考片 17.08–23.17s** 那个画面重做：
+         照参考片 17.08–23.17s 那个画面做（用户 2026-09-22 用红框标出实际位置）：
+           · 背景 = 从参考片 19.0s 裁出的灰墙（已用 delogo 抹掉 bilibili 水印）
+           · **一排三张真实关注卡片**，从左下到右上排过去，
+             **左边在前、遮挡右边**（左近右远：左边大、右边小）
+           · 三轮：其中一张**向上弹出**（升到最前）→ 光标**上移**到卡上 →
+             卡面换成**真实预览录像**（约 1s）→ 收回
 
-           · 背景 = 从参考片 19.0s 裁出的灰墙（取画面上部无卡片区域，拉伸铺满）
-           · 一排**真实关注卡片**（8 张，来自 `卡片截图_自行裁剪.png`）从左到右立体排列，
-             近大远小、彼此轻微重叠
-           · 三轮：其中一张**向上弹出**（放大 + 升到队列上方）→ 光标跟着**上移** →
-             卡面淡出、换成**真实预览录像**（`聚焦卡片_卡片预览.mp4` 的 8–13s）
+         用户 2026-09-22 的第二轮意见：
+           「卡片放大两倍；放不下就删掉没有录制视频的那几张；
+             预览时间留长一点、不要一移上去就跳过；三张卡片各完整展示一次，
+             预览 1s 左右；卡片抽出时前后透视关系要正确。」
 
-         ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek(t, suppressEvents=true) 不触发 callback）。
-         ⚠ 不要给承载 <video> 的容器补间 width/height，也不要写 will-change ——
-           两者都会让 video 的帧整个丢失（见 ASSET-CROPPING.md 第 6 节）。
-         ⚠ 卡片位置全部用 transform 的 x/y/scale，不碰 left/top（会吸附整数设备像素）。
+         于是：卡片 300x200 -> **600x340**（两倍），只保留有录像的三张（card-2/5/7），
+         整段 5.0s -> **7.5s**，每轮 **2.286s = 12 拍**（0.1905s 网格，与 01/02 同一张）。
+
+         ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
+         ⚠ 承载 <video> 的容器不要补间 width/height、不要写 will-change —— 会让 video 丢帧。
+         ⚠ 位置全部走 transform（x/y/scale），left/top 保持 0。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -31,7 +35,7 @@
       :root {
         --card: rgba(246,247,249,.94);
         --card-edge: rgba(255,255,255,.60);
-        --accent: #00a1d6; --pink: #fb7299;
+        --accent: #00a1d6;
         --ink: #101114; --ink-2: rgba(16,17,20,.62);
         --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
         --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -51,28 +55,27 @@
       .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
       .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
 
-      /* 卡片队列：一排，从左到右，近大远小。位置全部由 JS 用 x/y/scale 给。 */
+      /* 卡片队列：一排三张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
+         尺寸 600x340 = 原来的两倍（原 300x200，同时按素材比例 16:9 微调高度）。 */
       .stage { position: absolute; inset: 0; }
       .card {
-        position: absolute; left: 0; top: 0; width: 300px; height: 200px;
-        border-radius: 16px; overflow: hidden;
+        position: absolute; left: 0; top: 0; width: 600px; height: 340px;
+        border-radius: 22px; overflow: hidden;
         background: var(--card);
         border: 1px solid var(--card-edge);
-        box-shadow: 0 24px 48px rgba(16,17,20,.20), 0 2px 0 rgba(255,255,255,.5) inset;
+        box-shadow: 0 32px 64px rgba(16,17,20,.22), 0 2px 0 rgba(255,255,255,.5) inset;
       }
       .card .shot { display: block; width: 100%; height: 100%; object-fit: cover; }
-      /* 预览录像：抽出时才淡入，盖在卡面上 */
+      /* 预览录像：抽出到位后才淡入，盖在卡面上 */
       .card .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
-      /* 抽出时点亮描边 */
-      .card.lit { border-color: rgba(0,161,214,.85); box-shadow: 0 40px 80px rgba(16,17,20,.34), 0 0 0 2px rgba(0,161,214,.35); }
 
       /* 模拟光标 */
-      .cursor { position: absolute; left: 0; top: 0; width: 28px; height: 36px; will-change: transform, opacity; }
+      .cursor { position: absolute; left: 0; top: 0; width: 40px; height: 52px; will-change: transform, opacity; }
       .cursor svg { display: block; }
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="5" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="7.5" data-width="1920" data-height="1080">
 
       <div class="head" id="head">
         <div class="n">悬停预览</div>
@@ -80,33 +83,31 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 卡片队列：8 张真实关注卡片（从卡片截图_自行裁剪.png 按周期 192px 裁出）。
-           只有会被抽出的那三张（k2 / k5 / k7）内嵌预览录像，其余是静态卡面。 -->
+      <!-- 放大两倍后**摆得下的张数**是 5 张（间距 326，每张露出约 55%，接近参考片的重叠度）。
+           其中 card-2 / card-5 / card-7 是**有预览录像的三张，必须保留**；
+           其余按"摆得下"优先留下。用户 2026-09-22：不是只留三张，摆得下就多摆。 -->
       <div class="stage" id="stage">
-        <div class="card" id="k1"><img class="shot" src="assets/rec/card-1.png" alt=""></div>
-        <div class="card" id="k2">
+        <div class="card" id="k1">
           <img class="shot" src="assets/rec/card-2.png" alt="">
-          <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
-                 data-start="0.762" data-duration="4.238"></video>
+          <video class="vid" id="v1" src="assets/rec/rec-preview.mp4" muted playsinline
+                 data-start="0.762" data-duration="6.738"></video>
         </div>
-        <div class="card" id="k3"><img class="shot" src="assets/rec/card-3.png" alt=""></div>
-        <div class="card" id="k4"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
-        <div class="card" id="k5">
+        <div class="card" id="k2"><img class="shot" src="assets/rec/card-3.png" alt=""></div>
+        <div class="card" id="k3"><img class="shot" src="assets/rec/card-4.png" alt=""></div>
+        <div class="card" id="k4">
           <img class="shot" src="assets/rec/card-5.png" alt="">
-          <video class="vid" id="v5" src="assets/rec/rec-preview.mp4" muted playsinline
-                 data-start="2.0955" data-duration="2.9045"></video>
+          <video class="vid" id="v2" src="assets/rec/rec-preview.mp4" muted playsinline
+                 data-start="3.048" data-duration="4.452"></video>
         </div>
-        <div class="card" id="k6"><img class="shot" src="assets/rec/card-6.png" alt=""></div>
-        <div class="card" id="k7">
+        <div class="card" id="k5">
           <img class="shot" src="assets/rec/card-7.png" alt="">
-          <video class="vid" id="v7" src="assets/rec/rec-preview.mp4" muted playsinline
-                 data-start="3.429" data-duration="1.571"></video>
+          <video class="vid" id="v3" src="assets/rec/rec-preview.mp4" muted playsinline
+                 data-start="5.334" data-duration="2.166"></video>
         </div>
-        <div class="card" id="k8"><img class="shot" src="assets/rec/card-8.png" alt=""></div>
       </div>
 
       <div class="cursor" id="cursor" style="opacity: 0;">
-        <svg viewBox="0 0 28 36" width="28" height="36"><path d="M4 2 L4 28 L11 21 L15 32 L20 30 L16 19 L25 19 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
+        <svg viewBox="0 0 40 52" width="40" height="52"><path d="M6 3 L6 40 L16 30 L22 46 L29 43 L23 27 L36 27 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.5"/></svg>
       </div>
     </div>
 
@@ -116,88 +117,88 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        var N = 8;
-        var GAP = 228;              /* < 卡片宽（300）-> 彼此轻微重叠，照参考片 */
-
-        /* 队列位置：**从左下到右上**排过去（用户 2026-09-22 用红框标出的实际位置），
-           并且**左边在前、遮挡右边** —— 所以左近右远：左边大、右边小。 */
-        var POS = [];
-        for (var i = 0; i < N; i++) {
-          POS.push({
-            x: 8 + i * 238,
-            y: 820 - i * 34,          /* 越往右越高（底边成一条右上斜线） */
-            s: 1.16 - i * 0.044,      /* 左边离镜头近 -> 大；右边远 -> 小 */
-            z: N - i                  /* 左边在前，遮挡右边 */
-          });
-        }
+        /* ---- 队列：五张，从左下到右上排过去 ----
+           左边近（大、低、**在前**），右边远（小、高、在后）—— 左边遮挡右边。
+           间距 326 < 卡宽 600，每张露出约 55%。 */
+        var POS = [
+          { x:    6, y: 640, s: 1.000, z: 5 },
+          { x:  332, y: 606, s: 0.945, z: 4 },
+          { x:  658, y: 572, s: 0.890, z: 3 },
+          { x:  984, y: 538, s: 0.835, z: 2 },
+          { x: 1310, y: 504, s: 0.780, z: 1 }
+        ];
+        var N = POS.length;
 
         /* ---- 基线 ---- */
         gsap.set("#head", { opacity: 0, x: -40 });
         gsap.set("#headBar", { scaleX: 0 });
         gsap.set(".vid", { opacity: 0 });
-        gsap.set("#cursor", { opacity: 0, x: 1180, y: 860 });
+        gsap.set("#cursor", { opacity: 0, x: 1240, y: 940 });
         POS.forEach(function (p, i) {
           gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0 });
         });
 
-        /* ---- 入场：标题 + 卡片依次浮现 ---- */
+        /* ---- 入场：标题 + 三张卡依次浮现（0.10 / 0.29 / 0.48，落在拍上） ---- */
         tl.fromTo("#head", { opacity: 0, x: -40 },
           { opacity: 1, x: 0, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.10);
         tl.fromTo("#headBar", { scaleX: 0 },
           { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.34);
         POS.forEach(function (p, i) {
           tl.to("#k" + (i + 1), { opacity: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false },
-                0.10 + i * 0.06);
+                0.10 + i * 0.1905);
         });
 
-        /* ---- 三轮：向上弹出 → 光标上移 → 卡面换成预览录像 → 收回 ----
-           起点对齐 BGM 网格 0.1905s（与 01/02 同一张）：0.762(n=4) / 2.0955(n=11) / 3.429(n=18)。 */
+        /* ---- 三轮：向上弹出 → 光标上移 → 卡面换成预览录像（约 1s）→ 收回 ----
+           每轮 2.286s = 12 拍（0.1905s 网格）；起点 0.762 / 3.048 / 5.334。 */
+        var ROUND = 12 * 0.1905;      /* 2.286 */
         function round(base, idx, vidId) {
           var card = "#k" + (idx + 1);
+          var vid = vidId;
           var p = POS[idx];
-          var LIFT = 0.42, MOVE = 0.46, PLAY = 1.00, BACK = 0.40;
-          var s0 = base + LIFT + MOVE;          /* 光标到位 */
-          var s1 = s0 + PLAY;                   /* 预览播完 */
+          var LIFT = 0.40, MOVE = 0.46, HOLD = 1.00, BACK = 0.426;
+          var atCard = base + LIFT + MOVE;          /* 光标到位，开始预览 */
+          var endHold = atCard + HOLD;              /* 预览满 1s */
 
-          /* 1) 向上弹出：升到队列上方 + 放大 + 描边点亮（全部补间，不用 class 切换） */
-          tl.to(card, { y: p.y - 330, scale: 1.55, duration: LIFT, ease: EASE_IO, immediateRender: false }, base);
-          tl.to(card, { zIndex: 100, duration: 0.01, ease: "none", immediateRender: false }, base);
+          /* 1) 向上抬起 + 等比放大 —— **不动 x、不提 zIndex**。
+             用户 2026-09-22：边缘出去一部分没有关系，但抽出后仍要保留「前遮后」的遮挡，
+             所以它在队列里的前后次序必须原样保留（左边比它靠前的卡照样压住它）。
+             只有等比放大，透视关系才不变。 */
+          tl.to(card, { y: p.y - 300, scale: p.s * 1.22, duration: LIFT, ease: EASE_IO, immediateRender: false }, base);
           tl.to(card, { borderColor: "rgba(0,161,214,.85)", duration: LIFT, immediateRender: false }, base);
-          /* 其它卡片轻微下沉，给抽出的那张让出空间（照参考片，队列本身会动） */
+          /* 其它卡轻微下沉让位（它们的前后关系不变） */
           POS.forEach(function (q, j) {
             if (j === idx) return;
-            tl.to("#k" + (j + 1), { y: q.y + 26, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
+            tl.to("#k" + (j + 1), { y: q.y + 34, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
           });
 
           /* 2) 光标**上移**到这张卡上 */
           tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, base + 0.10);
-          tl.fromTo("#cursor", { x: 1180, y: 860 },
-            { x: p.x + 150, y: p.y - 300, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
+          tl.fromTo("#cursor", { x: 1240, y: 940 },
+            { x: p.x + 300 * p.s, y: p.y - 250, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
 
-          /* 3) 卡面换成真实预览录像（shot 淡出 / vid 淡入） */
-          tl.to(card + " .shot", { opacity: 0, duration: 0.30, ease: EASE_OUT, immediateRender: false }, s0);
-          tl.to("#" + vidId, { opacity: 1, duration: 0.30, ease: EASE_OUT, immediateRender: false }, s0);
+          /* 3) 卡面换成真实预览录像 —— 到位置之后才淡入，留满 1s 不跳过 */
+          tl.to(card + " .shot", { opacity: 0, duration: 0.30, ease: EASE_OUT, immediateRender: false }, atCard);
+          tl.to(vid, { opacity: 1, duration: 0.30, ease: EASE_OUT, immediateRender: false }, atCard);
 
-          /* 4) 收回：回到队列位置，录像淡出、卡面回来 */
-          tl.to("#" + vidId, { opacity: 0, duration: 0.24, ease: EASE_OUT, immediateRender: false }, s1);
-          tl.to(card + " .shot", { opacity: 1, duration: 0.24, ease: EASE_OUT, immediateRender: false }, s1);
-          tl.to(card, { y: p.y, scale: p.s, duration: BACK, ease: EASE_OUT, immediateRender: false }, s1);
-          tl.to(card, { zIndex: p.z, duration: 0.01, ease: "none", immediateRender: false }, s1 + BACK);
-          tl.to(card, { borderColor: "rgba(255,255,255,.60)", duration: BACK, immediateRender: false }, s1);
-          /* 队列归位 */
+          /* 4) 收回：录像淡出、卡面回来、落回队列原位，zIndex 还原 */
+          tl.to(vid, { opacity: 0, duration: 0.26, ease: EASE_OUT, immediateRender: false }, endHold);
+          tl.to(card + " .shot", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, endHold);
+          tl.to(card, { x: p.x, y: p.y, scale: p.s, duration: BACK, ease: EASE_OUT, immediateRender: false }, endHold);
+          tl.to(card, { borderColor: "rgba(255,255,255,.60)", duration: BACK, immediateRender: false }, endHold);
           POS.forEach(function (q, j) {
             if (j === idx) return;
-            tl.to("#k" + (j + 1), { y: q.y, duration: BACK, ease: EASE_OUT, immediateRender: false }, s1);
+            tl.to("#k" + (j + 1), { y: q.y, duration: BACK, ease: EASE_OUT, immediateRender: false }, endHold);
           });
         }
 
-        round(0.762,  1, "v2");
-        round(2.0955, 4, "v5");
-        round(3.429,  6, "v7");
+        /* 三轮抽出的是**带录像的那三张**：#k1(card-2) / #k4(card-5) / #k5(card-7) */
+        round(0.762, 0, "#v1");
+        round(0.762 + ROUND, 3, "#v2");
+        round(0.762 + ROUND * 2, 4, "#v3");
 
-        tl.to("#cursor", { opacity: 0, duration: 0.24, immediateRender: false }, 4.72);
+        tl.to("#cursor", { opacity: 0, duration: 0.30, immediateRender: false }, 7.05);
 
-        tl.to({}, { duration: 0.01 }, 4.99);
+        tl.to({}, { duration: 0.01 }, 7.49);
 
         window.__timelines = window.__timelines || {};
         window.__timelines["18-03-hover"] = tl;
