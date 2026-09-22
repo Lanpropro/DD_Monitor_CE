@@ -103,6 +103,8 @@
         will-change: gap;
       }
       .tile { position: relative; background: var(--tile); overflow: hidden; min-width: 0; min-height: 0; }
+      /* 墙上的画面：`rec-grid.mp4` 拆出的 9 张单格 */
+      .tile .shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
       .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
             background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px); }
       .ph:after { content: ""; position: absolute; inset: 6px; border: 1px dashed rgba(131,131,145,.4); }
@@ -161,15 +163,15 @@
       <div class="act" id="a17" style="opacity:0">
         <div class="wallwrap" id="wallwrap">
           <div class="wall" id="wall">
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
-            <div class="tile"><div class="ph"></div></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-1.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-2.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-3.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-4.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-5.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-6.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-7.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-8.png" alt=""></div>
+            <div class="tile"><img class="shot" src="assets/rec/grid-9.png" alt=""></div>
           </div>
         </div>
         <div class="vig" id="vig"></div>

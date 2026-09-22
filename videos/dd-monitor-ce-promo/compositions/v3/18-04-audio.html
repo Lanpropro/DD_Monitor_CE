@@ -104,6 +104,10 @@
             background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px); }
       .ph:after { content: ""; position: absolute; inset: 6px; border: 1px dashed rgba(131,131,145,.4); border-radius: 6px; }
       .ph span { position: relative; z-index: 2; font-size: 11px; font-weight: 600; color: rgba(184,189,197,.7); }
+      /* 格子里的真实画面：9 格来自 `rec-grid.mp4`（源 9格布局.mp4）拆出的单格，
+         10 段再换成 `rec-chL/chR.mp4` 各自的一帧（`.alt` 那层）。 */
+      .tile .shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+      .tile .shot.alt { opacity: 0; }
       .tb-bar { position: absolute; left: 6px; right: 6px; bottom: 6px; height: 22px; border-radius: 8px;
                 background: rgba(10,11,13,.8); display: flex; align-items: center; gap: 5px; padding: 0 8px; }
       .tb-n { font-size: 11px; font-weight: 600; color: var(--text2); }
@@ -153,24 +157,29 @@
               <div class="chip" id="chipState">3 × 3 九分</div>
             </div>
             <div class="wall" id="wall">
-              <!-- 9 个格子 -->
-              <div class="tile" data-tile><div class="ph"></div>
+              <!-- 9 个格子：画面来自 rec-grid.mp4 拆出的单格（每格自带控制条已裁掉，控制条由我方叠） -->
+              <div class="tile" data-tile>
+                <img class="shot" src="assets/rec/grid-1.png" alt="">
+                <img class="shot alt" data-chanimg src="assets/rec/chan-chl.png" alt="">
                 <div class="vol" data-vol><i></i></div>
                 <div class="tb-bar"><span class="tb-n">莉蔻Liko</span><span class="sp"></span><span class="tb-c" data-aud>音量</span></div>
                 <div class="chan" data-chan style="opacity:0">只播左声道</div></div>
-              <div class="tile" data-tile><div class="ph"></div>
+              <div class="tile" data-tile>
+                <img class="shot" src="assets/rec/grid-2.png" alt="">
+                <img class="shot alt" data-chanimg src="assets/rec/chan-chr.png" alt="">
                 <div class="vol" data-vol><i></i></div>
                 <div class="tb-bar"><span class="tb-n">羽啾chu2u</span><span class="sp"></span><span class="tb-c" data-aud>音量</span></div>
                 <div class="chan" data-chan style="opacity:0">只播右声道</div></div>
-              <div class="tile" data-tile><div class="ph"></div>
+              <div class="tile" data-tile>
+                <img class="shot" src="assets/rec/grid-3.png" alt="">
                 <div class="vol" data-vol><i></i></div>
                 <div class="tb-bar"><span class="tb-n">星野Aki</span><span class="sp"></span><span class="tb-c" data-aud>音量</span></div></div>
-              <div class="tile" data-tile><div class="ph"></div></div>
-              <div class="tile" data-tile><div class="ph"></div></div>
-              <div class="tile" data-tile><div class="ph"></div></div>
-              <div class="tile" data-tile><div class="ph"></div></div>
-              <div class="tile" data-tile><div class="ph"></div></div>
-              <div class="tile" data-tile><div class="ph"></div></div>
+              <div class="tile" data-tile><img class="shot" src="assets/rec/grid-4.png" alt=""></div>
+              <div class="tile" data-tile><img class="shot" src="assets/rec/grid-5.png" alt=""></div>
+              <div class="tile" data-tile><img class="shot" src="assets/rec/grid-6.png" alt=""></div>
+              <div class="tile" data-tile><img class="shot" src="assets/rec/grid-7.png" alt=""></div>
+              <div class="tile" data-tile><img class="shot" src="assets/rec/grid-8.png" alt=""></div>
+              <div class="tile" data-tile><img class="shot" src="assets/rec/grid-9.png" alt=""></div>
             </div>
           </main>
         </div>
@@ -269,6 +278,9 @@
         /* ② 软件上移、布局 1x1 → 1x2、标题上移换文案 */
         tl.to("#h10a", { opacity: 0, duration: 0.24, immediateRender: false }, 6.40);
         track(tl, 6.30, "1x1", 0.30);
+        /* 两格的画面换成左右声道各自那一路录屏（`rec-chL/chR.mp4` 的静帧） */
+        tl.to("[data-chanimg]", { opacity: 1, duration: 0.4, ease: EASE_OUT,
+          stagger: 0.5, immediateRender: false }, 6.36);
         tl.fromTo("#h10b", { opacity: 0, y: -20 },
           { opacity: 1, y: 0, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 6.52);
         tl.to("#appwin", { y: 30, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
