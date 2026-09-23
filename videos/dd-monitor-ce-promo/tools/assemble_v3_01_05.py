@@ -57,7 +57,7 @@ def main():
     filters += [
         f"[v0][v1]xfade=transition=fade:duration=0.5:offset={FIRST_JOIN}[v01]",
         f"[v01][v2]xfade=transition=fadeblack:duration=0.65:offset={SECOND_JOIN}[v012]",
-        f"[v012][v3]xfade=transition=slideleft:duration=0.7:offset={FOURTH_START},"
+        f"[v012][v3]xfade=transition=fadewhite:duration=0.7:offset={FOURTH_START},"
         "tpad=stop_mode=clone:stop_duration=1.5[v0123]",
         f"[v0123][v4]xfade=transition=fadeblack:duration=0.6:offset={FIFTH_JOIN}[vout]",
         f"[5:a]atrim=0:{FINAL_LENGTH},asetpts=PTS-STARTPTS,"

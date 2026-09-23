@@ -2,6 +2,7 @@
 
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -39,15 +40,21 @@ class SceneText(HTMLParser):
 
 
 def main():
+    html = HTML.read_text(encoding="utf-8")
     scene = SceneText()
-    scene.feed(HTML.read_text(encoding="utf-8"))
+    scene.feed(html)
     assert scene.duration == 7.5
     assert set(scene.text) == {"l11", "l12", "l13"}
     assert "为啥不用浏览器" in scene.text["l11"]
     assert "九路画面，同屏可见" in scene.text["l12"]
     assert "横竖画面，自由摆放" in scene.text["l13"]
     assert all(word not in "".join(scene.text.values()) for word in ("平均", "超快", "超低", "[数值", "待核验"))
-    print("v3 beat 05: three benefit scenes, no unsupported measurements")
+    entrances = [(int(number), float(time)) for number, time in re.findall(r'\["#line(\d+)", ([\d.]+)\]', html)]
+    assert [number for number, _ in entrances] == list(range(11, 17))
+    assert all(a < b for (_, a), (_, b) in zip(entrances, entrances[1:])), "text must accumulate line by line"
+    assert all(f'id="line{number}"' in html for number in range(11, 17))
+    assert all(f'id="{color}"' in html and f'tl.to("#{color}"' in html for color in ("warm", "green", "violet"))
+    print("v3 beat 05: six ordered lines, moving gradient, no unsupported measurements")
 
 
 if __name__ == "__main__":

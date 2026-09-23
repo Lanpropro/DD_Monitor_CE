@@ -24,6 +24,13 @@ def channel_rms(start, seconds=0.5):
     )
 
 
+def frame_mean(start):
+    return subprocess.check_output([
+        "ffmpeg", "-v", "error", "-ss", str(start), "-i", str(VIDEO), "-frames:v", "1",
+        "-vf", "scale=1:1,format=rgb24", "-f", "rawvideo", "-",
+    ])
+
+
 def main():
     info = json.loads(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries",
@@ -37,12 +44,12 @@ def main():
         assert max(channel_rms(start)) > 500, f"missing music at {start}s"
     left, right = channel_rms(37.0, 1.0)
     assert min(left, right) > 700, "one live channel is too quiet during simultaneous playback"
-    pixel = subprocess.check_output([
-        "ffmpeg", "-v", "error", "-ss", "44", "-i", str(VIDEO), "-frames:v", "1",
-        "-vf", "scale=1:1,format=rgb24", "-f", "rawvideo", "-",
-    ])
+    flash = frame_mean(24.75)
+    assert min(flash) > 245, "03 to 04 white flash is missing"
+    assert max(frame_mean(24.3)) < 200, "flash must be distinct from the preceding frame"
+    pixel = frame_mean(44)
     assert pixel[2] > pixel[0] * 2 and pixel[2] > pixel[1] * 2, "scene 05 is missing"
-    print("v3 01-05: scene 05, music gaps, and simultaneous stereo audio verified")
+    print("v3 01-05: white flash, scene 05, music gaps, and simultaneous stereo audio verified")
 
 
 if __name__ == "__main__":
