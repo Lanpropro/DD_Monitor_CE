@@ -24,10 +24,11 @@ def channel_rms(start, seconds=0.5):
     )
 
 
-def frame_mean(start):
+def frame_mean(start, crop=None):
+    filters = ([f"crop={crop}"] if crop else []) + ["scale=1:1", "format=rgb24"]
     return subprocess.check_output([
         "ffmpeg", "-v", "error", "-ss", str(start), "-i", str(VIDEO), "-frames:v", "1",
-        "-vf", "scale=1:1,format=rgb24", "-f", "rawvideo", "-",
+        "-vf", ",".join(filters), "-f", "rawvideo", "-",
     ])
 
 
@@ -47,8 +48,9 @@ def main():
     flash = frame_mean(24.75)
     assert min(flash) > 245, "03 to 04 white flash is missing"
     assert max(frame_mean(24.3)) < 200, "flash must be distinct from the preceding frame"
-    pixel = frame_mean(44)
-    assert pixel[2] > pixel[0] * 2 and pixel[2] > pixel[1] * 2, "scene 05 is missing"
+    app = frame_mean(44, "350:200:1180:425")
+    backdrop = frame_mean(44, "200:150:100:800")
+    assert min(app) > 100 and min(backdrop) < 30, "scene 05 software preview is missing"
     print("v3 01-05: white flash, scene 05, music gaps, and simultaneous stereo audio verified")
 
 

@@ -8,30 +8,42 @@
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
       * { box-sizing: border-box; }
-      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #090c6d; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #17191d; }
       #root {
         position: relative; width: 1920px; height: 1080px; overflow: hidden;
-        background: #090c6d; color: #f1f2f5; font-family: "Microsoft YaHei UI", sans-serif;
+        background: #17191d; color: #f1f2f5; font-family: "Microsoft YaHei UI", sans-serif;
       }
       .colors { position: absolute; inset: 0; overflow: hidden; }
       .blob { position: absolute; border-radius: 50%; }
       #warm {
-        left: -390px; top: -450px; width: 1540px; height: 1220px;
-        background: radial-gradient(ellipse, rgba(240,52,82,.92) 0%, rgba(214,52,91,.68) 36%, transparent 72%);
+        left: -520px; top: -580px; width: 1520px; height: 1220px;
+        background: radial-gradient(ellipse, rgba(38,163,219,.46) 0%, rgba(28,104,160,.2) 40%, transparent 72%);
       }
       #green {
-        left: 640px; top: -450px; width: 1700px; height: 1330px;
-        background: radial-gradient(ellipse, rgba(0,190,134,.92) 0%, rgba(0,143,123,.62) 38%, transparent 72%);
+        left: 790px; top: -460px; width: 1550px; height: 1260px;
+        background: radial-gradient(ellipse, rgba(56,85,208,.43) 0%, rgba(32,69,141,.2) 42%, transparent 72%);
       }
       #violet {
-        left: 680px; top: 290px; width: 1730px; height: 1240px;
-        background: radial-gradient(ellipse, rgba(152,92,211,.78) 0%, rgba(79,47,179,.48) 38%, transparent 74%);
+        left: 760px; top: 330px; width: 1700px; height: 1190px;
+        background: radial-gradient(ellipse, rgba(235,94,155,.42) 0%, rgba(118,57,120,.18) 40%, transparent 74%);
       }
       .veil {
         position: absolute; inset: 0;
-        background: linear-gradient(90deg, rgba(6,9,64,.72) 0%, rgba(6,9,64,.48) 34%, rgba(6,9,64,.08) 74%, transparent 100%);
+        background: linear-gradient(90deg, rgba(16,19,25,.62) 0%, rgba(16,19,25,.4) 42%, rgba(16,19,25,.06) 100%);
       }
-      #copy { position: absolute; left: 108px; top: 244px; width: 1380px; }
+      #brand { position: absolute; top: 66px; right: 92px; display: flex; align-items: center; gap: 14px; font-size: 25px; font-weight: 700; letter-spacing: .04em; }
+      #brand img { width: 46px; height: 46px; }
+      #app-card { position: absolute; left: 1056px; top: 294px; width: 780px; padding: 15px; border: 1px solid rgba(142,163,190,.3); border-radius: 22px; background: rgba(30,34,41,.9); box-shadow: 0 35px 90px rgba(0,0,0,.4); transform: rotate(-5deg); }
+      #app-card img { display: block; width: 100%; border-radius: 10px; }
+      #app-card .bar { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 8px 11px; color: #d8e1ed; font-size: 17px; }
+      #app-card .dots { display: flex; gap: 8px; }
+      #app-card .dots i { width: 10px; height: 10px; border-radius: 50%; background: #4a5665; }
+      #app-card .dots i:first-child { background: #f47aa8; }
+      #app-card .dots i:nth-child(2) { background: #5ac4e9; }
+      #grid-mark { position: absolute; right: 132px; bottom: 158px; display: grid; grid-template-columns: repeat(3, 17px); gap: 7px; padding: 22px; border: 1px solid rgba(92,201,236,.55); border-radius: 18px; background: rgba(22,31,41,.86); box-shadow: 0 12px 42px rgba(0,0,0,.3); }
+      #grid-mark i { width: 17px; height: 17px; border-radius: 4px; background: #38b9e7; }
+      #grid-mark i:nth-child(2n) { background: #f079ad; }
+      #copy { position: absolute; left: 108px; top: 244px; width: 1030px; }
       .group { display: flex; flex-direction: column; align-items: flex-start; }
       .line { opacity: 0; font-weight: 700; line-height: 1.16; text-shadow: 0 3px 22px rgba(5,8,60,.22); }
       .lead { font-size: 74px; margin-bottom: 24px; }
@@ -47,6 +59,12 @@
         <div class="blob" id="violet" data-layout-allow-overflow></div>
       </div>
       <div class="veil"></div>
+      <div id="brand"><img src="assets/logo.png" alt="" />DD监控室CE</div>
+      <div id="app-card">
+        <div class="bar"><span>DD监控室CE · 多窗口直播监控</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <img src="assets/v3-05-app-preview.jpg" alt="" />
+      </div>
+      <div id="grid-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div id="copy">
         <div class="group" id="l11">
           <div class="line lead" id="line11">为啥不用浏览器？</div>
@@ -54,7 +72,6 @@
         </div>
         <div class="group" id="l12">
           <div class="line small" id="line13">不用来回切标签</div>
-          <div class="line strong" id="line14">九路画面，同屏可见</div>
         </div>
         <div class="group" id="l13">
           <div class="line small" id="line15">按需调整布局</div>
@@ -68,13 +85,14 @@
         var ease = "power3.out";
         gsap.set("#copy", { y: 152 });
         tl.to("#copy", { y: 0, duration: 3.7, ease: "power2.out" }, 0.55);
-        tl.to("#warm", { x: 400, y: 80, scale: 1.16, duration: 7.5, ease: "none" }, 0);
-        tl.to("#green", { x: -320, y: 210, scale: 1.12, duration: 7.5, ease: "none" }, 0);
-        tl.to("#violet", { x: -460, y: -150, scale: 1.18, duration: 7.5, ease: "none" }, 0);
+        tl.to("#warm", { x: 300, y: 70, scale: 1.12, duration: 7.5, ease: "none" }, 0);
+        tl.to("#green", { x: -260, y: 160, scale: 1.1, duration: 7.5, ease: "none" }, 0);
+        tl.to("#violet", { x: -350, y: -130, scale: 1.16, duration: 7.5, ease: "none" }, 0);
+        tl.fromTo("#app-card", { opacity: 0, x: 100, y: 35 }, { opacity: 1, x: 0, y: 0, duration: 1, ease: ease }, 0.55);
+        tl.fromTo("#grid-mark", { opacity: 0, scale: .7 }, { opacity: 1, scale: 1, duration: .65, ease: ease }, 2.3);
         [
           ["#line11", 0.18], ["#line12", 1.26],
-          ["#line13", 2.42], ["#line14", 3.44],
-          ["#line15", 4.70], ["#line16", 5.72]
+          ["#line13", 2.42], ["#line15", 4.05], ["#line16", 5.35]
         ].forEach(function (entry) {
           tl.fromTo(entry[0], { opacity: 0, x: -48, y: 14, filter: "blur(8px)" },
             { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.46, ease: ease, immediateRender: false }, entry[1]);
