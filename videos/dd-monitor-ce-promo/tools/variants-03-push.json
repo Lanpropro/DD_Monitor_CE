@@ -1,0 +1,17 @@
+{
+  "comp": "compositions/v3/18-03-hover.html",
+  "at": 7.0,
+  "sels": [
+    "#cursor",
+    "#v1",
+    "#v2",
+    "#v3",
+    "#stage"
+  ],
+  "variants": [
+    {
+      "name": "push-r3",
+      "css": ""
+    }
+  ]
+}
