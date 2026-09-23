@@ -64,7 +64,7 @@
 
       /* 左上标题：**要压在 .stage 上面** —— .stage 在 DOM 里排在后面，
          不给 z-index 的话标题会被（推进后放大的）软件画面盖住。 */
-      .head { position: absolute; left: 150px; top: 34px; z-index: 20; }
+      .head { position: absolute; left: 150px; top: 34px; z-index: 20; padding: 0 16px 10px 0; background: var(--sc-white); }
       .head .n { font-size: 56px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
       .head .s { margin-top: 12px; font-size: 26px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
       .head .bar { width: 72px; height: 4px; background: var(--accent); margin-top: 16px; transform-origin: 0 50%; }
@@ -86,8 +86,8 @@
       </div>
 
       <div class="stage" id="stage">
-        <!-- 主画面 = **素材本体**：`聚焦卡片_卡片预览.mp4` 的 0–15s，
-             裁掉右 569 / 下 338 黑边后**加速 1.7895 倍**（15s -> 8.37s），缩到 1560x870。
+        <!-- 主画面来自 `聚焦卡片_卡片预览.mp4`，裁掉右侧和下侧黑边。
+             在镜头移动处跳过原片的两处预览加载黑场，保留三次悬停顺序。
              用户 2026-09-23：「你只要完全把 0-15s 放上来，做一个加速、裁剪、聚焦就好了」——
              画面本身是动的（列表在滚、卡片在展开），所以不再需要往卡片上叠录像。 -->
         <div class="app" id="app">
@@ -97,7 +97,7 @@
 
         <!-- 光标**必须放在 .stage 里面**：视角推进时它会跟着卡片一起被放大/平移，
              这样才能始终停在目标卡上。放在 stage 外面就会出现"卡片走了、光标留在原地"。
-             代价是它会跟着放大 3.6 倍，所以推进时同步给它 1/ZOOM 的反向缩放，视觉尺寸不变。 -->
+             推进时同步给它 1/ZOOM 的反向缩放，视觉尺寸不变。 -->
         <div class="cursor" id="cursor" style="opacity:0">
           <svg viewBox="0 0 30 40" width="30" height="40"><path d="M4 2 L4 30 L11 24 L16 36 L21 34 L17 22 L27 22 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.2"/></svg>
         </div>
@@ -120,8 +120,7 @@
           { x: 7, y: 693,  w: 273, h: 150 },   /* 三理Mit3uri      -> v2                   */
           { x: 7, y: 859,  w: 273, h: 150 }    /* 盐无Shio         -> v3 (preview-shio)    */
         ];
-        var ZOOM = 2.0;                        /* 视角推进倍数 —— 上限 = 素材宽/显示宽 = 3270/1560 ≈ 2.096，
-                                                  再大就是把素材插值放大（会糊）。用户反馈"有点糊"后从 3.6 降下来。 */
+        var ZOOM = 2.5;                        /* 悬停卡片多占一点画幅；4K 原片先轻度锐化，避免回到 3.6 倍的模糊。 */
         var k = APP.w / FRAME.w;               /* 素材 -> 画面显示 */
 
         var appEl = document.getElementById("app");
@@ -158,19 +157,19 @@
 
         /* ================= 三轮：推近一次 → 之后只做视角下移，不再退回 =================
            用户 2026-09-23：「在聚焦的时候就不用收回来了，保持聚焦，然后视角下移即可」。
-           主画面是视频（自己在动），所以这里**只做聚焦**：第 1 轮把 stage 推到 3.6 倍并保持，
+           主画面是视频（自己在动），所以这里**只做聚焦**：第 1 轮把 stage 推到 2.5 倍并保持，
            第 2/3 轮只改 tx/ty 做视角下移。 */
         var LIFT = 0.762;
         var ROUND = 13 * 0.1905;              /* 2.4765 */
         function round(base, i) {
           var s = SPOT[i];
-          if (i > 0) tl.to("#cursor", { y: s.cy - 2, duration: 0.40, ease: EASE_IO, immediateRender: false }, base);
+          if (i > 0) tl.to("#cursor", { y: s.cy - 2, duration: 0.32, ease: EASE_IO, immediateRender: false }, base);
           tl.to("#stage", { scale: ZOOM, x: s.tx, y: s.ty,
-                            duration: i === 0 ? 0.60 : 0.46, ease: "power2.inOut", immediateRender: false },
-                base + (i === 0 ? 0.30 : 0.10));
+                            duration: i === 0 ? 0.48 : 0.40, ease: i === 0 ? "power3.out" : "power2.inOut", immediateRender: false },
+                base + (i === 0 ? 0.22 : 0.08));
           /* 光标只在第一轮随推近做一次 1/ZOOM 的反向缩放（transform-origin 是 0 0，
              尖端位置不受缩放影响）；之后 scale 一直保持不变。 */
-          if (i === 0) tl.to("#cursor", { scale: 1 / ZOOM, duration: 0.60, ease: "power2.inOut", immediateRender: false }, base + 0.30);
+          if (i === 0) tl.to("#cursor", { scale: 1 / ZOOM, duration: 0.48, ease: "power3.out", immediateRender: false }, base + 0.22);
         }
         round(LIFT, 0);                       /* 0.762  */
         round(LIFT + ROUND, 1);               /* 3.2385 */

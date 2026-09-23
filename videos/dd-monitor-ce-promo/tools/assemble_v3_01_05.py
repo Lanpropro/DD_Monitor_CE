@@ -73,7 +73,7 @@ def main():
     cmd += [
         "-filter_complex", ";".join(filters), "-map", "[vout]", "-map", "[aout]",
         "-t", str(FINAL_LENGTH), "-r", "30", "-c:v", "libx264", "-preset", "medium",
-        "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+        "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart", str(OUTPUT),
     ]
     subprocess.run(cmd, check=True)
