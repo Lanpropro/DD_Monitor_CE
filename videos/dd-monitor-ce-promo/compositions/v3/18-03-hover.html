@@ -60,10 +60,7 @@
         position: absolute; border-radius: 16px; overflow: hidden;
         box-shadow: 0 44px 100px rgba(16,17,20,.26), 0 0 0 1px rgba(16,17,20,.06);
       }
-      .app img { display: block; width: 100%; height: 100%; }
-
-      /* 卡内录像：盖在对应的卡片位置上，位置/尺寸由 JS 写死（跟随 .stage 一起推进） */
-      .cardvid { position: absolute; opacity: 0; object-fit: cover; border-radius: 6px; }
+      .app video { display: block; width: 100%; height: 100%; object-fit: cover; }
 
       /* 左上标题 */
       .head { position: absolute; left: 150px; top: 34px; }
@@ -88,19 +85,14 @@
       </div>
 
       <div class="stage" id="stage">
-        <!-- 完整软件界面：19.5s 帧裁到内容边界（3270x1822），显示为 1560x869 居中 -->
-        <div class="app" id="app"><img src="assets/rec/focus-app.png" alt=""></div>
-
-        <!-- 卡内录像：各自提前约 1.4s 出现，保证切到它时已经有帧。
-             ⚠ v2（三理Mit3uri）暂时复用"红发少女"那段（原四时小路用的 `preview-komichi.mp4`）——
-               用户确认的三张卡里只有三理Mit3uri 没有专属录像，先拿这段顶上，
-               他给时段我再换成专属素材。 -->
-        <video class="cardvid" id="v1" src="assets/rec/preview-liko.mp4" muted playsinline
-               data-start="0" data-duration="8.382"></video>
-        <video class="cardvid" id="v2" src="assets/rec/preview-komichi.mp4" muted playsinline
-               data-start="2.24" data-duration="6.142"></video>
-        <video class="cardvid" id="v3" src="assets/rec/preview-shio.mp4" muted playsinline
-               data-start="4.72" data-duration="3.662"></video>
+        <!-- 主画面 = **素材本体**：`聚焦卡片_卡片预览.mp4` 的 0–15s，
+             裁掉右 569 / 下 338 黑边后**加速 1.7895 倍**（15s -> 8.37s），缩到 1560x870。
+             用户 2026-09-23：「你只要完全把 0-15s 放上来，做一个加速、裁剪、聚焦就好了」——
+             画面本身是动的（列表在滚、卡片在展开），所以不再需要往卡片上叠录像。 -->
+        <div class="app" id="app">
+          <video id="clip" src="assets/rec/focus-clip.mp4" muted playsinline
+                 data-start="0" data-duration="8.382"></video>
+        </div>
 
         <!-- 光标**必须放在 .stage 里面**：视角推进时它会跟着卡片一起被放大/平移，
              这样才能始终停在目标卡上。放在 stage 外面就会出现"卡片走了、光标留在原地"。
@@ -121,7 +113,7 @@
            素材 focus-app.png = 3270×1822（已裁掉右 569 / 下 338 黑边）。
            显示为 APP.w × APP.h 居中；三张卡在素材里的坐标见文件头注释。 */
         var FRAME = { w: 3270, h: 1822 };
-        var APP = { left: 180, top: 106, w: 1560, h: 869 };
+        var APP = { left: 180, top: 105, w: 1560, h: 870 };
         var CARDS = [
           { x: 7, y: 525,  w: 273, h: 150 },   /* 莉蔻Liko        -> v1 (preview-liko)    */
           { x: 7, y: 693,  w: 273, h: 150 },   /* 三理Mit3uri      -> v2                   */
@@ -140,11 +132,6 @@
         CARDS.forEach(function (c, i) {
           var dx = APP.left + c.x * k, dy = APP.top + c.y * k;
           var dw = c.w * k, dh = c.h * k;
-          var el = document.getElementById("v" + (i + 1));
-          el.style.left = dx + "px";
-          el.style.top = dy + "px";
-          el.style.width = dw + "px";
-          el.style.height = dh + "px";
           var cx = dx + dw / 2, cy = dy + dh / 2;
           /* 视角推进：transform-origin 是画布中心，把卡片中心推到 (960,540) 需要
              tx = -(cx-960)*ZOOM、ty = -(cy-540)*ZOOM。 */
@@ -156,7 +143,6 @@
         gsap.set("#headBar", { scaleX: 0 });
         gsap.set("#stage", { scale: 1, x: 0, y: 0 });
         gsap.set("#app", { opacity: 0 });
-        gsap.set(".cardvid", { opacity: 0 });
         gsap.set("#cursor", { opacity: 0, x: SPOT[0].cx - 3, y: SPOT[0].cy - 2, scale: 1 });
 
         /* ================= 入场 ================= */
@@ -169,26 +155,20 @@
         tl.to("#cursor", { opacity: 1, duration: 0.20, immediateRender: false }, 0.56);
 
         /* ================= 三轮：推近一次 → 之后只做视角下移，不再退回 =================
-           用户 2026-09-23：「在聚焦的时候就不用收回来了，保持聚焦，然后视角下移即可」
-           → 第 1 轮把视角推到莉蔻卡上并**保持** ZOOM；
-             第 2/3 轮只把 stage 平移到下一张卡（垂直下移），scale 一直是 ZOOM。
-           每轮 13 拍（2.4765s）：
-             第 1 轮：0.30 起推近（0.60s）→ 0.86 录像淡入 → 1.90 录像淡出换下一张
-             第 2/3 轮：0.10 起下移（0.46s）→ 0.86 录像淡入 → （第 2 轮 1.90 淡出） */
+           用户 2026-09-23：「在聚焦的时候就不用收回来了，保持聚焦，然后视角下移即可」。
+           主画面是视频（自己在动），所以这里**只做聚焦**：第 1 轮把 stage 推到 3.6 倍并保持，
+           第 2/3 轮只改 tx/ty 做视角下移。 */
         var LIFT = 0.762;
         var ROUND = 13 * 0.1905;              /* 2.4765 */
         function round(base, i) {
           var s = SPOT[i];
-          var v = "#v" + (i + 1);
           if (i > 0) tl.to("#cursor", { y: s.cy - 2, duration: 0.40, ease: EASE_IO, immediateRender: false }, base);
           tl.to("#stage", { scale: ZOOM, x: s.tx, y: s.ty,
                             duration: i === 0 ? 0.60 : 0.46, ease: "power2.inOut", immediateRender: false },
                 base + (i === 0 ? 0.30 : 0.10));
           /* 光标只在第一轮随推近做一次 1/ZOOM 的反向缩放（transform-origin 是 0 0，
-             所以尖端位置不受缩放影响）；之后 scale 一直保持不变。 */
+             尖端位置不受缩放影响）；之后 scale 一直保持不变。 */
           if (i === 0) tl.to("#cursor", { scale: 1 / ZOOM, duration: 0.60, ease: "power2.inOut", immediateRender: false }, base + 0.30);
-          tl.to(v, { opacity: 1, duration: 0.24, ease: EASE_OUT, immediateRender: false }, base + 0.86);
-          if (i < 2) tl.to(v, { opacity: 0, duration: 0.20, ease: EASE_OUT, immediateRender: false }, base + 1.90);
         }
         round(LIFT, 0);                       /* 0.762  */
         round(LIFT + ROUND, 1);               /* 3.2385 */
