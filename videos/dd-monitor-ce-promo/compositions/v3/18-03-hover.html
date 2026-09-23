@@ -8,26 +8,28 @@
       /* ==========================================================================
          18-03-hover  ——  C 组：08（0.0–8.382s）「悬停预览 · 如此轻松」
 
-         用户 2026-09-23 重构：
-           「03 要用的素材 `聚焦卡片_卡片预览.mp4`；**背景改为前面的纯色底**；
-             将截图一的**左侧卡片栏取出**，做一个**从下往上滑入**的动效，
-             然后模拟鼠标**放置在上方的 3 个卡片**上展示预览。
-             02→03 的过渡动效参考 skill 自己完成。」
+         用户 2026-09-23（第二次修正）：
+           「我要**保留原本的软件画面**，模拟鼠标移动到卡片上、进行直播预览，
+             这个时候**给上一个聚焦**就可以了。」
 
-         做法：
-           · 背景 = 纯色 `sc-white #f8f8f8`（与 02 同一底色，接力时白场连续）
-           · 左侧关注栏 = 从 `聚焦卡片_卡片预览.mp4` 4.0s 帧裁出的 `x 0..380 × 全高`竖条
-             （`assets/rec/follow-col.png`，380×2160），显示为 253×1440，
-             **从画面下方滑入**后停住
-           · 鼠标依次悬停 3 张直播卡 —— 莉蔻Liko / 盐无Shio / 四时小路Komichi
-             （栏里第 3/4/5 张 = 最上面三张开播中的卡，粉色"直播中"标签 y = 820/987/1154）
-             → 该卡亮起青色描边 + 右侧预览窗显示**各自那一段**录屏
-           · 三段的素材沿用观众已确认的 `preview-liko / preview-shio / preview-komichi.mp4`
+         所以这一版**不再**是"左侧栏 + 右侧预览窗"，而是：
+           · 背景 = 纯色 `sc-white #f8f8f8`（与 02 同底色，接力时白场连续）
+           · 画面中央 = **完整软件界面**（`assets/rec/focus-app.png`，
+             从 `聚焦卡片_卡片预览.mp4` 的 4.0s 帧整帧取的，3840×2160 满屏无黑边）
+           · 模拟鼠标在左侧关注栏里**从上往下依次移到三张开播中的卡上**
+             （4.0s 帧的列表是：星言sumi / 灰泽满Hazel / [展开的预览小窗] /
+              **三理Mit3uri / 盐无Shio / 四时小路Komichi** / 恩骨 / 傲慢的小肉包 / 奶茶姬，
+              靠"直播中"粉色标签 y = 820 / 987 / 1154 定位这三张）
+           · 悬停时那张卡**原地聚焦**：同一张图按 ZOOM 倍放大、裁到那张卡的范围，
+             加青色描边与投影 —— 不另开预览窗、不遮挡软件画面。
+             ⚠ 卡面里本来就是那张卡的直播画面，所以**不需要额外的预览视频素材**
+             （早前那支 `preview-hover.mp4` 只服务于"右侧预览窗"那版设计，已不用）。
 
-         节拍：0.1905s 网格。栏滑入 0.762（4 拍），三轮各 13 拍（2.4765s），
+         节拍：0.1905s 网格。画面入场 0.10–0.60，三轮各 13 拍（2.4765s），
                起点 0.762 / 3.2385 / 5.715，第三轮 8.1915 收完，整段 8.382s（44 拍）。
 
-         ⚠ 位置全部走 transform（x / y / scale / opacity），不补 left/top/width/height。
+         ⚠ 所有坐标在 setup 时按常量算一次（skill：不要 tween 时量 DOM）。
+         ⚠ 只补 opacity / scale / x / y；静态定位走 style，不补 left/top/width/height。
          ⚠ 不用 tl.call（渲染器 seek 不触发 callback）。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
@@ -52,40 +54,29 @@
       }
 
       /* ---------- 左上标题 ---------- */
-      .head { position: absolute; left: 120px; top: 92px; }
-      .head .n { font-size: 78px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
-      .head .s { margin-top: 16px; font-size: 34px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
-      .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
+      .head { position: absolute; left: 150px; top: 34px; }
+      .head .n { font-size: 56px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
+      .head .s { margin-top: 12px; font-size: 26px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
+      .head .bar { width: 72px; height: 4px; background: var(--accent); margin-top: 16px; transform-origin: 0 50%; }
 
-      /* ---------- 左侧关注栏（素材竖条，380x2160 -> 253x1440，上下都超出画布） ---------- */
-      .col {
-        position: absolute; left: 110px; top: -180px; width: 253px; height: 1440px;
-        border-radius: 18px; overflow: hidden;
-        box-shadow: 0 34px 74px rgba(16,17,20,.20);
+      /* ---------- 完整软件画面（位置/尺寸由 JS 按常量写死） ---------- */
+      .app {
+        position: absolute; border-radius: 14px; overflow: hidden;
+        box-shadow: 0 44px 100px rgba(16,17,20,.26), 0 0 0 1px rgba(16,17,20,.06);
       }
-      .col img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .app img { display: block; width: 100%; height: 100%; }
 
-      /* ---------- 悬停高亮框（三张卡各一个，位置是算好的常量） ---------- */
-      .hi {
-        position: absolute; left: 118px; width: 237px; height: 100px;
-        border-radius: 12px; border: 2px solid var(--accent); opacity: 0;
-        box-shadow: 0 0 0 5px rgba(0,161,214,.16), 0 0 30px rgba(0,161,214,.35);
-      }
-
-      /* ---------- 右侧预览窗 ---------- */
-      .pv {
-        position: absolute; left: 470px; top: 168px; width: 1330px; height: 748px;
-        border-radius: 20px; overflow: hidden; opacity: 0;
-        background: #101114;
-        box-shadow: 0 44px 96px rgba(16,17,20,.24);
-      }
-      .pv video {
-        position: absolute; inset: 0; width: 100%; height: 100%;
-        object-fit: cover; opacity: 0;
+      /* ---------- 悬停聚焦：同一张图的放大裁切 ---------- */
+      .focus {
+        position: absolute; border-radius: 12px; opacity: 0;
+        background-image: url("assets/rec/focus-app.png");
+        background-repeat: no-repeat;
+        border: 3px solid var(--accent);
+        box-shadow: 0 34px 78px rgba(16,17,20,.38), 0 0 0 7px rgba(0,161,214,.18);
       }
 
       /* ---------- 模拟光标 ---------- */
-      .cursor { position: absolute; left: 0; top: 0; width: 34px; height: 44px; }
+      .cursor { position: absolute; left: 0; top: 0; width: 30px; height: 40px; }
       .cursor svg { display: block; }
     </style>
   </head>
@@ -98,29 +89,16 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 左侧关注栏：从 `聚焦卡片_卡片预览.mp4` 4.0s 帧裁出的 x 0..380 × 全高 -->
-      <div class="col" id="col">
-        <img src="assets/rec/follow-col.png" alt="">
-      </div>
+      <!-- 完整软件画面：`聚焦卡片_卡片预览.mp4` 4.0s 帧整帧（3840x2160，满屏无黑边） -->
+      <div class="app" id="app"><img src="assets/rec/focus-app.png" alt=""></div>
 
-      <!-- 三张卡的悬停高亮：莉蔻 / 盐无 / 四时小路（栏内第 3/4/5 张） -->
-      <div class="hi" id="hi1" style="top: 281px;"></div>
-      <div class="hi" id="hi2" style="top: 392px;"></div>
-      <div class="hi" id="hi3" style="top: 503px;"></div>
-
-      <!-- 右侧预览窗：**一支**合并好的录屏
-           `preview-hover.mp4` = liko 0–3s + shio 3–6s + komichi 6–9s。
-           ⚠ 不要拆成三支 video —— 实测渲染器同时管三支时，第二、三支要等到 7.2s 才有画面
-             （设计是 6.24s 淡入），第一支也要 1.9s 才就绪，中间还会露出黑底。
-             合成一支后时间段天然对齐三轮：
-             轮1 落在 1.28–2.90（liko）、轮2 3.76–5.38（shio）、轮3 6.24–7.86（komichi）。 -->
-      <div class="pv" id="pv">
-        <video id="v" src="assets/rec/preview-hover.mp4" muted playsinline
-               data-start="0" data-duration="9.2"></video>
-      </div>
+      <!-- 三张卡的原地聚焦（同一张图的放大裁切，位置在 setup 时算好） -->
+      <div class="focus" id="f1"></div>
+      <div class="focus" id="f2"></div>
+      <div class="focus" id="f3"></div>
 
       <div class="cursor" id="cursor" style="opacity:0">
-        <svg viewBox="0 0 34 44" width="34" height="44"><path d="M5 2 L5 33 L13 26 L18 39 L24 37 L19 24 L30 24 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.4"/></svg>
+        <svg viewBox="0 0 30 40" width="30" height="40"><path d="M4 2 L4 30 L11 24 L16 36 L21 34 L17 22 L27 22 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.2"/></svg>
       </div>
     </div>
 
@@ -130,64 +108,78 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* ---- 预计算的常量（不要在补间里量 DOM）----
-           栏显示 253x1440、定位 top -180，所以栏内 4K 坐标 y 换算到画布 = y * 0.6667 - 180。
-           三张卡的原始卡片范围（follow-col.png 的 2160 坐标系，由"直播中"标签 y 820/987/1154 推得）：
-             莉蔻 y 691..841 / 盐无 y 858..1008 / 四时小路 y 1025..1175
-           → 高亮框 top = 281 / 392 / 503，高 100。光标停在每张卡的右侧。 */
-        var LIFT = 0.762;                 /* 栏滑入用的时间（4 拍） */
-        var ROUND = 13 * 0.1905;          /* 2.4765，每轮 13 拍 */
-        var CARD = [
-          { hi: "#hi1", cursor: { x: 330, y: 322 } },
-          { hi: "#hi2", cursor: { x: 330, y: 433 } },
-          { hi: "#hi3", cursor: { x: 330, y: 544 } }
+        /* ================= 常量（setup 时算一次，补间里不再量 DOM） =================
+           素材整帧 3840×2160；软件画面显示为 APP.w × APP.h，居中放在 APP.left / APP.top。
+           三张卡的整帧坐标由左侧栏"直播中"粉色标签定位（标签在卡片右下角，距边约 12px）：
+             莉蔻       标签 y 812..829  ->  卡 y 691..841
+             盐无       标签 y 978..997  ->  卡 y 858..1008
+             四时小路   标签 y 1146..1163 -> 卡 y 1025..1175
+           卡片横向都是 x 8..281（左侧栏内缩进 8px、宽 273）。 */
+        var FRAME = { w: 3840, h: 2160 };
+        var APP = { left: 190, top: 144, w: 1540, h: 866 };
+        var CARDS = [
+          { x: 8, y: 691,  w: 273, h: 150 },
+          { x: 8, y: 858,  w: 273, h: 150 },
+          { x: 8, y: 1025, w: 273, h: 150 }
         ];
+        var ZOOM = 3.6;                       /* 聚焦放大倍数 */
+        var k = APP.w / FRAME.w;              /* 整帧 -> 画面显示 的缩放 */
+
+        var appEl = document.getElementById("app");
+        appEl.style.left = APP.left + "px";
+        appEl.style.top = APP.top + "px";
+        appEl.style.width = APP.w + "px";
+        appEl.style.height = APP.h + "px";
+
+        var SPOT = [];                        /* 每张卡：聚焦框的左上角 + 光标落点 */
+        CARDS.forEach(function (c, i) {
+          var dx = APP.left + c.x * k, dy = APP.top + c.y * k;
+          var dw = c.w * k, dh = c.h * k;                 /* 卡片在画面上的显示尺寸 */
+          var el = document.getElementById("f" + (i + 1));
+          el.style.width = (dw * ZOOM) + "px";
+          el.style.height = (dh * ZOOM) + "px";
+          /* ⚠ 聚焦框的**左上角**对齐卡片的左上角，让放大朝右下方展开 ——
+             卡片本来就在画面最左边，若按中心对齐会向左溢出软件画面。 */
+          el.style.left = dx + "px";
+          el.style.top = dy + "px";
+          el.style.backgroundSize = (APP.w * ZOOM) + "px " + (APP.h * ZOOM) + "px";
+          el.style.backgroundPosition = (-c.x * k * ZOOM) + "px " + (-c.y * k * ZOOM) + "px";
+          SPOT.push({ cx: dx + dw / 2, cy: dy + dh / 2 });
+        });
 
         /* ---- 基线 ---- */
-        gsap.set("#head", { opacity: 0, y: 24 });
+        gsap.set("#head", { opacity: 0, y: 20 });
         gsap.set("#headBar", { scaleX: 0 });
-        gsap.set("#col", { y: 620 });            /* 栏起始在画面下方 */
-        gsap.set(".pv", { opacity: 0, scale: 0.985 });
-        gsap.set("#v", { opacity: 0 });
-        gsap.set(".hi", { opacity: 0, scale: 0.99 });
-        gsap.set("#cursor", { opacity: 0, x: 330, y: 322 });
+        gsap.set("#app", { opacity: 0, scale: 0.985 });
+        gsap.set(".focus", { opacity: 0, scale: 0.90 });
+        gsap.set("#cursor", { opacity: 0, x: SPOT[0].cx - 8, y: SPOT[0].cy - 8 });
 
-        /* ================= 入场：标题浮现 + 关注栏从下往上滑入 ================= */
-        tl.fromTo("#head", { opacity: 0, y: 24 },
-          { opacity: 1, y: 0, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.10);
+        /* ================= 入场：软件画面 + 标题 ================= */
+        tl.fromTo("#app", { opacity: 0, scale: 0.985 },
+          { opacity: 1, scale: 1, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 0.02);
+        tl.fromTo("#head", { opacity: 0, y: 20 },
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 0.12);
         tl.fromTo("#headBar", { scaleX: 0 },
-          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.34);
-        tl.fromTo("#col", { y: 620 },
-          { y: 0, duration: 0.74, ease: "power3.out", immediateRender: false }, 0.02);
-        tl.to("#cursor", { opacity: 1, duration: 0.24, immediateRender: false }, 0.62);
+          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.36);
+        tl.to("#cursor", { opacity: 1, duration: 0.22, immediateRender: false }, 0.58);
 
-        /* ================= 三轮：光标悬停 → 该卡亮起 → 预览窗播放 → 收 =================
-           每轮 13 拍；"悬停"是一个动作，所以光标移动（y）与高亮/预览的淡入错开一点点起，
-           但**都落在同一张卡上**，不做"先全部淡出再淡入"。 */
+        /* ================= 三轮：鼠标移到卡上 → 那张卡原地聚焦 → 换下一张 =================
+           每轮 13 拍：光标下移（0.44s）→ 到位后聚焦框弹出（0.26s）→ 停留 → 收起。 */
+        var LIFT = 0.762;                     /* 第一轮起点（4 拍） */
+        var ROUND = 13 * 0.1905;              /* 2.4765 */
         function round(base, i) {
-          var c = CARD[i];
-          var tHi = base + 0.34;            /* 光标到位 → 点亮这张卡的描边 */
-          var tOff = base + 2.04;           /* 收起描边，交给下一张 */
-
-          if (i > 0) tl.to("#cursor", { y: c.cursor.y, duration: 0.44, ease: EASE_IO, immediateRender: false }, base);
-          tl.to(c.hi, { opacity: 1, scale: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, tHi);
-          tl.to(c.hi, { opacity: 0, duration: 0.24, ease: EASE_OUT, immediateRender: false }, tOff);
+          var s = SPOT[i];
+          var f = "#f" + (i + 1);
+          if (i > 0) tl.to("#cursor", { y: s.cy - 8, duration: 0.44, ease: EASE_IO, immediateRender: false }, base);
+          tl.to(f, { opacity: 1, scale: 1, duration: 0.28, ease: "back.out(1.4)", immediateRender: false }, base + 0.36);
+          tl.to(f, { opacity: 0, scale: 0.94, duration: 0.24, ease: EASE_OUT, immediateRender: false }, base + 2.02);
         }
-        round(LIFT, 0);                     /* 0.762  */
-        round(LIFT + ROUND, 1);             /* 3.2385 */
-        round(LIFT + ROUND * 2, 2);         /* 5.715  */
+        round(LIFT, 0);                       /* 0.762  */
+        round(LIFT + ROUND, 1);               /* 3.2385 */
+        round(LIFT + ROUND * 2, 2);           /* 5.715  */
 
-        /* 预览窗 + 那支合并录屏：只在第一轮淡入，之后一直开着 ——
-           画面内容按时间段自己接上（轮1 = liko / 轮2 = shio / 轮3 = komichi），
-           中间不会露出黑底。 */
-        tl.fromTo(".pv", { opacity: 0, scale: 0.985 },
-          { opacity: 1, scale: 1, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.282);
-        tl.fromTo("#v", { opacity: 0 },
-          { opacity: 1, duration: 0.30, ease: EASE_OUT, immediateRender: false }, 1.32);
-
-        /* ================= 收尾：预览窗与栏一起淡出（本拍是独立段落，允许收） ================= */
-        tl.to(".pv", { opacity: 0, scale: 0.99, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 8.02);
-        tl.to("#cursor", { opacity: 0, duration: 0.28, immediateRender: false }, 8.06);
+        /* ================= 收尾 ================= */
+        tl.to("#cursor", { opacity: 0, duration: 0.26, immediateRender: false }, 8.06);
 
         tl.to({}, { duration: 0.01 }, 8.372);
 
