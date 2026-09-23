@@ -86,13 +86,15 @@ def main():
     for start in (0.7, 3.1, 5.5):
         assert window_peak(grid_audio, start, 0.5) > 0, f"silent grid operation at {start}s"
     assert float(grid["data-duration"]) >= 7.2
-    assert float(left["data-start"]) + float(left["data-duration"]) <= float(right["data-start"])
-    assert float(right["data-duration"]) >= 2.5
+    assert left["data-start"] == right["data-start"], "left and right must start together"
+    assert left["data-duration"] == right["data-duration"]
+    assert float(right["data-duration"]) >= 4
+    assert float(left["data-start"]) + float(left["data-duration"]) <= float(parser.root["data-duration"])
     assert channel_peak(PROJECT / left["src"], 0) > 0
     assert channel_peak(PROJECT / left["src"], 1) == 0
     assert channel_peak(PROJECT / right["src"], 0) == 0
     assert channel_peak(PROJECT / right["src"], 1) > 0
-    print("v3 beat 04: extended grid sounds, separate channel audio, and two full pages verified")
+    print("v3 beat 04: extended grid sounds and simultaneous stereo pages verified")
 
 
 if __name__ == "__main__":

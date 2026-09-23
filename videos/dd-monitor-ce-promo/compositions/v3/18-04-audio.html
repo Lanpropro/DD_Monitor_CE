@@ -33,7 +33,7 @@
         border-radius: 7px; background: rgba(0,161,214,.92); color: #04161f;
         font-size: 18px; font-weight: 700; box-shadow: 0 4px 18px rgba(0,0,0,.25);
       }
-      #cursor { position: absolute; z-index: 20; left: 0; top: 0; width: 26px; height: 34px; }
+      #cursor, #right-cursor { position: absolute; z-index: 20; left: 0; top: 0; width: 26px; height: 34px; }
     </style>
   </head>
   <body>
@@ -60,12 +60,15 @@
       <div id="cursor">
         <svg viewBox="0 0 26 34" width="26" height="34"><path d="M4 2 L4 26 L10 20 L14 30 L19 28 L15 18 L23 18 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
       </div>
+      <div id="right-cursor">
+        <svg viewBox="0 0 26 34" width="26" height="34"><path d="M4 2 L4 26 L10 20 L14 30 L19 28 L15 18 L23 18 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
+      </div>
       <audio id="grid-live-audio" src="assets/rec/audio-grid-live.wav"
         data-start="1.4" data-duration="7.2" data-volume="0.7"></audio>
       <audio id="left-live-audio" src="assets/rec/audio-left-live.wav"
-        data-start="11" data-duration="1.7" data-volume="0.7"></audio>
+        data-start="11.05" data-duration="4.25" data-volume="1"></audio>
       <audio id="right-live-audio" src="assets/rec/audio-right-live.wav"
-        data-start="12.8" data-duration="2.5" data-volume="0.7"></audio>
+        data-start="11.05" data-duration="4.25" data-volume="1"></audio>
     </div>
     <script>
       (function () {
@@ -80,6 +83,7 @@
         gsap.set("#right-page", { opacity: 0, x: -463, y: 180 });
         gsap.set(["#left-channel", "#right-channel"], { opacity: 0 });
         gsap.set("#cursor", { opacity: 0, x: 780, y: 520 });
+        gsap.set("#right-cursor", { opacity: 0, x: 1808, y: 870 });
 
         // 09：真实九格录屏；光标依次指向上排三个格子的音量控制。
         tl.to("#grid-page", { opacity: 1, scale: 1, duration: 0.46, ease: out }, 0);
@@ -104,13 +108,13 @@
         tl.to("#left-page", { x: 0, y: 0, duration: 0.7, ease: io }, 9.58);
         tl.to("#right-page", { x: 0, y: 0, opacity: 1, duration: 0.7, ease: io }, 9.58);
 
-        // 光标在左、右两套软件中分别选择对应声道。
+        // 两个光标同时选择左右声道，两套完整页面同时播放。
         tl.to("#cursor", { x: 882, y: 810, opacity: 1, duration: 0.55, ease: io }, 10.50);
+        tl.to("#right-cursor", { y: 810, opacity: 1, duration: 0.55, ease: io }, 10.50);
         tl.to("#left-channel", { opacity: 1, duration: 0.24 }, 11.10);
         tl.to("#left-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 11.10);
-        tl.to("#cursor", { x: 1808, y: 810, duration: 0.55, ease: io }, 12.10);
-        tl.to("#right-channel", { opacity: 1, duration: 0.24 }, 12.75);
-        tl.to("#right-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 12.75);
+        tl.to("#right-channel", { opacity: 1, duration: 0.24 }, 11.10);
+        tl.to("#right-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 11.10);
         tl.to({}, { duration: 0.01 }, 15.49);
 
         window.__timelines = window.__timelines || {};
