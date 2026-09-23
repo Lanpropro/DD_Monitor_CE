@@ -71,8 +71,10 @@
       .head .s { margin-top: 12px; font-size: 26px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
       .head .bar { width: 72px; height: 4px; background: var(--accent); margin-top: 16px; transform-origin: 0 50%; }
 
-      /* 模拟光标 */
-      .cursor { position: absolute; left: 0; top: 0; width: 30px; height: 40px; }
+      /* 模拟光标：放在 .stage 内（跟随视角推进），但 `transform-origin` 必须是**左上角** ——
+         默认的中心原点会让反向缩放(1/ZOOM)把箭头的尖端推偏约 (18,54)px，
+         实测推进后光标落到 977,570 而卡片中心是 960,540。改 0 0 后尖端位置与缩放无关。 */
+      .cursor { position: absolute; left: 0; top: 0; width: 30px; height: 40px; transform-origin: 0 0; }
       .cursor svg { display: block; }
     </style>
   </head>
@@ -96,10 +98,13 @@
                data-start="2.24" data-duration="6.142"></video>
         <video class="cardvid" id="v3" src="assets/rec/preview-komichi.mp4" muted playsinline
                data-start="4.72" data-duration="3.662"></video>
-      </div>
 
-      <div class="cursor" id="cursor" style="opacity:0">
-        <svg viewBox="0 0 30 40" width="30" height="40"><path d="M4 2 L4 30 L11 24 L16 36 L21 34 L17 22 L27 22 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.2"/></svg>
+        <!-- 光标**必须放在 .stage 里面**：视角推进时它会跟着卡片一起被放大/平移，
+             这样才能始终停在目标卡上。放在 stage 外面就会出现"卡片走了、光标留在原地"。
+             代价是它会跟着放大 3.6 倍，所以推进时同步给它 1/ZOOM 的反向缩放，视觉尺寸不变。 -->
+        <div class="cursor" id="cursor" style="opacity:0">
+          <svg viewBox="0 0 30 40" width="30" height="40"><path d="M4 2 L4 30 L11 24 L16 36 L21 34 L17 22 L27 22 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.2"/></svg>
+        </div>
       </div>
     </div>
 
@@ -149,7 +154,7 @@
         gsap.set("#stage", { scale: 1, x: 0, y: 0 });
         gsap.set("#app", { opacity: 0 });
         gsap.set(".cardvid", { opacity: 0 });
-        gsap.set("#cursor", { opacity: 0, x: SPOT[0].cx - 6, y: SPOT[0].cy - 6 });
+        gsap.set("#cursor", { opacity: 0, x: SPOT[0].cx - 3, y: SPOT[0].cy - 2, scale: 1 });
 
         /* ================= 入场 ================= */
         tl.fromTo("#head", { opacity: 0, y: 20 },
@@ -171,11 +176,14 @@
         function round(base, i) {
           var s = SPOT[i];
           var v = "#v" + (i + 1);
-          if (i > 0) tl.to("#cursor", { y: s.cy - 6, duration: 0.36, ease: EASE_IO, immediateRender: false }, base);
+          if (i > 0) tl.to("#cursor", { y: s.cy - 2, duration: 0.36, ease: EASE_IO, immediateRender: false }, base);
+          /* 视角推进；光标与它同时起、同时完，并做 1/ZOOM 的反向缩放保持视觉尺寸 */
           tl.to("#stage", { scale: ZOOM, x: s.tx, y: s.ty, duration: 0.56, ease: "power2.inOut", immediateRender: false }, base + 0.30);
+          tl.to("#cursor", { scale: 1 / ZOOM, duration: 0.56, ease: "power2.inOut", immediateRender: false }, base + 0.30);
           tl.to(v, { opacity: 1, duration: 0.24, ease: EASE_OUT, immediateRender: false }, base + 0.86);
           tl.to(v, { opacity: 0, duration: 0.22, ease: EASE_OUT, immediateRender: false }, base + 1.90);
           tl.to("#stage", { scale: 1, x: 0, y: 0, duration: 0.52, ease: "power2.inOut", immediateRender: false }, base + 1.94);
+          tl.to("#cursor", { scale: 1, duration: 0.52, ease: "power2.inOut", immediateRender: false }, base + 1.94);
         }
         round(LIFT, 0);                       /* 0.762  */
         round(LIFT + ROUND, 1);               /* 3.2385 */

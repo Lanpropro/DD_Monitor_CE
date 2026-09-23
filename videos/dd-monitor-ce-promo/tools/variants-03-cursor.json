@@ -1,0 +1,16 @@
+{
+  "comp": "compositions/v3/18-03-hover.html",
+  "at": 2.1,
+  "sels": [
+    "#cursor",
+    "#v1",
+    "#stage",
+    "#app"
+  ],
+  "variants": [
+    {
+      "name": "cursor-03",
+      "css": ""
+    }
+  ]
+}
