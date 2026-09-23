@@ -37,23 +37,23 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="18-04-audio" data-start="0" data-duration="10" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="18-04-audio" data-start="0" data-duration="15.5" data-width="1920" data-height="1080">
       <h1 class="title" id="h09">听完你的听你的<span>各路独立左右声道路由</span></h1>
       <h1 class="title" id="h10a">声音太杂乱听不清<span>怎么办</span></h1>
       <h1 class="title" id="h10b">左右声道独立<span>我全部都要</span></h1>
 
       <div class="page" id="grid-page">
         <video id="grid-video" src="assets/rec/audio-grid-live.mp4" muted playsinline preload="auto"
-          data-start="0" data-duration="7"></video>
+          data-start="0" data-duration="9"></video>
       </div>
       <div class="page pair-page" id="left-page">
         <video id="left-video" src="assets/rec/audio-left-live.mp4" muted playsinline preload="auto"
-          data-start="5" data-duration="5"></video>
+          data-start="8" data-duration="7.5"></video>
         <div class="channel" id="left-channel">只播左声道</div>
       </div>
       <div class="page pair-page" id="right-page">
         <video id="right-video" src="assets/rec/audio-right-live.mp4" muted playsinline preload="auto"
-          data-start="5" data-duration="5"></video>
+          data-start="8" data-duration="7.5"></video>
         <div class="channel" id="right-channel">只播右声道</div>
       </div>
 
@@ -61,11 +61,11 @@
         <svg viewBox="0 0 26 34" width="26" height="34"><path d="M4 2 L4 26 L10 20 L14 30 L19 28 L15 18 L23 18 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2"/></svg>
       </div>
       <audio id="grid-live-audio" src="assets/rec/audio-grid-live.wav"
-        data-start="1.4" data-duration="5" data-volume="0.7"></audio>
+        data-start="1.4" data-duration="7.2" data-volume="0.7"></audio>
       <audio id="left-live-audio" src="assets/rec/audio-left-live.wav"
-        data-start="7.5" data-duration="2.5" data-volume="0.7"></audio>
+        data-start="11" data-duration="1.7" data-volume="0.7"></audio>
       <audio id="right-live-audio" src="assets/rec/audio-right-live.wav"
-        data-start="8.5" data-duration="1.5" data-volume="0.7"></audio>
+        data-start="12.8" data-duration="2.5" data-volume="0.7"></audio>
     </div>
     <script>
       (function () {
@@ -76,7 +76,8 @@
         gsap.set("#h10a", { opacity: 0, scale: 0.96 });
         gsap.set("#h10b", { opacity: 0, y: -20 });
         gsap.set("#grid-page", { opacity: 0, scale: 0.98 });
-        gsap.set(["#left-page", "#right-page"], { opacity: 0, y: 120 });
+        gsap.set("#left-page", { opacity: 0, x: 463, y: 300 });
+        gsap.set("#right-page", { opacity: 0, x: -463, y: 180 });
         gsap.set(["#left-channel", "#right-channel"], { opacity: 0 });
         gsap.set("#cursor", { opacity: 0, x: 780, y: 520 });
 
@@ -85,32 +86,32 @@
         tl.to("#h09", { opacity: 1, y: 0, duration: 0.46, ease: out }, 0.14);
         tl.to("#cursor", { opacity: 1, duration: 0.14 }, 0.28);
         [780, 1190, 1600].forEach(function (x, i) {
-          tl.to("#cursor", { x: x, y: 520, duration: 0.35, ease: io }, 0.35 + i * 1.75);
+          tl.to("#cursor", { x: x, y: 520, duration: 0.35, ease: io }, 0.35 + i * 2.4);
         });
-        tl.to("#h09", { opacity: 0, y: -18, duration: 0.26, ease: out }, 4.70);
-        tl.to("#cursor", { opacity: 0, duration: 0.2 }, 4.70);
+        tl.to("#h09", { opacity: 0, y: -18, duration: 0.26, ease: out }, 7.00);
+        tl.to("#cursor", { opacity: 0, duration: 0.2 }, 7.00);
 
-        // 10：完整软件页面下移，标题在中心放大。
-        tl.to("#h10a", { opacity: 1, duration: 0.4, ease: out }, 4.96);
-        tl.to("#h10a", { scale: 1.85, y: 417, duration: 0.6, ease: io }, 5.40);
-        tl.to("#grid-page", { y: 170, scale: 0.94, duration: 0.6, ease: io }, 5.40);
+        // 10：标题上移到软件上方，九格页面下移，留下清晰间隔。
+        tl.to("#h10a", { opacity: 1, duration: 0.4, ease: out }, 7.20);
+        tl.to("#h10a", { scale: 1.55, y: 210, duration: 0.6, ease: io }, 7.55);
+        tl.to("#grid-page", { y: 220, scale: 0.85, duration: 0.6, ease: io }, 7.55);
 
-        // 两个独立的完整软件页面上移到中部，各自保留侧栏与播放器。
-        tl.to("#h10a", { opacity: 0, duration: 0.24 }, 6.38);
-        tl.to("#grid-page", { opacity: 0, duration: 0.28 }, 6.40);
-        tl.to("#h10b", { opacity: 1, y: 0, duration: 0.4, ease: out }, 6.50);
-        tl.to(["#left-page", "#right-page"], {
-          opacity: 1, y: 0, duration: 0.55, stagger: 0.09, ease: out
-        }, 6.48);
+        // 下方先出现一套完整软件页面，再从同一位置分开成左右两套。
+        tl.to("#grid-page", { opacity: 0, duration: 0.36 }, 8.58);
+        tl.to("#left-page", { opacity: 1, y: 180, duration: 0.52, ease: out }, 8.50);
+        tl.to("#h10a", { opacity: 0, duration: 0.24 }, 9.62);
+        tl.to("#h10b", { opacity: 1, y: 0, duration: 0.4, ease: out }, 9.65);
+        tl.to("#left-page", { x: 0, y: 0, duration: 0.7, ease: io }, 9.58);
+        tl.to("#right-page", { x: 0, y: 0, opacity: 1, duration: 0.7, ease: io }, 9.58);
 
         // 光标在左、右两套软件中分别选择对应声道。
-        tl.to("#cursor", { x: 882, y: 810, opacity: 1, duration: 0.55, ease: io }, 7.38);
-        tl.to("#left-channel", { opacity: 1, duration: 0.24 }, 8.00);
-        tl.to("#left-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 8.00);
-        tl.to("#cursor", { x: 1808, y: 810, duration: 0.55, ease: io }, 8.40);
-        tl.to("#right-channel", { opacity: 1, duration: 0.24 }, 9.02);
-        tl.to("#right-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 9.02);
-        tl.to({}, { duration: 0.01 }, 9.99);
+        tl.to("#cursor", { x: 882, y: 810, opacity: 1, duration: 0.55, ease: io }, 10.50);
+        tl.to("#left-channel", { opacity: 1, duration: 0.24 }, 11.10);
+        tl.to("#left-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 11.10);
+        tl.to("#cursor", { x: 1808, y: 810, duration: 0.55, ease: io }, 12.10);
+        tl.to("#right-channel", { opacity: 1, duration: 0.24 }, 12.75);
+        tl.to("#right-page", { borderColor: "rgba(0,161,214,.8)", duration: 0.24 }, 12.75);
+        tl.to({}, { duration: 0.01 }, 15.49);
 
         window.__timelines = window.__timelines || {};
         window.__timelines["18-04-audio"] = tl;
