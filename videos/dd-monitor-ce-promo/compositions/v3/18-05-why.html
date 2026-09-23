@@ -8,11 +8,11 @@
       /* ==========================================================================
          18-05-why  ——  E 组：11–13（0.0–7.5s）
          11（0.0–2.5）「为啥不用浏览器」
-         12（2.5–5.0）「九路直播同开 / 超快的缓冲速度 / 平均时长约 [数值]」
-         13（5.0–7.5）「九路直播同开 / 超低的内存占用 / 平均占用约 [数值]」
+         12（2.5–5.0）「九路直播同开 / 不用来回切标签 / 九路画面，同屏可见」
+         13（5.0–7.5）「九路直播同开 / 按需调整布局 / 横竖画面，自由摆放」
 
          色场：sc-deepblue #090c6d（照参考片 29.58–36.00s 的 #090c6d 50.7%）。
-         数值位留 [数值: …] 占位 —— 不编数字。
+         原定缓冲和内存数值无可比实测样本，改为可由真实软件画面验证的功能。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -21,7 +21,6 @@
 
       :root {
         --sc-deepblue: #090c6d;
-        --acc-orange: #fcaa01;
         --text1: #f1f2f5;
         --text-dim: rgba(241,242,245,.62);
         --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -44,11 +43,6 @@
       .head-line { font-size: 92px; font-weight: 700; letter-spacing: -.01em; line-height: 1.06; }
       .sub-line { margin-top: 22px; font-size: 46px; font-weight: 600; letter-spacing: .04em; }
       .num-line { margin-top: 34px; font-size: 40px; font-weight: 600; letter-spacing: .08em; color: var(--text-dim); }
-      .slot {
-        display: inline-block; min-width: 200px; padding: 4px 18px; margin: 0 6px;
-        border: 1px dashed rgba(252,170,1,.7); border-radius: 10px;
-        color: var(--acc-orange); font-weight: 700;
-      }
       /* 参考片深蓝段有斜向透视块，这里给一层极淡的对角结构而不是平铺 */
       .diag {
         position: absolute; inset: 0; overflow: hidden; pointer-events: none;
@@ -62,7 +56,7 @@
   </head>
   <body>
     <div id="root" data-composition-id="18-05-why" data-start="0" data-duration="7.5" data-width="1920" data-height="1080">
-      <div class="diag"><i style="top: 8%"></i><i style="top: 54%"></i></div>
+      <div class="diag"><i style="top: 8%" data-layout-allow-overflow></i><i style="top: 54%" data-layout-allow-overflow></i></div>
 
       <!-- 11 -->
       <div class="layer" id="l11">
@@ -76,8 +70,8 @@
       <div class="layer" id="l12" style="opacity: 0;">
         <div class="block">
           <div class="head-line" id="h12">九路直播同开</div>
-          <div class="sub-line" id="s12">超快的缓冲速度</div>
-          <div class="num-line" id="n12">平均时长约 <span class="slot">[数值: 平均缓冲时长]</span></div>
+          <div class="sub-line" id="s12">不用来回切标签</div>
+          <div class="num-line" id="n12">九路画面，同屏可见</div>
         </div>
       </div>
 
@@ -85,8 +79,8 @@
       <div class="layer" id="l13" style="opacity: 0;">
         <div class="block">
           <div class="head-line" id="h13">九路直播同开</div>
-          <div class="sub-line" id="s13">超低的内存占用</div>
-          <div class="num-line" id="n13">平均占用约 <span class="slot">[数值: 平均内存占用]</span></div>
+          <div class="sub-line" id="s13">按需调整布局</div>
+          <div class="num-line" id="n13">横竖画面，自由摆放</div>
         </div>
       </div>
     </div>
@@ -119,7 +113,7 @@
         tl.to("#l11 .cap", { opacity: 0, duration: 0.24, immediateRender: false }, 2.20);
         tl.to("#l11", { opacity: 0, duration: 0.28, immediateRender: false }, 2.24);
 
-        /* ============ 12（2.5–5.0）超快的缓冲速度 ============ */
+        /* ============ 12（2.5–5.0）九路同屏 ============ */
         tl.to("#l12", { opacity: 1, duration: 0.3, immediateRender: false }, 2.48);
         tl.fromTo("#h12", { opacity: 0, y: 26 },
           { opacity: 1, y: 0, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 2.54);
@@ -131,7 +125,7 @@
         tl.to("#s12", { opacity: 0, y: -16, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 4.62);
         tl.to("#n12", { opacity: 0, y: -14, duration: 0.26, ease: EASE_OUT, immediateRender: false }, 4.66);
 
-        /* ============ 13（5.0–7.5）超低的内存占用 ============ */
+        /* ============ 13（5.0–7.5）布局适配 ============ */
         /* ⚠ 父层必须先亮：只补间 #h13 / #s13 / #n13 的 opacity 是不够的 ——
            `#l13` 一直是 0，整段 2.5s 就永远是空蓝底（实测抽帧 t=6.2s 什么都没有）。 */
         tl.to("#l13", { opacity: 1, duration: 0.3, immediateRender: false }, 4.92);
