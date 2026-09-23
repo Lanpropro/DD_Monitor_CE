@@ -43,6 +43,8 @@ NAV_LIST_ITEM_HEIGHT = 60     # 简洁模式：头像 + 两行文字
 NAV_COMPACT_ITEM_HEIGHT = 60  # 收起时保持此前的头像间距和滚动手感
 NAV_ITEM_GAP = 2              # 项与项之间的间距
 CAROUSEL_WIDTH = 206          # 竖屏顶部横栏里横向卡片的宽度（和侧栏展开时一样宽）
+PORTRAIT_LIST_WIDTH = 100     # 竖屏简洁模式：窄竖条，仍横向滚动
+PORTRAIT_LIST_HEIGHT = 88
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -130,7 +132,7 @@ def _badge_font() -> QFont:
 
 
 class StreamBadge(QWidget):
-    """画面左上角的浮标：左侧圆形镂空，右边是 LIVE 和直播间人数。"""
+    """画面左上角的浮标：左侧同心圆环，右边是 LIVE 和直播间人数。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,24 +198,23 @@ class StreamBadge(QWidget):
         pill = QPainterPath()
         pill.addRoundedRect(QRectF(0, 0, width, BADGE_HEIGHT),
                             BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
-        hole = QPainterPath()
-        hole.addEllipse(QRectF(HOLE_MARGIN, HOLE_MARGIN, HOLE_SIZE, HOLE_SIZE))
-        # 遮罩 = （胶囊 − 圆孔）+ 孔中央的实心圆点，否则圆点会被一起裁掉
-        dot_center = HOLE_MARGIN + HOLE_SIZE / 2
-        dot = QPainterPath()
-        dot.addEllipse(QRectF(dot_center - 4.5, BADGE_HEIGHT / 2 - 4.5, 9, 9))
-        self._mask_path = pill.subtracted(hole).united(dot)
+        # 圆环和圆点在 paintEvent 里用同一个中心画；不再把圆孔做成遮罩，
+        # 避免路径转整数 QRegion 后圆孔边缘与抗锯齿圆点错开 1px。
+        self._mask_path = pill
         self.setMask(QRegion(self._mask_path.toFillPolygon().toPolygon()))
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.fillPath(self._mask_path, QColor("#15171c"))
-        # 镂空里放一个实心圆点（相当于先扣出一个圆弧，再在中间点一个点）
         dot = HOLE_MARGIN + HOLE_SIZE / 2
+        center = QPointF(dot, BADGE_HEIGHT / 2)
+        painter.setPen(QPen(QColor("#7b828c"), 2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(center, HOLE_SIZE / 2 - 1, HOLE_SIZE / 2 - 1)
         painter.setBrush(QColor("#fb7299" if self.live else "#7b828c"))
         painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QRectF(dot - 4.5, BADGE_HEIGHT / 2 - 4.5, 9, 9))
+        painter.drawEllipse(center, 4.5, 4.5)
         font = _badge_font()
         painter.setFont(font)
         metrics = QFontMetrics(font)
@@ -543,7 +544,7 @@ class RefreshButton(QPushButton):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        center = self.rect().center()
+        center = QPointF(self.width() / 2, self.height() / 2)
         color = _icon_color(self)
         radius = min(7.0, self.height() / 2 - 5)
         rect = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
@@ -1495,6 +1496,7 @@ class NavThumb(QFrame):
         self._size = (self.WIDTH, self.HEIGHT)
         self._compact = False
         self._card_mode = True
+        self._portrait_strip = False
         self._player: TilePlayer | None = None
         self._overlay_widgets: tuple[QWidget, QWidget, QWidget] | None = None
 
@@ -1540,6 +1542,14 @@ class NavThumb(QFrame):
             return
         name, title, badge = self._overlay_widgets
         width, height = self._size
+        if self._portrait_strip:
+            name.setGeometry(4, 51, max(0, width - 8), 20)
+            name.setAlignment(Qt.AlignCenter)
+            title.hide()
+            badge.hide()
+            name.raise_()
+            return
+        name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_left = 48 if self._card_mode else 44
         right = 8
         name_y = 7 if self._card_mode else 3
@@ -1604,6 +1614,8 @@ class NavThumb(QFrame):
             return QRect((width - avatar_size) // 2,
                          (height - avatar_size) // 2,
                          avatar_size, avatar_size)
+        if self._portrait_strip:
+            return QRect((width - avatar_size) // 2, 11, avatar_size, avatar_size)
         return QRect(10 if self._card_mode else 4,
                      10,
                      avatar_size, avatar_size)
@@ -1679,7 +1691,7 @@ class NavThumb(QFrame):
         return self._compact
 
     def _preview_rect(self) -> QRect:
-        if self._card_mode:
+        if self._card_mode or self._portrait_strip:
             return self.rect()
         left = max(1, int(self.width() * 2 / 3))
         return QRect(left, 0, max(1, self.width() - left), self.height())
@@ -1688,7 +1700,23 @@ class NavThumb(QFrame):
         if self._overlay_widgets is None:
             return
         for widget in self._overlay_widgets:
-            widget.setVisible(bool(visible) and not self._compact)
+            widget.setVisible(bool(visible) and not self._compact
+                              and (not self._portrait_strip or widget is self._overlay_widgets[0]))
+
+    def set_portrait_strip(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._portrait_strip:
+            return
+        if self._player is not None:
+            self.stop()
+        self._portrait_strip = enabled
+        if not self._compact:
+            height = (PORTRAIT_LIST_HEIGHT if enabled else
+                      self.HEIGHT if self._card_mode else self.LIST_HEIGHT)
+            self.setFixedHeight(height)
+        self._place_face()
+        self._layout_overlay()
+        self._set_overlay_visible(True)
 
     def set_card_mode(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -1698,7 +1726,8 @@ class NavThumb(QFrame):
             self.stop()
         self._card_mode = enabled
         if not self._compact:
-            height = self.HEIGHT if enabled else self.LIST_HEIGHT
+            height = (self.HEIGHT if enabled else
+                      PORTRAIT_LIST_HEIGHT if self._portrait_strip else self.LIST_HEIGHT)
             self.setMinimumSize(0, height)
             self.setMaximumSize(16777215, height)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -1710,7 +1739,8 @@ class NavThumb(QFrame):
 
     def set_thumb_size(self, compact: bool) -> None:
         width = self.COMPACT_SIZE if compact else self.WIDTH
-        expanded_height = self.HEIGHT if self._card_mode else self.LIST_HEIGHT
+        expanded_height = (self.HEIGHT if self._card_mode else
+                           PORTRAIT_LIST_HEIGHT if self._portrait_strip else self.LIST_HEIGHT)
         height = self.COMPACT_SIZE if compact else expanded_height
         if compact == self._compact_thumb():
             return
@@ -1763,8 +1793,8 @@ class NavThumb(QFrame):
         self.video.setVisible(True)
         self.video.raise_()
         # 大卡片预览时让画面完全干净；简洁列表的预览只占右侧三分之一，左侧信息保留。
-        self._set_overlay_visible(not self._card_mode)
-        self.face.setVisible(not self._card_mode)
+        self._set_overlay_visible(not self._card_mode and not self._portrait_strip)
+        self.face.setVisible(not self._card_mode and not self._portrait_strip)
         self.hint.setVisible(False)
         player.set_muted(True)                       # 预览永远静音
         player.set_volume(0)
@@ -1824,6 +1854,7 @@ class NavItem(QFrame):
         self._compact = False
         self._card_mode = True
         self._compact_spacers = False
+        self._portrait_strip = False
         self.select_mode = False
         self.filtered_out = False        # 搜索过滤：不匹配就藏起来
         self._pinned = bool(room.get("pinned"))
@@ -1891,8 +1922,22 @@ class NavItem(QFrame):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.wall_badge.adjustSize()
-        self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8), 8)
+        self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8),
+                             4 if self._portrait_strip else 8)
         self.wall_badge.raise_()
+
+    def set_portrait_strip(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._portrait_strip:
+            return
+        self._portrait_strip = enabled
+        self.thumb.set_portrait_strip(enabled)
+        if not self._compact:
+            self.setFixedHeight(PORTRAIT_LIST_HEIGHT if enabled else
+                                (NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT))
+        self._layout.setContentsMargins(8, 0 if enabled else 6, 10, 0 if enabled else 6)
+        self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8),
+                             4 if enabled else 8)
 
     def _sync_live_dot(self) -> None:
         size = self.live_dot.width()
@@ -1905,11 +1950,14 @@ class NavItem(QFrame):
         if compact == self._compact:
             return
         self._compact = compact
-        expanded_height = NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT
+        expanded_height = (PORTRAIT_LIST_HEIGHT if self._portrait_strip else
+                           NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT)
         self.setFixedHeight(NAV_COMPACT_ITEM_HEIGHT if compact else expanded_height)
         for widget in (self.name_label, self.sub, self.badge):
             widget.setVisible(not compact)
         self.thumb.set_thumb_size(compact)
+        if not compact and self._portrait_strip:
+            self.thumb._layout_overlay()
         self._sync_live_dot()
         self.wall_badge.setVisible(bool(self.property("onWall")) and not compact)
         # 收起成窄条时把头像单独夹在中间，否则会被挤到右边、右侧还被裁掉
@@ -1923,7 +1971,10 @@ class NavItem(QFrame):
             item = self._layout.takeAt(0)
             del item
             self._compact_spacers = False
-        self._layout.setContentsMargins(0 if compact else 8, 6, 0 if compact else 10, 6)
+        self._layout.setContentsMargins(0 if compact else 8,
+                                        0 if self._portrait_strip else 6,
+                                        0 if compact else 10,
+                                        0 if self._portrait_strip else 6)
         self._layout.setSpacing(0 if compact else 10)   # 收起时别留间距，头像才真正居中
 
     def set_card_mode(self, enabled: bool) -> None:
@@ -1934,7 +1985,8 @@ class NavItem(QFrame):
         self._card_mode = enabled
         self.thumb.set_card_mode(enabled)
         if not self._compact:
-            self.setFixedHeight(NAV_ITEM_HEIGHT if enabled else NAV_LIST_ITEM_HEIGHT)
+            self.setFixedHeight(NAV_ITEM_HEIGHT if enabled else
+                                (PORTRAIT_LIST_HEIGHT if self._portrait_strip else NAV_LIST_ITEM_HEIGHT))
 
     def set_filtered_out(self, hidden: bool) -> None:
         """搜索不匹配就藏起来。只动可见性 —— 排序、置顶、多选态都不碰。"""
@@ -2275,8 +2327,8 @@ class RoomListBox(QWidget):
     def item_size(self) -> tuple[int, int]:
         """卡片尺寸。竖屏横栏里用固定宽度，横向排一长条。"""
         if self.horizontal:
-            return CAROUSEL_WIDTH, (NAV_ITEM_HEIGHT if self.sidebar.card_mode
-                                    else NAV_LIST_ITEM_HEIGHT)
+            return (CAROUSEL_WIDTH, NAV_ITEM_HEIGHT) if self.sidebar.card_mode else (
+                PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT)
         if self.sidebar.collapsed:
             height = NAV_COMPACT_ITEM_HEIGHT
         else:
@@ -2298,7 +2350,7 @@ class RoomListBox(QWidget):
     def content_width(self) -> int:
         if not self.horizontal:
             return super().sizeHint().width()
-        return (CAROUSEL_WIDTH + NAV_ITEM_GAP) * max(1, len(self.sidebar.items()))
+        return (self.item_size()[0] + NAV_ITEM_GAP) * max(1, len(self.sidebar.items()))
 
     def sizeHint(self) -> QSize:
         return QSize(self.content_width(), self.content_height())
@@ -2345,13 +2397,13 @@ class RoomListBox(QWidget):
             if entry is None:
                 # 落点让位：竖屏横排时也要让（用户要求动效和横屏一致），
                 # 横排的让位就是往右挪一格
-                run += CAROUSEL_WIDTH + NAV_ITEM_GAP if horizontal else self.slot_height()
+                run += width + NAV_ITEM_GAP if horizontal else self.slot_height()
                 continue
             entry.setVisible(True)
             entry.resize(width, item_height)
             if horizontal:
                 self._glide_to(entry, run, 0, animate)
-                run += CAROUSEL_WIDTH + NAV_ITEM_GAP
+                run += width + NAV_ITEM_GAP
             else:
                 # 回到左栏时必须把横栏留下的 x 清零，否则卡片会继续沿用
                 # 横向卡片条的位置，只剩第一张完整可见。
@@ -2405,8 +2457,9 @@ class RoomListBox(QWidget):
         """
         count = len(self._visible_items())
         if self.horizontal:
-            slot = CAROUSEL_WIDTH + NAV_ITEM_GAP
-            return max(0, min(int((y + CAROUSEL_WIDTH / 2) // slot), count))
+            width = self.item_size()[0]
+            slot = width + NAV_ITEM_GAP
+            return max(0, min(int((y + width / 2) // slot), count))
         slot = self.slot_height()
         if self.sidebar.collapsed:
             item_height = NAV_COMPACT_ITEM_HEIGHT
@@ -3211,6 +3264,8 @@ class Sidebar(QFrame):
         self.side = side
         self.set_card_mode(self._effective_card_mode())
         horizontal = side == "top"
+        for item in self._items:
+            item.set_portrait_strip(horizontal and not self.card_mode)
         if not horizontal:
             # 切回左栏：横栏那一行先拆掉（控件按原顺序挂回竖排），头像排收掉
             # （它只服务于顶部横栏），展开键还回标题行，并把「顶部横栏收起时
@@ -3779,6 +3834,7 @@ class Sidebar(QFrame):
         for item in self._items:
             item.thumb.stop()
             item.set_card_mode(enabled)
+            item.set_portrait_strip(self.side == "top" and not enabled)
         self.list_box.relayout(animate=False)
         if self.side == "top" and self._bar_in_use:
             self._sync_top_mode()
@@ -3846,6 +3902,7 @@ class Sidebar(QFrame):
         item.hovered.connect(self.previewHovered.emit)
         item.unhovered.connect(self.previewUnhovered.emit)
         item.set_card_mode(self.card_mode)
+        item.set_portrait_strip(self.side == "top" and not self.card_mode)
         item.set_on_wall(room_id in self._wall_room_ids)
         item.set_select_mode(self.select_mode)
         self._items.append(item)

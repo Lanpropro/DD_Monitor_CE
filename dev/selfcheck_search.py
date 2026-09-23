@@ -26,6 +26,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.widgets import PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH  # noqa: E402
 
 ROOMS = [
     {"room_id": "9101", "uname": "小明的直播间", "title": "今晚打游戏",
@@ -237,7 +238,9 @@ def main() -> None:
         print(f"  横栏={sidebar.height()} 卡片={first.width()}x{first.height()} "
               f"滚动区高={sidebar.scroll.height()} 右侧={sidebar._bar_right.width()}x"
               f"{sidebar._bar_right.height()}")  # noqa: SLF001
-        assert first.height() == 60 and sidebar.list_box.horizontal
+        assert (first.width(), first.height()) == (PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT)
+        assert sidebar.list_box.horizontal
+        assert first.thumb._preview_rect() == first.thumb.rect()
         assert sidebar.scroll.viewport().height() >= first.height()
         assert sidebar.height() < 160, "紧凑横栏应比原大卡片横栏矮"
         assert sidebar.account_row.isVisible()
@@ -255,7 +258,7 @@ def main() -> None:
         sidebar.add_room({"room_id": "9213", "uname": "第18个关注", "live": False})
         settle(app)
         assert len(sidebar.items()) == 18 and not sidebar.card_mode
-        assert first.height() == 60, "达到默认阈值时竖屏也应自动紧凑"
+        assert first.height() == PORTRAIT_LIST_HEIGHT, "达到默认阈值时竖屏也应自动紧凑"
         window.setGeometry(-9000, -9000, 1200, 700)
         settle(app, 0.4)
         assert sidebar.side == "left" and not sidebar.card_mode

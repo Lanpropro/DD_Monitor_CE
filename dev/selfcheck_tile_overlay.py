@@ -27,6 +27,8 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.widgets import (BADGE_HEIGHT, HOLE_MARGIN, HOLE_SIZE, RefreshButton,
+                         StreamBadge)  # noqa: E402
 
 ROOMS = [{"room_id": f"95{index:02d}", "uname": f"主播{index}", "title": f"标题{index}",
           "live": True, "muted": True, "volume": 40, "quality": 250}
@@ -48,6 +50,32 @@ def main() -> None:
         pass
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    badge_sample = StreamBadge()
+    badge_sample.set_state(True, "534")
+    badge_pixmap = badge_sample.grab()
+    badge_scale = badge_pixmap.devicePixelRatio()
+    pixels = badge_pixmap.toImage()
+    pink = [(x, y) for y in range(int(BADGE_HEIGHT * badge_scale))
+            for x in range(int(24 * badge_scale))
+            if (color := pixels.pixelColor(x, y)).red() > 180
+            and color.green() < 180 and color.blue() > 90]
+    assert pink, "LIVE 圆环里的粉色圆点没有画出来"
+    center_x = (min(x for x, _ in pink) + max(x for x, _ in pink)) / 2
+    center_y = (min(y for _, y in pink) + max(y for _, y in pink)) / 2
+    assert abs(center_x / badge_scale - (HOLE_MARGIN + HOLE_SIZE / 2)) <= 0.75
+    assert abs(center_y / badge_scale - BADGE_HEIGHT / 2) <= 0.75
+    refresh = RefreshButton()
+    refresh_pixmap = refresh.grab()
+    refresh_scale = refresh_pixmap.devicePixelRatio()
+    icon = refresh_pixmap.toImage()
+    ink = [(x, y) for y in range(icon.height()) for x in range(icon.width())
+           if (color := icon.pixelColor(x, y)).red() > 100
+           and color.green() > 100 and color.blue() > 100]
+    assert ink, "刷新图标没有画出来"
+    icon_x = (min(x for x, _ in ink) + max(x for x, _ in ink)) / 2
+    icon_y = (min(y for _, y in ink) + max(y for _, y in ink)) / 2
+    assert abs(icon_x / refresh_scale - refresh.width() / 2) <= 1.5
+    assert abs(icon_y / refresh_scale - refresh.height() / 2) <= 1.5
     checked = 0
     for layout_id in LAYOUTS:
         window = MainWindow([dict(room) for room in ROOMS],
