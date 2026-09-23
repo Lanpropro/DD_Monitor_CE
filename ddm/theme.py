@@ -331,6 +331,9 @@ QSlider::handle:horizontal:hover {{
 #NavItem[selected="true"]:hover, #NavItem[selected="true"][hovered="true"] {{
     background: rgba(0, 161, 214, 0.24);
 }}
+#NavItem[onWall="true"] {{
+    border: 1px solid rgba(0, 161, 214, 0.62);
+}}
 #NavName {{
     color: #ffffff;
     font-size: {FONT_CONTROL}px;
@@ -380,6 +383,14 @@ QSlider::handle:horizontal:hover {{
     padding: 1px 6px;
     font-size: 11px;
     font-weight: 600;
+}}
+#BadgeWall {{
+    background: rgba(0, 161, 214, 0.88);
+    color: #04161f;
+    border-radius: {RADIUS_MD}px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 700;
 }}
 
 #IconButton {{

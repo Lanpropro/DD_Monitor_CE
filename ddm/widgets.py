@@ -1818,6 +1818,7 @@ class NavItem(QFrame):
         self.room = room
         self.setProperty("selected", room.get("selected", False))
         self.setProperty("hovered", False)
+        self.setProperty("onWall", False)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(NAV_ITEM_HEIGHT)
         self._compact = False
@@ -1870,7 +1871,28 @@ class NavItem(QFrame):
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge)
+        self.wall_badge = QLabel("在墙", self)
+        self.wall_badge.setObjectName("BadgeWall")
+        self.wall_badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.wall_badge.adjustSize()
+        self.wall_badge.hide()
         self.setToolTip("")
+
+    def set_on_wall(self, on_wall: bool) -> None:
+        """标出这一路已经在画面墙中；蓝色与粉色开播状态互不混淆。"""
+        on_wall = bool(on_wall)
+        if self.property("onWall") is on_wall:
+            return
+        self.setProperty("onWall", on_wall)
+        self.wall_badge.setVisible(on_wall and not self._compact)
+        self.wall_badge.raise_()
+        _repolish(self)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.wall_badge.adjustSize()
+        self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8), 8)
+        self.wall_badge.raise_()
 
     def _sync_live_dot(self) -> None:
         size = self.live_dot.width()
@@ -1889,6 +1911,7 @@ class NavItem(QFrame):
             widget.setVisible(not compact)
         self.thumb.set_thumb_size(compact)
         self._sync_live_dot()
+        self.wall_badge.setVisible(bool(self.property("onWall")) and not compact)
         # 收起成窄条时把头像单独夹在中间，否则会被挤到右边、右侧还被裁掉
         if compact and not self._compact_spacers:
             self._layout.insertStretch(0, 1)
@@ -2452,6 +2475,7 @@ class RoomStrip(QFrame):
         self.setFixedHeight(self.AVATAR + 2)
         self._rooms: list[dict] = []
         self._faces: dict = {}                   # room_id -> 头像图
+        self._on_wall_ids: set[str] = set()
         self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
         self._press_pos = None
         self._press_room = None
@@ -2462,10 +2486,12 @@ class RoomStrip(QFrame):
         self.setCursor(Qt.PointingHandCursor)
 
     # ---- 数据 ----
-    def set_rooms(self, rooms: list, faces: dict | None = None) -> None:
+    def set_rooms(self, rooms: list, faces: dict | None = None,
+                  on_wall_ids: set[str] | None = None) -> None:
         """rooms：关注列表；faces：room_id -> 已经下载好的头像图（可省）。"""
         self._rooms = list(rooms or [])
         self._faces = dict(faces or {})
+        self._on_wall_ids = set(on_wall_ids or set())
         self._rebuild()
 
     def set_room_face(self, room_id: str, pixmap) -> None:
@@ -2544,7 +2570,8 @@ class RoomStrip(QFrame):
                 tooltip=uname or room_id,
                 face=self._faces.get(room_id),
                 room_id=room_id,
-                pinned=bool(room.get("pinned")))
+                pinned=bool(room.get("pinned")),
+                on_wall=room_id in self._on_wall_ids)
             if room_id:
                 self._avatars[room_id] = avatar
         self._layout.addStretch(1)
@@ -2554,7 +2581,8 @@ class RoomStrip(QFrame):
         self._rebuild()
 
     def _add_avatar(self, text: str, live: bool, tooltip: str = "",
-                    face=None, room_id: str = "", pinned: bool = False) -> QWidget:
+                    face=None, room_id: str = "", pinned: bool = False,
+                    on_wall: bool = False) -> QWidget:
         avatar = Avatar(text, 2, self.AVATAR)
         avatar.setFixedSize(self.AVATAR, self.AVATAR)
         avatar.setProperty("roomId", room_id)
@@ -2566,6 +2594,8 @@ class RoomStrip(QFrame):
         tip = tooltip
         if pinned:
             tip += "（已置顶）"
+        if on_wall:
+            tip += "（已在画面墙）"
         avatar.setToolTip(tip)
         self._layout.addWidget(avatar)
         # 右下角开播小圆点：直接用 QSS 画一个圆，省得再加一个控件
@@ -2579,6 +2609,15 @@ class RoomStrip(QFrame):
         if pinned:
             mark = PinnedArc(avatar)
             mark.setGeometry(0, 0, self.AVATAR, self.AVATAR)
+            mark.show()
+        if on_wall:
+            mark = QLabel(avatar)
+            mark.setFixedSize(14, 7)
+            mark.setStyleSheet(
+                f"background: {theme.ACCENT}; border: 2px solid {theme.SIDEBAR};"
+                " border-radius: 3px;")
+            mark.move(self.AVATAR - 14, 1)
+            mark.setAttribute(Qt.WA_TransparentForMouseEvents, True)
             mark.show()
         avatar.show()
         return avatar
@@ -2701,13 +2740,19 @@ class Sidebar(QFrame):
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
     # （用户报的「登录按钮点了没反应」就是踩了这个）。
 
-    def __init__(self, rooms: list[dict], parent=None, card_mode: bool = True):
+    def __init__(self, rooms: list[dict], parent=None, card_mode: bool = True,
+                 auto_compact: bool = True, compact_threshold: int = 18):
         super().__init__(parent)
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH)
         self._items: list[NavItem] = []
         self.collapsed = False
-        self.card_mode = bool(card_mode)
+        self.preferred_card_mode = bool(card_mode)
+        self.auto_compact = bool(auto_compact)
+        self.compact_threshold = max(2, int(compact_threshold))
+        self.card_mode = self.preferred_card_mode and not (
+            self.auto_compact and len(rooms) >= self.compact_threshold)
+        self._wall_room_ids: set[str] = set()
         self.select_mode = False
         self.side = "left"                     # left = 横屏的左栏；top = 竖屏的顶部横栏
         self.pinned: list[str] = []
@@ -2787,6 +2832,9 @@ class Sidebar(QFrame):
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self.search)
         escape.setContext(Qt.WidgetShortcut)
         escape.activated.connect(self.search.clear)
+        self.find_shortcut = QShortcut(QKeySequence.Find, self)
+        self.find_shortcut.setContext(Qt.WindowShortcut)
+        self.find_shortcut.activated.connect(self.focus_search)
         layout.addWidget(self.search)
 
         self.status_row = QWidget(self)
@@ -3112,7 +3160,24 @@ class Sidebar(QFrame):
             pixmap = item.thumb.face_pixmap()
             if pixmap is not None:
                 faces[str(room.get("room_id") or "")] = pixmap
-        strip.set_rooms(rooms, faces)
+        strip.set_rooms(rooms, faces, self._wall_room_ids)
+
+    def focus_search(self) -> None:
+        """Ctrl+F：展开关注栏并把输入焦点交给搜索框。"""
+        if self.collapsed:
+            self.set_collapsed(False, animate=False)
+        self.search.setFocus(Qt.ShortcutFocusReason)
+        self.search.selectAll()
+
+    def set_wall_rooms(self, room_ids) -> None:
+        """同步画面墙占用状态，供卡片和竖屏头像条显示蓝色标记。"""
+        ids = {str(room_id) for room_id in room_ids if str(room_id)}
+        if ids == self._wall_room_ids:
+            return
+        self._wall_room_ids = ids
+        for item in self._items:
+            item.set_on_wall(str(item.room.get("room_id") or "") in ids)
+        self.refresh_strip()
 
     # ---- 收起 / 展开 ----
     def set_side(self, side: str) -> None:
@@ -3142,6 +3207,7 @@ class Sidebar(QFrame):
                 self._apply_scroll_axis()
             return
         self.side = side
+        self.set_card_mode(self._effective_card_mode())
         horizontal = side == "top"
         if not horizontal:
             # 切回左栏：横栏那一行先拆掉（控件按原顺序挂回竖排），头像排收掉
@@ -3681,6 +3747,23 @@ class Sidebar(QFrame):
             item.set_card_mode(enabled)
         self.list_box.relayout(animate=False)
 
+    def set_compact_policy(self, card_mode: bool, auto_compact: bool,
+                           compact_threshold: int) -> None:
+        """保存用户偏好，并按当前关注数量决定实际使用哪种列表。"""
+        self.preferred_card_mode = bool(card_mode)
+        self.auto_compact = bool(auto_compact)
+        self.compact_threshold = max(2, int(compact_threshold))
+        self.set_card_mode(self._effective_card_mode())
+
+    def _effective_card_mode(self) -> bool:
+        """自动紧凑只用于横屏左栏；竖屏横栏保留原来的卡片高度。"""
+        auto_for_left_sidebar = (
+            self.auto_compact
+            and self.side == "left"
+            and len(self._items) >= self.compact_threshold
+        )
+        return self.preferred_card_mode and not auto_for_left_sidebar
+
     # ---- 批量选择 ----
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
@@ -3731,6 +3814,7 @@ class Sidebar(QFrame):
         item.hovered.connect(self.previewHovered.emit)
         item.unhovered.connect(self.previewUnhovered.emit)
         item.set_card_mode(self.card_mode)
+        item.set_on_wall(room_id in self._wall_room_ids)
         item.set_select_mode(self.select_mode)
         self._items.append(item)
         item_height = NAV_ITEM_HEIGHT if self.card_mode else NAV_LIST_ITEM_HEIGHT
@@ -3743,6 +3827,8 @@ class Sidebar(QFrame):
         if any(str(item.room.get("room_id")) == room_id for item in self._items):
             return False
         self._append_item(room)
+        self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
+                                self.compact_threshold)
         # 新控件初始坐标是 (0, 0)，必须立即排版，否则会压在第一项上，
         # 直到用户拖动列表才恢复。
         self.resort(animate=False)
@@ -3766,6 +3852,8 @@ class Sidebar(QFrame):
             self.import_order.remove(room_id)
         if room_id in self.custom_order:
             self.custom_order.remove(room_id)
+        self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
+                                self.compact_threshold)
         self.list_box.relayout(animate=False)
         self._sync_count()
         self.refresh_strip()

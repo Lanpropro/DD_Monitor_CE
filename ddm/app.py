@@ -136,6 +136,8 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar(
             rooms,
             card_mode=bool(self.settings.get("sidebar_card_mode", True)),
+            auto_compact=bool(self.settings.get("sidebar_auto_compact", True)),
+            compact_threshold=int(self.settings.get("sidebar_compact_threshold", 18)),
         )
 
         self.empty_hint = QLabel(EMPTY_HINT)
@@ -1565,6 +1567,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
+        self.sidebar.set_wall_rooms(
+            str(tile.room.get("room_id") or "") for tile in self.wall.tiles)
         self.wall.setVisible(bool(self.wall.tiles))
         self.empty_hint.setVisible(not self.wall.tiles)
         self.sync_danmaku()
@@ -1641,10 +1645,14 @@ class MainWindow(QMainWindow):
 
     def apply_preview_settings(self) -> None:
         """关注列表样式与悬停预览开关。"""
-        card_mode = bool(self.settings.get("sidebar_card_mode", True))
-        if self.sidebar.card_mode != card_mode:
+        before = self.sidebar.card_mode
+        self.sidebar.set_compact_policy(
+            bool(self.settings.get("sidebar_card_mode", True)),
+            bool(self.settings.get("sidebar_auto_compact", True)),
+            int(self.settings.get("sidebar_compact_threshold", 18)),
+        )
+        if self.sidebar.card_mode != before:
             self.hover_preview.stop()
-            self.sidebar.set_card_mode(card_mode)
         self.hover_preview.enabled = bool(self.settings.get("preview_on_hover", True))
         if not self.hover_preview.enabled:
             self.hover_preview.stop()

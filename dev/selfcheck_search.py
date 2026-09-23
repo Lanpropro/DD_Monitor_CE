@@ -10,6 +10,9 @@
   7. 过滤中收到状态刷新（resort）后过滤依然生效，新标题也能被搜到；
   8. 竖屏顶部那排头像跟着过滤；
   9. 进多选态会把搜索清掉（免得批量删除选中看不见的条目）。
+ 10. Ctrl+F 会展开侧栏并聚焦搜索框；
+ 11. 18 个关注起自动切换紧凑列表，阈值与开关均可调整；
+ 12. 画面墙中的房间在卡片和竖屏头像条都有蓝色标记。
 """
 import os
 import sys
@@ -171,6 +174,57 @@ def main() -> None:
               f" 过滤词={sidebar.filter_text!r} 可见={len(sidebar.visible_items())}")
         assert sidebar.search.text() == "" and sidebar.filter_text == ""
         assert len(sidebar.visible_items()) == len(sidebar._items)   # noqa: SLF001
+
+        print("\n=== 11. Ctrl+F：展开侧栏并聚焦搜索 ===")
+        sidebar.set_select_mode(False)
+        sidebar.set_collapsed(True, animate=False)
+        sidebar.search.setText("Alice")
+        sidebar.find_shortcut.activated.emit()
+        settle(app)
+        print(f"  collapsed={sidebar.collapsed} focus={sidebar.search.hasFocus()}"
+              f" selected={sidebar.search.selectedText()!r}")
+        assert not sidebar.collapsed
+        assert sidebar.search.hasFocus(), "Ctrl+F 后焦点应在搜索框"
+        assert sidebar.search.selectedText() == "Alice", "已有搜索词应全选，方便直接替换"
+        sidebar.search.clear()
+
+        print("\n=== 12. 自动紧凑：默认 18 个，阈值和开关可调 ===")
+        window.setGeometry(-9000, -9000, 1200, 700)
+        settle(app, 0.35)
+        assert window.orientation == "landscape" and sidebar.side == "left"
+        for index in range(14):
+            room_id = str(9200 + index)
+            sidebar.add_room({"room_id": room_id, "uname": f"测试{index}",
+                              "title": "", "live": False})
+        assert len(sidebar.items()) == 18
+        sidebar.set_compact_policy(True, True, 18)
+        print(f"  18 个关注：card_mode={sidebar.card_mode}")
+        assert sidebar.card_mode is False
+        sidebar.remove_room({"room_id": "9213"})
+        assert len(sidebar.items()) == 17 and sidebar.card_mode is True
+        sidebar.set_compact_policy(True, True, 17)
+        assert sidebar.card_mode is False, "调整阈值后应立即重算"
+        sidebar.set_compact_policy(True, False, 2)
+        assert sidebar.card_mode is True, "关闭自动紧凑后应保留大卡片偏好"
+
+        print("\n=== 13. 在墙标记：上墙出现、清空格子后消失 ===")
+        marked = next(item for item in sidebar.items()
+                      if str(item.room.get("room_id")) == "9101")
+        tile = window.wall.tiles[0]
+        tile.set_room(marked.room)
+        window._refresh_meta()                           # noqa: SLF001
+        settle(app)
+        print(f"  上墙后 property={marked.property('onWall')}"
+              f" badge={marked.wall_badge.isVisible()}"
+              f" strip={sidebar._head_strip._on_wall_ids}")  # noqa: SLF001
+        assert marked.property("onWall") is True
+        assert marked.wall_badge.isVisible()
+        assert "9101" in sidebar._head_strip._on_wall_ids     # noqa: SLF001
+        tile.set_room(None)
+        window._refresh_meta()                           # noqa: SLF001
+        settle(app)
+        assert marked.property("onWall") is False
+        assert not marked.wall_badge.isVisible()
     finally:
         window.close()
         settle(app, 0.2)

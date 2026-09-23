@@ -58,6 +58,7 @@ class GeneralSettingsPage(QWidget):
         ("hw_decode", "硬件解码（画面卡住/崩溃时关掉试试：改用软解，CPU 会高一些）"),
         ("default_muted", "新加入画面墙的直播间默认静音"),
         ("sidebar_card_mode", "关注列表使用大封面卡片（关闭后为头像＋文字列表）"),
+        ("sidebar_auto_compact", "关注较多时自动切换为紧凑列表"),
         ("preview_on_hover", "鼠标停在关注列表的直播上 1 秒，缩略图里直接播放静音预览"),
         ("live_alert", "关注的主播开播时，列表上播一滴粉色水滴 + 「开播了」气泡"),
     ]
@@ -102,6 +103,28 @@ class GeneralSettingsPage(QWidget):
             grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
             row += 1
+            if key == "sidebar_auto_compact":
+                grid.addWidget(QLabel("自动切换数量"), row, 0)
+                self.compact_threshold_spin = QSpinBox()
+                self.compact_threshold_spin.setRange(2, 200)
+                self.compact_threshold_spin.setSuffix(" 个关注")
+                self.compact_threshold_spin.setAlignment(Qt.AlignCenter)
+                self.compact_threshold_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+                self.compact_threshold_spin.setFixedWidth(112)
+                self.compact_threshold_spin.setValue(
+                    int(settings.get("sidebar_compact_threshold", 18)))
+                threshold_box = QHBoxLayout()
+                threshold_box.setSpacing(6)
+                threshold_box.addWidget(_step_button(
+                    "−", "调小", self.compact_threshold_spin.stepDown))
+                threshold_box.addWidget(self.compact_threshold_spin)
+                threshold_box.addWidget(_step_button(
+                    "+", "调大", self.compact_threshold_spin.stepUp))
+                threshold_box.addStretch(1)
+                grid.addLayout(threshold_box, row, 1)
+                box.toggled.connect(self.compact_threshold_spin.setEnabled)
+                self.compact_threshold_spin.setEnabled(box.isChecked())
+                row += 1
         grid.addWidget(QLabel("新房间默认音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
@@ -127,12 +150,15 @@ class GeneralSettingsPage(QWidget):
         self.poll_spin.setValue(config_module.DEFAULT_SETTINGS["poll_minutes"])
         for key, _label in self.ITEMS:
             self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
+        self.compact_threshold_spin.setValue(
+            config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
     def values(self) -> dict:
         result = {
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
+            "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())

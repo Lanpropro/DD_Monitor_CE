@@ -412,12 +412,16 @@ def main() -> None:
     general._checks["auto_quality"].setChecked(False)     # noqa: SLF001
     general._checks["default_muted"].setChecked(False)    # noqa: SLF001
     general._checks["sidebar_card_mode"].setChecked(False)  # noqa: SLF001
+    general._checks["sidebar_auto_compact"].setChecked(True)  # noqa: SLF001
+    general.compact_threshold_spin.setValue(12)
     general.volume_slider.setValue(30)
     changed = dialog.settings()
     print(f"  改过之后={changed}")
     assert changed["poll_minutes"] == 5 and changed["auto_quality"] is False
     assert changed["default_volume"] == 30 and changed["default_muted"] is False
     assert changed["sidebar_card_mode"] is False
+    assert changed["sidebar_auto_compact"] is True
+    assert changed["sidebar_compact_threshold"] == 12
 
     danmaku_page = dialog.danmaku_page
     danmaku_page.size_spin.setValue(20)
@@ -485,8 +489,17 @@ def main() -> None:
     print(f"  关注列表模式：{'大卡片' if sidebar.card_mode else '头像＋文字'}")
     assert sidebar.card_mode is False
     window.settings["sidebar_card_mode"] = True
+    window.settings["sidebar_auto_compact"] = True
+    window.settings["sidebar_compact_threshold"] = len(sidebar.items())
     window.apply_preview_settings()
-    assert sidebar.card_mode is True
+    assert sidebar.card_mode is False, "达到阈值时应自动使用紧凑列表"
+    window.settings["sidebar_compact_threshold"] = len(sidebar.items()) + 1
+    window.apply_preview_settings()
+    assert sidebar.card_mode is True, "阈值调高后应恢复用户选择的大卡片"
+    window.settings["sidebar_auto_compact"] = False
+    window.settings["sidebar_compact_threshold"] = 2
+    window.apply_preview_settings()
+    assert sidebar.card_mode is True, "关闭自动切换后不应受阈值影响"
 
     window.apply_danmaku_settings()
     panel = window.wall.danmaku
