@@ -62,8 +62,9 @@
       }
       .app video { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-      /* 左上标题 */
-      .head { position: absolute; left: 150px; top: 34px; }
+      /* 左上标题：**要压在 .stage 上面** —— .stage 在 DOM 里排在后面，
+         不给 z-index 的话标题会被（推进后放大的）软件画面盖住。 */
+      .head { position: absolute; left: 150px; top: 34px; z-index: 20; }
       .head .n { font-size: 56px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
       .head .s { margin-top: 12px; font-size: 26px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
       .head .bar { width: 72px; height: 4px; background: var(--accent); margin-top: 16px; transform-origin: 0 50%; }
@@ -119,7 +120,8 @@
           { x: 7, y: 693,  w: 273, h: 150 },   /* 三理Mit3uri      -> v2                   */
           { x: 7, y: 859,  w: 273, h: 150 }    /* 盐无Shio         -> v3 (preview-shio)    */
         ];
-        var ZOOM = 3.6;                        /* 视角推进倍数 */
+        var ZOOM = 2.0;                        /* 视角推进倍数 —— 上限 = 素材宽/显示宽 = 3270/1560 ≈ 2.096，
+                                                  再大就是把素材插值放大（会糊）。用户反馈"有点糊"后从 3.6 降下来。 */
         var k = APP.w / FRAME.w;               /* 素材 -> 画面显示 */
 
         var appEl = document.getElementById("app");

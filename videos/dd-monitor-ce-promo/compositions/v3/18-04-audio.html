@@ -48,10 +48,15 @@
       }
       .scene { position: absolute; inset: 0; }
 
-      /* ---------- 标题层（三段共用，做变形）---------- */
+      /* ---------- 标题层（三段共用，做变形）----------
+         ⚠ 必须给 z-index：10 段的大标题要**移到画面正中**，而 `.appwin` 在 DOM 里排在它后面，
+           不给 z-index 的话标题会被软件画面整个盖住（实测 t=5.90 标题完全看不见）。
+         ⚠ 压到深色画面上的时候深字读不出来，所以加一圈白色光晕。 */
       .h {
-        position: absolute; left: 0; right: 0; text-align: center;
+        position: absolute; left: 0; right: 0; text-align: center; z-index: 10;
         font-weight: 700; letter-spacing: -.01em; line-height: 1.02;
+        text-shadow: 0 2px 22px rgba(255,255,255,.95), 0 0 56px rgba(255,255,255,.75),
+                     0 0 14px rgba(255,255,255,.9);
         will-change: transform, opacity; transform-origin: 50% 50%;
       }
       .h .s { display: block; margin-top: 14px; font-size: 30px; font-weight: 600;
@@ -273,7 +278,11 @@
         /* ① 标题放大到画面中心 + 软件下移 */
         tl.fromTo("#h10a", { opacity: 0, scale: 0.96 },
           { opacity: 1, scale: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 4.96);
-        tl.to("#h10a", { scale: 1.85, y: -120, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
+        /* ① 画面下移让出中心 + 标题**移到画面中心并放大**
+           （用户 2026-09-23 口述：「画面下移，然后标题在画面中心放大」）。
+           #h10a 的 CSS top 是 62，字号 78，标题块高约 122 —— 要它垂直居中，
+           top 得是 540-61 = 479，也就是 y = 479-62 = 417（原来是 -120，那还在顶部）。 */
+        tl.to("#h10a", { scale: 1.85, y: 417, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
         tl.to("#appwin", { y: 140, scale: 0.94, duration: 0.6, ease: EASE_IO, immediateRender: false }, 5.40);
         /* ② 软件上移、布局 1x1 → 1x2、标题上移换文案 */
         tl.to("#h10a", { opacity: 0, duration: 0.24, immediateRender: false }, 6.40);
@@ -283,7 +292,11 @@
           stagger: 0.5, immediateRender: false }, 6.36);
         tl.fromTo("#h10b", { opacity: 0, y: -20 },
           { opacity: 1, y: 0, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 6.52);
-        tl.to("#appwin", { y: 30, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
+        /* ② 标题换成「左右声道独立」+ 画面**上移到画面正中**，再一分为二，
+              让左右两格各自展示一个声道（用户：「他们要在展示前上移到中间位置」）。
+              appwin 高 770，居中 top = (1080-770)/2 = 155；CSS 里 top 基准是 262，所以 y = -107
+              （原来是 30，也就是 top 292，明显偏下）。 */
+        tl.to("#appwin", { y: -107, scale: 1, duration: 0.5, ease: EASE_IO, immediateRender: false }, 6.56);
         track(tl, 6.90, "1x2", 0.46);
         /* ③ 光标点左格「只播左声道」、右格「只播右声道」 */
         var pair = tiles.slice(0, 2);          /* ⚠ 只有前两格参与，别用全局选择器（九格会一起亮） */
