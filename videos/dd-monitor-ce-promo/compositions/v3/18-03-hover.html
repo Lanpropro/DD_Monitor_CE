@@ -8,29 +8,29 @@
       /* ==========================================================================
          18-03-hover  ——  C 组：08（0.0–8.382s）「悬停预览 · 如此轻松」
 
-         用户 2026-09-23（第二次修正）：
-           「我要**保留原本的软件画面**，模拟鼠标移动到卡片上、进行直播预览，
-             这个时候**给上一个聚焦**就可以了。」
+         用户 2026-09-23（第三次修正）：
+           「聚焦的话**将我们的视角推进**即可；要修改的地方是，这个时候的画面**停滞了、
+             无法展示预览的效果**；并且**右侧和下侧还有黑边**，请去除。」
+         → 三件事：
+           ① 去掉素材黑边：`聚焦卡片_卡片预览.mp4` 的帧右边 569px、下边 338px 是黑的，
+              裁到内容边界 `x 1..3270 / y 0..1821`（3270×1822，比例 1.795）。
+           ② 聚焦 = **视角推进**（整层 scale + 平移把那张卡推到画面中心），
+              不再是"单独把一张卡放大"。
+           ③ 推进到位后，那张卡的位置上**换成真实直播录像**（动态），
+              解决"画面停滞、看不到预览效果"—— 用的是
+              `preview-liko.mp4` / `preview-shio.mp4` / `preview-komichi.mp4`。
 
-         所以这一版**不再**是"左侧栏 + 右侧预览窗"，而是：
-           · 背景 = 纯色 `sc-white #f8f8f8`（与 02 同底色，接力时白场连续）
-           · 画面中央 = **完整软件界面**（`assets/rec/focus-app.png`，
-             从 `聚焦卡片_卡片预览.mp4` 的 4.0s 帧整帧取的，3840×2160 满屏无黑边）
-           · 模拟鼠标在左侧关注栏里**从上往下依次移到三张开播中的卡上**
-             （4.0s 帧的列表是：星言sumi / 灰泽满Hazel / [展开的预览小窗] /
-              **三理Mit3uri / 盐无Shio / 四时小路Komichi** / 恩骨 / 傲慢的小肉包 / 奶茶姬，
-              靠"直播中"粉色标签 y = 820 / 987 / 1154 定位这三张）
-           · 悬停时那张卡**原地聚焦**：同一张图按 ZOOM 倍放大、裁到那张卡的范围，
-             加青色描边与投影 —— 不另开预览窗、不遮挡软件画面。
-             ⚠ 卡面里本来就是那张卡的直播画面，所以**不需要额外的预览视频素材**
-             （早前那支 `preview-hover.mp4` 只服务于"右侧预览窗"那版设计，已不用）。
+         选帧：用 `聚焦卡片_卡片预览.mp4` 的 **19.5s** 帧 —— 那一帧的关注栏里
+         莉蔻Liko / 盐无Shio / 四时小路Komichi 三张都在（4.0s 帧里最上面三张是
+         三理Mit3uri / 盐无 / 四时小路，三理Mit3uri 没有预览素材）。
+         三张卡在裁剪后的坐标：莉蔻 y 525..675、盐无 859..1009、四时小路 1193..1343，
+         横向都是 x 7..280（靠"直播中"粉色标签 y = 644 / 978 / 1312 定位）。
 
-         节拍：0.1905s 网格。画面入场 0.10–0.60，三轮各 13 拍（2.4765s），
-               起点 0.762 / 3.2385 / 5.715，第三轮 8.1915 收完，整段 8.382s（44 拍）。
+         节拍：0.1905s 网格。三轮各 13 拍（2.4765s），起点 0.762 / 3.2385 / 5.715，整段 8.382s。
 
-         ⚠ 所有坐标在 setup 时按常量算一次（skill：不要 tween 时量 DOM）。
-         ⚠ 只补 opacity / scale / x / y；静态定位走 style，不补 left/top/width/height。
-         ⚠ 不用 tl.call（渲染器 seek 不触发 callback）。
+         ⚠ 三支 <video> 各自**提前约 1.4s 就存在**（data-start 0 / 2.24 / 4.72）——
+           实测渲染器需要 ~1.1s 才能让一支视频出帧，卡着轮次起点给会出现黑画面。
+         ⚠ 坐标一律在 setup 时按常量算一次；只补 opacity / scale / x / y。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -53,29 +53,25 @@
         -webkit-font-smoothing: antialiased; color: var(--ink);
       }
 
-      /* ---------- 左上标题 ---------- */
+      /* 视角推进作用在这一层（含软件画面 + 卡内录像一起推） */
+      .stage { position: absolute; inset: 0; transform-origin: 50% 50%; }
+
+      .app {
+        position: absolute; border-radius: 16px; overflow: hidden;
+        box-shadow: 0 44px 100px rgba(16,17,20,.26), 0 0 0 1px rgba(16,17,20,.06);
+      }
+      .app img { display: block; width: 100%; height: 100%; }
+
+      /* 卡内录像：盖在对应的卡片位置上，位置/尺寸由 JS 写死（跟随 .stage 一起推进） */
+      .cardvid { position: absolute; opacity: 0; object-fit: cover; border-radius: 6px; }
+
+      /* 左上标题 */
       .head { position: absolute; left: 150px; top: 34px; }
       .head .n { font-size: 56px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
       .head .s { margin-top: 12px; font-size: 26px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
       .head .bar { width: 72px; height: 4px; background: var(--accent); margin-top: 16px; transform-origin: 0 50%; }
 
-      /* ---------- 完整软件画面（位置/尺寸由 JS 按常量写死） ---------- */
-      .app {
-        position: absolute; border-radius: 14px; overflow: hidden;
-        box-shadow: 0 44px 100px rgba(16,17,20,.26), 0 0 0 1px rgba(16,17,20,.06);
-      }
-      .app img { display: block; width: 100%; height: 100%; }
-
-      /* ---------- 悬停聚焦：同一张图的放大裁切 ---------- */
-      .focus {
-        position: absolute; border-radius: 12px; opacity: 0;
-        background-image: url("assets/rec/focus-app.png");
-        background-repeat: no-repeat;
-        border: 3px solid var(--accent);
-        box-shadow: 0 34px 78px rgba(16,17,20,.38), 0 0 0 7px rgba(0,161,214,.18);
-      }
-
-      /* ---------- 模拟光标 ---------- */
+      /* 模拟光标 */
       .cursor { position: absolute; left: 0; top: 0; width: 30px; height: 40px; }
       .cursor svg { display: block; }
     </style>
@@ -89,13 +85,18 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 完整软件画面：`聚焦卡片_卡片预览.mp4` 4.0s 帧整帧（3840x2160，满屏无黑边） -->
-      <div class="app" id="app"><img src="assets/rec/focus-app.png" alt=""></div>
+      <div class="stage" id="stage">
+        <!-- 完整软件界面：19.5s 帧裁到内容边界（3270x1822），显示为 1560x869 居中 -->
+        <div class="app" id="app"><img src="assets/rec/focus-app.png" alt=""></div>
 
-      <!-- 三张卡的原地聚焦（同一张图的放大裁切，位置在 setup 时算好） -->
-      <div class="focus" id="f1"></div>
-      <div class="focus" id="f2"></div>
-      <div class="focus" id="f3"></div>
+        <!-- 卡内录像：各自提前约 1.4s 出现，保证切到它时已经有帧 -->
+        <video class="cardvid" id="v1" src="assets/rec/preview-liko.mp4" muted playsinline
+               data-start="0" data-duration="8.382"></video>
+        <video class="cardvid" id="v2" src="assets/rec/preview-shio.mp4" muted playsinline
+               data-start="2.24" data-duration="6.142"></video>
+        <video class="cardvid" id="v3" src="assets/rec/preview-komichi.mp4" muted playsinline
+               data-start="4.72" data-duration="3.662"></video>
+      </div>
 
       <div class="cursor" id="cursor" style="opacity:0">
         <svg viewBox="0 0 30 40" width="30" height="40"><path d="M4 2 L4 30 L11 24 L16 36 L21 34 L17 22 L27 22 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.2"/></svg>
@@ -108,22 +109,18 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* ================= 常量（setup 时算一次，补间里不再量 DOM） =================
-           素材整帧 3840×2160；软件画面显示为 APP.w × APP.h，居中放在 APP.left / APP.top。
-           三张卡的整帧坐标由左侧栏"直播中"粉色标签定位（标签在卡片右下角，距边约 12px）：
-             莉蔻       标签 y 812..829  ->  卡 y 691..841
-             盐无       标签 y 978..997  ->  卡 y 858..1008
-             四时小路   标签 y 1146..1163 -> 卡 y 1025..1175
-           卡片横向都是 x 8..281（左侧栏内缩进 8px、宽 273）。 */
-        var FRAME = { w: 3840, h: 2160 };
-        var APP = { left: 190, top: 144, w: 1540, h: 866 };
+        /* ================= 常量（setup 时算一次） =================
+           素材 focus-app.png = 3270×1822（已裁掉右 569 / 下 338 黑边）。
+           显示为 APP.w × APP.h 居中；三张卡在素材里的坐标见文件头注释。 */
+        var FRAME = { w: 3270, h: 1822 };
+        var APP = { left: 180, top: 106, w: 1560, h: 869 };
         var CARDS = [
-          { x: 8, y: 691,  w: 273, h: 150 },
-          { x: 8, y: 858,  w: 273, h: 150 },
-          { x: 8, y: 1025, w: 273, h: 150 }
+          { x: 7, y: 525,  w: 273, h: 150 },   /* 莉蔻Liko      */
+          { x: 7, y: 859,  w: 273, h: 150 },   /* 盐无Shio      */
+          { x: 7, y: 1193, w: 273, h: 150 }    /* 四时小路Komichi */
         ];
-        var ZOOM = 3.6;                       /* 聚焦放大倍数 */
-        var k = APP.w / FRAME.w;              /* 整帧 -> 画面显示 的缩放 */
+        var ZOOM = 3.6;                        /* 视角推进倍数 */
+        var k = APP.w / FRAME.w;               /* 素材 -> 画面显示 */
 
         var appEl = document.getElementById("app");
         appEl.style.left = APP.left + "px";
@@ -131,48 +128,54 @@
         appEl.style.width = APP.w + "px";
         appEl.style.height = APP.h + "px";
 
-        var SPOT = [];                        /* 每张卡：聚焦框的左上角 + 光标落点 */
+        var SPOT = [];
         CARDS.forEach(function (c, i) {
           var dx = APP.left + c.x * k, dy = APP.top + c.y * k;
-          var dw = c.w * k, dh = c.h * k;                 /* 卡片在画面上的显示尺寸 */
-          var el = document.getElementById("f" + (i + 1));
-          el.style.width = (dw * ZOOM) + "px";
-          el.style.height = (dh * ZOOM) + "px";
-          /* ⚠ 聚焦框的**左上角**对齐卡片的左上角，让放大朝右下方展开 ——
-             卡片本来就在画面最左边，若按中心对齐会向左溢出软件画面。 */
+          var dw = c.w * k, dh = c.h * k;
+          var el = document.getElementById("v" + (i + 1));
           el.style.left = dx + "px";
           el.style.top = dy + "px";
-          el.style.backgroundSize = (APP.w * ZOOM) + "px " + (APP.h * ZOOM) + "px";
-          el.style.backgroundPosition = (-c.x * k * ZOOM) + "px " + (-c.y * k * ZOOM) + "px";
-          SPOT.push({ cx: dx + dw / 2, cy: dy + dh / 2 });
+          el.style.width = dw + "px";
+          el.style.height = dh + "px";
+          var cx = dx + dw / 2, cy = dy + dh / 2;
+          /* 视角推进：transform-origin 是画布中心，把卡片中心推到 (960,540) 需要
+             tx = -(cx-960)*ZOOM、ty = -(cy-540)*ZOOM。 */
+          SPOT.push({ cx: cx, cy: cy, tx: -(cx - 960) * ZOOM, ty: -(cy - 540) * ZOOM });
         });
 
         /* ---- 基线 ---- */
         gsap.set("#head", { opacity: 0, y: 20 });
         gsap.set("#headBar", { scaleX: 0 });
-        gsap.set("#app", { opacity: 0, scale: 0.985 });
-        gsap.set(".focus", { opacity: 0, scale: 0.90 });
-        gsap.set("#cursor", { opacity: 0, x: SPOT[0].cx - 8, y: SPOT[0].cy - 8 });
+        gsap.set("#stage", { scale: 1, x: 0, y: 0 });
+        gsap.set("#app", { opacity: 0 });
+        gsap.set(".cardvid", { opacity: 0 });
+        gsap.set("#cursor", { opacity: 0, x: SPOT[0].cx - 6, y: SPOT[0].cy - 6 });
 
-        /* ================= 入场：软件画面 + 标题 ================= */
-        tl.fromTo("#app", { opacity: 0, scale: 0.985 },
-          { opacity: 1, scale: 1, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 0.02);
+        /* ================= 入场 ================= */
         tl.fromTo("#head", { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 0.12);
+          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 0.08);
         tl.fromTo("#headBar", { scaleX: 0 },
-          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.36);
-        tl.to("#cursor", { opacity: 1, duration: 0.22, immediateRender: false }, 0.58);
+          { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.30);
+        tl.fromTo("#app", { opacity: 0 },
+          { opacity: 1, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.02);
+        tl.to("#cursor", { opacity: 1, duration: 0.20, immediateRender: false }, 0.56);
 
-        /* ================= 三轮：鼠标移到卡上 → 那张卡原地聚焦 → 换下一张 =================
-           每轮 13 拍：光标下移（0.44s）→ 到位后聚焦框弹出（0.26s）→ 停留 → 收起。 */
-        var LIFT = 0.762;                     /* 第一轮起点（4 拍） */
+        /* ================= 三轮：鼠标移到卡上 → 视角推进 → 卡内换成动态录像 → 退回 =================
+           每轮 13 拍（2.4765s）：
+             0.00  光标下移到这张卡
+             0.30  视角推进（0.56s）
+             0.86  卡内录像淡入（0.24s）—— 画面不再停滞
+             1.90  录像淡出、1.94 视角退回（0.52s） */
+        var LIFT = 0.762;
         var ROUND = 13 * 0.1905;              /* 2.4765 */
         function round(base, i) {
           var s = SPOT[i];
-          var f = "#f" + (i + 1);
-          if (i > 0) tl.to("#cursor", { y: s.cy - 8, duration: 0.44, ease: EASE_IO, immediateRender: false }, base);
-          tl.to(f, { opacity: 1, scale: 1, duration: 0.28, ease: "back.out(1.4)", immediateRender: false }, base + 0.36);
-          tl.to(f, { opacity: 0, scale: 0.94, duration: 0.24, ease: EASE_OUT, immediateRender: false }, base + 2.02);
+          var v = "#v" + (i + 1);
+          if (i > 0) tl.to("#cursor", { y: s.cy - 6, duration: 0.36, ease: EASE_IO, immediateRender: false }, base);
+          tl.to("#stage", { scale: ZOOM, x: s.tx, y: s.ty, duration: 0.56, ease: "power2.inOut", immediateRender: false }, base + 0.30);
+          tl.to(v, { opacity: 1, duration: 0.24, ease: EASE_OUT, immediateRender: false }, base + 0.86);
+          tl.to(v, { opacity: 0, duration: 0.22, ease: EASE_OUT, immediateRender: false }, base + 1.90);
+          tl.to("#stage", { scale: 1, x: 0, y: 0, duration: 0.52, ease: "power2.inOut", immediateRender: false }, base + 1.94);
         }
         round(LIFT, 0);                       /* 0.762  */
         round(LIFT + ROUND, 1);               /* 3.2385 */

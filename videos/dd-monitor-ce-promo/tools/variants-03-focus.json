@@ -1,0 +1,8 @@
+{
+  "comp": "compositions/v3/18-03-hover.html",
+  "at": 2.05,
+  "sels": ["#stage", "#app", "#v1", "#v2", "#v3"],
+  "variants": [
+    { "name": "focus-03", "css": "" }
+  ]
+}
