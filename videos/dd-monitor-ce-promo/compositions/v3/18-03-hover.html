@@ -8,54 +8,27 @@
       /* ==========================================================================
          18-03-hover  ——  C 组：08（0.0–8.382s）「悬停预览 · 如此轻松」
 
-         照参考片 17.08–23.17s 那个画面做：
-           · 背景 = 从参考片 19.0s 裁出的灰墙（已用 delogo 抹掉 bilibili 水印）
-           · **一排真实关注卡片**从左下到右上排过去，
-             **左边在前、遮挡右边**（左近右远：左边大、右边小）
-           · 三轮：其中一张**向上抬起**（等比放大）→ 光标**上移**到卡上 →
-             卡面换成**真实预览录像**（约 1s）→ 收回
+         用户 2026-09-23 重构：
+           「03 要用的素材 `聚焦卡片_卡片预览.mp4`；**背景改为前面的纯色底**；
+             将截图一的**左侧卡片栏取出**，做一个**从下往上滑入**的动效，
+             然后模拟鼠标**放置在上方的 3 个卡片**上展示预览。
+             02→03 的过渡动效参考 skill 自己完成。」
 
-         用户 2026-09-22 第二轮意见：
-           「卡片放大两倍；放不下就删掉没有录制视频的那几张；预览时间留长一点；
-             三张卡片各完整展示一次，预览 1s 左右；卡片抽出时前后透视关系要正确。」
+         做法：
+           · 背景 = 纯色 `sc-white #f8f8f8`（与 02 同一底色，接力时白场连续）
+           · 左侧关注栏 = 从 `聚焦卡片_卡片预览.mp4` 4.0s 帧裁出的 `x 0..380 × 全高`竖条
+             （`assets/rec/follow-col.png`，380×2160），显示为 253×1440，
+             **从画面下方滑入**后停住
+           · 鼠标依次悬停 3 张直播卡 —— 莉蔻Liko / 盐无Shio / 四时小路Komichi
+             （栏里第 3/4/5 张 = 最上面三张开播中的卡，粉色"直播中"标签 y = 820/987/1154）
+             → 该卡亮起青色描边 + 右侧预览窗显示**各自那一段**录屏
+           · 三段的素材沿用观众已确认的 `preview-liko / preview-shio / preview-komichi.mp4`
 
-         用户 2026-09-23 意见（依次）：
-           ①（附红框标注截图）「按照截图样式重新摆放一下卡片，**不要动 3D 效果**，
-             保持前后的透视关系，只是调整位置，让他在眼中看起来更倾斜」
-             → 只改 POS。红框实测 6 个位置，队列 5 张 -> 6 张。
-           ②「将每张卡片放大为原来的 **1.5 倍**，多的部分删去，
-             但是不要删除有录制素材的卡片」→ 卡片 600x340 -> 900x510；只摆得下 5 张。
-           ③「要保留的三张是 莉蔻 盐无 和 四时小路」→ 有录制素材的三张卡面是
-             `card-1(莉蔻Liko)` / `card-3(盐无Shio)` / `card-4(四时小路Komichi)`，
-             放在会被抽出的 **#k1 / #k4 / #k5** 上，各挂一段预览录像。
-           ④「将卡片的封面中心对齐，裁剪掉灰色区域；对卡片做一点 3D 倾斜处理，类似截图」
-             → 3D：`.stage` 给 `perspective: 2400`、每张卡 `rotationY: -12`
-               （符号是量出来的：+12 实测右端更高 = 右缘朝前，与截图/参考片相反）。
-           ⑤「3d 效果对了。把卡片的裁切完成，**下方还有灰边**；稍微缩小一点卡片，
-             使第一张弹出时不会遮盖标题；卡片截图有点不太清晰，有没有办法修复一下」
-             → 重裁量到真实边界：源图 321x1561 里卡片内容 **x 12..308（297 宽）**、
-               **y 13 起 / 两张之间 21 行纯背景 / 周期 195 / 卡高 174**
-               （旧参数 `321x182 起点 26 周期 192` 让每张卡底部多了 21 行灰边）。
-               素材 297x174 用 Lanczos4 放到 **760x445** 再轻锐化（源只有 297 宽，
-               放大 3 倍必虚，只能这样把边缘拉回来一点）。
-               卡片框 **900x552 -> 760x445**；抽出上移量 300 -> 250（按卡高比例缩），
-               第一张弹出时上缘约 281，标题底 258，不再压住标题。
-           ⑥「liko 用预览视频 02-05s、盐无用 13-16s、四时小路用 18-21s」
-             → 从 `聚焦卡片_卡片预览.mp4` 各裁 3s：`preview-liko.mp4` / `preview-shio.mp4` /
-               `preview-komichi.mp4`（760x428 @30fps，与旧 rec-preview.mp4 同规格）。
+         节拍：0.1905s 网格。栏滑入 0.762（4 拍），三轮各 13 拍（2.4765s），
+               起点 0.762 / 3.2385 / 5.715，第三轮 8.1915 收完，整段 8.382s（44 拍）。
 
-           ⑦「将悬停播放的时长稍微延长一点，就可以尝试对齐 01/02 了」→ 预览 1.00 -> **1.1905s**（+1 拍）、
-             每轮 12 -> **13 拍（2.4765s）**，整段 **7.5 -> 8.382s（44 拍）**；
-             顺带修掉旧版的尾巴：旧版三轮从 0.762 起、每轮 2.286s，最后一轮 7.62s 才收完
-             而片段只有 7.5s，片尾会留一张卡悬在半空。
-
-         每轮 **2.4765s = 13 拍**（0.1905s 网格，与 01/02 同一张），整段 **8.382s = 44 拍**。
-
-         ⚠ 动效全部写在时间轴上，不用 tl.call（渲染器 seek 不触发 callback）。
-         ⚠ 承载 <video> 的容器不要补间 width/height、不要写 will-change —— 会让 video 丢帧。
-         ⚠ 位置全部走 transform（x/y/scale），left/top 保持 0。
-         ⚠ `rotationY` 的符号别凭感觉改：改完必须 `python tools/measure-edge-slope.py` 复量，
-           正常应报"右端更低"。
+         ⚠ 位置全部走 transform（x / y / scale / opacity），不补 left/top/width/height。
+         ⚠ 不用 tl.call（渲染器 seek 不触发 callback）。
          ========================================================================== */
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
       @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
@@ -63,94 +36,61 @@
       @font-face { font-family: "Microsoft YaHei"; font-weight: 600 700; src: local("Microsoft YaHei Bold"); }
 
       :root {
-        --card: rgba(246,247,249,.94);
-        --card-edge: rgba(255,255,255,.60);
+        --sc-white: #f8f8f8;
+        --ink: #101114; --ink-2: rgba(16,17,20,.66);
         --accent: #00a1d6;
-        --ink: #101114; --ink-2: rgba(16,17,20,.62);
         --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+        --ease-io: cubic-bezier(0.77, 0, 0.175, 1);
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
       #root {
         position: relative; width: 1920px; height: 1080px; overflow: hidden;
-        background: #05060a;
+        background: var(--sc-white);
         font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
         -webkit-font-smoothing: antialiased; color: var(--ink);
       }
 
-      /* ---------- 背景：与 01 同款 ----------
-         用户 2026-09-23：「把背景换成 01 的背景，并且补上同款的灯光和阴影」。
-         01 的构成 = 银河夜景图 `assets/real/bg-hall.jpg`（object-position 50% 66%
-         保住「银河 + 山脉 + 湖面」的取景）+ 一层暗角 `.vignette`。
-         03 没有相机运动，背景直接铺满画布。 */
-      .bg {
-        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
-        object-fit: cover; object-position: 50% 66%; display: block;
-      }
-      .vignette {
-        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
-        background: radial-gradient(ellipse 62% 58% at 62% 52%, transparent 0%, rgba(3,5,10,.42) 62%, rgba(3,5,10,.78) 100%);
-      }
-      /* ---------- 灯光 / 阴影：色值与模糊照抄 01，位置按 03 的漂浮体重摆 ----------
-         01 里这两层是「悬浮窗背后的青色光晕 + 落地黑影」，围着窗口。
-         03 的漂浮体是那排卡片（x 5..1875 / y 380..1050），所以
-         `.glow` 铺在卡片带上方一圈做冷色补光，`.shadow` 压在卡片下方的地面上。 */
-      .glow {
-        position: absolute; left: -80px; top: 120px; width: 2080px; height: 940px;
-        background:
-          radial-gradient(ellipse 42% 46% at 50% 45%,
-            rgba(226,246,255,.46) 0%, rgba(140,215,255,.26) 28%, rgba(0,161,214,0) 64%),
-          radial-gradient(ellipse 60% 62% at 50% 52%,
-            rgba(0,161,214,.26) 0%, rgba(60,120,220,.12) 42%, rgba(0,161,214,0) 72%);
-        filter: blur(12px);
-      }
-      .shadow {
-        position: absolute; left: -60px; bottom: -30px; width: 2040px; height: 320px;
-        background:
-          radial-gradient(ellipse 46% 46% at 50% 40%, rgba(0,0,0,.96) 0%, rgba(0,0,0,.72) 34%, rgba(0,0,0,0) 72%),
-          radial-gradient(ellipse 54% 52% at 50% 44%, rgba(0,0,0,.78) 0%, rgba(0,0,0,.34) 48%, rgba(0,0,0,0) 80%);
-        filter: blur(14px);
-      }
-
-      /* 左上标题（底缘 y≈258 —— 卡片抽出时的上缘必须留在它下面） */
-      .head { position: absolute; left: 110px; top: 96px; will-change: transform, opacity; }
-      .head .n { font-size: 84px; font-weight: 700; letter-spacing: -.01em; line-height: 1; color: #fff; text-shadow: 0 2px 18px rgba(16,17,20,.28); }
-      .head .s { margin-top: 16px; font-size: 36px; font-weight: 600; letter-spacing: .16em; color: rgba(255,255,255,.82); text-shadow: 0 2px 14px rgba(16,17,20,.24); }
+      /* ---------- 左上标题 ---------- */
+      .head { position: absolute; left: 120px; top: 92px; }
+      .head .n { font-size: 78px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
+      .head .s { margin-top: 16px; font-size: 34px; font-weight: 600; letter-spacing: .16em; color: var(--ink-2); }
       .head .bar { width: 84px; height: 4px; background: var(--accent); margin-top: 22px; transform-origin: 0 50%; }
 
-      /* 卡片队列：一排五张，从左下到右上；位置全部由 JS 用 x/y/scale 给。
-         尺寸 **760x445** —— 与重裁后的素材 1:1（素材 297x174 放大到 760x445，
-         比例 297:174 = 1.707），所以 `object-fit: cover` 不会再裁掉卡面。
-         卡片比 900x552 那版小一圈，是为了让第一张抽出的卡不压住左上标题。
-         3D 倾斜：`.stage` 给 `perspective: 2400`，每张卡 `rotationY: -12` —— 右缘向后（远）。
-         ⚠ 缩放以元素中心为原点（transformOrigin 默认 50% 50%），所以卡中心 = (x+380, y+222.5)，
-           改 scale 不会移动卡的位置。 */
-      .stage { position: absolute; inset: 0; perspective: 2400px; }
-      .card {
-        position: absolute; left: 0; top: 0; width: 760px; height: 445px;
-        border-radius: 28px; overflow: hidden;
-        background: var(--card);
-        border: 1px solid var(--card-edge);
-        box-shadow: 0 40px 80px rgba(16,17,20,.22), 0 2px 0 rgba(255,255,255,.5) inset;
+      /* ---------- 左侧关注栏（素材竖条，380x2160 -> 253x1440，上下都超出画布） ---------- */
+      .col {
+        position: absolute; left: 110px; top: -180px; width: 253px; height: 1440px;
+        border-radius: 18px; overflow: hidden;
+        box-shadow: 0 34px 74px rgba(16,17,20,.20);
       }
-      .card .shot { display: block; width: 100%; height: 100%; object-fit: cover; }
-      /* 预览录像：抽出到位后才淡入，盖在卡面上 */
-      .card .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+      .col img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-      /* 模拟光标 */
-      .cursor { position: absolute; left: 0; top: 0; width: 40px; height: 52px; will-change: transform, opacity; }
+      /* ---------- 悬停高亮框（三张卡各一个，位置是算好的常量） ---------- */
+      .hi {
+        position: absolute; left: 118px; width: 237px; height: 100px;
+        border-radius: 12px; border: 2px solid var(--accent); opacity: 0;
+        box-shadow: 0 0 0 5px rgba(0,161,214,.16), 0 0 30px rgba(0,161,214,.35);
+      }
+
+      /* ---------- 右侧预览窗 ---------- */
+      .pv {
+        position: absolute; left: 470px; top: 168px; width: 1330px; height: 748px;
+        border-radius: 20px; overflow: hidden; opacity: 0;
+        background: #101114;
+        box-shadow: 0 44px 96px rgba(16,17,20,.24);
+      }
+      .pv video {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        object-fit: cover; opacity: 0;
+      }
+
+      /* ---------- 模拟光标 ---------- */
+      .cursor { position: absolute; left: 0; top: 0; width: 34px; height: 44px; }
       .cursor svg { display: block; }
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="18-03-hover" data-start="0" data-duration="8.382" data-width="1920" data-height="1080">
-
-      <!-- 背景 / 暗角 / 灯光 / 阴影（与 01 同款，按 03 的构图重摆） -->
-      <img class="bg" src="assets/real/bg-hall.jpg" alt="">
-      <div class="vignette"></div>
-      <div class="glow" id="glowLayer"></div>
-      <div class="shadow" id="shadowLayer"></div>
 
       <div class="head" id="head">
         <div class="n">悬停预览</div>
@@ -158,35 +98,29 @@
         <div class="bar" id="headBar"></div>
       </div>
 
-      <!-- 队列 = 5 张。**有录制素材的三张 = 莉蔻 / 盐无 / 四时小路**
-           （用户 2026-09-23：「要保留的三张是 莉蔻 盐无 和 四时小路」）——
-           卡面 card-1(莉蔻Liko) / card-3(盐无Shio) / card-4(四时小路Komichi)，
-           放在会被抽出的 **#k1 / #k4 / #k5**（三轮各抽一张，位置分散），
-           各自挂**自己那一段**预览录像（用户 2026-09-23 指定的时段）。
-           另外两张没有录像的 #k2 / #k3 用 card-2(三理Mit3uri) / card-5(恩骨) 补满队列
-           （用户 2026-09-22：不是只留三张，摆得下就多摆）。 -->
-      <div class="stage" id="stage">
-        <div class="card" id="k1">
-          <img class="shot" src="assets/rec/card-1.png" alt="">
-          <video class="vid" id="v1" src="assets/rec/preview-liko.mp4" muted playsinline
-                 data-start="0.762" data-duration="6.738"></video>
-        </div>
-        <div class="card" id="k2"><img class="shot" src="assets/rec/card-2.png" alt=""></div>
-        <div class="card" id="k3"><img class="shot" src="assets/rec/card-5.png" alt=""></div>
-        <div class="card" id="k4">
-          <img class="shot" src="assets/rec/card-3.png" alt="">
-          <video class="vid" id="v2" src="assets/rec/preview-shio.mp4" muted playsinline
-                 data-start="3.048" data-duration="4.452"></video>
-        </div>
-        <div class="card" id="k5">
-          <img class="shot" src="assets/rec/card-4.png" alt="">
-          <video class="vid" id="v3" src="assets/rec/preview-komichi.mp4" muted playsinline
-                 data-start="5.334" data-duration="2.166"></video>
-        </div>
+      <!-- 左侧关注栏：从 `聚焦卡片_卡片预览.mp4` 4.0s 帧裁出的 x 0..380 × 全高 -->
+      <div class="col" id="col">
+        <img src="assets/rec/follow-col.png" alt="">
       </div>
 
-      <div class="cursor" id="cursor" style="opacity: 0;">
-        <svg viewBox="0 0 40 52" width="40" height="52"><path d="M6 3 L6 40 L16 30 L22 46 L29 43 L23 27 L36 27 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.5"/></svg>
+      <!-- 三张卡的悬停高亮：莉蔻 / 盐无 / 四时小路（栏内第 3/4/5 张） -->
+      <div class="hi" id="hi1" style="top: 281px;"></div>
+      <div class="hi" id="hi2" style="top: 392px;"></div>
+      <div class="hi" id="hi3" style="top: 503px;"></div>
+
+      <!-- 右侧预览窗：**一支**合并好的录屏
+           `preview-hover.mp4` = liko 0–3s + shio 3–6s + komichi 6–9s。
+           ⚠ 不要拆成三支 video —— 实测渲染器同时管三支时，第二、三支要等到 7.2s 才有画面
+             （设计是 6.24s 淡入），第一支也要 1.9s 才就绪，中间还会露出黑底。
+             合成一支后时间段天然对齐三轮：
+             轮1 落在 1.28–2.90（liko）、轮2 3.76–5.38（shio）、轮3 6.24–7.86（komichi）。 -->
+      <div class="pv" id="pv">
+        <video id="v" src="assets/rec/preview-hover.mp4" muted playsinline
+               data-start="0" data-duration="9.2"></video>
+      </div>
+
+      <div class="cursor" id="cursor" style="opacity:0">
+        <svg viewBox="0 0 34 44" width="34" height="44"><path d="M5 2 L5 33 L13 26 L18 39 L24 37 L19 24 L30 24 Z" fill="#f1f2f5" stroke="#0d0e10" stroke-width="2.4"/></svg>
       </div>
     </div>
 
@@ -196,103 +130,64 @@
         var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
         var tl = gsap.timeline({ paused: true });
 
-        /* ---- 队列：五张，从左下到右上排过去 ----
-           左边近（大、低、**在前**），右边远（小、高、在后）—— 左边遮挡右边。
-           中心间距 285（卡宽 760，每张露出约 264px）：
-             中心 x 385 / 670 / 955 / 1240 / 1525
-             中心 y 802.5 / 738.5 / 697.5 / 661.5 / 603.5
-           ⚠ 3D 透视会把包围盒往外撑（实测 k5 右缘比 POS 坐标多 ~31px），
-             所以间距从 298 收到 285：实测 box 左缘 53、右缘 1879，都在 1920 内。
-           k1 的 y = 580 是**为标题让位**定的：抽出时卡上缘 = 580 - 250 - 0.11*445 ≈ 281 > 258。
-           scale 1.000 -> 0.776 保持"近大远小"；zIndex 5..1 保持左前右后。 */
-        var POS = [
-          { x:    5, y: 580, s: 1.000, z: 5 },
-          { x:  290, y: 516, s: 0.944, z: 4 },
-          { x:  575, y: 475, s: 0.888, z: 3 },
-          { x:  860, y: 439, s: 0.832, z: 2 },
-          { x: 1145, y: 381, s: 0.776, z: 1 }
+        /* ---- 预计算的常量（不要在补间里量 DOM）----
+           栏显示 253x1440、定位 top -180，所以栏内 4K 坐标 y 换算到画布 = y * 0.6667 - 180。
+           三张卡的原始卡片范围（follow-col.png 的 2160 坐标系，由"直播中"标签 y 820/987/1154 推得）：
+             莉蔻 y 691..841 / 盐无 y 858..1008 / 四时小路 y 1025..1175
+           → 高亮框 top = 281 / 392 / 503，高 100。光标停在每张卡的右侧。 */
+        var LIFT = 0.762;                 /* 栏滑入用的时间（4 拍） */
+        var ROUND = 13 * 0.1905;          /* 2.4765，每轮 13 拍 */
+        var CARD = [
+          { hi: "#hi1", cursor: { x: 330, y: 322 } },
+          { hi: "#hi2", cursor: { x: 330, y: 433 } },
+          { hi: "#hi3", cursor: { x: 330, y: 544 } }
         ];
 
         /* ---- 基线 ---- */
-        gsap.set("#head", { opacity: 0, x: -40 });
+        gsap.set("#head", { opacity: 0, y: 24 });
         gsap.set("#headBar", { scaleX: 0 });
-        gsap.set(".vid", { opacity: 0 });
-        gsap.set("#glowLayer", { opacity: 0 });
-        gsap.set("#shadowLayer", { opacity: 0 });
-        gsap.set("#cursor", { opacity: 0, x: 1240, y: 940 });
-        POS.forEach(function (p, i) {
-          gsap.set("#k" + (i + 1), { x: p.x, y: p.y, scale: p.s, zIndex: p.z, opacity: 0,
-                                     rotationY: -12, transformPerspective: 2400 });
-        });
+        gsap.set("#col", { y: 620 });            /* 栏起始在画面下方 */
+        gsap.set(".pv", { opacity: 0, scale: 0.985 });
+        gsap.set("#v", { opacity: 0 });
+        gsap.set(".hi", { opacity: 0, scale: 0.99 });
+        gsap.set("#cursor", { opacity: 0, x: 330, y: 322 });
 
-        /* ---- 入场：标题 + 卡片依次浮现（0.10 起，每张错开一拍 0.1905s） ---- */
-        tl.fromTo("#head", { opacity: 0, x: -40 },
-          { opacity: 1, x: 0, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.10);
+        /* ================= 入场：标题浮现 + 关注栏从下往上滑入 ================= */
+        tl.fromTo("#head", { opacity: 0, y: 24 },
+          { opacity: 1, y: 0, duration: 0.50, ease: EASE_OUT, immediateRender: false }, 0.10);
         tl.fromTo("#headBar", { scaleX: 0 },
           { scaleX: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false }, 0.34);
-        /* 灯光 / 阴影跟着入场淡入（照 01 的做法：光晕是漂浮体的伴生效果） */
-        tl.fromTo("#glowLayer", { opacity: 0 },
-          { opacity: 1, duration: 0.60, ease: EASE_OUT, immediateRender: false }, 0.10);
-        tl.fromTo("#shadowLayer", { opacity: 0 },
-          { opacity: 1, duration: 0.60, ease: EASE_OUT, immediateRender: false }, 0.14);
-        POS.forEach(function (p, i) {
-          tl.to("#k" + (i + 1), { opacity: 1, duration: 0.40, ease: EASE_OUT, immediateRender: false },
-                0.10 + i * 0.1905);
-        });
+        tl.fromTo("#col", { y: 620 },
+          { y: 0, duration: 0.74, ease: "power3.out", immediateRender: false }, 0.02);
+        tl.to("#cursor", { opacity: 1, duration: 0.24, immediateRender: false }, 0.62);
 
-        /* ---- 三轮：向上抬起 → 光标上移 → 卡面换成预览录像（约 1.2s）→ 收回 ----
-           用户 2026-09-23：「将悬停播放的时长稍微延长一点，就可以尝试对齐 01/02 了」
-           → 预览 1.00 -> **1.1905s（+1 拍）**，每轮 12 -> **13 拍（2.4765s）**：
-             起点 0.762 / 3.2385 / 5.715，第三轮 7.7655 预览结束、8.1915 收完，
-             整段 8.382s（44 拍）留 0.19s 尾 —— 旧版"片尾一张卡悬在半空"就是这么修掉的。
-           抬起量 250 / 下沉 28 是按卡片高度（445 对 552）等比缩下来的，观感与上一版一致。 */
-        var ROUND = 13 * 0.1905;      /* 2.4765 */
-        function round(base, idx, vidId) {
-          var card = "#k" + (idx + 1);
-          var vid = vidId;
-          var p = POS[idx];
-          var LIFT = 0.40, MOVE = 0.46, HOLD = 1.1905, BACK = 0.426;
-          var atCard = base + LIFT + MOVE;          /* 光标到位，开始预览 */
-          var endHold = atCard + HOLD;              /* 预览满 1s */
+        /* ================= 三轮：光标悬停 → 该卡亮起 → 预览窗播放 → 收 =================
+           每轮 13 拍；"悬停"是一个动作，所以光标移动（y）与高亮/预览的淡入错开一点点起，
+           但**都落在同一张卡上**，不做"先全部淡出再淡入"。 */
+        function round(base, i) {
+          var c = CARD[i];
+          var tHi = base + 0.34;            /* 光标到位 → 点亮这张卡的描边 */
+          var tOff = base + 2.04;           /* 收起描边，交给下一张 */
 
-          /* 1) 向上抬起 + 等比放大 —— **不动 x、不提 zIndex**。
-             用户 2026-09-22：边缘出去一部分没有关系，但抽出后仍要保留「前遮后」的遮挡，
-             所以它在队列里的前后次序必须原样保留（左边比它靠前的卡照样压住它）。
-             只有等比放大，透视关系才不变。 */
-          tl.to(card, { y: p.y - 250, scale: p.s * 1.22, duration: LIFT, ease: EASE_IO, immediateRender: false }, base);
-          tl.to(card, { borderColor: "rgba(0,161,214,.85)", duration: LIFT, immediateRender: false }, base);
-          /* 其它卡轻微下沉让位（它们的前后关系不变） */
-          POS.forEach(function (q, j) {
-            if (j === idx) return;
-            tl.to("#k" + (j + 1), { y: q.y + 28, duration: LIFT + MOVE, ease: EASE_IO, immediateRender: false }, base);
-          });
-
-          /* 2) 光标**上移**到这张卡上（卡宽 760，中心在 x+380） */
-          tl.to("#cursor", { opacity: 1, duration: 0.14, immediateRender: false }, base + 0.10);
-          tl.fromTo("#cursor", { x: 1240, y: 940 },
-            { x: p.x + 380, y: p.y - 170, duration: MOVE, ease: EASE_IO, immediateRender: false }, base + 0.10);
-
-          /* 3) 卡面换成真实预览录像 —— 到位置之后才淡入，留满 1s 不跳过 */
-          tl.to(card + " .shot", { opacity: 0, duration: 0.30, ease: EASE_OUT, immediateRender: false }, atCard);
-          tl.to(vid, { opacity: 1, duration: 0.30, ease: EASE_OUT, immediateRender: false }, atCard);
-
-          /* 4) 收回：录像淡出、卡面回来、落回队列原位，zIndex 还原 */
-          tl.to(vid, { opacity: 0, duration: 0.26, ease: EASE_OUT, immediateRender: false }, endHold);
-          tl.to(card + " .shot", { opacity: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, endHold);
-          tl.to(card, { x: p.x, y: p.y, scale: p.s, duration: BACK, ease: EASE_OUT, immediateRender: false }, endHold);
-          tl.to(card, { borderColor: "rgba(255,255,255,.60)", duration: BACK, immediateRender: false }, endHold);
-          POS.forEach(function (q, j) {
-            if (j === idx) return;
-            tl.to("#k" + (j + 1), { y: q.y, duration: BACK, ease: EASE_OUT, immediateRender: false }, endHold);
-          });
+          if (i > 0) tl.to("#cursor", { y: c.cursor.y, duration: 0.44, ease: EASE_IO, immediateRender: false }, base);
+          tl.to(c.hi, { opacity: 1, scale: 1, duration: 0.26, ease: EASE_OUT, immediateRender: false }, tHi);
+          tl.to(c.hi, { opacity: 0, duration: 0.24, ease: EASE_OUT, immediateRender: false }, tOff);
         }
+        round(LIFT, 0);                     /* 0.762  */
+        round(LIFT + ROUND, 1);             /* 3.2385 */
+        round(LIFT + ROUND * 2, 2);         /* 5.715  */
 
-        /* 三轮抽出的是**有录制素材的那三张**：#k1(莉蔻) / #k4(盐无) / #k5(四时小路) */
-        round(0.762, 0, "#v1");
-        round(0.762 + ROUND, 3, "#v2");
-        round(0.762 + ROUND * 2, 4, "#v3");
+        /* 预览窗 + 那支合并录屏：只在第一轮淡入，之后一直开着 ——
+           画面内容按时间段自己接上（轮1 = liko / 轮2 = shio / 轮3 = komichi），
+           中间不会露出黑底。 */
+        tl.fromTo(".pv", { opacity: 0, scale: 0.985 },
+          { opacity: 1, scale: 1, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 1.282);
+        tl.fromTo("#v", { opacity: 0 },
+          { opacity: 1, duration: 0.30, ease: EASE_OUT, immediateRender: false }, 1.32);
 
-        tl.to("#cursor", { opacity: 0, duration: 0.30, immediateRender: false }, 7.95);
+        /* ================= 收尾：预览窗与栏一起淡出（本拍是独立段落，允许收） ================= */
+        tl.to(".pv", { opacity: 0, scale: 0.99, duration: 0.34, ease: EASE_OUT, immediateRender: false }, 8.02);
+        tl.to("#cursor", { opacity: 0, duration: 0.28, immediateRender: false }, 8.06);
 
         tl.to({}, { duration: 0.01 }, 8.372);
 

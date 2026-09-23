@@ -193,6 +193,13 @@
           { opacity: 1, x: 1169, duration: 1.04, ease: EASE_IO, immediateRender: false }, 4.191);
         tl.to("#vidPortrait", { opacity: 1, duration: 0.6, ease: EASE_OUT, immediateRender: false }, 4.191);
 
+        /* ---- 收尾：整个画面**向上滑出**，把白场让给 03 的关注栏（从下滑入）----
+           skill `transitions/overview.md` 的硬规矩：transition 是"出场与入场同时进行"，
+           不是"先把上一场淡出、再让下一场入场"（那是 ❌ 的 jump cut with a dip）。
+           03 的第 0 帧就是同一张纯白底（sc-white）、关注栏停在画外下方 ——
+           所以这里只要把 02 的画面整体推出画面上方，两拍在拼接点就是一次干净的接力。 */
+        tl.to("#scene", { y: -900, duration: 0.54, ease: "power2.in", immediateRender: false }, 5.40);
+
         tl.to({}, { duration: 0.01 }, 5.99);
 
         window.__timelines = window.__timelines || {};
