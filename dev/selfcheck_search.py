@@ -225,6 +225,43 @@ def main() -> None:
         settle(app)
         assert marked.property("onWall") is False
         assert not marked.wall_badge.isVisible()
+
+        print("\n=== 14. 竖屏紧凑横栏：按钮不溢出，往返后模式保持 ===")
+        sidebar.set_compact_policy(True, True, 17)
+        window.setGeometry(-9000, -9000, 500, 1000)
+        settle(app, 0.4)
+        assert sidebar.side == "top" and not sidebar.card_mode
+        sidebar.set_collapsed(False, animate=False)
+        settle(app)
+        first = sidebar.items()[0]
+        print(f"  横栏={sidebar.height()} 卡片={first.width()}x{first.height()} "
+              f"滚动区高={sidebar.scroll.height()} 右侧={sidebar._bar_right.width()}x"
+              f"{sidebar._bar_right.height()}")  # noqa: SLF001
+        assert first.height() == 60 and sidebar.list_box.horizontal
+        assert sidebar.scroll.viewport().height() >= first.height()
+        assert sidebar.height() < 160, "紧凑横栏应比原大卡片横栏矮"
+        assert sidebar.account_row.isVisible()
+        assert sidebar.layout_button.isVisible() and sidebar.settings_button.isVisible()
+        assert sidebar.layout_button.y() == sidebar.settings_button.y()
+        assert sidebar._bar_right.height() == sidebar.scroll.height()  # noqa: SLF001
+        sidebar.set_layout_name(window.wall.layout_id)
+        assert sidebar.layout_button.text() == "布局", "布局变化后紧凑按钮不能撑宽右栏"
+        sidebar.set_compact_policy(True, False, 18)
+        settle(app)
+        assert sidebar.card_mode and first.height() == 128
+        assert sidebar.settings_button.y() > sidebar.layout_button.y(), \
+            "关闭自动紧凑后，竖屏右侧按钮应恢复竖排"
+        sidebar.set_compact_policy(True, True, 18)
+        sidebar.add_room({"room_id": "9213", "uname": "第18个关注", "live": False})
+        settle(app)
+        assert len(sidebar.items()) == 18 and not sidebar.card_mode
+        assert first.height() == 60, "达到默认阈值时竖屏也应自动紧凑"
+        window.setGeometry(-9000, -9000, 1200, 700)
+        settle(app, 0.4)
+        assert sidebar.side == "left" and not sidebar.card_mode
+        assert sidebar.layout_button.text() == "布局预设"
+        sidebar.set_compact_policy(True, False, 18)
+        assert sidebar.card_mode, "关闭自动紧凑后应立即恢复大卡片"
     finally:
         window.close()
         settle(app, 0.2)

@@ -2275,7 +2275,8 @@ class RoomListBox(QWidget):
     def item_size(self) -> tuple[int, int]:
         """卡片尺寸。竖屏横栏里用固定宽度，横向排一长条。"""
         if self.horizontal:
-            return CAROUSEL_WIDTH, NAV_ITEM_HEIGHT
+            return CAROUSEL_WIDTH, (NAV_ITEM_HEIGHT if self.sidebar.card_mode
+                                    else NAV_LIST_ITEM_HEIGHT)
         if self.sidebar.collapsed:
             height = NAV_COMPACT_ITEM_HEIGHT
         else:
@@ -2291,7 +2292,7 @@ class RoomListBox(QWidget):
 
     def content_height(self) -> int:
         if self.horizontal:
-            return NAV_ITEM_HEIGHT + NAV_ITEM_GAP
+            return self.item_size()[1] + NAV_ITEM_GAP
         return self.slot_height() * max(1, len(self.sidebar.items()))
 
     def content_width(self) -> int:
@@ -2956,7 +2957,8 @@ class Sidebar(QFrame):
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
         self._layout_id = layout_id
         layout = layouts.BY_ID.get(layout_id) or layouts.BY_ID[layouts.DEFAULT_LAYOUT]
-        self.layout_button.setText("布局预设")
+        self.layout_button.setText(
+            "布局" if self.side == "top" and not self.card_mode else "布局预设")
         self.layout_button.setToolTip(f"当前布局：{layout['name']}　（点击切换）")
 
     def open_layout_picker(self) -> None:
@@ -3359,6 +3361,27 @@ class Sidebar(QFrame):
                 height += extra                    # 除不尽的那 1px 给第二条空白
             gap.setFixedHeight(height)
 
+    def _sync_bar_density(self) -> None:
+        """竖屏紧凑模式把账号、布局和设置排成一行，避免撑高卡片条。"""
+        compact = not self.card_mode
+        self._bar_right_box.setDirection(
+            QBoxLayout.LeftToRight if compact else QBoxLayout.TopToBottom)
+        self._bar_right_box.setSpacing(6 if compact else 0)
+        tool_box = self.tool_row.layout()
+        tool_box.setDirection(QBoxLayout.LeftToRight if compact else QBoxLayout.TopToBottom)
+        tool_box.setSpacing(4 if compact else 0)
+        for widget in (*self._bar_gaps, self._bar_divider_label, self._bar_divider_tool):
+            widget.setVisible(not compact)
+        self.layout_button.setText("布局" if compact else "布局预设")
+        for button in (self.layout_button, self.settings_button):
+            button.setMaximumWidth(54 if compact else 16_777_215)
+        if compact:
+            self.tool_row.setFixedWidth(112)
+        else:
+            self.tool_row.setMinimumWidth(0)
+            self.tool_row.setMaximumWidth(16_777_215)
+            self._sync_bar_gaps()
+
     def _apply_bar_block_stretches(self) -> None:
         """账号和工具行自己不占 stretch（高度全由按钮 + 空白算出来）。
 
@@ -3507,6 +3530,9 @@ class Sidebar(QFrame):
         for button, policy in self._tool_button_policies.items():
             button.setSizePolicy(policy)
             button.setMaximumWidth(16_777_215)   # 竖屏时按自身宽度限过
+        self.layout_button.setText("布局预设")
+        self.tool_row.setMinimumWidth(0)
+        self.tool_row.setMaximumWidth(16_777_215)
         # 多选条回左栏：高度限制解掉，按钮恢复样式表那套高度
         self._bar_row.setMinimumHeight(0)
         self._bar_row.setMaximumHeight(16_777_215)
@@ -3535,7 +3561,10 @@ class Sidebar(QFrame):
         竖屏展开时它在右侧那一块里，高度就用横屏那套（34），多出来的高度留给
         两条空白；其它情况沿用原来的样子。
         """
-        if self.side == "top" and not self.collapsed:
+        if self.side == "top" and not self.collapsed and not self.card_mode:
+            self.account_row.set_compact(True, avatar=RoomStrip.AVATAR, margin=1)
+            self.account_row.setFixedWidth(RoomStrip.AVATAR + 2)
+        elif self.side == "top" and not self.collapsed:
             self.account_row.set_compact(False)
             # 高度用横屏那套（34），宽度跟着这一块走（三个按钮左右一样长）
             self.account_row.setFixedHeight(theme.CONTROL_HEIGHT)
@@ -3555,7 +3584,11 @@ class Sidebar(QFrame):
         row = self.account_row
         if self.side != "top":
             row.setMinimumWidth(0)
+            row.setMaximumWidth(16_777_215)
             return
+        if not self.collapsed and not self.card_mode:
+            return
+        row.setMaximumWidth(16_777_215)
         if self.collapsed:
             row.setMinimumWidth(row.avatar.width() + 2)
             return
@@ -3578,6 +3611,7 @@ class Sidebar(QFrame):
         if self.side != "top":
             return
         self._adopt_bar_row()
+        self._sync_bar_density()
         self._sync_account_row_shape()
         self._sync_account_row_width()
         header = getattr(self, "_header_row", None)
@@ -3656,7 +3690,7 @@ class Sidebar(QFrame):
         if top:
             # 一条卡片 + 间距 + 横向滚动条自己的高度：滚动条是占位的，
             # 不留这 8px 卡片底边会被它切掉（「直播中」角标会缺一角）
-            rows = NAV_ITEM_HEIGHT + NAV_ITEM_GAP + theme.SCROLLBAR_SIZE
+            rows = self.list_box.item_size()[1] + NAV_ITEM_GAP + theme.SCROLLBAR_SIZE
             self.scroll.setMinimumHeight(rows)
             self.scroll.setMaximumHeight(rows)
             self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -3746,6 +3780,8 @@ class Sidebar(QFrame):
             item.thumb.stop()
             item.set_card_mode(enabled)
         self.list_box.relayout(animate=False)
+        if self.side == "top" and self._bar_in_use:
+            self._sync_top_mode()
 
     def set_compact_policy(self, card_mode: bool, auto_compact: bool,
                            compact_threshold: int) -> None:
@@ -3756,13 +3792,9 @@ class Sidebar(QFrame):
         self.set_card_mode(self._effective_card_mode())
 
     def _effective_card_mode(self) -> bool:
-        """自动紧凑只用于横屏左栏；竖屏横栏保留原来的卡片高度。"""
-        auto_for_left_sidebar = (
-            self.auto_compact
-            and self.side == "left"
-            and len(self._items) >= self.compact_threshold
-        )
-        return self.preferred_card_mode and not auto_for_left_sidebar
+        """横竖屏共用关注数量阈值，竖屏改为紧凑横向列表。"""
+        return self.preferred_card_mode and not (
+            self.auto_compact and len(self._items) >= self.compact_threshold)
 
     # ---- 批量选择 ----
     def set_select_mode(self, enabled: bool) -> None:

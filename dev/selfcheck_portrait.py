@@ -743,6 +743,7 @@ def part_strip_interaction(app) -> None:
     assert len(counted) == 1, "同一个直播间不能同时占两格"
 
     print("\n=== 12. 竖屏展开：收起头排，换成横向卡片条 ===")
+    sidebar.set_compact_policy(True, False, 18)  # 原有大卡片布局的几何断言
     sidebar.set_account("测试账号")          # 横栏右侧那一块要有账号头像
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.4)
