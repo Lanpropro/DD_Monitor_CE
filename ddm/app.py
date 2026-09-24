@@ -739,6 +739,8 @@ class MainWindow(QMainWindow):
         if tile in self._pending_capture:
             self._finish_pending_capture(tile)
         self._emit_stream_resolved(tile, quality)
+        # 直播起来了：即时回放该开的就在这里开，不用用户手动点
+        self._sync_replay_scope()
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
@@ -1223,6 +1225,7 @@ class MainWindow(QMainWindow):
                 faces[str(item.room.get("room_id"))] = face
             item.room["live_known"] = True          # 这一路的直播状态从此算已知
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
+        self._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
         if covers:
@@ -1291,6 +1294,37 @@ class MainWindow(QMainWindow):
         if player is not None:
             player.set_muted(muted)
         self._save_timer.start()       # 静音也是格子状态，和音量一起记住
+
+    def _replay_scope(self) -> str:
+        """即时回放的适用范围：``recorded``（只跟录制走）或 ``all``（所有格子）。"""
+        scope = str(self.settings.get("recording_replay_scope", "recorded") or "")
+        return scope if scope in ("recorded", "all") else "recorded"
+
+    def _sync_replay_scope(self) -> None:
+        """按「即时回放范围」自动开 / 关各格的缓存。
+
+        ``recorded``：只跟着录制走。录制中的格子本来就在写分段，直接就能导出回放，
+        所以什么都不用开；纯缓存的会话（以前手动开的）会被停掉。
+        ``all``：所有播放中的格子都开一份缓存，随时都能「保存最近 N 分钟」。
+
+        注意这里**直接调 recorder.start()**、不走 ``_start_capture()`` —— 后者会为了
+        录制把画质锁到原画，而「所有格子都锁原画」会把带宽吃光。
+        """
+        scope = self._replay_scope()
+        has_dir = bool(str(self.settings.get("recording_dir") or "").strip())
+        for tile in self.wall.tiles:
+            session = self.recorder.sessions.get(tile)
+            if scope == "recorded":
+                if session is not None and not session.recording:
+                    self.recorder.stop(tile)        # 收窄范围：停掉纯缓存
+                continue
+            if not has_dir or session is not None:
+                continue                            # 没配目录 / 已经有会话
+            if not tile.isVisible() or not tile.room.get("live"):
+                continue
+            if not tile.room.get("room_id") or not tile.stream_url:
+                continue                            # 还没取到流，等下一轮
+            self.recorder.start(tile, recording=False)
 
     def _audit_audio(self) -> None:
         """巡检：格子记的静音 / 音量，和播放器**实际**的值有没有走散。
@@ -1407,14 +1441,11 @@ class MainWindow(QMainWindow):
             collected.append(("● 开始录制这一路", lambda t=tile:
                               self._start_capture(t, recording=True)))
         if session:
+            # 即时回放跟着直播自动开（见 _sync_replay_scope），所以菜单里不再放
+            # 「开启/关闭即时回放缓存」两个开关，只留这一个「保存」。
             minutes = int(session.settings.get("recording_replay_minutes", 3))
             collected.append((f"保存最近约 {minutes} 分钟", lambda t=tile:
                               self.recorder.save_replay(t)))
-            if not session.recording:
-                collected.append(("关闭即时回放缓存", lambda t=tile: self.recorder.stop(t)))
-        else:
-            collected.append(("开启即时回放缓存", lambda t=tile:
-                              self._start_capture(t, recording=False)))
         if manager is not None:
             for label, callback, name in manager.tile_actions(tile):
                 collected.append((label, lambda cb=callback: manager.run_action(cb)))

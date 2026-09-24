@@ -239,7 +239,19 @@
      （不再期望 `audio_set_mute`），并给假播放器补上 `audio_set_callbacks`。
   附：「有声的格子断断续续」还有一层原因 —— 录制是**另起 ffmpeg 子进程再拉一路流**，
   带宽翻倍，这是设计使然、不是 bug。
-- 自检现状：全量 **42 项**。其中 2 项固定失败，都是本机沙箱限制
+- 即时回放改成「跟着直播自动开 + 范围可选」（用户要求）：
+  1) **不再需要手动开**：右键菜单里那两个「开启 / 关闭即时回放缓存」去掉了，只留
+     「保存最近约 N 分钟」；格子直播起来就自动开缓存（`start_tile` 末尾调
+     `_sync_replay_scope()`，状态刷新时也补一次）。
+  2) **适用范围**放在「设置 → 录制」页（`recording_replay_scope`，默认 `all`）：
+     `all` = 所有播放中的格子都开；`recorded` = 只跟着录制走（录制中的格子本来就在
+     写分段，零额外开销），收窄范围时会把纯缓存的会话停掉。自动开缓存**不走**
+     `_start_capture()` —— 那条路会为了录制把画质锁到原画，所有格子都锁原画会把带宽
+     吃光。
+  3) 「没手动保存就自动清理」本来就有：`_finalize()` 里非录制的会话走
+     `_discard_cache()`、录制的才 `_export()`，自检里也钉住了这条。
+  新增 `dev/selfcheck_replay_scope.py`（5 节）。
+- 自检现状：全量 **43 项**。其中 2 项固定失败，都是本机沙箱限制
   （`selfcheck_plugins.py` 与 `selfcheck_recording.py`，同为 `tempfile.mkdtemp`
   建出的目录 `WinError 5`）；另有 4 项会偶发失败 —— `selfcheck_orientation_layout.py`
   和 `selfcheck_tile_overlay.py`、`selfcheck_slots.py` 是退出期 `0xC0000409`，

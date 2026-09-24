@@ -40,6 +40,14 @@ DEFAULT_SETTINGS = {
     "recording_bitrate": 6000,    # kbps
     "recording_fps": 30,
     "recording_replay_minutes": 3,
+    #: 即时回放（右键「保存最近 N 分钟」）的适用范围。它**跟着直播自动开启**，
+    #: 不需要手动点；这里只决定给哪些格子开：
+    #:   "all"      —— 所有播放中的格子都开缓存，随时都能回放（默认）。
+    #:   "recorded" —— 只跟着录制走：录制中的格子本来就在写分段，零额外开销，
+    #:                 不录制的格子不开缓存（省一个 ffmpeg 进程和一路带宽）。
+    #: 缓存是**临时**的：没点「保存」的话，这一格停播/下播/关软件时就把分段清掉，
+    #: 不会在保存目录里留下垃圾。
+    "recording_replay_scope": "all",
     "recording_min_free_mb": 2048,
     "recording_lock_quality": True,  # 录制期间锁定原画，结束后恢复画质
     "danmaku_font": "",       # 弹幕字体（空 = 跟主题默认字体）

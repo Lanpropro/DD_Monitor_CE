@@ -339,12 +339,21 @@ class RecordingSettingsPage(QWidget):
             self.fps.addItem(str(fps), fps)
         self.replay_minutes = QSpinBox()
         self.replay_minutes.setRange(1, 60)
+        self.replay_scope = QComboBox()
+        self.replay_scope.addItem("所有播放中的格子（随时都能回放）", "all")
+        self.replay_scope.addItem("只跟着录制走（不录制的格子不开缓存）", "recorded")
+        self.replay_scope.setToolTip(
+            "「保存最近 N 分钟」这个即时回放功能，给哪些格子开缓存。\n"
+            "它跟着直播自动开启，不用手动点；缓存是临时的，没点保存就会在停播时清掉。\n"
+            "所有格子：每格常驻一个 FFmpeg 缓存进程，随时能回放，但更吃带宽和 CPU。\n"
+            "只跟着录制走：录制中的格子本来就在写分段，零额外开销。")
         self.min_free = QSpinBox()
         self.min_free.setRange(256, 100000)
         self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
         for row, (label, widget, unit) in enumerate((
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
+            ("即时回放范围", self.replay_scope, ""),
             ("回放缓存时长", self.replay_minutes, "分钟"),
             ("磁盘剩余空间警戒线", self.min_free, "MB"),
         ), start=1):
@@ -356,7 +365,7 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 7, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 8, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self._load(settings)
         self.bitrate.valueChanged.connect(self._enable_transcode)
@@ -377,6 +386,9 @@ class RecordingSettingsPage(QWidget):
         fps_index = self.fps.findData(int(settings.get("recording_fps", 30)))
         self.fps.setCurrentIndex(fps_index if fps_index >= 0 else self.fps.findData(30))
         self.replay_minutes.setValue(int(settings.get("recording_replay_minutes", 3)))
+        scope = self.replay_scope.findData(
+            str(settings.get("recording_replay_scope", "recorded")))
+        self.replay_scope.setCurrentIndex(scope if scope >= 0 else 0)
         self.min_free.setValue(int(settings.get("recording_min_free_mb", 2048)))
         self.lock_quality.setChecked(bool(settings.get("recording_lock_quality", True)))
         self._update_codec()
@@ -408,6 +420,7 @@ class RecordingSettingsPage(QWidget):
             "recording_bitrate": self.bitrate.value(),
             "recording_fps": self.fps.currentData(),
             "recording_replay_minutes": self.replay_minutes.value(),
+            "recording_replay_scope": self.replay_scope.currentData(),
             "recording_min_free_mb": self.min_free.value(),
             "recording_lock_quality": self.lock_quality.isChecked(),
         }
