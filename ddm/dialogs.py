@@ -320,10 +320,17 @@ class RecordingSettingsPage(QWidget):
         grid.addWidget(QLabel("保存目录"), 0, 0)
         directory_row = QHBoxLayout()
         directory_row.addWidget(self.directory, 1)
-        browse = QPushButton("浏览…")
-        browse.clicked.connect(self._browse)
-        directory_row.addWidget(browse)
+        self.browse = QPushButton("浏览…")
+        self.browse.clicked.connect(self._browse)
+        directory_row.addWidget(self.browse)
         grid.addLayout(directory_row, 0, 1)
+        self.recording_enabled = QCheckBox("启用录制功能")
+        self.recording_enabled.setToolTip(
+            "录制功能的总开关。关掉之后：\n"
+            "  1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；\n"
+            "  2) 正在录制的会话会正常收尾并导出（已经录到的部分不丢）；\n"
+            "  3) 上面这些录制参数会一起置灰。\n"
+            "即时回放是另一个开关，不受影响。")
         self.format = QComboBox()
         self.format.addItem("MP4（剪辑软件兼容性优先）", "mp4")
         self.format.addItem("MKV（抗意外中断）", "mkv")
@@ -367,6 +374,7 @@ class RecordingSettingsPage(QWidget):
         self.min_free.setRange(256, 100000)
         self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
         for row, (label, widget, unit) in enumerate((
+            ("录制功能", self.recording_enabled, ""),
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
             ("即时回放", self.replay_enabled, ""),
@@ -383,10 +391,11 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 10, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 11, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
-        self.replay_scope.currentIndexChanged.connect(self._update_scope)
-        self.replay_enabled.toggled.connect(self._update_scope)
+        self.replay_scope.currentIndexChanged.connect(self._update_enabled)
+        self.replay_enabled.toggled.connect(self._update_enabled)
+        self.recording_enabled.toggled.connect(self._update_enabled)
         self._load(settings)
         self.bitrate.valueChanged.connect(self._enable_transcode)
         self.fps.currentIndexChanged.connect(self._enable_transcode)
@@ -409,12 +418,13 @@ class RecordingSettingsPage(QWidget):
         scope = self.replay_scope.findData(
             str(settings.get("recording_replay_scope", "recorded")))
         self.replay_scope.setCurrentIndex(scope if scope >= 0 else 0)
+        self.recording_enabled.setChecked(bool(settings.get("recording_enabled", True)))
         self.replay_enabled.setChecked(bool(settings.get("recording_replay_enabled", True)))
         self.replay_max.setValue(int(settings.get("recording_replay_max_tiles", 3)))
         self.min_free.setValue(int(settings.get("recording_min_free_mb", 2048)))
         self.lock_quality.setChecked(bool(settings.get("recording_lock_quality", True)))
         self._update_codec()
-        self._update_scope()
+        self._update_enabled()
 
     def _update_codec(self) -> None:
         hint = ("当前为原始流直存；改动码率或帧率会自动切换为 H.264 重编码"
@@ -423,16 +433,20 @@ class RecordingSettingsPage(QWidget):
         self.bitrate.setToolTip(hint)
         self.fps.setToolTip(hint)
 
-    def _update_scope(self) -> None:
-        """不起作用的项置灰，免得用户改了以为没生效。
+    def _update_enabled(self) -> None:
+        """按两个总开关把不起作用的项置灰，免得用户改了以为没生效。
 
-        总开关关掉时，下面三项（范围 / 上限 / 时长）全都不生效；
-        范围选「只跟着录制走」时，上限也没有意义。
+        录制总开关管「录制参数」那一组；即时回放总开关管「即时回放」那一组，
+        其中范围选「只跟着录制走」时，上限也没有意义。
         """
-        enabled = self.replay_enabled.isChecked()
-        self.replay_scope.setEnabled(enabled)
-        self.replay_minutes.setEnabled(enabled)
-        self.replay_max.setEnabled(enabled and self.replay_scope.currentData() == "all")
+        recording = self.recording_enabled.isChecked()
+        for widget in (self.directory, self.browse, self.format, self.codec,
+                       self.bitrate, self.fps, self.min_free, self.lock_quality):
+            widget.setEnabled(recording)
+        replay = self.replay_enabled.isChecked()
+        self.replay_scope.setEnabled(replay)
+        self.replay_minutes.setEnabled(replay)
+        self.replay_max.setEnabled(replay and self.replay_scope.currentData() == "all")
 
     def _enable_transcode(self) -> None:
         if self.codec.currentData() == "copy":
@@ -448,6 +462,7 @@ class RecordingSettingsPage(QWidget):
 
     def values(self) -> dict:
         return {
+            "recording_enabled": self.recording_enabled.isChecked(),
             "recording_dir": self.directory.text().strip(),
             "recording_format": self.format.currentData(),
             "recording_codec": self.codec.currentData(),

@@ -4436,8 +4436,20 @@ class Tile(QFrame):
         self.recording_time.setText(text)
         self.recording_time.setVisible(bool(text))
 
+    def set_recording_available(self, available: bool) -> None:
+        """录制功能总开关：关掉时把底栏的「● 录制」按钮收起来。"""
+        self._recording_available = bool(available)
+        self._update_recording_button()
+
     def _update_recording_button(self) -> None:
         if not hasattr(self, "recording_button"):
+            return
+        # 录制功能总开关关掉时，整个「● 录制」按钮收起来（见 set_recording_available）。
+        # 放在这里而不是 set_recording_available 里：录制状态每次变都会走这个方法，
+        # 各处刷新不会把按钮又露出来。
+        available = getattr(self, "_recording_available", True)
+        self.recording_button.setVisible(available)
+        if not available:
             return
         narrow = self.width() < 320
         labels = ({"record": "●", "cache": "◉", "": "●"} if narrow else

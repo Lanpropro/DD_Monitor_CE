@@ -470,6 +470,9 @@ class MainWindow(QMainWindow):
                 if tile.room.get("room_id") and tile.room.get("live"):
                     self.start_tile(tile)
         config_module.save(self.current_state())
+        # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
+        self._sync_recording_switch()
+        self._sync_replay_scope()
         self.apply_danmaku_settings()
         self.apply_preview_settings()
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
@@ -1307,6 +1310,29 @@ class MainWindow(QMainWindow):
         scope = str(self.settings.get("recording_replay_scope", "recorded") or "")
         return scope if scope in ("recorded", "all") else "recorded"
 
+    def _recording_enabled(self) -> bool:
+        """录制功能总开关。关掉时不起新录制，已经在录的正常收尾。"""
+        return bool(self.settings.get("recording_enabled", True))
+
+    def _sync_recording_switch(self) -> None:
+        """按录制总开关收起「● 录制」按钮，并停掉正在录制的会话。
+
+        停的是**正常收尾**（走 recorder.stop()，已录到的分段照样导出成文件），
+        不是丢弃 —— 关开关的意图是「不想再录了」，不是「把刚才录的删掉」。
+        """
+        enabled = self._recording_enabled()
+        if not enabled:
+            self._pending_capture.clear()       # 还在等原画的那几格也别等了
+        for tile in self.wall.tiles:
+            setter = getattr(tile, "set_recording_available", None)
+            if setter is not None:
+                setter(enabled)
+            if enabled:
+                continue
+            session = self.recorder.sessions.get(tile)
+            if session is not None and session.recording:
+                self.recorder.stop(tile)
+
     def _replay_enabled(self) -> bool:
         """即时回放总开关；关掉时既不开缓存，也不提供「保存最近 N 分钟」。"""
         return bool(self.settings.get("recording_replay_enabled", True))
@@ -1461,6 +1487,10 @@ class MainWindow(QMainWindow):
         if not getattr(tile, "_recording_wired", False):
             tile.recordingRequested.connect(lambda t=tile: self._toggle_recording(t))
             tile._recording_wired = True
+        # 录制总开关关掉时，新格子也别露出「● 录制」按钮
+        setter = getattr(tile, "set_recording_available", None)
+        if setter is not None:
+            setter(self._recording_enabled())
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
@@ -1470,7 +1500,9 @@ class MainWindow(QMainWindow):
         manager = getattr(self, "plugins", None)
         collected = []
         session = self.recorder.sessions.get(tile)
-        if session and session.recording:
+        if not self._recording_enabled():
+            pass                        # 录制总开关关掉：菜单里不放录制项
+        elif session and session.recording:
             collected.append(("● 停止录制这一路", lambda t=tile: self.recorder.stop(t)))
         else:
             collected.append(("● 开始录制这一路", lambda t=tile:
@@ -1499,6 +1531,9 @@ class MainWindow(QMainWindow):
             self._start_capture(tile, recording=True)
 
     def _start_capture(self, tile, *, recording: bool) -> None:
+        if recording and not self._recording_enabled():
+            self._record_notice("录制功能已在「设置 → 录制」里关闭")
+            return
         if tile in self._pending_capture:
             return
         if not str(self.settings.get("recording_dir") or "").strip():

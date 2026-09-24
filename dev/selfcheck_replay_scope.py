@@ -1,13 +1,16 @@
-"""回归自检：即时回放的开关语义。
+"""回归自检：录制 / 即时回放这两个开关的语义。
 
 用户要求：
   1. 即时回放**跟着格子的直播自动开启**，不需要手动点；
   2. 没手动保存的话，缓存文件在停播/下播时**自动清理**（不留垃圾）；
   3. 右键菜单里**只保留「保存最近 N 分钟」**，不再有开启/关闭缓存两个开关；
-  4. 适用范围（所有格子 / 只跟着录制走）放在**设置 → 录制**里。
+  4. 适用范围（所有格子 / 只跟着录制走）放在**设置 → 录制**里；
+  5. 即时回放要有**总开关**，关掉就彻底不开缓存（`recording_replay_enabled`）；
+  6. 录制也要有**总开关**，关掉就不起新录制、按钮收起、在录的正常收尾
+     （`recording_enabled`）。
 
 清理那条由 `RecordingManager._finalize()` 负责：非录制的会话走 `_discard_cache()`，
-录制的才 `_export()`。这里把其余三条钉住。
+录制的才 `_export()`。这里把其余几条钉住。
 """
 import ctypes
 import os
@@ -452,6 +455,66 @@ def main() -> None:
         print(f"  重新打开后的右键菜单={texts}")
         assert any("保存最近约" in text for text in texts), \
             "总开关打开后菜单里该恢复「保存最近约 N 分钟」"
+
+        print("\n=== 10. 录制总开关：关掉后不起新录制，已在录的正常收尾 ===")
+        # 设置页：录制参数跟着开关置灰，即时回放那组不受连累
+        page2 = RecordingSettingsPage(dict(settings))
+        assert "recording_enabled" in page2.values(), "设置页要交出录制总开关"
+        page2._load({"recording_enabled": False})              # noqa: SLF001
+        print(f"  关掉录制：目录可编辑={page2.directory.isEnabled()} "
+              f"浏览按钮可编辑={page2.browse.isEnabled()} "
+              f"格式可编辑={page2.format.isEnabled()} "
+              f"锁定原画可编辑={page2.lock_quality.isEnabled()} "
+              f"即时回放范围可编辑={page2.replay_scope.isEnabled()}")
+        assert not page2.directory.isEnabled(), "录制总开关关掉时保存目录该置灰"
+        assert not page2.browse.isEnabled(), "「浏览…」按钮要一起置灰"
+        assert not page2.format.isEnabled(), "输出格式该置灰"
+        assert not page2.lock_quality.isEnabled(), "「锁定原画」也是录制参数"
+        assert page2.replay_scope.isEnabled(), "即时回放是另一个开关，不该被连累"
+        page2._load({"recording_enabled": True})               # noqa: SLF001
+        assert page2.directory.isEnabled() and page2.browse.isEnabled(), \
+            "总开关打开时录制参数该恢复可编辑"
+
+        # 窗口层：按钮收起、菜单里没有录制项、在录的会话被停掉
+        window.settings["recording_enabled"] = False
+        window.settings["recording_replay_enabled"] = True
+        window.settings["recording_replay_scope"] = "recorded"
+        recorder.sessions.clear()
+        recorder.stopped.clear()
+        keep_tile, drop_tile = live_tiles[0], live_tiles[1]
+        recorder.sessions[drop_tile] = FakeSession(recording=True)
+        recorder.sessions[keep_tile] = FakeSession(recording=False)
+        window._sync_recording_switch()            # noqa: SLF001
+        print(f"  关掉录制时停掉的={recorder.stopped}（只该有在录那格）")
+        assert recorder.stopped == [str(drop_tile.room.get("room_id"))], \
+            f"只该停掉正在录制的会话（纯缓存的留着），实际 {recorder.stopped}"
+        print(f"  「● 录制」按钮可见={drop_tile.recording_button.isVisible()}（该 False）")
+        assert not drop_tile.recording_button.isVisible(), \
+            "录制总开关关掉时该收起「● 录制」按钮"
+        texts = menu_texts(window, drop_tile)
+        print(f"  关掉录制后的右键菜单={texts}")
+        assert not any("录制这一路" in text for text in texts), \
+            "录制总开关关掉时菜单里不该有开始/停止录制"
+        # manager 层也挡一道（插件或别的调用路径）；用真的 RecordingManager
+        manager5 = RecordingManager(dict(window.settings), None)
+        manager5.timer.stop()
+        # 把 _launch 挡掉：这里只验开关，别真去起 ffmpeg 拉 example.invalid
+        with patch.object(RecordingManager, "_launch", lambda *_a, **_k: None):
+            assert not manager5.start(drop_tile, recording=True), \
+                "录制总开关关掉时不该还能起新录制"
+            assert manager5.start(drop_tile, recording=False), \
+                "即时回放缓存不该被录制总开关连累"
+        manager5.shutdown()
+
+        # 打开开关，一切恢复
+        window.settings["recording_enabled"] = True
+        window._sync_recording_switch()            # noqa: SLF001
+        print(f"  重新打开后「● 录制」按钮可见={drop_tile.recording_button.isVisible()}（该 True）")
+        assert drop_tile.recording_button.isVisible(), "总开关打开后按钮该回来"
+        texts = menu_texts(window, drop_tile)
+        print(f"  重新打开后的右键菜单={texts}")
+        assert any("录制这一路" in text for text in texts), \
+            "总开关打开后菜单里该恢复录制项"
     finally:
         window.close()
         settle(app, 0.25)

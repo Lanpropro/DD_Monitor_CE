@@ -286,6 +286,9 @@ class RecordingManager(QObject):
             256, int(self.settings.get("recording_min_free_mb", 2048))) * 1024 * 1024
 
     def start(self, tile, *, recording: bool) -> bool:
+        if recording and not bool(self.settings.get("recording_enabled", True)):
+            self._say("录制功能已在「设置 → 录制」里关闭")
+            return False
         if not tile.room.get("live") or not tile.room.get("room_id") or not tile.isVisible():
             self._say("只能录制正在显示的直播格子")
             return False

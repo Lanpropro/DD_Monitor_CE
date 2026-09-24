@@ -34,6 +34,12 @@ DEFAULT_SETTINGS = {
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
     "live_alert": True,         # 关注的主播开播时，列表上播水滴 + 「开播了」气泡
+    #: 录制功能总开关。关掉之后：
+    #:   1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；
+    #:   2) 正在录制的会话会**正常收尾并导出**（已经录到的部分不丢）；
+    #:   3) 录制参数（保存目录 / 格式 / 编码 / 码率 / 帧率 / 警戒线 / 锁定原画）置灰。
+    #: 即时回放是**另一个开关**（recording_replay_enabled），两者互不影响。
+    "recording_enabled": True,
     "recording_dir": "",         # 首次录制前必须由用户选择
     "recording_format": "mp4",
     "recording_codec": "copy",    # 不重编码；选 h264 时才使用码率/帧率
