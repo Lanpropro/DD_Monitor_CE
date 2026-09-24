@@ -18,10 +18,8 @@ SEGMENT_SECONDS = 10
 CHECK_MS = 2000
 
 
-def ffmpeg_path(settings: dict) -> str:
-    chosen = str(settings.get("recording_ffmpeg") or "").strip()
-    if chosen:
-        return chosen if Path(chosen).is_file() else ""
+def ffmpeg_path(settings: dict | None = None) -> str:
+    """发布包优先用自带的 FFmpeg；源码运行可从 PATH 找。"""
     name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
     adjacent = Path(config.REPO) / name
     return str(adjacent) if adjacent.is_file() else (shutil.which(name) or "")
@@ -62,15 +60,10 @@ def segment_args(settings: dict, pattern: Path) -> list[str]:
                  "-sc_threshold", "0", "-c:a", "aac", "-b:a", "160k"]
     else:
         args += ["-c", "copy"]
-    fmt = "matroska" if settings.get("recording_format") == "mkv" else "mp4"
+    fmt = {"mkv": "matroska", "mov": "mov", "ts": "mpegts"}.get(
+        settings.get("recording_format"), "mp4")
     return args + ["-f", "segment", "-segment_time", str(SEGMENT_SECONDS),
                    "-reset_timestamps", "1", "-segment_format", fmt, str(pattern)]
-
-
-def _same_volume(first: Path, second: Path) -> bool:
-    if os.name == "nt":
-        return first.anchor.casefold() == second.anchor.casefold()
-    return os.stat(first).st_dev == os.stat(second).st_dev
 
 
 class _Session:
@@ -81,14 +74,14 @@ class _Session:
         self.folder = folder
         self.name = str(tile.room.get("uname") or "直播")
         self.room_id = str(tile.room.get("room_id") or "")
-        self.extension = "mkv" if settings.get("recording_format") == "mkv" else "mp4"
+        self.extension = (settings.get("recording_format") if settings.get("recording_format")
+                          in ("mkv", "mov", "ts") else "mp4")
         self.parts: list[Path] = []
         self.process: subprocess.Popen | None = None
         self.active_pattern: Path | None = None
         self.url = ""
         self.chunk = 0
         self.stopping = False
-        self.next_folder: Path | None = None
         self.next_url = ""
         self.next_headers: dict = {}
         self.warned = False
@@ -135,21 +128,13 @@ class RecordingManager(QObject):
         print(f"[录制] {message}", file=sys.stderr, flush=True)
         self.notice.emit(message)
 
-    def _dirs(self) -> tuple[Path, Path | None]:
-        primary = Path(str(self.settings.get("recording_dir") or
-                           Path(config.REPO) / "recordings")).expanduser().resolve()
-        primary.mkdir(parents=True, exist_ok=True)
-        backup_text = str(self.settings.get("recording_backup_dir") or "").strip()
-        backup = Path(backup_text).expanduser().resolve() if backup_text else None
-        if backup is not None:
-            try:
-                backup.mkdir(parents=True, exist_ok=True)
-                if _same_volume(primary, backup):
-                    backup = None  # 同盘不是备用：满盘时继续写只会再次失败。
-            except OSError as error:
-                self._say(f"备用目录不可用（正常录制不受影响）：{error}")
-                backup = None
-        return primary, backup
+    def _directory(self) -> Path:
+        text = str(self.settings.get("recording_dir") or "").strip()
+        if not text:
+            raise ValueError("请先在「设置 → 录制」选择保存目录")
+        folder = Path(text).expanduser().resolve()
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
 
     def _free_enough(self, folder: Path) -> bool:
         return shutil.disk_usage(folder).free >= max(
@@ -167,21 +152,21 @@ class RecordingManager(QObject):
                 self.sessions[tile].recording = True
                 self.changed.emit(tile)
             return True
+        if not str(self.settings.get("recording_dir") or "").strip():
+            self._say("请先在「设置 → 录制」选择保存目录")
+            return False
         executable = ffmpeg_path(self.settings)
         if not executable:
-            self._say("找不到 FFmpeg；请在「设置 → 录制」指定 ffmpeg.exe")
+            self._say("找不到 FFmpeg；请检查发布包中的 ffmpeg.exe")
             return False
         if not getattr(tile, "stream_url", ""):
             self._say("这一格仍在连接中，请等画面出现后重试")
             return False
         try:
-            primary, backup = self._dirs()
-            folder = primary if self._free_enough(primary) else backup
-            if folder is None or not self._free_enough(folder):
-                self._say("录制未开始：磁盘剩余空间不足；请设置另一磁盘的备用目录")
+            folder = self._directory()
+            if not self._free_enough(folder):
+                self._say("录制未开始：保存目录所在磁盘剩余空间不足")
                 return False
-            if folder != primary:
-                self._say(f"主磁盘空间不足，录制改存备用目录：{folder}")
             session = _Session(tile, self.settings, recording, folder)
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
@@ -275,17 +260,14 @@ class RecordingManager(QObject):
             if process.poll() is None:
                 if time.monotonic() - session.started_at > 30:
                     session.retry_count = 0
-                if not session.stopping and not session.next_folder:
+                if not session.stopping:
                     self._check_space(session)
                 continue
             exit_code = process.returncode
             session.close_chunk()
             if session.stopping:
                 self._finalize(session)
-            elif session.next_folder or session.next_url:
-                if session.next_folder:
-                    session.folder = session.next_folder
-                    session.next_folder = None
+            elif session.next_url:
                 url = session.next_url or session.url
                 headers = session.next_headers or dict(tile.stream_headers or {})
                 session.next_url = ""
@@ -298,7 +280,7 @@ class RecordingManager(QObject):
             elif exit_code:
                 self._say(f"{session.name} 的 FFmpeg 意外退出（{exit_code}）；详见 .ddm-parts 日志")
                 if not self._free_enough(session.folder):
-                    self._switch_or_stop(session)
+                    self._stop_for_space(session)
                 else:
                     session.retry_count += 1
                     session.retry_at = time.monotonic() + min(60, 2 ** session.retry_count)
@@ -332,31 +314,11 @@ class RecordingManager(QObject):
     def _check_space(self, session: _Session) -> None:
         try:
             if not self._free_enough(session.folder):
-                self._switch_or_stop(session)
+                self._stop_for_space(session)
         except OSError as error:
             self._say(f"磁盘检查失败：{error}")
 
-    def _switch_or_stop(self, session: _Session) -> None:
-        try:
-            primary, backup = self._dirs()
-            target = backup if session.folder == primary else None
-            if target and self._free_enough(target):
-                if session.next_folder is None:
-                    session.next_folder = target
-                    self._say(f"{session.name} 主磁盘已满/空间不足，继续录到备用目录：{target}")
-                    self._end_process(session)
-                    if session.process is None:
-                        session.folder = target
-                        session.next_folder = None
-                        try:
-                            self._launch(session, session.url,
-                                         dict(session.tile.stream_headers or {}))
-                        except OSError as error:
-                            self._say(f"备用目录续录失败：{error}")
-                            self.stop(session.tile)
-                return
-        except OSError as error:
-            self._say(f"备用目录不可用：{error}")
+    def _stop_for_space(self, session: _Session) -> None:
         self._say(f"{session.name} 磁盘空间不足，录制已停止；已写入分段保留待恢复")
         self.stop(session.tile)
 
@@ -395,21 +357,12 @@ class RecordingManager(QObject):
             self._say(f"{session.name} 没有可导出的录制分段")
             return False
         try:
-            primary, backup = self._dirs()
-            candidates = ([primary, session.folder, backup] if full
-                          else [session.folder, backup])
+            primary = session.folder  # 当前录制固定使用启动时选定的目录
             needed = sum(part.stat().st_size for part in parts)
             reserve = max(256, int(session.settings.get("recording_min_free_mb", 2048)))
-            folder = None
-            for candidate in candidates:
-                if candidate is None:
-                    continue
-                target = candidate if full else candidate / "replays"
-                target.mkdir(parents=True, exist_ok=True)
-                if shutil.disk_usage(target).free >= needed + reserve * 1024 * 1024:
-                    folder = target
-                    break
-            if folder is None:
+            folder = primary if full else primary / "replays"
+            folder.mkdir(parents=True, exist_ok=True)
+            if shutil.disk_usage(folder).free < needed + reserve * 1024 * 1024:
                 self._say("导出空间不足；原始分段保留，清理磁盘后可手动恢复")
                 return False
             result = output_path(folder, session.name + ("_回放" if not full else ""),
@@ -420,7 +373,7 @@ class RecordingManager(QObject):
             command = [ffmpeg_path(session.settings), "-y", "-hide_banner", "-loglevel",
                        "warning", "-f", "concat", "-safe", "0", "-i", str(playlist),
                        "-c", "copy"]
-            if session.extension == "mp4":
+            if session.extension in ("mp4", "mov"):
                 command += ["-movflags", "+faststart"]
             command += [str(result)]
             log = result.with_suffix(".ffmpeg.log")

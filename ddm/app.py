@@ -117,9 +117,13 @@ class MainWindow(QMainWindow):
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         self.settings.update(self.state.get("settings") or {})
+        self.settings.pop("recording_backup_dir", None)
+        self.settings.pop("recording_ffmpeg", None)
         self.recorder = RecordingManager(self.settings, self)
         self.recorder.notice.connect(self._record_notice)
         self.recorder.changed.connect(self._record_state_changed)
+        self._capture_quality: dict[object, tuple[str, int]] = {}
+        self._pending_capture: dict[object, bool] = {}
 
         # 布局按方向分别记；老配置只有一个 layout 键，当作横屏的。
         # 这一步必须在建画面墙**之前**做：第一次摆就要按存过的那套布局来，
@@ -413,11 +417,13 @@ class MainWindow(QMainWindow):
         minutes = int(self.settings.get("poll_minutes", 1) or 1)
         return max(1, min(30, minutes)) * 60_000
 
-    def open_settings(self) -> None:
+    def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
         dialog = SettingsDialog(self.settings, self.shortcuts, self)
+        if page == "recording":
+            dialog.nav.setCurrentRow(2)
         if dialog.exec() != SettingsDialog.Accepted:
-            return
+            return False
         hw_before = bool(self.settings.get("hw_decode", True))
         self.settings.update(dialog.settings())
         self.shortcuts = dialog.shortcuts()
@@ -438,6 +444,7 @@ class MainWindow(QMainWindow):
         self.apply_danmaku_settings()
         self.apply_preview_settings()
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
+        return True
 
     def current_state(self) -> dict:
         return {
@@ -618,6 +625,8 @@ class MainWindow(QMainWindow):
         for index, tile in enumerate(self.wall.tiles):
             if not tile.room.get("room_id"):
                 continue
+            if tile in self._capture_quality:
+                continue
             target = 10000 if index == main else 250
             if tile.quality != target:
                 print(f"[画质策略] {tile.room.get('uname')} -> "
@@ -654,8 +663,9 @@ class MainWindow(QMainWindow):
         resolver.resolved.connect(
             lambda _rid, url, qn, profile, options, t=tile:
             self._play_on(t, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id))
-        resolver.failed.connect(lambda rid, reason, t=tile: self._on_resolve_failed(t, reason))
+                          room_id=room_id, requested_quality=quality))
+        resolver.failed.connect(lambda rid, reason, t=tile, q=quality:
+                                self._on_resolve_failed(t, reason, requested_quality=q))
         resolver.finished.connect(lambda t=tile: self._resolvers.pop(t, None))
         self._resolvers[tile] = resolver
         resolver.start()
@@ -663,12 +673,14 @@ class MainWindow(QMainWindow):
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
-                 room_id: str = "") -> None:
+                 room_id: str = "", requested_quality: int = 0) -> None:
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
         if room_id and str(tile.room.get("room_id") or "") != str(room_id):
             return                    # 迟到的取流结果（格子已经换台/被换走了）
+        if requested_quality and int(tile.quality) != requested_quality:
+            return                    # 画质已切换，旧请求不能覆盖新流
         if options:
             tile.set_quality_options(options)
         if quality:
@@ -701,6 +713,8 @@ class MainWindow(QMainWindow):
         player.play(url, profile, tile.stream_headers,
                     options=self.media_options())
         self.recorder.on_resolved(tile)
+        if tile in self._pending_capture:
+            self._finish_pending_capture(tile)
         self._emit_stream_resolved(tile, quality)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
@@ -732,9 +746,16 @@ class MainWindow(QMainWindow):
             return ()
         return (player_module.HW_DECODE_OFF_OPTION,)
 
-    def _on_resolve_failed(self, tile, reason: str) -> None:
+    def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0) -> None:
         if self._closing:
             return                    # 关窗后迟到的取流失败：别再拉轮询线程
+        if requested_quality and int(tile.quality) != requested_quality:
+            return
+        if tile in self._pending_capture:
+            self._pending_capture.pop(tile)
+            self._record_notice(f"原画取流失败，录制未开始：{reason}")
+            self._restore_capture_quality(tile)
+            return
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
@@ -881,7 +902,10 @@ class MainWindow(QMainWindow):
                 if start_visible and player is None and tile.room.get("live"):
                     self.start_tile(tile)
             else:
+                self._pending_capture.pop(tile, None)
                 self.recorder.stop(tile)
+                if tile not in self.recorder.sessions:
+                    self._restore_capture_quality(tile)
                 if player is None:
                     continue
                 print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
@@ -894,9 +918,12 @@ class MainWindow(QMainWindow):
         if timer is not None:
             timer.stop()
         self._retry_count.pop(tile, None)
+        self._pending_capture.pop(tile, None)
         self.recorder.stop(tile)
         self._stop_tile(tile)
         tile.set_offline()
+        if tile not in self.recorder.sessions:
+            self._restore_capture_quality(tile)
         print(f"[下播] {tile.room.get('uname')} 画面已清空，格子保留",
               file=sys.stderr, flush=True)
 
@@ -1223,6 +1250,13 @@ class MainWindow(QMainWindow):
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         if tile is None:
             return
+        if tile in self._capture_quality and quality != 10000:
+            blocked = tile.blockSignals(True)
+            try:
+                tile.set_quality(10000)
+            finally:
+                tile.blockSignals(blocked)
+            return
         tile.quality = quality
         tile.room["quality"] = quality
         if tile.room.get("live"):
@@ -1316,9 +1350,12 @@ class MainWindow(QMainWindow):
         tile = self._tile_of(str(room.get("room_id")))
         if tile is None:
             return
+        self._pending_capture.pop(tile, None)
         self.recorder.stop(tile)
         self._stop_tile(tile)
         tile.set_room(None)
+        if tile not in self.recorder.sessions:
+            self._restore_capture_quality(tile)
         self._refresh_meta()
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
@@ -1345,7 +1382,7 @@ class MainWindow(QMainWindow):
             collected.append(("● 停止录制这一路", lambda t=tile: self.recorder.stop(t)))
         else:
             collected.append(("● 开始录制这一路", lambda t=tile:
-                              self.recorder.start(t, recording=True)))
+                              self._start_capture(t, recording=True)))
         if session:
             minutes = int(session.settings.get("recording_replay_minutes", 3))
             collected.append((f"保存最近约 {minutes} 分钟", lambda t=tile:
@@ -1354,21 +1391,88 @@ class MainWindow(QMainWindow):
                 collected.append(("关闭即时回放缓存", lambda t=tile: self.recorder.stop(t)))
         else:
             collected.append(("开启即时回放缓存", lambda t=tile:
-                              self.recorder.start(t, recording=False)))
+                              self._start_capture(t, recording=False)))
         if manager is not None:
             for label, callback, name in manager.tile_actions(tile):
                 collected.append((label, lambda cb=callback: manager.run_action(cb)))
         tile.plugin_actions = collected
 
     def _toggle_recording(self, tile) -> None:
+        if tile in self._pending_capture:
+            self._pending_capture.pop(tile)
+            self._restore_capture_quality(tile)
+            return
         session = self.recorder.sessions.get(tile)
         if session and session.recording:
             self.recorder.stop(tile)
         else:
-            self.recorder.start(tile, recording=True)
+            self._start_capture(tile, recording=True)
+
+    def _start_capture(self, tile, *, recording: bool) -> None:
+        if tile in self._pending_capture:
+            return
+        if not str(self.settings.get("recording_dir") or "").strip():
+            if not self.open_settings("recording"):
+                return
+            if not str(self.settings.get("recording_dir") or "").strip():
+                self._record_notice("请先选择录制保存目录")
+                return
+        if not self.settings.get("recording_lock_quality", True):
+            self.recorder.start(tile, recording=recording)
+            return
+        if tile in self.recorder.sessions:
+            self.recorder.start(tile, recording=recording)
+            return
+        if not tile.room.get("live") or not tile.isVisible():
+            self.recorder.start(tile, recording=recording)
+            return
+        self._capture_quality[tile] = (str(tile.room.get("room_id") or ""), int(tile.quality))
+        self._pending_capture[tile] = recording
+        tile.quality_button.setEnabled(False)
+        tile.quality_locked = True
+        if tile.quality == 10000 and tile.actual_quality == 10000 and tile.stream_url:
+            self._finish_pending_capture(tile)
+            return
+        if tile.quality != 10000:
+            blocked = tile.blockSignals(True)
+            try:
+                tile.set_quality(10000)
+            finally:
+                tile.blockSignals(blocked)
+            tile.room["quality"] = 10000
+        self.start_tile(tile)
+
+    def _finish_pending_capture(self, tile) -> None:
+        recording = self._pending_capture.pop(tile)
+        if tile.actual_quality != 10000:
+            self._record_notice("直播源未提供原画，录制未开始")
+            self._restore_capture_quality(tile)
+        elif not self.recorder.start(tile, recording=recording):
+            self._restore_capture_quality(tile)
+
+    def _restore_capture_quality(self, tile) -> None:
+        previous = self._capture_quality.pop(tile, None)
+        if previous is None:
+            return
+        tile.quality_locked = False
+        tile.quality_button.setEnabled(True)
+        room_id, before = previous
+        if str(tile.room.get("room_id") or "") != room_id:
+            return
+        if before != tile.quality:
+            blocked = tile.blockSignals(True)
+            try:
+                tile.set_quality(before)
+            finally:
+                tile.blockSignals(blocked)
+            tile.room["quality"] = before
+            if tile.room.get("live") and tile.isVisible() and not self._closing:
+                self.start_tile(tile)
 
     def _record_state_changed(self, tile) -> None:
         session = self.recorder.sessions.get(tile)
+        if session is None and tile not in self._pending_capture:
+            self._restore_capture_quality(tile)
         state = "record" if session and session.recording and not session.stopping else (
             "cache" if session and not session.stopping else "")
         tile.set_recording_state(state)
@@ -1378,7 +1482,7 @@ class MainWindow(QMainWindow):
             return
         if any(word in message for word in ("磁盘", "空间不足", "找不到 FFmpeg",
                                             "启动失败", "续录失败", "导出失败",
-                                            "连接中", "只能录制", "正在结束", "备用目录")):
+                                            "连接中", "只能录制", "正在结束", "保存目录", "原画")):
             box = QMessageBox(QMessageBox.Warning, "录制提醒", message,
                               QMessageBox.Ok, self)
             box.setAttribute(Qt.WA_DeleteOnClose)

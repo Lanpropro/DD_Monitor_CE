@@ -16,6 +16,7 @@
 #   `work\deps` 缺了脚本会提示你怎么装（pip 要写系统临时目录，得在普通命令行跑）。
 param(
     [string]$OutDir = "",
+    [string]$FFmpegExe = "",
     [switch]$SkipZip,
     [switch]$SourceOnly
 )
@@ -40,6 +41,26 @@ $name = "$display-$version"
 $app = Join-Path $OutDir $name
 Write-Output "=== 打包 $name -> $OutDir ==="
 
+# 录制是本体功能：发布包必须带一个可用的 FFmpeg，而不是让新用户填路径。
+if (-not $FFmpegExe) {
+    $bundled = Join-Path $repo "ffmpeg.exe"
+    if (Test-Path $bundled) { $FFmpegExe = $bundled }
+    else {
+        $command = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+        if ($command) { $FFmpegExe = $command.Source }
+    }
+}
+if (-not $FFmpegExe -or -not (Test-Path -LiteralPath $FFmpegExe -PathType Leaf)) {
+    throw "找不到 ffmpeg.exe；请用 -FFmpegExe 指定打包机上的 FFmpeg 文件"
+}
+$FFmpegExe = [System.IO.Path]::GetFullPath($FFmpegExe)
+$ffmpegHome = Split-Path (Split-Path $FFmpegExe -Parent) -Parent
+$ffmpegLicense = Join-Path $ffmpegHome "LICENSE"
+$ffmpegReadme = Join-Path $ffmpegHome "README.txt"
+if (-not (Test-Path $ffmpegLicense) -or -not (Test-Path $ffmpegReadme)) {
+    throw "FFmpeg 包缺少 LICENSE 或 README.txt，不能做发布包：$ffmpegHome"
+}
+
 Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 
@@ -57,6 +78,10 @@ foreach ($rel in $tracked) {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     Copy-Item $src $dst -Force
 }
+Copy-Item -LiteralPath $FFmpegExe -Destination (Join-Path $app "ffmpeg.exe") -Force
+New-Item -ItemType Directory -Force -Path (Join-Path $app "ffmpeg-license") | Out-Null
+Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $app "ffmpeg-license\LICENSE") -Force
+Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $app "ffmpeg-license\README.txt") -Force
 
 # ---- 2) VLC 运行库（.gitignore 里不含它，得手动带上）----
 foreach ($file in @("libvlc.dll", "libvlccore.dll")) {
@@ -104,6 +129,8 @@ blivedm\                    弹幕库（B 站直播弹幕，随包提供）
 dev\                        自检脚本与预览工具（改代码时用，运行程序不需要）
 plugins\                    VLC 插件（必需，别删）
 libvlc.dll / libvlccore.dll VLC 播放内核（必需，别删）
+ffmpeg.exe                  录制与即时回放所用的 FFmpeg（自动发现，无需设置路径）
+ffmpeg-license\             FFmpeg 的许可与来源说明
 plugins_user\               插件目录（放 <名字>\plugin.py）
 utils\                      配置目录（首次运行会生成 config.json）
 docs\                       文档与截图
@@ -147,6 +174,10 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
     # 而 onedir 的 _MEIPASS 就是 _internal）；插件也必须和 dll 挨着
     $internal = Join-Path $exeDir "_internal"
+    Copy-Item -LiteralPath $FFmpegExe -Destination (Join-Path $exeDir "ffmpeg.exe") -Force
+    New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "ffmpeg-license") | Out-Null
+    Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $exeDir "ffmpeg-license\LICENSE") -Force
+    Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $exeDir "ffmpeg-license\README.txt") -Force
     Copy-Item (Join-Path $repo "libvlc.dll") $internal -Force
     Copy-Item (Join-Path $repo "libvlccore.dll") $internal -Force
     robocopy (Join-Path $repo "plugins") (Join-Path $internal "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
@@ -177,6 +208,7 @@ DD 监控室 $version（exe 便携版）
 plugins_user\ 里是插件（自带的弹幕记录 / 发弹幕就在里面，自己写的插件也放这里），
 整个目录拷到别的 Windows 10/11 64 位机器就能用。
 _internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
+ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可与来源说明。
 "@
     Set-Content -Path (Join-Path $exeDir "运行说明.txt") -Value $exeReadme -Encoding UTF8
 
@@ -185,7 +217,7 @@ _internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
     Write-Output "=== 实跑 20 秒验证（看有没有写出启动日志）==="
     $logDir = Join-Path $exeDir "logs"
     Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
-    $proc = Start-Process -FilePath (Join-Path $exeDir "$name-exe.exe") -WorkingDirectory $exeDir -PassThru
+    $proc = Start-Process -FilePath (Join-Path $exeDir "$name-exe.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 20
     $alive = -not $proc.HasExited
     if ($alive) { Stop-Process -Id $proc.Id -Force }

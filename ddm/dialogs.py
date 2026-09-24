@@ -313,75 +313,72 @@ class RecordingSettingsPage(QWidget):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
         layout = QVBoxLayout(self)
-        layout.addLayout(_page_head("录制与即时回放", "每个格子独立录制原始直播流；画面墙控件和弹幕不会进入文件。"))
+        layout.addLayout(_page_head("录制与即时回放", "每个格子独立录制直播流；画面墙控件和弹幕不会进入文件。"))
         grid = QGridLayout()
         layout.addLayout(grid)
         self.directory = QLineEdit()
-        self.backup = QLineEdit()
-        self.ffmpeg = QLineEdit()
-        for row, (label, edit, folder) in enumerate((
-            ("保存目录", self.directory, True),
-            ("满盘备用目录（必须是另一磁盘）", self.backup, True),
-            ("FFmpeg 可执行文件", self.ffmpeg, False),
-        )):
-            grid.addWidget(QLabel(label), row, 0)
-            line = QHBoxLayout()
-            line.addWidget(edit, 1)
-            button = QPushButton("浏览…")
-            button.clicked.connect(lambda _checked=False, e=edit, f=folder:
-                                   self._browse(e, f))
-            line.addWidget(button)
-            grid.addLayout(line, row, 1)
+        grid.addWidget(QLabel("保存目录"), 0, 0)
+        directory_row = QHBoxLayout()
+        directory_row.addWidget(self.directory, 1)
+        browse = QPushButton("浏览…")
+        browse.clicked.connect(self._browse)
+        directory_row.addWidget(browse)
+        grid.addLayout(directory_row, 0, 1)
         self.format = QComboBox()
         self.format.addItem("MP4（剪辑软件兼容性优先）", "mp4")
         self.format.addItem("MKV（抗意外中断）", "mkv")
+        self.format.addItem("MOV（剪辑软件常用）", "mov")
+        self.format.addItem("TS（流媒体常用）", "ts")
         self.codec = QComboBox()
         self.codec.addItem("直接保存原始流（画质不变、负载低）", "copy")
         self.codec.addItem("H.264 + AAC 重编码（可调码率/帧率）", "h264")
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
-        self.bitrate.setSuffix(" kbps")
-        self.fps = QSpinBox()
-        self.fps.setRange(10, 120)
-        self.fps.setSuffix(" fps")
+        self.fps = QComboBox()
+        for fps in (24, 25, 30, 50, 60):
+            self.fps.addItem(str(fps), fps)
         self.replay_minutes = QSpinBox()
         self.replay_minutes.setRange(1, 60)
-        self.replay_minutes.setSuffix(" 分钟")
         self.min_free = QSpinBox()
         self.min_free.setRange(256, 100000)
-        self.min_free.setSuffix(" MB")
-        for row, (label, widget) in enumerate((
-            ("输出格式", self.format), ("编码方式", self.codec),
-            ("视频码率", self.bitrate), ("帧率", self.fps),
-            ("回放缓存时长", self.replay_minutes), ("磁盘剩余空间警戒线", self.min_free),
-        ), start=3):
+        self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
+        for row, (label, widget, unit) in enumerate((
+            ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
+            ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
+            ("回放缓存时长", self.replay_minutes, "分钟"),
+            ("磁盘剩余空间警戒线", self.min_free, "MB"),
+        ), start=1):
             grid.addWidget(QLabel(label), row, 0)
-            grid.addWidget(widget, row, 1)
+            if unit:
+                field = QHBoxLayout()
+                field.addWidget(widget, 1)
+                field.addWidget(QLabel(unit))
+                grid.addLayout(field, row, 1)
+            else:
+                grid.addWidget(widget, row, 1)
+        grid.addWidget(self.lock_quality, 7, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self._load(settings)
         self.bitrate.valueChanged.connect(self._enable_transcode)
-        self.fps.valueChanged.connect(self._enable_transcode)
+        self.fps.currentIndexChanged.connect(self._enable_transcode)
         layout.addStretch(1)
 
-    def _browse(self, edit: QLineEdit, folder: bool) -> None:
-        if folder:
-            value = QFileDialog.getExistingDirectory(self, "选择目录", edit.text())
-        else:
-            value, _filter = QFileDialog.getOpenFileName(
-                self, "选择 FFmpeg", edit.text(), "FFmpeg (ffmpeg.exe);;所有文件 (*)")
+    def _browse(self) -> None:
+        value = QFileDialog.getExistingDirectory(self, "选择录制保存目录",
+                                                 self.directory.text())
         if value:
-            edit.setText(value)
+            self.directory.setText(value)
 
     def _load(self, settings: dict) -> None:
         self.directory.setText(str(settings.get("recording_dir") or ""))
-        self.backup.setText(str(settings.get("recording_backup_dir") or ""))
-        self.ffmpeg.setText(str(settings.get("recording_ffmpeg") or ""))
         self.format.setCurrentIndex(max(0, self.format.findData(settings.get("recording_format", "mp4"))))
         self.codec.setCurrentIndex(max(0, self.codec.findData(settings.get("recording_codec", "copy"))))
         self.bitrate.setValue(int(settings.get("recording_bitrate", 6000)))
-        self.fps.setValue(int(settings.get("recording_fps", 30)))
+        fps_index = self.fps.findData(int(settings.get("recording_fps", 30)))
+        self.fps.setCurrentIndex(fps_index if fps_index >= 0 else self.fps.findData(30))
         self.replay_minutes.setValue(int(settings.get("recording_replay_minutes", 3)))
         self.min_free.setValue(int(settings.get("recording_min_free_mb", 2048)))
+        self.lock_quality.setChecked(bool(settings.get("recording_lock_quality", True)))
         self._update_codec()
 
     def _update_codec(self) -> None:
@@ -406,14 +403,13 @@ class RecordingSettingsPage(QWidget):
     def values(self) -> dict:
         return {
             "recording_dir": self.directory.text().strip(),
-            "recording_backup_dir": self.backup.text().strip(),
-            "recording_ffmpeg": self.ffmpeg.text().strip(),
             "recording_format": self.format.currentData(),
             "recording_codec": self.codec.currentData(),
             "recording_bitrate": self.bitrate.value(),
-            "recording_fps": self.fps.value(),
+            "recording_fps": self.fps.currentData(),
             "recording_replay_minutes": self.replay_minutes.value(),
             "recording_min_free_mb": self.min_free.value(),
+            "recording_lock_quality": self.lock_quality.isChecked(),
         }
 
 

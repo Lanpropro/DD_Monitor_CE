@@ -64,6 +64,9 @@ def main() -> None:
         pass
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    # 只测浮层位置；假房间的异步取流不应参与这个 UI 自检。
+    for method in ("start_tile", "refresh_status", "sync_danmaku"):
+        patch.object(MainWindow, method, return_value=None).start()
     window = MainWindow([dict(room) for room in ROOMS],
                         [dict(room) for room in ROOMS], state={})
     window.setGeometry(-9000, -9000, 1300, 800)

@@ -4628,6 +4628,8 @@ class Tile(QFrame):
         menu.exec(self.quality_button.mapToGlobal(self.quality_button.rect().bottomLeft()))
 
     def set_quality(self, value: int) -> None:
+        if getattr(self, "quality_locked", False) and value != 10000:
+            return
         self.quality = value
         self.actual_quality = 0
         self.quality_button.setText(self._quality_text())

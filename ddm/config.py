@@ -34,15 +34,14 @@ DEFAULT_SETTINGS = {
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
     "live_alert": True,         # 关注的主播开播时，列表上播水滴 + 「开播了」气泡
-    "recording_dir": "",         # 空 = 程序旁 recordings
-    "recording_backup_dir": "",  # 满盘后续录所用的另一磁盘
-    "recording_ffmpeg": "",      # 空 = 程序旁或 PATH 的 ffmpeg
+    "recording_dir": "",         # 首次录制前必须由用户选择
     "recording_format": "mp4",
     "recording_codec": "copy",    # 不重编码；选 h264 时才使用码率/帧率
     "recording_bitrate": 6000,    # kbps
     "recording_fps": 30,
     "recording_replay_minutes": 3,
     "recording_min_free_mb": 2048,
+    "recording_lock_quality": True,  # 录制期间锁定原画，结束后恢复画质
     "danmaku_font": "",       # 弹幕字体（空 = 跟主题默认字体）
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）
     "danmaku_max_blocks": 300,  # 弹幕最多留多少条（超了就从最早的开始丢）

@@ -18,6 +18,7 @@
 import os
 import sys
 import time
+from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
@@ -50,6 +51,9 @@ def main() -> None:
         pass
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    # 只测几何；假房间取流/弹幕会让原生播放线程在窗口切换时偶发退出。
+    for method in ("start_tile", "refresh_status", "sync_danmaku"):
+        patch.object(MainWindow, method, return_value=None).start()
     badge_sample = StreamBadge()
     badge_sample.set_state(True, "534")
     badge_pixmap = badge_sample.grab()

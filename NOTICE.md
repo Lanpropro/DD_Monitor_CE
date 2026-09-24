@@ -26,6 +26,9 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 - `blivedm/`：B 站直播弹幕协议库，上游 https://github.com/xfgryujk/blivedm 。
   这份是从原仓库带过来的，**仓库里没有附带它的许可文件**；如果以后要对外分发，需要补上上游的许可。
 - VLC（libvlc/plugins）：随包运行库，未放进本仓库，见 README。
+- FFmpeg：录制/即时回放使用独立的 `ffmpeg.exe` 子进程。发布包所带的
+  `ffmpeg-license/README.txt` 记录具体构建版本与对应源码地址，
+  `ffmpeg-license/LICENSE` 为其许可证；该 GPLv3 构建未纳入本仓库源码。
 
 ## 还没做的
 
