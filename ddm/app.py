@@ -1307,31 +1307,52 @@ class MainWindow(QMainWindow):
         scope = str(self.settings.get("recording_replay_scope", "recorded") or "")
         return scope if scope in ("recorded", "all") else "recorded"
 
+    def _replay_max_tiles(self) -> int:
+        """``all`` 时最多给几格开缓存；<= 0 表示不限制。"""
+        try:
+            return int(self.settings.get("recording_replay_max_tiles", 3))
+        except (TypeError, ValueError):
+            return 3
+
     def _sync_replay_scope(self) -> None:
         """按「即时回放范围」自动开 / 关各格的缓存。
 
         ``recorded``：只跟着录制走。录制中的格子本来就在写分段，直接就能导出回放，
         所以什么都不用开；纯缓存的会话（以前手动开的）会被停掉。
-        ``all``：所有播放中的格子都开一份缓存，随时都能「保存最近 N 分钟」。
+        ``all``：所有播放中的格子都开一份缓存，随时都能「保存最近 N 分钟」，
+        但**最多开 ``recording_replay_max_tiles`` 格** —— 每开一格都是再拉一路
+        同样的流（带宽翻倍）加一个 ffmpeg 进程（约 155 MB 内存）。用户实测过
+        8 格全开：16 路同时下载、1.2 GB 常驻内存，打网游时延迟直接抖起来。
 
         注意这里**直接调 recorder.start()**、不走 ``_start_capture()`` —— 后者会为了
         录制把画质锁到原画，而「所有格子都锁原画」会把带宽吃光。
         """
         scope = self._replay_scope()
         has_dir = bool(str(self.settings.get("recording_dir") or "").strip())
-        for tile in self.wall.tiles:
-            session = self.recorder.sessions.get(tile)
-            if scope == "recorded":
+        if scope != "all":
+            for tile in self.wall.tiles:
+                session = self.recorder.sessions.get(tile)
                 if session is not None and not session.recording:
                     self.recorder.stop(tile)        # 收窄范围：停掉纯缓存
-                continue
-            if not has_dir or session is not None:
-                continue                            # 没配目录 / 已经有会话
+            return
+        if not has_dir:
+            return                                  # 没配保存目录，缓存没地方写
+        limit = self._replay_max_tiles()
+        # 额度按「已经在缓存的格子」现数（用户手动录制的那些不占额度）。
+        # 每轮重数一遍，所以某个格子的缓存停掉之后，额度会自动让给后面的格子。
+        cached = sum(1 for session in self.recorder.sessions.values()
+                     if not session.recording)
+        for tile in self.wall.tiles:
+            if tile in self.recorder.sessions:
+                continue                            # 已经有会话（录制或缓存）
+            if limit > 0 and cached >= limit:
+                break                               # 额度用完，剩下的格子先不缓存
             if not tile.isVisible() or not tile.room.get("live"):
                 continue
             if not tile.room.get("room_id") or not tile.stream_url:
                 continue                            # 还没取到流，等下一轮
-            self.recorder.start(tile, recording=False)
+            if self.recorder.start(tile, recording=False):
+                cached += 1
 
     def _audit_audio(self) -> None:
         """巡检：格子记的静音 / 音量，和播放器**实际**的值有没有走散。

@@ -172,7 +172,10 @@ def main():
         assert until(app, lambda: bool(manager.sessions[replay].finished_parts()), 8)
         assert manager.save_replay(replay)
         assert until(app, lambda: not manager.exports, 8)
-        replay_files = list((root / "out" / "replays").glob("*.mp4"))
+        # 只认主播丁那一份：结束录制时会**顺手也存一份「最近 N 分钟」**，
+        # 所以前面几路（主播甲 / 主播乙 / 转码 / mov / ts）的回放也都落在
+        # replays 里，用 `*.mp4` 数会数到 3 个。
+        replay_files = list((root / "out" / "replays").glob("主播丁*.mp4"))
         assert len(replay_files) == 1 and replay_files[0].stat().st_size > 500
         assert manager.start(replay, recording=True)  # 缓存升级为持续录制
         with patch.object(manager, "_free_enough", return_value=False):

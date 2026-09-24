@@ -266,14 +266,51 @@
   4) **录制占用**：ffmpeg 子进程改用 `_FFMPEG_FLAGS =
      CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS`（0x08004000）启动，后台录制
      不再跟前台游戏抢 CPU 调度。要注意 `-c copy` 下 ffmpeg 本身几乎不吃 CPU，
-     真正抢的是**带宽**（另拉一路同样的流）和磁盘 IO —— 带宽那条没法从软件侧消除。
-- 自检现状：全量 **43 项**。其中 2 项固定失败，都是本机沙箱限制
-  （`selfcheck_plugins.py` 与 `selfcheck_recording.py`，同为 `tempfile.mkdtemp`
-  建出的目录 `WinError 5`）；另有 4 项会偶发失败 —— `selfcheck_orientation_layout.py`
-  和 `selfcheck_tile_overlay.py`、`selfcheck_slots.py` 是退出期 `0xC0000409`，
-  `selfcheck_search.py` 是离屏时 `Ctrl+F` 的焦点断言，单独重跑都能过。
-  （原因同上，与本轮改动无关）。未推送、未更新 Release 附件、未碰
-  `utils/config.json`。
+     真正抢的是**带宽**（另拉一路同样的流）和磁盘 IO。带宽翻倍本身没法在
+     「另拉一路流」这个架构里消除，但**并发数**可以 —— 见下面的二次整改。
+- 录制占用二次整改（用户报「单开一格录制占用也有点高，影响打游戏」，实测下来
+  问题根本不在那一格）：
+  1) **实测**：软件已经关了，后台还挂着 **8 个 ffmpeg** 在录 —— 每个 155 MB 内存
+     （合计 1.24 GB）、8 路持续下行约 13.5 Mbps，`videos/.ddm-parts` 里攒了
+     1924 个分段 / **4.3 GB**。父进程已死，全是孤儿进程。
+  2) **根因**：`recording_replay_scope` 默认 `"all"`，而用户配置里从来没存过这个
+     键（老配置写的），`MainWindow.__init__` 又是先 `dict(DEFAULT_SETTINGS)` 再
+     `update(用户配置)`，所以生效值就是 `all` —— **每个在播的格子都再拉一路流做
+     缓存**，8 格就是 16 路同时下载。用户以为「只录了一格」，实际 8 格全在缓存。
+  3) **默认值改成 `recorded`**，并新增 `recording_replay_max_tiles`（默认 3）给
+     `all` 封顶。`_sync_replay_scope()` 的额度按「已经在缓存的会话」现数，所以
+     停掉一格之后后面的格子能补上；用户手动录制的那格不占额度。设置页加了
+     「缓存格子数上限」这一项，选 `recorded` 时置灰（那时它不起作用）。
+  4) **孤儿进程兜底**：主进程建一个 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的
+     Job Object（句柄故意不关），每个 ffmpeg 起来后 `AssignProcessToJobObject`
+     进去 —— 主进程正常退出、崩溃、被任务管理器强杀，内核都会连坐杀掉它们。
+     自检里真起一个进程用 `IsProcessInJob` 验证（ctypes 的结构体版面或 64 位
+     句柄宽度写错的话，只有这里会露馅）。
+  5) **IO 优先级**：创建标志里的 `BELOW_NORMAL_PRIORITY_CLASS` 只管 CPU，进程起来
+     之后再调一次 `SetPriorityClass(PROCESS_MODE_BACKGROUND_BEGIN)`，把**磁盘 IO
+     优先级**也压到最低（这个值不能和别的优先级类一起作为创建标志传）。导出进程
+     同样处理。
+  6) **边录边裁**：`_prune_cache()` 以前只在 ffmpeg **退出后**才调一次，而直播一开
+     几小时进程根本不退，纯缓存会话的分段就一路堆（上面那 222 段/格就是这么来的）。
+     现在跟着 2 秒一轮的巡检走，但节流到每 `PRUNE_SECONDS`(30) 秒一趟 ——
+     `finished_parts()` 要 glob 整个目录，不节流反而会变成新的开销。
+  7) **断流少重启**：http/https 输入加 `-reconnect 1 -reconnect_streamed 1
+     -reconnect_delay_max 5`，URL 还有效时 ffmpeg 自己接回去；少一次整段重启就少
+     一个分段接缝（URL 过期时仍走外层重取流）。非 http 流不加这些协议选项。
+  8) 顺带清掉 `videos/.ddm-parts` 里的 1924 个残留分段（4.3 GB）。
+  `selfcheck_replay_scope.py` 从 7 节扩到 8 节（新增上限三连 + Job/重连 + 裁剪节流）。
+  没做的：让 VLC 复用同一路流做录制（`sout` / `#duplicate`）能省掉全部额外带宽，
+  但要重做「最近 N 分钟」的分段架构、开关录制得重启那一格，收益只剩修完并发之后
+  的最后一半，先不动。
+- 自检现状（本次实测重跑）：全量 **43 项**，只有 `selfcheck_recording.py` 失败，
+  而且**与录制占用那轮改动无关** —— 把改动 `git stash` 回基线跑，失败点一模一样。
+  真实原因是它 L176 的 `assert len(replay_files) == 1`：那个 glob 写的是
+  `replays/*.mp4`，而「手动结束录制时也自动存一份即时回放」之后，前面几路
+  （甲 / 乙 / 转码 / mov / ts）的回放也都落在同一个目录里，`*.mp4` 会数到 3 个。
+  以前这条被 `tempfile.mkdtemp` 的 `WinError 5`（沙箱）挡在前面，根本没跑到。
+  现已把 glob 收窄成 `主播丁*.mp4` 并通过。此前记的「2 项固定失败」这次都没再
+  复现（同一次全量里 `selfcheck_plugins.py` 退 0），4 项偶发失败也全过了。
+  未推送、未更新 Release 附件、未碰 `utils/config.json`。
 - 跑自检的正确姿势（踩过的坑）：照 `dev\run-checks.cmd` 原样跑 —— 只设
   `DDM_NO_SAVE=1`、`PYTHON_VLC_LIB_PATH`、`PYTHONIOENCODING=utf-8`，
   **不要自己加 `QT_QPA_PLATFORM=offscreen`**。只有

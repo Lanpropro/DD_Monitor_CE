@@ -345,8 +345,17 @@ class RecordingSettingsPage(QWidget):
         self.replay_scope.setToolTip(
             "「保存最近 N 分钟」这个即时回放功能，给哪些格子开缓存。\n"
             "它跟着直播自动开启，不用手动点；缓存是临时的，没点保存就会在停播时清掉。\n"
-            "所有格子：每格常驻一个 FFmpeg 缓存进程，随时能回放，但更吃带宽和 CPU。\n"
-            "只跟着录制走：录制中的格子本来就在写分段，零额外开销。")
+            "只跟着录制走（默认）：录制中的格子本来就在写分段，零额外开销。\n"
+            "所有播放中的格子：每格常驻一个 FFmpeg 缓存进程，随时能回放，\n"
+            "但每格都是再拉一路同样的流 —— 8 格就是 16 路同时下载、1.2 GB 内存，\n"
+            "打网游时会明显抢带宽，所以还要用下面的上限封顶。")
+        self.replay_max = QSpinBox()
+        self.replay_max.setRange(0, 99)
+        self.replay_max.setSpecialValueText("不限制")
+        self.replay_max.setToolTip(
+            "「所有播放中的格子」时，最多给几格开缓存；0 = 不限制。\n"
+            "每开一格 = 再拉一路同样的流（带宽翻倍）+ 一个 FFmpeg 进程（约 155 MB 内存）。\n"
+            "选「只跟着录制走」时这一项不起作用。")
         self.min_free = QSpinBox()
         self.min_free.setRange(256, 100000)
         self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
@@ -354,6 +363,7 @@ class RecordingSettingsPage(QWidget):
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
             ("即时回放范围", self.replay_scope, ""),
+            ("缓存格子数上限", self.replay_max, ""),
             ("回放缓存时长", self.replay_minutes, "分钟"),
             ("磁盘剩余空间警戒线", self.min_free, "MB"),
         ), start=1):
@@ -365,8 +375,9 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 8, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 9, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
+        self.replay_scope.currentIndexChanged.connect(self._update_scope)
         self._load(settings)
         self.bitrate.valueChanged.connect(self._enable_transcode)
         self.fps.currentIndexChanged.connect(self._enable_transcode)
@@ -389,9 +400,11 @@ class RecordingSettingsPage(QWidget):
         scope = self.replay_scope.findData(
             str(settings.get("recording_replay_scope", "recorded")))
         self.replay_scope.setCurrentIndex(scope if scope >= 0 else 0)
+        self.replay_max.setValue(int(settings.get("recording_replay_max_tiles", 3)))
         self.min_free.setValue(int(settings.get("recording_min_free_mb", 2048)))
         self.lock_quality.setChecked(bool(settings.get("recording_lock_quality", True)))
         self._update_codec()
+        self._update_scope()
 
     def _update_codec(self) -> None:
         hint = ("当前为原始流直存；改动码率或帧率会自动切换为 H.264 重编码"
@@ -399,6 +412,10 @@ class RecordingSettingsPage(QWidget):
                 "当前使用 H.264 重编码，码率和帧率均会生效")
         self.bitrate.setToolTip(hint)
         self.fps.setToolTip(hint)
+
+    def _update_scope(self) -> None:
+        """「只跟着录制走」时上限不起作用，置灰免得用户以为它没生效。"""
+        self.replay_max.setEnabled(self.replay_scope.currentData() == "all")
 
     def _enable_transcode(self) -> None:
         if self.codec.currentData() == "copy":
@@ -421,6 +438,7 @@ class RecordingSettingsPage(QWidget):
             "recording_fps": self.fps.currentData(),
             "recording_replay_minutes": self.replay_minutes.value(),
             "recording_replay_scope": self.replay_scope.currentData(),
+            "recording_replay_max_tiles": self.replay_max.value(),
             "recording_min_free_mb": self.min_free.value(),
             "recording_lock_quality": self.lock_quality.isChecked(),
         }
