@@ -6,6 +6,7 @@
 import sys
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QFrame
 
 from .bili import StreamResolver
@@ -180,8 +181,9 @@ class HoverPreview(QObject):
         self._size_popup(CAROUSEL_WIDTH)
         origin = item.mapTo(parent, QPoint(0, 0))
         if self.sidebar.side == "top":
-            # 竖屏：卡片是横排的、右边没空间，改成向下弹（左右和卡片对齐）
-            x = origin.x()
+            # 竖屏：卡片是横排的、右边没空间，改成**向下弹**；左右跟卡片的竖直
+            # 中线对齐（用户要求：放到和卡片中心对齐的位置，而不是贴着左边缘）
+            x = origin.x() + (item.width() - self._popup.width()) // 2
             y = origin.y() + item.height() + PREVIEW_GAP
         else:
             # 左边界落在**卡片右侧 1/3** 处，其余部分探到侧栏外面
@@ -193,9 +195,31 @@ class HoverPreview(QObject):
         y = max(0, min(y, parent.height() - self._popup.height()))
         self._popup.move(x, y)
 
+    def _cursor_on_item(self, item) -> bool:
+        """指针现在是不是还落在这个条目上。
+
+        滚动之后就不一定了：鼠标没动、只是滚轮把卡片滚走了，指针底下已经换成
+        别的卡片（或者成了空白）。
+        """
+        try:
+            return item.rect().contains(item.mapFromGlobal(QCursor.pos()))
+        except RuntimeError:                    # 条目已经被删掉
+            return False
+
     def _update_popup_position(self) -> None:
-        if self._item is not None and self._popup.isVisible():
-            self._place_popup(self._item)
+        """列表滚动时浮层跟着挪；卡片被滚出指针底下就收掉。
+
+        用户报的：预览开着、指针不动，只用滚轮把卡片滚走，浮层还留着，而且被夹到
+        软件上下边缘贴着 —— 因为 `_place_popup()` 末尾那句 clamp 会把已经跑到视口
+        外的条目硬夹回边界。指针底下已经不是这张卡片了，这里该收掉。
+        """
+        item = self._item
+        if item is None or not self._popup.isVisible():
+            return
+        if not self._cursor_on_item(item):
+            self._stop_now()
+            return
+        self._place_popup(item)
 
     def _on_failed(self, generation: int, room_id: str, reason: str) -> None:
         if generation != self._generation:

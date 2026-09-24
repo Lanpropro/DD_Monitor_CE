@@ -94,8 +94,11 @@ def main():
         app.processEvents()
         preview._place_popup(first)
         origin = first.mapTo(sidebar, QPoint(0, 0))
-        assert preview._popup.x() == origin.x(), \
-            f"竖屏该和卡片左对齐：popup={preview._popup.x()} card={origin.x()}"
+        # 竖屏是**和卡片的竖直中线对齐**（不再是贴左边缘）；卡片靠左时居中会向左
+        # 越界，照样夹回窗口内。
+        want_x = max(0, origin.x() + (first.width() - preview._popup.width()) // 2)
+        assert preview._popup.x() == want_x, \
+            f"竖屏该和卡片中心对齐：popup={preview._popup.x()} want={want_x}"
         assert origin.y() + first.height() <= preview._popup.y() \
             <= origin.y() + first.height() + 20, "竖屏该向下弹出（落在卡片正下方）"
         assert first.name_label.isVisible(), "悬浮预览不该盖掉卡片信息"

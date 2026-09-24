@@ -23,6 +23,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.preview import HoverPreview  # noqa: E402
 from ddm.widgets import CAROUSEL_WIDTH, NavThumb  # noqa: E402
 
 
@@ -133,13 +134,28 @@ def main() -> None:
         origin = item.mapTo(popup.parentWidget(), QPoint(0, 0))
         print(f"  卡片 {item.width()}x{item.height()} @({origin.x()},{origin.y()})　"
               f"浮层 @({popup.x()},{popup.y()}) 高={popup.height()}")
-        assert popup.x() == origin.x(), \
-            f"竖屏该和卡片左对齐：{popup.x()} vs {origin.x()}"
+        # 竖屏是**和卡片中心对齐**（不是贴左边缘）。第一张卡片靠左，居中后会向左
+        # 越界而被夹到 0 —— 这是预期；完整不越界的居中在下面用第二张卡片验。
+        want_x = max(0, origin.x() + (item.width() - popup.width()) // 2)
+        assert popup.x() == want_x, \
+            f"竖屏该和卡片中心对齐：{popup.x()} vs {want_x}"
         assert popup.y() >= origin.y() + item.height(), \
             f"竖屏该向下弹（在卡片下方）：{popup.y()} vs 卡底 {origin.y() + item.height()}"
         assert popup.y() <= origin.y() + item.height() + 20, "向下弹的缝别太大"
         assert popup.width() == CAROUSEL_WIDTH and popup.height() == NavThumb.HEIGHT, \
             "竖屏的浮层该和横屏一样大（用户要求两边对齐）"
+
+        # 换一张**不在最左边**的卡片：浮层该和卡片的竖直中线对齐（居中），
+        # 而不是贴着卡片左边缘 —— 贴左的话整块预览都偏到一边去了。
+        other = sidebar.items()[1]
+        preview._place_popup(other)                 # noqa: SLF001
+        settle(app, 0.15)
+        other_origin = other.mapTo(popup.parentWidget(), QPoint(0, 0))
+        want = other_origin.x() + (other.width() - popup.width()) // 2
+        want = max(0, min(want, popup.parentWidget().width() - popup.width()))
+        print(f"  第二张卡片 @({other_origin.x()},{other_origin.y()})　"
+              f"浮层 x={popup.x()}　居中期望={want}")
+        assert popup.x() == want, f"竖屏该和卡片中心对齐：{popup.x()} vs {want}"
 
         print("\n=== 4. 紧凑卡片里不该再有那个小预览窗 ===")
         item = sidebar.items()[0]
@@ -154,6 +170,33 @@ def main() -> None:
                 "紧凑卡片里不该再出现预览小窗"
             assert item.thumb._preview_rect() == item.thumb.rect(), \
                 "紧凑卡片不该再算「右侧 1/3」那块预览区"
+
+        print("\n=== 5. 滚轮把卡片滚出指针底下：浮层要收掉，不能贴到软件边缘 ===")
+        # 用户报的：预览开着、指针不动，只用滚轮把卡片滚走，浮层还在，而且被夹到
+        # 软件上下边缘贴着 —— 因为 _place_popup() 末尾那句 clamp 会把跑到视口外的
+        # 条目硬夹回边界。滚动之后指针底下已经不是这张卡片了，必须收掉。
+        item = sidebar.items()[0]
+        preview._item = item                          # noqa: SLF001
+        preview._place_popup(item)                    # noqa: SLF001
+        popup.show()
+        settle(app, 0.15)
+        assert popup.isVisible()
+        with patch.object(HoverPreview, "_cursor_on_item", return_value=False):
+            preview._update_popup_position()          # noqa: SLF001
+            settle(app, 0.15)
+        print(f"  指针已不在卡片上时滚动：浮层可见={popup.isVisible()}")
+        assert not popup.isVisible(), "指针底下不是这张卡片了，浮层该收掉"
+
+        preview._item = item                          # noqa: SLF001
+        preview._place_popup(item)                    # noqa: SLF001
+        popup.show()
+        settle(app, 0.15)
+        with patch.object(HoverPreview, "_cursor_on_item", return_value=True):
+            preview._update_popup_position()          # noqa: SLF001
+            settle(app, 0.15)
+        print(f"  指针还在卡片上时滚动：浮层可见={popup.isVisible()}（该留着并跟着挪）")
+        assert popup.isVisible(), "指针还在卡片上，浮层不该收"
+        preview._stop_now()                           # noqa: SLF001
     finally:
         window.close()
         settle(app, 0.25)
