@@ -51,15 +51,20 @@ def main():
     assert "横竖画面，自由摆放" in scene.text["l13"]
     assert all(word not in "".join(scene.text.values()) for word in ("平均", "超快", "超低", "[数值", "待核验"))
     entrances = [(int(number), float(time)) for number, time in re.findall(r'\["#line(\d+)", ([\d.]+)\]', html)]
-    assert [number for number, _ in entrances] == [11, 12, 13, 15, 16]
+    assert [number for number, _ in entrances] == [11, 12, 15, 16]
     assert all(a < b for (_, a), (_, b) in zip(entrances, entrances[1:])), "text must accumulate line by line"
+    assert 'tl.fromTo("#line13", { opacity: 0, x: -20, y: 22, scale: .88' in html
+    assert 'duration: .38, ease: "back.out(1.65)"' in html
+    assert 'id="line13Rule"' in html
+    assert '}, 2.73);' in html and '}, 2.87);' in html
+    assert abs((40.95 + 2.73) - 43.68) < .02, "text pop must land on the measured music onset"
     assert all(f'id="line{number}"' in html for number in (11, 12, 13, 15, 16))
     assert all(f'id="{color}"' in html and f'tl.to("#{color}"' in html for color in ("warm", "green", "violet"))
     assert 'src="assets/logo.png"' in html
     assert 'src="assets/v3-05-app-preview.jpg"' in html
     assert (PROJECT / "assets" / "v3-05-app-preview.jpg").is_file()
     assert 'id="grid-mark"' in html
-    print("v3 beat 05: five ordered lines, software visuals, no unsupported measurements")
+    print("v3 beat 05: beat-aligned pop, five ordered lines, software visuals, no unsupported measurements")
 
 
 if __name__ == "__main__":

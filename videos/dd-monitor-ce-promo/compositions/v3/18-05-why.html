@@ -45,7 +45,9 @@
       #grid-mark i:nth-child(2n) { background: #f079ad; }
       #copy { position: absolute; left: 108px; top: 244px; width: 1030px; }
       .group { display: flex; flex-direction: column; align-items: flex-start; }
-      .line { opacity: 0; font-weight: 700; line-height: 1.16; text-shadow: 0 3px 22px rgba(5,8,60,.22); }
+      .line { position: relative; opacity: 0; font-weight: 700; line-height: 1.16; text-shadow: 0 3px 22px rgba(5,8,60,.22); }
+      #line13 { transform-origin: left center; }
+      #line13Rule { position: absolute; left: 0; bottom: -5px; width: 100%; height: 5px; background: #38b9e7; transform-origin: left center; }
       .lead { font-size: 74px; margin-bottom: 24px; }
       .small { font-size: 48px; margin-bottom: 15px; }
       .strong { font-size: 64px; margin-bottom: 23px; }
@@ -71,7 +73,7 @@
           <div class="line small" id="line12">九路直播同开</div>
         </div>
         <div class="group" id="l12">
-          <div class="line small" id="line13">不用来回切标签</div>
+          <div class="line small" id="line13">不用来回切标签<i id="line13Rule" aria-hidden="true"></i></div>
         </div>
         <div class="group" id="l13">
           <div class="line small" id="line15">按需调整布局</div>
@@ -91,12 +93,15 @@
         tl.fromTo("#app-card", { opacity: 0, x: 100, y: 35 }, { opacity: 1, x: 0, y: 0, duration: 1, ease: ease }, 0.55);
         tl.fromTo("#grid-mark", { opacity: 0, scale: .7 }, { opacity: 1, scale: 1, duration: .65, ease: ease }, 2.3);
         [
-          ["#line11", 0.18], ["#line12", 1.26],
-          ["#line13", 2.42], ["#line15", 4.05], ["#line16", 5.35]
+          ["#line11", 0.18], ["#line12", 1.34],
+          ["#line15", 4.05], ["#line16", 5.35]
         ].forEach(function (entry) {
           tl.fromTo(entry[0], { opacity: 0, x: -48, y: 14, filter: "blur(8px)" },
             { opacity: 1, x: 0, y: 0, filter: "blur(0px)", duration: 0.46, ease: ease, immediateRender: false }, entry[1]);
         });
+        tl.fromTo("#line13", { opacity: 0, x: -20, y: 22, scale: .88, filter: "blur(8px)" },
+          { opacity: 1, x: 0, y: 0, scale: 1, filter: "blur(0px)", duration: .38, ease: "back.out(1.65)", immediateRender: false }, 2.73);
+        tl.fromTo("#line13Rule", { scaleX: 0 }, { scaleX: 1, duration: .24, ease: "power3.out" }, 2.87);
         tl.to({}, { duration: 0.01 }, 7.49);
         window.__timelines = window.__timelines || {};
         window.__timelines["18-05-why"] = tl;

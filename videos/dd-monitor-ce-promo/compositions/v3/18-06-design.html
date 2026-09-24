@@ -48,6 +48,8 @@
     #playhead:before { content: "▼"; position: absolute; top: -19px; left: -12px; color: #00a1d6; font-size: 27px; }
     #replayBadge { position: absolute; right: 145px; top: 90px; padding: 12px 22px; border: 2px solid #6c7582; border-radius: 99px; color: #56616e; font-size: 23px; font-weight: 700; }
     #aInfo { background: #222428; }
+    #infoSoftware { position: absolute; left: 930px; top: 175px; width: 930px; height: 635px; overflow: hidden; border: 2px solid #4a535d; border-radius: 15px; background: #1d2023; box-shadow: 0 20px 60px #0006; opacity: 0; }
+    #infoSoftware:before { content: ""; position: absolute; inset: 0; background: url("assets/rec/06-layout-placeholder.jpg") center / cover; filter: grayscale(1) brightness(.38) blur(1px); }
     .info { position: absolute; left: 145px; top: 120px; width: 1010px; z-index: 2; }
     .sectionLabel { color: #00a1d6; font-size: 23px; font-weight: 700; letter-spacing: .14em; }
     #feedbackTitle { margin-top: 16px; font-size: 92px; font-weight: 700; }
@@ -94,6 +96,7 @@
     </div>
   </div>
   <div class="act" id="aInfo" style="opacity:0">
+    <div id="infoSoftware" aria-hidden="true"></div>
     <div class="info">
       <div class="sectionLabel">DD MONITOR CE · CONTACT</div>
       <div id="feedbackTitle">反馈问题</div>
@@ -141,6 +144,7 @@
     gsap.set(["#replayHead", "#replayBadge"], { opacity: 0 });
     gsap.set(["#feedbackTitle", "#channels", "#human", "#aboutTitle", "#legal1", "#legal2", "#credit"], { y: 20, opacity: 0 });
     gsap.set("#infoDivider", { scaleX: 0 });
+    gsap.set("#infoSoftware", { x: 34 });
     gsap.set("#wallCol", { y: 1100 });
     for (let i = 0; i < poses.length; i++) {
       const p = poses[i], at = beatTimes[i], s = p.scale;
@@ -170,6 +174,7 @@
     tl.to("#playhead", { x: 1170, duration: .7, ease: "power2.inOut" }, 13.05);
     tl.to("#aReplay", { opacity: 0, duration: .38 }, 14.62);
     tl.to("#aInfo", { opacity: 1, duration: .38 }, 14.78);
+    tl.to("#infoSoftware", { opacity: .42, x: 0, duration: .7, ease }, 15.0);
     const reveal = (selector, at, duration = .42) => tl.to(selector, { y: 0, opacity: 1, duration, ease }, at);
     reveal("#feedbackTitle", 15.0, .55);
     reveal("#channels", 15.48);

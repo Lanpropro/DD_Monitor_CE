@@ -102,6 +102,10 @@ def main():
     assert "PR 页面录屏待替换" in html
     assert all(f"06-wall-{letter}.mp4" in html for letter in "abc")
     assert "插件" not in html
+    assert 'id="infoSoftware"' in html
+    assert 'background: url("assets/rec/06-layout-placeholder.jpg") center / cover' in html
+    assert 'filter: grayscale(1) brightness(.38) blur(1px)' in html
+    assert 'tl.to("#infoSoftware", { opacity: .42, x: 0' in html
     assert abs(float(probe(SCENE)["format"]["duration"]) - 27.4) < .04
 
     info = probe(PREVIEW)
@@ -121,6 +125,7 @@ def main():
     level = fade_levels()
     assert level(1.1) < 10 and level(8.8) < 10 and level(10.9) < 10
     assert level(2.3) > level(1.7) * 1.7, "first live-sound fade-in is missing"
+    assert level(2.3) > 7000, "first live-sound passage is too quiet"
     assert level(8.0) > level(8.4) * 2, "first live-sound fade-out is missing"
     assert level(12.0) > level(11.3) * 1.7, "stereo live-sound fade-in is missing"
     assert level(14.6) > level(15.1) * 2, "stereo live-sound fade-out is missing"
