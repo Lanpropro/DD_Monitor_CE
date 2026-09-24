@@ -1,253 +1,98 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=1920, height=1080" />
-    <script src="assets/lib/gsap.min.js"></script>
-    <style>
-      /* ==========================================================================
-         18-06-oss  ——  F 组：14–17（0.0–15.5s）
-         14（0.0–3.5）  「开源，拓展」+ 右侧插件接口面板
-         15（3.5–7.0）  「反馈问题 / 评论区，私信，github三路同行 / 牛马大学生在线修bug」
-         16（7.0–11.0） 免责声明三行
-         17（11.0–15.5）视角向上仰视 · 9 分布局 · 缝隙 6px→0 拼合成一整面墙
-
-         色场：sc-white（照参考片 36.17–40.67s / 47.42–55.50s 的白底）。
-
-         素材位（见 SCRIPT-v3.md 第八节）：
-           14 —— 插件接口画面：**用 HTML 按 theme 画**（`.panel` 那棵目录树就是，M7 选"我重绘"）
-           15 —— GitHub 图标（可选）：现在用「评论区 / 私信 / GitHub」三个 chip 代替
-           17 —— 9 路直播画面：与 09 同源，可用 `assets/rec/rec-grid.mp4` 拆单格铺进去
-         分工：**17（画面墙）在本拍，18（收黑 + logo）在 `18-07-end.html`**。
-         ========================================================================== */
-      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
-      @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
-      @font-face { font-family: "Microsoft YaHei"; font-weight: 400; src: local("Microsoft YaHei"); }
-      @font-face { font-family: "Microsoft YaHei"; font-weight: 600 700; src: local("Microsoft YaHei Bold"); }
-
-      :root {
-        --bg: #222428; --sidebar: #1d2023; --content: #303338; --elevated: #373a3e;
-        --hover: #3b3e42; --tile: #101114; --accent: #00a1d6; --accent-soft: rgba(0,161,214,.16);
-        --pink: #fb7299; --text1: #f1f2f5; --text2: rgba(214,218,224,.9); --text3: rgba(184,189,197,.75);
-        --border: rgba(131,131,145,.16); --border-strong: rgba(255,255,255,.12);
-        --sc-white: #f8f8f8; --ink: #101114; --ink-2: rgba(16,17,20,.66); --ink-3: rgba(16,17,20,.45);
-        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-      }
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
-      #root {
-        position: relative; width: 1920px; height: 1080px; overflow: hidden;
-        background: var(--sc-white); perspective: 1800px;
-        font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-        -webkit-font-smoothing: antialiased; color: var(--ink);
-      }
-      .act { position: absolute; inset: 0; will-change: opacity; }
-
-      /* ---------- 通用标题 ---------- */
-      .lead { font-size: 76px; font-weight: 700; letter-spacing: -.01em; line-height: 1.05; }
-      .sub { margin-top: 20px; font-size: 30px; font-weight: 600; letter-spacing: .14em; color: var(--ink-2); }
-
-      /* ---------- 14 插件目录面板 ---------- */
-      .panel {
-        position: absolute; right: 190px; top: 250px; width: 800px;
-        background: var(--bg); border: 1px solid var(--border-strong); border-radius: 14px;
-        overflow: hidden; box-shadow: 0 40px 90px rgba(0,0,0,.28);
-      }
-      .panel .bar {
-        height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px;
-        background: var(--elevated); border-bottom: 1px solid var(--border);
-      }
-      .panel .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgba(255,255,255,.22); display: block; }
-      .panel .path { margin-left: 10px; font-size: 13px; color: var(--text3); font-weight: 600; }
-      .tree { padding: 16px 18px 22px; }
-      .row { display: flex; align-items: center; gap: 10px; height: 34px; font-size: 15px; font-weight: 600;
-             color: var(--text2); will-change: transform, opacity; }
-      .row .ic { width: 18px; text-align: center; color: var(--accent); }
-      .row.dir .ic { color: var(--pink); }
-      .row .py { margin-left: auto; font-size: 12px; color: var(--text3); }
-      .row.ind { padding-left: 30px; }
-      .row.ind2 { padding-left: 58px; }
-
-      /* ---------- 15 反馈三路 ---------- */
-      .fb { position: absolute; left: 190px; top: 320px; }
-      .fb .lead { font-size: 72px; }
-      .fb .line { margin-top: 18px; font-size: 30px; font-weight: 600; letter-spacing: .1em; color: var(--ink-2);
-                  will-change: transform, opacity; }
-      .chips { display: flex; gap: 12px; margin-top: 22px; }
-      .cchip {
-        height: 46px; padding: 0 22px; border-radius: 23px; display: flex; align-items: center; gap: 8px;
-        background: var(--ink); color: var(--sc-white); font-size: 17px; font-weight: 700;
-        will-change: transform, opacity;
-      }
-      .cchip.ghost { background: transparent; color: var(--ink); border: 1px solid rgba(16,17,20,.25); }
-
-      /* ---------- 16 免责 ---------- */
-      .disc { position: absolute; inset: 0; display: flex; flex-direction: column;
-              align-items: center; justify-content: center; text-align: center; gap: 26px; }
-      .disc .l1 { font-size: 54px; font-weight: 700; letter-spacing: -.005em; will-change: transform, opacity; }
-      .disc .l2 { font-size: 32px; font-weight: 600; letter-spacing: .06em; color: var(--ink-2); will-change: transform, opacity; }
-      .disc .l3 { font-size: 28px; font-weight: 600; letter-spacing: .08em; color: var(--ink-3); will-change: transform, opacity; }
-
-      /* ---------- 17 画面墙（仰视 + 拼合）----------
-         ⚠ 这里**不能**写 `transform-style: preserve-3d`：祖先层有它时，子层再做 rotationX
-           会被 Chrome 按错误边界裁切（实测可见行只剩 417/548，见 SCRIPT-v3 第十节）。
-         ⚠ 参与 3D 的层也**不能**写 `will-change: transform`（合成层按布局尺寸光栅化，投影超出即被裁）。
-         立体感由 `#root` 的 perspective + GSAP 的 `transformPerspective` 提供。 */
-      .wallwrap {
-        position: absolute; inset: 0;
-      }
-      .wall {
-        position: absolute; left: 150px; right: 150px; top: 70px; bottom: 40px;
-        display: grid; grid-template-columns: repeat(3,1fr); grid-template-rows: repeat(3,1fr);
-        will-change: gap;
-      }
-      .tile { position: relative; background: var(--tile); overflow: hidden; min-width: 0; min-height: 0; }
-      /* 墙上的画面：`rec-grid.mp4` 拆出的 9 张单格 */
-      .tile .shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-            background: repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 10px, transparent 10px 20px); }
-      .ph:after { content: ""; position: absolute; inset: 6px; border: 1px dashed rgba(131,131,145,.4); }
-      .ph span { position: relative; z-index: 2; font-size: 12px; font-weight: 600; color: rgba(184,189,197,.7); }
-      /* 仰视时底部压一条渐变，强化"墙还在往上长" */
-      .vig { position: absolute; inset: 0; pointer-events: none;
-             background: linear-gradient(to top, rgba(13,14,16,.85) 0%, transparent 40%); opacity: 0; }
-    </style>
-  </head>
-  <body>
-    <div id="root" data-composition-id="18-06-oss" data-start="0" data-duration="15.5" data-width="1920" data-height="1080">
-
-      <!-- ============ 14 开源，拓展 ============ -->
-      <div class="act" id="a14" style="opacity:0">
-        <div style="position:absolute; left:190px; top:400px;">
-          <div class="lead">开源，拓展</div>
-          <div class="sub">插件接口开放 · 想加什么自己写</div>
-        </div>
-        <div class="panel" id="panel">
-          <div class="bar"><i></i><i></i><i></i><span class="path">DD_Monitor_CE / plugins_user</span></div>
-          <div class="tree">
-            <div class="row dir" data-r><span class="ic">▸</span>plugins_user<span class="py">目录</span></div>
-            <div class="row ind dir" data-r><span class="ic">▸</span>danmaku_log<span class="py">插件</span></div>
-            <div class="row ind2" data-r><span class="ic">▪</span>plugin.py<span class="py">入口</span></div>
-            <div class="row ind dir" data-r><span class="ic">▸</span>_template_platform<span class="py">模板</span></div>
-            <div class="row ind2" data-r><span class="ic">▪</span>plugin.py<span class="py">入口</span></div>
-            <div class="row" data-r><span class="ic">▪</span>README.md<span class="py">说明</span></div>
-          </div>
-        </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1920, height=1080" />
+  <script src="assets/lib/gsap.min.js"></script>
+  <style>
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 400; src: local("Microsoft YaHei UI"), local("Microsoft YaHei"); }
+    @font-face { font-family: "Microsoft YaHei UI"; font-weight: 600 700; src: local("Microsoft YaHei UI Bold"), local("Microsoft YaHei Bold"); }
+    @font-face { font-family: "Microsoft YaHei"; font-weight: 400; src: local("Microsoft YaHei"); }
+    @font-face { font-family: "Microsoft YaHei"; font-weight: 600 700; src: local("Microsoft YaHei Bold"); }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+    #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #f8f8f8; color: #16181d; font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+    .act { position: absolute; inset: 0; overflow: hidden; }
+    #a14, #a16, #a17 { background: #f8f8f8; }
+    .eyebrow { font-size: 22px; font-weight: 700; letter-spacing: .16em; color: #777e8d; }
+    .title { font-size: 82px; font-weight: 700; letter-spacing: -.025em; line-height: 1.12; }
+    .sub { font-size: 29px; font-weight: 600; color: #69717f; }
+    .media { position: absolute; left: 160px; top: 95px; width: 1600px; height: 730px; border-radius: 24px; overflow: hidden; box-shadow: 0 28px 80px #1a24402e; background: #252a35; }
+    .media img { width: 100%; height: 100%; object-fit: cover; filter: brightness(.48) saturate(.65); }
+    .media:after { content: ""; position: absolute; inset: 0; border: 2px dashed #ffffff88; border-radius: 24px; pointer-events: none; }
+    .placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; color: white; text-align: center; text-shadow: 0 3px 14px #0008; }
+    .placeholder .icon { font-size: 52px; line-height: 1; }
+    .placeholder strong { font-size: 44px; letter-spacing: .02em; }
+    .placeholder span { font-size: 24px; color: #e2e5ec; }
+    .caption { position: absolute; left: 160px; top: 855px; width: 1600px; display: flex; align-items: baseline; justify-content: space-between; }
+    .badge { padding: 10px 20px; border: 2px solid #8b95a7; border-radius: 99px; font-size: 20px; font-weight: 700; color: #657080; }
+    #a15 { background: radial-gradient(circle at 75% 30%, #5541a2 0%, #252a68 45%, #111b3c 100%); color: #fff; }
+    #a15:after { content: ""; position: absolute; width: 530px; height: 530px; border-radius: 50%; border: 1px solid #ffffff24; top: 240px; right: 260px; box-shadow: 0 0 0 90px #ffffff08, 0 0 0 180px #ffffff08; }
+    .feedback { position: absolute; left: 170px; top: 315px; z-index: 1; }
+    .feedback .eyebrow { color: #a8bbff; }
+    .feedback .title { margin: 22px 0 35px; font-size: 104px; }
+    .feedback .channels { font-size: 42px; font-weight: 700; letter-spacing: .06em; }
+    .feedback .human { margin-top: 32px; font-size: 33px; color: #c7ceee; }
+    .disclaimer { position: absolute; left: 165px; top: 285px; width: 1590px; }
+    .disclaimer .title { font-size: 62px; margin: 28px 0 42px; }
+    .disclaimer .line { font-size: 35px; line-height: 1.65; font-weight: 600; color: #535b68; }
+    .disclaimer .credit { margin-top: 15px; color: #89919d; font-size: 29px; }
+    .strip { position: absolute; left: 165px; right: 165px; bottom: 120px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #00a1d6, #7668cf, #f0719a); }
+    .wall { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0e1014; transform-origin: center bottom; box-shadow: 0 35px 100px #10142b55; }
+    .wall video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="18-06-oss" data-start="0" data-duration="15.5" data-width="1920" data-height="1080">
+    <div class="act" id="a14">
+      <div class="media" id="slot">
+        <img src="assets/v3-05-app-preview.jpg" alt="DD监控室CE 软件背景" />
+        <div class="placeholder" id="slotA"><div class="icon">▧</div><strong>插件目录录屏 · 待替换</strong><span>plugins_user / danmaku_log / plugin.py</span></div>
+        <div class="placeholder" id="slotB" style="opacity:0"><div class="icon">⌁</div><strong>软件右键操作录屏 · 待替换</strong><span>插件菜单：复制流地址</span></div>
       </div>
-
-      <!-- ============ 15 反馈问题 ============ -->
-      <div class="act" id="a15" style="opacity:0">
-        <div class="fb">
-          <div class="lead" id="fbT">反馈问题</div>
-          <div class="line" id="fbL1">牛马大学生在线修 bug</div>
-          <div class="chips" id="fbChips">
-            <span class="cchip">评论区</span>
-            <span class="cchip ghost">私信</span>
-            <span class="cchip ghost">GitHub</span>
-          </div>
-          <div class="line" id="fbL2" style="margin-top:26px; font-size:26px; letter-spacing:.12em;">三路同行，哪条都行</div>
-        </div>
-      </div>
-
-      <!-- ============ 16 免责声明 ============ -->
-      <div class="act" id="a16" style="opacity:0">
-        <div class="disc">
-          <div class="l1" id="d1">视频内软件为演示效果，请以实际为准</div>
-          <div class="l2" id="d2">本项目是 DD监控室的二次开发版本，是个人维护的第三方工具</div>
-          <div class="l3" id="d3">原作者：执明神君，@神君Channel</div>
-        </div>
-      </div>
-
-      <!-- ============ 17 仰视拼接成画面墙 ============ -->
-      <div class="act" id="a17" style="opacity:0">
-        <div class="wallwrap" id="wallwrap">
-          <div class="wall" id="wall">
-            <div class="tile"><img class="shot" src="assets/rec/grid-1.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-2.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-3.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-4.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-5.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-6.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-7.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-8.png" alt=""></div>
-            <div class="tile"><img class="shot" src="assets/rec/grid-9.png" alt=""></div>
-          </div>
-        </div>
-        <div class="vig" id="vig"></div>
-      </div>
+      <div class="caption"><div><div class="title">开源，拓展</div><div class="sub">插件能力，接进日常操作</div></div><div class="badge">画面占位 / 录制后替换</div></div>
     </div>
-
-    <script>
-      (function () {
-        var EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
-        var EASE_IO = "cubic-bezier(0.77, 0, 0.175, 1)";
-        var tl = gsap.timeline({ paused: true });
-
-        /* ---- 基线 ---- */
-        gsap.set("[data-r]", { opacity: 0, x: -18 });
-        gsap.set("#panel", { opacity: 0, y: 22 });
-        gsap.set("#fbT", { opacity: 0, y: 22 });
-        gsap.set("#fbL1", { opacity: 0, y: 16 });
-        gsap.set(".cchip", { opacity: 0, y: 14 });
-        gsap.set("#fbL2", { opacity: 0, y: 12 });
-        gsap.set(["#d1", "#d2", "#d3"], { opacity: 0, y: 20 });
-        gsap.set("#wallwrap", { rotationX: 0, y: 0, scale: 1, transformPerspective: 1800 });
-        gsap.set("#wall", { gap: "6px" });
-        gsap.set("#vig", { opacity: 0 });
-
-        /* ================= 14（0.0–3.5）开源，拓展 ================= */
-        tl.to("#a14", { opacity: 1, duration: 0.3, immediateRender: false }, 0);
-        tl.fromTo("#panel", { opacity: 0, y: 22 },
-          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 0.12);
-        tl.to("[data-r]", { opacity: 1, x: 0, duration: 0.34, ease: EASE_OUT,
-                            stagger: 0.09, immediateRender: false }, 0.42);
-        tl.to("#a14", { opacity: 0, duration: 0.3, immediateRender: false }, 3.20);
-
-        /* ================= 15（3.5–7.0）反馈问题 ================= */
-        tl.to("#a15", { opacity: 1, duration: 0.3, immediateRender: false }, 3.48);
-        tl.fromTo("#fbT", { opacity: 0, y: 22 },
-          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 3.54);
-        tl.fromTo("#fbL1", { opacity: 0, y: 16 },
-          { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 3.86);
-        tl.to(".cchip", { opacity: 1, y: 0, duration: 0.36, ease: EASE_OUT,
-                          stagger: 0.08, immediateRender: false }, 4.12);
-        tl.fromTo("#fbL2", { opacity: 0, y: 12 },
-          { opacity: 1, y: 0, duration: 0.42, ease: EASE_OUT, immediateRender: false }, 4.48);
-        tl.to("#a15", { opacity: 0, duration: 0.3, immediateRender: false }, 6.70);
-
-        /* ================= 16（7.0–11.0）免责声明 ================= */
-        tl.to("#a16", { opacity: 1, duration: 0.3, immediateRender: false }, 6.98);
-        tl.fromTo("#d1", { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, duration: 0.52, ease: EASE_OUT, immediateRender: false }, 7.04);
-        tl.fromTo("#d2", { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 7.42);
-        tl.fromTo("#d3", { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, duration: 0.5, ease: EASE_OUT, immediateRender: false }, 7.76);
-
-        /* ================= 17（11.0–15.5）仰视拼接成画面墙 =================
-           16 标题先走 → 墙淡入 → 相机仰视 + 上移 + 缝隙 6px→0 拼合。 */
-        tl.to(["#d1", "#d2", "#d3"], { opacity: 0, y: -18, duration: 0.3,
-                                       stagger: 0.05, immediateRender: false }, 10.60);
-        tl.to("#a16", { opacity: 0, duration: 0.3, immediateRender: false }, 10.90);
-        tl.to("#a17", { opacity: 1, duration: 0.32, immediateRender: false }, 11.02);
-        /* 仰视：rotateX 负角 + 画面上移，同时把缝隙收到 0（拼合成一整面墙） */
-        tl.fromTo("#wallwrap", { rotationX: 0, y: 0, scale: 1.06 },
-          { rotationX: -14, y: 120, scale: 1.12, duration: 1.4, ease: EASE_IO, immediateRender: false }, 11.10);
-        /* 合缝：**不要补间 gap** —— gap 是布局属性，会吸附到整数设备像素（SCRIPT-v3 第十节）。
-           改成每格各自 `scale` 放大一点点，邻格互相盖住那 6px 的缝，
-           观感同样是"拼成一整面墙"，但走的是 transform。 */
-        tl.to(".tile", { scale: 1.014, duration: 1.4, ease: EASE_IO, immediateRender: false }, 11.10);
-        /* 仰视后底部压暗，强化"墙还在往上长" */
-        tl.to("#vig", { opacity: 1, duration: 0.9, ease: EASE_OUT, immediateRender: false }, 11.70);
-        tl.to("#wallwrap", { y: 150, duration: 1.2, ease: "none", immediateRender: false }, 12.50);
-
-        tl.to({}, { duration: 0.01 }, 15.49);
-
-        window.__timelines = window.__timelines || {};
-        window.__timelines["18-06-oss"] = tl;
-        tl.seek(0);
-      })();
-    </script>
-  </body>
+    <div class="act" id="a15" style="opacity:0">
+      <div class="feedback"><div class="eyebrow">DD MONITOR CE · FEEDBACK</div><div class="title" id="fbTitle">反馈问题</div><div class="channels" id="channels">评论区 · 私信 · GitHub</div><div class="human" id="human">牛马大学生在线修 bug</div></div>
+    </div>
+    <div class="act" id="a16" style="opacity:0">
+      <div class="disclaimer"><div class="eyebrow">关于本项目</div><div class="title" id="d1">视频内软件为演示效果，请以实际为准</div><div class="line" id="d2">本项目是 DD监控室的二次开发版本，是个人维护的第三方工具</div><div class="line credit" id="d3">原作者：执明神君，@神君Channel</div></div>
+      <div class="strip"></div>
+    </div>
+    <div class="act" id="a17" style="opacity:0">
+      <div class="wall" id="wall"><video id="wallVideo" src="assets/rec/06-wall-live.mp4" muted playsinline preload="auto" data-start="11" data-duration="4.5"></video></div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const tl = gsap.timeline({ paused: true });
+      const out = "power3.out";
+      gsap.set("#slot", { y: 35, opacity: 0 });
+      gsap.set(".caption", { y: 24, opacity: 0 });
+      gsap.set(["#fbTitle", "#channels", "#human", "#d1", "#d2", "#d3"], { y: 28, opacity: 0 });
+      gsap.set("#wall", { y: 530, scale: .72, rotationX: 5, transformPerspective: 1700 });
+      tl.to("#slot", { y: 0, opacity: 1, duration: .55, ease: out }, .05);
+      tl.to(".caption", { y: 0, opacity: 1, duration: .5, ease: out }, .18);
+      tl.to("#slotA", { opacity: 0, duration: .17 }, 1.16);
+      tl.to("#slotB", { opacity: 1, duration: .17 }, 1.25);
+      tl.to("#a14", { opacity: 0, duration: .33 }, 3.23);
+      tl.to("#a15", { opacity: 1, duration: .33 }, 3.48);
+      tl.to("#fbTitle", { y: 0, opacity: 1, duration: .53, ease: out }, 3.62);
+      tl.to("#channels", { y: 0, opacity: 1, duration: .45, ease: out }, 4.16);
+      tl.to("#human", { y: 0, opacity: 1, duration: .45, ease: out }, 4.7);
+      tl.to("#a15", { opacity: 0, duration: .3 }, 6.72);
+      tl.to("#a16", { opacity: 1, duration: .28 }, 6.98);
+      tl.to("#d1", { y: 0, opacity: 1, duration: .5, ease: out }, 7.14);
+      tl.to("#d2", { y: 0, opacity: 1, duration: .5, ease: out }, 7.58);
+      tl.to("#d3", { y: 0, opacity: 1, duration: .5, ease: out }, 8.0);
+      tl.to("#a16", { opacity: 0, duration: .28 }, 10.78);
+      tl.to("#a17", { opacity: 1, duration: .3 }, 10.96);
+      tl.to("#wall", { y: 0, scale: 1, rotationX: 0, duration: 1.35, ease: out }, 11.04);
+      tl.to({}, { duration: .01 }, 15.49);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["18-06-oss"] = tl;
+      tl.seek(0);
+    })();
+  </script>
+</body>
 </html>
