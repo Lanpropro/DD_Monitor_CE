@@ -99,9 +99,19 @@ def main():
     html = (PROJECT / "compositions" / "v3" / "18-06-design.html").read_text(encoding="utf-8")
     intro = (PROJECT / "compositions" / "v3" / "18-01-intro.html").read_text(encoding="utf-8")
     assembly = (PROJECT / "tools" / "assemble_v3_01_07_design.py").read_text(encoding="utf-8")
-    arrivals = re.findall(r'tl\.to\("(#p(?:S20|S21|S22|Main|Sb|S12|S02))"[^\n]+\}, ([\d.]+)\);', intro)
-    assert [name for name, _ in arrivals] == ["#pS20", "#pS21", "#pS22", "#pMain", "#pSb", "#pS12", "#pS02"]
-    assert all(abs(float(at) - (5.334 + i * .1905)) < .001 for i, (_, at) in enumerate(arrivals))
+    cells = re.findall(r'<img class="pt pt-cell pt-r([0-2]) pt-c([0-2])" id="pR([0-2])C([0-2])" src="assets/rec/grid-([1-9]).png"', intro)
+    assert len(cells) == 9 and "pMain" not in intro and "cell-main.png" not in intro
+    assert cells == [(str(row), str(col), str(row), str(col), str(row * 3 + col + 1))
+                     for row in range(3) for col in range(3)]
+    assert all((PROJECT / "assets" / "rec" / f"grid-{i}.png").is_file() for i in range(1, 10))
+    arrivals = re.findall(r'tl\.to\("(#p(?:R[0-2]C[0-2]|Sb))"[^\n]+\}, ([\d.]+)\);', intro)
+    assert [name for name, _ in arrivals] == [
+        "#pR2C0", "#pR2C1", "#pR2C2", "#pR1C0", "#pR1C1", "#pR1C2",
+        "#pR0C0", "#pR0C1", "#pR0C2", "#pSb",
+    ]
+    assert all(abs(float(at) - expected) < .001 for (_, at), expected in zip(arrivals, [
+        5.334, 5.414, 5.494, 5.715, 5.795, 5.875, 6.096, 6.176, 6.256, 6.477,
+    ]))
     assert '"ms-loop.wav"' in assembly and '"track.loop.mp3"' not in assembly
     assert '<div id="replayHead">即时重放</div>' in html and "及时重放" not in html
     assert 'tl.to("#wallCol", { y: 150, duration: 1.45, ease: "back.out(0.8)" }, 21.15)' in html

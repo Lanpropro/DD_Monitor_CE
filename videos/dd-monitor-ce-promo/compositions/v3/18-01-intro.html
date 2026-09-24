@@ -16,16 +16,16 @@
                     · 窗口**平正、不倾斜**（照参考片那个 LauncherX 窗口）
                     · 左侧标题 0.52s 起浮现、**1.79s 起 0.25s 隐去**（都照参考片）
          4.44–5.40  落定后相机向前推进（elastic 回稳，z 0→230）
-         5.40–6.72  **模块从下往上逐块拼合成窗口** —— 用户 2026-09-22 改：
+         5.33–6.93  **九格从下往上逐行拼合成窗口** —— 用户 2026-09-22 改：
                     不要"散开飞出"，要和参考片一样往上拼。窗口先以空玻璃壳出现，
-                    然后底部 3 格 → 右中格 → 顶部主画面/小格 → 侧栏，
-                    依次从窗口内下方 y+120 浮起落位（stagger 80ms）
+                    然后底行 3 格 → 中行 3 格 → 顶行 3 格 → 侧栏，
+                    依次从窗口内下方 y+120 浮起落位（行内 stagger 80ms）
          7.00–8.50  继续推进 + 放大到**铺满画布**（z 1100 → 2.22 倍，`back.out(1.7)` 过冲落地）；
                     **背景图不淡出**（用户要求「背景铺满画面」，银河一直留到最后）
          8.30–12.0  月光光晕（在窗口**内部**，透过窗口玻璃）+ 文字「向您介绍 DDMonitorCE」
                     （用户 2026-09-22：**去掉星光光点**，只留一层 .wash 光晕）
 
-         软件画面 = 真实截图切片（Video_reference/fullscreen.png 裁切）。
+         软件画面 = 九格录屏的九张真实画面切片与软件侧栏。
          窗口外壳 = 类玻璃材质：大圆角 + 1px 亮棱边 + 顶部内侧高光 + 表面斜向反光
          + 多层柔和阴影。底色仍是**高不透明度**深灰渐变 —— 切片缝隙不透背后背景。
 
@@ -173,17 +173,16 @@
       }
       .pt { position: absolute; display: block; }
       /* 侧栏贴着窗口左缘和上下缘，自己带圆角（父层不再 overflow:hidden） */
-      /* 模块切片 = 从 `Video_reference/布局切换.mp4` 的 **1+5 帧**裁出的**真实画面**
-         （用户 2026-09-22：不要合成的界面）。源帧已裁到窗口边界 1600x892，
-         这里按 0.625 缩放进 1000x557 的窗口；每个切片的坐标由帧里的网格线量出
-         （侧栏边界 x=152、列线 635/1118、行线 297/594）。文件见 assets/rec/cell-*.png。 */
+      /* 九格使用现有录屏裁出的 grid-1..9.png；侧栏沿用真实软件切片。
+         三列和三行沿窗口原有网格线落位，格子独立入场。 */
       .pt-sb  { left: 0;     top: 0;     width: 95px;  height: 542px; border-radius: 14px 0 0 14px; }
-      .pt-main{ left: 95px;  top: 0;     width: 600px; height: 352px; }
-      .pt-s02 { left: 703px; top: 0;     width: 298px; height: 166px; }
-      .pt-s12 { left: 703px; top: 174px; width: 298px; height: 178px; }
-      .pt-s20 { left: 95px;  top: 359px; width: 298px; height: 183px; }
-      .pt-s21 { left: 401px; top: 359px; width: 294px; height: 183px; }
-      .pt-s22 { left: 703px; top: 359px; width: 298px; height: 183px; }
+      .pt-cell { object-fit: cover; }
+      .pt-c0 { left: 95px; width: 298px; }
+      .pt-c1 { left: 401px; width: 294px; }
+      .pt-c2 { left: 703px; width: 298px; }
+      .pt-r0 { top: 0; height: 166px; }
+      .pt-r1 { top: 174px; height: 178px; }
+      .pt-r2 { top: 359px; height: 183px; }
 
 
       /* ---------- 标题层（固定在屏幕上）---------- */
@@ -251,12 +250,15 @@
             <!-- 软件主体（窗口外壳，拆解后保留） -->
             <div class="appwin" id="appwin">
               <img class="pt pt-sb"   id="pSb"   src="assets/rec/cell-sb.png" alt="">
-              <img class="pt pt-main" id="pMain" src="assets/rec/cell-main.png" alt="">
-              <img class="pt pt-s02"  id="pS02"  src="assets/rec/cell-s02.png" alt="">
-              <img class="pt pt-s12"  id="pS12"  src="assets/rec/cell-s12.png" alt="">
-              <img class="pt pt-s20"  id="pS20"  src="assets/rec/cell-s20.png" alt="">
-              <img class="pt pt-s21"  id="pS21"  src="assets/rec/cell-s21.png" alt="">
-              <img class="pt pt-s22"  id="pS22"  src="assets/rec/cell-s22.png" alt="">
+              <img class="pt pt-cell pt-r0 pt-c0" id="pR0C0" src="assets/rec/grid-1.png" alt="">
+              <img class="pt pt-cell pt-r0 pt-c1" id="pR0C1" src="assets/rec/grid-2.png" alt="">
+              <img class="pt pt-cell pt-r0 pt-c2" id="pR0C2" src="assets/rec/grid-3.png" alt="">
+              <img class="pt pt-cell pt-r1 pt-c0" id="pR1C0" src="assets/rec/grid-4.png" alt="">
+              <img class="pt pt-cell pt-r1 pt-c1" id="pR1C1" src="assets/rec/grid-5.png" alt="">
+              <img class="pt pt-cell pt-r1 pt-c2" id="pR1C2" src="assets/rec/grid-6.png" alt="">
+              <img class="pt pt-cell pt-r2 pt-c0" id="pR2C0" src="assets/rec/grid-7.png" alt="">
+              <img class="pt pt-cell pt-r2 pt-c1" id="pR2C1" src="assets/rec/grid-8.png" alt="">
+              <img class="pt pt-cell pt-r2 pt-c2" id="pR2C2" src="assets/rec/grid-9.png" alt="">
 
               <!-- 月光层：**在窗口内部**（.appwin 的子层），所以只透过窗口玻璃可见，
                    不会像上一版那样直接铺在画面上。坐标按窗口 1000x547 布点。 -->
@@ -360,25 +362,25 @@
         tl.to("#glow",   { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 4.44);
         tl.to("#shadow", { opacity: 0, duration: 0.55, ease: EASE_OUT, immediateRender: false }, 4.44);
 
-        /* ====== 5.40–6.72 模块**从下往上逐块拼合成窗口** ======
+        /* ====== 5.33–6.93 九格**从下往上逐行拼合成窗口** ======
            用户 2026-09-22：不要"散开飞出"，改成和参考片一样模块往上拼。
            窗口先以空玻璃壳出现在画面里（01/02 内部是空的 —— 参考片开场也是空窗口先到位），
-           然后按**从下往上**的顺序：底部 3 格 → 主画面/侧栏 → 右中格 → 右上格，
-           每块从窗口内下方 y +120 浮起落位（stagger 80ms、0.75s 一块、EASE_OUT）。
-           每个 .pt（真实截图切片）与配对的 .ph（素材占位）同时补间。 */
+           九格按底行 → 中行 → 顶行依次补齐，侧栏最后闭合窗口。 */
         /* 模块逐块拼入的节奏**对齐 BGM**（用户 2026-09-22：请尝试匹配动效）。
            素材 `assets/bgm/ms-loop.wav` 的 onset 网格是 0.1905s（≈157.5 BPM 的八分音符，
-           实测中位间隔 0.192s），所以 stagger 用 0.1905 而不是原来的 0.08 ——
-           每块正好落在拍点上；起点 5.334s 也是网格上的点（0.1905 × 28）。
-           每块的持续时长收到 0.45s，让 7 块在 6.93s 前落定，不挤压后面的推进。 */
+           实测中位间隔 0.192s）。每行从偶数拍开始，行内 80ms 依次落位；
+           侧栏在下一拍进入，全部在推进前落定。 */
         var IN = 0.45;
-        tl.to("#pS20",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.334);
-        tl.to("#pS21",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.5245);
-        tl.to("#pS22",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.715);
-        tl.to("#pMain", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.9055);
-        tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.096);
-        tl.to("#pS12",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.2865);
-        tl.to("#pS02",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.477);
+        tl.to("#pR2C0", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.334);
+        tl.to("#pR2C1", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.414);
+        tl.to("#pR2C2", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.494);
+        tl.to("#pR1C0", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.715);
+        tl.to("#pR1C1", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.795);
+        tl.to("#pR1C2", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.875);
+        tl.to("#pR0C0", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.096);
+        tl.to("#pR0C1", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.176);
+        tl.to("#pR0C2", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.256);
+        tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.477);
 
         /* ============ 7.00–8.50 继续推进 + 放大到铺满画布 ============
            用户 2026-09-22：最后的窗口放大到**铺满画面**，并要求"变大时加一点弹性"。
