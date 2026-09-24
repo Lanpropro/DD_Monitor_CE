@@ -101,7 +101,9 @@ def main():
     assembly = (PROJECT / "tools" / "assemble_v3_01_07_design.py").read_text(encoding="utf-8")
     cells = re.findall(r'<img class="pt pt-cell pt-r([0-2]) pt-c([0-2])" id="pR([0-2])C([0-2])" src="assets/rec/grid-([1-9]).png"', intro)
     assert len(cells) == 9 and "pMain" not in intro and "cell-main.png" not in intro
-    assert '.pt-cell { object-fit: contain; background: #0e1014; }' in intro
+    # 2026-09-24: 格子显示比例（292x166/178/183）与九格素材比例（各列 1.65/1.76/1.77）不一致，
+    # 必须用 cover —— contain 会在格内四周留出 background 的深灰，就是用户报的"灰色分割线"
+    assert '.pt-cell { object-fit: cover; background: #0e1014; }' in intro
     assert '.pt-c0 { left: 104px; width: 292px; }' in intro
     assert '.pt-c1 { left: 402px; width: 292px; }' in intro
     assert '.pt-c2 { left: 701px; width: 292px; }' in intro

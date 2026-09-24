@@ -175,9 +175,13 @@
       /* 侧栏贴着窗口左缘和上下缘，自己带圆角（父层不再 overflow:hidden） */
       /* 九格使用现有录屏裁出的 grid-1..9.png；侧栏沿用真实软件切片。
          列坐标按 1600px 原录屏约 x=166/643/1121 缩至 1000px，
-         保留侧栏后的原始间距，避免画面落到灰色分隔线上。 */
+         保留侧栏后的原始间距，避免画面落到灰色分隔线上。
+         ⚠ 2026-09-24：格子显示比例（292×166 / 178 / 183）与九格素材的比例
+           （实量各列 438/467/468 × 265 → 1.65 / 1.76 / 1.77）并不一致，
+           所以 `object-fit` 必须用 **cover** —— 用 contain 会在格子四周留出
+           `background` 的深灰，就是用户看到的「每格被灰色分割线隔断」。 */
       .pt-sb  { left: 0;     top: 0;     width: 95px;  height: 542px; border-radius: 14px 0 0 14px; }
-      .pt-cell { object-fit: contain; background: #0e1014; }
+      .pt-cell { object-fit: cover; background: #0e1014; }
       .pt-c0 { left: 104px; width: 292px; }
       .pt-c1 { left: 402px; width: 292px; }
       .pt-c2 { left: 701px; width: 292px; }
