@@ -10,7 +10,7 @@ import time
 from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QCursor, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
+    QApplication, QBoxLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -34,6 +34,7 @@ from .images import AvatarLoader, CachedCoverLoader
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
+from .recording import RecordingManager
 from .widgets import Sidebar, Tile, WallGrid
 
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
@@ -116,6 +117,9 @@ class MainWindow(QMainWindow):
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         self.settings.update(self.state.get("settings") or {})
+        self.recorder = RecordingManager(self.settings, self)
+        self.recorder.notice.connect(self._record_notice)
+        self.recorder.changed.connect(self._record_state_changed)
 
         # 布局按方向分别记；老配置只有一个 layout 键，当作横屏的。
         # 这一步必须在建画面墙**之前**做：第一次摆就要按存过的那套布局来，
@@ -484,6 +488,7 @@ class MainWindow(QMainWindow):
         # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
         # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
         self._closing = True
+        self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
@@ -695,6 +700,7 @@ class MainWindow(QMainWindow):
         player.actual_quality = int(quality or 0)
         player.play(url, profile, tile.stream_headers,
                     options=self.media_options())
+        self.recorder.on_resolved(tile)
         self._emit_stream_resolved(tile, quality)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
@@ -874,7 +880,10 @@ class MainWindow(QMainWindow):
             if tile.isVisible():
                 if start_visible and player is None and tile.room.get("live"):
                     self.start_tile(tile)
-            elif player is not None:
+            else:
+                self.recorder.stop(tile)
+                if player is None:
+                    continue
                 print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
                       file=sys.stderr, flush=True)
                 self._stop_tile(tile)
@@ -885,6 +894,7 @@ class MainWindow(QMainWindow):
         if timer is not None:
             timer.stop()
         self._retry_count.pop(tile, None)
+        self.recorder.stop(tile)
         self._stop_tile(tile)
         tile.set_offline()
         print(f"[下播] {tile.room.get('uname')} 画面已清空，格子保留",
@@ -940,10 +950,12 @@ class MainWindow(QMainWindow):
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
             previous = dict(tile.room) if tile.room.get("room_id") else None
+            self.recorder.stop(other)
             self._stop_tile(other)
             other.set_room(previous)
             if previous and previous.get("room_id"):
                 to_start.append(other)
+        self.recorder.stop(tile)
         self._stop_tile(tile)
         tile.set_room(room)
         to_start.append(tile)
@@ -967,6 +979,8 @@ class MainWindow(QMainWindow):
         if self._hot_swap(source, target_tile):
             return
         first, second = dict(source.room), dict(target_tile.room)
+        self.recorder.stop(source)
+        self.recorder.stop(target_tile)
         self._stop_tile(source)
         self._stop_tile(target_tile)
         source.set_room(second if second.get("room_id") else None)
@@ -1302,6 +1316,7 @@ class MainWindow(QMainWindow):
         tile = self._tile_of(str(room.get("room_id")))
         if tile is None:
             return
+        self.recorder.stop(tile)
         self._stop_tile(tile)
         tile.set_room(None)
         self._refresh_meta()
@@ -1314,20 +1329,60 @@ class MainWindow(QMainWindow):
         tile.audioChannelChanged.connect(self._on_audio_changed)
         tile.reloadRequested.connect(self._on_reload)
         tile.pauseToggled.connect(self._on_pause_toggled)
+        if not getattr(tile, "_recording_wired", False):
+            tile.recordingRequested.connect(lambda t=tile: self._toggle_recording(t))
+            tile._recording_wired = True
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
 
     def _fill_plugin_menu(self, tile) -> None:
-        """右键菜单弹出前，把插件要加的项收进格子（插件异常不会影响菜单）。"""
+        """右键菜单弹出前，收集本体录制和插件操作。"""
         manager = getattr(self, "plugins", None)
-        if manager is None:               # 插件还没装载（例如启动早期）
-            tile.plugin_actions = []
-            return
         collected = []
-        for label, callback, name in manager.tile_actions(tile):
-            collected.append((label, lambda cb=callback: manager.run_action(cb)))
+        session = self.recorder.sessions.get(tile)
+        if session and session.recording:
+            collected.append(("● 停止录制这一路", lambda t=tile: self.recorder.stop(t)))
+        else:
+            collected.append(("● 开始录制这一路", lambda t=tile:
+                              self.recorder.start(t, recording=True)))
+        if session:
+            minutes = int(session.settings.get("recording_replay_minutes", 3))
+            collected.append((f"保存最近约 {minutes} 分钟", lambda t=tile:
+                              self.recorder.save_replay(t)))
+            if not session.recording:
+                collected.append(("关闭即时回放缓存", lambda t=tile: self.recorder.stop(t)))
+        else:
+            collected.append(("开启即时回放缓存", lambda t=tile:
+                              self.recorder.start(t, recording=False)))
+        if manager is not None:
+            for label, callback, name in manager.tile_actions(tile):
+                collected.append((label, lambda cb=callback: manager.run_action(cb)))
         tile.plugin_actions = collected
+
+    def _toggle_recording(self, tile) -> None:
+        session = self.recorder.sessions.get(tile)
+        if session and session.recording:
+            self.recorder.stop(tile)
+        else:
+            self.recorder.start(tile, recording=True)
+
+    def _record_state_changed(self, tile) -> None:
+        session = self.recorder.sessions.get(tile)
+        state = "record" if session and session.recording and not session.stopping else (
+            "cache" if session and not session.stopping else "")
+        tile.set_recording_state(state)
+
+    def _record_notice(self, message: str) -> None:
+        if self._closing:
+            return
+        if any(word in message for word in ("磁盘", "空间不足", "找不到 FFmpeg",
+                                            "启动失败", "续录失败", "导出失败",
+                                            "连接中", "只能录制", "正在结束", "备用目录")):
+            box = QMessageBox(QMessageBox.Warning, "录制提醒", message,
+                              QMessageBox.Ok, self)
+            box.setAttribute(Qt.WA_DeleteOnClose)
+            box.open()
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -1361,6 +1416,7 @@ class MainWindow(QMainWindow):
             return
         empty = next((tile for tile in self.wall.tiles if not tile.room.get("room_id")), None)
         if empty is not None:                      # 优先填空位
+            self.recorder.stop(empty)
             self._stop_tile(empty)
             empty.set_room(room)
             self._wire_tile(empty)
@@ -1386,6 +1442,7 @@ class MainWindow(QMainWindow):
         if tile is not None:
             self.plugins.emit(plugin_api.EVENT_TILE_REMOVED, tile=tile,
                               room=dict(tile.room or {}))
+            self.recorder.stop(tile)
             self._stop_tile(tile)
             self.wall.remove_room(tile.room)
         self.sidebar.remove_room(room)

@@ -1900,11 +1900,6 @@ class NavItem(QFrame):
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge)
-        self.wall_badge = QLabel("在墙", self)
-        self.wall_badge.setObjectName("BadgeWall")
-        self.wall_badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.wall_badge.adjustSize()
-        self.wall_badge.hide()
         self.setToolTip("")
 
     def set_on_wall(self, on_wall: bool) -> None:
@@ -1913,16 +1908,7 @@ class NavItem(QFrame):
         if self.property("onWall") is on_wall:
             return
         self.setProperty("onWall", on_wall)
-        self.wall_badge.setVisible(on_wall and not self._compact)
-        self.wall_badge.raise_()
         _repolish(self)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self.wall_badge.adjustSize()
-        self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8),
-                             4 if self._portrait_strip else 8)
-        self.wall_badge.raise_()
 
     def set_portrait_strip(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -1935,8 +1921,6 @@ class NavItem(QFrame):
             self.setFixedHeight(PORTRAIT_LIST_HEIGHT if enabled else
                                 (NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT))
         self._layout.setContentsMargins(8, 6, 10, 6)
-        self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8),
-                             4 if enabled else 8)
 
     def _sync_live_dot(self) -> None:
         size = self.live_dot.width()
@@ -1959,7 +1943,6 @@ class NavItem(QFrame):
         if not compact and self._portrait_strip:
             self.thumb._layout_overlay()
         self._sync_live_dot()
-        self.wall_badge.setVisible(bool(self.property("onWall")) and not compact)
         # 收起成窄条时把头像单独夹在中间，否则会被挤到右边、右侧还被裁掉
         if compact and not self._compact_spacers:
             self._layout.insertStretch(0, 1)
@@ -4212,6 +4195,7 @@ class Tile(QFrame):
     volumeChanged = Signal(dict, int)
     audioChannelChanged = Signal(dict, int)
     pauseToggled = Signal(dict)
+    recordingRequested = Signal()
     pluginMenuRequested = Signal()     # 右键菜单要弹了，请外部先把插件菜单项填好
 
     def __init__(self, room: dict, parent=None):
@@ -4277,6 +4261,12 @@ class Tile(QFrame):
         self.pause_button = PauseButton(self)
         self.pause_button.clicked.connect(lambda: self.pauseToggled.emit(self.room))
         bottom_layout.addWidget(self.pause_button, 0, Qt.AlignVCenter)
+        self.recording_button = QPushButton("●")
+        self.recording_button.setObjectName("TileCtrl")
+        self.recording_button.setFixedSize(26, 26)
+        self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
+        self.recording_button.clicked.connect(self.recordingRequested)
+        bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
         # 信息条中间：常驻状态（连接中 / 缓冲中 / 断流重连 / 已下播…）
         # 画面被 VLC 原生窗口盖住时，这里也一定看得见
         self.status_label = ElidedLabel("")
@@ -4348,6 +4338,9 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
+        self.stream_url = ""
+        self.stream_headers = {}
+        self.set_recording_state("")
         empty = not self.room.get("room_id")
         self.setProperty("empty", empty)
         _repolish(self)
@@ -4385,6 +4378,15 @@ class Tile(QFrame):
         self.set_status("" if self.room.get("live") else "未开播")
         self.stop_elapsed_timer()
         self._layout_cover()
+
+    def set_recording_state(self, state: str) -> None:
+        self.recording_button.setText("●" if state != "cache" else "◉")
+        self.recording_button.setProperty("recording", state == "record")
+        _repolish(self.recording_button)
+        self.recording_button.setToolTip(
+            "停止录制这一路" if state == "record" else
+            "即时回放缓存中；点击开始完整录制" if state == "cache" else
+            "开始录制这一路（右键可保存即时回放）")
 
     # ---- 接收拖拽 ----
     def dragEnterEvent(self, event) -> None:

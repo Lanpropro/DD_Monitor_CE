@@ -392,7 +392,9 @@ def main() -> None:
     dialog = SettingsDialog(window.settings, window.shortcuts)
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
-    assert pages == ["常规", "弹幕", "快捷键"] and dialog.stack.currentIndex() == 0
+    assert pages == ["常规", "弹幕", "录制", "快捷键"] and dialog.stack.currentIndex() == 0
+    dialog.nav.setCurrentRow(3)
+    assert dialog.stack.currentIndex() == 3
     dialog.nav.setCurrentRow(2)
     assert dialog.stack.currentIndex() == 2
     dialog.nav.setCurrentRow(1)

@@ -3,6 +3,7 @@ import os
 import sys
 from unittest.mock import patch
 
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,9 +12,13 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm.widgets import (CAROUSEL_WIDTH, NAV_LIST_ITEM_HEIGHT, NavThumb,
                          PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH, Sidebar)  # noqa: E402
+from ddm.preview import HoverPreview  # noqa: E402
 
 
 class FakePlayer:
+    def __init__(self, *_args, **_kwargs):
+        self.freeze_watch = True
+
     def set_muted(self, _value):
         pass
 
@@ -24,6 +29,9 @@ class FakePlayer:
         pass
 
     def stop(self):
+        pass
+
+    def release(self):
         pass
 
 
@@ -57,6 +65,21 @@ def main():
         first.thumb.stop()
         assert not first.thumb.video.isVisible()
         assert first.name_label.isVisible()
+
+    with patch("ddm.preview.TilePlayer", FakePlayer):
+        preview = HoverPreview(sidebar)
+        preview._item = first
+        preview._room = first.room
+        preview._on_resolved(0, "0", "https://example.invalid/live.flv", 80, "web", None)
+        assert preview._popup.parentWidget() is sidebar.scroll.viewport()
+        assert preview._popup.isVisible()
+        assert preview._popup.size().width() == PORTRAIT_LIST_WIDTH
+        anchor = first.mapTo(sidebar.scroll.viewport(), QPoint(first.width() * 2 // 3, 0))
+        expected_x = max(0, min(anchor.x(), sidebar.scroll.viewport().width() - PORTRAIT_LIST_WIDTH))
+        assert preview._popup.x() == expected_x
+        assert first.name_label.isVisible(), "悬浮预览不该盖掉卡片信息"
+        preview.stop()
+        assert not preview._popup.isVisible()
 
     sidebar.set_side("left")
     app.processEvents()

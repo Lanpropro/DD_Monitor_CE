@@ -384,15 +384,6 @@ QSlider::handle:horizontal:hover {{
     font-size: 11px;
     font-weight: 600;
 }}
-#BadgeWall {{
-    background: rgba(0, 161, 214, 0.88);
-    color: #04161f;
-    border-radius: {RADIUS_MD}px;
-    padding: 1px 6px;
-    font-size: 11px;
-    font-weight: 700;
-}}
-
 #IconButton {{
     background: {CONTENT};
     border: 1px solid {BORDER};
@@ -693,6 +684,9 @@ QSlider::handle:horizontal:hover {{
     background: rgba(0, 161, 214, 0.85);
     color: #04161f;
 }}
+#TileCtrl[recording="true"] {{
+    color: {ERROR};
+}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;
@@ -801,6 +795,14 @@ QSlider::handle:horizontal:hover {{
 }}
 #NavThumbVideo {{
     background: #000000;
+}}
+#NavPreviewPopup {{
+    background: {CONTENT};
+    border: 2px solid {ACCENT};
+    border-radius: 7px;
+}}
+#NavPreviewPopupVideo {{
+    background: {TILE_BG};
 }}
 #NavThumbHint {{
     background: rgba(10, 11, 13, 0.66);

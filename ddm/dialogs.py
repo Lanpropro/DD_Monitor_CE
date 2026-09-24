@@ -5,7 +5,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QDialog, QFontComboBox, QGridLayout, QHBoxLayout, QLabel,
+    QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
+    QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -305,10 +306,110 @@ class DanmakuSettingsPage(QWidget):
         }
 
 
+class RecordingSettingsPage(QWidget):
+    """录像参数；码率和帧率只在重编码时生效。"""
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        layout = QVBoxLayout(self)
+        layout.addLayout(_page_head("录制与即时回放", "每个格子独立录制原始直播流；画面墙控件和弹幕不会进入文件。"))
+        grid = QGridLayout()
+        layout.addLayout(grid)
+        self.directory = QLineEdit()
+        self.backup = QLineEdit()
+        self.ffmpeg = QLineEdit()
+        for row, (label, edit, folder) in enumerate((
+            ("保存目录", self.directory, True),
+            ("满盘备用目录（必须是另一磁盘）", self.backup, True),
+            ("FFmpeg 可执行文件", self.ffmpeg, False),
+        )):
+            grid.addWidget(QLabel(label), row, 0)
+            line = QHBoxLayout()
+            line.addWidget(edit, 1)
+            button = QPushButton("浏览…")
+            button.clicked.connect(lambda _checked=False, e=edit, f=folder:
+                                   self._browse(e, f))
+            line.addWidget(button)
+            grid.addLayout(line, row, 1)
+        self.format = QComboBox()
+        self.format.addItem("MP4（剪辑软件兼容性优先）", "mp4")
+        self.format.addItem("MKV（抗意外中断）", "mkv")
+        self.codec = QComboBox()
+        self.codec.addItem("直接保存原始流（画质不变、负载低）", "copy")
+        self.codec.addItem("H.264 + AAC 重编码（可调码率/帧率）", "h264")
+        self.bitrate = QSpinBox()
+        self.bitrate.setRange(500, 50000)
+        self.bitrate.setSuffix(" kbps")
+        self.fps = QSpinBox()
+        self.fps.setRange(10, 120)
+        self.fps.setSuffix(" fps")
+        self.replay_minutes = QSpinBox()
+        self.replay_minutes.setRange(1, 60)
+        self.replay_minutes.setSuffix(" 分钟")
+        self.min_free = QSpinBox()
+        self.min_free.setRange(256, 100000)
+        self.min_free.setSuffix(" MB")
+        for row, (label, widget) in enumerate((
+            ("输出格式", self.format), ("编码方式", self.codec),
+            ("视频码率", self.bitrate), ("帧率", self.fps),
+            ("回放缓存时长", self.replay_minutes), ("磁盘剩余空间警戒线", self.min_free),
+        ), start=3):
+            grid.addWidget(QLabel(label), row, 0)
+            grid.addWidget(widget, row, 1)
+        self.codec.currentIndexChanged.connect(self._update_codec)
+        self._load(settings)
+        layout.addStretch(1)
+
+    def _browse(self, edit: QLineEdit, folder: bool) -> None:
+        if folder:
+            value = QFileDialog.getExistingDirectory(self, "选择目录", edit.text())
+        else:
+            value, _filter = QFileDialog.getOpenFileName(
+                self, "选择 FFmpeg", edit.text(), "FFmpeg (ffmpeg.exe);;所有文件 (*)")
+        if value:
+            edit.setText(value)
+
+    def _load(self, settings: dict) -> None:
+        self.directory.setText(str(settings.get("recording_dir") or ""))
+        self.backup.setText(str(settings.get("recording_backup_dir") or ""))
+        self.ffmpeg.setText(str(settings.get("recording_ffmpeg") or ""))
+        self.format.setCurrentIndex(max(0, self.format.findData(settings.get("recording_format", "mp4"))))
+        self.codec.setCurrentIndex(max(0, self.codec.findData(settings.get("recording_codec", "copy"))))
+        self.bitrate.setValue(int(settings.get("recording_bitrate", 6000)))
+        self.fps.setValue(int(settings.get("recording_fps", 30)))
+        self.replay_minutes.setValue(int(settings.get("recording_replay_minutes", 3)))
+        self.min_free.setValue(int(settings.get("recording_min_free_mb", 2048)))
+        self._update_codec()
+
+    def _update_codec(self) -> None:
+        enabled = self.codec.currentData() == "h264"
+        self.bitrate.setEnabled(enabled)
+        self.fps.setEnabled(enabled)
+
+    def reset(self) -> None:
+        from .config import DEFAULT_SETTINGS
+        self._load(DEFAULT_SETTINGS)
+
+    def values(self) -> dict:
+        return {
+            "recording_dir": self.directory.text().strip(),
+            "recording_backup_dir": self.backup.text().strip(),
+            "recording_ffmpeg": self.ffmpeg.text().strip(),
+            "recording_format": self.format.currentData(),
+            "recording_codec": self.codec.currentData(),
+            "recording_bitrate": self.bitrate.value(),
+            "recording_fps": self.fps.value(),
+            "recording_replay_minutes": self.replay_minutes.value(),
+            "recording_min_free_mb": self.min_free.value(),
+        }
+
+
 class SettingsDialog(QDialog):
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
-    PAGES = [("general", "常规"), ("danmaku", "弹幕"), ("shortcuts", "快捷键")]
+    PAGES = [("general", "常规"), ("danmaku", "弹幕"),
+             ("recording", "录制"), ("shortcuts", "快捷键")]
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None):
         super().__init__(parent)
@@ -336,9 +437,11 @@ class SettingsDialog(QDialog):
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
         self.danmaku_page = DanmakuSettingsPage(settings)
+        self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.stack.addWidget(self.general_page)
         self.stack.addWidget(self.danmaku_page)
+        self.stack.addWidget(self.recording_page)
         self.stack.addWidget(self.shortcut_page)
         right.addWidget(self.stack, 1)
 
@@ -375,6 +478,7 @@ class SettingsDialog(QDialog):
     def settings(self) -> dict:
         values = self.general_page.values()
         values.update(self.danmaku_page.values())
+        values.update(self.recording_page.values())
         return values
 
     def shortcuts(self) -> dict:

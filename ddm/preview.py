@@ -5,9 +5,12 @@
 """
 import sys
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QPoint, Qt, QTimer
+from PySide6.QtWidgets import QFrame
 
 from .bili import StreamResolver
+from .player import TilePlayer
+from .widgets import PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH
 
 PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
 
@@ -37,6 +40,19 @@ class HoverPreview(QObject):
         self._item = None                       # 正在预览的条目
         self._resolver: StreamResolver | None = None
         self._generation = 0                    # 取流编号：旧编号的结果一律丢掉
+        # 竖屏紧凑模式共用一个悬浮预览，挂在滚动视口内而非系统顶层窗口。
+        self._popup = QFrame(sidebar.scroll.viewport())
+        self._popup.setObjectName("NavPreviewPopup")
+        self._popup.setAttribute(Qt.WA_StyledBackground, True)
+        self._popup.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._popup.setFixedSize(PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT)
+        self._popup_video = QFrame(self._popup)
+        self._popup_video.setObjectName("NavPreviewPopupVideo")
+        self._popup_video.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._popup_video.setGeometry(2, 2, PORTRAIT_LIST_WIDTH - 4, PORTRAIT_LIST_HEIGHT - 4)
+        self._popup.hide()
+        self._popup_player: TilePlayer | None = None
+        sidebar.scroll.horizontalScrollBar().valueChanged.connect(self._update_popup_position)
         self._delay = QTimer(self)
         self._delay.setSingleShot(True)
         self._delay.setInterval(self.DELAY_MS)
@@ -102,9 +118,34 @@ class HoverPreview(QObject):
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
         try:
-            item.thumb.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
+            if self.sidebar.side == "top" and not self.sidebar.card_mode:
+                item.thumb.set_hint("")
+                self._place_popup(item)
+                if self._popup_player is None:
+                    self._popup_player = TilePlayer(self._popup_video, self, silent=True)
+                    self._popup_player.freeze_watch = False
+                self._popup_player.set_muted(True)
+                self._popup_player.set_volume(0)
+                self._popup.show()
+                self._popup.raise_()
+                self._popup_player.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
+            else:
+                item.thumb.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
         except RuntimeError:
             self._item = None
+
+    def _place_popup(self, item) -> None:
+        viewport = self.sidebar.scroll.viewport()
+        origin = item.mapTo(viewport, QPoint(0, 0))
+        x = origin.x() + item.width() * 2 // 3
+        y = origin.y() + (item.height() - self._popup.height()) // 2
+        x = max(0, min(x, viewport.width() - self._popup.width()))
+        y = max(0, min(y, viewport.height() - self._popup.height()))
+        self._popup.move(x, y)
+
+    def _update_popup_position(self) -> None:
+        if self._item is not None and self._popup.isVisible():
+            self._place_popup(self._item)
 
     def _on_failed(self, generation: int, room_id: str, reason: str) -> None:
         if generation != self._generation:
@@ -137,6 +178,9 @@ class HoverPreview(QObject):
                 pass
         item = self._item
         self._item = None
+        self._popup.hide()
+        if self._popup_player is not None:
+            self._popup_player.stop()
         if item is None:
             return
         try:
@@ -156,6 +200,9 @@ class HoverPreview(QObject):
                 item.thumb.release_player()
             except RuntimeError:                    # 条目已经被删掉
                 pass
+        if self._popup_player is not None:
+            self._popup_player.release()
+            self._popup_player = None
 
     # ---- 小工具 ----
     def _room_id(self) -> str:

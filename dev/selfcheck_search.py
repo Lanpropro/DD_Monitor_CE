@@ -216,16 +216,14 @@ def main() -> None:
         window._refresh_meta()                           # noqa: SLF001
         settle(app)
         print(f"  上墙后 property={marked.property('onWall')}"
-              f" badge={marked.wall_badge.isVisible()}"
               f" strip={sidebar._head_strip._on_wall_ids}")  # noqa: SLF001
         assert marked.property("onWall") is True
-        assert marked.wall_badge.isVisible()
+        assert not hasattr(marked, "wall_badge"), "只保留蓝框，不显示『在墙』文字"
         assert "9101" in sidebar._head_strip._on_wall_ids     # noqa: SLF001
         tile.set_room(None)
         window._refresh_meta()                           # noqa: SLF001
         settle(app)
         assert marked.property("onWall") is False
-        assert not marked.wall_badge.isVisible()
 
         print("\n=== 14. 竖屏紧凑横栏：按钮不溢出，往返后模式保持 ===")
         sidebar.set_compact_policy(True, True, 17)

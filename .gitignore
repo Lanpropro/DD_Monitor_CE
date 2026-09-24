@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 logs/
 cache/
+recordings/
 utils/config.json
 utils/config.json.bak
 dev/preview/
