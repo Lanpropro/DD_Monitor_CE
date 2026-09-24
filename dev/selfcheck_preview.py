@@ -344,7 +344,7 @@ def main() -> None:
     assert expanded.width() > NavThumb.WIDTH
     assert abs(expanded.width() / expanded.height() - 16 / 9) < 0.08
 
-    print("\n=== 9. 简洁列表：只留头像和文字，也能悬停预览 ===")
+    print("\n=== 9. 简洁列表：只留头像和文字，悬停预览走浮层 ===")
     sidebar.set_card_mode(False)
     settle(app, 0.4)
     simple_item = sidebar.items()[0]
@@ -355,11 +355,14 @@ def main() -> None:
     assert not simple_item.thumb.cover.isVisible(), "简洁列表不应常驻显示封面"
     assert simple_item.thumb.face.isVisible() and simple_item.name_label.isVisible()
     hover(simple_item, True)
-    assert wait_for(lambda: simple_item.thumb.video.isVisible()), "简洁列表仍应支持悬停预览"
-    assert simple_item.thumb.video.x() >= int(simple_item.thumb.width() * 0.64)
-    assert simple_item.thumb.video.width() <= int(simple_item.thumb.width() * 0.37)
+    # 长条卡片的缩略图只有 NavThumb.LIST_HEIGHT(48) 高，预览塞进去会被压扁，
+    # 所以改成弹浮层（尺寸和展开卡片上那块封面一致）。
+    assert wait_for(lambda: preview._popup.isVisible()), "简洁列表该弹浮层预览"  # noqa: SLF001
+    assert not simple_item.thumb.video.isVisible(), \
+        "简洁列表不该再把预览塞进 48px 高的缩略图"
+    assert preview._popup.height() == NavThumb.HEIGHT         # noqa: SLF001
     hover(simple_item, False)
-    assert wait_for(lambda: not simple_item.thumb.video.isVisible())
+    assert wait_for(lambda: not preview._popup.isVisible())   # noqa: SLF001
     sidebar.set_card_mode(True)
     settle(app, 0.3)
 

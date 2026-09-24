@@ -10,9 +10,16 @@ from PySide6.QtWidgets import QFrame
 
 from .bili import StreamResolver
 from .player import TilePlayer
-from .widgets import PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH
+from .widgets import NavThumb
 
 PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
+
+#: 浮层预览的高度 = 展开卡片里那块封面的高度（116）。
+#: 紧凑（长条）卡片的缩略图只有 `NavThumb.LIST_HEIGHT`(48) 高，预览塞进去会被压扁，
+#: 所以在卡片旁边弹一个和**非紧凑卡片**上一样大的浮层（见 `_needs_popup`）。
+PREVIEW_HEIGHT = NavThumb.HEIGHT
+#: 竖屏时向下弹出，跟卡片底边留一点缝
+PREVIEW_GAP = 6
 
 #: 预览专用的 media 选项。预览是**静音的小画面**，两样都不需要：
 #:   :no-audio        —— 干脆别建音频输出。省掉第二个 WASAPI/mmdevice 输出，
@@ -40,19 +47,21 @@ class HoverPreview(QObject):
         self._item = None                       # 正在预览的条目
         self._resolver: StreamResolver | None = None
         self._generation = 0                    # 取流编号：旧编号的结果一律丢掉
-        # 竖屏紧凑模式共用一个悬浮预览，挂在滚动视口内而非系统顶层窗口。
-        self._popup = QFrame(sidebar.scroll.viewport())
+        # 共用一个浮层预览。父控件挂**主窗口**（不是滚动视口）：视口会把自己裁掉，
+        # 而横屏要往卡片右侧弹、竖屏要向下弹，都会越出视口范围。
+        self._popup = QFrame(sidebar.window())
         self._popup.setObjectName("NavPreviewPopup")
         self._popup.setAttribute(Qt.WA_StyledBackground, True)
         self._popup.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._popup.setFixedSize(PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT)
         self._popup_video = QFrame(self._popup)
         self._popup_video.setObjectName("NavPreviewPopupVideo")
         self._popup_video.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._popup_video.setGeometry(2, 2, PORTRAIT_LIST_WIDTH - 4, PORTRAIT_LIST_HEIGHT - 4)
+        self._size_popup(NavThumb.WIDTH)
         self._popup.hide()
         self._popup_player: TilePlayer | None = None
         sidebar.scroll.horizontalScrollBar().valueChanged.connect(self._update_popup_position)
+        # 横屏的列表是竖着滚的，不接上这一条，滚动时预览会停在原地
+        sidebar.scroll.verticalScrollBar().valueChanged.connect(self._update_popup_position)
         self._delay = QTimer(self)
         self._delay.setSingleShot(True)
         self._delay.setInterval(self.DELAY_MS)
@@ -118,7 +127,7 @@ class HoverPreview(QObject):
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
         try:
-            if self.sidebar.side == "top" and not self.sidebar.card_mode:
+            if self._needs_popup():
                 item.thumb.set_hint("")
                 self._place_popup(item)
                 if self._popup_player is None:
@@ -127,6 +136,11 @@ class HoverPreview(QObject):
                 self._popup_player.set_muted(True)
                 self._popup_player.set_volume(0)
                 self._popup.show()
+                # 画面墙的格子是**原生子窗口**，会盖住普通子控件。预览要压在它们
+                # 上面，自己也得是原生窗口；而且必须在 show() 之后再设，否则 Qt
+                # 会抱怨「不是顶层窗口」。
+                if not self._popup.testAttribute(Qt.WA_NativeWindow):
+                    self._popup.setAttribute(Qt.WA_NativeWindow, True)
                 self._popup.raise_()
                 self._popup_player.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
             else:
@@ -134,15 +148,47 @@ class HoverPreview(QObject):
         except RuntimeError:
             self._item = None
 
+    def _needs_popup(self) -> bool:
+        """什么时候用浮层预览，而不是直接播在卡片的缩略图里。
+
+        非紧凑卡片上那块封面是**铺满条目**的（约 206x116），画面直接播在里面最
+        自然；紧凑（长条）卡片的缩略图只有 `NavThumb.LIST_HEIGHT`(48) 高，塞进去
+        画面会被压扁 —— 用户报的「紧凑布局下预览有问题」就是这个。竖屏卡片条更矮，
+        一律用浮层。
+        """
+        return (not self.sidebar.card_mode) or self.sidebar.side == "top"
+
+    def _size_popup(self, width: int) -> None:
+        """把浮层设成和「非紧凑卡片上那块封面」一样大，视频区留 2px 边框。"""
+        width = max(80, int(width))
+        self._popup.setFixedSize(width, PREVIEW_HEIGHT)
+        self._popup_video.setGeometry(
+            2, 2, max(1, width - 4), max(1, PREVIEW_HEIGHT - 4))
+
     def _place_popup(self, item) -> None:
-        viewport = self.sidebar.scroll.viewport()
-        origin = item.mapTo(viewport, QPoint(0, 0))
-        x = origin.x() + item.width() * 2 // 3
-        y = origin.y() + (item.height() - self._popup.height()) // 2
-        if x + self._popup.width() > viewport.width():
-            x = origin.x() - self._popup.width()  # 右侧放不下时挨着卡片左侧
-        x = max(0, min(x, viewport.width() - self._popup.width()))
-        y = max(0, min(y, viewport.height() - self._popup.height()))
+        """摆浮层：横屏压在卡片右侧 1/3 并垂直居中；竖屏改成向下弹。
+
+        横屏的 x 沿用最早那版（``db226b2``）的算法：从卡片右边缘往回退**侧栏宽度的
+        1/3**，于是浮层左边界正好压在卡片右边 1/3 的位置，其余部分探到侧栏外面 ——
+        和用户在非紧凑布局里看惯的位置一致。
+        """
+        parent = self._popup.parentWidget()
+        if parent is None:
+            return
+        self._size_popup(item.width())          # 跟卡片同宽，高度取非紧凑封面高
+        origin = item.mapTo(parent, QPoint(0, 0))
+        if self.sidebar.side == "top":
+            # 竖屏：卡片是横排的、右边没空间，改成向下弹（左右和卡片对齐）
+            x = origin.x()
+            y = origin.y() + item.height() + PREVIEW_GAP
+        else:
+            # 左边界落在**卡片右侧 1/3** 处，其余部分探到侧栏外面
+            # （最早那版是按「侧栏宽的 1/3」回退，两者差 7px 左右；按卡片算更贴合
+            #   「占据卡片右侧 1/3」这个说法）
+            x = origin.x() + item.width() * 2 // 3
+            y = origin.y() + (item.height() - self._popup.height()) // 2
+        x = max(0, min(x, parent.width() - self._popup.width()))
+        y = max(0, min(y, parent.height() - self._popup.height()))
         self._popup.move(x, y)
 
     def _update_popup_position(self) -> None:

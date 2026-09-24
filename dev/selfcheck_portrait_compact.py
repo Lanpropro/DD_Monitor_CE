@@ -77,17 +77,23 @@ def main():
         preview._item = first
         preview._room = first.room
         preview._on_resolved(0, "0", "https://example.invalid/live.flv", 80, "web", None)
-        assert preview._popup.parentWidget() is sidebar.scroll.viewport()
+        # 浮层挂在**主窗口**上（这里是个纯 Sidebar，window() 就是它自己）：滚动视口
+        # 会裁掉探出侧栏的部分，而竖屏要向下弹，必须能越出视口。
+        assert preview._popup.parentWidget() is sidebar.window()
         assert preview._popup.isVisible()
-        assert preview._popup.size().width() == PORTRAIT_LIST_WIDTH
-        assert preview._popup.size().height() == PORTRAIT_LIST_HEIGHT
-        anchor = first.mapTo(sidebar.scroll.viewport(), QPoint(first.width() * 2 // 3, 0))
-        expected_x = max(0, min(anchor.x(), sidebar.scroll.viewport().width() - PORTRAIT_LIST_WIDTH))
-        assert preview._popup.x() == expected_x, \
-            f"popup x={preview._popup.x()} expected={expected_x} viewport={sidebar.scroll.viewport().width()}"
-        expected_y = first.mapTo(sidebar.scroll.viewport(), QPoint(0, 0)).y()
-        expected_y = max(0, min(expected_y, sidebar.scroll.viewport().height() - PORTRAIT_LIST_HEIGHT))
-        assert preview._popup.y() == expected_y, "预览窗应和窄竖卡垂直居中"
+        assert preview._popup.size().width() == first.width(), "浮层该和卡片一样宽"
+        assert preview._popup.size().height() == NavThumb.HEIGHT, \
+            "浮层该和展开卡片上那块封面一样高"
+        # 竖屏的浮层是**向下弹**的（卡片右边没空间），得给够高度才验得了：
+        # 真实里它的父控件是主窗口、够高，这个自检的 sidebar 只有横栏那么高。
+        sidebar.resize(1080, 640)
+        app.processEvents()
+        preview._place_popup(first)
+        origin = first.mapTo(sidebar, QPoint(0, 0))
+        assert preview._popup.x() == origin.x(), \
+            f"竖屏该和卡片左对齐：popup={preview._popup.x()} card={origin.x()}"
+        assert origin.y() + first.height() <= preview._popup.y() \
+            <= origin.y() + first.height() + 20, "竖屏该向下弹出（落在卡片正下方）"
         assert first.name_label.isVisible(), "悬浮预览不该盖掉卡片信息"
         sidebar.scroll.horizontalScrollBar().setValue(
             sidebar.scroll.horizontalScrollBar().maximum())
@@ -95,9 +101,9 @@ def main():
         last = sidebar.items()[-1]
         preview._item = last
         preview._place_popup(last)
-        last_x = last.mapTo(sidebar.scroll.viewport(), QPoint(0, 0)).x()
-        assert preview._popup.x() == max(0, last_x - PORTRAIT_LIST_WIDTH), \
-            "靠右卡片的预览应翻到左侧，不能钉在视口边缘"
+        parent = preview._popup.parentWidget()
+        assert preview._popup.x() <= parent.width() - preview._popup.width(), \
+            "浮层不能跑出窗口右边"
         preview.stop()
         assert not preview._popup.isVisible()
 
