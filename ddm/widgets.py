@@ -44,7 +44,7 @@ NAV_COMPACT_ITEM_HEIGHT = 60  # 收起时保持此前的头像间距和滚动手
 NAV_ITEM_GAP = 2              # 项与项之间的间距
 CAROUSEL_WIDTH = 206          # 竖屏顶部横栏里横向卡片的宽度（和侧栏展开时一样宽）
 PORTRAIT_LIST_WIDTH = 100     # 竖屏简洁模式：窄竖条，仍横向滚动
-PORTRAIT_LIST_HEIGHT = NAV_LIST_ITEM_HEIGHT  # 保持原竖屏关注栏高度
+PORTRAIT_LIST_HEIGHT = NAV_ITEM_HEIGHT  # 竖屏展开栏恢复原 196px 高度
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -1485,6 +1485,7 @@ class NavThumb(QFrame):
     COMPACT_SIZE = 32               # 收起成窄条时缩成正方
     RADIUS = 6
     AVATAR_SIZE = 28                # 展开卡片上的圆形主播头像
+    PORTRAIT_AVATAR_SIZE = 48
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1543,11 +1544,13 @@ class NavThumb(QFrame):
         name, title, badge = self._overlay_widgets
         width, height = self._size
         if self._portrait_strip:
-            name.setGeometry(4, 29, max(0, width - 8), 18)
+            name.setGeometry(4, 67, max(0, width - 8), 20)
             name.setAlignment(Qt.AlignCenter)
-            title.hide()
+            title.setGeometry(4, 89, max(0, width - 8), 18)
+            title.setAlignment(Qt.AlignCenter)
             badge.hide()
             name.raise_()
+            title.raise_()
             return
         name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_left = 48 if self._card_mode else 44
@@ -1585,11 +1588,12 @@ class NavThumb(QFrame):
 
     def _render_face(self) -> None:
         """展开时画小头像，收起时改为完整的 32px 主播头像。"""
+        size = (self.COMPACT_SIZE if self._compact_thumb() else
+                self.PORTRAIT_AVATAR_SIZE if self._portrait_strip else self.AVATAR_SIZE)
+        self.face.set_size(size)
         pixmap = self._face_source
         if pixmap is None or pixmap.isNull():
             return
-        size = self.COMPACT_SIZE if self._compact_thumb() else self.AVATAR_SIZE
-        self.face.set_size(size)
         # 圆环直接画进头像图里：QLabel 的边框会缩小内容区，圆形会被裁成圆角方
         disc = circular_pixmap(pixmap, size)
         painter = QPainter(disc)
@@ -1609,13 +1613,14 @@ class NavThumb(QFrame):
     def _face_local_rect(self) -> QRect:
         """展开时头像叠在封面左侧；收起时在 32px 方框中居中。"""
         width, height = self._size
-        avatar_size = self.COMPACT_SIZE if self._compact_thumb() else self.AVATAR_SIZE
+        avatar_size = (self.COMPACT_SIZE if self._compact_thumb() else
+                       self.PORTRAIT_AVATAR_SIZE if self._portrait_strip else self.AVATAR_SIZE)
         if self._compact_thumb():
             return QRect((width - avatar_size) // 2,
                          (height - avatar_size) // 2,
                          avatar_size, avatar_size)
         if self._portrait_strip:
-            return QRect((width - avatar_size) // 2, 1, avatar_size, avatar_size)
+            return QRect((width - avatar_size) // 2, 8, avatar_size, avatar_size)
         return QRect(10 if self._card_mode else 4,
                      10,
                      avatar_size, avatar_size)
@@ -1701,7 +1706,7 @@ class NavThumb(QFrame):
             return
         for widget in self._overlay_widgets:
             widget.setVisible(bool(visible) and not self._compact
-                              and (not self._portrait_strip or widget is self._overlay_widgets[0]))
+                              and (not self._portrait_strip or widget is not self._overlay_widgets[2]))
 
     def set_portrait_strip(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -1711,9 +1716,10 @@ class NavThumb(QFrame):
             self.stop()
         self._portrait_strip = enabled
         if not self._compact:
-            height = (self.LIST_HEIGHT if enabled else
+            height = (PORTRAIT_LIST_HEIGHT - 12 if enabled else
                       self.HEIGHT if self._card_mode else self.LIST_HEIGHT)
             self.setFixedHeight(height)
+        self._render_face()
         self._place_face()
         self._layout_overlay()
         self._set_overlay_visible(True)
@@ -1726,7 +1732,8 @@ class NavThumb(QFrame):
             self.stop()
         self._card_mode = enabled
         if not self._compact:
-            height = self.HEIGHT if enabled else self.LIST_HEIGHT
+            height = (PORTRAIT_LIST_HEIGHT - 12 if self._portrait_strip else
+                      self.HEIGHT if enabled else self.LIST_HEIGHT)
             self.setMinimumSize(0, height)
             self.setMaximumSize(16777215, height)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -1738,7 +1745,8 @@ class NavThumb(QFrame):
 
     def set_thumb_size(self, compact: bool) -> None:
         width = self.COMPACT_SIZE if compact else self.WIDTH
-        expanded_height = self.HEIGHT if self._card_mode else self.LIST_HEIGHT
+        expanded_height = (PORTRAIT_LIST_HEIGHT - 12 if self._portrait_strip else
+                           self.HEIGHT if self._card_mode else self.LIST_HEIGHT)
         height = self.COMPACT_SIZE if compact else expanded_height
         if compact == self._compact_thumb():
             return
@@ -1847,6 +1855,7 @@ class NavItem(QFrame):
         self.setProperty("selected", room.get("selected", False))
         self.setProperty("hovered", False)
         self.setProperty("onWall", False)
+        self.setProperty("portraitStrip", False)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(NAV_ITEM_HEIGHT)
         self._compact = False
@@ -1890,7 +1899,8 @@ class NavItem(QFrame):
 
         self.name_label = ElidedLabel(room.get("uname") or room.get("room_id", ""))
         self.name_label.setObjectName("NavName")
-        self.sub = ElidedLabel(room.get("title") or "未开播")
+        self.sub = ElidedLabel(room.get("title") or
+                               ("直播中" if room.get("live") else "未开播"))
         self.sub.setObjectName("NavSub")
         _ignore_mouse(self.name_label)
         _allow_shrink(self.name_label)
@@ -1915,6 +1925,8 @@ class NavItem(QFrame):
         if enabled == self._portrait_strip:
             return
         self._portrait_strip = enabled
+        self.setProperty("portraitStrip", enabled)
+        _repolish(self)
         self.thumb.set_portrait_strip(enabled)
         self._sync_live_dot()
         if not self._compact:
@@ -1994,6 +2006,8 @@ class NavItem(QFrame):
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
         self.badge.setText("直播中" if live else "未开播")
+        if not self.room.get("title"):
+            self.sub.setText("直播中" if live else "未开播")
         self.badge.setObjectName("BadgeLive" if live else "BadgeOff")
         _repolish(self.badge)
         self._sync_live_dot()
@@ -2991,8 +3005,7 @@ class Sidebar(QFrame):
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
         self._layout_id = layout_id
         layout = layouts.BY_ID.get(layout_id) or layouts.BY_ID[layouts.DEFAULT_LAYOUT]
-        self.layout_button.setText(
-            "布局" if self.side == "top" and not self.card_mode else "布局预设")
+        self.layout_button.setText("布局预设")
         self.layout_button.setToolTip(f"当前布局：{layout['name']}　（点击切换）")
 
     def open_layout_picker(self) -> None:
@@ -3398,25 +3411,20 @@ class Sidebar(QFrame):
             gap.setFixedHeight(height)
 
     def _sync_bar_density(self) -> None:
-        """竖屏紧凑模式把账号、布局和设置排成一行，避免撑高卡片条。"""
-        compact = not self.card_mode
-        self._bar_right_box.setDirection(
-            QBoxLayout.LeftToRight if compact else QBoxLayout.TopToBottom)
-        self._bar_right_box.setSpacing(6 if compact else 0)
+        """竖屏两种卡片密度共用账号、布局、设置的竖排位置。"""
+        self._bar_right_box.setDirection(QBoxLayout.TopToBottom)
+        self._bar_right_box.setSpacing(0)
         tool_box = self.tool_row.layout()
-        tool_box.setDirection(QBoxLayout.LeftToRight if compact else QBoxLayout.TopToBottom)
-        tool_box.setSpacing(4 if compact else 0)
+        tool_box.setDirection(QBoxLayout.TopToBottom)
+        tool_box.setSpacing(0)
         for widget in (*self._bar_gaps, self._bar_divider_label, self._bar_divider_tool):
-            widget.setVisible(not compact)
-        self.layout_button.setText("布局" if compact else "布局预设")
+            widget.setVisible(True)
+        self.layout_button.setText("布局预设")
         for button in (self.layout_button, self.settings_button):
-            button.setMaximumWidth(54 if compact else 16_777_215)
-        if compact:
-            self.tool_row.setFixedWidth(112)
-        else:
-            self.tool_row.setMinimumWidth(0)
-            self.tool_row.setMaximumWidth(16_777_215)
-            self._sync_bar_gaps()
+            button.setMaximumWidth(16_777_215)
+        self.tool_row.setMinimumWidth(0)
+        self.tool_row.setMaximumWidth(16_777_215)
+        self._sync_bar_gaps()
 
     def _apply_bar_block_stretches(self) -> None:
         """账号和工具行自己不占 stretch（高度全由按钮 + 空白算出来）。
@@ -3597,10 +3605,7 @@ class Sidebar(QFrame):
         竖屏展开时它在右侧那一块里，高度就用横屏那套（34），多出来的高度留给
         两条空白；其它情况沿用原来的样子。
         """
-        if self.side == "top" and not self.collapsed and not self.card_mode:
-            self.account_row.set_compact(True, avatar=RoomStrip.AVATAR, margin=1)
-            self.account_row.setFixedWidth(RoomStrip.AVATAR + 2)
-        elif self.side == "top" and not self.collapsed:
+        if self.side == "top" and not self.collapsed:
             self.account_row.set_compact(False)
             # 高度用横屏那套（34），宽度跟着这一块走（三个按钮左右一样长）
             self.account_row.setFixedHeight(theme.CONTROL_HEIGHT)
@@ -3621,8 +3626,6 @@ class Sidebar(QFrame):
         if self.side != "top":
             row.setMinimumWidth(0)
             row.setMaximumWidth(16_777_215)
-            return
-        if not self.collapsed and not self.card_mode:
             return
         row.setMaximumWidth(16_777_215)
         if self.collapsed:
@@ -4261,9 +4264,9 @@ class Tile(QFrame):
         self.pause_button = PauseButton(self)
         self.pause_button.clicked.connect(lambda: self.pauseToggled.emit(self.room))
         bottom_layout.addWidget(self.pause_button, 0, Qt.AlignVCenter)
-        self.recording_button = QPushButton("●")
+        self.recording_button = QPushButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
-        self.recording_button.setFixedSize(26, 26)
+        self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
         self.recording_button.clicked.connect(self.recordingRequested)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -4331,6 +4334,7 @@ class Tile(QFrame):
         self.pause_overlay.setObjectName("PauseOverlay")
         #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
         self._overlay_ready = True
+        self.set_recording_state("")
         if not room.get("room_id"):
             self.set_room(None)          # 空格子：显示"拖入直播间"
 
@@ -4380,13 +4384,23 @@ class Tile(QFrame):
         self._layout_cover()
 
     def set_recording_state(self, state: str) -> None:
-        self.recording_button.setText("●" if state != "cache" else "◉")
+        self._recording_state = state
+        self._update_recording_button()
         self.recording_button.setProperty("recording", state == "record")
         _repolish(self.recording_button)
         self.recording_button.setToolTip(
             "停止录制这一路" if state == "record" else
             "即时回放缓存中；点击开始完整录制" if state == "cache" else
             "开始录制这一路（右键可保存即时回放）")
+
+    def _update_recording_button(self) -> None:
+        if not hasattr(self, "recording_button"):
+            return
+        narrow = self.width() < 320
+        labels = ({"record": "●", "cache": "◉", "": "●"} if narrow else
+                  {"record": "● REC", "cache": "◉ 缓存", "": "● 录制"})
+        self.recording_button.setFixedWidth(26 if narrow else 64)
+        self.recording_button.setText(labels.get(getattr(self, "_recording_state", ""), "●"))
 
     # ---- 接收拖拽 ----
     def dragEnterEvent(self, event) -> None:
@@ -4711,6 +4725,7 @@ class Tile(QFrame):
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
+        self._update_recording_button()
         video_height = max(60, height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))

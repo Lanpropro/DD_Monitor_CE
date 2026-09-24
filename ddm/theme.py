@@ -322,6 +322,9 @@ QSlider::handle:horizontal:hover {{
     border-radius: {RADIUS_MD}px;
     background: transparent;
 }}
+#NavItem[portraitStrip="true"] {{
+    background: {CONTENT};
+}}
 #NavItem:hover, #NavItem[hovered="true"] {{
     background: {CONTENT_HOVER};
 }}

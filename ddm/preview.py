@@ -139,6 +139,8 @@ class HoverPreview(QObject):
         origin = item.mapTo(viewport, QPoint(0, 0))
         x = origin.x() + item.width() * 2 // 3
         y = origin.y() + (item.height() - self._popup.height()) // 2
+        if x + self._popup.width() > viewport.width():
+            x = origin.x() - self._popup.width()  # 右侧放不下时挨着卡片左侧
         x = max(0, min(x, viewport.width() - self._popup.width()))
         y = max(0, min(y, viewport.height() - self._popup.height()))
         self._popup.move(x, y)

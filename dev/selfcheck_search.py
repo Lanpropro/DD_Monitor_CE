@@ -240,18 +240,25 @@ def main() -> None:
         assert sidebar.list_box.horizontal
         assert first.thumb._preview_rect() == first.thumb.rect()
         assert sidebar.scroll.viewport().height() >= first.height()
-        assert sidebar.height() == 128, "竖屏紧凑样式不能增高原关注栏"
+        assert sidebar.height() == 196, "竖屏紧凑样式应恢复原展开栏高度"
         assert sidebar.account_row.isVisible()
         assert sidebar.layout_button.isVisible() and sidebar.settings_button.isVisible()
-        assert sidebar.layout_button.y() == sidebar.settings_button.y()
-        assert sidebar._bar_right.height() == sidebar.scroll.height()  # noqa: SLF001
+        right = sidebar._bar_right  # noqa: SLF001
+        compact_positions = tuple(widget.mapTo(right, widget.rect().topLeft()).y()
+                                  for widget in (sidebar.account_row, sidebar.layout_button,
+                                                 sidebar.settings_button))
+        assert compact_positions[0] < compact_positions[1] < compact_positions[2], \
+            "紧凑模式右侧账号、布局、设置也应竖排"
+        assert right.height() == sidebar.scroll.height()
         sidebar.set_layout_name(window.wall.layout_id)
-        assert sidebar.layout_button.text() == "布局", "布局变化后紧凑按钮不能撑宽右栏"
+        assert sidebar.layout_button.text() == "布局预设"
         sidebar.set_compact_policy(True, False, 18)
         settle(app)
         assert sidebar.card_mode and first.height() == 128
-        assert sidebar.settings_button.y() > sidebar.layout_button.y(), \
-            "关闭自动紧凑后，竖屏右侧按钮应恢复竖排"
+        assert compact_positions == tuple(widget.mapTo(right, widget.rect().topLeft()).y()
+                                          for widget in (sidebar.account_row, sidebar.layout_button,
+                                                         sidebar.settings_button)), \
+            "切换卡片密度不应移动右侧三个按钮"
         sidebar.set_compact_policy(True, True, 18)
         sidebar.add_room({"room_id": "9213", "uname": "第18个关注", "live": False})
         settle(app)

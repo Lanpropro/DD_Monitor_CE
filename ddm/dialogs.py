@@ -307,7 +307,7 @@ class DanmakuSettingsPage(QWidget):
 
 
 class RecordingSettingsPage(QWidget):
-    """录像参数；码率和帧率只在重编码时生效。"""
+    """录像参数；修改码率/帧率时自动切到重编码。"""
 
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
@@ -359,6 +359,8 @@ class RecordingSettingsPage(QWidget):
             grid.addWidget(widget, row, 1)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self._load(settings)
+        self.bitrate.valueChanged.connect(self._enable_transcode)
+        self.fps.valueChanged.connect(self._enable_transcode)
         layout.addStretch(1)
 
     def _browse(self, edit: QLineEdit, folder: bool) -> None:
@@ -383,13 +385,23 @@ class RecordingSettingsPage(QWidget):
         self._update_codec()
 
     def _update_codec(self) -> None:
-        enabled = self.codec.currentData() == "h264"
-        self.bitrate.setEnabled(enabled)
-        self.fps.setEnabled(enabled)
+        hint = ("当前为原始流直存；改动码率或帧率会自动切换为 H.264 重编码"
+                if self.codec.currentData() == "copy" else
+                "当前使用 H.264 重编码，码率和帧率均会生效")
+        self.bitrate.setToolTip(hint)
+        self.fps.setToolTip(hint)
+
+    def _enable_transcode(self) -> None:
+        if self.codec.currentData() == "copy":
+            self.codec.setCurrentIndex(self.codec.findData("h264"))
 
     def reset(self) -> None:
         from .config import DEFAULT_SETTINGS
+        self.bitrate.blockSignals(True)
+        self.fps.blockSignals(True)
         self._load(DEFAULT_SETTINGS)
+        self.bitrate.blockSignals(False)
+        self.fps.blockSignals(False)
 
     def values(self) -> dict:
         return {

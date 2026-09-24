@@ -54,14 +54,19 @@ def main():
 
     dialog = SettingsDialog(DEFAULT_SETTINGS, {})
     assert dialog.recording_page.values()["recording_format"] == "mp4"
+    assert dialog.recording_page.bitrate.isEnabled() and dialog.recording_page.fps.isEnabled()
+    assert dialog.recording_page.codec.currentData() == "copy"
+    dialog.recording_page.fps.setValue(50)
+    assert dialog.recording_page.codec.currentData() == "h264", \
+        "用户直接调帧率时应自动启用重编码"
     dialog.recording_page.format.setCurrentIndex(1)
-    dialog.recording_page.codec.setCurrentIndex(1)
     dialog.recording_page.bitrate.setValue(8500)
     assert dialog.settings()["recording_format"] == "mkv"
     assert dialog.settings()["recording_bitrate"] == 8500
     assert dialog.recording_page.fps.isEnabled()
     dialog.recording_page.reset()
-    assert not dialog.recording_page.fps.isEnabled()
+    assert dialog.recording_page.fps.isEnabled()
+    assert dialog.recording_page.codec.currentData() == "copy"
     dialog.nav.setCurrentRow(2)
     dialog.show()
     app.processEvents()
@@ -168,11 +173,15 @@ def main():
         app.processEvents()
         tile = window.wall.tiles[0]
         window.settings.update(settings)
+        assert tile.recording_button.text() == "● 录制"
+        assert tile.recording_button.x() < tile.status_label.x(), \
+            "录制按钮应常驻在格子底栏暂停键旁"
         tile.room["live"] = True
         tile.stream_url = str(source)
         tile.stream_headers = {}
         tile.recording_button.click()
         assert tile in window.recorder.sessions
+        assert tile.recording_button.text() == "● REC"
         assert tile.recording_button.property("recording") is True
         window._fill_plugin_menu(tile)
         labels = [label for label, _callback in tile.plugin_actions]
