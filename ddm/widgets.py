@@ -1696,10 +1696,13 @@ class NavThumb(QFrame):
         return self._compact
 
     def _preview_rect(self) -> QRect:
-        if self._card_mode or self._portrait_strip:
-            return self.rect()
-        left = max(1, int(self.width() * 2 / 3))
-        return QRect(left, 0, max(1, self.width() - left), self.height())
+        """预览画面占据的矩形。
+
+        卡片模式（封面铺满条目）和竖屏条都用整块。紧凑的长条卡片**不放预览**
+        （只有 48px 高，画面会被压扁；预览改在卡片旁边弹浮层），所以这里也不用再
+        算「右侧 1/3」那块小窗了。
+        """
+        return self.rect()
 
     def _set_overlay_visible(self, visible: bool) -> None:
         if self._overlay_widgets is None:
@@ -1793,6 +1796,11 @@ class NavThumb(QFrame):
         """
         if self._compact_thumb():
             return                         # 收起的关注栏固定显示主播头像
+        if not self._card_mode:
+            # 紧凑（长条）卡片里**不塞预览**：这行只有 LIST_HEIGHT(48) 高，塞进去
+            # 只会得到一块压扁的小画面 —— 用户要求把卡片里那个小预览窗删掉。
+            # 紧凑布局的预览改成在卡片旁边弹浮层，见 ddm/preview.py 的 _needs_popup()。
+            return
         player = self._ensure_player()
         self.video.setGeometry(self._preview_rect())
         self.hint.setGeometry(self._preview_rect())

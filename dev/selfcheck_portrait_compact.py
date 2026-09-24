@@ -65,9 +65,12 @@ def main():
 
     with patch.object(NavThumb, "_ensure_player", return_value=FakePlayer()):
         first.thumb.play("https://example.invalid/live.flv")
-        assert first.thumb.video.isVisible()
-        assert first.thumb.video.geometry() == first.thumb.rect()
-        assert not first.thumb.face.isVisible() and not first.name_label.isVisible()
+        # 紧凑（竖屏窄条 / 横屏长条）卡片里**不播预览**：这行只有几十像素高，
+        # 塞进去画面会被压扁 —— 用户要求把卡片里那个小预览窗删掉。预览改成在
+        # 卡片旁边弹浮层，见 ddm/preview.py 的 _needs_popup()。
+        assert not first.thumb.video.isVisible(), "紧凑卡片里不该再出现预览小窗"
+        # 竖屏窄条用的是头像圆点（live_dot），face 本来就不显示，这里只看文字
+        assert first.name_label.isVisible(), "不播预览时卡片文字该照常露着"
         first.thumb.stop()
         assert not first.thumb.video.isVisible()
         assert first.name_label.isVisible()
@@ -81,7 +84,8 @@ def main():
         # 会裁掉探出侧栏的部分，而竖屏要向下弹，必须能越出视口。
         assert preview._popup.parentWidget() is sidebar.window()
         assert preview._popup.isVisible()
-        assert preview._popup.size().width() == first.width(), "浮层该和卡片一样宽"
+        assert preview._popup.size().width() == CAROUSEL_WIDTH, \
+            "浮层该用展开卡片那个宽度（横竖屏统一，不再跟窄条同宽）"
         assert preview._popup.size().height() == NavThumb.HEIGHT, \
             "浮层该和展开卡片上那块封面一样高"
         # 竖屏的浮层是**向下弹**的（卡片右边没空间），得给够高度才验得了：

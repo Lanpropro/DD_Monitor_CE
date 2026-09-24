@@ -12,6 +12,7 @@
 import os
 import sys
 import time
+from unittest.mock import patch
 
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
@@ -22,7 +23,26 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.widgets import NavThumb  # noqa: E402
+from ddm.widgets import CAROUSEL_WIDTH, NavThumb  # noqa: E402
+
+
+class FakePlayer:
+    """只挡住预览播放器的创建，不碰真实 libvlc。"""
+
+    def set_muted(self, _muted):
+        pass
+
+    def set_volume(self, _volume):
+        pass
+
+    def play(self, *_args, **_kwargs):
+        pass
+
+    def stop(self):
+        pass
+
+    def release(self):
+        pass
 
 ROOMS = [{"room_id": f"99{index:02d}", "uname": f"主播{index}", "title": f"标题{index}",
           "live": True, "muted": True, "volume": 40, "quality": 250}
@@ -77,8 +97,8 @@ def main() -> None:
               f"卡片右侧 1/3 处 x={want_x}　侧栏宽={sidebar.width()}")
         print(f"  浮层 {popup.width()}x{popup.height()} @({popup.x()},{popup.y()})　"
               f"期望 @({want_x},{want_y})")
-        assert popup.width() == item.width(), \
-            f"浮层该和卡片一样宽：{popup.width()} vs {item.width()}"
+        assert popup.width() == CAROUSEL_WIDTH, \
+            f"浮层该用展开卡片那个宽度（横竖屏统一）：{popup.width()} vs {CAROUSEL_WIDTH}"
         assert popup.height() == NavThumb.HEIGHT, \
             f"浮层该和非紧凑卡片上的封面一样高：{popup.height()} vs {NavThumb.HEIGHT}"
         assert abs(popup.x() - want_x) <= 1, \
@@ -118,6 +138,22 @@ def main() -> None:
         assert popup.y() >= origin.y() + item.height(), \
             f"竖屏该向下弹（在卡片下方）：{popup.y()} vs 卡底 {origin.y() + item.height()}"
         assert popup.y() <= origin.y() + item.height() + 20, "向下弹的缝别太大"
+        assert popup.width() == CAROUSEL_WIDTH and popup.height() == NavThumb.HEIGHT, \
+            "竖屏的浮层该和横屏一样大（用户要求两边对齐）"
+
+        print("\n=== 4. 紧凑卡片里不该再有那个小预览窗 ===")
+        item = sidebar.items()[0]
+        # 直接戳缩略图的播放入口：紧凑时它必须什么都不做。以前这里会在卡片右侧
+        # 1/3 画一块 48px 高的小画面（`_preview_rect()` 的那条分支），用户要求删掉。
+        with patch.object(NavThumb, "_ensure_player", return_value=FakePlayer()):
+            item.thumb.play("https://example.invalid/live.flv")
+            print(f"  紧凑卡片 play() 之后：video 可见={item.thumb.video.isVisible()}　"
+                  f"_preview_rect={item.thumb._preview_rect().getRect()}　"
+                  f"rect={item.thumb.rect().getRect()}")
+            assert not item.thumb.video.isVisible(), \
+                "紧凑卡片里不该再出现预览小窗"
+            assert item.thumb._preview_rect() == item.thumb.rect(), \
+                "紧凑卡片不该再算「右侧 1/3」那块预览区"
     finally:
         window.close()
         settle(app, 0.25)

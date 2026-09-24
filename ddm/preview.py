@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QFrame
 
 from .bili import StreamResolver
 from .player import TilePlayer
-from .widgets import NavThumb
+from .widgets import CAROUSEL_WIDTH, NavThumb
 
 PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
 
@@ -56,7 +56,7 @@ class HoverPreview(QObject):
         self._popup_video = QFrame(self._popup)
         self._popup_video.setObjectName("NavPreviewPopupVideo")
         self._popup_video.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._size_popup(NavThumb.WIDTH)
+        self._size_popup(CAROUSEL_WIDTH)
         self._popup.hide()
         self._popup_player: TilePlayer | None = None
         sidebar.scroll.horizontalScrollBar().valueChanged.connect(self._update_popup_position)
@@ -175,7 +175,9 @@ class HoverPreview(QObject):
         parent = self._popup.parentWidget()
         if parent is None:
             return
-        self._size_popup(item.width())          # 跟卡片同宽，高度取非紧凑封面高
+        # 横竖屏用**同一个尺寸**（用户要求两边对齐）：取展开卡片那个量级 ——
+        # CAROUSEL_WIDTH(206) x NavThumb.HEIGHT(116)，正好 16:9。
+        self._size_popup(CAROUSEL_WIDTH)
         origin = item.mapTo(parent, QPoint(0, 0))
         if self.sidebar.side == "top":
             # 竖屏：卡片是横排的、右边没空间，改成向下弹（左右和卡片对齐）

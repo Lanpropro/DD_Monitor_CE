@@ -201,11 +201,18 @@
   主窗口（视口会裁掉探出侧栏的那部分），并且要设成原生窗口才能压在画面墙那些原生
   子窗口之上（否则会被视频盖住）；横向和纵向滚动条都接上重新定位。新增
   `dev/selfcheck_preview_popup.py`。
-- 自检现状：全量 **41 项里 37 项通过**。失败的四项都不是功能问题：
-  `selfcheck_plugins.py` 与 `selfcheck_recording.py` 是本机沙箱限制
-  （`tempfile.mkdtemp` 建出的目录 `WinError 5`，两者同一个原因）；
-  `selfcheck_orientation_layout.py` 与 `selfcheck_tile_overlay.py` 是那个已知的
-  **退出期 flaky**（`0xC0000409`，单独跑两次都是一次崩一次过，与改动无关）。
+- 预览尺寸横竖屏统一 + 删掉紧凑卡片里那个小预览窗（用户续报）：
+  1) 尺寸不再跟卡片走（竖屏窄条卡片只有 100 宽，浮层跟着变成 100x116，和横屏的
+     224x116 对不上），改成**两边都用** `CAROUSEL_WIDTH`(206) x `NavThumb.HEIGHT`
+     (116) —— 正好 16:9，也是展开卡片那个量级；
+  2) `NavThumb.play()` 现在在**紧凑（长条 / 竖屏窄条）时直接返回**，不再往卡片里塞
+     预览；`_preview_rect()` 里那条「右侧 1/3」的分支也删了 —— 用户在长条卡片里
+     看到的那个小预览窗就是它（那行只有 48px 高，画面必然是压扁的）。
+- 自检现状：全量 **41 项**。其中 2 项固定失败，都是本机沙箱限制
+  （`selfcheck_plugins.py` 与 `selfcheck_recording.py`，同为 `tempfile.mkdtemp`
+  建出的目录 `WinError 5`）；另有 4 项会偶发失败 —— `selfcheck_orientation_layout.py`
+  和 `selfcheck_tile_overlay.py`、`selfcheck_slots.py` 是退出期 `0xC0000409`，
+  `selfcheck_search.py` 是离屏时 `Ctrl+F` 的焦点断言，单独重跑都能过。
   （原因同上，与本轮改动无关）。未推送、未更新 Release 附件、未碰
   `utils/config.json`。
 - 跑自检的正确姿势（踩过的坑）：照 `dev\run-checks.cmd` 原样跑 —— 只设
