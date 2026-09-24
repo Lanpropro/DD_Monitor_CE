@@ -40,8 +40,11 @@ def main():
     box = sidebar.list_box
     assert not sidebar.card_mode and box.horizontal
     assert (first.width(), first.height()) == (PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT)
+    assert first.thumb.height() == NavThumb.LIST_HEIGHT
+    assert first.name_label.geometry().bottom() <= first.thumb.height()
     assert (second.x(), second.y()) == (PORTRAIT_LIST_WIDTH + 2, 0)
     assert first.thumb.face.y() < first.name_label.y()
+    assert not first.live_dot.isHidden(), "头像加载后应显示直播状态圆点"
     assert first.thumb._preview_rect() == first.thumb.rect()
     assert box.index_at(PORTRAIT_LIST_WIDTH + 2) == 1
     assert sidebar.scroll.horizontal_only

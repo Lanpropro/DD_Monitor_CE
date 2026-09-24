@@ -242,7 +242,7 @@ def main() -> None:
         assert sidebar.list_box.horizontal
         assert first.thumb._preview_rect() == first.thumb.rect()
         assert sidebar.scroll.viewport().height() >= first.height()
-        assert sidebar.height() < 160, "紧凑横栏应比原大卡片横栏矮"
+        assert sidebar.height() == 128, "竖屏紧凑样式不能增高原关注栏"
         assert sidebar.account_row.isVisible()
         assert sidebar.layout_button.isVisible() and sidebar.settings_button.isVisible()
         assert sidebar.layout_button.y() == sidebar.settings_button.y()

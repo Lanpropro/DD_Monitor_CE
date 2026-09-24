@@ -44,7 +44,7 @@ NAV_COMPACT_ITEM_HEIGHT = 60  # 收起时保持此前的头像间距和滚动手
 NAV_ITEM_GAP = 2              # 项与项之间的间距
 CAROUSEL_WIDTH = 206          # 竖屏顶部横栏里横向卡片的宽度（和侧栏展开时一样宽）
 PORTRAIT_LIST_WIDTH = 100     # 竖屏简洁模式：窄竖条，仍横向滚动
-PORTRAIT_LIST_HEIGHT = 88
+PORTRAIT_LIST_HEIGHT = NAV_LIST_ITEM_HEIGHT  # 保持原竖屏关注栏高度
 HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
 HOLE_MARGIN = 4
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -1543,7 +1543,7 @@ class NavThumb(QFrame):
         name, title, badge = self._overlay_widgets
         width, height = self._size
         if self._portrait_strip:
-            name.setGeometry(4, 51, max(0, width - 8), 20)
+            name.setGeometry(4, 29, max(0, width - 8), 18)
             name.setAlignment(Qt.AlignCenter)
             title.hide()
             badge.hide()
@@ -1615,7 +1615,7 @@ class NavThumb(QFrame):
                          (height - avatar_size) // 2,
                          avatar_size, avatar_size)
         if self._portrait_strip:
-            return QRect((width - avatar_size) // 2, 11, avatar_size, avatar_size)
+            return QRect((width - avatar_size) // 2, 1, avatar_size, avatar_size)
         return QRect(10 if self._card_mode else 4,
                      10,
                      avatar_size, avatar_size)
@@ -1711,7 +1711,7 @@ class NavThumb(QFrame):
             self.stop()
         self._portrait_strip = enabled
         if not self._compact:
-            height = (PORTRAIT_LIST_HEIGHT if enabled else
+            height = (self.LIST_HEIGHT if enabled else
                       self.HEIGHT if self._card_mode else self.LIST_HEIGHT)
             self.setFixedHeight(height)
         self._place_face()
@@ -1726,8 +1726,7 @@ class NavThumb(QFrame):
             self.stop()
         self._card_mode = enabled
         if not self._compact:
-            height = (self.HEIGHT if enabled else
-                      PORTRAIT_LIST_HEIGHT if self._portrait_strip else self.LIST_HEIGHT)
+            height = self.HEIGHT if enabled else self.LIST_HEIGHT
             self.setMinimumSize(0, height)
             self.setMaximumSize(16777215, height)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -1739,8 +1738,7 @@ class NavThumb(QFrame):
 
     def set_thumb_size(self, compact: bool) -> None:
         width = self.COMPACT_SIZE if compact else self.WIDTH
-        expanded_height = (self.HEIGHT if self._card_mode else
-                           PORTRAIT_LIST_HEIGHT if self._portrait_strip else self.LIST_HEIGHT)
+        expanded_height = self.HEIGHT if self._card_mode else self.LIST_HEIGHT
         height = self.COMPACT_SIZE if compact else expanded_height
         if compact == self._compact_thumb():
             return
@@ -1932,10 +1930,11 @@ class NavItem(QFrame):
             return
         self._portrait_strip = enabled
         self.thumb.set_portrait_strip(enabled)
+        self._sync_live_dot()
         if not self._compact:
             self.setFixedHeight(PORTRAIT_LIST_HEIGHT if enabled else
                                 (NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT))
-        self._layout.setContentsMargins(8, 0 if enabled else 6, 10, 0 if enabled else 6)
+        self._layout.setContentsMargins(8, 6, 10, 6)
         self.wall_badge.move(max(8, self.width() - self.wall_badge.width() - 8),
                              4 if enabled else 8)
 
@@ -1943,7 +1942,8 @@ class NavItem(QFrame):
         size = self.live_dot.width()
         self.live_dot.move(max(0, self.thumb.face.width() - size),
                            max(0, self.thumb.face.height() - size))
-        self.live_dot.setVisible(self._compact and bool(self.room.get("live")))
+        self.live_dot.setVisible((self._compact or self._portrait_strip)
+                                 and bool(self.room.get("live")))
         self.live_dot.raise_()
 
     def set_compact(self, compact: bool) -> None:
@@ -1971,10 +1971,8 @@ class NavItem(QFrame):
             item = self._layout.takeAt(0)
             del item
             self._compact_spacers = False
-        self._layout.setContentsMargins(0 if compact else 8,
-                                        0 if self._portrait_strip else 6,
-                                        0 if compact else 10,
-                                        0 if self._portrait_strip else 6)
+        self._layout.setContentsMargins(0 if compact else 8, 6,
+                                        0 if compact else 10, 6)
         self._layout.setSpacing(0 if compact else 10)   # 收起时别留间距，头像才真正居中
 
     def set_card_mode(self, enabled: bool) -> None:
