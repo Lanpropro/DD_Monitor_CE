@@ -127,9 +127,17 @@ def main():
     ending_html = (PROJECT / "compositions" / "v3" / "18-07-end.html").read_text(encoding="utf-8")
     assert 'id="musicCredit">BGM · Microsoft-Loop</div>' in ending_html
     assert '}, 2.78);' in ending_html
-    assert "1+5 操作录屏待替换" in html
-    assert "PR 页面录屏待替换" in html
+    assert 'src="assets/rec/06-follow-recorded.mp4"' in html
+    assert 'src="assets/rec/06-replay-recorded.mp4"' in html
+    assert "操作录屏待替换" not in html and "PR 页面录屏待替换" not in html
     assert all(f"06-wall-{letter}.mp4" in html for letter in "abc")
+    for name, duration in (("06-follow-recorded.mp4", 6.8),
+                           ("06-replay-recorded.mp4", 7.5),
+                           *((f"06-wall-{letter}.mp4", 6.4) for letter in "abc")):
+        path = PROJECT / "assets" / "rec" / name
+        assert abs(float(probe(path)["format"]["duration"]) - duration) < .05
+    assert difference(frame(PROJECT / "assets" / "rec" / "06-wall-c.mp4", .5),
+                      frame(PROJECT / "assets" / "rec" / "06-wall-c.mp4", 5.5)) > 1500
     assert "插件" not in html
     assert 'id="infoSoftware"' in html
     assert 'background: url("assets/rec/06-layout-placeholder.jpg") center / cover' in html

@@ -17,7 +17,7 @@
     .hint { font-size: 22px; font-weight: 600; }
     #aFollow { background: #222428; }
     #camera { position: absolute; left: 120px; top: 100px; width: 1680px; height: 945px; transform-origin: 0 0; box-shadow: 0 35px 100px #0008; }
-    #camera img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    #camera video { display: block; width: 100%; height: 100%; object-fit: cover; }
     .topline { position: absolute; left: 118px; right: 118px; top: 50px; height: 2px; background: #00a1d6; }
     #followHead { position: absolute; left: 120px; top: 70px; padding: 15px 25px; background: #222428e8; border: 2px solid #00a1d6; border-radius: 8px; font-size: 33px; font-weight: 700; }
     #followBadge { position: absolute; right: 120px; top: 72px; padding: 13px 20px; background: #222428e8; border: 2px solid #a7b0bd; border-radius: 99px; font-size: 22px; }
@@ -28,25 +28,11 @@
     .count { position: absolute; left: 25px; top: 10px; opacity: 0; }
     #pullCaption { position: absolute; left: 120px; bottom: 70px; font-size: 76px; font-weight: 700; opacity: 0; text-shadow: 0 4px 16px #000b; }
     #aReplay { background: #f7f8fa; color: #20242c; }
-    #replayHead { position: absolute; left: 145px; top: 80px; font-size: 91px; font-weight: 700; }
-    #replaySub { position: absolute; left: 150px; top: 185px; font-size: 29px; color: #606b78; }
-    #replayPanel { position: absolute; left: 145px; top: 255px; width: 1630px; height: 635px; background: #24272d; border: 2px solid #343a43; border-radius: 18px; box-shadow: 0 35px 70px #13254433; color: #f1f2f5; overflow: hidden; }
-    .panelbar { height: 60px; border-bottom: 2px solid #3d424b; display: flex; align-items: center; padding: 0 32px; gap: 11px; font-size: 22px; color: #afb8c6; }
-    .dot { width: 12px; height: 12px; border-radius: 50%; background: #00a1d6; }
-    .replayPreview { position: absolute; left: 46px; top: 93px; width: 690px; height: 356px; background: #0e1014; border: 2px solid #4b5360; overflow: hidden; }
-    .replayPreview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    #longPreview { opacity: 0; }
-    .previewLabel { position: absolute; left: 20px; bottom: 16px; padding: 10px 18px; background: #111820de; font-size: 20px; }
-    .replayCallout { position: absolute; right: 55px; top: 115px; width: 720px; font-size: 58px; line-height: 1.22; font-weight: 700; }
-    #calloutLong { opacity: 0; }
-    .replayCallout small { display: block; margin-top: 24px; font-size: 25px; line-height: 1.45; color: #b6bdc9; font-weight: 400; }
-    .track { position: absolute; left: 55px; right: 55px; bottom: 38px; height: 105px; border-top: 2px solid #525965; }
-    .trackName { position: absolute; left: 2px; top: 18px; font-size: 20px; color: #adb9c4; }
-    .clipbar { position: absolute; top: 43px; height: 48px; border-radius: 6px; border: 2px solid #7bbfe2; background: #164a63; display: flex; align-items: center; padding-left: 18px; font-size: 22px; font-weight: 700; }
-    .clipbar.short { left: 175px; width: 365px; } .clipbar.long { left: 640px; width: 775px; }
-    #playhead { position: absolute; top: -22px; left: 0; height: 114px; width: 5px; background: #f1f2f5; box-shadow: 0 0 0 3px #00a1d6; }
-    #playhead:before { content: "▼"; position: absolute; top: -19px; left: -12px; color: #00a1d6; font-size: 27px; }
-    #replayBadge { position: absolute; right: 145px; top: 90px; padding: 12px 22px; border: 2px solid #6c7582; border-radius: 99px; color: #56616e; font-size: 23px; font-weight: 700; }
+    #replayHead { position: absolute; left: 115px; top: 21px; font-size: 58px; font-weight: 700; }
+    #replaySub { position: absolute; left: 440px; top: 46px; font-size: 25px; color: #606b78; }
+    #replayPanel { position: absolute; left: 115px; top: 105px; width: 1690px; height: 950px; background: #24272d; border: 2px solid #343a43; border-radius: 18px; box-shadow: 0 35px 70px #13254433; overflow: hidden; }
+    #replayPanel video { display: block; width: 100%; height: 100%; object-fit: contain; }
+    #replayBadge { position: absolute; right: 115px; top: 30px; padding: 9px 18px; border: 2px solid #6c7582; border-radius: 99px; color: #56616e; font-size: 20px; font-weight: 700; }
     #aInfo { background: #222428; }
     #infoSoftware { position: absolute; left: 930px; top: 175px; width: 930px; height: 635px; overflow: hidden; border: 2px solid #4a535d; border-radius: 15px; background: #1d2023; box-shadow: 0 20px 60px #0006; opacity: 0; }
     #infoSoftware:before { content: ""; position: absolute; inset: 0; background: url("assets/rec/06-layout-placeholder.jpg") center / cover; filter: grayscale(1) brightness(.38) blur(1px); }
@@ -76,23 +62,19 @@
 <body>
 <div id="root" data-composition-id="18-06-design" data-start="0" data-duration="27.4" data-width="1920" data-height="1080">
   <div class="act" id="aFollow">
-    <div id="camera" data-layout-allow-overflow><img src="assets/rec/06-layout-placeholder.jpg" alt="真实软件 1+5 截图占位" /></div>
+    <div id="camera" data-layout-allow-overflow><video id="followVideo" src="assets/rec/06-follow-recorded.mp4" muted playsinline data-start="0" data-duration="6.8"></video></div>
     <div id="focusFrame"></div><div class="topline"></div>
     <div id="followHead">录屏 · 逐格查看</div>
-    <div id="followBadge">1+5 操作录屏待替换 · 镜头顺序示意</div>
+    <div id="followBadge">1+5 真实操作 · 镜头随点击推进</div>
     <div id="followCount"><span class="count" id="count1">01 / 06</span><span class="count" id="count2">02 / 06</span><span class="count" id="count3">03 / 06</span><span class="count" id="count4">04 / 06</span><span class="count" id="count5">05 / 06</span><span class="count" id="count6">06 / 06</span></div>
     <div id="pullCaption">六路都在视野里</div>
   </div>
   <div class="act" id="aReplay" style="opacity:0">
     <div id="replayHead">即时重放</div>
     <div id="replaySub">短片段与长片段，在同一条时间轨上找到目标画面</div>
-    <div id="replayBadge">PR 页面录屏待替换 · 交互示意</div>
+    <div id="replayBadge">PR 页面真实录屏</div>
     <div id="replayPanel">
-      <div class="panelbar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:18px">REPLAY / PREVIEW</span></div>
-      <div class="replayPreview"><img src="assets/rec/grid-1.png" alt="" /><img id="longPreview" src="assets/rec/grid-5.png" alt="" /><span class="previewLabel">预览画面占位</span></div>
-      <div class="replayCallout" id="calloutShort">找到这一刻<small>播放头落到短片段，画面预览随定位变化。</small></div>
-      <div class="replayCallout" id="calloutLong">精确找到想看的内容<small>落点改变，预览也随之改变。长短不同的素材共用清晰的时间轨。</small></div>
-      <div class="track"><div class="trackName">视频轨</div><div class="clipbar short" id="shortClip">短素材</div><div class="clipbar long" id="longClip">长素材</div><div id="playhead"></div></div>
+      <video id="replayVideo" src="assets/rec/06-replay-recorded.mp4" muted playsinline data-start="7.04" data-duration="7.5"></video>
     </div>
   </div>
   <div class="act" id="aInfo" style="opacity:0">
@@ -122,7 +104,7 @@
       <div class="wallPanel"><video id="wallB" src="assets/rec/06-wall-b.mp4" muted playsinline data-start="21" data-duration="6.4"></video></div>
       <div class="wallPanel"><video id="wallC" src="assets/rec/06-wall-c.mp4" muted playsinline data-start="21" data-duration="6.4"></video></div>
     </div>
-    <div id="wallBadge">画面墙运动示意 · 待替换不同九格录屏</div>
+    <div id="wallBadge">真实九格画面墙</div>
     <div id="black"></div>
   </div>
 </div>
@@ -162,16 +144,6 @@
     tl.to("#aReplay", { opacity: 1, duration: .42 }, 6.92);
     tl.to(["#replayHead", "#replayBadge"], { opacity: 1, duration: .24 }, 7.38);
     tl.to("#replayPanel", { y: 0, opacity: 1, scale: 1, duration: .68, ease }, 7.04);
-    tl.to("#playhead", { x: 400, duration: 1.1, ease: "power2.inOut" }, 7.82);
-    tl.to("#shortClip", { backgroundColor: "#007da7", duration: .22 }, 8.72);
-    tl.to("#playhead", { x: 1090, duration: .92, ease: "power2.inOut" }, 10.5);
-    tl.to("#longPreview", { opacity: 1, duration: .25 }, 10.88);
-    tl.to("#shortClip", { backgroundColor: "#164a63", duration: .25 }, 10.9);
-    tl.to("#longClip", { backgroundColor: "#007da7", duration: .25 }, 10.9);
-    tl.to("#calloutShort", { opacity: 0, duration: .24 }, 10.88);
-    tl.to("#calloutLong", { opacity: 1, duration: .24 }, 11.02);
-    tl.to("#playhead", { x: 1340, duration: .85, ease: "power2.inOut" }, 11.6);
-    tl.to("#playhead", { x: 1170, duration: .7, ease: "power2.inOut" }, 13.05);
     tl.to("#aReplay", { opacity: 0, duration: .38 }, 14.62);
     tl.to("#aInfo", { opacity: 1, duration: .38 }, 14.78);
     tl.to("#infoSoftware", { opacity: .42, x: 0, duration: .7, ease }, 15.0);
