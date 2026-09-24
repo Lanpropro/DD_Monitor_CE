@@ -47,6 +47,22 @@ def duration(path):
     return float(json.loads(result)["format"]["duration"])
 
 
+def frame(path, time, crop=None):
+    filters = ([f"crop={crop}"] if crop else []) + ["scale=64:36", "format=gray"]
+    return subprocess.check_output([
+        "ffmpeg", "-v", "error", "-ss", str(time), "-i", str(path),
+        "-frames:v", "1", "-vf", ",".join(filters), "-f", "rawvideo", "-",
+    ])
+
+
+def keyframe_times(path):
+    output = subprocess.check_output([
+        "ffprobe", "-v", "error", "-skip_frame", "nokey", "-show_entries",
+        "frame=best_effort_timestamp_time", "-of", "csv=p=0", str(path),
+    ], text=True)
+    return [float(line.rstrip(",")) for line in output.splitlines() if line]
+
+
 def channel_peak(path, channel):
     with wave.open(str(path), "rb") as wav:
         assert wav.getnchannels() == 2
@@ -70,12 +86,19 @@ def main():
         "left-page": "assets/rec/audio-left-live.mp4",
         "right-page": "assets/rec/audio-right-live.mp4",
     }
-    assert float(parser.root["data-duration"]) >= 15.5
+    assert float(parser.root["data-duration"]) == 17
     assert duration(PROJECT / parser.pages["grid-page"]) >= 9
-    assert duration(PROJECT / parser.pages["left-page"]) >= 7.5
-    assert duration(PROJECT / parser.pages["right-page"]) >= 7.5
+    assert duration(PROJECT / parser.pages["left-page"]) >= 9
+    assert duration(PROJECT / parser.pages["right-page"]) >= 9
     for video in parser.videos.values():
         assert duration(PROJECT / video["src"]) >= float(video["data-duration"])
+    for video in (parser.videos["left-video"], parser.videos["right-video"]):
+        assert float(video["data-start"]) + float(video["data-duration"]) == float(parser.root["data-duration"])
+        path = PROJECT / video["src"]
+        assert sum(abs(a - b) for a, b in zip(frame(path, 7.6), frame(path, 8.5))) > 1000, f"{path.name} freezes before the transition"
+        times = keyframe_times(path)
+        assert max(b - a for a, b in zip(times, times[1:])) <= 1.05, f"{path.name} has sparse keyframes"
+    assert sum(frame(PROJECT / parser.pages["left-page"], 7.5, "1200:700:170:70")) / (64 * 36) > 40, "left stream shows a loading blackout"
     assert len(parser.audio) == 3
     grid = parser.audio["grid-live-audio"]
     left = parser.audio["left-live-audio"]

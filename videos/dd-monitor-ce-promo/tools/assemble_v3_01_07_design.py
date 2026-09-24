@@ -8,7 +8,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 RENDERS = PROJECT / "renders"
 OUTPUT = RENDERS / "v3-01-07-design-preview.mp4"
 
-# Scene lengths: 12.0, 6.0, 8.4, 15.5, 7.5 seconds. Joins overlap.
+# Scene lengths: 12.0, 6.0, 8.4, 17.0, 7.5 seconds. Joins overlap.
 FIRST_JOIN = 11.5
 SECOND_JOIN = 16.85
 FOURTH_START = 24.55
@@ -78,8 +78,7 @@ def main():
     filters += [
         f"[v0][v1]xfade=transition=fade:duration=0.5:offset={FIRST_JOIN}[v01]",
         f"[v01][v2]xfade=transition=fadeblack:duration=0.65:offset={SECOND_JOIN}[v012]",
-        f"[v012][v3]xfade=transition=fadewhite:duration=0.7:offset={FOURTH_START},"
-        "tpad=stop_mode=clone:stop_duration=1.5[v0123]",
+        f"[v012][v3]xfade=transition=fadewhite:duration=0.7:offset={FOURTH_START}[v0123]",
         f"[v0123][v4]xfade=transition=fadeblack:duration=0.6:offset={FIFTH_JOIN}[v01234]",
         f"[v01234][v5]xfade=transition=fadeblack:duration=0.55:offset={SIXTH_JOIN}[v012345]",
         f"[v012345][v6]xfade=transition=fadeblack:duration=0.25:offset={SEVENTH_JOIN}[vout]",

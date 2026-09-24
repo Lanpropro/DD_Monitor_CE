@@ -121,6 +121,7 @@ def main():
         5.334, 5.414, 5.494, 5.715, 5.795, 5.875, 6.096, 6.176, 6.256, 6.477,
     ]))
     assert '"ms-loop.wav"' in assembly and '"track.loop.mp3"' not in assembly
+    assert "tpad=stop_mode=clone" not in assembly, "scene 04 must reach its transition without a frozen hold"
     assert '<div id="replayHead">即时重放</div>' in html and "及时重放" not in html
     assert 'tl.to("#wallCol", { y: 150, duration: 1.45, ease: "back.out(0.8)" }, 21.15)' in html
     assert 'tl.to("#wallCol", { y: -730, duration: 2.1, ease: "sine.inOut" }, 22.6)' in html
@@ -161,6 +162,7 @@ def main():
 
     info = probe(PREVIEW)
     assert abs(float(info["format"]["duration"]) - 78.55) < .04
+    assert difference(frame(PREVIEW, 40.10), frame(PREVIEW, 40.50)) > 1500, "stereo pages froze before scene 05"
     assert info["streams"][0]["r_frame_rate"] == "30/1"
     assert info["streams"][1]["channels"] == 2
     assert music_match() > .8, "rendered music does not match Microsoft Loop"
