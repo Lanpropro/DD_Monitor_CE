@@ -5,17 +5,31 @@ import ctypes
 import sys
 import threading
 
+try:
+    # audioop 是 C 实现的，混音和缩放都是一次调用搞定；纯 Python 逐样本处理
+    # 48kHz 立体声太慢（每格每秒近十万次循环）。3.13 起它被移出标准库，
+    # 所以留了纯 Python 回退。
+    import audioop
+except ImportError:  # pragma: no cover
+    audioop = None
+
 CHANNEL_LEFT = 3
 CHANNEL_RIGHT = 4
 BYTES_PER_FRAME = 4                 # stereo, signed 16-bit PCM
 
 
 def route_pcm_s16_stereo(data: bytes, channel: int) -> bytes:
-    """Mix stereo to mono and place it on only the requested output side."""
+    """把立体声混成单声道，只放到指定的物理输出侧。"""
     if channel not in (CHANNEL_LEFT, CHANNEL_RIGHT):
-        return bytes(data)
+        return data                     # 不路由就原样返回，一个字节都不用动
     if len(data) % BYTES_PER_FRAME:
         raise ValueError("stereo S16 PCM must contain complete frames")
+
+    if audioop is not None:
+        mono = audioop.tomono(data, 2, 0.5, 0.5)          # 左右各半 → 单声道
+        return audioop.tostereo(mono, 2,
+                                1.0 if channel == CHANNEL_LEFT else 0.0,
+                                1.0 if channel == CHANNEL_RIGHT else 0.0)
 
     output = bytearray(len(data))
     source = memoryview(data).cast("h")
@@ -43,17 +57,21 @@ def linear_to_vlc_volume(volume: int) -> int:
 
 
 def apply_volume_s16_stereo(data: bytes, volume: int) -> bytes:
-    """对回调 PCM 样本套**线性**音量：与原生路径对齐（见 linear_to_vlc_volume）。
+    """对回调 PCM 样本套**线性**音量：就是滑块值本身（``v/100``）。
 
-    PCM 回调绕开了 VLC 的三次方（实测 ``libvlc_audio_set_volume`` 对回调样本完全
-    不生效），所以这里直接乘 ``v/100``；原生路径那边则是「先立方根、再被 VLC 三次方
-    抵消」，两条声道路径最终得到同一个线性曲线，音量手感才一致。
+    PCM 回调绕开了 VLC 的音量（实测 ``libvlc_audio_set_volume`` 对回调样本完全
+    不生效），所以这里自己乘。音量曲线用户要求线性，直接 ``v/100``。
     """
     if len(data) % BYTES_PER_FRAME:
         raise ValueError("stereo S16 PCM must contain complete frames")
     level = max(0, min(100, int(volume)))
-    if level == 100:
-        return bytes(data)
+    if level >= 100:
+        return data                     # 满音量：原样放行，零开销
+    if level <= 0:
+        return bytes(len(data))         # 全零比逐样本乘快得多
+    if audioop is not None:
+        return audioop.mul(data, 2, level / 100)
+
     gain = level / 100
     output = bytearray(len(data))
     source = memoryview(data).cast("h")
@@ -117,7 +135,8 @@ class StereoOutput:
         try:
             pcm = ctypes.string_at(samples, int(count) * BYTES_PER_FRAME)
             pcm = route_pcm_s16_stereo(pcm, self.channel)
-            pcm = apply_volume_s16_stereo(pcm, self.volume)
+            if self.volume < 100:
+                pcm = apply_volume_s16_stereo(pcm, self.volume)
             with self._lock:
                 if not self.enabled:
                     return

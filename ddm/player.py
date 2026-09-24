@@ -17,6 +17,12 @@ APP_UA = ("Mozilla/5.0 BiliDroid/6.25.0 (bbcallen@gmail.com) os/android model/Mu
 #: 硬件解码开关（设置里可关）：关掉时给每个 media 加这一条，改用软解。
 HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
 
+#: 静音时下发的音量。**绝不能下发 0**：VLC 把「音量 0」当作**实例级的静音标志**，
+#: 一个格子压到 0 会把同实例里别的格子一起带静音（实测：录制锁原画重启某一格之后，
+#: 邻居的静音就散了、而且来回翻）。1 的增益是 (1/100)³ = 1e-6，完全听不见，
+#: 但不会被当成静音标志，因此只影响自己这一路。
+SILENT_VOLUME = 1
+
 
 class PlayerPool:
     """整个程序共用一个 libvlc 实例（比每格一个实例省内存）。
@@ -149,9 +155,11 @@ class TilePlayer(QObject):
         self._audio_drain_cb = None
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
-        if not self.silent:                 # 预览是 --no-audio 实例，没有音频输出，别碰
-            self.player.audio_set_volume(linear_to_vlc_volume(self.volume))
-            self.player.audio_set_mute(True)
+        # 这里**一个音频接口都不要碰**。aout 要等真正开始播放才建；在那之前调
+        # audio_set_volume / audio_set_mute，写进去的是**实例级的默认值**，之后
+        # 每个 player 建 aout 时都会继承它 —— 一个格子设的静音会污染到别的格子
+        # （用户报的「录制后静音的格子出声、有声的格子断续」就是这条链路）。
+        # 真正的下发统一等 aout 起来之后由 _ensure_audio_settings() 做。
         self._bound = False
         self._bound_hwnd = 0
         #: 这一段流的取流结果（「秒切」时跟着播放器一起搬到别的格子）
@@ -195,6 +203,14 @@ class TilePlayer(QObject):
         ``options`` 是额外的 media 选项（例如预览用的 ``:no-audio``）：留在这里
         而不是写死在播放器上，是因为同一路流在画面墙和预览里要的配置不一样。
         """
+        # 一律走 PCM 回调（每格自己的 StereoOutput），**不再用 VLC 的原生音频输出**。
+        # 原因见 _enable_pcm_routing() 里的说明：共享 libvlc 实例下，只要有一个
+        # player stop 过，它之后下发的音量/静音就会落到共享 aout 上，把别的格子一起
+        # 带乱 —— 用户报的「录制后静音的格子出声、有声的格子断续」就是这条。
+        # 回调本身是 per-player 的，音量/静音由我们自己在样本上做，天然隔离。
+        # libvlc 要求回调在播放前装好，所以放在这里（play 之前）。
+        if not self.silent:                 # 预览是 --no-audio 实例，没有音频输出，别碰
+            self._enable_pcm_routing()
         if self._media is not None:
             # 自动刷新 / 手动重载会复用同一个 media_player。不能让仍在硬解的旧
             # media 直接被 set_media() 覆盖：NVIDIA D3D11 解码线程可能仍持有旧的
@@ -261,6 +277,12 @@ class TilePlayer(QObject):
             pass
         self._bound = False             # 下次 play 重新 bind
         self._bound_hwnd = 0
+        # aout 跟着这次 stop 一起没了，「已下发过」的标记也要清掉：否则下一轮 play
+        # **之前**那些 set_volume / set_muted 会以为还能下发 —— 那会儿 aout 还没建，
+        # 写进去的是**实例级默认值**，会把别的格子一起带乱（录制锁原画重启那一格，
+        # 就是这么把邻居的静音弄丢的）。play() 里也会再重置一次，这里是为了覆盖
+        # 「先下发、后 play」这段窗口。
+        self._audio_ready = False
         self.player.stop()
 
     def release(self) -> None:
@@ -286,9 +308,13 @@ class TilePlayer(QObject):
         return self._audio_callbacks_enabled
 
     def needs_audio_restart(self, channel: int) -> bool:
-        """Switching between native VLC output and PCM routing needs a new player."""
-        routed = int(channel) in (3, 4)
-        return routed != self._audio_callbacks_enabled
+        """换声道还要不要重建播放器。
+
+        以前要：默认输出走 VLC 原生、只有「仅左/仅右」才装 callbacks，两者互斥，
+        而 libvlc 不允许在播放中换回调。现在**一律走 PCM 回调**，换声道只是改自己
+        StereoOutput 的路由，不用重建。
+        """
+        return False
 
     def _enable_pcm_routing(self) -> None:
         """Install callbacks before playback; default audio keeps VLC's native output."""
@@ -311,7 +337,8 @@ class TilePlayer(QObject):
         self.muted = muted
         if self.silent:                     # --no-audio 实例没有音频输出，别碰
             return
-        self.player.audio_set_mute(muted)
+        # 不再调 audio_set_mute：aout 没建好时它写的是实例级默认值、会把别的格子
+        # 一起带静音，而且它在个别机器上本来就不生效。静音只信音量 0。
         self._apply_volume()
         self._audio_output.set_enabled(self.uses_pcm_routing and not muted)
 
@@ -323,17 +350,24 @@ class TilePlayer(QObject):
         self._audio_output.set_volume(volume)
 
     def _apply_volume(self) -> None:
-        """把「静音」也落实成音量 0。
+        """把音量下发给这一路的 aout；静音就真的压成 0。
 
-        个别机器（Windows 26200 + 某些 mmdevice 音频栈）上 ``audio_set_mute`` 不
-        生效 —— 用户那边连预览的 muted=True / volume=0 都还听得到声音，最后是靠
-        另建一个 ``--no-audio`` 实例才堵住的。画面墙的格子没法整路 --no-audio
-        （没静音的要出声），所以这里再压一道：静音时音量直接 0，取消静音再恢复。
+        两条都是实测出来的：
+        ① **aout 没起来时一个字都不能发**。那会儿调 audio_set_volume / set_mute，
+           写进去的是**实例级默认值**，之后每个 player 建 aout 都会继承 —— 一个
+           格子设的静音会污染其他格子。所以要等 _ensure_audio_settings() 打开
+           ``_audio_ready`` 之后才下发。
+        ② **静音只信音量 0**。个别机器（Windows 26200 + 某些 mmdevice 音频栈）上
+           audio_set_mute 不生效 —— 用户那边连 muted=True / volume=0 都还听得到
+           声音，最后靠另建一个 ``--no-audio`` 实例才堵住。画面墙的格子没法整路
+           --no-audio（没静音的要出声），所以静音时音量直接 0、取消静音再恢复。
+           原生输出路径还要先取**立方根**抵消 VLC 内部的三次方，最终才是线性音量。
         """
+        if not self._audio_ready or self._released:
+            return
         try:
-            # 原生输出路径：先取立方根抵消 VLC 内部的三次方，最终就是线性音量
             self.player.audio_set_volume(
-                0 if self.muted else linear_to_vlc_volume(self.volume))
+                SILENT_VOLUME if self.muted else linear_to_vlc_volume(self.volume))
         except Exception:  # noqa: BLE001
             pass
 
@@ -380,8 +414,7 @@ class TilePlayer(QObject):
             return
         self._audio_ready = True
         try:
-            self.player.audio_set_mute(self.muted)
-            self._apply_volume()
+            self._apply_volume()            # 音量（含静音压 0）到这一步才真正下发
         except Exception:  # noqa: BLE001
             pass
         self._audio_output.set_volume(self.volume)

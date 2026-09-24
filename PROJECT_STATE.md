@@ -215,7 +215,31 @@
      到条目坐标判断），不在就收掉，还在才重摆位置。
   2) 竖屏的浮层改成和卡片的**竖直中线对齐**（原来贴卡片左边缘，206 宽的浮层整个
      偏到一边）；卡片太靠左时居中会越界，照样夹回窗口内。
-- 自检现状：全量 **41 项**。其中 2 项固定失败，都是本机沙箱限制
+- **格子之间串音（录制诱发）** —— 用户报「录了一路之后，静音的直播间开始出声、
+  有声的直播间断断续续」。这是 VLC 的一个坑，结论记在下面：
+  1) 日志（`logs/ddm-2026-09-24.log`）显示：`[录制] … 开始录制` → 那一格被
+     `start_tile` 重启（录制「锁定原画」）→ 紧接着**另一格**开始每 2 秒刷
+     `[音频] … 静音走散：格子=True 播放器=False`，两格交替翻转 —— 巡检在下发但压不住。
+  2) 探针（`work/probe_record_audio*.py`）复现并定到两条：
+     a. `audio_set_mute` / `audio_set_volume` 在该 player 的 **aout 还没建好**时调用，
+        写进去的是 **VLC 实例级默认值**，之后每个 player 建 aout 都会继承它；
+     b. 更关键：**只要有一个 player stop→play 重启过**，之后它再下发音量（0 也好、
+        1 也好，任何值都一样）都会落到**共享 aout** 上，把同实例里别的格子一起改掉。
+     录制锁原画正好要重启那一格，所以「一录就串」。
+  3) 修法：**所有格子一律走 PCM 回调**（每格自己的 `StereoOutput`，见
+     `TilePlayer.play()` 开头的 `_enable_pcm_routing()`），音量/静音在样本上自己算，
+     完全不碰 VLC 的共享 aout。`needs_audio_restart()` 随之恒为 False（换声道不再
+     需要重建播放器）。性能靠 `audioop`（C 实现）做混音/缩放；满音量直接放行、
+     静音直接给全零，都不进样本循环。
+  4) 另外两处：`_detach_and_stop()` 里把 `_audio_ready` 清掉，堵住「先下发、后 play」
+     那段还会写进实例级默认值的窗口；静音不再调 `audio_set_mute`（个别机器本来就不
+     生效），只压音量。
+  5) 新增 `dev/selfcheck_audio_isolation.py`：重启任意一格（含静音那格）之后，另一格
+     的输出状态不许被动到。`selfcheck_volume_channel.py` 的 4c/4d 断言按新行为更新
+     （不再期望 `audio_set_mute`），并给假播放器补上 `audio_set_callbacks`。
+  附：「有声的格子断断续续」还有一层原因 —— 录制是**另起 ffmpeg 子进程再拉一路流**，
+  带宽翻倍，这是设计使然、不是 bug。
+- 自检现状：全量 **42 项**。其中 2 项固定失败，都是本机沙箱限制
   （`selfcheck_plugins.py` 与 `selfcheck_recording.py`，同为 `tempfile.mkdtemp`
   建出的目录 `WinError 5`）；另有 4 项会偶发失败 —— `selfcheck_orientation_layout.py`
   和 `selfcheck_tile_overlay.py`、`selfcheck_slots.py` 是退出期 `0xC0000409`，

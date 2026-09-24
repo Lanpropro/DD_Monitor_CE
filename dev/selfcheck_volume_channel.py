@@ -156,7 +156,7 @@ def main() -> None:
     del window.players[tile]
 
     print("\n=== 4c. 音频输出起来之后再补一次静音/音量（预览会出声的那个坑）===")
-    from ddm.player import TilePlayer
+    from ddm.player import SILENT_VOLUME, TilePlayer
 
     class FakeVlc:
         """替身播放器：只回答「音频输出起来没有」，并记录静音/音量下发。"""
@@ -173,6 +173,12 @@ def main() -> None:
 
         def audio_set_volume(self, volume):
             self.calls.append(("volume", int(volume)))
+
+        def audio_set_callbacks(self, *_args):
+            pass                    # play() 现在会装 PCM 回调，假播放器收下就行
+
+        def audio_set_format(self, *_args):
+            pass
 
         def set_hwnd(self, _hwnd):
             pass
@@ -198,8 +204,8 @@ def main() -> None:
     fake.tracks = 2                  # 音轨出来了 = aout 建好了
     holder._ensure_audio_settings()  # noqa: SLF001
     print(f"  aout 起来之后：{fake.calls}")
-    assert ("mute", True) in fake.calls and ("volume", 0) in fake.calls, \
-        "aout 起来之后要补静音/音量，否则预览第二次起会带着 42 的音量出声"
+    assert ("volume", SILENT_VOLUME) in fake.calls, \
+        "aout 起来之后要补静音音量（静音走音量 1，不再用 audio_set_mute）"
     assert holder._audio_ready is True                            # noqa: SLF001
 
     fake.calls.clear()
@@ -207,18 +213,21 @@ def main() -> None:
     print(f"  再补一次：{fake.calls}（每次播放只补一次，不刷调用）")
     assert fake.calls == []
 
-    print("\n=== 4d. 静音的格子：光靠 mute 不保险，音量也压到 0 ===")
+    print("\n=== 4d. 静音只压音量，不许碰 audio_set_mute ===")
     holder.set_volume(42)
     fake.calls.clear()
     holder.set_muted(True)
     print(f"  静音时下发：{fake.calls}")
-    assert ("mute", True) in fake.calls and ("volume", 0) in fake.calls, \
-        "静音要同时把音量压到 0：个别机器上 audio_set_mute 不生效，静音的格子照样出声"
+    assert ("volume", SILENT_VOLUME) in fake.calls, \
+        "静音要把音量压到听不见的那一档（1）；audio_set_mute 在个别机器上不生效"
+    assert ("mute", True) not in fake.calls, \
+        ("不许再调 audio_set_mute：aout 重建之后它会落到共享 aout 上，"
+         "把别的格子一起带静音（录制锁原画重启那一格就是这么把邻居弄坏的）")
     fake.calls.clear()
     holder.set_muted(False)
     print(f"  取消静音：{fake.calls}")
-    assert ("mute", False) in fake.calls and ("volume", 75) in fake.calls, \
-        "取消静音要把用户音量恢复回去（42 先立方根成 75 抵消 VLC 三次方，不能停在 0）"
+    assert ("volume", 75) in fake.calls, \
+        "取消静音要把用户音量恢复回去（42 先立方根成 75 抵消 VLC 三次方）"
 
     holder.play("https://example.invalid/x.flv")     # 重新播放要重新补
     print(f"  play() 之后：_audio_ready={holder._audio_ready}")    # noqa: SLF001
