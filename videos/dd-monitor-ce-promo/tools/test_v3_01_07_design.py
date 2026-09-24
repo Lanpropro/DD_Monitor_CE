@@ -19,7 +19,7 @@ ENDING = PROJECT / "renders" / "v3-07-end-30fps.mp4"
 def probe(path):
     return json.loads(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries",
-        "format=duration:stream=codec_type,r_frame_rate,channels", "-of", "json", str(path),
+        "format=duration:stream=codec_type,r_frame_rate,channels,width,height", "-of", "json", str(path),
     ], text=True))
 
 
@@ -128,14 +128,28 @@ def main():
     assert 'id="musicCredit">BGM · Microsoft-Loop</div>' in ending_html
     assert '}, 2.78);' in ending_html
     assert 'src="assets/rec/06-follow-recorded.mp4"' in html
-    assert 'src="assets/rec/06-replay-recorded.mp4"' in html
+    assert 'src="assets/rec/06-replay-preview.mp4"' in html
+    assert 'src="assets/rec/06-replay-timeline.mp4"' in html
+    assert '更高效的录制切片，切出爆点' in html
+    assert 'id="simCursor"' in html and 'id="cursorPulse"' in html
+    assert 'const recButtons = [' in html and html.count('y: 914') == 3
+    assert 'y: 550 - s * p.y' in html
+    assert 'id="longOutline"' in html and 'id="shortOutline"' in html
+    assert '.wallPanel { width: 1580px; height: 914px;' in html
+    assert '.wallPanel:last-child { height: 588px; }' in html
     assert "操作录屏待替换" not in html and "PR 页面录屏待替换" not in html
     assert all(f"06-wall-{letter}.mp4" in html for letter in "abc")
     for name, duration in (("06-follow-recorded.mp4", 6.8),
-                           ("06-replay-recorded.mp4", 7.5),
+                           ("06-replay-preview.mp4", 7.5),
+                           ("06-replay-timeline.mp4", 7.5),
                            *((f"06-wall-{letter}.mp4", 6.4) for letter in "abc")):
         path = PROJECT / "assets" / "rec" / name
         assert abs(float(probe(path)["format"]["duration"]) - duration) < .05
+    assert all(probe(PROJECT / "assets" / "rec" / f"06-wall-{letter}.mp4")["streams"][0]["height"] == 914
+               for letter in "ab")
+    assert probe(PROJECT / "assets" / "rec" / "06-wall-c.mp4")["streams"][0]["height"] == 588
+    builder = (PROJECT / "tools" / "build_v3_06_recorded_assets.py").read_text(encoding="utf-8")
+    assert 'crop=3270:1838:0:0' in builder and 'crop=2928:1088:340:128' in builder
     assert difference(frame(PROJECT / "assets" / "rec" / "06-wall-c.mp4", .5),
                       frame(PROJECT / "assets" / "rec" / "06-wall-c.mp4", 5.5)) > 1500
     assert "插件" not in html
