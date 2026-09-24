@@ -19,20 +19,36 @@ FINAL_LENGTH = 78.55
 
 
 def music_gain():
-    """Keep music in picture-only gaps and fade it around recorded sound."""
+    """Duck the Microsoft Loop bed while the recorded streams are audible."""
     levels = [
-        (25.65, "0.6"),
-        (25.95, "0.6*(25.95-t)/0.3"),
-        (33.15, "0"),
-        (33.45, "0.45*(t-33.15)/0.3"),
-        (34.95, "0.45"),
-        (35.25, "0.45*(35.25-t)/0.3"),
-        (39.85, "0"),
-        (40.15, "0.45*(t-39.85)/0.3"),
-        (40.95, "0.45"),
-        (41.55, "0.45+0.15*(t-40.95)/0.6"),
-        (78.05, "0.6"),
-        (78.55, "0.6*(78.55-t)/0.5"),
+        (25.70, "0.52"),
+        (26.35, "0.52-0.46*(t-25.70)/0.65"),
+        (32.80, "0.06"),
+        (33.45, "0.06+0.46*(t-32.80)/0.65"),
+        (35.20, "0.52"),
+        (35.80, "0.52-0.46*(t-35.20)/0.60"),
+        (39.30, "0.06"),
+        (40.00, "0.06+0.46*(t-39.30)/0.70"),
+        (78.05, "0.52"),
+        (78.55, "0.52*(78.55-t)/0.50"),
+    ]
+    expression = "0"
+    for time, level in reversed(levels):
+        expression = f"if(lt(t,{time}),{level},{expression})"
+    return expression
+
+
+def live_gain():
+    """Ease both live-sound passages in and out on the scene-04 clock."""
+    levels = [
+        (1.40, "0"),
+        (2.00, "2*(t-1.40)/0.60"),
+        (8.15, "2"),
+        (8.60, "2*(8.60-t)/0.45"),
+        (11.05, "0"),
+        (11.65, "2*(t-11.05)/0.60"),
+        (14.85, "2"),
+        (15.30, "2*(15.30-t)/0.45"),
     ]
     expression = "0"
     for time, level in reversed(levels):
@@ -49,8 +65,8 @@ def main():
         RENDERS / "v3-05-why-30fps.mp4",
         RENDERS / "v3-06-design-30fps.mp4",
         RENDERS / "v3-07-end-30fps.mp4",
-        PROJECT / "assets" / "bgm" / "track.loop.mp3",
-        PROJECT / "assets" / "bgm" / "track.loop.mp3",
+        PROJECT / "assets" / "bgm" / "ms-loop.wav",
+        PROJECT / "assets" / "bgm" / "ms-loop.wav",
     ]
     for path in inputs:
         if not path.is_file():
@@ -67,13 +83,14 @@ def main():
         f"[v0123][v4]xfade=transition=fadeblack:duration=0.6:offset={FIFTH_JOIN}[v01234]",
         f"[v01234][v5]xfade=transition=fadeblack:duration=0.55:offset={SIXTH_JOIN}[v012345]",
         f"[v012345][v6]xfade=transition=fadeblack:duration=0.25:offset={SEVENTH_JOIN}[vout]",
-        "[7:a]atrim=0:57,asetpts=PTS-STARTPTS[partA]",
-        "[8:a]atrim=1:25,asetpts=PTS-STARTPTS[partB]",
+        "[7:a]atrim=0:56,asetpts=PTS-STARTPTS[partA]",
+        "[8:a]atrim=35:60.093,asetpts=PTS-STARTPTS[partB]",
         "[partA][partB]acrossfade=d=2:c1=tri:c2=tri,"
         f"atrim=0:{FINAL_LENGTH},asetpts=PTS-STARTPTS,"
         f"volume='{music_gain()}':eval=frame,"
         "aformat=sample_rates=48000:channel_layouts=stereo[bed]",
-        f"[3:a]volume=2,adelay={int(FOURTH_START * 1000)}:all=1,"
+        f"[3:a]volume='{live_gain()}':eval=frame,"
+        f"adelay={int(FOURTH_START * 1000)}:all=1,"
         f"atrim=0:{FINAL_LENGTH},aformat=sample_rates=48000:channel_layouts=stereo[live]",
         "[bed][live]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[aout]",
     ]
