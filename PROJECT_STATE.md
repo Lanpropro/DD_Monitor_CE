@@ -251,6 +251,22 @@
   3) 「没手动保存就自动清理」本来就有：`_finalize()` 里非录制的会话走
      `_discard_cache()`、录制的才 `_export()`，自检里也钉住了这条。
   新增 `dev/selfcheck_replay_scope.py`（5 节）。
+- 录制四条后续（用户续报，自检扩到 7 节）：
+  1) **新加进关注栏的卡片偶尔带「已在画面墙」的蓝框**：`_append_item()` 建卡片时读
+     的是**当时**的 `_wall_room_ids`，而 `set_wall_rooms()` 开头有「ids 没变就直接
+     返回」的短路 —— 两条路径一交叉就会留一个过期的蓝框。现在列表动过之后统一重设
+     一遍（`Sidebar._refresh_wall_marks()`，`add_room` / `remove_room` 后都调），
+     蓝框只有一个来源。
+  2) **手动结束录制时也自动存一份即时回放**：`_finalize()` 里先
+     `_export_replay()`（只取最近 N 分钟，文件名带 `_回放`）再 `_export(full=True)`。
+     两份导出用同一批分段，`_cleanup_parts()` 会把仍在导出队列里的分段排除在删除
+     之外，所以先启动的那份不会被后完成的删掉源。
+  3) **「● REC」旁边显示录制时长**：`Tile.set_recording_elapsed()` +
+     `MainWindow._record_clock`（1 秒一拍，起点取自 `_recording_since`）。
+  4) **录制占用**：ffmpeg 子进程改用 `_FFMPEG_FLAGS =
+     CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS`（0x08004000）启动，后台录制
+     不再跟前台游戏抢 CPU 调度。要注意 `-c copy` 下 ffmpeg 本身几乎不吃 CPU，
+     真正抢的是**带宽**（另拉一路同样的流）和磁盘 IO —— 带宽那条没法从软件侧消除。
 - 自检现状：全量 **43 项**。其中 2 项固定失败，都是本机沙箱限制
   （`selfcheck_plugins.py` 与 `selfcheck_recording.py`，同为 `tempfile.mkdtemp`
   建出的目录 `WinError 5`）；另有 4 项会偶发失败 —— `selfcheck_orientation_layout.py`

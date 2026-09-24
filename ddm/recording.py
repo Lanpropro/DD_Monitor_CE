@@ -17,6 +17,16 @@ from . import config
 SEGMENT_SECONDS = 10
 CHECK_MS = 2000
 
+#: FFmpeg 子进程的创建标志（Windows）。
+#:   CREATE_NO_WINDOW          —— 别弹控制台窗口
+#:   BELOW_NORMAL_PRIORITY_CLASS —— **把录制的优先级压到「低于正常」**：
+#:        录制是后台活，用户在打游戏时它不该跟游戏抢 CPU。压一级之后 Windows 会
+#:        优先满足前台进程，录制慢一点无所谓（-c copy 下本身几乎不吃 CPU，
+#:        真正会抢的是磁盘 IO 和网络，优先级能让调度偏向游戏）。
+_FFMPEG_FLAGS = 0
+if os.name == "nt":                                    # pragma: no cover - 平台分支
+    _FFMPEG_FLAGS = subprocess.CREATE_NO_WINDOW | 0x00004000
+
 
 def ffmpeg_path(settings: dict | None = None) -> str:
     """发布包优先用自带的 FFmpeg；源码运行可从 PATH 找。"""
@@ -191,8 +201,7 @@ class RecordingManager(QObject):
         with log_path.open("wb") as log:
             session.process = subprocess.Popen(command, stdin=subprocess.PIPE,
                                                stdout=subprocess.DEVNULL, stderr=log,
-                                               creationflags=(subprocess.CREATE_NO_WINDOW
-                                                              if os.name == "nt" else 0))
+                                               creationflags=_FFMPEG_FLAGS)
         session.active_pattern = pattern
         session.url = url
         session.retry_at = 0.0
@@ -222,9 +231,24 @@ class RecordingManager(QObject):
         self.sessions.pop(session.tile, None)
         self.changed.emit(session.tile)
         if session.recording:
-            self._export(session, session.finished_parts(), full=True)
+            parts = session.finished_parts()
+            # 用户要求：手动结束录制时，顺手把「最近 N 分钟」的即时回放也存一份。
+            # 两份导出用同一批分段 —— _cleanup_parts() 会把「仍在导出队列里」的分段
+            # 排除在删除之外，所以先启动的那份不会被后完成的那份删掉源文件。
+            self._export_replay(session, parts)
+            self._export(session, parts, full=True)
         else:
             self._discard_cache(session)
+
+    def _export_replay(self, session: _Session, parts: list[Path]) -> None:
+        """单独存一份「最近 N 分钟」（即时回放），完整录制照旧另外导出。"""
+        if not parts:
+            return
+        count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
+                          * 60 / SEGMENT_SECONDS)
+        recent = parts[-count:]
+        if recent:
+            self._export(session, recent, full=False)
 
     def on_resolved(self, tile) -> None:
         session = self.sessions.get(tile)
@@ -380,8 +404,7 @@ class RecordingManager(QObject):
             with log.open("wb") as handle:
                 process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                                            stdout=subprocess.DEVNULL, stderr=handle,
-                                           creationflags=(subprocess.CREATE_NO_WINDOW
-                                                          if os.name == "nt" else 0))
+                                           creationflags=_FFMPEG_FLAGS)
             self.exports.append((process, result, parts, full))
             self._say(f"正在导出{'录制' if full else '即时回放'}：{result}")
             return True

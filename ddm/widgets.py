@@ -3240,9 +3240,19 @@ class Sidebar(QFrame):
         if ids == self._wall_room_ids:
             return
         self._wall_room_ids = ids
-        for item in self._items:
-            item.set_on_wall(str(item.room.get("room_id") or "") in ids)
+        self._refresh_wall_marks()
         self.refresh_strip()
+
+    def _refresh_wall_marks(self) -> None:
+        """按当前的画面墙占用，重设每张卡片的蓝框。
+
+        列表一变（加 / 删 / 重建）就调一次。`_append_item()` 建卡片时读的是**当时**的
+        `_wall_room_ids`，而 `set_wall_rooms()` 有个「没变就直接返回」的短路 ——
+        两条路径一交叉，卡片就可能留着一个过期的蓝框（用户报的「刚加进关注栏就被
+        标成已在画面墙」）。所以列表动过之后统一重设一遍，状态只有一个来源。
+        """
+        for item in self._items:
+            item.set_on_wall(str(item.room.get("room_id") or "") in self._wall_room_ids)
 
     # ---- 收起 / 展开 ----
     def set_side(self, side: str) -> None:
@@ -3923,6 +3933,7 @@ class Sidebar(QFrame):
         # 直到用户拖动列表才恢复。
         self.resort(animate=False)
         self._sync_count()
+        self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
         self.refresh_strip()
         return True
 
@@ -3946,6 +3957,7 @@ class Sidebar(QFrame):
                                 self.compact_threshold)
         self.list_box.relayout(animate=False)
         self._sync_count()
+        self._refresh_wall_marks()      # 删完也重设一次，蓝框状态别留旧账
         self.refresh_strip()
 
     def rooms(self) -> list[dict]:
@@ -4287,6 +4299,13 @@ class Tile(QFrame):
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
         self.recording_button.clicked.connect(self.recordingRequested)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
+        # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
+        self.recording_time = QLabel("")
+        self.recording_time.setObjectName("TileTitle")
+        self.recording_time.setToolTip("这一路已经录了多久")
+        self.recording_time.setVisible(False)
+        _ignore_mouse(self.recording_time)
+        bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         # 信息条中间：常驻状态（连接中 / 缓冲中 / 断流重连 / 已下播…）
         # 画面被 VLC 原生窗口盖住时，这里也一定看得见
         self.status_label = ElidedLabel("")
@@ -4409,6 +4428,13 @@ class Tile(QFrame):
             "停止录制这一路" if state == "record" else
             "即时回放缓存中；点击开始完整录制" if state == "cache" else
             "开始录制这一路（右键可保存即时回放）")
+
+    def set_recording_elapsed(self, text: str) -> None:
+        """更新「● REC」旁边的已录制时长；空串就把标签收起来。"""
+        if not hasattr(self, "recording_time"):
+            return
+        self.recording_time.setText(text)
+        self.recording_time.setVisible(bool(text))
 
     def _update_recording_button(self) -> None:
         if not hasattr(self, "recording_button"):

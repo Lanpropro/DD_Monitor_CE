@@ -178,13 +178,78 @@ def main() -> None:
              patch.object(RecordingManager, "_end_process", lambda _self, _s: None):
             cache_session = FakeSession(recording=False)
             record_session = FakeSession(recording=True)
+            # 有分段才会去导回放（没分段自然什么都不导）
+            record_session.finished_parts = lambda: [f"part{i}" for i in range(5)]
             manager.sessions[object()] = cache_session
             manager._finalize(cache_session)       # noqa: SLF001
             manager.sessions[object()] = record_session
             manager._finalize(record_session)      # noqa: SLF001
         print(f"  被丢弃的（recording 标志）={discarded}　被导出的={exported}")
         assert discarded == [False], "纯缓存会话结束时该直接丢弃、不留文件"
-        assert exported == [True], "录制会话结束时该导出保存"
+        assert exported == [False, True], \
+            f"结束录制要导两份：先即时回放（full=False）再完整录制（full=True），实际 {exported}"
+
+        print("\n=== 6. 结束录制时会额外存一份「最近 N 分钟」 ===")
+        manager2 = RecordingManager(dict(settings), None)
+        exported2: list = []
+        with patch.object(RecordingManager, "_export",
+                          lambda _self, session, parts, full: exported2.append(
+                              (full, len(parts)))), \
+             patch.object(RecordingManager, "_end_process", lambda _self, _s: None):
+            session = FakeSession(recording=True)
+            session.finished_parts = lambda: [f"part{i}" for i in range(30)]  # noqa: E731
+            manager2.sessions[object()] = session
+            manager2._finalize(session)            # noqa: SLF001
+        print(f"  两次导出 (full, 分段数)={exported2}")
+        assert len(exported2) == 2, f"该导两份（回放 + 完整录制），实际 {exported2}"
+        assert exported2[0][0] is False and exported2[1][0] is True, \
+            "先导即时回放、再导完整录制"
+        assert exported2[0][1] < exported2[1][1], \
+            "即时回放只取最近一段，不该等于完整录制的分段数"
+        manager2.timer.stop()
+
+        print("\n=== 7. 录制时长 / ffmpeg 优先级 / 蓝框重设 ===")
+        from ddm.recording import _FFMPEG_FLAGS
+        if os.name == "nt":
+            print(f"  ffmpeg 创建标志=0x{_FFMPEG_FLAGS:08X}"
+                  f"（CREATE_NO_WINDOW + BELOW_NORMAL_PRIORITY_CLASS）")
+            assert _FFMPEG_FLAGS & 0x00004000, \
+                "ffmpeg 要跑在「低于正常」优先级，别跟游戏抢 CPU"
+            assert _FFMPEG_FLAGS & 0x08000000, "别弹控制台窗口"
+
+        tile = live_tiles[0]
+        tile.set_recording_elapsed("12:34")
+        print(f"  录制时长标签：{tile.recording_time.text()!r} "
+              f"可见={tile.recording_time.isVisible()}")
+        assert tile.recording_time.text() == "12:34" and tile.recording_time.isVisible()
+        tile.set_recording_elapsed("")
+        assert not tile.recording_time.isVisible(), "不在录制时要把时长收起来"
+
+        # 蓝框：列表动过之后按当前墙面重设（用户报的「刚加进关注栏就被标成在墙上」）
+        sidebar = window.sidebar
+        sidebar.set_wall_rooms(["9601"])
+        settle(app, 0.15)
+        sidebar.add_room({"room_id": "9699", "uname": "新来的", "title": "t",
+                          "live": True, "muted": True, "volume": 40, "quality": 250})
+        settle(app, 0.15)
+        fresh = next(item for item in sidebar.items()
+                     if str(item.room.get("room_id")) == "9699")
+        print(f"  新加的 9699 蓝框={bool(fresh.property('onWall'))}（该 False）")
+        assert not fresh.property("onWall"), "新加的卡片不该带「已在画面墙」的蓝框"
+        sidebar.set_wall_rooms(["9601", "9699"])
+        settle(app, 0.15)
+        print(f"  上墙后 9699 蓝框={bool(fresh.property('onWall'))}（该 True）")
+        assert fresh.property("onWall"), "真上墙了就该有蓝框"
+        sidebar.set_wall_rooms(["9601"])
+        sidebar.remove_room({"room_id": "9699"})
+        settle(app, 0.15)
+        sidebar.add_room({"room_id": "9699", "uname": "又来了", "title": "t",
+                          "live": True, "muted": True, "volume": 40, "quality": 250})
+        settle(app, 0.15)
+        again = next(item for item in sidebar.items()
+                     if str(item.room.get("room_id")) == "9699")
+        print(f"  下墙后再加 9699 蓝框={bool(again.property('onWall'))}（该 False）")
+        assert not again.property("onWall"), "下墙之后再加，不该还留着蓝框"
         manager.timer.stop()
     finally:
         window.close()

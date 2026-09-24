@@ -212,6 +212,12 @@ class MainWindow(QMainWindow):
         self._audio_audit_timer.setInterval(AUDIO_AUDIT_MS)
         self._audio_audit_timer.timeout.connect(self._audit_audio)
         self._audio_audit_timer.start()
+        #: 各格开始录制的时刻（monotonic），用来刷「● REC 旁边的录制时长」
+        self._recording_since: dict = {}
+        self._record_clock = QTimer(self)
+        self._record_clock.setInterval(1000)
+        self._record_clock.timeout.connect(self._tick_record_clock)
+        self._record_clock.start()
         self.wall.tileClicked.connect(self._on_tile_clicked)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
@@ -520,6 +526,7 @@ class MainWindow(QMainWindow):
         self._closing = True
         self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
+        self._record_clock.stop()
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
         self.plugins.unload()
@@ -1527,9 +1534,32 @@ class MainWindow(QMainWindow):
         session = self.recorder.sessions.get(tile)
         if session is None and tile not in self._pending_capture:
             self._restore_capture_quality(tile)
-        state = "record" if session and session.recording and not session.stopping else (
+        recording = bool(session and session.recording and not session.stopping)
+        state = "record" if recording else (
             "cache" if session and not session.stopping else "")
         tile.set_recording_state(state)
+        if recording:
+            # 记下开录时刻，交给 _tick_record_clock() 每秒刷「● REC 00:12:34」
+            self._recording_since[tile] = float(
+                getattr(session, "started_at", 0.0) or time.monotonic())
+        else:
+            self._recording_since.pop(tile, None)
+            tile.set_recording_elapsed("")
+        self._tick_record_clock()
+
+    def _tick_record_clock(self) -> None:
+        """刷新每格的录制时长（REC 旁边那个）。"""
+        now = time.monotonic()
+        for tile in self.wall.tiles:
+            started = self._recording_since.get(tile)
+            if started is None:
+                continue
+            seconds = max(0, int(now - started))
+            hours, rest = divmod(seconds, 3600)
+            minutes, secs = divmod(rest, 60)
+            tile.set_recording_elapsed(
+                f"{hours:d}:{minutes:02d}:{secs:02d}" if hours
+                else f"{minutes:02d}:{secs:02d}")
 
     def _record_notice(self, message: str) -> None:
         if self._closing:
