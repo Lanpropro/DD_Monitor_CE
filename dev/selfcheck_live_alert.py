@@ -229,7 +229,8 @@ def main() -> None:
     menu = target._context_menu()                # noqa: SLF001
     labels = [action.text() for action in menu.actions() if not action.isSeparator()]
     print(f"  卡片右键菜单={labels}")
-    assert labels == ["置顶", "加入画面墙", "移除关注"], "模拟开播提醒那一项要撤掉"
+    assert labels == ["置顶", "加入画面墙", "用默认浏览器打开直播间", "移除关注"], \
+        "关注卡片菜单项异常"
     assert not any("开播提醒" in text for text in labels), \
         "「播放开播提醒（测试）」已经按要求删掉"
     assert not hasattr(target, "play_live_alert_demo"), "演示用的方法也要一起删掉"

@@ -69,6 +69,11 @@ class MyPlatform(api.Platform):
             platform=self.kind,
         )
 
+    def room_url(self, room_id: str) -> str:
+        """可选：返回直播间网页地址；留空就不显示「用默认浏览器打开」。"""
+        raw = str(room_id).split(":", 1)[-1]
+        return f"https://example.com/live/{raw}"  # 换成该平台的真实网页地址
+
     def rooms_status(self, room_ids: list) -> dict:
         """批量查状态，用于轮询。返回 {room_id: {live, title, viewers}}。
 

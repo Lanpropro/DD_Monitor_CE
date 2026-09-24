@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
@@ -189,6 +190,38 @@ def part_two(app) -> None:
     print(f"  已装载插件：{window.plugins.summary}")
     assert window.plugins.plugins, "plugins_user 下的插件应该被自动装载"
     assert window.plugins.danmaku_sender is not None, "示例插件应提供发弹幕能力"
+
+    print("\n=== 7a. 关注卡片：浏览器入口及插件可选网页地址 ===")
+    item = window.sidebar.items()[0]
+    def browser_action(card):
+        return next((action for action in card._context_menu().actions()
+                     if action.text() == "用默认浏览器打开直播间"), None)
+
+    action = browser_action(item)
+    assert action is not None, "B 站数字房间应该有浏览器入口"
+    with patch("ddm.app.webbrowser.open") as opened:
+        action.trigger()
+        assert opened.call_args.args == ("https://live.bilibili.com/9001",)
+    assert window._room_browser_url({"room_id": "demo:42"}) == ""
+    assert window._room_browser_url({"room_id": "https://example.com"}) == ""
+    plugin_item = window.sidebar._append_item({"room_id": "demo:42", "uname": "插件房间"})
+    assert browser_action(plugin_item) is None, "插件不提供 room_url 时应隐藏"
+
+    class WebPlatform(plugin_api.Platform):
+        kind = "demo"
+        def matches(self, room_id):
+            return str(room_id).startswith("demo:")
+        def room_url(self, room_id):
+            return "https://example.com/live/42"
+
+    window.plugins.register_platform("测试", WebPlatform())
+    action = browser_action(plugin_item)
+    assert action is not None, "插件提供 URL 后应显示入口"
+    with patch("ddm.app.webbrowser.open") as opened:
+        action.trigger()
+        assert opened.call_args.args == ("https://example.com/live/42",)
+    window.plugins.platforms["demo"].room_url = lambda _id: "file:///local/secret"
+    assert browser_action(plugin_item) is None, "非网页 URL 不应打开"
 
     events: list = []
     received: dict = {}

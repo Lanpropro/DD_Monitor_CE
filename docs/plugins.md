@@ -95,6 +95,7 @@ class MyPlatform(api.Platform):
     def matches(self, room_id): ...      # 判断房间号是不是本平台
     def room_info(self, room_id): ...     # -> api.RoomInfo 或 None
     def play_url(self, room_id, quality=250): ...  # -> (url, 画质, 通道[, 请求头])
+    def room_url(self, room_id): ...  # 可选：直播间 http(s) 网页地址；空串则不显示浏览器入口
 
 
 class MyPlugin(api.Plugin):

@@ -142,6 +142,10 @@ class Platform:
         """取流，返回 ``(url, 实际画质, 通道名)`` 或 ``(url, 实际画质, 通道名, headers)``。"""
         raise NotImplementedError
 
+    def room_url(self, room_id: str) -> str:
+        """可选：返回直播间网页地址；空串表示不提供浏览器入口。"""
+        return ""
+
 
 class DanmakuSender:
     """发弹幕的能力，由插件实现。"""

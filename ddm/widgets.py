@@ -1851,6 +1851,7 @@ class NavItem(QFrame):
     clicked = Signal(dict)
     addRequested = Signal(dict)
     removeRequested = Signal(dict)
+    openBrowserRequested = Signal(str)
     checkedChanged = Signal()
     pinToggled = Signal(dict)
     hovered = Signal(dict)             # 鼠标停在条目上（给悬停预览用）
@@ -2229,6 +2230,11 @@ class NavItem(QFrame):
         menu.addSeparator()
         menu.addAction("加入画面墙").triggered.connect(
             lambda _checked=False: self.addRequested.emit(self.room))
+        url = (self.drop_host.browser_url_resolver(self.room)
+               if self.drop_host is not None else "")
+        if url:
+            menu.addAction("用默认浏览器打开直播间").triggered.connect(
+                lambda _checked=False: self.openBrowserRequested.emit(url))
         menu.addSeparator()
         menu.addAction("移除关注").triggered.connect(
             lambda _checked=False: self.removeRequested.emit(self.room))
@@ -2783,6 +2789,7 @@ class Sidebar(QFrame):
     importFollowsClicked = Signal()
     addToWallRequested = Signal(dict)
     removeRequested = Signal(dict)
+    openBrowserRequested = Signal(str)
     deleteRequested = Signal(list)
     collapsedChanged = Signal(bool)
     logoutRequested = Signal()
@@ -2803,6 +2810,7 @@ class Sidebar(QFrame):
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH)
         self._items: list[NavItem] = []
+        self.browser_url_resolver = lambda _room: ""
         self.collapsed = False
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
@@ -3889,6 +3897,7 @@ class Sidebar(QFrame):
         item.clicked.connect(self.roomSelected.emit)
         item.addRequested.connect(self.addToWallRequested.emit)
         item.removeRequested.connect(self.removeRequested.emit)
+        item.openBrowserRequested.connect(self.openBrowserRequested.emit)
         item.checkedChanged.connect(self._update_batch_label)
         item.pinToggled.connect(self.toggle_pin)
         item.hovered.connect(self.previewHovered.emit)

@@ -6,6 +6,8 @@
 import os
 import sys
 import time
+import webbrowser
+from urllib.parse import urlsplit
 
 from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QCursor, QIcon, QKeySequence
@@ -182,6 +184,7 @@ class MainWindow(QMainWindow):
         self.sidebar.importFollowsClicked.connect(self.open_import_follows)
         self.sidebar.addToWallRequested.connect(self.add_to_wall)
         self.sidebar.removeRequested.connect(self.remove_room)
+        self.sidebar.openBrowserRequested.connect(self._open_room_browser)
         self.sidebar.deleteRequested.connect(self.remove_rooms)
         self.sidebar.logoutRequested.connect(self.logout)
         self.sidebar.pinChanged.connect(self._on_pin_changed)
@@ -242,6 +245,7 @@ class MainWindow(QMainWindow):
         self.plugins._save_settings = lambda: config_module.save(self.current_state())
         plugin_api.set_manager(self.plugins)
         self.plugins.load()
+        self.sidebar.browser_url_resolver = self._room_browser_url
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:
             print(f"[插件] 跳过 {entry}：{reason}", file=sys.stderr, flush=True)
@@ -263,6 +267,25 @@ class MainWindow(QMainWindow):
         self._stats_timer.timeout.connect(self.refresh_stats)
         self._stats_timer.start()
         QTimer.singleShot(3000, self.refresh_stats)
+
+    def _room_browser_url(self, room: dict) -> str:
+        room_id = str(room.get("room_id") or "")
+        if room_id.isascii() and room_id.isdecimal():
+            return f"https://live.bilibili.com/{room_id}"
+        kind, separator, raw_id = room_id.partition(":")
+        platform = self.plugins.platforms.get(kind) if separator and raw_id else None
+        if platform is None:
+            return ""
+        try:
+            url = platform.room_url(room_id)
+            parts = urlsplit(url)
+            return url if parts.scheme in ("http", "https") and parts.netloc else ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _open_room_browser(self, url: str) -> None:
+        webbrowser.open(url)
+
     # ---- 界面状态 ----
     def _restore_ui(self) -> None:
         geometry = self.state.get("geometry")
