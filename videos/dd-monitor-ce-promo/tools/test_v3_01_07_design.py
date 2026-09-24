@@ -101,6 +101,9 @@ def main():
     assembly = (PROJECT / "tools" / "assemble_v3_01_07_design.py").read_text(encoding="utf-8")
     cells = re.findall(r'<img class="pt pt-cell pt-r([0-2]) pt-c([0-2])" id="pR([0-2])C([0-2])" src="assets/rec/grid-([1-9]).png"', intro)
     assert len(cells) == 9 and "pMain" not in intro and "cell-main.png" not in intro
+    assert '.pt-cell { object-fit: contain; background: #0e1014; }' in intro
+    assert 'tl.to("#appstage", { z: 890, y: 25, duration: 1.50' in intro
+    assert 'tl.to("#appstage", { z: 920, duration: 3.20' in intro
     assert cells == [(str(row), str(col), str(row), str(col), str(row * 3 + col + 1))
                      for row in range(3) for col in range(3)]
     assert all((PROJECT / "assets" / "rec" / f"grid-{i}.png").is_file() for i in range(1, 10))

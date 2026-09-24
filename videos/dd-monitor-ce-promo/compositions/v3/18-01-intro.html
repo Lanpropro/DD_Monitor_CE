@@ -20,7 +20,7 @@
                     不要"散开飞出"，要和参考片一样往上拼。窗口先以空玻璃壳出现，
                     然后底行 3 格 → 中行 3 格 → 顶行 3 格 → 侧栏，
                     依次从窗口内下方 y+120 浮起落位（行内 stagger 80ms）
-         7.00–8.50  继续推进 + 放大到**铺满画布**（z 1100 → 2.22 倍，`back.out(1.7)` 过冲落地）；
+         7.00–8.50  继续推进到接近满幅（z 890，`back.out(1.7)` 过冲落地），九格边缘保留在画内；
                     **背景图不淡出**（用户要求「背景铺满画面」，银河一直留到最后）
          8.30–12.0  月光光晕（在窗口**内部**，透过窗口玻璃）+ 文字「向您介绍 DDMonitorCE」
                     （用户 2026-09-22：**去掉星光光点**，只留一层 .wash 光晕）
@@ -176,7 +176,7 @@
       /* 九格使用现有录屏裁出的 grid-1..9.png；侧栏沿用真实软件切片。
          三列和三行沿窗口原有网格线落位，格子独立入场。 */
       .pt-sb  { left: 0;     top: 0;     width: 95px;  height: 542px; border-radius: 14px 0 0 14px; }
-      .pt-cell { object-fit: cover; }
+      .pt-cell { object-fit: contain; background: #0e1014; }
       .pt-c0 { left: 95px; width: 298px; }
       .pt-c1 { left: 401px; width: 294px; }
       .pt-c2 { left: 703px; width: 298px; }
@@ -382,15 +382,11 @@
         tl.to("#pR0C2", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.256);
         tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.477);
 
-        /* ============ 7.00–8.50 继续推进 + 放大到铺满画布 ============
-           用户 2026-09-22：最后的窗口放大到**铺满画面**，并要求"变大时加一点弹性"。
-           缓动用 `back.out(1.7)` —— motion-web 的 motion-tokens 把它列为标准的"过冲落地"
-           （等价 CSS `ease-out-back`，约 10% 过冲）：比 elastic 干净（单次回弹、不振荡），
-           又比纯 ease-out 有实体感。过冲到 z≈1187（≈2.45 倍）再落回 1100（2.22 倍），
-           全程仍然铺满画布，不会露背景。
-           z 1100 / perspective 2000 = 2.22 倍（窗口 2222x1215），宽高都盖过画布。
-           不能用刚好 2.0 倍 —— 窗口中心 y 是 509.5 而不是 540，2.0 倍时底部会差 23px 露出背景。 */
-        tl.to("#appstage", { z: 1100, duration: 1.50, ease: "back.out(1.7)", immediateRender: false }, 6.858);
+        /* ============ 6.858–8.358 继续推进，完整保留九格边界 ============
+           先前 z=1100 把 1000px 窗口放到约 2222px 宽，外侧格子被画幅裁掉。
+           改为 z=890：落点约 1802px 宽，back.out(1.7) 的短暂过冲也留在画内。
+           同时下移 25px，让上下边距接近。 */
+        tl.to("#appstage", { z: 890, y: 25, duration: 1.50, ease: "back.out(1.7)", immediateRender: false }, 6.858);
         /* 背景图与暗角**不淡出** —— 用户要求「背景铺满画面」，银河湖面一直留到最后。 */
 
         /* 注意：#appwin 不淡出 —— 最后的文字直接叠在保留下来的软件窗口上，
@@ -406,8 +402,8 @@
         tl.fromTo("#t2", { opacity: 0, y: 26, filter: "blur(7px)" },
           { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.70, ease: EASE_OUT, immediateRender: false }, 8.763);
 
-        /* 定格不再死停：8.763–12.0 极缓推进（3.4s 只走 30px，约 2.7%），画面"活着" */
-        tl.to("#appstage", { z: 1130, duration: 3.20, ease: "none", immediateRender: false }, 8.763);
+        /* 定格不再死停：8.763–12.0 极缓推进，仍保留完整的九格窗口 */
+        tl.to("#appstage", { z: 920, duration: 3.20, ease: "none", immediateRender: false }, 8.763);
 
         /* ---- 转场：推向白场，接住 02 的白底开头 ----
            11.5–12.0s 正好是 BGM 的段落静音段（合集拼接留下的断口），
