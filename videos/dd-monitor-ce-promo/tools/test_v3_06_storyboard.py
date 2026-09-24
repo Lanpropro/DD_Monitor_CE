@@ -18,8 +18,9 @@ def main():
     assert spans[0][0] == 0.0 and spans[-1][1] == 30.9
     assert all(start < end for start, end in spans)
     assert all(abs(left[1] - right[0]) < 0.001 for left, right in zip(spans, spans[1:]))
-    for required in ("六次点击", "及时重放", "同一信息页", "同心圆弧", "上下首尾拼接", "07 结尾"):
+    for required in ("六次点击", "即时重放", "同一信息页", "同心圆弧", "上下首尾拼接", "07 结尾"):
         assert required in text, required
+    assert "及时重放" not in text and "及时重放" not in main_script
     assert "插件" not in text
     assert "SCRIPT-06-RECORDED.md" in main_script
     assert "18-06-design.html" in main_script

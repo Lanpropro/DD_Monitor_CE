@@ -363,7 +363,7 @@
         /* ====== 5.40–6.72 模块**从下往上逐块拼合成窗口** ======
            用户 2026-09-22：不要"散开飞出"，改成和参考片一样模块往上拼。
            窗口先以空玻璃壳出现在画面里（01/02 内部是空的 —— 参考片开场也是空窗口先到位），
-           然后按**从下往上**的顺序：底部 3 格 → 右中格 → 顶部主画面/小格 → 侧栏，
+           然后按**从下往上**的顺序：底部 3 格 → 主画面/侧栏 → 右中格 → 右上格，
            每块从窗口内下方 y +120 浮起落位（stagger 80ms、0.75s 一块、EASE_OUT）。
            每个 .pt（真实截图切片）与配对的 .ph（素材占位）同时补间。 */
         /* 模块逐块拼入的节奏**对齐 BGM**（用户 2026-09-22：请尝试匹配动效）。
@@ -375,10 +375,10 @@
         tl.to("#pS20",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.334);
         tl.to("#pS21",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.5245);
         tl.to("#pS22",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.715);
-        tl.to("#pS12",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.9055);
-        tl.to("#pMain", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.096);
-        tl.to("#pS02",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.2865);
-        tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.477);
+        tl.to("#pMain", { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 5.9055);
+        tl.to("#pSb",   { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.096);
+        tl.to("#pS12",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.2865);
+        tl.to("#pS02",  { y: 0, opacity: 1, scale: 1, duration: IN, ease: EASE_OUT, immediateRender: false }, 6.477);
 
         /* ============ 7.00–8.50 继续推进 + 放大到铺满画布 ============
            用户 2026-09-22：最后的窗口放大到**铺满画面**，并要求"变大时加一点弹性"。

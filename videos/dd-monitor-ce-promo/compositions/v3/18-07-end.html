@@ -47,6 +47,7 @@
       .rule { width: 120px; height: 3px; margin: 24px auto 0; border-radius: 2px;
               background: linear-gradient(90deg, #00a1d6, #756bf2, #fb7299);
               transform-origin: 50% 50%; will-change: transform; }
+      .musicCredit { margin-top: 26px; color: #aeb8c5; font-size: 25px; letter-spacing: .08em; }
     </style>
   </head>
   <body>
@@ -105,6 +106,7 @@
 
         <div class="wordmark" id="wordmark">DD监控室CE</div>
         <div class="rule" id="rule"></div>
+        <div class="musicCredit" id="musicCredit">BGM · Microsoft-Loop</div>
       </div>
     </div>
 
@@ -117,6 +119,7 @@
         gsap.set("#stage", { opacity: 0, scale: 1.03 });
         gsap.set("#wordmark", { opacity: 0, y: 16 });
         gsap.set("#rule", { scaleX: 0 });
+        gsap.set("#musicCredit", { opacity: 0, y: 12 });
         /* 三层窗格描边：按周长设 dash，再逐层画出来（由外向内） */
         gsap.utils.toArray(".e-pane").forEach(function (r) {
           var len = 2 * (r.width.baseVal.value + r.height.baseVal.value);
@@ -165,6 +168,8 @@
           { opacity: 1, y: 0, duration: 0.46, ease: EASE_OUT, immediateRender: false }, 2.42);
         tl.fromTo("#rule", { scaleX: 0 },
           { scaleX: 1, duration: 0.4, ease: EASE_OUT, immediateRender: false }, 2.60);
+        tl.fromTo("#musicCredit", { opacity: 0, y: 12 },
+          { opacity: 1, y: 0, duration: 0.35, ease: EASE_OUT, immediateRender: false }, 2.78);
 
         tl.to({}, { duration: 0.01 }, 3.49);
 

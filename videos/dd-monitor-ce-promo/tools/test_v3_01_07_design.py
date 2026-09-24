@@ -3,6 +3,7 @@
 import array
 import json
 import math
+import re
 import subprocess
 from pathlib import Path
 
@@ -96,8 +97,18 @@ def fade_levels():
 
 def main():
     html = (PROJECT / "compositions" / "v3" / "18-06-design.html").read_text(encoding="utf-8")
+    intro = (PROJECT / "compositions" / "v3" / "18-01-intro.html").read_text(encoding="utf-8")
     assembly = (PROJECT / "tools" / "assemble_v3_01_07_design.py").read_text(encoding="utf-8")
+    arrivals = re.findall(r'tl\.to\("(#p(?:S20|S21|S22|Main|Sb|S12|S02))"[^\n]+\}, ([\d.]+)\);', intro)
+    assert [name for name, _ in arrivals] == ["#pS20", "#pS21", "#pS22", "#pMain", "#pSb", "#pS12", "#pS02"]
+    assert all(abs(float(at) - (5.334 + i * .1905)) < .001 for i, (_, at) in enumerate(arrivals))
     assert '"ms-loop.wav"' in assembly and '"track.loop.mp3"' not in assembly
+    assert '<div id="replayHead">即时重放</div>' in html and "及时重放" not in html
+    assert 'tl.to("#wallCol", { y: 150, duration: 1.45, ease: "back.out(0.8)" }, 21.15)' in html
+    assert 'tl.to("#wallCol", { y: -730, duration: 2.1, ease: "sine.inOut" }, 22.6)' in html
+    ending_html = (PROJECT / "compositions" / "v3" / "18-07-end.html").read_text(encoding="utf-8")
+    assert 'id="musicCredit">BGM · Microsoft-Loop</div>' in ending_html
+    assert '}, 2.78);' in ending_html
     assert "1+5 操作录屏待替换" in html
     assert "PR 页面录屏待替换" in html
     assert all(f"06-wall-{letter}.mp4" in html for letter in "abc")
