@@ -1307,6 +1307,10 @@ class MainWindow(QMainWindow):
         scope = str(self.settings.get("recording_replay_scope", "recorded") or "")
         return scope if scope in ("recorded", "all") else "recorded"
 
+    def _replay_enabled(self) -> bool:
+        """即时回放总开关；关掉时既不开缓存，也不提供「保存最近 N 分钟」。"""
+        return bool(self.settings.get("recording_replay_enabled", True))
+
     def _replay_max_tiles(self) -> int:
         """``all`` 时最多给几格开缓存；<= 0 表示不限制。"""
         try:
@@ -1314,8 +1318,15 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             return 3
 
+    def _drop_pure_caches(self) -> None:
+        """停掉所有「纯缓存」会话；录制中的留着 —— 它本来就在写分段。"""
+        for tile in self.wall.tiles:
+            session = self.recorder.sessions.get(tile)
+            if session is not None and not session.recording:
+                self.recorder.stop(tile)
+
     def _sync_replay_scope(self) -> None:
-        """按「即时回放范围」自动开 / 关各格的缓存。
+        """按「即时回放总开关 + 范围」自动开 / 关各格的缓存。
 
         ``recorded``：只跟着录制走。录制中的格子本来就在写分段，直接就能导出回放，
         所以什么都不用开；纯缓存的会话（以前手动开的）会被停掉。
@@ -1327,15 +1338,11 @@ class MainWindow(QMainWindow):
         注意这里**直接调 recorder.start()**、不走 ``_start_capture()`` —— 后者会为了
         录制把画质锁到原画，而「所有格子都锁原画」会把带宽吃光。
         """
-        scope = self._replay_scope()
-        has_dir = bool(str(self.settings.get("recording_dir") or "").strip())
-        if scope != "all":
-            for tile in self.wall.tiles:
-                session = self.recorder.sessions.get(tile)
-                if session is not None and not session.recording:
-                    self.recorder.stop(tile)        # 收窄范围：停掉纯缓存
+        if not self._replay_enabled() or self._replay_scope() != "all":
+            # 总开关关掉、或范围收窄成 recorded：不只不开新的，纯缓存的也要停掉
+            self._drop_pure_caches()
             return
-        if not has_dir:
+        if not bool(str(self.settings.get("recording_dir") or "").strip()):
             return                                  # 没配保存目录，缓存没地方写
         limit = self._replay_max_tiles()
         # 额度按「已经在缓存的格子」现数（用户手动录制的那些不占额度）。
@@ -1468,9 +1475,10 @@ class MainWindow(QMainWindow):
         else:
             collected.append(("● 开始录制这一路", lambda t=tile:
                               self._start_capture(t, recording=True)))
-        if session:
+        if session and self._replay_enabled():
             # 即时回放跟着直播自动开（见 _sync_replay_scope），所以菜单里不再放
             # 「开启/关闭即时回放缓存」两个开关，只留这一个「保存」。
+            # 设置里把即时回放整个关掉时，这一项也不出现。
             minutes = int(session.settings.get("recording_replay_minutes", 3))
             collected.append((f"保存最近约 {minutes} 分钟", lambda t=tile:
                               self.recorder.save_replay(t)))

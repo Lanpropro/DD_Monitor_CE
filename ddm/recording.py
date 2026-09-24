@@ -371,7 +371,10 @@ class RecordingManager(QObject):
             # 用户要求：手动结束录制时，顺手把「最近 N 分钟」的即时回放也存一份。
             # 两份导出用同一批分段 —— _cleanup_parts() 会把「仍在导出队列里」的分段
             # 排除在删除之外，所以先启动的那份不会被后完成的那份删掉源文件。
-            self._export_replay(session, parts)
+            # 设置里关了即时回放总开关就不存那一份（完整录制照常导出）；
+            # 这里读 manager 的 settings（与 app 同一个 dict），开关是实时的。
+            if bool(self.settings.get("recording_replay_enabled", True)):
+                self._export_replay(session, parts)
             self._export(session, parts, full=True)
         else:
             self._discard_cache(session)
@@ -516,6 +519,9 @@ class RecordingManager(QObject):
         self._cleanup_parts()
 
     def save_replay(self, tile) -> bool:
+        if not bool(self.settings.get("recording_replay_enabled", True)):
+            self._say("即时回放已在「设置 → 录制」里关闭")
+            return False
         session = self.sessions.get(tile)
         if session is None:
             self._say("请先开启录制或即时回放缓存")

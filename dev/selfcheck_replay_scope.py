@@ -212,16 +212,29 @@ def main() -> None:
               f"选项={[page.replay_scope.itemData(i) for i in range(page.replay_scope.count())]}")
         assert "recording_replay_scope" in values, "设置页要交出这一项"
         assert "recording_replay_max_tiles" in values, "设置页要交出缓存格子上限"
+        assert "recording_replay_enabled" in values, "设置页要交出即时回放总开关"
         assert set(page.replay_scope.itemData(i)
                    for i in range(page.replay_scope.count())) == {"all", "recorded"}
-        page._load({"recording_replay_scope": "recorded"})     # noqa: SLF001
-        assert page.replay_scope.currentData() == "recorded", "设置页要能读回已存的值"
+        page._load({"recording_replay_enabled": False})        # noqa: SLF001
+        print(f"  总开关关掉：范围可编辑={page.replay_scope.isEnabled()} "
+              f"时长可编辑={page.replay_minutes.isEnabled()} "
+              f"上限可编辑={page.replay_max.isEnabled()}（都该 False）")
+        assert not page.replay_scope.isEnabled(), "总开关关掉时范围该置灰"
+        assert not page.replay_minutes.isEnabled(), "总开关关掉时时长该置灰"
+        assert not page.replay_max.isEnabled(), "总开关关掉时上限该置灰"
+        page._load({"recording_replay_enabled": True,
+                    "recording_replay_scope": "all"})          # noqa: SLF001
+        print(f"  总开关打开：「所有格子」下范围可编辑={page.replay_scope.isEnabled()} "
+              f"上限可编辑={page.replay_max.isEnabled()}（都该 True）")
+        assert page.replay_scope.isEnabled() and page.replay_minutes.isEnabled(), \
+            "总开关打开时范围和时长该恢复可编辑"
+        assert page.replay_max.isEnabled(), "「所有格子」+ 总开关打开时上限该可编辑"
         page._load({"recording_replay_scope": "all",
                     "recording_replay_max_tiles": 5})          # noqa: SLF001
-        print(f"  「所有格子」时上限控件：值={page.replay_max.value()} "
-              f"可编辑={page.replay_max.isEnabled()}")
+        print(f"  读回：范围={page.replay_scope.currentData()!r} "
+              f"上限={page.replay_max.value()}")
+        assert page.replay_scope.currentData() == "all", "设置页要能读回已存的范围"
         assert page.replay_max.value() == 5, "上限要能读回已存的值"
-        assert page.replay_max.isEnabled(), "「所有格子」时上限该可编辑"
         page._load({"recording_replay_scope": "recorded"})     # noqa: SLF001
         print(f"  「只跟着录制走」时上限控件可编辑={page.replay_max.isEnabled()}（该 False）")
         assert not page.replay_max.isEnabled(), \
@@ -386,6 +399,59 @@ def main() -> None:
         manager3._prune_cache(session)                 # noqa: SLF001
         print(f"  过了节流窗口再调用：扫目录 {len(scans)} 次（该 1）")
         assert len(scans) == 1, "过了节流窗口要能再裁一次"
+
+        print("\n=== 9. 即时回放总开关：关掉后彻底不开缓存 ===")
+        recorder.sessions.clear()
+        recorder.started.clear()
+        recorder.stopped.clear()
+        window.settings["recording_replay_enabled"] = False
+        window.settings["recording_replay_scope"] = "all"
+        window.settings["recording_replay_max_tiles"] = 0
+        window._sync_replay_scope()                # noqa: SLF001
+        print(f"  关掉总开关后开的格子={recorder.started}（该是空）")
+        assert recorder.started == [], "总开关关掉时不该开任何缓存"
+        # 已经在跑的纯缓存要停掉，录制中的会话留着（它本来就在写分段）
+        recorder.sessions.clear()
+        recorder.stopped.clear()
+        recorder.sessions[live_tiles[0]] = FakeSession(recording=False)
+        recorder.sessions[live_tiles[1]] = FakeSession(recording=True)
+        window._sync_replay_scope()                # noqa: SLF001
+        print(f"  关掉总开关时停掉的={recorder.stopped}（只该有纯缓存那格）")
+        assert recorder.stopped == [str(live_tiles[0].room.get("room_id"))], \
+            f"只该停纯缓存、留着录制中的，实际 {recorder.stopped}"
+        # 菜单里不再有「保存最近约 N 分钟」
+        menu_tile = live_tiles[1]
+        texts = menu_texts(window, menu_tile)
+        print(f"  关掉总开关后的右键菜单={texts}")
+        assert not any("保存最近约" in text for text in texts), \
+            "总开关关掉时菜单里不该还有「保存最近约 N 分钟」"
+        # 直接调 API 也要挡住（老菜单项 / 其它调用路径）
+        manager4 = RecordingManager(dict(window.settings), None)
+        manager4.timer.stop()
+        assert not manager4.save_replay(menu_tile), "总开关关掉时不该还能保存回放"
+        # 关掉时结束录制不再顺手存一份回放，只导完整录制
+        exported4: list = []
+        with patch.object(RecordingManager, "_export",
+                          lambda _self, session, parts, full: exported4.append(full)), \
+             patch.object(RecordingManager, "_end_process", lambda _self, _s: None):
+            closing = FakeSession(recording=True)
+            closing.finished_parts = lambda: [f"part{i}" for i in range(5)]
+            manager4.sessions[object()] = closing
+            manager4._finalize(closing)            # noqa: SLF001
+        print(f"  关掉总开关时结束录制的导出={exported4}（该只有一份完整录制）")
+        assert exported4 == [True], \
+            f"总开关关掉时不该再顺手存回放，实际 {exported4}"
+        # 打开总开关，一切恢复
+        recorder.sessions.clear()
+        recorder.started.clear()
+        window.settings["recording_replay_enabled"] = True
+        window._sync_replay_scope()                # noqa: SLF001
+        print(f"  重新打开总开关后开的格子={len(recorder.started)} 个")
+        assert len(recorder.started) == len(live_tiles), "总开关打开后该照常开缓存"
+        texts = menu_texts(window, menu_tile)
+        print(f"  重新打开后的右键菜单={texts}")
+        assert any("保存最近约" in text for text in texts), \
+            "总开关打开后菜单里该恢复「保存最近约 N 分钟」"
     finally:
         window.close()
         settle(app, 0.25)

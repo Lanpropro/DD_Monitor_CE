@@ -339,6 +339,13 @@ class RecordingSettingsPage(QWidget):
             self.fps.addItem(str(fps), fps)
         self.replay_minutes = QSpinBox()
         self.replay_minutes.setRange(1, 60)
+        self.replay_enabled = QCheckBox("启用「保存最近 N 分钟」")
+        self.replay_enabled.setToolTip(
+            "即时回放的总开关。关掉之后：\n"
+            "  1) 不给任何格子开回放缓存（已经在跑的纯缓存会停掉）；\n"
+            "  2) 右键菜单里不再有「保存最近约 N 分钟」；\n"
+            "  3) 结束录制时也不再顺手存一份回放。\n"
+            "录制本身不受影响，照常写完整文件。")
         self.replay_scope = QComboBox()
         self.replay_scope.addItem("所有播放中的格子（随时都能回放）", "all")
         self.replay_scope.addItem("只跟着录制走（不录制的格子不开缓存）", "recorded")
@@ -362,6 +369,7 @@ class RecordingSettingsPage(QWidget):
         for row, (label, widget, unit) in enumerate((
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
+            ("即时回放", self.replay_enabled, ""),
             ("即时回放范围", self.replay_scope, ""),
             ("缓存格子数上限", self.replay_max, ""),
             ("回放缓存时长", self.replay_minutes, "分钟"),
@@ -375,9 +383,10 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 9, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 10, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self.replay_scope.currentIndexChanged.connect(self._update_scope)
+        self.replay_enabled.toggled.connect(self._update_scope)
         self._load(settings)
         self.bitrate.valueChanged.connect(self._enable_transcode)
         self.fps.currentIndexChanged.connect(self._enable_transcode)
@@ -400,6 +409,7 @@ class RecordingSettingsPage(QWidget):
         scope = self.replay_scope.findData(
             str(settings.get("recording_replay_scope", "recorded")))
         self.replay_scope.setCurrentIndex(scope if scope >= 0 else 0)
+        self.replay_enabled.setChecked(bool(settings.get("recording_replay_enabled", True)))
         self.replay_max.setValue(int(settings.get("recording_replay_max_tiles", 3)))
         self.min_free.setValue(int(settings.get("recording_min_free_mb", 2048)))
         self.lock_quality.setChecked(bool(settings.get("recording_lock_quality", True)))
@@ -414,8 +424,15 @@ class RecordingSettingsPage(QWidget):
         self.fps.setToolTip(hint)
 
     def _update_scope(self) -> None:
-        """「只跟着录制走」时上限不起作用，置灰免得用户以为它没生效。"""
-        self.replay_max.setEnabled(self.replay_scope.currentData() == "all")
+        """不起作用的项置灰，免得用户改了以为没生效。
+
+        总开关关掉时，下面三项（范围 / 上限 / 时长）全都不生效；
+        范围选「只跟着录制走」时，上限也没有意义。
+        """
+        enabled = self.replay_enabled.isChecked()
+        self.replay_scope.setEnabled(enabled)
+        self.replay_minutes.setEnabled(enabled)
+        self.replay_max.setEnabled(enabled and self.replay_scope.currentData() == "all")
 
     def _enable_transcode(self) -> None:
         if self.codec.currentData() == "copy":
@@ -438,6 +455,7 @@ class RecordingSettingsPage(QWidget):
             "recording_fps": self.fps.currentData(),
             "recording_replay_minutes": self.replay_minutes.value(),
             "recording_replay_scope": self.replay_scope.currentData(),
+            "recording_replay_enabled": self.replay_enabled.isChecked(),
             "recording_replay_max_tiles": self.replay_max.value(),
             "recording_min_free_mb": self.min_free.value(),
             "recording_lock_quality": self.lock_quality.isChecked(),
