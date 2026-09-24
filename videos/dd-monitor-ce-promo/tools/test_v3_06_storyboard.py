@@ -22,7 +22,8 @@ def main():
         assert required in text, required
     assert "插件" not in text
     assert "SCRIPT-06-RECORDED.md" in main_script
-    assert "现有 `18-06-oss.html` 和连播预览尚未按新版脚本制作" in main_script
+    assert "18-06-design.html" in main_script
+    assert "v3-01-07-design-preview.mp4" in main_script
     print("06–07 storyboard: contiguous timing, required beats and pending sources verified")
 
 
