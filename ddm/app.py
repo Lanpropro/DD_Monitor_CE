@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         self.settings.update(self.state.get("settings") or {})
+        self.settings.pop("auto_reconnect", None)  # 旧配置的开关不再控制内置重连
         self.settings.pop("recording_backup_dir", None)
         self.settings.pop("recording_ffmpeg", None)
         self.recorder = RecordingManager(self.settings, self)
@@ -886,9 +887,6 @@ class MainWindow(QMainWindow):
         """断流自动重连：5 秒起，逐次翻倍，最多 60 秒。"""
         if not tile.room.get("room_id"):
             return
-        if not self.settings.get("auto_reconnect", True):
-            tile.set_status("断流（自动重连已关闭）")
-            return
         attempt = self._retry_count.get(tile, 0) + 1
         self._retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
@@ -979,7 +977,7 @@ class MainWindow(QMainWindow):
         return sender if isinstance(sender, Tile) else None
 
     def _prepare_room(self, room: dict) -> dict:
-        """按全局设置给新上墙的直播间补默认静音 / 音量。"""
+        """给新建格子补初始声音；已有格子的静音和音量由 Tile 保留。"""
         if "muted" not in room:
             room["muted"] = bool(self.settings.get("default_muted", True))
         if "volume" not in room:

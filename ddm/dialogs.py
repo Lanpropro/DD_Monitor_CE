@@ -17,7 +17,7 @@ from . import theme
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
 SHORTCUT_ACTIONS = [
     ("focus", "把鼠标所在那一路放到主画面", "F"),
-    ("restore", "还原上一个布局", "Esc"),
+    ("restore", "退出聚焦，恢复原布局", "Esc"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
@@ -50,14 +50,13 @@ def _step_button(text: str, tooltip: str, slot) -> QPushButton:
 
 
 class GeneralSettingsPage(QWidget):
-    """常规：轮询、画质策略、重连、画面卡死检测、新房间默认音量。"""
+    """常规：轮询、画质策略、画面卡死检测、新格子初始声音。"""
 
     ITEMS = [
         ("auto_quality", "主画面自动用原画，其余自动 720P"),
-        ("auto_reconnect", "断流后自动重连"),
         ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
         ("hw_decode", "硬件解码（画面卡住/崩溃时关掉试试：改用软解，CPU 会高一些）"),
-        ("default_muted", "新加入画面墙的直播间默认静音"),
+        ("default_muted", "新建格子的初始静音状态"),
         ("sidebar_card_mode", "关注列表使用大封面卡片（关闭后为头像＋文字列表）"),
         ("sidebar_auto_compact", "关注较多时自动切换为紧凑列表"),
         ("preview_on_hover", "鼠标停在关注列表的直播上 1 秒，缩略图里直接播放静音预览"),
@@ -126,7 +125,7 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
-        grid.addWidget(QLabel("新房间默认音量"), row, 0)
+        grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
         self.volume_slider = QSlider(Qt.Horizontal)

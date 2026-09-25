@@ -15,8 +15,9 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm import bili, config as config_module, theme  # noqa: E402
 from ddm import app as app_module              # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.dialogs import SettingsDialog  # noqa: E402
+from ddm.dialogs import SHORTCUT_ACTIONS, SettingsDialog  # noqa: E402
 from ddm.player import TilePlayer  # noqa: E402
+from ddm.widgets import Tile  # noqa: E402
 
 
 def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
@@ -398,6 +399,8 @@ def main() -> None:
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
     assert pages == ["常规", "弹幕", "录制", "快捷键"] and dialog.stack.currentIndex() == 0
+    assert next(label for key, label, _default in SHORTCUT_ACTIONS if key == "restore") == \
+        "退出聚焦，恢复原布局"
     dialog.nav.setCurrentRow(3)
     assert dialog.stack.currentIndex() == 3
     dialog.nav.setCurrentRow(2)
@@ -410,6 +413,7 @@ def main() -> None:
     defaults = dialog.settings()
     print(f"  读到的设置={defaults}")
     assert set(defaults) == set(config_module.DEFAULT_SETTINGS), "设置窗口要覆盖每个设置项"
+    assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():
         if key not in defaults or key == "danmaku_font":
             continue      # 字体下拉会把「跟主题走」写成当前字体名，这一项单独看
@@ -480,17 +484,29 @@ def main() -> None:
     window.apply_quality_policy()
     print(f"  关掉主画面自动原画后：格子画质仍然={[t.quality for t in window.wall.tiles]}")
     assert window.settings["auto_quality"] is False
-    window.settings["auto_reconnect"] = False
-    window._schedule_retry(window.wall.tiles[0])          # noqa: SLF001
-    print(f"  关掉自动重连后状态={window.wall.tiles[0].status_label.text()!r}"
-          f" 有重连定时器={'有' if window.wall.tiles[0] in window._retry_timers else '没有'}")
-    assert "自动重连已关闭" in window.wall.tiles[0].status_label.text()
-    assert window.wall.tiles[0] not in window._retry_timers
+    window.settings["auto_reconnect"] = False  # 老配置即使仍有 False，也不能关闭内置重连
+    retry_tile = window.wall.tiles[0]
+    window._schedule_retry(retry_tile)                  # noqa: SLF001
+    print(f"  内置自动重连：{retry_tile.status_label.text()!r}")
+    assert "秒后重连" in retry_tile.status_label.text()
+    assert retry_tile in window._retry_timers and window._retry_timers[retry_tile].isActive()
+    window._retry_timers.pop(retry_tile).stop()
+    window._retry_count.pop(retry_tile, None)
+    window.settings.pop("auto_reconnect")
     window._prepare_room({"room_id": "9999", "uname": "新房间"})   # noqa: SLF001
     room = {"room_id": "9999"}
     window._prepare_room(room)                             # noqa: SLF001
     print(f"  新房间默认: muted={room['muted']} volume={room['volume']}")
     assert room["muted"] is False and room["volume"] == 30
+    slot = Tile(room)
+    slot.set_muted(True)
+    slot.set_volume(64)
+    replacement = {"room_id": "9998", "muted": False, "volume": 10}
+    slot.set_room(replacement)
+    assert slot.muted is True and slot.volume == 64
+    assert replacement["muted"] is True and replacement["volume"] == 64, \
+        "换主播后要沿用格子的声音状态"
+    slot.deleteLater()
 
     window.apply_preview_settings()
     print(f"  关注列表模式：{'大卡片' if sidebar.card_mode else '头像＋文字'}")
