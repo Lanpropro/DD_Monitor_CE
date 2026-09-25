@@ -33,7 +33,7 @@ from .bili import (
 from .dialogs import (
     SHORTCUT_ACTIONS, AddRoomDialog, FollowImportDialog, SettingsDialog,
 )
-from .images import AvatarLoader, CachedAvatarLoader, CachedCoverLoader
+from .images import AvatarLoader, CachedCoverLoader
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
@@ -272,7 +272,6 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.start_all)
         # 封面先用本地留的那张顶上去（纯读文件、不联网），别让卡片空着等状态轮询
         QTimer.singleShot(120, self.load_cached_covers)
-        QTimer.singleShot(120, self.load_cached_avatars)
         QTimer.singleShot(800, self.refresh_account)
         QTimer.singleShot(1200, self.load_room_avatars)
         self._poll_timer = QTimer(self)
@@ -574,7 +573,7 @@ class MainWindow(QMainWindow):
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
         names = ("_account_loader", "_account_avatar_loader", "_room_avatar_loader",
                  "_status_avatar_loader", "_follow_avatar_loader", "_follow_loader",
-                 "_cover_cache_loader", "_avatar_cache_loader", "_cover_loader", "_aside_cover_loader",
+                 "_cover_cache_loader", "_cover_loader", "_aside_cover_loader",
                  "_poller", "_stats_poller")
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
@@ -1973,17 +1972,6 @@ class MainWindow(QMainWindow):
         self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
         self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
                                                        subdir="covers")
-
-    def load_cached_avatars(self) -> None:
-        room_ids = [str(room.get("room_id")) for room in self.sidebar.rooms()
-                    if room.get("room_id")]
-        if not room_ids:
-            return
-        loader = CachedAvatarLoader(room_ids, self)
-        loader.loaded.connect(self._on_room_avatar)
-        loader.finished.connect(loader.deleteLater)
-        self._avatar_cache_loader = loader
-        loader.start()
 
     def load_avatars_for(self, rooms: list) -> None:
         """刚加进来的房间立刻取头像和封面，不用等下一轮状态刷新。"""
