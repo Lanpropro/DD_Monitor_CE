@@ -75,7 +75,7 @@ def main() -> None:
     assert not window.sidebar.isVisible()
     assert window.wall.layout_id == "corner"
     if app.platformName() == "windows":
-        QTest.qWait(220)
+        QTest.qWait(160)
         assert window._fullscreen_cover is None, "切换后旧画面的遮挡层必须自动释放"
 
     QTest.keyClick(window, Qt.Key_F)

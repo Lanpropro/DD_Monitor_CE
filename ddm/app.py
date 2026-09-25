@@ -1518,7 +1518,7 @@ class MainWindow(QMainWindow):
     def _release_fullscreen_frame(self) -> None:
         if self._fullscreen_cover is not None:
             elapsed_ms = int((time.perf_counter() - self._fullscreen_cover_started) * 1000)
-            self._fullscreen_cover_timer.start(max(16, 180 - elapsed_ms))
+            self._fullscreen_cover_timer.start(max(16, 120 - elapsed_ms))
 
     def _clear_fullscreen_cover(self) -> None:
         self._fullscreen_cover_timer.stop()
