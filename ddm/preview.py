@@ -63,6 +63,9 @@ class HoverPreview(QObject):
         sidebar.scroll.horizontalScrollBar().valueChanged.connect(self._update_popup_position)
         # 横屏的列表是竖着滚的，不接上这一条，滚动时预览会停在原地
         sidebar.scroll.verticalScrollBar().valueChanged.connect(self._update_popup_position)
+        sidebar._head_scroll.horizontalScrollBar().valueChanged.connect(  # noqa: SLF001
+            self._update_popup_position)
+        sidebar.collapsedChanged.connect(self.cancel)
         self._delay = QTimer(self)
         self._delay.setSingleShot(True)
         self._delay.setInterval(self.DELAY_MS)
@@ -127,6 +130,9 @@ class HoverPreview(QObject):
         item = self._item
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
+        if self._anchor_of(item) is None:
+            self._stop_now()
+            return
         try:
             if self._needs_popup():
                 item.thumb.set_hint("")
@@ -157,7 +163,13 @@ class HoverPreview(QObject):
         画面会被压扁 —— 用户报的「紧凑布局下预览有问题」就是这个。竖屏卡片条更矮，
         一律用浮层。
         """
-        return (not self.sidebar.card_mode) or self.sidebar.side == "top"
+        return self.sidebar.collapsed or (not self.sidebar.card_mode) or self.sidebar.side == "top"
+
+    def _anchor_of(self, item):
+        if self.sidebar.side == "top" and self.sidebar.collapsed:
+            return self.sidebar._head_strip._avatars.get(  # noqa: SLF001
+                str(item.room.get("room_id") or ""))
+        return item
 
     def _size_popup(self, width: int) -> None:
         """把浮层设成和「非紧凑卡片上那块封面」一样大，视频区留 2px 边框。"""
@@ -179,18 +191,21 @@ class HoverPreview(QObject):
         # 横竖屏用**同一个尺寸**（用户要求两边对齐）：取展开卡片那个量级 ——
         # CAROUSEL_WIDTH(206) x NavThumb.HEIGHT(116)，正好 16:9。
         self._size_popup(CAROUSEL_WIDTH)
-        origin = item.mapTo(parent, QPoint(0, 0))
+        anchor = self._anchor_of(item)
+        if anchor is None:
+            return
+        origin = anchor.mapTo(parent, QPoint(0, 0))
         if self.sidebar.side == "top":
             # 竖屏：卡片是横排的、右边没空间，改成**向下弹**；左右跟卡片的竖直
             # 中线对齐（用户要求：放到和卡片中心对齐的位置，而不是贴着左边缘）
-            x = origin.x() + (item.width() - self._popup.width()) // 2
-            y = origin.y() + item.height() + PREVIEW_GAP
+            x = origin.x() + (anchor.width() - self._popup.width()) // 2
+            y = origin.y() + anchor.height() + PREVIEW_GAP
         else:
             # 左边界落在**卡片右侧 1/3** 处，其余部分探到侧栏外面
             # （最早那版是按「侧栏宽的 1/3」回退，两者差 7px 左右；按卡片算更贴合
             #   「占据卡片右侧 1/3」这个说法）
-            x = origin.x() + item.width() * 2 // 3
-            y = origin.y() + (item.height() - self._popup.height()) // 2
+            x = origin.x() + anchor.width() * 2 // 3
+            y = origin.y() + (anchor.height() - self._popup.height()) // 2
         x = max(0, min(x, parent.width() - self._popup.width()))
         y = max(0, min(y, parent.height() - self._popup.height()))
         self._popup.move(x, y)
@@ -202,7 +217,9 @@ class HoverPreview(QObject):
         别的卡片（或者成了空白）。
         """
         try:
-            return item.rect().contains(item.mapFromGlobal(QCursor.pos()))
+            anchor = self._anchor_of(item)
+            return (anchor is not None and anchor.isVisible()
+                    and anchor.rect().contains(anchor.mapFromGlobal(QCursor.pos())))
         except RuntimeError:                    # 条目已经被删掉
             return False
 
@@ -262,12 +279,16 @@ class HoverPreview(QObject):
         except RuntimeError:                    # 条目已经被删掉
             pass
 
-    def stop(self) -> None:
-        """外面主动收掉（关窗、关掉开关）。"""
+    def cancel(self) -> None:
+        """切换侧栏形态时收掉预览，但保留播放器供下一次悬停复用。"""
         self._delay.stop()
         self._grace.stop()
         self._room = {}
         self._stop_now()
+
+    def stop(self) -> None:
+        """外面主动收掉（关窗、关掉开关）。"""
+        self.cancel()
         # 预览播放器平时留着复用（只有关窗 / 关掉开关时才真放掉）
         for item in self.sidebar.items():
             try:

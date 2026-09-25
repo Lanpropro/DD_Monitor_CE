@@ -2552,6 +2552,8 @@ class RoomStrip(QFrame):
     """
 
     roomClicked = Signal(str)
+    roomHovered = Signal(dict)
+    roomUnhovered = Signal(dict)
 
     AVATAR = 34
     SPACING = 8
@@ -2566,6 +2568,8 @@ class RoomStrip(QFrame):
         self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
         self._press_pos = None
         self._press_room = None
+        self._hovered_room: dict | None = None
+        self.setMouseTracking(True)
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(2, 0, 2, 0)
         self._layout.setSpacing(self.SPACING)
@@ -2610,6 +2614,8 @@ class RoomStrip(QFrame):
 
     def mouseMoveEvent(self, event) -> None:
         """把某个主播头像拖出去 = 拖进画面墙（和从列表里拖一样）。"""
+        self._set_hover_room("" if event.buttons() else
+                             self._room_at(event.position().toPoint()))
         if not self._press_room or not (event.buttons() & Qt.LeftButton):
             return
         start = getattr(self, "_press_pos", None)
@@ -2640,7 +2646,31 @@ class RoomStrip(QFrame):
         if room_id:
             self.roomClicked.emit(str(room_id))
 
+    def _set_hover_room(self, room_id: str) -> None:
+        room = next((room for room in self._rooms
+                     if str(room.get("room_id") or "") == room_id), None)
+        if room is self._hovered_room:
+            return
+        if self._hovered_room is not None:
+            self.roomUnhovered.emit(self._hovered_room)
+        self._hovered_room = room
+        if room is not None:
+            self.roomHovered.emit(room)
+
+    def _room_at(self, point: QPoint) -> str:
+        return next((room_id for room_id, avatar in self._avatars.items()
+                     if avatar.geometry().contains(point)), "")
+
+    def enterEvent(self, event) -> None:
+        self._set_hover_room(self._room_at(event.position().toPoint()))
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._set_hover_room("")
+        super().leaveEvent(event)
+
     def _rebuild(self) -> None:
+        self._set_hover_room("")
         while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()
@@ -2689,6 +2719,7 @@ class RoomStrip(QFrame):
         if live:
             dot = QLabel(avatar)
             dot.setFixedSize(12, 12)
+            dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
             dot.setStyleSheet(f"background: {theme.PINK}; border-radius: 6px;"
                               f" border: 2px solid {theme.SIDEBAR};")
             dot.move(self.AVATAR - 12, self.AVATAR - 12)
@@ -2860,6 +2891,8 @@ class Sidebar(QFrame):
         # 免得占掉头像那一行的高度；滚轮/触控板横向滚，和卡片条同一套机制）。
         self._head_strip = RoomStrip(self)
         self._head_strip.roomClicked.connect(self._on_strip_room)
+        self._head_strip.roomHovered.connect(self.previewHovered.emit)
+        self._head_strip.roomUnhovered.connect(self.previewUnhovered.emit)
         self._head_scroll = CarouselScroll(self)
         self._head_scroll.setWidgetResizable(True)
         self._head_scroll.setFrameShape(QFrame.NoFrame)
