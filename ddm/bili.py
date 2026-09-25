@@ -63,7 +63,7 @@ def room_info(room_id: str) -> dict | None:
     viewers = ""
     if live and isinstance(online, int) and online > 0:
         viewers = f"{online / 10000:.1f}万" if online >= 10000 else str(online)
-    return {
+    result = {
         "room_id": str(room_id),
         "uname": info.get("uname") or f"房间 {room_id}",
         "title": info.get("title") or "",
@@ -73,6 +73,14 @@ def room_info(room_id: str) -> dict | None:
         "live_start_ts": _parse_live_time(info.get("live_time")),
         "cover_url": (info.get("keyframe") if live else info.get("cover")) or info.get("cover") or "",
     }
+    # 同一个坑：getRoomBaseInfo 不给 face，得拿 uid 去另一个接口补
+    try:
+        uid = int(info.get("uid") or 0)
+    except (TypeError, ValueError):
+        uid = 0
+    if uid:
+        _fill_faces({str(room_id): result}, {str(room_id): uid})
+    return result
 
 
 def _parse_live_time(text) -> int:
@@ -418,6 +426,43 @@ def _live_by_uids(uids: list[int]) -> dict:
     return data.get("data") or {}
 
 
+def _faces_by_room(uids: list[int]) -> dict[str, str]:
+    """按 uid 批量取主播头像；返回 ``room_id -> face``。
+
+    **`getRoomBaseInfo` 不返回 face**（它只给 ``uid``）—— 头像是
+    ``get_status_info_by_uids`` 那边的事。以前 `rooms_status()` 直接读
+    ``info.get("face")``，拿到的永远是空串，关注栏头像于是一直不显示。
+    """
+    wanted = [int(uid) for uid in dict.fromkeys(uids) if uid]
+    if not wanted:
+        return {}
+    result: dict[str, str] = {}
+    for start in range(0, len(wanted), 100):
+        data = _live_by_uids(wanted[start:start + 100])
+        for info in data.values():
+            if not isinstance(info, dict):
+                continue
+            room_id = str(info.get("room_id") or "")
+            face = str(info.get("face") or "")
+            if room_id and face:
+                result[room_id] = face
+    return result
+
+
+def _fill_faces(result: dict[str, dict], uids: dict[str, int]) -> None:
+    """就地给 ``result`` 补上 face（``uid -> room_id`` 对应关系由 ``uids`` 给）。"""
+    missing = [uid for uid in uids.values() if uid]
+    if not missing:
+        return
+    try:
+        faces = _faces_by_room(missing)
+    except Exception:  # noqa: BLE001
+        return                      # 补头像失败不该影响状态刷新本身
+    for room_id, info in result.items():
+        if not info.get("face"):
+            info["face"] = faces.get(room_id, "")
+
+
 def follow_rooms() -> list[dict]:
     """把关注列表转换成直播间列表（只保留有直播间的账号）。"""
     uid = my_uid()
@@ -471,6 +516,7 @@ def rooms_status(room_ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
     result: dict[str, dict] = {}
+    uids: dict[str, int] = {}
     for start in range(0, len(ids), 100):
         batch = ids[start:start + 100]
         response = requests.get(
@@ -496,12 +542,18 @@ def rooms_status(room_ids: list[str]) -> dict[str, dict]:
                 "live": live,
                 "title": info.get("title") or "",
                 "uname": info.get("uname") or "",
+                # 这个批量接口**不给 face**，只给 uid；统一在循环外补（见 _fill_faces）
                 "face": info.get("face") or "",
                 "cover_url": (info.get("keyframe") if live else info.get("cover"))
                               or info.get("cover") or "",
                 "viewers": (f"{online / 10000:.1f}万" if online >= 10000 else str(online)) if live else "",
                 "live_start_ts": _parse_live_time(info.get("live_time")),
             }
+            try:
+                uids[room_id] = int(info.get("uid") or 0)
+            except (TypeError, ValueError):
+                pass
+    _fill_faces(result, uids)
     return result
 
 
