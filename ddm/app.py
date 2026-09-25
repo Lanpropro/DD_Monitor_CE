@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         self._native_fullscreen_state = None
         self._fullscreen_saved_geometry = None
         self._fullscreen_cover: QLabel | None = None
+        self._fullscreen_cover_started = 0.0
         self._fullscreen_cover_timer = QTimer(self)
         self._fullscreen_cover_timer.setSingleShot(True)
         self._fullscreen_cover_timer.timeout.connect(self._clear_fullscreen_cover)
@@ -1495,6 +1496,8 @@ class MainWindow(QMainWindow):
         return frame, screen.geometry()
 
     def _hold_fullscreen_frame(self) -> None:
+        self._fullscreen_cover_timer.stop()
+        self._fullscreen_cover_started = time.perf_counter()
         if self._fullscreen_cover is not None:
             return
         captured = self._grab_fullscreen_frame()
@@ -1511,6 +1514,11 @@ class MainWindow(QMainWindow):
         self._fullscreen_cover = cover
         cover.show()
         QApplication.processEvents()
+
+    def _release_fullscreen_frame(self) -> None:
+        if self._fullscreen_cover is not None:
+            elapsed_ms = int((time.perf_counter() - self._fullscreen_cover_started) * 1000)
+            self._fullscreen_cover_timer.start(max(16, 180 - elapsed_ms))
 
     def _clear_fullscreen_cover(self) -> None:
         self._fullscreen_cover_timer.stop()
@@ -1544,8 +1552,7 @@ class MainWindow(QMainWindow):
                 self.showFullScreen()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
-            if self._fullscreen_cover is not None:
-                self._fullscreen_cover_timer.start(240)
+            self._release_fullscreen_frame()
 
     def _exit_fullscreen(self) -> None:
         tile = self._fullscreen_tile
@@ -1567,8 +1574,7 @@ class MainWindow(QMainWindow):
             self.wall.set_fullscreen_tile(None)
         finally:
             self.centralWidget().setUpdatesEnabled(True)
-            if self._fullscreen_cover is not None:
-                self._fullscreen_cover_timer.start(240)
+            self._release_fullscreen_frame()
         if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
             self._apply_orientation()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")

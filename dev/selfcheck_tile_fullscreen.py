@@ -41,7 +41,11 @@ def main() -> None:
         # 本地 CI 没有可截取的交互桌面；用一张有效画面检查遮挡与释放时序。
         frame = QPixmap(32, 32)
         frame.fill(Qt.darkGray)
-        window._grab_fullscreen_frame = lambda: (frame, window.screen().geometry())
+        captures = []
+        def grab_frame():
+            captures.append(True)
+            return frame, window.screen().geometry()
+        window._grab_fullscreen_frame = grab_frame
     tiles = list(window.wall.tiles)
     room_ids = [tile.room["room_id"] for tile in tiles]
     assert len(tiles) == 6 and all(tile.fullscreen_button.isVisible() for tile in tiles)
@@ -56,8 +60,8 @@ def main() -> None:
     app.processEvents()
     assert window._fullscreen_tile is target
     if app.platformName() == "windows":
-        assert window._fullscreen_cover is not None
-        assert window._fullscreen_cover_timer.isActive()
+        assert captures
+        assert window._fullscreen_cover is None or window._fullscreen_cover_timer.isActive()
     assert window.isFullScreen() or window._native_fullscreen_state is not None
     assert int(window.winId()) == window_hwnd
     assert int(target.video.winId()) == video_hwnd
@@ -71,7 +75,7 @@ def main() -> None:
     assert not window.sidebar.isVisible()
     assert window.wall.layout_id == "corner"
     if app.platformName() == "windows":
-        QTest.qWait(300)
+        QTest.qWait(220)
         assert window._fullscreen_cover is None, "切换后旧画面的遮挡层必须自动释放"
 
     QTest.keyClick(window, Qt.Key_F)
@@ -79,8 +83,8 @@ def main() -> None:
     assert window._fullscreen_tile is None and window.wall.fullscreen_tile is None, \
         "全屏时再按 F 应与 Esc 一样退出"
     if app.platformName() == "windows":
-        assert window._fullscreen_cover is not None
-        assert window._fullscreen_cover_timer.isActive()
+        assert len(captures) >= 2
+        assert window._fullscreen_cover is None or window._fullscreen_cover_timer.isActive()
     assert window._native_fullscreen_state is None
     assert window.centralWidget().updatesEnabled()
     assert not window.wall._relayout_timer.isActive()
