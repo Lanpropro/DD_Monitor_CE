@@ -181,13 +181,9 @@ class HoverPreview(QObject):
         self._size_popup(CAROUSEL_WIDTH)
         origin = item.mapTo(parent, QPoint(0, 0))
         if self.sidebar.side == "top":
-            # 竖屏：卡片是横排在**顶部**的、右边没空间，所以向下弹；左右跟卡片的
-            # 竖直中线对齐（用户要求：和卡片中心对齐，而不是贴着左边缘）
+            # 竖屏：卡片是横排的、右边没空间，改成**向下弹**；左右跟卡片的竖直
+            # 中线对齐（用户要求：放到和卡片中心对齐的位置，而不是贴着左边缘）
             x = origin.x() + (item.width() - self._popup.width()) // 2
-            # 关键：**y 不参与下面那句「夹回窗口内」**。以前它对 y 也做
-            # `max(0, min(y, 窗口高 - 浮层高))`，窗口不够高时就把 y 硬夹回上边 ——
-            # 而卡片正好排在顶部，于是浮层盖在收起的小卡片身上，看起来就像
-            # 「预览塞进了收缩的卡片里」。宁可让它压到窗口底边，也不能盖住卡片。
             y = origin.y() + item.height() + PREVIEW_GAP
         else:
             # 左边界落在**卡片右侧 1/3** 处，其余部分探到侧栏外面
@@ -195,11 +191,8 @@ class HoverPreview(QObject):
             #   「占据卡片右侧 1/3」这个说法）
             x = origin.x() + item.width() * 2 // 3
             y = origin.y() + (item.height() - self._popup.height()) // 2
-        # 横向仍然夹回窗口内（探出侧栏是设计，但不该跑出窗口左右边界）；
-        # 纵向只在「往上跑出去」时拉回来，绝不把它夹到卡片身上。
         x = max(0, min(x, parent.width() - self._popup.width()))
-        if y < 0:
-            y = 0
+        y = max(0, min(y, parent.height() - self._popup.height()))
         self._popup.move(x, y)
 
     def _cursor_on_item(self, item) -> bool:
