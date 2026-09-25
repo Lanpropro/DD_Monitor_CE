@@ -1471,6 +1471,9 @@ class MainWindow(QMainWindow):
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
+        if self._fullscreen_tile is tile:
+            self._exit_fullscreen()
+            return
         if self._fullscreen_tile is not None:
             return
         self._fullscreen_was_maximized = self.isMaximized()
@@ -1478,7 +1481,7 @@ class MainWindow(QMainWindow):
         self.sidebar.hide()
         self.empty_hint.hide()
         self.wall.set_fullscreen_tile(tile)
-        tile.fullscreen_button.setToolTip("退出全屏（Esc）")
+        tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
         self.showFullScreen()
 
     def _exit_fullscreen(self) -> None:
@@ -2048,9 +2051,12 @@ class MainWindow(QMainWindow):
         pressed = QKeySequence(event.keyCombination()).toString()
         shortcuts = self.shortcuts
         if pressed and pressed == shortcuts.get("focus"):
-            tile = self._tile_under_cursor()
-            if tile is not None and tile.room.get("room_id"):
-                self._on_fullscreen(tile)
+            if self._fullscreen_tile is not None:
+                self._exit_fullscreen()
+            else:
+                tile = self._tile_under_cursor()
+                if tile is not None and tile.room.get("room_id"):
+                    self._on_fullscreen(tile)
         elif pressed and pressed == shortcuts.get("mute"):
             self._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("solo"):
