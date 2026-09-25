@@ -10,8 +10,11 @@ dev/preview/
 
 # 打包 / 临时工作目录（dev/build_release.ps1、PyInstaller 的中间产物都放这儿）
 work/
-# 发布产物（用户习惯把 zip 收在这里）
-results/
+# 发布产物（用户习惯把 zip 收在这里）。
+# 写成 `results/*` 而不是 `results/`：这样 results/.gitignore 自己能进版本库，
+# 而里面的 zip / exe / 源码包一律不进（目录自带的那份也是同样的规则）。
+results/*
+!results/.gitignore
 
 # 虚拟环境
 .venv/
@@ -28,6 +31,17 @@ plugins_user/_danmaku_log/
 
 # 宣传片参考素材：别人的视频，只用来对风格，不进版本库
 Video_reference/
+
+# 宣传片项目本体：素材很大（单文件最大 24 MB，`.git` 一度涨到 987 MB），只在本机
+# 拍 / 剪，不进版本库、也不进发布包 —— dev/build_release.ps1 是按 git ls-files 打的
+videos/
+
+# 内部交接文档与状态记录：给自己看的，不进版本库 / 发布包
+HANDOFF-*.md
+PROJECT_STATE.md
+
+# 随手笔记
+idea.txt
 
 # 编辑器
 .vscode/

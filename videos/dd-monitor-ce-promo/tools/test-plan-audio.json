@@ -1,7 +1,0 @@
-[
- { "at": 0, "type": "wait", "note": "起点" },
- { "at": 8, "type": "mute", "action": "unmute", "target": "volume_0", "x": 1723, "y": 964,
-   "note": "测试：声音应该在 6 秒左右才被放开（不是第 0 秒）" },
- { "at": 12, "type": "mute", "action": "mute", "target": "volume_0", "x": 1723, "y": 964,
-   "note": "收尾静音" }
-]
