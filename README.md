@@ -99,9 +99,9 @@ DD监控室CE 是一款基于 Python、PySide6 和 VLC 的 B 站多窗口直播�
 ### 方式一：下载 exe（推荐，免装 Python）
 
 1. 到 [Releases](https://github.com/Lanpropro/DD_Monitor_CE/releases) 下载
-   `DDMonitorCE-v0.1-exe.zip`。
+   `DD监控室CE-v0.2-exe.zip`。
 2. 解压到任意目录（比如 `D:\DD监控室CE`）。
-3. 双击解压出来的 **`DD监控室CE-v0.1-exe.exe`** 就能用。
+3. 双击解压出来的 **`DD监控室CE-v0.2-exe.exe`** 就能用。
 
 配置、缓存、日志都在解压出来的那个目录里（`utils\config.json`、`cache\`、`logs\`），
 整个目录拷到别的 Windows 机器也能直接用；删掉 `utils\config.json` 等于恢复出厂设置。
@@ -224,8 +224,8 @@ python -m venv .venv
 
 | 默认按键 | 功能 |
 | --- | --- |
-| `F` | 将鼠标所在的直播画面设为主画面 |
-| `Esc` | 恢复上一个布局 |
+| `F` | 全屏查看鼠标所在的格子 |
+| `Esc` | 退出全屏 |
 | `M` | 静音 / 取消静音鼠标所在的那一路 |
 | `Alt` + `M` | 只保留鼠标所在画面的声音（鼠标不在画面上＝全部静音） |
 
@@ -244,7 +244,7 @@ python -m venv .venv
 
 ## 开发指南
 
-安装依赖后，可以运行全部离线自检（25 个脚本，不需要联网）：
+安装依赖后，可以运行全部离线自检（50 个脚本，不需要联网）：
 
 ```powershell
 dev\run-checks.cmd
@@ -266,7 +266,7 @@ powershell -File dev\build_release.ps1
 | `main.py`、`ddm/` | 程序入口与应用代码；`app.py` 管状态和流程，`widgets.py` 管主要控件，`layouts.py` 管布局，`player.py` 管播放 |
 | `blivedm/`、`plugins_user/` | 弹幕协议代码与用户插件 |
 | `dev/`、`docs/` | 开发自检、预览脚本与使用说明、截图 |
-| `videos/dd-monitor-ce-promo/` | 宣传片的 HTML 场景、素材、拼接脚本；成片在该目录的 `renders/`，不会提交到 Git |
+| `videos/dd-monitor-ce-promo/` | 宣传片的 HTML 场景、素材、拼接脚本；只在本机保留，不提交到 Git |
 | `Video_reference/` | 宣传片原始参考素材，本地保留，不提交到 Git |
 | `utils/config.json`、`cache/`、`logs/`、`recordings/` | 运行时配置与数据，不提交到 Git；发布文件生成在 `results/` |
 
@@ -294,7 +294,7 @@ powershell -File dev\build_release.ps1
 - 接别的平台的骨架：`plugins_user/_template_platform/plugin.py`
 
 插件是受信任代码，和本体同进程运行 —— 只装自己看过源码的插件。
-还没做、打算怎么做的，记在 [`idea.txt`](idea.txt)。
+还没做、打算怎么做的，记在本地 `idea.txt`（不随仓库提交）。
 
 ## 贡献
 
