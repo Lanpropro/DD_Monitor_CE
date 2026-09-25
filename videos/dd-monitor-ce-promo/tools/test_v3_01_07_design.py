@@ -132,6 +132,8 @@ def main():
     assert 'src="assets/rec/06-follow-recorded.mp4"' in html
     assert 'src="assets/rec/06-replay-preview.mp4"' in html
     assert 'src="assets/rec/06-replay-timeline.mp4"' in html
+    assert '#longOutline { left: 246px; top: 223px; width: 1122px;' in html
+    assert '#shortOutline { left: 1366px; top: 192px; width: 55px;' in html
     assert '更高效的录制切片，切出爆点' in html
     assert 'id="simCursor"' in html and 'id="cursorPulse"' in html
     assert 'const recButtons = [' in html and html.count('y: 914') == 3
