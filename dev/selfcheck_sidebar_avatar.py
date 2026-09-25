@@ -128,6 +128,33 @@ def main() -> None:
         thumb._render_face()               # noqa: SLF001
         print(f"  无名字无图：可见={face.isVisible()} 文本={face.text()!r}")
         assert face.isVisible() and face.text() == "?", "取不到名字时用问号顶住"
+
+        print("\n=== 8. 缓存命中就立刻显示（不等下载）===")
+        # 用户报的「关注栏头像消失」根子在这：头像以前只有「下载成功回调」一条路，
+        # CDN 一抽风就永远空着。现在拿到 face URL 先把本地那张摆上。
+        item.room["uname"] = "A某"
+        url = "https://i0.hdslb.com/bfs/face/selftest-avatar-probe.jpg"
+        path = images_module._cache_path(url, "avatars")        # noqa: SLF001
+        probe = QPixmap(24, 24)
+        probe.fill(Qt.blue)
+        assert probe.save(path, "PNG"), "先决条件：能往缓存目录写测试图"
+        try:
+            assert images_module.load_cached_avatar(url) is not None, \
+                "缓存里有的 URL 该能直接读出来"
+            room_id = str(item.room.get("room_id"))
+            hit = window._prime_cached_avatars({room_id: url})   # noqa: SLF001
+            print(f"  _prime_cached_avatars 命中 {hit} 张，"
+                  f"条目有图={thumb._face_source is not None}")   # noqa: SLF001
+            assert hit == 1, "该把缓存那张摆到对应条目上"
+            assert thumb._face_source is not None, "条目的头像源该被设上"  # noqa: SLF001
+            assert face.isVisible(), "缓存命中之后头像就该看得见"
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        assert images_module.load_cached_avatar("https://example.invalid/none.jpg") is None, \
+            "没缓存过的 URL 该老实返回 None"
     finally:
         window.close()
         settle(app, 0.25)

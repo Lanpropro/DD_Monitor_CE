@@ -73,6 +73,21 @@ def room_avatar_path(room_id: str) -> str:
     return os.path.join(REPO, "cache", "avatars", "room", _safe_name(room_id) + ".png")
 
 
+def load_cached_avatar(url: str) -> QPixmap | None:
+    """这张头像 URL 以前下过就直接读出来（不联网）。
+
+    有了它，状态一刷到 ``face`` 就能立刻把头像摆上，不用等这一轮下载回来 ——
+    下载慢或者干脆失败（CDN 抽风、图片防盗链变化）时，条目也不会一直空着。
+    """
+    if not url:
+        return None
+    path = _cache_path(url, "avatars")
+    if not os.path.isfile(path):
+        return None
+    pixmap = QPixmap(path)
+    return pixmap if not pixmap.isNull() else None
+
+
 def load_room_avatar(room_id: str) -> QPixmap | None:
     """读「这个房间上次那张头像」；没有就 None。
 

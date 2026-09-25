@@ -33,7 +33,8 @@ from .bili import (
 from .dialogs import (
     SHORTCUT_ACTIONS, AddRoomDialog, FollowImportDialog, SettingsDialog,
 )
-from .images import AvatarLoader, CachedAvatarLoader, CachedCoverLoader
+from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
+                     load_cached_avatar)
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
@@ -1293,6 +1294,13 @@ class MainWindow(QMainWindow):
             if face and face != item.room.get("face"):
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
+                # 同一张 URL 以前下过就**直接读本地摆上**，不用等这一轮下载回来 ——
+                # 下载慢、或者干脆失败（CDN 抽风、图片防盗链变了）时，
+                # 条目也不至于一直空着。用户报的「关注栏头像消失」就出在这：
+                # 头像只有「下载成功回调」这一条路，一失败就再没有第二次机会。
+                cached = load_cached_avatar(face)
+                if cached is not None:
+                    item.thumb.set_face(cached)
             item.room["live_known"] = True          # 这一路的直播状态从此算已知
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
         self._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
@@ -1989,9 +1997,33 @@ class MainWindow(QMainWindow):
                  for room in rooms if room.get("face")}
         covers = {str(room.get("room_id")): room.get("cover_url")
                   for room in rooms if room.get("cover_url")}
+        hit = self._prime_cached_avatars(faces)
+        print(f"[头像] 关注栏 {len(faces)} 张待取，本地缓存命中 {hit} 张",
+              file=sys.stderr, flush=True)
         self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
         self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
                                                        subdir="covers")
+
+    def _prime_cached_avatars(self, faces: dict) -> int:
+        """把本地缓存里那张头像先摆上（纯读文件，不联网），返回命中张数。
+
+        头像以前只有「下载成功回调」这一条路：CDN 一抽风就永远空着。这里让
+        已经缓存过的 URL 立刻显示，下载只是"换成更新的那张"。
+        """
+        if not faces:
+            return 0
+        by_room = {str(item.room.get("room_id")): item for item in self.sidebar._items}  # noqa: SLF001
+        hit = 0
+        for room_id, url in faces.items():
+            item = by_room.get(str(room_id))
+            if item is None:
+                continue
+            cached = load_cached_avatar(url)
+            if cached is None:
+                continue
+            item.thumb.set_face(cached)
+            hit += 1
+        return hit
 
     def load_avatars_for(self, rooms: list) -> None:
         """刚加进来的房间立刻取头像和封面，不用等下一轮状态刷新。"""
