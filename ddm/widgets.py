@@ -1522,11 +1522,13 @@ class NavThumb(QFrame):
         _ignore_mouse(self.hint)
 
         # 头像挂在整行上，收起时仍能和底部账号头像保持同一条中线。
-        self.face = Avatar("", 0, self.AVATAR_SIZE,
+        self.face = Avatar(getattr(parent, "room", {}).get("uname") or
+                           str(getattr(parent, "room", {}).get("room_id") or "?"),
+                           0, self.AVATAR_SIZE,
                            parent=parent if parent is not None else self)
         self.face.setObjectName("NavThumbFace")
         self._place_face()
-        self.face.setVisible(False)
+        self.face.setVisible(True)
         self._cover_source: QPixmap | None = None
         self._face_source: QPixmap | None = None
 
@@ -1771,7 +1773,7 @@ class NavThumb(QFrame):
         self._render_face()
         self._render_cover()
         self._layout_overlay()
-        self.face.setVisible(bool(self.face.pixmap()))
+        self.face.setVisible(not self.video.isVisible())
 
     # ---- 预览播放 ----
     def _ensure_player(self) -> TilePlayer:
@@ -1823,7 +1825,7 @@ class NavThumb(QFrame):
         self.video.setGeometry(self.rect())
         self.hint.setGeometry(self.rect())
         self.cover.setVisible(self._card_mode and not self._compact_thumb())
-        self.face.setVisible(bool(self.face.pixmap()))
+        self.face.setVisible(True)
         self._set_overlay_visible(True)
 
     def release_player(self) -> None:
@@ -1841,7 +1843,7 @@ class NavThumb(QFrame):
         elif state == "error":
             self.video.setVisible(False)
             self._set_overlay_visible(True)
-            self.face.setVisible(bool(self.face.pixmap()))
+            self.face.setVisible(True)
             self.set_hint("播放失败")
 
 
@@ -2033,6 +2035,9 @@ class NavItem(QFrame):
         self.room["uname"] = uname or ""
         self.name_label.setText(self.room["uname"]
                                 or str(self.room.get("room_id") or ""))
+        if self.thumb._face_source is None:
+            self.thumb.face.setText((self.room["uname"] or
+                                     str(self.room.get("room_id") or "?"))[0])
         self.thumb._layout_overlay()
 
     def set_pinned(self, pinned: bool) -> None:

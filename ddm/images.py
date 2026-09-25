@@ -55,6 +55,31 @@ def room_cover_path(room_id: str) -> str:
     return os.path.join(REPO, "cache", "covers", "room", _safe_name(room_id) + ".png")
 
 
+def room_avatar_path(room_id: str) -> str:
+    """按房间号保存头像，启动占位条目还没有头像 URL 时也能显示。"""
+    return os.path.join(REPO, "cache", "avatars", "room", _safe_name(room_id) + ".png")
+
+
+def load_room_avatar(room_id: str) -> QPixmap | None:
+    path = room_avatar_path(room_id)
+    if not os.path.isfile(path):
+        return None
+    pixmap = QPixmap(path)
+    return pixmap if not pixmap.isNull() else None
+
+
+def remember_room_avatar(room_id: str, url: str) -> None:
+    source = _cache_path(url, "avatars") if room_id and url else ""
+    if not source or not os.path.isfile(source):
+        return
+    target = room_avatar_path(room_id)
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(source, target)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def load_room_cover(room_id: str) -> QPixmap | None:
     """读「这个房间上次那张封面」；没有就 None。
 
@@ -154,6 +179,22 @@ class CachedCoverLoader(QThread):
                 self.loaded.emit(room_id, pixmap)
 
 
+class CachedAvatarLoader(QThread):
+    """启动时按房间号回填上次下载的主播头像。"""
+
+    loaded = Signal(str, QPixmap)
+
+    def __init__(self, room_ids, parent=None):
+        super().__init__(parent)
+        self.room_ids = [str(room_id) for room_id in room_ids]
+
+    def run(self) -> None:
+        for room_id in self.room_ids:
+            pixmap = load_room_avatar(room_id)
+            if pixmap is not None:
+                self.loaded.emit(room_id, pixmap)
+
+
 class AvatarLoader(QThread):
     """批量下载头像，下好一个发一个。"""
 
@@ -181,4 +222,6 @@ class AvatarLoader(QThread):
                     if self.subdir == "covers":
                         # 顺手按房间号留一份，下次启动 / 未开播时直接用
                         remember_room_cover(key, self.items[key], self.subdir)
+                    elif self.subdir == "avatars":
+                        remember_room_avatar(key, self.items[key])
                     self.loaded.emit(key, pixmap)
