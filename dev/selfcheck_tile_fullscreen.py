@@ -1,6 +1,7 @@
 """离线回归：1+5 布局的格子全屏不能改布局、顺序或房间。"""
 import os
 import sys
+import time
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QCursor, QPixmap
@@ -24,6 +25,22 @@ class SilentPoller(QThread):
 
     def run(self) -> None:
         return
+
+
+def wait_cover_released(window, app, timeout: float = 3.0) -> bool:
+    """等遮挡层自己走掉。
+
+    它现在是「保持 → 淡出 → 释放」三段，总时长还取决于抓屏耗时（4K 上抓一张
+    全屏就要 40 ms 上下），所以不能钉死等某个毫秒数。这里要的是它**一定会**
+    自己释放，而不是漏在那里不走。
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if window._fullscreen_cover is None:
+            return True
+        app.processEvents()
+        time.sleep(0.02)
+    return window._fullscreen_cover is None
 
 
 def main() -> None:
@@ -75,8 +92,7 @@ def main() -> None:
     assert not window.sidebar.isVisible()
     assert window.wall.layout_id == "corner"
     if app.platformName() == "windows":
-        QTest.qWait(160)
-        assert window._fullscreen_cover is None, "切换后旧画面的遮挡层必须自动释放"
+        assert wait_cover_released(window, app), "切换后旧画面的遮挡层必须自动释放"
 
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()

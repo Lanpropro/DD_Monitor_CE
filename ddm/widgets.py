@@ -5097,6 +5097,10 @@ class WallGrid(QWidget):
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
         self.fullscreen_tile: Tile | None = None
+        #: 退出全屏时「布局先算好、格子分批露面」用的状态（见 reveal_tiles_staggered）
+        self._defer_show = False
+        self._pending_reveal: list[Tile] = []
+        self._stagger_first: Tile | None = None
         self._columns = 0
         self._last_height = 0
         self._last_count = 0
@@ -5128,13 +5132,46 @@ class WallGrid(QWidget):
         self._last_height = 0
         self.relayout(force=True)
 
-    def set_fullscreen_tile(self, tile: Tile | None) -> None:
-        """临时只显示一个格子，保持原布局和格子顺序。"""
+    def set_fullscreen_tile(self, tile: Tile | None, *, stagger: bool = False,
+                            first: Tile | None = None) -> None:
+        """临时只显示一个格子，保持原布局和格子顺序。
+
+        ``stagger=True``（退出全屏时用）只把布局算好，**不立刻显示**其余格子，
+        它们交给 :meth:`reveal_tiles_staggered` 分批露面；``first`` 指定的那个
+        格子仍然马上显示（用户刚从那格退出来，视线在它身上）。
+
+        为什么要拆：一次把 9 个格子的 VLC 原生窗口全重配，4K 上实测约 190 ms，
+        期间主线程完全僵住 —— 盖在上面的过渡图也就跟着"冻"在原地，看起来就是
+        卡住再突然一跳。拆成几帧之后，帧与帧之间事件循环能跑，过渡图才淡得动。
+        """
         self._relayout_timer.stop()
+        self._defer_show = bool(stagger)
+        self._pending_reveal = []
+        self._stagger_first = first
         self.fullscreen_tile = tile
         margin = 0 if tile else 16
         self.grid.setContentsMargins(margin, margin, margin, margin)
         self.relayout(force=True)
+
+    def reveal_tiles_staggered(self, chunk: int = 2) -> None:
+        """把「布局算好了但还没露面」的格子分批显示，每批一帧。
+
+        每批只放两格：4K 下单格 VLC 原生窗口重配约 23 ms（实测 9 格一起做是
+        190 ms 上下），一批两格就是约 46 ms —— 差不多三帧，是可感知的上限；
+        再大就又开始"僵住"。批次之间留一帧间隔，是给遮盖图的淡出留出推进的
+        机会：连着做完主线程一样是僵的，那就白拆了。
+        """
+        if not self._pending_reveal:
+            self._defer_show = False
+            return
+        batch, rest = self._pending_reveal[:chunk], self._pending_reveal[chunk:]
+        self._pending_reveal = rest
+        for tile in batch:
+            tile.setVisible(True)
+        if rest:
+            QTimer.singleShot(16, lambda: self.reveal_tiles_staggered(chunk))
+        else:
+            self._defer_show = False
 
     def remove_room(self, room: dict) -> None:
         room_id = str(room.get("room_id") or "")
@@ -5327,7 +5364,10 @@ class WallGrid(QWidget):
             if index < len(order):
                 row, column, rowspan, colspan = cells[order[index]]
                 self.grid.addWidget(tile, row, column, rowspan, colspan)
-                tile.setVisible(True)
+                if self._defer_show and tile is not self._stagger_first:
+                    self._pending_reveal.append(tile)      # 交给 reveal_tiles_staggered
+                else:
+                    tile.setVisible(True)
             else:
                 # 布局严格按格子数走：放不下的先隐藏，换成更大的布局再显示
                 tile.setVisible(False)
