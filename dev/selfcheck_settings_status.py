@@ -186,6 +186,8 @@ def main() -> None:
     assert tile.room is item.room
     assert tile.room.get("live") is False
     assert item.badge.text() == "未开播"
+    window._on_status_failed("接口不可用")
+    assert window.sidebar.count_label.text() == "状态刷新失败 · 点击重试"
     before = time.perf_counter()
     window._on_status_updated({room_id: {
         "live": True, "viewers": "1.2万", "title": item.room.get("title", ""),
@@ -196,6 +198,7 @@ def main() -> None:
           f" 用时={online_ms:.1f}ms 自动播放={started == [tile]}")
     assert tile.room.get("live") is True
     assert item.badge.text() == "直播中"
+    assert window.sidebar.count_label.text().startswith("关注中")
     assert started == [tile]
     assert max(offline_ms, online_ms) < 100, "拿到状态结果后，界面切换应在 100ms 内完成"
     window.start_tile = original_start_tile

@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self._closing = False
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._poller = None
+        self._refresh_queued = False
         self._stats_poller = None
         self._retry_count: dict[object, int] = {}
         self._retry_timers: dict[object, QTimer] = {}
@@ -1144,9 +1145,11 @@ class MainWindow(QMainWindow):
             if info and info.get("online_text"):
                 tile.set_watched(info["online_text"])
 
-    def refresh_status(self) -> None:
+    def refresh_status(self, *, force: bool = False) -> None:
         try:
             if self._poller is not None and self._poller.isRunning():
+                if force:
+                    self._refresh_queued = True
                 return
         except RuntimeError:                 # 对象已被 Qt 回收
             self._poller = None
@@ -1155,6 +1158,8 @@ class MainWindow(QMainWindow):
             return
         poller = StatusPoller(room_ids, self)
         poller.updated.connect(self._on_status_updated)
+        if hasattr(poller, "failed"):
+            poller.failed.connect(self._on_status_failed)
         poller.finished.connect(self._on_poller_finished)
         self._poller = poller
         poller.start()
@@ -1164,12 +1169,20 @@ class MainWindow(QMainWindow):
         self._poller = None
         if poller is not None:
             poller.deleteLater()
+        if self._refresh_queued:
+            self._refresh_queued = False
+            self.refresh_status()
+            return
         self.sidebar.set_refreshing(False)
+
+    def _on_status_failed(self, reason: str) -> None:
+        print(f"[状态刷新失败] {reason}", file=sys.stderr, flush=True)
+        self.sidebar.count_label.setText("状态刷新失败 · 点击重试")
 
     def refresh_follow(self) -> None:
         """侧栏的「刷新」：立刻拉一次直播状态，并把还没显示的头像补上。"""
         self.sidebar.set_refreshing(True)
-        self.refresh_status()
+        self.refresh_status(force=True)
         self.load_room_avatars()
         if self._poller is None:            # 列表是空的，没真的开轮询
             self.sidebar.set_refreshing(False)

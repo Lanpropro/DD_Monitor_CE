@@ -467,44 +467,41 @@ class FollowLoader(QThread):
 
 def rooms_status(room_ids: list[str]) -> dict[str, dict]:
     """批量刷新直播状态：room_id -> {live, title, uname, viewers}。"""
-    ids = [int(room_id) for room_id in room_ids if str(room_id).isdigit()]
+    ids = [str(room_id) for room_id in room_ids if str(room_id).isdigit()]
     if not ids:
         return {}
-    response = requests.post(
-        "https://api.live.bilibili.com/room/v2/Room/get_by_ids",
-        data=json.dumps({"ids": ids}), headers=HEADERS, cookies=_cookies(), timeout=15)
-    by_id = response.json().get("data") or {}
-    uid_of: dict[str, int] = {}
-    for key, item in by_id.items():
-        try:
-            uid_of[str(key)] = int(item["uid"])
-        except (KeyError, TypeError, ValueError):
-            continue
-    if not uid_of:
-        return {}
-    response = requests.post(
-        "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids",
-        data=json.dumps({"uids": list(uid_of.values())}),
-        headers=HEADERS, cookies=_cookies(), timeout=15)
-    status = response.json().get("data") or {}
     result: dict[str, dict] = {}
-    for room_id, uid in uid_of.items():
-        info = status.get(str(uid))
-        if not info:
-            continue
-        live = info.get("live_status") == 1
-        online = info.get("online") or 0
-        result[room_id] = {
-            "live": live,
-            "title": info.get("title") or "",
-            "uname": info.get("uname") or "",
-            "face": info.get("face") or "",
-            # 开播时用直播画面当封面，没开播用房间封面（关注列表的缩略图要用）
-            "cover_url": (info.get("keyframe") if live else info.get("cover"))
-                          or info.get("cover") or "",
-            "viewers": (f"{online / 10000:.1f}万" if online >= 10000 else str(online)) if live else "",
-            "live_start_ts": _parse_live_time(info.get("live_time")),
-        }
+    for start in range(0, len(ids), 100):
+        batch = ids[start:start + 100]
+        response = requests.get(
+            "https://api.live.bilibili.com/xlive/web-room/v1/index/getRoomBaseInfo",
+            params=[("req_biz", "web_room_componet")]
+                   + [("room_ids", room_id) for room_id in batch],
+            headers=HEADERS, cookies=_cookies(), timeout=15)
+        payload = response.json()
+        if payload.get("code") != 0:
+            raise RuntimeError(f"直播状态接口返回 code={payload.get('code')}")
+        by_id = (payload.get("data") or {}).get("by_room_ids") or {}
+        for room_id in batch:
+            info = by_id.get(room_id)
+            if info is None:
+                # 短房间号不一定被批量接口识别；单房间接口会先转成长号。
+                fallback = room_info(room_id)
+                if fallback is not None:
+                    result[room_id] = fallback
+                continue
+            live = info.get("live_status") == 1
+            online = info.get("online") or 0
+            result[room_id] = {
+                "live": live,
+                "title": info.get("title") or "",
+                "uname": info.get("uname") or "",
+                "face": info.get("face") or "",
+                "cover_url": (info.get("keyframe") if live else info.get("cover"))
+                              or info.get("cover") or "",
+                "viewers": (f"{online / 10000:.1f}万" if online >= 10000 else str(online)) if live else "",
+                "live_start_ts": _parse_live_time(info.get("live_time")),
+            }
     return result
 
 
@@ -520,7 +517,11 @@ class StatusPoller(QThread):
 
     def run(self) -> None:
         try:
-            self.updated.emit(rooms_status(self.room_ids))
+            status = rooms_status(self.room_ids)
+            self.updated.emit(status)
+            missing = {str(room_id) for room_id in self.room_ids if str(room_id).isdigit()} - status.keys()
+            if missing:
+                self.failed.emit(f"{len(missing)} 个房间没有返回状态")
         except Exception as error:  # noqa: BLE001
             self.failed.emit(str(error))
 
