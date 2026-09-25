@@ -181,25 +181,29 @@ class HoverPreview(QObject):
         self._size_popup(CAROUSEL_WIDTH)
         origin = item.mapTo(parent, QPoint(0, 0))
         if self.sidebar.side == "top":
-            # 竖屏：卡片是横排在**顶部**的、右边没空间，所以向下弹；左右跟卡片的
-            # 竖直中线对齐（用户要求：和卡片中心对齐，而不是贴着左边缘）
+            # 竖屏：卡片横排在**顶部**，浮层向下弹；左右跟卡片竖直中线对齐。
+            # 这里两条约束的优先级是**看得见 > 不压卡片**：
+            # 浮层(206)比竖屏的小卡片(约 100)宽得多，横屏那套「往外探」在这儿行不通，
+            # 所以 x/y 都夹回窗口内 —— 上一版为了让开卡片把夹取全去掉了，结果浮层
+            # 整块跑到窗口外面，用户看到的就是「竖屏不显示预览」。
             x = origin.x() + (item.width() - self._popup.width()) // 2
-            # 关键：**y 不参与下面那句「夹回窗口内」**。以前它对 y 也做
-            # `max(0, min(y, 窗口高 - 浮层高))`，窗口不够高时就把 y 硬夹回上边 ——
-            # 而卡片正好排在顶部，于是浮层盖在收起的小卡片身上，看起来就像
-            # 「预览塞进了收缩的卡片里」。宁可让它压到窗口底边，也不能盖住卡片。
             y = origin.y() + item.height() + PREVIEW_GAP
+            x = max(0, min(x, parent.width() - self._popup.width()))
+            if y + self._popup.height() > parent.height():
+                # 下方真放不下：贴着窗口底边，至少保证它看得见
+                y = max(0, parent.height() - self._popup.height())
+            y = max(y, 0)
         else:
-            # 左边界落在**卡片右侧 1/3** 处，其余部分探到侧栏外面
-            # （最早那版是按「侧栏宽的 1/3」回退，两者差 7px 左右；按卡片算更贴合
-            #   「占据卡片右侧 1/3」这个说法）
-            x = origin.x() + item.width() * 2 // 3
+            # 横屏：**完全贴在卡片右侧**，一点都不压住卡片。
+            # 以前是 `origin.x() + item.width() * 2 // 3`（左边界落在卡片右侧 1/3 处），
+            # 那版是有意让浮层盖住卡片右边三分之一的；用户明确要求「横屏应该在右侧」。
+            # 右侧放不下时**允许探出窗口**（侧栏本来就靠左，探出去是设计），
+            # 但不许被夹回卡片身上 —— 以前那句 `min(x, 窗口宽 - 浮层宽)` 正是
+            # 把它夹回去压住卡片的元凶。
+            x = origin.x() + item.width() + PREVIEW_GAP
             y = origin.y() + (item.height() - self._popup.height()) // 2
-        # 横向仍然夹回窗口内（探出侧栏是设计，但不该跑出窗口左右边界）；
-        # 纵向只在「往上跑出去」时拉回来，绝不把它夹到卡片身上。
-        x = max(0, min(x, parent.width() - self._popup.width()))
-        if y < 0:
-            y = 0
+            x = max(x, 0)
+            y = max(y, 0)
         self._popup.move(x, y)
 
     def _cursor_on_item(self, item) -> bool:
