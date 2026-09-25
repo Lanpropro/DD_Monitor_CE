@@ -1680,6 +1680,8 @@ class NavThumb(QFrame):
 
     def _render_cover(self) -> None:
         """把封面裁成圆角，并加深色渐变供叠加文字阅读。"""
+        if self._compact_thumb():
+            return                       # 收起后封面隐藏，展开时再裁切即可
         source = getattr(self, "_cover_source", None)
         if source is None or source.isNull():
             return
@@ -3741,8 +3743,6 @@ class Sidebar(QFrame):
         # 展开时收起头排（用户要求展开后不显示头像排，那点高度留给卡片）；
         # 收起时它顶掉搜索框的位置，一行摆满关注头像
         self._head_scroll.setVisible(self.collapsed)
-        if self.collapsed:
-            self._head_strip.rebuild()
         # 账号头像：展开时在卡片条右边那一块里，收起时回到第一行最右端
         self._place_account(not self.collapsed)
         self._bar_right.setVisible(not self.collapsed)
@@ -3848,9 +3848,10 @@ class Sidebar(QFrame):
             # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件
             self._layout.setContentsMargins(10, 8, 10, 8)
             self._sync_top_mode()
-            for item in self._items:
-                item.set_compact(collapsed)
-            self.list_box.relayout(animate=False)
+            if not collapsed:
+                for item in self._items:
+                    item.set_compact(False)
+                self.list_box.relayout(animate=False)
             self.collapsedChanged.emit(collapsed)
             return
         target = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH

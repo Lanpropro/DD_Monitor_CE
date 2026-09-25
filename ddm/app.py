@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "", state: dict | None = None):
         super().__init__()
-        self.setWindowTitle(f"{version_module.DISPLAY_NAME} {version_module.VERSION_TAG}")
+        self.setWindowTitle(version_module.DISPLAY_NAME)
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
         self.rooms = rooms
         self.state = state or {}

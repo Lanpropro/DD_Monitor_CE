@@ -160,10 +160,10 @@ class HoverPreview(QObject):
 
         非紧凑卡片上那块封面是**铺满条目**的（约 206x116），画面直接播在里面最
         自然；紧凑（长条）卡片的缩略图只有 `NavThumb.LIST_HEIGHT`(48) 高，塞进去
-        画面会被压扁 —— 用户报的「紧凑布局下预览有问题」就是这个。竖屏卡片条更矮，
-        一律用浮层。
+        画面会被压扁 —— 用户报的「紧凑布局下预览有问题」就是这个。收起后只剩头像，
+        也要用浮层；竖屏展开的大卡片则直接在封面内播放。
         """
-        return self.sidebar.collapsed or (not self.sidebar.card_mode) or self.sidebar.side == "top"
+        return self.sidebar.collapsed or not self.sidebar.card_mode
 
     def _anchor_of(self, item):
         if self.sidebar.side == "top" and self.sidebar.collapsed:

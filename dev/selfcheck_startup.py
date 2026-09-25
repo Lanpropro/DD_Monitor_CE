@@ -24,7 +24,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
-from ddm import bili, theme  # noqa: E402
+from ddm import bili, theme, version as version_module  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm import config as config_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
@@ -89,6 +89,7 @@ def main() -> None:
     print("\n=== 3. 状态刷新把真名/标题补到侧栏和画面格 ===")
     window = MainWindow([dict(r) for r in sidebar], [dict(r) for r in wall],
                         layout_id="1x1")
+    assert window.windowTitle() == version_module.DISPLAY_NAME
     window.setGeometry(-9000, -9000, 900, 600)
     window.show()
     settle(app, 1.0)

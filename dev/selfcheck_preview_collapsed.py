@@ -4,8 +4,7 @@ import sys
 from unittest.mock import patch
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
-from PySide6.QtTest import QTest
+from PySide6.QtGui import QMouseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -59,6 +58,13 @@ def resolved(preview, item):
                          "https://example.invalid/live.flv", 80, "web", None)
 
 
+def move_mouse(widget, point, buttons=Qt.NoButton):
+    event = QMouseEvent(QEvent.MouseMove, QPointF(point),
+                        QPointF(widget.mapToGlobal(point)),
+                        Qt.NoButton, buttons, Qt.NoModifier)
+    QApplication.sendEvent(widget, event)
+
+
 def main():
     app = QApplication(sys.argv)
     rooms = [{"room_id": str(index), "uname": f"主播{index}", "live": True}
@@ -84,6 +90,10 @@ def main():
         assert preview._popup.isVisible() and FakePlayer.plays == 1
         assert preview._popup.parentWidget() is host and not preview._popup.isWindow()
         assert not item.thumb.video.isVisible(), "32px 头像里不能播放预览"
+        cover = QPixmap(320, 180)
+        cover.fill("#345678")
+        item.thumb.set_cover(cover)
+        assert not item.thumb.cover.pixmap(), "收起后隐藏的封面无需立即裁切"
         origin = item.mapTo(host, QPoint(0, 0))
         assert preview._popup.x() == origin.x() + item.width() * 2 // 3
 
@@ -93,19 +103,36 @@ def main():
         assert not preview._popup.isVisible(), "展开时应收掉旧浮层"
         assert preview._generation > old_generation and FakePlayer.releases == 0, \
             "切换侧栏应作废旧取流，但保留播放器供后续悬停复用"
+        assert item.thumb.cover.pixmap(), "展开后应补上收起期间收到的封面"
         assert not preview._needs_popup(), "展开的大卡片仍在卡片内预览"
 
         sidebar.set_side("top")
         sidebar.resize(900, 200)
-        sidebar.set_collapsed(True, animate=False)
+        app.processEvents()
+        assert sidebar.card_mode and not preview._needs_popup(), \
+            "竖屏展开的大卡片应和横屏一样在封面内预览"
+        with patch.object(item.thumb, "play") as play_in_card:
+            resolved(preview, item)
+        play_in_card.assert_called_once()
+        assert not preview._popup.isVisible()
+        preview.cancel()
+
+        strip = sidebar._head_strip
+        with patch.object(strip, "rebuild", wraps=strip.rebuild) as rebuild, \
+                patch.object(item, "set_compact", wraps=item.set_compact) as compact, \
+                patch.object(sidebar.list_box, "relayout",
+                             wraps=sidebar.list_box.relayout) as relayout:
+            sidebar.set_collapsed(True, animate=False)
+        assert not rebuild.called and not compact.called and not relayout.called, \
+            "竖屏收起不应重建头像排或排版已隐藏的卡片"
         app.processEvents()
         assert preview._needs_popup()
-        strip = sidebar._head_strip
         avatar = strip._avatars[str(item.room["room_id"])]
         assert avatar.isVisible() and not item.isVisible()
+        move_mouse(strip, QPoint(strip.width() - 2, strip.height() // 2))
         hovered = []
         sidebar.previewHovered.connect(lambda room: hovered.append(str(room["room_id"])))
-        QTest.mouseMove(strip, avatar.geometry().center())
+        move_mouse(strip, avatar.geometry().center())
         app.processEvents()
         assert hovered and hovered[-1] == str(item.room["room_id"]), \
             "竖屏收起后头像排必须触发预览悬停"
@@ -118,18 +145,15 @@ def main():
         assert not item.thumb.video.isVisible()
         unhovered = []
         sidebar.previewUnhovered.connect(lambda room: unhovered.append(str(room["room_id"])))
-        QTest.mouseMove(strip, QPoint(strip.width() - 2, strip.height() // 2))
+        move_mouse(strip, QPoint(strip.width() - 2, strip.height() // 2))
         app.processEvents()
         assert unhovered and unhovered[-1] == str(item.room["room_id"])
 
         strip._press_room = str(item.room["room_id"])
         strip._press_pos = QPoint(0, 0)
         point = avatar.geometry().center()
-        move = QMouseEvent(QEvent.MouseMove, QPointF(point),
-                           QPointF(strip.mapToGlobal(point)),
-                           Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
         with patch("ddm.widgets.QDrag", FakeDrag):
-            QApplication.sendEvent(strip, move)
+            move_mouse(strip, point, Qt.LeftButton)
         assert FakeDrag.started, "头像排原有的拖到画面墙行为必须保留"
 
         sidebar.set_collapsed(False, animate=False)
