@@ -51,6 +51,11 @@ def main() -> None:
     assert not window.sidebar.isVisible()
     assert window.wall.layout_id == "corner"
 
+    QTest.keyClick(window, Qt.Key_F)
+    app.processEvents()
+    assert window.isFullScreen() and window.wall.visible_tiles() == [target], \
+        "全屏时再按 F 不应触发窗口还原"
+
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
     assert not window.isFullScreen()
@@ -67,6 +72,19 @@ def main() -> None:
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
     assert not window.isFullScreen() and window.wall.visible_tiles() == tiles
+
+    window.showMaximized()
+    app.processEvents()
+    assert window.isMaximized()
+    QTest.mouseClick(tiles[2].fullscreen_button, Qt.LeftButton)
+    app.processEvents()
+    assert window.isFullScreen()
+    QTest.keyClick(window, Qt.Key_F)
+    app.processEvents()
+    assert window.isFullScreen(), "最大化窗口进入全屏后，再按 F 仍应保持全屏"
+    QTest.keyClick(window, Qt.Key_Escape)
+    app.processEvents()
+    assert window.isMaximized(), "Esc 后应回到进入全屏前的最大化状态"
     window.close()
     print("1+5 全屏快捷键、格子按钮和 Esc 退出：通过")
 

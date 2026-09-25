@@ -1471,8 +1471,7 @@ class MainWindow(QMainWindow):
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
-        if self._fullscreen_tile is tile:
-            self._exit_fullscreen()
+        if self._fullscreen_tile is not None:
             return
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_tile = tile
