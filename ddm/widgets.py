@@ -1527,6 +1527,7 @@ class NavThumb(QFrame):
         self.face.setObjectName("NavThumbFace")
         self._place_face()
         self.face.setVisible(False)
+        self._cover_hold = False         # 宽度动画期间挂起封面重裁，见 set_cover_hold()
         self._cover_source: QPixmap | None = None
         self._face_source: QPixmap | None = None
 
@@ -1663,6 +1664,30 @@ class NavThumb(QFrame):
         super().moveEvent(event)
         self._place_face()               # 缩略图被布局挪动时，头像要跟着走
 
+    def refresh_cover(self) -> None:
+        """强制重裁一次封面（收起/展开动画结束后补账用）。"""
+        self._render_cover()
+
+    def set_cover_hold(self, hold: bool) -> None:
+        """宽度动画期间挂起封面重裁。
+
+        侧栏收起/展开是改宽度的动画，**每一帧**都会让每个条目收到 resizeEvent，
+        而 `_render_cover()` 每次都要做一次平滑缩放 + 圆角裁剪 + 两段渐变填充 ——
+        36 个关注就是每帧 36 次，动画自然卡。挂起期间让 QLabel 先拉伸旧图顶着
+        （`setScaledContents`），动画结束再补一次精确的。
+        """
+        hold = bool(hold)
+        if hold == self._cover_hold:
+            return
+        self._cover_hold = hold
+        try:
+            self.cover.setScaledContents(hold)
+        except RuntimeError:                    # 控件已经被回收
+            return
+        # 解除挂起时**不在这里**重绘：由调用方决定哪些条目值得立刻补
+        # （见 Sidebar._finish_collapse）—— 36 条一起补会把收尾那一下又拖垮。
+        # 没补到的条目滚进视野时会收到 resizeEvent，那时自然会重裁。
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         size = (self.width(), self.height())
@@ -1680,6 +1705,8 @@ class NavThumb(QFrame):
 
     def _render_cover(self) -> None:
         """把封面裁成圆角，并加深色渐变供叠加文字阅读。"""
+        if self._cover_hold:
+            return                       # 宽度动画期间不重裁，见 set_cover_hold()
         if self._compact_thumb():
             return                       # 收起后封面隐藏，展开时再裁切即可
         source = getattr(self, "_cover_source", None)
@@ -3879,6 +3906,14 @@ class Sidebar(QFrame):
             self.collapsedChanged.emit(collapsed)
             return
 
+        # 动画期间挂起封面重裁：改宽度会让**每一帧**都给每个条目发 resizeEvent，
+        # 而重裁一次就是平滑缩放 + 圆角裁剪 + 两段渐变，36 个关注足以把动画拖垮
+        # （见 NavThumb.set_cover_hold）。先挂起，收尾只补当前可见的那几条。
+        for item in self._items:
+            try:
+                item.thumb.set_cover_hold(True)
+            except RuntimeError:                # 条目已经被回收
+                continue
         group = []
         for prop in (b"minimumWidth", b"maximumWidth"):
             animation = QPropertyAnimation(self, prop)
@@ -3887,11 +3922,27 @@ class Sidebar(QFrame):
             animation.setEndValue(target)
             animation.setEasingCurve(QEasingCurve.OutCubic)
             group.append(animation)
-        group[-1].finished.connect(lambda: self.setFixedWidth(target))
+        group[-1].finished.connect(lambda: self._finish_collapse(target))
         for animation in group:
             animation.start()
         self._animations = group          # 保持引用，避免被回收
         self.collapsedChanged.emit(collapsed)
+
+    def _finish_collapse(self, target: int) -> None:
+        """宽度动画收尾：补上动画期间省下的封面重裁。
+
+        只补**当前可见**的条目（滚动区里通常只有 5~8 条）—— 36 条一起补就会把
+        收尾这一下又拖住。看不见的那些等滚进视野时收到 resizeEvent 自己会重裁，
+        不会留下没更新的封面。
+        """
+        self.setFixedWidth(target)
+        for item in self._items:
+            try:
+                item.thumb.set_cover_hold(False)
+                if item.isVisible():
+                    item.thumb.refresh_cover()
+            except RuntimeError:                # 条目已经被回收
+                continue
 
     def set_card_mode(self, enabled: bool) -> None:
         """切换关注列表样式；侧栏收起时只记录选择，展开后再呈现。"""
