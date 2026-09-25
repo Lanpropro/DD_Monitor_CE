@@ -1586,29 +1586,54 @@ class NavThumb(QFrame):
         """已经下载好的主播头像（顶部横栏的头像排要用同一张）。"""
         return self._face_source
 
-    def _render_face(self) -> None:
-        """展开时画小头像，收起时改为完整的 32px 主播头像。"""
-        size = (self.COMPACT_SIZE if self._compact_thumb() else
+    def _avatar_size(self) -> int:
+        return (self.COMPACT_SIZE if self._compact_thumb() else
                 self.PORTRAIT_AVATAR_SIZE if self._portrait_strip else self.AVATAR_SIZE)
+
+    def _face_letter(self) -> str:
+        """还没拿到头像时顶上去的那个字：主播名首字，取不到就是问号。"""
+        room = getattr(self.parentWidget(), "room", None) or {}
+        name = str(room.get("uname") or "").strip()
+        return name[0] if name else "?"
+
+    def _render_face(self) -> None:
+        """头像的尺寸、位置、可见性**全在这里算**。
+
+        以前这三件事散在三处：这里末尾写「视频没在播就露脸」、`resizeEvent` 之后的
+        `_sync_geometry` 里写「有 pixmap 才露脸」、初始化时写死 `False` ——
+        谁最后跑谁说了算，同一条目会随着布局/尺寸变化在「露脸」和「不露」之间跳。
+        收起的关注栏**只有头像这一样东西**（封面本来就不显示），一旦走了后一条，
+        整个条目就空掉，头像还没下到的那段时间尤其明显。
+
+        另外：拿不到头像时不再直接 return，而是用主播名首字顶着 —— 否则连尺寸和
+        位置都不更新，收起后条目的留白也全是错的。
+        """
+        size = self._avatar_size()
         self.face.set_size(size)
         pixmap = self._face_source
-        if pixmap is None or pixmap.isNull():
-            return
-        # 圆环直接画进头像图里：QLabel 的边框会缩小内容区，圆形会被裁成圆角方
-        disc = circular_pixmap(pixmap, size)
-        painter = QPainter(disc)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(255, 255, 255, 70), 1.4))
-        inset = 1.0
-        painter.drawEllipse(QRectF(inset, inset,
-                                   size - inset * 2,
-                                   size - inset * 2))
-        painter.end()
-        self.face.set_pixmap_image(disc)
+        if pixmap is not None and not pixmap.isNull():
+            # 圆环直接画进头像图里：QLabel 的边框会缩小内容区，圆形会被裁成圆角方
+            disc = circular_pixmap(pixmap, size)
+            painter = QPainter(disc)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(255, 255, 255, 70), 1.4))
+            inset = 1.0
+            painter.drawEllipse(QRectF(inset, inset,
+                                       size - inset * 2,
+                                       size - inset * 2))
+            painter.end()
+            self.face.set_pixmap_image(disc)
+        else:
+            # 还没下到头像：用名字首字顶着，别让条目空着
+            self.face.setText(self._face_letter())
+            self.face.set_color(None)
         self._place_face()
         self.face.raise_()
-        self.face.setVisible(not self.video.isVisible())
+        # 紧凑条目只有头像可认，所以一定要露；卡片模式封面才是主体，头像还没下到
+        # 就先别占那一块。视频预览占着整块时两者都让位。
+        self.face.setVisible(not self.video.isVisible() and
+                             (self._compact_thumb() or pixmap is not None))
 
     def _face_local_rect(self) -> QRect:
         """展开时头像叠在封面左侧；收起时在 32px 方框中居中。"""
@@ -1768,10 +1793,9 @@ class NavThumb(QFrame):
         self.video.setGeometry(preview_rect)
         self.hint.setGeometry(preview_rect if self.hint.isVisible() else self.rect())
         self.cover.setVisible(self._card_mode and not compact)
-        self._render_face()
+        self._render_face()          # 可见性也归它管（见 _render_face）
         self._render_cover()
         self._layout_overlay()
-        self.face.setVisible(bool(self.face.pixmap()))
 
     # ---- 预览播放 ----
     def _ensure_player(self) -> TilePlayer:

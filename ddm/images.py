@@ -68,6 +68,37 @@ def load_room_cover(room_id: str) -> QPixmap | None:
     return pixmap if not pixmap.isNull() else None
 
 
+def room_avatar_path(room_id: str) -> str:
+    """这个房间「最后用过的头像」在缓存里的位置（按房间号，不按 URL）。"""
+    return os.path.join(REPO, "cache", "avatars", "room", _safe_name(room_id) + ".png")
+
+
+def load_room_avatar(room_id: str) -> QPixmap | None:
+    """读「这个房间上次那张头像」；没有就 None。
+
+    和封面同理，但头像更急：收起的关注栏**只有头像这一样东西**，启动后到状态
+    拉回来（默认 1.2 秒）之前，没有这张图那一条就是空的。
+    """
+    path = room_avatar_path(room_id)
+    if not os.path.isfile(path):
+        return None
+    pixmap = QPixmap(path)
+    return pixmap if not pixmap.isNull() else None
+
+
+def remember_room_avatar(room_id: str, url: str) -> None:
+    """把 URL 那张头像留一份到「按房间号」的位置，供下次启动时直接回填。"""
+    source = _cache_path(url, "avatars") if room_id and url else ""
+    if not source or not os.path.isfile(source):
+        return
+    target = room_avatar_path(room_id)
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(source, target)
+    except OSError:
+        pass
+
+
 def remember_room_cover(room_id: str, url: str, subdir: str = "covers") -> None:
     """把 URL 那张封面留一份到「按房间号」的位置，供下次启动 / 未开播时用。"""
     if not room_id or not url:
@@ -154,6 +185,22 @@ class CachedCoverLoader(QThread):
                 self.loaded.emit(room_id, pixmap)
 
 
+class CachedAvatarLoader(QThread):
+    """启动时按房间号回填上次下载过的头像（纯读文件，不联网）。"""
+
+    loaded = Signal(str, QPixmap)
+
+    def __init__(self, room_ids, parent=None):
+        super().__init__(parent)
+        self.room_ids = [str(room_id) for room_id in room_ids]
+
+    def run(self) -> None:
+        for room_id in self.room_ids:
+            pixmap = load_room_avatar(room_id)
+            if pixmap is not None:
+                self.loaded.emit(room_id, pixmap)
+
+
 class AvatarLoader(QThread):
     """批量下载头像，下好一个发一个。"""
 
@@ -181,4 +228,7 @@ class AvatarLoader(QThread):
                     if self.subdir == "covers":
                         # 顺手按房间号留一份，下次启动 / 未开播时直接用
                         remember_room_cover(key, self.items[key], self.subdir)
+                    elif self.subdir == "avatars":
+                        # 头像同理：收起的关注栏只有头像可认，启动时不能空着
+                        remember_room_avatar(key, self.items[key])
                     self.loaded.emit(key, pixmap)

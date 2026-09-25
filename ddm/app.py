@@ -33,7 +33,7 @@ from .bili import (
 from .dialogs import (
     SHORTCUT_ACTIONS, AddRoomDialog, FollowImportDialog, SettingsDialog,
 )
-from .images import AvatarLoader, CachedCoverLoader
+from .images import AvatarLoader, CachedAvatarLoader, CachedCoverLoader
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
@@ -270,8 +270,10 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
 
         QTimer.singleShot(0, self.start_all)
-        # 封面先用本地留的那张顶上去（纯读文件、不联网），别让卡片空着等状态轮询
+        # 封面和头像都先用本地留的那张顶上去（纯读文件、不联网），别让卡片空着
+        # 等状态轮询 —— 收起的关注栏整条只剩一个头像，更等不得
         QTimer.singleShot(120, self.load_cached_covers)
+        QTimer.singleShot(120, self.load_cached_avatars)
         QTimer.singleShot(800, self.refresh_account)
         QTimer.singleShot(1200, self.load_room_avatars)
         self._poll_timer = QTimer(self)
@@ -573,7 +575,8 @@ class MainWindow(QMainWindow):
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
         names = ("_account_loader", "_account_avatar_loader", "_room_avatar_loader",
                  "_status_avatar_loader", "_follow_avatar_loader", "_follow_loader",
-                 "_cover_cache_loader", "_cover_loader", "_aside_cover_loader",
+                 "_cover_cache_loader", "_avatar_cache_loader",
+                 "_cover_loader", "_aside_cover_loader",
                  "_poller", "_stats_poller")
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
@@ -1960,6 +1963,23 @@ class MainWindow(QMainWindow):
         loader.loaded.connect(self._on_room_cover)
         loader.finished.connect(loader.deleteLater)
         self._cover_cache_loader = loader
+        loader.start()
+
+    def load_cached_avatars(self) -> None:
+        """先把「上次那张头像」摆上（纯本地读文件，不联网、不等状态轮询）。
+
+        头像比封面更等不得：收起的关注栏**整条只剩一个头像**（封面本来就不显示），
+        而真实头像要等状态轮询（默认 1.2 秒）拿到 ``face`` 才开始下。这段空窗期
+        以前就是一条空白 —— 现在先用 ``cache/avatars/room/<房间号>.png`` 顶住。
+        """
+        room_ids = [str(room.get("room_id")) for room in self.sidebar.rooms()
+                    if room.get("room_id")]
+        if not room_ids:
+            return
+        loader = CachedAvatarLoader(room_ids, self)
+        loader.loaded.connect(self._on_room_avatar)
+        loader.finished.connect(loader.deleteLater)
+        self._avatar_cache_loader = loader
         loader.start()
 
     def load_room_avatars(self) -> None:
