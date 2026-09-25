@@ -123,6 +123,7 @@ def main():
     assert '"ms-loop.wav"' in assembly and '"track.loop.mp3"' not in assembly
     assert "tpad=stop_mode=clone" not in assembly, "scene 04 must reach its transition without a frozen hold"
     assert '<div id="replayHead">即时重放</div>' in html and "及时重放" not in html
+    assert "replayBadge" not in html and "wallBadge" not in html, "recorded scenes must not display source badges"
     assert 'tl.to("#wallCol", { y: 150, duration: 1.45, ease: "back.out(0.8)" }, 21.15)' in html
     assert 'tl.to("#wallCol", { y: -730, duration: 2.1, ease: "sine.inOut" }, 22.6)' in html
     ending_html = (PROJECT / "compositions" / "v3" / "18-07-end.html").read_text(encoding="utf-8")

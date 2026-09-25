@@ -48,7 +48,6 @@
     #shortOutline { left: 1374px; top: 192px; width: 55px; height: 64px; border-color: #fff08b; box-shadow: 0 0 22px #fff08b99; }
     .trackLabel { position: absolute; top: 12px; padding: 5px 12px; background: #0c1f29e8; border: 1px solid #00c7f4; border-radius: 4px; color: #e8faff; font-size: 21px; font-weight: 700; opacity: 0; }
     #longLabel { left: 240px; } #shortLabel { right: 86px; border-color: #fff08b; }
-    #replayBadge { position: absolute; right: 145px; top: 90px; padding: 12px 22px; border: 2px solid #6c7582; border-radius: 99px; color: #56616e; font-size: 23px; font-weight: 700; }
     #aInfo { background: #222428; }
     #infoSoftware { position: absolute; left: 930px; top: 175px; width: 930px; height: 635px; overflow: hidden; border: 2px solid #4a535d; border-radius: 15px; background: #1d2023; box-shadow: 0 20px 60px #0006; opacity: 0; }
     #infoSoftware:before { content: ""; position: absolute; inset: 0; background: url("assets/rec/06-layout-placeholder.jpg") center / cover; filter: grayscale(1) brightness(.38) blur(1px); }
@@ -72,7 +71,6 @@
     .wallPanel { width: 1580px; height: 914px; margin-bottom: 12px; background: #090b0e; border: 8px solid #1a1e23; box-shadow: 0 16px 38px #0008; overflow: hidden; }
     .wallPanel:last-child { height: 588px; }
     .wallPanel video { display: block; width: 100%; height: 100%; object-fit: cover; }
-    #wallBadge { position: absolute; left: 125px; top: 85px; padding: 14px 22px; background: #222428ed; border: 2px solid #00a1d6; border-radius: 6px; font-size: 23px; font-weight: 700; }
     #black { position: absolute; inset: 0; background: #000; opacity: 0; }
   </style>
 </head>
@@ -92,7 +90,6 @@
   <div class="act" id="aReplay" style="opacity:0">
     <div id="replayHead">即时重放</div>
     <div id="replaySub">更高效的录制切片，切出爆点</div>
-    <div id="replayBadge">PR 页面真实录屏</div>
     <div id="replayPanel">
       <div class="panelbar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:18px">REPLAY / PREVIEW</span></div>
       <div class="replayPreview"><video id="replayPreviewVideo" src="assets/rec/06-replay-preview.mp4" muted playsinline data-start="7.04" data-duration="7.5"></video></div>
@@ -132,7 +129,6 @@
       <div class="wallPanel"><video id="wallB" src="assets/rec/06-wall-b.mp4" muted playsinline data-start="21" data-duration="6.4"></video></div>
       <div class="wallPanel"><video id="wallC" src="assets/rec/06-wall-c.mp4" muted playsinline data-start="21" data-duration="6.4"></video></div>
     </div>
-    <div id="wallBadge">真实九格画面墙</div>
     <div id="black"></div>
   </div>
 </div>
@@ -149,7 +145,7 @@
     gsap.set("#simCursor", { x: 72, y: 540 });
     gsap.set("#focusFrame", { opacity: 0, scale: .96 });
     gsap.set("#replayPanel", { y: 120, opacity: 0, scale: .96 });
-    gsap.set(["#replayHead", "#replayBadge"], { opacity: 0 });
+    gsap.set("#replayHead", { opacity: 0 });
     gsap.set(["#feedbackTitle", "#channels", "#human", "#aboutTitle", "#legal1", "#legal2", "#credit"], { y: 20, opacity: 0 });
     gsap.set("#infoDivider", { scaleX: 0 });
     gsap.set("#infoSoftware", { x: 34 });
@@ -173,7 +169,7 @@
     tl.to("#pullCaption", { opacity: 1, y: -15, duration: .42, ease }, 5.68);
     tl.to("#aFollow", { opacity: 0, duration: .45 }, 7.02);
     tl.to("#aReplay", { opacity: 1, duration: .42 }, 6.92);
-    tl.to(["#replayHead", "#replayBadge"], { opacity: 1, duration: .24 }, 7.38);
+    tl.to("#replayHead", { opacity: 1, duration: .24 }, 7.38);
     tl.to("#replayPanel", { y: 0, opacity: 1, scale: 1, duration: .68, ease }, 7.04);
     tl.to(["#longOutline", "#longLabel"], { opacity: 1, duration: .3, ease }, 8.1);
     tl.to("#longOutline", { boxShadow: "0 0 36px #00c7f4cc", duration: .38, yoyo: true, repeat: 1 }, 8.45);
@@ -200,7 +196,6 @@
     tl.to("#aWall", { opacity: 1, duration: .32 }, 20.96);
     tl.to("#wallCol", { y: 150, duration: 1.45, ease: "back.out(0.8)" }, 21.15);
     tl.to("#wallCol", { y: -730, duration: 2.1, ease: "sine.inOut" }, 22.6);
-    tl.to("#wallBadge", { opacity: 0, duration: .4 }, 23.5);
     tl.to("#wallCol", { y: -1650, duration: 2.25, ease: "power2.inOut" }, 24.71);
     tl.to("#black", { opacity: 1, duration: .42 }, 26.98);
     tl.to({}, { duration: .01 }, 27.39);
