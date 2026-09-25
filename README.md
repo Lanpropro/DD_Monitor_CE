@@ -259,14 +259,23 @@ powershell -File dev\build_release.ps1
 > 冻结 exe 用的是单独的 PySide6 6.9 依赖目录 `work\deps`（主开发环境是 6.11，
 > 6.11 冻出来的 exe 起不来）；脚本缺了会提示怎么装。
 
-主要开发文件：
+### 仓库文件导航
 
-- `ddm/theme.py`：颜色、字号和圆角等设计令牌。
-- `ddm/widgets.py`：主要界面控件。
-- `ddm/app.py`：应用状态及业务流程。
-- `ddm/layouts.py`：画面布局（布局表、横竖屏对映、缩略图）。
-- `ddm/player.py`：播放器控制。
-- `ddm/version.py`：版本号与显示名。
+| 位置 | 内容 |
+| --- | --- |
+| `main.py`、`ddm/` | 程序入口与应用代码；`app.py` 管状态和流程，`widgets.py` 管主要控件，`layouts.py` 管布局，`player.py` 管播放 |
+| `blivedm/`、`plugins_user/` | 弹幕协议代码与用户插件 |
+| `dev/`、`docs/` | 开发自检、预览脚本与使用说明、截图 |
+| `videos/dd-monitor-ce-promo/` | 宣传片的 HTML 场景、素材、拼接脚本；成片在该目录的 `renders/`，不会提交到 Git |
+| `Video_reference/` | 宣传片原始参考素材，本地保留，不提交到 Git |
+| `utils/config.json`、`cache/`、`logs/`、`recordings/` | 运行时配置与数据，不提交到 Git；发布文件生成在 `results/` |
+
+**修改软件「设置」窗口中的文字：**打开 `ddm/dialogs.py`。`GeneralSettingsPage` 是「常规」，
+`DanmakuSettingsPage` 是「弹幕」，`RecordingSettingsPage` 是「录制」，
+`ShortcutSettingsPage` 是「快捷键」；导航名称和「保存／取消」等按钮文字在 `SettingsDialog`。
+设置入口按钮的文字在 `ddm/widgets.py`，窗口外观在 `ddm/theme.py`。
+如果要改默认值而不是显示文字，修改 `ddm/config.py` 的 `DEFAULT_SETTINGS`；
+个人已保存的设置在 `utils/config.json`。
 
 ## 已知限制
 

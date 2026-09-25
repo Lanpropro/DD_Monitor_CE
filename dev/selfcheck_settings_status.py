@@ -390,6 +390,11 @@ def main() -> None:
     print("\n=== 5. 设置窗口（左侧类别 + 右侧内容）===")
     assert sidebar.settings_button.menu() is None, "设置不该再弹二级菜单"
     dialog = SettingsDialog(window.settings, window.shortcuts)
+    with open(os.path.join(REPO, "README.md"), encoding="utf-8") as guide:
+        navigation = guide.read()
+    assert all(path in navigation for path in
+               ("ddm/dialogs.py", "ddm/widgets.py", "ddm/theme.py", "ddm/config.py")), \
+        "开发指南应指向设置文案、入口、样式和默认值的实际文件"
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
     assert pages == ["常规", "弹幕", "录制", "快捷键"] and dialog.stack.currentIndex() == 0
