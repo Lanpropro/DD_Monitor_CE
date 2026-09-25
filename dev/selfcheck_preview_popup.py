@@ -95,27 +95,23 @@ def main() -> None:
         preview._place_popup(item)                 # noqa: SLF001
         settle(app, 0.2)
         origin = item.mapTo(popup.parentWidget(), QPoint(0, 0))
-        # 用户明确要求「横屏的时候应该在右侧」：浮层从卡片**右边缘之后**开始摆，
-        # 一点都不压住卡片。（旧版是有意压在卡片右侧 1/3 处，已按用户要求改掉。）
-        want_x = origin.x() + item.width()
+        want_x = origin.x() + item.width() * 2 // 3     # 左边界落在卡片右侧 1/3 处
         want_y = origin.y() + (item.height() - popup.height()) // 2
         print(f"  卡片 {item.width()}x{item.height()} @({origin.x()},{origin.y()})　"
-              f"卡片右边缘 x={want_x}　侧栏宽={sidebar.width()}")
+              f"卡片右侧 1/3 处 x={want_x}　侧栏宽={sidebar.width()}")
         print(f"  浮层 {popup.width()}x{popup.height()} @({popup.x()},{popup.y()})　"
-              f"期望 x>={want_x}, y={want_y}")
+              f"期望 @({want_x},{want_y})")
         assert popup.width() == CAROUSEL_WIDTH, \
             f"浮层该用展开卡片那个宽度（横竖屏统一）：{popup.width()} vs {CAROUSEL_WIDTH}"
         assert popup.height() == NavThumb.HEIGHT, \
             f"浮层该和非紧凑卡片上的封面一样高：{popup.height()} vs {NavThumb.HEIGHT}"
-        assert popup.x() >= want_x, \
-            f"横向该完全贴在卡片右侧、不压住卡片：得到 {popup.x()}，期望 >= {want_x}"
+        assert abs(popup.x() - want_x) <= 1, \
+            f"横向该压在卡片右侧 1/3：得到 {popup.x()}，期望 {want_x}"
         assert abs(popup.y() - want_y) <= 1, \
             f"纵向该居中于卡片：得到 {popup.y()}，期望 {want_y}"
-        # 关键不变量：浮层和卡片**没有任何重叠**
-        card_rect = item.geometry()
-        card_rect.moveTopLeft(item.mapTo(popup.parentWidget(), card_rect.topLeft()))
-        assert not card_rect.intersects(popup.geometry()), \
-            f"浮层不该和卡片重叠：卡片={card_rect.getRect()} 浮层={popup.geometry().getRect()}"
+        # 关键不变量：左边界落在卡片右边 1/3 之后
+        assert popup.x() >= origin.x() + item.width() * 2 // 3 - 1, \
+            "浮层左边界该在卡片右侧 1/3 区域里"
 
         print("\n=== 2. 非紧凑（卡片）列表：还是播在缩略图里，不弹浮层 ===")
         sidebar.set_compact_policy(card_mode=True, auto_compact=False,

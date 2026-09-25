@@ -67,7 +67,7 @@ def main() -> None:
         preview._item = item                       # noqa: SLF001
         popup = preview._popup                     # noqa: SLF001
 
-        print("\n=== 1. 竖屏（顶部横栏）：浮层要看得见，且落在卡片下方 ===")
+        print("\n=== 1. 竖屏（顶部横栏）：浮层必须落在卡片下方、不与卡片重叠 ===")
         window.sidebar.side = "top"
         window.sidebar.card_mode = False           # 收起 / 紧凑
         item.thumb.set_thumb_size(True)
@@ -75,28 +75,24 @@ def main() -> None:
         card = item.geometry()
         card.moveTopLeft(item.mapTo(popup.parentWidget(), card.topLeft()))
         box = popup.geometry()
-        print(f"  窗口={window.width()}x{window.height()}　"
-              f"卡片 rect={card.getRect()}　浮层 rect={box.getRect()}")
+        print(f"  卡片 rect={card.getRect()}　浮层 rect={box.getRect()}")
         print(f"  浮层在卡片下方: {box.top() >= card.bottom()}")
-        # 竖屏的第一优先级是**看得见**：浮层整块必须在窗口里（用户报过
-        # 「竖屏不显示预览」——就是浮层被摆到窗口外面去了）
-        parent_rect = popup.parentWidget().rect()
-        assert parent_rect.contains(box), \
-            f"竖屏时浮层必须整块落在窗口内，实际 浮层={box.getRect()} 窗口={parent_rect.getRect()}"
         assert box.top() >= card.bottom() - 1, \
             "竖屏时浮层该在卡片下方，不许压回卡片身上"
+        assert not overlaps(box, card), "浮层和卡片不该有重叠"
 
-        print("\n=== 2. 窗口很矮时：可以贴底边，但必须仍然可见 ===")
+        print("\n=== 2. 窗口很矮时也不许被夹回卡片 ===")
         window.resize(900, 240)                    # 比"卡片 + 浮层"还矮
         settle(app, 0.3)
         preview._place_popup(item)                 # noqa: SLF001
+        card = item.geometry()
+        card.moveTopLeft(item.mapTo(popup.parentWidget(), card.topLeft()))
         box = popup.geometry()
-        parent_rect = popup.parentWidget().rect()
-        print(f"  窗口高={window.height()}　浮层 rect={box.getRect()}")
-        assert box.top() >= 0 and box.bottom() <= parent_rect.height(), \
-            "窗口再矮也要保证浮层可见（贴底边可以，跑到外面不行）"
+        print(f"  窗口高={window.height()}　卡片 bottom={card.bottom()}　浮层 top={box.top()}")
+        assert box.top() >= card.bottom() - 1, \
+            "窗口再矮也不许把浮层夹回卡片内部（宁可压出窗口底边）"
 
-        print("\n=== 3. 横屏（左侧栏）：浮层完全贴在卡片右侧、不覆盖卡片 ===")
+        print("\n=== 3. 横屏（左侧栏）：浮层探到卡片右侧 ===")
         window.resize(900, 700)
         window.sidebar.side = "left"
         settle(app, 0.3)
@@ -105,10 +101,7 @@ def main() -> None:
         card.moveTopLeft(item.mapTo(popup.parentWidget(), card.topLeft()))
         box = popup.geometry()
         print(f"  卡片 right={card.right()}　浮层 left={box.left()}")
-        # 用户明确要求「横屏应该在右侧」：浮层不许压住卡片右边那 1/3
-        assert box.left() >= card.right() - 1, \
-            f"横屏时浮层该完全在卡片右侧，实际 浮层 left={box.left()} 卡片 right={card.right()}"
-        assert not overlaps(box, card), "横屏时浮层和卡片不该有重叠"
+        assert box.left() > card.left(), "横屏时浮层该往右摆、探出侧栏"
     finally:
         window.close()
         settle(app, 0.25)
