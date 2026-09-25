@@ -5158,8 +5158,12 @@ class WallGrid(QWidget):
 
         每批只放两格：4K 下单格 VLC 原生窗口重配约 23 ms（实测 9 格一起做是
         190 ms 上下），一批两格就是约 46 ms —— 差不多三帧，是可感知的上限；
-        再大就又开始"僵住"。批次之间留一帧间隔，是给遮盖图的淡出留出推进的
-        机会：连着做完主线程一样是僵的，那就白拆了。
+        再大就又开始"僵住"。
+
+        批次之间用 `singleShot(0)` 让出事件循环：一来下一批要等这一批的窗口
+        重配落地，二来让遮盖图的淡出动画有机会推进（连着做完主线程一样是僵的，
+        那就白拆了）。代价是"分批期间格子还没全部可见"，所以调用方如果要立刻
+        读可见性，得先让事件循环跑完。
         """
         if not self._pending_reveal:
             self._defer_show = False
@@ -5169,7 +5173,7 @@ class WallGrid(QWidget):
         for tile in batch:
             tile.setVisible(True)
         if rest:
-            QTimer.singleShot(16, lambda: self.reveal_tiles_staggered(chunk))
+            QTimer.singleShot(0, lambda: self.reveal_tiles_staggered(chunk))
         else:
             self._defer_show = False
 
