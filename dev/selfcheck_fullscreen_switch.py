@@ -17,7 +17,7 @@ import sys
 import time
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -73,6 +73,9 @@ def main() -> None:
         assert window._fullscreen_tile is target      # noqa: SLF001
 
         print("\n=== 2. 退出全屏：分批露面，刚退出来那格立刻回来 ===")
+        # `_exit_fullscreen` 只在**有遮盖图**时才拆帧（没遮挡的话，用户会看到
+        # 格子一个个蹦出来）。自检里抓不到图，塞一个假遮盖，专门验证拆帧这条路。
+        window._fullscreen_cover = QLabel()        # noqa: SLF001
         with hold:
             window._exit_fullscreen()              # noqa: SLF001
         pending = list(window.wall._pending_reveal)   # noqa: SLF001
@@ -128,7 +131,12 @@ def main() -> None:
         assert len(visible) == len(tiles), f"最后仍要全部回来，实际 {len(visible)}"
 
         print("\n=== 6. 拿不到截图时遮盖子系统的安全降级 ===")
-        assert window._fullscreen_cover is None, "自检里 patch 过，不该有遮盖窗"  # noqa: SLF001
+        # 第 2 节塞进去的那个假遮盖，这会儿也该淡出收掉了
+        deadline = time.time() + 3
+        while window._fullscreen_cover is not None and time.time() < deadline:
+            app.processEvents()
+            time.sleep(0.02)
+        assert window._fullscreen_cover is None, "假遮盖也必须被回收掉"  # noqa: SLF001
         window._release_fullscreen_frame()     # noqa: SLF001
         window._start_fullscreen_fade()        # noqa: SLF001
         window._clear_fullscreen_cover()       # noqa: SLF001

@@ -43,6 +43,22 @@ def wait_cover_released(window, app, timeout: float = 3.0) -> bool:
     return window._fullscreen_cover is None
 
 
+def wait_tiles_revealed(window, app, timeout: float = 3.0) -> bool:
+    """等「分批露面」跑完。
+
+    退出全屏时其余格子是一帧两格回来的（4K 下单格 VLC 窗口重配约 23 ms，
+    一次做完主线程会僵住，遮盖图也就淡不动），所以退出之后不能立刻要求
+    全部可见。
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        if not window.wall._pending_reveal:
+            return True
+        app.processEvents()
+        time.sleep(0.02)
+    return not window.wall._pending_reveal
+
+
 def main() -> None:
     app_module.StatusPoller = SilentPoller
     app_module.StatsPoller = SilentPoller
@@ -107,6 +123,7 @@ def main() -> None:
     assert int(target.video.winId()) == video_hwnd
     if app.platformName() == "windows":
         assert window.size() == normal_size
+    assert wait_tiles_revealed(window, app), "退出全屏后格子要分批回来，等它们到齐"
     assert window.wall.layout_id == "corner" and window.wall.visible_tiles() == tiles
 
     QCursor.setPos(target.mapToGlobal(target.rect().center()))
@@ -121,6 +138,7 @@ def main() -> None:
     assert window.wall.layout_id == "corner"
     assert window.wall.tiles == tiles
     assert [tile.room["room_id"] for tile in tiles] == room_ids
+    assert wait_tiles_revealed(window, app), "退出全屏后格子要分批回来，等它们到齐"
     assert window.wall.visible_tiles() == tiles
     assert window.sidebar.isVisible()
 
@@ -129,7 +147,9 @@ def main() -> None:
     assert window._fullscreen_tile is tiles[4] and window.wall.visible_tiles() == [tiles[4]]
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
-    assert window._fullscreen_tile is None and window.wall.visible_tiles() == tiles
+    assert window._fullscreen_tile is None
+    assert wait_tiles_revealed(window, app), "退出全屏后格子要分批回来，等它们到齐"
+    assert window.wall.visible_tiles() == tiles
 
     window.showMaximized()
     app.processEvents()

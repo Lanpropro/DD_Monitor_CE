@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
         self._fullscreen_saved_geometry = None
         self._fullscreen_cover: QLabel | None = None
         self._fullscreen_cover_started = 0.0
+        self._fullscreen_fading = False
         self._fullscreen_cover_timer = QTimer(self)
         self._fullscreen_cover_timer.setSingleShot(True)
         self._fullscreen_cover_timer.timeout.connect(self._start_fullscreen_fade)
@@ -587,6 +588,34 @@ class MainWindow(QMainWindow):
                 pass
         self._avatar_loaders.clear()
 
+    def _prioritize_live_tiles(self, layout_id: str) -> None:
+        """缩小布局时，用后面的开播格子填前面的未开播位置。"""
+        capacity = layouts.capacity(layout_id) - int(layouts.danmaku_cell(layout_id) is not None)
+        tiles = self.wall.tiles
+        if capacity <= 0 or capacity >= len(tiles):
+            return
+        live = lambda tile: bool(tile.room.get("room_id") and tile.room.get("live"))
+        vacant = [index for index in range(capacity) if not live(tiles[index])]
+        waiting = [index for index in range(capacity, len(tiles)) if live(tiles[index])]
+        for visible_index, hidden_index in zip(vacant, waiting):
+            visible, hidden = tiles[visible_index], tiles[hidden_index]
+            tiles[visible_index], tiles[hidden_index] = hidden, visible
+            # 音量、静音和声道属于位置；画面随格子移动，声音设置留在原位置。
+            visible.volume, hidden.volume = hidden.volume, visible.volume
+            visible.muted, hidden.muted = hidden.muted, visible.muted
+            visible.audio_channel, hidden.audio_channel = hidden.audio_channel, visible.audio_channel
+            for tile in (visible, hidden):
+                tile.room["volume"] = tile.volume
+                tile.room["muted"] = tile.muted
+                tile.room["audio_channel"] = tile.audio_channel
+                tile.sync_audio_ui()
+                player = self.players.get(tile)
+                if player is not None:
+                    player.set_volume(int(tile.volume))
+                    player.set_muted(tile.muted)
+                    player.set_audio_channel(int(tile.audio_channel))
+                    player.reapply_audio_channel()
+
     def _on_layout_changed(self, layout_id: str) -> None:
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
@@ -600,6 +629,7 @@ class MainWindow(QMainWindow):
             # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
             self._pending_layout = layout_id
             self._reshape_window(want_portrait)
+        self._prioritize_live_tiles(layout_id)
         self.wall.set_layout(layout_id)
         self.wall.relayout(force=True)
         self.sidebar.set_layout_name(self.wall.layout_id)
@@ -1536,11 +1566,19 @@ class MainWindow(QMainWindow):
             max(16, self.FULLSCREEN_COVER_HOLD_MS - elapsed_ms))
 
     def _start_fullscreen_fade(self) -> None:
-        """遮盖图淡出，淡完再收掉。"""
+        """遮盖图淡出，淡完再收掉。
+
+        同一个槽兼两件事：第一次进来是「开始淡出」；`_fullscreen_cover_timer`
+        再响一次就是**兜底** —— 淡出期间定时器一直挂着（对外也就看得出「遮挡层
+        还在回收中」），动画万一被打断，到点直接收掉，不会漏一层图在屏幕上。
+        """
         cover = self._fullscreen_cover
         if cover is None:
             return
-        self._fullscreen_cover_timer.stop()
+        if self._fullscreen_fading:
+            self._clear_fullscreen_cover()
+            return
+        self._fullscreen_fading = True
         fade = QPropertyAnimation(cover, b"windowOpacity", self)
         fade.setDuration(self.FULLSCREEN_COVER_FADE_MS)
         fade.setStartValue(1.0)
@@ -1548,9 +1586,11 @@ class MainWindow(QMainWindow):
         fade.setEasingCurve(QEasingCurve.OutCubic)
         fade.finished.connect(self._clear_fullscreen_cover)
         fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._fullscreen_cover_timer.start(self.FULLSCREEN_COVER_FADE_MS + 200)
 
     def _clear_fullscreen_cover(self) -> None:
         self._fullscreen_cover_timer.stop()
+        self._fullscreen_fading = False
         cover = self._fullscreen_cover
         self._fullscreen_cover = None
         if cover is not None:
@@ -1607,6 +1647,7 @@ class MainWindow(QMainWindow):
         started = time.perf_counter()
         self._hold_fullscreen_frame()
         covered = time.perf_counter()
+        stagger = self._fullscreen_cover is not None
         self.centralWidget().setUpdatesEnabled(False)
         try:
             if self._native_fullscreen_state is not None:
@@ -1620,13 +1661,16 @@ class MainWindow(QMainWindow):
             self._fullscreen_tile = None
             self._fullscreen_saved_geometry = None
             self.sidebar.show()
-            # 布局算好、其余格子分批露面（腾出帧间隙，遮盖图才淡得动）；
-            # 刚退出来的那一格马上显示 —— 视线就在它身上。
-            self.wall.set_fullscreen_tile(None, stagger=True, first=tile)
+            # 有遮盖图挡着才敢拆帧：让其余格子一帧两格地露面，给淡出动画腾出
+            # 帧间隙；刚退出来那一格马上显示 —— 视线就在它身上。
+            # 抓不到图（离屏 / 没有交互桌面）时不拆，否则用户会看到格子一个个
+            # 蹦出来。
+            self.wall.set_fullscreen_tile(None, stagger=stagger, first=tile)
         finally:
             self.centralWidget().setUpdatesEnabled(True)
             self._release_fullscreen_frame()
-        self.wall.reveal_tiles_staggered()
+        if stagger:
+            self.wall.reveal_tiles_staggered()
         laid_out = time.perf_counter()
         if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
             self._apply_orientation()
