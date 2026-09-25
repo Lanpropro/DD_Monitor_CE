@@ -24,6 +24,7 @@ from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
 from . import watchdog
+from . import window_fullscreen
 from .audio_output import linear_to_vlc_volume
 from .danmaku import DanmakuClient
 from .bili import (
@@ -116,6 +117,8 @@ class MainWindow(QMainWindow):
         self._freeze_retry_timers: dict[object, QTimer] = {}
         self._fullscreen_tile: Tile | None = None
         self._fullscreen_was_maximized = False
+        self._native_fullscreen_state = None
+        self._fullscreen_saved_geometry = None
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
@@ -511,7 +514,8 @@ class MainWindow(QMainWindow):
             "import_order": list(self.sidebar.import_order),
             "custom_order": list(self.sidebar.custom_order),
             "settings": dict(self.settings),
-            "geometry": str(self.saveGeometry().toBase64(), "ASCII"),
+            "geometry": str((self._fullscreen_saved_geometry or self.saveGeometry()).toBase64(),
+                            "ASCII"),
             # 插件自己的配置项，以及「启用了哪些插件」（None = 全启用）
             "plugins": self.plugins.plugin_settings,
             "plugins_enabled": (None if self.plugins.enabled is None
@@ -525,6 +529,9 @@ class MainWindow(QMainWindow):
         # 把窗口连同所有格子的原生画面瞬间藏掉，后面的收尾用户完全看不见。
         t0 = time.perf_counter()
         self.hide()
+        if self._native_fullscreen_state is not None:
+            window_fullscreen.exit(self, self._native_fullscreen_state)
+            self._native_fullscreen_state = None
         hide_ms = (time.perf_counter() - t0) * 1000
         # 关窗前先把「正在关闭」钉住，并**清空**播放器表：release() 只是把
         # libvlc 实例还回去，self.players 里还留着它的话，取流线程排队中的
@@ -1477,22 +1484,30 @@ class MainWindow(QMainWindow):
         if self._fullscreen_tile is not None:
             return
         self._fullscreen_was_maximized = self.isMaximized()
+        self._fullscreen_saved_geometry = self.saveGeometry()
         self._fullscreen_tile = tile
         self.sidebar.hide()
         self.empty_hint.hide()
         self.wall.set_fullscreen_tile(tile)
         tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
-        self.showFullScreen()
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            self._native_fullscreen_state = window_fullscreen.enter(self)
+        else:
+            self.showFullScreen()
 
     def _exit_fullscreen(self) -> None:
         tile = self._fullscreen_tile
         if tile is None:
             return
-        if self._fullscreen_was_maximized:
+        if self._native_fullscreen_state is not None:
+            window_fullscreen.exit(self, self._native_fullscreen_state)
+            self._native_fullscreen_state = None
+        elif self._fullscreen_was_maximized:
             self.showMaximized()
         else:
             self.showNormal()
         self._fullscreen_tile = None
+        self._fullscreen_saved_geometry = None
         self.sidebar.show()
         self.wall.set_fullscreen_tile(None)
         if self.orientation != ("portrait" if self.is_portrait() else "landscape"):

@@ -329,11 +329,11 @@ def part_layout_mapping(app) -> None:
     target = window.wall.tiles[1]
     window._on_fullscreen(target)
     settle(app, 0.6)
-    assert window.isFullScreen() and window.wall.visible_tiles() == [target]
+    assert window._fullscreen_tile is target and window.wall.visible_tiles() == [target]
     assert window.wall.layout_id == original_layout
     window._exit_fullscreen()
     settle(app, 0.6)
-    assert not window.isFullScreen()
+    assert window._fullscreen_tile is None
     assert window.wall.layout_id == original_layout
     assert window.wall.tiles == original_tiles
     window.close()

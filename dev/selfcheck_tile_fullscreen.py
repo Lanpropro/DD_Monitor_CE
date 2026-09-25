@@ -43,10 +43,19 @@ def main() -> None:
 
     target = tiles[1]
     normal_size = window.size()
+    saved_geometry = window.current_state()["geometry"]
+    window_hwnd = int(window.winId())
     QCursor.setPos(target.mapToGlobal(target.rect().center()))
+    video_hwnd = int(target.video.winId())
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
-    assert window.isFullScreen()
+    assert window._fullscreen_tile is target
+    assert window.isFullScreen() or window._native_fullscreen_state is not None
+    assert int(window.winId()) == window_hwnd
+    assert int(target.video.winId()) == video_hwnd
+    assert window.current_state()["geometry"] == saved_geometry
+    if app.platformName() == "windows":
+        assert window.size() == app.primaryScreen().geometry().size()
     assert window.wall.fullscreen_tile is target
     assert window.wall.visible_tiles() == [target]
     assert not window.sidebar.isVisible()
@@ -54,8 +63,10 @@ def main() -> None:
 
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
-    assert not window.isFullScreen() and window.wall.fullscreen_tile is None, \
+    assert window._fullscreen_tile is None and window.wall.fullscreen_tile is None, \
         "全屏时再按 F 应与 Esc 一样退出"
+    assert window._native_fullscreen_state is None
+    assert int(target.video.winId()) == video_hwnd
     if app.platformName() == "windows":
         assert window.size() == normal_size
     assert window.wall.layout_id == "corner" and window.wall.visible_tiles() == tiles
@@ -63,11 +74,11 @@ def main() -> None:
     QCursor.setPos(target.mapToGlobal(target.rect().center()))
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
-    assert window.isFullScreen()
+    assert window._fullscreen_tile is target
 
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
-    assert not window.isFullScreen()
+    assert window._fullscreen_tile is None
     assert window.wall.fullscreen_tile is None
     assert window.wall.layout_id == "corner"
     assert window.wall.tiles == tiles
@@ -77,24 +88,24 @@ def main() -> None:
 
     QTest.mouseClick(tiles[4].fullscreen_button, Qt.LeftButton)
     app.processEvents()
-    assert window.isFullScreen() and window.wall.visible_tiles() == [tiles[4]]
+    assert window._fullscreen_tile is tiles[4] and window.wall.visible_tiles() == [tiles[4]]
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
-    assert not window.isFullScreen() and window.wall.visible_tiles() == tiles
+    assert window._fullscreen_tile is None and window.wall.visible_tiles() == tiles
 
     window.showMaximized()
     app.processEvents()
     assert window.isMaximized()
     QTest.mouseClick(tiles[2].fullscreen_button, Qt.LeftButton)
     app.processEvents()
-    assert window.isFullScreen()
+    assert window._fullscreen_tile is tiles[2]
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
-    assert window.isMaximized() and not window.isFullScreen(), \
+    assert window.isMaximized() and window._fullscreen_tile is None, \
         "最大化窗口按 F 退出后应恢复最大化"
     QTest.mouseClick(tiles[2].fullscreen_button, Qt.LeftButton)
     app.processEvents()
-    assert window.isFullScreen()
+    assert window._fullscreen_tile is tiles[2]
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
     assert window.isMaximized(), "Esc 后应回到进入全屏前的最大化状态"
