@@ -29,8 +29,7 @@ def enter(widget) -> tuple[int, int, tuple[int, int, int, int]]:
     area = monitor.rcMonitor
     user32.SetWindowLongW(hwnd, -16, (style & ~0x00CF0000) | 0x80000000)
     user32.SetWindowPos(hwnd, None, area.left, area.top,
-                        area.right - area.left, area.bottom - area.top,
-                        0x0020 | 0x0004 | 0x0008)  # FRAMECHANGED | NOZORDER | NOREDRAW
+                        area.right - area.left, area.bottom - area.top, 0x0020 | 0x0004)
     return hwnd, style, (original.left, original.top, original.right, original.bottom)
 
 
@@ -39,4 +38,4 @@ def exit(widget, state: tuple[int, int, tuple[int, int, int, int]]) -> None:
     hwnd, style, (left, top, right, bottom) = state
     user32.SetWindowLongW(hwnd, -16, style)
     user32.SetWindowPos(hwnd, None, left, top, right - left, bottom - top,
-                        0x0020 | 0x0004 | 0x0008)
+                        0x0020 | 0x0004)

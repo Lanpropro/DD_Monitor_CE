@@ -10,7 +10,7 @@ import webbrowser
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QByteArray, Qt, QTimer
-from PySide6.QtGui import QCursor, QIcon, QKeySequence
+from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
     QVBoxLayout, QWidget,
@@ -119,6 +119,10 @@ class MainWindow(QMainWindow):
         self._fullscreen_was_maximized = False
         self._native_fullscreen_state = None
         self._fullscreen_saved_geometry = None
+        self._fullscreen_cover: QLabel | None = None
+        self._fullscreen_cover_timer = QTimer(self)
+        self._fullscreen_cover_timer.setSingleShot(True)
+        self._fullscreen_cover_timer.timeout.connect(self._clear_fullscreen_cover)
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
@@ -528,6 +532,7 @@ class MainWindow(QMainWindow):
         # 量级），不先藏起来，用户就会眼睁睁看着画面一格一格被拆掉。先 hide()
         # 把窗口连同所有格子的原生画面瞬间藏掉，后面的收尾用户完全看不见。
         t0 = time.perf_counter()
+        self._clear_fullscreen_cover()
         self.hide()
         if self._native_fullscreen_state is not None:
             window_fullscreen.exit(self, self._native_fullscreen_state)
@@ -1475,6 +1480,46 @@ class MainWindow(QMainWindow):
         print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
               file=sys.stderr, flush=True)
 
+    def _grab_fullscreen_frame(self) -> tuple[QPixmap, object] | None:
+        if sys.platform != "win32" or QApplication.platformName() != "windows":
+            return None
+        screen = self.screen()
+        frame = screen.grabWindow(0)
+        if frame.isNull():
+            return None
+        image = frame.toImage()
+        samples = ((0, 0), (image.width() // 2, image.height() // 2),
+                   (image.width() - 1, image.height() - 1))
+        if all(image.pixelColor(x, y).value() < 4 for x, y in samples):
+            return None  # 没有交互桌面时，Qt 截屏可能只返回黑图
+        return frame, screen.geometry()
+
+    def _hold_fullscreen_frame(self) -> None:
+        if self._fullscreen_cover is not None:
+            return
+        captured = self._grab_fullscreen_frame()
+        if captured is None:
+            return
+        frame, geometry = captured
+        cover = QLabel()
+        cover.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint |
+                             Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
+        cover.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        cover.setScaledContents(True)
+        cover.setPixmap(frame)
+        cover.setGeometry(geometry)
+        self._fullscreen_cover = cover
+        cover.show()
+        QApplication.processEvents()
+
+    def _clear_fullscreen_cover(self) -> None:
+        self._fullscreen_cover_timer.stop()
+        cover = self._fullscreen_cover
+        self._fullscreen_cover = None
+        if cover is not None:
+            cover.close()
+            cover.deleteLater()
+
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
@@ -1483,6 +1528,7 @@ class MainWindow(QMainWindow):
             return
         if self._fullscreen_tile is not None:
             return
+        self._hold_fullscreen_frame()
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_saved_geometry = self.saveGeometry()
         self._fullscreen_tile = tile
@@ -1498,11 +1544,14 @@ class MainWindow(QMainWindow):
                 self.showFullScreen()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
+            if self._fullscreen_cover is not None:
+                self._fullscreen_cover_timer.start(240)
 
     def _exit_fullscreen(self) -> None:
         tile = self._fullscreen_tile
         if tile is None:
             return
+        self._hold_fullscreen_frame()
         self.centralWidget().setUpdatesEnabled(False)
         try:
             if self._native_fullscreen_state is not None:
@@ -1518,6 +1567,8 @@ class MainWindow(QMainWindow):
             self.wall.set_fullscreen_tile(None)
         finally:
             self.centralWidget().setUpdatesEnabled(True)
+            if self._fullscreen_cover is not None:
+                self._fullscreen_cover_timer.start(240)
         if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
             self._apply_orientation()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")

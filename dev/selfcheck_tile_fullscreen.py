@@ -3,7 +3,7 @@ import os
 import sys
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QCursor
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -37,6 +37,11 @@ def main() -> None:
     window.resize(1400, 900)
     window.show()
     app.processEvents()
+    if app.platformName() == "windows":
+        # 本地 CI 没有可截取的交互桌面；用一张有效画面检查遮挡与释放时序。
+        frame = QPixmap(32, 32)
+        frame.fill(Qt.darkGray)
+        window._grab_fullscreen_frame = lambda: (frame, window.screen().geometry())
     tiles = list(window.wall.tiles)
     room_ids = [tile.room["room_id"] for tile in tiles]
     assert len(tiles) == 6 and all(tile.fullscreen_button.isVisible() for tile in tiles)
@@ -50,6 +55,9 @@ def main() -> None:
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
     assert window._fullscreen_tile is target
+    if app.platformName() == "windows":
+        assert window._fullscreen_cover is not None
+        assert window._fullscreen_cover_timer.isActive()
     assert window.isFullScreen() or window._native_fullscreen_state is not None
     assert int(window.winId()) == window_hwnd
     assert int(target.video.winId()) == video_hwnd
@@ -62,11 +70,17 @@ def main() -> None:
     assert window.wall.visible_tiles() == [target]
     assert not window.sidebar.isVisible()
     assert window.wall.layout_id == "corner"
+    if app.platformName() == "windows":
+        QTest.qWait(300)
+        assert window._fullscreen_cover is None, "切换后旧画面的遮挡层必须自动释放"
 
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
     assert window._fullscreen_tile is None and window.wall.fullscreen_tile is None, \
         "全屏时再按 F 应与 Esc 一样退出"
+    if app.platformName() == "windows":
+        assert window._fullscreen_cover is not None
+        assert window._fullscreen_cover_timer.isActive()
     assert window._native_fullscreen_state is None
     assert window.centralWidget().updatesEnabled()
     assert not window.wall._relayout_timer.isActive()
@@ -113,6 +127,9 @@ def main() -> None:
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
     assert window.isMaximized(), "Esc 后应回到进入全屏前的最大化状态"
+    window._clear_fullscreen_cover()
+    assert window._fullscreen_cover is None
+    assert not window._fullscreen_cover_timer.isActive()
     window.close()
     print("1+5 全屏快捷键、格子按钮和 Esc 退出：通过")
 
