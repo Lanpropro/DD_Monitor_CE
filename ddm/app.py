@@ -1486,30 +1486,38 @@ class MainWindow(QMainWindow):
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_saved_geometry = self.saveGeometry()
         self._fullscreen_tile = tile
-        self.sidebar.hide()
-        self.empty_hint.hide()
-        self.wall.set_fullscreen_tile(tile)
-        tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
-        if sys.platform == "win32" and QApplication.platformName() == "windows":
-            self._native_fullscreen_state = window_fullscreen.enter(self)
-        else:
-            self.showFullScreen()
+        self.centralWidget().setUpdatesEnabled(False)
+        try:
+            self.sidebar.hide()
+            self.empty_hint.hide()
+            self.wall.set_fullscreen_tile(tile)
+            tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
+            if sys.platform == "win32" and QApplication.platformName() == "windows":
+                self._native_fullscreen_state = window_fullscreen.enter(self)
+            else:
+                self.showFullScreen()
+        finally:
+            self.centralWidget().setUpdatesEnabled(True)
 
     def _exit_fullscreen(self) -> None:
         tile = self._fullscreen_tile
         if tile is None:
             return
-        if self._native_fullscreen_state is not None:
-            window_fullscreen.exit(self, self._native_fullscreen_state)
-            self._native_fullscreen_state = None
-        elif self._fullscreen_was_maximized:
-            self.showMaximized()
-        else:
-            self.showNormal()
-        self._fullscreen_tile = None
-        self._fullscreen_saved_geometry = None
-        self.sidebar.show()
-        self.wall.set_fullscreen_tile(None)
+        self.centralWidget().setUpdatesEnabled(False)
+        try:
+            if self._native_fullscreen_state is not None:
+                window_fullscreen.exit(self, self._native_fullscreen_state)
+                self._native_fullscreen_state = None
+            elif self._fullscreen_was_maximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
+            self._fullscreen_tile = None
+            self._fullscreen_saved_geometry = None
+            self.sidebar.show()
+            self.wall.set_fullscreen_tile(None)
+        finally:
+            self.centralWidget().setUpdatesEnabled(True)
         if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
             self._apply_orientation()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")

@@ -5130,6 +5130,7 @@ class WallGrid(QWidget):
 
     def set_fullscreen_tile(self, tile: Tile | None) -> None:
         """临时只显示一个格子，保持原布局和格子顺序。"""
+        self._relayout_timer.stop()
         self.fullscreen_tile = tile
         margin = 0 if tile else 16
         self.grid.setContentsMargins(margin, margin, margin, margin)
@@ -5444,7 +5445,8 @@ class WallGrid(QWidget):
         super().resizeEvent(event)
         # 自动布局和竖屏布局都是按当前尺寸算坐标的，尺寸变了必须重排；
         # 固定行列的布局由 Qt 自己按 stretch 摆，不用管。
-        if self.layout_id == "auto" or layouts.is_portrait_layout(self.layout_id):
+        if self.fullscreen_tile is None and (self.layout_id == "auto" or
+                                             layouts.is_portrait_layout(self.layout_id)):
             self._relayout_timer.start()
 
 

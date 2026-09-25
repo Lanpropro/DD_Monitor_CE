@@ -54,6 +54,8 @@ def main() -> None:
     assert int(window.winId()) == window_hwnd
     assert int(target.video.winId()) == video_hwnd
     assert window.current_state()["geometry"] == saved_geometry
+    assert window.centralWidget().updatesEnabled()
+    assert not window.wall._relayout_timer.isActive()
     if app.platformName() == "windows":
         assert window.size() == app.primaryScreen().geometry().size()
     assert window.wall.fullscreen_tile is target
@@ -66,6 +68,8 @@ def main() -> None:
     assert window._fullscreen_tile is None and window.wall.fullscreen_tile is None, \
         "全屏时再按 F 应与 Esc 一样退出"
     assert window._native_fullscreen_state is None
+    assert window.centralWidget().updatesEnabled()
+    assert not window.wall._relayout_timer.isActive()
     assert int(target.video.winId()) == video_hwnd
     if app.platformName() == "windows":
         assert window.size() == normal_size
