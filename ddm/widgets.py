@@ -4219,7 +4219,7 @@ class Tile(QFrame):
     qualityChanged = Signal(dict, int)
     muteToggled = Signal(dict, bool)
     reloadRequested = Signal(dict)
-    fullscreenRequested = Signal(dict)
+    fullscreenRequested = Signal(object)
     closeRequested = Signal(dict)
     roomDropped = Signal(str)
     tileDropped = Signal(str)          # 拖过来的来源房间号
@@ -4293,6 +4293,12 @@ class Tile(QFrame):
         self.pause_button = PauseButton(self)
         self.pause_button.clicked.connect(lambda: self.pauseToggled.emit(self.room))
         bottom_layout.addWidget(self.pause_button, 0, Qt.AlignVCenter)
+        self.fullscreen_button = QPushButton("⛶")
+        self.fullscreen_button.setObjectName("TileCtrl")
+        self.fullscreen_button.setFixedSize(28, 26)
+        self.fullscreen_button.setToolTip("全屏查看这一路（F）")
+        self.fullscreen_button.clicked.connect(lambda: self.fullscreenRequested.emit(self))
+        bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
         self.recording_button = QPushButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
         self.recording_button.setFixedSize(64, 26)
@@ -5007,7 +5013,7 @@ class Tile(QFrame):
         menu.addSeparator()
         menu.addAction("取消静音" if self.muted else "静音", self._toggle_mute)
         menu.addAction("刷新重连", lambda: self.reloadRequested.emit(self.room))
-        menu.addAction("放到主画面", lambda: self.fullscreenRequested.emit(self.room))
+        menu.addAction("全屏查看", lambda: self.fullscreenRequested.emit(self))
         if self.plugin_actions:
             # 插件加的一项占一行；组与组之间用分隔线断开，免得和本体的项混在一起
             menu.addSeparator()
@@ -5090,6 +5096,7 @@ class WallGrid(QWidget):
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
+        self.fullscreen_tile: Tile | None = None
         self._columns = 0
         self._last_height = 0
         self._last_count = 0
@@ -5121,24 +5128,12 @@ class WallGrid(QWidget):
         self._last_height = 0
         self.relayout(force=True)
 
-    def focus_room(self, room: dict) -> None:
-        """把某一路挪到主画面（切到带主画面的布局）。
-
-        目标布局要跟着**当前方向**走：竖屏下不能硬套横屏那套 `main{N}`
-        （摆法不一样，画面会被压变形），得挑对应的竖屏预设（用户报的 bug）。
-        """
-        room_id = str(room.get("room_id") or "")
-        tile = next((item for item in self.tiles
-                     if room_id and str(item.room.get("room_id") or "") == room_id), None)
-        if tile is not None:
-            self.tiles.remove(tile)
-            self.tiles.insert(0, tile)
-        small = max(2, min(6, len(self.tiles) - 1))
-        target = f"main{small}"
-        if layouts.is_portrait_layout(self.layout_id):
-            target = (layouts.counterpart(target, portrait=True)
-                      or layouts.PORTRAIT_AUTO)
-        self.set_layout(target)
+    def set_fullscreen_tile(self, tile: Tile | None) -> None:
+        """临时只显示一个格子，保持原布局和格子顺序。"""
+        self.fullscreen_tile = tile
+        margin = 0 if tile else 16
+        self.grid.setContentsMargins(margin, margin, margin, margin)
+        self.relayout(force=True)
 
     def remove_room(self, room: dict) -> None:
         room_id = str(room.get("room_id") or "")
@@ -5296,6 +5291,18 @@ class WallGrid(QWidget):
             if self._auto_columns() == self._columns:
                 return
         self._clear()
+
+        if self.fullscreen_tile is not None:
+            self.danmaku.setVisible(False)
+            for tile in self.tiles:
+                if tile is self.fullscreen_tile:
+                    self.grid.addWidget(tile, 0, 0)
+                    tile.setVisible(True)
+                else:
+                    tile.setVisible(False)
+            self.grid.setColumnStretch(0, 1)
+            self.grid.setRowStretch(0, 1)
+            return
 
         if spec is None:
             self.danmaku.setVisible(False)

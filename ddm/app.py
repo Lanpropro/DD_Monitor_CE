@@ -113,7 +113,8 @@ class MainWindow(QMainWindow):
         self._retry_timers: dict[object, QTimer] = {}
         self._freeze_refreshed: set[object] = set()
         self._freeze_retry_timers: dict[object, QTimer] = {}
-        self._previous_layout: str | None = None
+        self._fullscreen_tile: Tile | None = None
+        self._fullscreen_was_maximized = False
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
@@ -437,6 +438,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self._fullscreen_tile is not None:
+            return
         # 只有方向真的翻转时才动手，避免每次拖窗口都重排
         if getattr(self, "orientation", "") != ("portrait" if self.is_portrait()
                                                 else "landscape"):
@@ -1452,13 +1455,34 @@ class MainWindow(QMainWindow):
         print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
               file=sys.stderr, flush=True)
 
-    def _on_fullscreen(self, room: dict) -> None:
-        self.wall.focus_room(room)
-        self.sidebar.set_layout_name(self.wall.layout_id)
-        # 布局按方向分别记：竖屏切到的是竖屏预设，别写进横屏那一格
-        ui = self.state.setdefault("ui", {})
-        ui[f"layout_{self.orientation or 'landscape'}"] = self.wall.layout_id
-        ui["layout"] = self.wall.layout_id          # 老配置兼容
+    def _on_fullscreen(self, tile: Tile) -> None:
+        if tile not in self.wall.tiles or not tile.room.get("room_id"):
+            return
+        if self._fullscreen_tile is tile:
+            self._exit_fullscreen()
+            return
+        self._fullscreen_was_maximized = self.isMaximized()
+        self._fullscreen_tile = tile
+        self.sidebar.hide()
+        self.empty_hint.hide()
+        self.wall.set_fullscreen_tile(tile)
+        tile.fullscreen_button.setToolTip("退出全屏（Esc）")
+        self.showFullScreen()
+
+    def _exit_fullscreen(self) -> None:
+        tile = self._fullscreen_tile
+        if tile is None:
+            return
+        if self._fullscreen_was_maximized:
+            self.showMaximized()
+        else:
+            self.showNormal()
+        self._fullscreen_tile = None
+        self.sidebar.show()
+        self.wall.set_fullscreen_tile(None)
+        if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
+            self._apply_orientation()
+        tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self._refresh_meta()
 
     def _on_close_tile(self, room: dict) -> None:
@@ -1996,7 +2020,7 @@ class MainWindow(QMainWindow):
 
         **不能用 QApplication.widgetAt**：格子的画面区是 VLC 的原生窗口，不是 Qt
         控件；鼠标停在画面上时 widgetAt 拿不到那一格（顶多给回主窗口），
-        于是 F（放到主画面）/ M / Alt+M 全都按不动 —— 用户报的「切换画布完全失效」
+        于是 F（全屏）/ M / Alt+M 全都按不动 —— 用户报的「切换画布完全失效」
         就是这个。改成拿光标全局坐标和每个格子的矩形比，跟画面是不是原生窗口无关。
         """
         point = QCursor.pos()
@@ -2014,17 +2038,13 @@ class MainWindow(QMainWindow):
         if pressed and pressed == shortcuts.get("focus"):
             tile = self._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
-                self._previous_layout = self.wall.layout_id
-                self._on_fullscreen(tile.room)
+                self._on_fullscreen(tile)
         elif pressed and pressed == shortcuts.get("mute"):
             self._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
-        elif pressed and pressed == shortcuts.get("restore") and self._previous_layout:
-            self.wall.set_layout(self._previous_layout)
-            self.sidebar.set_layout_name(self._previous_layout)
-            self._previous_layout = None
-            self._refresh_meta()
+        elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:
+            self._exit_fullscreen()
         else:
             super().keyPressEvent(event)
 

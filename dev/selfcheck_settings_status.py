@@ -400,7 +400,7 @@ def main() -> None:
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
     assert pages == ["常规", "弹幕", "录制", "快捷键"] and dialog.stack.currentIndex() == 0
     assert next(label for key, label, _default in SHORTCUT_ACTIONS if key == "restore") == \
-        "退出聚焦，恢复原布局"
+        "退出全屏"
     dialog.nav.setCurrentRow(3)
     assert dialog.stack.currentIndex() == 3
     dialog.nav.setCurrentRow(2)

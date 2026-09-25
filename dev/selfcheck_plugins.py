@@ -265,7 +265,7 @@ def part_two(app) -> None:
     print(f"  整个菜单：{menu_labels}")
     assert "复制流地址" in menu_labels, "插件项要真的出现在菜单里"
     # 本体原有的项一个都不能少
-    for expected in ("静音", "刷新重连", "放到主画面", "关闭这一路", "画质", "声道"):
+    for expected in ("静音", "刷新重连", "全屏查看", "关闭这一路", "画质", "声道"):
         assert expected in menu_labels or expected == "静音", f"菜单丢了本体的项：{expected}"
 
     print("\n=== 9. 关闭时插件收到 app.closing 并卸载 ===")

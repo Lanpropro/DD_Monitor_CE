@@ -300,7 +300,7 @@ def part_narrow_tile_badge(app) -> None:
 
 
 def part_layout_mapping(app) -> None:
-    """横竖屏对映 + 竖屏「放到主画面」+ 布局菜单（三栏都列，选另一方向会改窗口）。"""
+    """横竖屏对映 + 竖屏格子全屏 + 布局菜单（三栏都列，选另一方向会改窗口）。"""
     print("\n=== 15. 布局菜单三栏都列；竖屏默认停在竖屏那一栏 ===")
     window = MainWindow(rooms(4), rooms(4), layout_id="portrait_main2")
     window.setGeometry(-9000, -9000, *PORTRAIT)
@@ -323,19 +323,19 @@ def part_layout_mapping(app) -> None:
     picker.close()
     settle(app, 0.2)
 
-    print("\n=== 16. 竖屏「放到主画面」切竖屏预设（原来会跳成横屏 main4）===")
-    target = dict(window.wall.tiles[1].room)
+    print("\n=== 16. 竖屏格子全屏后退出，布局和顺序不变 ===")
+    original_layout = window.wall.layout_id
+    original_tiles = list(window.wall.tiles)
+    target = window.wall.tiles[1]
     window._on_fullscreen(target)
     settle(app, 0.6)
-    main_tile = window.wall.tiles[0]
-    print(f"  放到主画面后：布局={window.wall.layout_id} "
-          f"第一格={main_tile.room.get('uname')} "
-          f"主画面 {main_tile.width()}x{main_tile.height()} 比例={ratio(main_tile):.3f}")
-    assert layouts.is_portrait_layout(window.wall.layout_id), \
-        f"竖屏下切成了非竖屏布局：{window.wall.layout_id}"
-    assert abs(ratio(main_tile) - 16 / 9) < 0.06, "竖屏主画面仍要保持 16:9（不能变形）"
-    assert str(main_tile.room.get("room_id")) == str(target.get("room_id")), \
-        "点「放到主画面」的那一路要真的在第一格"
+    assert window.isFullScreen() and window.wall.visible_tiles() == [target]
+    assert window.wall.layout_id == original_layout
+    window._exit_fullscreen()
+    settle(app, 0.6)
+    assert not window.isFullScreen()
+    assert window.wall.layout_id == original_layout
+    assert window.wall.tiles == original_tiles
     window.close()
     settle(app, 0.4)
 

@@ -16,8 +16,8 @@ from . import theme
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
 SHORTCUT_ACTIONS = [
-    ("focus", "把鼠标所在那一路放到主画面", "F"),
-    ("restore", "退出聚焦，恢复原布局", "Esc"),
+    ("focus", "全屏查看鼠标所在的格子", "F"),
+    ("restore", "退出全屏", "Esc"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
