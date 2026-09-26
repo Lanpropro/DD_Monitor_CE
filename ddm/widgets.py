@@ -2879,6 +2879,7 @@ class Sidebar(QFrame):
     logoutRequested = Signal()
     pinChanged = Signal(list)
     sortChanged = Signal(str)
+    orderChanged = Signal()
     refreshRequested = Signal()
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
@@ -4132,7 +4133,7 @@ class Sidebar(QFrame):
 
     # ---- 拖动排序 ----
     def _clamped_index(self, room_id: str, drop_index: int) -> int | None:
-        """把落点收进合法范围：置顶优先；开播优先时不能跨状态组。"""
+        """把落点收进合法范围：置顶卡片仍留在最前。"""
         items = list(self._items)
         source = next((index for index, item in enumerate(items)
                        if str(item.room.get("room_id")) == str(room_id)), None)
@@ -4143,12 +4144,6 @@ class Sidebar(QFrame):
             drop_index -= 1
         if items[source].is_pinned:
             return max(0, min(drop_index, pinned_count - 1))
-        if self.sort_mode == "live":
-            source_live = bool(items[source].room.get("live"))
-            group = [index for index, item in enumerate(items)
-                     if not item.is_pinned and bool(item.room.get("live")) == source_live]
-            if group:
-                return max(min(group), min(drop_index, max(group)))
         return max(pinned_count, min(drop_index, len(items) - 1))
 
     def show_drop_indicator(self, room_id: str | None, drop_index: int) -> None:
@@ -4184,12 +4179,15 @@ class Sidebar(QFrame):
         self._items = items
         self.pinned = [str(entry.room.get("room_id")) for entry in items if entry.is_pinned]
         self.custom_order = [str(entry.room.get("room_id")) for entry in items]
-        if self.sort_mode not in ("custom", "live"):
+        mode_changed = self.sort_mode != "custom"
+        if mode_changed:
             # 手动拖过就按用户排的来，否则下次「开播优先」会把刚拖的顺序冲掉
             self.set_sort_mode("custom")
         self.list_box.relayout(animate=True)
         if self.pinned != pinned_before:
             self.pinChanged.emit(list(self.pinned))
+        elif not mode_changed:
+            self.orderChanged.emit()
         return True
 
     # ---- 置顶 ----

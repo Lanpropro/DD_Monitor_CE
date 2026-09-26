@@ -1,6 +1,7 @@
 """自查：人数占位、卡顿/状态提示、侧栏收起头像居中、设置菜单与全局设置。不联网。"""
 import os
 import sys
+import tempfile
 import time
 from unittest import mock
 
@@ -17,7 +18,7 @@ from ddm import app as app_module              # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.dialogs import SHORTCUT_ACTIONS, SettingsDialog  # noqa: E402
 from ddm.player import TilePlayer  # noqa: E402
-from ddm.widgets import Tile  # noqa: E402
+from ddm.widgets import Sidebar, Tile  # noqa: E402
 
 
 def boom(room_id, quality=250, **_kwargs):        # noqa: ANN001, ANN201
@@ -645,6 +646,39 @@ def main() -> None:
     sidebar.set_sort_mode("custom", notify=False)
     settle(app, 0.3)
     print(f"  自定义：保持当前顺序（{len(sidebar.items())} 项）")
+    last_id = str(sidebar.items()[-1].room["room_id"])
+    with mock.patch.object(config_module, "save") as persist:
+        assert sidebar.reorder_item(last_id, 0)
+        assert persist.call_count == 1, "拖动完成就应保存，而不是只等关窗"
+        saved = persist.call_args.args[0]
+    visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
+    assert saved["custom_order"] == visible_order
+    with tempfile.TemporaryDirectory() as directory, \
+         mock.patch.object(config_module, "CONFIG_PATH", os.path.join(directory, "config.json")), \
+         mock.patch.dict(os.environ, {"DDM_NO_SAVE": ""}):
+        config_module.save(saved)
+        reloaded = config_module.load()
+    restored = Sidebar(config_module.build_rooms(reloaded)[0])
+    restored.set_import_order(reloaded["import_order"])
+    restored.set_custom_order(reloaded["custom_order"])
+    restored.set_sort_mode(reloaded["sort"], notify=False)
+    restored.apply_pins(reloaded["pinned"])
+    assert [str(item.room["room_id"]) for item in restored.items()] == visible_order, \
+        "重启后应恢复拖出的自定义顺序"
+    restored.deleteLater()
+
+    sidebar.set_sort_mode("live", notify=False)
+    offline_ids = [str(item.room["room_id"]) for item in sidebar.items()
+                   if not item.room.get("live") and not item.is_pinned]
+    assert len(offline_ids) >= 2
+    with mock.patch.object(config_module, "save") as persist:
+        assert sidebar.reorder_item(offline_ids[-1], 0)
+        assert persist.call_count == 1, "开播优先模式下拖动也应保存"
+        saved = persist.call_args.args[0]
+    assert sidebar.sort_mode == saved["sort"] == "custom", \
+        "手动拖动后应以自定义顺序为准"
+    assert str(sidebar.items()[0].room["room_id"]) == saved["custom_order"][0] == offline_ids[-1], \
+        "开播优先模式下拖动可以跨直播状态分组"
 
     print("\n=== 9. 快捷键：M 静音这一路，Alt+M 只留这一路 ===")
     print(f"  默认值：mute={window.shortcuts.get('mute')!r} "

@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
         self.sidebar.logoutRequested.connect(self.logout)
         self.sidebar.pinChanged.connect(self._on_pin_changed)
         self.sidebar.sortChanged.connect(self._on_sort_changed)
+        self.sidebar.orderChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self.open_settings)
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
@@ -693,6 +694,9 @@ class MainWindow(QMainWindow):
         config_module.save(self.current_state())
         print(f"[排序] 关注列表改为：{dict(self.sidebar.SORT_MODES).get(mode, mode)}",
               file=sys.stderr, flush=True)
+
+    def _on_order_changed(self) -> None:
+        config_module.save(self.current_state())
 
     # ---- 播放 ----
     def start_all(self) -> None:
