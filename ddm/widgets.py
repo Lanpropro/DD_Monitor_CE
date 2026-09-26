@@ -4558,6 +4558,7 @@ class Tile(QFrame):
         self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.volume_button.clicked.connect(self._toggle_mute)
         self.volume_button.volumeChanged.connect(self.set_volume)
+        bottom_layout.addWidget(self.fullscreen_danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.volume_button)
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setFixedWidth(86)
@@ -4572,7 +4573,6 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
-        bottom_layout.addWidget(self.fullscreen_danmaku_button, 0, Qt.AlignVCenter)
 
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角
         self.controls = QWidget(self)
@@ -4753,6 +4753,8 @@ class Tile(QFrame):
             widget.raise_()
 
     def set_fullscreen_mode(self, active: bool) -> None:
+        if active:
+            self._position_fullscreen_danmaku()
         self.fullscreen_danmaku_button.setVisible(active)
         self.fullscreen_danmaku.setVisible(active and self.fullscreen_danmaku_button.isChecked())
         if not active:
@@ -5034,6 +5036,16 @@ class Tile(QFrame):
         super().resizeEvent(event)
         self._layout_areas()
 
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        if hasattr(self, "fullscreen_danmaku"):
+            self._position_fullscreen_danmaku()
+
+    def _position_fullscreen_danmaku(self) -> None:
+        point = self.video.mapToGlobal(QPoint(0, 0))
+        self.fullscreen_danmaku.setGeometry(
+            point.x(), point.y(), self.video.width(), self.video.height())
+
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
@@ -5041,7 +5053,7 @@ class Tile(QFrame):
         video_height = max(60, height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
-        self.fullscreen_danmaku.setGeometry(self.video.geometry())
+        self._position_fullscreen_danmaku()
         self._round_video()
         video_right = self.video.width() + 1
         self.stream_badge.move(10, 8)
@@ -5169,7 +5181,7 @@ class Tile(QFrame):
     def showEvent(self, event) -> None:
         # 需要在窗口真正显示之后再设为原生窗口，否则 Qt 会抱怨不是顶层窗口
         super().showEvent(event)
-        for widget in (self.fullscreen_danmaku, self.stream_badge, self.title_badge,
+        for widget in (self.stream_badge, self.title_badge,
                        self.time_badge, self.controls,
                        self.spinner, self.pause_overlay):
             if not widget.testAttribute(Qt.WA_NativeWindow):
@@ -5299,6 +5311,8 @@ class Tile(QFrame):
         self._layout_controls()
 
     def set_audio_channel(self, value: int) -> None:
+        if self.muted:
+            self.set_muted(False)
         self.audio_channel = int(value)
         self.room["audio_channel"] = int(value)
         self.volume_button.set_state(self.muted, self.volume, self.audio_channel)

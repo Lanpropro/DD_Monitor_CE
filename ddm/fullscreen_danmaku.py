@@ -7,13 +7,14 @@ from PySide6.QtWidgets import QWidget
 
 
 class FullscreenDanmaku(QWidget):
-    """透明原生子窗口：盖在 VLC 视频 HWND 上，鼠标事件交给视频格子。"""
+    """透明工具窗口：盖在 VLC 视频 HWND 上，不接收鼠标输入。"""
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint |
+                         Qt.WindowTransparentForInput)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.setAttribute(Qt.WA_NativeWindow)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
         self._items: list[dict] = []
         self._lane_ready: list[float] = []
         self._timer = QTimer(self)

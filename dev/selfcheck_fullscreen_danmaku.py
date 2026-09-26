@@ -1,10 +1,9 @@
 """离线检查全屏弹幕连接、透明浮层和开关。"""
 import os
 import sys
-import time
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -48,19 +47,25 @@ def main() -> None:
         app.processEvents()
         assert sources == ["1002"], "全屏弹幕应连接放大的直播间"
         assert tile.fullscreen_danmaku.isVisible()
+        assert tile.fullscreen_danmaku.isWindow(), "弹幕应使用透明工具窗口盖过 VLC 视频"
+        assert tile.fullscreen_danmaku.windowFlags() & Qt.WindowTransparentForInput
+        assert tile.fullscreen_danmaku.testAttribute(Qt.WA_TranslucentBackground)
+        assert tile.fullscreen_danmaku_button.x() < tile.volume_button.x(), \
+            "弹幕按钮应放在音量条左侧"
         assert int(tile.fullscreen_danmaku.winId()) != int(tile.video.winId())
-        assert tile.fullscreen_danmaku.geometry() == tile.video.geometry()
+        assert tile.fullscreen_danmaku.geometry().topLeft() == tile.video.mapToGlobal(QPoint())
+        assert tile.fullscreen_danmaku.size() == tile.video.size()
         window._on_danmaku_message(source, {"kind": "danmaku", "text": "测试弹幕"})
         assert len(tile.fullscreen_danmaku._items) == 1
-        until = time.monotonic() + 0.5
-        while time.monotonic() < until:
-            app.processEvents()
-            time.sleep(0.02)
+        tile.fullscreen_danmaku._items[0]["started"] -= 1.0
+        tile.fullscreen_danmaku.update()
+        app.processEvents()
         image = tile.fullscreen_danmaku.grab().toImage()
         assert image.pixelColor(0, 0).alpha() == 0, "弹幕浮层不能遮黑视频"
-        assert any(image.pixelColor(x, y).alpha() > 0
+        assert any(image.pixelColor(x, y).red() > 180
+                   and image.pixelColor(x, y).alpha() > 180
                    for x in range(max(0, image.width() - 200), image.width(), 4)
-                   for y in range(0, image.height(), 4)), "弹幕文字没有绘制出来"
+                   for y in range(0, image.height(), 4)), "弹幕文字应以亮色绘制出来"
         window.settings["danmaku_block_words"] = ["广告"]
         window._on_danmaku_message(source, {"kind": "danmaku", "text": "广告弹幕"})
         assert len(tile.fullscreen_danmaku._items) == 1

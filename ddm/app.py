@@ -1666,13 +1666,13 @@ class MainWindow(QMainWindow):
             self.sidebar.hide()
             self.empty_hint.hide()
             self.wall.set_fullscreen_tile(tile)
-            tile.set_fullscreen_mode(True)
-            self.sync_danmaku()
             tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
             if sys.platform == "win32" and QApplication.platformName() == "windows":
                 self._native_fullscreen_state = window_fullscreen.enter(self)
             else:
                 self.showFullScreen()
+            tile.set_fullscreen_mode(True)
+            self.sync_danmaku()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
             self._release_fullscreen_frame()

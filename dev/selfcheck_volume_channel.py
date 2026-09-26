@@ -117,6 +117,9 @@ def main() -> None:
         def set_audio_channel(self, value):
             self.calls.append(("set", int(value)))
 
+        def set_muted(self, muted):
+            self.calls.append(("mute", bool(muted)))
+
         def needs_audio_restart(self, _value):
             return self.restart
 
@@ -125,6 +128,8 @@ def main() -> None:
 
     stub = StubPlayer()
     window.players[tile] = stub
+    tile.set_muted(True)
+    stub.calls.clear()
     tile.set_audio_channel(VolumeButton.CHANNEL_LEFT)
     settle(app, 0.3)
     print(f"  tile.audio_channel={tile.audio_channel} room={tile.room.get('audio_channel')} "
@@ -132,6 +137,9 @@ def main() -> None:
     assert tile.audio_channel == VolumeButton.CHANNEL_LEFT
     assert tile.room.get("audio_channel") == VolumeButton.CHANNEL_LEFT, "要写回 room，才能持久化"
     assert tile.volume_button.audio_channel == VolumeButton.CHANNEL_LEFT, "按钮要跟着显示 L/R"
+    assert not tile.muted and not tile.room["muted"] and not tile.volume_button.muted, \
+        "静音时切换声道应自动解除静音"
+    assert ("mute", False) in stub.calls, "解除静音要下发给播放器"
     assert ("set", VolumeButton.CHANNEL_LEFT) in stub.calls, "要把声道下发给播放器"
     assert ("reapply",) in stub.calls, \
         "设置之后还要再下发一次（play() 之前的设置会被音频输出模块初始化冲掉）"
