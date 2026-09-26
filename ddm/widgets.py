@@ -4568,9 +4568,6 @@ class Tile(QFrame):
         self.controls = QWidget(self)
         self.controls.setObjectName("TileControls")
         self.controls.setAttribute(Qt.WA_StyledBackground, False)
-        control_layout = QHBoxLayout(self.controls)
-        control_layout.setContentsMargins(0, 0, 0, 0)
-        control_layout.setSpacing(6)          # 按钮之间留缝，不会连成一条底
         self.quality_button = self._make_control(self._quality_text(), "选择这一路的画质")
         self.quality_button.clicked.connect(self._open_quality_menu)
         self.reload_button = RefreshButton(object_name="TileCtrl")
@@ -4581,7 +4578,7 @@ class Tile(QFrame):
         self.close_button.setFixedSize(theme.TILE_CONTROL_HEIGHT, theme.TILE_CONTROL_HEIGHT)
         self.close_button.clicked.connect(lambda: self.closeRequested.emit(self.room))
         for button in (self.quality_button, self.reload_button, self.close_button):
-            control_layout.addWidget(button)
+            button.setParent(self.controls)
         self.controls.setVisible(False)
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
@@ -5112,23 +5109,21 @@ class Tile(QFrame):
     def _layout_controls(self) -> None:
         """控制条浮在画面右上角，只显示按钮本身。
 
-        每个按钮的宽度都按文本算好并固定下来，然后才让布局排位置。样式表给
-        按钮带了 offset（min-width / padding），若交给布局分配，短文本的「×」
-        会被撑成和画质按钮一样宽，整条控制条看起来就是错位的。
+        按文本量宽后直接摆放三个按钮，让原生窗口遮罩和按钮始终使用同一组坐标。
+        原生视频窗口上的 Qt 布局可能在显示或缩放后延迟更新子按钮的位置。
         """
         # 高度统一由代码给：样式表不再写 min-height，交给布局量出来会矮一截
         self.quality_button.setFixedHeight(theme.TILE_CONTROL_HEIGHT)
         self.quality_button.setFixedWidth(self._quality_button_width())
         self.close_button.setFixedSize(theme.TILE_CONTROL_HEIGHT, theme.TILE_CONTROL_HEIGHT)
-        layout = self.controls.layout()
-        layout.invalidate()
-        size = layout.sizeHint()
-        self.controls.resize(size)
-        layout.setGeometry(self.controls.rect())
-        layout.activate()
-        # 原生窗口遮罩必须使用布局完成后的按钮坐标，否则缩放或画质文字改变时会错位。
+        x = 0
+        for button in (self.quality_button, self.reload_button, self.close_button):
+            button.move(x, 0)
+            x += button.width() + 6
+        width = x - 6
+        self.controls.resize(width, theme.TILE_CONTROL_HEIGHT)
         video_right = self.video.width() + 1
-        self.controls.move(max(10, video_right - size.width() - 10), 8)
+        self.controls.move(max(10, video_right - width - 10), 8)
         self._update_controls_mask()
 
     def _update_controls_mask(self) -> None:

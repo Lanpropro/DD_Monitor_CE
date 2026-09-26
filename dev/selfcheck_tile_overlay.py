@@ -112,11 +112,32 @@ def main() -> None:
                     f"控制条压到底部信息条上了：{controls.getRect()} vs {bottom.getRect()}"
                 assert controls.right() <= tile.width() and controls.left() >= 0, \
                     f"控制条横向溢出格子：{controls.getRect()} vs 宽 {tile.width()}"
+                buttons = (tile.quality_button, tile.reload_button, tile.close_button)
+                expected_x = 0
+                for button in buttons:
+                    assert button.x() == expected_x and button.y() == 0, \
+                        f"{layout_id} 格{index}: 控制按钮与遮罩坐标不同步"
+                    assert tile.controls.mask().contains(button.geometry().center()), \
+                        f"{layout_id} 格{index}: 控制按钮被原生窗口遮罩裁切"
+                    expected_x += button.width() + 6
+                assert tile.controls.width() == expected_x - 6
+                assert tile.controls.height() == theme.TILE_CONTROL_HEIGHT
                 if badge.isVisible():
                     assert badge.x() + badge.width() <= controls.x(), \
                         f"浮标和控制条重叠：浮标右边界 " \
                         f"{badge.x() + badge.width()} vs 控制条左边界 {controls.x()}"
                 checked += 1
+            tile = window.wall.tiles[0]
+            for label in ("原画", "高清", "原画"):
+                tile.quality_button.setText(label)
+                tile.set_controls_visible(False)
+                tile.set_controls_visible(True)
+                settle(app, 0.05)
+                buttons = (tile.quality_button, tile.reload_button, tile.close_button)
+                assert buttons[1].x() == buttons[0].width() + 6
+                assert buttons[2].x() == buttons[1].x() + buttons[1].width() + 6
+                assert tile.controls.mask().contains(buttons[2].geometry().center()), \
+                    f"{layout_id}: 画质文字变化后关闭按钮被裁切"
         finally:
             window.close()
             settle(app, 0.3)
