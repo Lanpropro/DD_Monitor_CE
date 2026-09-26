@@ -2280,6 +2280,13 @@ class NavItem(QFrame):
         menu = QMenu(self)
         menu.addAction("取消置顶" if self._pinned else "置顶").triggered.connect(
             lambda _checked=False: self.pinToggled.emit(self.room))
+        if self.drop_host is not None:
+            room_id = str(self.room.get("room_id"))
+            menu.addAction("移到最前").triggered.connect(
+                lambda _checked=False: self.drop_host.reorder_item(room_id, 0))
+            menu.addAction("移到最后").triggered.connect(
+                lambda _checked=False: self.drop_host.reorder_item(
+                    room_id, len(self.drop_host.items())))
         menu.addSeparator()
         menu.addAction("加入画面墙").triggered.connect(
             lambda _checked=False: self.addRequested.emit(self.room))

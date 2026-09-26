@@ -58,7 +58,7 @@ def main() -> None:
     assert positions == [0, NAV_ITEM_HEIGHT + NAV_ITEM_GAP]
     added_sidebar.close()
 
-    print("\n=== 0b. 开播优先持续生效，且拖动不能跨直播状态组 ===")
+    print("\n=== 0b. 开播优先下手动拖动转成固定顺序 ===")
     live_rooms = [
         {"room_id": "l1", "uname": "直播1", "live": True},
         {"room_id": "o1", "uname": "下播1", "live": False},
@@ -71,16 +71,16 @@ def main() -> None:
     assert order(live_sidebar) == ["l1", "l2", "o1", "o2"]
     live_sidebar.reorder_item("l1", len(live_sidebar.items()))
     print("  直播项拖到最底部后:", order(live_sidebar), "模式:", live_sidebar.sort_mode)
-    assert order(live_sidebar) == ["l2", "l1", "o1", "o2"]
-    assert live_sidebar.sort_mode == "live", "拖动后不能退出开播优先模式"
+    assert order(live_sidebar) == ["l2", "o1", "o2", "l1"]
+    assert live_sidebar.sort_mode == "custom", "手动拖动后应保留固定顺序"
     next(item for item in live_sidebar.items() if item.room["room_id"] == "o1").set_live(True)
     live_sidebar.resort(animate=False)
-    print("  o1 开播后自动重排:", order(live_sidebar))
-    assert order(live_sidebar) == ["l2", "l1", "o1", "o2"]
+    print("  o1 开播后保持顺序:", order(live_sidebar))
+    assert order(live_sidebar) == ["l2", "o1", "o2", "l1"]
     next(item for item in live_sidebar.items() if item.room["room_id"] == "l2").set_live(False)
     live_sidebar.resort(animate=False)
-    print("  l2 下播后自动重排:", order(live_sidebar))
-    assert order(live_sidebar) == ["l1", "o1", "l2", "o2"]
+    print("  l2 下播后保持顺序:", order(live_sidebar))
+    assert order(live_sidebar) == ["l2", "o1", "o2", "l1"]
     live_sidebar.close()
 
     sidebar = Sidebar([dict(room) for room in ROOMS])
@@ -118,6 +118,23 @@ def main() -> None:
     print(f"  {before} -> {order(sidebar)}")
     assert order(sidebar)[-1] == "1001"
     assert order(sidebar)[:2] == ["1003", "1004"]
+
+    print("\n=== 5b. 右键移到最前／最后，仍遵守置顶区 ===")
+    def menu_move(room_id, label):
+        item = next(entry for entry in sidebar.items()
+                    if str(entry.room.get("room_id")) == room_id)
+        action = next(action for action in item._context_menu().actions()
+                      if action.text() == label)
+        action.trigger()
+
+    menu_move("1001", "移到最前")
+    assert order(sidebar)[2] == "1001" and order(sidebar)[:2] == ["1003", "1004"]
+    menu_move("1001", "移到最后")
+    assert order(sidebar)[-1] == "1001"
+    menu_move("1004", "移到最前")
+    assert order(sidebar)[:2] == ["1004", "1003"] and sidebar.pinned[:2] == ["1004", "1003"]
+    menu_move("1004", "移到最后")
+    assert order(sidebar)[:2] == ["1003", "1004"] and sidebar.pinned[:2] == ["1003", "1004"]
 
     print("\n=== 6. 列表真的接收拖动（模拟落点）===")
     assert sidebar.list_box.acceptDrops(), "列表容器要允许拖放"
