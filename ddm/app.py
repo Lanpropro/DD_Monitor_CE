@@ -737,6 +737,10 @@ class MainWindow(QMainWindow):
         if not room.get("live"):
             tile.set_status("未开播")
             return
+        timer = self._retry_timers.pop(tile, None)
+        if timer is not None:
+            timer.stop()              # 已通过其他路径重取流，旧的断流定时器不能再打断新流
+            timer.deleteLater()
         player = self.players.get(tile)
         if player is not None:
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
@@ -857,6 +861,10 @@ class MainWindow(QMainWindow):
         if not tile.room.get("room_id"):
             return
         if state == "playing":
+            timer = self._retry_timers.pop(tile, None)
+            if timer is not None:
+                timer.stop()          # 缓冲后自行恢复，取消尚未执行的断流重连
+                timer.deleteLater()
             tile.set_video_active(True)
             tile.set_buffering(False)
             tile.set_status("")
@@ -887,7 +895,7 @@ class MainWindow(QMainWindow):
         tile.raise_overlays()
 
     def _on_picture_frozen(self, tile) -> None:
-        """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
+        """静止约 10 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
         if not tile.room.get("room_id") or tile.paused:
             return
         if tile not in self._freeze_refreshed:

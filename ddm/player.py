@@ -105,10 +105,10 @@ class TilePlayer(QObject):
     """一个格子的播放器：直连 http FLV，带 Referer / UA。"""
 
     stateChanged = Signal(str)   # idle / connecting / playing / error
-    pictureActivity = Signal()   # 截图重新发生变化；用来取消画面静止后的重试
+    pictureActivity = Signal()   # 解码计数重新变化；用来取消画面静止后的重试
 
     PICTURE_POLL_MS = 1000
-    FROZEN_TICKS = 2             # 连续 2 秒截图不变就认为画面停止更新
+    FROZEN_TICKS = 10            # 给短暂缓冲留恢复时间，避免频繁重新取流
 
     #: 各取流通道该带的请求头。插件解析出来的流地址要自带对应的头，
     #: 否则 CDN 会 403（app 通道不能带 Referer，web 通道必须带）。
@@ -534,7 +534,6 @@ class TilePlayer(QObject):
         else:
             self._stall_ticks += 1
         if self._stall_ticks >= 6:      # 约 9 秒没有画面就判为失败
-            self._watch.stop()
             self._set_state("error")
         elif self._stall_ticks >= 2:    # 卡住了：显示缓冲动画，等待恢复
             self._set_state("buffering")

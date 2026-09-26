@@ -119,9 +119,10 @@ def main() -> None:
     tp = TilePlayer(holder)
     tp.freeze_watch = True
     tp._picture_signature = lambda: (1234, "same")     # 画面一直不变
-    results = [tp._check_picture(True) for _ in range(3)]
-    print(f"  每秒检查、连续约 2 秒相同画面 -> 判定卡住: {results}")
-    assert results == [False, False, True]
+    results = [tp._check_picture(True) for _ in range(tp.FROZEN_TICKS + 1)]
+    print(f"  每秒检查、连续约 {tp.FROZEN_TICKS} 秒无新画面 -> 判定卡住: {results}")
+    assert tp.FROZEN_TICKS >= 10, "短暂缓冲不应立即重新取流"
+    assert results == [False] * tp.FROZEN_TICKS + [True]
     tp._picture_signature = lambda: (time.time(), "changing")   # 画面在变
     print(f"  画面恢复变化 -> {tp._check_picture(True)}")
     assert tp._check_picture(True) is False
@@ -129,6 +130,36 @@ def main() -> None:
     tp._picture_signature = lambda: (1, "same")
     assert [tp._check_picture(True) for _ in range(6)] == [False] * 6
     print("  关掉检测后不再判定")
+
+    from ddm import player as player_module
+    class RecoveringVlc:
+        state = player_module.vlc.State.Error
+        time = 0
+
+        def get_state(self):
+            return self.state
+
+        def video_get_size(self, _track):
+            return (1280, 720)
+
+        def get_time(self):
+            return self.time
+
+    native_player = tp.player
+    fake_player = RecoveringVlc()
+    tp.player = fake_player
+    tp._ensure_audio_settings = lambda: None
+    tp._stall_ticks = 5
+    tp._watch.start()
+    tp._check()
+    assert tp.state == "error" and tp._watch.isActive(), \
+        "等待重连期间必须继续检测播放是否自行恢复"
+    fake_player.state = player_module.vlc.State.Playing
+    fake_player.time = 100
+    tp._check()
+    assert tp.state == "playing", "自行恢复后应撤销错误状态"
+    tp._watch.stop()
+    tp.player = native_player
 
     print("  指纹来源：VLC 解码计数，不再截图（用户机器上就是崩在截图那条路上）")
     assert not hasattr(tp, "_shot_path"), "不该再往临时目录写截图"
@@ -493,8 +524,12 @@ def main() -> None:
     print(f"  内置自动重连：{retry_tile.status_label.text()!r}")
     assert "秒后重连" in retry_tile.status_label.text()
     assert retry_tile in window._retry_timers and window._retry_timers[retry_tile].isActive()
-    window._retry_timers.pop(retry_tile).stop()
-    window._retry_count.pop(retry_tile, None)
+    window._on_player_state(retry_tile, "playing")
+    assert retry_tile not in window._retry_timers, "播放恢复后不能再触发旧的重连定时器"
+    assert retry_tile not in window._retry_count
+    window._schedule_retry(retry_tile)
+    window.start_tile(retry_tile)
+    assert retry_tile not in window._retry_timers, "已经重新取流时不能保留旧的重连定时器"
     window.settings.pop("auto_reconnect")
     window._prepare_room({"room_id": "9999", "uname": "新房间"})   # noqa: SLF001
     room = {"room_id": "9999"}
