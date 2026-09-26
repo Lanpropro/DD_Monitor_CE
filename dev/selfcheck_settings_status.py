@@ -680,6 +680,42 @@ def main() -> None:
     assert str(sidebar.items()[0].room["room_id"]) == saved["custom_order"][0] == offline_ids[-1], \
         "开播优先模式下拖动可以跨直播状态分组"
 
+    sidebar.set_sort_mode("live", notify=False)
+    visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
+    with mock.patch.object(config_module, "save") as persist:
+        freeze = next(action for action in sidebar.sort_button.menu().actions()
+                      if action.text() == "固定当前显示顺序")
+        freeze.trigger()
+        assert persist.call_count == 1
+        saved = persist.call_args.args[0]
+    assert sidebar.sort_mode == saved["sort"] == "custom"
+    assert saved["custom_order"] == visible_order
+
+    desired = visible_order[-2:] + visible_order[:-2]
+    with mock.patch.object(config_module, "save") as persist:
+        assert sidebar.apply_manual_order(desired)
+        assert persist.call_count == 1
+        saved = persist.call_args.args[0]
+    assert [str(item.room["room_id"]) for item in sidebar.items()] == desired
+    assert saved["custom_order"] == desired
+
+    manage = next(action for action in sidebar.sort_button.menu().actions()
+                  if action.text() == "管理排序…")
+    with mock.patch("ddm.widgets.SortManagerDialog") as manager, \
+            mock.patch.object(config_module, "save") as persist:
+        manager.return_value.exec.return_value = 0
+        manage.trigger()
+        assert persist.call_count == 0
+        assert [str(item.room["room_id"]) for item in sidebar.items()] == desired
+    next_order = desired[1:] + desired[:1]
+    with mock.patch("ddm.widgets.SortManagerDialog") as manager, \
+            mock.patch.object(config_module, "save") as persist:
+        manager.return_value.exec.return_value = 1
+        manager.return_value.order_ids.return_value = next_order
+        manage.trigger()
+        assert persist.call_count == 1
+        assert persist.call_args.args[0]["custom_order"] == next_order
+
     print("\n=== 9. 快捷键：M 静音这一路，Alt+M 只留这一路 ===")
     print(f"  默认值：mute={window.shortcuts.get('mute')!r} "
           f"solo={window.shortcuts.get('solo')!r}")

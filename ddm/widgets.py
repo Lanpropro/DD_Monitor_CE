@@ -24,6 +24,7 @@ from . import layouts, mouse_hook, theme
 from . import version as version_module
 from .images import AvatarLoader
 from .player import TilePlayer
+from .sort_dialog import SortManagerDialog
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -4218,7 +4219,40 @@ class Sidebar(QFrame):
             action.triggered.connect(lambda _checked=False, value=mode: self.set_sort_mode(value))
             group.addAction(action)
             self._sort_actions[mode] = action
+        menu.addSeparator()
+        menu.addAction("固定当前显示顺序").triggered.connect(self.freeze_current_order)
+        menu.addAction("管理排序…").triggered.connect(self.open_sort_manager)
         return menu
+
+    def freeze_current_order(self) -> None:
+        """把当前看到的顺序保存为自定义顺序。"""
+        self.custom_order = [str(item.room.get("room_id")) for item in self._items]
+        self.set_sort_mode("custom")
+
+    def open_sort_manager(self) -> None:
+        rooms = [(str(item.room.get("room_id")), str(item.room.get("uname") or ""))
+                 for item in self._items]
+        dialog = SortManagerDialog(rooms, self.pinned, self)
+        if dialog.exec():
+            self.apply_manual_order(dialog.order_ids())
+
+    def apply_manual_order(self, order_ids: list[str]) -> bool:
+        """应用排序窗口给出的顺序，并立即保存。"""
+        by_id = {str(item.room.get("room_id")): item for item in self._items}
+        known = list(dict.fromkeys(room_id for room_id in order_ids if room_id in by_id))
+        known.extend(room_id for room_id in by_id if room_id not in known)
+        ordered = [by_id[room_id] for room_id in known]
+        items = [item for item in ordered if item.is_pinned]
+        items.extend(item for item in ordered if not item.is_pinned)
+        current = [str(item.room.get("room_id")) for item in self._items]
+        updated = [str(item.room.get("room_id")) for item in items]
+        if updated == current and self.sort_mode == "custom":
+            return False
+        self._items = items
+        self.pinned = [str(item.room.get("room_id")) for item in items if item.is_pinned]
+        self.custom_order = updated
+        self.set_sort_mode("custom")
+        return True
 
     def _sync_sort_menu(self) -> None:
         for mode, action in getattr(self, "_sort_actions", {}).items():
