@@ -691,30 +691,15 @@ def main() -> None:
     assert sidebar.sort_mode == saved["sort"] == "custom"
     assert saved["custom_order"] == visible_order
 
-    desired = visible_order[-2:] + visible_order[:-2]
+    group_ids = visible_order[-2:]
+    for room_id in group_ids:
+        sidebar.select_sort_item(room_id, Qt.ControlModifier)
     with mock.patch.object(config_module, "save") as persist:
-        assert sidebar.apply_manual_order(desired)
-        assert persist.call_count == 1
+        assert sidebar.move_sort_selection(group_ids[-1], True)
+        assert persist.call_count == 1, "多张卡片一起移动也应立即保存"
         saved = persist.call_args.args[0]
-    assert [str(item.room["room_id"]) for item in sidebar.items()] == desired
-    assert saved["custom_order"] == desired
-
-    manage = next(action for action in sidebar.sort_button.menu().actions()
-                  if action.text() == "管理排序…")
-    with mock.patch("ddm.widgets.SortManagerDialog") as manager, \
-            mock.patch.object(config_module, "save") as persist:
-        manager.return_value.exec.return_value = 0
-        manage.trigger()
-        assert persist.call_count == 0
-        assert [str(item.room["room_id"]) for item in sidebar.items()] == desired
-    next_order = desired[1:] + desired[:1]
-    with mock.patch("ddm.widgets.SortManagerDialog") as manager, \
-            mock.patch.object(config_module, "save") as persist:
-        manager.return_value.exec.return_value = 1
-        manager.return_value.order_ids.return_value = next_order
-        manage.trigger()
-        assert persist.call_count == 1
-        assert persist.call_args.args[0]["custom_order"] == next_order
+    assert saved["custom_order"][:2] == group_ids
+    assert sidebar.selected_sort_ids() == group_ids
 
     print("\n=== 9. 快捷键：M 静音这一路，Alt+M 只留这一路 ===")
     print(f"  默认值：mute={window.shortcuts.get('mute')!r} "

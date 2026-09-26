@@ -24,7 +24,6 @@ from . import layouts, mouse_hook, theme
 from . import version as version_module
 from .images import AvatarLoader
 from .player import TilePlayer
-from .sort_dialog import SortManagerDialog
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -1916,6 +1915,7 @@ class NavItem(QFrame):
         self.setObjectName("NavItem")
         self.room = room
         self.setProperty("selected", room.get("selected", False))
+        self.setProperty("sortSelected", False)
         self.setProperty("hovered", False)
         self.setProperty("onWall", False)
         self.setProperty("portraitStrip", False)
@@ -1926,6 +1926,7 @@ class NavItem(QFrame):
         self._compact_spacers = False
         self._portrait_strip = False
         self.select_mode = False
+        self._drag_started = False
         self.filtered_out = False        # 搜索过滤：不匹配就藏起来
         self._pinned = bool(room.get("pinned"))
         self.drop_host = None            # 侧栏：拖动排序时由它来排
@@ -2066,6 +2067,12 @@ class NavItem(QFrame):
         self.setProperty("selected", selected)
         _repolish(self)
 
+    def set_sort_selected(self, selected: bool) -> None:
+        if self.property("sortSelected") == selected:
+            return
+        self.setProperty("sortSelected", selected)
+        _repolish(self)
+
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
         self.badge.setText("直播中" if live else "未开播")
@@ -2119,19 +2126,27 @@ class NavItem(QFrame):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
+        if self._drag_started:
+            self._drag_started = False
+            return
         if self.select_mode:
             self.check.setChecked(not self.check.isChecked())
             self.checkedChanged.emit()
             return
+        if self.drop_host is not None:
+            self.drop_host.select_sort_item(str(self.room.get("room_id")), event.modifiers())
+            if event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier):
+                return
         self.clicked.emit(self.room)
 
     def mousePressEvent(self, event) -> None:
         self._press_pos = event.pos()
+        self._drag_started = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         """拖动 = 在关注列表里上下排序；拖到画面墙上就是在那个格子里播放。"""
-        if self.select_mode or not (event.buttons() & Qt.LeftButton):
+        if not (event.buttons() & Qt.LeftButton):
             return
         start = getattr(self, "_press_pos", None)
         if start is None:
@@ -2145,7 +2160,9 @@ class NavItem(QFrame):
         mime.setData(NAV_MIME, room_id.encode("utf-8"))      # 落在列表里：排序
         mime.setText(room_id)
         drag.setMimeData(mime)
-        drag.setPixmap(self._drag_pixmap())
+        drag_ids = self.drop_host.dragged_room_ids(room_id)
+        self._drag_started = True
+        drag.setPixmap(self._drag_pixmap(len(drag_ids)))
         drag.setHotSpot(QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
         # 抓起来的一瞬间就把自己那一格空出来
         self.drop_host.show_drop_indicator(room_id, self._index_in_host())
@@ -2175,7 +2192,7 @@ class NavItem(QFrame):
                 return index
         return 0
 
-    def _drag_pixmap(self) -> QPixmap:
+    def _drag_pixmap(self, count: int = 1) -> QPixmap:
         """把这张卡片抽出来当拖动时跟着鼠标的"影子"（补一层卡片底色，看着是被抓起来）。"""
         pixmap = QPixmap(self.size())
         pixmap.fill(Qt.transparent)
@@ -2189,10 +2206,19 @@ class NavItem(QFrame):
         painter.drawPath(path)
         painter.end()
         self.render(pixmap, QPoint(), QRegion(), QWidget.DrawChildren)
+        if count > 1:
+            painter = QPainter(pixmap)
+            badge = QRect(max(0, pixmap.width() - 39), 4, 35, 24)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme.ACCENT))
+            painter.drawRoundedRect(badge, 12, 12)
+            painter.setPen(QColor(theme.BG))
+            painter.drawText(badge, Qt.AlignCenter, str(count))
+            painter.end()
         return pixmap
 
     def mouseDoubleClickEvent(self, event) -> None:
-        if not self.select_mode:
+        if not self.select_mode and not (event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier)):
             self.addRequested.emit(self.room)
 
     # ---- 悬停（给预览用）----
@@ -2279,15 +2305,20 @@ class NavItem(QFrame):
         不用真的把菜单弹出来（弹出来会挡住自检、也没法断言）。
         """
         menu = QMenu(self)
-        menu.addAction("取消置顶" if self._pinned else "置顶").triggered.connect(
-            lambda _checked=False: self.pinToggled.emit(self.room))
+        if not self.select_mode:
+            menu.addAction("取消置顶" if self._pinned else "置顶").triggered.connect(
+                lambda _checked=False: self.pinToggled.emit(self.room))
         if self.drop_host is not None:
             room_id = str(self.room.get("room_id"))
-            menu.addAction("移到最前").triggered.connect(
-                lambda _checked=False: self.drop_host.reorder_item(room_id, 0))
-            menu.addAction("移到最后").triggered.connect(
-                lambda _checked=False: self.drop_host.reorder_item(
-                    room_id, len(self.drop_host.items())))
+            selected = self.drop_host.selected_sort_ids()
+            count = len(selected) if room_id in selected else 1
+            prefix = f"将选中的 {count} 张" if count > 1 else ""
+            menu.addAction(f"{prefix}移到最前").triggered.connect(
+                lambda _checked=False: self.drop_host.move_sort_selection(room_id, True))
+            menu.addAction(f"{prefix}移到最后").triggered.connect(
+                lambda _checked=False: self.drop_host.move_sort_selection(room_id, False))
+        if self.select_mode:
+            return menu
         menu.addSeparator()
         menu.addAction("加入画面墙").triggered.connect(
             lambda _checked=False: self.addRequested.emit(self.room))
@@ -2302,8 +2333,10 @@ class NavItem(QFrame):
         return menu
 
     def contextMenuEvent(self, event) -> None:
-        if self.select_mode:
-            return
+        room_id = str(self.room.get("room_id"))
+        if (not self.select_mode and self.drop_host is not None
+                and room_id not in self.drop_host.selected_sort_ids()):
+            self.drop_host.clear_sort_selection()
         self._context_menu().exec(event.globalPos())
 
 
@@ -2443,21 +2476,14 @@ class RoomListBox(QWidget):
         self._animations[item] = animation
         animation.start()
 
-    def relayout(self, animate: bool = False, gap_index: int | None = None,
-                 dragging: str | None = None) -> None:
-        """按当前顺序摆卡片；gap_index 处留一个空位给正在拖的那一张。
+    def relayout(self, animate: bool = False, preview_order: list | None = None,
+                 dragging_ids: set[str] | None = None) -> None:
+        """按当前顺序摆卡片；拖动时用空位显示整组卡片的落点。
 
         竖屏顶部横栏里改成横向排（卡片向右排开，多了就左右滚）。
         """
         items = self._visible_items()
-        if dragging is not None:
-            items = [item for item in items
-                     if str(item.room.get("room_id")) != str(dragging)]
-            order: list = list(items)
-            index = 0 if gap_index is None else max(0, min(gap_index, len(items)))
-            order.insert(index, None)
-        else:
-            order = list(items)
+        order = preview_order if preview_order is not None else list(items)
         width, item_height = self.item_size()
         horizontal = self.horizontal
         # 不要在这里改 width：卡片宽度必须和侧栏内容宽度一致，
@@ -2490,11 +2516,10 @@ class RoomListBox(QWidget):
             run = self.EMPTY_HINT_HEIGHT
         else:
             self.empty_hint.setVisible(False)
-        if dragging is not None:
-            held = next((item for item in self.sidebar.items()
-                         if str(item.room.get("room_id")) == str(dragging)), None)
-            if held is not None:
-                held.hide()                      # 原卡片藏起来，鼠标上跟着的是它的影子
+        if dragging_ids:
+            for item in items:
+                if str(item.room.get("room_id")) in dragging_ids:
+                    item.hide()                  # 原卡片藏起来，鼠标上跟着的是它的影子
         if self.horizontal:
             self.setMinimumWidth(max(run, 1))
             self.setMaximumWidth(16_777_215)
@@ -2912,6 +2937,8 @@ class Sidebar(QFrame):
             self.auto_compact and len(rooms) >= self.compact_threshold)
         self._wall_room_ids: set[str] = set()
         self.select_mode = False
+        self._sort_selected_ids: set[str] = set()
+        self._sort_anchor: str | None = None
         self.side = "left"                     # left = 横屏的左栏；top = 竖屏的顶部横栏
         self.pinned: list[str] = []
         self.sort_mode = "custom"
@@ -2966,7 +2993,7 @@ class Sidebar(QFrame):
         self.batch_button = BarIconButton("多选", "check")
         self.batch_button.setObjectName("ChipButton")
         self.batch_button.setCursor(Qt.PointingHandCursor)
-        self.batch_button.setToolTip("批量选择直播间")
+        self.batch_button.setToolTip("多选卡片后可一起拖动、移到最前或最后，也可批量删除")
         self.batch_button.setCheckable(True)
         self.batch_button.setFixedHeight(22)
         self.batch_button.clicked.connect(lambda: self.set_select_mode(not self.select_mode))
@@ -3006,7 +3033,7 @@ class Sidebar(QFrame):
         self.sort_button = BarIconButton("排序", "sort")
         self.sort_button.setObjectName("ChipButton")
         self.sort_button.setCursor(Qt.PointingHandCursor)
-        self.sort_button.setToolTip("关注列表的排序方式")
+        self.sort_button.setToolTip("关注列表的排序方式；Ctrl / Shift 点击卡片可直接多选")
         self.sort_button.setMenu(self._build_sort_menu())
         self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
@@ -3265,10 +3292,11 @@ class Sidebar(QFrame):
 
     # ---- 搜索过滤 ----
     def apply_filter(self, text: str) -> None:
-        """搜索框一有动静就过滤。只改可见性，不碰排序 / 置顶 / 多选态。"""
+        """搜索框一有动静就过滤；批量删除的勾选状态不受影响。"""
         wanted = (text or "").strip().lower()
         if wanted == self.filter_text:
             return
+        self.clear_sort_selection()
         self.filter_text = wanted
         self.refresh_filter()
 
@@ -3983,6 +4011,8 @@ class Sidebar(QFrame):
     # ---- 批量选择 ----
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
+        if enabled:
+            self.clear_sort_selection()
         self.batch_button.setChecked(enabled)
         if enabled and self.filter_text:
             # 进多选就把搜索清掉：藏起来的条目也还在「已选」里，批量删太危险
@@ -4001,12 +4031,67 @@ class Sidebar(QFrame):
     def _update_batch_label(self) -> None:
         count = sum(1 for item in self._items if item.is_checked())
         self.batch_label.setText(f"已选 {count} 个")
+        self._sync_sort_selection()
 
     def _emit_delete(self) -> None:
         chosen = [item.room for item in self._items if item.is_checked()]
         if chosen:
             self.deleteRequested.emit(chosen)
         self.set_select_mode(False)
+
+    def selected_sort_ids(self) -> list[str]:
+        if self.select_mode:
+            return [str(item.room.get("room_id")) for item in self._items
+                    if item.is_checked() and not item.filtered_out]
+        return [str(item.room.get("room_id")) for item in self._items
+                if str(item.room.get("room_id")) in self._sort_selected_ids]
+
+    def _sync_sort_selection(self) -> None:
+        selected = set(self.selected_sort_ids())
+        for item in self._items:
+            item.set_sort_selected(str(item.room.get("room_id")) in selected)
+
+    def clear_sort_selection(self) -> None:
+        if self._sort_selected_ids:
+            self._sort_selected_ids.clear()
+            self._sync_sort_selection()
+        self._sort_anchor = None
+
+    def select_sort_item(self, room_id: str, modifiers) -> None:
+        """Ctrl 增减选择，Shift 选一段；普通点击回到单卡片操作。"""
+        room_id = str(room_id)
+        if modifiers & Qt.ShiftModifier:
+            visible = [str(item.room.get("room_id")) for item in self.visible_items()]
+            if self._sort_anchor in visible and room_id in visible:
+                start, end = sorted((visible.index(self._sort_anchor), visible.index(room_id)))
+                chosen = set(visible[start:end + 1])
+            else:
+                chosen = {room_id}
+            self._sort_selected_ids = (self._sort_selected_ids | chosen
+                                       if modifiers & Qt.ControlModifier else chosen)
+        elif modifiers & Qt.ControlModifier:
+            if room_id in self._sort_selected_ids:
+                self._sort_selected_ids.remove(room_id)
+            else:
+                self._sort_selected_ids.add(room_id)
+            self._sort_anchor = room_id
+        else:
+            self._sort_selected_ids.clear()
+            self._sort_anchor = room_id
+        self._sync_sort_selection()
+
+    def dragged_room_ids(self, room_id: str) -> list[str]:
+        """从选中卡片拖动时带上整组；拖动未选中的卡片则只移动它。"""
+        room_id = str(room_id)
+        if room_id in self.selected_sort_ids():
+            return self.selected_sort_ids()
+        if not self.select_mode:
+            self.clear_sort_selection()
+        return [room_id]
+
+    def move_sort_selection(self, room_id: str, to_front: bool) -> bool:
+        return self.reorder_items(self.dragged_room_ids(room_id),
+                                  0 if to_front else len(self._items))
 
     # ---- 列表维护 ----
     def select_room(self, room: dict) -> None:
@@ -4067,6 +4152,9 @@ class Sidebar(QFrame):
         item.deleteLater()
         self._items.remove(item)
         room_id = str(room.get("room_id"))
+        self._sort_selected_ids.discard(room_id)
+        if self._sort_anchor == room_id:
+            self._sort_anchor = None
         if room_id in self.import_order:
             self.import_order.remove(room_id)
         if room_id in self.custom_order:
@@ -4136,33 +4224,47 @@ class Sidebar(QFrame):
                   and 0 <= local.y() <= self.list_box.height())
         if inside:
             along = local.x() if self.list_box.horizontal else local.y()
-            self.reorder_item(str(room_id), self.list_box.index_at(along))
+            self.reorder_items(self.dragged_room_ids(room_id),
+                               self._full_drop_index(self.list_box.index_at(along)))
         self.list_box.relayout(animate=True)
 
     # ---- 拖动排序 ----
-    def _clamped_index(self, room_id: str, drop_index: int) -> int | None:
-        """把落点收进合法范围：置顶卡片仍留在最前。"""
-        items = list(self._items)
-        source = next((index for index, item in enumerate(items)
-                       if str(item.room.get("room_id")) == str(room_id)), None)
-        if source is None:
-            return None
-        pinned_count = sum(1 for item in items if item.is_pinned)
-        if drop_index > source:                  # 先摘出来，后面的下标都要往前挪一格
-            drop_index -= 1
-        if items[source].is_pinned:
-            return max(0, min(drop_index, pinned_count - 1))
-        return max(pinned_count, min(drop_index, len(items) - 1))
+    def _full_drop_index(self, visible_index: int) -> int:
+        """搜索过滤时把屏幕上的落点换算为完整列表下标。"""
+        visible = self.visible_items()
+        if not visible:
+            return len(self._items)
+        if visible_index >= len(visible):
+            return self._items.index(visible[-1]) + 1
+        return self._items.index(visible[max(0, visible_index)])
+
+    def _reordered_items(self, room_ids: list[str], drop_index: int) -> list[NavItem]:
+        """将选中项作为一组移动；置顶和普通项分别留在自己的区域。"""
+        moving = set(room_ids)
+        pinned_count = sum(item.is_pinned for item in self._items)
+        result = []
+        for start, end in ((0, pinned_count), (pinned_count, len(self._items))):
+            group = self._items[start:end]
+            target = max(0, min(drop_index - start, len(group)))
+            before = sum(str(item.room.get("room_id")) not in moving
+                         for item in group[:target])
+            remaining = [item for item in group
+                         if str(item.room.get("room_id")) not in moving]
+            selected = [item for item in group
+                        if str(item.room.get("room_id")) in moving]
+            result.extend(remaining[:before] + selected + remaining[before:])
+        return result
 
     def show_drop_indicator(self, room_id: str | None, drop_index: int) -> None:
-        """拖动中：被拖的卡片藏起来，其余卡片滑动让出落点那一格。"""
+        """拖动中：选中卡片藏起来，其余卡片让出整组空位。"""
         if not room_id:
             self.list_box.relayout(animate=True)
             return
-        index = self._clamped_index(str(room_id), drop_index)
-        if index is None:
-            return
-        self.list_box.relayout(animate=True, gap_index=index, dragging=str(room_id))
+        moving = set(self.dragged_room_ids(room_id))
+        items = self._reordered_items(list(moving), self._full_drop_index(drop_index))
+        preview = [None if str(item.room.get("room_id")) in moving else item
+                   for item in items if not item.filtered_out]
+        self.list_box.relayout(animate=True, preview_order=preview, dragging_ids=moving)
 
     def end_drag(self) -> None:
         """拖动结束（放下或者取消）：所有卡片恢复显示并归位。"""
@@ -4170,20 +4272,18 @@ class Sidebar(QFrame):
         self.list_box.relayout(animate=True)
 
     def reorder_item(self, room_id: str, drop_index: int) -> bool:
-        """把某个直播间挪到新位置；跨过置顶区的落点会被收回来。"""
-        items = list(self._items)
-        source = next((index for index, item in enumerate(items)
-                       if str(item.room.get("room_id")) == str(room_id)), None)
-        target = self._clamped_index(str(room_id), drop_index)
-        if source is None or target is None:
+        return self.reorder_items([str(room_id)], drop_index)
+
+    def reorder_items(self, room_ids: list[str], drop_index: int) -> bool:
+        """按当前顺序整体移动卡片，并立即保存自定义顺序。"""
+        known = {str(item.room.get("room_id")) for item in self._items}
+        if not known.intersection(room_ids):
             return False
-        pinned_before = [str(entry.room.get("room_id")) for entry in items
-                         if entry.is_pinned]
-        item = items.pop(source)
-        items.insert(target, item)
+        items = self._reordered_items(room_ids, drop_index)
         if [str(entry.room.get("room_id")) for entry in items] == \
                 [str(entry.room.get("room_id")) for entry in self._items]:
             return False
+        pinned_before = list(self.pinned)
         self._items = items
         self.pinned = [str(entry.room.get("room_id")) for entry in items if entry.is_pinned]
         self.custom_order = [str(entry.room.get("room_id")) for entry in items]
@@ -4192,6 +4292,8 @@ class Sidebar(QFrame):
             # 手动拖过就按用户排的来，否则下次「开播优先」会把刚拖的顺序冲掉
             self.set_sort_mode("custom")
         self.list_box.relayout(animate=True)
+        if not mode_changed:
+            self.refresh_strip()
         if self.pinned != pinned_before:
             self.pinChanged.emit(list(self.pinned))
         elif not mode_changed:
@@ -4221,38 +4323,12 @@ class Sidebar(QFrame):
             self._sort_actions[mode] = action
         menu.addSeparator()
         menu.addAction("固定当前显示顺序").triggered.connect(self.freeze_current_order)
-        menu.addAction("管理排序…").triggered.connect(self.open_sort_manager)
         return menu
 
     def freeze_current_order(self) -> None:
         """把当前看到的顺序保存为自定义顺序。"""
         self.custom_order = [str(item.room.get("room_id")) for item in self._items]
         self.set_sort_mode("custom")
-
-    def open_sort_manager(self) -> None:
-        rooms = [(str(item.room.get("room_id")), str(item.room.get("uname") or ""))
-                 for item in self._items]
-        dialog = SortManagerDialog(rooms, self.pinned, self)
-        if dialog.exec():
-            self.apply_manual_order(dialog.order_ids())
-
-    def apply_manual_order(self, order_ids: list[str]) -> bool:
-        """应用排序窗口给出的顺序，并立即保存。"""
-        by_id = {str(item.room.get("room_id")): item for item in self._items}
-        known = list(dict.fromkeys(room_id for room_id in order_ids if room_id in by_id))
-        known.extend(room_id for room_id in by_id if room_id not in known)
-        ordered = [by_id[room_id] for room_id in known]
-        items = [item for item in ordered if item.is_pinned]
-        items.extend(item for item in ordered if not item.is_pinned)
-        current = [str(item.room.get("room_id")) for item in self._items]
-        updated = [str(item.room.get("room_id")) for item in items]
-        if updated == current and self.sort_mode == "custom":
-            return False
-        self._items = items
-        self.pinned = [str(item.room.get("room_id")) for item in items if item.is_pinned]
-        self.custom_order = updated
-        self.set_sort_mode("custom")
-        return True
 
     def _sync_sort_menu(self) -> None:
         for mode, action in getattr(self, "_sort_actions", {}).items():

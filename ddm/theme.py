@@ -337,6 +337,10 @@ QSlider::handle:horizontal:hover {{
 #NavItem[onWall="true"] {{
     border: 1px solid rgba(0, 161, 214, 0.62);
 }}
+#NavItem[sortSelected="true"] {{
+    background: rgba(0, 161, 214, 0.24);
+    border: 2px solid {ACCENT};
+}}
 #NavName {{
     color: #ffffff;
     font-size: {FONT_CONTROL}px;
