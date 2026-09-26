@@ -23,9 +23,7 @@ DEFAULT_SETTINGS = {
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
-    #: 硬件解码。VLC 在个别显卡驱动上硬解会卡住甚至访问违例，关掉改用软解最稳，
-    #: 代价是 CPU 高一些 —— 留成开关，方便在出问题的机器上一键排查。
-    "hw_decode": True,
+    "decode_mode": "auto",    # VLC 自动 / D3D11 / DXVA2 / 软件解码
     "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
     "default_volume": DEFAULT_VOLUME,
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表

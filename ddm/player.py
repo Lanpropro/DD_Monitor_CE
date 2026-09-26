@@ -14,8 +14,19 @@ REFERRER = "https://live.bilibili.com/"
 APP_UA = ("Mozilla/5.0 BiliDroid/6.25.0 (bbcallen@gmail.com) os/android model/MuMu "
           "mobi_app/android build/6250300 channel/bili innerVer/6250300 osVer/6.0.1 network/2")
 
-#: 硬件解码开关（设置里可关）：关掉时给每个 media 加这一条，改用软解。
+#: 解码方式是 media 级选项；自动沿用实例默认值，其余强制指定 VLC 模块。
+DECODE_MODES = (("自动（推荐）", "auto"), ("Direct3D 11", "d3d11va"),
+                ("DXVA2", "dxva2"), ("软件解码", "none"))
 HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
+
+
+def decode_media_options(mode: str) -> tuple[str, ...]:
+    if mode == "auto" or mode not in {value for _label, value in DECODE_MODES}:
+        return ()
+    if mode == "none":
+        return (HW_DECODE_OFF_OPTION,)
+    return (f":avcodec-hw={mode}",)
+
 
 #: 静音时下发的音量。**绝不能下发 0**：VLC 把「音量 0」当作**实例级的静音标志**，
 #: 一个格子压到 0 会把同实例里别的格子一起带静音（实测：录制锁原画重启某一格之后，

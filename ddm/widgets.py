@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from . import layouts, mouse_hook, theme
 from . import version as version_module
 from .images import AvatarLoader
+from .fullscreen_danmaku import FullscreenDanmaku
 from .player import TilePlayer
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
@@ -4522,7 +4523,14 @@ class Tile(QFrame):
         self.fullscreen_button.setFixedSize(28, 26)
         self.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self.fullscreen_button.clicked.connect(lambda: self.fullscreenRequested.emit(self))
-        bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
+        self.fullscreen_danmaku_button = QPushButton("弹幕 开")
+        self.fullscreen_danmaku_button.setObjectName("TileCtrl")
+        self.fullscreen_danmaku_button.setFixedSize(58, 26)
+        self.fullscreen_danmaku_button.setCheckable(True)
+        self.fullscreen_danmaku_button.setChecked(True)
+        self.fullscreen_danmaku_button.setToolTip("显示或隐藏全屏弹幕")
+        self.fullscreen_danmaku_button.clicked.connect(self._toggle_fullscreen_danmaku)
+        self.fullscreen_danmaku_button.hide()
         self.recording_button = QPushButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
         self.recording_button.setFixedSize(64, 26)
@@ -4563,6 +4571,8 @@ class Tile(QFrame):
         self.volume_label.setFixedWidth(24)
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
+        bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
+        bottom_layout.addWidget(self.fullscreen_danmaku_button, 0, Qt.AlignVCenter)
 
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角
         self.controls = QWidget(self)
@@ -4580,6 +4590,7 @@ class Tile(QFrame):
         for button in (self.quality_button, self.reload_button, self.close_button):
             button.setParent(self.controls)
         self.controls.setVisible(False)
+        self.fullscreen_danmaku = FullscreenDanmaku(self)
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
         self._overlay_visible = False
@@ -4737,9 +4748,26 @@ class Tile(QFrame):
         窗口、并且被 raise 过，才既画得出来也点得到。所以每次摆完位都要再抬一次
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
-        for widget in (self.controls, self.stream_badge, self.title_badge,
+        for widget in (self.fullscreen_danmaku, self.controls, self.stream_badge, self.title_badge,
                        self.time_badge, self.spinner, self.pause_overlay):
             widget.raise_()
+
+    def set_fullscreen_mode(self, active: bool) -> None:
+        self.fullscreen_danmaku_button.setVisible(active)
+        self.fullscreen_danmaku.setVisible(active and self.fullscreen_danmaku_button.isChecked())
+        if not active:
+            self.fullscreen_danmaku.clear()
+        else:
+            self.raise_overlays()
+
+    def _toggle_fullscreen_danmaku(self) -> None:
+        enabled = self.fullscreen_danmaku_button.isChecked()
+        self.fullscreen_danmaku_button.setText("弹幕 开" if enabled else "弹幕 关")
+        self.fullscreen_danmaku.setVisible(enabled)
+        if enabled:
+            self.raise_overlays()
+        else:
+            self.fullscreen_danmaku.clear()
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -5013,6 +5041,7 @@ class Tile(QFrame):
         video_height = max(60, height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
+        self.fullscreen_danmaku.setGeometry(self.video.geometry())
         self._round_video()
         video_right = self.video.width() + 1
         self.stream_badge.move(10, 8)
@@ -5140,7 +5169,8 @@ class Tile(QFrame):
     def showEvent(self, event) -> None:
         # 需要在窗口真正显示之后再设为原生窗口，否则 Qt 会抱怨不是顶层窗口
         super().showEvent(event)
-        for widget in (self.stream_badge, self.title_badge, self.time_badge, self.controls,
+        for widget in (self.fullscreen_danmaku, self.stream_badge, self.title_badge,
+                       self.time_badge, self.controls,
                        self.spinner, self.pause_overlay):
             if not widget.testAttribute(Qt.WA_NativeWindow):
                 widget.setAttribute(Qt.WA_NativeWindow, True)

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .player import DECODE_MODES
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
@@ -55,7 +56,6 @@ class GeneralSettingsPage(QWidget):
     ITEMS = [
         ("auto_quality", "主画面自动用原画，其余自动 720P"),
         ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
-        ("hw_decode", "硬件解码（画面卡住/崩溃时关掉试试：改用软解，CPU 会高一些）"),
         ("default_muted", "新建格子的初始静音状态"),
         ("sidebar_card_mode", "关注列表使用大封面卡片（关闭后为头像＋文字列表）"),
         ("sidebar_auto_compact", "关注较多时自动切换为紧凑列表"),
@@ -125,6 +125,16 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
+        grid.addWidget(QLabel("视频解码方式"), row, 0)
+        self.decode_mode = QComboBox()
+        for label, value in DECODE_MODES:
+            self.decode_mode.addItem(label, value)
+        mode = settings.get("decode_mode") or (
+            "auto" if settings.get("hw_decode", True) else "none")
+        self.decode_mode.setCurrentIndex(max(0, self.decode_mode.findData(mode)))
+        self.decode_mode.setToolTip("自动优先使用可用的硬件解码；软件解码占用更多 CPU。切换后正在播放的直播会重新取流。")
+        grid.addWidget(self.decode_mode, row, 1)
+        row += 1
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
@@ -152,6 +162,7 @@ class GeneralSettingsPage(QWidget):
             self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
+        self.decode_mode.setCurrentIndex(0)
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
     def values(self) -> dict:
@@ -159,6 +170,7 @@ class GeneralSettingsPage(QWidget):
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
+            "decode_mode": self.decode_mode.currentData(),
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())

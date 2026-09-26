@@ -132,7 +132,12 @@ class MainWindow(QMainWindow):
         self._danmaku_room = ""
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
-        self.settings.update(self.state.get("settings") or {})
+        saved_settings = self.state.get("settings") or {}
+        self.settings.update(saved_settings)
+        if "decode_mode" not in saved_settings:
+            self.settings["decode_mode"] = ("auto" if saved_settings.get("hw_decode", True)
+                                            else "none")
+        self.settings.pop("hw_decode", None)
         self.settings.pop("auto_reconnect", None)  # 旧配置的开关不再控制内置重连
         self.settings.pop("recording_backup_dir", None)
         self.settings.pop("recording_ffmpeg", None)
@@ -473,7 +478,7 @@ class MainWindow(QMainWindow):
             dialog.nav.setCurrentRow(2)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
-        hw_before = bool(self.settings.get("hw_decode", True))
+        decode_before = self.settings.get("decode_mode", "auto")
         self.settings.update(dialog.settings())
         self.shortcuts = dialog.shortcuts()
         self.state["settings"] = dict(self.settings)
@@ -481,11 +486,9 @@ class MainWindow(QMainWindow):
         self._poll_timer.setInterval(self.poll_interval_ms())
         for player in self.players.values():
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        if bool(self.settings.get("hw_decode", True)) != hw_before:
-            # 硬解开关是 media 级选项：改完得让每一路重新取一次流才生效
-            print(f"[设置] 硬件解码改成 "
-                  f"{'开' if self.settings.get('hw_decode') else '关（软解）'}"
-                  f"，重新取流各路画面", file=sys.stderr, flush=True)
+        if self.settings.get("decode_mode", "auto") != decode_before:
+            print(f"[设置] 解码方式改为 {self.settings['decode_mode']}，重新取流各路画面",
+                  file=sys.stderr, flush=True)
             for tile in self.wall.tiles:
                 if tile.room.get("room_id") and tile.room.get("live"):
                     self.start_tile(tile)
@@ -848,15 +851,8 @@ class MainWindow(QMainWindow):
         )
 
     def media_options(self) -> tuple[str, ...]:
-        """按设置给每一路 media 的额外选项。
-
-        现在只有「硬件解码」：关掉时改用软解。VLC 在个别显卡驱动上硬解会卡住
-        甚至访问违例（用户那边的看门狗日志里就是 libvlc 调用卡了 6.5 秒 +
-        一次 access violation），关掉硬解是最省事的排查手段。
-        """
-        if self.settings.get("hw_decode", True):
-            return ()
-        return (player_module.HW_DECODE_OFF_OPTION,)
+        """按设置给每一路画面墙媒体选择 VLC 解码方式。"""
+        return player_module.decode_media_options(self.settings.get("decode_mode", "auto"))
 
     def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0) -> None:
         if self._closing:
@@ -1670,6 +1666,8 @@ class MainWindow(QMainWindow):
             self.sidebar.hide()
             self.empty_hint.hide()
             self.wall.set_fullscreen_tile(tile)
+            tile.set_fullscreen_mode(True)
+            self.sync_danmaku()
             tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
             if sys.platform == "win32" and QApplication.platformName() == "windows":
                 self._native_fullscreen_state = window_fullscreen.enter(self)
@@ -1707,6 +1705,8 @@ class MainWindow(QMainWindow):
             # 抓不到图（离屏 / 没有交互桌面）时不拆，否则用户会看到格子一个个
             # 蹦出来。
             self.wall.set_fullscreen_tile(None, stagger=stagger, first=tile)
+            tile.set_fullscreen_mode(False)
+            self.sync_danmaku()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
             self._release_fullscreen_frame()
@@ -2192,12 +2192,16 @@ class MainWindow(QMainWindow):
         return {}
 
     def sync_danmaku(self) -> None:
-        """让弹幕连接对上当前布局/主画面（布局里没有弹幕格就断开）。"""
+        """弹幕格跟随主画面；全屏时改为跟随当前放大的直播间。"""
         panel = self.wall.danmaku
-        if not self.wall.has_danmaku:
+        if self._fullscreen_tile is None and not self.wall.has_danmaku:
             self.stop_danmaku()
             return
-        room = self._danmaku_target_room()
+        room = (self._fullscreen_tile.room if self._fullscreen_tile is not None
+                else self._danmaku_target_room())
+        if self._fullscreen_tile is not None and not room.get("live"):
+            self.stop_danmaku()
+            return
         room_id = str(room.get("room_id") or "")
         if room_id and room_id == self._danmaku_room and self._danmaku is not None:
             return
@@ -2279,6 +2283,9 @@ class MainWindow(QMainWindow):
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
         self.wall.danmaku.add_event(event)
+        if kind == "danmaku" and self._fullscreen_tile is not None:
+            self._fullscreen_tile.fullscreen_danmaku.add_message(
+                event.get("text") or "", event.get("color") or "")
         self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=self._danmaku_room,
                           message=dict(event))
 
@@ -2392,8 +2399,9 @@ def main(argv: list[str] | None = None) -> int:
     t_rooms = time.perf_counter()
     print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
           + ("" if state else "（全新配置）"))
-    print(f"[VLC] libvlc {TilePlayer.vlc_version()} 硬件解码="
-          f"{'开' if settings.get('hw_decode', True) else '关（软解）'}",
+    decode_mode = settings.get("decode_mode") or (
+        "auto" if settings.get("hw_decode", True) else "none")
+    print(f"[VLC] libvlc {TilePlayer.vlc_version()} 解码方式={decode_mode}",
           file=sys.stderr, flush=True)
 
     window = MainWindow(sidebar, wall,

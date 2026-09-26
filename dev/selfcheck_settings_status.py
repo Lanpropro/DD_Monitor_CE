@@ -493,18 +493,20 @@ def main() -> None:
     window.settings.update(changed)
     window.state["settings"] = dict(window.settings)
     assert window.poll_interval_ms() == 5 * 60_000
-    # 硬件解码开关：关掉时每一路的 media 要带 :avcodec-hw=none（用户那边的
-    # libvlc 调用卡 6.5 秒 + 访问违例，第一步就是让他们能一键换成软解）
-    from ddm.player import HW_DECODE_OFF_OPTION, PlayerPool
-    window.settings["hw_decode"] = True
-    print(f"  硬解开：media 选项={window.media_options()}")
-    assert window.media_options() == ()
-    window.settings["hw_decode"] = False
-    print(f"  硬解关：media 选项={window.media_options()}")
-    assert window.media_options() == (HW_DECODE_OFF_OPTION,), "关硬解要真的下发软解选项"
-    print("  （这条设置也要能从设置窗口里读到）")
-    assert "hw_decode" in defaults, "「硬件解码」要出现在常规页里"
-    window.settings["hw_decode"] = True
+    from ddm.player import DECODE_MODES, PlayerPool
+    assert [general.decode_mode.itemData(i) for i in range(general.decode_mode.count())] == [
+        value for _label, value in DECODE_MODES]
+    for mode, options in (("auto", ()), ("d3d11va", (":avcodec-hw=d3d11va",)),
+                          ("dxva2", (":avcodec-hw=dxva2",)),
+                          ("none", (":avcodec-hw=none",))):
+        window.settings["decode_mode"] = mode
+        assert window.media_options() == options, f"{mode} 没有正确下发给 VLC"
+    assert defaults["decode_mode"] == "auto"
+    window.settings["decode_mode"] = "auto"
+    legacy = MainWindow([], [], state={"settings": {"hw_decode": False}})
+    assert legacy.settings["decode_mode"] == "none" and "hw_decode" not in legacy.settings, \
+        "旧配置关闭硬解时应保留软件解码选择"
+    legacy.close()
     print(f"  libvlc 预热：同一个实例={PlayerPool.instance() is PlayerPool.instance()}"
           f" 版本={TilePlayer.vlc_version()!r}")
     assert PlayerPool.instance() is PlayerPool.instance(), "预热和正常取用必须是同一个实例"
