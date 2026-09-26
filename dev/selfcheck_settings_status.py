@@ -4,7 +4,7 @@ import sys
 import time
 from unittest import mock
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QThread, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QThread, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeyEvent, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -121,7 +121,7 @@ def main() -> None:
     tp._picture_signature = lambda: (1234, "same")     # 画面一直不变
     results = [tp._check_picture(True) for _ in range(tp.FROZEN_TICKS + 1)]
     print(f"  每秒检查、连续约 {tp.FROZEN_TICKS} 秒无新画面 -> 判定卡住: {results}")
-    assert tp.FROZEN_TICKS >= 10, "短暂缓冲不应立即重新取流"
+    assert tp.FROZEN_TICKS == 2, "保持原有的画面静止检测时间"
     assert results == [False] * tp.FROZEN_TICKS + [True]
     tp._picture_signature = lambda: (time.time(), "changing")   # 画面在变
     print(f"  画面恢复变化 -> {tp._check_picture(True)}")
@@ -530,6 +530,52 @@ def main() -> None:
     window._schedule_retry(retry_tile)
     window.start_tile(retry_tile)
     assert retry_tile not in window._retry_timers, "已经重新取流时不能保留旧的重连定时器"
+
+    class PendingResolver(QObject):
+        resolved = Signal(str, str, int, str, list)
+        failed = Signal(str, str)
+        finished = Signal()
+
+        def __init__(self, room_id, quality, parent=None, *, source_offset=0):
+            super().__init__(parent)
+            self.room_id = room_id
+            self.headers = {}
+            self.source_offset = source_offset
+            self.cancelled = False
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            self.cancelled = True
+
+        def is_cancelled(self):
+            return self.cancelled
+
+    played, failures = [], []
+    original_play_on = window._play_on
+    original_resolve_failed = window._on_resolve_failed
+    original_refresh_stats = window.refresh_stats
+    window._play_on = lambda _tile, url, *_args, **_kwargs: played.append(url)
+    window._on_resolve_failed = lambda _tile, reason, **_kwargs: failures.append(reason)
+    window.refresh_stats = lambda: None
+    with mock.patch.object(app_module, "StreamResolver", PendingResolver):
+        window.start_tile(retry_tile)
+        previous_resolver = window._resolvers[retry_tile]
+        window.start_tile(retry_tile)
+        current_resolver = window._resolvers[retry_tile]
+        assert previous_resolver.cancelled, "新取流开始时旧请求应作废"
+        assert current_resolver.source_offset == previous_resolver.source_offset + 1
+        previous_resolver.resolved.emit("1001", "old.flv", 250, "app", [])
+        previous_resolver.failed.emit("1001", "旧请求失败")
+        previous_resolver.finished.emit()
+        assert window._resolvers[retry_tile] is current_resolver
+        current_resolver.resolved.emit("1001", "new.flv", 250, "app", [])
+        current_resolver.finished.emit()
+    assert played == ["new.flv"] and not failures, "旧结果不能覆盖当前播放"
+    window._play_on = original_play_on
+    window._on_resolve_failed = original_resolve_failed
+    window.refresh_stats = original_refresh_stats
     window.settings.pop("auto_reconnect")
     window._prepare_room({"room_id": "9999", "uname": "新房间"})   # noqa: SLF001
     room = {"room_id": "9999"}

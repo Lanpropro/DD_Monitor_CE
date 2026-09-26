@@ -108,7 +108,7 @@ class TilePlayer(QObject):
     pictureActivity = Signal()   # 解码计数重新变化；用来取消画面静止后的重试
 
     PICTURE_POLL_MS = 1000
-    FROZEN_TICKS = 10            # 给短暂缓冲留恢复时间，避免频繁重新取流
+    FROZEN_TICKS = 2             # 连续 2 秒无新解码画面就尝试恢复
 
     #: 各取流通道该带的请求头。插件解析出来的流地址要自带对应的头，
     #: 否则 CDN 会 403（app 通道不能带 Referer，web 通道必须带）。

@@ -1,6 +1,6 @@
 """B 站直播接口：房间信息与播放地址。
 
-取流走 web 端 playUrl —— app-room 接口返回的 FLV 地址现在会被 CDN 拒绝（403）。
+取流优先走 app-room，失败时退回 web 端 playUrl，并尝试同通道备用 CDN。
 CDN 地址统一从 https 改成 http：随程序打包的 VLC 插件集里没有 TLS 插件。
 """
 import hashlib
@@ -205,18 +205,19 @@ def danmaku_conf(room_id: str) -> tuple[int, str, list]:
 
 
 def _fetchable(url: str, headers: dict) -> bool:
-    """快速确认地址真的能拉流（CDN 防盗链规则按来源通道不同）。"""
+    """用播放器实际会发送的请求头确认 CDN 地址能拉流。"""
     try:
-        response = requests.get(url, headers=headers, cookies=_cookies(),
-                                stream=True, timeout=8)
-        chunk = next(response.iter_content(16), b"")
-        response.close()
-        return response.status_code == 200 and bool(chunk)
+        response = requests.get(url, headers=headers, stream=True, timeout=8)
+        try:
+            chunk = next(response.iter_content(16), b"")
+            return response.status_code == 200 and bool(chunk)
+        finally:
+            response.close()
     except Exception:  # noqa: BLE001
         return False
 
 
-def _web_play_url(room_id: str, quality: int) -> tuple[str, int]:
+def _web_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
     """web 端接口：未登录固定 720P，登录后按 qn 给。"""
     response = requests.get(
         "https://api.live.bilibili.com/room/v1/Room/playUrl",
@@ -226,12 +227,13 @@ def _web_play_url(room_id: str, quality: int) -> tuple[str, int]:
     if data.get("code") != 0:
         raise RuntimeError(f"接口返回 code={data.get('code')} {data.get('message')}")
     payload = data["data"]
-    url = payload["durl"][0]["url"]
+    stream = payload["durl"][0]
+    urls = [stream["url"], *(stream.get("backup_url") or [])]
     current = int(payload.get("current_qn") or 0)
-    return url, current
+    return list(dict.fromkeys(urls)), current
 
 
-def _app_play_url(room_id: str, quality: int) -> tuple[str, int]:
+def _app_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
     """app-room 接口：尊重 qn（登录后能拿到原画）。"""
     params = {
         "appkey": "iVGUTjsxvpLeuDCf", "build": 6250300, "c_locale": "zh_CN",
@@ -252,9 +254,10 @@ def _app_play_url(room_id: str, quality: int) -> tuple[str, int]:
         if stream.get("protocol_name") != "http_stream":
             continue
         codec = stream["format"][0]["codec"][0]
-        info = codec["url_info"][0]
-        url = info["host"] + codec["base_url"] + info["extra"]
-        return url, int(codec.get("current_qn") or 0)
+        urls = [info["host"] + codec["base_url"] + info["extra"]
+                for info in codec.get("url_info") or []]
+        if urls:
+            return list(dict.fromkeys(urls)), int(codec.get("current_qn") or 0)
     raise RuntimeError("app-room 接口没有返回 FLV 地址")
 
 
@@ -266,7 +269,7 @@ class Cancelled(Exception):
 
 
 def play_url(room_id: str, quality: int = 250,
-             cancelled=None) -> tuple[str, int, str, dict]:
+             cancelled=None, source_offset: int = 0) -> tuple[str, int, str, dict]:
     """取可播放的 http FLV 地址，附带接口实际给到的画质。
 
     优先用尊重画质的 app-room 接口（App UA、不带 Referer 拉流）；
@@ -284,24 +287,29 @@ def play_url(room_id: str, quality: int = 250,
         return bool(cancelled is not None and cancelled())
 
     errors = []
-    for source, profile, headers in ((_app_play_url, "app", STREAM_APP),
-                                     (_web_play_url, "web", STREAM_WEB)):
+    for source, profile, headers in ((_app_play_urls, "app", STREAM_APP),
+                                     (_web_play_urls, "web", STREAM_WEB)):
         if _cancelled():
             raise Cancelled()
         try:
-            url, current = source(room_id, quality)
+            urls, current = source(room_id, quality)
         except Exception as error:  # noqa: BLE001
             errors.append(f"{source.__name__}: {error}")
             continue
-        if _cancelled():
-            raise Cancelled()
-        http_url = url.replace("https://", "http://", 1)
-        if _fetchable(http_url, headers):
-            if _cancelled():               # 探测期间被作废：别把这个地址交出去
+        if urls:
+            offset = source_offset % len(urls)
+        else:
+            offset = 0
+        for url in urls[offset:] + urls[:offset]:
+            if _cancelled():
                 raise Cancelled()
-            print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
-                  file=sys.stderr, flush=True)
-            return http_url, current, profile, dict(headers)
+            http_url = url.replace("https://", "http://", 1)
+            if _fetchable(http_url, headers):
+                if _cancelled():           # 探测期间被作废：别把这个地址交出去
+                    raise Cancelled()
+                print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
+                      file=sys.stderr, flush=True)
+                return http_url, current, profile, dict(headers)
         errors.append(f"{source.__name__}: 地址不可用（CDN 拒绝）")
     raise RuntimeError("；".join(errors) or "取流失败")
 
@@ -312,10 +320,12 @@ class StreamResolver(QThread):
     resolved = Signal(str, str, int, str, list)   # room_id, url, 实际画质, 通道, 可选档位
     failed = Signal(str, str)       # room_id, 原因
 
-    def __init__(self, room_id: str, quality: int = 250, parent=None):
+    def __init__(self, room_id: str, quality: int = 250, parent=None,
+                 *, source_offset: int = 0):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.quality = quality
+        self.source_offset = source_offset
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self._cancelled = False
 
@@ -337,8 +347,9 @@ class StreamResolver(QThread):
         if self._cancelled:
             return
         try:
-            url, current, profile, headers = play_url(self.room_id, self.quality,
-                                                      cancelled=self.is_cancelled)
+            url, current, profile, headers = play_url(
+                self.room_id, self.quality, cancelled=self.is_cancelled,
+                source_offset=self.source_offset)
         except Cancelled:
             return                       # 作废：不发结果，也不算失败
         except Exception as error:  # noqa: BLE001

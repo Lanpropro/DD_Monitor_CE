@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         self.layout_id = layout_id
         self.players: dict[object, TilePlayer] = {}      # 按格子持有播放器
         self._resolvers: dict[object, StreamResolver] = {}
+        self._resolvers_running: set[StreamResolver] = set()
+        self._stream_attempts: dict[object, int] = {}
         #: 正在关窗。取流线程的 resolved 是队列连接，关窗之后还会再投递一次；
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
         self._closing = False
@@ -567,6 +569,7 @@ class MainWindow(QMainWindow):
             player.release()
         self._wait_background()
         self._resolvers.clear()
+        self._resolvers_running.clear()
         total_ms = (time.perf_counter() - t0) * 1000
         print(f"[关闭] 窗口 {hide_ms:.1f} ms 内隐藏；收尾（释放播放器+等线程）共 {total_ms:.1f} ms",
               file=sys.stderr, flush=True)
@@ -581,7 +584,7 @@ class MainWindow(QMainWindow):
                  "_poller", "_stats_poller")
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
-        threads.extend(self._resolvers.values())
+        threads.extend(self._resolvers_running)
         deadline = time.time() + 2.5
         for thread in threads:
             if thread is None or not self._loader_running(thread):
@@ -741,6 +744,9 @@ class MainWindow(QMainWindow):
         if timer is not None:
             timer.stop()              # 已通过其他路径重取流，旧的断流定时器不能再打断新流
             timer.deleteLater()
+        previous = self._resolvers.get(tile)
+        if previous is not None:
+            previous.cancel()
         player = self.players.get(tile)
         if player is not None:
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
@@ -748,17 +754,28 @@ class MainWindow(QMainWindow):
         tile.set_status("连接中…")
         # 以格子上的画质为准（信号带过来的字典是副本，不能当数据源）
         quality = int(tile.quality or room.get("quality", 250))
-        resolver = StreamResolver(room_id, quality, self)
+        source_offset = self._stream_attempts.get(tile, 0)
+        self._stream_attempts[tile] = source_offset + 1
+        resolver = StreamResolver(room_id, quality, self, source_offset=source_offset)
+        current = lambda: self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
         resolver.resolved.connect(
             lambda _rid, url, qn, profile, options, t=tile:
             self._play_on(t, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id, requested_quality=quality))
+                          room_id=room_id, requested_quality=quality) if current() else None)
         resolver.failed.connect(lambda rid, reason, t=tile, q=quality:
-                                self._on_resolve_failed(t, reason, requested_quality=q))
-        resolver.finished.connect(lambda t=tile: self._resolvers.pop(t, None))
+                                self._on_resolve_failed(t, reason, requested_quality=q)
+                                if current() else None)
+        resolver.finished.connect(lambda t=tile, r=resolver: self._on_resolver_finished(t, r))
+        resolver.finished.connect(resolver.deleteLater)
+        self._resolvers_running.add(resolver)
         self._resolvers[tile] = resolver
         resolver.start()
         self.refresh_stats()          # 人数不用等下一轮轮询，立刻拉一次
+
+    def _on_resolver_finished(self, tile, resolver) -> None:
+        if self._resolvers.get(tile) is resolver:
+            self._resolvers.pop(tile, None)
+        self._resolvers_running.discard(resolver)
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
@@ -895,7 +912,7 @@ class MainWindow(QMainWindow):
         tile.raise_overlays()
 
     def _on_picture_frozen(self, tile) -> None:
-        """静止约 10 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
+        """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
         if not tile.room.get("room_id") or tile.paused:
             return
         if tile not in self._freeze_refreshed:
@@ -968,6 +985,7 @@ class MainWindow(QMainWindow):
 
     def _stop_tile(self, tile) -> None:
         self._clear_freeze_recovery(tile)
+        self._stream_attempts.pop(tile, None)
         player = self.players.pop(tile, None)
         if player is not None:
             player.release()
