@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
+from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
     QVBoxLayout, QWidget,
@@ -25,7 +26,7 @@ from . import theme
 from . import version as version_module
 from . import watchdog
 from . import window_fullscreen
-from .audio_output import linear_to_vlc_volume
+from .audio_output import linear_to_vlc_volume, refresh_output_devices
 from .danmaku import DanmakuClient
 from .bili import (
     AccountLoader, FollowLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
@@ -233,6 +234,13 @@ class MainWindow(QMainWindow):
         self._audio_audit_timer.setInterval(AUDIO_AUDIT_MS)
         self._audio_audit_timer.timeout.connect(self._audit_audio)
         self._audio_audit_timer.start()
+        self._audio_devices = QMediaDevices(self)
+        self._default_audio_output_id = bytes(self._audio_devices.defaultAudioOutput().id())
+        self._audio_devices.audioOutputsChanged.connect(self._check_audio_output_device)
+        self._audio_device_timer = QTimer(self)
+        self._audio_device_timer.setInterval(AUDIO_AUDIT_MS)
+        self._audio_device_timer.timeout.connect(self._check_audio_output_device)
+        self._audio_device_timer.start()
         #: 各格开始录制的时刻（monotonic），用来刷「● REC 旁边的录制时长」
         self._recording_since: dict = {}
         self._record_clock = QTimer(self)
@@ -537,6 +545,19 @@ class MainWindow(QMainWindow):
                                 else sorted(self.plugins.enabled)),
         }
 
+    def _check_audio_output_device(self) -> None:
+        if self._closing:
+            return
+        device_id = bytes(self._audio_devices.defaultAudioOutput().id())
+        if device_id == self._default_audio_output_id:
+            return
+        try:
+            refresh_output_devices([player._audio_output for player in self.players.values()])
+        except Exception as exc:  # noqa: BLE001 - device notifications must not stop Qt
+            print(f"[音频输出] 刷新设备失败：{exc}", file=sys.stderr, flush=True)
+            return
+        self._default_audio_output_id = device_id
+
     def closeEvent(self, event) -> None:
         # 【关闭提速】最开头先把窗口藏起来：release() 要逐格调用 stop()/
         # set_hwnd(0)/release()（每格都是主线程上的阻塞 libvlc 调用，上百毫秒
@@ -557,6 +578,7 @@ class MainWindow(QMainWindow):
         self._closing = True
         self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
+        self._audio_device_timer.stop()
         self._record_clock.stop()
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)

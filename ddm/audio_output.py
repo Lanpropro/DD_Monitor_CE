@@ -4,6 +4,7 @@ from __future__ import annotations
 import ctypes
 import sys
 import threading
+from contextlib import ExitStack
 
 try:
     # audioop 是 C 实现的，混音和缩放都是一次调用搞定；纯 Python 逐样本处理
@@ -197,3 +198,19 @@ class StereoOutput:
                 stream.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def refresh_output_devices(outputs) -> None:
+    """Rebuild PortAudio's frozen device list after the system output changes."""
+    sounddevice = sys.modules.get("sounddevice")
+    if sounddevice is None:
+        return
+    # Hold every sink while PortAudio is restarted.  VLC callback threads must
+    # not create a new stream between closing the old streams and reinitializing.
+    with ExitStack() as locks:
+        for output in outputs:
+            locks.enter_context(output._lock)
+        for output in outputs:
+            output.close()
+        sounddevice._terminate()
+        sounddevice._initialize()
