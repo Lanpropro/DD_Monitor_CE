@@ -171,6 +171,8 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
+    # 发布目录保留 -exe 区分源码包；用户双击的程序名与软件版本名一致。
+    Move-Item -LiteralPath (Join-Path $exeDir "$name-exe.exe") -Destination (Join-Path $exeDir "$name.exe")
     # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
     # 而 onedir 的 _MEIPASS 就是 _internal）；插件也必须和 dll 挨着
     $internal = Join-Path $exeDir "_internal"
@@ -203,7 +205,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
 DD 监控室 $version（exe 便携版）
 ================================
 
-双击 $name-exe.exe 启动。不需要装 Python。
+双击 $name.exe 启动。不需要装 Python。
 配置 / 缓存 / 日志都在这个目录下（utils\config.json、cache\、logs\），
 plugins_user\ 里是插件（自带的弹幕记录 / 发弹幕就在里面，自己写的插件也放这里），
 整个目录拷到别的 Windows 10/11 64 位机器就能用。
@@ -217,7 +219,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     Write-Output "=== 实跑 20 秒验证（看有没有写出启动日志）==="
     $logDir = Join-Path $exeDir "logs"
     Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
-    $proc = Start-Process -FilePath (Join-Path $exeDir "$name-exe.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
+    $proc = Start-Process -FilePath (Join-Path $exeDir "$name.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 20
     $alive = -not $proc.HasExited
     if ($alive) { Stop-Process -Id $proc.Id -Force }

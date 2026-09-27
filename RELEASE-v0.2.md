@@ -17,7 +17,7 @@
 
 ## 获取与运行
 
-- `DD监控室CE-v0.2-exe.zip`：解压后双击 `DD监控室CE-v0.2-exe.exe`，无需安装 Python。
+- `DD监控室CE-v0.2-exe.zip`：解压后双击 `DD监控室CE-v0.2.exe`，无需安装 Python。
 - `DD监控室CE-v0.2.zip`：源码便携包，按包内 `运行说明.txt` 安装依赖后运行。
 - 更新时请保留旧版的 `utils/config.json`；新包内不包含个人配置。
 
