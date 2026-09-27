@@ -203,7 +203,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
 DD 监控室 $version（exe 便携版）
 ================================
 
-双击 DD监控室-$version-exe.exe 启动。不需要装 Python。
+双击 $name-exe.exe 启动。不需要装 Python。
 配置 / 缓存 / 日志都在这个目录下（utils\config.json、cache\、logs\），
 plugins_user\ 里是插件（自带的弹幕记录 / 发弹幕就在里面，自己写的插件也放这里），
 整个目录拷到别的 Windows 10/11 64 位机器就能用。

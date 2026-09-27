@@ -228,7 +228,9 @@ def main():
         hidden.room["live"] = True
         hidden.stream_url = str(source)
         assert window.recorder.start(hidden, recording=True)
-        window._on_layout_changed("1x1")
+        tile.room["live"] = True  # 首格占位，否则“开播优先”会把 hidden 换到首格
+        with patch.object(window, "start_tile"):
+            window._on_layout_changed("1x1")
         app.processEvents()
         assert not hidden.isVisible() and window.recorder.sessions[hidden].stopping
         assert until(app, lambda: hidden not in window.recorder.sessions and
