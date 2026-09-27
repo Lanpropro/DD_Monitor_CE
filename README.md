@@ -233,7 +233,8 @@ python -m venv .venv
 快捷键可以在程序设置中修改。
 
 随附的 `fullscreen_audio` 插件会在进入单路全屏时自动只保留这一路的声音，
-全屏按钮、右键菜单和 `F` 均生效。退出全屏后保留声音选择；当前格音量为 0 时，
+全屏按钮、右键菜单和 `F` 均生效。可在「设置 → 常规」中开关，默认开启。
+退出全屏后恢复各格原来的静音状态和音量；当前格音量为 0 时，
 会恢复到默认音量（默认音量也为 0 时使用 50%）。安装与卸载见
 [`plugins_user/fullscreen_audio/README.md`](plugins_user/fullscreen_audio/README.md)。
 

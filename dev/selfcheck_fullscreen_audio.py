@@ -1,12 +1,16 @@
 """全屏声音插件的离线回归测试，无需 Qt、直播网络或 VLC。"""
 from pathlib import Path
+import os
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ddm import plugins as api
+import ddm
 
 
 class FakeTile:
@@ -41,6 +45,11 @@ class FakeWall:
 
 class FullscreenAudioTest(unittest.TestCase):
     def setUp(self):
+        self.settings_page = SimpleNamespace(ITEMS=[("default_muted", "静音")])
+        dialogs = SimpleNamespace(GeneralSettingsPage=self.settings_page)
+        self.dialog_patch = patch.object(ddm, "dialogs", dialogs, create=True)
+        self.dialog_patch.start()
+        self.addCleanup(self.dialog_patch.stop)
         self.events = []
         self.tiles = [FakeTile(str(i), muted=(i == 1), events=self.events)
                       for i in range(4)]
@@ -65,14 +74,80 @@ class FullscreenAudioTest(unittest.TestCase):
         self.assertEqual(self.events[-1], ("1", "mute", False))
         self.assertTrue(all(t.room["muted"] == t.muted for t in self.tiles))
 
-    def test_exit_preserves_audio_and_forwards_layout_arguments(self):
+    def test_exit_restores_audio_and_forwards_layout_arguments(self):
         target = self.tiles[1]
         self.wall.set_fullscreen_tile(target)
         self.events.clear()
         self.wall.set_fullscreen_tile(None, stagger=True, first=target)
-        self.assertEqual(self.events, [])
         self.assertEqual(self.wall.calls[-1], (None, True, target))
-        self.assertEqual([t.muted for t in self.tiles], [True, False, True, True])
+        self.assertEqual([t.muted for t in self.tiles], [False, True, False, False])
+        self.assertEqual([t.volume for t in self.tiles], [35] * 4)
+
+    def test_disabled_setting_leaves_audio_untouched(self):
+        self.window.settings["fullscreen_audio_focus"] = False
+        self.wall.set_fullscreen_tile(self.tiles[1])
+        self.wall.set_fullscreen_tile(None)
+        self.assertEqual(self.events, [])
+
+    def test_general_setting_registered_with_default_and_removed_on_unload(self):
+        from ddm import config
+        self.assertEqual([key for key, _ in self.settings_page.ITEMS],
+                         ["default_muted", "fullscreen_audio_focus"])
+        self.assertTrue(config.DEFAULT_SETTINGS["fullscreen_audio_focus"])
+        self.manager.unload()
+        self.assertEqual(self.settings_page.ITEMS, [("default_muted", "静音")])
+
+    def test_setting_survives_config_save_and_reload(self):
+        from ddm import config
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(config, "CONFIG_PATH", str(Path(folder) / "config.json")), \
+                patch.dict(os.environ):
+            os.environ.pop("DDM_NO_SAVE", None)
+            for enabled in (False, True):
+                config.save({"version": config.STATE_VERSION,
+                             "settings": {"fullscreen_audio_focus": enabled}})
+                self.assertIs(config.load()["settings"]["fullscreen_audio_focus"], enabled)
+
+    def test_restore_manual_volume_changes_and_original_zero(self):
+        self.tiles[1].volume = 0
+        self.wall.set_fullscreen_tile(self.tiles[1])
+        self.tiles[1].set_volume(80)
+        self.tiles[2].set_volume(12)
+        self.tiles[3].set_muted(False)
+        self.wall.set_fullscreen_tile(None)
+        self.assertEqual([t.volume for t in self.tiles], [35, 0, 35, 35])
+        self.assertEqual([t.muted for t in self.tiles], [False, True, False, False])
+
+    def test_disable_during_fullscreen_still_restores_on_exit(self):
+        self.wall.set_fullscreen_tile(self.tiles[1])
+        self.window.settings["fullscreen_audio_focus"] = False
+        self.wall.set_fullscreen_tile(None)
+        self.assertEqual([t.muted for t in self.tiles], [False, True, False, False])
+        self.events.clear()
+        self.wall.set_fullscreen_tile(self.tiles[2])
+        self.assertEqual(self.events, [])
+
+    def test_switch_fullscreen_target_preserves_original_snapshot(self):
+        self.wall.set_fullscreen_tile(self.tiles[1])
+        self.wall.set_fullscreen_tile(self.tiles[2])
+        self.wall.set_fullscreen_tile(None)
+        self.assertEqual([t.muted for t in self.tiles], [False, True, False, False])
+
+    def test_removed_tiles_are_skipped_and_new_tiles_are_untouched(self):
+        self.wall.set_fullscreen_tile(self.tiles[1])
+        removed = self.tiles.pop()
+        new = FakeTile("new", muted=False, volume=12)
+        self.tiles.append(new)
+        self.events.clear()
+        self.wall.set_fullscreen_tile(None)
+        self.assertFalse(new.muted)
+        self.assertEqual(new.volume, 12)
+        self.assertFalse(any(event[0] == removed.room["room_id"] for event in self.events))
+
+    def test_unload_during_fullscreen_restores_before_save(self):
+        self.wall.set_fullscreen_tile(self.tiles[1])
+        self.manager.unload()
+        self.assertEqual([t.muted for t in self.tiles], [False, True, False, False])
 
     def test_reenter_other_tile_moves_audio_focus(self):
         self.wall.set_fullscreen_tile(self.tiles[1])
