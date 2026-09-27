@@ -473,6 +473,12 @@ class MainWindow(QMainWindow):
         if getattr(self, "orientation", "") != ("portrait" if self.is_portrait()
                                                 else "landscape"):
             self._apply_orientation()
+        self._sync_restore_geometry()
+
+    def _sync_restore_geometry(self) -> None:
+        if (self.isMaximized() and sys.platform == "win32"
+                and QApplication.platformName() == "windows"):
+            window_fullscreen.orient_restore_geometry(self, self.is_portrait())
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:
@@ -1733,6 +1739,7 @@ class MainWindow(QMainWindow):
         laid_out = time.perf_counter()
         if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
             self._apply_orientation()
+        self._sync_restore_geometry()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self._refresh_meta()
         self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
