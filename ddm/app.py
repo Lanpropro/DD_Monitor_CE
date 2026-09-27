@@ -1671,8 +1671,6 @@ class MainWindow(QMainWindow):
                 self._native_fullscreen_state = window_fullscreen.enter(self)
             else:
                 self.showFullScreen()
-            tile.set_fullscreen_mode(True)
-            self.sync_danmaku()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
             self._release_fullscreen_frame()
@@ -1705,8 +1703,6 @@ class MainWindow(QMainWindow):
             # 抓不到图（离屏 / 没有交互桌面）时不拆，否则用户会看到格子一个个
             # 蹦出来。
             self.wall.set_fullscreen_tile(None, stagger=stagger, first=tile)
-            tile.set_fullscreen_mode(False)
-            self.sync_danmaku()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
             self._release_fullscreen_frame()
@@ -2192,16 +2188,12 @@ class MainWindow(QMainWindow):
         return {}
 
     def sync_danmaku(self) -> None:
-        """弹幕格跟随主画面；全屏时改为跟随当前放大的直播间。"""
+        """让弹幕连接对上当前布局/主画面（布局里没有弹幕格就断开）。"""
         panel = self.wall.danmaku
-        if self._fullscreen_tile is None and not self.wall.has_danmaku:
+        if not self.wall.has_danmaku:
             self.stop_danmaku()
             return
-        room = (self._fullscreen_tile.room if self._fullscreen_tile is not None
-                else self._danmaku_target_room())
-        if self._fullscreen_tile is not None and not room.get("live"):
-            self.stop_danmaku()
-            return
+        room = self._danmaku_target_room()
         room_id = str(room.get("room_id") or "")
         if room_id and room_id == self._danmaku_room and self._danmaku is not None:
             return
@@ -2283,9 +2275,6 @@ class MainWindow(QMainWindow):
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
         self.wall.danmaku.add_event(event)
-        if kind == "danmaku" and self._fullscreen_tile is not None:
-            self._fullscreen_tile.fullscreen_danmaku.add_message(
-                event.get("text") or "", event.get("color") or "")
         self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=self._danmaku_room,
                           message=dict(event))
 

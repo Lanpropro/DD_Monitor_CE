@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
 from . import layouts, mouse_hook, theme
 from . import version as version_module
 from .images import AvatarLoader
-from .fullscreen_danmaku import FullscreenDanmaku
 from .player import TilePlayer
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
@@ -4523,14 +4522,6 @@ class Tile(QFrame):
         self.fullscreen_button.setFixedSize(28, 26)
         self.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self.fullscreen_button.clicked.connect(lambda: self.fullscreenRequested.emit(self))
-        self.fullscreen_danmaku_button = QPushButton("弹幕 开")
-        self.fullscreen_danmaku_button.setObjectName("TileCtrl")
-        self.fullscreen_danmaku_button.setFixedSize(58, 26)
-        self.fullscreen_danmaku_button.setCheckable(True)
-        self.fullscreen_danmaku_button.setChecked(True)
-        self.fullscreen_danmaku_button.setToolTip("显示或隐藏全屏弹幕")
-        self.fullscreen_danmaku_button.clicked.connect(self._toggle_fullscreen_danmaku)
-        self.fullscreen_danmaku_button.hide()
         self.recording_button = QPushButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
         self.recording_button.setFixedSize(64, 26)
@@ -4558,7 +4549,6 @@ class Tile(QFrame):
         self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.volume_button.clicked.connect(self._toggle_mute)
         self.volume_button.volumeChanged.connect(self.set_volume)
-        bottom_layout.addWidget(self.fullscreen_danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.volume_button)
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setFixedWidth(86)
@@ -4590,7 +4580,6 @@ class Tile(QFrame):
         for button in (self.quality_button, self.reload_button, self.close_button):
             button.setParent(self.controls)
         self.controls.setVisible(False)
-        self.fullscreen_danmaku = FullscreenDanmaku(self)
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
         self._overlay_visible = False
@@ -4748,28 +4737,9 @@ class Tile(QFrame):
         窗口、并且被 raise 过，才既画得出来也点得到。所以每次摆完位都要再抬一次
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
-        for widget in (self.fullscreen_danmaku, self.controls, self.stream_badge, self.title_badge,
+        for widget in (self.controls, self.stream_badge, self.title_badge,
                        self.time_badge, self.spinner, self.pause_overlay):
             widget.raise_()
-
-    def set_fullscreen_mode(self, active: bool) -> None:
-        if active:
-            self._position_fullscreen_danmaku()
-        self.fullscreen_danmaku_button.setVisible(active)
-        self.fullscreen_danmaku.setVisible(active and self.fullscreen_danmaku_button.isChecked())
-        if not active:
-            self.fullscreen_danmaku.clear()
-        else:
-            self.raise_overlays()
-
-    def _toggle_fullscreen_danmaku(self) -> None:
-        enabled = self.fullscreen_danmaku_button.isChecked()
-        self.fullscreen_danmaku_button.setText("弹幕 开" if enabled else "弹幕 关")
-        self.fullscreen_danmaku.setVisible(enabled)
-        if enabled:
-            self.raise_overlays()
-        else:
-            self.fullscreen_danmaku.clear()
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -5036,16 +5006,6 @@ class Tile(QFrame):
         super().resizeEvent(event)
         self._layout_areas()
 
-    def moveEvent(self, event) -> None:
-        super().moveEvent(event)
-        if hasattr(self, "fullscreen_danmaku"):
-            self._position_fullscreen_danmaku()
-
-    def _position_fullscreen_danmaku(self) -> None:
-        point = self.video.mapToGlobal(QPoint(0, 0))
-        self.fullscreen_danmaku.setGeometry(
-            point.x(), point.y(), self.video.width(), self.video.height())
-
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
@@ -5053,7 +5013,6 @@ class Tile(QFrame):
         video_height = max(60, height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
-        self._position_fullscreen_danmaku()
         self._round_video()
         video_right = self.video.width() + 1
         self.stream_badge.move(10, 8)

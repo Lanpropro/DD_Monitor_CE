@@ -86,6 +86,7 @@ def main() -> None:
                for tile in tiles), "全屏按钮应在音量条右侧"
 
     target = tiles[1]
+    target.room["live"] = True
     normal_size = window.size()
     saved_geometry = window.current_state()["geometry"]
     window_hwnd = int(window.winId())
@@ -107,8 +108,9 @@ def main() -> None:
         assert window.size() == app.primaryScreen().geometry().size()
     assert window.wall.fullscreen_tile is target
     assert window.wall.visible_tiles() == [target]
-    assert target.fullscreen_danmaku.isVisible()
-    assert target.fullscreen_danmaku_button.isVisible()
+    assert not hasattr(target, "fullscreen_danmaku")
+    assert not hasattr(target, "fullscreen_danmaku_button")
+    assert window._danmaku is None, "普通布局全屏时不应额外连接弹幕"
     assert not window.sidebar.isVisible()
     assert window.wall.layout_id == "corner"
     if app.platformName() == "windows":
@@ -129,8 +131,7 @@ def main() -> None:
         assert window.size() == normal_size
     assert wait_tiles_revealed(window, app), "退出全屏后格子要分批回来，等它们到齐"
     assert window.wall.layout_id == "corner" and window.wall.visible_tiles() == tiles
-    assert not target.fullscreen_danmaku.isVisible()
-    assert not target.fullscreen_danmaku_button.isVisible()
+    target.room["live"] = False
 
     QCursor.setPos(target.mapToGlobal(target.rect().center()))
     QTest.keyClick(window, Qt.Key_F)
