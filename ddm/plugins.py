@@ -313,6 +313,31 @@ class PluginManager:
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
 
+    def catalog(self) -> list[dict]:
+        """设置页使用的插件目录、元数据和本次启动状态。"""
+        if not os.path.isdir(self.plugins_dir):
+            return []
+        loaded = {plugin.context.name: plugin for plugin in self.plugins
+                  if plugin.context is not None}
+        skipped = dict(self.skipped)
+        entries = []
+        for folder in sorted(os.listdir(self.plugins_dir)):
+            if folder.startswith((".", "_")) or not os.path.isfile(
+                    os.path.join(self.plugins_dir, folder, "plugin.py")):
+                continue
+            plugin = loaded.get(folder)
+            entries.append({
+                "id": folder,
+                "name": str(plugin.name or folder) if plugin else folder,
+                "description": str(plugin.description or "") if plugin else "",
+                "version": str(plugin.version or "") if plugin else "",
+                "enabled": self.enabled is None or folder in self.enabled,
+                "status": "已加载" if plugin else (
+                    "已禁用" if skipped.get(folder) == "配置里没有启用" else "加载失败"),
+                "reason": "" if plugin else skipped.get(folder, "未加载"),
+            })
+        return entries
+
     # ---- 事件 ----
     def emit(self, event: str, **payload) -> None:
         for plugin in self.plugins:

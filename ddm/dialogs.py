@@ -6,9 +6,9 @@ from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
-    QGridLayout, QHBoxLayout, QLabel,
+    QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
-    QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -488,13 +488,73 @@ class RecordingSettingsPage(QWidget):
         }
 
 
+class PluginSettingsPage(QWidget):
+    """按现有插件接口展示元数据和下次启动的启用选择。"""
+
+    def __init__(self, manager=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        self.checks = {}
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        layout.addLayout(_page_head("插件", "启用状态的更改将在下次启动时生效"))
+
+        scroll = QScrollArea()
+        scroll.setObjectName("PluginScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        cards = QVBoxLayout(content)
+        cards.setContentsMargins(0, 0, 4, 0)
+        cards.setSpacing(10)
+        entries = manager.catalog() if manager else []
+        if not entries:
+            empty = QLabel("未发现插件。将插件放入 plugins_user/<插件名>/plugin.py")
+            empty.setObjectName("SettingsHint")
+            empty.setWordWrap(True)
+            cards.addWidget(empty)
+        for entry in entries:
+            card = QFrame()
+            card.setObjectName("PluginCard")
+            body = QVBoxLayout(card)
+            body.setContentsMargins(14, 12, 14, 12)
+            body.setSpacing(6)
+            top = QHBoxLayout()
+            title = QLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
+            title.setObjectName("PluginName")
+            top.addWidget(title)
+            top.addStretch(1)
+            check = QCheckBox("启用")
+            check.setChecked(entry["enabled"])
+            self.checks[entry["id"]] = check
+            top.addWidget(check)
+            body.addLayout(top)
+            description = QLabel(entry["description"] or "暂无说明")
+            description.setWordWrap(True)
+            body.addWidget(description)
+            status = QLabel(entry["id"] + "  ·  " + entry["status"] +
+                            ("：" + entry["reason"] if entry["status"] == "加载失败" else ""))
+            status.setObjectName("SettingsHint")
+            status.setWordWrap(True)
+            body.addWidget(status)
+            cards.addWidget(card)
+        cards.addStretch(1)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+
+    def enabled_plugins(self):
+        return None if all(check.isChecked() for check in self.checks.values()) else [
+            name for name, check in self.checks.items() if check.isChecked()]
+
+
 class SettingsDialog(QDialog):
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("danmaku", "弹幕"),
-             ("recording", "录制"), ("shortcuts", "快捷键")]
+             ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件")]
 
-    def __init__(self, settings: dict, shortcuts: dict, parent=None):
+    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.resize(720, 500)
@@ -522,10 +582,12 @@ class SettingsDialog(QDialog):
         self.danmaku_page = DanmakuSettingsPage(settings)
         self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
+        self.plugin_page = PluginSettingsPage(plugin_manager)
         self.stack.addWidget(self.general_page)
         self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.recording_page)
         self.stack.addWidget(self.shortcut_page)
+        self.stack.addWidget(self.plugin_page)
         right.addWidget(self.stack, 1)
 
         buttons = QHBoxLayout()
@@ -566,6 +628,9 @@ class SettingsDialog(QDialog):
 
     def shortcuts(self) -> dict:
         return self.shortcut_page.values()
+
+    def enabled_plugins(self):
+        return self.plugin_page.enabled_plugins()
 
 
 class AddRoomDialog(QDialog):

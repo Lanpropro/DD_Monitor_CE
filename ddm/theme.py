@@ -280,6 +280,18 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#PluginCard {{
+    background: {ELEVATED};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
+#PluginScroll, #PluginScroll > QWidget > QWidget {{
+    background: transparent;
+}}
+#PluginName {{
+    font-weight: 600;
+    color: {TEXT1};
+}}
 
 /* ---------- 侧栏 ---------- */
 #Sidebar {{

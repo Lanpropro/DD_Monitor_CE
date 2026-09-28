@@ -19,7 +19,8 @@ plugins_user/
   `plugins_user/_danmaku_log/` 就是弹幕日志的落盘位置。
 - 装载失败的插件只会被跳过并在 stderr 打印原因，不会影响程序启动。
 
-启用在配置里控制：`utils/config.json` 的 `plugins_enabled` 写成插件目录名的数组，
+可在「设置 → 插件」查看插件卡片、当前加载状态并切换启用状态；更改在下次启动时生效。
+也可直接在 `utils/config.json` 的 `plugins_enabled` 写入插件目录名数组，
 不写或写 `null` 表示全部启用。
 
 ## 最小插件

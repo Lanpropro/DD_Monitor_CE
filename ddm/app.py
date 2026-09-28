@@ -487,7 +487,8 @@ class MainWindow(QMainWindow):
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
-        dialog = SettingsDialog(self.settings, self.shortcuts, self)
+        dialog = SettingsDialog(self.settings, self.shortcuts, self,
+                                plugin_manager=self.plugins)
         if page == "recording":
             dialog.nav.setCurrentRow(2)
         if dialog.exec() != SettingsDialog.Accepted:
@@ -495,6 +496,8 @@ class MainWindow(QMainWindow):
         decode_before = self.settings.get("decode_mode", "auto")
         self.settings.update(dialog.settings())
         self.shortcuts = dialog.shortcuts()
+        enabled_plugins = dialog.enabled_plugins()
+        self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
         self.state["settings"] = dict(self.settings)
         self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
         self._poll_timer.setInterval(self.poll_interval_ms())
