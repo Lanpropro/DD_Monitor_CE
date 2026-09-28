@@ -189,7 +189,7 @@ def part_two(app) -> None:
 
     print(f"  已装载插件：{window.plugins.summary}")
     assert window.plugins.plugins, "plugins_user 下的插件应该被自动装载"
-    assert window.plugins.danmaku_sender is not None, "示例插件应提供发弹幕能力"
+    assert window.plugins.danmaku_sender is None, "内置弹幕记录插件不应宣称提供发弹幕能力"
 
     print("\n=== 7a. 关注卡片：浏览器入口及插件可选网页地址 ===")
     item = window.sidebar.items()[0]

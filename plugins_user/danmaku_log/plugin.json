@@ -1,0 +1,6 @@
+{
+  "id": "danmaku_log",
+  "name": "弹幕记录",
+  "description": "保存直播弹幕，并可从格子菜单复制流地址",
+  "version": "1.0"
+}

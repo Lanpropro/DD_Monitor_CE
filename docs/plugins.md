@@ -10,16 +10,25 @@
 
 ```
 plugins_user/
-  <插件名>/
+  <插件ID>/
+    plugin.json      # 名称、说明和版本；设置页不执行代码即可显示
     plugin.py        # 必须存在，里面要有一个叫 plugin 的 Plugin 实例
 ```
 
-- `plugins_user/` 下的每个子目录都会被扫描；目录名就是插件的标识（也叫 `name`）。
+- 新插件以 ZIP 导入，内部只能有一个顶层目录，目录名是插件 ID：小写英文字母开头，后续可含小写字母、数字和下划线。
+- ZIP 中必须有 `<插件ID>/plugin.json` 和 `<插件ID>/plugin.py`，其他资源文件可放在同一目录下。`plugin.json` 格式如下：
+
+```json
+{"id": "my_plugin", "name": "我的插件", "description": "一句话说明", "version": "1.0"}
+```
+
+- `id` 必须与目录名一致；`name`、`description`、`version` 必须是非空字符串。设置页优先从清单读取卡片信息，启动时才导入 `plugin.py`、查找 `plugin` 实例并调用 `on_load`。
+- 旧插件没有 `plugin.json` 仍可从磁盘加载；新 ZIP 包必须有清单。装载不会覆盖同 ID 的已有插件，也不会当场执行代码，重启后生效。
 - 以 `_` 或 `.` 开头的目录会被**跳过**（给模板和插件自己的数据用）。
   `plugins_user/_danmaku_log/` 就是弹幕日志的落盘位置。
 - 装载失败的插件只会被跳过并在 stderr 打印原因，不会影响程序启动。
 
-可在「设置 → 插件」查看插件卡片、当前加载状态并切换启用状态；更改在下次启动时生效。
+可在「设置 → 插件」点击「装载插件…」选择 ZIP，查看插件卡片、当前加载状态并切换启用状态；安装和开关更改均在下次启动时生效。安装文件是即时操作，即使随后取消设置窗口，也不会撤销已安装的文件。
 也可直接在 `utils/config.json` 的 `plugins_enabled` 写入插件目录名数组，
 不写或写 `null` 表示全部启用。
 
@@ -30,10 +39,6 @@ from ddm import plugins as api
 
 
 class MyPlugin(api.Plugin):
-    name = "我的插件"
-    description = "一句话说明"
-    version = "1.0"
-
     def on_load(self, context: api.PluginContext) -> None:
         context.log("装载完成")
 
@@ -44,6 +49,8 @@ class MyPlugin(api.Plugin):
 
 plugin = MyPlugin()
 ```
+
+清单负责展示元数据；`plugin.py` 只需导出一个 `Plugin` 子类实例。
 
 ## 一、事件（只读地观察）
 
@@ -111,7 +118,7 @@ class MyPlugin(api.Plugin):
 
 ## 三、发弹幕
 
-各家平台的发送方式差异太大，本体不内置，改成「插件实现、本体调用」：
+当前随软件提供的「弹幕记录」插件只保存弹幕，不提供发弹幕。接口仍保留给之后能完整实现认证和发送的插件：
 
 ```python
 class MySender(api.DanmakuSender):
@@ -127,9 +134,6 @@ class MyPlugin(api.Plugin):
         context.register_danmaku_sender(MySender())
 ```
 
-B 站的具体做法见 `plugins_user/danmaku_log/plugin.py`：走
-`POST https://api.live.bilibili.com/msg/send`，需要 `SESSDATA`（本体已保存）
-和 `bili_jct`（CSRF 票据，目前要自己填进插件配置）。
 
 ## 四、格子右键菜单
 

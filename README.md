@@ -51,7 +51,7 @@ DD监控室CE 是一款基于 Python、PySide6 和 VLC 的 B 站多窗口直播�
 - ⏺️ 每格独立录制直播流、保存最近数分钟的即时回放（便携包内置 FFmpeg）
 - 🎧 每一路可以单独路由到左声道 / 右声道
 - 🛠️ 支持断流重连和画面卡死检测
-- 🧩 支持插件（`plugins_user/<名字>/plugin.py`）
+- 🧩 支持从设置页装载 ZIP 插件包
 - 💾 自动保存布局（分横竖屏各记一套）、音量、画质和界面状态
 
 录制按钮位于每块画面**底栏暂停键右侧**，标着 `● 录制`；点击开始/停止。
@@ -287,10 +287,11 @@ powershell -File dev\build_release.ps1
 
 ## 插件
 
-不想塞进本体的功能可以做成插件。插件放 `plugins_user/<插件名>/plugin.py`，
+不想塞进本体的功能可以做成插件。可在「设置 → 插件」装载 ZIP 包；
+新插件包含 `plugin.json` 和 `plugin.py`，
 接口说明见 [`docs/plugins.md`](docs/plugins.md)。
 
-- 可直接用的例子：`plugins_user/danmaku_log/`（弹幕落盘 + 发弹幕）
+- 可直接用的例子：`plugins_user/danmaku_log/`（弹幕落盘 + 复制流地址）
 - 接别的平台的骨架：`plugins_user/_template_platform/plugin.py`
 
 插件是受信任代码，和本体同进程运行 —— 只装自己看过源码的插件。

@@ -90,17 +90,12 @@ class MyPlatform(api.Platform):
 
 
 class MyPlatformPlugin(api.Plugin):
-    name = "我的平台"
-    description = "接一个 B 站以外的直播间（模板，需要自己填接口）"
-    version = "0.1"
-
     def on_load(self, context: api.PluginContext) -> None:
         context.register_platform(MyPlatform())
         context.log(f"已注册平台 {MyPlatform.kind}；"
                     f"添加直播间时写 {MyPlatform.kind}:房间号")
 
 
-# 这个文件放在 plugins_user/ 下的任何一个子目录里、文件名是 plugin.py 就会被装载。
-# 因为只是模板、接口都是假的，默认不启用：把下面这行改成构造实例，
-# 或者把整个目录挪到 plugins_user/ 并删掉文件名里的下划线前缀即可。
-plugin = None
+# 复制此目录并重命名为 myplatform，填好真实接口后压成 ZIP 再导入。
+# 原目录以 _ 开头，不会被自动装载。
+plugin = MyPlatformPlugin()

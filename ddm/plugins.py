@@ -25,9 +25,14 @@
 让一个坏插件只坏它自己。
 """
 import importlib.util
+import json
 import os
+import re
+import shutil
 import sys
+import tempfile
 import traceback
+import zipfile
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -39,6 +44,22 @@ from . import config as config_module
 #: 结果就是 exe 版永远是「[插件] 0 个插件」。
 REPO = config_module.REPO
 DEFAULT_PLUGINS_DIR = os.path.join(REPO, "plugins_user")
+PLUGIN_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def read_manifest(folder: str, expected_id: str) -> dict | None:
+    """读取新格式元数据；没有清单的旧插件仍可按原方式装载。"""
+    path = os.path.join(folder, "plugin.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict) or data.get("id") != expected_id:
+        raise ValueError("plugin.json 的 id 必须与目录名一致")
+    for field in ("name", "description", "version"):
+        if not isinstance(data.get(field), str) or not data[field].strip():
+            raise ValueError(f"plugin.json 缺少非空字符串 {field}")
+    return data
 
 # ---- 事件名（字符串常量，插件里直接用字面量也行） ----
 EVENT_STARTED = "app.started"
@@ -265,6 +286,7 @@ class PluginManager:
                 self.skipped.append((entry, "配置里没有启用"))
                 continue
             try:
+                manifest = read_manifest(folder, entry)
                 plugin = self._load_module(entry, module_path)
             except Exception as error:           # noqa: BLE001
                 self.skipped.append((entry, f"装载失败：{error}"))
@@ -273,6 +295,10 @@ class PluginManager:
             if plugin is None:
                 self.skipped.append((entry, "没有找到名为 plugin 的 Plugin 实例"))
                 continue
+            if manifest:
+                plugin.name = manifest["name"]
+                plugin.description = manifest["description"]
+                plugin.version = manifest["version"]
             context = PluginContext(self, entry)
             plugin.context = context
             try:
@@ -313,6 +339,44 @@ class PluginManager:
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
 
+    def install_zip(self, archive: str) -> str:
+        """安装单插件 ZIP；本次进程不执行新插件代码。"""
+        with zipfile.ZipFile(archive) as package:
+            files = [item for item in package.infolist() if not item.is_dir()]
+            if not files or len(files) > 256 or sum(item.file_size for item in files) > 100 * 1024 * 1024:
+                raise ValueError("插件包为空或超过大小限制")
+            if len({item.filename for item in files}) != len(files):
+                raise ValueError("插件包包含重复文件")
+            names = [item.filename.split("/") for item in files]
+            plugin_id = names[0][0]
+            if not PLUGIN_ID.fullmatch(plugin_id):
+                raise ValueError("插件目录名须为小写英文字母开头，只能包含字母、数字和下划线")
+            for item, parts in zip(files, names):
+                if (len(parts) < 2 or parts[0] != plugin_id or
+                        any(part in ("", ".", "..") for part in parts) or
+                        "\\" in item.filename or ":" in item.filename or
+                        (item.external_attr >> 16) & 0o170000 == 0o120000):
+                    raise ValueError("插件包包含不安全路径或多个顶层目录")
+            if f"{plugin_id}/plugin.py" not in package.namelist() or \
+                    f"{plugin_id}/plugin.json" not in package.namelist():
+                raise ValueError("插件包必须包含 plugin.py 和 plugin.json")
+            os.makedirs(self.plugins_dir, exist_ok=True)
+            target = os.path.join(self.plugins_dir, plugin_id)
+            if os.path.exists(target):
+                raise ValueError(f"插件 {plugin_id} 已存在")
+            with tempfile.TemporaryDirectory(prefix="_import_", dir=self.plugins_dir) as staging:
+                for item, parts in zip(files, names):
+                    destination = os.path.join(staging, *parts)
+                    os.makedirs(os.path.dirname(destination), exist_ok=True)
+                    with package.open(item) as source, open(destination, "wb") as output:
+                        shutil.copyfileobj(source, output)
+                read_manifest(os.path.join(staging, plugin_id), plugin_id)
+                os.replace(os.path.join(staging, plugin_id), target)
+        if self.enabled is not None:
+            self.enabled.add(plugin_id)
+            self.save_plugin_settings()
+        return plugin_id
+
     def catalog(self) -> list[dict]:
         """设置页使用的插件目录、元数据和本次启动状态。"""
         if not os.path.isdir(self.plugins_dir):
@@ -326,15 +390,23 @@ class PluginManager:
                     os.path.join(self.plugins_dir, folder, "plugin.py")):
                 continue
             plugin = loaded.get(folder)
+            try:
+                manifest = read_manifest(os.path.join(self.plugins_dir, folder), folder)
+                manifest_error = ""
+            except (OSError, ValueError, json.JSONDecodeError) as error:
+                manifest = None
+                manifest_error = f"plugin.json 无效：{error}"
+            reason = skipped.get(folder, manifest_error)
             entries.append({
                 "id": folder,
-                "name": str(plugin.name or folder) if plugin else folder,
-                "description": str(plugin.description or "") if plugin else "",
-                "version": str(plugin.version or "") if plugin else "",
+                "name": manifest["name"] if manifest else (str(plugin.name or folder) if plugin else folder),
+                "description": manifest["description"] if manifest else (str(plugin.description or "") if plugin else ""),
+                "version": manifest["version"] if manifest else (str(plugin.version or "") if plugin else ""),
                 "enabled": self.enabled is None or folder in self.enabled,
                 "status": "已加载" if plugin else (
-                    "已禁用" if skipped.get(folder) == "配置里没有启用" else "加载失败"),
-                "reason": "" if plugin else skipped.get(folder, "未加载"),
+                    "已禁用" if reason == "配置里没有启用" else
+                    "加载失败" if reason else "待重启"),
+                "reason": "" if plugin else reason,
             })
         return entries
 

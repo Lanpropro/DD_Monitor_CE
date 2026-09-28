@@ -1,12 +1,13 @@
 """对话框：设置（常规 / 快捷键）、添加直播间、从关注导入。"""
 import re
+import zipfile
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
-    QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -493,55 +494,80 @@ class PluginSettingsPage(QWidget):
 
     def __init__(self, manager=None, parent=None):
         super().__init__(parent)
+        self.manager = manager
         self.setObjectName("SettingsPage")
         self.checks = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("插件", "启用状态的更改将在下次启动时生效"))
+        layout.addLayout(_page_head("插件", "插件安装后和启用状态的更改均在下次启动时生效"))
+        self.install_button = QPushButton("装载插件…")
+        self.install_button.setObjectName("IconButton")
+        self.install_button.clicked.connect(self._install)
+        layout.addWidget(self.install_button, alignment=Qt.AlignLeft)
 
         scroll = QScrollArea()
         scroll.setObjectName("PluginScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
-        cards = QVBoxLayout(content)
-        cards.setContentsMargins(0, 0, 4, 0)
-        cards.setSpacing(10)
+        self.cards = QVBoxLayout(content)
+        self.cards.setContentsMargins(0, 0, 4, 0)
+        self.cards.setSpacing(10)
         entries = manager.catalog() if manager else []
+        self.empty = None
         if not entries:
-            empty = QLabel("未发现插件。将插件放入 plugins_user/<插件名>/plugin.py")
-            empty.setObjectName("SettingsHint")
-            empty.setWordWrap(True)
-            cards.addWidget(empty)
+            self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
+            self.empty.setObjectName("SettingsHint")
+            self.empty.setWordWrap(True)
+            self.cards.addWidget(self.empty)
+        self.cards.addStretch(1)
         for entry in entries:
-            card = QFrame()
-            card.setObjectName("PluginCard")
-            body = QVBoxLayout(card)
-            body.setContentsMargins(14, 12, 14, 12)
-            body.setSpacing(6)
-            top = QHBoxLayout()
-            title = QLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
-            title.setObjectName("PluginName")
-            top.addWidget(title)
-            top.addStretch(1)
-            check = QCheckBox("启用")
-            check.setChecked(entry["enabled"])
-            self.checks[entry["id"]] = check
-            top.addWidget(check)
-            body.addLayout(top)
-            description = QLabel(entry["description"] or "暂无说明")
-            description.setWordWrap(True)
-            body.addWidget(description)
-            status = QLabel(entry["id"] + "  ·  " + entry["status"] +
-                            ("：" + entry["reason"] if entry["status"] == "加载失败" else ""))
-            status.setObjectName("SettingsHint")
-            status.setWordWrap(True)
-            body.addWidget(status)
-            cards.addWidget(card)
-        cards.addStretch(1)
+            self._add_card(entry)
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
+
+    def _add_card(self, entry):
+        card = QFrame()
+        card.setObjectName("PluginCard")
+        body = QVBoxLayout(card)
+        body.setContentsMargins(14, 12, 14, 12)
+        body.setSpacing(6)
+        top = QHBoxLayout()
+        title = QLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
+        title.setObjectName("PluginName")
+        top.addWidget(title)
+        top.addStretch(1)
+        check = QCheckBox("启用")
+        check.setChecked(entry["enabled"])
+        self.checks[entry["id"]] = check
+        top.addWidget(check)
+        body.addLayout(top)
+        description = QLabel(entry["description"] or "暂无说明")
+        description.setWordWrap(True)
+        body.addWidget(description)
+        status = QLabel(entry["id"] + "  ·  " + entry["status"] +
+                        ("：" + entry["reason"] if entry["status"] == "加载失败" else ""))
+        status.setObjectName("SettingsHint")
+        status.setWordWrap(True)
+        body.addWidget(status)
+        self.cards.insertWidget(self.cards.count() - 1, card)
+
+    def _install(self):
+        archive, _ = QFileDialog.getOpenFileName(self, "装载插件", "", "插件包 (*.zip)")
+        if not archive or self.manager is None:
+            return
+        try:
+            plugin_id = self.manager.install_zip(archive)
+        except (OSError, ValueError, zipfile.BadZipFile) as error:
+            QMessageBox.warning(self, "装载插件失败", str(error))
+            return
+        if self.empty is not None:
+            self.empty.deleteLater()
+            self.empty = None
+        entry = next(item for item in self.manager.catalog() if item["id"] == plugin_id)
+        self._add_card(entry)
+        QMessageBox.information(self, "插件已安装", "插件将在下次启动时装载")
 
     def enabled_plugins(self):
         return None if all(check.isChecked() for check in self.checks.values()) else [
