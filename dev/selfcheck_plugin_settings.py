@@ -5,7 +5,7 @@ import tempfile
 import zipfile
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -102,6 +102,35 @@ def main():
         try:
             manager.install_zip(archive)
             assert False, "相同 ID 不能覆盖已有插件"
+        except ValueError:
+            pass
+
+        card = dialog.plugin_page.checks["new_plugin"].parentWidget()
+        delete = next(button for button in card.findChildren(QPushButton)
+                      if button.text() == "删除")
+        with patch("ddm.dialogs.QMessageBox.question", return_value=QMessageBox.No):
+            delete.click()
+        assert os.path.isdir(os.path.join(root, "new_plugin")), "取消删除应保留插件"
+        with patch("ddm.dialogs.QMessageBox.question", return_value=QMessageBox.Yes):
+            delete.click()
+        assert not os.path.exists(os.path.join(root, "new_plugin"))
+        assert "new_plugin" not in manager.enabled
+        assert "new_plugin" not in dialog.plugin_page.checks
+        assert os.path.exists(sentinel), "删除插件不能删除目录外的文件"
+
+        manager.plugin_settings["active"] = {"token": "old"}
+        active_card = dialog.plugin_page.checks["active"].parentWidget()
+        active_delete = next(button for button in active_card.findChildren(QPushButton)
+                             if button.text() == "删除")
+        with patch("ddm.dialogs.QMessageBox.question", return_value=QMessageBox.Yes):
+            active_delete.click()
+        assert "active" not in manager.enabled and "active" not in manager.plugin_settings
+        assert "active" not in {item["id"] for item in manager.catalog()}
+        assert any(plugin.context.name == "active" for plugin in manager.plugins), \
+            "已加载的插件应在本次进程结束前保留"
+        try:
+            manager.remove_plugin("../outside")
+            assert False, "不能删除插件目录之外的路径"
         except ValueError:
             pass
         dialog.deleteLater()

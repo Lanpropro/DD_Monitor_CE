@@ -291,7 +291,6 @@ powershell -File dev\build_release.ps1
 新插件包含 `plugin.json` 和 `plugin.py`，
 接口说明见 [`docs/plugins.md`](docs/plugins.md)。
 
-- 可直接用的例子：`plugins_user/danmaku_log/`（弹幕落盘 + 复制流地址）
 - 接别的平台的骨架：`plugins_user/_template_platform/plugin.py`
 
 插件是受信任代码，和本体同进程运行 —— 只装自己看过源码的插件。

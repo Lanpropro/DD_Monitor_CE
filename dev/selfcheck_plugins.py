@@ -4,7 +4,7 @@
 1. 管理器本身（装载 / 跳过 / 事件 / 平台注册冲突 / 菜单项 / 异常隔离）——不联窗口；
 2. 本体的接线（``stream.resolved`` 事件带请求头、格子右键菜单能拿到插件项、
    取流结果记在格子上）——需要一个窗口，播放全部打桩；
-3. 示例插件（plugins_user/danmaku_log）真的能用。
+3. 默认插件路径仍指向程序旁边，未附带弹幕记录插件。
 """
 import os
 import sys
@@ -188,8 +188,8 @@ def part_two(app) -> None:
     tile = window.wall.tiles[0]
 
     print(f"  已装载插件：{window.plugins.summary}")
-    assert window.plugins.plugins, "plugins_user 下的插件应该被自动装载"
-    assert window.plugins.danmaku_sender is None, "内置弹幕记录插件不应宣称提供发弹幕能力"
+    assert not any(plugin.context and plugin.context.name == "danmaku_log"
+                   for plugin in window.plugins.plugins), "弹幕记录不再作为内置插件"
 
     print("\n=== 7a. 关注卡片：浏览器入口及插件可选网页地址 ===")
     item = window.sidebar.items()[0]
@@ -234,6 +234,9 @@ def part_two(app) -> None:
             if event == plugin_api.EVENT_STREAM_RESOLVED:
                 received["source"] = payload.get("source")
 
+        def tile_actions(self, tile):
+            return [("复制流地址", lambda: tile.stream_url)]
+
     window.plugins.plugins.append(Recorder())
 
     # 直接调 _play_on：这是取流成功后的落点，插件事件就从这里发出去
@@ -277,7 +280,7 @@ def part_two(app) -> None:
 
 
 def part_three() -> None:
-    print("\n=== 10. 示例插件：弹幕落盘 ===")
+    print("\n=== 10. 插件与缓存仍使用程序旁边的路径 ===")
     # 打包成 exe 之后 __file__ 在 _internal 里面：插件目录和图片缓存都必须跟着
     # config.REPO（它认得 frozen）走，否则 exe 版永远是「[插件] 0 个插件」，
     # 头像也会写进运行库目录里。
@@ -288,24 +291,8 @@ def part_three() -> None:
     assert plugin_api.DEFAULT_PLUGINS_DIR == os.path.join(config_module.REPO, "plugins_user"), \
         "插件目录要放在程序旁边（config.REPO），不能用 __file__ 推"
     assert images_module.REPO == config_module.REPO, "图片缓存也要放在程序旁边"
-    root = tempfile.mkdtemp(prefix="ddm_demo_")
-    manager = plugin_api.PluginManager(
-        plugins_dir=os.path.join(REPO, "plugins_user"), enabled=None)
-    manager.plugin_settings = {}
-    manager.load()
-    assert manager.plugins, "示例插件应该被装载"
-    log_dir = os.path.join(REPO, "plugins_user", "_danmaku_log")
-    room_file = os.path.join(log_dir, "9001.log")
-    if os.path.exists(room_file):
-        os.remove(room_file)
-    manager.emit(plugin_api.EVENT_DANMAKU, room_id="9001",
-                 message={"kind": "danmaku", "uname": "某人", "text": "测试一条弹幕"})
-    assert os.path.exists(room_file), f"弹幕应该落到 {room_file}"
-    with open(room_file, encoding="utf-8") as handle:
-        content = handle.read()
-    print(f"  写入内容：{content.strip()!r}")
-    assert "测试一条弹幕" in content and "某人" in content
-    os.remove(room_file)
+    assert not os.path.isfile(os.path.join(REPO, "plugins_user", "danmaku_log", "plugin.py")), \
+        "发布目录不应附带弹幕记录插件"
 
 
 def main() -> None:

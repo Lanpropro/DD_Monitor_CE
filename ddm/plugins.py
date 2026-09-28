@@ -268,6 +268,7 @@ class PluginManager:
         self._platform_owner: dict = {}          # kind -> 插件名
         self._sender: DanmakuSender | None = None
         self._sender_owner = ""
+        self._removed: set[str] = set()
         self.plugin_settings: dict = {}
         self._save_settings: Callable | None = None
 
@@ -377,12 +378,31 @@ class PluginManager:
             self.save_plugin_settings()
         return plugin_id
 
+    def remove_plugin(self, plugin_id: str) -> None:
+        """删除插件目录；已装载的实例在本次进程结束前仍然运行。"""
+        if (not isinstance(plugin_id, str) or not plugin_id or
+                plugin_id.startswith((".", "_")) or
+                any(char in plugin_id for char in ("/", "\\", ":"))):
+            raise ValueError("只能删除插件目录中的有效插件")
+        root = os.path.realpath(self.plugins_dir)
+        target = os.path.join(root, plugin_id)
+        if (os.path.commonpath((root, os.path.realpath(target))) != root or
+                not os.path.isdir(target) or os.path.islink(target) or
+                not os.path.isfile(os.path.join(target, "plugin.py"))):
+            raise ValueError("只能删除插件目录中的有效插件")
+        shutil.rmtree(target)
+        self._removed.add(plugin_id)
+        if self.enabled is not None:
+            self.enabled.discard(plugin_id)
+        self.plugin_settings.pop(plugin_id, None)
+        self.save_plugin_settings()
+
     def catalog(self) -> list[dict]:
         """设置页使用的插件目录、元数据和本次启动状态。"""
         if not os.path.isdir(self.plugins_dir):
             return []
         loaded = {plugin.context.name: plugin for plugin in self.plugins
-                  if plugin.context is not None}
+                  if plugin.context is not None and plugin.context.name not in self._removed}
         skipped = dict(self.skipped)
         entries = []
         for folder in sorted(os.listdir(self.plugins_dir)):

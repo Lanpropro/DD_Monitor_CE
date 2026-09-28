@@ -542,6 +542,10 @@ class PluginSettingsPage(QWidget):
         check.setChecked(entry["enabled"])
         self.checks[entry["id"]] = check
         top.addWidget(check)
+        remove = QPushButton("删除")
+        remove.setObjectName("IconButton")
+        remove.clicked.connect(lambda: self._remove(entry["id"], card))
+        top.addWidget(remove)
         body.addLayout(top)
         description = QLabel(entry["description"] or "暂无说明")
         description.setWordWrap(True)
@@ -552,6 +556,27 @@ class PluginSettingsPage(QWidget):
         status.setWordWrap(True)
         body.addWidget(status)
         self.cards.insertWidget(self.cards.count() - 1, card)
+
+    def _remove(self, plugin_id, card):
+        if self.manager is None:
+            return
+        choice = QMessageBox.question(
+            self, "删除插件", f"确定删除插件 {plugin_id} 及其文件吗？\n已加载的插件将在重启后停止运行。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if choice != QMessageBox.Yes:
+            return
+        try:
+            self.manager.remove_plugin(plugin_id)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "删除插件失败", str(error))
+            return
+        del self.checks[plugin_id]
+        self.cards.removeWidget(card)
+        card.deleteLater()
+        if not self.checks:
+            self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
+            self.empty.setObjectName("SettingsHint")
+            self.cards.insertWidget(0, self.empty)
 
     def _install(self):
         archive, _ = QFileDialog.getOpenFileName(self, "装载插件", "", "插件包 (*.zip)")
