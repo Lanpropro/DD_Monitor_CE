@@ -18,7 +18,10 @@ def main():
         assert source.size == (1600, 892)
     with Image.open(COVER / "promo-cover.png") as exported:
         assert exported.size == (1920, 1080)
-        assert exported.getpixel((50, 50))[:3] == (0, 161, 214)
+        ground = exported.getpixel((50, 50))[:3]
+        assert max(ground) < 50, "cover should use the software's dark palette"
+        assert exported.getpixel((48, 50))[:3] != ground, "background grid is missing"
+        assert exported.getpixel((1500, 180))[1] > ground[1], "cyan light behind the window is missing"
         screenshot = exported.crop((900, 350, 1700, 820)).convert("RGB")
         assert min(ImageStat.Stat(screenshot).stddev) > 30
 

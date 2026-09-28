@@ -8,21 +8,22 @@
     * { box-sizing: border-box; }
     html, body { width: 1920px; height: 1080px; margin: 0; overflow: hidden; }
     body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
-    .cover { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #00a1d6; color: #101820; }
-    .top-rule, .bottom-rule { position: absolute; left: 104px; right: 104px; height: 2px; background: #101820; }
+    .cover { position: relative; width: 1920px; height: 1080px; overflow: hidden; color: #f1f2f5; background: radial-gradient(ellipse 950px 700px at 78% 52%, #00a1d638, transparent 75%), linear-gradient(#00a1d614 1px, transparent 1px), linear-gradient(90deg, #00a1d614 1px, transparent 1px), #171c22; background-size: auto, 48px 48px, 48px 48px, auto; }
+    .top-rule, .bottom-rule { position: absolute; left: 104px; right: 104px; height: 2px; background: #00a1d6; }
     .top-rule { top: 84px; }
     .bottom-rule { bottom: 84px; }
-    .eyebrow { position: absolute; top: 108px; left: 108px; font: 700 25px/1 "Microsoft YaHei UI", sans-serif; letter-spacing: .18em; }
-    .index { position: absolute; top: 106px; right: 108px; font: 700 27px/1 "Microsoft YaHei UI", sans-serif; letter-spacing: .08em; }
+    .eyebrow { position: absolute; top: 108px; left: 108px; color: #00a1d6; font: 700 25px/1 "Microsoft YaHei UI", sans-serif; letter-spacing: .18em; }
+    .index { position: absolute; top: 106px; right: 108px; color: #b9c6ce; font: 700 27px/1 "Microsoft YaHei UI", sans-serif; letter-spacing: .08em; }
     h1 { position: absolute; z-index: 2; top: 232px; left: 102px; margin: 0; font-size: 126px; line-height: 1.16; font-weight: 700; letter-spacing: -.055em; }
     h1 span { display: block; white-space: nowrap; }
-    .underline { position: absolute; z-index: 2; left: 109px; top: 550px; width: 270px; height: 16px; background: #f1f2f5; }
+    h1 span:last-child { color: #00a1d6; }
+    .underline { position: absolute; z-index: 2; left: 109px; top: 550px; width: 270px; height: 16px; background: #00a1d6; }
     .product { position: absolute; z-index: 2; left: 104px; bottom: 234px; font-size: 66px; line-height: 1.1; font-weight: 700; letter-spacing: -.045em; white-space: nowrap; }
-    .features { position: absolute; z-index: 2; left: 108px; bottom: 179px; font-size: 28px; line-height: 1.2; font-weight: 600; white-space: nowrap; }
+    .features { position: absolute; z-index: 2; left: 108px; bottom: 179px; color: #b9c6ce; font-size: 28px; line-height: 1.2; font-weight: 600; white-space: nowrap; }
     .window { position: absolute; left: 750px; top: 255px; width: 1130px; height: 636px; transform: rotate(-3deg); transform-origin: center; background: #101820; box-shadow: 0 38px 80px #08202f80; }
     .window img { display: block; width: 100%; height: 100%; object-fit: cover; }
     .window::after { content: ""; position: absolute; inset: 0; border: 5px solid #101820; pointer-events: none; }
-    .recorded { position: absolute; z-index: 2; right: 114px; bottom: 113px; padding: 11px 19px; border: 2px solid #101820; font-size: 24px; font-weight: 700; letter-spacing: .06em; }
+    .recorded { position: absolute; z-index: 2; right: 114px; bottom: 113px; padding: 11px 19px; border: 2px solid #00a1d6; color: #00a1d6; font-size: 24px; font-weight: 700; letter-spacing: .06em; }
   </style>
 </head>
 <body>
