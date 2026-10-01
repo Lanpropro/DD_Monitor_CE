@@ -250,6 +250,7 @@ class MainWindow(QMainWindow):
         self.wall.tileClicked.connect(self._on_tile_clicked)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
+        self.wall.tileCreated.connect(self._wire_tile)
         for tile in self.wall.tiles:
             self._wire_tile(tile)
 
@@ -1762,6 +1763,9 @@ class MainWindow(QMainWindow):
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
     def _wire_tile(self, tile) -> None:
+        # 格子创建时接线一次；之后填入或替换房间不再重复连接。
+        if getattr(tile, "_actions_wired", False):
+            return
         tile.qualityChanged.connect(self._on_quality_changed)
         tile.muteToggled.connect(self._on_mute_changed)
         tile.volumeChanged.connect(self._on_volume_changed)
@@ -1778,6 +1782,7 @@ class MainWindow(QMainWindow):
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
+        tile._actions_wired = True
 
     def _fill_plugin_menu(self, tile) -> None:
         """右键菜单弹出前，收集本体录制和插件操作。"""

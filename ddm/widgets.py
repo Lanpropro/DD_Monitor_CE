@@ -5326,6 +5326,7 @@ class WallGrid(QWidget):
     """画面墙：自动网格或指定布局方案。"""
 
     tileClicked = Signal(dict)
+    tileCreated = Signal(object)
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
 
@@ -5439,6 +5440,7 @@ class WallGrid(QWidget):
         tile.tileDropped.connect(lambda rid, t=tile: self.tileSwapped.emit(rid, t))
         tile.danmakuDropped.connect(lambda t=tile: self.move_danmaku_to_tile(t))
         self.tiles.append(tile)
+        self.tileCreated.emit(tile)
         return tile
 
     def _drop_tile(self, tile: Tile) -> None:

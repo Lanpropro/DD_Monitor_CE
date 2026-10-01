@@ -33,7 +33,10 @@ def main():
     low, original = (os.path.abspath(p) for p in sys.argv[1:3])
     assert os.path.isfile(low) and os.path.isfile(original)
     mode = sys.argv[3] if len(sys.argv) > 3 else "d3d11va"
-    saved = len(sys.argv) > 4 and sys.argv[4] == "saved"
+    scenario = sys.argv[4] if len(sys.argv) > 4 else "added"
+    saved = scenario == "saved"
+    expanded = scenario == "expand_drag"
+    expect_fixed = "--expect-fixed" in sys.argv[5:]
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
     def settle(seconds):
@@ -53,17 +56,24 @@ def main():
             patch.object(MainWindow, "refresh_status"), \
             patch.object(MainWindow, "refresh_stats"), \
             patch.object(MainWindow, "sync_danmaku"):
-        window = MainWindow([room(i) for i in range(1, 7)],
+        window = MainWindow([room(i, 250 if i == 5 and not saved else 10000)
+                             for i in range(1, 7)],
                             [room(i) for i in range(1, 6 if saved else 5)],
-                            layout_id="3x2", state=state)
+                            layout_id="2x2" if expanded else "3x2", state=state)
         window.setGeometry(-9000, -9000, 1600, 900)
         window.show()
         settle(3)
         assert len(window.players) == (5 if saved else 4), "Initial players did not start"
-        print("START", mode, "RESTORED" if saved else "ADDED", flush=True)
+        print("START", mode, scenario, flush=True)
+        if expanded:
+            window._on_layout_changed("3x2")
+            settle(0.2)
         target = window.wall.tiles[4]
         if not saved:
-            window.add_to_wall(room(5, 250))
+            if expanded:
+                window._on_room_dropped(target, "5")
+            else:
+                window.add_to_wall(room(5, 250))
         settle(2)
         spy = QSignalSpy(target.qualityChanged)
 
@@ -71,7 +81,8 @@ def main():
             states = [{"slot": index + 1, "state": player.state,
                        "time": player.player.get_time(),
                        "size": player.player.video_get_size(0),
-                       "quality": tile.quality, "paused": tile.paused}
+                       "quality": tile.quality, "player_quality": player.actual_quality,
+                       "paused": tile.paused}
                       for index, tile in enumerate(window.wall.tiles)
                       if (player := window.players.get(tile)) is not None]
             print(stage, json.dumps(states), flush=True)
@@ -87,21 +98,43 @@ def main():
             QTest.mouseClick(target.quality_button, Qt.LeftButton)
             print("QUALITY", "signals", spy.count(), "start_requests", start.call_count,
                   flush=True)
+            if expect_fixed:
+                assert spy.count() == start.call_count == 1
         settle(3)
         snapshot("AFTER_QUALITY")
+        if expect_fixed:
+            assert window.players[target].actual_quality == 10000
         paused_before = target.paused
         QTest.mouseClick(target.pause_button, Qt.LeftButton)
         print("PAUSE", "before", paused_before, "after", target.paused, flush=True)
+        if expect_fixed:
+            assert target.paused != paused_before
+            assert window.players[target].paused == target.paused
         target.volume_slider.setValue(65)
         print("VOLUME", target.volume, window.players[target].volume, flush=True)
+        if expect_fixed:
+            assert target.volume == window.players[target].volume == 65
         with patch.object(window, "start_tile", wraps=window.start_tile) as start:
             QTest.mouseClick(target.reload_button, Qt.LeftButton)
             print("RELOAD", "start_requests", start.call_count, flush=True)
+            if expect_fixed:
+                assert start.call_count == 1
         settle(2)
         snapshot("AFTER_RELOAD")
+        menu = target.build_menu()
+        with patch.object(window, "start_tile", wraps=window.start_tile) as start:
+            quality_menu = next(a.menu() for a in menu.actions() if a.text() == "画质")
+            next(a for a in quality_menu.actions() if a.text() == "流畅").trigger()
+            print("CONTEXT_QUALITY", "start_requests", start.call_count, flush=True)
+            if expect_fixed:
+                assert start.call_count == 1
+        next(a for a in menu.actions() if a.text() == "关闭这一路").trigger()
+        print("CONTEXT_CLOSE", "room", target.room.get("room_id"), flush=True)
         QTest.mouseClick(target.close_button, Qt.LeftButton)
         print("CLOSE", "room", target.room.get("room_id"),
               "player_exists", target in window.players, flush=True)
+        if expect_fixed:
+            assert not target.room.get("room_id") and target not in window.players
         window.close()
         print("REPRO_END", flush=True)
         # 保留 Qt 局部对象到进程退出，避免诊断脚本在析构阶段干扰结果。
