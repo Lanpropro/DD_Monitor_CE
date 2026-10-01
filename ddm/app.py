@@ -1572,13 +1572,13 @@ class MainWindow(QMainWindow):
                 player.set_volume(int(tile.volume))
 
     def _on_reload(self, room: dict) -> None:
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         if tile is not None:
             self._clear_freeze_recovery(tile)
             self.start_tile(tile)
 
     def _on_pause_toggled(self, room: dict) -> None:
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         if tile is None:
             return
         paused = not tile.paused
@@ -1759,7 +1759,7 @@ class MainWindow(QMainWindow):
 
     def _on_close_tile(self, room: dict) -> None:
         """关掉这一路，但留下空格子等新的直播间拖进来。"""
-        tile = self._tile_of(str(room.get("room_id")))
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         if tile is None:
             return
         self._pending_capture.pop(tile, None)
