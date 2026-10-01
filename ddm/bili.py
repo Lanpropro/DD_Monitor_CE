@@ -593,11 +593,14 @@ class AccountLoader(QThread):
     """后台获取当前登录账号信息。"""
 
     loaded = Signal(dict)
+    failed = Signal()
 
     def run(self) -> None:
         account = my_account()
         if account:
             self.loaded.emit(account)
+        else:
+            self.failed.emit()
 
 
 def room_stats(room_id: str) -> dict | None:

@@ -2005,13 +2005,18 @@ class MainWindow(QMainWindow):
         print(f"多选删除完成，共 {len(rooms)} 个")
 
     # ---- 登录 / 导入关注 ----
-    def refresh_account(self) -> None:
+    def refresh_account(self, *, retry: bool = True) -> None:
         """刷新侧栏底部的账号信息。"""
         if not bili.SESSION_DATA:
             self.sidebar.clear_account()
             return
+        session = bili.SESSION_DATA
+        current = lambda: not self._closing and bili.SESSION_DATA == session
         loader = AccountLoader(self)
-        loader.loaded.connect(self._on_account_loaded)
+        loader.loaded.connect(lambda account: self._on_account_loaded(account) if current() else None)
+        if retry:
+            loader.failed.connect(lambda: QTimer.singleShot(
+                5000, lambda: self.refresh_account(retry=False) if current() else None))
         loader.finished.connect(loader.deleteLater)
         self._account_loader = loader
         loader.start()
@@ -2022,8 +2027,10 @@ class MainWindow(QMainWindow):
         if not face:
             return
         loader = AvatarLoader({"account": face}, self)
+        session = bili.SESSION_DATA
         loader.loaded.connect(lambda _key, pixmap: self.sidebar.set_account(
-            account.get("uname", ""), pixmap))
+            account.get("uname", ""), pixmap)
+            if not self._closing and bili.SESSION_DATA == session else None)
         loader.finished.connect(loader.deleteLater)
         self._account_avatar_loader = loader
         loader.start()
