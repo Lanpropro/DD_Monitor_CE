@@ -180,6 +180,7 @@ class LoginWindow(QDialog):
         buttons.addWidget(manual_button)
         buttons.addWidget(cancel_button)
         for button in (self.refresh_button, manual_button, cancel_button):
+            button.setCursor(Qt.PointingHandCursor)
             button.setFocusPolicy(Qt.TabFocus)
             button.setAutoDefault(False)
         layout.addLayout(buttons)

@@ -52,6 +52,11 @@ def main():
             assert not window.refresh_button.isEnabled(), "获取二维码期间不能重复发送生成请求"
             first.qrReady.emit("https://example.com/first")
             assert window.refresh_button.isEnabled(), "等待扫码时必须允许刷新二维码"
+            for button in buttons:
+                QTest.mouseMove(button, button.rect().center())
+                app.processEvents()
+                assert button.cursor().shape() == Qt.PointingHandCursor, \
+                    f"{button.text()} 悬停时必须显示可点击的手形指针"
             assert not any(button.hasFocus() for button in buttons)
             QTest.keyClick(window, Qt.Key_Tab)
             app.processEvents()
