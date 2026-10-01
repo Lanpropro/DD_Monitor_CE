@@ -20,7 +20,9 @@ import sys
 import time
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMenu
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -128,6 +130,25 @@ def main() -> None:
                         f"{badge.x() + badge.width()} vs 控制条左边界 {controls.x()}"
                 checked += 1
             tile = window.wall.tiles[0]
+            # 实际发送按下/松开事件，验证菜单选项及关闭信号的接线。
+            # 不启动 VLC，因此这不覆盖解码器原生窗口的鼠标遮挡。
+            closed = []
+            tile.closeRequested.connect(closed.append)
+
+            class TestQualityMenu(QMenu):
+                def exec(self, _pos):
+                    next(action for action in self.actions()
+                         if action.text() == "流畅").trigger()
+
+            with patch("ddm.widgets.QMenu", TestQualityMenu), \
+                    patch.object(window, "start_tile", return_value=None):
+                tile.set_controls_visible(True)
+                QTest.mouseClick(tile.quality_button, Qt.LeftButton)
+                assert tile.quality == 80, "画质按钮未打开菜单或未应用选择"
+                QTest.mouseClick(tile.close_button, Qt.LeftButton)
+                assert len(closed) == 1, "关闭按钮未发出关闭信号"
+                assert not tile.room.get("room_id"), "关闭操作未清空直播格子"
+            tile.closeRequested.disconnect(closed.append)
             for label in ("原画", "高清", "原画"):
                 tile.quality_button.setText(label)
                 tile.set_controls_visible(False)

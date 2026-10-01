@@ -648,6 +648,23 @@ class DanmakuTextBrowser(QTextBrowser):
 
     userScrolled = Signal()
 
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        copy_action = menu.addAction("复制", self.copy)
+        copy_action.setShortcut(QKeySequence.Copy)
+        copy_action.setEnabled(self.textCursor().hasSelection())
+        link = self.anchorAt(event.pos())
+        if link:
+            menu.addAction("复制链接地址", lambda: QApplication.clipboard().setText(link))
+        menu.addSeparator()
+        select_action = menu.addAction("全选", self.selectAll)
+        select_action.setShortcut(QKeySequence.SelectAll)
+        select_action.setEnabled(not self.document().isEmpty())
+        try:
+            menu.exec(event.globalPos())
+        finally:
+            menu.deleteLater()
+
     def wheelEvent(self, event) -> None:
         super().wheelEvent(event)
         self.userScrolled.emit()
