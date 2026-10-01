@@ -136,7 +136,10 @@ class RoomInfo:
 
 
 class Platform:
-    """一个站的接入实现。子类至少要实现 ``matches`` / ``room_info`` / ``play_url``。
+    """一个站的接入实现。流模式需要 ``matches`` / ``room_info`` / ``play_url``。
+
+    ``playback_mode = 'browser'`` 提供本地关注卡片，通过 ``room_url`` 打开
+    官方网页；该模式只调用本地 ``room_info``，不调用 ``play_url``。
 
     ``kind`` 是给界面看的短名（例如 ``douyin``）：房间号前面会带上它，
     这样同一个「12345」在 B 站和别的站不会撞车。
@@ -144,6 +147,9 @@ class Platform:
 
     kind = ""
     label = ""
+    # browser 平台只提供本地房间资料和官方网页，不进入 VLC/弹幕取流链路。
+    # 该模式的 room_info 必须只构建本地资料，不能执行网络请求。
+    playback_mode = "stream"
 
     def matches(self, room_id: str) -> bool:
         """这个房间号是不是本平台的。"""

@@ -139,7 +139,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     wall_slots = state.get("wall", []) or []
 
     def placeholder(room_id: str) -> dict:
-        return {
+        room = {
             "room_id": room_id, "uname": f"房间 {room_id}",
             "title": "", "live": False, "viewers": "",
             "face": "", "cover_url": "",
@@ -147,6 +147,12 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             # 否则一打开软件，所有已开播的房间都会冒一遍开播提醒（见 app）。
             "live_known": False,
         }
+        saved = (state.get("browser_rooms") or {}).get(room_id) or {}
+        if saved.get("playback_mode") == "browser":
+            for key in ("uname", "title", "platform", "playback_mode"):
+                if isinstance(saved.get(key), str):
+                    room[key] = saved[key]
+        return room
 
     sidebar = [placeholder(room_id) for room_id in room_ids]
     wall = []

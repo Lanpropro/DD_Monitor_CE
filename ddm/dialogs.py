@@ -687,11 +687,12 @@ class SettingsDialog(QDialog):
 class AddRoomDialog(QDialog):
     """输入房间号或直播间链接。"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, room_id_resolver=None):
         super().__init__(parent)
         self.setWindowTitle("添加直播间")
         self.resize(400, 170)
         self.room_id = ""
+        self.room_id_resolver = room_id_resolver
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -722,6 +723,17 @@ class AddRoomDialog(QDialog):
 
     def accept(self) -> None:
         text = self.edit.text().strip()
+        if self.room_id_resolver is not None:
+            try:
+                room_id = self.room_id_resolver(text)
+            except ValueError as error:
+                self.hint.setText(str(error))
+                self.hint.setStyleSheet(f"color: {theme.ERROR}")
+                return
+            if room_id:
+                self.room_id = room_id
+                super().accept()
+                return
         # 优先从直播间链接里取房间号（链接后面常带一堆参数，不能取最后一个数字）
         match = re.search(r"live\.bilibili\.com/(?:blanc/)?(\d+)", text)
         room_id = match.group(1) if match else ""
