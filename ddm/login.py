@@ -80,6 +80,8 @@ class QRLogin(QThread):
         except Exception as error:  # noqa: BLE001
             self.failed.emit(f"二维码获取失败: {error}")
             return
+        if self._cancelled:
+            return
         if not key:
             self.failed.emit("二维码接口没有返回 key")
             return
@@ -97,6 +99,9 @@ class QRLogin(QThread):
                 _log(f"轮询异常: {error}")
                 time.sleep(2)
                 continue
+
+            if self._cancelled:
+                return
 
             if code == QR_SUCCESS:
                 sessdata = (poll.cookies.get("SESSDATA")
@@ -177,23 +182,32 @@ class LoginWindow(QDialog):
         self.status.setText("正在获取二维码…")
         self.refresh_button.setEnabled(False)
         thread = QRLogin(self)
-        thread.qrReady.connect(self._show_qr)
-        thread.statusChanged.connect(self.status.setText)
-        thread.succeeded.connect(self._on_success)
-        thread.expired.connect(self._on_expired)
-        thread.failed.connect(self._on_failed)
-        thread.finished.connect(lambda: self.refresh_button.setEnabled(True))
+        current = lambda: self._thread is thread
+        thread.qrReady.connect(lambda url: self._show_qr(url) if current() else None)
+        thread.statusChanged.connect(lambda text: self.status.setText(text) if current() else None)
+        thread.succeeded.connect(lambda session: self._on_success(session) if current() else None)
+        thread.expired.connect(lambda: self._on_expired() if current() else None)
+        thread.failed.connect(lambda message: self._on_failed(message) if current() else None)
+        thread.finished.connect(lambda: self._on_thread_finished(thread))
+        thread.finished.connect(thread.deleteLater)
         self._thread = thread
         thread.start()
 
     def _stop_thread(self) -> None:
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.cancel()
-            self._thread.wait(1500)
+        thread = self._thread
         self._thread = None
+        if thread is not None and thread.isRunning():
+            thread.cancel()
+            thread.wait(1500)
+
+    def _on_thread_finished(self, thread) -> None:
+        if self._thread is thread:
+            self._thread = None
+            self.refresh_button.setEnabled(True)
 
     def _show_qr(self, url: str) -> None:
         self.qr_label.setPixmap(make_qr_pixmap(url, 260))
+        self.refresh_button.setEnabled(True)
 
     def _on_success(self, sessdata: str) -> None:
         self.sessdata = sessdata
@@ -203,10 +217,12 @@ class LoginWindow(QDialog):
         self.accept()
 
     def _on_expired(self) -> None:
+        self.refresh_button.setEnabled(True)
         self.qr_label.setText("二维码已失效\n点下方按钮刷新")
         self.status.setText("二维码已失效")
 
     def _on_failed(self, message: str) -> None:
+        self.refresh_button.setEnabled(True)
         self.qr_label.setText("二维码获取失败")
         self.status.setText(message)
 
@@ -229,6 +245,10 @@ class LoginWindow(QDialog):
     def closeEvent(self, event) -> None:
         self._stop_thread()
         super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        self._stop_thread()
+        super().done(result)
 
 
 def theme_surface() -> str:
