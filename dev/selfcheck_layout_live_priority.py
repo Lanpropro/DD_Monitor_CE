@@ -84,6 +84,18 @@ def main() -> None:
     window._on_layout_changed("main2")
     app.processEvents()
     assert window.wall.tiles == order, "已可见的开播格子不应再被移动"
+    # 当前布局有下播格子，隐藏格子后来开播；重复选择不应该当成再次缩小布局。
+    original[5].set_live(True)
+    before_audio = [(tile.volume, tile.muted, tile.audio_channel) for tile in order]
+    before_rooms = [tile.room.get("room_id") for tile in order]
+    for _ in range(3):
+        window._on_layout_changed("main2")
+        app.processEvents()
+        assert window.wall.tiles == order, "重新选择当前布局替换了下播格子"
+        assert [tile.room.get("room_id") for tile in order] == before_rooms
+        assert [(tile.volume, tile.muted, tile.audio_channel)
+                for tile in order] == before_audio, "重新选择当前布局改变了位置音频设置"
+        assert window.players[original[3]] is player
     window.close()
     print("缩小布局优先显示开播格子、声音设置留在原位置：通过")
 

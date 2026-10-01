@@ -660,6 +660,8 @@ class MainWindow(QMainWindow):
                     player.reapply_audio_channel()
 
     def _on_layout_changed(self, layout_id: str) -> None:
+        if layout_id == self.wall.layout_id:
+            return
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
