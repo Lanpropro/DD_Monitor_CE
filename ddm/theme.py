@@ -411,6 +411,15 @@ QSlider::handle:horizontal:hover {{
     min-height: {CONTROL_HEIGHT}px;
     color: {TEXT2};
 }}
+#IconButton, #PrimaryButton, #PickerTab {{
+    outline: none;
+}}
+#IconButton:focus, #PickerTab:focus {{
+    border: 1px solid {ACCENT};
+}}
+#PrimaryButton:focus {{
+    border: 1px solid #04161f;
+}}
 #IconButton:hover {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
