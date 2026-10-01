@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QPushButton
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -46,10 +46,16 @@ def main():
         try:
             window.show()
             app.processEvents()
+            buttons = window.findChildren(QPushButton)
+            assert not any(button.hasFocus() for button in buttons), "打开扫码页不能自动选中按钮"
             first = window._thread
             assert not window.refresh_button.isEnabled(), "获取二维码期间不能重复发送生成请求"
             first.qrReady.emit("https://example.com/first")
             assert window.refresh_button.isEnabled(), "等待扫码时必须允许刷新二维码"
+            assert not any(button.hasFocus() for button in buttons)
+            QTest.keyClick(window, Qt.Key_Tab)
+            app.processEvents()
+            assert any(button.hasFocus() for button in buttons), "Tab 键仍应能选择登录按钮"
             QTest.mouseClick(window.refresh_button, Qt.LeftButton)
             second = window._thread
             assert second is not first and first.cancelled

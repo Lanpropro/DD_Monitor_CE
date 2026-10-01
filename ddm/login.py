@@ -140,6 +140,7 @@ class LoginWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("LoginWindow")
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setWindowTitle("登录 B 站")
         self.resize(420, 460)
         self.sessdata = ""
@@ -178,10 +179,14 @@ class LoginWindow(QDialog):
         buttons.addWidget(self.refresh_button)
         buttons.addWidget(manual_button)
         buttons.addWidget(cancel_button)
+        for button in (self.refresh_button, manual_button, cancel_button):
+            button.setFocusPolicy(Qt.TabFocus)
+            button.setAutoDefault(False)
         layout.addLayout(buttons)
 
         self._thread: QRLogin | None = None
         self.start_login()
+        self.setFocus(Qt.OtherFocusReason)
 
     # ---- 流程 ----
     def start_login(self) -> None:
