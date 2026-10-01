@@ -1,4 +1,4 @@
-"""Check that native control masks preserve the stylesheet's antialiased edges."""
+"""Check that control masks hide corner backing pixels and preserve button content."""
 import os
 import sys
 
@@ -22,6 +22,11 @@ def main():
             button.pos() + QPoint(button.width() + 2, button.height() // 2)
         ), "Mask fills the gap between controls"
     for button in (tile.quality_button, tile.reload_button, tile.close_button):
+        for point in (QPoint(4, 1), QPoint(button.width() - 5, 1),
+                      QPoint(1, 4), QPoint(button.width() - 2, 4)):
+            assert not tile.controls.mask().contains(button.pos() + point), \
+                "Native backing is exposed outside the rounded button"
+        assert tile.controls.mask().contains(button.geometry().center())
         button.setProperty("hovered", True)
         button.style().unpolish(button)
         button.style().polish(button)
@@ -33,23 +38,16 @@ def main():
         painter = QPainter(image)
         button.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
         painter.end()
-        clipped = []
         cyan_pixels = 0
         for y in range(image.height()):
             for x in range(image.width()):
                 color = image.pixelColor(x, y)
-                # Cyan background and its partially covered edge pixels.
+                # The rounded hover background must still render.
                 if (color.alpha() > 20 and color.green() > 50
                         and color.blue() > 70 and color.red() < 70):
                     cyan_pixels += 1
-                    point = button.pos()
-                    point.setX(point.x() + int(x / scale))
-                    point.setY(point.y() + int(y / scale))
-                    if not tile.controls.mask().contains(point):
-                        clipped.append((x, y))
         assert cyan_pixels > 100, "Hover background was not rendered"
-        assert not clipped, f"{button.text() or 'refresh'}: clipped hover pixels {clipped[:12]}"
-    print("Control hover edges preserved")
+    print("Control corners hide native backing; hover background preserved")
     tile.close()
 
 

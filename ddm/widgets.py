@@ -5152,8 +5152,18 @@ class Tile(QFrame):
         if (event.type() == QEvent.DevicePixelRatioChange
                 and getattr(self, "_overlay_ready", False)):
             # 等原生子窗口都切换到新屏幕比例后再重做遮罩。
-            QTimer.singleShot(0, self._layout_controls)
+            QTimer.singleShot(0, self._refresh_overlay_masks)
         return result
+
+    def _refresh_overlay_masks(self) -> None:
+        """所有原生浮层都要重新换算遮罩，文字不变时 Qt 不会自动更新它。"""
+        for widget in (self.video, self.controls, self.stream_badge,
+                       self.title_badge, self.time_badge):
+            mask = widget.mask()
+            widget.clearMask()
+            if not mask.isEmpty():
+                widget.setMask(mask)
+        self._layout_areas()
 
     def _update_controls_mask(self) -> None:
         """裁掉原生控制窗口的矩形底，只留下三个圆角按钮的轮廓。"""
@@ -5167,10 +5177,9 @@ class Tile(QFrame):
             rect = QRectF(button.geometry())
             path = QPainterPath()
             radius = min(rect.height() / 2, theme.TILE_CONTROL_HEIGHT / 2)
-            # 整数窗口遮罩没有抗锯齿；留出边缘像素，让 QSS 的圆角绘制负责平滑。
-            path.addRoundedRect(rect.adjusted(-2, -2, 2, 2), radius, radius)
-            outline = QRegion(path.toFillPolygon().toPolygon())
-            region = region.united(outline.intersected(QRegion(button.geometry())))
+            # 原生底色只能按整数区域裁切；扩张轮廓会露出圆角外的黑色底层。
+            path.addRoundedRect(rect, radius, radius)
+            region = region.united(QRegion(path.toFillPolygon().toPolygon()))
         self.controls.setMask(region)
 
     def showEvent(self, event) -> None:
