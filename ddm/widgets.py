@@ -716,6 +716,8 @@ class DanmakuPanel(QFrame):
         self._follow_tail = True
         self._scroll_dragging = False
         self._scroll_revision = 0
+        self._scroll_restore_id = 0
+        self._scroll_trim_remainder = 0.0
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -746,6 +748,7 @@ class DanmakuPanel(QFrame):
         self.body.setFrameShape(QFrame.NoFrame)
         self.body.setOpenExternalLinks(False)
         self.body.document().setDocumentMargin(8)
+        self.body.document().setMaximumBlockCount(self.max_blocks)
         self.body.userScrolled.connect(self._on_user_scroll)
         scroll_bar = self.body.verticalScrollBar()
         scroll_bar.sliderPressed.connect(self._on_scroll_pressed)
@@ -816,6 +819,8 @@ class DanmakuPanel(QFrame):
 
     # ---- 内容 ----
     def set_placeholder(self, text: str) -> None:
+        self._scroll_revision += 1
+        self._scroll_trim_remainder = 0.0
         self._blocks = []
         self._has_content = False
         self._received = 0
@@ -870,11 +875,10 @@ class DanmakuPanel(QFrame):
         if entry["emoticon"]:
             self._ensure_emoticon(entry["emoticon"])
         self._blocks.append(entry)
-        if len(self._blocks) > self.max_blocks:
+        removed = max(0, len(self._blocks) - self.max_blocks)
+        scroll_state = self._scroll_state(removed)
+        if removed:
             self._blocks = self._blocks[-self.max_blocks:]
-            self._render_all()
-            return
-        scroll_state = self._scroll_state()
         block = self._block_html(entry)
         if self._has_content:
             self.body.append(block)
@@ -883,17 +887,32 @@ class DanmakuPanel(QFrame):
             self._has_content = True
         self._restore_scroll_state(scroll_state)
 
-    def _scroll_state(self) -> tuple[bool, int, int]:
+    def _scroll_state(self, removed_blocks: int = 0) -> tuple[bool, int, int]:
         scroll_bar = self.body.verticalScrollBar()
-        return self._follow_tail, scroll_bar.value(), self._scroll_revision
+        value = scroll_bar.value()
+        if removed_blocks and not self._follow_tail:
+            document = self.body.document()
+            remaining = document.findBlockByNumber(removed_blocks)
+            if remaining.isValid():
+                layout = document.documentLayout()
+                removed_height = (layout.blockBoundingRect(remaining).top()
+                                  - layout.blockBoundingRect(document.firstBlock()).top())
+                # 字体行高可能有小数，逐条取整会让阅读位置不断漂移。
+                offset = removed_height + self._scroll_trim_remainder
+                pixels = round(offset)
+                self._scroll_trim_remainder = offset - pixels
+                value = max(0, value - pixels)
+        return self._follow_tail, value, self._scroll_revision
 
     def _restore_scroll_state(self, state: tuple[bool, int, int]) -> None:
         """内容更新不能打断用户阅读；仍在末尾时才继续跟随。"""
         follow_tail, value, revision = state
         self._follow_tail = follow_tail
+        self._scroll_restore_id += 1
+        restore_id = self._scroll_restore_id
 
         def restore() -> None:
-            if revision != self._scroll_revision:
+            if revision != self._scroll_revision or restore_id != self._scroll_restore_id:
                 return
             scroll_bar = self.body.verticalScrollBar()
             if self._follow_tail:
@@ -918,10 +937,12 @@ class DanmakuPanel(QFrame):
     def _on_user_scroll(self) -> None:
         """用户滚轮/键盘查看旧内容时暂停自动跟随；回到底部后恢复。"""
         self._scroll_revision += 1
+        self._scroll_trim_remainder = 0.0
         self._follow_tail = self._at_scroll_tail()
 
     def _on_scroll_pressed(self) -> None:
         self._scroll_revision += 1
+        self._scroll_trim_remainder = 0.0
         self._scroll_dragging = True
 
     def _on_scroll_released(self) -> None:
@@ -958,9 +979,11 @@ class DanmakuPanel(QFrame):
         except (TypeError, ValueError):
             value = self.MAX_BLOCKS
         self.max_blocks = max(self.MIN_BLOCKS, value)
+        scroll_state = self._scroll_state(max(0, len(self._blocks) - self.max_blocks))
         if len(self._blocks) > self.max_blocks:
             self._blocks = self._blocks[-self.max_blocks:]
-            self._render_all()
+        self.body.document().setMaximumBlockCount(self.max_blocks)
+        self._restore_scroll_state(scroll_state)
 
     def _on_font_slider(self, value: int) -> None:
         """面板上拖字号：立刻重排，并通知外面存进配置。"""
@@ -1010,7 +1033,7 @@ class DanmakuPanel(QFrame):
         self.body.document().addResource(QTextDocument.ImageResource, QUrl(key), image)
 
     def _render_all(self) -> None:
-        """整体重排（表情图下好、或者消息太多要丢弃旧的时候用）。"""
+        """整体重排（表情图下好、或者字体变化时用）。"""
         scroll_state = self._scroll_state()
         html = "".join(self._block_html(entry) for entry in self._blocks)
         self.body.setHtml(html or "")
