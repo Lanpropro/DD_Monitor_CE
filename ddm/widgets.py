@@ -6,7 +6,7 @@ import sys
 import time
 
 from PySide6.QtCore import (
-    QEasingCurve, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
+    QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
     QTimer, QUrl, Signal,
 )
 from PySide6.QtGui import (
@@ -5147,8 +5147,21 @@ class Tile(QFrame):
         self.controls.move(max(10, video_right - width - 10), 8)
         self._update_controls_mask()
 
+    def event(self, event) -> bool:
+        result = super().event(event)
+        if (event.type() == QEvent.DevicePixelRatioChange
+                and getattr(self, "_overlay_ready", False)):
+            # 等原生子窗口都切换到新屏幕比例后再重做遮罩。
+            QTimer.singleShot(0, self._layout_controls)
+        return result
+
     def _update_controls_mask(self) -> None:
         """裁掉原生控制窗口的矩形底，只留下三个圆角按钮的轮廓。"""
+        scale = self.controls.devicePixelRatioF()
+        if getattr(self, "_controls_mask_scale", None) != scale:
+            # 跨屏后逻辑轮廓相同，Qt 会跳过 setMask，留下按旧 DPI 换算的原生区域。
+            self.controls.clearMask()
+        self._controls_mask_scale = scale
         region = QRegion()
         for button in (self.quality_button, self.reload_button, self.close_button):
             rect = QRectF(button.geometry())
