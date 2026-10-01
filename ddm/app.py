@@ -135,6 +135,9 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        if (saved_settings.get("danmaku_retention_version") != 1
+                and self.settings.get("danmaku_max_blocks") == 300):
+            self.settings["danmaku_max_blocks"] = 3000
         if "decode_mode" not in saved_settings:
             self.settings["decode_mode"] = ("auto" if saved_settings.get("hw_decode", True)
                                             else "none")
