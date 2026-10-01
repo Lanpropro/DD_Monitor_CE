@@ -681,7 +681,7 @@ class DanmakuPanel(QFrame):
     整格可以像别的窗口一样拖动，换到别的格子上。
     """
 
-    MAX_BLOCKS = 300          # 默认最多留多少条（设置里可改）
+    MAX_BLOCKS = 3000         # 默认最多留多少条（设置里可改）
     MIN_BLOCKS = 20
     EMOTICON_HEIGHT = 22      # 表情在弹幕里的显示高度
     BASE_FONT_SIZE = 13       # 默认弹幕字号

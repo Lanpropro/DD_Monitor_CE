@@ -2293,7 +2293,7 @@ class MainWindow(QMainWindow):
             str(self.settings.get("danmaku_font") or ""),
             int(self.settings.get("danmaku_font_size") or 13))
         self.wall.danmaku.set_max_blocks(
-            int(self.settings.get("danmaku_max_blocks") or 300))
+            int(self.settings.get("danmaku_max_blocks") or 3000))
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""

@@ -16,6 +16,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
     panel = DanmakuPanel()
+    panel.set_max_blocks(300)  # Exercise overflow quickly, independently of the default.
     panel.resize(340, 400)
     panel.show()
     app.processEvents()
