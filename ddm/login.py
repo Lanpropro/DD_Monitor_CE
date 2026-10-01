@@ -4,6 +4,7 @@
 不再依赖内嵌浏览器，也就不存在"登录完成了但拿不到 cookie"的问题。
 """
 import sys
+import threading
 import time
 
 import qrcode
@@ -64,10 +65,12 @@ class QRLogin(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._cancelled = False
+        self._cancel_event = threading.Event()
         self.sessdata = ""
 
     def cancel(self) -> None:
         self._cancelled = True
+        self._cancel_event.set()
 
     def run(self) -> None:
         session = requests.Session()
@@ -97,7 +100,7 @@ class QRLogin(QThread):
                 code = payload.get("code")
             except Exception as error:  # noqa: BLE001
                 _log(f"轮询异常: {error}")
-                time.sleep(2)
+                self._cancel_event.wait(2)
                 continue
 
             if self._cancelled:
@@ -119,10 +122,14 @@ class QRLogin(QThread):
                 _log("二维码已失效")
                 self.expired.emit()
                 return
-            time.sleep(2)
+            self._cancel_event.wait(2)
 
         if not self._cancelled:
             self.expired.emit()
+
+
+# 网络请求可能在窗口关闭后才返回，必须持有线程直到它自然结束。
+_active_qr_threads: set[QRLogin] = set()
 
 
 class LoginWindow(QDialog):
@@ -132,6 +139,7 @@ class LoginWindow(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("LoginWindow")
         self.setWindowTitle("登录 B 站")
         self.resize(420, 460)
         self.sessdata = ""
@@ -181,7 +189,8 @@ class LoginWindow(QDialog):
         self.qr_label.setText("二维码加载中…")
         self.status.setText("正在获取二维码…")
         self.refresh_button.setEnabled(False)
-        thread = QRLogin(self)
+        thread = QRLogin()
+        _active_qr_threads.add(thread)
         current = lambda: self._thread is thread
         thread.qrReady.connect(lambda url: self._show_qr(url) if current() else None)
         thread.statusChanged.connect(lambda text: self.status.setText(text) if current() else None)
@@ -189,6 +198,7 @@ class LoginWindow(QDialog):
         thread.expired.connect(lambda: self._on_expired() if current() else None)
         thread.failed.connect(lambda message: self._on_failed(message) if current() else None)
         thread.finished.connect(lambda: self._on_thread_finished(thread))
+        thread.finished.connect(lambda: _active_qr_threads.discard(thread))
         thread.finished.connect(thread.deleteLater)
         self._thread = thread
         thread.start()
@@ -198,7 +208,6 @@ class LoginWindow(QDialog):
         self._thread = None
         if thread is not None and thread.isRunning():
             thread.cancel()
-            thread.wait(1500)
 
     def _on_thread_finished(self, thread) -> None:
         if self._thread is thread:

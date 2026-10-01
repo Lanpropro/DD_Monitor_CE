@@ -424,6 +424,11 @@ QSlider::handle:horizontal:hover {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
+#LoginWindow #IconButton:pressed {{
+    background: {ACCENT_SOFT};
+    border: 1px solid {ACCENT};
+    color: {ACCENT};
+}}
 #IconButton:checked {{
     background: {ACCENT_SOFT};
     border: 1px solid rgba(0, 161, 214, 0.45);
