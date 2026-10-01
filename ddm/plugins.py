@@ -45,6 +45,8 @@ from . import config as config_module
 REPO = config_module.REPO
 DEFAULT_PLUGINS_DIR = os.path.join(REPO, "plugins_user")
 PLUGIN_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+# 旧发布包的记录插件已由本体接管；覆盖升级保留文件，但不再执行或展示。
+RETIRED_BUNDLED_PLUGINS = frozenset({"danmaku_log"})
 
 
 def read_manifest(folder: str, expected_id: str) -> dict | None:
@@ -277,7 +279,7 @@ class PluginManager:
         if not os.path.isdir(self.plugins_dir):
             return
         for entry in sorted(os.listdir(self.plugins_dir)):
-            if entry.startswith((".", "_")):
+            if entry.startswith((".", "_")) or entry in RETIRED_BUNDLED_PLUGINS:
                 continue
             folder = os.path.join(self.plugins_dir, entry)
             module_path = os.path.join(folder, "plugin.py")
@@ -352,6 +354,8 @@ class PluginManager:
             plugin_id = names[0][0]
             if not PLUGIN_ID.fullmatch(plugin_id):
                 raise ValueError("插件目录名须为小写英文字母开头，只能包含字母、数字和下划线")
+            if plugin_id in RETIRED_BUNDLED_PLUGINS:
+                raise ValueError("此旧版内置插件的功能已由本体提供，无需装载")
             for item, parts in zip(files, names):
                 if (len(parts) < 2 or parts[0] != plugin_id or
                         any(part in ("", ".", "..") for part in parts) or
@@ -406,7 +410,7 @@ class PluginManager:
         skipped = dict(self.skipped)
         entries = []
         for folder in sorted(os.listdir(self.plugins_dir)):
-            if folder.startswith((".", "_")) or not os.path.isfile(
+            if folder.startswith((".", "_")) or folder in RETIRED_BUNDLED_PLUGINS or not os.path.isfile(
                     os.path.join(self.plugins_dir, folder, "plugin.py")):
                 continue
             plugin = loaded.get(folder)

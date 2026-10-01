@@ -133,6 +133,24 @@ def main():
             assert False, "不能删除插件目录之外的路径"
         except ValueError:
             pass
+        # 覆盖升级不会删除旧包文件；旧内置记录插件必须保持不执行、不展示。
+        write_plugin(root, "danmaku_log", "raise RuntimeError('retired plugin executed')\n")
+        legacy_data = os.path.join(root, "danmaku_log", "saved.txt")
+        with open(legacy_data, "w", encoding="utf-8") as handle:
+            handle.write("keep")
+        upgraded = plugin_api.PluginManager(plugins_dir=root)
+        upgraded.load()
+        assert "danmaku_log" not in {entry["id"] for entry in upgraded.catalog()}
+        assert "danmaku_log" not in {entry for entry, _reason in upgraded.skipped}
+        assert open(legacy_data, encoding="utf-8").read() == "keep"
+        retired_zip = os.path.join(root, "retired.zip")
+        with zipfile.ZipFile(retired_zip, "w") as package:
+            package.writestr("danmaku_log/plugin.py", "plugin = None\n")
+        try:
+            upgraded.install_zip(retired_zip)
+            assert False, "不应重新安装已移入本体的旧记录插件"
+        except ValueError:
+            pass
         dialog.deleteLater()
     app.processEvents()
     print("插件卡片、状态和启用选择：通过")
