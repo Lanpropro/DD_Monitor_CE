@@ -5154,8 +5154,10 @@ class Tile(QFrame):
             rect = QRectF(button.geometry())
             path = QPainterPath()
             radius = min(rect.height() / 2, theme.TILE_CONTROL_HEIGHT / 2)
-            path.addRoundedRect(rect, radius, radius)
-            region = region.united(QRegion(path.toFillPolygon().toPolygon()))
+            # 整数窗口遮罩没有抗锯齿；留出边缘像素，让 QSS 的圆角绘制负责平滑。
+            path.addRoundedRect(rect.adjusted(-2, -2, 2, 2), radius, radius)
+            outline = QRegion(path.toFillPolygon().toPolygon())
+            region = region.united(outline.intersected(QRegion(button.geometry())))
         self.controls.setMask(region)
 
     def showEvent(self, event) -> None:
