@@ -164,6 +164,7 @@ class TilePlayer(QObject):
         self._audio_resume_cb = None
         self._audio_flush_cb = None
         self._audio_drain_cb = None
+        self._audio_wait_cancel = threading.Event()
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
         # 这里**一个音频接口都不要碰**。aout 要等真正开始播放才建；在那之前调
@@ -232,6 +233,7 @@ class TilePlayer(QObject):
         if not self._bound:
             self.bind()
         self.paused = False               # 换流后从"播放中"重新开始
+        self._audio_wait_cancel.clear()
         self.url = url
         self._audio_ready = False         # 新的 aout 还没建，起来之后再补静音/音量
         media = self._instance.media_new(url)
@@ -279,6 +281,7 @@ class TilePlayer(QObject):
 
     def _detach_and_stop(self) -> None:
         """先解除原生窗口绑定，再停止 VLC 的解码 / 渲染线程。"""
+        self._audio_wait_cancel.set()
         try:
             # 必须在 stop 前摘掉 HWND。用户日志里的 access violation / 7 秒卡死
             # 正发生在 libvlc_media_player_stop；让 VLC 仍绑着马上要隐藏的原生窗口
@@ -431,7 +434,14 @@ class TilePlayer(QObject):
         self._audio_output.set_volume(self.volume)
         self._audio_output.set_enabled(self.uses_pcm_routing and not self.muted)
 
-    def _play_audio(self, _opaque, samples, count, _pts) -> None:
+    def _play_audio(self, _opaque, samples, count, pts) -> None:
+        # 回调交来的是提前解码的样本，pts 才是与视频共用的实际播放时刻。
+        # 静音时也保持时序，否则解除静音（包括格子换位）会把未来的声音提前播出。
+        delay = (pts - vlc.libvlc_clock()) / 1_000_000
+        if delay > 0 and self._audio_wait_cancel.wait(delay):
+            return
+        if self._audio_wait_cancel.is_set() or self._released:
+            return
         self._audio_output.write(samples, count)
 
     def _pause_audio(self, _opaque, _pts) -> None:
@@ -449,6 +459,10 @@ class TilePlayer(QObject):
     def set_paused(self, paused: bool) -> None:
         """暂停 / 继续（不停取流，继续时直接接上）。"""
         self.paused = bool(paused)
+        if self.paused:
+            self._audio_wait_cancel.set()
+        else:
+            self._audio_wait_cancel.clear()
         self.player.set_pause(1 if self.paused else 0)
         if self.paused:
             self._picture_watch.stop()
