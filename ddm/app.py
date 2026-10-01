@@ -903,6 +903,8 @@ class MainWindow(QMainWindow):
         self.refresh_status()       # 取不到流时立刻确认是否已经下播
         if tile in self._freeze_refreshed:
             self._on_picture_frozen(tile)
+        elif tile.room.get("room_id") and tile.room.get("live") and not tile.paused:
+            self._schedule_retry(tile)
 
     def _on_player_state(self, tile, state: str) -> None:
         if tile is None:
@@ -1016,6 +1018,11 @@ class MainWindow(QMainWindow):
             self.start_tile(tile)
 
     def _stop_tile(self, tile) -> None:
+        timer = self._retry_timers.pop(tile, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._retry_count.pop(tile, None)
         self._clear_freeze_recovery(tile)
         self._stream_attempts.pop(tile, None)
         player = self.players.pop(tile, None)
@@ -1048,7 +1055,9 @@ class MainWindow(QMainWindow):
                 self.recorder.stop(tile)
                 if tile not in self.recorder.sessions:
                     self._restore_capture_quality(tile)
-                if player is None:
+                if (player is None and tile not in self._resolvers
+                        and tile not in self._retry_timers
+                        and tile not in self._freeze_retry_timers):
                     continue
                 print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
                       file=sys.stderr, flush=True)
