@@ -107,6 +107,7 @@ class MainWindow(QMainWindow):
         self.players: dict[object, TilePlayer] = {}      # 按格子持有播放器
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
+        self._platform_info_running: set[InfoResolver] = set()
         self._stream_attempts: dict[object, int] = {}
         #: 正在关窗。取流线程的 resolved 是队列连接，关窗之后还会再投递一次；
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
@@ -205,7 +206,7 @@ class MainWindow(QMainWindow):
         self._pending_layout = ""
 
         # 信号接线
-        self.sidebar.roomSelected.connect(self._on_room_selected)
+        self.sidebar.roomSelected.connect(self.wall.tileClicked.emit)
         self.sidebar.addRoomClicked.connect(self.open_add_room)
         self.sidebar.importFollowsClicked.connect(self.open_import_follows)
         self.sidebar.addToWallRequested.connect(self.add_to_wall)
@@ -286,6 +287,11 @@ class MainWindow(QMainWindow):
         self.plugins._save_settings = lambda: config_module.save(self.current_state())
         plugin_api.set_manager(self.plugins)
         self.plugins.load()
+        # 旧版虎牙网页卡片升级为格子播放；保留原关注、排序和置顶。
+        for room in self.sidebar.rooms() + [tile.room for tile in self.wall.tiles]:
+            platform = self.plugins.platform_for(str(room.get("room_id") or ""))
+            if platform is not None:
+                room.update(platform=platform.kind, playback_mode=platform.playback_mode)
         self.sidebar.browser_url_resolver = self._room_browser_url
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:
@@ -333,24 +339,6 @@ class MainWindow(QMainWindow):
             opened = False
         if not opened:
             QMessageBox.warning(self, "观看直播", "无法打开默认浏览器，请检查系统浏览器设置。")
-
-    @staticmethod
-    def _is_browser_room(room: dict) -> bool:
-        return room.get("playback_mode") == "browser"
-
-    def _watch_browser_room(self, room: dict) -> None:
-        url = self._room_browser_url(room)
-        if not url:
-            QMessageBox.information(self, "观看直播", "请启用对应的平台插件并重启，再打开此直播间。")
-            return
-        self._open_room_browser(url)
-
-    def _on_room_selected(self, room: dict) -> None:
-        if self._is_browser_room(room):
-            self.sidebar.select_room(room)
-            self._watch_browser_room(room)
-        else:
-            self.wall.tileClicked.emit(room)
 
     def _normalize_room_input(self, text: str) -> str | None:
         platform = self.plugins.platform_for(text)
@@ -565,10 +553,10 @@ class MainWindow(QMainWindow):
             "version": config_module.STATE_VERSION,
             "sessdata": bili.SESSION_DATA,
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
-            "browser_rooms": {
+            "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
                                        ("uname", "title", "platform", "playback_mode")}
-                for room in self.sidebar.rooms() if self._is_browser_room(room)
+                for room in self.sidebar.rooms() if ":" in str(room.get("room_id") or "")
             },
             # 空格子也要存，下次打开还是原来的布局
             "wall": [
@@ -676,6 +664,19 @@ class MainWindow(QMainWindow):
             except RuntimeError:             # 已被 Qt 回收
                 pass
         self._avatar_loaders.clear()
+        platform_threads = [thread for thread in self._resolvers_running
+                            if getattr(thread, "platform", None) is not None]
+        poller = self._poller
+        if poller is not None and getattr(poller, "platforms", None):
+            platform_threads.append(poller)
+        for thread in platform_threads:
+            if self._loader_running(thread):
+                thread.wait()
+        # 新增的平台查房间请求有超时；窗口已隐藏，等请求正常收尾再析构 QThread。
+        for thread in list(self._platform_info_running):
+            if self._loader_running(thread):
+                thread.wait()
+        self._platform_info_running.clear()
 
     def _prioritize_live_tiles(self, layout_id: str) -> None:
         """缩小布局时，用后面的开播格子填前面的未开播位置。"""
@@ -821,13 +822,14 @@ class MainWindow(QMainWindow):
         if self._closing:
             return                    # 关窗途中别再起取流/播放器
         room = tile.room or {}
-        if self._is_browser_room(room):
-            tile.set_status("从关注卡片打开网页观看")
-            return
         room_id = str(room.get("room_id") or "")
         if not room_id:
             return
-        if not room.get("live"):
+        platform = self.plugins.platform_for(room_id)
+        if ":" in room_id and platform is None:
+            tile.set_status("请启用对应的平台插件并重启")
+            return
+        if not room.get("live") and (platform is None or room.get("live_known", True)):
             tile.set_status("未开播")
             return
         timer = self._retry_timers.pop(tile, None)
@@ -846,7 +848,8 @@ class MainWindow(QMainWindow):
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = self._stream_attempts.get(tile, 0)
         self._stream_attempts[tile] = source_offset + 1
-        resolver = StreamResolver(room_id, quality, self, source_offset=source_offset)
+        resolver = StreamResolver(room_id, quality, self, source_offset=source_offset,
+                                  platform=platform)
         current = lambda: self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
         resolver.resolved.connect(
             lambda _rid, url, qn, profile, options, t=tile:
@@ -877,6 +880,8 @@ class MainWindow(QMainWindow):
             return                    # 迟到的取流结果（格子已经换台/被换走了）
         if requested_quality and int(tile.quality) != requested_quality:
             return                    # 画质已切换，旧请求不能覆盖新流
+        if ":" in str(tile.room.get("room_id") or ""):
+            tile.set_live(True)
         if options:
             tile.set_quality_options(options)
         if quality:
@@ -1160,16 +1165,13 @@ class MainWindow(QMainWindow):
         for room in self.sidebar.rooms():
             if str(room.get("room_id")) == room_id:
                 return room
-        return bili.room_info(room_id)
+        return bili.room_info(room_id) if room_id.isdigit() else None
 
     # ---- 拖拽 ----
     def _on_room_dropped(self, tile, room_id: str) -> None:
         room = self._room_dict(room_id)
         if not room:
             print(f"拖入的直播间 {room_id} 查询失败")
-            return
-        if self._is_browser_room(room):
-            self._watch_browser_room(room)
             return
         self._prepare_room(room)
         other = self._tile_of(room_id)
@@ -1292,7 +1294,7 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             self._stats_poller = None
         room_ids = [str(tile.room.get("room_id")) for tile in self.wall.tiles
-                    if tile.room.get("room_id") and tile.room.get("live")]
+                    if str(tile.room.get("room_id") or "").isdigit() and tile.room.get("live")]
         if not room_ids:
             return
         poller = StatsPoller(room_ids, self)
@@ -1321,11 +1323,14 @@ class MainWindow(QMainWindow):
                 return
         except RuntimeError:                 # 对象已被 Qt 回收
             self._poller = None
-        room_ids = [str(room.get("room_id")) for room in self.sidebar.rooms()
-                    if not self._is_browser_room(room)]
+        room_ids = [str(room.get("room_id")) for room in self.sidebar.rooms()]
         if not room_ids:
             return
-        poller = StatusPoller(room_ids, self)
+        platform_ids = [rid for rid in room_ids if ":" in rid]
+        if platform_ids:
+            poller = StatusPoller(room_ids, self, platforms=dict(self.plugins.platforms))
+        else:
+            poller = StatusPoller(room_ids, self)
         poller.updated.connect(self._on_status_updated)
         if hasattr(poller, "failed"):
             poller.failed.connect(self._on_status_failed)
@@ -2008,7 +2013,7 @@ class MainWindow(QMainWindow):
     def open_add_room(self) -> None:
         dialog = AddRoomDialog(self, room_id_resolver=self._normalize_room_input)
         labels = "、".join(p.label or p.kind for p in self.plugins.platforms.values()
-                          if p.playback_mode == "browser")
+                          if p.label)
         if labels:
             dialog.hint.setText(f"支持 B 站房间号，以及 {labels} 官方直播间链接")
         if dialog.exec() != AddRoomDialog.Accepted:
@@ -2020,17 +2025,19 @@ class MainWindow(QMainWindow):
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = self.plugins.platform_for(room_id)
-        if platform is not None and platform.playback_mode == "browser":
-            try:
-                info = platform.room_info(room_id)
-                if info is None:
-                    raise ValueError("平台没有提供房间资料")
-                room = info.as_dict()
-                room.update(room_id=room_id, platform=platform.kind, playback_mode="browser")
-            except Exception as error:  # noqa: BLE001
-                QMessageBox.warning(self, "添加直播间", str(error))
+        if ":" in room_id:
+            if platform is None:
+                QMessageBox.warning(self, "添加直播间", "请启用对应的平台插件并重启")
                 return
-            self._on_room_added(room)
+            resolver = InfoResolver(room_id, self, platform=platform)
+            resolver.resolved.connect(lambda room: self._on_room_added(room) if not self._closing else None)
+            resolver.failed.connect(lambda _rid: QMessageBox.warning(
+                self, "添加直播间", "平台房间获取失败，请检查房间链接或稍后重试")
+                if not self._closing else None)
+            resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
+            resolver.finished.connect(resolver.deleteLater)
+            self._platform_info_running.add(resolver)
+            resolver.start()
             return
         print(f"正在查询房间 {room_id} ...")
         resolver = InfoResolver(room_id, self)
@@ -2040,20 +2047,18 @@ class MainWindow(QMainWindow):
         resolver.start()
 
     def _on_room_added(self, room: dict) -> None:
+        if self._closing:
+            return
         if self.sidebar.add_room(room):
             self.load_avatars_for([room])       # 新加的房间立刻显示头像
-        status = ("网页观看" if self._is_browser_room(room) else
-                  "直播中" if room.get("live") else "未开播")
+        status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")
-        if not self._is_browser_room(room) and len(self.wall.tiles) < MAX_TILES:
+        if len(self.wall.tiles) < MAX_TILES:
             self.add_to_wall(room)
         self._refresh_meta()
         self._save_timer.start()
 
     def add_to_wall(self, room: dict) -> None:
-        if self._is_browser_room(room):
-            self._watch_browser_room(room)
-            return
         self._prepare_room(room)
         room_id = str(room.get("room_id"))
         if self._tile_of(room_id) is not None:
@@ -2139,7 +2144,7 @@ class MainWindow(QMainWindow):
         """
         rooms = self.sidebar.rooms()
         room_ids = [str(room.get("room_id")) for room in rooms
-                    if room.get("room_id") and not self._is_browser_room(room)]
+                    if room.get("room_id")]
         if not room_ids:
             return
         loader = CachedCoverLoader(room_ids, self)
@@ -2156,7 +2161,7 @@ class MainWindow(QMainWindow):
         以前就是一条空白 —— 现在先用 ``cache/avatars/room/<房间号>.png`` 顶住。
         """
         room_ids = [str(room.get("room_id")) for room in self.sidebar.rooms()
-                    if room.get("room_id") and not self._is_browser_room(room)]
+                    if room.get("room_id")]
         if not room_ids:
             return
         loader = CachedAvatarLoader(room_ids, self)
@@ -2354,6 +2359,10 @@ class MainWindow(QMainWindow):
 
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         panel = self.wall.danmaku
+        if not str(room_id).isdigit():
+            panel.set_placeholder("此平台弹幕尚未接入，直播画面可正常播放")
+            panel.set_status("暂不支持")
+            return
         panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
         panel.set_status("连接中…")
         client = DanmakuClient(room_id, self)

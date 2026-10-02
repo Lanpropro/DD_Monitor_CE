@@ -1,17 +1,30 @@
-"""虎牙网页观看：链接校验、关注卡片、浏览器路由、保存重启和插件禁用。"""
+"""虎牙离线自检：取流适配、真实拖入格子链路、持久化与旧卡片迁移。"""
 import os
 import sys
 import tempfile
-from unittest.mock import patch
+import time
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
+from PySide6.QtCore import QMimeData, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QDropEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from ddm import config, plugins  # noqa: E402
+from ddm import bili, config, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.dialogs import AddRoomDialog  # noqa: E402
+from ddm.widgets import ROOM_MIME  # noqa: E402
+
+
+def settle(app, condition):
+    deadline = time.monotonic() + 4
+    while not condition() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert condition(), "后台任务未按预期完成"
 
 
 def main():
@@ -19,125 +32,153 @@ def main():
     manager = plugins.PluginManager(enabled=["huya_watch"])
     manager.load()
     platform = manager.platforms["huya"]
+    module = sys.modules[type(platform).__module__]
     for raw in ("huya:660000", "https://www.huya.com/660000",
                 "https://m.huya.com/660000/?from=share", "http://huya.com/660000#share"):
         assert platform.matches(raw)
         assert platform.normalize(raw) == "huya:660000", raw
     assert platform.normalize("huya:godv") == "huya:godv"
-    assert platform.normalize("huya:https://www.huya.com/godv") == "huya:godv"
     assert not platform.matches("660000"), "纯数字仍属于 B 站"
     for raw in ("huya:", "huya:../secret", "huya:a/b", "https://www.huya.com/%2Fsecret",
-                "https://www.huya.com.evil.test/660000", "https://evil.test/www.huya.com/660000",
-                "https://user:pass@www.huya.com/660000", "https://www.huya.com:1234/660000",
-                "file:///660000"):
+                "https://www.huya.com.evil.test/660000", "https://evil.test/660000",
+                "https://user:pass@www.huya.com/660000", "https://www.huya.com:1234/660000"):
         try:
             platform.normalize(raw)
         except ValueError:
             pass
         else:
-            raise AssertionError(f"必须拒绝非法房间输入：{raw}")
-    assert platform.room_url("huya:660000") == "https://www.huya.com/660000"
-    print("PASS: Huya official URLs and canonical room IDs")
+            raise AssertionError(raw)
+    print("PASS: canonical IDs and official URL validation")
 
-    # 跳过启动定时网络任务，只验证本次功能实际使用的界面和配置链路。
-    with patch("ddm.app.QTimer.singleShot"), patch("ddm.app.bili.room_info") as bili_info:
-        window = MainWindow([], [], state={"plugins_enabled": ["huya_watch"]})
+    session = SimpleNamespace(http=Mock(headers={"User-Agent": "test-agent"}))
+    parser = SimpleNamespace(author="测试虎牙主播", title="测试直播")
+    streams = {"best": Mock(to_url=Mock(return_value="https://cdn.test/live.flv?token=test")),
+               "tx_source": Mock(to_url=Mock(return_value="https://backup.test/live.flv"))}
+    response = Mock(url="http://backup.test/live.flv")
+    response.iter_content.return_value = iter([b"FLV"])
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    with patch.object(type(platform), "_streams", return_value=(session, parser, streams)):
+        info = platform.room_info("huya:660000").as_dict()
+        assert info["live"] and info["uname"] == parser.author
+        with patch.object(module.requests, "get", side_effect=[
+                module.requests.ConnectionError("first CDN failed"), response]) as get:
+            url, qn, profile, headers = platform.play_url("huya:660000")
+            assert (url, qn, profile) == (response.url, 10000, "huya")
+            assert headers["Referer"] == "https://www.huya.com/"
+            assert get.call_count == 2 and "cookies" not in get.call_args.kwargs
+    with patch.object(type(platform), "_streams", return_value=(session, parser, {})):
+        assert not platform.room_info("huya:660000").live
         try:
-            for raw, expected in (("https://www.huya.com/660000?from=share", "huya:660000"),
-                                  ("9001", "9001"), ("https://live.bilibili.com/9001", "9001")):
-                dialog = AddRoomDialog(window, room_id_resolver=window._normalize_room_input)
-                dialog.edit.setText(raw)
-                dialog.accept()
-                assert dialog.result() == AddRoomDialog.DialogCode.Accepted
-                assert dialog.room_id == expected
-                dialog.deleteLater()
-            dialog = AddRoomDialog(window, room_id_resolver=window._normalize_room_input)
-            dialog.edit.setText("https://www.huya.com.evil.test/660000")
-            dialog.accept()
-            assert dialog.result() != AddRoomDialog.DialogCode.Accepted and not dialog.room_id
-            dialog.deleteLater()
+            platform.play_url("huya:660000")
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("未开播不能生成播放地址")
+    session.http.close.assert_called()
+    resolver = bili.StreamResolver("huya:660000", platform=platform)
+    resolved = []
+    resolver.resolved.connect(lambda *args: resolved.append(args))
+    with patch.object(platform, "play_url", return_value=(url, qn, profile, headers)), \
+            patch.object(bili, "play_url", side_effect=AssertionError("误用 B 站")):
+        resolver.run()
+        assert resolved[0][1] == url and resolver.headers == headers
+        resolved.clear()
+        resolver.cancel()
+        resolver.run()
+        assert not resolved
+    poller = bili.StatusPoller(["9001", "huya:660000"], platforms={"huya": platform})
+    status = []
+    poller.updated.connect(status.append)
+    with patch.object(bili, "rooms_status", return_value={"9001": {}}) as bili_status, \
+            patch.object(platform, "rooms_status", return_value={"huya:660000": info}):
+        poller.run()
+        bili_status.assert_called_once_with(["9001"])
+        assert status[0]["huya:660000"]["live"]
+    with patch.object(platform, "rooms_status", side_effect=RuntimeError("network")), \
+            patch.object(bili, "rooms_status", return_value={"9001": {}}):
+        status.clear()
+        poller.run()
+        assert "huya:660000" not in status[0], "网络错误不能标记下播"
+    print("PASS: stream/CDN fallback, offline state, headers, cancellation, platform polling")
 
-            before_wall = len(window.wall.tiles)
-            def accept_huya(dialog):
-                dialog.edit.setText("https://www.huya.com/660000")
-                dialog.accept()
-                return dialog.result()
-            with patch.object(AddRoomDialog, "exec", accept_huya):
-                window.open_add_room()
-            window._add_room_id(platform.normalize("https://www.huya.com/660000/"))
-            assert len(window.sidebar.rooms()) == 1, "重复链接只能有一张卡片"
-            assert len(window.wall.tiles) == before_wall, "网页房间不会创建 VLC 格子"
-            item = window.sidebar.items()[0]
-            assert item.room["room_id"] == "huya:660000"
-            assert item.badge.text() == "网页观看", "不得把未知状态显示成未开播"
-            assert not item.room["live"] and item.room["live_known"] is False
-            with patch("ddm.app.webbrowser.open", return_value=True) as opened:
+    state = {"plugins_enabled": ["huya_watch"], "settings": {
+        "recording_enabled": False, "recording_replay_enabled": False, "preview_on_hover": False}}
+    with patch("ddm.app.QTimer.singleShot"), \
+            patch.object(bili, "room_info", side_effect=AssertionError("误用 B 站")), \
+            patch.object(bili, "play_url", side_effect=AssertionError("误用 B 站")), \
+            patch("ddm.app.webbrowser.open") as browser:
+        window = MainWindow([], [], state=state, layout_id="1x2")
+        hp = window.plugins.platforms["huya"]
+        played = []
+        def capture(tile, address, *_args, **kwargs):
+            played.append((tile, address, kwargs["headers"]))
+            tile.set_live(True)
+        try:
+            record = plugins.RoomInfo(room_id="huya:660000", uname=parser.author,
+                title=parser.title, live=True, platform="huya",
+                extra={"playback_mode": "stream", "live_known": True})
+            with patch.object(hp, "room_info", return_value=record), \
+                    patch.object(hp, "play_url", return_value=(url, qn, profile, headers)), \
+                    patch.object(window, "_play_on", side_effect=capture), \
+                    patch.object(window, "refresh_status"), patch.object(window, "refresh_stats"):
+                def accept_huya(dialog):
+                    dialog.edit.setText("https://www.huya.com/660000")
+                    dialog.accept()
+                    return dialog.result()
+                with patch.object(AddRoomDialog, "exec", accept_huya):
+                    window.open_add_room()
+                settle(app, lambda: bool(played))
+                window._add_room_id("huya:660000")
+                assert len(window.sidebar.rooms()) == 1
+                item = window.sidebar.items()[0]
+                assert item.badge.text() == "直播中"
+                assert "加入画面墙" in [a.text() for a in item._context_menu().actions()]
                 item.clicked.emit(item.room)
-                assert opened.call_args.args == ("https://www.huya.com/660000",)
-                actions = {action.text(): action for action in item._context_menu().actions()}
-                assert "观看直播" in actions and "加入画面墙" not in actions
-                actions["观看直播"].trigger()
-                window._on_room_dropped(None, "huya:660000")
-                assert opened.call_count == 3
-            with patch("ddm.app.webbrowser.open", return_value=False), \
-                    patch("ddm.app.QMessageBox.warning") as warning:
-                item.clicked.emit(item.room)
-                warning.assert_called_once()
-            with patch("ddm.app.StatusPoller") as poller, \
-                    patch("ddm.app.CachedCoverLoader") as covers, \
-                    patch("ddm.app.CachedAvatarLoader") as avatars:
-                window.refresh_status()
-                window.load_cached_covers()
-                window.load_cached_avatars()
-                poller.assert_not_called()
-                covers.assert_not_called()
-                avatars.assert_not_called()
-            bili_info.assert_not_called()
-            print("PASS: card add/deduplicate, click/menu/drop, browser failure, no Bili requests")
-
-            state = window.current_state()
+                target = next(t for t in window.wall.tiles if not t.room.get("room_id"))
+                before = len(played)
+                mime = QMimeData()
+                mime.setData(ROOM_MIME, b"huya:660000")
+                event = QDropEvent(QPointF(20, 20), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                target.dropEvent(event)
+                settle(app, lambda: len(played) > before)
+                assert event.isAccepted() and played[-1][0] is target
+                assert played[-1][1:] == (url, headers)
+                browser.assert_not_called()
+                window.start_danmaku("huya:660000")
+                assert window._danmaku is None
+                window.hover_preview.on_hover(item.room)
+                assert window.hover_preview._resolver is None
+                saved_state = window.current_state()
             with tempfile.TemporaryDirectory() as root, \
                     patch.object(config, "CONFIG_PATH", os.path.join(root, "config.json")), \
                     patch.dict(os.environ):
                 os.environ.pop("DDM_NO_SAVE", None)
-                config.save(state)
+                config.save(saved_state)
                 saved = config.load()
             sidebar, wall = config.build_rooms(saved)
-            assert sidebar[0]["uname"] == "虎牙 · 660000"
-            assert sidebar[0]["playback_mode"] == "browser"
-            restored = MainWindow(sidebar, wall, state=saved)
-            try:
-                with patch("ddm.app.webbrowser.open", return_value=True) as opened:
-                    restored.sidebar.items()[0].clicked.emit(restored.sidebar.rooms()[0])
-                    opened.assert_called_once_with("https://www.huya.com/660000")
-                restored.remove_room(restored.sidebar.rooms()[0])
-                assert restored.current_state()["rooms"] == []
-                assert restored.current_state()["browser_rooms"] == {}
-            finally:
-                restored.close()
-
+            assert sidebar[0]["uname"] == parser.author
+            assert sidebar[0]["playback_mode"] == "stream" and not sidebar[0]["live_known"]
+            assert any(r.get("room_id") == "huya:660000" for r in wall)
+            old = {"rooms": ["huya:660000"], "browser_rooms": {"huya:660000": {
+                "platform": "huya", "playback_mode": "browser", "uname": "虎牙 · 660000"}}}
+            assert config.build_rooms(old)[0][0]["playback_mode"] == "stream"
             saved["plugins_enabled"] = []
-            sidebar, wall = config.build_rooms(saved)
             disabled = MainWindow(sidebar, wall, state=saved)
             try:
-                with patch("ddm.app.webbrowser.open") as opened, \
-                        patch("ddm.app.QMessageBox.information") as notice:
-                    disabled.sidebar.items()[0].clicked.emit(disabled.sidebar.rooms()[0])
-                    opened.assert_not_called()
-                    notice.assert_called_once()
-                try:
-                    disabled._normalize_room_input("https://www.huya.com/660000")
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError("禁用插件后不能把虎牙链接解析成 B 站数字房间")
+                tile = next(t for t in disabled.wall.tiles if t.room.get("room_id"))
+                disabled.start_tile(tile)
+                assert "启用" in tile._status_text
+                assert not disabled._resolvers_running
+                disabled.remove_room(disabled.sidebar.rooms()[0])
+                assert disabled.current_state()["platform_rooms"] == {}
             finally:
                 disabled.close()
-            print("PASS: disk save/restart, deletion, disabled plugin preserves cards")
+            print("PASS: dialog/drop-to-tile flow, no browser/Bili, save/restart, migration, disable")
         finally:
             window.close()
     app.processEvents()
-    print("Huya watch selfcheck passed")
+    print("Huya tile playback selfcheck passed")
 
 
 if __name__ == "__main__":

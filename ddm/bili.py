@@ -321,11 +321,12 @@ class StreamResolver(QThread):
     failed = Signal(str, str)       # room_id, 原因
 
     def __init__(self, room_id: str, quality: int = 250, parent=None,
-                 *, source_offset: int = 0):
+                 *, source_offset: int = 0, platform=None):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.quality = quality
         self.source_offset = source_offset
+        self.platform = platform
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self._cancelled = False
 
@@ -347,18 +348,26 @@ class StreamResolver(QThread):
         if self._cancelled:
             return
         try:
-            url, current, profile, headers = play_url(
-                self.room_id, self.quality, cancelled=self.is_cancelled,
-                source_offset=self.source_offset)
+            if self.platform is not None:
+                result = self.platform.play_url(self.room_id, self.quality)
+                url, current, profile = result[:3]
+                headers = dict(result[3]) if len(result) > 3 else {}
+            elif self.room_id.isdigit():
+                url, current, profile, headers = play_url(
+                    self.room_id, self.quality, cancelled=self.is_cancelled,
+                    source_offset=self.source_offset)
+            else:
+                raise ValueError("请启用对应的平台插件并重启")
+            if self._cancelled:
+                return
+            options = (self.platform.room_quality_options(self.room_id) if self.platform
+                       else room_quality_options(self.room_id))
         except Cancelled:
             return                       # 作废：不发结果，也不算失败
         except Exception as error:  # noqa: BLE001
             if not self._cancelled:
                 self.failed.emit(self.room_id, str(error))
             return
-        if self._cancelled:
-            return
-        options = room_quality_options(self.room_id)
         if self._cancelled:
             return
         self.headers = headers
@@ -375,12 +384,20 @@ class InfoResolver(QThread):
     resolved = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, room_id: str, parent=None):
+    def __init__(self, room_id: str, parent=None, *, platform=None):
         super().__init__(parent)
         self.room_id = str(room_id)
+        self.platform = platform
 
     def run(self) -> None:
-        info = room_info(self.room_id)
+        try:
+            if self.platform is not None:
+                result = self.platform.room_info(self.room_id)
+                info = result.as_dict() if result is not None else None
+            else:
+                info = room_info(self.room_id) if self.room_id.isdigit() else None
+        except Exception:  # noqa: BLE001
+            info = None
         if info is None:
             self.failed.emit(self.room_id)
         else:
@@ -574,13 +591,24 @@ class StatusPoller(QThread):
     updated = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, room_ids: list[str], parent=None):
+    def __init__(self, room_ids: list[str], parent=None, *, platforms=None):
         super().__init__(parent)
         self.room_ids = list(room_ids)
+        self.platforms = platforms or {}
 
     def run(self) -> None:
         try:
-            status = rooms_status(self.room_ids)
+            bili_ids = [rid for rid in self.room_ids if str(rid).isdigit()]
+            status = rooms_status(bili_ids) if bili_ids else {}
+            # 平台请求各自失败，不能把网络失败误标成下播或丢掉 B 站的结果。
+            for kind, platform in self.platforms.items():
+                ids = [rid for rid in self.room_ids if str(rid).startswith(kind + ":")]
+                if not ids:
+                    continue
+                try:
+                    status.update(platform.rooms_status(ids))
+                except Exception:  # noqa: BLE001
+                    self.failed.emit(f"{platform.label or kind} 状态获取失败")
             self.updated.emit(status)
             missing = {str(room_id) for room_id in self.room_ids if str(room_id).isdigit()} - status.keys()
             if missing:

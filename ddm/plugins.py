@@ -138,8 +138,8 @@ class RoomInfo:
 class Platform:
     """一个站的接入实现。流模式需要 ``matches`` / ``room_info`` / ``play_url``。
 
-    ``playback_mode = 'browser'`` 提供本地关注卡片，通过 ``room_url`` 打开
-    官方网页；该模式只调用本地 ``room_info``，不调用 ``play_url``。
+    ``room_info``、``rooms_status``、``play_url`` 在本体工作线程调用，
+    请求必须设置超时。``room_url`` 仅提供额外的官方网页菜单入口。
 
     ``kind`` 是给界面看的短名（例如 ``douyin``）：房间号前面会带上它，
     这样同一个「12345」在 B 站和别的站不会撞车。
@@ -147,8 +147,6 @@ class Platform:
 
     kind = ""
     label = ""
-    # browser 平台只提供本地房间资料和官方网页，不进入 VLC/弹幕取流链路。
-    # 该模式的 room_info 必须只构建本地资料，不能执行网络请求。
     playback_mode = "stream"
 
     def matches(self, room_id: str) -> bool:
@@ -170,6 +168,10 @@ class Platform:
     def play_url(self, room_id: str, quality: int = 250) -> tuple:
         """取流，返回 ``(url, 实际画质, 通道名)`` 或 ``(url, 实际画质, 通道名, headers)``。"""
         raise NotImplementedError
+
+    def room_quality_options(self, room_id: str) -> list[dict]:
+        """可选：本平台支持的画质档位，格式为 ``{qn, desc}``。"""
+        return []
 
     def room_url(self, room_id: str) -> str:
         """可选：返回直播间网页地址；空串表示不提供浏览器入口。"""

@@ -8,3 +8,5 @@ qrcode
 # 弹幕（ddm/danmaku.py 用它的 websocket 客户端）
 aiohttp
 brotli
+# 虎牙公开直播流解析（固定已验证版本）
+streamlink==8.6.1

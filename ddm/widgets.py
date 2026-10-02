@@ -2011,8 +2011,8 @@ class NavItem(QFrame):
         _ignore_mouse(self.sub)
         _allow_shrink(self.sub)
         self.badge = QLabel("直播中" if room.get("live") else "未开播")
-        if room.get("playback_mode") == "browser":
-            self.badge.setText("网页观看")
+        if room.get("platform") == "huya" and not room.get("live_known", True):
+            self.badge.setText("待刷新")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge)
@@ -2362,8 +2362,7 @@ class NavItem(QFrame):
         if self.select_mode:
             return menu
         menu.addSeparator()
-        menu.addAction("观看直播" if self.room.get("playback_mode") == "browser"
-                       else "加入画面墙").triggered.connect(
+        menu.addAction("加入画面墙").triggered.connect(
             lambda _checked=False: self.addRequested.emit(self.room))
         url = (self.drop_host.browser_url_resolver(self.room)
                if self.drop_host is not None else "")

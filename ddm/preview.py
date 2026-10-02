@@ -79,6 +79,8 @@ class HoverPreview(QObject):
     def on_hover(self, room: dict) -> None:
         if not self.enabled or self.sidebar.select_mode:
             return
+        if ":" in str(room.get("room_id") or ""):
+            return                              # 本期只接入格子播放，避免调用 B 站预览取流
         if not room.get("live"):
             return                              # 没开播就没什么可看的
         self._grace.stop()

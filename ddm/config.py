@@ -148,11 +148,16 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             # 否则一打开软件，所有已开播的房间都会冒一遍开播提醒（见 app）。
             "live_known": False,
         }
-        saved = (state.get("browser_rooms") or {}).get(room_id) or {}
-        if saved.get("playback_mode") == "browser":
+        saved = ((state.get("platform_rooms") or {}).get(room_id) or
+                 (state.get("browser_rooms") or {}).get(room_id) or {})
+        if ":" in room_id:
+            room.update(platform=room_id.split(":", 1)[0], playback_mode="stream")
+        if saved.get("playback_mode") in ("browser", "stream"):
             for key in ("uname", "title", "platform", "playback_mode"):
                 if isinstance(saved.get(key), str):
                     room[key] = saved[key]
+        if room.get("platform") == "huya":
+            room["playback_mode"] = "stream"     # 迁移旧版虎牙网页卡片
         return room
 
     sidebar = [placeholder(room_id) for room_id in room_ids]
