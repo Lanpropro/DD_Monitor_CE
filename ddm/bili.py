@@ -321,12 +321,13 @@ class StreamResolver(QThread):
     failed = Signal(str, str)       # room_id, 原因
 
     def __init__(self, room_id: str, quality: int = 250, parent=None,
-                 *, source_offset: int = 0, platform=None):
+                 *, source_offset: int = 0, platform=None, preview: bool = False):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.quality = quality
         self.source_offset = source_offset
         self.platform = platform
+        self.preview = preview
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self._cancelled = False
 
@@ -349,7 +350,8 @@ class StreamResolver(QThread):
             return
         try:
             if self.platform is not None:
-                result = self.platform.play_url(self.room_id, self.quality)
+                result = (self.platform.preview_url(self.room_id) if self.preview
+                          else self.platform.play_url(self.room_id, self.quality))
                 url, current, profile = result[:3]
                 headers = dict(result[3]) if len(result) > 3 else {}
             elif self.room_id.isdigit():
@@ -360,7 +362,8 @@ class StreamResolver(QThread):
                 raise ValueError("请启用对应的平台插件并重启")
             if self._cancelled:
                 return
-            options = (self.platform.room_quality_options(self.room_id) if self.platform
+            options = ([] if self.preview else
+                       self.platform.room_quality_options(self.room_id) if self.platform
                        else room_quality_options(self.room_id))
         except Cancelled:
             return                       # 作废：不发结果，也不算失败

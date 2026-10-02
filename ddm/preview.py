@@ -120,7 +120,7 @@ class HoverPreview(QObject):
             return
         print(f"[预览] {room.get('uname')} → 缩略图", file=sys.stderr, flush=True)
         generation = self._generation
-        kwargs = {"platform": platform} if platform is not None else {}
+        kwargs = {"platform": platform, "preview": True} if platform is not None else {}
         resolver = StreamResolver(room_id, PREVIEW_QUALITY, self, **kwargs)
         # 回调都带上编号：编号过期就说明这次取流早就作废了（鼠标移开、换了条目）
         resolver.resolved.connect(

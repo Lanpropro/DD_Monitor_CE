@@ -77,13 +77,13 @@ def check_rates(manager):
     with patch.object(module, "Streamlink", return_value=session), \
             patch.object(session.http, "get", return_value=response(text=page)), \
             patch.object(module.Huya, "_get_stream_params", return_value={"token": "test"}) as params:
-        for quality, bitrate in ((80, 500), (250, 0)):
-            huya._streams("huya:123", quality)
+        for is_preview, bitrate in ((True, 500), (False, 0)):
+            huya._streams("huya:123", 10000, preview=is_preview)
             assert params.call_args.args[-1] == bitrate
         del data["vMultiStreamInfo"]
         with patch.object(session.http, "get", return_value=response(
                 text="var hyPlayerConfig = {stream:" + json.dumps(data) + "};</script>")):
-            huya._streams("huya:123", 80)
+            huya._streams("huya:123", 10000, preview=True)
             assert params.call_args.args[-1] == 0
     douyu = manager.platforms["douyu"]
     edge = {"rtmp_url": "https://stream.test.edgesrv.com", "rtmp_live": "source.flv",
@@ -92,7 +92,7 @@ def check_rates(manager):
     low = {"rtmp_url": "https://cdn.test", "rtmp_live": "preview.flv"}
     with patch.object(douyu, "room_info", return_value=plugins.RoomInfo("douyu:123", live=True)), \
             patch.object(douyu, "_request_source", side_effect=[edge, low]) as request:
-        assert douyu._streams(session, "douyu:123", 80)["source"].to_url().endswith("preview.flv")
+        assert douyu._streams(session, "douyu:123", 10000, preview=True)["source"].to_url().endswith("preview.flv")
         assert request.call_args.args[1:] == ("123", "hw-h5")
         assert request.call_args.kwargs == {"rate": 4}
     parser = module.Douyu(session, "https://www.douyu.com/123")
@@ -112,9 +112,9 @@ def check_rates(manager):
         with patch.object(module, "Streamlink", return_value=session), \
                 patch.object(platform, "_streams", return_value=streams) as get_streams, \
                 patch.object(session.http, "get", return_value=response()) as get:
-            for quality, key in ((80, "worst"), (250, "best")):
-                platform.play_url(kind + ":123", quality)
-                assert get_streams.call_args.args[-1] == quality
+            for is_preview, key in ((True, "worst"), (False, "best")):
+                platform.play_url(kind + ":123", 10000, preview=is_preview)
+                assert get_streams.call_args.kwargs["preview"] == is_preview
                 assert streams[key].to_url.called
                 if kind == "douyin":
                     assert get.call_args.args[0] == f"https://cdn.test/{key}.flv"
@@ -152,14 +152,14 @@ def main():
                         kind = item.room["platform"]
                         platform = window.plugins.platforms[kind]
                         headers = {"Referer": platform.room_url(item.room["room_id"]), "User-Agent": "preview-test"}
-                        with patch.object(platform, "play_url", return_value=("https://cdn.test/live.flv", 80, kind, headers)) as get:
+                        with patch.object(platform, "preview_url", return_value=("https://cdn.test/live.flv", 10000, kind, headers)) as get:
                             if window.sidebar.side == "top" and collapsed:
                                 window.sidebar._head_strip._set_hover_room(item.room["room_id"])
                             hp.on_hover(item.room)
                             hp._delay.stop()
                             hp._show_now()
                             settle(app, lambda: hp._resolver is None and not hp._resolvers_running)
-                            get.assert_called_once_with(item.room["room_id"], 80)
+                            get.assert_called_once_with(item.room["room_id"])
                             player = hp._popup_player if collapsed or not card_mode else item.thumb._player
                             assert player.plays[-1][1:] == (kind, headers)
                             hp.on_hover(item.room)
@@ -224,7 +224,7 @@ def main():
             print("PASS: deleting focus releases inline player; disabling plugin stops popup and suspends all cards")
             item = window.sidebar.items()[0]
             platform = window.plugins.platforms[item.room["platform"]]
-            def slow(*_args):
+            def slow(*_args, **_kwargs):
                 time.sleep(.3)
                 return "https://cdn.test/late.flv", 80, platform.kind, {}
             with patch.object(platform, "play_url", side_effect=slow):

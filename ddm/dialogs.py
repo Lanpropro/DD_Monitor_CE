@@ -55,7 +55,7 @@ class GeneralSettingsPage(QWidget):
     """常规：轮询、画质策略、画面卡死检测、新格子初始声音。"""
 
     ITEMS = [
-        ("auto_quality", "主画面自动用原画，其余自动 720P"),
+        ("auto_quality", "B 站主画面自动用原画，其余自动 720P"),
         ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
         ("default_muted", "新建格子的初始静音状态"),
         ("fullscreen_solo_audio", "全屏时只播放该路声音，退出后恢复原静音状态"),

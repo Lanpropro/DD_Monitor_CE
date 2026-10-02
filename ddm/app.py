@@ -848,6 +848,8 @@ class MainWindow(QMainWindow):
         for index, tile in enumerate(self.wall.tiles):
             if not tile.room.get("room_id"):
                 continue
+            if not str(tile.room["room_id"]).isdigit():
+                continue                  # 原画/720P 策略仅适用于 B 站，插件沿用本平台手选档位
             if tile in self._capture_quality:
                 continue
             target = 10000 if index == main else 250
@@ -931,8 +933,15 @@ class MainWindow(QMainWindow):
             tile.set_live(True)
         if options:
             tile.set_quality_options(options)
+            if quality and ":" in str(tile.room.get("room_id") or ""):
+                tile.quality = quality
+                tile.room["quality"] = quality
         if quality:
             tile.set_actual_quality(quality)
+            if (":" in str(tile.room.get("room_id") or "") and requested_quality != quality
+                    and any(int(option["qn"]) == requested_quality for option in options or [])):
+                tile.quality_button.setToolTip(
+                    f"请求 {tile._quality_name(requested_quality)}，平台实际返回 {tile._quality_name(quality)}")
         player = self.players.get(tile)
         if player is None:
             player = TilePlayer(tile.video, self)

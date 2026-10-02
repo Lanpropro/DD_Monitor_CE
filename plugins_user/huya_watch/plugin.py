@@ -4,6 +4,7 @@ from html import unescape
 import json
 import re
 import uuid
+import zlib
 from urllib.parse import parse_qsl, urlsplit
 
 import requests
@@ -16,7 +17,25 @@ from streamlink.stream.http import HTTPStream
 from ddm import plugins as api
 
 
-class HuyaPlatform(api.Platform):
+class LiveQualityPlatform(api.Platform):
+    def __init__(self):
+        self._qualities = {}                  # 只保存档位元数据，不保存带签名的地址
+
+    def room_quality_options(self, room_id: str) -> list[dict]:
+        return [{key: value for key, value in item.items() if key in ("qn", "desc", "label")} for item in
+                self._qualities.get(room_id, [{"qn": 10000, "desc": "最高可用"}])]
+
+    def _select_quality(self, room_id, quality, preview):
+        options = self._qualities[room_id]
+        if preview:
+            return options[-1]
+        return next((item for item in options if item["qn"] == quality), options[0])
+
+    def preview_url(self, room_id: str) -> tuple:
+        return self.play_url(room_id, 10000, preview=True)
+
+
+class HuyaPlatform(LiveQualityPlatform):
     kind = "huya"
     label = "虎牙"
     playback_mode = "stream"
@@ -46,7 +65,7 @@ class HuyaPlatform(api.Platform):
             raise ValueError("请填写 huya:房间号，或虎牙官方直播间链接")
         return f"huya:{raw}"
 
-    def _streams(self, room_id: str, quality: int = 250):
+    def _streams(self, room_id: str, quality: int = 250, *, preview=False):
         session = Streamlink({"http-timeout": 8})
         parser = Huya(session, self.room_url(room_id))
         try:
@@ -61,11 +80,18 @@ class HuyaPlatform(api.Platform):
             data, _end = json.JSONDecoder().raw_decode(script[match.end():].lstrip())
             if isinstance(data, str):
                 data = json.loads(base64.b64decode(data, validate=True))
-            bitrate = 0
-            if quality <= 80:
-                rates = [item["iBitRate"] for item in data.get("vMultiStreamInfo", [])
-                         if isinstance(item.get("iBitRate"), int) and item["iBitRate"] > 0]
-                bitrate = min(rates, default=0)
+            options = [{"qn": 10000 if item["iBitRate"] == 0 else 1000000 + item["iBitRate"],
+                        "desc": item.get("sDisplayName") or (
+                            "原画" if item["iBitRate"] == 0 else f"{item['iBitRate']} kbps"),
+                        "rate": item["iBitRate"]}
+                       for item in data.get("vMultiStreamInfo", [])
+                       if isinstance(item.get("iBitRate"), int) and item["iBitRate"] >= 0]
+            if not any(item["rate"] == 0 for item in options):
+                options.append({"qn": 10000, "desc": "原画", "rate": 0})
+            self._qualities[room_id] = sorted(options, key=lambda item: (
+                item["rate"] == 0, item["rate"]), reverse=True)
+            selected = self._select_quality(room_id, quality, preview)
+            bitrate = selected["rate"]
             streams = {}
             for info in data.get("data", [{}])[0].get("gameStreamInfoList", []):
                 # 使用网页明确提供的 HLS 线路；签名参数仍交给固定版本的 Streamlink。
@@ -79,7 +105,9 @@ class HuyaPlatform(api.Platform):
                 url = f"{base}/{name}.{info['sHlsUrlSuffix']}"
                 if url.startswith("//"):
                     url = "https:" + url
-                streams[f"{info['sCdnType'].lower()}_source"] = HTTPStream(session, url, params=params)
+                stream = HTTPStream(session, url, params=params)
+                stream.ddm_quality = selected["qn"]
+                streams[f"{info['sCdnType'].lower()}_source"] = stream
         except Exception as error:  # noqa: BLE001
             session.http.close()
             raise RuntimeError("虎牙房间获取失败，请稍后重试") from error
@@ -143,11 +171,8 @@ class HuyaPlatform(api.Platform):
             raise RuntimeError("虎牙状态获取失败")
         return result
 
-    def room_quality_options(self, room_id: str) -> list[dict]:
-        return [{"qn": 10000, "desc": "原画"}]
-
-    def play_url(self, room_id: str, quality: int = 250) -> tuple:
-        session, _parser, streams = self._streams(room_id, quality)
+    def play_url(self, room_id: str, quality: int = 250, *, preview=False) -> tuple:
+        session, _parser, streams = self._streams(room_id, quality, preview=preview)
         try:
             if not streams:
                 raise RuntimeError("虎牙房间未开播，或没有可用的公开直播流")
@@ -169,7 +194,8 @@ class HuyaPlatform(api.Platform):
                         response.raise_for_status()
                         if next(response.iter_content(7), b"") != b"#EXTM3U":
                             continue
-                        return response.url, 80 if quality <= 80 else 10000, "huya", headers
+                        qn = getattr(stream, "ddm_quality", 10000)
+                        return response.url, qn if isinstance(qn, int) else 10000, "huya", headers
                 except requests.RequestException:
                     continue
             raise RuntimeError("虎牙直播线路暂不可用，请重试")
@@ -181,7 +207,7 @@ class HuyaPlatform(api.Platform):
         return f"https://www.huya.com/{canonical.split(':', 1)[1]}"
 
 
-class NumericLivePlatform(api.Platform):
+class NumericLivePlatform(LiveQualityPlatform):
     """斗鱼、抖音共用的数字房间链接、原画和状态查询。"""
     hosts = ()
     image_hosts = ()
@@ -239,27 +265,26 @@ class NumericLivePlatform(api.Platform):
             raise RuntimeError(f"{self.label}状态获取失败")
         return result
 
-    def room_quality_options(self, room_id: str) -> list[dict]:
-        return [{"qn": 10000, "desc": "原画"}]
-
-    def play_url(self, room_id: str, quality: int = 250) -> tuple:
+    def play_url(self, room_id: str, quality: int = 250, *, preview=False) -> tuple:
         session = Streamlink({"http-timeout": 8})
         try:
-            streams = self._streams(session, room_id, quality)
+            streams = self._streams(session, room_id, quality, preview=preview)
             if not streams:
                 raise RuntimeError(f"{self.label}房间未开播，或没有可用的公开直播流")
-            stream = streams.get("worst" if quality <= 80 else "best") or next(iter(streams.values()))
+            stream = streams.get("worst" if preview else "best") or next(iter(streams.values()))
+            qn = getattr(stream, "ddm_quality", 10000)
+            qn = qn if isinstance(qn, int) else 10000
             url = stream.to_url()
             headers = {"User-Agent": session.http.headers["User-Agent"],
                        "Referer": f"https://{self.hosts[0]}/"}
             if self.kind == "douyu":
                 # 斗鱼部分地址只允许一个消费者，提前探流会使随后播放器连接短时间断开。
-                return url, 80 if quality <= 80 else 10000, self.kind, headers
+                return url, qn, self.kind, headers
             with session.http.get(url, headers=headers, stream=True, timeout=(4, 6)) as response:
                 response.raise_for_status()
                 if next(response.iter_content(3), b"") != b"FLV":
                     raise RuntimeError(f"{self.label}直播线路暂不可用，请重试")
-                return response.url, 80 if quality <= 80 else 10000, self.kind, headers
+                return response.url, qn, self.kind, headers
         except RuntimeError:
             raise
         except Exception as error:  # noqa: BLE001
@@ -294,7 +319,7 @@ class DouyuPlatform(NumericLivePlatform):
         except (requests.RequestException, ValueError, KeyError, TypeError) as error:
             raise RuntimeError("斗鱼房间信息获取失败，请稍后重试") from error
 
-    def _streams(self, session, room_id, quality=250):
+    def _streams(self, session, room_id, quality=250, *, preview=False):
         if not self.room_info(room_id).live:
             return {}
         parser = Douyu(session, self.room_url(room_id))
@@ -305,18 +330,30 @@ class DouyuPlatform(NumericLivePlatform):
         cdn = ""
         if (urlsplit(data.get("rtmp_url", "")).hostname or "").endswith(".edgesrv.com"):
             cdn = next((name for name in ("hw-h5", "tct-h5", "ali-h5") if name in cdns), "")
-        rate = 0
-        if quality <= 80:
-            rates = [item for item in data.get("multirates", [])
-                     if isinstance(item.get("bit"), int) and item["bit"] > 0
-                     and isinstance(item.get("rate"), int)]
-            if rates:
-                rate = min(rates, key=lambda item: item["bit"])["rate"]
+        options = [{"qn": 10000 if item["rate"] == 0 else 2000000 + item["rate"],
+                    "desc": item.get("name") or (
+                        "原画" if item["rate"] == 0 else f"{item.get('bit', 0)} kbps"),
+                    "rate": item["rate"], "bit": item.get("bit", 0)}
+                   for item in data.get("multirates", [])
+                   if isinstance(item.get("rate"), int) and item["rate"] >= 0]
+        if not any(item["rate"] == 0 for item in options):
+            options.append({"qn": 10000, "desc": "原画", "rate": 0, "bit": 0})
+        self._qualities[room_id] = sorted(options, key=lambda item: (
+            item["rate"] == 0, item["bit"]), reverse=True)
+        selected = self._select_quality(room_id, quality, preview)
+        rate = selected["rate"]
         if cdn or rate:
-            data = self._request_source(parser, raw, cdn, rate=rate) or data
+            changed = self._request_source(parser, raw, cdn, rate=rate)
+            if changed:
+                data = changed
+            else:
+                rate = 0
         if not data:
             return {}
-        return {"source": HTTPStream(session, f"{data['rtmp_url']}/{data['rtmp_live']}")}
+        stream = HTTPStream(session, f"{data['rtmp_url']}/{data['rtmp_live']}")
+        actual_rate = data.get("rate", rate)
+        stream.ddm_quality = 10000 if actual_rate == 0 else 2000000 + actual_rate
+        return {"source": stream}
 
     def _request_source(self, parser, raw, cdn="", *, rate=0):
         # 与固定版本 Streamlink 的公开网页请求一致，请求 AVC 及网页提供的画质/CDN。
@@ -355,30 +392,72 @@ class DouyinPlatform(NumericLivePlatform):
                     cookies={"__ac_nonce": uuid.uuid4().hex[:21]}, timeout=(4, 8)) as response:
                 response.raise_for_status()
                 page = response.text
-            # 与 Streamlink 8.6.1 相同的公开页面数据格式，不执行网页脚本。
-            chunks = re.findall(r'self\.__pace_f\.push\(\[\d+,("\w+:.+?")]\)</script>', page)
-            for chunk in reversed(chunks):
-                if "state" not in chunk or "streamStore" not in chunk:
-                    continue
-                payload = json.loads(re.sub(r"^\w+:", "", json.loads(chunk)))
-                state = next(item["state"] for item in payload
-                             if isinstance(item, dict) and "state" in item)
-                info = state["roomStore"]["roomInfo"]
-                room = info["room"]
-                if type(room.get("status")) is not int or not room.get("id_str"):
-                    raise ValueError("Missing room status")
-                owner = room.get("owner") or info.get("anchor") or {}
-                return api.RoomInfo(room_id=canonical, uname=owner.get("nickname") or f"抖音 · {raw}",
-                    title=room.get("title") or "抖音直播间", live=room["status"] == 2,
-                    platform=self.kind, face=self._image_url(owner.get("avatar_thumb")),
-                    cover_url=self._image_url(room.get("cover")),
-                    extra={"playback_mode": "stream", "live_known": True})
-            raise ValueError("Missing public room data")
+            info = self._page_info(page)
+            room = info["room"]
+            owner = room.get("owner") or info.get("anchor") or {}
+            return api.RoomInfo(room_id=canonical, uname=owner.get("nickname") or f"抖音 · {raw}",
+                title=room.get("title") or "抖音直播间", live=room["status"] == 2,
+                platform=self.kind, face=self._image_url(owner.get("avatar_thumb")),
+                cover_url=self._image_url(room.get("cover")),
+                extra={"playback_mode": "stream", "live_known": True})
         except (requests.RequestException, ValueError, KeyError, TypeError, StopIteration) as error:
             raise RuntimeError("抖音房间信息获取失败，请使用直播间完整链接或稍后重试") from error
 
-    def _streams(self, session, room_id, quality=250):
-        return Douyin(session, self.room_url(room_id)).streams()
+    @staticmethod
+    def _page_info(page):
+        # 与 Streamlink 8.6.1 相同的公开页面数据格式，保留网页的画质元数据。
+        chunks = re.findall(r'self\.__pace_f\.push\(\[\d+,("\w+:.+?")]\)</script>', page)
+        for chunk in reversed(chunks):
+            if "state" not in chunk or "streamStore" not in chunk:
+                continue
+            payload = json.loads(re.sub(r"^\w+:", "", json.loads(chunk)))
+            state = next(item["state"] for item in payload
+                         if isinstance(item, dict) and "state" in item)
+            info = state["roomStore"]["roomInfo"]
+            room = info["room"]
+            if type(room.get("status")) is not int or not room.get("id_str"):
+                raise ValueError("Missing room status")
+            return info
+        raise ValueError("Missing public room data")
+
+    def _streams(self, session, room_id, quality=250, *, preview=False):
+        page = session.http.get(self.room_url(room_id),
+                                cookies={"__ac_nonce": uuid.uuid4().hex[:21]}).text
+        room = self._page_info(page)["room"]
+        if room["status"] != 2:
+            return {}
+        stream_url = room.get("stream_url") or {}
+        urls = {key.lower(): value for key, value in stream_url.get("flv_pull_url", {}).items()
+                if isinstance(value, str) and urlsplit(value).scheme in ("http", "https")}
+        if not urls:
+            return {}
+        # 这些 FLV 档位对应网页 SDK 的 ld/sd/hd/uhd；分辨率、帧率只用本房间元数据。
+        sdk_keys = {"sd1": "ld", "sd2": "sd", "hd1": "hd", "full_hd1": "uhd"}
+        metadata = stream_url.get("live_core_sdk_data", {}).get("pull_data", {}).get(
+            "options", {}).get("qualities", [])
+        metadata = {item.get("sdk_key"): item for item in metadata}
+        keys = sorted(urls, key=lambda key: Douyin.stream_weight(key)[0], reverse=True)
+        options = []
+        for index, key in enumerate(keys):
+            item = metadata.get(sdk_keys.get(key, key), {})
+            label = item.get("name") or key.upper()
+            desc = label
+            resolution = str(item.get("resolution") or "")
+            if re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", resolution):
+                desc += f" · {resolution}"
+            if isinstance(item.get("fps"), int) and item["fps"] > 0:
+                desc += f" · {item['fps']}fps"
+            # 稳定的整数仅用于软件保存/信号；不能当作像素高度或平台 rate。
+            qn = 10000 if index == 0 else 3000000 + (zlib.crc32(key.encode()) & 0xFFFFFF)
+            options.append({"qn": qn, "desc": desc, "label": label, "key": key})
+        self._qualities[room_id] = options
+        selected = self._select_quality(room_id, quality, preview)
+        url = urls[selected["key"]]
+        if url.startswith("http://"):
+            url = "https://" + url[7:]
+        stream = HTTPStream(session, url)
+        stream.ddm_quality = selected["qn"]
+        return {"source": stream}
 
 
 class LivePlatformsPlugin(api.Plugin):

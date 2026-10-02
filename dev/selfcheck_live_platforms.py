@@ -33,7 +33,8 @@ def response(data=None, text="", content=b"FLV", url="https://cdn.test/live.flv"
 def dy_page(status=2, owner=True):
     anchor = {"nickname": "抖音测试", "avatar_thumb": {"url_list": ["https://p3.douyinpic.com/avatar.jpg"]}}
     room = {"status": status, "id_str": "internal-123", "title": "抖音标题",
-            "cover": {"url_list": ["https://p11.douyinpic.com/cover.jpg"]}, "user_count_str": "99999"}
+            "cover": {"url_list": ["https://p11.douyinpic.com/cover.jpg"]}, "user_count_str": "99999",
+            "stream_url": {"flv_pull_url": {"FULL_HD1": "https://cdn.test/source.flv"}}}
     if owner:
         room["owner"] = anchor
     state = {"state": {"roomStore": {"roomInfo": {"room": room, "anchor": anchor}}, "streamStore": {}}}
@@ -162,8 +163,8 @@ def main():
         assert douyu._request_source(parser, "123", "hw-h5") == backup
         data = post.call_args.kwargs["data"]
         assert data["cdn"] == "hw-h5" and data["rate"] == "0" and data["hevc"] == "0"
-    with patch.object(module.Douyin, "streams", return_value={"best": "test"}):
-        assert douyin._streams(session, "douyin:123") == {"best": "test"}
+    with patch.object(session.http, "get", return_value=response(text=dy_page())):
+        assert douyin._streams(session, "douyin:123")["source"].to_url() == "https://cdn.test/source.flv"
     session.http.close()
     pixmap = QPixmap(32, 32)
     pixmap.fill(Qt.red)

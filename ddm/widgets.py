@@ -4715,6 +4715,8 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
+        self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
+        self.actual_quality = 0
         self.stream_url = ""
         self.stream_headers = {}
         self.set_recording_state("")
@@ -4742,7 +4744,6 @@ class Tile(QFrame):
         self.title_badge.setVisible(bool(self.room.get("uname")) and self._overlay_visible)
         self._refresh_badge()
         self.quality = int(self.room.get("quality", 250))
-        self.actual_quality = 0
         # 声道和音量 / 静音一样属于**格子**，不跟着房间走：换台不该把用户调好的
         # 「只播左 / 只播右」丢掉。房间自带的那份只在第一次上墙时用（_prepare_room）。
         self.room["audio_channel"] = self.audio_channel
@@ -4967,14 +4968,14 @@ class Tile(QFrame):
         return button
 
     def _quality_text(self) -> str:
-        if self.actual_quality:
-            return self._quality_name(self.actual_quality)
-        return self._quality_name(self.quality)
+        return self._quality_name(self.actual_quality or self.quality, short=True)
 
-    def _quality_name(self, qn: int) -> str:
+    def _quality_name(self, qn: int, *, short: bool = False) -> str:
         for item in self.quality_options:
             if int(item.get("qn") or 0) == int(qn):
-                return str(item.get("desc") or qn)
+                return str((item.get("label") if short else None) or item.get("desc") or qn)
+        if ":" in str(self.room.get("room_id") or ""):
+            return "最高可用" if int(qn) == 10000 else "获取画质…"
         return QUALITY_NAMES.get(int(qn), f"{qn}P")
 
     def _quality_choices(self) -> list[tuple[str, int]]:
@@ -4982,6 +4983,8 @@ class Tile(QFrame):
         if self.quality_options:
             return [(self._quality_name(int(item["qn"])), int(item["qn"]))
                     for item in self.quality_options]
+        if ":" in str(self.room.get("room_id") or ""):
+            return []                     # 接口返回前不展示 B 站的固定画质菜单
         return list(QUALITY_CHOICES)
 
     def set_quality_options(self, options: list) -> None:
@@ -4996,7 +4999,9 @@ class Tile(QFrame):
         self.actual_quality = int(quality or 0)
         self.quality_button.setText(self._quality_text())
         self._layout_controls()
-        if self.actual_quality and self.actual_quality < self.quality:
+        if ":" in str(self.room.get("room_id") or ""):
+            self.quality_button.setToolTip(self._quality_name(self.actual_quality))
+        elif self.actual_quality and self.actual_quality < self.quality:
             self.quality_button.setToolTip(
                 f"请求 {QUALITY_NAMES.get(self.quality, self.quality)}，"
                 f"实际 {QUALITY_NAMES.get(self.actual_quality, self.actual_quality)}"

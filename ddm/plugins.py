@@ -170,8 +170,12 @@ class Platform:
         raise NotImplementedError
 
     def room_quality_options(self, room_id: str) -> list[dict]:
-        """可选：本平台支持的画质档位，格式为 ``{qn, desc}``。"""
+        """本平台档位 ``{qn, desc, label?}``；qn 是保存标识，label 是按钮短名称。"""
         return []
+
+    def preview_url(self, room_id: str) -> tuple:
+        """预览取流；平台可独立选择低码率，避免与手选画质编号混淆。"""
+        return self.play_url(room_id, 80)
 
     def room_url(self, room_id: str) -> str:
         """可选：返回直播间网页地址；空串表示不提供浏览器入口。"""
