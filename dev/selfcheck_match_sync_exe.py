@@ -23,7 +23,7 @@ import time
 import traceback
 from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFrame
 from ddm import bili, plugins as api
 
 
@@ -118,16 +118,33 @@ class Probe(api.Plugin):
                 assert self.match.entry.parentWidget() is self.context.window.sidebar.tool_row
                 assert self.viewer.controls.isVisible() and not self.viewer.controls.isWindow()
                 assert not hasattr(self.viewer, "start_button")
+                panel = self.viewer.settings_panel
+                assert self.viewer.body_split.widget(1) is panel
+                assert panel.isAncestorOf(self.viewer.main) and panel.isAncestorOf(self.viewer.automatic)
+                assert self.viewer.layout().count() == 1 and self.viewer.controls.frameShape() == QFrame.NoFrame
+                centers = [widget.geometry().center().y() for widget in row.control_widgets]
+                assert max(centers) - min(centers) <= 1
+                assert row.channel.width() == 100 and row.color_choice.width() == 82
                 row.channel.setCurrentIndex(row.channel.findData(3))
                 assert row.channel.currentData() == 3
                 row.channel.setCurrentIndex(row.channel.findData(4))
                 assert row.channel.currentData() == 4
-                self.viewer.controls.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
+                panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
+                panel.setAttribute(Qt.WA_DontShowOnScreen, True)
+                panel.detach()
+                assert panel.isWindow() and panel.windowFlags() & Qt.FramelessWindowHint
+                assert self.viewer.running and self.viewer.rows["1"].decoder is worker
+                panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-floating-preview.png")))
+                panel.dock_button.click()
+                assert not panel.isWindow() and self.viewer.body_split.widget(1) is panel
                 self.checks["ui_controls"] = True
                 self.viewer.picture.pause_button.click()
                 assert row.paused
+                panel.detach()
                 self.match.button.setChecked(False)
+                assert not panel.isWindow() and not panel.isVisible()
                 self.match.button.setChecked(True)
+                assert panel.isVisible()
                 assert not row.paused and row.decoder is not worker
                 self.workers.extend(r.decoder for r in self.viewer.rows.values())
                 self.reopening = True

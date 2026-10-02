@@ -7,10 +7,10 @@ import time
 from collections import deque
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
-from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
@@ -183,6 +183,95 @@ class Results(QObject):
     matched = Signal(int, dict)
 
 
+class SettingsPanel(QDialog):
+    def __init__(self, viewer):
+        super().__init__(viewer, Qt.Widget)
+        self.viewer = viewer
+        self.drag_origin = None
+        self.drag_offset = QPoint()
+        self.docked_height = 220
+        self.setObjectName("MatchSyncSettings")
+        self.setMinimumHeight(130)
+        self.setMaximumHeight(240)
+        self.setStyleSheet("""
+            #MatchSyncSettings, #MatchSyncRows {
+                background: #222529; border: none;
+            }
+            #MatchSyncSettings QLabel, #MatchSyncSettings QCheckBox { color: #e4e4e7; }
+            #MatchSyncSettings QScrollArea { border: none; }
+            #MatchSyncSettings QPushButton, #MatchSyncSettings QLineEdit,
+            #MatchSyncSettings QComboBox, #MatchSyncSettings QDoubleSpinBox {
+                background: #2a2d32; color: #e4e4e7;
+                border: 1px solid #444952; border-radius: 5px; padding: 4px 6px;
+            }
+            #MatchSyncSettings QPushButton:hover { border-color: #38bdf8; }
+        """)
+        self.drag_handle = QLabel("⋮⋮ 拖动悬浮")
+        self.drag_handle.setCursor(Qt.SizeAllCursor)
+        self.drag_handle.setToolTip("拖动此处将设置栏移出；悬浮后点击「放回下方」恢复。")
+        self.drag_handle.installEventFilter(self)
+        self.dock_button = QPushButton("放回下方")
+        self.dock_button.setFixedWidth(100)
+        self.dock_button.clicked.connect(self.dock)
+        self.dock_button.hide()
+
+    def detach(self):
+        if self.isWindow():
+            return
+        position, size = self.mapToGlobal(QPoint()), self.size()
+        self.docked_height = self.height()
+        self.setParent(self.viewer, Qt.Tool | Qt.FramelessWindowHint)
+        self.setMaximumHeight(16777215)
+        self.setSizeGripEnabled(True)
+        self.dock_button.show()
+        self.resize(size)
+        self.move(position)
+        self.show()
+        self.raise_()
+
+    def dock(self):
+        if not self.isWindow():
+            return
+        self.drag_handle.releaseMouse()
+        self.drag_origin = None
+        self.hide()
+        self.setParent(self.viewer.body_split, Qt.Widget)
+        self.setSizeGripEnabled(False)
+        self.dock_button.hide()
+        self.setMaximumHeight(240)
+        self.viewer.body_split.addWidget(self)
+        self.viewer.body_split.setSizes([
+            max(1, self.viewer.body_split.height() - self.docked_height), self.docked_height])
+        self.setVisible(self.viewer.isVisible())
+
+    def eventFilter(self, watched, event):
+        if watched is self.drag_handle:
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self.drag_origin = event.globalPosition().toPoint()
+                self.drag_offset = self.drag_origin - self.mapToGlobal(QPoint())
+                return True
+            if event.type() == QEvent.MouseMove and self.drag_origin is not None:
+                position = event.globalPosition().toPoint()
+                if (position - self.drag_origin).manhattanLength() >= QApplication.startDragDistance():
+                    if not self.isWindow():
+                        self.detach()
+                        self.drag_handle.grabMouse()
+                    self.move(position - self.drag_offset)
+                return True
+            if event.type() == QEvent.MouseButtonRelease:
+                self.drag_handle.releaseMouse()
+                self.drag_origin = None
+                return True
+        return super().eventFilter(watched, event)
+
+    def reject(self):
+        self.dock()
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.dock()
+
+
 class RoomRow(QFrame):
     def __init__(self, viewer, room_id, preferences, color):
         super().__init__(viewer)
@@ -203,22 +292,24 @@ class RoomRow(QFrame):
         self.buffer_text = ""
         self.alias = QLineEdit(preferences.get("alias", ""))
         self.alias.setPlaceholderText("主播名称")
-        self.alias.setMaximumWidth(140)
+        self.alias.setFixedWidth(100)
         self.audible = QCheckBox("声音")
         self.audible.setChecked(preferences.get("audible", True))
         self.volume = QSlider(Qt.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setValue(preferences.get("volume", 42))
-        self.volume.setFixedWidth(90)
+        self.volume.setFixedWidth(72)
         self.channel = QComboBox()
         for label, value in (("原始声道", 0), ("仅左输出", 3), ("仅右输出", 4)):
             self.channel.addItem(label, value)
         self.channel.setCurrentIndex(max(0, self.channel.findData(preferences.get("audio_channel", 0))))
         self.channel.setToolTip("仅左/仅右：将完整声音混为单声道，送到指定耳机一侧。")
+        self.channel.setFixedWidth(100)
         self.channel.currentIndexChanged.connect(viewer.changed)
         for signal in (self.channel.currentIndexChanged, self.volume.valueChanged, self.audible.toggled):
             signal.connect(viewer.sync_picture)
         self.delay = self._offset(preferences.get("delay", 0))
+        self.delay.setFixedWidth(74)
         self.show_chat = QCheckBox("弹幕")
         self.show_chat.setChecked(preferences.get("show_chat", True))
         self.color_choice = QComboBox()
@@ -228,31 +319,38 @@ class RoomRow(QFrame):
             self.color_choice.addItem(QIcon(swatch), name, value)
         self.color_choice.setCurrentIndex(self.color_choice.findData(self.color))
         self.color_choice.currentIndexChanged.connect(self._color)
+        self.color_choice.setFixedWidth(82)
+        self.color_choice.setToolTip("弹幕来源颜色")
         self.decrease = QPushButton("−")
         self.increase = QPushButton("+")
         for button in (self.decrease, self.increase):
-            button.setFixedWidth(30)
+            button.setFixedWidth(24)
         self.decrease.clicked.connect(self.delay.stepDown)
         self.increase.clicked.connect(self.delay.stepUp)
         region = QPushButton("选择比赛画面")
+        region.setFixedWidth(112)
         region.setToolTip("仅在自动对齐困难时使用：框选各主播画面中相同的比赛内容，避开头像和字幕。")
         region.clicked.connect(lambda: viewer.choose_crop(self))
         remove = QPushButton("移除")
+        remove.setFixedWidth(52)
         remove.clicked.connect(lambda: viewer.remove_room(room_id))
-        first = QHBoxLayout()
-        for widget in (self.alias, self.audible, self.volume, self.channel, self.show_chat, remove):
-            first.addWidget(widget)
-        second = QHBoxLayout()
-        for widget in (QLabel("播放偏移"), self.decrease, self.delay, self.increase,
-                       QLabel("来源颜色"), self.color_choice, region):
-            second.addWidget(widget)
+        self.control_widgets = (self.alias, self.audible, self.volume, self.channel,
+                                self.show_chat, QLabel("偏移"), self.decrease, self.delay,
+                                self.increase, self.color_choice, region, remove)
+        controls = QHBoxLayout()
+        controls.setSpacing(6)
+        for widget in self.control_widgets:
+            controls.addWidget(widget)
+        controls.addStretch()
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(4)
         layout.setSizeConstraint(QLayout.SetMinimumSize)
-        layout.addLayout(first)
-        layout.addLayout(second)
+        layout.addLayout(controls)
         layout.addWidget(self.status)
+        self.setFrameShape(QFrame.NoFrame)
         self.refresh_status()
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.delay.setToolTip("单位秒；+ 延后，− 提前。画面、声音和弹幕一起移动。")
@@ -324,7 +422,7 @@ class Viewer(QDialog):
         """)
         self.resize(1320, 880)
         self.main = QComboBox()
-        self.main.setMinimumWidth(160)
+        self.main.setFixedWidth(180)
         self.main.currentIndexChanged.connect(self._main_changed)
         self.automatic = QCheckBox("自动对齐比赛画面")
         self.automatic.setChecked(context.setting("automatic", True))
@@ -337,10 +435,14 @@ class Viewer(QDialog):
         use_current = QPushButton("加入当前观看的房间")
         use_current.clicked.connect(self.import_current)
         self.add_controls = (self.input, add, use_current)
-        top = QHBoxLayout()
-        for widget in (QLabel("主画面"), self.main, self.automatic,
-                       self.input, add, use_current):
-            top.addWidget(widget)
+        self.settings_panel = SettingsPanel(self)
+        heading = QHBoxLayout()
+        heading.setSpacing(6)
+        for widget in (self.settings_panel.drag_handle, QLabel("主画面"), self.main,
+                       self.automatic, self.input, add, use_current):
+            heading.addWidget(widget)
+        heading.addStretch()
+        heading.addWidget(self.settings_panel.dock_button)
         self.picture = Tile({})
         self.canvas = Canvas(self.picture.video)
         video_layout = QVBoxLayout(self.picture.video)
@@ -368,6 +470,8 @@ class Viewer(QDialog):
                                int(settings.get("danmaku_font_size") or 13))
         self.panel.set_max_blocks(int(settings.get("danmaku_max_blocks") or 3000))
         split = QSplitter(Qt.Horizontal)
+        split.setHandleWidth(4)
+        split.setStyleSheet("QSplitter::handle { background: #30343a; }")
         split.addWidget(self.picture)
         self.picture_split = split
         split.addWidget(self.panel)
@@ -375,25 +479,35 @@ class Viewer(QDialog):
         self.notice = QLabel("选择共同比赛区域可提高匹配成功率；自动估计约 0.5 秒分辨率，手动微调 0.1 秒。")
         self.notice.setWordWrap(True)
         body = QWidget()
+        body.setObjectName("MatchSyncRows")
         self.rows_layout = QVBoxLayout(body)
+        self.rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.rows_layout.setSpacing(2)
         self.rows_layout.setSizeConstraint(QLayout.SetMinimumSize)
         self.rows_layout.setAlignment(Qt.AlignTop)
         body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.controls = QScrollArea()
+        self.controls.setFrameShape(QFrame.NoFrame)
         self.controls.setWidgetResizable(True)
         self.controls.setWidget(body)
-        self.controls.setMinimumHeight(80)
-        self.controls.setMaximumHeight(240)
+        self.controls.setMinimumHeight(60)
         self.body_split = QSplitter(Qt.Vertical)
+        self.body_split.setHandleWidth(4)
+        self.body_split.setStyleSheet("QSplitter::handle { background: #30343a; }")
         self.body_split.addWidget(split)
-        self.body_split.addWidget(self.controls)
-        self.body_split.setSizes([680, 190])
+        self.body_split.addWidget(self.settings_panel)
+        self.body_split.setSizes([660, 220])
         self.audio_status = QLabel()
+        settings_layout = QVBoxLayout(self.settings_panel)
+        settings_layout.setContentsMargins(6, 4, 6, 4)
+        settings_layout.setSpacing(4)
+        settings_layout.addLayout(heading)
+        settings_layout.addWidget(self.controls, 1)
+        settings_layout.addWidget(self.notice)
+        settings_layout.addWidget(self.audio_status)
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.body_split, 1)
-        layout.addWidget(self.notice)
-        layout.addWidget(self.audio_status)
         self.audio = AudioPump(self)
         self.audio.status.connect(self.audio_status.setText)
         self.render_timer = QTimer(self)
@@ -433,6 +547,8 @@ class Viewer(QDialog):
         return super().eventFilter(watched, event)
 
     def showEvent(self, event):
+        if self.settings_panel.isWindow():
+            self.settings_panel.show()
         if self.embedded and not self.hidden_host_widgets:
             host = self.context.window
             for widget in (getattr(host, "wall", None), getattr(host, "empty_hint", None)):
@@ -441,6 +557,11 @@ class Viewer(QDialog):
                     widget.installEventFilter(self)
                     widget.hide()
         super().showEvent(event)
+
+    def hideEvent(self, event):
+        if self.settings_panel.isWindow():
+            self.settings_panel.hide()
+        super().hideEvent(event)
 
     def _restore_host_widgets(self):
         previous, self.hidden_host_widgets = self.hidden_host_widgets, {}
@@ -854,6 +975,7 @@ class Viewer(QDialog):
         row.refresh_status()
 
     def stop(self):
+        self.settings_panel.dock()
         if self.fullscreen_dialog is not None:
             self.fullscreen_dialog.close()
         self._stop_recording()

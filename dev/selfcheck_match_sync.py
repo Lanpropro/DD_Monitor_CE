@@ -13,9 +13,9 @@ sys.path.insert(0, str(REPO))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
 from plugins_user._match_sync.engine import (Alignment, AudioRing, History,
@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.3"
+        assert manager.catalog()[0]["version"] == "0.1.4"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -323,7 +323,9 @@ def embedded_checks(app):
     from plugins_user._match_sync.plugin import MatchSyncPlugin
     module = sys.modules[MatchSyncPlugin.__module__ + ".viewer"]
     from ddm.widgets import ROOM_MIME
+    from ddm import theme
     host = QMainWindow()
+    host.setStyleSheet(theme.qss())
     host._content = QWidget()
     host.setCentralWidget(host._content)
     host.wall = QWidget(host._content)
@@ -368,8 +370,19 @@ def embedded_checks(app):
         app.sendEvent(viewer.panel, drop)
         assert "43" in viewer.rows and viewer.rows["43"].decoder is not None
         assert not viewer.panel.body.acceptDrops() and not viewer.panel.body.viewport().acceptDrops()
-        assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.controls
+        assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.settings_panel
+        assert viewer.settings_panel.isAncestorOf(viewer.main)
+        assert viewer.settings_panel.isAncestorOf(viewer.automatic)
+        assert viewer.layout().count() == 1, "The picture must have no top settings toolbar"
+        assert viewer.controls.frameShape() == QFrame.NoFrame
+        assert viewer.main.mapTo(viewer, QPoint()).y() >= viewer.picture_split.geometry().bottom()
         assert not hasattr(viewer, "start_button") and not hasattr(viewer, "controls_button")
+        row = viewer.rows["42"]
+        app.processEvents()
+        centers = [widget.geometry().center().y() for widget in row.control_widgets]
+        assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
+        assert row.control_widgets[-1].geometry().right() < 1000, "Pack controls instead of stretching buttons"
+        assert row.channel.width() == 100 and row.color_choice.width() == 82
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
         before = viewer.canvas.geometry()
@@ -377,13 +390,44 @@ def embedded_checks(app):
         assert viewer.controls.isVisible() and len(viewer.rows) == 9
         assert viewer.canvas.geometry() == before
         assert viewer.controls.height() <= 240 and not viewer.controls.isWindow()
+        assert viewer.controls.verticalScrollBar().maximum() > 0, "Extra rooms must remain scrollable"
         assert all("42" not in viewer.main.itemText(i) for i in range(viewer.main.count()))
         worker = viewer.rows["42"].decoder
         host.resize(1400, 950)
         app.processEvents()
         assert viewer.geometry() == host._content.rect()
+        panel = viewer.settings_panel
+        origin = panel.mapToGlobal(QPoint())
+        handle = panel.drag_handle
+        local = QPointF(handle.rect().center())
+        start = QPointF(handle.mapToGlobal(local.toPoint()))
+        end = start + QPointF(80, 40)
+        for event_type, position, global_position, button, buttons in (
+                (QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton),
+                (QEvent.MouseMove, local + QPointF(80, 40), end, Qt.NoButton, Qt.LeftButton),
+                (QEvent.MouseMove, local + QPointF(110, 55), end + QPointF(30, 15), Qt.NoButton, Qt.LeftButton),
+                (QEvent.MouseButtonRelease, local, end + QPointF(30, 15), Qt.LeftButton, Qt.NoButton)):
+            app.sendEvent(handle, QMouseEvent(event_type, position, global_position,
+                                            button, buttons, Qt.NoModifier))
+        app.processEvents()
+        assert panel.isWindow() and panel.windowFlags() & Qt.FramelessWindowHint
+        assert panel.pos() == origin + QPoint(110, 55), "Dragging must keep moving after detaching"
+        assert QWidget.mouseGrabber() is not handle, "Releasing the handle must release mouse capture"
+        assert viewer.body_split.count() == 1 and panel.dock_button.isVisible()
+        assert row.decoder is worker and viewer.running and not worker.stopped
+        viewer.main.setCurrentIndex(viewer.main.findData("43"))
+        assert viewer.picture.room["room_id"] == "43", "Floating controls must still operate the picture"
+        panel.dock_button.click()
+        app.processEvents()
+        assert not panel.isWindow() and viewer.body_split.widget(1) is panel
+        assert not panel.dock_button.isVisible() and not worker.stopped
+        panel.detach()
+        panel.reject()
+        assert not panel.isWindow(), "Escape should return settings to the bottom"
+        panel.detach()
         plugin.button.trigger()
         assert viewer.isHidden() and not viewer.running and worker.stopped
+        assert not panel.isWindow() and not panel.isVisible(), "Closing match mode must leave no floating settings window"
         assert not host.wall.isHidden()
         assert host.centralWidget() is host._content
         plugin.button.trigger()
@@ -392,13 +436,14 @@ def embedded_checks(app):
         plugin.button.trigger()
         assert not viewer.rows["42"].paused
         assert viewer.running and not viewer.isHidden()
+        assert panel.isVisible() and viewer.body_split.widget(1) is panel
         viewer.close()
         assert not plugin.button.isChecked() and not viewer.running
         plugin.on_unload()
         assert plugin.entry is None
     host.close()
     app.processEvents()
-    print("PASS: independent button, embedded view, sidebar MIME drop, automatic start, resizing and original view restoration")
+    print("PASS: bottom compact controls, frameless drag/dock, scrolling, automatic start and view restoration")
 
 
 def main():
