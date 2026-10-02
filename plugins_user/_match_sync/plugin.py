@@ -1,7 +1,8 @@
 """Package entry point loaded by DD Monitor CE's single-file plugin loader."""
 import os
 
-from PySide6.QtWidgets import QToolBar
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QToolButton
 
 from ddm import plugins as api
 
@@ -17,20 +18,23 @@ class MatchSyncPlugin(api.Plugin):
         super().__init__()
         self.sources = {}
         self.viewer = None
-        self.toolbar = None
+        self.entry = None
         self.button = None
 
     def on_load(self, context):
         self.context = context
         host = context.window
-        if hasattr(host, "_content") and hasattr(host, "addToolBar"):
-            self.toolbar = QToolBar("比赛二路", host)
-            self.toolbar.setMovable(False)
-            self.button = self.toolbar.addAction("比赛二路")
+        sidebar = getattr(host, "sidebar", None)
+        if hasattr(host, "_content") and hasattr(sidebar, "tool_row"):
+            self.button = QAction("比赛二路", host)
             self.button.setCheckable(True)
             self.button.toggled.connect(self.set_enabled)
-            host.addToolBar(self.toolbar)
-        context.log("比赛二路同步已就绪；点击主窗口「比赛二路」按钮开启")
+            self.entry = QToolButton(sidebar.tool_row)
+            self.entry.setDefaultAction(self.button)
+            self.entry.setObjectName("IconButton")
+            self.entry.setToolTip("开启或关闭比赛二路模式")
+            sidebar.tool_row.layout().insertWidget(0, self.entry)
+        context.log("比赛二路同步已就绪；点击关注栏底部「比赛二路」按钮开启")
 
     def on_event(self, event, payload):
         if event == api.EVENT_STREAM_RESOLVED:
@@ -79,10 +83,10 @@ class MatchSyncPlugin(api.Plugin):
     def on_unload(self):
         if self.viewer is not None:
             self.viewer.close()
-        if self.toolbar is not None:
-            self.context.window.removeToolBar(self.toolbar)
-            self.toolbar.deleteLater()
-            self.toolbar = None
+        if self.entry is not None:
+            self.entry.deleteLater()
+            self.entry = None
+            self.button.deleteLater()
             self.button = None
 
 

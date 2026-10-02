@@ -97,6 +97,19 @@ class Probe(api.Plugin):
                 self.viewer.rows["2"].show()
                 self.viewer.rows_layout.activate()
                 self.context.window.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
+                row = self.viewer.rows["1"]
+                row.delay.setValue(0)
+                row.decrease.click()
+                assert row.delay.value() == -0.1
+                row.increase.click()
+                assert row.delay.value() == 0
+                assert not hasattr(row, "chat_delay") and row.color_choice.count() == 6
+                assert self.match.entry.parentWidget() is self.context.window.sidebar.tool_row
+                self.viewer.controls.setAttribute(Qt.WA_DontShowOnScreen, True)
+                self.viewer.toggle_controls()
+                assert self.viewer.controls.isVisible()
+                self.viewer.controls.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
+                self.checks["ui_controls"] = True
                 self.finish()
             elif time.monotonic() > self.deadline:
                 self.finish("Local fixture decoding timeout")
@@ -169,7 +182,7 @@ def main():
             raise AssertionError("Frozen EXE test did not finish")
         assert result.is_file(), f"EXE produced no probe result (exit {process.returncode})"
         checks = json.loads(result.read_text(encoding="utf-8"))
-        required = ["loaded", "local_media", "rendered", "cleaned"]
+        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls"]
         if args.audio_device:
             required.append("audio_device")
         assert process.returncode == 0 and all(checks.get(key) for key in required) and "error" not in checks, checks

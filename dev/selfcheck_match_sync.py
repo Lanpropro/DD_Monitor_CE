@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
 from plugins_user._match_sync.engine import (Alignment, AudioRing, History,
@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.1"
+        assert manager.catalog()[0]["version"] == "0.1.2"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -231,22 +231,32 @@ def package_and_ui_checks(app):
             row_b.pending.append((96, {"uname": "B", "text": "乙即时"}))
             viewer.render()
             assert viewer.canvas.frame_key == 95
-            assert viewer.panel._blocks[-1]["uname"] == "[主播乙｜2] B"
+            assert viewer.panel._blocks[-1]["uname"] == "[主播乙] B"
             assert len(row_a.pending) == 1
             assert host.players[participating].muted and not host.players[unrelated].muted
             assert participating.room["muted"] is False and participating.muted is False
             clock[0] = 104
             viewer.render()
-            assert viewer.panel._blocks[-1]["uname"] == "[主播甲｜1] A"
+            assert viewer.panel._blocks[-1]["uname"] == "[主播甲] A"
             row_b.show_chat.setChecked(False)
             viewer._message(row_b, row_b.chat, {"text": "hidden"})
             assert not row_b.pending
             viewer.main.setCurrentIndex(viewer.main.findData("2"))
             assert viewer.alignment.reference == "2"
-            row_a.chat_delay.setValue(1.2)
+            assert not hasattr(row_a, "chat_delay")
+            row_a.delay.setValue(0)
+            row_a.decrease.click()
+            assert row_a.delay.value() == -0.1
+            row_a.increase.click()
+            assert row_a.delay.value() == 0
+            row_a.increase.click()
+            assert row_a.delay.value() == 0.1
+            assert row_a.color_choice.count() == len(module.COLORS)
+            row_a.color_choice.setCurrentIndex(3)
+            assert row_a.color == module.COLORS[3]
             viewer.save()
             saved = manager.plugin_settings["match_sync"]
-            assert saved["main_room"] == "2" and saved["rooms"][0]["chat_delay"] == 1.2
+            assert saved["main_room"] == "2" and "chat_delay" not in saved["rooms"][0]
             # Large bursts remain queued instead of disappearing after a UI budget.
             row_a.pending.extend((95, {"uname": "A", "text": str(i)}) for i in range(210))
             before = len(row_a.pending)
@@ -288,12 +298,16 @@ def embedded_checks(app):
     host.setCentralWidget(host._content)
     host.settings = {}
     host.players = {}
+    host.sidebar = QWidget()
+    host.sidebar.tool_row = QWidget(host.sidebar)
+    QHBoxLayout(host.sidebar.tool_row)
     host.rooms = [{"room_id": "42", "uname": "关注主播"}]
     host.resize(1200, 900)
     manager = plugins.PluginManager(window=host)
     context = plugins.PluginContext(manager, "match_sync_embedded_test")
     plugin = MatchSyncPlugin()
     plugin.on_load(context)
+    assert plugin.entry.parentWidget() is host.sidebar.tool_row
     assert plugin.button is not None and not plugin.tile_actions(FakeTile("42"))
     with patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
             patch.object(module.AudioPump, "start", lambda self: None):
@@ -319,6 +333,18 @@ def embedded_checks(app):
         app.sendEvent(viewer.panel, drop)
         assert "43" in viewer.rows and viewer.rows["43"].decoder is not None
         assert not viewer.panel.body.acceptDrops() and not viewer.panel.body.viewport().acceptDrops()
+        assert not viewer.controls.isVisible()
+        assert viewer.layout().indexOf(viewer.controls) == -1
+        for room_id in range(44, 51):
+            viewer.add_room(str(room_id), {"alias": "额外主播"})
+        before = viewer.canvas.geometry()
+        viewer.toggle_controls()
+        app.processEvents()
+        assert viewer.controls.isVisible() and len(viewer.rows) == 9
+        assert viewer.canvas.geometry() == before
+        viewer.toggle_controls()
+        assert not viewer.controls.isVisible()
+        assert all("42" not in viewer.main.itemText(i) for i in range(viewer.main.count()))
         worker = viewer.rows["42"].decoder
         host.resize(1400, 950)
         app.processEvents()
@@ -331,7 +357,7 @@ def embedded_checks(app):
         viewer.close()
         assert not plugin.button.isChecked() and not viewer.running
         plugin.on_unload()
-        assert plugin.toolbar is None
+        assert plugin.entry is None
     host.close()
     app.processEvents()
     print("PASS: independent button, embedded view, sidebar MIME drop, automatic start, resizing and original view restoration")

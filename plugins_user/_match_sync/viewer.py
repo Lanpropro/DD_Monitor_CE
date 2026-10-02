@@ -8,9 +8,9 @@ from collections import deque
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QSlider, QSplitter, QVBoxLayout, QWidget)
 
@@ -190,13 +190,15 @@ class RoomRow(QFrame):
         self.chat = None
         self.pending = deque(maxlen=2000)
         self.color = preferences.get("color", color)
+        if self.color not in COLORS:
+            self.color = color
         self.crop = tuple(preferences.get("crop", (0, 0, 1, 1)))
         self.match_text = "等待画面"
         self.video_text = "未开始"
         self.chat_text = "弹幕未连接"
         self.buffer_text = ""
         self.alias = QLineEdit(preferences.get("alias", ""))
-        self.alias.setPlaceholderText(f"房间 {room_id}")
+        self.alias.setPlaceholderText("主播名称")
         self.alias.setMaximumWidth(140)
         self.audible = QCheckBox("声音")
         self.audible.setChecked(preferences.get("audible", True))
@@ -205,30 +207,42 @@ class RoomRow(QFrame):
         self.volume.setValue(preferences.get("volume", 42))
         self.volume.setFixedWidth(90)
         self.delay = self._offset(preferences.get("delay", 0))
-        self.chat_delay = self._offset(preferences.get("chat_delay", 0))
         self.show_chat = QCheckBox("弹幕")
         self.show_chat.setChecked(preferences.get("show_chat", True))
-        self.color_button = QPushButton("来源颜色")
-        self.color_button.setStyleSheet(f"color: {self.color}")
-        self.color_button.clicked.connect(self._color)
-        region = QPushButton("匹配区域")
+        self.color_choice = QComboBox()
+        for name, value in zip(("蓝色", "粉色", "紫色", "绿色", "黄色", "橙色"), COLORS):
+            swatch = QPixmap(16, 16)
+            swatch.fill(QColor(value))
+            self.color_choice.addItem(QIcon(swatch), name, value)
+        self.color_choice.setCurrentIndex(self.color_choice.findData(self.color))
+        self.color_choice.currentIndexChanged.connect(self._color)
+        self.decrease = QPushButton("−")
+        self.increase = QPushButton("+")
+        for button in (self.decrease, self.increase):
+            button.setFixedWidth(30)
+        self.decrease.clicked.connect(self.delay.stepDown)
+        self.increase.clicked.connect(self.delay.stepUp)
+        region = QPushButton("选择比赛画面")
+        region.setToolTip("仅在自动对齐困难时使用：框选各主播画面中相同的比赛内容，避开头像和字幕。")
         region.clicked.connect(lambda: viewer.choose_crop(self))
         remove = QPushButton("移除")
         remove.clicked.connect(lambda: viewer.remove_room(room_id))
         first = QHBoxLayout()
-        for widget in (QLabel(room_id), self.alias, self.audible, self.volume,
-                       QLabel("播放偏移"), self.delay, self.show_chat,
-                       QLabel("弹幕微调"), self.chat_delay, self.color_button, region, remove):
+        for widget in (self.alias, self.audible, self.volume, self.show_chat, remove):
             first.addWidget(widget)
+        second = QHBoxLayout()
+        for widget in (QLabel("播放偏移"), self.decrease, self.delay, self.increase,
+                       QLabel("来源颜色"), self.color_choice, region):
+            second.addWidget(widget)
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout = QVBoxLayout(self)
         layout.addLayout(first)
+        layout.addLayout(second)
         layout.addWidget(self.status)
         self.refresh_status()
-        for spin in (self.delay, self.chat_delay):
-            spin.setToolTip("单位秒；正值延后，负值提前。提前受已收到的内容限制。")
-            spin.valueChanged.connect(viewer.changed)
+        self.delay.setToolTip("单位秒；+ 延后，− 提前。画面、声音和弹幕一起移动。")
+        self.delay.valueChanged.connect(viewer.changed)
         self.volume.valueChanged.connect(viewer.changed)
         self.audible.toggled.connect(viewer.changed)
         self.show_chat.toggled.connect(self._chat_toggle)
@@ -241,19 +255,17 @@ class RoomRow(QFrame):
         spin.setRange(-60, 60)
         spin.setDecimals(1)
         spin.setSingleStep(0.1)
+        spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         spin.setSuffix(" s")
         spin.setValue(value)
         return spin
 
     def label(self):
-        return self.alias.text().strip() or f"房间 {self.room_id}"
+        return self.alias.text().strip() or "未命名主播"
 
-    def _color(self):
-        color = QColorDialog.getColor(QColor(self.color), self, "弹幕来源颜色")
-        if color.isValid():
-            self.color = color.name()
-            self.color_button.setStyleSheet(f"color: {self.color}")
-            self.viewer.changed()
+    def _color(self, *_args):
+        self.color = self.color_choice.currentData()
+        self.viewer.changed()
 
     def _chat_toggle(self):
         self.pending.clear()
@@ -262,7 +274,7 @@ class RoomRow(QFrame):
     def preferences(self):
         return {"room_id": self.room_id, "alias": self.alias.text(), "color": self.color,
                 "audible": self.audible.isChecked(), "volume": self.volume.value(),
-                "delay": self.delay.value(), "chat_delay": self.chat_delay.value(),
+                "delay": self.delay.value(),
                 "show_chat": self.show_chat.isChecked(), "crop": list(self.crop)}
 
     def refresh_status(self):
@@ -309,9 +321,11 @@ class Viewer(QDialog):
         self.add_controls = (self.input, add, use_current)
         self.start_button = QPushButton("开始观看")
         self.start_button.clicked.connect(self.toggle_running)
+        self.controls_button = QPushButton("各路调节")
+        self.controls_button.clicked.connect(self.toggle_controls)
         top = QHBoxLayout()
         for widget in (QLabel("主画面"), self.main, self.automatic,
-                       self.input, add, use_current, self.start_button):
+                       self.input, add, use_current, self.start_button, self.controls_button):
             top.addWidget(widget)
         self.canvas = Canvas()
         self.panel = DanmakuPanel(self)
@@ -319,7 +333,7 @@ class Viewer(QDialog):
         self.panel.body.setAcceptDrops(False)
         self.panel.body.viewport().setAcceptDrops(False)
         self.panel.setMinimumWidth(260)
-        self.panel.set_placeholder("各房间弹幕将标注主播及房间号，按播放延迟一起显示")
+        self.panel.set_placeholder("各路弹幕标注主播名称，随比赛画面同步显示")
         settings = getattr(context.window, "settings", {})
         self.panel.apply_style(settings.get("danmaku_font", ""),
                                int(settings.get("danmaku_font_size") or 13))
@@ -336,14 +350,16 @@ class Viewer(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(body)
-        scroll.setMinimumHeight(160)
-        scroll.setMaximumHeight(280)
+        self.controls = QDialog(self, Qt.Tool)
+        self.controls.setWindowTitle("比赛二路 · 各路调节")
+        self.controls.resize(720, 460)
+        controls_layout = QVBoxLayout(self.controls)
+        controls_layout.addWidget(scroll)
         self.audio_status = QLabel()
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(split, 1)
         layout.addWidget(self.notice)
-        layout.addWidget(scroll)
         layout.addWidget(self.audio_status)
         self.audio = AudioPump(self)
         self.audio.status.connect(self.audio_status.setText)
@@ -368,6 +384,13 @@ class Viewer(QDialog):
         if index >= 0:
             self.main.setCurrentIndex(index)
         self._automatic_changed()
+
+    def toggle_controls(self):
+        if self.controls.isVisible():
+            self.controls.hide()
+        else:
+            self.controls.show()
+            self.controls.raise_()
 
     def embed(self, content):
         self.embedded = True
@@ -422,7 +445,7 @@ class Viewer(QDialog):
             self.notice.setText(str(error))
             return False
         if room_id in self.rows:
-            self.notice.setText(f"房间 {room_id} 已加入")
+            self.notice.setText("这位主播已经加入")
             return False
         row = RoomRow(self, room_id, preferences or {}, COLORS[len(self.rows) % len(COLORS)])
         self.rows[room_id] = row
@@ -447,7 +470,7 @@ class Viewer(QDialog):
         self.main.blockSignals(True)
         self.main.clear()
         for room_id, row in self.rows.items():
-            self.main.addItem(f"{row.label()} ({room_id})", room_id)
+            self.main.addItem(row.label(), room_id)
         index = self.main.findData(selected)
         self.main.setCurrentIndex(max(0, index) if self.rows else -1)
         self.main.blockSignals(False)
@@ -521,7 +544,7 @@ class Viewer(QDialog):
 
     def _information(self, row, worker, info):
         if self._valid(row, worker) and not row.alias.text().strip():
-            row.alias.setText(info.get("uname") or f"房间 {row.room_id}")
+            row.alias.setText(info.get("uname") or "未命名主播")
             self.update_main_choices()
 
     def _state(self, row, worker, text, chat):
@@ -582,16 +605,16 @@ class Viewer(QDialog):
             if row.buffer_text != text:
                 row.buffer_text = text
                 row.refresh_status()
-            target = clock + shifts[room_id] - row.chat_delay.value()
+            target = clock + shifts[room_id]
             for _ in range(min(80, 200 - len(eligible))):
                 if not row.pending or row.pending[0][0] > target:
                     break
                 received, event = row.pending.popleft()
                 if clock - received > 120:
                     continue
-                event["uname"] = f"[{row.label()}｜{room_id}] {event.get('uname') or ''}"
+                event["uname"] = f"[{row.label()}] {event.get('uname') or ''}"
                 event["color"] = row.color
-                eligible.append((received - shifts[room_id] + row.chat_delay.value(), event))
+                eligible.append((received - shifts[room_id], event))
         for _due, event in sorted(eligible, key=lambda item: item[0]):
             self.panel.add_event(event)
 
@@ -707,6 +730,7 @@ class Viewer(QDialog):
         self.canvas.set_frame(None)
 
     def closeEvent(self, event):
+        self.controls.hide()
         self.stop()
         if self.save_timer.isActive():
             self.save_timer.stop()
@@ -715,6 +739,7 @@ class Viewer(QDialog):
 
     def reject(self):
         if self.embedded:
+            self.controls.hide()
             self.stop()
             self.hide()
             self.finished.emit(0)
