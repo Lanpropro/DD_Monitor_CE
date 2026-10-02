@@ -134,9 +134,16 @@ class Probe(api.Plugin):
                 panel.detach()
                 assert panel.isWindow() and panel.windowFlags() & Qt.FramelessWindowHint
                 assert self.viewer.running and self.viewer.rows["1"].decoder is worker
+                panel.resize(1100, 240)
+                panel.move(self.viewer.canvas.mapToGlobal(self.viewer.canvas.rect().topLeft()))
+                panel.refresh_backdrop()
+                assert panel.testAttribute(Qt.WA_TranslucentBackground)
+                assert not panel.backdrop.isNull() and panel.backdrop_timer.isActive()
+                assert panel.grab().toImage().pixelColor(0, 0).alpha() == 0
                 panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-floating-preview.png")))
                 panel.dock_button.click()
                 assert not panel.isWindow() and self.viewer.body_split.widget(1) is panel
+                assert not panel.backdrop_timer.isActive() and panel.backdrop.isNull()
                 self.checks["ui_controls"] = True
                 self.viewer.picture.pause_button.click()
                 assert row.paused

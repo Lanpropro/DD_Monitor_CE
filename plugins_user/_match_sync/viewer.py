@@ -7,15 +7,17 @@ import time
 from collections import deque
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
-    QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit,
+    QDialogButtonBox, QDoubleSpinBox, QFrame, QGraphicsBlurEffect, QGraphicsScene,
+    QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
 from ddm.widgets import DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
+from ddm import theme
 from .engine import Alignment, RATE, match_scenes, mix_pcm
 from .media import Chat, Decoder
 
@@ -190,21 +192,32 @@ class SettingsPanel(QDialog):
         self.drag_origin = None
         self.drag_offset = QPoint()
         self.docked_height = 220
+        self.backdrop = QImage()
+        self.backdrop_timer = QTimer(self)
+        self.backdrop_timer.setInterval(250)
+        self.backdrop_timer.timeout.connect(self.refresh_backdrop)
+        self.blur_scene = QGraphicsScene(self)
         self.setObjectName("MatchSyncSettings")
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumHeight(130)
         self.setMaximumHeight(240)
-        self.setStyleSheet("""
-            #MatchSyncSettings, #MatchSyncRows {
-                background: #222529; border: none;
-            }
-            #MatchSyncSettings QLabel, #MatchSyncSettings QCheckBox { color: #e4e4e7; }
-            #MatchSyncSettings QScrollArea { border: none; }
+        self.setStyleSheet(f"""
+            #MatchSyncSettings, #MatchSyncRows {{
+                background: transparent; border: none;
+            }}
+            #MatchSyncSettings QLabel, #MatchSyncSettings QCheckBox {{ color: {theme.TEXT1}; }}
+            #MatchSyncSettings QScrollArea, #MatchSyncSettings QScrollArea > QWidget {{
+                background: transparent; border: none;
+            }}
             #MatchSyncSettings QPushButton, #MatchSyncSettings QLineEdit,
-            #MatchSyncSettings QComboBox, #MatchSyncSettings QDoubleSpinBox {
-                background: #2a2d32; color: #e4e4e7;
-                border: 1px solid #444952; border-radius: 5px; padding: 4px 6px;
-            }
-            #MatchSyncSettings QPushButton:hover { border-color: #38bdf8; }
+            #MatchSyncSettings QComboBox, #MatchSyncSettings QDoubleSpinBox {{
+                background: rgba(58, 63, 71, 170); color: {theme.TEXT1};
+                border: 1px solid {theme.BORDER};
+                border-radius: {theme.RADIUS_MD}px; padding: 4px 6px;
+            }}
+            #MatchSyncSettings QPushButton:hover {{
+                background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT};
+            }}
         """)
         self.drag_handle = QLabel("⋮⋮ 拖动悬浮")
         self.drag_handle.setCursor(Qt.SizeAllCursor)
@@ -214,6 +227,70 @@ class SettingsPanel(QDialog):
         self.dock_button.setFixedWidth(100)
         self.dock_button.clicked.connect(self.dock)
         self.dock_button.hide()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), theme.RADIUS_LG, theme.RADIUS_LG)
+        painter.setClipPath(path)
+        if not self.backdrop.isNull():
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawImage(self.rect(), self.backdrop)
+        tint = QLinearGradient(0, 0, 0, self.height())
+        tint.setColorAt(0, QColor(48, 53, 62, 195 if not self.backdrop.isNull() else 238))
+        tint.setColorAt(1, QColor(29, 33, 40, 220 if not self.backdrop.isNull() else 245))
+        painter.fillPath(path, tint)
+
+    def refresh_backdrop(self):
+        if not self.isWindow() or not self.isVisible():
+            return
+        picture = self.viewer.picture_split
+        origin = picture.mapFromGlobal(self.mapToGlobal(QPoint()))
+        overlap = QRect(origin, self.size()).intersected(picture.rect())
+        if overlap.isEmpty():
+            self.backdrop = QImage()
+            self.update()
+            return
+        # Sample only this plugin's picture/chat widgets, at quarter resolution.
+        size = self.size() / 4
+        sampled = QImage(size, QImage.Format_ARGB32_Premultiplied)
+        sampled.fill(Qt.transparent)
+        painter = QPainter(sampled)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.drawImage(QRectF((overlap.x() - origin.x()) / 4,
+                                 (overlap.y() - origin.y()) / 4,
+                                 overlap.width() / 4, overlap.height() / 4),
+                          picture.grab(overlap).toImage())
+        painter.end()
+        self.blur_scene.setSceneRect(QRectF(sampled.rect()))
+        item = self.blur_scene.addPixmap(QPixmap.fromImage(sampled))
+        blur = QGraphicsBlurEffect()
+        blur.setBlurRadius(6)
+        item.setGraphicsEffect(blur)
+        blurred = QImage(size, QImage.Format_ARGB32_Premultiplied)
+        blurred.fill(Qt.transparent)
+        painter = QPainter(blurred)
+        self.blur_scene.render(painter)
+        painter.end()
+        self.blur_scene.clear()
+        self.backdrop = blurred
+        self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.isWindow():
+            self.backdrop_timer.start()
+
+    def hideEvent(self, event):
+        self.backdrop_timer.stop()
+        self.backdrop = QImage()
+        super().hideEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.isWindow():
+            self.backdrop = QImage()
 
     def detach(self):
         if self.isWindow():
@@ -413,13 +490,7 @@ class Viewer(QDialog):
         self.setAcceptDrops(True)
         self.setWindowTitle("比赛二路同步")
         self.setObjectName("MatchSync")
-        self.setStyleSheet("""
-            #MatchSync QPushButton, #MatchSync QDoubleSpinBox {
-                background: #2a2d32; color: #e4e4e7;
-                border: 1px solid #444952; border-radius: 5px; padding: 5px;
-            }
-            #MatchSync QPushButton:hover { border-color: #38bdf8; }
-        """)
+        self.setStyleSheet("#MatchSync { background: transparent; }")
         self.resize(1320, 880)
         self.main = QComboBox()
         self.main.setFixedWidth(180)
@@ -488,6 +559,7 @@ class Viewer(QDialog):
         body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.controls = QScrollArea()
         self.controls.setFrameShape(QFrame.NoFrame)
+        self.controls.viewport().setAutoFillBackground(False)
         self.controls.setWidgetResizable(True)
         self.controls.setWidget(body)
         self.controls.setMinimumHeight(60)
@@ -499,7 +571,7 @@ class Viewer(QDialog):
         self.body_split.setSizes([660, 220])
         self.audio_status = QLabel()
         settings_layout = QVBoxLayout(self.settings_panel)
-        settings_layout.setContentsMargins(6, 4, 6, 4)
+        settings_layout.setContentsMargins(12, 8, 12, 8)
         settings_layout.setSpacing(4)
         settings_layout.addLayout(heading)
         settings_layout.addWidget(self.controls, 1)

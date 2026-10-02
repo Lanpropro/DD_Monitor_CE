@@ -14,7 +14,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QMouseEvent  # noqa: E402
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QMouseEvent, QPainter  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.4"
+        assert manager.catalog()[0]["version"] == "0.1.5"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -417,9 +417,35 @@ def embedded_checks(app):
         assert row.decoder is worker and viewer.running and not worker.stopped
         viewer.main.setCurrentIndex(viewer.main.findData("43"))
         assert viewer.picture.room["room_id"] == "43", "Floating controls must still operate the picture"
+        viewer.render_timer.stop()
+        panel.resize(600, 240)
+        app.processEvents()
+        stripes = QImage(viewer.canvas.size(), QImage.Format_RGB32)
+        stripes.fill(Qt.white)
+        painter = QPainter(stripes)
+        for x in range(0, stripes.width(), 16):
+            painter.fillRect(x, 0, 8, stripes.height(), Qt.black)
+        painter.end()
+        viewer.canvas.image = stripes
+        panel.move(viewer.canvas.mapToGlobal(QPoint(0, 40)))
+        panel.refresh_backdrop()
+        assert not panel.backdrop.isNull() and panel.backdrop_timer.isActive()
+        levels = [panel.backdrop.pixelColor(x, 20).red() for x in range(10, 130)]
+        assert min(levels) > 20 and max(levels) < 235, "Glass must soften sharp background stripes"
+        rendered = panel.grab().toImage()
+        assert rendered.pixelColor(0, 0).alpha() == 0, "Rounded corners must remain transparent"
+        assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
+        panel.move(viewer.mapToGlobal(QPoint(-panel.width() - 50, 0)))
+        panel.refresh_backdrop()
+        assert panel.backdrop.isNull(), "Outside the app, use the tinted material without screen capture"
+        panel.hide()
+        assert not panel.backdrop_timer.isActive()
+        panel.show()
+        assert panel.backdrop_timer.isActive()
         panel.dock_button.click()
         app.processEvents()
         assert not panel.isWindow() and viewer.body_split.widget(1) is panel
+        assert not panel.backdrop_timer.isActive() and panel.backdrop.isNull()
         assert not panel.dock_button.isVisible() and not worker.stopped
         panel.detach()
         panel.reject()
@@ -444,6 +470,7 @@ def embedded_checks(app):
     host.close()
     app.processEvents()
     print("PASS: bottom compact controls, frameless drag/dock, scrolling, automatic start and view restoration")
+    print("PASS: rounded transparent corners, real backdrop blur, outside-app fallback and timer cleanup")
 
 
 def main():
