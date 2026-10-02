@@ -312,6 +312,13 @@ def embedded_checks(app):
         drop = QDropEvent(QPointF(100, 100), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
         app.sendEvent(viewer, drop)
         assert drop.isAccepted() and viewer.running and viewer.rows["42"].label() == "关注主播"
+        mime.setData(ROOM_MIME, b"43")
+        enter = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        app.sendEvent(viewer.panel, enter)
+        drop = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        app.sendEvent(viewer.panel, drop)
+        assert "43" in viewer.rows and viewer.rows["43"].decoder is not None
+        assert not viewer.panel.body.acceptDrops() and not viewer.panel.body.viewport().acceptDrops()
         worker = viewer.rows["42"].decoder
         host.resize(1400, 950)
         app.processEvents()

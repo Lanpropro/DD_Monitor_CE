@@ -315,6 +315,9 @@ class Viewer(QDialog):
             top.addWidget(widget)
         self.canvas = Canvas()
         self.panel = DanmakuPanel(self)
+        self.panel.roomDropped.connect(self._add_dragged)
+        self.panel.body.setAcceptDrops(False)
+        self.panel.body.viewport().setAcceptDrops(False)
         self.panel.setMinimumWidth(260)
         self.panel.set_placeholder("各房间弹幕将标注主播及房间号，按播放延迟一起显示")
         settings = getattr(context.window, "settings", {})
@@ -388,12 +391,17 @@ class Viewer(QDialog):
         if not event.mimeData().hasFormat(ROOM_MIME):
             return
         room_id = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
+        if self._add_dragged(room_id):
+            event.acceptProposedAction()
+
+    def _add_dragged(self, room_id):
         room = next((item for item in getattr(self.context.window, "rooms", [])
                      if str(item.get("room_id") or "") == room_id), {})
         if self.add_room(room_id, {"alias": room.get("uname") or ""}):
             if self.embedded and not self.running:
                 self.toggle_running()
-            event.acceptProposedAction()
+            return True
+        return False
 
     def changed(self, *_args):
         self.save_timer.start()
