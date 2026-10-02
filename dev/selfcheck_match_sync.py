@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.6"
+        assert manager.catalog()[0]["version"] == "0.1.7"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -385,16 +385,16 @@ def embedded_checks(app):
         assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.settings_panel
         assert viewer.settings_panel.isAncestorOf(viewer.main)
         assert viewer.settings_panel.isAncestorOf(viewer.automatic)
-        assert viewer.layout().itemAt(0).widget() is viewer.body_split, "The picture must have no top settings toolbar"
+        assert viewer.layout().itemAt(0).widget() is viewer.picture_split, "The picture must have no top settings toolbar"
         assert viewer.controls.frameShape() == QFrame.NoFrame
-        assert viewer.main.mapTo(viewer, QPoint()).y() >= viewer.picture_split.geometry().bottom()
+        assert viewer.main.mapTo(viewer, QPoint()).y() >= viewer.picture.geometry().bottom()
         assert not hasattr(viewer, "start_button") and not hasattr(viewer, "controls_button")
         row = viewer.rows["42"]
         app.processEvents()
         centers = [widget.geometry().center().y() for widget in row.control_widgets]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
         assert row.control_widgets[-1].width() == 52
-        assert row.width() - row.control_widgets[-1].geometry().right() <= 9, "Use the right edge for actions"
+        assert row.control_widgets[-1].geometry().right() < 1000, "Keep controls compact within the video column"
         assert row.channel.width() == 100 and row.color_choice.width() == 82
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
@@ -417,18 +417,28 @@ def embedded_checks(app):
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
         gaps = [row.control_widgets[i].x() - row.control_widgets[i - 1].geometry().right()
                 for i in (4, 6, 11)]
-        assert min(gaps) > 12, "Distribute functional groups across available width"
+        assert max(gaps) <= 7, "Do not spread controls across empty space"
+        assert viewer.picture_split.widget(0) is viewer.left_pane
+        assert viewer.picture_split.widget(1) is viewer.panel
+        assert viewer.body_split.widget(0) is viewer.picture
+        assert viewer.panel.mapTo(viewer, QPoint()).y() == 0
+        assert viewer.panel.height() == viewer.height(), "Chat must span the full viewing height"
+        assert panel.mapTo(viewer, QPoint(panel.width(), 0)).x() < viewer.panel.mapTo(viewer, QPoint()).x()
+        assert panel.width() == viewer.picture.width(), "Settings must fill only the video column"
+        chat_geometry = viewer.panel.geometry()
         row.delay.setValue(1.7)
         preferences = row.preferences()
         height = panel.height()
-        picture_height = viewer.picture_split.height()
+        picture_height = viewer.picture.height()
         viewer.minimize_settings.click()
         app.processEvents()
         assert panel.isHidden() and viewer.restore_settings.isVisible()
         assert "border-radius:" in viewer.restore_settings.styleSheet()
-        assert viewer.picture_split.height() > picture_height, "Collapsed settings must free picture space"
-        assert viewer.restore_settings.geometry().right() >= viewer.width() - 2
-        assert viewer.restore_settings.geometry().bottom() >= viewer.height() - 2
+        assert viewer.picture.height() > picture_height, "Collapsed settings must free picture space"
+        assert viewer.restore_settings.parentWidget() is viewer.left_pane
+        assert viewer.restore_settings.geometry().right() >= viewer.left_pane.width() - 2
+        assert viewer.restore_settings.geometry().bottom() >= viewer.left_pane.height() - 2
+        assert viewer.panel.geometry() == chat_geometry, "Minimizing settings must not resize chat"
         assert row.decoder is worker and viewer.running and not worker.stopped
         assert viewer.render_timer.isActive() and viewer.match_timer.isActive()
         host.resize(1500, 1000)
@@ -438,6 +448,19 @@ def embedded_checks(app):
         assert panel.isVisible() and viewer.restore_settings.isHidden()
         assert abs(panel.height() - height) <= 1, (height, panel.height())
         assert row.preferences() == preferences
+        assert viewer.panel.height() == viewer.height()
+        viewer.picture_split.setSizes([700, 500])
+        app.processEvents()
+        assert panel.width() == viewer.picture.width() == viewer.left_pane.width()
+        assert viewer.panel.height() == viewer.height(), "Chat remains full height when its width changes"
+        sizes = viewer.body_split.sizes()
+        viewer._fullscreen_picture()
+        assert viewer.fullscreen_dialog is not None
+        viewer.fullscreen_dialog.close()
+        app.processEvents()
+        assert viewer.fullscreen_dialog is None and viewer.body_split.widget(0) is viewer.picture
+        assert viewer.body_split.sizes() == sizes, "Exiting fullscreen must restore the video/settings split"
+        assert viewer.picture_split.count() == 2 and viewer.panel.height() == viewer.height()
         viewer.main.setCurrentIndex(viewer.main.findData("43"))
         assert viewer.picture.room["room_id"] == "43"
         viewer.minimize_settings.click()
@@ -461,7 +484,7 @@ def embedded_checks(app):
         assert plugin.entry is None
     host.close()
     app.processEvents()
-    print("PASS: distributed compact controls, minimize/restore, scrolling, automatic start and view restoration")
+    print("PASS: full-height right chat, video-column compact controls, minimize/restore, scrolling, automatic start and view restoration")
     print("PASS: rounded transparent corners, original fan medals and displayed zero-level source badges")
 
 

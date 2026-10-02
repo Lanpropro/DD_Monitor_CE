@@ -130,7 +130,7 @@ class Probe(api.Plugin):
                 panel = self.viewer.settings_panel
                 assert self.viewer.body_split.widget(1) is panel
                 assert panel.isAncestorOf(self.viewer.main) and panel.isAncestorOf(self.viewer.automatic)
-                assert self.viewer.layout().itemAt(0).widget() is self.viewer.body_split and self.viewer.controls.frameShape() == QFrame.NoFrame
+                assert self.viewer.layout().itemAt(0).widget() is self.viewer.picture_split and self.viewer.controls.frameShape() == QFrame.NoFrame
                 centers = [widget.geometry().center().y() for widget in row.control_widgets]
                 assert max(centers) - min(centers) <= 1
                 assert row.channel.width() == 100 and row.color_choice.width() == 82
@@ -141,14 +141,22 @@ class Probe(api.Plugin):
                 panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
                 assert not panel.isWindow() and not hasattr(panel, "detach")
                 assert panel.grab().toImage().pixelColor(0, 0).alpha() == 0
-                assert row.width() - row.control_widgets[-1].geometry().right() <= 9
-                height, picture_height = panel.height(), self.viewer.picture_split.height()
+                assert row.control_widgets[-1].geometry().right() < 1000
+                assert self.viewer.picture_split.widget(0) is self.viewer.left_pane
+                assert self.viewer.picture_split.widget(1) is self.viewer.panel
+                assert self.viewer.body_split.widget(0) is self.viewer.picture
+                assert self.viewer.panel.height() == self.viewer.height()
+                assert panel.width() == self.viewer.picture.width()
+                chat_geometry = self.viewer.panel.geometry()
+                height, picture_height = panel.height(), self.viewer.picture.height()
                 preferences = row.preferences()
                 self.viewer.minimize_settings.click()
                 QApplication.processEvents()
                 assert panel.isHidden() and self.viewer.restore_settings.isVisible()
-                assert self.viewer.picture_split.height() > picture_height
+                assert self.viewer.picture.height() > picture_height
                 assert self.viewer.running and row.decoder is worker
+                assert self.viewer.panel.geometry() == chat_geometry
+                assert self.viewer.restore_settings.parentWidget() is self.viewer.left_pane
                 self.context.window.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-minimized-preview.png")))
                 self.viewer.restore_settings.click()
                 QApplication.processEvents()

@@ -289,10 +289,9 @@ class RoomRow(QFrame):
                                 self.delay, self.increase, region, remove)
         controls = QHBoxLayout()
         controls.setSpacing(6)
-        for index, widget in enumerate(self.control_widgets):
-            if index in (4, 6, 11):
-                controls.addStretch()
+        for widget in self.control_widgets:
             controls.addWidget(widget)
+        controls.addStretch()
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout = QVBoxLayout(self)
@@ -435,10 +434,7 @@ class Viewer(QDialog):
         split = QSplitter(Qt.Horizontal)
         split.setHandleWidth(4)
         split.setStyleSheet("QSplitter::handle { background: #30343a; }")
-        split.addWidget(self.picture)
         self.picture_split = split
-        split.addWidget(self.panel)
-        split.setSizes([930, 330])
         self.notice = QLabel("选择共同比赛区域可提高匹配成功率；自动估计约 0.5 秒分辨率，手动微调 0.1 秒。")
         self.notice.setWordWrap(True)
         body = QWidget()
@@ -458,7 +454,7 @@ class Viewer(QDialog):
         self.body_split = QSplitter(Qt.Vertical)
         self.body_split.setHandleWidth(4)
         self.body_split.setStyleSheet("QSplitter::handle { background: #30343a; }")
-        self.body_split.addWidget(split)
+        self.body_split.addWidget(self.picture)
         self.body_split.addWidget(self.settings_panel)
         self.body_split.setSizes([660, 220])
         self.audio_status = QLabel()
@@ -474,11 +470,18 @@ class Viewer(QDialog):
         self.audio_status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         footer.addWidget(self.audio_status, 1)
         settings_layout.addLayout(footer)
+        self.left_pane = QWidget()
+        left_layout = QVBoxLayout(self.left_pane)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
+        left_layout.addWidget(self.body_split, 1)
+        left_layout.addWidget(self.restore_settings, 0, Qt.AlignRight)
+        split.addWidget(self.left_pane)
+        split.addWidget(self.panel)
+        split.setSizes([930, 330])
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self.body_split, 1)
-        layout.addWidget(self.restore_settings, 0, Qt.AlignRight)
+        layout.addWidget(split)
         self.audio = AudioPump(self)
         self.audio.status.connect(self.audio_status.setText)
         self.render_timer = QTimer(self)
@@ -533,7 +536,7 @@ class Viewer(QDialog):
         self.settings_panel.setVisible(visible)
         self.restore_settings.setVisible(not visible)
         if visible:
-            self.layout().activate()
+            self.left_pane.layout().activate()
             self.body_split.setSizes([
                 max(1, self.body_split.height() - self.settings_height), self.settings_height])
 
@@ -694,9 +697,11 @@ class Viewer(QDialog):
             return
         dialog = QDialog(self.window())
         dialog.setWindowTitle("比赛二路主画面")
+        sizes = self.body_split.sizes()
         QVBoxLayout(dialog).addWidget(self.picture)
         def restore(_result):
-            self.picture_split.insertWidget(0, self.picture)
+            self.body_split.insertWidget(0, self.picture)
+            self.body_split.setSizes(sizes)
             self.fullscreen_dialog = None
             dialog.deleteLater()
         dialog.finished.connect(restore)
