@@ -3,6 +3,7 @@ import asyncio
 import os
 import sys
 import time
+from unittest.mock import patch
 
 import aiohttp
 
@@ -102,12 +103,29 @@ async def check_handshake_status() -> None:
                          token="test", on_status=statuses.append)
         client._websocket = FakeWebSocket()            # noqa: SLF001
         await client._on_ws_connect()                  # noqa: SLF001
-        assert statuses == [], "只完成 WebSocket 建连时不能显示已连接"
+        assert statuses == ["连接中…"], "只完成 WebSocket 建连时不能显示已连接"
         header = blivedm_ws_base.HeaderTuple(
             0, 16, blivedm_ws_base.ProtoVer.NORMAL,
             blivedm_ws_base.Operation.AUTH_REPLY, 1)
         await client._parse_business_message(header, b'{"code": 0}')  # noqa: SLF001
-        assert statuses == ["已连接"]
+        assert statuses == ["连接中…", "已连接"]
+        await client._on_ws_close()
+        assert statuses[-1] == "弹幕连接中断，准备重连…" and not client._authenticated
+        # A new connection must clear the old connected state before slow setup.
+        started, release = asyncio.Event(), asyncio.Event()
+        async def slow_setup(_client, retry_count):
+            started.set()
+            await release.wait()
+        with patch.object(blivedm_ws_base.WebSocketClientBase, "_on_before_ws_connect", slow_setup):
+            attempt = asyncio.create_task(client._on_before_ws_connect(1))
+            await started.wait()
+            assert statuses[-1] == "重连中…（第 1 次）"
+            release.set()
+            await attempt
+        await client._on_ws_connect()
+        assert statuses[-1] == "连接中…" and not client._authenticated
+        await client._parse_business_message(header, b'{"code": 0}')
+        assert statuses[-1] == "已连接"
         client._stopping = True                        # noqa: SLF001
         await client._on_ws_close()                    # noqa: SLF001
 
@@ -160,6 +178,8 @@ def main() -> None:
     assert panel.count.text() == "连接中…", "旧客户端的已连接信号必须被忽略"
     window._on_danmaku_status(client, "已连接")
     assert panel.count.text() == "已连接", f"当前客户端鉴权后应显示已连接，实际 {panel.count.text()!r}"
+    assert "正在连接" not in panel.body.toPlainText()
+    assert "等待弹幕" in panel.body.toPlainText()
     assert panel.count.property("state") == "connected"
 
     print("\n=== 2. 收到消息会进面板（弹幕 / 礼物 / SC 上色）===")
@@ -173,7 +193,13 @@ def main() -> None:
     print(f"  正文={text[:60]!r}")
     assert panel._received == 3
     assert "今天的直播好看" in text and "辣条" in text and "加油" in text
-    assert panel.count.text() == "已连接 · 3"
+    assert panel.count.text() == "已连接", "连接状态不应附带弹幕数量"
+    history = panel.body.toPlainText()
+    window._on_danmaku_status(client, "重连中…（第 1 次）")
+    assert panel.count.text() == "重连中…（第 1 次）"
+    assert panel.count.property("state") == "connecting"
+    assert panel.body.toPlainText() == history, "重连时应保留已收到的弹幕"
+    window._on_danmaku_status(client, "已连接")
     html = panel.body.toHtml()
     assert theme.PINK in html and theme.WARNING in html, "礼物/SC 应该有自己的颜色"
 

@@ -831,9 +831,11 @@ class DanmakuPanel(QFrame):
             f'<div style="color:#8a8f98;line-height:160%">{text}</div>')
 
     def set_status(self, text: str) -> None:
-        """连接状态（连接中… / 已连接 / 连接失败…），后面自动跟收到多少条。"""
+        """连接状态（连接中… / 已连接 / 连接失败…）。"""
         self._status = text
         self._refresh_count()
+        if text == "已连接" and not self._has_content:
+            self.body.setHtml('<div style="color:#8a8f98;line-height:160%">等待弹幕…</div>')
 
     def set_count(self, text: str) -> None:
         self._status = text
@@ -841,8 +843,6 @@ class DanmakuPanel(QFrame):
 
     def _refresh_count(self) -> None:
         text = self._status
-        if self._received:
-            text = f"{text} · {self._received}"
         if self._status.startswith("已连接"):
             state = "connected"
         elif any(word in self._status for word in ("连接中", "重连中", "准备重连", "切换服务器")):

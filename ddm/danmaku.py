@@ -148,6 +148,8 @@ class _Client(_ClientBase):
     async def _on_ws_connect(self):
         self._authenticated = False
         self._auth_failed = False
+        if self._on_status is not None:
+            self._on_status("连接中…")
         await super()._on_ws_connect()
 
     async def _parse_business_message(self, header, body):
@@ -180,9 +182,10 @@ class _Client(_ClientBase):
         super().stop()
 
     async def _on_before_ws_connect(self, retry_count):
+        self._authenticated = False
+        if self._on_status is not None:
+            self._on_status(f"重连中…（第 {retry_count} 次）" if retry_count else "连接中…")
         await super()._on_before_ws_connect(retry_count)
-        if retry_count and self._on_status is not None:
-            self._on_status(f"重连中…（第 {retry_count} 次）")
 
 
 class _Handler(_HandlerBase):
