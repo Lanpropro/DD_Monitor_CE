@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         self._freeze_refreshed: set[object] = set()
         self._freeze_retry_timers: dict[object, QTimer] = {}
         self._fullscreen_tile: Tile | None = None
+        self._fullscreen_audio_saved: dict[Tile, bool] = {}
         self._fullscreen_was_maximized = False
         self._native_fullscreen_state = None
         self._fullscreen_saved_geometry = None
@@ -531,6 +532,7 @@ class MainWindow(QMainWindow):
             return False
         decode_before = self.settings.get("decode_mode", "auto")
         self.settings.update(dialog.settings())
+        self._sync_fullscreen_audio()
         self.shortcuts = dialog.shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
@@ -568,7 +570,7 @@ class MainWindow(QMainWindow):
             "wall": [
                 {
                     "room_id": str(tile.room.get("room_id") or ""),
-                    "muted": bool(tile.muted),
+                    "muted": self._fullscreen_audio_saved.get(tile, bool(tile.muted)),
                     # 音量属于格子；即使格子为空也要保存，重启后继续沿用。
                     "volume": int(tile.volume),
                     "quality": int(tile.quality),
@@ -1737,6 +1739,19 @@ class MainWindow(QMainWindow):
               f" / 布局 {(done - switched) * 1000:.0f}）",
               file=sys.stderr, flush=True)
 
+    def _sync_fullscreen_audio(self) -> None:
+        if self._fullscreen_tile is not None and self.settings.get("fullscreen_solo_audio", True):
+            for tile in self.wall.tiles:
+                self._fullscreen_audio_saved.setdefault(tile, bool(tile.muted))
+                muted = tile is not self._fullscreen_tile
+                if tile.muted != muted:
+                    tile.set_muted(muted)
+        else:
+            saved, self._fullscreen_audio_saved = self._fullscreen_audio_saved, {}
+            for tile, muted in saved.items():
+                if tile in self.wall.tiles and tile.muted != muted:
+                    tile.set_muted(muted)
+
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
@@ -1751,6 +1766,7 @@ class MainWindow(QMainWindow):
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_saved_geometry = self.saveGeometry()
         self._fullscreen_tile = tile
+        self._sync_fullscreen_audio()
         self.centralWidget().setUpdatesEnabled(False)
         try:
             self.sidebar.hide()
@@ -1786,6 +1802,7 @@ class MainWindow(QMainWindow):
                 self.showNormal()
             switched = time.perf_counter()
             self._fullscreen_tile = None
+            self._sync_fullscreen_audio()
             self._fullscreen_saved_geometry = None
             self.sidebar.show()
             # 有遮盖图挡着才敢拆帧：让其余格子一帧两格地露面，给淡出动画腾出

@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
     "decode_mode": "auto",    # VLC 自动 / D3D11 / DXVA2 / 软件解码
     "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
+    "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "default_volume": DEFAULT_VOLUME,
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
