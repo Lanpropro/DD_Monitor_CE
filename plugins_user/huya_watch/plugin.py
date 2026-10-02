@@ -34,6 +34,10 @@ class LiveQualityPlatform(api.Platform):
     def preview_url(self, room_id: str) -> tuple:
         return self.play_url(room_id, 10000, preview=True)
 
+    def danmaku_client(self, room_id: str, parent=None):
+        from ddm.live_danmaku import LiveDanmakuClient
+        return LiveDanmakuClient(room_id, self, parent)
+
 
 class HuyaPlatform(LiveQualityPlatform):
     kind = "huya"

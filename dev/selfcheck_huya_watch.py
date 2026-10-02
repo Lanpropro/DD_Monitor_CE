@@ -238,8 +238,13 @@ def main():
                 assert event.isAccepted() and played[-1][0] is target
                 assert played[-1][1:] == (url, headers)
                 browser.assert_not_called()
-                window.start_danmaku("huya:660000")
-                assert window._danmaku is None
+                client = hp.danmaku_client("huya:660000", window)
+                with patch.object(hp, "danmaku_client", return_value=client), patch.object(client, "start") as start:
+                    window.start_danmaku("huya:660000")
+                    assert window._danmaku is client and window._danmaku_room == "huya:660000"
+                    start.assert_called_once()
+                    window.stop_danmaku()
+                    assert client._stopped.is_set() and window._danmaku is None
                 window.hover_preview.on_hover(item.room)
                 assert window.hover_preview._resolver is None
                 saved_state = window.current_state()

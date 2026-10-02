@@ -181,6 +181,10 @@ class Platform:
         """可选：返回直播间网页地址；空串表示不提供浏览器入口。"""
         return ""
 
+    def danmaku_client(self, room_id: str, parent=None):
+        """可选：返回未启动的 QThread（message(dict)/status(str) 信号、stop()）；None 为不支持。"""
+        return None
+
 
 class DanmakuSender:
     """发弹幕的能力，由插件实现。"""

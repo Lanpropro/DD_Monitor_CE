@@ -5,8 +5,8 @@ requests
 # 每个播放格子的独立左右声道路由（PortAudio）
 sounddevice
 qrcode
-# 弹幕（ddm/danmaku.py 用它的 websocket 客户端）
-aiohttp
+# B 站及国内直播平台的弹幕 websocket 客户端
+aiohttp>=3.12
 brotli
 # 虎牙公开直播流解析（固定已验证版本）
 streamlink==8.6.1

@@ -1,6 +1,6 @@
 {
   "id": "huya_watch",
   "name": "国内直播平台",
-  "description": "虎牙、斗鱼、抖音关注卡片与格子内播放",
-  "version": "0.4.1"
+  "description": "虎牙、斗鱼、抖音关注卡片、格子内播放与聊天弹幕",
+  "version": "0.5.0"
 }

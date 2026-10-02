@@ -2454,13 +2454,17 @@ class MainWindow(QMainWindow):
 
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         panel = self.wall.danmaku
-        if not str(room_id).isdigit():
+        if str(room_id).isdigit():
+            client = DanmakuClient(room_id, self)
+        else:
+            platform = self.plugins.platform_for(room_id)
+            client = platform.danmaku_client(room_id, self) if platform is not None else None
+        if client is None:
             panel.set_placeholder("此平台弹幕尚未接入，直播画面可正常播放")
             panel.set_status("暂不支持")
             return
         panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
         panel.set_status("连接中…")
-        client = DanmakuClient(room_id, self)
         client.message.connect(
             lambda event, source=client: self._on_danmaku_message(source, event))
         client.status.connect(
