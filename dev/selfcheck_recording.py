@@ -211,8 +211,19 @@ def main():
         tile.room["live"] = True
         tile.stream_url = str(source)
         tile.stream_headers = {}
+        window.settings["recording_lock_quality"] = True
+        before_quality = tile.quality
+        window._start_replay(tile)
+        cached_session = window.recorder.sessions[tile]
+        cached_process = cached_session.process
+        assert cached_session.manual_replay and not cached_session.recording
+        assert tile.quality == before_quality and tile not in window._pending_capture
+        window._sync_replay_scope()
+        assert window.recorder.sessions[tile] is cached_session
         tile.recording_button.click()
         assert tile in window.recorder.sessions
+        assert window.recorder.sessions[tile] is cached_session
+        assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
         assert tile.recording_button.text() == "● REC"
         assert tile.recording_button.property("recording") is True
         window._fill_plugin_menu(tile)

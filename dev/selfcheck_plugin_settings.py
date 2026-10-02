@@ -46,6 +46,12 @@ def main():
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         assert dialog.nav.item(4).text() == "插件"
         assert len(dialog.plugin_page.checks) == 3
+        assert not hasattr(dialog.plugin_page, "restart_button")
+        assert dialog.confirm_button.text() == "保存"
+        dialog.plugin_page.checks["disabled"].setChecked(True)
+        assert dialog.confirm_button.text() == "保存并重启"
+        dialog.plugin_page.checks["disabled"].setChecked(False)
+        assert dialog.confirm_button.text() == "保存", "撤回启用修改应恢复普通保存"
         assert dialog.enabled_plugins() == ["active", "broken"]
         dialog.plugin_page.checks["disabled"].setChecked(True)
         assert dialog.enabled_plugins() is None
@@ -66,6 +72,7 @@ def main():
                 patch("ddm.dialogs.QMessageBox.information"):
             dialog.plugin_page.install_button.click()
         assert not os.path.exists(sentinel), "导入 ZIP 时不应执行插件代码"
+        assert dialog.confirm_button.text() == "保存并重启"
         assert dialog.plugin_page.checks["new_plugin"].isChecked()
         assert next(item for item in manager.catalog() if item["id"] == "new_plugin") == {
             "id": "new_plugin", "name": "新插件", "description": "来自清单",
@@ -116,6 +123,7 @@ def main():
         assert not os.path.exists(os.path.join(root, "new_plugin"))
         assert "new_plugin" not in manager.enabled
         assert "new_plugin" not in dialog.plugin_page.checks
+        assert dialog.confirm_button.text() == "保存并重启"
         assert os.path.exists(sentinel), "删除插件不能删除目录外的文件"
 
         manager.plugin_settings["active"] = {"token": "old"}

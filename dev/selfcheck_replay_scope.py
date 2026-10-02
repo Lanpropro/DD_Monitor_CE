@@ -3,7 +3,7 @@
 用户要求：
   1. 即时回放**跟着格子的直播自动开启**，不需要手动点；
   2. 没手动保存的话，缓存文件在停播/下播时**自动清理**（不留垃圾）；
-  3. 右键菜单里**只保留「保存最近 N 分钟」**，不再有开启/关闭缓存两个开关；
+  3. 右键可独立开启/停止回放缓存，录制时自动提供回放；
   4. 适用范围（所有格子 / 只跟着录制走）放在**设置 → 录制**里；
   5. 即时回放要有**总开关**，关掉就彻底不开缓存（`recording_replay_enabled`）；
   6. 录制也要有**总开关**，关掉就不起新录制、按钮收起、在录的正常收尾
@@ -188,14 +188,13 @@ def main() -> None:
         assert recorder.stopped == [], "录制中的格子要留着，它本来就在写分段"
         assert recorder.started == [], "「只跟着录制走」不该给别的格子开缓存"
 
-        print("\n=== 3. 右键菜单：只留「保存最近 N 分钟」 ===")
+        print("\n=== 3. 右键菜单：独立开启、保存和停止回放 ===")
         window.settings["recording_replay_scope"] = "all"
         plain = tiles[1]
         recorder.sessions.pop(plain, None)
         texts = menu_texts(window, plain)
         print(f"  没有会话时：{texts}")
-        assert not any("开启即时回放缓存" in text for text in texts), \
-            "不该再有「开启即时回放缓存」——它现在跟着直播自动开"
+        assert any("开启即时回放缓存" in text for text in texts)
         assert not any("关闭即时回放缓存" in text for text in texts)
         assert any("开始录制这一路" in text for text in texts)
 
@@ -203,9 +202,31 @@ def main() -> None:
         texts = menu_texts(window, plain)
         print(f"  有缓存时：{texts}")
         assert any("保存最近约" in text for text in texts), "要有保存即时重放"
-        assert not any("关闭即时回放缓存" in text for text in texts), \
-            "不该再有「关闭即时回放缓存」"
+        assert any("停止即时回放缓存" in text for text in texts)
         assert not any("开启即时回放缓存" in text for text in texts)
+
+        recorder.sessions.clear()
+        window.settings["recording_replay_scope"] = "recorded"
+        window.settings["recording_enabled"] = False
+        window._start_replay(plain)
+        assert recorder.sessions[plain].manual_replay
+        assert not recorder.sessions[plain].recording, "独立回放不能开启完整录制"
+        window._sync_replay_scope()
+        assert plain in recorder.sessions, "手动回放不能被状态轮询停止"
+        window._stop_replay(plain)
+        window.settings["recording_replay_scope"] = "all"
+        window._sync_replay_scope()
+        assert plain not in recorder.sessions, "手动停止后自动缓存不能立即重开"
+        window._start_replay(plain)
+        assert plain in recorder.sessions
+        window.settings["recording_enabled"] = True
+        window._start_capture(plain, recording=True)
+        assert recorder.sessions[plain].recording, "缓存可直接转为完整录制"
+        texts = menu_texts(window, plain)
+        assert any("保存最近约" in text for text in texts)
+        assert not any("停止即时回放缓存" in text for text in texts), "不能通过停止缓存中断录制"
+        window._stop_replay(plain)
+        assert recorder.sessions[plain].recording
 
         print("\n=== 4. 范围设置进了「设置 → 录制」页 ===")
         page = RecordingSettingsPage(dict(settings))

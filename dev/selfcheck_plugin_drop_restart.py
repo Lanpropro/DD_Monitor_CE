@@ -82,7 +82,10 @@ def main():
     class RestartDialog(SettingsDialog):
         def exec(self):
             self.general_page._checks["fullscreen_solo_audio"].setChecked(False)
-            self.plugin_page.restart_button.click()
+            self.plugin_page._files_changed = True
+            self.plugin_page.changed.emit()
+            assert self.confirm_button.text() == "保存并重启"
+            self.confirm_button.click()
             assert self.restart_requested
             return self.result()
 

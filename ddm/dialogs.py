@@ -368,11 +368,11 @@ class RecordingSettingsPage(QWidget):
             "录制本身不受影响，照常写完整文件。")
         self.replay_scope = QComboBox()
         self.replay_scope.addItem("所有播放中的格子（随时都能回放）", "all")
-        self.replay_scope.addItem("只跟着录制走（不录制的格子不开缓存）", "recorded")
+        self.replay_scope.addItem("手动开启，录制时自动开启", "recorded")
         self.replay_scope.setToolTip(
             "「保存最近 N 分钟」这个即时回放功能，给哪些格子开缓存。\n"
-            "它跟着直播自动开启，不用手动点；缓存是临时的，没点保存就会在停播时清掉。\n"
-            "只跟着录制走（默认）：录制中的格子本来就在写分段，零额外开销。\n"
+            "缓存是临时的，没点保存就会在停播时清掉。\n"
+            "手动开启（默认）：右键直播格子开启即时回放缓存；录制时自动提供回放。\n"
             "所有播放中的格子：每格常驻一个 FFmpeg 缓存进程，随时能回放，\n"
             "但每格都是再拉一路同样的流 —— 8 格就是 16 路同时下载、1.2 GB 内存，\n"
             "打网游时会明显抢带宽，所以还要用下面的上限封顶。")
@@ -382,7 +382,7 @@ class RecordingSettingsPage(QWidget):
         self.replay_max.setToolTip(
             "「所有播放中的格子」时，最多给几格开缓存；0 = 不限制。\n"
             "每开一格 = 再拉一路同样的流（带宽翻倍）+ 一个 FFmpeg 进程（约 155 MB 内存）。\n"
-            "选「只跟着录制走」时这一项不起作用。")
+            "选「手动开启」时这一项不起作用。")
         self.min_free = QSpinBox()
         self.min_free.setRange(256, 100000)
         self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
@@ -493,7 +493,7 @@ class RecordingSettingsPage(QWidget):
 class PluginSettingsPage(QWidget):
     """按现有插件接口展示元数据和下次启动的启用选择。"""
 
-    restartRequested = Signal()
+    changed = Signal()
 
     def __init__(self, manager=None, parent=None):
         super().__init__(parent)
@@ -510,11 +510,6 @@ class PluginSettingsPage(QWidget):
         self.install_button.clicked.connect(self._install)
         actions = QHBoxLayout()
         actions.addWidget(self.install_button)
-        self.restart_button = QPushButton("保存并重启软件")
-        self.restart_button.setObjectName("IconButton")
-        self.restart_button.setToolTip("保存设置并重启，使插件安装、删除和启用更改生效；正在录制的内容会正常收尾。")
-        self.restart_button.clicked.connect(self.restartRequested.emit)
-        actions.addWidget(self.restart_button)
         actions.addStretch(1)
         layout.addLayout(actions)
 
@@ -527,6 +522,9 @@ class PluginSettingsPage(QWidget):
         self.cards.setContentsMargins(0, 0, 4, 0)
         self.cards.setSpacing(10)
         entries = manager.catalog() if manager else []
+        self._initial_enabled = {entry["id"]: entry["enabled"] for entry in entries}
+        self._files_changed = any(entry["status"] == "待重启" for entry in entries) or bool(
+            getattr(manager, "_removed", None))
         self.empty = None
         if not entries:
             self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
@@ -553,6 +551,7 @@ class PluginSettingsPage(QWidget):
         check = QCheckBox("启用")
         check.setChecked(entry["enabled"])
         self.checks[entry["id"]] = check
+        check.toggled.connect(lambda _checked: self.changed.emit())
         top.addWidget(check)
         remove = QPushButton("删除")
         remove.setObjectName("IconButton")
@@ -585,6 +584,8 @@ class PluginSettingsPage(QWidget):
         del self.checks[plugin_id]
         self.cards.removeWidget(card)
         card.deleteLater()
+        self._files_changed = True
+        self.changed.emit()
         if not self.checks:
             self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
             self.empty.setObjectName("SettingsHint")
@@ -630,7 +631,14 @@ class PluginSettingsPage(QWidget):
             self.empty = None
         entry = next(item for item in self.manager.catalog() if item["id"] == plugin_id)
         self._add_card(entry)
+        self._files_changed = True
+        self.changed.emit()
         QMessageBox.information(self, "插件已安装", "插件将在下次启动时装载")
+
+    def needs_restart(self):
+        return self._files_changed or {
+            key: check.isChecked() for key, check in self.checks.items()
+        } != self._initial_enabled
 
     def enabled_plugins(self):
         return None if all(check.isChecked() for check in self.checks.values()) else [
@@ -673,7 +681,6 @@ class SettingsDialog(QDialog):
         self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.plugin_page = PluginSettingsPage(plugin_manager)
-        self.plugin_page.restartRequested.connect(self._request_restart)
         self.stack.addWidget(self.general_page)
         self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.recording_page)
@@ -690,19 +697,24 @@ class SettingsDialog(QDialog):
         cancel = QPushButton("取消")
         cancel.setObjectName("IconButton")
         cancel.clicked.connect(self.reject)
-        confirm = QPushButton("保存")
-        confirm.setObjectName("PrimaryButton")
-        confirm.clicked.connect(self.accept)
+        self.confirm_button = QPushButton("保存")
+        self.confirm_button.setObjectName("PrimaryButton")
+        self.confirm_button.clicked.connect(self._save)
         buttons.addWidget(cancel)
-        buttons.addWidget(confirm)
+        buttons.addWidget(self.confirm_button)
         right.addLayout(buttons)
         root.addLayout(right, 1)
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
+        self.plugin_page.changed.connect(self._update_save_button)
+        self._update_save_button()
 
-    def _request_restart(self) -> None:
-        self.restart_requested = True
+    def _update_save_button(self) -> None:
+        self.confirm_button.setText("保存并重启" if self.plugin_page.needs_restart() else "保存")
+
+    def _save(self) -> None:
+        self.restart_requested = self.plugin_page.needs_restart()
         self.accept()
 
     def _on_page_changed(self, index: int) -> None:

@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
         self._closing = False
         self._restart_requested = False
+        self._replay_suppressed: dict[Tile, str] = {}
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._poller = None
         self._refresh_queued = False
@@ -1074,6 +1075,7 @@ class MainWindow(QMainWindow):
             self.start_tile(tile)
 
     def _stop_tile(self, tile) -> None:
+        self._replay_suppressed.pop(tile, None)
         timer = self._retry_timers.pop(tile, None)
         if timer is not None:
             timer.stop()
@@ -1539,18 +1541,18 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             return 3
 
-    def _drop_pure_caches(self) -> None:
+    def _drop_pure_caches(self, *, preserve_manual: bool = False) -> None:
         """停掉所有「纯缓存」会话；录制中的留着 —— 它本来就在写分段。"""
         for tile in self.wall.tiles:
             session = self.recorder.sessions.get(tile)
-            if session is not None and not session.recording:
+            if (session is not None and not session.recording and
+                    not (preserve_manual and getattr(session, "manual_replay", False))):
                 self.recorder.stop(tile)
 
     def _sync_replay_scope(self) -> None:
         """按「即时回放总开关 + 范围」自动开 / 关各格的缓存。
 
-        ``recorded``：只跟着录制走。录制中的格子本来就在写分段，直接就能导出回放，
-        所以什么都不用开；纯缓存的会话（以前手动开的）会被停掉。
+        ``recorded``：手动开启，录制时自动提供回放。保留手动缓存，停止自动缓存。
         ``all``：所有播放中的格子都开一份缓存，随时都能「保存最近 N 分钟」，
         但**最多开 ``recording_replay_max_tiles`` 格** —— 每开一格都是再拉一路
         同样的流（带宽翻倍）加一个 ffmpeg 进程（约 155 MB 内存）。用户实测过
@@ -1559,9 +1561,12 @@ class MainWindow(QMainWindow):
         注意这里**直接调 recorder.start()**、不走 ``_start_capture()`` —— 后者会为了
         录制把画质锁到原画，而「所有格子都锁原画」会把带宽吃光。
         """
-        if not self._replay_enabled() or self._replay_scope() != "all":
-            # 总开关关掉、或范围收窄成 recorded：不只不开新的，纯缓存的也要停掉
+        if not self._replay_enabled():
+            # 总开关关闭时，所有纯缓存都停止；完整录制继续。
             self._drop_pure_caches()
+            return
+        if self._replay_scope() != "all":
+            self._drop_pure_caches(preserve_manual=True)
             return
         if not bool(str(self.settings.get("recording_dir") or "").strip()):
             return                                  # 没配保存目录，缓存没地方写
@@ -1573,6 +1578,8 @@ class MainWindow(QMainWindow):
         for tile in self.wall.tiles:
             if tile in self.recorder.sessions:
                 continue                            # 已经有会话（录制或缓存）
+            if self._replay_suppressed.get(tile) == str(tile.room.get("room_id") or ""):
+                continue
             if limit > 0 and cached >= limit:
                 break                               # 额度用完，剩下的格子先不缓存
             if not tile.isVisible() or not tile.room.get("live"):
@@ -1880,17 +1887,35 @@ class MainWindow(QMainWindow):
         else:
             collected.append(("● 开始录制这一路", lambda t=tile:
                               self._start_capture(t, recording=True)))
-        if session and self._replay_enabled():
-            # 即时回放跟着直播自动开（见 _sync_replay_scope），所以菜单里不再放
-            # 「开启/关闭即时回放缓存」两个开关，只留这一个「保存」。
-            # 设置里把即时回放整个关掉时，这一项也不出现。
-            minutes = int(session.settings.get("recording_replay_minutes", 3))
-            collected.append((f"保存最近约 {minutes} 分钟", lambda t=tile:
-                              self.recorder.save_replay(t)))
+        if self._replay_enabled():
+            if session:
+                minutes = int(session.settings.get("recording_replay_minutes", 3))
+                collected.append((f"保存最近约 {minutes} 分钟", lambda t=tile:
+                                  self.recorder.save_replay(t)))
+                if not session.recording:
+                    collected.append(("停止即时回放缓存", lambda t=tile: self._stop_replay(t)))
+            elif tile.room.get("room_id"):
+                collected.append(("开启即时回放缓存", lambda t=tile: self._start_replay(t)))
         if manager is not None:
             for label, callback, name in manager.tile_actions(tile):
                 collected.append((label, lambda cb=callback: manager.run_action(cb)))
         tile.plugin_actions = collected
+
+    def _start_replay(self, tile) -> None:
+        if not self._replay_enabled():
+            return
+        if not str(self.settings.get("recording_dir") or "").strip():
+            if not self.open_settings("recording") or self._closing or not self._replay_enabled():
+                return
+        self._replay_suppressed.pop(tile, None)
+        if self.recorder.start(tile, recording=False):
+            self.recorder.sessions[tile].manual_replay = True
+
+    def _stop_replay(self, tile) -> None:
+        session = self.recorder.sessions.get(tile)
+        if session is not None and not session.recording:
+            self._replay_suppressed[tile] = str(tile.room.get("room_id") or "")
+            self.recorder.stop(tile)
 
     def _toggle_recording(self, tile) -> None:
         if tile in self._pending_capture:
