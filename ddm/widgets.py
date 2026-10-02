@@ -5556,8 +5556,7 @@ class WallGrid(QWidget):
                      if room_id and str(item.room.get("room_id") or "") == room_id), None)
         if tile is None:
             return
-        self._drop_tile(tile)
-        self.relayout(force=True)
+        tile.set_room(None)
 
     def add_room(self, room: dict) -> Tile:
         tile = self._make_tile(room)

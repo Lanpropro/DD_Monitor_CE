@@ -2184,9 +2184,12 @@ class MainWindow(QMainWindow):
         if tile is not None:
             self.plugins.emit(plugin_api.EVENT_TILE_REMOVED, tile=tile,
                               room=dict(tile.room or {}))
+            self._pending_capture.pop(tile, None)
             self.recorder.stop(tile)
             self._stop_tile(tile)
             self.wall.remove_room(tile.room)
+            if tile not in self.recorder.sessions:
+                self._restore_capture_quality(tile)
         self.sidebar.remove_room(room)
         self._refresh_meta()
         print(f"已移除 {room.get('uname')}")
