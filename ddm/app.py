@@ -2438,6 +2438,8 @@ class MainWindow(QMainWindow):
 
     def sync_danmaku(self) -> None:
         """让弹幕连接对上当前布局/主画面（布局里没有弹幕格就断开）。"""
+        if not getattr(self, "plugins", None):
+            return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
         panel = self.wall.danmaku
         if not self.wall.has_danmaku:
             self.stop_danmaku()

@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUTF8=1"
 rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 run-console.cmd
 setlocal
 set "PROJ=%~dp0"
@@ -15,3 +18,4 @@ echo 没找到 Python 解释器。
 echo 请在本目录执行：  python -m venv .venv
 echo 然后执行：        .venv\Scripts\pip install -r requirements.txt
 pause
+exit /b 1
