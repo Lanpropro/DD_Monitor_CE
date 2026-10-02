@@ -1,4 +1,4 @@
-"""虎牙 HLS 转封装：只复制音视频，归一化时间戳后送入格子播放器。"""
+"""国内直播流转封装：只复制音视频，归一化时间戳后送入格子播放器。"""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import subprocess
@@ -12,7 +12,7 @@ class StreamRelay:
     def __init__(self, source: str, headers: dict):
         executable = ffmpeg_path()
         if not executable:
-            raise RuntimeError("虎牙播放需要 FFmpeg，请检查程序目录中的 ffmpeg.exe")
+            raise RuntimeError("直播播放需要 FFmpeg，请检查程序目录中的 ffmpeg.exe")
         self._lock = threading.Lock()
         self._stopped = False
         self._process = None
@@ -67,7 +67,7 @@ class StreamRelay:
         self._server.daemon_threads = True
         self.url = f"http://127.0.0.1:{self._server.server_port}{route}"
         self._thread = threading.Thread(target=self._server.serve_forever,
-            kwargs={"poll_interval": 0.05}, name="huya-stream-relay", daemon=True)
+            kwargs={"poll_interval": 0.05}, name="live-stream-relay", daemon=True)
         self._thread.start()
 
     def stop(self):

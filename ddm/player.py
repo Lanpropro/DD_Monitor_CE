@@ -239,8 +239,9 @@ class TilePlayer(QObject):
         self.url = url
         self._audio_ready = False         # 新的 aout 还没建，起来之后再补静音/音量
         playback_url = url
-        self._picture_limit = 8 if profile == "huya" else self.FROZEN_TICKS
-        if profile == "huya":
+        platform_relay = profile in ("huya", "douyu", "douyin")
+        self._picture_limit = 8 if platform_relay else self.FROZEN_TICKS
+        if platform_relay:
             from .stream_relay import StreamRelay
             self._relay = StreamRelay(url, headers or {})
             playback_url = self._relay.url
@@ -260,7 +261,7 @@ class TilePlayer(QObject):
         if not any(name.lower() == "user-agent" for name in request_headers):
             # 后端一律要 UA，插件忘了给就补上通用的
             media.add_option(f":http-user-agent={UA}")
-        media.add_option(":network-caching=4000" if profile == "huya" else ":network-caching=800")
+        media.add_option(":network-caching=4000" if platform_relay else ":network-caching=800")
         for option in options or ():
             media.add_option(str(option))
         self._media = media

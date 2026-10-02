@@ -1,4 +1,4 @@
-"""联网验收：真实虎牙卡片拖入 VLC 格子，解码画面/音频、静音、恢复配置。
+"""联网验收：国内直播卡片拖入 VLC 格子，解码画面/音频、静音、恢复配置。
 
 运行：python dev/selfcheck_huya_live.py [房间号] [持续秒数]。只保存测试截图，不改用户配置。
 """
@@ -40,7 +40,10 @@ def stats(player):
 
 
 def main():
-    room_id = "huya:" + (sys.argv[1] if len(sys.argv) > 1 else "660000")
+    raw = sys.argv[1] if len(sys.argv) > 1 else "660000"
+    room_id = raw if ":" in raw else "huya:" + raw
+    kind = room_id.split(":", 1)[0]
+    label = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音"}[kind]
     duration = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     app = QApplication([])
     app.setStyleSheet(theme.qss())
@@ -51,7 +54,7 @@ def main():
         window = MainWindow([], [], state=state, layout_id="1x2")
     window.resize(1280, 720)
     window.show()
-    output = REPO / "work" / "huya-live"
+    output = REPO / "work" / (kind + "-live")
     output.mkdir(parents=True, exist_ok=True)
     try:
         # 暂停添加后自动上墙，用真实拖放事件从关注卡片开始播放。
@@ -62,7 +65,7 @@ def main():
         assert item.room["live"], "验收需要正在直播的房间"
         wait_for(app, lambda: item.thumb._face_source is not None and item.thumb._cover_source is not None)
         assert not item.thumb._face_source.isNull() and not item.thumb._cover_source.isNull()
-        assert item.platform_badge.text() == "" and item.platform_badge.toolTip() == "虎牙"
+        assert item.platform_badge.text() == "" and item.platform_badge.toolTip() == label
         assert not item.platform_badge.pixmap().isNull()
         assert item.platform_badge.isHidden(), "单平台关注栏不显示平台图标"
         target = window.wall.tiles[1]
@@ -135,7 +138,7 @@ def main():
         assert not restored.sidebar.rooms() and not tile.room.get("room_id")
         assert active_player._released and active_relay._process.poll() is not None
         assert not active_relay._thread.is_alive()
-        assert restored.current_state()["suspended_platform_rooms"]["huya"]["rooms"]
+        assert restored.current_state()["suspended_platform_rooms"][kind]["rooms"]
         print("PASS: disabling platform suspends rooms and stops real VLC/FFmpeg playback", flush=True)
     finally:
         restored.close()

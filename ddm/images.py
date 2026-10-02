@@ -148,6 +148,11 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         host = urlsplit(url).hostname or ""
         if host == "msstatic.com" or host.endswith(".msstatic.com"):
             headers["Referer"] = "https://www.huya.com/"
+        elif host == "douyucdn.cn" or host.endswith(".douyucdn.cn"):
+            headers["Referer"] = "https://www.douyu.com/"
+        elif any(host == domain or host.endswith("." + domain)
+                 for domain in ("douyinpic.com", "byteimg.com", "ibytedtos.com", "douyincdn.com")):
+            headers["Referer"] = "https://live.douyin.com/"
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200 or not response.content:
             return None

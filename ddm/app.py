@@ -583,8 +583,8 @@ class MainWindow(QMainWindow):
             self._pending_capture.pop(tile, None)
             self._stop_tile(tile)
             tile.set_volume(room["volume"])
-            tile.set_muted(room["muted"])
             tile.set_audio_channel(room["audio_channel"])
+            tile.set_muted(room["muted"])
             tile.set_room(room)
         self._refresh_meta()
 
