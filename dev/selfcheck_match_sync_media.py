@@ -14,7 +14,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QCoreApplication  # noqa: E402
-from ddm import recording  # noqa: E402
+from ddm import plugins, recording  # noqa: E402
 from plugins_user._match_sync import media  # noqa: E402
 from plugins_user._match_sync.engine import RATE, match_scenes  # noqa: E402
 
@@ -41,7 +41,11 @@ def media_checks(app):
                        check=True, capture_output=True, timeout=15,
                        creationflags=recording._FFMPEG_FLAGS)
         a = media.Decoder("1", {"url": str(source), "headers": {}})
-        b = media.Decoder("2", {"url": str(shifted), "headers": {}})
+        platform = plugins.Platform()
+        platform.kind = "local_test"
+        platform.room_info = lambda _rid: plugins.RoomInfo("local_test:2", uname="本地平台")
+        platform.play_url = lambda _rid, _quality: (str(shifted), 10000, "local", {})
+        b = media.Decoder("local_test:2", {"quality": 10000}, platform)
         states = []
         a.events.state.connect(states.append)
         b.events.state.connect(states.append)
@@ -90,6 +94,75 @@ def media_checks(app):
             assert not c.thread.is_alive()
             assert c.process is None
     print("PASS: retained playback, PCM data, paced frame times, immediate stop and child cleanup")
+
+
+def platform_checks(app):
+    from PySide6.QtCore import QObject
+    from ddm.live_danmaku import LiveDanmakuClient
+    from plugins_user.huya_watch.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
+    parent = QObject()
+    for platform in (HuyaPlatform(), DouyuPlatform(), DouyinPlatform()):
+        room_id = platform.kind + ":42"
+        metadata, received, states = [], [], []
+        decoder = media.Decoder(room_id, {"url": "http://127.0.0.1:9/cached", "quality": 10000}, platform)
+        decoder.events.information.connect(metadata.append)
+        with patch.object(media.bili, "room_info", side_effect=AssertionError("Bilibili lookup forbidden")), \
+                patch.object(media.bili, "play_url", side_effect=AssertionError("Bilibili stream forbidden")), \
+                patch.object(platform, "room_info", return_value=plugins.RoomInfo(room_id, uname="跨平台主播")) as info, \
+                patch.object(platform, "play_url", return_value=("http://127.0.0.1:9/fresh", 10000, "web", {"Referer": "platform"})) as play:
+            assert decoder._resolve(0) == ("http://127.0.0.1:9/cached", {})
+            assert not info.called and not play.called
+            assert decoder._resolve(1) == ("http://127.0.0.1:9/fresh", {"Referer": "platform"})
+            play.assert_called_once_with(room_id, 10000)
+            assert metadata[-1]["actual_quality"] == 10000 and metadata[-1]["quality_options"]
+            decoder.stop()
+            try:
+                decoder._resolve(2)
+            except media.bili.Cancelled:
+                pass
+            else:
+                raise AssertionError("Cancelled platform lookup must not resolve a stream")
+            assert play.call_count == 1
+
+        async def local_chat(client):
+            client._loop = asyncio.get_running_loop()
+            client._task = asyncio.current_task()
+            client.status.emit("已连接")
+            client.message.emit({"uname": "跨平台观众", "text": "离线消息"})
+            await asyncio.Event().wait()
+
+        with patch.object(LiveDanmakuClient, "_main", local_chat):
+            chat = media.PlatformChat(room_id, platform, parent)
+            client = chat.client
+            chat.events.message.connect(received.append)
+            chat.events.state.connect(states.append)
+            chat.start()
+            deadline = time.monotonic() + 2
+            while not received and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(.01)
+            assert received == [{"uname": "跨平台观众", "text": "离线消息"}] and states == ["已连接"]
+            chat.stop()
+            assert not client.isRunning(), "Platform QThread must finish before parent cleanup"
+            app.processEvents()
+
+    unsupported = plugins.Platform()
+    chat = media.PlatformChat("unsupported:1", unsupported, parent)
+    states = []
+    chat.events.state.connect(states.append)
+    chat.start()
+    assert states and "暂不支持弹幕" in states[0]
+    chat.stop()
+    app.processEvents()
+    with patch.object(unsupported, "danmaku_client", side_effect=ImportError("Missing optional backend")):
+        chat = media.PlatformChat("unsupported:1", unsupported, parent)
+        states = []
+        chat.events.state.connect(states.append)
+        chat.start()
+        assert states and "请更新" in states[0]
+        chat.stop()
+        app.processEvents()
+    print("PASS: platform cached/fresh streams, header and quality metadata, cancellation, real QThread chat forwarding and cleanup")
 
 
 class Session:
@@ -156,6 +229,7 @@ def chat_checks():
 def main():
     app = QCoreApplication.instance() or QCoreApplication(sys.argv)
     media_checks(app)
+    platform_checks(app)
     chat_checks()
     print("PASS: match-sync media selfcheck")
 

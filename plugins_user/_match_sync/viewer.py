@@ -19,17 +19,22 @@ from ddm.widgets import DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
 from ddm import theme
 from .engine import Alignment, RATE, match_scenes, mix_pcm
-from .media import Chat, Decoder
+from .media import Chat, Decoder, PlatformChat
 
 COLORS = ("#38bdf8", "#fb7185", "#a78bfa", "#4ade80", "#fbbf24", "#fb923c")
 
 
-def parse_room(text: str) -> str:
+def parse_room(text: str, manager=None) -> str:
     text = text.strip()
+    platform = manager.platform_for(text) if manager is not None else None
+    if platform is not None:
+        if platform.playback_mode != "stream":
+            raise ValueError("此平台不提供直播流，无法加入比赛二路")
+        return platform.normalize(text)
     if not text.isdigit():
         link = urlsplit(text)
         if link.scheme not in ("http", "https") or link.hostname != "live.bilibili.com":
-            raise ValueError("请输入 B 站直播房间号或 live.bilibili.com 链接")
+            raise ValueError("请输入 B 站房间号，或已启用平台的房间号/官方链接")
         found = re.fullmatch(r"/(?:h5/)?([0-9]+)/?", link.path)
         if not found:
             raise ValueError("链接中没有有效的直播房间号")
@@ -52,7 +57,7 @@ class Canvas(QFrame):
 
     def set_frame(self, item):
         key = item[0] if item is not None else None
-        if key == self.frame_key:
+        if key == self.frame_key and (item is not None or self.image.isNull()):
             return
         self.frame_key = key
         self.image = QImage.fromData(item[1]) if item is not None else QImage()
@@ -231,10 +236,11 @@ class RoomRow(QFrame):
         super().__init__(viewer)
         self.viewer = viewer
         self.room_id = room_id
+        self.platform = viewer.context.manager.platform_for(room_id)
         self.decoder = None
         self.chat = None
         self.paused = False
-        self.quality = int(preferences.get("quality", 250))
+        self.quality = int(preferences.get("quality", 10000 if self.platform is not None else 250))
         self.pending = deque(maxlen=2000)
         self.color = preferences.get("color", color)
         if self.color not in COLORS:
@@ -376,7 +382,7 @@ class Viewer(QDialog):
         self.automatic.setChecked(context.setting("automatic", True))
         self.automatic.toggled.connect(self._automatic_changed)
         self.input = QLineEdit()
-        self.input.setPlaceholderText("B 站房间号或直播链接")
+        self.input.setPlaceholderText("房间号、平台前缀或官方直播链接")
         self.input.returnPressed.connect(self._add_input)
         add = QPushButton("添加直播间")
         add.clicked.connect(self._add_input)
@@ -584,7 +590,7 @@ class Viewer(QDialog):
 
     def add_room(self, text, preferences=None):
         try:
-            room_id = parse_room(text)
+            room_id = parse_room(text, self.context.manager)
         except ValueError as error:
             self.notice.setText(str(error))
             return False
@@ -608,7 +614,7 @@ class Viewer(QDialog):
             for tile in wall.visible_tiles():
                 room = tile.room or {}
                 room_id = str(room.get("room_id") or "")
-                if room_id.isdigit() and room_id not in self.rows:
+                if room_id and room_id not in self.rows:
                     self.add_room(room_id, {"alias": room.get("uname") or ""})
 
     def update_main_choices(self):
@@ -638,15 +644,21 @@ class Viewer(QDialog):
         row = self.rows.get(self.main.currentData())
         tile = self.picture
         if row is None:
+            self._stop_recording()
             tile.set_room(None)
+            self.canvas.set_frame(None)
             return
         tile.blockSignals(True)
         try:
             if str(tile.room.get("room_id") or "") != row.room_id:
                 self._stop_recording()
-                tile.set_room({"room_id": row.room_id, "uname": row.label(), "live": True})
+                tile.set_room({"room_id": row.room_id, "uname": row.label(), "live": True,
+                               "quality": row.quality})
             tile.title_badge.set_text(row.label(), "")
-            tile.set_quality(row.quality)
+            if row.platform is not None:
+                tile.set_quality_options(row.platform.room_quality_options(row.room_id))
+            if tile.quality != row.quality:
+                tile.set_quality(row.quality)
             tile.set_volume(row.volume.value())
             tile.set_muted(not row.audible.isChecked())
             tile.set_audio_channel(row.channel.currentData())
@@ -733,12 +745,17 @@ class Viewer(QDialog):
     def remove_room(self, room_id):
         row = self.rows.pop(room_id)
         self._stop_row(row)
+        self.sources.pop(room_id, None)
         self.rows_layout.removeWidget(row)
         row.deleteLater()
         self.alignment.lags.pop(room_id, None)
         self.alignment.candidates.pop(room_id, None)
         self.update_main_choices()
         self.generation += 1
+        if not self.rows:
+            self.stop()
+            self.panel.set_placeholder("将左侧关注栏卡片拖到这里，加入比赛二路")
+            self.notice.setText("请从左侧关注栏拖入直播间")
         self.changed()
 
     def shifts(self):
@@ -769,9 +786,10 @@ class Viewer(QDialog):
         if seed.get("quality", row.quality) != row.quality:
             seed.pop("url", None)
         seed["quality"] = row.quality
-        row.decoder = Decoder(row.room_id, seed)
+        row.decoder = Decoder(row.room_id, seed, row.platform)
         row.decoder.set_crop(row.crop)
-        row.chat = Chat(row.room_id)
+        row.chat = (PlatformChat(row.room_id, row.platform, self.context.window)
+                    if row.platform is not None else Chat(row.room_id))
         decoder, chat = row.decoder, row.chat
         decoder.events.information.connect(lambda info, r=row, d=decoder: self._information(r, d, info))
         decoder.events.state.connect(lambda text, r=row, d=decoder: self._state(r, d, text, False))
@@ -786,9 +804,18 @@ class Viewer(QDialog):
                 (row.chat if chat else row.decoder) is worker)
 
     def _information(self, row, worker, info):
-        if self._valid(row, worker) and not row.alias.text().strip():
+        if not self._valid(row, worker):
+            return
+        if not row.alias.text().strip():
             row.alias.setText(info.get("uname") or "未命名主播")
             self.update_main_choices()
+        if row.platform is not None and info.get("actual_quality"):
+            row.quality = int(info["actual_quality"])
+            if row.room_id == self.main.currentData():
+                self.sync_picture()
+                self.picture.set_quality_options(info.get("quality_options") or [])
+                self.picture.set_actual_quality(row.quality)
+            self.changed()
 
     def _state(self, row, worker, text, chat):
         if self._valid(row, worker, chat):
@@ -857,7 +884,10 @@ class Viewer(QDialog):
                 if clock - received > 120:
                     continue
                 if not (event.get("medal") or {}).get("name"):
-                    event["medal"] = {"name": row.label(), "level": "0", "color": row.color}
+                    if row.platform is None:
+                        event["medal"] = {"name": row.label(), "level": "0", "color": row.color}
+                    else:
+                        event["uname"] = f"[{row.label()}] {event.get('uname') or ''}"
                 event["color"] = row.color
                 eligible.append((received - shifts[room_id], event))
         for _due, event in sorted(eligible, key=lambda item: item[0]):

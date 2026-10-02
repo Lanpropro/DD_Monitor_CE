@@ -39,8 +39,10 @@ class MatchSyncPlugin(api.Plugin):
     def on_event(self, event, payload):
         if event == api.EVENT_STREAM_RESOLVED:
             source = payload["source"]
-            if source.platform == "bilibili" and str(source.room_id).isdigit():
-                self.sources[str(source.room_id)] = {
+            platform = self.context.manager.platform_for(str(source.room_id))
+            if str(source.room_id).isdigit() or platform is not None:
+                room_id = platform.normalize(str(source.room_id)) if platform else str(source.room_id)
+                self.sources[room_id] = {
                     "url": source.url, "headers": dict(source.headers), "uname": source.uname,
                     "quality": source.quality or 250}
         elif event == api.EVENT_CLOSING:
@@ -50,7 +52,8 @@ class MatchSyncPlugin(api.Plugin):
         if self.button is not None:
             return []
         room = tile.room or {}
-        if str(room.get("room_id") or "").isdigit():
+        room_id = str(room.get("room_id") or "")
+        if room_id.isdigit() or self.context.manager.platform_for(room_id) is not None:
             return [("比赛二路同步…", lambda: self.open_viewer(dict(room)))]
         return []
 

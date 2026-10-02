@@ -20,11 +20,50 @@ PROBE = '''
 import json
 import os
 import time
+import threading
 import traceback
 from pathlib import Path
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import QApplication, QFrame
 from ddm import bili, plugins as api
+
+
+class LocalChat(QThread):
+    message = Signal(dict)
+    status = Signal(str)
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.stopped = threading.Event()
+
+    def run(self):
+        self.status.emit("已连接")
+        self.message.emit({"uname": "跨平台观众", "text": "本地平台弹幕"})
+        self.stopped.wait()
+
+    def stop(self):
+        self.stopped.set()
+
+
+class LocalPlatform(api.Platform):
+    kind = "local"
+    label = "本地平台"
+    playback_mode = "stream"
+
+    def matches(self, text):
+        return text.startswith("local:")
+
+    def room_info(self, room_id):
+        return api.RoomInfo(room_id, uname="合成跨平台二路", platform=self.kind)
+
+    def play_url(self, room_id, quality):
+        return os.environ["MATCH_SYNC_TEST_MEDIA"], quality, "local", {}
+
+    def room_quality_options(self, room_id):
+        return [{"qn": 10000, "desc": "原画"}]
+
+    def danmaku_client(self, room_id, parent=None):
+        return LocalChat(parent)
 
 
 class Probe(api.Plugin):
@@ -44,6 +83,7 @@ class Probe(api.Plugin):
             def forbidden(*_args, **_kwargs):
                 raise RuntimeError("Test forbids external stream requests")
             bili.play_url = forbidden
+            context.register_platform(LocalPlatform())
             match = next(p for p in context.manager.plugins if p.context.name == "match_sync")
             self.match = match
             match.sources["1"] = {"url": os.environ["MATCH_SYNC_TEST_MEDIA"], "headers": {}, "uname": "合成主画面"}
@@ -98,14 +138,28 @@ class Probe(api.Plugin):
                     assert not self.viewer.rows["1"].paused
                     self.viewer.render()
                     assert self.viewer.canvas.frame_key is not None
+                    row = self.viewer.rows["local:2"]
+                    row.delay.setValue(0)
+                    self.viewer.main.setCurrentIndex(self.viewer.main.findData("local:2"))
+                    self.viewer.render()
+                    assert self.viewer.canvas.frame_key is not None
+                    assert row.decoder.source_url == os.environ["MATCH_SYNC_TEST_MEDIA"]
+                    assert row.platform.kind == "local" and row.chat.client is not None
+                    for room_id in list(self.viewer.rows):
+                        self.viewer.remove_room(room_id)
+                    assert self.viewer.canvas.image.isNull() and not self.viewer.picture.room
+                    assert not self.viewer.running and not self.viewer.panel._blocks
+                    assert self.viewer._add_dragged("local:2") and self.viewer.running
+                    self.workers.append(self.viewer.rows["local:2"].decoder)
+                    self.checks["platform_and_empty"] = True
                     self.checks["reopened"] = True
                     self.finish()
                     return
                 self.checks["local_media"] = True
                 self.checks["rendered"] = self.viewer.canvas.frame_key is not None
-                self.viewer.add_room("2", {"alias": "合成二路", "delay": 1.5})
-                self.workers.append(self.viewer.rows["2"].decoder)
-                self.viewer.rows["2"].show()
+                self.viewer.add_room("local:2", {"alias": "合成跨平台二路", "delay": 1.5})
+                self.workers.append(self.viewer.rows["local:2"].decoder)
+                self.viewer.rows["local:2"].show()
                 self.viewer.rows_layout.activate()
                 row = self.viewer.rows["1"]
                 row.pending.append((time.monotonic() - 30, {"uname": "无牌观众", "text": "这波配合很漂亮"}))
@@ -253,7 +307,7 @@ def main():
             raise AssertionError("Frozen EXE test did not finish")
         assert result.is_file(), f"EXE produced no probe result (exit {process.returncode})"
         checks = json.loads(result.read_text(encoding="utf-8"))
-        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls", "chat_badges", "reopened"]
+        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls", "chat_badges", "reopened", "platform_and_empty"]
         if args.audio_device:
             required.append("audio_device")
         assert process.returncode == 0 and all(checks.get(key) for key in required) and "error" not in checks, {

@@ -99,10 +99,11 @@ def jpeg():
 
 
 class FakeDecoder:
-    def __init__(self, room_id, seed=None):
+    def __init__(self, room_id, seed=None, platform=None):
         self.events = Events()
         self.history = History()
         self.seed = seed
+        self.platform = platform
         self.stopped = False
         self.crop = None
 
@@ -117,7 +118,7 @@ class FakeDecoder:
 
 
 class FakeChat:
-    def __init__(self, room_id):
+    def __init__(self, room_id, *_args):
         self.events = Events()
         self.stopped = False
 
@@ -180,7 +181,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.8"
+        assert manager.catalog()[0]["version"] == "0.1.9"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -324,6 +325,13 @@ def package_and_ui_checks(app):
             assert not player.muted, "Restore the player's current tile after a host swap"
             viewer.remove_room("2")
             assert viewer.alignment.reference == "1"
+            viewer.canvas.set_frame((110, image))
+            assert not viewer.canvas.image.isNull()
+            viewer.remove_room("1")
+            assert not viewer.running and not viewer.rows and not viewer.picture.room
+            assert viewer.canvas.image.isNull() and viewer.canvas.frame_key is None
+            assert not viewer.panel._blocks
+            assert not viewer.render_timer.isActive() and not viewer.match_timer.isActive()
             plugin.on_unload()
         manager.unload()
         host.close()
@@ -336,6 +344,7 @@ def embedded_checks(app):
     module = sys.modules[MatchSyncPlugin.__module__ + ".viewer"]
     from ddm.widgets import ROOM_MIME
     from ddm import theme
+    from plugins_user.huya_watch.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
     host = QMainWindow()
     host.setStyleSheet(theme.qss())
     host._content = QWidget()
@@ -350,12 +359,16 @@ def embedded_checks(app):
     host.rooms = [{"room_id": "42", "uname": "关注主播"}]
     host.resize(1200, 900)
     manager = plugins.PluginManager(window=host)
+    platforms = [HuyaPlatform(), DouyuPlatform(), DouyinPlatform()]
+    for platform in platforms:
+        manager.register_platform("multi_test", platform)
     context = plugins.PluginContext(manager, "match_sync_embedded_test")
     plugin = MatchSyncPlugin()
     plugin.on_load(context)
     assert plugin.entry.parentWidget() is host.sidebar.tool_row
     assert plugin.button is not None and not plugin.tile_actions(FakeTile("42"))
     with patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
+            patch.object(module, "PlatformChat", FakeChat), \
             patch.object(module.AudioPump, "start", lambda self: None):
         host.show()
         plugin.button.trigger()
@@ -483,6 +496,69 @@ def embedded_checks(app):
         assert panel.isHidden() and viewer.restore_settings.isVisible(), "Reopening preserves collapsed state"
         viewer.restore_settings.click()
         assert panel.isVisible() and viewer.body_split.widget(1) is panel
+        viewer.automatic.setChecked(False)
+        clock = [100.0]
+        viewer.audio.clock = lambda: clock[0]
+        for platform in platforms:
+            room_id = platform.kind + ":42"
+            alias = platform.label + "主播"
+            host.rooms.append({"room_id": room_id, "uname": alias})
+            plugin.on_event(plugins.EVENT_STREAM_RESOLVED, {"source": plugins.StreamSource(
+                room_id, "http://127.0.0.1:9/local", platform=platform.kind,
+                quality=10000, headers={"Referer": platform.room_url(room_id)}, uname=alias)})
+            assert module.parse_room(platform.room_url(room_id), manager) == room_id
+            mime.setData(ROOM_MIME, room_id.encode())
+            enter = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+            app.sendEvent(viewer.panel, enter)
+            drop = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+            app.sendEvent(viewer.panel, drop)
+            assert drop.isAccepted() and room_id in viewer.rows
+            assert not viewer.add_room(platform.room_url(room_id)), "Canonical IDs must reject duplicates"
+            row = viewer.rows[room_id]
+            assert row.platform is platform and row.decoder.platform is platform
+            assert row.decoder.seed["headers"] == {"Referer": platform.room_url(room_id)}
+            assert row.quality == 10000 and row.label() == alias
+            viewer.main.setCurrentIndex(viewer.main.findData(room_id))
+            assert viewer.picture.room["room_id"] == room_id
+            assert viewer.picture.quality_options[0]["qn"] == 10000
+            viewer._information(row, row.decoder, {"actual_quality": 10000,
+                "quality_options": [{"qn": 10000, "desc": "原画"}, {"qn": 20001, "desc": "高清"}]})
+            assert viewer.picture.actual_quality == 10000
+            viewer.picture.set_quality(20001)
+            assert row.decoder.seed["quality"] == 20001 and "url" not in row.decoder.seed
+            decoder = row.decoder
+            viewer._information(row, decoder, {"actual_quality": 10000})
+            assert row.quality == viewer.picture.quality == 10000 and row.decoder is decoder
+            viewer.picture.set_volume(67)
+            viewer.picture.set_audio_channel(4)
+            viewer.picture.pause_button.click()
+            assert row.paused and row.volume.value() == 67 and row.channel.currentData() == 4
+            viewer.picture.pause_button.click()
+            row.delay.setValue(1.5)
+            clock[0] = 100
+            for timestamp in range(94, 101):
+                row.decoder.history.append(timestamp, jpeg())
+            row.pending.append((99, {"uname": "观众", "text": "跨平台延后"}))
+            viewer.render()
+            assert viewer.canvas.frame_key == 96 and len(row.pending) == 1
+            clock[0] = 103
+            viewer.render()
+            entry = viewer.panel._blocks[-1]
+            assert entry["uname"] == f"[{alias}] 观众" and not entry["medal"]
+            medal = {"name": "原有牌", "level": 7, "color": "#fbbf24"}
+            row.pending.append((99, {"uname": "有牌观众", "text": "保留原牌", "medal": medal}))
+            viewer.render()
+            assert viewer.panel._blocks[-1]["uname"] == "有牌观众"
+            assert viewer.panel._blocks[-1]["medal"] == medal
+        workers = [row.decoder for row in viewer.rows.values()]
+        viewer.canvas.set_frame((102, jpeg()))
+        for room_id in list(viewer.rows):
+            viewer.remove_room(room_id)
+        assert not viewer.running and not viewer.rows and not viewer.picture.room
+        assert viewer.canvas.image.isNull() and not viewer.panel._blocks
+        assert all(worker.stopped for worker in workers)
+        assert viewer._add_dragged("huya:42") and viewer.running
+        assert viewer.main.currentData() == "huya:42"
         viewer.close()
         assert not plugin.button.isChecked() and not viewer.running
         plugin.on_unload()
@@ -491,6 +567,7 @@ def embedded_checks(app):
     app.processEvents()
     print("PASS: full-height right chat, video-column compact controls, minimize/restore, scrolling, automatic start and view restoration")
     print("PASS: rounded transparent corners, original fan medals and displayed zero-level source badges")
+    print("PASS: three platform card drops, canonical IDs, stream headers, shared controls/delays, chat source text and empty-room cleanup")
 
 
 def main():

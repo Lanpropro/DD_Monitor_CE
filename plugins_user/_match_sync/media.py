@@ -1,4 +1,4 @@
-"""FFmpeg frame/PCM capture and cancellable Bilibili chat workers."""
+"""FFmpeg frame/PCM capture and cancellable platform chat workers."""
 from __future__ import annotations
 
 import asyncio
@@ -61,9 +61,10 @@ def decode_command(executable: str, url: str, headers: dict, port: int, quality:
 
 
 class Decoder:
-    def __init__(self, room_id: str, seed: dict | None = None):
+    def __init__(self, room_id: str, seed: dict | None = None, platform=None):
         self.room_id = room_id
         self.seed = seed or {}
+        self.platform = platform
         self.source_url = ""
         self.source_headers = {}
         self.events = Events()
@@ -103,6 +104,21 @@ class Decoder:
             self.source_headers = dict(self.seed.get("headers") or {})
             self.events.information.emit({"uname": self.seed.get("uname") or "未命名主播"})
             return self.seed["url"], dict(self.seed.get("headers") or {})
+        if self.platform is not None:
+            info = self.platform.room_info(self.room_id)
+            if self.cancelled.is_set():
+                raise bili.Cancelled()
+            if info:
+                self.events.information.emit(info.as_dict())
+            result = self.platform.play_url(self.room_id, self.seed.get("quality", 10000))
+            if self.cancelled.is_set():
+                raise bili.Cancelled()
+            url, quality, _channel = result[:3]
+            headers = dict(result[3]) if len(result) > 3 else {}
+            self.events.information.emit({"actual_quality": quality,
+                "quality_options": self.platform.room_quality_options(self.room_id)})
+            self.source_url, self.source_headers = url, headers
+            return url, headers
         info = bili.room_info(self.room_id)
         if self.cancelled.is_set():
             raise bili.Cancelled()
@@ -245,6 +261,46 @@ class Decoder:
             if connection is not None:
                 connection.close()
             self.connection = None
+
+
+class PlatformChat(QObject):
+    """Keep the host platform's QThread alive until it finishes."""
+
+    def __init__(self, room_id, platform, parent):
+        super().__init__(parent)
+        self.events = Events()
+        self.stopped = False
+        self.unavailable = "此平台暂不支持弹幕，直播画面与声音可正常播放"
+        try:
+            self.client = platform.danmaku_client(room_id, self)
+        except (ImportError, AttributeError):
+            self.client = None
+            self.unavailable = "平台弹幕组件不可用，请更新支持多平台弹幕的主程序"
+        if self.client is not None:
+            self.client.status.connect(self.events.state.emit)
+            self.client.message.connect(self.events.message.emit)
+            self.client.finished.connect(self._finished)
+
+    def _finished(self):
+        client, self.client = self.client, None
+        client.deleteLater()
+        if self.stopped:
+            self.deleteLater()
+
+    def start(self):
+        if self.client is None:
+            self.events.state.emit(self.unavailable)
+        else:
+            self.client.start()
+
+    def stop(self):
+        self.stopped = True
+        if self.client is not None:
+            self.client.stop()
+            if self.client.isRunning():
+                self.client.wait(2000)
+        else:
+            self.deleteLater()
 
 
 class Chat:
