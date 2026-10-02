@@ -140,7 +140,13 @@ class Probe(api.Plugin):
                 assert row.channel.currentData() == 4
                 panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
                 assert not panel.isWindow() and not hasattr(panel, "detach")
-                assert panel.grab().toImage().pixelColor(0, 0).alpha() == 0
+                rendered = panel.grab().toImage()
+                assert rendered.pixelColor(0, 0).alpha() == 0
+                scale = rendered.devicePixelRatio()
+                y = int(2 * scale)
+                for x in (int(3 * scale), rendered.width() - 1 - int(3 * scale)):
+                    assert rendered.pixelColor(x, y).alpha() > 180
+                    assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0
                 assert row.control_widgets[-1].geometry().right() < 1000
                 assert self.viewer.picture_split.widget(0) is self.viewer.left_pane
                 assert self.viewer.picture_split.widget(1) is self.viewer.panel
@@ -251,7 +257,7 @@ def main():
         if args.audio_device:
             required.append("audio_device")
         assert process.returncode == 0 and all(checks.get(key) for key in required) and "error" not in checks, {
-            **checks, "exit_code": process.returncode, "stderr_tail": process.stderr[-1500:]}
+            **checks, "exit_code": process.returncode}
         print("PASS: existing v0.2 EXE loads disk plugin helpers and Qt audio module, decodes local video/PCM, renders and cleans workers")
         if args.audio_device:
             print("PASS: frozen Qt audio output consumes silent mixed PCM and advances the common playback clock")

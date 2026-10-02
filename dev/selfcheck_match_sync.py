@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.7"
+        assert manager.catalog()[0]["version"] == "0.1.8"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -414,6 +414,11 @@ def embedded_checks(app):
         assert not hasattr(panel, "drag_handle") and not hasattr(panel, "backdrop_timer")
         rendered = panel.grab().toImage()
         assert rendered.pixelColor(0, 0).alpha() == 0, "Preserve rounded transparent corners"
+        scale = rendered.devicePixelRatio()
+        y = int(2 * scale)
+        for x in (int(3 * scale), rendered.width() - 1 - int(3 * scale)):
+            assert rendered.pixelColor(x, y).alpha() > 180, "Top corners must match the 8px playback bar radius"
+            assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0, "Preserve the 12px bottom corners"
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
         gaps = [row.control_widgets[i].x() - row.control_widgets[i - 1].geometry().right()
                 for i in (4, 6, 11)]

@@ -216,6 +216,10 @@ class SettingsPanel(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         path = QPainterPath()
         path.addRoundedRect(QRectF(self.rect()), theme.RADIUS_LG, theme.RADIUS_LG)
+        top = QPainterPath()
+        top.addRoundedRect(QRectF(0, 0, self.width(), self.height() / 2),
+                           theme.RADIUS_MD, theme.RADIUS_MD)
+        path = path.united(top)
         tint = QLinearGradient(0, 0, 0, self.height())
         tint.setColorAt(0, QColor(48, 53, 62, 238))
         tint.setColorAt(1, QColor(29, 33, 40, 245))
