@@ -20,6 +20,11 @@ from ddm.app import MainWindow  # noqa: E402
 from ddm.dialogs import AddRoomDialog  # noqa: E402
 from ddm.widgets import ROOM_MIME  # noqa: E402
 
+DOUYIN_CATEGORY_URL = (
+    "https://live.douyin.com/categorynew/4_103?anchor_id=970201166524967&is_vs=0"
+    "&live_web_rid=557481980778&vs_ep_group_id=&vs_episode_id=&vs_episode_stage=&vs_season_id="
+)
+
 
 def response(data=None, text="", content=b"FLV", url="https://cdn.test/live.flv"):
     result = Mock(text=text, url=url)
@@ -94,9 +99,39 @@ def main():
             with patch.object(module.requests, "get", return_value=response({"room": dict(room, **update)})):
                 assert not douyu.room_info("douyu:123").live
     douyin = manager.platforms["douyin"]
+    assert manager.platform_for(DOUYIN_CATEGORY_URL) is douyin
+    assert douyin.normalize(DOUYIN_CATEGORY_URL) == "douyin:557481980778"
+    assert douyin.room_url(DOUYIN_CATEGORY_URL) == "https://live.douyin.com/557481980778"
+    category_url = DOUYIN_CATEGORY_URL.replace("557481980778", "123")
+    for url in (category_url, category_url.replace("live_web_rid=123", "live_web_rid=%31%32%33"),
+                "https://live.douyin.com/123?live_web_rid=456"):
+        assert douyin.normalize(url) == "douyin:123"
+    invalid_links = ["https://live.douyin.com/categorynew/4_103?" + query for query in (
+        "anchor_id=123", "live_web_rid=", "live_web_rid=abc", "live_web_rid=１２３",
+        "live_web_rid=" + "1" * 21, "live_web_rid=123&live_web_rid=456",
+        "live_web_rid=123&live_web_rid=")]
+    invalid_links += [category_url.replace("live.douyin.com", host) for host in (
+        "live.douyin.com.evil.test", "user:pw@live.douyin.com", "live.douyin.com:1234")]
+    invalid_links += [category_url.replace("https:", "ftp:"),
+                      category_url.replace("categorynew/4_103", "user/123")]
+    for url in invalid_links:
+        try:
+            douyin.normalize(url)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(url)
+    try:
+        douyu.normalize("https://www.douyu.com/categorynew/4_103?live_web_rid=123")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("抖音分类页规则不能应用到斗鱼")
     with patch.object(module.requests, "get", return_value=response(text=dy_page())) as get, \
             patch.object(douyin, "_streams", side_effect=AssertionError("状态不能取流")):
-        records["douyin"] = douyin.room_info("douyin:123").as_dict()
+        records["douyin"] = douyin.room_info(category_url).as_dict()
+        assert records["douyin"]["room_id"] == "douyin:123"
+        assert get.call_args.args[0] == "https://live.douyin.com/123"
         assert records["douyin"]["live"] and records["douyin"]["uname"] == "抖音测试"
         assert records["douyin"]["cover_url"] == "https://p11.douyinpic.com/cover.jpg"
         assert records["douyin"]["viewers"] == ""
@@ -163,8 +198,9 @@ def main():
         assert douyu._request_source(parser, "123", "hw-h5") == backup
         data = post.call_args.kwargs["data"]
         assert data["cdn"] == "hw-h5" and data["rate"] == "0" and data["hevc"] == "0"
-    with patch.object(session.http, "get", return_value=response(text=dy_page())):
-        assert douyin._streams(session, "douyin:123")["source"].to_url() == "https://cdn.test/source.flv"
+    with patch.object(session.http, "get", return_value=response(text=dy_page())) as get:
+        assert douyin._streams(session, category_url)["source"].to_url() == "https://cdn.test/source.flv"
+        assert get.call_args.args[0] == "https://live.douyin.com/123"
     session.http.close()
     pixmap = QPixmap(32, 32)
     pixmap.fill(Qt.red)
@@ -200,7 +236,7 @@ def main():
                             extra={"playback_mode": "stream", "live_known": True})), \
                             patch.object(platform, "play_url", return_value=("https://cdn.test/live.flv", 10000, kind, headers)):
                         def accept(dialog):
-                            dialog.edit.setText(platform.room_url(kind + ":123"))
+                            dialog.edit.setText(category_url if kind == "douyin" else platform.room_url(kind + ":123"))
                             dialog.accept()
                             return dialog.result()
                         with patch.object(AddRoomDialog, "exec", accept):

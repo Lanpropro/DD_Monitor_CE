@@ -230,10 +230,13 @@ class NumericLivePlatform(LiveQualityPlatform):
             if (parts.scheme not in ("http", "https") or parts.hostname not in self.hosts or
                     parts.username or parts.password or parts.port not in (None, 80, 443)):
                 raise ValueError(f"请使用{self.label}官方直播间链接")
-            raw = parts.path.strip("/")
+            raw = self._room_id_from_url(parts)
         if not re.fullmatch(r"[0-9]{1,20}", raw):
             raise ValueError(f"请填写 {self.kind}:房间号，或{self.label}官方直播间链接")
         return f"{self.kind}:{raw}"
+
+    def _room_id_from_url(self, parts) -> str:
+        return parts.path.strip("/")
 
     def room_url(self, room_id: str) -> str:
         return f"https://{self.hosts[0]}/{self.normalize(room_id).split(':', 1)[1]}"
@@ -382,6 +385,16 @@ class DouyinPlatform(NumericLivePlatform):
     label = "抖音"
     hosts = ("live.douyin.com", "douyin.com")
     image_hosts = ("douyinpic.com", "byteimg.com", "ibytedtos.com", "douyincdn.com")
+
+    def _room_id_from_url(self, parts) -> str:
+        path = super()._room_id_from_url(parts)
+        if re.fullmatch(r"categorynew/[0-9]+_[0-9]+", path):
+            room_ids = [value for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                        if key == "live_web_rid"]
+            if len(room_ids) != 1:
+                raise ValueError("抖音分类页链接需包含唯一的 live_web_rid 直播间号")
+            return room_ids[0]
+        return path
 
     def room_info(self, room_id: str) -> api.RoomInfo:
         canonical = self.normalize(room_id)
