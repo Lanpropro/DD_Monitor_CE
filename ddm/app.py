@@ -26,6 +26,7 @@ from . import theme
 from . import version as version_module
 from . import watchdog
 from . import window_fullscreen
+from .fullscreen_cursor import FullscreenCursor
 from .audio_output import linear_to_vlc_volume, refresh_output_devices
 from .danmaku import DanmakuClient
 from .bili import (
@@ -123,6 +124,7 @@ class MainWindow(QMainWindow):
         self._freeze_refreshed: set[object] = set()
         self._freeze_retry_timers: dict[object, QTimer] = {}
         self._fullscreen_tile: Tile | None = None
+        self._fullscreen_cursor = FullscreenCursor(self)
         self._fullscreen_audio_saved: dict[Tile, bool] = {}
         self._fullscreen_was_maximized = False
         self._native_fullscreen_state = None
@@ -610,6 +612,7 @@ class MainWindow(QMainWindow):
         # 把窗口连同所有格子的原生画面瞬间藏掉，后面的收尾用户完全看不见。
         t0 = time.perf_counter()
         self._clear_fullscreen_cover()
+        self._fullscreen_cursor.stop()
         self.hide()
         if self._native_fullscreen_state is not None:
             window_fullscreen.exit(self, self._native_fullscreen_state)
@@ -1802,9 +1805,11 @@ class MainWindow(QMainWindow):
             self.centralWidget().setUpdatesEnabled(True)
             self._release_fullscreen_frame()
         finished = time.perf_counter()
+        self._fullscreen_cursor.start()
         self._report_fullscreen_cost("进入全屏", started, covered, finished, finished)
 
     def _exit_fullscreen(self) -> None:
+        self._fullscreen_cursor.stop()
         tile = self._fullscreen_tile
         if tile is None:
             return
