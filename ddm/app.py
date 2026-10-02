@@ -912,8 +912,13 @@ class MainWindow(QMainWindow):
         player.stream_profile = profile
         player.stream_headers = dict(tile.stream_headers)
         player.actual_quality = int(quality or 0)
-        player.play(url, profile, tile.stream_headers,
-                    options=self.media_options())
+        try:
+            player.play(url, profile, tile.stream_headers,
+                        options=self.media_options())
+        except (RuntimeError, OSError) as error:
+            tile.set_buffering(False)
+            tile.set_status(str(error))
+            return
         self.recorder.on_resolved(tile)
         if tile in self._pending_capture:
             self._finish_pending_capture(tile)

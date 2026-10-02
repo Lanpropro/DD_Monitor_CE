@@ -1,6 +1,6 @@
 """联网验收：真实虎牙卡片拖入 VLC 格子，解码画面/音频、静音、恢复配置。
 
-运行：python dev/selfcheck_huya_live.py [房间号]。只保存测试截图，不改用户配置。
+运行：python dev/selfcheck_huya_live.py [房间号] [持续秒数]。只保存测试截图，不改用户配置。
 """
 import os
 import sys
@@ -41,11 +41,12 @@ def stats(player):
 
 def main():
     room_id = "huya:" + (sys.argv[1] if len(sys.argv) > 1 else "660000")
+    duration = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     state = {"plugins_enabled": ["huya_watch"], "settings": {
         "recording_enabled": False, "recording_replay_enabled": False,
-        "preview_on_hover": False, "freeze_watch": False, "auto_quality": False}}
+        "preview_on_hover": False, "freeze_watch": True, "auto_quality": False}}
     with patch("ddm.app.QTimer.singleShot"):
         window = MainWindow([], [], state=state, layout_id="1x2")
     window.resize(1280, 720)
@@ -59,10 +60,20 @@ def main():
             wait_for(app, lambda: bool(window.sidebar.rooms()))
         item = window.sidebar.items()[0]
         assert item.room["live"], "验收需要正在直播的房间"
+        wait_for(app, lambda: item.thumb._face_source is not None and item.thumb._cover_source is not None)
+        assert not item.thumb._face_source.isNull() and not item.thumb._cover_source.isNull()
+        assert item.platform_badge.text() == "" and item.platform_badge.toolTip() == "虎牙"
+        assert not item.platform_badge.pixmap().isNull()
         target = window.wall.tiles[1]
         mime = QMimeData()
         mime.setData(ROOM_MIME, room_id.encode())
         event = QDropEvent(QPointF(50, 50), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        started = []
+        original_start = window.start_tile
+        def tracked_start(*args, **kwargs):
+            started.append(time.monotonic())
+            return original_start(*args, **kwargs)
+        window.start_tile = tracked_start
         target.dropEvent(event)
         assert event.isAccepted()
         wait_for(app, lambda: target in window.players and
@@ -82,6 +93,14 @@ def main():
         assert not player._audio_output.enabled
         result = stats(player)
         assert result.displayed_pictures > 30
+        assert not target.stream_badge.viewers
+        deadline = time.monotonic() + duration
+        while time.monotonic() < deadline:
+            before = stats(player).displayed_pictures
+            wait_for(app, lambda: stats(player).displayed_pictures > before, seconds=12)
+            assert len(started) == 1, "持续播放期间不应自动刷新/重取流"
+            time.sleep(0.1)
+        result = stats(player)
         window.raise_()
         window.activateWindow()
         app.processEvents()
@@ -89,11 +108,14 @@ def main():
         app.primaryScreen().grabWindow(0, bounds.x(), bounds.y(), bounds.width(), bounds.height()).save(
             str(output / "window.png"))
         print(f"PASS: {room_id}, video={result.decoded_video}, displayed={result.displayed_pictures}, "
-              f"audio={result.decoded_audio}, native tile handle, volume/mute", flush=True)
+              f"audio={result.decoded_audio}, {duration}s no refresh, avatars/covers/platform badge, "
+              "native tile handle, volume/mute", flush=True)
         saved = window.current_state()
+        relay = player._relay
     finally:
         window.close()
         app.processEvents()
+    assert relay._process.poll() is not None and not relay._thread.is_alive(), "关闭后不能留下转封装进程"
     sidebar, wall = config.build_rooms(saved)
     with patch("ddm.app.QTimer.singleShot"):
         restored = MainWindow(sidebar, wall, state=saved, layout_id="1x2")

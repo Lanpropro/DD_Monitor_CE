@@ -1539,7 +1539,7 @@ class NavThumb(QFrame):
         self._card_mode = True
         self._portrait_strip = False
         self._player: TilePlayer | None = None
-        self._overlay_widgets: tuple[QWidget, QWidget, QWidget] | None = None
+        self._overlay_widgets: tuple[QWidget, QWidget, QWidget, QWidget] | None = None
 
         self.cover = QLabel(self)
         self.cover.setObjectName("NavThumbCover")
@@ -1572,18 +1572,34 @@ class NavThumb(QFrame):
         self._face_source: QPixmap | None = None
 
     # ---- 外观 ----
-    def set_overlay_widgets(self, name: QWidget, title: QWidget, badge: QWidget) -> None:
-        self._overlay_widgets = (name, title, badge)
+    def set_overlay_widgets(self, name: QWidget, title: QWidget, badge: QWidget,
+                            platform: QWidget) -> None:
+        self._overlay_widgets = (name, title, badge, platform)
         for widget in self._overlay_widgets:
             widget.setParent(self)
             widget.raise_()
         self._layout_overlay()
 
     def _layout_overlay(self) -> None:
-        if self._overlay_widgets is None or self._compact_thumb():
+        if self._overlay_widgets is None:
             return
-        name, title, badge = self._overlay_widgets
+        name, title, badge, platform = self._overlay_widgets
+        compact = self._compact_thumb()
+        parent = self.face if compact else self
+        if platform.parentWidget() is not parent:
+            platform.setParent(parent)
+            platform.setVisible(not self.video.isVisible())
+        platform.setFixedSize(14 if compact else 24, 14 if compact else 22)
+        platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
+        if compact:
+            platform.move(0, max(0, self.face.height() - platform.height()))
+            platform.show()
+            platform.raise_()
+            return
         width, height = self._size
+        platform.move(8 if self._card_mode and not self._portrait_strip else
+                      max(4, width - platform.width() - 8),
+                      height - 24 if self._card_mode and not self._portrait_strip else 4)
         if self._portrait_strip:
             name.setGeometry(4, 67, max(0, width - 8), 20)
             name.setAlignment(Qt.AlignCenter)
@@ -1592,6 +1608,7 @@ class NavThumb(QFrame):
             badge.hide()
             name.raise_()
             title.raise_()
+            platform.raise_()
             return
         name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_left = 48 if self._card_mode else 44
@@ -1600,7 +1617,8 @@ class NavThumb(QFrame):
         second_y = 29 if self._card_mode else 25
         badge_y = (height - 24) if self._card_mode else (second_y + 1)
         name.setGeometry(text_left, name_y,
-                         max(0, width - text_left - right), 20)
+                         max(0, width - text_left - right -
+                             (platform.width() + 6 if not self._card_mode else 0)), 20)
         badge.adjustSize()
         badge_width = badge.width()
         badge.move(max(text_left, width - badge_width - right), badge_y)
@@ -1802,7 +1820,7 @@ class NavThumb(QFrame):
         if self._overlay_widgets is None:
             return
         for widget in self._overlay_widgets:
-            widget.setVisible(bool(visible) and not self._compact
+            widget.setVisible(bool(visible) and (not self._compact or widget is self._overlay_widgets[3])
                               and (not self._portrait_strip or widget is not self._overlay_widgets[2]))
 
     def set_portrait_strip(self, enabled: bool) -> None:
@@ -2015,7 +2033,25 @@ class NavItem(QFrame):
             self.badge.setText("待刷新")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
-        self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge)
+        platform = room.get("platform") or str(room.get("room_id", "")).partition(":")[0]
+        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音"}
+        label = "B站" if str(room.get("room_id", "")).isdigit() else labels.get(platform, platform)
+        if str(room.get("room_id", "")).isdigit():
+            platform = "bilibili"
+        icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
+                                 "huya.png" if platform == "huya" else platform + ".ico")
+        if not os.path.isfile(icon_path):
+            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms", "generic.svg")
+        self.platform_badge = QLabel()
+        self.platform_badge.icon = QIcon(icon_path)
+        self.platform_badge.setObjectName("NavPlatformBadge")
+        self.platform_badge.setAlignment(Qt.AlignCenter)
+        self.platform_badge.setToolTip(label)
+        self.platform_badge.setAccessibleName(label)
+        self.platform_badge.setStyleSheet(
+            "background: #25252b; border-radius: 4px;")
+        _ignore_mouse(self.platform_badge)
+        self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge, self.platform_badge)
         self.setToolTip("")
 
     def set_on_wall(self, on_wall: bool) -> None:
@@ -2055,7 +2091,7 @@ class NavItem(QFrame):
         expanded_height = (PORTRAIT_LIST_HEIGHT if self._portrait_strip else
                            NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT)
         self.setFixedHeight(NAV_COMPACT_ITEM_HEIGHT if compact else expanded_height)
-        for widget in (self.name_label, self.sub, self.badge):
+        for widget in (self.name_label, self.sub, self.badge, self.platform_badge):
             widget.setVisible(not compact)
         self.thumb.set_thumb_size(compact)
         if not compact and self._portrait_strip:
@@ -4548,7 +4584,8 @@ class Tile(QFrame):
         self.stream_badge = StreamBadge(self)
         # 这里只放占位：room["viewers"] 是"人气值"，拿它当在线人数会显示成莫名其妙的好几万
         self.stream_badge.set_state(bool(room.get("live")),
-                                    WATCHING_TEXT if room.get("live") else "")
+                                    WATCHING_TEXT if room.get("live") and
+                                    str(room.get("room_id", "")).isdigit() else "")
         # 左上角第二块浮标：主播名 + 直播间标题（跟在 LIVE 右边）
         self.title_badge = TitleBadge(self)
         self.title_badge.set_text(room.get("uname", ""), room.get("title", ""))
@@ -4871,16 +4908,19 @@ class Tile(QFrame):
         self._refresh_badge()
 
     def _refresh_badge(self) -> None:
-        watched = self.room.get("online") or ""
-        popularity = self.room.get("viewers") or ""
+        supports_count = str(self.room.get("room_id", "")).isdigit()
+        watched = (self.room.get("online") or "") if supports_count else ""
+        popularity = (self.room.get("viewers") or "") if supports_count else ""
         live = bool(self.room.get("live"))
         # 优先显示实时在线人数；还没拉到就别拿人气值顶上（那个数看着很像异常）
-        self.stream_badge.set_state(live, watched or (WATCHING_TEXT if live else ""))
+        self.stream_badge.set_state(live, watched or (WATCHING_TEXT if live and supports_count else ""))
         # 悬停才露（和控制条同步）；不然一屏好几格的 LIVE 一直挂着太吵。
         # 宽度够不够同时放下它和控制条，交给 _sync_stream_badge() 一起算
         self._sync_stream_badge()
         self._layout_areas()          # 浮标宽度会变（人数位数不同），标题要跟着重新让位
-        if watched and popularity:
+        if not supports_count:
+            self.stream_badge.setToolTip("直播中" if live else "未开播")
+        elif watched and popularity:
             self.stream_badge.setToolTip(f"{watched} 人在线 · 人气 {popularity}")
         elif watched:
             self.stream_badge.setToolTip(f"{watched} 人在线")

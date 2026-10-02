@@ -127,6 +127,15 @@ def main() -> None:
     tp._picture_signature = lambda: (time.time(), "changing")   # 画面在变
     print(f"  画面恢复变化 -> {tp._check_picture(True)}")
     assert tp._check_picture(True) is False
+    tp._last_picture = None
+    tp._picture_signature = lambda: (8, 0)
+    assert [tp._check_picture(True) for _ in range(12)] == [False] * 12, \
+        "首帧未显示时不能误触发画面静止刷新"
+    tp._picture_limit = 8
+    tp._picture_signature = lambda: (100, 90)
+    assert [tp._check_picture(True) for _ in range(9)] == [False] * 8 + [True], \
+        "虎牙允许 HLS 分片间隔，但持续停帧仍需恢复"
+    tp._picture_limit = tp.FROZEN_TICKS
     tp.freeze_watch = False
     tp._picture_signature = lambda: (1, "same")
     assert [tp._check_picture(True) for _ in range(6)] == [False] * 6
@@ -447,7 +456,8 @@ def main() -> None:
     general = dialog.general_page
     defaults = dialog.settings()
     print(f"  读到的设置={defaults}")
-    assert set(defaults) == set(config_module.DEFAULT_SETTINGS), "设置窗口要覆盖每个设置项"
+    assert set(defaults) == set(config_module.DEFAULT_SETTINGS) - {"danmaku_retention_version"}, \
+        "设置窗口要覆盖用户设置项（配置迁移版本由本体管理）"
     assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():
         if key not in defaults or key == "danmaku_font":
@@ -539,7 +549,7 @@ def main() -> None:
         failed = Signal(str, str)
         finished = Signal()
 
-        def __init__(self, room_id, quality, parent=None, *, source_offset=0):
+        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None):
             super().__init__(parent)
             self.room_id = room_id
             self.headers = {}

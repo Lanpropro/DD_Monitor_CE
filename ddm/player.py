@@ -185,6 +185,8 @@ class TilePlayer(QObject):
         self._frozen_ticks = 0
         self.freeze_watch = True          # 画面卡死检测（可在全局设置里关掉）
         self._media = None                # 当前媒体：画面卡死检测要读它的解码计数
+        self._relay = None
+        self._picture_limit = self.FROZEN_TICKS
         self._released = False
         self._audio_ready = False         # aout 起来之后补过静音/音量没有
         self._watch = QTimer(self)
@@ -236,7 +238,13 @@ class TilePlayer(QObject):
         self._audio_wait_cancel.clear()
         self.url = url
         self._audio_ready = False         # 新的 aout 还没建，起来之后再补静音/音量
-        media = self._instance.media_new(url)
+        playback_url = url
+        self._picture_limit = 8 if profile == "huya" else self.FROZEN_TICKS
+        if profile == "huya":
+            from .stream_relay import StreamRelay
+            self._relay = StreamRelay(url, headers or {})
+            playback_url = self._relay.url
+        media = self._instance.media_new(playback_url)
         # 插件解析出来的流可以自带请求头；没给就按通道用默认的
         request_headers = dict(headers) if headers else dict(
             self.PROFILE_HEADERS.get(profile, self.PROFILE_HEADERS["web"]))
@@ -252,7 +260,7 @@ class TilePlayer(QObject):
         if not any(name.lower() == "user-agent" for name in request_headers):
             # 后端一律要 UA，插件忘了给就补上通用的
             media.add_option(f":http-user-agent={UA}")
-        media.add_option(":network-caching=800")
+        media.add_option(":network-caching=4000" if profile == "huya" else ":network-caching=800")
         for option in options or ():
             media.add_option(str(option))
         self._media = media
@@ -297,6 +305,9 @@ class TilePlayer(QObject):
         # 就是这么把邻居的静音弄丢的）。play() 里也会再重置一次，这里是为了覆盖
         # 「先下发、后 play」这段窗口。
         self._audio_ready = False
+        if self._relay is not None:
+            self._relay.stop()
+            self._relay = None
         self.player.stop()
 
     def release(self) -> None:
@@ -510,6 +521,11 @@ class TilePlayer(QObject):
         signature = self._picture_signature()
         if signature is None:
             return False
+        if signature[1] == 0:
+            # 解码器已建好但首帧尚未显示，仍属于起播缓冲，不能触发画面静止刷新。
+            self._last_picture = None
+            self._frozen_ticks = 0
+            return False
         previous = self._last_picture
         if signature == previous:
             self._frozen_ticks += 1
@@ -520,7 +536,7 @@ class TilePlayer(QObject):
             self.pictureActivity.emit()
             if self.state == "frozen":
                 self._set_state("playing")
-        return self._frozen_ticks >= self.FROZEN_TICKS
+        return self._frozen_ticks >= self._picture_limit
 
     def _check_picture_tick(self) -> None:
         """独立于缓冲检测，每秒检查一次真实画面是否仍在变化。"""
@@ -549,7 +565,9 @@ class TilePlayer(QObject):
         advanced = self._last_time is not None and current > self._last_time
         self._last_time = current
 
-        if state == vlc.State.Playing and width and (advanced or self._stall_ticks == 0):
+        signature = self._picture_signature() if self._relay is not None else None
+        awaiting_picture = self._relay is not None and (signature is None or signature[1] == 0)
+        if not awaiting_picture and state == vlc.State.Playing and width and (advanced or self._stall_ticks == 0):
             self._stall_ticks = 0
             if self.state != "frozen":
                 self._set_state("playing")
@@ -558,7 +576,8 @@ class TilePlayer(QObject):
             self._stall_ticks += 2
         else:
             self._stall_ticks += 1
-        if self._stall_ticks >= 6:      # 约 9 秒没有画面就判为失败
+        limit = 20 if awaiting_picture else 6   # HLS 首次取片与缓存需要额外起播时间
+        if self._stall_ticks >= limit:      # 普通流约 9 秒没有画面就判为失败
             self._set_state("error")
         elif self._stall_ticks >= 2:    # 卡住了：显示缓冲动画，等待恢复
             self._set_state("buffering")

@@ -1,10 +1,14 @@
 """虎牙公开直播流：关注卡片与 VLC 格子内播放。"""
+import base64
+from html import unescape
+import json
 import re
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 import requests
 from streamlink import Streamlink
 from streamlink.plugins.huya import Huya
+from streamlink.stream.http import HTTPStream
 
 from ddm import plugins as api
 
@@ -43,7 +47,31 @@ class HuyaPlatform(api.Platform):
         session = Streamlink({"http-timeout": 8})
         parser = Huya(session, self.room_url(room_id))
         try:
-            streams = parser.streams()
+            page = session.http.get(parser.url).text
+            config = re.search(r"\bvar\s+hyPlayerConfig\s*=\s*\{", page)
+            if config is None:
+                return session, parser, {}
+            script = page[config.end():].split("</script>", 1)[0]
+            match = re.search(r'"?stream"?\s*:\s*', script)
+            if match is None:
+                return session, parser, {}
+            data, _end = json.JSONDecoder().raw_decode(script[match.end():].lstrip())
+            if isinstance(data, str):
+                data = json.loads(base64.b64decode(data, validate=True))
+            streams = {}
+            for info in data.get("data", [{}])[0].get("gameStreamInfoList", []):
+                # 使用网页明确提供的 HLS 线路；签名参数仍交给固定版本的 Streamlink。
+                base = info.get("sHlsUrl")
+                if not base:
+                    continue
+                name = info["sStreamName"]
+                qs = dict(parse_qsl(unescape(info["sHlsAntiCode"])))
+                params = parser._get_stream_params(qs.get("fm", ""), qs.get("fs", ""),
+                    qs.get("ctype", "huya_live"), qs.get("wsTime", ""), name, 0)
+                url = f"{base}/{name}.{info['sHlsUrlSuffix']}"
+                if url.startswith("//"):
+                    url = "https:" + url
+                streams[f"{info['sCdnType'].lower()}_source"] = HTTPStream(session, url, params=params)
         except Exception as error:  # noqa: BLE001
             session.http.close()
             raise RuntimeError("虎牙房间获取失败，请稍后重试") from error
@@ -52,15 +80,45 @@ class HuyaPlatform(api.Platform):
     def room_info(self, room_id: str) -> api.RoomInfo:
         canonical = self.normalize(room_id)
         raw = canonical.split(":", 1)[1]
-        session, parser, streams = self._streams(canonical)
         try:
+            with requests.get(self.room_url(canonical), headers={
+                    "User-Agent": "Mozilla/5.0", "Referer": "https://www.huya.com/"},
+                    timeout=(4, 8)) as response:
+                response.raise_for_status()
+                page = response.text
+            def page_data(name):
+                match = re.search(r"\b" + name + r"\s*=\s*", page)
+                if match is None:
+                    raise ValueError("Missing room data")
+                data, _end = json.JSONDecoder().raw_decode(page[match.end():].lstrip())
+                if not isinstance(data, dict):
+                    raise ValueError("Invalid room data")
+                return data
+
+            room = page_data("TT_ROOM_DATA")
+            profile = page_data("TT_PROFILE_INFO")
+            if not isinstance(room.get("isOn"), bool):
+                raise ValueError("Missing live status")
+
+            def image_url(value):
+                url = str(value or "")
+                if url.startswith("//"):
+                    url = "https:" + url
+                parts = urlsplit(url)
+                host = parts.hostname or ""
+                if (parts.scheme in ("http", "https") and not parts.username and
+                        not parts.password and (host == "msstatic.com" or host.endswith(".msstatic.com"))):
+                    return url
+                return ""
+
             return api.RoomInfo(
-                room_id=canonical, uname=parser.author or f"虎牙 · {raw}",
-                title=parser.title or "虎牙直播间", live=bool(streams), platform=self.kind,
+                room_id=canonical, uname=profile.get("nick") or f"虎牙 · {raw}",
+                title=room.get("introduction") or "虎牙直播间", live=room["isOn"], platform=self.kind,
+                face=image_url(profile.get("avatar")), cover_url=image_url(room.get("screenshot")),
                 extra={"playback_mode": self.playback_mode, "live_known": True},
             )
-        finally:
-            session.http.close()
+        except (requests.RequestException, ValueError) as error:
+            raise RuntimeError("虎牙房间信息获取失败，请稍后重试") from error
 
     def rooms_status(self, room_ids: list) -> dict:
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -87,13 +145,12 @@ class HuyaPlatform(api.Platform):
                 raise RuntimeError("虎牙房间未开播，或没有可用的公开直播流")
             headers = {"User-Agent": session.http.headers["User-Agent"],
                        "Referer": "https://www.huya.com/"}
-            # 当前 VLC 运行库没有 TLS 模块；验证 CDN 的 HTTP 流后交给播放器。
-            # 只用解析器公开提供的原画线路，不写 Cookie、不保存带签名的 URL。
-            candidates = [streams["best"]]
-            candidates.extend(stream for name, stream in streams.items() if "source" in name)
+            # HLS 分片交给 FFmpeg 转封装，避免旧 VLC 处理虎牙 FLV 时间戳时停帧。
+            # 不写 Cookie、不保存带签名的 URL。
+            candidates = list(streams.values())
             seen = set()
             for stream in candidates:
-                url = stream.to_url().replace("https://", "http://", 1)
+                url = stream.to_url()
                 if url in seen:
                     continue
                 seen.add(url)
@@ -102,7 +159,7 @@ class HuyaPlatform(api.Platform):
                 try:
                     with requests.get(url, headers=headers, stream=True, timeout=(4, 6)) as response:
                         response.raise_for_status()
-                        if next(response.iter_content(3), b"") != b"FLV":
+                        if next(response.iter_content(7), b"") != b"#EXTM3U":
                             continue
                         return response.url, 10000, "huya", headers
                 except requests.RequestException:

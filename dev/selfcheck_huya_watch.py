@@ -1,5 +1,7 @@
 """虎牙离线自检：取流适配、真实拖入格子链路、持久化与旧卡片迁移。"""
 import os
+import base64
+import json
 import sys
 import tempfile
 import time
@@ -11,12 +13,12 @@ sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from PySide6.QtCore import QMimeData, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QDropEvent  # noqa: E402
+from PySide6.QtGui import QDropEvent, QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from ddm import bili, config, plugins  # noqa: E402
+from ddm import bili, config, images, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.dialogs import AddRoomDialog  # noqa: E402
-from ddm.widgets import ROOM_MIME  # noqa: E402
+from ddm.widgets import ROOM_MIME, NavItem, Tile, WATCHING_TEXT  # noqa: E402
 
 
 def settle(app, condition):
@@ -52,15 +54,43 @@ def main():
 
     session = SimpleNamespace(http=Mock(headers={"User-Agent": "test-agent"}))
     parser = SimpleNamespace(author="测试虎牙主播", title="测试直播")
-    streams = {"best": Mock(to_url=Mock(return_value="https://cdn.test/live.flv?token=test")),
-               "tx_source": Mock(to_url=Mock(return_value="https://backup.test/live.flv"))}
-    response = Mock(url="http://backup.test/live.flv")
-    response.iter_content.return_value = iter([b"FLV"])
+    def page_response(live=True, screenshot="//live-cover.msstatic.com/room.jpg", avatar="https://huyaimg.msstatic.com/avatar.jpg"):
+        response = Mock()
+        response.text = ("var TT_ROOM_DATA = " + json.dumps({"isOn": live,
+            "introduction": parser.title, "screenshot": screenshot, "totalCount": 999999}) +
+            "; var TT_PROFILE_INFO = " + json.dumps({"nick": parser.author, "avatar": avatar}) + ";")
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        return response
+    with patch.object(module.requests, "get", return_value=page_response()) as get, \
+            patch.object(type(platform), "_streams", side_effect=AssertionError("状态查询不应取流")):
+        info = platform.room_info("huya:660000").as_dict()
+        assert info["live"] and info["uname"] == parser.author
+        assert info["face"] == "https://huyaimg.msstatic.com/avatar.jpg"
+        assert info["cover_url"] == "https://live-cover.msstatic.com/room.jpg"
+        assert info["viewers"] == "" and "totalCount" not in info
+        assert get.call_count == 1 and "cookies" not in get.call_args.kwargs
+    with patch.object(module.requests, "get", return_value=page_response(False)):
+        assert not platform.room_info("huya:660000").live
+    with patch.object(module.requests, "get", return_value=page_response(
+            screenshot="https://msstatic.com.evil.test/a.jpg", avatar="file:///avatar.jpg")):
+        unsafe = platform.room_info("huya:660000")
+        assert not unsafe.face and not unsafe.cover_url
+    for live in (None, 1):
+        with patch.object(module.requests, "get", return_value=page_response(live)):
+            try:
+                platform.room_info("huya:660000")
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("损坏的直播状态不能误报下播")
+    streams = {"al_source": Mock(to_url=Mock(return_value="https://cdn.test/live.m3u8?token=test")),
+               "hs_source": Mock(to_url=Mock(return_value="https://backup.test/live.m3u8"))}
+    response = Mock(url="https://backup.test/live.m3u8")
+    response.iter_content.return_value = iter([b"#EXTM3U"])
     response.__enter__ = Mock(return_value=response)
     response.__exit__ = Mock(return_value=False)
     with patch.object(type(platform), "_streams", return_value=(session, parser, streams)):
-        info = platform.room_info("huya:660000").as_dict()
-        assert info["live"] and info["uname"] == parser.author
         with patch.object(module.requests, "get", side_effect=[
                 module.requests.ConnectionError("first CDN failed"), response]) as get:
             url, qn, profile, headers = platform.play_url("huya:660000")
@@ -68,7 +98,6 @@ def main():
             assert headers["Referer"] == "https://www.huya.com/"
             assert get.call_count == 2 and "cookies" not in get.call_args.kwargs
     with patch.object(type(platform), "_streams", return_value=(session, parser, {})):
-        assert not platform.room_info("huya:660000").live
         try:
             platform.play_url("huya:660000")
         except RuntimeError:
@@ -76,6 +105,70 @@ def main():
         else:
             raise AssertionError("未开播不能生成播放地址")
     session.http.close.assert_called()
+    stream_data = {"data": [{"gameStreamInfoList": [{"sHlsUrl": "https://cdn.test/hls",
+        "sStreamName": "stream", "sHlsUrlSuffix": "m3u8", "sHlsAntiCode": "fm=test&fs=test",
+        "sCdnType": "AL", "sFlvUrl": "https://wrong.test/flv"}]}]}
+    encoded = base64.b64encode(json.dumps(stream_data).encode()).decode()
+    hls_session = module.Streamlink()
+    for data in (json.dumps(encoded), json.dumps(stream_data)):
+        with patch.object(hls_session.http, "get", return_value=SimpleNamespace(
+                text="<script>var hyPlayerConfig = {stream: " + data + "};</script>")), \
+                patch.object(module, "Streamlink", return_value=hls_session), \
+                patch.object(module.Huya, "_get_stream_params", return_value={"token": "test"}):
+            _session, _parser, parsed = platform._streams("huya:660000")
+            assert parsed["al_source"].to_url() == "https://cdn.test/hls/stream.m3u8?token=test"
+    hls_session.http.close()
+    with tempfile.TemporaryDirectory() as root, patch.object(images, "REPO", root):
+        from PySide6.QtCore import QBuffer, QIODevice
+        from PySide6.QtGui import QPixmap
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.red)
+        buffer = QBuffer()
+        buffer.open(QIODevice.WriteOnly)
+        pixmap.save(buffer, "PNG")
+        with patch.object(images.requests, "get", return_value=SimpleNamespace(
+                status_code=200, content=bytes(buffer.data()))) as get:
+            assert not images.load_pixmap(info["face"]).isNull()
+            assert get.call_args.kwargs["headers"]["Referer"] == "https://www.huya.com/"
+            assert not images.load_pixmap(info["cover_url"], "covers").isNull()
+            images.remember_room_avatar(info["room_id"], info["face"])
+            images.remember_room_cover(info["room_id"], info["cover_url"])
+            assert not images.load_room_avatar(info["room_id"]).isNull()
+            assert not images.load_room_cover(info["room_id"]).isNull()
+    for rid, label in (("huya:660000", "虎牙"), ("9001", "B站"), ("douyin:123", "抖音")):
+        room = {"room_id": rid, "live": True, "online": "999", "viewers": "888"}
+        item = NavItem(room, 0)
+        assert item.platform_badge.text() == "" and item.platform_badge.toolTip() == label
+        assert not item.platform_badge.pixmap().isNull()
+        if rid.startswith("huya:") or rid.isdigit():
+            name = "huya.png" if rid.startswith("huya:") else "bilibili.ico"
+            expected = QIcon(os.path.join(REPO, "assets", "platforms", name))
+            assert not expected.isNull()
+            assert item.platform_badge.pixmap().toImage() == expected.pixmap(20, 20).toImage()
+        item.resize(240, 128)
+        item.show()
+        app.processEvents()
+        assert item.platform_badge.isVisible()
+        item.set_compact(True)
+        assert item.platform_badge.isVisible() and item.platform_badge.parentWidget() is item.thumb.face
+        item.set_compact(False)
+        item.set_card_mode(False)
+        item.thumb._layout_overlay()
+        assert item.platform_badge.parentWidget() is item.thumb
+        assert item.name_label.geometry().right() < item.platform_badge.x()
+        item.set_portrait_strip(True)
+        app.processEvents()
+        assert item.platform_badge.isVisible() and item.badge.isHidden()
+        tile = Tile(dict(room))
+        tile._refresh_badge()
+        if ":" in rid:
+            assert not tile.stream_badge.viewers
+            assert "人数" not in tile.stream_badge.toolTip()
+        else:
+            assert tile.stream_badge.viewers == "999"
+        item.close()
+        tile.close()
+    print("PASS: official HLS fields, avatar/cover cache, platform labels, no other-platform counts")
     resolver = bili.StreamResolver("huya:660000", platform=platform)
     resolved = []
     resolver.resolved.connect(lambda *args: resolved.append(args))
@@ -150,6 +243,13 @@ def main():
                 window.hover_preview.on_hover(item.room)
                 assert window.hover_preview._resolver is None
                 saved_state = window.current_state()
+            with patch("ddm.stream_relay.ffmpeg_path", return_value=""):
+                window._play_on(target, url, qn, profile, headers=headers)
+                assert "FFmpeg" in target.status_label.text(), "依赖缺失应在格子中提示"
+                assert window.players[target]._relay is None
+            with patch("ddm.app.StatsPoller") as stats_poller:
+                window.refresh_stats()
+                stats_poller.assert_not_called()
             with tempfile.TemporaryDirectory() as root, \
                     patch.object(config, "CONFIG_PATH", os.path.join(root, "config.json")), \
                     patch.dict(os.environ):

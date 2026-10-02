@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import shutil
+from urllib.parse import urlsplit
 
 import requests
 from PySide6.QtCore import QThread, Signal
@@ -143,7 +144,11 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         if not pixmap.isNull():
             return pixmap
     try:
-        response = requests.get(url, headers=bili.HEADERS, timeout=10)
+        headers = dict(bili.HEADERS)
+        host = urlsplit(url).hostname or ""
+        if host == "msstatic.com" or host.endswith(".msstatic.com"):
+            headers["Referer"] = "https://www.huya.com/"
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200 or not response.content:
             return None
         pixmap = QPixmap()
