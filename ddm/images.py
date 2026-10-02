@@ -153,6 +153,11 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         elif any(host == domain or host.endswith("." + domain)
                  for domain in ("douyinpic.com", "byteimg.com", "ibytedtos.com", "douyincdn.com")):
             headers["Referer"] = "https://live.douyin.com/"
+        elif host == "jtvnw.net" or host.endswith(".jtvnw.net"):
+            headers["Referer"] = "https://www.twitch.tv/"
+        elif any(host == domain or host.endswith("." + domain)
+                 for domain in ("ytimg.com", "ggpht.com", "googleusercontent.com")):
+            headers["Referer"] = "https://www.youtube.com/"
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200 or not response.content:
             return None

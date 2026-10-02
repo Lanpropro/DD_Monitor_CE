@@ -1,4 +1,4 @@
-"""联网验收：国内直播卡片拖入 VLC 格子，解码画面/音频、静音、恢复配置。
+"""联网验收：直播卡片拖入 VLC 格子，解码画面/音频、静音、恢复配置。
 
 运行：python dev/selfcheck_huya_live.py [房间号] [持续秒数]。只保存测试截图，不改用户配置。
 """
@@ -43,11 +43,11 @@ def main():
     raw = sys.argv[1] if len(sys.argv) > 1 else "660000"
     room_id = raw if ":" in raw else "huya:" + raw
     kind = room_id.split(":", 1)[0]
-    label = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音"}[kind]
+    label = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}[kind]
     duration = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     app = QApplication([])
     app.setStyleSheet(theme.qss())
-    state = {"plugins_enabled": ["huya_watch"], "settings": {
+    state = {"plugins_enabled": ["huya_watch", "global_live"], "settings": {
         "recording_enabled": False, "recording_replay_enabled": False,
         "preview_on_hover": False, "freeze_watch": True, "auto_quality": False}}
     with patch("ddm.app.QTimer.singleShot"):
@@ -58,7 +58,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     try:
         # 暂停添加后自动上墙，用真实拖放事件从关注卡片开始播放。
-        with patch.object(window, "add_to_wall"):
+        with patch.object(window, "add_to_wall"), patch("ddm.app.QMessageBox.warning", return_value=0):
             window._add_room_id(room_id)
             wait_for(app, lambda: bool(window.sidebar.rooms()))
         item = window.sidebar.items()[0]
@@ -98,10 +98,12 @@ def main():
         result = stats(player)
         assert result.displayed_pictures > 30
         assert not target.stream_badge.viewers
+        started[:] = [time.monotonic()]  # 首帧及音频就绪后开始连续播放验收。
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
             before = stats(player).displayed_pictures
-            wait_for(app, lambda: stats(player).displayed_pictures > before, seconds=12)
+            wait_for(app, lambda: stats(player).displayed_pictures > before,
+                     seconds=20 if kind in ("twitch", "youtube") else 12)
             assert len(started) == 1, "持续播放期间不应自动刷新/重取流"
             time.sleep(0.1)
         result = stats(player)

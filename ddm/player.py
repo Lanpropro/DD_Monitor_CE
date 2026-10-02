@@ -187,6 +187,7 @@ class TilePlayer(QObject):
         self._media = None                # 当前媒体：画面卡死检测要读它的解码计数
         self._relay = None
         self._picture_limit = self.FROZEN_TICKS
+        self._buffer_limit = 6
         self._released = False
         self._audio_ready = False         # aout 起来之后补过静音/音量没有
         self._watch = QTimer(self)
@@ -239,11 +240,18 @@ class TilePlayer(QObject):
         self.url = url
         self._audio_ready = False         # 新的 aout 还没建，起来之后再补静音/音量
         playback_url = url
-        platform_relay = profile in ("huya", "douyu", "douyin")
-        self._picture_limit = 8 if platform_relay else self.FROZEN_TICKS
+        platform_relay = profile in ("huya", "douyu", "douyin", "twitch", "youtube")
+        overseas_hls = profile in ("twitch", "youtube")
+        self._picture_limit = 20 if overseas_hls else 8 if platform_relay else self.FROZEN_TICKS
+        self._buffer_limit = 20 if overseas_hls else 6
         if platform_relay:
             from .stream_relay import StreamRelay
-            self._relay = StreamRelay(url, headers or {})
+            relay_options = {}
+            if overseas_hls:
+                from .global_danmaku import request_proxy
+                relay_options["proxy"] = request_proxy(url)
+                relay_options["hls_retry"] = True
+            self._relay = StreamRelay(url, headers or {}, **relay_options)
             playback_url = self._relay.url
         media = self._instance.media_new(playback_url)
         # 插件解析出来的流可以自带请求头；没给就按通道用默认的
@@ -577,7 +585,7 @@ class TilePlayer(QObject):
             self._stall_ticks += 2
         else:
             self._stall_ticks += 1
-        limit = 20 if awaiting_picture else 6   # HLS 首次取片与缓存需要额外起播时间
+        limit = 20 if awaiting_picture else self._buffer_limit   # HLS 取片与缓存需要额外时间
         if self._stall_ticks >= limit:      # 普通流约 9 秒没有画面就判为失败
             self._set_state("error")
         elif self._stall_ticks >= 2:    # 卡住了：显示缓冲动画，等待恢复

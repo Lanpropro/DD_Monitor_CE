@@ -1,4 +1,4 @@
-"""国内直播流转封装：只复制音视频，归一化时间戳后送入格子播放器。"""
+"""公开直播流转封装：只复制音视频，归一化时间戳后送入格子播放器。"""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import subprocess
@@ -9,17 +9,29 @@ from .recording import _adopt_process, ffmpeg_path
 
 
 class StreamRelay:
-    def __init__(self, source: str, headers: dict):
+    def __init__(self, source: str, headers: dict, *, proxy=None, hls_retry=False):
         executable = ffmpeg_path()
         if not executable:
             raise RuntimeError("直播播放需要 FFmpeg，请检查程序目录中的 ffmpeg.exe")
         self._lock = threading.Lock()
         self._stopped = False
         self._process = None
+        self._hls_proxy = None
         route = "/" + uuid.uuid4().hex + ".flv"
         relay = self
         command = [executable, "-nostdin", "-hide_banner", "-loglevel", "error",
                    "-rw_timeout", "10000000"]
+        if hls_retry:
+            from .hls_proxy import HlsProxy
+            self._hls_proxy = HlsProxy(source, headers, proxy)
+            source = self._hls_proxy.url
+        elif proxy:
+            command += ["-http_proxy", proxy]
+        if hls_retry:
+            # 海外 HLS 经代理时 TLS 连接可能被中途关闭；在取片层恢复，避免刷新格子。
+            command += ["-http_persistent", "0", "-http_multiple", "1", "-seg_max_retry", "3", "-reconnect", "1",
+                        "-reconnect_streamed", "1", "-reconnect_on_network_error", "1",
+                        "-reconnect_on_http_error", "429,5xx", "-reconnect_delay_max", "5"]
         if headers:
             command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in headers.items())]
         command += ["-i", source, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
@@ -83,3 +95,5 @@ class StreamRelay:
         self._server.shutdown()
         self._server.server_close()
         self._thread.join()
+        if self._hls_proxy is not None:
+            self._hls_proxy.stop()

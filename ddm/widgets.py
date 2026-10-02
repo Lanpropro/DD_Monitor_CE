@@ -2033,12 +2033,12 @@ class NavItem(QFrame):
         _ignore_mouse(self.sub)
         _allow_shrink(self.sub)
         self.badge = QLabel("直播中" if room.get("live") else "未开播")
-        if room.get("platform") in ("huya", "douyu", "douyin") and not room.get("live_known", True):
+        if room.get("platform") in ("huya", "douyu", "douyin", "twitch", "youtube") and not room.get("live_known", True):
             self.badge.setText("待刷新")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
         platform = room.get("platform") or str(room.get("room_id", "")).partition(":")[0]
-        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音"}
+        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}
         label = "B站" if str(room.get("room_id", "")).isdigit() else labels.get(platform, platform)
         if str(room.get("room_id", "")).isdigit():
             platform = "bilibili"

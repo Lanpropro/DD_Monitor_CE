@@ -43,7 +43,7 @@ def main():
     duration = int(sys.argv[2]) if len(sys.argv) > 2 else 15
     app = QApplication([])
     app.setStyleSheet(theme.qss())
-    state = {"plugins_enabled": ["huya_watch"], "settings": {"preview_on_hover": True,
+    state = {"plugins_enabled": ["huya_watch", "global_live"], "settings": {"preview_on_hover": True,
              "recording_enabled": False, "recording_replay_enabled": False, "auto_quality": False}}
     with patch("ddm.app.QTimer.singleShot"):
         window = MainWindow([], [], state=state, layout_id="2x2")
@@ -77,6 +77,7 @@ def main():
         wait_for(app, lambda: tile in window.players and stats(window.players[tile]).displayed_pictures > 30)
         wall_player = window.players[tile]
         wall_relay = wall_player._relay
+        wall_starts[:] = [time.monotonic()]  # 连续播放从首帧验收开始；起播时的网络重试单独处理。
         with patch.object(bili, "play_url", side_effect=AssertionError("Plugin preview called Bili")):
             for mode, width, height, card, collapsed in (
                     ("landscape-card", 1200, 700, True, False),

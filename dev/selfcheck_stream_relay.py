@@ -61,6 +61,24 @@ def main():
         relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {})
         relay.stop()
         start.assert_not_called()
+    process = Process()
+    with patch.object(stream_relay, "ffmpeg_path", return_value="mock-ffmpeg"), \
+            patch.object(stream_relay, "_adopt_process"), \
+            patch.object(stream_relay.subprocess, "Popen", return_value=process) as start:
+        relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {},
+                                        proxy="http://127.0.0.1:7890", hls_retry=True)
+        try:
+            assert requests.get(relay.url, timeout=2).content.startswith(b"FLV")
+            command = start.call_args.args[0]
+            assert command[command.index("-i") + 1] == relay._hls_proxy.url
+            assert "-http_proxy" not in command
+            for option, value in (("-http_persistent", "0"),
+                    ("-http_multiple", "1"), ("-seg_max_retry", "3"), ("-reconnect_on_network_error", "1")):
+                assert command[command.index(option) + 1] == value
+        finally:
+            relay.stop()
+        assert not relay._thread.is_alive() and process.poll() is not None
+        assert not relay._hls_proxy._thread.is_alive()
     with patch.object(stream_relay, "ffmpeg_path", return_value=""):
         try:
             stream_relay.StreamRelay("https://cdn.test/live.m3u8", {})

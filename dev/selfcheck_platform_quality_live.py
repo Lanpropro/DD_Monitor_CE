@@ -20,7 +20,7 @@ def main():
     room_id = sys.argv[1]
     app = QApplication([])
     app.setStyleSheet(theme.qss())
-    state = {"plugins_enabled": ["huya_watch"], "settings": {"auto_quality": True,
+    state = {"plugins_enabled": ["huya_watch", "global_live"], "settings": {"auto_quality": True,
              "preview_on_hover": False, "recording_enabled": False,
              "recording_replay_enabled": False, "freeze_watch": False}}
     with patch("ddm.app.QTimer.singleShot"):
