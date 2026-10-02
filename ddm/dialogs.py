@@ -2,7 +2,7 @@
 import re
 import zipfile
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
@@ -493,19 +493,30 @@ class RecordingSettingsPage(QWidget):
 class PluginSettingsPage(QWidget):
     """按现有插件接口展示元数据和下次启动的启用选择。"""
 
+    restartRequested = Signal()
+
     def __init__(self, manager=None, parent=None):
         super().__init__(parent)
         self.manager = manager
+        self.setAcceptDrops(True)
         self.setObjectName("SettingsPage")
         self.checks = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("插件", "插件安装后和启用状态的更改均在下次启动时生效"))
+        layout.addLayout(_page_head("插件", "拖入 ZIP 插件包或含插件 ZIP 的 EXE；安装和启用更改在重启后生效"))
         self.install_button = QPushButton("装载插件…")
         self.install_button.setObjectName("IconButton")
         self.install_button.clicked.connect(self._install)
-        layout.addWidget(self.install_button, alignment=Qt.AlignLeft)
+        actions = QHBoxLayout()
+        actions.addWidget(self.install_button)
+        self.restart_button = QPushButton("保存并重启软件")
+        self.restart_button.setObjectName("IconButton")
+        self.restart_button.setToolTip("保存设置并重启，使插件安装、删除和启用更改生效；正在录制的内容会正常收尾。")
+        self.restart_button.clicked.connect(self.restartRequested.emit)
+        actions.addWidget(self.restart_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
 
         scroll = QScrollArea()
         scroll.setObjectName("PluginScroll")
@@ -579,9 +590,35 @@ class PluginSettingsPage(QWidget):
             self.empty.setObjectName("SettingsHint")
             self.cards.insertWidget(0, self.empty)
 
+    def dragEnterEvent(self, event):
+        urls = event.mimeData().urls()
+        if (self.manager is not None and urls and all(
+                url.isLocalFile() and url.toLocalFile().lower().endswith((".zip", ".exe"))
+                for url in urls)):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        self.dragEnterEvent(event)
+        if not event.isAccepted():
+            return
+        for url in event.mimeData().urls():
+            self._install_archive(url.toLocalFile())
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
     def _install(self):
-        archive, _ = QFileDialog.getOpenFileName(self, "装载插件", "", "插件包 (*.zip)")
+        archive, _ = QFileDialog.getOpenFileName(self, "装载插件", "", "插件包 (*.zip *.exe)")
+        self._install_archive(archive)
+
+    def _install_archive(self, archive):
         if not archive or self.manager is None:
+            return
+        if not zipfile.is_zipfile(archive):
+            QMessageBox.warning(self, "装载插件失败",
+                                "此文件不是兼容插件包。需要 ZIP，或内含 ZIP 的 EXE，且包含 plugin.json 和 plugin.py。")
             return
         try:
             plugin_id = self.manager.install_zip(archive)
@@ -609,6 +646,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
+        self.restart_requested = False
         self.resize(720, 500)
 
         root = QHBoxLayout(self)
@@ -635,6 +673,7 @@ class SettingsDialog(QDialog):
         self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.plugin_page = PluginSettingsPage(plugin_manager)
+        self.plugin_page.restartRequested.connect(self._request_restart)
         self.stack.addWidget(self.general_page)
         self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.recording_page)
@@ -661,6 +700,10 @@ class SettingsDialog(QDialog):
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
+
+    def _request_restart(self) -> None:
+        self.restart_requested = True
+        self.accept()
 
     def _on_page_changed(self, index: int) -> None:
         if index >= 0:

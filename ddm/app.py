@@ -9,7 +9,7 @@ import time
 import webbrowser
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEasingCurve, QProcess, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
@@ -111,6 +111,7 @@ class MainWindow(QMainWindow):
         #: 正在关窗。取流线程的 resolved 是队列连接，关窗之后还会再投递一次；
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
         self._closing = False
+        self._restart_requested = False
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._poller = None
         self._refresh_queued = False
@@ -554,6 +555,9 @@ class MainWindow(QMainWindow):
         self.apply_danmaku_settings()
         self.apply_preview_settings()
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
+        if getattr(dialog, "restart_requested", False):
+            self._restart_requested = True
+            self.close()
         return True
 
     def current_state(self) -> dict:
@@ -2494,6 +2498,14 @@ class MainWindow(QMainWindow):
             print("[快捷键] 全部静音", file=sys.stderr, flush=True)
 
 
+def _launch_restart() -> bool:
+    arguments = list(sys.argv[1:])
+    if not getattr(sys, "frozen", False):
+        arguments.insert(0, os.path.join(config_module.REPO, "main.py"))
+    started, _pid = QProcess.startDetached(sys.executable, arguments, config_module.REPO)
+    return started
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
@@ -2558,6 +2570,8 @@ def main(argv: list[str] | None = None) -> int:
           file=sys.stderr, flush=True)
     code = app.exec()
     watchdog.stop()
+    if window._restart_requested and not _launch_restart():
+        QMessageBox.critical(None, "重启失败", "无法重新启动软件，请手动打开程序。设置已保存。")
     # 关窗时可能还有网络线程在收尾，Qt / VLC 的析构顺序会偶发崩在退出瞬间，
     # 配置在 closeEvent 里已经存好了，这里直接退出进程最稳。
     try:
