@@ -1904,7 +1904,7 @@ class NavThumb(QFrame):
             self._player.stateChanged.connect(self._on_player_state)
         return self._player
 
-    def play(self, url: str, profile: str = "web", options=None) -> None:
+    def play(self, url: str, profile: str = "web", options=None, *, headers=None) -> None:
         """在这个缩略图里放预览（静音、低画质）。
 
         ``options`` 由预览那边给（见 ddm/preview.py 的 PREVIEW_MEDIA_OPTIONS）。
@@ -1927,7 +1927,7 @@ class NavThumb(QFrame):
         self.hint.setVisible(False)
         player.set_muted(True)                       # 预览永远静音
         player.set_volume(0)
-        player.play(url, profile, options=options)
+        player.play(url, profile, headers=headers, options=options)
 
     def stop(self) -> None:
         """收掉预览，回到封面（播放器留着复用，下回悬停直接 play）。"""
@@ -2725,9 +2725,22 @@ class RoomStrip(QFrame):
     def set_rooms(self, rooms: list, faces: dict | None = None,
                   on_wall_ids: set[str] | None = None) -> None:
         """rooms：关注列表；faces：room_id -> 已经下载好的头像图（可省）。"""
+        fields = ("room_id", "uname", "live", "pinned")
+        unchanged = (
+            [tuple(room.get(key) for key in fields) for room in rooms or []] ==
+            [tuple(room.get(key) for key in fields) for room in self._rooms]
+            and {rid: pixmap.cacheKey() for rid, pixmap in (faces or {}).items()} ==
+            {rid: pixmap.cacheKey() for rid, pixmap in self._faces.items()}
+            and set(on_wall_ids or set()) == self._on_wall_ids)
+        hovered_id = str((self._hovered_room or {}).get("room_id") or "")
         self._rooms = list(rooms or [])
         self._faces = dict(faces or {})
         self._on_wall_ids = set(on_wall_ids or set())
+        if unchanged:
+            # 状态轮询只更新标题/封面时保留头像控件，避免触发 leave 中断悬停预览。
+            self._hovered_room = next((room for room in self._rooms
+                                      if str(room.get("room_id")) == hovered_id), None)
+            return
         self._rebuild()
 
     def set_room_face(self, room_id: str, pixmap) -> None:
@@ -4236,6 +4249,7 @@ class Sidebar(QFrame):
         item.hide()
         item.drop_live_alert()
         item.thumb.stop()               # 缩略图里可能正在放预览
+        item.thumb.release_player()
         item.setParent(None)
         item.deleteLater()
         self._items.remove(item)

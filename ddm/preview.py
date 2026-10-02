@@ -40,13 +40,15 @@ class HoverPreview(QObject):
     DELAY_MS = 1000         # 停够 1 秒才播
     GRACE_MS = 120          # 移开后的宽限（手抖一下不立刻收）
 
-    def __init__(self, sidebar, parent=None):
+    def __init__(self, sidebar, parent=None, *, platform_resolver=None):
         super().__init__(parent)
         self.sidebar = sidebar
+        self._platform_resolver = platform_resolver
         self.enabled = True
         self._room: dict = {}
         self._item = None                       # 正在预览的条目
         self._resolver: StreamResolver | None = None
+        self._resolvers_running = set()          # 包括已取消但还在请求中的线程
         self._generation = 0                    # 取流编号：旧编号的结果一律丢掉
         # 共用一个浮层预览。父控件挂**主窗口**（不是滚动视口）：视口会把自己裁掉，
         # 而横屏要往卡片右侧弹、竖屏要向下弹，都会越出视口范围。
@@ -79,12 +81,12 @@ class HoverPreview(QObject):
     def on_hover(self, room: dict) -> None:
         if not self.enabled or self.sidebar.select_mode:
             return
-        if ":" in str(room.get("room_id") or ""):
-            return                              # 本期只接入格子播放，避免调用 B 站预览取流
         if not room.get("live"):
             return                              # 没开播就没什么可看的
         self._grace.stop()
-        if self._item is not None and str(room.get("room_id")) != self._room_id():
+        if self._item is not None:
+            if str(room.get("room_id")) == self._room_id():
+                return                          # 原生视频窗口引起重复进入时继续播放，不重新取流
             self._stop_now()                    # 换到别人身上了：旧预览立刻收掉
         self._room = room
         self._delay.start()
@@ -99,8 +101,13 @@ class HoverPreview(QObject):
     # ---- 起播 / 收掉 ----
     def _show_now(self) -> None:
         room = self._room
-        if not room.get("room_id") or not room.get("live"):
+        if (not self.enabled or self.sidebar.select_mode or
+                not room.get("room_id") or not room.get("live")):
             return
+        room_id = str(room["room_id"])
+        platform = self._platform_resolver(room_id) if self._platform_resolver else None
+        if not room_id.isdigit() and (platform is None or platform.playback_mode != "stream"):
+            return                              # 网页插件或未启用的平台没有可预览的直播流
         item = self._item_of(room)
         if item is None:
             return
@@ -113,29 +120,36 @@ class HoverPreview(QObject):
             return
         print(f"[预览] {room.get('uname')} → 缩略图", file=sys.stderr, flush=True)
         generation = self._generation
-        resolver = StreamResolver(str(room["room_id"]), PREVIEW_QUALITY, self)
+        kwargs = {"platform": platform} if platform is not None else {}
+        resolver = StreamResolver(room_id, PREVIEW_QUALITY, self, **kwargs)
         # 回调都带上编号：编号过期就说明这次取流早就作废了（鼠标移开、换了条目）
         resolver.resolved.connect(
-            lambda room_id, url, quality, profile, options, gen=generation:
-            self._on_resolved(gen, room_id, url, quality, profile, options))
+            lambda room_id, url, quality, profile, options, gen=generation, r=resolver:
+            self._on_resolved(gen, room_id, url, quality, profile, options,
+                              headers=dict(getattr(r, "headers", {}))))
         resolver.failed.connect(
             lambda room_id, reason, gen=generation: self._on_failed(gen, room_id, reason))
         resolver.finished.connect(lambda r=resolver: self._on_finished(r))
         resolver.finished.connect(resolver.deleteLater)
         self._resolver = resolver
+        self._resolvers_running.add(resolver)
         resolver.start()
 
     def _on_resolved(self, generation: int, room_id: str, url: str, quality: int,
-                     profile: str, options: list | None) -> None:
+                     profile: str, options: list | None, *, headers=None) -> None:
         if generation != self._generation:
             return                              # 这次取流已经作废
         item = self._item
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
-        if self._anchor_of(item) is None:
+        if self._item_of(item.room) is not item:
             self._stop_now()
             return
         try:
+            anchor = self._anchor_of(item)
+            if anchor is None or not anchor.isVisible():
+                self._stop_now()
+                return
             if self._needs_popup():
                 item.thumb.set_hint("")
                 self._place_popup(item)
@@ -151,11 +165,11 @@ class HoverPreview(QObject):
                 if not self._popup.testAttribute(Qt.WA_NativeWindow):
                     self._popup.setAttribute(Qt.WA_NativeWindow, True)
                 self._popup.raise_()
-                self._popup_player.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
+                self._popup_player.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
             else:
-                item.thumb.play(url, profile, options=PREVIEW_MEDIA_OPTIONS)
+                item.thumb.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
         except RuntimeError:
-            self._item = None
+            self._stop_now()
 
     def _needs_popup(self) -> bool:
         """什么时候用浮层预览，而不是直接播在卡片的缩略图里。
@@ -252,6 +266,7 @@ class HoverPreview(QObject):
                 self._item = None
 
     def _on_finished(self, resolver) -> None:
+        self._resolvers_running.discard(resolver)
         if self._resolver is resolver:           # 迟到的旧线程别把新线程顶掉
             self._resolver = None
 

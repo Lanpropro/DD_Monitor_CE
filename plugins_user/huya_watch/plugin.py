@@ -46,7 +46,7 @@ class HuyaPlatform(api.Platform):
             raise ValueError("请填写 huya:房间号，或虎牙官方直播间链接")
         return f"huya:{raw}"
 
-    def _streams(self, room_id: str):
+    def _streams(self, room_id: str, quality: int = 250):
         session = Streamlink({"http-timeout": 8})
         parser = Huya(session, self.room_url(room_id))
         try:
@@ -61,6 +61,11 @@ class HuyaPlatform(api.Platform):
             data, _end = json.JSONDecoder().raw_decode(script[match.end():].lstrip())
             if isinstance(data, str):
                 data = json.loads(base64.b64decode(data, validate=True))
+            bitrate = 0
+            if quality <= 80:
+                rates = [item["iBitRate"] for item in data.get("vMultiStreamInfo", [])
+                         if isinstance(item.get("iBitRate"), int) and item["iBitRate"] > 0]
+                bitrate = min(rates, default=0)
             streams = {}
             for info in data.get("data", [{}])[0].get("gameStreamInfoList", []):
                 # 使用网页明确提供的 HLS 线路；签名参数仍交给固定版本的 Streamlink。
@@ -70,7 +75,7 @@ class HuyaPlatform(api.Platform):
                 name = info["sStreamName"]
                 qs = dict(parse_qsl(unescape(info["sHlsAntiCode"])))
                 params = parser._get_stream_params(qs.get("fm", ""), qs.get("fs", ""),
-                    qs.get("ctype", "huya_live"), qs.get("wsTime", ""), name, 0)
+                    qs.get("ctype", "huya_live"), qs.get("wsTime", ""), name, bitrate)
                 url = f"{base}/{name}.{info['sHlsUrlSuffix']}"
                 if url.startswith("//"):
                     url = "https:" + url
@@ -142,7 +147,7 @@ class HuyaPlatform(api.Platform):
         return [{"qn": 10000, "desc": "原画"}]
 
     def play_url(self, room_id: str, quality: int = 250) -> tuple:
-        session, _parser, streams = self._streams(room_id)
+        session, _parser, streams = self._streams(room_id, quality)
         try:
             if not streams:
                 raise RuntimeError("虎牙房间未开播，或没有可用的公开直播流")
@@ -164,7 +169,7 @@ class HuyaPlatform(api.Platform):
                         response.raise_for_status()
                         if next(response.iter_content(7), b"") != b"#EXTM3U":
                             continue
-                        return response.url, 10000, "huya", headers
+                        return response.url, 80 if quality <= 80 else 10000, "huya", headers
                 except requests.RequestException:
                     continue
             raise RuntimeError("虎牙直播线路暂不可用，请重试")
@@ -240,21 +245,21 @@ class NumericLivePlatform(api.Platform):
     def play_url(self, room_id: str, quality: int = 250) -> tuple:
         session = Streamlink({"http-timeout": 8})
         try:
-            streams = self._streams(session, room_id)
+            streams = self._streams(session, room_id, quality)
             if not streams:
                 raise RuntimeError(f"{self.label}房间未开播，或没有可用的公开直播流")
-            stream = streams.get("best") or next(iter(streams.values()))
+            stream = streams.get("worst" if quality <= 80 else "best") or next(iter(streams.values()))
             url = stream.to_url()
             headers = {"User-Agent": session.http.headers["User-Agent"],
                        "Referer": f"https://{self.hosts[0]}/"}
             if self.kind == "douyu":
                 # 斗鱼部分地址只允许一个消费者，提前探流会使随后播放器连接短时间断开。
-                return url, 10000, self.kind, headers
+                return url, 80 if quality <= 80 else 10000, self.kind, headers
             with session.http.get(url, headers=headers, stream=True, timeout=(4, 6)) as response:
                 response.raise_for_status()
                 if next(response.iter_content(3), b"") != b"FLV":
                     raise RuntimeError(f"{self.label}直播线路暂不可用，请重试")
-                return response.url, 10000, self.kind, headers
+                return response.url, 80 if quality <= 80 else 10000, self.kind, headers
         except RuntimeError:
             raise
         except Exception as error:  # noqa: BLE001
@@ -289,7 +294,7 @@ class DouyuPlatform(NumericLivePlatform):
         except (requests.RequestException, ValueError, KeyError, TypeError) as error:
             raise RuntimeError("斗鱼房间信息获取失败，请稍后重试") from error
 
-    def _streams(self, session, room_id):
+    def _streams(self, session, room_id, quality=250):
         if not self.room_info(room_id).live:
             return {}
         parser = Douyu(session, self.room_url(room_id))
@@ -297,16 +302,24 @@ class DouyuPlatform(NumericLivePlatform):
         data = self._request_source(parser, raw)
         # 网页默认的 P2P 边缘线路可能很快断流，优先使用接口明确给出的普通 CDN。
         cdns = {item.get("cdn") for item in data.get("cdnsWithName", [])}
+        cdn = ""
         if (urlsplit(data.get("rtmp_url", "")).hostname or "").endswith(".edgesrv.com"):
             cdn = next((name for name in ("hw-h5", "tct-h5", "ali-h5") if name in cdns), "")
-            if cdn:
-                data = self._request_source(parser, raw, cdn) or data
+        rate = 0
+        if quality <= 80:
+            rates = [item for item in data.get("multirates", [])
+                     if isinstance(item.get("bit"), int) and item["bit"] > 0
+                     and isinstance(item.get("rate"), int)]
+            if rates:
+                rate = min(rates, key=lambda item: item["bit"])["rate"]
+        if cdn or rate:
+            data = self._request_source(parser, raw, cdn, rate=rate) or data
         if not data:
             return {}
         return {"source": HTTPStream(session, f"{data['rtmp_url']}/{data['rtmp_live']}")}
 
-    def _request_source(self, parser, raw, cdn=""):
-        # 与固定版本 Streamlink 的公开网页请求一致，仅请求 AVC 原画及指定 CDN。
+    def _request_source(self, parser, raw, cdn="", *, rate=0):
+        # 与固定版本 Streamlink 的公开网页请求一致，请求 AVC 及网页提供的画质/CDN。
         encryption = parser._get_encryption(parser.DID)
         if not encryption:
             return {}
@@ -315,7 +328,7 @@ class DouyuPlatform(NumericLivePlatform):
                                    values["enc_time"], values["is_special"])
         with parser.session.http.post(parser._URL_PLAY.format(rid=raw), data={
                 "enc_data": values["enc_data"], "tt": str(timestamp), "did": parser.DID,
-                "auth": auth, "cdn": cdn, "rate": "0", "hevc": "0", "fa": "0", "ive": "0"},
+                "auth": auth, "cdn": cdn, "rate": str(rate), "hevc": "0", "fa": "0", "ive": "0"},
                 headers={"Content-Type": "application/x-www-form-urlencoded"}) as response:
             response.raise_for_status()
             result = response.json()
@@ -364,7 +377,7 @@ class DouyinPlatform(NumericLivePlatform):
         except (requests.RequestException, ValueError, KeyError, TypeError, StopIteration) as error:
             raise RuntimeError("抖音房间信息获取失败，请使用直播间完整链接或稍后重试") from error
 
-    def _streams(self, session, room_id):
+    def _streams(self, session, room_id, quality=250):
         return Douyin(session, self.room_url(room_id)).streams()
 
 

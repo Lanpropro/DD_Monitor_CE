@@ -226,7 +226,8 @@ class MainWindow(QMainWindow):
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
-        self.hover_preview = HoverPreview(self.sidebar, self)
+        self.hover_preview = HoverPreview(
+            self.sidebar, self, platform_resolver=lambda rid: self.plugins.platform_for(rid))
         self.sidebar.previewHovered.connect(self.hover_preview.on_hover)
         self.sidebar.previewUnhovered.connect(self.hover_preview.on_unhover)
         # 拖字号滑块时别每一步都写配置，停手后再存
@@ -442,6 +443,7 @@ class MainWindow(QMainWindow):
         first = not self.orientation
         changed = orientation != self.orientation
         if changed:
+            self.hover_preview.cancel()
             self._build_arrangement(orientation)
         # 切走之前正在用的那套，记在**原来那个方向**名下：用户转个方向逛一圈再转回来，
         # 原来那边的布局得原样还在，不能靠「按容量折算」猜回来。
@@ -554,6 +556,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _sync_platform_rooms(self) -> None:
+        self.hover_preview.cancel()
         active = {kind for kind, owner in self.plugins._platform_owner.items()
                   if owner not in self.plugins._removed and
                   (self.plugins.enabled is None or owner in self.plugins.enabled)}
@@ -697,6 +700,8 @@ class MainWindow(QMainWindow):
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
         threads.extend(self._resolvers_running)
+        preview_threads = list(self.hover_preview._resolvers_running)
+        threads.extend(preview_threads)
         deadline = time.time() + 2.5
         for thread in threads:
             if thread is None or not self._loader_running(thread):
@@ -706,7 +711,7 @@ class MainWindow(QMainWindow):
             except RuntimeError:             # 已被 Qt 回收
                 pass
         self._avatar_loaders.clear()
-        platform_threads = [thread for thread in self._resolvers_running
+        platform_threads = [thread for thread in list(self._resolvers_running) + preview_threads
                             if getattr(thread, "platform", None) is not None]
         poller = self._poller
         if poller is not None and getattr(poller, "platforms", None):
@@ -1410,6 +1415,9 @@ class MainWindow(QMainWindow):
             self.sidebar.set_refreshing(False)
 
     def _on_status_updated(self, status: dict) -> None:
+        preview_status = status.get(self.hover_preview._room_id())
+        if preview_status and not preview_status.get("live"):
+            self.hover_preview.cancel()
         # 画面格可能直接持有侧栏条目的 room 字典。必须先记住两边旧状态，
         # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
         tile_was_live = {tile: bool(tile.room.get("live")) for tile in self.wall.tiles}
@@ -2161,6 +2169,8 @@ class MainWindow(QMainWindow):
         self.refresh_stats()
 
     def remove_room(self, room: dict) -> None:
+        if self.hover_preview._room_id() == str(room.get("room_id")):
+            self.hover_preview.cancel()
         tile = self._tile_of(str(room.get("room_id")))
         if tile is not None:
             self.plugins.emit(plugin_api.EVENT_TILE_REMOVED, tile=tile,
