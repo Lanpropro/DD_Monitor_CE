@@ -53,6 +53,8 @@ def main():
         player.play(video)
         try:
             wait(app, lambda: player.player.get_time() > 0)
+            tile.room.update(live=True, live_start_ts=int(time.time()) - 60)
+            tile.start_elapsed_timer()
             window._on_fullscreen(tile)
             window._clear_fullscreen_cover()
             window.activateWindow()
@@ -61,6 +63,17 @@ def main():
             QCursor.setPos(video_point)
             wait(app, lambda: cursor.hidden)
             assert QApplication.overrideCursor().shape() == Qt.BlankCursor
+            assert not tile.bottom.isVisible() and not tile.controls.isVisible()
+            assert not tile.stream_badge.isVisible() and not tile.title_badge.isVisible()
+            assert not tile.time_badge.isVisible()
+            assert tile.video.height() == tile.height() - 1
+            # Metadata/hover/layout updates must not bring idle controls back.
+            tile.set_controls_visible(True)
+            tile.set_uname_title("Cursor test", "Updated title")
+            tile._refresh_elapsed()
+            tile._layout_areas()
+            assert not tile.controls.isVisible() and not tile.title_badge.isVisible()
+            assert not tile.time_badge.isVisible()
             if sys.platform == "win32" and app.platformName() == "windows":
                 class CursorInfo(ctypes.Structure):
                     _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
@@ -73,6 +86,10 @@ def main():
             QCursor.setPos(video_point.x() + 10, video_point.y())
             wait(app, lambda: not cursor.hidden)
             assert QApplication.overrideCursor() is None
+            assert tile.bottom.isVisible() and tile.controls.isVisible()
+            assert tile.stream_badge.isVisible() and tile.title_badge.isVisible()
+            assert tile.time_badge.isVisible()
+            assert tile.video.height() < tile.height() - 1
             if sys.platform == "win32" and app.platformName() == "windows":
                 info.cbSize = ctypes.sizeof(info)
                 assert ctypes.windll.user32.GetCursorInfo(ctypes.byref(info))
@@ -107,6 +124,8 @@ def main():
             window._exit_fullscreen()
             assert not cursor.hidden and not cursor.timer.isActive()
             assert QApplication.overrideCursor() is None
+            assert tile.bottom.isVisible()
+            assert not tile._fullscreen_controls_hidden
             window._on_fullscreen(tile)
             window._clear_fullscreen_cover()
             window.activateWindow()

@@ -15,6 +15,7 @@ class FullscreenCursor(QObject):
         super().__init__(window)
         self.window = window
         self.hidden = False
+        self._hidden_tile = None
         self._position = None
         self._last_move = time.monotonic()
         self.timer = QTimer(self)
@@ -25,6 +26,9 @@ class FullscreenCursor(QObject):
         self.stop()
         self._position = QCursor.pos()
         self._last_move = time.monotonic()
+        tile = self.window._fullscreen_tile
+        if tile is not None:
+            tile.set_controls_visible(True)
         self.timer.start()
 
     def stop(self):
@@ -33,6 +37,8 @@ class FullscreenCursor(QObject):
 
     def _show(self):
         if self.hidden:
+            self._hidden_tile.set_fullscreen_controls_hidden(False)
+            self._hidden_tile = None
             QApplication.restoreOverrideCursor()
             self.hidden = False
             if sys.platform == "win32" and QApplication.platformName() == "windows":
@@ -67,6 +73,8 @@ class FullscreenCursor(QObject):
         if now - self._last_move < self.IDLE_SECONDS:
             return
         if not self.hidden:
+            self._hidden_tile = tile
+            tile.set_fullscreen_controls_hidden(True)
             QApplication.setOverrideCursor(Qt.BlankCursor)
             self.hidden = True
         if sys.platform == "win32" and QApplication.platformName() == "windows":

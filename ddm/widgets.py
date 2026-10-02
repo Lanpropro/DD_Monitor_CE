@@ -5007,7 +5007,14 @@ class Tile(QFrame):
         self._layout_controls()
         self.muteToggled.emit(self.room, muted)
 
+    def set_fullscreen_controls_hidden(self, hidden: bool) -> None:
+        self._fullscreen_controls_hidden = hidden
+        self.bottom.setVisible(not hidden)
+        self.set_controls_visible(not hidden)
+        self._layout_areas()
+
     def set_controls_visible(self, visible: bool) -> None:
+        visible = visible and not getattr(self, "_fullscreen_controls_hidden", False)
         visible = bool(visible)
         self.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
@@ -5096,7 +5103,8 @@ class Tile(QFrame):
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
         self._update_recording_button()
-        video_height = max(60, height - TILE_BAR_HEIGHT)
+        video_height = max(60, height if getattr(self, "_fullscreen_controls_hidden", False)
+                           else height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
         self._round_video()
