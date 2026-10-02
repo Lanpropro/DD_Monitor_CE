@@ -7,14 +7,14 @@ import time
 from collections import deque
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QSlider, QSplitter, QVBoxLayout, QWidget)
 
-from ddm.widgets import DanmakuPanel
+from ddm.widgets import DanmakuPanel, ROOM_MIME
 from .engine import Alignment, RATE, match_scenes, mix_pcm
 from .media import Chat, Decoder
 
@@ -60,7 +60,7 @@ class Canvas(QFrame):
         painter.fillRect(self.rect(), QColor("#101216"))
         if self.image.isNull():
             painter.setPen(QColor("#a1a1aa"))
-            painter.drawText(self.rect(), Qt.AlignCenter, "添加直播间后开始观看")
+            painter.drawText(self.rect(), Qt.AlignCenter, "将左侧关注栏卡片拖到这里，加入比赛二路")
             return
         size = self.image.size().scaled(self.size(), Qt.KeepAspectRatio)
         self.image_rect = QRectF((self.width() - size.width()) / 2,
@@ -281,6 +281,8 @@ class Viewer(QDialog):
         self.generation = 0
         self.matching = False
         self.suppressed = {}
+        self.embedded = False
+        self.setAcceptDrops(True)
         self.setWindowTitle("比赛二路同步")
         self.setObjectName("MatchSync")
         self.setStyleSheet("""
@@ -304,6 +306,7 @@ class Viewer(QDialog):
         add.clicked.connect(self._add_input)
         use_current = QPushButton("加入当前观看的房间")
         use_current.clicked.connect(self.import_current)
+        self.add_controls = (self.input, add, use_current)
         self.start_button = QPushButton("开始观看")
         self.start_button.clicked.connect(self.toggle_running)
         top = QHBoxLayout()
@@ -362,6 +365,35 @@ class Viewer(QDialog):
         if index >= 0:
             self.main.setCurrentIndex(index)
         self._automatic_changed()
+
+    def embed(self, content):
+        self.embedded = True
+        self.setParent(content, Qt.Widget)
+        self.setGeometry(content.rect())
+        content.installEventFilter(self)
+        for widget in self.add_controls:
+            widget.hide()
+        self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
+
+    def eventFilter(self, watched, event):
+        if self.embedded and watched is self.parentWidget() and event.type() == QEvent.Resize:
+            self.setGeometry(watched.rect())
+        return super().eventFilter(watched, event)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(ROOM_MIME):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(ROOM_MIME):
+            return
+        room_id = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
+        room = next((item for item in getattr(self.context.window, "rooms", [])
+                     if str(item.get("room_id") or "") == room_id), {})
+        if self.add_room(room_id, {"alias": room.get("uname") or ""}):
+            if self.embedded and not self.running:
+                self.toggle_running()
+            event.acceptProposedAction()
 
     def changed(self, *_args):
         self.save_timer.start()
@@ -672,3 +704,11 @@ class Viewer(QDialog):
             self.save_timer.stop()
             self.save()
         super().closeEvent(event)
+
+    def reject(self):
+        if self.embedded:
+            self.stop()
+            self.hide()
+            self.finished.emit(0)
+        else:
+            super().reject()

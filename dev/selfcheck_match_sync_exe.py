@@ -45,15 +45,18 @@ class Probe(api.Plugin):
                 raise RuntimeError("Test forbids external stream requests")
             bili.play_url = forbidden
             match = next(p for p in context.manager.plugins if p.context.name == "match_sync")
+            self.match = match
             match.sources["1"] = {"url": os.environ["MATCH_SYNC_TEST_MEDIA"], "headers": {}, "uname": "合成主画面"}
-            from ddm_plugin_match_sync.viewer import Viewer
-            match.viewer = Viewer(match.context, match.sources, {"room_id": "1", "uname": "合成主画面"})
+            assert match.button is not None
+            match.button.trigger()
             self.viewer = match.viewer
+            assert self.viewer.embedded and self.viewer.parentWidget() is context.window._content
             self.viewer.setAttribute(Qt.WA_DontShowOnScreen, True)
             self.viewer.show()
             module = __import__(type(self.viewer).__module__, fromlist=["Chat"])
             module.Chat.start = lambda _self: None
             self.viewer.audio.start = lambda: None
+            self.viewer.add_room("1", {"alias": "合成主画面"})
             self.viewer.toggle_running()
             self.workers.append(self.viewer.rows["1"].decoder)
             self.checks["loaded"] = True
@@ -93,7 +96,7 @@ class Probe(api.Plugin):
                 self.workers.append(self.viewer.rows["2"].decoder)
                 self.viewer.rows["2"].show()
                 self.viewer.rows_layout.activate()
-                self.viewer.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
+                self.context.window.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
                 self.finish()
             elif time.monotonic() > self.deadline:
                 self.finish("Local fixture decoding timeout")
@@ -105,7 +108,8 @@ class Probe(api.Plugin):
             self.checks["error"] = error
         self.finishing = True
         if hasattr(self, "viewer"):
-            self.viewer.stop()
+            self.match.button.setChecked(False)
+            assert not self.viewer.running and self.viewer.isHidden()
         self.deadline = time.monotonic() + 5
 
     def write(self, error=None):

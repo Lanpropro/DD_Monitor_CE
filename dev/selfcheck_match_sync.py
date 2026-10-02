@@ -13,9 +13,9 @@ sys.path.insert(0, str(REPO))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QBuffer, QIODevice  # noqa: E402
-from PySide6.QtGui import QColor, QImage  # noqa: E402
-from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
+from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
 from plugins_user._match_sync.engine import (Alignment, AudioRing, History,
@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.0"
+        assert manager.catalog()[0]["version"] == "0.1.1"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -279,10 +279,62 @@ def package_and_ui_checks(app):
     print("PASS: ZIP install, disk helper imports, optional menu, labelled delayed chat, main choice, controls and cleanup")
 
 
+def embedded_checks(app):
+    from plugins_user._match_sync.plugin import MatchSyncPlugin
+    module = sys.modules[MatchSyncPlugin.__module__ + ".viewer"]
+    from ddm.widgets import ROOM_MIME
+    host = QMainWindow()
+    host._content = QWidget()
+    host.setCentralWidget(host._content)
+    host.settings = {}
+    host.players = {}
+    host.rooms = [{"room_id": "42", "uname": "关注主播"}]
+    host.resize(1200, 900)
+    manager = plugins.PluginManager(window=host)
+    context = plugins.PluginContext(manager, "match_sync_embedded_test")
+    plugin = MatchSyncPlugin()
+    plugin.on_load(context)
+    assert plugin.button is not None and not plugin.tile_actions(FakeTile("42"))
+    with patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
+            patch.object(module.AudioPump, "start", lambda self: None):
+        host.show()
+        plugin.button.trigger()
+        viewer = plugin.viewer
+        app.processEvents()
+        assert viewer.embedded and viewer.parentWidget() is host._content
+        assert not viewer.isWindow() and not viewer.running
+        assert all(widget.isHidden() for widget in viewer.add_controls)
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, b"42")
+        enter = QDragEnterEvent(QPoint(100, 100), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        app.sendEvent(viewer, enter)
+        assert enter.isAccepted()
+        drop = QDropEvent(QPointF(100, 100), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        app.sendEvent(viewer, drop)
+        assert drop.isAccepted() and viewer.running and viewer.rows["42"].label() == "关注主播"
+        worker = viewer.rows["42"].decoder
+        host.resize(1400, 950)
+        app.processEvents()
+        assert viewer.geometry() == host._content.rect()
+        plugin.button.trigger()
+        assert viewer.isHidden() and not viewer.running and worker.stopped
+        assert host.centralWidget() is host._content
+        plugin.button.trigger()
+        assert viewer.running and not viewer.isHidden()
+        viewer.close()
+        assert not plugin.button.isChecked() and not viewer.running
+        plugin.on_unload()
+        assert plugin.toolbar is None
+    host.close()
+    app.processEvents()
+    print("PASS: independent button, embedded view, sidebar MIME drop, automatic start, resizing and original view restoration")
+
+
 def main():
     app = QApplication.instance() or QApplication(sys.argv)
     engine_checks()
     package_and_ui_checks(app)
+    embedded_checks(app)
     if "--audio-device" in sys.argv:
         from plugins_user._match_sync.viewer import Viewer
         host = QWidget()
