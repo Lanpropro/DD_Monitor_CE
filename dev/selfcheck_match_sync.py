@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.2"
+        assert manager.catalog()[0]["version"] == "0.1.3"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -227,6 +227,16 @@ def package_and_ui_checks(app):
             viewer.audio.anchor = 100
             viewer.audio.fill()
             assert set(array("h", viewer.audio.device.data)) == {3500}, "Audio must use the same per-room delayed timeline as video and chat"
+            row_a.channel.setCurrentIndex(row_a.channel.findData(3))
+            row_b.channel.setCurrentIndex(row_b.channel.findData(4))
+            viewer.audio.sink.free = 480 * 4
+            viewer.audio.device.data = b""
+            viewer.audio.written = 0
+            viewer.audio.fill()
+            routed = array("h", viewer.audio.device.data)
+            assert set(routed[::2]) == {1000} and set(routed[1::2]) == {2500}
+            row_a.channel.setCurrentIndex(0)
+            row_b.channel.setCurrentIndex(0)
             row_a.pending.append((96, {"uname": "A", "text": "甲延后"}))
             row_b.pending.append((96, {"uname": "B", "text": "乙即时"}))
             viewer.render()
@@ -243,6 +253,21 @@ def package_and_ui_checks(app):
             assert not row_b.pending
             viewer.main.setCurrentIndex(viewer.main.findData("2"))
             assert viewer.alignment.reference == "2"
+            assert viewer.picture.room["room_id"] == "2"
+            viewer.picture.set_volume(65)
+            assert row_b.volume.value() == 65
+            viewer.picture.set_muted(True)
+            assert not row_b.audible.isChecked()
+            viewer.picture.set_muted(False)
+            viewer.picture.set_audio_channel(3)
+            assert row_b.channel.currentData() == 3
+            viewer.picture.pause_button.click()
+            assert row_b.paused
+            viewer.picture.pause_button.click()
+            assert not row_b.paused
+            previous_decoder = row_b.decoder
+            viewer.picture.set_quality(80)
+            assert previous_decoder.stopped and row_b.decoder.seed["quality"] == 80
             assert not hasattr(row_a, "chat_delay")
             row_a.delay.setValue(0)
             row_a.decrease.click()
@@ -257,6 +282,11 @@ def package_and_ui_checks(app):
             viewer.save()
             saved = manager.plugin_settings["match_sync"]
             assert saved["main_room"] == "2" and "chat_delay" not in saved["rooms"][0]
+            reopened = module.Viewer(plugin.context, plugin.sources)
+            assert not reopened.rows and reopened.main.count() == 0, "Restart must not rejoin previous rooms"
+            reopened.add_room("99", {"alias": "新加入主播"})
+            assert list(reopened.rows) == ["99"] and reopened.main.currentData() == "99"
+            reopened.close()
             # Large bursts remain queued instead of disappearing after a UI budget.
             row_a.pending.extend((95, {"uname": "A", "text": str(i)}) for i in range(210))
             before = len(row_a.pending)
@@ -296,6 +326,8 @@ def embedded_checks(app):
     host = QMainWindow()
     host._content = QWidget()
     host.setCentralWidget(host._content)
+    host.wall = QWidget(host._content)
+    host.wall.show()
     host.settings = {}
     host.players = {}
     host.sidebar = QWidget()
@@ -316,6 +348,9 @@ def embedded_checks(app):
         viewer = plugin.viewer
         app.processEvents()
         assert viewer.embedded and viewer.parentWidget() is host._content
+        assert host.wall.isHidden(), "Native host video must not cover the synced picture"
+        host.wall.show()
+        assert host.wall.isHidden(), "Host refresh must not expose native video during match mode"
         assert not viewer.isWindow() and not viewer.running
         assert all(widget.isHidden() for widget in viewer.add_controls)
         mime = QMimeData()
@@ -333,17 +368,15 @@ def embedded_checks(app):
         app.sendEvent(viewer.panel, drop)
         assert "43" in viewer.rows and viewer.rows["43"].decoder is not None
         assert not viewer.panel.body.acceptDrops() and not viewer.panel.body.viewport().acceptDrops()
-        assert not viewer.controls.isVisible()
-        assert viewer.layout().indexOf(viewer.controls) == -1
+        assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.controls
+        assert not hasattr(viewer, "start_button") and not hasattr(viewer, "controls_button")
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
         before = viewer.canvas.geometry()
-        viewer.toggle_controls()
         app.processEvents()
         assert viewer.controls.isVisible() and len(viewer.rows) == 9
         assert viewer.canvas.geometry() == before
-        viewer.toggle_controls()
-        assert not viewer.controls.isVisible()
+        assert viewer.controls.height() <= 240 and not viewer.controls.isWindow()
         assert all("42" not in viewer.main.itemText(i) for i in range(viewer.main.count()))
         worker = viewer.rows["42"].decoder
         host.resize(1400, 950)
@@ -351,8 +384,13 @@ def embedded_checks(app):
         assert viewer.geometry() == host._content.rect()
         plugin.button.trigger()
         assert viewer.isHidden() and not viewer.running and worker.stopped
+        assert not host.wall.isHidden()
         assert host.centralWidget() is host._content
         plugin.button.trigger()
+        viewer.rows["42"].paused = True
+        plugin.button.trigger()
+        plugin.button.trigger()
+        assert not viewer.rows["42"].paused
         assert viewer.running and not viewer.isHidden()
         viewer.close()
         assert not plugin.button.isChecked() and not viewer.running

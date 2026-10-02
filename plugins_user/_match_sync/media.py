@@ -46,11 +46,12 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
     return signature, texture / 128
 
 
-def decode_command(executable: str, url: str, headers: dict, port: int) -> list[str]:
+def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250) -> list[str]:
+    width, height = (1920, 1080) if quality >= 400 else (1280, 720)
     return ([executable, "-nostdin", "-readrate", "1", "-threads", "2"]
             + recording.input_args(url, headers)
             + ["-map", "0:v:0", "-an", "-vf",
-               f"setpts=PTS-STARTPTS,fps={FPS},scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+               f"setpts=PTS-STARTPTS,fps={FPS},scale=w='min({width},iw)':h='min({height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
                "-threads", "2", "-c:v", "mjpeg", "-q:v", "5",
                "-pix_fmt", "yuvj420p", "-f", "image2pipe", "-flush_packets", "1", "pipe:1",
                "-map", "0:a:0", "-vn", "-af",
@@ -63,6 +64,8 @@ class Decoder:
     def __init__(self, room_id: str, seed: dict | None = None):
         self.room_id = room_id
         self.seed = seed or {}
+        self.source_url = ""
+        self.source_headers = {}
         self.events = Events()
         self.history = History()
         self.crop = (0.0, 0.0, 1.0, 1.0)
@@ -96,7 +99,9 @@ class Decoder:
 
     def _resolve(self, attempt: int) -> tuple[str, dict]:
         if attempt == 0 and self.seed.get("url"):
-            self.events.information.emit({"uname": self.seed.get("uname") or self.room_id})
+            self.source_url = self.seed["url"]
+            self.source_headers = dict(self.seed.get("headers") or {})
+            self.events.information.emit({"uname": self.seed.get("uname") or "未命名主播"})
             return self.seed["url"], dict(self.seed.get("headers") or {})
         info = bili.room_info(self.room_id)
         if self.cancelled.is_set():
@@ -104,7 +109,8 @@ class Decoder:
         if info:
             self.events.information.emit(info)
         url, _quality, _profile, headers = bili.play_url(
-            self.room_id, 250, cancelled=self.cancelled.is_set, source_offset=attempt)
+            self.room_id, self.seed.get("quality", 250), cancelled=self.cancelled.is_set, source_offset=attempt)
+        self.source_url, self.source_headers = url, headers
         return url, headers
 
     def _run(self) -> None:
@@ -142,7 +148,7 @@ class Decoder:
         process = None
         try:
             process = subprocess.Popen(
-                decode_command(executable, url, headers, listener.getsockname()[1]),
+                decode_command(executable, url, headers, listener.getsockname()[1], self.seed.get("quality", 250)),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
                 creationflags=recording._FFMPEG_FLAGS)
             recording._adopt_process(process)

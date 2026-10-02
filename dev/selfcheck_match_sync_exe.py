@@ -88,8 +88,19 @@ class Probe(api.Plugin):
                 elif time.monotonic() > self.deadline:
                     self.write("Decoder cleanup timeout")
                 return
-            worker = self.workers[0]
+            worker = self.viewer.rows["1"].decoder
             if len(worker.history.snapshots()) >= 7 and worker.history.audio.end > 48000 * 2:
+                if getattr(self, "reopening", False):
+                    assert self.viewer.canvas.frame_key is not None
+                    self.viewer.picture.pause_button.click()
+                    assert self.viewer.rows["1"].paused
+                    self.viewer.picture.pause_button.click()
+                    assert not self.viewer.rows["1"].paused
+                    self.viewer.render()
+                    assert self.viewer.canvas.frame_key is not None
+                    self.checks["reopened"] = True
+                    self.finish()
+                    return
                 self.checks["local_media"] = True
                 self.checks["rendered"] = self.viewer.canvas.frame_key is not None
                 self.viewer.add_room("2", {"alias": "合成二路", "delay": 1.5})
@@ -105,12 +116,22 @@ class Probe(api.Plugin):
                 assert row.delay.value() == 0
                 assert not hasattr(row, "chat_delay") and row.color_choice.count() == 6
                 assert self.match.entry.parentWidget() is self.context.window.sidebar.tool_row
-                self.viewer.controls.setAttribute(Qt.WA_DontShowOnScreen, True)
-                self.viewer.toggle_controls()
-                assert self.viewer.controls.isVisible()
+                assert self.viewer.controls.isVisible() and not self.viewer.controls.isWindow()
+                assert not hasattr(self.viewer, "start_button")
+                row.channel.setCurrentIndex(row.channel.findData(3))
+                assert row.channel.currentData() == 3
+                row.channel.setCurrentIndex(row.channel.findData(4))
+                assert row.channel.currentData() == 4
                 self.viewer.controls.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
                 self.checks["ui_controls"] = True
-                self.finish()
+                self.viewer.picture.pause_button.click()
+                assert row.paused
+                self.match.button.setChecked(False)
+                self.match.button.setChecked(True)
+                assert not row.paused and row.decoder is not worker
+                self.workers.extend(r.decoder for r in self.viewer.rows.values())
+                self.reopening = True
+                self.deadline = time.monotonic() + 18
             elif time.monotonic() > self.deadline:
                 self.finish("Local fixture decoding timeout")
         except Exception:
@@ -182,10 +203,11 @@ def main():
             raise AssertionError("Frozen EXE test did not finish")
         assert result.is_file(), f"EXE produced no probe result (exit {process.returncode})"
         checks = json.loads(result.read_text(encoding="utf-8"))
-        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls"]
+        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls", "reopened"]
         if args.audio_device:
             required.append("audio_device")
-        assert process.returncode == 0 and all(checks.get(key) for key in required) and "error" not in checks, checks
+        assert process.returncode == 0 and all(checks.get(key) for key in required) and "error" not in checks, {
+            **checks, "exit_code": process.returncode, "stderr_tail": process.stderr[-1500:]}
         print("PASS: existing v0.2 EXE loads disk plugin helpers and Qt audio module, decodes local video/PCM, renders and cleans workers")
         if args.audio_device:
             print("PASS: frozen Qt audio output consumes silent mixed PCM and advances the common playback clock")

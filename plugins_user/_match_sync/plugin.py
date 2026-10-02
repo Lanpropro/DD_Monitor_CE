@@ -41,7 +41,8 @@ class MatchSyncPlugin(api.Plugin):
             source = payload["source"]
             if source.platform == "bilibili" and str(source.room_id).isdigit():
                 self.sources[str(source.room_id)] = {
-                    "url": source.url, "headers": dict(source.headers), "uname": source.uname}
+                    "url": source.url, "headers": dict(source.headers), "uname": source.uname,
+                    "quality": source.quality or 250}
         elif event == api.EVENT_CLOSING:
             self.on_unload()
 
