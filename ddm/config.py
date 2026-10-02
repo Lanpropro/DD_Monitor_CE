@@ -4,6 +4,7 @@
 写在仓库的 utils/config.json。新用户第一次打开时是空的，房间靠自己添加。
 """
 import io
+from copy import deepcopy
 import json
 import os
 import shutil
@@ -123,6 +124,55 @@ def save(state: dict) -> None:
             handle.write(json.dumps(state, ensure_ascii=False, indent=2))
     except Exception as error:  # noqa: BLE001
         print(f"配置写入失败: {error}")
+
+
+def sync_platform_rooms(state: dict, active_platforms: set[str]) -> dict:
+    """未启用的平台房间移入暂存；启用后恢复，已占用的格子不覆盖。"""
+    state = deepcopy(state)
+    storage = state.setdefault("suspended_platform_rooms", {})
+    fields = ("rooms", "pinned", "import_order", "custom_order")
+    metadata = state.setdefault("platform_rooms", {})
+    wall = state.setdefault("wall", [])
+    restored = [storage.pop(kind) for kind in list(storage) if kind in active_platforms]
+    for saved in restored:
+        metadata.update(saved.get("platform_rooms", {}))
+    for key in fields:
+        values = state.setdefault(key, [])
+        records = [record for saved in restored for record in saved.get(key, [])]
+        for record in sorted(records, key=lambda record: record["index"]):
+            if record["room_id"] not in values:
+                values.insert(min(record["index"], len(values)), record["room_id"])
+    for saved in restored:
+        for record in saved.get("wall", []):
+            index, slot = record["index"], record["slot"]
+            while index >= len(wall):
+                wall.append({"room_id": ""})
+            if not wall[index].get("room_id"):
+                wall[index] = slot
+            elif slot["room_id"] not in state["rooms"]:
+                state["rooms"].append(slot["room_id"])
+
+    def suspended(room_id):
+        return ":" in room_id and room_id.split(":", 1)[0] not in active_platforms
+
+    for key in fields:
+        values = state.get(key, [])
+        for index, room_id in enumerate(values):
+            if suspended(room_id):
+                saved = storage.setdefault(room_id.split(":", 1)[0], {})
+                saved.setdefault(key, []).append({"index": index, "room_id": room_id})
+        state[key] = [room_id for room_id in values if not suspended(room_id)]
+    for index, slot in enumerate(wall):
+        room_id = str(slot.get("room_id") or "")
+        if suspended(room_id):
+            saved = storage.setdefault(room_id.split(":", 1)[0], {})
+            saved.setdefault("wall", []).append({"index": index, "slot": slot})
+            wall[index] = dict(slot, room_id="")
+    for room_id in list(metadata):
+        if suspended(room_id):
+            saved = storage.setdefault(room_id.split(":", 1)[0], {})
+            saved.setdefault("platform_rooms", {})[room_id] = metadata.pop(room_id)
+    return state
 
 
 def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:

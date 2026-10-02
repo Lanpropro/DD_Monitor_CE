@@ -266,12 +266,11 @@ def main():
             saved["plugins_enabled"] = []
             disabled = MainWindow(sidebar, wall, state=saved)
             try:
-                tile = next(t for t in disabled.wall.tiles if t.room.get("room_id"))
-                disabled.start_tile(tile)
-                assert "启用" in tile._status_text
+                assert not disabled.sidebar.rooms()
+                assert all(not tile.room.get("room_id") for tile in disabled.wall.tiles)
                 assert not disabled._resolvers_running
-                disabled.remove_room(disabled.sidebar.rooms()[0])
                 assert disabled.current_state()["platform_rooms"] == {}
+                assert disabled.current_state()["suspended_platform_rooms"]["huya"]["rooms"]
             finally:
                 disabled.close()
             print("PASS: dialog/drop-to-tile flow, no browser/Bili, save/restart, migration, disable")

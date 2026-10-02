@@ -290,6 +290,7 @@ class MainWindow(QMainWindow):
         self.plugins._save_settings = lambda: config_module.save(self.current_state())
         plugin_api.set_manager(self.plugins)
         self.plugins.load()
+        self._sync_platform_rooms()
         # 旧版虎牙网页卡片升级为格子播放；保留原关注、排序和置顶。
         for room in self.sidebar.rooms() + [tile.room for tile in self.wall.tiles]:
             platform = self.plugins.platform_for(str(room.get("room_id") or ""))
@@ -528,6 +529,7 @@ class MainWindow(QMainWindow):
         self.shortcuts = dialog.shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
+        self._sync_platform_rooms()
         self.state["settings"] = dict(self.settings)
         self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
         self._poll_timer.setInterval(self.poll_interval_ms())
@@ -551,9 +553,45 @@ class MainWindow(QMainWindow):
             self.close()
         return True
 
+    def _sync_platform_rooms(self) -> None:
+        active = {kind for kind, owner in self.plugins._platform_owner.items()
+                  if owner not in self.plugins._removed and
+                  (self.plugins.enabled is None or owner in self.plugins.enabled)}
+        saved = config_module.sync_platform_rooms(self.current_state(), active)
+        self.state["suspended_platform_rooms"] = saved["suspended_platform_rooms"]
+        rooms, wall = config_module.build_rooms(saved)
+        followed = {room["room_id"] for room in rooms}
+        for room in self.sidebar.rooms():
+            if room["room_id"] not in followed:
+                self.sidebar.remove_room(room)
+        for room in rooms:
+            if not any(item["room_id"] == room["room_id"] for item in self.sidebar.rooms()):
+                self.sidebar.add_room(room)
+        for key in ("import_order", "custom_order"):
+            getattr(self.sidebar, "set_" + key)(saved[key])
+        self.sidebar.apply_pins(saved["pinned"])
+        for index, room in enumerate(wall):
+            if index >= len(self.wall.tiles):
+                self.wall.add_room(room)
+                continue
+            tile = self.wall.tiles[index]
+            if str(tile.room.get("room_id") or "") == str(room.get("room_id") or ""):
+                continue
+            if tile is self._fullscreen_tile:
+                self._exit_fullscreen()
+            self.recorder.stop(tile)
+            self._pending_capture.pop(tile, None)
+            self._stop_tile(tile)
+            tile.set_volume(room["volume"])
+            tile.set_muted(room["muted"])
+            tile.set_audio_channel(room["audio_channel"])
+            tile.set_room(room)
+        self._refresh_meta()
+
     def current_state(self) -> dict:
         return {
             "version": config_module.STATE_VERSION,
+            "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
             "sessdata": bili.SESSION_DATA,
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
             "platform_rooms": {

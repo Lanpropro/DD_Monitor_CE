@@ -64,6 +64,7 @@ def main():
         assert not item.thumb._face_source.isNull() and not item.thumb._cover_source.isNull()
         assert item.platform_badge.text() == "" and item.platform_badge.toolTip() == "虎牙"
         assert not item.platform_badge.pixmap().isNull()
+        assert item.platform_badge.isHidden(), "单平台关注栏不显示平台图标"
         target = window.wall.tiles[1]
         mime = QMimeData()
         mime.setData(ROOM_MIME, room_id.encode())
@@ -127,6 +128,15 @@ def main():
         wait_for(app, lambda: tile in restored.players and stats(restored.players[tile]).decoded_video > 30)
         assert restored.players[tile].muted
         print("PASS: restored follow card and wall slot resume real playback", flush=True)
+        active_player = restored.players[tile]
+        active_relay = active_player._relay
+        restored.plugins.enabled = set()
+        restored._sync_platform_rooms()
+        assert not restored.sidebar.rooms() and not tile.room.get("room_id")
+        assert active_player._released and active_relay._process.poll() is not None
+        assert not active_relay._thread.is_alive()
+        assert restored.current_state()["suspended_platform_rooms"]["huya"]["rooms"]
+        print("PASS: disabling platform suspends rooms and stops real VLC/FFmpeg playback", flush=True)
     finally:
         restored.close()
         app.processEvents()

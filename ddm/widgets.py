@@ -1588,12 +1588,13 @@ class NavThumb(QFrame):
         parent = self.face if compact else self
         if platform.parentWidget() is not parent:
             platform.setParent(parent)
-            platform.setVisible(not self.video.isVisible())
+            platform.setVisible(not self.video.isVisible() and
+                                platform.property("showPlatform") is not False)
         platform.setFixedSize(14 if compact else 24, 14 if compact else 22)
         platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
         if compact:
             platform.move(0, max(0, self.face.height() - platform.height()))
-            platform.show()
+            platform.setVisible(platform.property("showPlatform") is not False)
             platform.raise_()
             return
         width, height = self._size
@@ -1618,7 +1619,8 @@ class NavThumb(QFrame):
         badge_y = (height - 24) if self._card_mode else (second_y + 1)
         name.setGeometry(text_left, name_y,
                          max(0, width - text_left - right -
-                             (platform.width() + 6 if not self._card_mode else 0)), 20)
+                             (platform.width() + 6 if not self._card_mode and
+                              platform.property("showPlatform") is not False else 0)), 20)
         badge.adjustSize()
         badge_width = badge.width()
         badge.move(max(text_left, width - badge_width - right), badge_y)
@@ -1821,7 +1823,9 @@ class NavThumb(QFrame):
             return
         for widget in self._overlay_widgets:
             widget.setVisible(bool(visible) and (not self._compact or widget is self._overlay_widgets[3])
-                              and (not self._portrait_strip or widget is not self._overlay_widgets[2]))
+                              and (not self._portrait_strip or widget is not self._overlay_widgets[2])
+                              and (widget is not self._overlay_widgets[3] or
+                                   widget.property("showPlatform") is not False))
 
     def set_portrait_strip(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -2092,7 +2096,8 @@ class NavItem(QFrame):
                            NAV_ITEM_HEIGHT if self._card_mode else NAV_LIST_ITEM_HEIGHT)
         self.setFixedHeight(NAV_COMPACT_ITEM_HEIGHT if compact else expanded_height)
         for widget in (self.name_label, self.sub, self.badge, self.platform_badge):
-            widget.setVisible(not compact)
+            widget.setVisible(not compact and (widget is not self.platform_badge or
+                              self.platform_badge.property("showPlatform") is not False))
         self.thumb.set_thumb_size(compact)
         if not compact and self._portrait_strip:
             self.thumb._layout_overlay()
@@ -3219,6 +3224,7 @@ class Sidebar(QFrame):
         self._bar_row: QWidget | None = None
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
+        self._sync_count()
 
     # ---- 账号 ----
     def set_layout_name(self, layout_id: str) -> None:
@@ -4505,6 +4511,13 @@ class Sidebar(QFrame):
         self.pinChanged.emit(list(self.pinned))
 
     def _sync_count(self) -> None:
+        platforms = {str(item.room.get("room_id", "")).split(":", 1)[0]
+                     if ":" in str(item.room.get("room_id", "")) else "bilibili"
+                     for item in self._items}
+        for item in self._items:
+            item.platform_badge.setProperty("showPlatform", len(platforms) > 1)
+            item.platform_badge.setVisible(len(platforms) > 1 and not item.thumb.video.isVisible())
+            item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
             # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了
