@@ -7,11 +7,11 @@ import time
 from collections import deque
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
-from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
-    QDialogButtonBox, QDoubleSpinBox, QFrame, QGraphicsBlurEffect, QGraphicsScene,
+from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
+    QDialogButtonBox, QDoubleSpinBox, QFrame,
     QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
@@ -185,18 +185,9 @@ class Results(QObject):
     matched = Signal(int, dict)
 
 
-class SettingsPanel(QDialog):
+class SettingsPanel(QWidget):
     def __init__(self, viewer):
-        super().__init__(viewer, Qt.Widget)
-        self.viewer = viewer
-        self.drag_origin = None
-        self.drag_offset = QPoint()
-        self.docked_height = 220
-        self.backdrop = QImage()
-        self.backdrop_timer = QTimer(self)
-        self.backdrop_timer.setInterval(250)
-        self.backdrop_timer.timeout.connect(self.refresh_backdrop)
-        self.blur_scene = QGraphicsScene(self)
+        super().__init__(viewer)
         self.setObjectName("MatchSyncSettings")
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumHeight(130)
@@ -219,134 +210,16 @@ class SettingsPanel(QDialog):
                 background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT};
             }}
         """)
-        self.drag_handle = QLabel("⋮⋮ 拖动悬浮")
-        self.drag_handle.setCursor(Qt.SizeAllCursor)
-        self.drag_handle.setToolTip("拖动此处将设置栏移出；悬浮后点击「放回下方」恢复。")
-        self.drag_handle.installEventFilter(self)
-        self.dock_button = QPushButton("放回下方")
-        self.dock_button.setFixedWidth(100)
-        self.dock_button.clicked.connect(self.dock)
-        self.dock_button.hide()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         path = QPainterPath()
         path.addRoundedRect(QRectF(self.rect()), theme.RADIUS_LG, theme.RADIUS_LG)
-        painter.setClipPath(path)
-        if not self.backdrop.isNull():
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            painter.drawImage(self.rect(), self.backdrop)
         tint = QLinearGradient(0, 0, 0, self.height())
-        tint.setColorAt(0, QColor(48, 53, 62, 195 if not self.backdrop.isNull() else 238))
-        tint.setColorAt(1, QColor(29, 33, 40, 220 if not self.backdrop.isNull() else 245))
+        tint.setColorAt(0, QColor(48, 53, 62, 238))
+        tint.setColorAt(1, QColor(29, 33, 40, 245))
         painter.fillPath(path, tint)
-
-    def refresh_backdrop(self):
-        if not self.isWindow() or not self.isVisible():
-            return
-        picture = self.viewer.picture_split
-        origin = picture.mapFromGlobal(self.mapToGlobal(QPoint()))
-        overlap = QRect(origin, self.size()).intersected(picture.rect())
-        if overlap.isEmpty():
-            self.backdrop = QImage()
-            self.update()
-            return
-        # Sample only this plugin's picture/chat widgets, at quarter resolution.
-        size = self.size() / 4
-        sampled = QImage(size, QImage.Format_ARGB32_Premultiplied)
-        sampled.fill(Qt.transparent)
-        painter = QPainter(sampled)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        painter.drawImage(QRectF((overlap.x() - origin.x()) / 4,
-                                 (overlap.y() - origin.y()) / 4,
-                                 overlap.width() / 4, overlap.height() / 4),
-                          picture.grab(overlap).toImage())
-        painter.end()
-        self.blur_scene.setSceneRect(QRectF(sampled.rect()))
-        item = self.blur_scene.addPixmap(QPixmap.fromImage(sampled))
-        blur = QGraphicsBlurEffect()
-        blur.setBlurRadius(6)
-        item.setGraphicsEffect(blur)
-        blurred = QImage(size, QImage.Format_ARGB32_Premultiplied)
-        blurred.fill(Qt.transparent)
-        painter = QPainter(blurred)
-        self.blur_scene.render(painter)
-        painter.end()
-        self.blur_scene.clear()
-        self.backdrop = blurred
-        self.update()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        if self.isWindow():
-            self.backdrop_timer.start()
-
-    def hideEvent(self, event):
-        self.backdrop_timer.stop()
-        self.backdrop = QImage()
-        super().hideEvent(event)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.isWindow():
-            self.backdrop = QImage()
-
-    def detach(self):
-        if self.isWindow():
-            return
-        position, size = self.mapToGlobal(QPoint()), self.size()
-        self.docked_height = self.height()
-        self.setParent(self.viewer, Qt.Tool | Qt.FramelessWindowHint)
-        self.setMaximumHeight(16777215)
-        self.setSizeGripEnabled(True)
-        self.dock_button.show()
-        self.resize(size)
-        self.move(position)
-        self.show()
-        self.raise_()
-
-    def dock(self):
-        if not self.isWindow():
-            return
-        self.drag_handle.releaseMouse()
-        self.drag_origin = None
-        self.hide()
-        self.setParent(self.viewer.body_split, Qt.Widget)
-        self.setSizeGripEnabled(False)
-        self.dock_button.hide()
-        self.setMaximumHeight(240)
-        self.viewer.body_split.addWidget(self)
-        self.viewer.body_split.setSizes([
-            max(1, self.viewer.body_split.height() - self.docked_height), self.docked_height])
-        self.setVisible(self.viewer.isVisible())
-
-    def eventFilter(self, watched, event):
-        if watched is self.drag_handle:
-            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                self.drag_origin = event.globalPosition().toPoint()
-                self.drag_offset = self.drag_origin - self.mapToGlobal(QPoint())
-                return True
-            if event.type() == QEvent.MouseMove and self.drag_origin is not None:
-                position = event.globalPosition().toPoint()
-                if (position - self.drag_origin).manhattanLength() >= QApplication.startDragDistance():
-                    if not self.isWindow():
-                        self.detach()
-                        self.drag_handle.grabMouse()
-                    self.move(position - self.drag_offset)
-                return True
-            if event.type() == QEvent.MouseButtonRelease:
-                self.drag_handle.releaseMouse()
-                self.drag_origin = None
-                return True
-        return super().eventFilter(watched, event)
-
-    def reject(self):
-        self.dock()
-
-    def closeEvent(self, event):
-        event.ignore()
-        self.dock()
 
 
 class RoomRow(QFrame):
@@ -412,13 +285,14 @@ class RoomRow(QFrame):
         remove.setFixedWidth(52)
         remove.clicked.connect(lambda: viewer.remove_room(room_id))
         self.control_widgets = (self.alias, self.audible, self.volume, self.channel,
-                                self.show_chat, QLabel("偏移"), self.decrease, self.delay,
-                                self.increase, self.color_choice, region, remove)
+                                self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
+                                self.delay, self.increase, region, remove)
         controls = QHBoxLayout()
         controls.setSpacing(6)
-        for widget in self.control_widgets:
+        for index, widget in enumerate(self.control_widgets):
+            if index in (4, 6, 11):
+                controls.addStretch()
             controls.addWidget(widget)
-        controls.addStretch()
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout = QVBoxLayout(self)
@@ -507,13 +381,31 @@ class Viewer(QDialog):
         use_current.clicked.connect(self.import_current)
         self.add_controls = (self.input, add, use_current)
         self.settings_panel = SettingsPanel(self)
+        self.settings_height = 220
+        self.minimize_settings = QPushButton("最小化")
+        self.minimize_settings.setFixedWidth(68)
+        self.minimize_settings.setToolTip("收起设置栏，保留画面、声音和弹幕播放。")
+        self.minimize_settings.clicked.connect(lambda: self.set_settings_visible(False))
+        self.restore_settings = QPushButton("展开设置")
+        self.restore_settings.setFixedWidth(90)
+        self.restore_settings.setStyleSheet(f"""
+            QPushButton {{ background: rgba(58, 63, 71, 170); color: {theme.TEXT1};
+                border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_MD}px;
+                padding: 4px 6px; }}
+            QPushButton:hover {{ background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT}; }}
+        """)
+        self.restore_settings.clicked.connect(lambda: self.set_settings_visible(True))
+        self.restore_settings.hide()
         heading = QHBoxLayout()
         heading.setSpacing(6)
-        for widget in (self.settings_panel.drag_handle, QLabel("主画面"), self.main,
-                       self.automatic, self.input, add, use_current):
+        heading.addWidget(QLabel("主画面"))
+        heading.addWidget(self.main)
+        heading.addStretch()
+        heading.addWidget(self.automatic)
+        for widget in self.add_controls:
             heading.addWidget(widget)
         heading.addStretch()
-        heading.addWidget(self.settings_panel.dock_button)
+        heading.addWidget(self.minimize_settings)
         self.picture = Tile({})
         self.canvas = Canvas(self.picture.video)
         video_layout = QVBoxLayout(self.picture.video)
@@ -535,7 +427,7 @@ class Viewer(QDialog):
         self.panel.body.setAcceptDrops(False)
         self.panel.body.viewport().setAcceptDrops(False)
         self.panel.setMinimumWidth(260)
-        self.panel.set_placeholder("各路弹幕标注主播名称，随比赛画面同步显示")
+        self.panel.set_placeholder("各路弹幕保留粉丝牌，无牌用户显示来源主播的 0 级牌")
         settings = getattr(context.window, "settings", {})
         self.panel.apply_style(settings.get("danmaku_font", ""),
                                int(settings.get("danmaku_font_size") or 13))
@@ -575,11 +467,18 @@ class Viewer(QDialog):
         settings_layout.setSpacing(4)
         settings_layout.addLayout(heading)
         settings_layout.addWidget(self.controls, 1)
-        settings_layout.addWidget(self.notice)
-        settings_layout.addWidget(self.audio_status)
+        footer = QHBoxLayout()
+        footer.setSpacing(16)
+        footer.addWidget(self.notice, 1)
+        self.audio_status.setWordWrap(True)
+        self.audio_status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        footer.addWidget(self.audio_status, 1)
+        settings_layout.addLayout(footer)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
         layout.addWidget(self.body_split, 1)
+        layout.addWidget(self.restore_settings, 0, Qt.AlignRight)
         self.audio = AudioPump(self)
         self.audio.status.connect(self.audio_status.setText)
         self.render_timer = QTimer(self)
@@ -619,8 +518,6 @@ class Viewer(QDialog):
         return super().eventFilter(watched, event)
 
     def showEvent(self, event):
-        if self.settings_panel.isWindow():
-            self.settings_panel.show()
         if self.embedded and not self.hidden_host_widgets:
             host = self.context.window
             for widget in (getattr(host, "wall", None), getattr(host, "empty_hint", None)):
@@ -630,10 +527,15 @@ class Viewer(QDialog):
                     widget.hide()
         super().showEvent(event)
 
-    def hideEvent(self, event):
-        if self.settings_panel.isWindow():
-            self.settings_panel.hide()
-        super().hideEvent(event)
+    def set_settings_visible(self, visible):
+        if not visible:
+            self.settings_height = self.settings_panel.height()
+        self.settings_panel.setVisible(visible)
+        self.restore_settings.setVisible(not visible)
+        if visible:
+            self.layout().activate()
+            self.body_split.setSizes([
+                max(1, self.body_split.height() - self.settings_height), self.settings_height])
 
     def _restore_host_widgets(self):
         previous, self.hidden_host_widgets = self.hidden_host_widgets, {}
@@ -945,7 +847,8 @@ class Viewer(QDialog):
                 received, event = row.pending.popleft()
                 if clock - received > 120:
                     continue
-                event["uname"] = f"[{row.label()}] {event.get('uname') or ''}"
+                if not (event.get("medal") or {}).get("name"):
+                    event["medal"] = {"name": row.label(), "level": "0", "color": row.color}
                 event["color"] = row.color
                 eligible.append((received - shifts[room_id], event))
         for _due, event in sorted(eligible, key=lambda item: item[0]):
@@ -1047,7 +950,6 @@ class Viewer(QDialog):
         row.refresh_status()
 
     def stop(self):
-        self.settings_panel.dock()
         if self.fullscreen_dialog is not None:
             self.fullscreen_dialog.close()
         self._stop_recording()

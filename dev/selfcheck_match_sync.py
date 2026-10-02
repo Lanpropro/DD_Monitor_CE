@@ -13,8 +13,8 @@ sys.path.insert(0, str(REPO))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QMouseEvent, QPainter  # noqa: E402
+from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
@@ -180,7 +180,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.5"
+        assert manager.catalog()[0]["version"] == "0.1.6"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -237,17 +237,29 @@ def package_and_ui_checks(app):
             assert set(routed[::2]) == {1000} and set(routed[1::2]) == {2500}
             row_a.channel.setCurrentIndex(0)
             row_b.channel.setCurrentIndex(0)
-            row_a.pending.append((96, {"uname": "A", "text": "甲延后"}))
-            row_b.pending.append((96, {"uname": "B", "text": "乙即时"}))
+            original_medal = {"name": "原粉丝团", "level": 23, "color": "#fbbf24"}
+            unbadged = {"uname": "A", "text": "甲延后"}
+            badged = {"uname": "B", "text": "乙即时", "medal": original_medal}
+            with patch("plugins_user._match_sync.viewer.time.monotonic", return_value=96):
+                viewer._message(row_a, row_a.chat, unbadged)
+                viewer._message(row_b, row_b.chat, badged)
             viewer.render()
             assert viewer.canvas.frame_key == 95
-            assert viewer.panel._blocks[-1]["uname"] == "[主播乙] B"
+            entry = viewer.panel._blocks[-1]
+            assert entry["uname"] == "B" and entry["medal"] == original_medal
+            assert original_medal == {"name": "原粉丝团", "level": 23, "color": "#fbbf24"}
+            assert "原粉丝团|23|" in viewer.panel._block_html(entry)
+            assert "[主播乙]" not in viewer.panel._block_html(entry)
             assert len(row_a.pending) == 1
             assert host.players[participating].muted and not host.players[unrelated].muted
             assert participating.room["muted"] is False and participating.muted is False
             clock[0] = 104
             viewer.render()
-            assert viewer.panel._blocks[-1]["uname"] == "[主播甲] A"
+            entry = viewer.panel._blocks[-1]
+            assert entry["uname"] == "A"
+            assert entry["medal"] == {"name": "主播甲", "level": "0", "color": row_a.color}
+            assert "主播甲|0|" in viewer.panel._block_html(entry), "Zero must appear on the rendered badge"
+            assert "medal" not in unbadged, "Display badges must not change incoming events"
             row_b.show_chat.setChecked(False)
             viewer._message(row_b, row_b.chat, {"text": "hidden"})
             assert not row_b.pending
@@ -373,7 +385,7 @@ def embedded_checks(app):
         assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.settings_panel
         assert viewer.settings_panel.isAncestorOf(viewer.main)
         assert viewer.settings_panel.isAncestorOf(viewer.automatic)
-        assert viewer.layout().count() == 1, "The picture must have no top settings toolbar"
+        assert viewer.layout().itemAt(0).widget() is viewer.body_split, "The picture must have no top settings toolbar"
         assert viewer.controls.frameShape() == QFrame.NoFrame
         assert viewer.main.mapTo(viewer, QPoint()).y() >= viewer.picture_split.geometry().bottom()
         assert not hasattr(viewer, "start_button") and not hasattr(viewer, "controls_button")
@@ -381,7 +393,8 @@ def embedded_checks(app):
         app.processEvents()
         centers = [widget.geometry().center().y() for widget in row.control_widgets]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
-        assert row.control_widgets[-1].geometry().right() < 1000, "Pack controls instead of stretching buttons"
+        assert row.control_widgets[-1].width() == 52
+        assert row.width() - row.control_widgets[-1].geometry().right() <= 9, "Use the right edge for actions"
         assert row.channel.width() == 100 and row.color_choice.width() == 82
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
@@ -397,63 +410,40 @@ def embedded_checks(app):
         app.processEvents()
         assert viewer.geometry() == host._content.rect()
         panel = viewer.settings_panel
-        origin = panel.mapToGlobal(QPoint())
-        handle = panel.drag_handle
-        local = QPointF(handle.rect().center())
-        start = QPointF(handle.mapToGlobal(local.toPoint()))
-        end = start + QPointF(80, 40)
-        for event_type, position, global_position, button, buttons in (
-                (QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton),
-                (QEvent.MouseMove, local + QPointF(80, 40), end, Qt.NoButton, Qt.LeftButton),
-                (QEvent.MouseMove, local + QPointF(110, 55), end + QPointF(30, 15), Qt.NoButton, Qt.LeftButton),
-                (QEvent.MouseButtonRelease, local, end + QPointF(30, 15), Qt.LeftButton, Qt.NoButton)):
-            app.sendEvent(handle, QMouseEvent(event_type, position, global_position,
-                                            button, buttons, Qt.NoModifier))
-        app.processEvents()
-        assert panel.isWindow() and panel.windowFlags() & Qt.FramelessWindowHint
-        assert panel.pos() == origin + QPoint(110, 55), "Dragging must keep moving after detaching"
-        assert QWidget.mouseGrabber() is not handle, "Releasing the handle must release mouse capture"
-        assert viewer.body_split.count() == 1 and panel.dock_button.isVisible()
-        assert row.decoder is worker and viewer.running and not worker.stopped
-        viewer.main.setCurrentIndex(viewer.main.findData("43"))
-        assert viewer.picture.room["room_id"] == "43", "Floating controls must still operate the picture"
-        viewer.render_timer.stop()
-        panel.resize(600, 240)
-        app.processEvents()
-        stripes = QImage(viewer.canvas.size(), QImage.Format_RGB32)
-        stripes.fill(Qt.white)
-        painter = QPainter(stripes)
-        for x in range(0, stripes.width(), 16):
-            painter.fillRect(x, 0, 8, stripes.height(), Qt.black)
-        painter.end()
-        viewer.canvas.image = stripes
-        panel.move(viewer.canvas.mapToGlobal(QPoint(0, 40)))
-        panel.refresh_backdrop()
-        assert not panel.backdrop.isNull() and panel.backdrop_timer.isActive()
-        levels = [panel.backdrop.pixelColor(x, 20).red() for x in range(10, 130)]
-        assert min(levels) > 20 and max(levels) < 235, "Glass must soften sharp background stripes"
+        assert not panel.isWindow() and not hasattr(panel, "detach")
+        assert not hasattr(panel, "drag_handle") and not hasattr(panel, "backdrop_timer")
         rendered = panel.grab().toImage()
-        assert rendered.pixelColor(0, 0).alpha() == 0, "Rounded corners must remain transparent"
+        assert rendered.pixelColor(0, 0).alpha() == 0, "Preserve rounded transparent corners"
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
-        panel.move(viewer.mapToGlobal(QPoint(-panel.width() - 50, 0)))
-        panel.refresh_backdrop()
-        assert panel.backdrop.isNull(), "Outside the app, use the tinted material without screen capture"
-        panel.hide()
-        assert not panel.backdrop_timer.isActive()
-        panel.show()
-        assert panel.backdrop_timer.isActive()
-        panel.dock_button.click()
+        gaps = [row.control_widgets[i].x() - row.control_widgets[i - 1].geometry().right()
+                for i in (4, 6, 11)]
+        assert min(gaps) > 12, "Distribute functional groups across available width"
+        row.delay.setValue(1.7)
+        preferences = row.preferences()
+        height = panel.height()
+        picture_height = viewer.picture_split.height()
+        viewer.minimize_settings.click()
         app.processEvents()
-        assert not panel.isWindow() and viewer.body_split.widget(1) is panel
-        assert not panel.backdrop_timer.isActive() and panel.backdrop.isNull()
-        assert not panel.dock_button.isVisible() and not worker.stopped
-        panel.detach()
-        panel.reject()
-        assert not panel.isWindow(), "Escape should return settings to the bottom"
-        panel.detach()
+        assert panel.isHidden() and viewer.restore_settings.isVisible()
+        assert "border-radius:" in viewer.restore_settings.styleSheet()
+        assert viewer.picture_split.height() > picture_height, "Collapsed settings must free picture space"
+        assert viewer.restore_settings.geometry().right() >= viewer.width() - 2
+        assert viewer.restore_settings.geometry().bottom() >= viewer.height() - 2
+        assert row.decoder is worker and viewer.running and not worker.stopped
+        assert viewer.render_timer.isActive() and viewer.match_timer.isActive()
+        host.resize(1500, 1000)
+        app.processEvents()
+        viewer.restore_settings.click()
+        app.processEvents()
+        assert panel.isVisible() and viewer.restore_settings.isHidden()
+        assert abs(panel.height() - height) <= 1, (height, panel.height())
+        assert row.preferences() == preferences
+        viewer.main.setCurrentIndex(viewer.main.findData("43"))
+        assert viewer.picture.room["room_id"] == "43"
+        viewer.minimize_settings.click()
         plugin.button.trigger()
         assert viewer.isHidden() and not viewer.running and worker.stopped
-        assert not panel.isWindow() and not panel.isVisible(), "Closing match mode must leave no floating settings window"
+        assert not panel.isWindow() and not panel.isVisible(), "Closing match mode must leave settings hidden"
         assert not host.wall.isHidden()
         assert host.centralWidget() is host._content
         plugin.button.trigger()
@@ -462,6 +452,8 @@ def embedded_checks(app):
         plugin.button.trigger()
         assert not viewer.rows["42"].paused
         assert viewer.running and not viewer.isHidden()
+        assert panel.isHidden() and viewer.restore_settings.isVisible(), "Reopening preserves collapsed state"
+        viewer.restore_settings.click()
         assert panel.isVisible() and viewer.body_split.widget(1) is panel
         viewer.close()
         assert not plugin.button.isChecked() and not viewer.running
@@ -469,8 +461,8 @@ def embedded_checks(app):
         assert plugin.entry is None
     host.close()
     app.processEvents()
-    print("PASS: bottom compact controls, frameless drag/dock, scrolling, automatic start and view restoration")
-    print("PASS: rounded transparent corners, real backdrop blur, outside-app fallback and timer cleanup")
+    print("PASS: distributed compact controls, minimize/restore, scrolling, automatic start and view restoration")
+    print("PASS: rounded transparent corners, original fan medals and displayed zero-level source badges")
 
 
 def main():

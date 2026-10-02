@@ -107,8 +107,17 @@ class Probe(api.Plugin):
                 self.workers.append(self.viewer.rows["2"].decoder)
                 self.viewer.rows["2"].show()
                 self.viewer.rows_layout.activate()
-                self.context.window.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
                 row = self.viewer.rows["1"]
+                row.pending.append((time.monotonic() - 30, {"uname": "无牌观众", "text": "这波配合很漂亮"}))
+                medal = {"name": "原粉丝团", "level": 5, "color": "#fbbf24"}
+                row.pending.append((time.monotonic() - 30, {"uname": "有牌观众", "text": "保留原有粉丝牌", "medal": medal}))
+                self.viewer.render()
+                entries = self.viewer.panel._blocks[-2:]
+                assert entries[0]["uname"] == "无牌观众" and entries[0]["medal"]["level"] == "0"
+                assert "合成主画面|0|" in self.viewer.panel._block_html(entries[0])
+                assert entries[1]["uname"] == "有牌观众" and entries[1]["medal"] == medal
+                self.checks["chat_badges"] = True
+                self.context.window.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
                 row.delay.setValue(0)
                 row.decrease.click()
                 assert row.delay.value() == -0.1
@@ -121,7 +130,7 @@ class Probe(api.Plugin):
                 panel = self.viewer.settings_panel
                 assert self.viewer.body_split.widget(1) is panel
                 assert panel.isAncestorOf(self.viewer.main) and panel.isAncestorOf(self.viewer.automatic)
-                assert self.viewer.layout().count() == 1 and self.viewer.controls.frameShape() == QFrame.NoFrame
+                assert self.viewer.layout().itemAt(0).widget() is self.viewer.body_split and self.viewer.controls.frameShape() == QFrame.NoFrame
                 centers = [widget.geometry().center().y() for widget in row.control_widgets]
                 assert max(centers) - min(centers) <= 1
                 assert row.channel.width() == 100 and row.color_choice.width() == 82
@@ -130,27 +139,30 @@ class Probe(api.Plugin):
                 row.channel.setCurrentIndex(row.channel.findData(4))
                 assert row.channel.currentData() == 4
                 panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-controls-preview.png")))
-                panel.setAttribute(Qt.WA_DontShowOnScreen, True)
-                panel.detach()
-                assert panel.isWindow() and panel.windowFlags() & Qt.FramelessWindowHint
-                assert self.viewer.running and self.viewer.rows["1"].decoder is worker
-                panel.resize(1100, 240)
-                panel.move(self.viewer.canvas.mapToGlobal(self.viewer.canvas.rect().topLeft()))
-                panel.refresh_backdrop()
-                assert panel.testAttribute(Qt.WA_TranslucentBackground)
-                assert not panel.backdrop.isNull() and panel.backdrop_timer.isActive()
+                assert not panel.isWindow() and not hasattr(panel, "detach")
                 assert panel.grab().toImage().pixelColor(0, 0).alpha() == 0
-                panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-floating-preview.png")))
-                panel.dock_button.click()
-                assert not panel.isWindow() and self.viewer.body_split.widget(1) is panel
-                assert not panel.backdrop_timer.isActive() and panel.backdrop.isNull()
+                assert row.width() - row.control_widgets[-1].geometry().right() <= 9
+                height, picture_height = panel.height(), self.viewer.picture_split.height()
+                preferences = row.preferences()
+                self.viewer.minimize_settings.click()
+                QApplication.processEvents()
+                assert panel.isHidden() and self.viewer.restore_settings.isVisible()
+                assert self.viewer.picture_split.height() > picture_height
+                assert self.viewer.running and row.decoder is worker
+                self.context.window.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-minimized-preview.png")))
+                self.viewer.restore_settings.click()
+                QApplication.processEvents()
+                assert panel.isVisible() and self.viewer.restore_settings.isHidden()
+                assert abs(panel.height() - height) <= 1 and row.preferences() == preferences
                 self.checks["ui_controls"] = True
                 self.viewer.picture.pause_button.click()
                 assert row.paused
-                panel.detach()
+                self.viewer.minimize_settings.click()
                 self.match.button.setChecked(False)
                 assert not panel.isWindow() and not panel.isVisible()
                 self.match.button.setChecked(True)
+                assert panel.isHidden() and self.viewer.restore_settings.isVisible()
+                self.viewer.restore_settings.click()
                 assert panel.isVisible()
                 assert not row.paused and row.decoder is not worker
                 self.workers.extend(r.decoder for r in self.viewer.rows.values())
@@ -227,7 +239,7 @@ def main():
             raise AssertionError("Frozen EXE test did not finish")
         assert result.is_file(), f"EXE produced no probe result (exit {process.returncode})"
         checks = json.loads(result.read_text(encoding="utf-8"))
-        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls", "reopened"]
+        required = ["loaded", "local_media", "rendered", "cleaned", "ui_controls", "chat_badges", "reopened"]
         if args.audio_device:
             required.append("audio_device")
         assert process.returncode == 0 and all(checks.get(key) for key in required) and "error" not in checks, {
