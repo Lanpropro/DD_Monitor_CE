@@ -43,6 +43,7 @@ LAYOUTS: list[dict] = [
     {"id": "2x2", "name": "四分", "spec": (2, 2, even_cells(2, 2))},
     {"id": "3x2", "name": "六分", "spec": (2, 3, even_cells(2, 3))},
     {"id": "3x3", "name": "九分", "spec": (3, 3, even_cells(3, 3))},
+    {"id": "4x4", "name": "十六分", "spec": (4, 4, even_cells(4, 4))},
     # ---- 大带小：一（两）路主画面 + 若干小画面（菜单里在这一段前换行加小标题）----
     {"id": "main2", "name": "主画面 + 2 小", "spec": main_plus_side(2),
      "section": "大带小"},
