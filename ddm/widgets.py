@@ -2658,6 +2658,10 @@ class RoomListBox(QWidget):
         """摆放和拖动落点都只按露出来的那些算。"""
         return self.sidebar.visible_items()
 
+    def contextMenuEvent(self, event) -> None:
+        self.sidebar._folder_create_menu().exec(event.globalPos())
+        event.accept()
+
     def set_scroll_dir(self, direction: int, step: float | None = None) -> None:
         self._scroll_dir = int(direction)
         if step is not None:
@@ -3670,6 +3674,20 @@ class Sidebar(QFrame):
         return "还没有关注任何直播间"
 
     # ---- 关注文件夹 ----
+    def _folder_create_menu(self) -> QMenu:
+        menu = QMenu(self)
+        menu.addAction("新建文件夹…").triggered.connect(lambda: self.prompt_folder())
+        menu.addAction("新建智能文件夹…").triggered.connect(lambda: self.prompt_smart_folder())
+        return menu
+
+    def contextMenuEvent(self, event) -> None:
+        child = self.childAt(event.pos())
+        if child is None or child in (self._head_strip, self._head_scroll.viewport(), self.scroll.viewport()):
+            self._folder_create_menu().exec(event.globalPos())
+            event.accept()
+        else:
+            super().contextMenuEvent(event)
+
     def folder_state(self) -> list[dict]:
         return follow_folders.folder_state(self.folders)
 
