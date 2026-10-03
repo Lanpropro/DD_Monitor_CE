@@ -85,12 +85,23 @@ def main():
     sidebar.finish_drag("2", header.mapToGlobal(header.rect().center()))
     assert sidebar.folder_for("2") == folder_id
     sidebar.move_to_folder(["2"], "")
+    landscape_thickness = header.height()
     for side, collapsed in (("left", False), ("left", True), ("top", False), ("left", False)):
         sidebar.set_side(side)
         sidebar.set_collapsed(collapsed, animate=False)
         app.processEvents()
         rects = [item.geometry() for item in sidebar.visible_items()] + [header.geometry()]
         assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:]), (side, rects)
+        if side == "top":
+            assert header.width() == landscape_thickness, "竖屏文件夹应为横屏标题条旋转后的窄条"
+            assert header.height() == entries["1"].height()
+            header.click()
+            assert entries["1"].isHidden() and header.isVisible()
+            header.click()
+            assert not entries["1"].isHidden()
+            sidebar.finish_drag("2", header.mapToGlobal(header.rect().center()))
+            assert sidebar.folder_for("2") == folder_id, "窄竖条仍应接收卡片拖入"
+            sidebar.move_to_folder(["2"], "")
     sidebar.remove_room(rooms[0])
     assert not sidebar.folder_for("1")
     sidebar.delete_folder(folder_id)

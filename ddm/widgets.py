@@ -18,7 +18,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import layouts, mouse_hook, theme
@@ -2449,6 +2449,18 @@ class FollowFolderButton(QToolButton):
         self.setAcceptDrops(True)
         self.clicked.connect(lambda: sidebar.toggle_folder(folder_id))
 
+    def paintEvent(self, event):
+        if self.sidebar.side != "top":
+            super().paintEvent(event)
+            return
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.rect = QRect(0, 0, self.height(), self.width())
+        painter = QPainter(self)
+        painter.translate(self.width(), 0)
+        painter.rotate(90)
+        self.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, self)
+
     def _context_menu(self):
         menu = QMenu(self)
         menu.addAction("重命名文件夹…").triggered.connect(
@@ -2630,12 +2642,13 @@ class RoomListBox(QWidget):
                 continue
             entry.setVisible(True)
             is_folder = isinstance(entry, FollowFolderButton)
-            entry_height = (max(36, entry.minimumSizeHint().height())
-                            if is_folder and not horizontal else item_height)
-            entry.resize(width, entry_height)
+            thickness = max(36, entry.minimumSizeHint().height()) if is_folder else item_height
+            entry_width = thickness if is_folder and horizontal else width
+            entry_height = thickness if is_folder and not horizontal else item_height
+            entry.resize(entry_width, entry_height)
             if horizontal:
                 self._glide_to(entry, run, 0, animate)
-                run += width + NAV_ITEM_GAP
+                run += entry_width + NAV_ITEM_GAP
             else:
                 # 回到左栏时必须把横栏留下的 x 清零，否则卡片会继续沿用
                 # 横向卡片条的位置，只剩第一张完整可见。
@@ -3611,10 +3624,11 @@ class Sidebar(QFrame):
             arrow = "▸" if folder["collapsed"] and not self.filter_text else "▾"
             title = f"{arrow} {folder['name']} · {count}"
             button.setToolTip(title + "\n点击展开/收起；拖入卡片归类；右键管理")
-            width = self.list_box.item_size()[0]
+            width, height = self.list_box.item_size()
+            label_width = height if self.side == "top" else width
             button.setToolButtonStyle(Qt.ToolButtonIconOnly if self.collapsed and self.side == "left"
                                       else Qt.ToolButtonTextBesideIcon)
-            button.setText(button.fontMetrics().elidedText(title, Qt.ElideRight, max(12, width - 44)))
+            button.setText(button.fontMetrics().elidedText(title, Qt.ElideRight, max(12, label_width - 44)))
             button.setVisible(not self.filter_text or bool(members))
             if not button.isHidden():
                 entries.extend([button] + members)
