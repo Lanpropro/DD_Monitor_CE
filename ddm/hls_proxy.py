@@ -1,8 +1,10 @@
 """本机 HLS 转发：使用与取流相同的 HTTP/TLS 栈和代理下载清单及分片。"""
 import base64
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import re
 import threading
+import time
 from urllib.parse import urljoin, urlsplit
 import uuid
 
@@ -14,6 +16,7 @@ class HlsProxy:
         self._stopped = threading.Event()
         self._lock = threading.Lock()
         self._responses = set()
+        self._samples = deque(maxlen=12)
         prefix = "/" + uuid.uuid4().hex + "/"
         relay = self
         proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -102,13 +105,24 @@ class HlsProxy:
                     if playlist:
                         self.wfile.write(body)
                     else:
-                        for chunk in response.iter_content(65536):
+                        size, elapsed = 0, 0
+                        chunks = response.iter_content(65536)
+                        while True:
+                            reading = time.monotonic()
+                            chunk = next(chunks, None)
+                            elapsed += time.monotonic() - reading
+                            if chunk is None:
+                                break
                             if relay._stopped.is_set():
                                 break
                             if chunk:
+                                size += len(chunk)
                                 self.wfile.write((f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n") if chunked else chunk)
                         if chunked and not relay._stopped.is_set():
                             self.wfile.write(b"0\r\n\r\n")
+                        if size >= 32768 and not relay._stopped.is_set():
+                            with relay._lock:
+                                relay._samples.append((time.monotonic(), size * 8 / max(elapsed, .001)))
                 except (requests.RequestException, OSError, ValueError):
                     self.close_connection = True  # FFmpeg 在清单/分片层重试
                 finally:
@@ -123,6 +137,13 @@ class HlsProxy:
         self._thread = threading.Thread(target=self._server.serve_forever,
             kwargs={"poll_interval": .05}, name="live-hls-proxy", daemon=True)
         self._thread.start()
+
+    def network_speed(self):
+        """最近 30 秒分片载荷的下四分位吞吐；排除连接等待和播放器背压。"""
+        now = time.monotonic()
+        with self._lock:
+            rates = sorted(rate for when, rate in self._samples if now - when <= 30)
+        return (rates[(len(rates) - 1) // 4], len(rates)) if rates else (0, 0)
 
     def stop(self):
         if self._stopped.is_set():

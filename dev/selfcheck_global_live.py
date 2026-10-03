@@ -24,6 +24,7 @@ from ddm import bili, config, global_danmaku as dm, images, plugins  # noqa: E40
 from ddm.app import MainWindow  # noqa: E402
 from ddm.dialogs import AddRoomDialog  # noqa: E402
 from ddm.widgets import ROOM_MIME  # noqa: E402
+from ddm.auto_quality import AUTO_QUALITY  # noqa: E402
 from selfcheck_live_danmaku import FakeClient  # noqa: E402
 from selfcheck_live_platforms import response, settle  # noqa: E402
 
@@ -55,6 +56,7 @@ def check_metadata(manager):
         assert twitch.normalize(link) == ROOMS[0]
     for link, raw in (("https://youtu.be/" + VIDEO, VIDEO),
             ("https://www.youtube.com/watch?v=" + VIDEO, VIDEO),
+            ("https://www.youtube.com/watch?v=eKP_QB_H7F8", "eKP_QB_H7F8"),
             ("https://www.youtube.com/live/" + VIDEO, VIDEO),
             ("https://www.youtube.com/embed/" + VIDEO, VIDEO),
             ("https://www.youtube.com/shorts/" + VIDEO, VIDEO),
@@ -98,6 +100,23 @@ def check_metadata(manager):
         assert records["youtube"]["live"] and records["youtube"]["face"] and records["youtube"]["cover_url"]
     with patch.object(module.requests, "get", return_value=response(text=youtube_page(False))):
         assert not youtube.room_info(ROOMS[1]).live
+    # 用户的赛事链接：结束后的 videoDetails 不再带 isLive，仍有直播时间和回放标识。
+    ended = dm.page_json(youtube_page(False), "ytInitialPlayerResponse")
+    ended["videoDetails"].pop("isLive")
+    ended["videoDetails"]["videoId"] = "eKP_QB_H7F8"
+    ended["microformat"] = {"playerMicroformatRenderer": {"liveBroadcastDetails": {
+        "isLiveNow": False, "startTimestamp": "2026-10-02T08:30:48+00:00",
+        "endTimestamp": "2026-10-02T13:45:26+00:00"}}}
+    ended_page = "ytInitialPlayerResponse = " + json.dumps(ended) + ";" + youtube_page().split(";", 1)[1]
+    with patch.object(module.requests, "get", return_value=response(text=ended_page)):
+        info = youtube.room_info("https://www.youtube.com/watch?v=eKP_QB_H7F8")
+        assert info.room_id == "youtube:eKP_QB_H7F8" and not info.live and info.cover_url
+    now_live = json.loads(json.dumps(ended))
+    now_live["videoDetails"].pop("isLiveContent")
+    now_live["microformat"]["playerMicroformatRenderer"]["liveBroadcastDetails"]["isLiveNow"] = True
+    fallback = "ytInitialPlayerResponse = " + json.dumps(now_live) + ";" + youtube_page().split(";", 1)[1]
+    with patch.object(module.requests, "get", return_value=response(text=fallback)):
+        assert youtube.room_info("youtube:eKP_QB_H7F8").live
     offline = 'ytInitialData = ' + json.dumps({"channelMetadataRenderer": {"title": "离线频道"}})
     with patch.object(module.requests, "get", return_value=response(text=offline)):
         assert not youtube.room_info(ROOMS[1]).live
@@ -116,6 +135,8 @@ def check_metadata(manager):
     session = module.Streamlink()
     parser = module.LiveYouTube(session, youtube.room_url(ROOMS[1]))
     with patch.object(module.YouTube, "_get_res", return_value=response(text=youtube_page())):
+        assert parser._get_res(parser.url).text
+    with patch.object(module.YouTube, "_get_res", return_value=response(text=fallback)):
         assert parser._get_res(parser.url).text
     for page in (youtube_page(False), youtube_page(False, False), "captcha"):
         with patch.object(module.YouTube, "_get_res", return_value=response(text=page)):
@@ -156,10 +177,12 @@ https://cdn.test/audio.m3u8
                 patch.object(platform.parser, "streams", return_value=streams):
             assert platform.play_url(rid)[0].endswith("high.m3u8")
             options = platform.room_quality_options(rid)
-            assert len(options) == 2 and options[0]["qn"] == 10000
-            assert "1080x1920" in options[0]["desc"] and "60fps" in options[0]["desc"]
-            assert platform.play_url(rid, options[1]["qn"])[0].endswith("low.m3u8")
-            assert platform.preview_url(rid)[1] == options[1]["qn"]
+            assert len(options) == 3 and options[0]["qn"] == AUTO_QUALITY and options[1]["qn"] == 10000
+            assert "1080x1920" in options[1]["desc"] and "60fps" in options[1]["desc"]
+            assert options[1]["bandwidth"] == 4000000
+            assert platform.play_url(rid, options[2]["qn"])[0].endswith("low.m3u8")
+            assert platform.play_url(rid, AUTO_QUALITY)[1] == options[2]["qn"]
+            assert platform.preview_url(rid)[1] == options[2]["qn"]
             assert platform.play_url(rid, 80)[1] == 10000
             assert "m3u8" not in json.dumps(platform._qualities)
     session.http.close()

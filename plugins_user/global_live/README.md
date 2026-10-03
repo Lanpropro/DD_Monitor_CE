@@ -17,7 +17,10 @@
 人数不查询、不显示。网络失败保留上次开播状态。
 关闭插件后关注及格子转为暂存，重新启用恢复位置和画质等设置。
 
-画质菜单显示直播实际提供的 H.264 HLS 档位及其尺寸/帧率，最高档为默认选项。
+画质菜单显示直播实际提供的 H.264 HLS 档位及其尺寸/帧率，并提供默认的“自动”。
+自动模式从低档开始，用实际分片下载速度选择可流畅播放的最高档；
+持续缓冲或带宽不足会降档，稳定播放后留出带宽余量再升档，切档设有冷却期。
+按钮显示“自动 · 当前档位”，保存和重启保留自动模式，也可随时手动指定档位。
 悬停预览独立选择最低视频档、静音，支持横屏卡片、竖屏卡片、列表及头像浮层；
 预览不改变格子的手选画质。软件竖屏布局沿用现有实现，尺寸按流元数据读取。
 
@@ -46,6 +49,9 @@ Twitch 使用匿名只读 IRC WebSocket，处理 PING/PONG；YouTube 使用网�
 - `python dev/selfcheck_global_live.py`：离线链接、状态、头像封面请求头、真实竖屏尺寸/帧率、
   画质与预览隔离、Qt 添加/拖放/弹幕、图标、禁用暂存和恢复；本地真实网络服务验证 IRC 分帧、
   PING/PONG、YouTube 轮询/全部聊天 continuation、去重、Unicode、线程取消。
+- `python dev/selfcheck_auto_quality.py`：带宽升降、缓冲降档、迟滞、手动/预览隔离、保存恢复与真实 Qt 取流接线。
+- `python dev/selfcheck_auto_quality_live.py youtube:@LofiGirl` 或 `twitch:正在直播的频道`：
+  真实分片下载与 VLC 播放、限速降档、取消限速后升档，以及进程/本机转发清理。
 - `python dev/selfcheck_platform_quality_live.py twitch:sodapoppin` 或 `youtube:@LofiGirl`：
   逐档 VLC 解码、尺寸、保存值及进程释放。
 - `python dev/selfcheck_platform_preview_live.py youtube:@LofiGirl 15`：

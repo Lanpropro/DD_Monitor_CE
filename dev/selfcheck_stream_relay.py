@@ -42,6 +42,7 @@ def main():
             assert good.content.startswith(b"FLV")
             command = start.call_args.args[0]
             assert command[command.index("-c") + 1] == "copy"
+            assert command[command.index("-rw_timeout") + 1] == "10000000"
             assert command[command.index("-i") + 1] == "https://cdn.test/live.m3u8"
             assert "Referer: https://www.huya.com/\r\n" in command
             assert command[-1] == "pipe:1" and "-map" in command
@@ -72,6 +73,7 @@ def main():
             command = start.call_args.args[0]
             assert command[command.index("-i") + 1] == relay._hls_proxy.url
             assert "-http_proxy" not in command
+            assert command[command.index("-rw_timeout") + 1] == "30000000"
             for option, value in (("-http_persistent", "0"),
                     ("-http_multiple", "1"), ("-seg_max_retry", "3"), ("-reconnect_on_network_error", "1")):
                 assert command[command.index(option) + 1] == value

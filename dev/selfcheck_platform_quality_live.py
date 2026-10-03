@@ -42,7 +42,9 @@ def main():
         assert options == platform.room_quality_options(room_id) and options
         for option in options:
             qn = option["qn"]
-            if tile.actual_quality != qn:
+            if qn == -1:
+                continue  # 自动模式由 selfcheck_auto_quality 单独验收
+            if tile.quality != qn:
                 previous = window.players[tile]._relay
                 tile.set_quality(qn)
                 wait_for(app, lambda: tile not in window._resolvers and window.players[tile]._relay is not previous

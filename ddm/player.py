@@ -2,11 +2,13 @@
 import ctypes
 import sys
 import threading
+import time
 
 import vlc
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from .audio_output import StereoOutput, linear_to_vlc_volume, vlc_channel_for
+from .auto_quality import AutoQuality
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -117,6 +119,7 @@ class TilePlayer(QObject):
 
     stateChanged = Signal(str)   # idle / connecting / playing / error
     pictureActivity = Signal()   # 解码计数重新变化；用来取消画面静止后的重试
+    autoQualityRequested = Signal(int)
 
     PICTURE_POLL_MS = 1000
     FROZEN_TICKS = 2             # 连续 2 秒无新解码画面就尝试恢复
@@ -179,6 +182,8 @@ class TilePlayer(QObject):
         self.stream_profile = "web"
         self.stream_headers: dict = {}
         self.actual_quality = 0
+        self.auto_quality = None
+        self._auto_options = []
         self._stall_ticks = 0
         self._last_time = None
         self._last_picture = None
@@ -193,11 +198,35 @@ class TilePlayer(QObject):
         self._watch = QTimer(self)
         self._watch.setInterval(1500)
         self._watch.timeout.connect(self._check)
+        self._watch.timeout.connect(self._check_auto_quality)
         self._picture_watch = QTimer(self)
         self._picture_watch.setInterval(self.PICTURE_POLL_MS)
         self._picture_watch.timeout.connect(self._check_picture_tick)
 
     # ---- 生命周期 ----
+    def configure_auto_quality(self, room_id, options):
+        self._auto_options = list(options or [])
+        if self.silent or not self._auto_options:
+            self.auto_quality = None
+        elif self.auto_quality is None or self.auto_quality.room_id != room_id:
+            self.auto_quality = AutoQuality(room_id, time.monotonic())
+        else:
+            self.auto_quality.last_switch = time.monotonic()
+            self.auto_quality.stable_since = self.auto_quality.stalled_since = None
+            self.auto_quality.has_played = False
+
+    def _check_auto_quality(self):
+        if self.auto_quality is None or self.paused or self._relay is None:
+            return
+        proxy = self._relay._hls_proxy
+        if proxy is None:
+            return
+        quality = self.auto_quality.choose(self._auto_options, self.actual_quality,
+            proxy.network_speed(), "buffering" if self._frozen_ticks >= 4 else self.state,
+            time.monotonic())
+        if quality is not None:
+            self.autoQualityRequested.emit(quality)
+
     def bind(self) -> None:
         """把播放器绑定到格子的视频区域。"""
         hwnd = int(self.video_widget.winId())
@@ -290,6 +319,8 @@ class TilePlayer(QObject):
     def stop(self) -> None:
         self._watch.stop()
         self._picture_watch.stop()
+        self.auto_quality = None
+        self._auto_options = []
         self._detach_and_stop()
         self._media = None
         self._last_picture = None
@@ -479,6 +510,8 @@ class TilePlayer(QObject):
     def set_paused(self, paused: bool) -> None:
         """暂停 / 继续（不停取流，继续时直接接上）。"""
         self.paused = bool(paused)
+        if self.auto_quality is not None:
+            self.auto_quality.stable_since = self.auto_quality.stalled_since = None
         if self.paused:
             self._audio_wait_cancel.set()
         else:

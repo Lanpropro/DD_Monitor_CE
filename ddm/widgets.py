@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from . import layouts, mouse_hook, theme
 from . import version as version_module
+from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
 from .player import TilePlayer
 
@@ -4583,7 +4584,8 @@ class Tile(QFrame):
         self.setProperty("dropActive", False)
         self.setAcceptDrops(True)
         self.muted = bool(room.get("muted", True))       # 默认静音
-        self.quality = int(room.get("quality", 250))
+        self.quality = int(room.get("quality", AUTO_QUALITY
+            if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250))
         self.volume = int(room.get("volume", 42))
         self.audio_channel = int(room.get("audio_channel", 0))
         self._buffering = False
@@ -4743,7 +4745,8 @@ class Tile(QFrame):
         self.title_badge.set_text(self.room.get("uname", ""), self.room.get("title", ""))
         self.title_badge.setVisible(bool(self.room.get("uname")) and self._overlay_visible)
         self._refresh_badge()
-        self.quality = int(self.room.get("quality", 250))
+        self.quality = int(self.room.get("quality", AUTO_QUALITY
+            if str(self.room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250))
         # 声道和音量 / 静音一样属于**格子**，不跟着房间走：换台不该把用户调好的
         # 「只播左 / 只播右」丢掉。房间自带的那份只在第一次上墙时用（_prepare_room）。
         self.room["audio_channel"] = self.audio_channel
@@ -4968,9 +4971,14 @@ class Tile(QFrame):
         return button
 
     def _quality_text(self) -> str:
+        if self.quality == AUTO_QUALITY:
+            return "自动" + (" · " + self._quality_name(self.actual_quality, short=True)
+                           if self.actual_quality else "")
         return self._quality_name(self.actual_quality or self.quality, short=True)
 
     def _quality_name(self, qn: int, *, short: bool = False) -> str:
+        if qn == AUTO_QUALITY:
+            return "自动" if short else "自动（根据网络选择流畅的最高画质）"
         for item in self.quality_options:
             if int(item.get("qn") or 0) == int(qn):
                 return str((item.get("label") if short else None) or item.get("desc") or qn)
@@ -5000,7 +5008,8 @@ class Tile(QFrame):
         self.quality_button.setText(self._quality_text())
         self._layout_controls()
         if ":" in str(self.room.get("room_id") or ""):
-            self.quality_button.setToolTip(self._quality_name(self.actual_quality))
+            self.quality_button.setToolTip(("自动画质，当前：" if self.quality == AUTO_QUALITY else "")
+                                          + self._quality_name(self.actual_quality))
         elif self.actual_quality and self.actual_quality < self.quality:
             self.quality_button.setToolTip(
                 f"请求 {QUALITY_NAMES.get(self.quality, self.quality)}，"

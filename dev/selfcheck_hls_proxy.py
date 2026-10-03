@@ -5,6 +5,7 @@ import gzip
 from pathlib import Path
 import sys
 import threading
+import time
 
 import requests
 
@@ -32,6 +33,9 @@ def main():
                 self.send_response(206 if self.headers.get("Range") else 200)
                 self.send_header("Content-Type", "application/octet-stream")
                 body = b"key" if self.path.startswith("/key.bin") else b"transport stream"
+                if self.path.startswith("/large.ts"):
+                    body = b"x" * 65536
+                    time.sleep(.08)
                 if self.path.startswith("/gzip.ts"):
                     body = gzip.compress(body)
                     self.send_header("Content-Encoding", "gzip")
@@ -39,7 +43,13 @@ def main():
                     self.send_header("Content-Range", "bytes 0-15/16")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            if self.path.startswith("/large.ts"):
+                self.wfile.write(body[:32768])
+                self.wfile.flush()
+                time.sleep(.08)
+                self.wfile.write(body[32768:])
+            else:
+                self.wfile.write(body)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Origin)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -63,6 +73,17 @@ def main():
             base64.urlsafe_b64encode((base + "/gzip.ts").encode()).decode())
         response = requests.get(compressed, timeout=3)
         assert response.content == b"transport stream" and response.headers["Transfer-Encoding"] == "chunked"
+        assert proxy.network_speed() == (0, 0)  # 清单、密钥和小响应不充当测速
+        large = segment.replace(segment.split("/")[-2],
+            base64.urlsafe_b64encode((base + "/large.ts").encode()).decode())
+        assert len(requests.get(large, timeout=3).content) == 65536
+        speed, count = proxy.network_speed()
+        assert count == 1 and 0 < speed < 65536 * 8 / .07  # 真实载荷传输耗时计入吞吐
+        with proxy._lock:
+            proxy._samples.clear()
+            proxy._samples.extend([(time.monotonic() - 31, 1), (time.monotonic(), 100),
+                                   (time.monotonic(), 200), (time.monotonic(), 300)])
+        assert proxy.network_speed() == (100, 3)  # 丢弃旧样本，取保守分位值
         assert "/key.bin?key=public" in attempts and "/video.ts?signature=public" in attempts
         assert all(item["Referer"] == "https://www.twitch.tv/" for item in headers)
         assert requests.get(proxy.url.replace(proxy.url.split("/")[3], "wrong", 1), timeout=3).status_code == 404

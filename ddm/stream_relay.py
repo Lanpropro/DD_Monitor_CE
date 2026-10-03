@@ -19,8 +19,9 @@ class StreamRelay:
         self._hls_proxy = None
         route = "/" + uuid.uuid4().hex + ".flv"
         relay = self
+        # 海外本机 HLS 会重试分片；FFmpeg 要等到重试完成，避免提前断流。
         command = [executable, "-nostdin", "-hide_banner", "-loglevel", "error",
-                   "-rw_timeout", "10000000"]
+                   "-rw_timeout", "30000000" if hls_retry else "10000000"]
         if hls_retry:
             from .hls_proxy import HlsProxy
             self._hls_proxy = HlsProxy(source, headers, proxy)

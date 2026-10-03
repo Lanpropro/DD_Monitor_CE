@@ -57,6 +57,7 @@ def main():
         platform = window.plugins.platform_for(room_id)
         room = platform.room_info(room_id).as_dict()
         assert room["live"], "验收需要正在直播的房间"
+        room["quality"] = 10000  # 主格手选固定档，独立验收悬停不触发重取流
         window.sidebar.add_room(room)
         item = window.sidebar.items()[0]
         hp = window.hover_preview

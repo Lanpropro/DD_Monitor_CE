@@ -12,6 +12,7 @@ from streamlink.plugins.youtube import YouTube
 from streamlink.stream.hls import HLSStream
 
 from ddm import plugins as api
+from ddm.auto_quality import AUTO_QUALITY
 from ddm.global_danmaku import GlobalDanmakuClient, page_json, renderers
 from ddm.live_danmaku import USER_AGENT
 
@@ -53,8 +54,10 @@ def thumbnail(data, hosts):
 class LiveYouTube(YouTube):
     def _get_res(self, url):
         response = super()._get_res(url)
-        details = page_json(response.text, "ytInitialPlayerResponse").get("videoDetails", {})
-        if not details.get("isLive"):
+        player = page_json(response.text, "ytInitialPlayerResponse")
+        details = player.get("videoDetails", {})
+        broadcast = player.get("microformat", {}).get("playerMicroformatRenderer", {}).get("liveBroadcastDetails", {})
+        if details.get("isLiveContent") is False or not (details.get("isLive") or broadcast.get("isLiveNow")):
             raise ValueError("YouTube broadcast is not currently live")
         return response
 
@@ -76,7 +79,8 @@ class PublicLivePlatform(api.Platform):
             return False
 
     def room_quality_options(self, room_id):
-        return [{key: item[key] for key in ("qn", "desc", "label")} for item in
+        return [{"qn": AUTO_QUALITY, "desc": "自动（根据网络选择流畅的最高画质）", "label": "自动"}] + [
+                {key: item[key] for key in ("qn", "desc", "label", "bandwidth") if key in item} for item in
                 self._qualities.get(room_id, [{"qn": 10000, "desc": "最高可用", "label": "最高可用"}])]
 
     def rooms_status(self, room_ids):
@@ -124,7 +128,8 @@ class PublicLivePlatform(api.Platform):
             if not options:
                 raise RuntimeError("没有可用的公开 H.264 直播流")
             self._qualities[canonical] = options
-            selected = options[-1] if preview else next((item for item in options if item["qn"] == quality), options[0])
+            selected = options[-1] if preview or quality == AUTO_QUALITY else next(
+                (item for item in options if item["qn"] == quality), options[0])
             url = streams[selected["key"]].to_url()
             return url, selected["qn"], self.kind, {"User-Agent": USER_AGENT, "Referer": self.origin}
         except Exception as error:  # noqa: BLE001
@@ -251,13 +256,15 @@ class YouTubePlatform(PublicLivePlatform):
                 return api.RoomInfo(room_id=canonical, uname=channel["title"], platform=self.kind,
                     face=thumbnail(channel.get("avatar", {}), self.image_hosts),
                     extra={"playback_mode": self.playback_mode, "live_known": True})
-            if not details.get("isLiveContent"):
+            broadcast = player.get("microformat", {}).get("playerMicroformatRenderer", {}).get("liveBroadcastDetails", {})
+            live = bool(details.get("isLive") or broadcast.get("isLiveNow"))
+            if details.get("isLiveContent") is False or not (
+                    details.get("isLiveContent") or live or broadcast.get("startTimestamp")):
                 raise ValueError("This video is not a live broadcast")
             owner = next((item for item in renderers(data, "videoOwnerRenderer") if
                 item.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId") == details.get("channelId")), {})
-            broadcast = player.get("microformat", {}).get("playerMicroformatRenderer", {}).get("liveBroadcastDetails", {})
             return api.RoomInfo(room_id=canonical, uname=details["author"], title=details["title"],
-                live=bool(details.get("isLive") or broadcast.get("isLiveNow")), platform=self.kind,
+                live=live, platform=self.kind,
                 face=thumbnail(owner.get("thumbnail", {}), self.image_hosts),
                 cover_url=thumbnail(details.get("thumbnail", {}), self.image_hosts),
                 extra={"playback_mode": self.playback_mode, "live_known": True})

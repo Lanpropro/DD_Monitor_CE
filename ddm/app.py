@@ -26,6 +26,7 @@ from . import theme
 from . import version as version_module
 from . import watchdog
 from . import window_fullscreen
+from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
 from .audio_output import linear_to_vlc_volume, refresh_output_devices
 from .danmaku import DanmakuClient
@@ -867,7 +868,7 @@ class MainWindow(QMainWindow):
                     self.start_tile(tile)
         return changed
 
-    def start_tile(self, tile) -> None:
+    def start_tile(self, tile, *, stream_quality: int | None = None) -> None:
         if self._closing:
             return                    # 关窗途中别再起取流/播放器
         room = tile.room or {}
@@ -875,6 +876,8 @@ class MainWindow(QMainWindow):
         if not room_id:
             return
         platform = self.plugins.platform_for(room_id)
+        if platform is not None and platform.kind in OVERSEAS_PLATFORMS and tile.quality == 250:
+            tile.quality = tile.room["quality"] = AUTO_QUALITY
         if ":" in room_id and platform is None:
             tile.set_status("请启用对应的平台插件并重启")
             return
@@ -897,7 +900,8 @@ class MainWindow(QMainWindow):
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = self._stream_attempts.get(tile, 0)
         self._stream_attempts[tile] = source_offset + 1
-        resolver = StreamResolver(room_id, quality, self, source_offset=source_offset,
+        resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
+                                  self, source_offset=source_offset,
                                   platform=platform)
         current = lambda: self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
         resolver.resolved.connect(
@@ -933,12 +937,12 @@ class MainWindow(QMainWindow):
             tile.set_live(True)
         if options:
             tile.set_quality_options(options)
-            if quality and ":" in str(tile.room.get("room_id") or ""):
+            if quality and requested_quality != AUTO_QUALITY and ":" in str(tile.room.get("room_id") or ""):
                 tile.quality = quality
                 tile.room["quality"] = quality
         if quality:
             tile.set_actual_quality(quality)
-            if (":" in str(tile.room.get("room_id") or "") and requested_quality != quality
+            if (requested_quality != AUTO_QUALITY and ":" in str(tile.room.get("room_id") or "") and requested_quality != quality
                     and any(int(option["qn"]) == requested_quality for option in options or [])):
                 tile.quality_button.setToolTip(
                     f"请求 {tile._quality_name(requested_quality)}，平台实际返回 {tile._quality_name(quality)}")
@@ -951,6 +955,7 @@ class MainWindow(QMainWindow):
                 self._on_player_state(self._tile_of_player(p), state))
             player.pictureActivity.connect(
                 lambda p=player: self._on_picture_activity(self._tile_of_player(p)))
+            player.autoQualityRequested.connect(lambda qn, p=player: self._on_auto_quality(p, qn))
             self.players[tile] = player
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         player.set_volume(int(tile.volume))
@@ -967,6 +972,8 @@ class MainWindow(QMainWindow):
         player.stream_profile = profile
         player.stream_headers = dict(tile.stream_headers)
         player.actual_quality = int(quality or 0)
+        player.configure_auto_quality(str(room.get("room_id") or ""),
+            options if tile.quality == AUTO_QUALITY and profile in OVERSEAS_PLATFORMS else [])
         try:
             player.play(url, profile, tile.stream_headers,
                         options=self.media_options())
@@ -980,6 +987,15 @@ class MainWindow(QMainWindow):
         self._emit_stream_resolved(tile, quality)
         # 直播起来了：即时回放该开的就在这里开，不用用户手动点
         self._sync_replay_scope()
+
+    def _on_auto_quality(self, player, quality: int) -> None:
+        tile = self._tile_of_player(player)
+        if (self._closing or tile is None or tile.quality != AUTO_QUALITY or tile.paused
+                or tile in self._resolvers or tile in self._capture_quality
+                or not tile.room.get("live") or player.auto_quality is None
+                or str(tile.room.get("room_id")) != player.auto_quality.room_id):
+            return
+        self.start_tile(tile, stream_quality=quality)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
@@ -1219,7 +1235,8 @@ class MainWindow(QMainWindow):
         if "volume" not in room:
             room["volume"] = int(self.settings.get(
                 "default_volume", config_module.DEFAULT_VOLUME))
-        room.setdefault("quality", 250)
+        room.setdefault("quality", AUTO_QUALITY
+            if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250)
         return room
 
     def _room_dict(self, room_id: str) -> dict | None:
