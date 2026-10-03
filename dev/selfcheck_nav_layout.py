@@ -12,6 +12,7 @@ sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import layouts, theme  # noqa: E402
+from ddm.follow_folders import UNCLASSIFIED
 from ddm.widgets import (  # noqa: E402
     NAV_ITEM_GAP, NAV_ITEM_HEIGHT, LayoutPicker, Sidebar,
 )
@@ -55,7 +56,8 @@ def main() -> None:
     assert added_sidebar.add_room(dict(ROOMS[1]))
     positions = [item.y() for item in added_sidebar.items()]
     print("  新增后位置:", positions)
-    assert positions == [0, NAV_ITEM_HEIGHT + NAV_ITEM_GAP]
+    offset = added_sidebar._folder_buttons[UNCLASSIFIED].height() + NAV_ITEM_GAP
+    assert positions == [offset, offset + NAV_ITEM_HEIGHT + NAV_ITEM_GAP]
     added_sidebar.close()
 
     print("\n=== 0b. 开播优先下手动拖动转成固定顺序 ===")
@@ -163,7 +165,8 @@ def main() -> None:
     print(f"  恢复后：全部可见={all(entry.isVisible() for entry in sidebar.items())}"
           f" 位置={[entry.y() for entry in sidebar.items()]}")
     assert all(entry.isVisible() for entry in sidebar.items())
-    assert [entry.y() for entry in sidebar.items()] == [index * pitch
+    offset = sidebar._folder_buttons[UNCLASSIFIED].height() + NAV_ITEM_GAP
+    assert [entry.y() for entry in sidebar.items()] == [offset + index * pitch
                                                        for index in range(5)]
 
     print("\n=== 8. 松手结算：列表内排序 / 列表外只放回去 ===")

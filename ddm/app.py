@@ -1535,6 +1535,7 @@ class MainWindow(QMainWindow):
                 if cached is not None:
                     item.thumb.set_face(cached)
             item.room["live_known"] = True          # 这一路的直播状态从此算已知
+            self.sidebar._folder_pending.discard(str(item.room.get("room_id")))
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
         self._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上

@@ -12,6 +12,7 @@ from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QApplication
 from ddm import config, theme
 from ddm.widgets import NAV_MIME, Sidebar
+from ddm.follow_folders import UNCLASSIFIED
 
 
 def main():
@@ -106,7 +107,7 @@ def main():
     assert not sidebar.folder_for("1")
     sidebar.delete_folder(folder_id)
     assert header.isHidden() and folder_id not in sidebar._folder_buttons
-    assert not sidebar.folder_for("huya:a")
+    assert sidebar.folder_for("huya:a") == UNCLASSIFIED
     assert entries["huya:a"] in sidebar.visible_items()
     assert len(sidebar.rooms()) == 2, "删除文件夹不能删除关注"
     assert changes

@@ -56,7 +56,7 @@ def main() -> None:
     assert sidebar.dragged_room_ids("b") == ["b", "d"]
     sidebar.show_drop_indicator("b", 2)
     assert item("b").isHidden() and item("d").isHidden()
-    sidebar.finish_drag("b", sidebar.list_box.mapToGlobal(QPoint(10, 0)))
+    sidebar.finish_drag("b", sidebar.list_box.mapToGlobal(QPoint(10, item("p1").y())))
     assert order() == ["p1", "p2", "b", "d", "a", "c"]
     assert not item("b").isHidden() and not item("d").isHidden()
     assert sidebar.selected_sort_ids() == ["b", "d"]
