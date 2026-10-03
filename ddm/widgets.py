@@ -5012,8 +5012,8 @@ class Tile(QFrame):
                                           + self._quality_name(self.actual_quality))
         elif self.actual_quality and self.actual_quality < self.quality:
             self.quality_button.setToolTip(
-                f"请求 {QUALITY_NAMES.get(self.quality, self.quality)}，"
-                f"实际 {QUALITY_NAMES.get(self.actual_quality, self.actual_quality)}"
+                f"请求 {self._quality_name(self.quality)}，"
+                f"实际 {self._quality_name(self.actual_quality)}"
                 f"（该直播间/当前账号最高只提供这一档）")
         else:
             self.quality_button.setToolTip("选择这一路的画质")

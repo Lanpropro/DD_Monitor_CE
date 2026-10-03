@@ -233,8 +233,8 @@ def _web_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
     return list(dict.fromkeys(urls)), current
 
 
-def _app_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
-    """app-room 接口：尊重 qn（登录后能拿到原画）。"""
+def _app_play_info(room_id: str, quality: int) -> dict:
+    """app-room 的取流信息，包含实际可用档位和流地址。"""
     params = {
         "appkey": "iVGUTjsxvpLeuDCf", "build": 6250300, "c_locale": "zh_CN",
         "channel": "bili", "codec": 0, "device": "android", "device_name": "MuMu",
@@ -249,7 +249,12 @@ def _app_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
         "https://api.live.bilibili.com/xlive/app-room/v2/index/getRoomPlayInfo",
         params=params, headers=HEADERS, cookies=_cookies(), timeout=10)
     data = response.json()
-    streams = ((data.get("data") or {}).get("playurl_info") or {}).get("playurl", {}).get("stream", [])
+    return ((data.get("data") or {}).get("playurl_info") or {}).get("playurl") or {}
+
+
+def _app_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
+    """app-room 接口：尊重 qn（登录后能拿到原画）。"""
+    streams = _app_play_info(room_id, quality).get("stream", [])
     for stream in streams:
         if stream.get("protocol_name") != "http_stream":
             continue
@@ -662,7 +667,35 @@ def room_stats(room_id: str) -> dict | None:
 
 
 def room_quality_options(room_id: str) -> list[dict]:
-    """这个直播间实际提供的画质档位（web 接口里的 quality_description）。"""
+    """优先使用实际 FLV 流的档位，旧 web 接口会漏掉2K等新画质。"""
+    try:
+        play = _app_play_info(room_id, 10000)
+        for stream in play.get("stream") or []:
+            if stream.get("protocol_name") != "http_stream":
+                continue
+            # 与 _app_play_urls 选取同一条流，避免列出其他编码/协议的档位。
+            codec = stream["format"][0]["codec"][0]
+            accepted = set(codec.get("accept_qn") or [])
+            standard = {value for _, value in QUALITY_CHOICES}
+            result = []
+            for item in play.get("g_qn_desc") or []:
+                qn = int(item.get("qn") or 0)
+                if not qn or qn not in accepted:
+                    continue
+                names = item.get("media_base_desc") or {}
+                desc = (names.get("detail_desc") or {}).get("desc") or item.get("desc") or str(qn)
+                option = {"qn": qn, "desc": desc}
+                label = (names.get("brief_desc") or {}).get("desc")
+                if label and qn in standard:
+                    label = item.get("desc") or label
+                if label:
+                    option["label"] = label
+                result.append(option)
+            if result:
+                return result
+            break
+    except Exception:  # noqa: BLE001
+        pass
     try:
         response = requests.get(
             "https://api.live.bilibili.com/room/v1/Room/playUrl",
