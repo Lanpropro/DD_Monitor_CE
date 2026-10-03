@@ -66,7 +66,7 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
     bili.play_url = boom
-    bili.rooms_status = fake_status
+    bili._rooms_status_base = lambda ids: (fake_status(ids), {})
     images.load_pixmap = fake_pixmap
 
     app = QApplication(sys.argv)

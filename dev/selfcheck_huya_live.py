@@ -62,6 +62,7 @@ def main():
             window._add_room_id(room_id)
             wait_for(app, lambda: bool(window.sidebar.rooms()))
         item = window.sidebar.items()[0]
+        room_id = item.room["room_id"]  # 靓号添加后使用实际房间号，和真实卡片拖放一致
         assert item.room["live"], "验收需要正在直播的房间"
         item.room["quality"] = 10000  # 自动调档另有自检；这里验收固定档连续播放
         wait_for(app, lambda: item.thumb._face_source is not None and item.thumb._cover_source is not None)

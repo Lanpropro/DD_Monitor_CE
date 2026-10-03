@@ -546,11 +546,11 @@ class FollowLoader(QThread):
             self.failed.emit(str(error))
 
 
-def rooms_status(room_ids: list[str]) -> dict[str, dict]:
-    """批量刷新直播状态：room_id -> {live, title, uname, viewers}。"""
+def _rooms_status_base(room_ids: list[str]) -> tuple[dict[str, dict], dict[str, int]]:
+    """先取开播状态，头像在状态送达后补齐。"""
     ids = [str(room_id) for room_id in room_ids if str(room_id).isdigit()]
     if not ids:
-        return {}
+        return {}, {}
     result: dict[str, dict] = {}
     uids: dict[str, int] = {}
     for start in range(0, len(ids), 100):
@@ -589,6 +589,12 @@ def rooms_status(room_ids: list[str]) -> dict[str, dict]:
                 uids[room_id] = int(info.get("uid") or 0)
             except (TypeError, ValueError):
                 pass
+    return result, uids
+
+
+def rooms_status(room_ids: list[str]) -> dict[str, dict]:
+    """批量刷新直播状态：room_id -> {live, title, uname, viewers}。"""
+    result, uids = _rooms_status_base(room_ids)
     _fill_faces(result, uids)
     return result
 
@@ -605,24 +611,32 @@ class StatusPoller(QThread):
         self.platforms = platforms or {}
 
     def run(self) -> None:
+        bili_ids = [rid for rid in self.room_ids if str(rid).isdigit()]
+        status, uids = {}, {}
         try:
-            bili_ids = [rid for rid in self.room_ids if str(rid).isdigit()]
-            status = rooms_status(bili_ids) if bili_ids else {}
-            # 平台请求各自失败，不能把网络失败误标成下播或丢掉 B 站的结果。
-            for kind, platform in self.platforms.items():
-                ids = [rid for rid in self.room_ids if str(rid).startswith(kind + ":")]
-                if not ids:
-                    continue
-                try:
-                    status.update(platform.rooms_status(ids))
-                except Exception:  # noqa: BLE001
-                    self.failed.emit(f"{platform.label or kind} 状态获取失败")
-            self.updated.emit(status)
-            missing = {str(room_id) for room_id in self.room_ids if str(room_id).isdigit()} - status.keys()
+            status, uids = _rooms_status_base(bili_ids)
+            if status:
+                # 后续补头像会修改原字典，不能改变已排队的状态快照。
+                self.updated.emit({rid: dict(info) for rid, info in status.items()})
+            missing = set(bili_ids) - status.keys()
             if missing:
                 self.failed.emit(f"{len(missing)} 个房间没有返回状态")
         except Exception as error:  # noqa: BLE001
             self.failed.emit(str(error))
+        # 各平台查完就送达；失败不阻塞其他平台，也不误标成下播。
+        for kind, platform in self.platforms.items():
+            ids = [rid for rid in self.room_ids if str(rid).startswith(kind + ":")]
+            if not ids:
+                continue
+            try:
+                self.updated.emit(platform.rooms_status(ids))
+            except Exception:  # noqa: BLE001
+                self.failed.emit(f"{platform.label or kind} 状态获取失败")
+        before = {rid: info.get("face") for rid, info in status.items()}
+        _fill_faces(status, uids)
+        enriched = {rid: info for rid, info in status.items() if info.get("face") != before[rid]}
+        if enriched:
+            self.updated.emit(enriched)
 
 
 class AccountLoader(QThread):

@@ -38,6 +38,13 @@ def main() -> None:
     assert status["8001"]["live"] is True
     assert status["8001"]["viewers"] == "1.2万"
 
+    with patch.object(bili.requests, "get", return_value=Response({"code": 0, "data": {
+            "by_room_ids": {"8001": {"live_status": 1, "uid": 123, "uname": "test"}}}})), \
+            patch.object(bili, "_faces_by_room", return_value={"8001": "https://test/avatar.jpg"}) as faces:
+        assert bili.rooms_status(["8001"])["8001"]["face"] == "https://test/avatar.jpg"
+        faces.assert_called_once_with([123])
+    assert bili.rooms_status([]) == {}
+
     with patch.object(bili.requests, "get", return_value=Response({"code": -412})):
         try:
             bili.rooms_status(["3990387"])

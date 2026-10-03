@@ -330,7 +330,10 @@ class MainWindow(QMainWindow):
         self._stats_timer.setInterval(POLL_INTERVAL_MS)
         self._stats_timer.timeout.connect(self.refresh_stats)
         self._stats_timer.start()
-        QTimer.singleShot(3000, self.refresh_stats)
+        self._stats_refresh_timer = QTimer(self)
+        self._stats_refresh_timer.setSingleShot(True)
+        self._stats_refresh_timer.setInterval(1500)
+        self._stats_refresh_timer.timeout.connect(self.refresh_stats)
 
     def _room_browser_url(self, room: dict) -> str:
         room_id = str(room.get("room_id") or "")
@@ -675,6 +678,7 @@ class MainWindow(QMainWindow):
         # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
         # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
         self._closing = True
+        self._stats_refresh_timer.stop()
         self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
         self._audio_device_timer.stop()
@@ -925,7 +929,7 @@ class MainWindow(QMainWindow):
         self._resolvers_running.add(resolver)
         self._resolvers[tile] = resolver
         resolver.start()
-        self.refresh_stats()          # 人数不用等下一轮轮询，立刻拉一次
+        self._stats_refresh_timer.start()  # 取流优先，多路同时开播时合并人数查询
 
     def _on_resolver_finished(self, tile, resolver) -> None:
         if self._resolvers.get(tile) is resolver:
@@ -1484,8 +1488,8 @@ class MainWindow(QMainWindow):
                       file=sys.stderr, flush=True)
                 self.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile,
                                   room=dict(tile.room or {}))
-                self.start_tile(tile)             # 重新开播：自动接上
-                self.refresh_stats()              # 刚开播：马上补一次在线人数
+                if tile not in self._resolvers:
+                    self.start_tile(tile)         # 已在取流的格子继续等待，不重复请求
         just_went_live: list = []
         for item in self.sidebar._items:            # noqa: SLF001
             info = status.get(str(item.room.get("room_id")))
@@ -1534,11 +1538,7 @@ class MainWindow(QMainWindow):
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")
         if faces:
-            loader = AvatarLoader(faces, self)
-            loader.loaded.connect(self._on_room_avatar)
-            loader.finished.connect(loader.deleteLater)
-            self._status_avatar_loader = loader
-            loader.start()
+            self._status_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
 
     # ---- 全局操作 ----
     def _on_tile_clicked(self, room: dict) -> None:
@@ -2212,7 +2212,6 @@ class MainWindow(QMainWindow):
             self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
                               room=dict(empty.room or {}))
             self._refresh_meta()
-            self.refresh_stats()               # 新加的一路马上拉在线人数，不用等下一轮
             return
         if len(self.wall.tiles) >= MAX_TILES:
             print(f"画面墙已满（{MAX_TILES} 路）")
@@ -2223,7 +2222,6 @@ class MainWindow(QMainWindow):
         self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,
                           room=dict(tile.room or {}))
         self._refresh_meta()
-        self.refresh_stats()
 
     def remove_room(self, room: dict) -> None:
         if self.hover_preview._room_id() == str(room.get("room_id")):

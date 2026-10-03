@@ -183,13 +183,14 @@ def main():
     poller = bili.StatusPoller(["9001", "huya:660000"], platforms={"huya": platform})
     status = []
     poller.updated.connect(status.append)
-    with patch.object(bili, "rooms_status", return_value={"9001": {}}) as bili_status, \
+    with patch.object(bili, "_rooms_status_base", return_value=({"9001": {}}, {})) as bili_status, \
             patch.object(platform, "rooms_status", return_value={"huya:660000": info}):
         poller.run()
         bili_status.assert_called_once_with(["9001"])
-        assert status[0]["huya:660000"]["live"]
+        assert status[0] == {"9001": {}}
+        assert status[1]["huya:660000"]["live"]
     with patch.object(platform, "rooms_status", side_effect=RuntimeError("network")), \
-            patch.object(bili, "rooms_status", return_value={"9001": {}}):
+            patch.object(bili, "_rooms_status_base", return_value=({"9001": {}}, {})):
         status.clear()
         poller.run()
         assert "huya:660000" not in status[0], "网络错误不能标记下播"
