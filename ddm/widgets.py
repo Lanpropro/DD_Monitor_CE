@@ -5294,7 +5294,55 @@ class Tile(QFrame):
             # 原生底色只能按整数区域裁切；扩张轮廓会露出圆角外的黑色底层。
             path.addRoundedRect(rect, radius, radius)
             region = region.united(QRegion(path.toFillPolygon().toPolygon()))
+        if (sys.platform == "win32" and QApplication.platformName() == "windows"
+                and self.controls.testAttribute(Qt.WA_NativeWindow)):
+            # Let Qt paint the complete antialiased edge; clip the native backing
+            # at physical-pixel resolution instead of scaling a logical region.
+            paint_region = QRegion()
+            for button in (self.quality_button, self.reload_button, self.close_button):
+                paint_region = paint_region.united(QRegion(button.geometry()))
+            self.controls.setMask(paint_region)
+            if self._apply_native_controls_mask(scale):
+                return
         self.controls.setMask(region)
+
+    def _apply_native_controls_mask(self, scale: float) -> bool:
+        import ctypes
+        from ctypes import wintypes
+
+        gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
+        gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+        gdi32.CreateRectRgn.restype = wintypes.HANDLE
+        gdi32.CreateRoundRectRgn.argtypes = (ctypes.c_int,) * 6
+        gdi32.CreateRoundRectRgn.restype = wintypes.HANDLE
+        gdi32.CombineRgn.argtypes = (wintypes.HANDLE,) * 3 + (ctypes.c_int,)
+        gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+        user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
+        region = gdi32.CreateRectRgn(0, 0, 0, 0)
+        if not region:
+            return False
+        try:
+            for button in (self.quality_button, self.reload_button, self.close_button):
+                rect = button.geometry()
+                diameter = round(rect.height() * scale)
+                part = gdi32.CreateRoundRectRgn(
+                    round(rect.x() * scale), round(rect.y() * scale),
+                    round((rect.x() + rect.width()) * scale),
+                    round((rect.y() + rect.height()) * scale), diameter, diameter)
+                if not part:
+                    return False
+                try:
+                    if not gdi32.CombineRgn(region, region, part, 2):  # RGN_OR
+                        return False
+                finally:
+                    gdi32.DeleteObject(part)
+            if user32.SetWindowRgn(int(self.controls.winId()), region, True):
+                region = None          # Windows owns the successfully assigned region.
+                return True
+            return False
+        finally:
+            if region:
+                gdi32.DeleteObject(region)
 
     def showEvent(self, event) -> None:
         # 需要在窗口真正显示之后再设为原生窗口，否则 Qt 会抱怨不是顶层窗口
@@ -5305,6 +5353,7 @@ class Tile(QFrame):
             if not widget.testAttribute(Qt.WA_NativeWindow):
                 widget.setAttribute(Qt.WA_NativeWindow, True)
             widget.raise_()
+        self._update_controls_mask()
 
     # ---- 直播时长 ----
     def _elapsed_visible(self) -> bool:
