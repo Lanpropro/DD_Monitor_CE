@@ -721,6 +721,7 @@ class SettingsDialog(QDialog):
         if index >= 0:
             self.stack.setCurrentIndex(index)
             self.reset_button.setText("恢复本页默认")
+            self.reset_button.setVisible(self.stack.currentWidget() is not self.plugin_page)
 
     def _reset_current(self) -> None:
         page = self.stack.currentWidget()
