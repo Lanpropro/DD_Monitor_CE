@@ -103,6 +103,34 @@ def check_window(app):
                     window._play_on(tile, "https://cdn.test/late.m3u8", 10000, kind, OPTIONS,
                                     room_id=rid, requested_quality=AUTO_QUALITY)
                     assert tile.quality == 5000001 and tile.actual_quality == 5000001
+                    # 播放中切自动/锁定当前档只更新策略，不能中断媒体或重取最低档。
+                    player._media = Mock()
+                    player.state = "playing"
+                    media, relay = player._media, player._relay
+                    calls = get.call_count
+                    tile.set_quality(AUTO_QUALITY)
+                    assert tile.actual_quality == 5000001 and player.auto_quality is not None
+                    assert get.call_count == calls and tile not in window._resolvers
+                    assert player._media is media and player._relay is relay
+                    assert tile._quality_text() == "自动 · 720p"
+                    tile.set_paused(True)
+                    player.set_paused(True)
+                    tile.set_quality(5000001)
+                    assert player.auto_quality is None and tile.paused and player.paused
+                    assert get.call_count == calls and player._media is media
+                    tile.set_quality(AUTO_QUALITY)
+                    assert player.auto_quality is not None and tile.paused
+                    tile.set_paused(False)
+                    player.set_paused(False)
+                    # 未完成的其他手选请求要作废，并保留线程直到 finished。
+                    pending = Mock()
+                    window._resolvers[tile] = pending
+                    tile.set_quality(AUTO_QUALITY)
+                    pending.cancel.assert_called_once()
+                    assert tile not in window._resolvers
+                    assert get.call_count == calls
+                    # 断流时选择自动仍需重新取流恢复。
+                    player.state = "error"
                     tile.set_quality(AUTO_QUALITY)
                     settle(app, lambda: tile not in window._resolvers and tile.actual_quality == 5000002)
                     player.auto_quality.room_id = "youtube:other"

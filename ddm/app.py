@@ -3,13 +3,15 @@
 画面墙上的每个格子是一个"播放位"：关掉某一路会留下空格子，等着把侧栏里的
 直播间拖进来；播放器按格子持有，和房间号解耦。
 """
+import faulthandler
 import os
 import sys
 import time
 import webbrowser
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QByteArray, QEasingCurve, QProcess, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimation,
+                           Qt, QtMsgType, QTimer, qInstallMessageHandler)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
@@ -89,6 +91,13 @@ def setup_file_log() -> str:
                     pass
 
     sys.stderr = _Tee()
+    # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
+    def qt_message(kind, context, message):
+        print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
+        if kind == QtMsgType.QtFatalMsg:
+            faulthandler.dump_traceback(file=handle, all_threads=True)
+
+    qInstallMessageHandler(qt_message)
     print(f"日志文件: {path}", file=sys.stderr)
     return path
 
@@ -1572,7 +1581,23 @@ class MainWindow(QMainWindow):
             return
         tile.quality = quality
         tile.room["quality"] = quality
+        self._save_timer.start()
         if tile.room.get("live"):
+            player = self.players.get(tile)
+            if (player is not None and player.stream_profile in OVERSEAS_PLATFORMS
+                    and player._media is not None and player.state in ("playing", "buffering")
+                    and any(int(item["qn"]) == player.actual_quality
+                            for item in tile.quality_options)
+                    and quality in (AUTO_QUALITY, player.actual_quality)):
+                # 自动是画质策略；沿用正在播放的档位，避免点击时停掉原生解码器。
+                # 锁定当前档也只需关掉策略。其他手选档位仍走正常换流流程。
+                previous = self._resolvers.pop(tile, None)
+                if previous is not None:
+                    previous.cancel()
+                player.configure_auto_quality(str(tile.room["room_id"]),
+                    tile.quality_options if quality == AUTO_QUALITY else [])
+                tile.set_actual_quality(player.actual_quality)
+                return
             self.start_tile(tile)
 
     def _on_mute_changed(self, room: dict, muted: bool) -> None:
