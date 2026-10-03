@@ -2155,16 +2155,17 @@ class MainWindow(QMainWindow):
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
-        dialog = AddRoomDialog(self, room_id_resolver=self._normalize_room_input)
+        dialog = AddRoomDialog(self, room_id_resolver=self._normalize_room_input,
+                               folders=self.sidebar.folder_state())
         labels = "、".join(p.label or p.kind for p in self.plugins.platforms.values()
                           if p.label)
         if labels:
             dialog.hint.setText(f"支持 B 站房间号，以及 {labels} 官方直播间链接")
         if dialog.exec() != AddRoomDialog.Accepted:
             return
-        self._add_room_id(dialog.room_id)
+        self._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
 
-    def _add_room_id(self, room_id: str) -> None:
+    def _add_room_id(self, room_id: str, *, folder_id: str = "") -> None:
         if any(str(room.get("room_id")) == room_id for room in self.sidebar.rooms()):
             print(f"房间 {room_id} 已在关注列表里")
             return
@@ -2174,7 +2175,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "添加直播间", "请启用对应的平台插件并重启")
                 return
             resolver = InfoResolver(room_id, self, platform=platform)
-            resolver.resolved.connect(lambda room: self._on_room_added(room) if not self._closing else None)
+            resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id)
+                                      if not self._closing else None)
             resolver.failed.connect(lambda _rid: QMessageBox.warning(
                 self, "添加直播间", "平台房间获取失败，请检查房间链接或稍后重试")
                 if not self._closing else None)
@@ -2185,15 +2187,17 @@ class MainWindow(QMainWindow):
             return
         print(f"正在查询房间 {room_id} ...")
         resolver = InfoResolver(room_id, self)
-        resolver.resolved.connect(self._on_room_added)
+        resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id))
         resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
         resolver.finished.connect(resolver.deleteLater)
         resolver.start()
 
-    def _on_room_added(self, room: dict) -> None:
+    def _on_room_added(self, room: dict, *, folder_id: str = "") -> None:
         if self._closing:
             return
         if self.sidebar.add_room(room):
+            if folder_id:
+                self.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
             self.load_avatars_for([room])       # 新加的房间立刻显示头像
         status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")

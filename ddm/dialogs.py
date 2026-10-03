@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -744,11 +744,12 @@ class SettingsDialog(QDialog):
 class AddRoomDialog(QDialog):
     """输入房间号或直播间链接。"""
 
-    def __init__(self, parent=None, *, room_id_resolver=None):
+    def __init__(self, parent=None, *, room_id_resolver=None, folders=None):
         super().__init__(parent)
         self.setWindowTitle("添加直播间")
         self.resize(400, 170)
         self.room_id = ""
+        self.folder_id = ""
         self.room_id_resolver = room_id_resolver
 
         layout = QVBoxLayout(self)
@@ -760,6 +761,24 @@ class AddRoomDialog(QDialog):
         self.edit.setPlaceholderText("例如 1001 或 https://live.bilibili.com/1001")
         self.edit.returnPressed.connect(self.accept)
         layout.addWidget(self.edit)
+
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(QLabel("添加到文件夹"))
+        self.folder_button = QPushButton("未分类")
+        self.folder_button.setObjectName("IconButton")
+        self.folder_button.setToolTip("选择普通文件夹；智能文件夹会按规则自动归类")
+        folder_menu = QMenu(self.folder_button)
+        options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
+                                       if folder.get("type", "normal") == "normal"]
+        for folder_id, name in options:
+            action = folder_menu.addAction(name)
+            action.setData(folder_id)
+            action.setCheckable(True)
+            action.setChecked(not folder_id)
+            action.triggered.connect(lambda _checked=False, selected=action: self._select_folder(selected))
+        self.folder_button.setMenu(folder_menu)
+        folder_row.addWidget(self.folder_button, 1)
+        layout.addLayout(folder_row)
 
         self.hint = QLabel("支持直接粘贴直播间地址")
         self.hint.setObjectName("AppSubtitle")
@@ -777,6 +796,12 @@ class AddRoomDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(confirm)
         layout.addLayout(buttons)
+
+    def _select_folder(self, action) -> None:
+        self.folder_id = action.data()
+        self.folder_button.setText(action.text())
+        for option in self.folder_button.menu().actions():
+            option.setChecked(option is action)
 
     def accept(self) -> None:
         text = self.edit.text().strip()
