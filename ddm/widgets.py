@@ -2539,8 +2539,7 @@ class FollowFolderButton(QToolButton):
             drag.exec(Qt.MoveAction)
         finally:
             self.sidebar.end_drag_scroll()
-            self.sidebar.list_box.set_scroll_dir(0)
-            self.sidebar.list_box.folder_drop_indicator.hide()
+            self.sidebar.end_folder_drag()
             self.setDown(False)
             drag.deleteLater()
 
@@ -3261,6 +3260,7 @@ class Sidebar(QFrame):
         self._folder_assignments: dict[str, str] = {}
         self._folder_pending: set[str] = set()
         self._folders_folded_by_drag: set[str] = set()
+        self._folder_drag_previous: dict[str, bool] = {}
         self._folder_buttons: dict[str, FollowFolderButton] = {}
         self._layout_id = layouts.DEFAULT_LAYOUT
 
@@ -3756,10 +3756,21 @@ class Sidebar(QFrame):
             self._refresh_folders()
 
     def start_folder_drag(self) -> None:
-        """拖动标题前收起全部文件夹，落下或取消后仍由用户手动展开。"""
+        """拖动标题时临时收起全部文件夹，结束后恢复原来的展开状态。"""
+        self._folder_drag_previous = {folder["id"]: folder["collapsed"] for folder in self.folders}
         self._folders_folded_by_drag.update(folder["id"] for folder in self.folders)
         for folder in self.folders:
             folder["collapsed"] = True
+        self._refresh_folders(notify=False)
+
+    def end_folder_drag(self) -> None:
+        self.list_box.set_scroll_dir(0)
+        self.list_box.folder_drop_indicator.hide()
+        for folder in self.folders:
+            if folder["id"] in self._folder_drag_previous:
+                folder["collapsed"] = self._folder_drag_previous[folder["id"]]
+        self._folder_drag_previous.clear()
+        self._folders_folded_by_drag.clear()
         self._refresh_folders()
 
     def _folder_drop_target(self, folder_id: str, global_pos):
@@ -3808,7 +3819,7 @@ class Sidebar(QFrame):
         if self.folders.index(folder) != index:
             self.folders.remove(folder)
             self.folders.insert(index, folder)
-            self._refresh_folders()
+            self._refresh_folders(notify=not bool(self._folder_drag_previous))
 
     def prompt_smart_folder(self, folder_id="") -> None:
         folder = self.get_folder(folder_id)
