@@ -39,6 +39,7 @@ ROOM_MIME = "application/x-ddm-room"
 TILE_MIME = "application/x-ddm-tile"
 DANMAKU_MIME = "application/x-ddm-danmaku"
 NAV_MIME = "application/x-ddm-nav"          # 关注列表内部排序用
+FOLDER_MIME = "application/x-ddm-folder"    # 文件夹之间排序，不改变卡片归属
 
 BADGE_HEIGHT = 24             # 左上角浮标高度
 WATCHING_TEXT = "正在获取人数"   # 还没拉到实时在线人数时的占位（不能用"人气"顶上）
@@ -2508,6 +2509,48 @@ class FollowFolderButton(QToolButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setAcceptDrops(True)
         self.clicked.connect(lambda: sidebar.toggle_folder(folder_id))
+        self._press_pos = None
+        self._drag_started = False
+
+    def mousePressEvent(self, event):
+        self._press_pos = event.position().toPoint() if event.button() == Qt.LeftButton else None
+        self._drag_started = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._press_pos is None or not event.buttons() & Qt.LeftButton:
+            super().mouseMoveEvent(event)
+            return
+        if (event.position().toPoint() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
+            super().mouseMoveEvent(event)
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(FOLDER_MIME, self.folder_id.encode("utf-8"))
+        drag.setMimeData(mime)
+        drag.setHotSpot(self._press_pos)
+        self._press_pos = None
+        self._drag_started = True
+        self.setDown(False)
+        self.sidebar.start_folder_drag()
+        drag.setPixmap(self.grab())
+        self.sidebar.begin_drag_scroll()
+        try:
+            drag.exec(Qt.MoveAction)
+        finally:
+            self.sidebar.end_drag_scroll()
+            self.sidebar.list_box.set_scroll_dir(0)
+            self.sidebar.list_box.folder_drop_indicator.hide()
+            self.setDown(False)
+            drag.deleteLater()
+
+    def mouseReleaseEvent(self, event):
+        self._press_pos = None
+        if self._drag_started:
+            self._drag_started = False
+            self.setDown(False)
+            return
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
         if self.sidebar.side != "top":
@@ -2548,11 +2591,24 @@ class FollowFolderButton(QToolButton):
         self._context_menu().exec(event.globalPos())
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat(NAV_MIME) and self.sidebar.get_folder(self.folder_id)["type"] != "smart":
+        if event.mimeData().hasFormat(FOLDER_MIME) or (
+                event.mimeData().hasFormat(NAV_MIME) and self.sidebar.get_folder(self.folder_id)["type"] != "smart"):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat(FOLDER_MIME):
+            event.acceptProposedAction()
+            folder_id = bytes(event.mimeData().data(FOLDER_MIME)).decode("utf-8", "ignore")
+            self.sidebar.hover_folder_drag(folder_id, self.mapToGlobal(event.position().toPoint()))
+        elif event.mimeData().hasFormat(NAV_MIME) and self.sidebar.get_folder(self.folder_id)["type"] != "smart":
             event.acceptProposedAction()
 
     def dropEvent(self, event):
-        if event.mimeData().hasFormat(NAV_MIME) and self.sidebar.get_folder(self.folder_id)["type"] != "smart":
+        if event.mimeData().hasFormat(FOLDER_MIME):
+            folder_id = bytes(event.mimeData().data(FOLDER_MIME)).decode("utf-8", "ignore")
+            self.sidebar.finish_folder_drag(folder_id, self.mapToGlobal(event.position().toPoint()))
+            event.acceptProposedAction()
+        elif event.mimeData().hasFormat(NAV_MIME) and self.sidebar.get_folder(self.folder_id)["type"] != "smart":
             room_id = bytes(event.mimeData().data(NAV_MIME)).decode("utf-8", "ignore")
             self.sidebar.move_to_folder(self.sidebar.dragged_room_ids(room_id), self.folder_id)
             event.acceptProposedAction()
@@ -2588,6 +2644,10 @@ class RoomListBox(QWidget):
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setInterval(30)      # 30ms 一拍：贴死边缘约 1200px/s
         self._scroll_timer.timeout.connect(self._scroll_tick)
+        self.folder_drop_indicator = QFrame(self)
+        self.folder_drop_indicator.setStyleSheet(f"background: {theme.ACCENT};")
+        self.folder_drop_indicator.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.folder_drop_indicator.hide()
 
     # ---- 拖到上下边缘时自动滚动 ----
     @property
@@ -2795,10 +2855,15 @@ class RoomListBox(QWidget):
         return max(0, min(index, count))
 
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(NAV_MIME):
+        if event.mimeData().hasFormat(NAV_MIME) or event.mimeData().hasFormat(FOLDER_MIME):
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasFormat(FOLDER_MIME):
+            event.acceptProposedAction()
+            folder_id = bytes(event.mimeData().data(FOLDER_MIME)).decode("utf-8", "ignore")
+            self.sidebar.hover_folder_drag(folder_id, self.mapToGlobal(event.position().toPoint()))
+            return
         if not event.mimeData().hasFormat(NAV_MIME):
             return
         event.acceptProposedAction()
@@ -2809,6 +2874,11 @@ class RoomListBox(QWidget):
         pass                              # 离开某一格不等于拖动结束，交给 drag 结束后统一结算
 
     def dropEvent(self, event) -> None:
+        if event.mimeData().hasFormat(FOLDER_MIME):
+            event.acceptProposedAction()
+            folder_id = bytes(event.mimeData().data(FOLDER_MIME)).decode("utf-8", "ignore")
+            self.sidebar.finish_folder_drag(folder_id, self.mapToGlobal(event.position().toPoint()))
+            return
         if not event.mimeData().hasFormat(NAV_MIME):
             return
         event.acceptProposedAction()
@@ -3190,6 +3260,7 @@ class Sidebar(QFrame):
         self.folders: list[dict] = follow_folders.normalize_folders([])
         self._folder_assignments: dict[str, str] = {}
         self._folder_pending: set[str] = set()
+        self._folders_folded_by_drag: set[str] = set()
         self._folder_buttons: dict[str, FollowFolderButton] = {}
         self._layout_id = layouts.DEFAULT_LAYOUT
 
@@ -3566,7 +3637,8 @@ class Sidebar(QFrame):
             self.rooms(), self.folders, self._folder_pending)
         for item in self._items:
             folder = self.get_folder(self.folder_for(str(item.room.get("room_id"))))
-            folded = folder and folder["collapsed"] and not words
+            folded = folder and folder["collapsed"] and (
+                not words or folder["id"] in self._folders_folded_by_drag)
             item.set_filtered_out(bool(folded) or not self.matches(item, words))
             if folded:
                 self._sort_selected_ids.discard(str(item.room.get("room_id")))
@@ -3653,6 +3725,7 @@ class Sidebar(QFrame):
     def toggle_folder(self, folder_id: str) -> None:
         for folder in self.folders:
             if folder["id"] == folder_id:
+                self._folders_folded_by_drag.discard(folder_id)
                 folder["collapsed"] = not folder["collapsed"]
                 self._refresh_folders()
                 return
@@ -3682,6 +3755,61 @@ class Sidebar(QFrame):
             self.folders[index], self.folders[target] = self.folders[target], self.folders[index]
             self._refresh_folders()
 
+    def start_folder_drag(self) -> None:
+        """拖动标题前收起全部文件夹，落下或取消后仍由用户手动展开。"""
+        self._folders_folded_by_drag.update(folder["id"] for folder in self.folders)
+        for folder in self.folders:
+            folder["collapsed"] = True
+        self._refresh_folders()
+
+    def _folder_drop_target(self, folder_id: str, global_pos):
+        box = self.list_box
+        local = box.mapFromGlobal(global_pos)
+        if self.get_folder(folder_id) is None or not box.rect().contains(local):
+            return None
+        remaining = [folder for folder in self.folders if folder["id"] != folder_id]
+        headers = [(index, self._folder_buttons[folder["id"]]) for index, folder in enumerate(remaining)
+                   if not self._folder_buttons[folder["id"]].isHidden()]
+        along = local.x() if box.horizontal else local.y()
+        for index, header in headers:
+            start = header.x() if box.horizontal else header.y()
+            length = header.width() if box.horizontal else header.height()
+            if along < start + length / 2:
+                return index, max(0, start - NAV_ITEM_GAP)
+        if headers:
+            index, header = headers[-1]
+            end = header.geometry().right() if box.horizontal else header.geometry().bottom()
+            return index + 1, end + 1
+        return None
+
+    def hover_folder_drag(self, folder_id: str, global_pos) -> None:
+        self.list_box.auto_scroll(global_pos)
+        target = self._folder_drop_target(folder_id, global_pos)
+        indicator = self.list_box.folder_drop_indicator
+        if target is None:
+            indicator.hide()
+            return
+        _, along = target
+        if self.list_box.horizontal:
+            indicator.setGeometry(along, 0, 2, self.list_box.item_size()[1])
+        else:
+            indicator.setGeometry(0, along, self.list_box.width(), 2)
+        indicator.show()
+        indicator.raise_()
+
+    def finish_folder_drag(self, folder_id: str, global_pos) -> None:
+        self.list_box.set_scroll_dir(0)
+        self.list_box.folder_drop_indicator.hide()
+        target = self._folder_drop_target(folder_id, global_pos)
+        if target is None:
+            return
+        index, _ = target
+        folder = self.get_folder(folder_id)
+        if self.folders.index(folder) != index:
+            self.folders.remove(folder)
+            self.folders.insert(index, folder)
+            self._refresh_folders()
+
     def prompt_smart_folder(self, folder_id="") -> None:
         folder = self.get_folder(folder_id)
         dialog = SmartFolderDialog(self, folder)
@@ -3698,6 +3826,7 @@ class Sidebar(QFrame):
 
     def _refresh_folders(self, notify: bool = True) -> None:
         ids = {folder["id"] for folder in self.folders}
+        self._folders_folded_by_drag.intersection_update(ids)
         for folder_id in list(self._folder_buttons):
             if folder_id not in ids:
                 button = self._folder_buttons.pop(folder_id)
@@ -3726,17 +3855,20 @@ class Sidebar(QFrame):
             members = [item for item in visible
                        if self.folder_for(str(item.room.get("room_id"))) == folder["id"]]
             count = sum(fid == folder["id"] for fid in self._folder_assignments.values())
-            arrow = "▸" if folder["collapsed"] and not self.filter_text else "▾"
+            arrow = "▸" if folder["collapsed"] and (
+                not self.filter_text or folder["id"] in self._folders_folded_by_drag) else "▾"
             title = f"{arrow} {folder['name']} · {count}"
-            button.setToolTip(title + ("\n智能文件夹：按规则自动归类；右键编辑规则和排序" if folder["type"] == "smart"
-                                      else "\n点击展开/收起；拖入卡片归类；右键管理"))
+            button.setToolTip(title + ("\n智能文件夹：拖动标题排序；右键编辑规则和排序" if folder["type"] == "smart"
+                                      else "\n点击展开/收起；拖动标题排序；拖入卡片归类；右键管理"))
             width, height = self.list_box.item_size()
             label_width = height if self.side == "top" else width
             button.setToolButtonStyle(Qt.ToolButtonIconOnly if self.collapsed and self.side == "left"
                                       else Qt.ToolButtonTextBesideIcon)
             button.setText(button.fontMetrics().elidedText(title, Qt.ElideRight, max(12, label_width - 44)))
             button.setVisible((folder["type"] != "unclassified" or count > 0)
-                              and (not self.filter_text or bool(members)))
+                              and (not self.filter_text or any(
+                                  self.folder_for(str(item.room.get("room_id"))) == folder["id"]
+                                  and self.matches(item, self.filter_text.split()) for item in self._items)))
             if not button.isHidden():
                 entries.extend([button] + members)
         return entries
