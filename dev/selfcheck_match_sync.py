@@ -344,7 +344,7 @@ def embedded_checks(app):
     module = sys.modules[MatchSyncPlugin.__module__ + ".viewer"]
     from ddm.widgets import ROOM_MIME
     from ddm import theme
-    from plugins_user.huya_watch.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
+    from plugins_user.domestic_live.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
     host = QMainWindow()
     host.setStyleSheet(theme.qss())
     host._content = QWidget()

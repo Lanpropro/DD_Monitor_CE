@@ -12,7 +12,7 @@ from ddm.plugins import PluginManager  # noqa: E402
 
 def main():
     app = QCoreApplication([])
-    manager = PluginManager(enabled=["huya_watch", "global_live"])
+    manager = PluginManager(enabled=["domestic_live", "global_live"])
     manager.load()
     duration = float(sys.argv[1]) if len(sys.argv) > 1 else 70
     room_ids = sys.argv[2:] or ["huya:998", "douyu:36252", "douyin:557481980778"]

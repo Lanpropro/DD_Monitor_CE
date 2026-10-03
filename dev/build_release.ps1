@@ -90,10 +90,10 @@ foreach ($file in @("libvlc.dll", "libvlccore.dll")) {
     Copy-Item $src $app -Force
 }
 robocopy (Join-Path $repo "plugins") (Join-Path $app "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
-# 用户插件目录：带上模板和已安装插件，别带用户自己的数据
+# 用户插件目录：直播平台扩展由独立插件仓库发布。
 New-Item -ItemType Directory -Force -Path (Join-Path $app "plugins_user") | Out-Null
 foreach ($item in Get-ChildItem (Join-Path $repo "plugins_user") -Force -ErrorAction SilentlyContinue) {
-    if ($item.Name -in @("_danmaku_log", "danmaku_log", "__pycache__")) { continue }
+    if ($item.Name -in @("_danmaku_log", "danmaku_log", "__pycache__", "global_live", "domestic_live", "huya_watch")) { continue }
     if ($item.PSIsContainer) {
         robocopy $item.FullName (Join-Path $app "plugins_user\$($item.Name)") /E /XD __pycache__ /NFL /NDL /NJH /NJS /NP | Out-Null
     } else {
@@ -188,11 +188,11 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     robocopy (Join-Path $repo "plugins") (Join-Path $internal "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
     # 运行时侧栏会从 exe 同级 assets\logo.png 读取品牌图；favicon 也供 Qt 设置窗口图标。
     robocopy (Join-Path $repo "assets") (Join-Path $exeDir "assets") /E /NFL /NDL /NJH /NJS /NP | Out-Null
-    # 用户插件目录：和源码便携包一样带模板与已安装插件。
+    # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
     # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
     foreach ($item in Get-ChildItem (Join-Path $repo "plugins_user") -Force -ErrorAction SilentlyContinue) {
-        if ($item.Name -in @("_danmaku_log", "danmaku_log", "__pycache__")) { continue }
+        if ($item.Name -in @("_danmaku_log", "danmaku_log", "__pycache__", "global_live", "domestic_live", "huya_watch")) { continue }
         if ($item.PSIsContainer) {
             robocopy $item.FullName (Join-Path $exeDir "plugins_user\$($item.Name)") /E /XD __pycache__ /NFL /NDL /NJH /NJS /NP | Out-Null
         } else {

@@ -22,7 +22,7 @@ def page(room):
 
 def main():
     app = QApplication([])
-    manager = plugins.PluginManager(enabled=["huya_watch"])
+    manager = plugins.PluginManager(enabled=["domestic_live"])
     manager.load()
     module = sys.modules[type(manager.platforms["huya"]).__module__]
     session = module.Streamlink()
@@ -86,7 +86,7 @@ def main():
     session.http.close()
     print("PASS: Huya ratio, Douyu rate/CDN, Douyin native keys/portrait sizes/fps, missing-tier fallback, preview separate")
 
-    state = {"plugins_enabled": ["huya_watch"], "settings": {"auto_quality": True,
+    state = {"plugins_enabled": ["domestic_live"], "settings": {"auto_quality": True,
              "recording_enabled": False, "recording_replay_enabled": False}}
     with patch("ddm.app.QTimer.singleShot"):
         window = MainWindow([], [], state=state, layout_id="corner")

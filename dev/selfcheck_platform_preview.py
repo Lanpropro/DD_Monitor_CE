@@ -125,7 +125,7 @@ def check_rates(manager):
 
 def main():
     app = QApplication([])
-    state = {"plugins_enabled": ["huya_watch"], "settings": {"preview_on_hover": True,
+    state = {"plugins_enabled": ["domestic_live"], "settings": {"preview_on_hover": True,
              "recording_enabled": False, "recording_replay_enabled": False}}
     with patch("ddm.app.QTimer.singleShot"), patch.object(preview, "TilePlayer", FakePlayer), \
             patch.object(widgets, "TilePlayer", FakePlayer), \
@@ -217,7 +217,7 @@ def main():
                 window._sync_platform_rooms()
                 assert not window.sidebar.rooms() and not hp._popup.isVisible()
                 assert hp._popup_player.stops > before
-            window.plugins.enabled = {"huya_watch"}
+            window.plugins.enabled = {"domestic_live"}
             window._sync_platform_rooms()
             for item in window.sidebar.items():
                 item.room["live"] = True

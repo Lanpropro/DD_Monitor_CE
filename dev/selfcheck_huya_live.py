@@ -47,7 +47,7 @@ def main():
     duration = int(sys.argv[2]) if len(sys.argv) > 2 else 90
     app = QApplication([])
     app.setStyleSheet(theme.qss())
-    state = {"plugins_enabled": ["huya_watch", "global_live"], "settings": {
+    state = {"plugins_enabled": ["domestic_live", "global_live"], "settings": {
         "recording_enabled": False, "recording_replay_enabled": False,
         "preview_on_hover": False, "freeze_watch": True, "auto_quality": False}}
     with patch("ddm.app.QTimer.singleShot"):

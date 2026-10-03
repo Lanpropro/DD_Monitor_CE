@@ -47,6 +47,7 @@ DEFAULT_PLUGINS_DIR = os.path.join(REPO, "plugins_user")
 PLUGIN_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 # 旧发布包的记录插件已由本体接管；覆盖升级保留文件，但不再执行或展示。
 RETIRED_BUNDLED_PLUGINS = frozenset({"danmaku_log"})
+RENAMED_PLUGINS = {"huya_watch": "domestic_live"}
 
 
 def read_manifest(folder: str, expected_id: str) -> dict | None:
@@ -294,9 +295,21 @@ class PluginManager:
     def load(self) -> None:
         if not os.path.isdir(self.plugins_dir):
             return
+        for old, new in RENAMED_PLUGINS.items():
+            if not os.path.isfile(os.path.join(self.plugins_dir, new, "plugin.py")):
+                continue
+            if self.enabled is not None and old in self.enabled:
+                self.enabled.discard(old)
+                self.enabled.add(new)
+            if old in self.plugin_settings:
+                previous = self.plugin_settings.pop(old)
+                self.plugin_settings[new] = {**previous, **self.plugin_settings.get(new, {})}
         for entry in sorted(os.listdir(self.plugins_dir)):
             if entry.startswith((".", "_")) or entry in RETIRED_BUNDLED_PLUGINS:
                 continue
+            if entry in RENAMED_PLUGINS and os.path.isfile(os.path.join(
+                    self.plugins_dir, RENAMED_PLUGINS[entry], "plugin.py")):
+                continue                  # 新旧目录共存时只装载新插件
             folder = os.path.join(self.plugins_dir, entry)
             module_path = os.path.join(folder, "plugin.py")
             if not os.path.isfile(module_path):
@@ -428,6 +441,9 @@ class PluginManager:
         for folder in sorted(os.listdir(self.plugins_dir)):
             if folder.startswith((".", "_")) or folder in RETIRED_BUNDLED_PLUGINS or not os.path.isfile(
                     os.path.join(self.plugins_dir, folder, "plugin.py")):
+                continue
+            if folder in RENAMED_PLUGINS and os.path.isfile(os.path.join(
+                    self.plugins_dir, RENAMED_PLUGINS[folder], "plugin.py")):
                 continue
             plugin = loaded.get(folder)
             try:

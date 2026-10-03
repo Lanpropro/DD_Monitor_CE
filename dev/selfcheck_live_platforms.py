@@ -56,10 +56,10 @@ def settle(app, predicate):
 
 def main():
     app = QApplication.instance() or QApplication([])
-    manager = plugins.PluginManager(enabled=["huya_watch"])
+    manager = plugins.PluginManager(enabled=["domestic_live"])
     manager.load()
     assert set(manager.platforms) == {"huya", "douyu", "douyin"}
-    assert set(manager._platform_owner.values()) == {"huya_watch"}
+    assert set(manager._platform_owner.values()) == {"domestic_live"}
     assert len(manager.plugins) == 1 and manager.plugins[0].name == "国内直播平台"
     module = sys.modules[type(manager.platforms["douyu"]).__module__]
     records = {}
@@ -215,7 +215,7 @@ def main():
                 assert get.call_args.kwargs["headers"]["Referer"] == f"https://{manager.platforms[kind].hosts[0]}/"
     print("PASS: source-only Douyu request, Streamlink Douyin, media validation, timeouts, headers and image cache")
 
-    state = {"plugins_enabled": ["huya_watch"], "settings": {"recording_enabled": False,
+    state = {"plugins_enabled": ["domestic_live"], "settings": {"recording_enabled": False,
              "recording_replay_enabled": False, "preview_on_hover": False}}
     with patch("ddm.app.QTimer.singleShot"), patch.object(bili, "room_info", side_effect=AssertionError("误用 B 站")), \
             patch.object(bili, "play_url", side_effect=AssertionError("误用 B 站")), \
@@ -264,7 +264,7 @@ def main():
             hidden = window.current_state()
             assert not window.sidebar.rooms() and all(not tile.room.get("room_id") for tile in window.wall.tiles)
             assert set(hidden["suspended_platform_rooms"]) == {"douyu", "douyin"}
-            hidden["plugins_enabled"] = ["huya_watch"]
+            hidden["plugins_enabled"] = ["domestic_live"]
             rooms, wall = config.build_rooms(hidden)
             restored = MainWindow(rooms, wall, state=hidden, layout_id="2x2")
             try:

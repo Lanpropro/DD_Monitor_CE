@@ -1,4 +1,4 @@
-"""国内直播平台的只读弹幕连接；协议参考见 plugins_user/huya_watch/README.md。"""
+"""国内直播平台的只读弹幕连接；协议参考见 domestic_live 插件的 README。"""
 import asyncio
 import base64
 import gzip

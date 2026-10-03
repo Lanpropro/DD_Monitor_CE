@@ -28,7 +28,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 - VLC（libvlc/plugins）：随包运行库，未放进本仓库，见 README。
 - 国内直播弹幕（`ddm/live_danmaku.py`）：协议字段及抖音 signature 算法参考
   [biliup](https://github.com/biliup/biliup/tree/master/crates/danmaku/src/protocols)，
-  改写部分的 MIT 许可见 `plugins_user/huya_watch/biliup-MIT.txt`。
+  改写部分的 MIT 许可见 `ddm/assets/licenses/biliup-MIT.txt`。
 - FFmpeg：录制/即时回放使用独立的 `ffmpeg.exe` 子进程。发布包所带的
   `ffmpeg-license/README.txt` 记录具体构建版本与对应源码地址，
   `ffmpeg-license/LICENSE` 为其许可证；该 GPLv3 构建未纳入本仓库源码。

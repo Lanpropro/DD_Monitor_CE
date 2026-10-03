@@ -34,6 +34,13 @@ plugins_user/
 也可直接在 `utils/config.json` 的 `plugins_enabled` 写入插件目录名数组，
 不写或写 `null` 表示全部启用。
 
+国内和海外直播扩展的源码及安装包在独立仓库
+[DD_Monitor_Plugins](https://github.com/Lanpropro/DD_Monitor_Plugins) 维护。
+从该仓库 Releases 下载单个插件 ZIP 后导入；软件仓库及新发布包不内置这两个扩展。
+国内插件 ID 为 `domestic_live`，海外插件 ID 为 `global_live`。
+安装 `domestic_live` 后，旧 `huya_watch` 的启用选择和插件设置自动迁移；
+新旧目录共存时只加载并展示新插件，原有房间 ID、关注和格子暂存数据继续沿用。
+
 ## 最小插件
 
 ```python
@@ -130,9 +137,9 @@ B 站取流、在线人数或弹幕接口。当前跨平台悬停预览和弹幕
 
 卡片基本资料与格子位置随配置保存，启动时状态为待刷新，后台恢复播放。
 禁用或删除插件后保留关注与位置，在格子提示启用插件。
-虎牙 v0.2.0 位于 `plugins_user/huya_watch`，使用 Streamlink 8.6.1 解析公开
-直播流。可添加 `huya:房间号` 或虎牙官方房间链接；旧网页卡片自动迁移。
-使用与验收步骤见 `plugins_user/huya_watch/README.md`。
+国内直播平台安装在 `plugins_user/domestic_live`，支持虎牙、斗鱼和抖音；
+海外直播平台安装在 `plugins_user/global_live`，支持 Twitch 和 YouTube。
+使用与验收步骤见独立插件仓库中各插件的 README。
 
 同一个 `kind` 注册两次会直接报错 —— 静默覆盖会让两家插件互相打架，不如当场炸出来。
 

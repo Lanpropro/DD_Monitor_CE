@@ -232,7 +232,7 @@ class FakeClient(QThread):
 
 def check_window(app):
     with patch("ddm.app.QTimer.singleShot"):
-        window = MainWindow([], [], state={"plugins_enabled": ["huya_watch"], "settings": {
+        window = MainWindow([], [], state={"plugins_enabled": ["domestic_live"], "settings": {
             "recording_enabled": False, "recording_replay_enabled": False}}, layout_id="dm_pair")
     clients = []
     try:
@@ -269,7 +269,7 @@ def check_window(app):
         window.wall.set_layout("2x2")
         window.sync_danmaku()
         assert window._danmaku is None
-        window.plugins.enabled = {"huya_watch"}
+        window.plugins.enabled = {"domestic_live"}
         window._sync_platform_rooms()
         assert window._danmaku is None
         # 第三方平台未实现可选接口时，继续显示原来的暂不支持提示。
@@ -317,7 +317,7 @@ def check_cancel(app, manager):
 def check_window_cleanup():
     for action in ("close", "disable", "layout"):
         with patch("ddm.app.QTimer.singleShot"):
-            window = MainWindow([], [], state={"plugins_enabled": ["huya_watch"], "settings": {
+            window = MainWindow([], [], state={"plugins_enabled": ["domestic_live"], "settings": {
                 "recording_enabled": False, "recording_replay_enabled": False}}, layout_id="dm_pair")
         entered = threading.Event()
         async def blocked(_client, _session, _retries):
@@ -346,7 +346,7 @@ def check_window_cleanup():
 
 def main():
     app = QApplication([])
-    manager = plugins.PluginManager(enabled=["huya_watch"])
+    manager = plugins.PluginManager(enabled=["domestic_live"])
     manager.load()
     check_protocols()
     asyncio.run(check_tcp(manager.platforms["douyu"]))

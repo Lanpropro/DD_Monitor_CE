@@ -99,7 +99,7 @@ def media_checks(app):
 def platform_checks(app):
     from PySide6.QtCore import QObject
     from ddm.live_danmaku import LiveDanmakuClient
-    from plugins_user.huya_watch.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
+    from plugins_user.domestic_live.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
     parent = QObject()
     for platform in (HuyaPlatform(), DouyuPlatform(), DouyinPlatform()):
         room_id = platform.kind + ":42"

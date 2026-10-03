@@ -31,7 +31,7 @@ def settle(app, condition):
 
 def main():
     app = QApplication.instance() or QApplication([])
-    manager = plugins.PluginManager(enabled=["huya_watch"])
+    manager = plugins.PluginManager(enabled=["domestic_live"])
     manager.load()
     platform = manager.platforms["huya"]
     module = sys.modules[type(platform).__module__]
@@ -195,7 +195,7 @@ def main():
         assert "huya:660000" not in status[0], "网络错误不能标记下播"
     print("PASS: stream/CDN fallback, offline state, headers, cancellation, platform polling")
 
-    state = {"plugins_enabled": ["huya_watch"], "settings": {
+    state = {"plugins_enabled": ["domestic_live"], "settings": {
         "recording_enabled": False, "recording_replay_enabled": False, "preview_on_hover": False}}
     with patch("ddm.app.QTimer.singleShot"), \
             patch.object(bili, "room_info", side_effect=AssertionError("误用 B 站")), \

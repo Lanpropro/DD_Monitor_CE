@@ -64,7 +64,7 @@ def main():
             enabled._resolvers[huya_tile] = pending
             class DisableDialog(SettingsDialog):
                 def exec(self):
-                    self.plugin_page.checks["huya_watch"].setChecked(False)
+                    self.plugin_page.checks["domestic_live"].setChecked(False)
                     self.confirm_button.click()
                     return self.result()
             with patch.object(app_module, "SettingsDialog", DisableDialog), patch.object(config, "save") as save:
@@ -91,7 +91,7 @@ def main():
             assert again.current_state()["suspended_platform_rooms"] == saved["suspended_platform_rooms"]
             class EnableDialog(SettingsDialog):
                 def exec(self):
-                    self.plugin_page.checks["huya_watch"].setChecked(True)
+                    self.plugin_page.checks["domestic_live"].setChecked(True)
                     self.confirm_button.click()
                     return self.result()
             with patch.object(app_module, "SettingsDialog", EnableDialog), patch.object(config, "save") as save:

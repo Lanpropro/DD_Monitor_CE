@@ -43,7 +43,7 @@ def main():
     duration = int(sys.argv[2]) if len(sys.argv) > 2 else 15
     app = QApplication([])
     app.setStyleSheet(theme.qss())
-    state = {"plugins_enabled": ["huya_watch", "global_live"], "settings": {"preview_on_hover": True,
+    state = {"plugins_enabled": ["domestic_live", "global_live"], "settings": {"preview_on_hover": True,
              "recording_enabled": False, "recording_replay_enabled": False, "auto_quality": False}}
     with patch("ddm.app.QTimer.singleShot"):
         window = MainWindow([], [], state=state, layout_id="2x2")
