@@ -4601,7 +4601,7 @@ class Tile(QFrame):
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
-        # 信息条（在画面下方，不遮挡画面）：左下角暂停 + 右侧音量
+        # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
         self.bottom = QWidget(self)
         self.bottom.setObjectName("TileBottom")
         self.bottom.setAttribute(Qt.WA_StyledBackground, True)
@@ -4639,21 +4639,18 @@ class Tile(QFrame):
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
         self.recording_button.clicked.connect(self.recordingRequested)
-        bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
         # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
         self.recording_time = QLabel("")
         self.recording_time.setObjectName("TileTitle")
         self.recording_time.setToolTip("这一路已经录了多久")
         self.recording_time.setVisible(False)
         _ignore_mouse(self.recording_time)
-        bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         # 信息条中间：常驻状态（连接中 / 缓冲中 / 断流重连 / 已下播…）
         # 画面被 VLC 原生窗口盖住时，这里也一定看得见
         self.status_label = ElidedLabel("")
         self.status_label.setObjectName("TileStatus")
         _ignore_mouse(self.status_label)
         _allow_shrink(self.status_label)
-        bottom_layout.addWidget(self.status_label, 1)
 
         # 音量条直接放在信息条里，不用翻右键菜单
         # 音量图标按钮 + 滑条 + 数值，都在信息条里
@@ -4674,6 +4671,9 @@ class Tile(QFrame):
         self.volume_label.setFixedWidth(24)
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
+        bottom_layout.addWidget(self.status_label, 1)
+        bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
+        bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
 
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角

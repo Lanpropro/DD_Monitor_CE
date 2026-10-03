@@ -206,8 +206,8 @@ def main():
         tile = window.wall.tiles[0]
         window.settings.update(dict(settings, recording_lock_quality=False))
         assert tile.recording_button.text() == "● 录制"
-        assert tile.recording_button.x() < tile.status_label.x(), \
-            "录制按钮应常驻在格子底栏暂停键旁"
+        assert tile.volume_label.x() < tile.status_label.x() < tile.recording_button.x(), \
+            "音量控件应在底栏左侧，录制按钮在右侧"
         tile.room["live"] = True
         tile.stream_url = str(source)
         tile.stream_headers = {}
