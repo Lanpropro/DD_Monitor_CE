@@ -230,6 +230,7 @@ class MainWindow(QMainWindow):
         self.sidebar.pinChanged.connect(self._on_pin_changed)
         self.sidebar.sortChanged.connect(self._on_sort_changed)
         self.sidebar.orderChanged.connect(self._on_order_changed)
+        self.sidebar.foldersChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self.open_settings)
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
@@ -381,6 +382,7 @@ class MainWindow(QMainWindow):
         self.sidebar.set_custom_order(self.state.get("custom_order") or [])
         self.sidebar.set_sort_mode(str(self.state.get("sort") or "custom"), notify=False)
         self.sidebar.apply_pins(self.state.get("pinned") or [])
+        self.sidebar.set_folders(self.state.get("follow_folders") or [])
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
         # 布局按方向分别记（老配置的 layout 键在 __init__ 里已经并到横屏那格）；
@@ -586,6 +588,7 @@ class MainWindow(QMainWindow):
         for key in ("import_order", "custom_order"):
             getattr(self.sidebar, "set_" + key)(saved[key])
         self.sidebar.apply_pins(saved["pinned"])
+        self.sidebar.set_folders(saved.get("follow_folders") or [])
         for index, room in enumerate(wall):
             if index >= len(self.wall.tiles):
                 self.wall.add_room(room)
@@ -637,6 +640,7 @@ class MainWindow(QMainWindow):
             "sort": self.sidebar.sort_mode,
             "import_order": list(self.sidebar.import_order),
             "custom_order": list(self.sidebar.custom_order),
+            "follow_folders": self.sidebar.folder_state(),
             "settings": dict(self.settings),
             "geometry": str((self._fullscreen_saved_geometry or self.saveGeometry()).toBase64(),
                             "ASCII"),

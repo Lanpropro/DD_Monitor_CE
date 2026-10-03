@@ -4,6 +4,7 @@ import os
 import platform
 import sys
 import time
+from uuid import uuid4
 
 from PySide6.QtCore import (
     QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
@@ -16,7 +17,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-    QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QTextBrowser,
+    QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
     QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
@@ -2401,6 +2402,16 @@ class NavItem(QFrame):
                 lambda _checked=False: self.drop_host.move_sort_selection(room_id, True))
             menu.addAction(f"{prefix}移到最后").triggered.connect(
                 lambda _checked=False: self.drop_host.move_sort_selection(room_id, False))
+            folders = menu.addMenu("移入文件夹")
+            folders.addAction("移出文件夹").triggered.connect(
+                lambda: self.drop_host.move_to_folder(self.drop_host.dragged_room_ids(room_id), ""))
+            for folder in self.drop_host.folders:
+                folders.addAction(folder["name"]).triggered.connect(
+                    lambda _checked=False, fid=folder["id"]:
+                    self.drop_host.move_to_folder(self.drop_host.dragged_room_ids(room_id), fid))
+            folders.addSeparator()
+            folders.addAction("新建文件夹…").triggered.connect(
+                lambda: self.drop_host.prompt_folder(self.drop_host.dragged_room_ids(room_id)))
         if self.select_mode:
             return menu
         menu.addSeparator()
@@ -2422,6 +2433,42 @@ class NavItem(QFrame):
                 and room_id not in self.drop_host.selected_sort_ids()):
             self.drop_host.clear_sort_selection()
         self._context_menu().exec(event.globalPos())
+
+
+class FollowFolderButton(QToolButton):
+    """关注文件夹标题；点击展开，右键管理，拖入卡片归类。"""
+
+    def __init__(self, sidebar, folder_id):
+        super().__init__(sidebar.list_box)
+        self.sidebar = sidebar
+        self.folder_id = folder_id
+        self.setObjectName("IconButton")
+        self.setIcon(self.style().standardIcon(QStyle.SP_DirIcon))
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAcceptDrops(True)
+        self.clicked.connect(lambda: sidebar.toggle_folder(folder_id))
+
+    def _context_menu(self):
+        menu = QMenu(self)
+        menu.addAction("重命名文件夹…").triggered.connect(
+            lambda: self.sidebar.prompt_folder(folder_id=self.folder_id))
+        menu.addAction("删除文件夹（保留关注）").triggered.connect(
+            lambda: self.sidebar.delete_folder(self.folder_id))
+        return menu
+
+    def contextMenuEvent(self, event):
+        self._context_menu().exec(event.globalPos())
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(NAV_MIME):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasFormat(NAV_MIME):
+            room_id = bytes(event.mimeData().data(NAV_MIME)).decode("utf-8", "ignore")
+            self.sidebar.move_to_folder(self.sidebar.dragged_room_ids(room_id), self.folder_id)
+            event.acceptProposedAction()
 
 
 class RoomListBox(QWidget):
@@ -2568,6 +2615,8 @@ class RoomListBox(QWidget):
         """
         items = self._visible_items()
         order = preview_order if preview_order is not None else list(items)
+        if self.sidebar.folders:
+            order = self.sidebar.folder_entries()
         width, item_height = self.item_size()
         horizontal = self.horizontal
         # 不要在这里改 width：卡片宽度必须和侧栏内容宽度一致，
@@ -2580,7 +2629,10 @@ class RoomListBox(QWidget):
                 run += width + NAV_ITEM_GAP if horizontal else self.slot_height()
                 continue
             entry.setVisible(True)
-            entry.resize(width, item_height)
+            is_folder = isinstance(entry, FollowFolderButton)
+            entry_height = (max(36, entry.minimumSizeHint().height())
+                            if is_folder and not horizontal else item_height)
+            entry.resize(width, entry_height)
             if horizontal:
                 self._glide_to(entry, run, 0, animate)
                 run += width + NAV_ITEM_GAP
@@ -2588,8 +2640,8 @@ class RoomListBox(QWidget):
                 # 回到左栏时必须把横栏留下的 x 清零，否则卡片会继续沿用
                 # 横向卡片条的位置，只剩第一张完整可见。
                 self._glide_to(entry, 0, run, animate)
-                run += self.slot_height()
-        if not items:
+                run += entry_height + NAV_ITEM_GAP
+        if not order:
             # 一条都没有：摆上那句话，并且把它的高度算进 run —— 不然滚动区
             # 高度是 0，提示会被压得看不见
             self.empty_hint.setText(self.sidebar.empty_hint_text())
@@ -2635,6 +2687,13 @@ class RoomListBox(QWidget):
         按格子尺寸直接算，拖动中卡片位置在动也不影响判断。竖屏横栏里按 x 算。
         """
         count = len(self._visible_items())
+        if self.sidebar.folders:
+            for index, item in enumerate(self._visible_items()):
+                midpoint = (item.x() + item.width() / 2 if self.horizontal else
+                            item.y() + item.height() / 2)
+                if y < midpoint:
+                    return index
+            return count
         if self.horizontal:
             width = self.item_size()[0]
             slot = width + NAV_ITEM_GAP
@@ -3010,6 +3069,7 @@ class Sidebar(QFrame):
     pinChanged = Signal(list)
     sortChanged = Signal(str)
     orderChanged = Signal()
+    foldersChanged = Signal()
     refreshRequested = Signal()
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
@@ -3041,6 +3101,8 @@ class Sidebar(QFrame):
         self.sort_mode = "custom"
         self.import_order: list[str] = []      # 导入/添加的先后顺序，用于「导入顺序」排序
         self.custom_order: list[str] = []      # 拖动排出来的顺序，切换排序方式也不丢
+        self.folders: list[dict] = []
+        self._folder_buttons: dict[str, FollowFolderButton] = {}
         self._layout_id = layouts.DEFAULT_LAYOUT
 
         layout = QVBoxLayout(self)
@@ -3412,7 +3474,10 @@ class Sidebar(QFrame):
         """只更新「谁被过滤掉了」，不动位置 —— 由调用方决定什么时候重排。"""
         words = self.filter_text.split()
         for item in self._items:
-            item.set_filtered_out(not self.matches(item, words))
+            folder = next((folder for folder in self.folders
+                           if str(item.room.get("room_id")) in folder["rooms"]), None)
+            folded = folder and folder["collapsed"] and not words
+            item.set_filtered_out(bool(folded) or not self.matches(item, words))
 
     def matches(self, item: NavItem, words: list[str]) -> bool:
         """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
@@ -3421,17 +3486,139 @@ class Sidebar(QFrame):
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
                             for key in ("uname", "room_id", "title")).lower()
+        folder_id = self.folder_for(str(room.get("room_id")))
+        haystack += " " + next((folder["name"].lower() for folder in self.folders
+                                if folder["id"] == folder_id), "")
         return all(word in haystack for word in words)
 
     def visible_items(self) -> list:
         """当前露在外面的条目（过滤掉的不算）。"""
-        return [item for item in self._items if not item.filtered_out]
+        items = [item for item in self._items if not item.filtered_out]
+        if not self.folders:
+            return items
+        return ([item for item in items if not self.folder_for(str(item.room.get("room_id")))]
+                + [item for folder in self.folders for item in items
+                   if str(item.room.get("room_id")) in folder["rooms"]])
 
     def empty_hint_text(self) -> str:
         """列表一条都露不出来时说的话（列表区就摆它一个）。"""
         if self.filter_text:
             return f"没有匹配「{self.filter_text}」的直播间"
         return "还没有关注任何直播间"
+
+    # ---- 关注文件夹 ----
+    def folder_state(self) -> list[dict]:
+        return [dict(folder, rooms=list(folder["rooms"])) for folder in self.folders]
+
+    def folder_for(self, room_id: str) -> str:
+        return next((folder["id"] for folder in self.folders if room_id in folder["rooms"]), "")
+
+    def set_folders(self, folders: list) -> None:
+        self.folders = []
+        assigned = set()
+        for folder in folders or []:
+            folder_id, name = str(folder.get("id") or ""), str(folder.get("name") or "").strip()
+            if not folder_id or not name or any(item["id"] == folder_id for item in self.folders):
+                continue
+            rooms = list(dict.fromkeys(str(key) for key in folder.get("rooms", [])
+                                       if str(key) and str(key) not in assigned))
+            assigned.update(rooms)
+            self.folders.append({"id": folder_id, "name": name,
+                                 "collapsed": bool(folder.get("collapsed")), "rooms": rooms})
+        self._refresh_folders(notify=False)
+
+    def create_folder(self, name: str) -> str:
+        name = name.strip()
+        if not name or any(folder["name"] == name for folder in self.folders):
+            return ""
+        folder_id = uuid4().hex
+        self.folders.append({"id": folder_id, "name": name, "collapsed": False, "rooms": []})
+        self._refresh_folders()
+        return folder_id
+
+    def prompt_folder(self, room_ids=None, *, folder_id="") -> None:
+        folder = next((item for item in self.folders if item["id"] == folder_id), None)
+        name, accepted = QInputDialog.getText(
+            self, "重命名文件夹" if folder else "新建文件夹", "文件夹名称：",
+            text=folder["name"] if folder else "")
+        if not accepted or not name.strip():
+            return
+        name = name.strip()
+        if any(item["name"] == name and item["id"] != folder_id for item in self.folders):
+            return
+        if folder:
+            folder["name"] = name
+            self._refresh_folders()
+        else:
+            folder_id = self.create_folder(name)
+            if room_ids:
+                self.move_to_folder(room_ids, folder_id)
+
+    def delete_folder(self, folder_id: str) -> None:
+        self.folders = [folder for folder in self.folders if folder["id"] != folder_id]
+        self._refresh_folders()
+
+    def toggle_folder(self, folder_id: str) -> None:
+        for folder in self.folders:
+            if folder["id"] == folder_id:
+                folder["collapsed"] = not folder["collapsed"]
+                self._refresh_folders()
+                return
+
+    def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
+        target = next((folder for folder in self.folders if folder["id"] == folder_id), None)
+        if folder_id and target is None:
+            return
+        known = {str(item.room.get("room_id")) for item in self._items}
+        moving = list(dict.fromkeys(key for key in room_ids if key in known))
+        for folder in self.folders:
+            folder["rooms"] = [key for key in folder["rooms"] if key not in moving]
+        if target is not None:
+            target["rooms"].extend(moving)
+        self._refresh_folders()
+
+    def _refresh_folders(self, notify: bool = True) -> None:
+        ids = {folder["id"] for folder in self.folders}
+        for folder_id in list(self._folder_buttons):
+            if folder_id not in ids:
+                button = self._folder_buttons.pop(folder_id)
+                button.hide()
+                button.deleteLater()
+        self.clear_sort_selection()
+        self.refresh_filter()
+        for item in self._items:
+            if item.filtered_out:
+                item.check.setChecked(False)
+        self._update_batch_label()
+        self._sync_count()
+        self._sync_sort_selection()
+        if notify:
+            self.foldersChanged.emit()
+
+    def folder_entries(self) -> list:
+        """分组显示，不改变关注、置顶或自定义顺序的保存方式。"""
+        entries = [item for item in self.visible_items()
+                   if not self.folder_for(str(item.room.get("room_id")))]
+        present = {str(item.room.get("room_id")) for item in self._items}
+        for folder in self.folders:
+            button = self._folder_buttons.get(folder["id"])
+            if button is None:
+                button = FollowFolderButton(self, folder["id"])
+                self._folder_buttons[folder["id"]] = button
+            members = [item for item in self.visible_items()
+                       if str(item.room.get("room_id")) in folder["rooms"]]
+            count = len(present.intersection(folder["rooms"]))
+            arrow = "▸" if folder["collapsed"] and not self.filter_text else "▾"
+            title = f"{arrow} {folder['name']} · {count}"
+            button.setToolTip(title + "\n点击展开/收起；拖入卡片归类；右键管理")
+            width = self.list_box.item_size()[0]
+            button.setToolButtonStyle(Qt.ToolButtonIconOnly if self.collapsed and self.side == "left"
+                                      else Qt.ToolButtonTextBesideIcon)
+            button.setText(button.fontMetrics().elidedText(title, Qt.ElideRight, max(12, width - 44)))
+            button.setVisible(not self.filter_text or bool(members))
+            if not button.isHidden():
+                entries.extend([button] + members)
+        return entries
 
     def _focus_room_list(self) -> None:
         """回车：把焦点从搜索框让给列表，接着就能直接点选 / 拖动。"""
@@ -4255,6 +4442,9 @@ class Sidebar(QFrame):
         item.deleteLater()
         self._items.remove(item)
         room_id = str(room.get("room_id"))
+        for folder in self.folders:
+            if room_id in folder["rooms"]:
+                folder["rooms"].remove(room_id)
         self._sort_selected_ids.discard(room_id)
         if self._sort_anchor == room_id:
             self._sort_anchor = None
@@ -4264,7 +4454,7 @@ class Sidebar(QFrame):
             self.custom_order.remove(room_id)
         self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
                                 self.compact_threshold)
-        self.list_box.relayout(animate=False)
+        self.refresh_filter()
         self._sync_count()
         self._refresh_wall_marks()      # 删完也重设一次，蓝框状态别留旧账
         self.refresh_strip()
@@ -4326,6 +4516,10 @@ class Sidebar(QFrame):
         inside = (0 <= local.x() <= self.list_box.width()
                   and 0 <= local.y() <= self.list_box.height())
         if inside:
+            for folder_id, button in self._folder_buttons.items():
+                if not button.isHidden() and button.geometry().contains(local):
+                    self.move_to_folder(self.dragged_room_ids(room_id), folder_id)
+                    return
             along = local.x() if self.list_box.horizontal else local.y()
             self.reorder_items(self.dragged_room_ids(room_id),
                                self._full_drop_index(self.list_box.index_at(along)))
@@ -4364,6 +4558,9 @@ class Sidebar(QFrame):
             self.list_box.relayout(animate=True)
             return
         moving = set(self.dragged_room_ids(room_id))
+        if self.folders:
+            self.list_box.relayout(dragging_ids=moving)
+            return
         items = self._reordered_items(list(moving), self._full_drop_index(drop_index))
         preview = [None if str(item.room.get("room_id")) in moving else item
                    for item in items if not item.filtered_out]
@@ -4426,6 +4623,8 @@ class Sidebar(QFrame):
             self._sort_actions[mode] = action
         menu.addSeparator()
         menu.addAction("固定当前显示顺序").triggered.connect(self.freeze_current_order)
+        menu.addSeparator()
+        menu.addAction("新建文件夹…").triggered.connect(lambda: self.prompt_folder())
         return menu
 
     def freeze_current_order(self) -> None:
@@ -4538,7 +4737,7 @@ class Sidebar(QFrame):
             # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了
             self.count_label.setText(f"关注中 · {shown} / {len(self._items)}")
         else:
-            self.count_label.setText(f"关注中 · {shown}")
+            self.count_label.setText(f"关注中 · {len(self._items)}")
 
     def set_refreshing(self, busy: bool) -> None:
         self.refresh_button.setEnabled(not busy)
