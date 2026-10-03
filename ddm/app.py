@@ -417,7 +417,6 @@ class MainWindow(QMainWindow):
         # 换完排布再同步一次可见性：收起/展开只影响「露哪些控件」，
         # 而 set_collapsed 在换排布之前就设过了，不补这一下头像排不会露出来。
         self.sidebar._sync_top_mode()      # noqa: SLF001
-        self.wall.relayout(force=True)
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -504,9 +503,11 @@ class MainWindow(QMainWindow):
                 else:
                     layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
         if layout_id != self.wall.layout_id:
-            self.wall.set_layout(layout_id)
+            self.wall.set_layout(layout_id, relayout=False)
             self.sidebar.set_layout_name(layout_id)
         # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
+        self._root_layout.activate()
+        self._content.layout().activate()
         self.wall.relayout(force=True)
         self._sync_tile_playback()
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",

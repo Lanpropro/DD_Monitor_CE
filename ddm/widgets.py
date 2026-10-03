@@ -5767,14 +5767,15 @@ class WallGrid(QWidget):
             self._make_tile(room)
         self.relayout(force=True)
 
-    def set_layout(self, layout_id: str) -> None:
+    def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
         self.layout_id = layout_id
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
         self._columns = -1
         self._last_height = 0
-        self.relayout(force=True)
+        if relayout:
+            self.relayout(force=True)
 
     def set_fullscreen_tile(self, tile: Tile | None, *, stagger: bool = False,
                             first: Tile | None = None) -> None:
@@ -5967,6 +5968,8 @@ class WallGrid(QWidget):
         return best_columns(count, max(self.width(), 1), height)
 
     def relayout(self, force: bool = False) -> None:
+        if force:
+            self._relayout_timer.stop()
         self.ensure_slots()          # 按布局补空位
         if not self.tiles:
             return
