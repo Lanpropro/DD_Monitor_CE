@@ -2055,7 +2055,7 @@ class NavItem(QFrame):
         self.platform_badge.setToolTip(label)
         self.platform_badge.setAccessibleName(label)
         self.platform_badge.setStyleSheet(
-            "background: #25252b; border-radius: 4px;")
+            "background: transparent; border: none;")
         _ignore_mouse(self.platform_badge)
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge, self.platform_badge)
         self.setToolTip("")
