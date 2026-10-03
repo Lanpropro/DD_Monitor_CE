@@ -1376,6 +1376,8 @@ class MainWindow(QMainWindow):
     # ---- 直播状态轮询 ----
     def refresh_stats(self) -> None:
         """取画面墙上各房间的"看过"人数（wbi 签名接口，和网页显示一致）。"""
+        if self._closing:
+            return
         try:
             if self._stats_poller is not None and self._stats_poller.isRunning():
                 return
@@ -1387,15 +1389,15 @@ class MainWindow(QMainWindow):
             return
         poller = StatsPoller(room_ids, self)
         poller.updated.connect(self._on_stats_updated)
-        poller.finished.connect(self._on_stats_finished)
+        poller.finished.connect(lambda p=poller: self._on_stats_finished(p))
         self._stats_poller = poller
         poller.start()
 
-    def _on_stats_finished(self) -> None:
-        poller = self._stats_poller
-        self._stats_poller = None
-        if poller is not None:
-            poller.deleteLater()
+    def _on_stats_finished(self, poller) -> None:
+        # finished 可能在下一轮启动后才送达，只清理发出信号的线程。
+        if self._stats_poller is poller:
+            self._stats_poller = None
+        poller.deleteLater()
 
     def _on_stats_updated(self, stats: dict) -> None:
         for tile in self.wall.tiles:
@@ -1404,6 +1406,8 @@ class MainWindow(QMainWindow):
                 tile.set_watched(info["online_text"])
 
     def refresh_status(self, *, force: bool = False) -> None:
+        if self._closing:
+            return
         try:
             if self._poller is not None and self._poller.isRunning():
                 if force:
@@ -1422,15 +1426,17 @@ class MainWindow(QMainWindow):
         poller.updated.connect(self._on_status_updated)
         if hasattr(poller, "failed"):
             poller.failed.connect(self._on_status_failed)
-        poller.finished.connect(self._on_poller_finished)
+        poller.finished.connect(lambda p=poller: self._on_poller_finished(p))
         self._poller = poller
         poller.start()
 
-    def _on_poller_finished(self) -> None:
-        poller = self._poller
+    def _on_poller_finished(self, poller) -> None:
+        poller.deleteLater()
+        if self._poller is not poller:
+            return
         self._poller = None
-        if poller is not None:
-            poller.deleteLater()
+        if self._closing:
+            return
         if self._refresh_queued:
             self._refresh_queued = False
             self.refresh_status()

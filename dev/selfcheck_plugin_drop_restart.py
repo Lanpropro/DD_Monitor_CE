@@ -1,4 +1,5 @@
 """插件页拖放、EXE 内嵌 ZIP 校验，以及保存后重启的生命周期。"""
+import argparse
 import io
 import json
 import os
@@ -16,7 +17,7 @@ sys.path.insert(0, REPO)
 from PySide6.QtCore import QMimeData, QPoint, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QApplication
-from ddm import app as app_module, config
+from ddm import app as app_module, config, plugins as plugin_api
 from ddm.app import MainWindow
 from ddm.dialogs import PluginSettingsPage, SettingsDialog
 from ddm.plugins import PluginManager
@@ -42,7 +43,44 @@ class SilentPoller(QThread):
         pass
 
 
+def check_domestic_import(app, archive):
+    """Import the actual release into an empty install, then load its saved state."""
+    with tempfile.TemporaryDirectory(prefix="ddm_domestic_restart_") as root:
+        class InstallDialog(SettingsDialog):
+            def exec(self):
+                assert not self.plugin_page.checks
+                self.plugin_page._install_archive(archive)
+                assert self.plugin_page.checks["domestic_live"].isChecked()
+                assert self.confirm_button.text() == "保存并重启"
+                self.confirm_button.click()
+                return self.result()
+
+        with patch.object(plugin_api, "DEFAULT_PLUGINS_DIR", os.path.join(root, "plugins")), \
+                patch.object(app_module, "SettingsDialog", InstallDialog), \
+                patch("ddm.dialogs.QMessageBox.information"), patch.object(config, "save") as save:
+            window = MainWindow([], [], state={"plugins_enabled": []})
+            assert not window.plugins.plugins and not window.plugins.catalog()
+            assert window.open_settings()
+            assert window._closing and window._restart_requested
+            assert not window.plugins.platforms, "Installing must not execute the plugin"
+            saved = save.call_args.args[0]
+            app.processEvents()
+            restarted = MainWindow([], [], state=saved)
+            try:
+                assert set(restarted.plugins.platforms) == {"huya", "douyu", "douyin"}
+                assert len(restarted.plugins.plugins) == 1
+                assert restarted.plugins.plugins[0].version == "1.0"
+                app.processEvents()
+            finally:
+                restarted.close()
+                app.processEvents()
+    print("PASS: empty install, actual domestic 1.0 ZIP, save/restart and three platforms")
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--domestic-package")
+    args = parser.parse_args()
     app = QApplication([])
     with tempfile.TemporaryDirectory(prefix="ddm_plugin_drop_") as root:
         manager = PluginManager(plugins_dir=os.path.join(root, "plugins"))
@@ -113,14 +151,35 @@ def main():
         with open(os.path.join(root, "main.py"), "w", encoding="utf-8") as handle:
             handle.write(f"import os\nfrom pathlib import Path\nos.chdir({REPO!r})\n"
                          f"Path({marker!r}).write_text('started')\n")
+        children = []
+        start_detached = app_module.QProcess.startDetached
+        def record_launch(*arguments):
+            result = start_detached(*arguments)
+            children.append(result[1])
+            return result
         with patch.object(config, "REPO", root), patch.object(sys, "argv", ["main.py"]), \
-                patch.object(sys, "frozen", False, create=True):
+                patch.object(sys, "frozen", False, create=True), \
+                patch.object(app_module.QProcess, "startDetached", side_effect=record_launch):
             assert app_module._launch_restart(), "真实子进程应能启动"
         deadline = time.monotonic() + 5
         while not os.path.isfile(marker) and time.monotonic() < deadline:
             time.sleep(0.02)
         assert os.path.isfile(marker), "含空格的目录和入口路径必须可启动"
+        if os.name == "nt":  # 标记写入时子进程可能仍占用临时目录，先等它退出。
+            import ctypes
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            handle = kernel32.OpenProcess(0x100000, False, children[0])
+            if handle:
+                try:
+                    assert kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 5000) == 0
+                finally:
+                    kernel32.CloseHandle(ctypes.c_void_p(handle))
+            else:
+                assert ctypes.get_last_error() == 87, "子进程必须已退出或可等待"
     app.processEvents()
+    if args.domestic_package:
+        check_domestic_import(app, os.path.abspath(args.domestic_package))
     print("PASS: drag packages, embedded ZIP EXE, reject ordinary EXE, save and restart commands")
 
 
