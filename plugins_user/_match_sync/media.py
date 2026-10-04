@@ -365,13 +365,16 @@ class Chat:
         if danmaku.blivedm is None:
             self.events.state.emit("弹幕组件不可用")
             return
-        try:
-            asyncio.run(self._main())
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            if not self.cancelled.is_set():
-                self.events.state.emit("弹幕连接失败，可重新开始连接")
+        while not self.cancelled.is_set():
+            try:
+                asyncio.run(self._main())
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                if not self.cancelled.is_set():
+                    self.events.state.emit("弹幕连接失败，正在重试")
+            if self.cancelled.wait(2):
+                return
 
     async def _main(self):
         self.loop = asyncio.get_running_loop()

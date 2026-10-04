@@ -314,6 +314,32 @@ def chat_checks():
         active.stop()
         active.thread.join(2)
         assert not active.thread.is_alive() and Client.instances[0].closed
+    # A transient third-room lookup failure must not permanently end its chat worker.
+    attempts = []
+    received = []
+    async def recover(self):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise OSError("Temporary room lookup failure")
+        self.loop = asyncio.get_running_loop()
+        self.task = asyncio.current_task()
+        self.events.message.emit({"text": "third room recovered"})
+        await asyncio.Event().wait()
+    with patch.object(media.Chat, "_main", recover):
+        retrying = media.Chat("3")
+        retrying.events.message.connect(received.append)
+        retrying.start()
+        try:
+            deadline = time.monotonic() + 3
+            while not received and time.monotonic() < deadline:
+                QCoreApplication.instance().processEvents()
+                time.sleep(.02)
+            assert received == [{"text": "third room recovered"}] and len(attempts) == 2
+        finally:
+            retrying.stop()
+            retrying.thread.join(2)
+            assert not retrying.thread.is_alive()
+    print("PASS: transient third-room chat failure retries and reconnects; cancellation leaves no worker")
     print("PASS: chat cancellation during lookup and active websocket cleanup without QThread destruction")
 
 

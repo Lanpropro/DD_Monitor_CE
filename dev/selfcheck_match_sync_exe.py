@@ -188,9 +188,9 @@ class Probe(api.Plugin):
                 row.pending.append((time.monotonic() - 30, {"uname": "有牌观众", "text": "携带其他主播的粉丝牌", "medal": medal}))
                 self.viewer.render()
                 entries = self.viewer.panel._blocks[-2:]
-                assert entries[0]["uname"] == "[合成主画面] 无牌观众" and not entries[0]["medal"]
-                assert "[合成主画面]" in self.viewer.panel._block_html(entries[0])
-                assert entries[1]["uname"] == "[合成主画面] 有牌观众" and not entries[1]["medal"]
+                assert entries[0]["uname"] == "【合成主画面】 无牌观众" and not entries[0]["medal"]
+                assert "【合成主画面】" in self.viewer.panel._block_html(entries[0])
+                assert entries[1]["uname"] == "【合成主画面】 有牌观众" and not entries[1]["medal"]
                 self.checks["chat_badges"] = True
                 self.context.window.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
                 row.delay.setValue(0)
@@ -208,10 +208,11 @@ class Probe(api.Plugin):
                 assert self.viewer.layout().itemAt(0).widget() is self.viewer.picture_split and self.viewer.controls.frameShape() == QFrame.NoFrame
                 assert "正数" in row.increase.toolTip() and "延后本路" in row.increase.toolTip()
                 assert "负数" in row.decrease.toolTip() and "相对提前本路" in row.decrease.toolTip()
-                assert row.offset_hint.isVisible() and not row.offset_hint.wordWrap()
+                assert row.offset_hint.isVisible() and row.offset_hint.wordWrap()
                 assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
                 assert row.offset_hint.font().pixelSize() == 12
                 assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
+                assert abs(row.offset_hint.x() - row.control_widgets[8].x()) <= 1
                 centers = [widget.geometry().center().y() for widget in row.control_widgets]
                 assert max(centers) - min(centers) <= 1
                 assert row.channel.width() == 100 and row.color_choice.width() == 82

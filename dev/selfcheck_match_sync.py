@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.13"
+        assert manager.catalog()[0]["version"] == "0.1.14"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -248,18 +248,18 @@ def package_and_ui_checks(app):
             viewer.render()
             assert viewer.canvas.frame_key == 95
             entry = viewer.panel._blocks[-1]
-            assert entry["uname"] == "[主播乙] B" and not entry["medal"]
+            assert entry["uname"] == "【主播乙】 B" and not entry["medal"]
             assert original_medal == {"name": "原粉丝团", "level": 23, "color": "#fbbf24"}
             assert "原粉丝团" not in viewer.panel._block_html(entry)
-            assert "[主播乙]" in viewer.panel._block_html(entry)
+            assert "【主播乙】" in viewer.panel._block_html(entry)
             assert len(row_a.pending) == 1
             assert host.players[participating].muted and not host.players[unrelated].muted
             assert participating.room["muted"] is False and participating.muted is False
             clock[0] = 104
             viewer.render()
             entry = viewer.panel._blocks[-1]
-            assert entry["uname"] == "[主播甲] A" and not entry["medal"]
-            assert "[主播甲]" in viewer.panel._block_html(entry)
+            assert entry["uname"] == "【主播甲】 A" and not entry["medal"]
+            assert "【主播甲】" in viewer.panel._block_html(entry)
             assert "medal" not in unbadged, "Source labels must not change incoming events"
             row_b.show_chat.setChecked(False)
             viewer._message(row_b, row_b.chat, {"text": "hidden"})
@@ -462,10 +462,11 @@ def embedded_checks(app):
         app.processEvents()
         assert "正数" in row.increase.toolTip() and "延后本路" in row.increase.toolTip()
         assert "负数" in row.decrease.toolTip() and "相对提前本路" in row.decrease.toolTip()
-        assert row.offset_hint.isVisible() and not row.offset_hint.wordWrap()
+        assert row.offset_hint.isVisible() and row.offset_hint.wordWrap()
         assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
         assert row.offset_hint.font().pixelSize() == theme.FONT_CAPTION
         assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
+        assert abs(row.offset_hint.x() - row.control_widgets[8].x()) <= 1
         centers = [widget.geometry().center().y() for widget in row.control_widgets]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
         assert row.control_widgets[-1].width() == 52
@@ -606,7 +607,9 @@ def embedded_checks(app):
             assert row.decoder.seed["quality"] == 20001 and "url" not in row.decoder.seed
             decoder = row.decoder
             viewer._information(row, decoder, {"actual_quality": 10000})
-            assert row.quality == viewer.picture.quality == 10000 and row.decoder is decoder
+            expected = 20001 if platform.kind == "douyu" else 10000
+            assert row.quality == viewer.picture.quality == expected and row.decoder is decoder
+            assert row.actual_quality == viewer.picture.actual_quality == 10000
             viewer.picture.set_volume(67)
             viewer.picture.set_audio_channel(4)
             viewer.picture.pause_button.click()
@@ -622,11 +625,11 @@ def embedded_checks(app):
             clock[0] = 103
             viewer.render()
             entry = viewer.panel._blocks[-1]
-            assert entry["uname"] == f"[{alias}] 观众" and not entry["medal"]
+            assert entry["uname"] == f"【{alias}】 观众" and not entry["medal"]
             medal = {"name": "原有牌", "level": 7, "color": "#fbbf24"}
             row.pending.append((99, {"uname": "有牌观众", "text": "保留原牌", "medal": medal}))
             viewer.render()
-            assert viewer.panel._blocks[-1]["uname"] == f"[{alias}] 有牌观众"
+            assert viewer.panel._blocks[-1]["uname"] == f"【{alias}】 有牌观众"
             assert not viewer.panel._blocks[-1]["medal"]
             assert medal["name"] == "原有牌"
         workers = [row.decoder for row in viewer.rows.values()]

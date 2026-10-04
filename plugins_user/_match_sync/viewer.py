@@ -12,7 +12,7 @@ from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QLinearGradient, 
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
-    QHBoxLayout, QLabel, QLayout, QLineEdit,
+    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
 from ddm.widgets import DanmakuPanel, ROOM_MIME, Tile
@@ -332,6 +332,7 @@ class RoomRow(QFrame):
                      if str(item.get("room_id") or "") == room_id), {})
         self.title = room.get("title") or (viewer.sources.get(room_id) or {}).get("title") or ""
         self.quality = int(preferences.get("quality", 10000 if self.platform is not None else 250))
+        self.actual_quality = 0
         self.pending = deque(maxlen=2000)
         self.color = preferences.get("color", color)
         if self.color not in COLORS:
@@ -403,27 +404,33 @@ class RoomRow(QFrame):
                                 self.volume_number, self.channel,
                                 self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
                                 self.delay, self.increase, region, remove)
-        controls = QHBoxLayout()
-        controls.setSpacing(6)
+        controls = QGridLayout()
+        controls.setHorizontalSpacing(6)
+        controls.setVerticalSpacing(4)
+        columns = []
+        column = 0
         for index, widget in enumerate(self.control_widgets):
             if index in (2, 6, 8, 12, 13):
-                controls.addStretch()
-            controls.addWidget(widget)
+                controls.setColumnStretch(column, 1)
+                column += 1
+            columns.append(column)
+            controls.addWidget(widget, 0, column)
+            column += 1
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.offset_hint = QLabel("单位：秒 · + 正数延后本路 · − 负数相对提前本路")
         self.offset_hint.setObjectName("MatchSyncOffsetHint")
+        self.offset_hint.setWordWrap(True)
+        self.offset_hint.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.offset_hint.setStyleSheet(
             f"QLabel#MatchSyncOffsetHint {{ color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px; }}")
-        details = QHBoxLayout()
-        details.addWidget(self.status, 1)
-        details.addWidget(self.offset_hint)
+        controls.addWidget(self.status, 1, 0, 1, columns[8] - 1)
+        controls.addWidget(self.offset_hint, 1, columns[8], 1, columns[12] - columns[8])
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)
         layout.setSizeConstraint(QLayout.SetMinimumSize)
         layout.addLayout(controls)
-        layout.addLayout(details)
         self.setFrameShape(QFrame.NoFrame)
         self.refresh_status()
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
@@ -455,6 +462,8 @@ class RoomRow(QFrame):
 
     def _chat_toggle(self):
         self.pending.clear()
+        if self.viewer.running:
+            self.viewer._start_chat(self)
         self.viewer.changed()
 
     def preferences(self):
@@ -558,6 +567,9 @@ class Viewer(QDialog):
         self.panel.setMinimumWidth(260)
         self.panel.set_placeholder("各路弹幕以主播名称标注来源直播间")
         settings = getattr(context.window, "settings", {})
+        self.video_danmaku = getattr(self.picture, "video_danmaku", None)
+        if self.video_danmaku is not None:
+            self.video_danmaku.apply_settings(settings)
         self.panel.apply_style(settings.get("danmaku_font", ""),
                                int(settings.get("danmaku_font_size") or 13))
         self.panel.set_max_blocks(int(settings.get("danmaku_max_blocks") or 3000))
@@ -876,6 +888,8 @@ class Viewer(QDialog):
                 tile.set_quality_options(row.platform.room_quality_options(row.room_id))
             if tile.quality != row.quality:
                 tile.set_quality(row.quality)
+            if row.platform is not None:
+                tile.set_actual_quality(row.actual_quality)
             tile.set_volume(row.volume.value())
             tile.set_audio_channel(row.channel.currentData())
             tile.set_muted(not row.audible.isChecked())
@@ -1007,6 +1021,7 @@ class Viewer(QDialog):
     def _start_row(self, row):
         row.paused = False
         row.pending.clear()
+        row.actual_quality = 0
         seed = dict(self.sources.get(row.room_id) or {})
         seed["title"] = seed.get("title") or row.title
         if seed.get("quality", row.quality) != row.quality:
@@ -1014,17 +1029,31 @@ class Viewer(QDialog):
         seed["quality"] = row.quality
         row.decoder = Decoder(row.room_id, seed, row.platform)
         row.decoder.set_crop(row.crop)
-        row.chat = (PlatformChat(row.room_id, row.platform, self.context.window)
-                    if row.platform is not None else Chat(row.room_id))
-        decoder, chat = row.decoder, row.chat
+        decoder = row.decoder
         decoder.events.information.connect(lambda info, r=row, d=decoder: self._information(r, d, info))
         decoder.events.state.connect(lambda text, r=row, d=decoder: self._state(r, d, text, False))
         decoder.events.reset.connect(lambda r=row, d=decoder: self._reset(r, d))
+        decoder.start()
+        self._start_chat(row)
+        self._sync_sidebar_marks()
+
+    def _start_chat(self, row):
+        previous, row.chat = row.chat, None
+        if previous is not None:
+            previous.stop()
+        row.pending.clear()
+        if not row.show_chat.isChecked():
+            row.chat_text = "弹幕已关闭"
+            row.refresh_status()
+            return
+        row.chat_text = "弹幕连接中…"
+        row.refresh_status()
+        chat = (PlatformChat(row.room_id, row.platform, self.context.window)
+                if row.platform is not None else Chat(row.room_id))
+        row.chat = chat
         chat.events.state.connect(lambda text, r=row, c=chat: self._state(r, c, text, True))
         chat.events.message.connect(lambda event, r=row, c=chat: self._message(r, c, event))
-        decoder.start()
         chat.start()
-        self._sync_sidebar_marks()
 
     def _valid(self, row, worker, chat=False):
         return (self.running and self.rows.get(row.room_id) is row and
@@ -1039,11 +1068,13 @@ class Viewer(QDialog):
             row.alias.setText(info.get("uname") or "未命名主播")
             self.update_main_choices()
         if row.platform is not None and info.get("actual_quality"):
-            row.quality = int(info["actual_quality"])
+            row.actual_quality = int(info["actual_quality"])
+            if row.platform.kind != "douyu":
+                row.quality = row.actual_quality
             if row.room_id == self.main.currentData():
                 self.sync_picture()
                 self.picture.set_quality_options(info.get("quality_options") or [])
-                self.picture.set_actual_quality(row.quality)
+                self.picture.set_actual_quality(row.actual_quality)
             self.changed()
         if row.room_id == self.main.currentData():
             self.sync_picture()
@@ -1100,6 +1131,7 @@ class Viewer(QDialog):
                 self.notice.setText(f"主画面：{row.label()} · 延后约 {delay:.1f} 秒 · "
                                     "无法匹配时保持已确认偏移，可手动校正")
         eligible = []
+        chat_budget = min(80, max(1, 200 // max(1, len(self.rows))))
         for room_id, row in self.rows.items():
             bounds = row.decoder.history.bounds() if row.decoder is not None else None
             text = ""
@@ -1112,18 +1144,22 @@ class Viewer(QDialog):
                 row.buffer_text = text
                 row.refresh_status()
             target = clock + shifts[room_id]
-            for _ in range(min(80, 200 - len(eligible))):
+            for _ in range(chat_budget):
                 if not row.pending or row.pending[0][0] > target:
                     break
                 received, event = row.pending.popleft()
                 if clock - received > 120:
                     continue
                 event["medal"] = {}
-                event["uname"] = f"[{row.label()}] {event.get('uname') or ''}"
+                event["uname"] = f"【{row.label()}】 {event.get('uname') or ''}"
+                event["source_label"] = row.label()
                 event["color"] = row.color
                 eligible.append((received - shifts[room_id], event))
         for _due, event in sorted(eligible, key=lambda item: item[0]):
             self.panel.add_event(event)
+            if self.video_danmaku is not None:
+                self.video_danmaku.add_event({**event,
+                    "text": f"【{event['source_label']}】 {event.get('text') or ''}"})
 
     def analyse(self):
         if not self.running or not self.alignment.automatic or self.matching or self.compare.isChecked():
@@ -1248,6 +1284,8 @@ class Viewer(QDialog):
                 self._restore_host_audio(player, tile)
         self.suppressed.clear()
         self.panel.set_status("已停止")
+        if self.video_danmaku is not None:
+            self.video_danmaku.clear()
         self.canvas.set_frame(None)
         self._show_buffering(False)
         self._sync_sidebar_marks()
