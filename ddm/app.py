@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         self.sidebar.openBrowserRequested.connect(self._open_room_browser)
         self.sidebar.deleteRequested.connect(self.remove_rooms)
         self.sidebar.logoutRequested.connect(self.logout)
+        self.sidebar.platformLogoutRequested.connect(self.logout)
         self.sidebar.loginRequested.connect(lambda: self.open_login())
         self.sidebar.pinChanged.connect(self._on_pin_changed)
         self.sidebar.sortChanged.connect(self._on_sort_changed)
@@ -2290,7 +2291,7 @@ class MainWindow(QMainWindow):
     def _login_choices(self) -> list:
         choices = [] if bili.SESSION_DATA else ["B站"]
         return choices + [label for label, p in self._follow_platforms().items()
-                          if callable(getattr(p, "account_info", None)) and p.kind != self._account_kind()]
+                          if callable(getattr(p, "account_info", None)) and p.kind not in self._accounts]
 
     def _account_kind(self) -> str:
         return "bilibili" if bili.SESSION_DATA else next(
@@ -2312,6 +2313,15 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         self.sidebar.can_login_other = bool(self._login_choices())
+        kinds = (["bilibili"] if bili.SESSION_DATA else []) + [
+            p.kind for p in self._follow_platforms().values() if p.kind in self._accounts]
+        self.sidebar.logged_accounts = [(kind, self._accounts.get(kind, {"uname": "B站账号"}))
+                                       for kind in kinds]
+        for account_kind, info in self.sidebar.logged_accounts:
+            if "_pixmap" not in info:
+                info["_pixmap"] = load_cached_avatar(info.get("face") or "")
+            if load_avatar:
+                self._load_account_avatar(account_kind, info)
         kind = self._account_kind()
         if not kind:
             self.sidebar.clear_account()
@@ -2322,7 +2332,10 @@ class MainWindow(QMainWindow):
         if "_pixmap" not in account:
             account["_pixmap"] = load_cached_avatar(face)
         self.sidebar.set_account(name, account.get("_pixmap"), platform=kind, uid=account.get("uid"))
-        if not load_avatar or not face or account.get("_pixmap") is not None or account.get("_avatar_requested"):
+
+    def _load_account_avatar(self, kind, account):
+        face = account.get("face") or ""
+        if not face or account.get("_pixmap") is not None or account.get("_avatar_requested"):
             return
         account["_avatar_requested"] = True
         session = bili.SESSION_DATA
@@ -2477,8 +2490,8 @@ class MainWindow(QMainWindow):
                 item.thumb.set_cover(pixmap)
                 return
 
-    def logout(self) -> None:
-        kind = self.sidebar.account_row.platform or "bilibili"
+    def logout(self, kind=None) -> None:
+        kind = kind or self.sidebar.account_row.platform or "bilibili"
         if kind == "bilibili":
             bili.set_sessdata("")
             self.state["sessdata"] = ""

@@ -4,12 +4,12 @@ import os
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QHBoxLayout, QLabel,
-                              QPushButton, QStackedWidget, QVBoxLayout)
+                              QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import bili
 from .bili import FollowLoader
 from .dialogs import FollowImportDialog
-from .widgets import BRAND_ASSETS_DIR
+from .widgets import AccountRow, BRAND_ASSETS_DIR
 
 
 class AccountPlatformDialog(QDialog):
@@ -97,6 +97,21 @@ class AccountPlatformDialog(QDialog):
         self._clear_page()
         self.kind = kind
         self.platform_buttons[kind].setChecked(True)
+        if not self.import_follows and (bili.SESSION_DATA if kind == "bilibili"
+                                        else kind in self.owner._accounts):
+            account = self.owner._accounts.get(kind, {"uname": "B站账号"})
+            page = QWidget()
+            page.resize(560, 220)
+            layout = QVBoxLayout(page)
+            layout.addWidget(QLabel("此平台已登录"))
+            row = AccountRow(page)
+            row.set_account(account.get("uname") or str(account.get("uid") or "已登录"),
+                            account.get("_pixmap"), platform=kind, uid=account.get("uid"))
+            row.arrow.hide()
+            layout.addWidget(row)
+            layout.addStretch()
+            self._set_page(page)
+            return
         if self.import_follows and kind in self._follow_pages:
             self._set_page(self._follow_pages[kind])
             return

@@ -13,7 +13,7 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt, Signal  # noqa: E402
 from PySide6.QtGui import QPixmap  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QPushButton  # noqa: E402
 from ddm import app as app_module, bili, theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.platform_login import PlatformFollowDialog  # noqa: E402
@@ -138,13 +138,25 @@ def main():
         # 两个平台头像交错返回，不能把斗鱼头像覆盖到 B 站。
         with patch.object(app_module, "AvatarLoader", AvatarStub):
             window._accounts["douyu"] = dict(account, face="mock-douyu")
+            douyu_account = window._accounts["douyu"]
             window._render_account()
             douyu_avatar = window._account_avatar_loader
             bili.set_sessdata("test-session")
             window._on_account_loaded({"uid": 123456, "uname": "B站测试账号", "face": "mock-bili"})
             bili_avatar = window._account_avatar_loader
             assert row.platform == "bilibili" and row.uid == "123456"
-            assert window._login_choices() == ["斗鱼"]  # 可重新登录其他平台的过期账号。
+            assert window._login_choices() == []
+            menu = window.sidebar.account_menu()
+            rows = [a.defaultWidget() for a in menu.actions() if hasattr(a, "defaultWidget")]
+            assert len(rows) == 2
+            from ddm.widgets import AccountRow
+            assert [item.findChild(AccountRow).uid for item in rows] == ["123456", "7890123"]
+            with patch("ddm.platform_login.clear_platform_login") as clear:
+                rows[1].findChild(QPushButton).click()
+                clear.assert_called_once_with("douyu")
+            assert bili.SESSION_DATA and "douyu" not in window._accounts
+            # 恢复测试身份，让之前的头像线程回调仍引用同一账号。
+            window._accounts["douyu"] = douyu_account
             blue, red = QPixmap(26, 26), QPixmap(26, 26)
             blue.fill(Qt.blue)
             red.fill(Qt.red)
@@ -163,11 +175,12 @@ def main():
             for collapsed in (False, True):
                 window.sidebar.set_collapsed(collapsed, animate=False)
                 app.processEvents()
-                assert row.platform_badge.isVisible()
-                assert row.avatar.rect().contains(row.platform_badge.geometry())
+                assert row.platform_badge.isVisible() == (not collapsed)
+                if not collapsed:
+                    assert row.platform_badge.x() > row.account_text.x()
                 assert row.account_id.isVisible() == (not collapsed)
                 if not collapsed:
-                    assert "7890123" in row.account_id.text()
+                    assert "7890123" in row.account_id._full_text
                     assert row.name.height() + row.account_id.height() <= row.height() - 8
         with patch("ddm.platform_login.clear_platform_login") as clear:
             window.logout()

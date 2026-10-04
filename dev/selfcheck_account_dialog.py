@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog, QInputDialog, QPushButton  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QInputDialog, QLabel, QPushButton  # noqa: E402
 from ddm import app as app_module, bili, theme  # noqa: E402
 from ddm.account_dialog import AccountPlatformDialog  # noqa: E402
 from ddm.dialogs import FollowImportDialog  # noqa: E402
@@ -80,8 +80,21 @@ def main():
             dialog.page._read()
             wait_for(app, lambda: not dialog.isVisible())
             assert dialog.result() == QDialog.Accepted and not dialog.rooms
-            assert owner._accounts["douyu"] == account
+            assert all(owner._accounts["douyu"][key] == value for key, value in account.items())
             dispose(app, dialog)
+
+            # 已登录平台只展示身份，不再次创建二维码或浏览器登录页。
+            with patch.object(LoginWindow, "start_login") as qr, \
+                    patch("ddm.platform_login.PlatformFollowDialog", side_effect=AssertionError("Login reopened")):
+                dialog = AccountPlatformDialog(owner, {"斗鱼": provider})
+                dialog.show()
+                assert "此平台已登录" in [label.text() for label in dialog.page.findChildren(QLabel)]
+                dialog.select_platform("douyu")
+                from ddm.widgets import AccountRow
+                assert dialog.page.findChild(AccountRow).uid == "123"
+                dialog.select_platform("bilibili")
+                qr.assert_not_called()
+                dispose(app, dialog)
 
             # 此段覆盖未登录的平台由用户手动读取的入口。
             owner._clear_platform_account("douyu")

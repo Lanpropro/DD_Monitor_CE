@@ -1230,7 +1230,7 @@ class AccountRow(QFrame):
         layout.setSpacing(8)
         self.avatar = Avatar("?", 3, 26)
         layout.addWidget(self.avatar)
-        self.platform_badge = QLabel(self.avatar)
+        self.platform_badge = QLabel(self)
         self.platform_badge.setFixedSize(12, 12)
         self.platform_badge.setStyleSheet("background: transparent; border: none;")
         _ignore_mouse(self.platform_badge)
@@ -1255,6 +1255,7 @@ class AccountRow(QFrame):
         _allow_shrink(self.account_text)
         _ignore_mouse(self.account_text)
         layout.addWidget(self.account_text, 1)
+        layout.addWidget(self.platform_badge)
         self.arrow = QLabel("⋯")
         self.arrow.setObjectName("NavSub")
         _ignore_mouse(self.arrow)
@@ -1283,8 +1284,7 @@ class AccountRow(QFrame):
                 icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms", "generic.svg")
             self.platform_badge.setPixmap(QIcon(icon_path).pixmap(12, 12))
             self.platform_badge.setAccessibleName(platform)
-            self.platform_badge.move(self.avatar.width() - 12, self.avatar.height() - 12)
-            self.platform_badge.show()
+            self.platform_badge.setVisible(not getattr(self, "_compact", False))
             self.avatar.set_color(None)          # 回到彩色（哈希取的）
             if pixmap is not None:
                 self.avatar.set_pixmap_image(pixmap)
@@ -1318,7 +1318,7 @@ class AccountRow(QFrame):
         # 未登录时这一格是「登录」按钮，不该带菜单那个 ⋯
         self.arrow.setVisible(not compact and bool(self.uname))
         self.avatar.set_size(size if compact else 26)
-        self.platform_badge.move(self.avatar.width() - 12, self.avatar.height() - 12)
+        self.platform_badge.setVisible(not compact and bool(self.uname))
         self.setFixedHeight(size + margin * 2 if compact else 34)
         if compact and not self._compact_spacer:
             self._layout.insertStretch(0, 1)
@@ -3276,6 +3276,7 @@ class Sidebar(QFrame):
     deleteRequested = Signal(list)
     collapsedChanged = Signal(bool)
     logoutRequested = Signal()
+    platformLogoutRequested = Signal(str)
     loginRequested = Signal()
     pinChanged = Signal(list)
     sortChanged = Signal(str)
@@ -3605,6 +3606,28 @@ class Sidebar(QFrame):
             menu.addAction("登录…")
             menu.addSeparator()
         else:
+            for kind, account in getattr(self, "logged_accounts", []):
+                action = QWidgetAction(menu)
+                item = QWidget(menu)
+                layout = QHBoxLayout(item)
+                layout.setContentsMargins(8, 4, 8, 4)
+                row = AccountRow(item)
+                row.setMinimumWidth(220)
+                row.set_account(account.get("uname") or str(account.get("uid") or "已登录"),
+                                account.get("_pixmap"), platform=kind, uid=account.get("uid"))
+                row.arrow.hide()
+                layout.addWidget(row, 1)
+                button = QPushButton("退出", item)
+                button.setObjectName("IconButton")
+                button.setProperty("platform", kind)
+                def logout(_checked=False, k=kind):
+                    menu.close()
+                    self.platformLogoutRequested.emit(k)
+                button.clicked.connect(logout)
+                layout.addWidget(button)
+                action.setDefaultWidget(item)
+                menu.addAction(action)
+            menu.addSeparator()
             menu.addAction("退出登录")
             menu.addAction("登录其他平台…").setEnabled(getattr(self, "can_login_other", True))
         if self.side == "top":
