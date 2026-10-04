@@ -76,6 +76,7 @@ def main():
             for imports in (False, True):
                 bili.set_sessdata("test-session" if imports else "")
                 dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=imports)
+                dialog.setWindowFlag(Qt.WindowStaysOnTopHint, True)
                 dialog.move(80, 80)
 
                 def show_bili():
@@ -106,21 +107,33 @@ def main():
                             assert not old.isVisible() and page.window() is dialog
                             if retained is not None:
                                 assert page is retained
+                            if not imports or cycle == 0:
+                                wait_for(app, lambda: page.browser.url().toString() == provider.account_login_url
+                                         and not page.browser.page().isLoading())
+                                loaded = []
+                                page.browser.loadFinished.connect(loaded.append)
+                                page.browser.setHtml('<html><body style="margin:0;background:#32b464;'
+                                                     'height:100vh">DOUYU RENDER TEST</body></html>')
+                                wait_for(app, lambda: bool(loaded))
+                                assert loaded[-1]
+                                page.browser.loadFinished.disconnect(loaded.append)
+                                QTest.qWait(200)
+                                screen_color(dialog, page.browser, "#32b464", f"{imports}-browser-{cycle}")
+                                if imports:
+                                    browser_page = page
+                                    page._read()
+                                    wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                                    page = dialog.page
+                                    assert not browser_page.isVisible()
+                                    page.list.setStyleSheet("background: #947043; color: white;")
                             retained = page
-                            wait_for(app, lambda: page.browser.url().toString() == provider.account_login_url
-                                     and not page.browser.page().isLoading())
-                            loaded = []
-                            page.browser.loadFinished.connect(loaded.append)
-                            page.browser.setHtml('<html><body style="margin:0;background:#32b464;'
-                                                 'height:100vh">DOUYU RENDER TEST</body></html>')
-                            wait_for(app, lambda: bool(loaded))
-                            assert loaded[-1]
-                            page.browser.loadFinished.disconnect(loaded.append)
                             QTest.qWait(200)
                             assert dialog.pages.currentWidget() is page
                             assert page.geometry() == dialog.pages.rect()
                             assert len(dialog._platform_pages) == 1 and dialog.pages.count() == 1
-                            screen_color(dialog, page.browser, "#32b464", f"{imports}-douyu-{cycle}")
+                            widget = page.list if imports else page.browser
+                            color = "#947043" if imports else "#32b464"
+                            screen_color(dialog, widget, color, f"{imports}-douyu-{cycle}")
                             sizes.append(dialog.size())
                             QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
                             widget, color = show_bili()

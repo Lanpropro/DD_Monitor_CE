@@ -6,6 +6,8 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from shiboken6 import isValid
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["DDM_NO_SAVE"] = "1"
@@ -94,28 +96,54 @@ def main():
             assert dialog.rooms == ROOMS and dialog.result() == QDialog.Accepted
             dispose(app, dialog)
 
-            # B 站登录后读取列表，平台按钮在列表内保留，切换后清除勾选。
+            # 成功读取后切回直接恢复列表，各平台的勾选、搜索和文件夹分别保留。
             bili.set_sessdata("")
-            with patch.object(bili, "follow_rooms", return_value=[dict(ROOMS[0], room_id="123")]):
+            bili_rooms = [dict(ROOMS[0], room_id="123")]
+            folders = [{"id": "games", "name": "赛事", "type": "normal"}]
+            with patch.object(bili, "follow_rooms", return_value=bili_rooms) as bili_read, \
+                    patch.object(provider, "follow_rooms", return_value=ROOMS) as douyu_read, \
+                    patch.object(owner.sidebar, "folder_state", return_value=folders):
                 dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True)
                 dialog.show()
                 dialog.page._on_success("test-session")
                 wait_for(app, lambda: follows_ready(dialog))
-                dialog.page._check_all(True)
+                bili_page = dialog.page
+                bili_page._check_all(True)
+                bili_page.search_edit.setText("live")
                 QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
                 assert isinstance(dialog.page, PlatformFollowDialog) and not dialog.rooms
                 dialog.page._read()
                 wait_for(app, lambda: follows_ready(dialog))
                 assert dialog.page.selected() == []
-                retained = dialog._platform_pages["douyu"]
-                QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
-                wait_for(app, lambda: follows_ready(dialog))
-                QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
-                assert dialog.page is retained and dialog.page._pending_done is None
-                dialog.page._read()
-                wait_for(app, lambda: follows_ready(dialog))
-                assert dialog.page.rooms == ROOMS and dialog.page.selected() == []
+                douyu_page = dialog.page
+                douyu_page.list.item(1).setCheckState(Qt.Checked)
+                douyu_page.search_edit.setText("offline")
+                next(a for a in douyu_page.folder_button.menu().actions()
+                     if a.data() == "games").trigger()
+                completed = Mock()
+                dialog.finished.connect(completed)
+                browser = dialog._platform_pages["douyu"].browser
+                with patch.object(browser, "load") as browser_load:
+                    for _ in range(4):
+                        QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                        assert dialog.page is bili_page and not douyu_page.isVisible()
+                        assert dialog.page.selected() == bili_rooms
+                        assert dialog.page.search_edit.text() == "live" and dialog.page.folder_id == ""
+                        QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                        assert dialog.page is douyu_page and not bili_page.isVisible()
+                        assert dialog.page.selected() == [ROOMS[1]]
+                        assert dialog.page.search_edit.text() == "offline"
+                        assert dialog.page.folder_id == "games" and dialog.pages.count() == 1
+                    browser_load.assert_not_called()
+                bili_read.assert_called_once()
+                douyu_read.assert_called_once()
+                completed.assert_not_called()
+                douyu_page.accept()
+                assert dialog.rooms == [ROOMS[1]] and dialog.folder_id == "games"
+                assert dialog.result() == QDialog.Accepted
+                completed.assert_called_once_with(QDialog.Accepted)
                 dispose(app, dialog)
+                assert not isValid(bili_page) and not isValid(douyu_page)
 
             with patch.object(bili, "follow_rooms", side_effect=[RuntimeError("test failure"), []]):
                 dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True)
@@ -124,9 +152,22 @@ def main():
                 assert "test failure" in dialog.status.text() and dialog.retry_button.isEnabled()
                 assert dialog.retry_button.isVisible() and not dialog.page.import_button.isEnabled()
                 assert dialog.retry_button.width() < dialog.page.width() // 2
+                assert "bilibili" not in dialog._follow_pages
                 QTest.mouseClick(dialog.retry_button, Qt.LeftButton)
                 wait_for(app, lambda: follows_ready(dialog))
                 assert dialog.page.rooms == []
+                empty_bili = dialog.page
+                with patch.object(provider, "follow_rooms", return_value=[]) as douyu_read:
+                    QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                    dialog.page._read()
+                    wait_for(app, lambda: follows_ready(dialog))
+                    empty_douyu = dialog.page
+                    assert empty_douyu.rooms == []
+                    QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                    assert dialog.page is empty_bili
+                    QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                    assert dialog.page is empty_douyu
+                    douyu_read.assert_called_once()
                 dispose(app, dialog)
 
             # 取消正在读取的斗鱼请求：待线程退出后关闭，无迟到结果导入。
@@ -225,7 +266,7 @@ def main():
         owner.close()
         app.processEvents()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    print("PASS: inline platform buttons, one window, login/import, selection isolation, retry, cancel and late results")
+    print("PASS: inline platforms, cached lists/selections/search/folders, no duplicate read/import, empty lists, retry and cancel")
 
 
 if __name__ == "__main__":

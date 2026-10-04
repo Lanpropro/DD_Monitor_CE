@@ -24,6 +24,7 @@ class AccountPlatformDialog(QDialog):
         self.page = None
         # 保留浏览器的控件树，避免切换时销毁或迁移窗口的图形渲染层。
         self._platform_pages = {}
+        self._follow_pages = {}
         self._bili_loader = None
         self._pending_rooms = None
         self._closing_result = None
@@ -58,14 +59,15 @@ class AccountPlatformDialog(QDialog):
     def _clear_page(self):
         if self.page is not None:
             old = self.page
-            retained = old in self._platform_pages.values()
+            browser_page = old in self._platform_pages.values()
+            retained = browser_page or old in self._follow_pages.values()
             if not retained:
                 old.blockSignals(True)
                 if isinstance(old, QDialog):
                     old.reject()
             self.pages.removeWidget(old)
             old.hide()
-            if retained:
+            if browser_page:
                 old.browser.stop()
             if not retained:
                 old.deleteLater()
@@ -80,7 +82,8 @@ class AccountPlatformDialog(QDialog):
             page.setParent(self.pages, Qt.Widget)
         self.pages.addWidget(page)
         self.pages.setCurrentWidget(page)
-        if isinstance(page, QDialog) and page not in self._platform_pages.values():
+        if (isinstance(page, QDialog) and page not in self._platform_pages.values()
+                and page not in self._follow_pages.values()):
             page.finished.connect(self._page_finished)
         page.show()
         self.resize(size.width() + 24, size.height() + 65)
@@ -94,6 +97,9 @@ class AccountPlatformDialog(QDialog):
         self._clear_page()
         self.kind = kind
         self.platform_buttons[kind].setChecked(True)
+        if self.import_follows and kind in self._follow_pages:
+            self._set_page(self._follow_pages[kind])
+            return
         if kind == "bilibili":
             if self.import_follows and bili.SESSION_DATA:
                 self._load_bili()
@@ -202,6 +208,8 @@ class AccountPlatformDialog(QDialog):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
         page = FollowImportDialog(rooms, existing, self.owner,
                                   folders=self.owner.sidebar.folder_state())
+        page.finished.connect(self._page_finished)
+        self._follow_pages[self.kind] = page
         self._set_page(page)
         faces = {str(room["room_id"]): room.get("face") for room in rooms if room.get("face")}
         self.owner._start_avatar_loader(faces, page.set_avatar)
