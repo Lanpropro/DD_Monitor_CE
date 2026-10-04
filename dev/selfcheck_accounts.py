@@ -125,7 +125,8 @@ def main():
         assert row.platform_badge.isVisible() and not row.platform_badge.pixmap().isNull()
         assert "ID: " + account["uid"] in row.account_id._full_text
         texts = [a.text() for a in window.sidebar.account_menu().actions() if a.text()]
-        assert "退出登录" in texts and "登录其他平台…" in texts
+        assert "退出登录" not in texts and "登录其他平台…" in texts
+        assert row.logout_button.isVisible()
         assert window._login_choices() == ["B站"]
         with patch.object(window, "open_login") as login:
             menu = window.sidebar.account_menu()
@@ -157,18 +158,30 @@ def main():
             assert rows[0].width() == row.width()
             assert rows[0].findChild(QPushButton).parentWidget() is rows[0].findChild(AccountRow)
             assert menu.actions()[-1].defaultWidget() is rows[0]
-            assert [a.text() for a in menu.actions() if a.text()] == ["退出登录", "登录其他平台…"]
+            assert [a.text() for a in menu.actions() if a.text()] == ["登录其他平台…"]
             menu.show()
             app.processEvents()
             logout_button = rows[0].findChild(QPushButton)
             account_row = rows[0].findChild(AccountRow)
             assert abs(logout_button.geometry().center().y() - account_row.rect().center().y()) <= 1
             assert "text-align: center" in logout_button.styleSheet()
+            assert account_row.height() == row.height()
+            assert logout_button.size() == row.logout_button.size()
+            assert logout_button.styleSheet() == row.logout_button.styleSheet()
+            assert logout_button.geometry() == row.logout_button.geometry()
+            assert menu.width() == row.width()
             menu.close()
             with patch("ddm.platform_login.clear_platform_login") as clear:
                 rows[0].findChild(QPushButton).click()
                 clear.assert_called_once_with("douyu")
             assert bili.SESSION_DATA and "douyu" not in window._accounts
+            single_menu = window.sidebar.account_menu()
+            single_menu.show()
+            app.processEvents()
+            assert single_menu.width() == row.width()
+            login_button = single_menu.actions()[0].defaultWidget()
+            assert login_button.width() == row.width() and login_button.height() == row.height()
+            single_menu.close()
             # 恢复测试身份，让之前的头像线程回调仍引用同一账号。
             window._accounts["douyu"] = douyu_account
             blue, red = QPixmap(26, 26), QPixmap(26, 26)
@@ -178,7 +191,7 @@ def main():
             assert row.platform == "bilibili" and row.avatar._source is None
             bili_avatar.loaded.emit("account", blue)
             assert row.avatar._source.toImage().pixelColor(13, 13).blue() == 255
-            window.logout()
+            row.logout_button.click()
             assert row.platform == "douyu" and row.uid == account["uid"]
             assert row.avatar._source.toImage().pixelColor(13, 13).red() == 255
             bili_avatar.loaded.emit("account", blue)

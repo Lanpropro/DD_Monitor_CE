@@ -1213,8 +1213,9 @@ class AccountRow(QFrame):
     """侧栏底部的已登录账号：头像 + 昵称，点击弹出菜单。"""
 
     clicked = Signal()
+    logoutClicked = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, allow_logout=False):
         super().__init__(parent)
         self.setObjectName("AccountRow")
         self.setCursor(Qt.PointingHandCursor)
@@ -1222,6 +1223,7 @@ class AccountRow(QFrame):
         self.uname = ""
         self.platform = ""
         self.uid = ""
+        self._allow_logout = allow_logout
 
         layout = QHBoxLayout(self)
         # 头像 26px：上下各留 4px 正好 34px 高，内容才能真的垂直居中
@@ -1260,6 +1262,14 @@ class AccountRow(QFrame):
         self.arrow.setObjectName("NavSub")
         _ignore_mouse(self.arrow)
         layout.addWidget(self.arrow)
+        self.logout_button = QPushButton("退出", self)
+        self.logout_button.setObjectName("AccountLogoutButton")
+        self.logout_button.setStyleSheet(f"""padding: 0; min-height: 0; min-width: 0; text-align: center;
+            background: {theme.CONTENT}; border: 1px solid {theme.BORDER}; border-radius: 12px;""")
+        self.logout_button.setFixedSize(44, 24)
+        self.logout_button.clicked.connect(self.logoutClicked)
+        layout.addWidget(self.logout_button)
+        self.logout_button.hide()
         self._layout = layout
         self._compact_spacer = False
 
@@ -1267,6 +1277,8 @@ class AccountRow(QFrame):
         self.uname = uname or ""
         self.platform = platform if self.uname else ""
         self.uid = str(uid or "") if self.uname else ""
+        self.logout_button.setVisible(self._allow_logout and bool(self.uname)
+                                      and not getattr(self, "_compact", False))
         self.account_id.setText("ID: " + self.uid if self.uid else "")
         self.account_id.setVisible(bool(self.uid))
         self.name.setStyleSheet("font-size: 11px;" if self.uid else "")
@@ -1276,7 +1288,7 @@ class AccountRow(QFrame):
             self.avatar.clear()
         if self.uname:
             self.name.setText(self.uname)
-            self.arrow.setVisible(not getattr(self, "_compact", False))
+            self.arrow.setVisible(not self._allow_logout and not getattr(self, "_compact", False))
             self.setToolTip(self.uname + (" · ID: " + self.uid if self.uid else ""))
             icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
                                      "huya.png" if platform == "huya" else platform + ".ico")
@@ -1316,7 +1328,8 @@ class AccountRow(QFrame):
         self._compact = compact
         self.account_text.setVisible(not compact)
         # 未登录时这一格是「登录」按钮，不该带菜单那个 ⋯
-        self.arrow.setVisible(not compact and bool(self.uname))
+        self.arrow.setVisible(not self._allow_logout and not compact and bool(self.uname))
+        self.logout_button.setVisible(self._allow_logout and not compact and bool(self.uname))
         self.avatar.set_size(size if compact else 26)
         self.platform_badge.setVisible(not compact and bool(self.uname))
         self.setFixedHeight(size + margin * 2 if compact else 34)
@@ -3453,7 +3466,8 @@ class Sidebar(QFrame):
         layout.addWidget(self.batch_bar)
 
         # 已登录账号（在底部操作之上）
-        self.account_row = AccountRow()
+        self.account_row = AccountRow(allow_logout=True)
+        self.account_row.logoutClicked.connect(self.logoutRequested)
         self.account_row.clicked.connect(self._open_account_menu)
         # 未登录时它就是「登录」按钮，所以一开始就要露出来
         self.account_row.set_account("")
@@ -3611,33 +3625,30 @@ class Sidebar(QFrame):
         """)
         menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         menu.setAttribute(Qt.WA_TranslucentBackground)
+        popup_width = self.account_row.width() if not self.collapsed else 240
+        menu.setFixedWidth(popup_width)
         account_actions = []
         if not self.account_row.uname:
             # 未登录时这一格就是「登录」按钮（用户要求：没登录也要放出来）
             menu.addAction("登录…")
             menu.addSeparator()
         else:
-            for label in ("退出登录", "登录其他平台…"):
-                action = QWidgetAction(menu)
-                action.setText(label)
-                button = QPushButton(label, menu)
-                button.setObjectName("AccountPopupButton")
-                button.setFixedHeight(34)
-                button.setStyleSheet(f"""padding: 0; min-height: 32px; text-align: center;
-                    background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
-                    border-radius: 17px;""")
-                if label == "登录其他平台…":
-                    button.setEnabled(getattr(self, "can_login_other", True))
-                def activate(_checked=False, text=label):
-                    menu.close()
-                    if text == "退出登录":
-                        self.logoutRequested.emit()
-                    else:
-                        self.loginRequested.emit()
-                button.clicked.connect(activate)
-                action.setDefaultWidget(button)
-                menu.addAction(action)
-                menu.addSeparator()
+            action = QWidgetAction(menu)
+            action.setText("登录其他平台…")
+            button = QPushButton(action.text(), menu)
+            button.setObjectName("AccountPopupButton")
+            button.setFixedSize(popup_width, self.account_row.height() if not self.collapsed else 34)
+            button.setStyleSheet(f"""padding: 0; min-height: 32px; text-align: center;
+                background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
+                border-radius: {theme.CONTROL_HEIGHT // 2}px;""")
+            button.setEnabled(getattr(self, "can_login_other", True))
+            def activate(_checked=False):
+                menu.close()
+                self.loginRequested.emit()
+            button.clicked.connect(activate)
+            action.setDefaultWidget(button)
+            menu.addAction(action)
+            menu.addSeparator()
             for kind, account in reversed(getattr(self, "logged_accounts", [])):
                 if kind == self.account_row.platform:
                     continue
@@ -3647,27 +3658,19 @@ class Sidebar(QFrame):
                 item.setStyleSheet("#AccountPopupItem { background: transparent; }")
                 layout = QHBoxLayout(item)
                 layout.setContentsMargins(0, 3, 0, 3)
-                row = AccountRow(item)
-                if not self.collapsed:
-                    item.setFixedWidth(self.account_row.width())
-                else:
-                    item.setFixedWidth(240)
+                row = AccountRow(item, allow_logout=True)
+                item.setFixedSize(popup_width, self.account_row.height() + 6 if not self.collapsed else 40)
+                row.setFixedHeight(self.account_row.height() if not self.collapsed else 34)
                 row.set_account(account.get("uname") or str(account.get("uid") or "已登录"),
                                 account.get("_pixmap"), platform=kind, uid=account.get("uid"))
                 row.arrow.hide()
                 layout.addWidget(row, 1)
-                button = QPushButton("退出", row)
-                button.setObjectName("AccountPopupButton")
-                button.setStyleSheet(f"""padding: 0; min-height: 0; min-width: 0; text-align: center;
-                    background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
-                    border-radius: 12px;""")
-                button.setFixedSize(44, 24)
+                button = row.logout_button
                 button.setProperty("platform", kind)
                 def logout(_checked=False, k=kind):
                     menu.close()
                     self.platformLogoutRequested.emit(k)
-                button.clicked.connect(logout)
-                row._layout.addWidget(button)
+                row.logoutClicked.connect(logout)
                 action.setDefaultWidget(item)
                 menu.addAction(action)
                 account_actions.append(action)
