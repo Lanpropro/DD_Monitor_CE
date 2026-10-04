@@ -3601,30 +3601,49 @@ class Sidebar(QFrame):
         单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
         """
         menu = QMenu(self)
+        menu.setObjectName("AccountPopup")
+        menu.setStyleSheet(f"""
+            QMenu#AccountPopup {{ background: transparent; border: none; padding: 0; }}
+            QMenu#AccountPopup::item {{ background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
+                           border-radius: 17px; padding: 8px 12px; margin: 3px 0; }}
+            QMenu#AccountPopup::item:selected {{ background: {theme.CONTENT_HOVER}; }}
+            QMenu#AccountPopup::separator {{ height: 0px; margin: 0; background: transparent; }}
+        """)
+        menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        menu.setAttribute(Qt.WA_TranslucentBackground)
         if not self.account_row.uname:
             # 未登录时这一格就是「登录」按钮（用户要求：没登录也要放出来）
             menu.addAction("登录…")
             menu.addSeparator()
         else:
             for kind, account in getattr(self, "logged_accounts", []):
+                if kind == self.account_row.platform:
+                    continue
                 action = QWidgetAction(menu)
                 item = QWidget(menu)
+                item.setObjectName("AccountPopupItem")
+                item.setStyleSheet("#AccountPopupItem { background: transparent; }")
                 layout = QHBoxLayout(item)
-                layout.setContentsMargins(8, 4, 8, 4)
+                layout.setContentsMargins(0, 3, 0, 3)
                 row = AccountRow(item)
-                row.setMinimumWidth(220)
+                if not self.collapsed:
+                    item.setFixedWidth(self.account_row.width())
+                else:
+                    item.setFixedWidth(240)
                 row.set_account(account.get("uname") or str(account.get("uid") or "已登录"),
                                 account.get("_pixmap"), platform=kind, uid=account.get("uid"))
                 row.arrow.hide()
                 layout.addWidget(row, 1)
-                button = QPushButton("退出", item)
+                button = QPushButton("退出", row)
                 button.setObjectName("IconButton")
+                button.setStyleSheet("padding: 0; background: transparent; border: none;")
+                button.setFixedSize(36, 24)
                 button.setProperty("platform", kind)
                 def logout(_checked=False, k=kind):
                     menu.close()
                     self.platformLogoutRequested.emit(k)
                 button.clicked.connect(logout)
-                layout.addWidget(button)
+                row._layout.addWidget(button)
                 action.setDefaultWidget(item)
                 menu.addAction(action)
             menu.addSeparator()

@@ -148,11 +148,15 @@ def main():
             assert window._login_choices() == []
             menu = window.sidebar.account_menu()
             rows = [a.defaultWidget() for a in menu.actions() if hasattr(a, "defaultWidget")]
-            assert len(rows) == 2
+            assert len(rows) == 1
             from ddm.widgets import AccountRow
-            assert [item.findChild(AccountRow).uid for item in rows] == ["123456", "7890123"]
+            assert [item.findChild(AccountRow).uid for item in rows] == ["7890123"]
+            assert menu.testAttribute(Qt.WA_TranslucentBackground)
+            assert menu.windowFlags() & Qt.NoDropShadowWindowHint
+            assert rows[0].width() == row.width()
+            assert rows[0].findChild(QPushButton).parentWidget() is rows[0].findChild(AccountRow)
             with patch("ddm.platform_login.clear_platform_login") as clear:
-                rows[1].findChild(QPushButton).click()
+                rows[0].findChild(QPushButton).click()
                 clear.assert_called_once_with("douyu")
             assert bili.SESSION_DATA and "douyu" not in window._accounts
             # 恢复测试身份，让之前的头像线程回调仍引用同一账号。
