@@ -7,7 +7,7 @@ from unittest.mock import patch
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QPushButton
 from ddm import bili, theme
@@ -57,6 +57,7 @@ def main():
     # 实际点击整行；只按名称匹配，不按直播标题匹配。
     app.processEvents()
     rect = dialog.list.visualItemRect(dialog.list.item(0))
+    QCursor.setPos(dialog.list.viewport().mapToGlobal(QPoint(120, rect.center().y())))
     QTest.mouseClick(dialog.list.viewport(), Qt.LeftButton, pos=QPoint(120, rect.center().y()))
     assert dialog.selected() == [ROOMS[0]]
     dialog.search_edit.setText("  apex  ")

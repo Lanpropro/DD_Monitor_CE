@@ -83,6 +83,8 @@ def main():
             assert owner._accounts["douyu"] == account
             dispose(app, dialog)
 
+            # 此段覆盖未登录的平台由用户手动读取的入口。
+            owner._clear_platform_account("douyu")
             dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True,
                                            platform_kind="douyu")
             dialog.show()
@@ -95,6 +97,7 @@ def main():
             dialog.page.accept()
             assert dialog.rooms == ROOMS and dialog.result() == QDialog.Accepted
             dispose(app, dialog)
+            owner._clear_platform_account("douyu")
 
             # 成功读取后切回直接恢复列表，各平台的勾选、搜索和文件夹分别保留。
             bili.set_sessdata("")
@@ -159,7 +162,6 @@ def main():
                 empty_bili = dialog.page
                 with patch.object(provider, "follow_rooms", return_value=[]) as douyu_read:
                     QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
-                    dialog.page._read()
                     wait_for(app, lambda: follows_ready(dialog))
                     empty_douyu = dialog.page
                     assert empty_douyu.rooms == []
@@ -177,6 +179,7 @@ def main():
                 assert release.wait(5)
                 return ROOMS
             with patch.object(provider, "follow_rooms", blocked):
+                owner._clear_platform_account("douyu")
                 dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True,
                                                platform_kind="douyu")
                 dialog.show()

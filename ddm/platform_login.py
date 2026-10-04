@@ -60,8 +60,10 @@ class PlatformFollowLoader(QThread):
 class PlatformFollowDialog(QDialog):
     accountCleared = Signal(str)
     busyChanged = Signal(bool)
+    readFailed = Signal(str)
 
-    def __init__(self, platform, parent=None, *, login_only=False, embedded=False, owner=None):
+    def __init__(self, platform, parent=None, *, login_only=False, embedded=False, owner=None,
+                 defer_login=False):
         super().__init__(parent)
         if embedded:
             # 在浏览器创建前设为子控件，避免图形控件随独立窗口迁移。
@@ -122,7 +124,12 @@ class PlatformFollowDialog(QDialog):
         self.browser.setZoomFactor(.8)
         layout.addWidget(self.browser, 1)
         try:
-            saved = self.account_store.load() if os.environ.get("DDM_NO_SAVE") != "1" else []
+            session = getattr(self._owner, "_platform_login_sessions", {}).get(platform.kind)
+            if session is not None:
+                saved = session["cookies"]
+                self.remember.setChecked(session["remember"])
+            else:
+                saved = self.account_store.load() if os.environ.get("DDM_NO_SAVE") != "1" else []
             for raw in saved:
                 for cookie in QNetworkCookie.parseCookies(QByteArray(raw.encode("utf-8"))):
                     if self._valid_cookie(cookie):
@@ -132,7 +139,8 @@ class PlatformFollowDialog(QDialog):
         except (OSError, RuntimeError, ValueError):
             self.status.setText("保存的登录状态无法读取，请在官方页面重新登录")
         self._store.loadAllCookies()
-        self.browser.load(QUrl(self._login_url))
+        if not defer_login:
+            self.browser.load(QUrl(self._login_url))
 
     def _valid_cookie(self, cookie):
         domain = cookie.domain().lstrip(".").lower()
@@ -188,14 +196,18 @@ class PlatformFollowDialog(QDialog):
                 else:
                     self.account_store.clear()
             except (OSError, RuntimeError):
-                self.status.setText("登录状态保存失败；取消「记住登录」后重试")
+                self._failed("登录状态保存失败；取消「记住登录」后重试")
                 return
+        if self._owner is not None and hasattr(self._owner, "_platform_login_sessions"):
+            self._owner._platform_login_sessions[self.platform.kind] = {
+                "cookies": list(self._saved_cookies), "remember": self.remember.isChecked()}
         self.rooms = rooms
         self.accept()
 
     def _failed(self, reason):
         if self._pending_done is None:
             self.status.setText(reason)
+            self.readFailed.emit(reason)
 
     def _finished(self, worker):
         owner = self._owner
@@ -220,6 +232,8 @@ class PlatformFollowDialog(QDialog):
             return
         self._cookies.clear()
         self.account = {}
+        if self._owner is not None and hasattr(self._owner, "_platform_login_sessions"):
+            self._owner._platform_login_sessions.pop(self.platform.kind, None)
         self._store.deleteAllCookies()
         self._profile.clearHttpCache()
         self.accountCleared.emit(self.platform.kind)

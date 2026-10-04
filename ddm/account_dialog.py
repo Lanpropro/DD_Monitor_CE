@@ -112,45 +112,58 @@ class AccountPlatformDialog(QDialog):
             from .platform_login import PlatformFollowDialog
             page = self._platform_pages.get(kind)
             if page is None:
+                auto_read = self.import_follows and kind in self.owner._accounts
                 page = PlatformFollowDialog(self.providers[kind], self.pages, owner=self.owner,
-                                            login_only=not self.import_follows, embedded=True)
+                                            login_only=not self.import_follows, embedded=True,
+                                            defer_login=auto_read)
                 page.accountCleared.connect(self.owner._clear_platform_account)
                 page.busyChanged.connect(self._busy)
-                page.finished.connect(self._page_finished)
+                page.finished.connect(lambda result, p=page: self._page_finished(result, p))
+                page.readFailed.connect(lambda _reason, p=page: self._platform_failed(p))
                 self._platform_pages[kind] = page
+                if auto_read:
+                    self._show_loading(f"读取 {self.providers[kind].label}关注")
+                    page._read()
+                    return
             else:
                 page.status.setText("请在官方页面完成登录，然后点击「读取关注」" if self.import_follows else
                                     "请在官方页面完成登录，然后点击「确认登录」")
                 page.browser.load(QUrl(page._login_url))
             self._set_page(page)
 
-    def _page_finished(self, result):
+    def _platform_failed(self, page):
+        if self._closing_result is None and self.page.property("loading"):
+            self._set_page(page)
+            page.browser.load(QUrl(page._login_url))
+
+    def _page_finished(self, result, page=None):
         if self._closing_result is not None:
             super().done(self._closing_result)
             return
         if result != QDialog.Accepted:
             self.reject()
             return
-        if isinstance(self.page, FollowImportDialog):
-            self.rooms = self.page.selected()
-            self.folder_id = self.page.folder_id
+        page = page if page is not None else self.page
+        if isinstance(page, FollowImportDialog):
+            self.rooms = page.selected()
+            self.folder_id = page.folder_id
             self.accept()
             return
-        if self.kind != "bilibili" and self.page.account:
-            self.owner._accounts[self.kind] = dict(self.page.account)
+        if self.kind != "bilibili" and page.account:
+            self.owner._accounts[self.kind] = dict(page.account)
             self.owner._render_account()
         if not self.import_follows:
             self.accept()
         elif self.kind == "bilibili":
             self._load_bili()
         else:
-            self._show_rooms(self.page.rooms)
+            self._show_rooms(page.rooms)
 
-    def _load_bili(self):
+    def _show_loading(self, title):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
         page = FollowImportDialog([], existing, self.owner)
         page.setProperty("loading", True)
-        page.header.setText("读取 B 站关注")
+        page.header.setText(title)
         page.import_button.setEnabled(False)
         for button in page.filter_buttons:
             button.setEnabled(False)
@@ -172,6 +185,9 @@ class AccountPlatformDialog(QDialog):
         layout.addWidget(self.retry_button, 0, Qt.AlignHCenter)
         layout.addStretch(1)
         self._set_page(page)
+
+    def _load_bili(self):
+        self._show_loading("读取 B 站关注")
         self._busy(True)
         self._pending_rooms = None
         loader = FollowLoader(self.owner)
@@ -219,6 +235,10 @@ class AccountPlatformDialog(QDialog):
             return
         self._closing_result = result
         self._busy(True)
+        platform_page = self._platform_pages.get(self.kind)
+        if platform_page is not None and platform_page._worker is not None:
+            platform_page.reject()
+            return
         if isinstance(self.page, QDialog) and not self.page.isHidden():
             self.page.reject()
             # 平台请求取消后，子窗口的 finished 信号再结束主窗口。

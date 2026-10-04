@@ -56,11 +56,13 @@ def main():
         account_info=lambda _s, _c: {"uid": "123", "uname": "test", "face": ""},
         follow_rooms=lambda _s, _c: ROOMS)
     errors = []
+    navigations = []
     original_load = QWebEngineView.load
 
     def load_in_place(view, url):
         # 浏览器第一次加载时就属于最终窗口，不能先创建独立登录窗口再迁移。
         assert isinstance(view.window(), AccountPlatformDialog), "Browser loaded in a temporary window"
+        navigations.append(url.toString())
         return original_load(view, url)
 
     def qr(page):
@@ -152,12 +154,47 @@ def main():
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
                 if errors:
                     raise errors[0]
+            # 斗鱼已登录：关闭后重新打开直接读取并显示列表，不再导航登录页。
+            count = len(navigations)
+            for reopen in range(2):
+                dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True,
+                                               platform_kind="douyu")
+                dialog.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                dialog.move(80, 80)
+
+                def reopened_steps():
+                    try:
+                        wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog)
+                                 and not dialog.page.property("loading"))
+                        page = dialog.page
+                        page.list.setStyleSheet("background: #947043; color: white;")
+                        QTest.qWait(200)
+                        screen_color(dialog, page.list, "#947043", f"reopen-{reopen}")
+                        QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                        wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog)
+                                 and not dialog.page.property("loading"))
+                        QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                        assert dialog.page is page and len(navigations) == count
+                        QTest.qWait(200)
+                        screen_color(dialog, page.list, "#947043", f"reopen-switch-{reopen}")
+                    except Exception as error:  # noqa: BLE001
+                        errors.append(error)
+                    finally:
+                        dialog.reject()
+
+                QTimer.singleShot(0, reopened_steps)
+                dialog.exec()
+                dialog.deleteLater()
+                app.processEvents()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                if errors:
+                    raise errors[0]
     finally:
         bili.set_sessdata("")
         owner.close()
         app.processEvents()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    print("PASS: production graphics, browser created in place, 8 round trips, screen colors, page bounds and stable size")
+    print("PASS: production graphics, 8 round trips + 2 reopened imports, no login navigation, screen colors, bounds and stable size")
 
 
 if __name__ == "__main__":
