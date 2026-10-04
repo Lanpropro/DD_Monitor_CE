@@ -8,7 +8,7 @@ from collections import deque
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
@@ -48,6 +48,7 @@ class Canvas(QFrame):
     def __init__(self, parent=None, selecting=False):
         super().__init__(parent)
         self.image = QImage()
+        self.waiting = False
         self.frame_key = None
         self.selecting = selecting
         self.crop = QRectF(0, 0, 1, 1)
@@ -67,6 +68,8 @@ class Canvas(QFrame):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#101216"))
         if self.image.isNull():
+            if self.waiting:
+                return
             painter.setPen(QColor("#a1a1aa"))
             painter.drawText(self.rect(), Qt.AlignCenter, "将左侧关注栏卡片拖到这里，加入比赛二路")
             return
@@ -214,6 +217,9 @@ class SettingsPanel(QWidget):
             #MatchSyncSettings QPushButton:hover {{
                 background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT};
             }}
+            #MatchSyncSettings QPushButton:checked {{
+                background: rgba(251, 114, 153, 45); border-color: {theme.PINK};
+            }}
         """)
 
     def paintEvent(self, event):
@@ -240,6 +246,9 @@ class RoomRow(QFrame):
         self.decoder = None
         self.chat = None
         self.paused = False
+        room = next((item for item in getattr(viewer.context.window, "rooms", [])
+                     if str(item.get("room_id") or "") == room_id), {})
+        self.title = room.get("title") or (viewer.sources.get(room_id) or {}).get("title") or ""
         self.quality = int(preferences.get("quality", 10000 if self.platform is not None else 250))
         self.pending = deque(maxlen=2000)
         self.color = preferences.get("color", color)
@@ -253,12 +262,21 @@ class RoomRow(QFrame):
         self.alias = QLineEdit(preferences.get("alias", ""))
         self.alias.setPlaceholderText("主播名称")
         self.alias.setFixedWidth(100)
+        self.main_button = QPushButton("主画面")
+        self.main_button.setCheckable(True)
+        self.main_button.setFixedWidth(64)
+        self.main_button.setToolTip("选择这位主播作为主画面，其他路声音与弹幕继续播放。")
+        self.main_button.clicked.connect(lambda: viewer.select_main(room_id))
         self.audible = QCheckBox("声音")
         self.audible.setChecked(preferences.get("audible", True))
         self.volume = QSlider(Qt.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setValue(preferences.get("volume", 42))
         self.volume.setFixedWidth(72)
+        self.volume_number = QLabel(str(self.volume.value()))
+        self.volume_number.setFixedWidth(26)
+        self.volume_number.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.volume.valueChanged.connect(lambda value: self.volume_number.setText(str(value)))
         self.channel = QComboBox()
         for label, value in (("原始声道", 0), ("仅左输出", 3), ("仅右输出", 4)):
             self.channel.addItem(label, value)
@@ -294,14 +312,16 @@ class RoomRow(QFrame):
         remove = QPushButton("移除")
         remove.setFixedWidth(52)
         remove.clicked.connect(lambda: viewer.remove_room(room_id))
-        self.control_widgets = (self.alias, self.audible, self.volume, self.channel,
+        self.control_widgets = (self.alias, self.main_button, self.audible, self.volume,
+                                self.volume_number, self.channel,
                                 self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
                                 self.delay, self.increase, region, remove)
         controls = QHBoxLayout()
         controls.setSpacing(6)
-        for widget in self.control_widgets:
+        for index, widget in enumerate(self.control_widgets):
+            if index in (2, 6, 8, 12, 13):
+                controls.addStretch()
             controls.addWidget(widget)
-        controls.addStretch()
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout = QVBoxLayout(self)
@@ -370,12 +390,13 @@ class Viewer(QDialog):
         self.suppressed = {}
         self.embedded = False
         self.hidden_host_widgets = {}
+        self.sidebar_style = None
         self.setAcceptDrops(True)
         self.setWindowTitle("比赛二路同步")
         self.setObjectName("MatchSync")
         self.setStyleSheet("#MatchSync { background: transparent; }")
         self.resize(1320, 880)
-        self.main = QComboBox()
+        self.main = QComboBox(self)
         self.main.setFixedWidth(180)
         self.main.currentIndexChanged.connect(self._main_changed)
         self.automatic = QCheckBox("自动对齐比赛画面")
@@ -407,9 +428,7 @@ class Viewer(QDialog):
         self.restore_settings.hide()
         heading = QHBoxLayout()
         heading.setSpacing(6)
-        heading.addWidget(QLabel("主画面"))
-        heading.addWidget(self.main)
-        heading.addStretch()
+        self.main.hide()
         heading.addWidget(self.automatic)
         for widget in self.add_controls:
             heading.addWidget(widget)
@@ -430,13 +449,17 @@ class Viewer(QDialog):
         self.picture.pauseToggled.connect(lambda _room: self._pause_picture())
         self.picture.fullscreenRequested.connect(lambda _tile: self._fullscreen_picture())
         self.picture.recordingRequested.connect(self._record_picture)
+        self.focus_shortcut = QShortcut(QKeySequence(
+            getattr(context.window, "shortcuts", {}).get("focus", "F")), self.picture)
+        self.focus_shortcut.setAutoRepeat(False)
+        self.focus_shortcut.activated.connect(self._fullscreen_picture)
         self.fullscreen_dialog = None
         self.panel = DanmakuPanel(self)
         self.panel.roomDropped.connect(self._add_dragged)
         self.panel.body.setAcceptDrops(False)
         self.panel.body.viewport().setAcceptDrops(False)
         self.panel.setMinimumWidth(260)
-        self.panel.set_placeholder("各路弹幕保留粉丝牌，无牌用户显示来源主播的 0 级牌")
+        self.panel.set_placeholder("各路弹幕以主播名称标注来源直播间")
         settings = getattr(context.window, "settings", {})
         self.panel.apply_style(settings.get("danmaku_font", ""),
                                int(settings.get("danmaku_font_size") or 13))
@@ -538,7 +561,55 @@ class Viewer(QDialog):
                     self.hidden_host_widgets[widget] = not widget.isHidden()
                     widget.installEventFilter(self)
                     widget.hide()
+        self._sync_sidebar_marks()
         super().showEvent(event)
+
+    def _sync_sidebar_marks(self):
+        sidebar = getattr(self.context.window, "sidebar", None)
+        if not self.embedded or sidebar is None or self.isHidden():
+            return
+        if self.sidebar_style is None:
+            self.sidebar_style = sidebar.styleSheet()
+            sidebar.setStyleSheet(self.sidebar_style + """
+                #NavItem[onWall="true"] { border: none; }
+                #NavItem[matchSync="true"], #NavItem[matchSync="true"][onWall="true"] {
+                    border: 1px solid #fb7299;
+                }
+            """)
+        for item in getattr(sidebar, "_items", []):
+            row = self.rows.get(str(item.room.get("room_id") or ""))
+            active = self.running and row is not None and row.decoder is not None
+            if item.property("matchSync") != active:
+                item.setProperty("matchSync", active)
+                item.style().unpolish(item)
+                item.style().polish(item)
+                item.update()
+        self._sync_strip_marks(sidebar, True)
+
+    def _sync_strip_marks(self, sidebar, enabled):
+        strip = getattr(sidebar, "_head_strip", None)
+        for room_id, avatar in getattr(strip, "_avatars", {}).items():
+            for mark in avatar.findChildren(QLabel, options=Qt.FindDirectChildrenOnly):
+                if f"background: {theme.ACCENT};" in mark.styleSheet():
+                    if enabled:
+                        mark.setProperty("matchSyncHidden", True)
+                        mark.hide()
+                    elif mark.property("matchSyncHidden"):
+                        mark.setProperty("matchSyncHidden", False)
+                        mark.show()
+            frame = avatar.findChild(QFrame, "MatchSyncStripMark")
+            row = self.rows.get(room_id)
+            active = enabled and self.running and row is not None and row.decoder is not None
+            if active and frame is None:
+                frame = QFrame(avatar)
+                frame.setObjectName("MatchSyncStripMark")
+                frame.setAttribute(Qt.WA_TransparentForMouseEvents)
+                frame.setGeometry(avatar.rect())
+                frame.setStyleSheet(f"background: transparent; border: 1px solid {theme.PINK};"
+                                   f" border-radius: {avatar.width() // 2}px;")
+            if frame is not None:
+                frame.setVisible(bool(active))
+                frame.raise_()
 
     def set_settings_visible(self, visible):
         if not visible:
@@ -551,6 +622,16 @@ class Viewer(QDialog):
                 max(1, self.body_split.height() - self.settings_height), self.settings_height])
 
     def _restore_host_widgets(self):
+        sidebar = getattr(self.context.window, "sidebar", None)
+        if sidebar is not None and self.sidebar_style is not None:
+            sidebar.setStyleSheet(self.sidebar_style)
+            self.sidebar_style = None
+            for item in getattr(sidebar, "_items", []):
+                item.setProperty("matchSync", False)
+                item.style().unpolish(item)
+                item.style().polish(item)
+                item.update()
+            self._sync_strip_marks(sidebar, False)
         previous, self.hidden_host_widgets = self.hidden_host_widgets, {}
         for widget, visible in previous.items():
             widget.removeEventFilter(self)
@@ -630,6 +711,8 @@ class Viewer(QDialog):
 
     def _main_changed(self, *_args):
         selected = self.main.currentData() or ""
+        for room_id, row in self.rows.items():
+            row.main_button.setChecked(room_id == selected)
         if selected != self.alignment.reference:
             self.alignment.select_reference(selected)
             self.generation += 1
@@ -640,6 +723,16 @@ class Viewer(QDialog):
         self.sync_picture()
         self.changed()
 
+    def select_main(self, room_id):
+        self.main.setCurrentIndex(self.main.findData(room_id))
+        self._main_changed()
+
+    def _show_buffering(self, active):
+        self.canvas.waiting = bool(active)
+        self.canvas.update()
+        if getattr(self.picture, "_buffering", False) != bool(active):
+            self.picture.set_buffering(bool(active))
+
     def sync_picture(self, *_args):
         row = self.rows.get(self.main.currentData())
         tile = self.picture
@@ -647,28 +740,35 @@ class Viewer(QDialog):
             self._stop_recording()
             tile.set_room(None)
             self.canvas.set_frame(None)
+            self._show_buffering(False)
             return
         tile.blockSignals(True)
         try:
             if str(tile.room.get("room_id") or "") != row.room_id:
                 self._stop_recording()
+                self.canvas.set_frame(None)
                 tile.set_room({"room_id": row.room_id, "uname": row.label(), "live": True,
                                "quality": row.quality})
-            tile.title_badge.set_text(row.label(), "")
+            tile.room["title"] = row.title
+            tile.title_badge.set_text(row.title or row.label(), "")
+            tile.title_badge.setToolTip(row.title or row.label())
+            tile.stream_badge.set_state(True, "")
             if row.platform is not None:
                 tile.set_quality_options(row.platform.room_quality_options(row.room_id))
             if tile.quality != row.quality:
                 tile.set_quality(row.quality)
             tile.set_volume(row.volume.value())
-            tile.set_muted(not row.audible.isChecked())
             tile.set_audio_channel(row.channel.currentData())
+            tile.set_muted(not row.audible.isChecked())
             tile.set_paused(row.paused)
-            tile.set_video_active(True)
+            if not tile._player_active:
+                tile.set_video_active(True)
             tile.cover.hide()
             tile.stream_url = getattr(row.decoder, "source_url", "") if row.decoder else ""
             tile.stream_headers = getattr(row.decoder, "source_headers", {}) if row.decoder else {}
         finally:
             tile.blockSignals(False)
+        self._show_buffering(self.running and not row.paused and self.canvas.image.isNull())
 
     def _picture_setting(self, key, value):
         row = self.rows.get(self.main.currentData())
@@ -699,7 +799,8 @@ class Viewer(QDialog):
         self.alignment.lags = {self.alignment.reference: 0}
         self.alignment.candidates.clear()
         self.generation += 1
-        self.canvas.frame_key = None
+        self.canvas.set_frame(None)
+        self._show_buffering(True)
 
     def _pause_picture(self):
         row = self.rows.get(self.main.currentData())
@@ -710,6 +811,8 @@ class Viewer(QDialog):
     def _fullscreen_picture(self):
         if self.fullscreen_dialog is not None:
             self.fullscreen_dialog.close()
+            return
+        if not self.rows:
             return
         dialog = QDialog(self.window())
         dialog.setWindowTitle("比赛二路主画面")
@@ -752,6 +855,7 @@ class Viewer(QDialog):
         self.alignment.candidates.pop(room_id, None)
         self.update_main_choices()
         self.generation += 1
+        self._sync_sidebar_marks()
         if not self.rows:
             self.stop()
             self.panel.set_placeholder("将左侧关注栏卡片拖到这里，加入比赛二路")
@@ -775,6 +879,8 @@ class Viewer(QDialog):
         self.panel.set_status("多房间弹幕")
         for row in self.rows.values():
             self._start_row(row)
+        self.sync_picture()
+        self._sync_sidebar_marks()
         self.audio.start()
         self.render_timer.start()
         self.match_timer.start()
@@ -783,6 +889,7 @@ class Viewer(QDialog):
         row.paused = False
         row.pending.clear()
         seed = dict(self.sources.get(row.room_id) or {})
+        seed["title"] = seed.get("title") or row.title
         if seed.get("quality", row.quality) != row.quality:
             seed.pop("url", None)
         seed["quality"] = row.quality
@@ -798,6 +905,7 @@ class Viewer(QDialog):
         chat.events.message.connect(lambda event, r=row, c=chat: self._message(r, c, event))
         decoder.start()
         chat.start()
+        self._sync_sidebar_marks()
 
     def _valid(self, row, worker, chat=False):
         return (self.running and self.rows.get(row.room_id) is row and
@@ -806,6 +914,8 @@ class Viewer(QDialog):
     def _information(self, row, worker, info):
         if not self._valid(row, worker):
             return
+        if "title" in info:
+            row.title = info.get("title") or ""
         if not row.alias.text().strip():
             row.alias.setText(info.get("uname") or "未命名主播")
             self.update_main_choices()
@@ -816,6 +926,8 @@ class Viewer(QDialog):
                 self.picture.set_quality_options(info.get("quality_options") or [])
                 self.picture.set_actual_quality(row.quality)
             self.changed()
+        if row.room_id == self.main.currentData():
+            self.sync_picture()
 
     def _state(self, row, worker, text, chat):
         if self._valid(row, worker, chat):
@@ -843,6 +955,7 @@ class Viewer(QDialog):
         if not self.running:
             return
         self._suppress_host_audio()
+        self._sync_sidebar_marks()
         self.sync_picture()
         clock = self.audio.clock()
         shifts = self.shifts()
@@ -850,6 +963,7 @@ class Viewer(QDialog):
         if row is not None and row.decoder is not None and not row.paused:
             frame = row.decoder.history.frame_at(clock + shifts[row.room_id])
             self.canvas.set_frame(frame)
+            self._show_buffering(frame is None)
             if frame is None:
                 bounds = row.decoder.history.bounds()
                 target = clock + shifts[row.room_id]
@@ -883,11 +997,8 @@ class Viewer(QDialog):
                 received, event = row.pending.popleft()
                 if clock - received > 120:
                     continue
-                if not (event.get("medal") or {}).get("name"):
-                    if row.platform is None:
-                        event["medal"] = {"name": row.label(), "level": "0", "color": row.color}
-                    else:
-                        event["uname"] = f"[{row.label()}] {event.get('uname') or ''}"
+                event["medal"] = {}
+                event["uname"] = f"[{row.label()}] {event.get('uname') or ''}"
                 event["color"] = row.color
                 eligible.append((received - shifts[room_id], event))
         for _due, event in sorted(eligible, key=lambda item: item[0]):
@@ -1008,6 +1119,8 @@ class Viewer(QDialog):
         self.suppressed.clear()
         self.panel.set_status("已停止")
         self.canvas.set_frame(None)
+        self._show_buffering(False)
+        self._sync_sidebar_marks()
 
     def closeEvent(self, event):
         self.stop()

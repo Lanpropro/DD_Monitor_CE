@@ -44,7 +44,7 @@ class MatchSyncPlugin(api.Plugin):
                 room_id = platform.normalize(str(source.room_id)) if platform else str(source.room_id)
                 self.sources[room_id] = {
                     "url": source.url, "headers": dict(source.headers), "uname": source.uname,
-                    "quality": source.quality or 250}
+                    "quality": source.quality or 250, "title": source.title}
         elif event == api.EVENT_CLOSING:
             self.on_unload()
 

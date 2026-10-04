@@ -86,7 +86,8 @@ class Probe(api.Plugin):
             context.register_platform(LocalPlatform())
             match = next(p for p in context.manager.plugins if p.context.name == "match_sync")
             self.match = match
-            match.sources["1"] = {"url": os.environ["MATCH_SYNC_TEST_MEDIA"], "headers": {}, "uname": "合成主画面"}
+            match.sources["1"] = {"url": os.environ["MATCH_SYNC_TEST_MEDIA"], "headers": {},
+                                  "uname": "合成主画面", "title": "本地比赛直播标题"}
             assert match.button is not None
             match.button.trigger()
             self.viewer = match.viewer
@@ -140,7 +141,8 @@ class Probe(api.Plugin):
                     assert self.viewer.canvas.frame_key is not None
                     row = self.viewer.rows["local:2"]
                     row.delay.setValue(0)
-                    self.viewer.main.setCurrentIndex(self.viewer.main.findData("local:2"))
+                    row.main_button.click()
+                    assert row.main_button.isChecked() and self.viewer.main.currentData() == "local:2"
                     self.viewer.render()
                     assert self.viewer.canvas.frame_key is not None
                     assert row.decoder.source_url == os.environ["MATCH_SYNC_TEST_MEDIA"]
@@ -162,14 +164,29 @@ class Probe(api.Plugin):
                 self.viewer.rows["local:2"].show()
                 self.viewer.rows_layout.activate()
                 row = self.viewer.rows["1"]
+                assert self.viewer.picture.title_badge.uname == "本地比赛直播标题"
+                assert not self.viewer.picture.stream_badge.viewers
+                self.viewer.picture.set_volume(67)
+                assert row.volume_number.text() == "67" and row.volume.value() == 67
+                self.viewer.picture.volume_button.click()
+                self.viewer.render()
+                assert self.viewer.picture.muted and not row.audible.isChecked()
+                row.audible.setChecked(True)
+                assert not self.viewer.picture.muted
+                self.viewer.canvas.set_frame(None)
+                self.viewer._show_buffering(True)
+                assert self.viewer.canvas.waiting and self.viewer.picture._buffering
+                assert not self.viewer.picture.spinner.isHidden()
+                self.viewer.render()
+                assert not self.viewer.canvas.waiting and not self.viewer.picture._buffering
                 row.pending.append((time.monotonic() - 30, {"uname": "无牌观众", "text": "这波配合很漂亮"}))
                 medal = {"name": "原粉丝团", "level": 5, "color": "#fbbf24"}
-                row.pending.append((time.monotonic() - 30, {"uname": "有牌观众", "text": "保留原有粉丝牌", "medal": medal}))
+                row.pending.append((time.monotonic() - 30, {"uname": "有牌观众", "text": "携带其他主播的粉丝牌", "medal": medal}))
                 self.viewer.render()
                 entries = self.viewer.panel._blocks[-2:]
-                assert entries[0]["uname"] == "无牌观众" and entries[0]["medal"]["level"] == "0"
-                assert "合成主画面|0|" in self.viewer.panel._block_html(entries[0])
-                assert entries[1]["uname"] == "有牌观众" and entries[1]["medal"] == medal
+                assert entries[0]["uname"] == "[合成主画面] 无牌观众" and not entries[0]["medal"]
+                assert "[合成主画面]" in self.viewer.panel._block_html(entries[0])
+                assert entries[1]["uname"] == "[合成主画面] 有牌观众" and not entries[1]["medal"]
                 self.checks["chat_badges"] = True
                 self.context.window.grab().save(os.environ["MATCH_SYNC_TEST_PREVIEW"])
                 row.delay.setValue(0)
@@ -183,7 +200,7 @@ class Probe(api.Plugin):
                 assert not hasattr(self.viewer, "start_button")
                 panel = self.viewer.settings_panel
                 assert self.viewer.body_split.widget(1) is panel
-                assert panel.isAncestorOf(self.viewer.main) and panel.isAncestorOf(self.viewer.automatic)
+                assert self.viewer.main.isHidden() and panel.isAncestorOf(self.viewer.automatic)
                 assert self.viewer.layout().itemAt(0).widget() is self.viewer.picture_split and self.viewer.controls.frameShape() == QFrame.NoFrame
                 centers = [widget.geometry().center().y() for widget in row.control_widgets]
                 assert max(centers) - min(centers) <= 1
@@ -201,7 +218,7 @@ class Probe(api.Plugin):
                 for x in (int(3 * scale), rendered.width() - 1 - int(3 * scale)):
                     assert rendered.pixelColor(x, y).alpha() > 180
                     assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0
-                assert row.control_widgets[-1].geometry().right() < 1000
+                assert row.control_widgets[-1].geometry().right() >= row.width() - 9
                 assert self.viewer.picture_split.widget(0) is self.viewer.left_pane
                 assert self.viewer.picture_split.widget(1) is self.viewer.panel
                 assert self.viewer.body_split.widget(0) is self.viewer.picture

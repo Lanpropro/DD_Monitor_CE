@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
@@ -181,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.9"
+        assert manager.catalog()[0]["version"] == "0.1.10"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -247,31 +248,44 @@ def package_and_ui_checks(app):
             viewer.render()
             assert viewer.canvas.frame_key == 95
             entry = viewer.panel._blocks[-1]
-            assert entry["uname"] == "B" and entry["medal"] == original_medal
+            assert entry["uname"] == "[主播乙] B" and not entry["medal"]
             assert original_medal == {"name": "原粉丝团", "level": 23, "color": "#fbbf24"}
-            assert "原粉丝团|23|" in viewer.panel._block_html(entry)
-            assert "[主播乙]" not in viewer.panel._block_html(entry)
+            assert "原粉丝团" not in viewer.panel._block_html(entry)
+            assert "[主播乙]" in viewer.panel._block_html(entry)
             assert len(row_a.pending) == 1
             assert host.players[participating].muted and not host.players[unrelated].muted
             assert participating.room["muted"] is False and participating.muted is False
             clock[0] = 104
             viewer.render()
             entry = viewer.panel._blocks[-1]
-            assert entry["uname"] == "A"
-            assert entry["medal"] == {"name": "主播甲", "level": "0", "color": row_a.color}
-            assert "主播甲|0|" in viewer.panel._block_html(entry), "Zero must appear on the rendered badge"
-            assert "medal" not in unbadged, "Display badges must not change incoming events"
+            assert entry["uname"] == "[主播甲] A" and not entry["medal"]
+            assert "[主播甲]" in viewer.panel._block_html(entry)
+            assert "medal" not in unbadged, "Source labels must not change incoming events"
             row_b.show_chat.setChecked(False)
             viewer._message(row_b, row_b.chat, {"text": "hidden"})
             assert not row_b.pending
-            viewer.main.setCurrentIndex(viewer.main.findData("2"))
+            row_b.main_button.click()
             assert viewer.alignment.reference == "2"
             assert viewer.picture.room["room_id"] == "2"
+            assert row_b.main_button.isChecked() and not row_a.main_button.isChecked()
+            row_b.main_button.click()
+            assert row_b.main_button.isChecked(), "Clicking the active picture must not deselect it"
             viewer.picture.set_volume(65)
-            assert row_b.volume.value() == 65
-            viewer.picture.set_muted(True)
-            assert not row_b.audible.isChecked()
-            viewer.picture.set_muted(False)
+            assert row_b.volume.value() == 65 and row_b.volume_number.text() == "65"
+            viewer.picture.volume_button.click()
+            assert not row_b.audible.isChecked() and viewer.picture.muted
+            viewer.render()
+            assert viewer.picture.muted and viewer.picture.volume_button.muted
+            row_b.volume.setValue(0)
+            assert row_b.volume_number.text() == "0" and viewer.picture.volume == 0
+            row_b.volume.setValue(100)
+            assert row_b.volume_number.text() == "100" and viewer.picture.muted
+            viewer.picture.volume_button.click()
+            assert row_b.audible.isChecked() and not viewer.picture.muted
+            row_b.audible.setChecked(False)
+            viewer.sync_picture()
+            assert viewer.picture.muted and viewer.picture.volume_button.muted
+            row_b.audible.setChecked(True)
             viewer.picture.set_audio_channel(3)
             assert row_b.channel.currentData() == 3
             viewer.picture.pause_button.click()
@@ -279,8 +293,28 @@ def package_and_ui_checks(app):
             viewer.picture.pause_button.click()
             assert not row_b.paused
             previous_decoder = row_b.decoder
+            other_decoder = row_a.decoder
             viewer.picture.set_quality(80)
             assert previous_decoder.stopped and row_b.decoder.seed["quality"] == 80
+            assert row_a.decoder is other_decoder and not other_decoder.stopped
+            assert viewer.canvas.waiting and viewer.canvas.image.isNull()
+            assert viewer.picture._buffering and not viewer.picture.spinner.isHidden()
+            viewer.render()
+            assert viewer.canvas.waiting and viewer.picture._buffering
+            viewer.canvas.resize(320, 180)
+            empty = viewer.canvas.grab().toImage()
+            assert all(empty.pixelColor(x, y).name() == "#101216"
+                       for x in range(0, empty.width(), 8) for y in range(0, empty.height(), 8)), "Buffering must not show the empty-room instruction"
+            row_b.decoder.history.append(clock[0] + viewer.shifts()["2"], image)
+            viewer.render()
+            assert not viewer.canvas.waiting and not viewer.picture._buffering
+            assert viewer.picture.spinner.isHidden()
+            viewer._information(row_b, row_b.decoder, {"title": "主画面比赛直播间标题"})
+            assert viewer.picture.title_badge.uname == "主画面比赛直播间标题"
+            assert not viewer.picture.stream_badge.viewers
+            viewer.picture.set_controls_visible(False)
+            viewer.picture.set_controls_visible(True)
+            assert not viewer.picture.stream_badge.viewers
             assert not hasattr(row_a, "chat_delay")
             row_a.delay.setValue(0)
             row_a.decrease.click()
@@ -342,7 +376,7 @@ def package_and_ui_checks(app):
 def embedded_checks(app):
     from plugins_user._match_sync.plugin import MatchSyncPlugin
     module = sys.modules[MatchSyncPlugin.__module__ + ".viewer"]
-    from ddm.widgets import ROOM_MIME
+    from ddm.widgets import ROOM_MIME, NavItem, RoomStrip
     from ddm import theme
     from plugins_user.domestic_live.plugin import HuyaPlatform, DouyuPlatform, DouyinPlatform
     host = QMainWindow()
@@ -354,8 +388,18 @@ def embedded_checks(app):
     host.settings = {}
     host.players = {}
     host.sidebar = QWidget()
+    host.sidebar.setStyleSheet(theme.qss())
     host.sidebar.tool_row = QWidget(host.sidebar)
     QHBoxLayout(host.sidebar.tool_row)
+    card_a = NavItem({"room_id": "42", "uname": "关注主播"}, 0, host.sidebar)
+    card_b = NavItem({"room_id": "99", "uname": "原布局主播"}, 1, host.sidebar)
+    host.sidebar._items = [card_a, card_b]
+    card_b.set_on_wall(True)
+    card_a.resize(280, 68)
+    card_b.resize(280, 68)
+    host.sidebar._head_strip = RoomStrip(host.sidebar)
+    host.sidebar._head_strip.set_rooms([card_a.room, card_b.room], on_wall_ids={"99"})
+    original_sidebar_style = host.sidebar.styleSheet()
     host.rooms = [{"room_id": "42", "uname": "关注主播"}]
     host.resize(1200, 900)
     manager = plugins.PluginManager(window=host)
@@ -379,6 +423,10 @@ def embedded_checks(app):
         host.wall.show()
         assert host.wall.isHidden(), "Host refresh must not expose native video during match mode"
         assert not viewer.isWindow() and not viewer.running
+        assert 'border: none' in host.sidebar.styleSheet()
+        assert not card_a.property("matchSync") and not card_b.property("matchSync")
+        assert card_b.property("onWall"), "Match mode must preserve the original wall state"
+        assert card_b.grab().toImage().pixelColor(card_b.width() // 2, 0).name() != theme.ACCENT
         assert all(widget.isHidden() for widget in viewer.add_controls)
         mime = QMimeData()
         mime.setData(ROOM_MIME, b"42")
@@ -388,6 +436,14 @@ def embedded_checks(app):
         drop = QDropEvent(QPointF(100, 100), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
         app.sendEvent(viewer, drop)
         assert drop.isAccepted() and viewer.running and viewer.rows["42"].label() == "关注主播"
+        assert card_a.property("matchSync") and not card_b.property("matchSync")
+        assert '#fb7299' in host.sidebar.styleSheet()
+        assert card_a.grab().toImage().pixelColor(card_a.width() // 2, 0).name() == theme.PINK
+        avatars = host.sidebar._head_strip._avatars
+        assert not avatars["42"].findChild(QFrame, "MatchSyncStripMark").isHidden()
+        blue = next(mark for mark in avatars["99"].findChildren(module.QLabel)
+                    if f"background: {theme.ACCENT};" in mark.styleSheet())
+        assert blue.isHidden(), "Portrait strip must hide original wall marks too"
         mime.setData(ROOM_MIME, b"43")
         enter = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
         app.sendEvent(viewer.panel, enter)
@@ -396,18 +452,18 @@ def embedded_checks(app):
         assert "43" in viewer.rows and viewer.rows["43"].decoder is not None
         assert not viewer.panel.body.acceptDrops() and not viewer.panel.body.viewport().acceptDrops()
         assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.settings_panel
-        assert viewer.settings_panel.isAncestorOf(viewer.main)
+        assert viewer.main.isHidden()
         assert viewer.settings_panel.isAncestorOf(viewer.automatic)
         assert viewer.layout().itemAt(0).widget() is viewer.picture_split, "The picture must have no top settings toolbar"
         assert viewer.controls.frameShape() == QFrame.NoFrame
-        assert viewer.main.mapTo(viewer, QPoint()).y() >= viewer.picture.geometry().bottom()
+        assert viewer.rows["42"].main_button.mapTo(viewer, QPoint()).y() >= viewer.picture.geometry().bottom()
         assert not hasattr(viewer, "start_button") and not hasattr(viewer, "controls_button")
         row = viewer.rows["42"]
         app.processEvents()
         centers = [widget.geometry().center().y() for widget in row.control_widgets]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
         assert row.control_widgets[-1].width() == 52
-        assert row.control_widgets[-1].geometry().right() < 1000, "Keep controls compact within the video column"
+        assert row.control_widgets[-1].geometry().right() >= row.width() - 9, "Controls must use the entire row width"
         assert row.channel.width() == 100 and row.color_choice.width() == 82
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
@@ -433,9 +489,9 @@ def embedded_checks(app):
             assert rendered.pixelColor(x, y).alpha() > 180, "Top corners must match the 8px playback bar radius"
             assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0, "Preserve the 12px bottom corners"
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
-        gaps = [row.control_widgets[i].x() - row.control_widgets[i - 1].geometry().right()
-                for i in (4, 6, 11)]
-        assert max(gaps) <= 7, "Do not spread controls across empty space"
+        assert row.control_widgets[-1].geometry().right() >= row.width() - 9
+        assert row.main_button.x() - row.alias.geometry().right() <= 7
+        assert row.volume_number.x() - row.volume.geometry().right() <= 7
         assert viewer.picture_split.widget(0) is viewer.left_pane
         assert viewer.picture_split.widget(1) is viewer.panel
         assert viewer.body_split.widget(0) is viewer.picture
@@ -472,13 +528,25 @@ def embedded_checks(app):
         assert panel.width() == viewer.picture.width() == viewer.left_pane.width()
         assert viewer.panel.height() == viewer.height(), "Chat remains full height when its width changes"
         sizes = viewer.body_split.sizes()
-        viewer._fullscreen_picture()
+        host.activateWindow()
+        viewer.picture.setFocus()
+        app.processEvents()
+        QTest.keyClick(viewer.picture, Qt.Key_F)
         assert viewer.fullscreen_dialog is not None
-        viewer.fullscreen_dialog.close()
+        viewer.fullscreen_dialog.activateWindow()
+        app.processEvents()
+        QTest.keyClick(viewer.picture, Qt.Key_F)
         app.processEvents()
         assert viewer.fullscreen_dialog is None and viewer.body_split.widget(0) is viewer.picture
         assert viewer.body_split.sizes() == sizes, "Exiting fullscreen must restore the video/settings split"
         assert viewer.picture_split.count() == 2 and viewer.panel.height() == viewer.height()
+        row.alias.setFocus()
+        app.processEvents()
+        old_name = row.alias.text()
+        QTest.keyClick(row.alias, Qt.Key_F)
+        assert viewer.fullscreen_dialog is None and "f" in row.alias.text().lower()
+        row.alias.setText(old_name)
+        viewer.picture.setFocus()
         viewer.main.setCurrentIndex(viewer.main.findData("43"))
         assert viewer.picture.room["room_id"] == "43"
         viewer.minimize_settings.click()
@@ -486,6 +554,10 @@ def embedded_checks(app):
         assert viewer.isHidden() and not viewer.running and worker.stopped
         assert not panel.isWindow() and not panel.isVisible(), "Closing match mode must leave settings hidden"
         assert not host.wall.isHidden()
+        assert host.sidebar.styleSheet() == original_sidebar_style
+        assert not card_a.property("matchSync") and card_b.property("onWall")
+        assert not blue.isHidden()
+        assert avatars["42"].findChild(QFrame, "MatchSyncStripMark").isHidden()
         assert host.centralWidget() is host._content
         plugin.button.trigger()
         viewer.rows["42"].paused = True
@@ -548,14 +620,17 @@ def embedded_checks(app):
             medal = {"name": "原有牌", "level": 7, "color": "#fbbf24"}
             row.pending.append((99, {"uname": "有牌观众", "text": "保留原牌", "medal": medal}))
             viewer.render()
-            assert viewer.panel._blocks[-1]["uname"] == "有牌观众"
-            assert viewer.panel._blocks[-1]["medal"] == medal
+            assert viewer.panel._blocks[-1]["uname"] == f"[{alias}] 有牌观众"
+            assert not viewer.panel._blocks[-1]["medal"]
+            assert medal["name"] == "原有牌"
         workers = [row.decoder for row in viewer.rows.values()]
         viewer.canvas.set_frame((102, jpeg()))
         for room_id in list(viewer.rows):
             viewer.remove_room(room_id)
         assert not viewer.running and not viewer.rows and not viewer.picture.room
         assert viewer.canvas.image.isNull() and not viewer.panel._blocks
+        assert not viewer.canvas.waiting and not viewer.picture._buffering
+        assert not card_a.property("matchSync")
         assert all(worker.stopped for worker in workers)
         assert viewer._add_dragged("huya:42") and viewer.running
         assert viewer.main.currentData() == "huya:42"
@@ -565,8 +640,8 @@ def embedded_checks(app):
         assert plugin.entry is None
     host.close()
     app.processEvents()
-    print("PASS: full-height right chat, video-column compact controls, minimize/restore, scrolling, automatic start and view restoration")
-    print("PASS: rounded transparent corners, original fan medals and displayed zero-level source badges")
+    print("PASS: full-height right chat, evenly distributed video-column controls, minimize/restore, scrolling, automatic start and view restoration")
+    print("PASS: rounded transparent corners and uniform room source text without misleading fan medals")
     print("PASS: three platform card drops, canonical IDs, stream headers, shared controls/delays, chat source text and empty-room cleanup")
 
 

@@ -102,7 +102,8 @@ class Decoder:
         if attempt == 0 and self.seed.get("url"):
             self.source_url = self.seed["url"]
             self.source_headers = dict(self.seed.get("headers") or {})
-            self.events.information.emit({"uname": self.seed.get("uname") or "未命名主播"})
+            self.events.information.emit({"uname": self.seed.get("uname") or "未命名主播",
+                                          "title": self.seed.get("title") or ""})
             return self.seed["url"], dict(self.seed.get("headers") or {})
         if self.platform is not None:
             info = self.platform.room_info(self.room_id)

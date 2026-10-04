@@ -104,13 +104,15 @@ def platform_checks(app):
     for platform in (HuyaPlatform(), DouyuPlatform(), DouyinPlatform()):
         room_id = platform.kind + ":42"
         metadata, received, states = [], [], []
-        decoder = media.Decoder(room_id, {"url": "http://127.0.0.1:9/cached", "quality": 10000}, platform)
+        decoder = media.Decoder(room_id, {"url": "http://127.0.0.1:9/cached", "quality": 10000,
+                                        "title": "缓存直播间标题"}, platform)
         decoder.events.information.connect(metadata.append)
         with patch.object(media.bili, "room_info", side_effect=AssertionError("Bilibili lookup forbidden")), \
                 patch.object(media.bili, "play_url", side_effect=AssertionError("Bilibili stream forbidden")), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(room_id, uname="跨平台主播")) as info, \
                 patch.object(platform, "play_url", return_value=("http://127.0.0.1:9/fresh", 10000, "web", {"Referer": "platform"})) as play:
             assert decoder._resolve(0) == ("http://127.0.0.1:9/cached", {})
+            assert metadata[-1]["title"] == "缓存直播间标题"
             assert not info.called and not play.called
             assert decoder._resolve(1) == ("http://127.0.0.1:9/fresh", {"Referer": "platform"})
             play.assert_called_once_with(room_id, 10000)
