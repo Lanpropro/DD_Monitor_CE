@@ -147,7 +147,8 @@ def main():
             assert row.platform == "bilibili" and row.uid == "123456"
             assert window._login_choices() == []
             menu = window.sidebar.account_menu()
-            rows = [a.defaultWidget() for a in menu.actions() if hasattr(a, "defaultWidget")]
+            rows = [a.defaultWidget() for a in menu.actions() if hasattr(a, "defaultWidget")
+                    and a.defaultWidget().findChild(QPushButton) is not None]
             assert len(rows) == 1
             from ddm.widgets import AccountRow
             assert [item.findChild(AccountRow).uid for item in rows] == ["7890123"]
@@ -155,6 +156,15 @@ def main():
             assert menu.windowFlags() & Qt.NoDropShadowWindowHint
             assert rows[0].width() == row.width()
             assert rows[0].findChild(QPushButton).parentWidget() is rows[0].findChild(AccountRow)
+            assert menu.actions()[-1].defaultWidget() is rows[0]
+            assert [a.text() for a in menu.actions() if a.text()] == ["退出登录", "登录其他平台…"]
+            menu.show()
+            app.processEvents()
+            logout_button = rows[0].findChild(QPushButton)
+            account_row = rows[0].findChild(AccountRow)
+            assert abs(logout_button.geometry().center().y() - account_row.rect().center().y()) <= 1
+            assert "text-align: center" in logout_button.styleSheet()
+            menu.close()
             with patch("ddm.platform_login.clear_platform_login") as clear:
                 rows[0].findChild(QPushButton).click()
                 clear.assert_called_once_with("douyu")

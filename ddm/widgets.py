@@ -3607,16 +3607,38 @@ class Sidebar(QFrame):
             QMenu#AccountPopup::item {{ background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
                            border-radius: 17px; padding: 8px 12px; margin: 3px 0; }}
             QMenu#AccountPopup::item:selected {{ background: {theme.CONTENT_HOVER}; }}
-            QMenu#AccountPopup::separator {{ height: 0px; margin: 0; background: transparent; }}
+            QMenu#AccountPopup::separator {{ height: 6px; margin: 0; background: transparent; }}
         """)
         menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         menu.setAttribute(Qt.WA_TranslucentBackground)
+        account_actions = []
         if not self.account_row.uname:
             # 未登录时这一格就是「登录」按钮（用户要求：没登录也要放出来）
             menu.addAction("登录…")
             menu.addSeparator()
         else:
-            for kind, account in getattr(self, "logged_accounts", []):
+            for label in ("退出登录", "登录其他平台…"):
+                action = QWidgetAction(menu)
+                action.setText(label)
+                button = QPushButton(label, menu)
+                button.setObjectName("AccountPopupButton")
+                button.setFixedHeight(34)
+                button.setStyleSheet(f"""padding: 0; min-height: 32px; text-align: center;
+                    background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
+                    border-radius: 17px;""")
+                if label == "登录其他平台…":
+                    button.setEnabled(getattr(self, "can_login_other", True))
+                def activate(_checked=False, text=label):
+                    menu.close()
+                    if text == "退出登录":
+                        self.logoutRequested.emit()
+                    else:
+                        self.loginRequested.emit()
+                button.clicked.connect(activate)
+                action.setDefaultWidget(button)
+                menu.addAction(action)
+                menu.addSeparator()
+            for kind, account in reversed(getattr(self, "logged_accounts", [])):
                 if kind == self.account_row.platform:
                     continue
                 action = QWidgetAction(menu)
@@ -3635,9 +3657,11 @@ class Sidebar(QFrame):
                 row.arrow.hide()
                 layout.addWidget(row, 1)
                 button = QPushButton("退出", row)
-                button.setObjectName("IconButton")
-                button.setStyleSheet("padding: 0; background: transparent; border: none;")
-                button.setFixedSize(36, 24)
+                button.setObjectName("AccountPopupButton")
+                button.setStyleSheet(f"""padding: 0; min-height: 0; min-width: 0; text-align: center;
+                    background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
+                    border-radius: 12px;""")
+                button.setFixedSize(44, 24)
                 button.setProperty("platform", kind)
                 def logout(_checked=False, k=kind):
                     menu.close()
@@ -3646,9 +3670,7 @@ class Sidebar(QFrame):
                 row._layout.addWidget(button)
                 action.setDefaultWidget(item)
                 menu.addAction(action)
-            menu.addSeparator()
-            menu.addAction("退出登录")
-            menu.addAction("登录其他平台…").setEnabled(getattr(self, "can_login_other", True))
+                account_actions.append(action)
         if self.side == "top":
             menu.addSeparator()
             menu.addAction("导入关注…")
@@ -3663,6 +3685,9 @@ class Sidebar(QFrame):
             menu.addSeparator()
             menu.addAction("布局预设…")
             menu.addAction("设置…")
+        for action in account_actions:
+            menu.removeAction(action)
+            menu.addAction(action)
         return menu
 
     def _open_account_menu(self) -> None:
