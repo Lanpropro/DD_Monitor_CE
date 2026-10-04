@@ -898,6 +898,7 @@ class FollowImportDialog(QDialog):
         # 快捷筛选
         filters = QHBoxLayout()
         filters.setSpacing(6)
+        self.filter_buttons = []
         for text, handler in (("全选", lambda: self._check_all(True)),
                               ("全不选", lambda: self._check_all(False)),
                               ("只选直播中", self._check_live)):
@@ -906,6 +907,7 @@ class FollowImportDialog(QDialog):
             button.setCursor(Qt.PointingHandCursor)
             button.clicked.connect(handler)
             filters.addWidget(button)
+            self.filter_buttons.append(button)
         filters.addStretch(1)
         layout.addLayout(filters)
 
@@ -933,6 +935,7 @@ class FollowImportDialog(QDialog):
         cancel.setObjectName("IconButton")
         cancel.clicked.connect(self.reject)
         confirm = QPushButton("导入")
+        self.import_button = confirm
         confirm.setObjectName("PrimaryButton")
         confirm.clicked.connect(self.accept)
         buttons.addWidget(cancel)

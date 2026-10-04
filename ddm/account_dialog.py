@@ -4,7 +4,7 @@ import os
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QHBoxLayout, QLabel,
-                              QPushButton, QStackedWidget, QVBoxLayout, QWidget)
+                              QPushButton, QStackedWidget, QVBoxLayout)
 
 from . import bili
 from .bili import FollowLoader
@@ -139,20 +139,30 @@ class AccountPlatformDialog(QDialog):
             self._show_rooms(self.page.rooms)
 
     def _load_bili(self):
-        page = QWidget()
-        page.resize(520, 620)
-        layout = QVBoxLayout(page)
-        self.status = QLabel("正在读取 B 站关注…")
-        layout.addWidget(self.status)
+        existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
+        page = FollowImportDialog([], existing, self.owner)
+        page.setProperty("loading", True)
+        page.header.setText("读取 B 站关注")
+        page.import_button.setEnabled(False)
+        for button in page.filter_buttons:
+            button.setEnabled(False)
+        layout = QVBoxLayout(page.list.viewport())
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.addStretch(1)
+        self.status = QLabel("正在加载关注列表…")
+        self.status.setObjectName("AppSubtitle")
+        self.status.setAlignment(Qt.AlignCenter)
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
         self.retry_button = QPushButton("重新读取")
-        self.retry_button.setObjectName("PrimaryButton")
+        self.retry_button.setObjectName("IconButton")
+        self.retry_button.setCursor(Qt.PointingHandCursor)
+        self.retry_button.setAutoDefault(False)
         self.retry_button.clicked.connect(self._load_bili)
         self.retry_button.setEnabled(False)
-        layout.addWidget(self.retry_button)
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(self.reject)
-        layout.addWidget(cancel)
+        self.retry_button.hide()
+        layout.addWidget(self.retry_button, 0, Qt.AlignHCenter)
+        layout.addStretch(1)
         self._set_page(page)
         self._busy(True)
         self._pending_rooms = None
@@ -171,7 +181,9 @@ class AccountPlatformDialog(QDialog):
 
     def _bili_failed(self, reason):
         if self._closing_result is None:
+            self.page.header.setText("关注读取失败")
             self.status.setText("读取关注失败：" + reason)
+            self.retry_button.show()
 
     def _bili_finished(self):
         if self.owner._follow_loader is self._bili_loader:

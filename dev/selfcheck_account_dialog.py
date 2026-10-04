@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog, QInputDialog  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QInputDialog, QPushButton  # noqa: E402
 from ddm import app as app_module, bili, theme  # noqa: E402
 from ddm.account_dialog import AccountPlatformDialog  # noqa: E402
 from ddm.dialogs import FollowImportDialog  # noqa: E402
@@ -27,6 +27,10 @@ def dispose(app, dialog):
     dialog.deleteLater()
     app.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def follows_ready(dialog):
+    return isinstance(dialog.page, FollowImportDialog) and not dialog.page.property("loading")
 
 
 def main():
@@ -82,7 +86,7 @@ def main():
             dialog.show()
             dialog.page._read()
             assert not dialog.platform_buttons["bilibili"].isEnabled()
-            wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+            wait_for(app, lambda: follows_ready(dialog))
             assert dialog.isVisible() and dialog.page.rooms == ROOMS
             assert all(b.isEnabled() for b in dialog.platform_buttons.values())
             dialog.page._check_all(True)
@@ -96,20 +100,20 @@ def main():
                 dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True)
                 dialog.show()
                 dialog.page._on_success("test-session")
-                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                wait_for(app, lambda: follows_ready(dialog))
                 dialog.page._check_all(True)
                 QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
                 assert isinstance(dialog.page, PlatformFollowDialog) and not dialog.rooms
                 dialog.page._read()
-                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                wait_for(app, lambda: follows_ready(dialog))
                 assert dialog.page.selected() == []
                 retained = dialog._platform_pages["douyu"]
                 QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
-                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                wait_for(app, lambda: follows_ready(dialog))
                 QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
                 assert dialog.page is retained and dialog.page._pending_done is None
                 dialog.page._read()
-                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                wait_for(app, lambda: follows_ready(dialog))
                 assert dialog.page.rooms == ROOMS and dialog.page.selected() == []
                 dispose(app, dialog)
 
@@ -118,8 +122,10 @@ def main():
                 dialog.show()
                 wait_for(app, lambda: dialog._bili_loader is None)
                 assert "test failure" in dialog.status.text() and dialog.retry_button.isEnabled()
+                assert dialog.retry_button.isVisible() and not dialog.page.import_button.isEnabled()
+                assert dialog.retry_button.width() < dialog.page.width() // 2
                 QTest.mouseClick(dialog.retry_button, Qt.LeftButton)
-                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                wait_for(app, lambda: follows_ready(dialog))
                 assert dialog.page.rooms == []
                 dispose(app, dialog)
 
@@ -144,6 +150,41 @@ def main():
                 assert dialog.result() == QDialog.Rejected
                 dispose(app, dialog)
 
+            # 加载页使用列表页的按钮行；读取完成前后按钮位置、大小和窗口尺寸一致。
+            entered, release = threading.Event(), threading.Event()
+            def loading_bili():
+                entered.set()
+                assert release.wait(5)
+                return ROOMS
+            with patch.object(bili, "follow_rooms", loading_bili):
+                dialog = AccountPlatformDialog(owner, {"斗鱼": provider}, import_follows=True)
+                dialog.show()
+                assert entered.wait(2)
+                app.processEvents()
+                page = dialog.page
+                assert isinstance(page, FollowImportDialog) and page.property("loading")
+                assert not page.import_button.isEnabled()
+                assert all(not b.isEnabled() for b in page.filter_buttons)
+                assert not dialog.retry_button.isVisible()
+                assert dialog.status.isVisible() and "加载" in dialog.status.text()
+                cancel = next(b for b in page.findChildren(QPushButton) if b.text() == "取消")
+                loading_size = dialog.size()
+                cancel_rect = cancel.geometry()
+                import_rect = page.import_button.geometry()
+                list_rect = page.list.geometry()
+                assert cancel.isEnabled() and cancel.objectName() == "IconButton"
+                assert abs(cancel_rect.center().y() - import_rect.center().y()) <= 1
+                assert cancel_rect.right() < import_rect.left()
+                release.set()
+                wait_for(app, lambda: follows_ready(dialog))
+                app.processEvents()
+                page = dialog.page
+                cancel = next(b for b in page.findChildren(QPushButton) if b.text() == "取消")
+                assert dialog.size() == loading_size and page.list.geometry() == list_rect
+                assert cancel.geometry() == cancel_rect and page.import_button.geometry() == import_rect
+                assert page.import_button.isEnabled() and all(b.isEnabled() for b in page.filter_buttons)
+                dispose(app, dialog)
+
             # B 站旧请求返回时不能替换已关闭窗口或导入列表。
             entered, release = threading.Event(), threading.Event()
             def blocked_bili():
@@ -165,7 +206,7 @@ def main():
             def confirm_import():
                 dialog = next(w for w in app.topLevelWidgets()
                               if isinstance(w, AccountPlatformDialog) and w.isVisible())
-                if not isinstance(dialog.page, FollowImportDialog):
+                if not follows_ready(dialog):
                     QTimer.singleShot(10, confirm_import)
                     return
                 assert dialog.platform_buttons["bilibili"].isVisible()

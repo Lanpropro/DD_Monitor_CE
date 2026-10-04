@@ -80,7 +80,8 @@ def main():
 
                 def show_bili():
                     if imports:
-                        wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                        wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog)
+                                 and not dialog.page.property("loading"))
                         widget = dialog.page.list
                         widget.setStyleSheet("background: #4555a8; color: white;")
                         color = "#4555a8"
