@@ -7,6 +7,7 @@ from unittest.mock import patch
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from ddm import config, theme
@@ -20,6 +21,23 @@ def progress(overlay, comment):
         overlay.width() + comment.image.width() / comment.image.devicePixelRatioF())
 
 
+def check_text_style(overlay):
+    overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False))
+    for color in (QColor("#ffffff"), QColor("#ff6699")):
+        image = overlay._render_text("对吧，可爱吧？gyp", color).toImage()
+        pixels = [image.pixelColor(x, y) for y in range(image.height())
+                  for x in range(image.width())]
+        assert any(pixel.alpha() > 240 and
+                   max(abs(pixel.red() - color.red()), abs(pixel.green() - color.green()),
+                       abs(pixel.blue() - color.blue())) < 8 for pixel in pixels), \
+            "弹幕必须保留明亮字芯及平台指定的文字颜色"
+        assert not any(pixel.alpha() >= 32 and
+                       max(abs(pixel.red() - color.red()), abs(pixel.green() - color.green()),
+                           abs(pixel.blue() - color.blue())) > 8 for pixel in pixels), \
+            "默认弹幕不应带有黑色描边或阴影"
+    print("PASS: bright white/colored text retains its color without a black outline or shadow")
+
+
 def check_text(app):
     tile = Tile({"room_id": "1", "live": True})
     tile.resize(900, 540)
@@ -29,6 +47,7 @@ def check_text(app):
     tile.set_video_active(True)
     tile.danmaku_button.setChecked(True)
     try:
+        check_text_style(overlay)
         for size in (12, 28, 48, 64):
             overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=size,
                                         video_danmaku_scale=False))

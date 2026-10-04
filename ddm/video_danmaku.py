@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
@@ -97,7 +97,7 @@ class VideoDanmaku(QWidget):
     def _font(self) -> QFont:
         font = QFont(str(self.settings.get("danmaku_font") or theme.FONT_DEFAULT))
         font.setPixelSize(self.font_pixels())
-        font.setBold(True)
+        font.setWeight(QFont.Medium)
         return font
 
     def lane_count(self) -> int:
@@ -138,7 +138,7 @@ class VideoDanmaku(QWidget):
         left = min(0, bounds.left())
         width = max(metrics.horizontalAdvance(text), bounds.right()) - left + 8
         height = max(metrics.height(), bounds.height()) + 8
-        # 字形及描边都留出边距，避免默认字体的下沿、英文下伸部被裁切。
+        # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
         path.translate(4 - left, 4 - bounds.top())
         scale = self.devicePixelRatioF()
         image = QPixmap(math.ceil(width * scale), math.ceil(height * scale))
@@ -146,7 +146,7 @@ class VideoDanmaku(QWidget):
         image.fill(Qt.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor("#000000"), 2))
+        painter.setPen(Qt.NoPen)
         painter.setBrush(color)
         painter.drawPath(path)
         painter.end()
