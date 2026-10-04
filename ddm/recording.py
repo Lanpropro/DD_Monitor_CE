@@ -366,7 +366,7 @@ class RecordingManager(QObject):
         if session.process is None:
             self._finalize(session)
 
-    def _finalize(self, session: _Session) -> None:
+    def _finalize(self, session: _Session, *, save_replay: bool = True) -> None:
         self.sessions.pop(session.tile, None)
         self.changed.emit(session.tile)
         if session.recording:
@@ -376,7 +376,7 @@ class RecordingManager(QObject):
             # 排除在删除之外，所以先启动的那份不会被后完成的那份删掉源文件。
             # 设置里关了即时回放总开关就不存那一份（完整录制照常导出）；
             # 这里读 manager 的 settings（与 app 同一个 dict），开关是实时的。
-            if bool(self.settings.get("recording_replay_enabled", True)):
+            if save_replay and bool(self.settings.get("recording_replay_enabled", True)):
                 self._export_replay(session, parts)
             self._export(session, parts, full=True)
         else:
@@ -578,7 +578,7 @@ class RecordingManager(QObject):
         self.timer.stop()
         for session in self.sessions.values():
             self._end_process(session)
-        for session in self.sessions.values():
+        for session in list(self.sessions.values()):
             if session.process:
                 try:
                     session.process.wait(timeout=5)
@@ -590,11 +590,10 @@ class RecordingManager(QObject):
                     except subprocess.TimeoutExpired:
                         session.process.kill()
                         session.process.wait()
-                session.close_chunk()
-                if session.recording:
-                    self._export(session, session.finished_parts(), full=True)
-                else:
-                    self._discard_cache(session)
+            session.close_chunk()
+            # 退出只保存完整录制；等待重连时没有进程，也要收尾已有分段。
+            # 用户主动发起的回放导出保留在 exports 中，下面照常等待完成。
+            self._finalize(session, save_replay=False)
         self.sessions.clear()
         # 导出进程不能在应用退出后悬空；最多等 10 秒，失败时保留原始分段。
         for process, _result, _parts, _full in self.exports:
