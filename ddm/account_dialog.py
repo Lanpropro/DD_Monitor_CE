@@ -1,10 +1,10 @@
 """在同一窗口内切换平台、登录和勾选关注。"""
 import os
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QHBoxLayout, QLabel,
-                              QPushButton, QVBoxLayout, QWidget)
+                              QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import bili
 from .bili import FollowLoader
@@ -21,6 +21,8 @@ class AccountPlatformDialog(QDialog):
         self.rooms = []
         self.kind = ""
         self.page = None
+        # 保留浏览器的控件树，避免切换时销毁或迁移窗口的图形渲染层。
+        self._platform_pages = {}
         self._bili_loader = None
         self._pending_rooms = None
         self._closing_result = None
@@ -44,6 +46,8 @@ class AccountPlatformDialog(QDialog):
             toolbar.addWidget(button)
         toolbar.addStretch(1)
         self.layout_box.addLayout(toolbar)
+        self.pages = QStackedWidget(self)
+        self.layout_box.addWidget(self.pages, 1)
         self.select_platform(platform_kind)
 
     def _busy(self, busy):
@@ -53,24 +57,33 @@ class AccountPlatformDialog(QDialog):
     def _clear_page(self):
         if self.page is not None:
             old = self.page
-            old.blockSignals(True)
-            if isinstance(old, QDialog):
-                old.reject()
-            self.layout_box.removeWidget(old)
+            retained = old in self._platform_pages.values()
+            if not retained:
+                old.blockSignals(True)
+                if isinstance(old, QDialog):
+                    old.reject()
+            self.pages.removeWidget(old)
             old.hide()
-            old.deleteLater()
+            if retained:
+                old.browser.stop()
+            if not retained:
+                old.deleteLater()
             self.page = None
 
     def _set_page(self, page):
         self._clear_page()
         self.page = page
-        size = page.size()
-        page.setParent(self, Qt.Widget)
-        self.layout_box.addWidget(page, 1)
-        if isinstance(page, QDialog):
+        size = page.property("preferredSize") or page.size()
+        page.setProperty("preferredSize", size)
+        if page.parentWidget() is not self.pages or page.isWindow():
+            page.setParent(self.pages, Qt.Widget)
+        self.pages.addWidget(page)
+        self.pages.setCurrentWidget(page)
+        if isinstance(page, QDialog) and page not in self._platform_pages.values():
             page.finished.connect(self._page_finished)
         page.show()
         self.resize(size.width() + 24, size.height() + 65)
+        self.layout_box.activate()
 
     def select_platform(self, kind):
         if self._closing_result is not None or kind == self.kind:
@@ -90,10 +103,18 @@ class AccountPlatformDialog(QDialog):
                 self._set_page(page)
         else:
             from .platform_login import PlatformFollowDialog
-            page = PlatformFollowDialog(self.providers[kind], self.owner,
-                                        login_only=not self.import_follows)
-            page.accountCleared.connect(self.owner._clear_platform_account)
-            page.busyChanged.connect(self._busy)
+            page = self._platform_pages.get(kind)
+            if page is None:
+                page = PlatformFollowDialog(self.providers[kind], self.pages, owner=self.owner,
+                                            login_only=not self.import_follows, embedded=True)
+                page.accountCleared.connect(self.owner._clear_platform_account)
+                page.busyChanged.connect(self._busy)
+                page.finished.connect(self._page_finished)
+                self._platform_pages[kind] = page
+            else:
+                page.status.setText("请在官方页面完成登录，然后点击「读取关注」" if self.import_follows else
+                                    "请在官方页面完成登录，然后点击「确认登录」")
+                page.browser.load(QUrl(page._login_url))
             self._set_page(page)
 
     def _page_finished(self, result):

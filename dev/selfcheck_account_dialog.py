@@ -59,7 +59,7 @@ def main():
             QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
             assert isinstance(dialog.page, PlatformFollowDialog)
             thread.cancel.assert_called_once()
-            assert dialog.page.parentWidget() is dialog and not dialog.page.isWindow()
+            assert dialog.page.parentWidget() is dialog.pages and not dialog.page.isWindow()
             assert dialog.page._owner is owner and dialog.page.browser.zoomFactor() == .8
             assert len([w for w in app.topLevelWidgets() if w.isVisible() and w is not owner]) == 1
             QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
@@ -103,6 +103,14 @@ def main():
                 dialog.page._read()
                 wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
                 assert dialog.page.selected() == []
+                retained = dialog._platform_pages["douyu"]
+                QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                assert dialog.page is retained and dialog.page._pending_done is None
+                dialog.page._read()
+                wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog))
+                assert dialog.page.rooms == ROOMS and dialog.page.selected() == []
                 dispose(app, dialog)
 
             with patch.object(bili, "follow_rooms", side_effect=[RuntimeError("test failure"), []]):

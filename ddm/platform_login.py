@@ -4,7 +4,7 @@ import threading
 import time
 
 import requests
-from PySide6.QtCore import QByteArray, QThread, QUrl, Signal
+from PySide6.QtCore import QByteArray, QThread, QUrl, Qt, Signal
 from PySide6.QtNetwork import QNetworkCookie
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel,
                               QPushButton, QVBoxLayout)
@@ -61,9 +61,13 @@ class PlatformFollowDialog(QDialog):
     accountCleared = Signal(str)
     busyChanged = Signal(bool)
 
-    def __init__(self, platform, parent=None, *, login_only=False):
+    def __init__(self, platform, parent=None, *, login_only=False, embedded=False, owner=None):
         super().__init__(parent)
-        self._owner = parent
+        if embedded:
+            # 在浏览器创建前设为子控件，避免图形控件随独立窗口迁移。
+            self.setWindowFlags(Qt.Widget)
+        self._owner = owner if owner is not None else parent
+        self._embedded = embedded
         # 只有用户主动导入时才加载浏览器，启动和播放不加载 WebEngine。
         from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
         from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -204,7 +208,9 @@ class PlatformFollowDialog(QDialog):
         self.forget_button.setEnabled(True)
         self.busyChanged.emit(False)
         if self._pending_done is not None:
-            self.done(self._pending_done)
+            result = self._pending_done
+            self._pending_done = None
+            self.done(result)
 
     def _forget(self):
         try:
@@ -228,6 +234,11 @@ class PlatformFollowDialog(QDialog):
             self._pending_done = result
             self._worker.cancel()
             self.status.setText("正在结束当前请求…")
+            return
+        if self._embedded:
+            self.browser.stop()
+            self.setResult(result)
+            self.finished.emit(result)
             return
         self._store.cookieAdded.disconnect(self._on_cookie)
         self._store.cookieRemoved.disconnect(self._on_cookie_removed)
