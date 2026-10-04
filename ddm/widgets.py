@@ -2318,7 +2318,7 @@ class NavItem(QFrame):
     def _index_in_host(self) -> int:
         if self.drop_host is None:
             return 0
-        items = self.drop_host.items()
+        items = self.drop_host.visible_items()
         for index, item in enumerate(items):
             if item is self:
                 return index
@@ -2785,11 +2785,11 @@ class RoomListBox(QWidget):
 
     def _glide_to(self, item: NavItem, x: int, y: int, animate: bool) -> None:
         target = QPoint(x, y)
-        if item.pos() == target:
-            return
         previous = self._animations.get(item)
         if previous is not None:
             previous.stop()
+        if item.pos() == target:
+            return
         if not animate:
             item.move(target)
             return
@@ -2809,7 +2809,7 @@ class RoomListBox(QWidget):
         """
         items = self._visible_items()
         order = preview_order if preview_order is not None else list(items)
-        if self.sidebar.folders:
+        if self.sidebar.folders and preview_order is None:
             order = self.sidebar.folder_entries()
         width, item_height = self.item_size()
         horizontal = self.horizontal
@@ -2883,11 +2883,18 @@ class RoomListBox(QWidget):
         """
         count = len(self._visible_items())
         if self.sidebar.folders:
-            for index, item in enumerate(self._visible_items()):
-                midpoint = (item.x() + item.width() / 2 if self.horizontal else
-                            item.y() + item.height() / 2)
-                if y < midpoint:
-                    return index
+            # 使用原顺序的槽位；动画中的控件坐标会变化，不能拿它们重新判定落点。
+            width, height = self.item_size()
+            run, index = 0, 0
+            for entry in self.sidebar.folder_entries():
+                is_folder = isinstance(entry, FollowFolderButton)
+                span = max(36, entry.minimumSizeHint().height()) if is_folder else (
+                    width if self.horizontal else height)
+                if not is_folder:
+                    if y < run + span / 2:
+                        return index
+                    index += 1
+                run += span + NAV_ITEM_GAP
             return count
         if self.horizontal:
             width = self.item_size()[0]
@@ -3916,10 +3923,12 @@ class Sidebar(QFrame):
         if notify:
             self.foldersChanged.emit()
 
-    def folder_entries(self) -> list:
+    def folder_entries(self, preview_items: list | None = None,
+                       dragging_ids: set[str] | None = None) -> list:
         """分组显示，不改变关注、置顶或自定义顺序的保存方式。"""
         entries = []
-        visible = self.visible_items()
+        visible = self.visible_items() if preview_items is None else [
+            item for item in preview_items if not item.filtered_out]
         for folder in self.folders:
             button = self._folder_buttons.get(folder["id"])
             if button is None:
@@ -3943,7 +3952,9 @@ class Sidebar(QFrame):
                                   self.folder_for(str(item.room.get("room_id"))) == folder["id"]
                                   and self.matches(item, self.filter_text.split()) for item in self._items)))
             if not button.isHidden():
-                entries.extend([button] + members)
+                entries.append(button)
+                entries.extend(None if dragging_ids and str(item.room.get("room_id")) in dragging_ids
+                               else item for item in members)
         return entries
 
     def _focus_room_list(self) -> None:
@@ -4888,12 +4899,10 @@ class Sidebar(QFrame):
             self.list_box.relayout(animate=True)
             return
         moving = set(self.dragged_room_ids(room_id))
-        if self.folders:
-            self.list_box.relayout(dragging_ids=moving)
-            return
         items = self._reordered_items(list(moving), self._full_drop_index(drop_index))
-        preview = [None if str(item.room.get("room_id")) in moving else item
-                   for item in items if not item.filtered_out]
+        preview = self.folder_entries(items, moving) if self.folders else [
+            None if str(item.room.get("room_id")) in moving else item
+            for item in items if not item.filtered_out]
         self.list_box.relayout(animate=True, preview_order=preview, dragging_ids=moving)
 
     def end_drag(self) -> None:
