@@ -220,7 +220,7 @@ class ShortcutSettingsPage(QWidget):
 
 
 class DanmakuSettingsPage(QWidget):
-    """弹幕格与画面弹幕的显示参数、共享字体和屏蔽词。"""
+    """弹幕格参数，以及与画面弹幕共享的字体和屏蔽词。"""
 
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
@@ -294,34 +294,6 @@ class DanmakuSettingsPage(QWidget):
         keep_tip.setObjectName("SettingsHint")
         layout.addWidget(keep_tip)
 
-        from .config import DEFAULT_SETTINGS
-        layout.addWidget(QLabel("画面弹幕（在每个格子下方独立启用）"))
-        video_grid = QGridLayout()
-        self.video_controls = {}
-        for row, (key, label, low, high, suffix) in enumerate((
-                ("video_danmaku_size", "大小", 12, 64, " px"),
-                ("video_danmaku_speed", "滚动速度", 50, 200, " %"),
-                ("video_danmaku_opacity", "不透明度", 10, 100, " %"),
-                ("video_danmaku_area", "顶部显示区域", 10, 100, " %"))):
-            spin = QSpinBox()
-            spin.setRange(low, high)
-            spin.setSuffix(suffix)
-            spin.setValue(int(settings.get(key, DEFAULT_SETTINGS[key])))
-            self.video_controls[key] = spin
-            video_grid.addWidget(QLabel(label), row, 0)
-            video_grid.addWidget(spin, row, 1)
-        self.video_controls["video_danmaku_speed"].setToolTip(
-            "100% 时每条弹幕约 8 秒穿过画面；数值越大，滚动越快")
-        self.video_controls["video_danmaku_size"].setToolTip(
-            "开启随屏幕缩放时，字号以 720 像素高的画面为基准")
-        self.video_controls["video_danmaku_area"].setToolTip(
-            "从画面顶部起占用的高度；100% 表示整个画面")
-        layout.addLayout(video_grid)
-        self.video_scale = QCheckBox("画面弹幕随屏幕缩放")
-        self.video_scale.setChecked(bool(settings.get("video_danmaku_scale", True)))
-        self.video_scale.setToolTip("开启后字号随格子画面高度缩放；关闭后保持设定字号")
-        layout.addWidget(self.video_scale)
-
         layout.addWidget(QLabel("屏蔽词（每行一个）"))
         self.block_edit = QPlainTextEdit()
         self.block_edit.setObjectName("BlockWords")
@@ -341,9 +313,6 @@ class DanmakuSettingsPage(QWidget):
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.block_edit.setPlainText("")
-        for key, spin in self.video_controls.items():
-            spin.setValue(int(config_module.DEFAULT_SETTINGS[key]))
-        self.video_scale.setChecked(bool(config_module.DEFAULT_SETTINGS["video_danmaku_scale"]))
 
     def values(self) -> dict:
         family = self.font_box.currentFont().family()
@@ -355,8 +324,6 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
-            **{key: spin.value() for key, spin in self.video_controls.items()},
-            "video_danmaku_scale": self.video_scale.isChecked(),
         }
 
 

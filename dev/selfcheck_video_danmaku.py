@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DDM_NO_SAVE", "1")
@@ -195,15 +195,22 @@ def check_settings(app):
     app.processEvents()
     page = dialog.danmaku_page
     try:
-        assert all(page.values()[key] == value for key, value in values.items()
-                   if key.startswith("video_danmaku_"))
-        assert page.scroll.verticalScrollBar().maximum() > 0, "小设置窗口应可滚动访问所有选项"
-        page.scroll.ensureWidgetVisible(page.video_scale)
+        watch = {key: value for key, value in values.items() if key.startswith("video_danmaku_")}
+        assert not watch.keys() & page.values().keys()
+        labels = [label.text() for label in page.findChildren(QLabel)]
+        assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
+        assert not {"大小", "滚动速度", "不透明度", "顶部显示区域"}.intersection(labels)
+        assert not page.findChildren(QCheckBox), "总设置不再显示画面弹幕随屏幕缩放选项"
+        page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
-        assert page.video_scale.isVisible()
+        assert page.block_edit.isVisible()
+        saved = {**values, **dialog.settings()}
+        assert all(saved[key] == value for key, value in watch.items())
         page.reset()
-        assert all(page.values()[key] == value for key, value in config.DEFAULT_SETTINGS.items()
-                   if key.startswith("video_danmaku_"))
+        assert page.values()["danmaku_font_size"] == config.DEFAULT_SETTINGS["danmaku_font_size"]
+        assert page.values()["danmaku_max_blocks"] == config.DEFAULT_SETTINGS["danmaku_max_blocks"]
+        saved.update(dialog.settings())
+        assert all(saved[key] == value for key, value in watch.items()), "恢复本页默认不能覆盖格子观看参数"
     finally:
         dialog.close()
 
