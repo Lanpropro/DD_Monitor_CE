@@ -100,10 +100,10 @@ foreach ($item in Get-ChildItem (Join-Path $repo "plugins_user") -Force -ErrorAc
         Copy-Item $item.FullName (Join-Path $app "plugins_user") -Force
     }
 }
-# utils 目录只要代码；config.json 是用户数据，不带
+# utils 目录只要代码；配置和加密登录状态是用户数据，不带
 New-Item -ItemType Directory -Force -Path (Join-Path $app "utils") | Out-Null
 foreach ($item in Get-ChildItem (Join-Path $repo "utils") -Force -ErrorAction SilentlyContinue) {
-    if ($item.Name -like "config.json*" -or $item.Name -eq "__pycache__") { continue }
+    if ($item.Name -like "config.json*" -or $item.Name -in @("__pycache__", "accounts")) { continue }
     Copy-Item $item.FullName (Join-Path $app "utils") -Force -Recurse
 }
 

@@ -33,6 +33,7 @@ plugins_user/_danmaku_log/
 /plugins_user/global_live/
 /plugins_user/domestic_live/
 /plugins_user/huya_watch/
+/utils/accounts/
 
 # 宣传片参考素材：别人的视频，只用来对风格，不进版本库
 Video_reference/

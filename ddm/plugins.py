@@ -149,6 +149,12 @@ class Platform:
     kind = ""
     label = ""
     playback_mode = "stream"
+    follow_login_url = ""
+    follow_cookie_domain = ""
+
+    def follow_rooms(self, session, cancelled) -> list[dict]:
+        """可选：后台用授权会话读取关注；每页检查 cancelled，失败抛异常。"""
+        raise NotImplementedError
 
     def matches(self, room_id: str) -> bool:
         """这个房间号是不是本平台的。"""

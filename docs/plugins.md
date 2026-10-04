@@ -38,6 +38,20 @@ plugins_user/
 [DD_Monitor_Plugins](https://github.com/Lanpropro/DD_Monitor_Plugins) 维护。
 从该仓库 Releases 下载单个插件 ZIP 后导入；软件仓库及新发布包不内置这两个扩展。
 国内插件 ID 为 `domestic_live`，海外插件 ID 为 `global_live`。
+
+### 平台关注导入
+
+平台可选提供 `follow_login_url`（官方登录/关注页面）、`follow_cookie_domain`
+（登录 Cookie 的站点域）和 `follow_rooms(session, cancelled)`。
+本体的「导入关注」会展示已启用且支持此功能的平台；未提供能力的插件仍按原方式添加房间。
+`follow_rooms` 在后台线程运行，返回普通房间字典列表，必须设置请求超时、检查每页
+`cancelled()`、保留未开播主播，并在登录失效或数据不完整时抛出异常。
+本体负责用户勾选、去重、保存关注和图片显示，不自动把导入结果加入播放格子。
+登录浏览器按平台隔离并仅在主动导入时加载；Windows 登录 Cookie 用 DPAPI 加密保存于
+`utils/accounts/<platform>.bin`，不会进入普通插件设置，也不传给取流及弹幕接口。
+关闭导入窗口或软件会取消分页并等待当前有超时的请求收尾。
+国内插件目前试用斗鱼关注导入，需要新版宿主；其他平台尚未提供此能力。
+
 安装 `domestic_live` 后，旧 `huya_watch` 的启用选择和插件设置自动迁移；
 新旧目录共存时只加载并展示新插件，原有房间 ID、关注和格子暂存数据继续沿用。
 

@@ -3438,7 +3438,7 @@ class Sidebar(QFrame):
         self.import_button.setFocusPolicy(Qt.TabFocus)
         self.import_button.setObjectName("IconButton")
         self.import_button.setCursor(Qt.PointingHandCursor)
-        self.import_button.setToolTip("从 B 站账号导入关注列表（需要先登录）")
+        self.import_button.setToolTip("从 B 站或支持关注导入的平台账号导入列表（需要先登录）")
         self.import_button.clicked.connect(self.importFollowsClicked.emit)
         self.add_button = QPushButton("+  添加直播间")
         self.add_button.setFocusPolicy(Qt.TabFocus)

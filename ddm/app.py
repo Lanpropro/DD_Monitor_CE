@@ -15,7 +15,7 @@ from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimati
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
+    QApplication, QBoxLayout, QDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMessageBox, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -687,6 +687,9 @@ class MainWindow(QMainWindow):
         # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
         # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
         self._closing = True
+        follow_loader = getattr(self, "_follow_loader", None)
+        if getattr(follow_loader, "platform", None) is not None:
+            follow_loader.cancel()
         self._stats_refresh_timer.stop()
         self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
@@ -744,6 +747,9 @@ class MainWindow(QMainWindow):
         poller = self._poller
         if poller is not None and getattr(poller, "platforms", None):
             platform_threads.append(poller)
+        follow_loader = getattr(self, "_follow_loader", None)
+        if getattr(follow_loader, "platform", None) is not None:
+            platform_threads.append(follow_loader)
         for thread in platform_threads:
             if self._loader_running(thread):
                 thread.wait()
@@ -2437,6 +2443,27 @@ class MainWindow(QMainWindow):
         print(f"登录成功，已保存登录状态（{len(sessdata)} 字符）", file=sys.stderr, flush=True)
 
     def open_import_follows(self) -> None:
+        follow_loader = getattr(self, "_follow_loader", None)
+        if follow_loader is not None and self._loader_running(follow_loader):
+            return
+        providers = {p.label or p.kind: p for p in self.plugins.platforms.values()
+                     if p.follow_login_url and p.follow_cookie_domain}
+        if providers:
+            label, accepted = QInputDialog.getItem(
+                self, "导入关注", "选择平台", ["B站", *providers], 0, False)
+            if not accepted:
+                return
+            if label != "B站":
+                from .platform_login import PlatformFollowDialog
+                dialog = PlatformFollowDialog(providers[label], self)
+                try:
+                    result = dialog.exec()
+                    rooms = dialog.rooms
+                finally:
+                    dialog.deleteLater()
+                if result == QDialog.DialogCode.Accepted and not self._closing:
+                    self._on_follows_loaded(rooms)
+                return
         if not bili.SESSION_DATA:
             print("导入关注需要先登录，打开登录窗口", file=sys.stderr, flush=True)
             self.open_login()
@@ -2461,6 +2488,8 @@ class MainWindow(QMainWindow):
         print(f"拉取关注列表失败: {reason}")
 
     def _on_follows_loaded(self, rooms: list) -> None:
+        if self._closing:
+            return
         self.import_button_busy(False)
         existing = {str(room.get("room_id")) for room in self.sidebar.rooms()}
         dialog = FollowImportDialog(rooms, existing, self)
@@ -2483,6 +2512,7 @@ class MainWindow(QMainWindow):
         added = sum(1 for room in selected if self.sidebar.add_room(room))
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
+        self._save_timer.start()
         print(f"导入完成：选中 {len(selected)} 个，新增 {added} 个")
 
     def _refresh_meta(self) -> None:
