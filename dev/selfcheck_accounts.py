@@ -58,14 +58,19 @@ def main():
             imports.assert_not_called()
         with patch.object(window, "_open_account_dialog") as login:
             window.open_login()
-            login.assert_called_once_with({"斗鱼": provider}, platform_kind="bilibili")
+            login.assert_called_once()
+            assert login.call_args.args[0]["斗鱼"] is provider
+            assert login.call_args.args[0]["Twitch"].account_login_notice
+            assert login.call_args.kwargs == {"platform_kind": "bilibili"}
         with patch.object(window, "_follow_loader", Mock(isRunning=Mock(return_value=True)), create=True), \
                 patch.object(window, "_open_account_dialog") as login:
             window.open_login()
             login.assert_not_called()
         with patch.object(window, "_open_account_dialog") as login:
             window.open_login("bilibili")
-            login.assert_called_once_with({"斗鱼": provider}, platform_kind="bilibili")
+            login.assert_called_once()
+            assert login.call_args.args[0]["斗鱼"] is provider
+            assert login.call_args.kwargs == {"platform_kind": "bilibili"}
 
         # 登录只查询身份，不分页读取关注；真实浏览器使用空白页。
         dialog = PlatformFollowDialog(provider, window, login_only=True)

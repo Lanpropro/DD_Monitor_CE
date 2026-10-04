@@ -45,6 +45,7 @@ def rejected(provider, replies, *, cookie_domain=".twitch.tv"):
 
 def check_endpoints():
     huya, douyin, twitch = HuyaPlatform(), DouyinPlatform(), TwitchPlatform()
+    assert huya.account_login_url == "https://www.huya.com/?evt_fe=login"
     with requests.Session() as session:
         data = {"isLogined": True, "uid": 123, "userNick": "huya-test",
                 "userLogo": "//huyaimg.msstatic.com/avatar.png"}
@@ -89,6 +90,42 @@ def check_endpoints():
         session.get.assert_called_once()
 
 
+def check_twitch_follows():
+    provider = TwitchPlatform()
+    identity = {"user_id": "123", "login": "fixture", "client_id": "fixture-client",
+                "scopes": ["user:read:follows"]}
+    first = {"broadcaster_login": "Channel_One", "broadcaster_name": "Channel One"}
+    second = {"broadcaster_login": "Channel_Two", "broadcaster_name": "Channel Two"}
+    with requests.Session() as session:
+        session.cookies.set("auth-token", "fixture-token", domain=".twitch.tv")
+        session.get = Mock(side_effect=[response(identity),
+            response({"data": [first], "pagination": {"cursor": "next-page"}}),
+            response({"data": [first, second], "pagination": {}})])
+        rooms = provider.follow_rooms(session, lambda: False)
+        assert [room["room_id"] for room in rooms] == ["twitch:channel_one", "twitch:channel_two"]
+        assert all(room["platform"] == "twitch" and not room["live_known"] for room in rooms)
+        assert session.get.call_args.kwargs["params"]["after"] == "next-page"
+        assert session.get.call_args.kwargs["headers"]["Client-ID"] == "fixture-client"
+        session.get = Mock(side_effect=[response(identity), response({"data": [], "pagination": {}})])
+        assert provider.follow_rooms(session, lambda: False) == []
+        for replies, reason in [
+            ([response({**identity, "scopes": []})], "user:read:follows"),
+            ([response(identity), response(status=403)], "授权"),
+            ([response(identity), response({"data": None})], "返回异常"),
+            ([response(identity), response({"data": [first], "pagination": {"cursor": "same"}}),
+              response({"data": [first], "pagination": {"cursor": "same"}})], "分页"),
+        ]:
+            session.get = Mock(side_effect=replies)
+            try:
+                provider.follow_rooms(session, lambda: False)
+            except RuntimeError as error:
+                assert reason in str(error)
+            else:
+                raise AssertionError("Invalid follow response accepted")
+        session.get = Mock(side_effect=AssertionError("Cancelled request"))
+        assert provider.follow_rooms(session, lambda: True) == []
+
+
 def check_dialogs():
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication([])
@@ -97,11 +134,20 @@ def check_dialogs():
     providers = [HuyaPlatform(), DouyinPlatform(), TwitchPlatform()]
     with patch.object(app_module.QTimer, "singleShot"):
         owner = app_module.MainWindow([], [], state={"plugins_enabled": []})
+    with patch.object(QWebEngineView, "load", side_effect=AssertionError("Disabled plugin opened browser")):
+        dialog = AccountPlatformDialog(owner, owner._account_dialog_platforms(), platform_kind="twitch")
+        assert "twitch" in dialog.platform_buttons
+        assert any("插件管理" in label.text() for label in dialog.page.findChildren(QLabel))
+        dispose(app, dialog)
     for provider in [*providers, DouyuPlatform(), YouTubePlatform()]:
         owner.plugins.platforms[provider.kind] = provider
     try:
         assert set(owner._account_platforms()) == {"虎牙", "抖音", "Twitch", "斗鱼"}
-        assert set(owner._follow_platforms()) == {"斗鱼"}
+        assert set(owner._follow_platforms()) == {"斗鱼", "Twitch"}
+        with patch.object(owner, "_open_account_dialog") as opened:
+            owner.open_import_follows()
+            assert set(opened.call_args.args[0]) == {"虎牙", "抖音", "Twitch", "斗鱼", "YouTube"}
+            assert opened.call_args.kwargs["import_follows"]
         with patch.object(owner, "_open_account_dialog") as opened:
             owner.open_login("twitch")
             assert set(opened.call_args.args[0]) == {"虎牙", "抖音", "Twitch", "斗鱼", "YouTube"}
@@ -110,6 +156,12 @@ def check_dialogs():
         with patch.object(QWebEngineView, "load", side_effect=AssertionError("Pending platform loaded browser")):
             dialog = AccountPlatformDialog(owner, pending_providers, platform_kind="youtube")
             assert "待接入" in dialog.platform_buttons["youtube"].text()
+            assert "已登录" in dialog.platform_buttons["bilibili"].text()
+            dialog.show()
+            app.processEvents()
+            assert dialog.platform_buttons["twitch"].isVisible()
+            for button in dialog.platform_buttons.values():
+                assert dialog.rect().contains(button.geometry())
             assert any("需要 Google 桌面 OAuth" in label.text() for label in dialog.page.findChildren(QLabel))
             assert "youtube" not in owner._accounts
             dispose(app, dialog)
@@ -138,6 +190,11 @@ def check_dialogs():
                 # 重新打开已登录平台只显示身份页，不能导航登录网页。
                 dialog = AccountPlatformDialog(owner, owner._account_platforms(), platform_kind=provider.kind)
                 assert not isinstance(dialog.page, PlatformFollowDialog)
+                assert "已登录" in dialog.platform_buttons[provider.kind].text()
+                dialog.show()
+                app.processEvents()
+                for button in dialog.platform_buttons.values():
+                    assert dialog.rect().contains(button.geometry())
                 dispose(app, dialog)
             with patch("ddm.platform_login.clear_platform_login") as clear:
                 owner.logout(provider.kind)
@@ -148,6 +205,15 @@ def check_dialogs():
                 patch.object(AccountStore, "load_account", return_value={"uid": "123", "uname": "cached"}):
             owner._restore_platform_accounts()
         assert {p.kind for p in providers}.issubset(owner._accounts)
+        with patch.object(QWebEngineView, "load", side_effect=AssertionError("Pending follow opened browser")):
+            dialog = AccountPlatformDialog(owner, owner._account_dialog_platforms(),
+                                           import_follows=True, platform_kind="huya")
+            for kind in ("huya", "douyin"):
+                dialog.select_platform(kind)
+                assert "已登录" in dialog.platform_buttons[kind].text()
+                assert "关注待接入" in dialog.platform_buttons[kind].text()
+                assert any("完整关注列表" in label.text() for label in dialog.page.findChildren(QLabel))
+            dispose(app, dialog)
     finally:
         bili.set_sessdata("")
         owner.close()
@@ -156,5 +222,6 @@ def check_dialogs():
 
 if __name__ == "__main__":
     check_endpoints()
+    check_twitch_follows()
     check_dialogs()
-    print("PASS: Huya/Douyin/Twitch verified identity, invalid/expired login, cancel, cookie isolation, restore and independent logout")
+    print("PASS: identities, Huya login entry, Twitch option, logged labels, follow menu, Twitch pagination/scope errors, cancel and logout")

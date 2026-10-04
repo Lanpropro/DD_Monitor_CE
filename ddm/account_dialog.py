@@ -3,7 +3,7 @@ import os
 
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import (QButtonGroup, QDialog, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import bili
@@ -30,14 +30,13 @@ class AccountPlatformDialog(QDialog):
         self._closing_result = None
         self.setWindowTitle("导入关注" if import_follows else "登录")
         self.layout_box = QVBoxLayout(self)
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("平台"))
+        toolbar = QGridLayout()
+        toolbar.addWidget(QLabel("平台"), 0, 0)
         self.platform_buttons = {}
         self.group = QButtonGroup(self)
-        for kind, label in [("bilibili", "B站"), *[(p.kind, p.label) for p in providers.values()]]:
-            if getattr(self.providers.get(kind), "account_login_notice", ""):
-                label += "（待接入）"
+        for index, (kind, label) in enumerate([("bilibili", "B站"), *[(p.kind, p.label) for p in providers.values()]]):
             button = QPushButton(label)
+            button.setProperty("platformLabel", label)
             button.setCheckable(True)
             button.setAutoDefault(False)
             button.setCursor(Qt.PointingHandCursor)
@@ -48,12 +47,26 @@ class AccountPlatformDialog(QDialog):
             button.clicked.connect(lambda _checked=False, k=kind: self.select_platform(k))
             self.group.addButton(button)
             self.platform_buttons[kind] = button
-            toolbar.addWidget(button)
-        toolbar.addStretch(1)
+            toolbar.addWidget(button, index // 3, index % 3 + 1)
+        toolbar.setColumnStretch(4, 1)
         self.layout_box.addLayout(toolbar)
+        self._update_platform_labels()
         self.pages = QStackedWidget(self)
         self.layout_box.addWidget(self.pages, 1)
         self.select_platform(platform_kind)
+
+    def _update_platform_labels(self):
+        for kind, button in self.platform_buttons.items():
+            label = button.property("platformLabel")
+            provider = self.providers.get(kind)
+            logged = bool(bili.SESSION_DATA) if kind == "bilibili" else kind in self.owner._accounts
+            if logged:
+                label += "（已登录）"
+            elif getattr(provider, "account_login_notice", ""):
+                label += "（待接入）"
+            if self.import_follows and getattr(provider, "follow_import_notice", ""):
+                label += "（关注待接入）"
+            button.setText(label)
 
     def _busy(self, busy):
         for button in self.platform_buttons.values():
@@ -78,6 +91,7 @@ class AccountPlatformDialog(QDialog):
 
     def _set_page(self, page):
         self._clear_page()
+        self._update_platform_labels()
         self.page = page
         size = page.property("preferredSize") or page.size()
         page.setProperty("preferredSize", size)
@@ -89,7 +103,7 @@ class AccountPlatformDialog(QDialog):
                 and page not in self._follow_pages.values()):
             page.finished.connect(self._page_finished)
         page.show()
-        self.resize(size.width() + 24, size.height() + 65)
+        self.resize(size.width() + 24, size.height() + self.layout_box.itemAt(0).sizeHint().height() + 24)
         self.layout_box.activate()
 
     def select_platform(self, kind):
@@ -101,6 +115,8 @@ class AccountPlatformDialog(QDialog):
         self.kind = kind
         self.platform_buttons[kind].setChecked(True)
         notice = getattr(self.providers.get(kind), "account_login_notice", "")
+        if self.import_follows:
+            notice = getattr(self.providers.get(kind), "follow_import_notice", "") or notice
         if notice:
             page = QWidget()
             page.resize(560, 220)
@@ -146,6 +162,7 @@ class AccountPlatformDialog(QDialog):
                                             login_only=not self.import_follows, embedded=True,
                                             defer_login=auto_read)
                 page.accountCleared.connect(self.owner._clear_platform_account)
+                page.accountCleared.connect(lambda _kind: self._update_platform_labels())
                 page.busyChanged.connect(self._busy)
                 page.finished.connect(lambda result, p=page: self._page_finished(result, p))
                 page.readFailed.connect(lambda _reason, p=page: self._platform_failed(p))

@@ -2288,6 +2288,18 @@ class MainWindow(QMainWindow):
         return {p.label or p.kind: p for p in self.plugins.platforms.values()
                 if p.follow_login_url and p.follow_cookie_domain}
 
+    def _account_dialog_platforms(self) -> dict:
+        providers = self._account_platforms()
+        providers.update({p.label or p.kind: p for p in self.plugins.platforms.values()
+                          if getattr(p, "account_login_notice", "")})
+        if not any(p.kind == "twitch" for p in providers.values()):
+            platform = plugin_api.Platform()
+            platform.kind, platform.label = "twitch", "Twitch"
+            platform.account_login_notice = ("Twitch 登录需要启用「Twitch 与 YouTube」插件。\n"
+                                             "请在插件管理中安装或启用支持登录的新版插件，然后重启软件。")
+            providers[platform.label] = platform
+        return providers
+
     def _login_choices(self) -> list:
         choices = [] if bili.SESSION_DATA else ["B站"]
         return choices + [label for label, p in self._account_platforms().items()
@@ -2520,9 +2532,7 @@ class MainWindow(QMainWindow):
         if platform_kind is None and not choices:
             QMessageBox.information(self, "账号登录", "当前支持登录的平台均已成功登录。")
             return
-        providers = self._account_platforms()
-        providers.update({p.label or p.kind: p for p in self.plugins.platforms.values()
-                          if getattr(p, "account_login_notice", "")})
+        providers = self._account_dialog_platforms()
         if platform_kind is None:
             platform_kind = "bilibili" if choices[0] == "B站" else providers[choices[0]].kind
         self._open_account_dialog(providers, platform_kind=platform_kind)
@@ -2557,7 +2567,9 @@ class MainWindow(QMainWindow):
             return
         if self._closing:
             return
-        self._open_account_dialog(self._follow_platforms(), import_follows=True)
+        providers = self._account_dialog_platforms()
+        providers.update(self._follow_platforms())
+        self._open_account_dialog(providers, import_follows=True)
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "") -> None:
         if self._closing:
