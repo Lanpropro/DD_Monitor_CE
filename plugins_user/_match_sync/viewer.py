@@ -384,6 +384,8 @@ class RoomRow(QFrame):
         self.color_choice.setToolTip("弹幕来源颜色")
         self.decrease = QPushButton("−")
         self.increase = QPushButton("+")
+        self.decrease.setToolTip("− 负数：相对提前本路画面、声音和弹幕。单位秒；必要时同时延后其他路。")
+        self.increase.setToolTip("+ 正数：延后本路画面、声音和弹幕。单位秒，例如 +3 表示延后 3 秒。")
         for button in (self.decrease, self.increase):
             button.setFixedWidth(24)
         self.decrease.clicked.connect(lambda: viewer.compare.setChecked(True))

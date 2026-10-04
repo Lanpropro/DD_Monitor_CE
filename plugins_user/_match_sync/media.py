@@ -14,6 +14,8 @@ from PySide6.QtGui import QImage
 from ddm import bili, danmaku, recording
 from .engine import FPS, History, Sample, SIGNATURE_BITS
 
+FRAME_TIMEOUT = 15.0
+
 
 class Events(QObject):
     information = Signal(dict)
@@ -48,8 +50,12 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
 
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250) -> list[str]:
     width, height = (1920, 1080) if quality >= 400 else (1280, 720)
+    inputs = recording.input_args(url, headers)
+    if url.lower().startswith(("http://", "https://")):
+        # Let the outer retry resolve a fresh address instead of looping on a broken CDN.
+        inputs = inputs[:-2] + ["-reconnect", "0", "-rw_timeout", "10000000"] + inputs[-2:]
     return ([executable, "-nostdin", "-readrate", "1", "-threads", "2"]
-            + recording.input_args(url, headers)
+            + inputs
             + ["-map", "0:v:0", "-an", "-vf",
                f"setpts=PTS-STARTPTS,fps={FPS},scale=w='min({width},iw)':h='min({height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
                "-threads", "2", "-c:v", "mjpeg", "-q:v", "5",
@@ -99,7 +105,9 @@ class Decoder:
                 pass
 
     def _resolve(self, attempt: int) -> tuple[str, dict]:
-        if attempt == 0 and self.seed.get("url"):
+        # Douyu signed addresses may allow only one consumer; do not reuse the wall's URL.
+        reuse_seed = self.platform is None or self.platform.kind != "douyu"
+        if attempt == 0 and self.seed.get("url") and reuse_seed:
             self.source_url = self.seed["url"]
             self.source_headers = dict(self.seed.get("headers") or {})
             self.events.information.emit({"uname": self.seed.get("uname") or "未命名主播",
@@ -163,6 +171,24 @@ class Decoder:
         self.listener = listener
         audio_thread = threading.Thread(target=self._read_audio, daemon=True)
         process = None
+        finished = threading.Event()
+        timed_out = threading.Event()
+        last_frame = [time.monotonic()]
+
+        def watch_frames():
+            while not finished.wait(.2):
+                if self.cancelled.is_set() or process.poll() is not None:
+                    return
+                if time.monotonic() - last_frame[0] > FRAME_TIMEOUT:
+                    timed_out.set()
+                    try:
+                        process.terminate()
+                    except OSError:
+                        pass
+                    return
+
+        watchdog = threading.Thread(target=watch_frames,
+                                    name=f"match-sync-watchdog-{self.room_id}", daemon=True)
         try:
             process = subprocess.Popen(
                 decode_command(executable, url, headers, listener.getsockname()[1], self.seed.get("quality", 250)),
@@ -174,6 +200,7 @@ class Decoder:
             if self.cancelled.is_set():
                 process.terminate()
                 return
+            watchdog.start()
             audio_thread.start()
             pending = bytearray()
             index = 0
@@ -201,12 +228,17 @@ class Decoder:
                         signature, texture = fingerprint(jpeg, crop)
                         sample = Sample(timestamp, signature, texture)
                     self.history.append(timestamp, jpeg, sample)
+                    last_frame[0] = time.monotonic()
                     index += 1
                 if len(pending) > 4 * 1024 * 1024:
                     raise ValueError("Invalid JPEG stream")
             if not self.cancelled.is_set():
-                self.events.state.emit("直播流已结束或中断，正在重连")
+                self.events.state.emit("画面接收超时，正在重新取流" if timed_out.is_set()
+                                       else "直播流已结束或中断，正在重连")
         finally:
+            finished.set()
+            if watchdog.is_alive():
+                watchdog.join(1)
             with self.lock:
                 self.process = None
             if process is not None:

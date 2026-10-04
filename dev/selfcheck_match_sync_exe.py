@@ -206,6 +206,8 @@ class Probe(api.Plugin):
                 assert self.viewer.body_split.widget(2) is panel
                 assert self.viewer.main.isHidden() and panel.isAncestorOf(self.viewer.automatic)
                 assert self.viewer.layout().itemAt(0).widget() is self.viewer.picture_split and self.viewer.controls.frameShape() == QFrame.NoFrame
+                assert "正数" in row.increase.toolTip() and "延后本路" in row.increase.toolTip()
+                assert "负数" in row.decrease.toolTip() and "相对提前本路" in row.decrease.toolTip()
                 assert row.offset_hint.isVisible() and not row.offset_hint.wordWrap()
                 assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
                 assert row.offset_hint.font().pixelSize() == 12

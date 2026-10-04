@@ -1,10 +1,12 @@
 """Actual local FFmpeg pipelines and cancelled chat; never contacts real rooms."""
 import asyncio
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from unittest.mock import patch
 
@@ -96,6 +98,87 @@ def media_checks(app):
     print("PASS: retained playback, PCM data, paced frame times, immediate stop and child cleanup")
 
 
+def stalled_stream_checks(app):
+    executable = recording.ffmpeg_path()
+    command = media.decode_command(executable, "http://127.0.0.1/stream", {"Referer": "test"}, 12345)
+    before_input = command[:command.index("-i")]
+    assert before_input[before_input.index("-rw_timeout") + 1] == "10000000"
+    assert before_input[-4:-2] == ["-reconnect", "0"]
+    assert "Referer: test\r\n" in before_input
+    released = threading.Event()
+    requested = threading.Event()
+
+    class StalledStream(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "video/x-flv")
+            self.end_headers()
+            self.wfile.flush()
+            requested.set()
+            released.wait(8)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), StalledStream)
+    server.daemon_threads = True
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+    try:
+        with tempfile.TemporaryDirectory(prefix="ddm_match_stall_") as root:
+            source = Path(root) / "recovered.mkv"
+            generate(executable, source)
+            decoder = media.Decoder("42", {"url": f"http://127.0.0.1:{server.server_port}/stall"})
+            states, resets = [], []
+            decoder.events.state.connect(states.append)
+            decoder.events.reset.connect(lambda: resets.append(True))
+            with patch.object(media, "FRAME_TIMEOUT", .8), \
+                    patch.object(media.bili, "room_info", return_value=None), \
+                    patch.object(media.bili, "play_url", return_value=(str(source), 250, "local", {})) as fresh:
+                try:
+                    decoder.start()
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline and not decoder.history.latest():
+                        app.processEvents()
+                        time.sleep(.02)
+                    app.processEvents()
+                    assert requested.is_set()
+                    assert decoder.history.latest(), (states, "Stalled input must time out and resolve a fresh stream")
+                    assert any("超时" in state for state in states), states
+                    assert resets and fresh.call_count == 1
+                    assert fresh.call_args.kwargs["source_offset"] == 1
+                    recovered = decoder.process
+                    count = len(decoder.history.frames)
+                    deadline = time.monotonic() + 1.2
+                    while time.monotonic() < deadline:
+                        app.processEvents()
+                        time.sleep(.02)
+                    assert decoder.process is recovered and recovered.poll() is None
+                    assert len(decoder.history.frames) > count and fresh.call_count == 1
+                finally:
+                    process = decoder.process
+                    decoder.stop()
+                    decoder.thread.join(4)
+                    assert not decoder.thread.is_alive()
+                    assert process is None or process.poll() is not None
+            # Closing during an initial blocked read also leaves no process or watchdog.
+            pending = media.Decoder("43", {"url": f"http://127.0.0.1:{server.server_port}/stall"})
+            pending.start()
+            deadline = time.monotonic() + 2
+            while pending.process is None and time.monotonic() < deadline:
+                time.sleep(.01)
+            pending.stop()
+            pending.thread.join(4)
+            assert not pending.thread.is_alive() and pending.process is None
+            assert not any(t.name.startswith("match-sync-watchdog-") for t in threading.enumerate())
+    finally:
+        released.set()
+        server.shutdown()
+        server.server_close()
+        serving.join(2)
+    print("PASS: stalled HTTP input times out, rotates source, resumes real frames, and stops cleanly")
+
+
 def platform_checks(app):
     from PySide6.QtCore import QObject
     from ddm.live_danmaku import LiveDanmakuClient
@@ -111,11 +194,17 @@ def platform_checks(app):
                 patch.object(media.bili, "play_url", side_effect=AssertionError("Bilibili stream forbidden")), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(room_id, uname="跨平台主播")) as info, \
                 patch.object(platform, "play_url", return_value=("http://127.0.0.1:9/fresh", 10000, "web", {"Referer": "platform"})) as play:
-            assert decoder._resolve(0) == ("http://127.0.0.1:9/cached", {})
-            assert metadata[-1]["title"] == "缓存直播间标题"
-            assert not info.called and not play.called
+            if platform.kind == "douyu":
+                assert decoder._resolve(0) == ("http://127.0.0.1:9/fresh", {"Referer": "platform"})
+                play.assert_called_once_with(room_id, 10000)
+                assert info.called, "Douyu must resolve a fresh consumer address, not reuse cached playback"
+            else:
+                assert decoder._resolve(0) == ("http://127.0.0.1:9/cached", {})
+                assert metadata[-1]["title"] == "缓存直播间标题"
+                assert not info.called and not play.called
             assert decoder._resolve(1) == ("http://127.0.0.1:9/fresh", {"Referer": "platform"})
-            play.assert_called_once_with(room_id, 10000)
+            assert play.call_args.args == (room_id, 10000)
+            calls = play.call_count
             assert metadata[-1]["actual_quality"] == 10000 and metadata[-1]["quality_options"]
             decoder.stop()
             try:
@@ -124,7 +213,7 @@ def platform_checks(app):
                 pass
             else:
                 raise AssertionError("Cancelled platform lookup must not resolve a stream")
-            assert play.call_count == 1
+            assert play.call_count == calls
 
         async def local_chat(client):
             client._loop = asyncio.get_running_loop()
@@ -231,6 +320,7 @@ def chat_checks():
 def main():
     app = QCoreApplication.instance() or QCoreApplication(sys.argv)
     media_checks(app)
+    stalled_stream_checks(app)
     platform_checks(app)
     chat_checks()
     print("PASS: match-sync media selfcheck")
