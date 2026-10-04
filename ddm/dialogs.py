@@ -879,12 +879,13 @@ class FollowImportDialog(QDialog):
 
     INDICATOR_WIDTH = 30      # 勾选方块占据的左侧宽度
 
-    def __init__(self, rooms: list[dict], existing: set[str], parent=None):
+    def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None):
         super().__init__(parent)
         self.setWindowTitle("导入关注")
         self.resize(520, 620)
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
+        self.folder_id = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -894,6 +895,31 @@ class FollowImportDialog(QDialog):
         self.header = QLabel(f"共 {len(rooms)} 个直播间（{live_count} 个直播中）")
         self.header.setObjectName("AppSubtitle")
         layout.addWidget(self.header)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("搜索主播名称")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._filter_rooms)
+        layout.addWidget(self.search_edit)
+
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(QLabel("添加到文件夹"))
+        self.folder_button = QPushButton("未分类")
+        self.folder_button.setObjectName("IconButton")
+        self.folder_button.setAutoDefault(False)
+        self.folder_button.setToolTip("选择普通文件夹；智能文件夹会按规则自动归类")
+        folder_menu = QMenu(self.folder_button)
+        options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
+                                  if folder.get("type", "normal") == "normal"]
+        for folder_id, name in options:
+            action = folder_menu.addAction(name)
+            action.setData(folder_id)
+            action.setCheckable(True)
+            action.setChecked(not folder_id)
+            action.triggered.connect(lambda _checked=False, selected=action: self._select_folder(selected))
+        self.folder_button.setMenu(folder_menu)
+        folder_row.addWidget(self.folder_button, 1)
+        layout.addLayout(folder_row)
 
         # 快捷筛选
         filters = QHBoxLayout()
@@ -905,6 +931,8 @@ class FollowImportDialog(QDialog):
             button = QPushButton(text)
             button.setObjectName("IconButton")
             button.setCursor(Qt.PointingHandCursor)
+            button.setAutoDefault(False)
+            button.setToolTip("只操作当前搜索结果")
             button.clicked.connect(handler)
             filters.addWidget(button)
             self.filter_buttons.append(button)
@@ -933,15 +961,33 @@ class FollowImportDialog(QDialog):
         buttons.addStretch(1)
         cancel = QPushButton("取消")
         cancel.setObjectName("IconButton")
+        cancel.setAutoDefault(False)
         cancel.clicked.connect(self.reject)
         confirm = QPushButton("导入")
         self.import_button = confirm
         confirm.setObjectName("PrimaryButton")
+        confirm.setAutoDefault(False)
         confirm.clicked.connect(self.accept)
         buttons.addWidget(cancel)
         buttons.addWidget(confirm)
         layout.addLayout(buttons)
 
+        self._update_header()
+
+    def _select_folder(self, action) -> None:
+        self.folder_id = action.data()
+        self.folder_button.setText(action.text())
+        for option in self.folder_button.menu().actions():
+            option.setChecked(option is action)
+
+    def _filter_rooms(self, text: str) -> None:
+        # 隐藏条目而不重建列表，保留勾选和异步回填的头像。
+        if self.property("loading"):
+            return
+        query = text.strip().casefold()
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            item.setHidden(query not in item.data(Qt.UserRole)["uname"].casefold())
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----
@@ -956,18 +1002,23 @@ class FollowImportDialog(QDialog):
 
     def _check_all(self, checked: bool) -> None:
         for index in range(self.list.count()):
-            self.list.item(index).setCheckState(Qt.Checked if checked else Qt.Unchecked)
+            item = self.list.item(index)
+            if not item.isHidden():
+                item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
         self._update_header()
 
     def _check_live(self) -> None:
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setCheckState(Qt.Checked if item.data(Qt.UserRole)["live"] else Qt.Unchecked)
+            if not item.isHidden():
+                item.setCheckState(Qt.Checked if item.data(Qt.UserRole)["live"] else Qt.Unchecked)
         self._update_header()
 
     def _update_header(self) -> None:
         selected = len(self.selected())
-        self.header.setText(f"共 {len(self.rooms)} 个直播间，已勾选 {selected} 个")
+        shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
+        filtered = f"，当前显示 {shown} 个" if self.search_edit.text().strip() else ""
+        self.header.setText(f"共 {len(self.rooms)} 个直播间{filtered}，已勾选 {selected} 个")
 
     # ---- 结果 ----
     def selected(self) -> list[dict]:

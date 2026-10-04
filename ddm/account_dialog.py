@@ -19,6 +19,7 @@ class AccountPlatformDialog(QDialog):
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
         self.rooms = []
+        self.folder_id = ""
         self.kind = ""
         self.page = None
         # 保留浏览器的控件树，避免切换时销毁或迁移窗口的图形渲染层。
@@ -126,6 +127,7 @@ class AccountPlatformDialog(QDialog):
             return
         if isinstance(self.page, FollowImportDialog):
             self.rooms = self.page.selected()
+            self.folder_id = self.page.folder_id
             self.accept()
             return
         if self.kind != "bilibili" and self.page.account:
@@ -198,7 +200,8 @@ class AccountPlatformDialog(QDialog):
 
     def _show_rooms(self, rooms):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
-        page = FollowImportDialog(rooms, existing, self.owner)
+        page = FollowImportDialog(rooms, existing, self.owner,
+                                  folders=self.owner.sidebar.folder_state())
         self._set_page(page)
         faces = {str(room["room_id"]): room.get("face") for room in rooms if room.get("face")}
         self.owner._start_avatar_loader(faces, page.set_avatar)

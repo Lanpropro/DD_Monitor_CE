@@ -2507,10 +2507,11 @@ class MainWindow(QMainWindow):
         try:
             result = dialog.exec()
             selected = dialog.rooms
+            folder_id = dialog.folder_id
         finally:
             dialog.deleteLater()
         if import_follows and result == QDialog.Accepted and not self._closing:
-            self._import_selected_follows(selected)
+            self._import_selected_follows(selected, folder_id=folder_id)
 
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
@@ -2531,10 +2532,13 @@ class MainWindow(QMainWindow):
             return
         self._open_account_dialog(self._follow_platforms(), import_follows=True)
 
-    def _import_selected_follows(self, selected: list) -> None:
+    def _import_selected_follows(self, selected: list, *, folder_id: str = "") -> None:
         if self._closing:
             return
-        added = sum(1 for room in selected if self.sidebar.add_room(room))
+        added_rooms = [room for room in selected if self.sidebar.add_room(room)]
+        if folder_id and added_rooms:
+            self.sidebar.move_to_folder([str(room["room_id"]) for room in added_rooms], folder_id)
+        added = len(added_rooms)
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
         self._save_timer.start()
