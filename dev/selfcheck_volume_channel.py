@@ -277,7 +277,7 @@ def main() -> None:
     settle(app, 0.4)
     texts = [a.text() for a in sidebar.account_menu().actions() if a.text()]
     print(f"  展开时菜单项: {texts}")
-    assert texts == ["退出登录"], texts
+    assert texts == ["退出登录", "登录其他平台…"], texts
 
     print("\n=== 8. 收起时布局选择器从头像位置弹出，且一定落在屏幕里 ===")
     sidebar.set_collapsed(True, animate=False)

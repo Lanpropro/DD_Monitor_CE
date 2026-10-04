@@ -41,16 +41,29 @@ class AccountStore:
             raise ValueError("Invalid account platform")
         self.path = Path(root or Path(config.REPO) / "utils" / "accounts") / (platform + ".bin")
 
-    def load(self) -> list[str]:
+    def _load(self) -> dict:
         if not self.path.exists():
-            return []
+            return {"cookies": [], "account": {}}
         result = json.loads(_crypt(self.path.read_bytes(), decrypt=True))
-        if not isinstance(result, list) or not all(isinstance(item, str) for item in result):
+        if isinstance(result, list):  # 兼容只保存 Cookie 的旧版本。
+            result = {"cookies": result, "account": {}}
+        if not isinstance(result, dict):
             raise ValueError("Invalid saved cookies")
+        cookies = result.get("cookies")
+        account = result.get("account", {})
+        if (not isinstance(cookies, list) or not all(isinstance(item, str) for item in cookies)
+                or not isinstance(account, dict)):
+            raise ValueError("Invalid saved account")
         return result
 
-    def save(self, cookies: list[str]) -> None:
-        encoded = _crypt(json.dumps(cookies).encode("utf-8"))
+    def load(self) -> list[str]:
+        return self._load()["cookies"]
+
+    def load_account(self) -> dict:
+        return self._load().get("account", {})
+
+    def save(self, cookies: list[str], account=None) -> None:
+        encoded = _crypt(json.dumps({"cookies": cookies, "account": account or {}}).encode("utf-8"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_bytes(encoded)

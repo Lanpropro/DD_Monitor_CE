@@ -14,14 +14,25 @@ from .account_store import AccountStore
 _profiles = {}
 
 
+def clear_platform_login(kind):
+    if os.environ.get("DDM_NO_SAVE") != "1":
+        AccountStore(kind).clear()
+    profile = _profiles.get(kind)
+    if profile is not None:
+        profile.cookieStore().deleteAllCookies()
+        profile.clearHttpCache()
+
+
 class PlatformFollowLoader(QThread):
     loaded = Signal(list)
+    accountLoaded = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, platform, cookies, parent=None):
+    def __init__(self, platform, cookies, parent=None, *, login_only=False):
         super().__init__(parent)
         self.platform = platform
         self.cookies = cookies.copy()
+        self.login_only = login_only
         self._cancelled = threading.Event()
 
     def cancel(self):
@@ -31,7 +42,13 @@ class PlatformFollowLoader(QThread):
         try:
             with requests.Session() as session:
                 session.cookies.update(self.cookies)
-                rooms = self.platform.follow_rooms(session, self._cancelled.is_set)
+                if callable(getattr(self.platform, "account_info", None)):
+                    account = self.platform.account_info(session, self._cancelled.is_set)
+                    if not self._cancelled.is_set():
+                        self.accountLoaded.emit(account)
+                elif self.login_only:
+                    raise RuntimeError("此平台尚未支持账号登录")
+                rooms = [] if self.login_only else self.platform.follow_rooms(session, self._cancelled.is_set)
             if not self._cancelled.is_set():
                 self.loaded.emit(rooms)
         except Exception as error:  # noqa: BLE001
@@ -41,13 +58,17 @@ class PlatformFollowLoader(QThread):
 
 
 class PlatformFollowDialog(QDialog):
-    def __init__(self, platform, parent=None):
+    accountCleared = Signal(str)
+
+    def __init__(self, platform, parent=None, *, login_only=False):
         super().__init__(parent)
         # 只有用户主动导入时才加载浏览器，启动和播放不加载 WebEngine。
         from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
         from PySide6.QtWebEngineWidgets import QWebEngineView
 
         self.platform = platform
+        self.login_only = login_only
+        self.account = {}
         self.rooms = []
         self._cookies = {}
         self._worker = None
@@ -55,10 +76,11 @@ class PlatformFollowDialog(QDialog):
         self._finished_dialog = False
         self._saved_cookies = []
         self.account_store = AccountStore(platform.kind)
-        self.setWindowTitle(f"{platform.label} · 登录并导入关注")
+        self.setWindowTitle(f"{platform.label} · " + ("登录" if login_only else "登录并导入关注"))
         self.resize(1000, 700)
         layout = QVBoxLayout(self)
-        self.status = QLabel("请在官方页面完成登录，然后点击「读取关注」")
+        self.status = QLabel("请在官方页面完成登录，然后点击「确认登录」" if login_only else
+                             "请在官方页面完成登录，然后点击「读取关注」")
         layout.addWidget(self.status)
         toolbar = QHBoxLayout()
         self.remember = QCheckBox("记住登录（本机加密保存）")
@@ -69,7 +91,7 @@ class PlatformFollowDialog(QDialog):
         self.forget_button.setObjectName("IconButton")
         self.forget_button.clicked.connect(self._forget)
         toolbar.addWidget(self.forget_button)
-        self.read_button = QPushButton("读取关注")
+        self.read_button = QPushButton("确认登录" if login_only else "读取关注")
         self.read_button.setObjectName("PrimaryButton")
         self.read_button.clicked.connect(self._read)
         toolbar.addWidget(self.read_button)
@@ -128,18 +150,23 @@ class PlatformFollowDialog(QDialog):
                     domain=cookie.domain(), path=cookie.path() or "/", secure=cookie.isSecure())
         self._saved_cookies = [bytes(cookie.toRawForm()).decode("utf-8")
                                for cookie in self._cookies.values()]
-        self.status.setText("正在后台读取关注，完成后可勾选导入…")
+        self.status.setText("正在确认账号信息…" if self.login_only else "正在后台读取关注，完成后可勾选导入…")
         self.read_button.setEnabled(False)
         self.forget_button.setEnabled(False)
         owner = self.parentWidget()
-        worker = PlatformFollowLoader(self.platform, jar, owner or self)
+        worker = PlatformFollowLoader(self.platform, jar, owner or self, login_only=self.login_only)
         self._worker = worker
         if owner is not None and hasattr(owner, "_wait_background"):
             owner._follow_loader = worker
         worker.loaded.connect(self._loaded)
+        worker.accountLoaded.connect(self._account_loaded)
         worker.failed.connect(self._failed)
         worker.finished.connect(lambda w=worker: self._finished(w))
         worker.start()
+
+    def _account_loaded(self, account):
+        if self._pending_done is None and not getattr(self.parentWidget(), "_closing", False):
+            self.account = account
 
     def _loaded(self, rooms):
         if self._pending_done is not None or getattr(self.parentWidget(), "_closing", False):
@@ -147,11 +174,11 @@ class PlatformFollowDialog(QDialog):
         if os.environ.get("DDM_NO_SAVE") != "1":
             try:
                 if self.remember.isChecked():
-                    self.account_store.save(self._saved_cookies)
+                    self.account_store.save(self._saved_cookies, self.account)
                 else:
                     self.account_store.clear()
             except (OSError, RuntimeError):
-                self.status.setText("关注已读取，但登录状态保存失败；取消「记住登录」后重试")
+                self.status.setText("登录状态保存失败；取消「记住登录」后重试")
                 return
         self.rooms = rooms
         self.accept()
@@ -179,8 +206,10 @@ class PlatformFollowDialog(QDialog):
             self.status.setText("登录状态清除失败，请检查文件权限后重试")
             return
         self._cookies.clear()
+        self.account = {}
         self._store.deleteAllCookies()
         self._profile.clearHttpCache()
+        self.accountCleared.emit(self.platform.kind)
         self.browser.load(QUrl(self.platform.follow_login_url))
         self.status.setText("已清除本机登录状态，请在官方页面重新登录")
 

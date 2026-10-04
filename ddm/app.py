@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
         self._restart_requested = False
         self._replay_suppressed: dict[Tile, str] = {}
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
+        self._accounts: dict[str, dict] = {}
         self._poller = None
         self._refresh_queued = False
         self._stats_poller = None
@@ -230,6 +231,7 @@ class MainWindow(QMainWindow):
         self.sidebar.openBrowserRequested.connect(self._open_room_browser)
         self.sidebar.deleteRequested.connect(self.remove_rooms)
         self.sidebar.logoutRequested.connect(self.logout)
+        self.sidebar.loginRequested.connect(lambda: self.open_login())
         self.sidebar.pinChanged.connect(self._on_pin_changed)
         self.sidebar.sortChanged.connect(self._on_sort_changed)
         self.sidebar.orderChanged.connect(self._on_order_changed)
@@ -305,6 +307,7 @@ class MainWindow(QMainWindow):
         self.plugins._save_settings = lambda: config_module.save(self.current_state())
         plugin_api.set_manager(self.plugins)
         self.plugins.load()
+        self._restore_platform_accounts()
         self._sync_platform_rooms()
         # 旧版虎牙网页卡片升级为格子播放；保留原关注、排序和置顶。
         for room in self.sidebar.rooms() + [tile.room for tile in self.wall.tiles]:
@@ -2275,10 +2278,66 @@ class MainWindow(QMainWindow):
         print(f"多选删除完成，共 {len(rooms)} 个")
 
     # ---- 登录 / 导入关注 ----
+    def _follow_platforms(self) -> dict:
+        return {p.label or p.kind: p for p in self.plugins.platforms.values()
+                if p.follow_login_url and p.follow_cookie_domain}
+
+    def _login_choices(self) -> list:
+        choices = [] if bili.SESSION_DATA else ["B站"]
+        return choices + [label for label, p in self._follow_platforms().items()
+                          if callable(getattr(p, "account_info", None)) and p.kind != self._account_kind()]
+
+    def _account_kind(self) -> str:
+        return "bilibili" if bili.SESSION_DATA else next(
+            (p.kind for p in self._follow_platforms().values() if p.kind in self._accounts), "")
+
+    def _restore_platform_accounts(self) -> None:
+        if os.environ.get("DDM_NO_SAVE") != "1":
+            from .account_store import AccountStore
+            for platform in self._follow_platforms().values():
+                try:
+                    account = AccountStore(platform.kind).load_account()
+                    if account.get("uid"):
+                        self._accounts[platform.kind] = account
+                except (OSError, RuntimeError, ValueError):
+                    pass  # 登录数据无法读取时，由用户重新登录。
+        self._render_account(load_avatar=False)
+
+    def _render_account(self, *, load_avatar=True) -> None:
+        if self._closing:
+            return
+        self.sidebar.can_login_other = bool(self._login_choices())
+        kind = self._account_kind()
+        if not kind:
+            self.sidebar.clear_account()
+            return
+        account = self._accounts.get(kind, {"uname": "B站账号"})
+        name = account.get("uname") or str(account.get("uid") or "已登录")
+        face = account.get("face") or ""
+        if "_pixmap" not in account:
+            account["_pixmap"] = load_cached_avatar(face)
+        self.sidebar.set_account(name, account.get("_pixmap"), platform=kind, uid=account.get("uid"))
+        if not load_avatar or not face or account.get("_pixmap") is not None or account.get("_avatar_requested"):
+            return
+        account["_avatar_requested"] = True
+        session = bili.SESSION_DATA
+        loader = AvatarLoader({"account": face}, self)
+        def loaded(_key, pixmap):
+            if (not self._closing and self._accounts.get(kind) is account
+                    and (kind != "bilibili" or bili.SESSION_DATA == session)):
+                account["_pixmap"] = pixmap
+                self._render_account()
+        loader.loaded.connect(loaded)
+        loader.finished.connect(loader.deleteLater)
+        self._account_avatar_loader = loader
+        self._avatar_loaders = [item for item in self._avatar_loaders if self._loader_running(item)]
+        self._avatar_loaders.append(loader)
+        loader.start()
+
     def refresh_account(self, *, retry: bool = True) -> None:
         """刷新侧栏底部的账号信息。"""
         if not bili.SESSION_DATA:
-            self.sidebar.clear_account()
+            self._render_account()
             return
         session = bili.SESSION_DATA
         current = lambda: not self._closing and bili.SESSION_DATA == session
@@ -2292,18 +2351,12 @@ class MainWindow(QMainWindow):
         loader.start()
 
     def _on_account_loaded(self, account: dict) -> None:
-        self.sidebar.set_account(account.get("uname", ""), None)
-        face = account.get("face") or ""
-        if not face:
-            return
-        loader = AvatarLoader({"account": face}, self)
-        session = bili.SESSION_DATA
-        loader.loaded.connect(lambda _key, pixmap: self.sidebar.set_account(
-            account.get("uname", ""), pixmap)
-            if not self._closing and bili.SESSION_DATA == session else None)
-        loader.finished.connect(loader.deleteLater)
-        self._account_avatar_loader = loader
-        loader.start()
+        self._accounts["bilibili"] = dict(account)
+        self._render_account()
+
+    def _clear_platform_account(self, kind: str) -> None:
+        self._accounts.pop(kind, None)
+        self._render_account()
 
     def load_cached_covers(self) -> None:
         """先把「上次那张封面」摆上（纯本地读文件，不联网、不等状态轮询）。
@@ -2419,23 +2472,67 @@ class MainWindow(QMainWindow):
                 return
 
     def logout(self) -> None:
-        bili.set_sessdata("")
-        self.state["sessdata"] = ""
-        self.sidebar.clear_account()
-        config_module.save(self.current_state())
+        kind = self.sidebar.account_row.platform or "bilibili"
+        if kind == "bilibili":
+            bili.set_sessdata("")
+            self.state["sessdata"] = ""
+            config_module.save(self.current_state())
+        else:
+            from .platform_login import clear_platform_login
+            try:
+                clear_platform_login(kind)
+            except OSError:
+                QMessageBox.warning(self, "退出登录", "登录状态清除失败，请检查文件权限后重试")
+                return
+        self._clear_platform_account(kind)
         print("已退出登录", file=sys.stderr, flush=True)
 
-    def open_login(self) -> None:
+    def open_login(self, platform_kind=None) -> None:
+        follow_loader = getattr(self, "_follow_loader", None)
+        if self._closing or (follow_loader is not None and self._loader_running(follow_loader)):
+            return
+        providers = self._follow_platforms()
+        if platform_kind is None:
+            choices = self._login_choices()
+            if not choices:
+                return
+            label, accepted = QInputDialog.getItem(self, "登录", "选择平台", choices, 0, False)
+            if not accepted:
+                return
+            platform_kind = "bilibili" if label == "B站" else providers[label].kind
+        if platform_kind != "bilibili":
+            platform = next((p for p in providers.values() if p.kind == platform_kind), None)
+            if platform is not None:
+                self._open_platform_login(platform, login_only=True)
+            return
         from .login import LoginWindow      # 延迟导入：QtWebEngine 比较重
 
         window = LoginWindow(self)
         window.sessionData.connect(self._on_login)
         window.exec()
 
+    def _open_platform_login(self, platform, *, login_only=False) -> None:
+        from .platform_login import PlatformFollowDialog
+        dialog = PlatformFollowDialog(platform, self, login_only=login_only)
+        dialog.accountCleared.connect(self._clear_platform_account)
+        try:
+            result = dialog.exec()
+            rooms, account = dialog.rooms, dialog.account
+        finally:
+            dialog.deleteLater()
+        if result != QDialog.DialogCode.Accepted or self._closing:
+            return
+        if account:
+            self._accounts[platform.kind] = dict(account)
+            self._render_account()
+        if not login_only:
+            self._on_follows_loaded(rooms)
+
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
         self.state["sessdata"] = sessdata
         config_module.save(self.current_state())
+        self._render_account()
         self.refresh_account()
         # 之前是匿名连的弹幕，服务端会把用户名打码；登录后重连一次
         self.stop_danmaku()
@@ -2446,27 +2543,18 @@ class MainWindow(QMainWindow):
         follow_loader = getattr(self, "_follow_loader", None)
         if follow_loader is not None and self._loader_running(follow_loader):
             return
-        providers = {p.label or p.kind: p for p in self.plugins.platforms.values()
-                     if p.follow_login_url and p.follow_cookie_domain}
+        providers = self._follow_platforms()
         if providers:
             label, accepted = QInputDialog.getItem(
                 self, "导入关注", "选择平台", ["B站", *providers], 0, False)
             if not accepted:
                 return
             if label != "B站":
-                from .platform_login import PlatformFollowDialog
-                dialog = PlatformFollowDialog(providers[label], self)
-                try:
-                    result = dialog.exec()
-                    rooms = dialog.rooms
-                finally:
-                    dialog.deleteLater()
-                if result == QDialog.DialogCode.Accepted and not self._closing:
-                    self._on_follows_loaded(rooms)
+                self._open_platform_login(providers[label])
                 return
         if not bili.SESSION_DATA:
             print("导入关注需要先登录，打开登录窗口", file=sys.stderr, flush=True)
-            self.open_login()
+            self.open_login("bilibili")
             if not bili.SESSION_DATA:
                 print("未获取到登录状态，导入流程取消", file=sys.stderr, flush=True)
                 return

@@ -151,6 +151,7 @@ class Platform:
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""
+    account_info = None  # 可选：account_info(session, cancelled) 返回 uid/uname/face。
 
     def follow_rooms(self, session, cancelled) -> list[dict]:
         """可选：后台用授权会话读取关注；每页检查 cancelled，失败抛异常。"""

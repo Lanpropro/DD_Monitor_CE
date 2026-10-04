@@ -1094,7 +1094,7 @@ def part_login_button(app) -> None:
         assert opened, "点「登录」要真的走到 MainWindow.open_login（扫码登录）"
         # 用户要求：底色别太突出、内容居中不偏移；这一格是按钮，不该带菜单的 ⋯
         row_center = row.height() / 2
-        name_center = row.name.y() + row.name.height() / 2
+        name_center = row.name.mapTo(row, QPoint()).y() + row.name.height() / 2
         avatar_center = row.avatar.y() + row.avatar.height() / 2
         print(f"  居中/配色：行中心={row_center} 文本中心={name_center} "
               f"头像中心={avatar_center} 底色={row.avatar._color} ⋯可见={row.arrow.isVisible()}")
@@ -1122,18 +1122,20 @@ def part_login_button(app) -> None:
         assert not hasattr(sidebar, name), f"又冒出一个没人接的空信号 {name}"
     # PySide6 里没有好用的「谁连了这个信号」查询，直接对源码断言这两个名字被接上
     source = open(os.path.join(REPO, "ddm", "app.py"), encoding="utf-8").read()
-    for name in ("importFollowsClicked", "addRoomClicked"):
+    for name in ("importFollowsClicked", "addRoomClicked", "loginRequested"):
         assert f"sidebar.{name}.connect" in source, f"app.py 没把 {name} 接上"
     # 菜单里那几项也要走这两个信号：把模态菜单换成「直接返回某一项」来验
     items = {action.text(): action for action in sidebar.account_menu().actions()}
     fired: list = []
     # 先把 app 的真槽摘掉：不然选「+ 添加直播间…」会弹真的模态对话框，自查会卡住
     sidebar.importFollowsClicked.disconnect()
+    sidebar.loginRequested.disconnect()
     sidebar.addRoomClicked.disconnect()
     sidebar.importFollowsClicked.connect(lambda box=fired: box.append("import"))
+    sidebar.loginRequested.connect(lambda box=fired: box.append("login"))
     sidebar.addRoomClicked.connect(lambda box=fired: box.append("add"))
     try:
-        for label, expect in (("登录…", "import"), ("导入关注…", "import"),
+        for label, expect in (("登录…", "login"), ("导入关注…", "import"),
                               ("+ 添加直播间…", "add")):
             assert label in items, f"菜单里应该有「{label}」"
             fired.clear()

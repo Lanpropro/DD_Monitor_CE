@@ -1219,6 +1219,8 @@ class AccountRow(QFrame):
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(34)          # 和底部两个按钮同高、同圆角
         self.uname = ""
+        self.platform = ""
+        self.uid = ""
 
         layout = QHBoxLayout(self)
         # 头像 26px：上下各留 4px 正好 34px 高，内容才能真的垂直居中
@@ -1227,11 +1229,31 @@ class AccountRow(QFrame):
         layout.setSpacing(8)
         self.avatar = Avatar("?", 3, 26)
         layout.addWidget(self.avatar)
+        self.platform_badge = QLabel(self.avatar)
+        self.platform_badge.setFixedSize(12, 12)
+        self.platform_badge.setStyleSheet("background: transparent; border: none;")
+        _ignore_mouse(self.platform_badge)
+        self.platform_badge.hide()
+        self.account_text = QWidget()
+        text_layout = QVBoxLayout(self.account_text)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(0)
         self.name = ElidedLabel("")
         self.name.setObjectName("NavName")
         _ignore_mouse(self.name)
         _allow_shrink(self.name)
-        layout.addWidget(self.name, 1)
+        text_layout.addWidget(self.name)
+        self.account_id = ElidedLabel("")
+        self.account_id.setObjectName("NavSub")
+        self.account_id.setStyleSheet("font-size: 10px;")
+        self.account_id.setFixedHeight(12)
+        _ignore_mouse(self.account_id)
+        _allow_shrink(self.account_id)
+        text_layout.addWidget(self.account_id)
+        self.account_id.hide()
+        _allow_shrink(self.account_text)
+        _ignore_mouse(self.account_text)
+        layout.addWidget(self.account_text, 1)
         self.arrow = QLabel("⋯")
         self.arrow.setObjectName("NavSub")
         _ignore_mouse(self.arrow)
@@ -1239,12 +1261,29 @@ class AccountRow(QFrame):
         self._layout = layout
         self._compact_spacer = False
 
-    def set_account(self, uname: str, pixmap=None) -> None:
+    def set_account(self, uname: str, pixmap=None, *, platform="bilibili", uid="") -> None:
         self.uname = uname or ""
+        self.platform = platform if self.uname else ""
+        self.uid = str(uid or "") if self.uname else ""
+        self.account_id.setText("ID: " + self.uid if self.uid else "")
+        self.account_id.setVisible(bool(self.uid))
+        self.name.setStyleSheet("font-size: 11px;" if self.uid else "")
+        self.name.setMaximumHeight(14 if self.uid else 16_777_215)
+        if pixmap is None:
+            self.avatar._source = None
+            self.avatar.clear()
         if self.uname:
             self.name.setText(self.uname)
-            self.arrow.setVisible(True)
-            self.setToolTip("")
+            self.arrow.setVisible(not getattr(self, "_compact", False))
+            self.setToolTip(self.uname + (" · ID: " + self.uid if self.uid else ""))
+            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
+                                     "huya.png" if platform == "huya" else platform + ".ico")
+            if not os.path.isfile(icon_path):
+                icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms", "generic.svg")
+            self.platform_badge.setPixmap(QIcon(icon_path).pixmap(12, 12))
+            self.platform_badge.setAccessibleName(platform)
+            self.platform_badge.move(self.avatar.width() - 12, self.avatar.height() - 12)
+            self.platform_badge.show()
             self.avatar.set_color(None)          # 回到彩色（哈希取的）
             if pixmap is not None:
                 self.avatar.set_pixmap_image(pixmap)
@@ -1257,7 +1296,8 @@ class AccountRow(QFrame):
         self.avatar.setText("登")
         self.avatar.set_color(theme.CONTENT_HOVER)
         self.arrow.setVisible(False)
-        self.setToolTip("登录 B 站账号（扫码）")
+        self.platform_badge.hide()
+        self.setToolTip("选择平台并登录账号")
 
     def set_compact(self, compact: bool, *, avatar: int | None = None,
                     margin: int = 6) -> None:
@@ -1273,10 +1313,11 @@ class AccountRow(QFrame):
             return
         self._compact_state = state
         self._compact = compact
-        self.name.setVisible(not compact)
+        self.account_text.setVisible(not compact)
         # 未登录时这一格是「登录」按钮，不该带菜单那个 ⋯
         self.arrow.setVisible(not compact and bool(self.uname))
         self.avatar.set_size(size if compact else 26)
+        self.platform_badge.move(self.avatar.width() - 12, self.avatar.height() - 12)
         self.setFixedHeight(size + margin * 2 if compact else 34)
         if compact and not self._compact_spacer:
             self._layout.insertStretch(0, 1)
@@ -1294,7 +1335,8 @@ class AccountRow(QFrame):
             # 展开态：34 高的行里放 26 的头像，上下各 4 才真的居中
             self._layout.setContentsMargins(8, 4, 8, 4)
         self._layout.setSpacing(0 if compact else 8)
-        self.setToolTip(self.uname if compact else "")
+        self.setToolTip(self.uname + (" · ID: " + self.uid if self.uid else "") if self.uname else
+                       "选择平台并登录账号")
 
     def mouseReleaseEvent(self, event) -> None:
         # 未登录时这一格是「登录」按钮，也要能点 —— 以前这里卡了 `and self.uname`，
@@ -3226,6 +3268,7 @@ class Sidebar(QFrame):
     deleteRequested = Signal(list)
     collapsedChanged = Signal(bool)
     logoutRequested = Signal()
+    loginRequested = Signal()
     pinChanged = Signal(list)
     sortChanged = Signal(str)
     orderChanged = Signal()
@@ -3521,8 +3564,8 @@ class Sidebar(QFrame):
         self.set_layout_name(layout_id)
         self.layoutChosen.emit(layout_id)
 
-    def set_account(self, uname: str, pixmap=None) -> None:
-        self.account_row.set_account(uname, pixmap)
+    def set_account(self, uname: str, pixmap=None, *, platform="bilibili", uid="") -> None:
+        self.account_row.set_account(uname, pixmap, platform=platform, uid=uid)
         self._sync_account_row_shape()
         self.account_row.setVisible(self._account_row_should_show())
         self._sync_account_row_width()
@@ -3555,6 +3598,7 @@ class Sidebar(QFrame):
             menu.addSeparator()
         else:
             menu.addAction("退出登录")
+            menu.addAction("登录其他平台…").setEnabled(getattr(self, "can_login_other", True))
         if self.side == "top":
             menu.addSeparator()
             menu.addAction("导入关注…")
@@ -3573,9 +3617,7 @@ class Sidebar(QFrame):
 
     def _open_account_menu(self) -> None:
         if not self.account_row.uname and not self.collapsed:
-            # 未登录：这个位置就是「登录」按钮 —— 直接走「导入关注」那条路，
-            # 它没登录时会弹扫码登录（用户要求：连的就是那个扫码页面）
-            self.importFollowsClicked.emit()
+            self.loginRequested.emit()
             return
         menu = self.account_menu()
         texts = [action.text() for action in menu.actions() if action.text()]
@@ -3597,9 +3639,9 @@ class Sidebar(QFrame):
         if chosen is None:
             return
         label = chosen.text()
-        if label in ("退出登录", "登录…"):
-            if label == "登录…":
-                self.importFollowsClicked.emit()    # 没登录时走扫码登录
+        if label in ("退出登录", "登录…", "登录其他平台…"):
+            if label != "退出登录":
+                self.loginRequested.emit()
             else:
                 self.logoutRequested.emit()
         elif label == "布局预设…":
@@ -4356,7 +4398,7 @@ class Sidebar(QFrame):
         margins = box.contentsMargins()
         # +8：留一点余量，正好卡着算出来的宽度会让昵称尾字差几个像素被省略
         need = (margins.left() + margins.right() + box.spacing() * 2
-                + row.avatar.width() + row.name.sizeHint().width()
+                + row.avatar.width() + max(row.name.sizeHint().width(), row.account_id.sizeHint().width())
                 + row.arrow.sizeHint().width() + 8)
         row.setMinimumWidth(min(self.ACCOUNT_PILL_MAX, need))
 

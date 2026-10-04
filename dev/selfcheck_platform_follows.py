@@ -52,6 +52,13 @@ def check_store():
         raw = store.path.read_bytes()
         assert b"cookie-value" not in raw and b"test-secret" not in raw
         assert store.load() == cookies
+        account = {"uid": "123", "uname": "account-test", "face": ""}
+        store.save(cookies, account)
+        assert store.load() == cookies and store.load_account() == account
+        from ddm.account_store import _crypt
+        import json
+        store.path.write_bytes(_crypt(json.dumps(cookies).encode()))
+        assert store.load() == cookies and store.load_account() == {}
         store.path.write_bytes(b"corrupted")
         try:
             store.load()
@@ -169,6 +176,7 @@ def check_host(app):
                 patch.object(window, "_on_follows_loaded") as loaded:
             login.return_value.exec.return_value = QDialog.DialogCode.Accepted
             login.return_value.rooms = ROOMS
+            login.return_value.account = {}
             window.open_import_follows()
             loaded.assert_called_once_with(ROOMS)
         with patch.object(app_module.QInputDialog, "getItem", return_value=("B站", False)), \
