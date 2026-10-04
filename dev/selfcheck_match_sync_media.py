@@ -65,6 +65,7 @@ def media_checks(app):
                 assert len(sa) >= 14 and len(sb) >= 14, (len(sa), len(sb), states)
                 assert a.history.audio.end > RATE * 5 and b.history.audio.end > RATE * 5
                 assert a.process.poll() is None and b.process.poll() is None
+                assert all(time.monotonic() - decoder.last_frame_received < 1 for decoder in (a, b))
                 match = match_scenes(sa, sb)
                 expected = b.history.origin - a.history.origin - 2
                 assert match.lag is not None and abs(match.lag - expected) < 0.55, (match, expected)

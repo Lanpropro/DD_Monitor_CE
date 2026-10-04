@@ -121,6 +121,7 @@ class AudioPump(QObject):
         self.device = None
         self.anchor = 0.0
         self.written = 0
+        self.correction = 0.0
         self.timer = QTimer(self)
         self.timer.setInterval(10)
         self.timer.setTimerType(Qt.PreciseTimer)
@@ -133,6 +134,7 @@ class AudioPump(QObject):
         self.stop()
         self.anchor = time.monotonic()
         self.written = 0
+        self.correction = 0.0
         output = QMediaDevices.defaultAudioOutput()
         self.device_id = bytes(output.id())
         fmt = QAudioFormat()
@@ -168,7 +170,7 @@ class AudioPump(QObject):
 
     def clock(self):
         return (self.anchor + self.sink.processedUSecs() / 1_000_000
-                if self.sink is not None else time.monotonic())
+                if self.sink is not None else time.monotonic()) + self.correction
 
     def fill(self):
         if self.sink is None or self.device is None:
@@ -178,7 +180,7 @@ class AudioPump(QObject):
             frames = min(2048, self.sink.bytesFree() // 4)
             if frames < 240:
                 break
-            clock = self.anchor + self.written / RATE
+            clock = self.anchor + self.written / RATE + self.correction
             inputs = []
             for room_id, row in self.viewer.rows.items():
                 if row.decoder is not None and row.audible.isChecked() and not row.paused:
@@ -205,6 +207,7 @@ class ComparisonPanel(QFrame):
         super().__init__()
         self.viewer = viewer
         self.cards = {}
+        self.shown_rooms = ()
         self.setObjectName("MatchSyncCompare")
         self.setMinimumHeight(185)
         self.setMaximumHeight(300)
@@ -215,15 +218,20 @@ class ComparisonPanel(QFrame):
             #MatchSyncCompare QScrollArea {{ border: none; background: transparent; }}
         """)
         heading = QHBoxLayout()
-        heading.addWidget(QLabel("偏移对照 · 当前播放进度（对照期间暂停自动匹配）"))
+        heading.addWidget(QLabel("偏移对照 · 主画面与选中直播间"))
         heading.addStretch()
+        self.target = QComboBox()
+        self.target.setMinimumWidth(150)
+        self.target.currentIndexChanged.connect(lambda: viewer.render())
+        heading.addWidget(self.target)
         self.zoom = QCheckBox("放大框选区域")
         self.zoom.setChecked(True)
         heading.addWidget(self.zoom)
-        close = QPushButton("结束对照")
-        close.setObjectName("ChipButton")
-        close.clicked.connect(lambda: viewer.compare.setChecked(False))
-        heading.addWidget(close)
+        self.close_button = QPushButton("收起对照")
+        self.close_button.setObjectName("ChipButton")
+        self.close_button.setToolTip("隐藏对照画面，保留已调整的偏移并继续播放。")
+        self.close_button.clicked.connect(lambda: viewer.compare.setChecked(False))
+        heading.addWidget(self.close_button)
         body = QWidget()
         self.cards_layout = QHBoxLayout(body)
         self.cards_layout.setContentsMargins(0, 0, 0, 0)
@@ -243,6 +251,7 @@ class ComparisonPanel(QFrame):
                 self.cards_layout.removeWidget(card)
                 card.deleteLater()
             self.cards.clear()
+            self.shown_rooms = ()
             for room_id in rows:
                 card = QWidget()
                 name = QLabel()
@@ -255,10 +264,33 @@ class ComparisonPanel(QFrame):
                 layout.addWidget(name)
                 layout.addWidget(canvas, 1)
                 layout.addWidget(state)
-                self.cards_layout.addWidget(card, 1)
+                card.hide()
                 self.cards[room_id] = (card, name, canvas, state)
         reference = self.viewer.alignment.reference
+        selected = self.target.currentData()
+        choices = [(key, row.label()) for key, row in rows.items() if key != reference]
+        if choices != [(self.target.itemData(i), self.target.itemText(i))
+                       for i in range(self.target.count())]:
+            self.target.blockSignals(True)
+            self.target.clear()
+            for key, label in choices:
+                self.target.addItem(label, key)
+            self.target.setCurrentIndex(max(0, self.target.findData(selected)))
+            self.target.blockSignals(False)
+        self.target.setVisible(len(choices) > 1)
+        shown = tuple(key for key in (reference, self.target.currentData()) if key in rows)
+        if shown != self.shown_rooms:
+            for card, *_ in self.cards.values():
+                self.cards_layout.removeWidget(card)
+                card.hide()
+            for key in shown:
+                card = self.cards[key][0]
+                self.cards_layout.addWidget(card, 1)
+                card.show()
+            self.shown_rooms = shown
         for room_id, row in rows.items():
+            if room_id not in shown:
+                continue
             _card, name, canvas, state = self.cards[room_id]
             name.setText(f"{'主画面' if room_id == reference else '对照'} · {row.label()}")
             name.setStyleSheet(f"color: {row.color};")
@@ -389,8 +421,8 @@ class RoomRow(QFrame):
         self.increase.setToolTip("+ 正数：延后本路画面、声音和弹幕。单位秒，例如 +3 表示延后 3 秒。")
         for button in (self.decrease, self.increase):
             button.setFixedWidth(24)
-        self.decrease.clicked.connect(lambda: viewer.compare.setChecked(True))
-        self.increase.clicked.connect(lambda: viewer.compare.setChecked(True))
+        self.decrease.clicked.connect(lambda: viewer.show_comparison(self.room_id))
+        self.increase.clicked.connect(lambda: viewer.show_comparison(self.room_id))
         self.decrease.clicked.connect(self.delay.stepDown)
         self.increase.clicked.connect(self.delay.stepUp)
         region = QPushButton("选择比赛画面")
@@ -487,6 +519,8 @@ class Viewer(QDialog):
         self.rows = {}
         self.saved_rooms = {str(item["room_id"]): item for item in context.setting("rooms", [])}
         self.running = False
+        self.overlay_pending = {}
+        self.overlay_last = ""
         self.alignment = Alignment()
         self.generation = 0
         self.matching = False
@@ -569,7 +603,11 @@ class Viewer(QDialog):
         settings = getattr(context.window, "settings", {})
         self.video_danmaku = getattr(self.picture, "video_danmaku", None)
         if self.video_danmaku is not None:
+            # Canvas is painted by Qt; a native VLC overlay can obscure its backing store.
+            if hasattr(self.video_danmaku, "set_native_video"):
+                self.video_danmaku.set_native_video(False)
             self.video_danmaku.apply_settings(settings)
+            self.picture.videoDanmakuChanged.connect(lambda: self.overlay_pending.clear())
         self.panel.apply_style(settings.get("danmaku_font", ""),
                                int(settings.get("danmaku_font_size") or 13))
         self.panel.set_max_blocks(int(settings.get("danmaku_max_blocks") or 3000))
@@ -658,8 +696,11 @@ class Viewer(QDialog):
         self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.FocusIn and any(watched is row.delay for row in self.rows.values()):
-            self.compare.setChecked(True)
+        if event.type() == QEvent.FocusIn:
+            for key, row in self.rows.items():
+                if watched is row.delay:
+                    self.show_comparison(key)
+                    break
         if watched in self.hidden_host_widgets and event.type() == QEvent.Show:
             watched.hide()
         if self.embedded and watched is self.parentWidget() and event.type() == QEvent.Resize:
@@ -747,10 +788,18 @@ class Viewer(QDialog):
             self.comparison_panel.render(self.audio.clock(), self.shifts())
 
     def _delay_changed(self, *_args):
-        self.compare.setChecked(True)
+        key = next((key for key, row in self.rows.items() if row.delay is self.sender()), "")
+        self.show_comparison(key)
         self.generation += 1
         self.changed()
         self.render()
+
+    def show_comparison(self, room_id):
+        self.compare.setChecked(True)
+        self.comparison_panel.render(self.audio.clock(), self.shifts())
+        index = self.comparison_panel.target.findData(room_id)
+        if index >= 0:
+            self.comparison_panel.target.setCurrentIndex(index)
 
     def _restore_host_widgets(self):
         sidebar = getattr(self.context.window, "sidebar", None)
@@ -980,6 +1029,7 @@ class Viewer(QDialog):
 
     def remove_room(self, room_id):
         row = self.rows.pop(room_id)
+        self.overlay_pending.pop(room_id, None)
         self._stop_row(row)
         self.sources.pop(room_id, None)
         self.rows_layout.removeWidget(row)
@@ -1038,6 +1088,7 @@ class Viewer(QDialog):
         self._sync_sidebar_marks()
 
     def _start_chat(self, row):
+        self.overlay_pending.pop(row.room_id, None)
         previous, row.chat = row.chat, None
         if previous is not None:
             previous.stop()
@@ -1101,6 +1152,45 @@ class Viewer(QDialog):
                 return
             row.pending.append((time.monotonic(), dict(event)))
 
+    def _recover_clock(self, clock, shifts):
+        now = time.monotonic()
+        ranges = []
+        for key, row in self.rows.items():
+            decoder = row.decoder
+            if (decoder is None or row.paused or
+                    now - getattr(decoder, "last_frame_received", 0) > 3):
+                continue
+            bounds = decoder.history.bounds()
+            if bounds:
+                ranges.append((bounds[0] - shifts[key], bounds[1] - shifts[key]))
+        if ranges:
+            lower = max(start for start, _end in ranges)
+            upper = min(end for _start, end in ranges)
+            if clock > upper + 1 and lower <= upper - .25:
+                recovered = upper - .25
+                self.audio.correction += recovered - clock
+                return recovered
+        return clock
+
+    def _render_overlay(self, clock, shifts):
+        if self.video_danmaku is None:
+            return
+        if not self.video_danmaku.enabled:
+            self.overlay_pending.clear()
+            return
+        keys = list(self.rows)
+        start = keys.index(self.overlay_last) + 1 if self.overlay_last in keys else 0
+        for key in keys[start:] + keys[:start]:
+            pending = self.overlay_pending.get(key)
+            if pending is None:
+                continue
+            received, event = pending
+            if not self.rows[key].show_chat.isChecked() or clock + shifts[key] - received > 5:
+                self.overlay_pending.pop(key, None)
+            elif self.video_danmaku.add_event(event):
+                self.overlay_pending.pop(key, None)
+                self.overlay_last = key
+
     def render(self):
         if not self.running:
             return
@@ -1109,6 +1199,7 @@ class Viewer(QDialog):
         self.sync_picture()
         clock = self.audio.clock()
         shifts = self.shifts()
+        clock = self._recover_clock(clock, shifts)
         if self.compare.isChecked():
             self.comparison_panel.render(clock, shifts)
         row = self.rows.get(self.alignment.reference)
@@ -1153,13 +1244,15 @@ class Viewer(QDialog):
                 event["medal"] = {}
                 event["uname"] = f"【{row.label()}】 {event.get('uname') or ''}"
                 event["source_label"] = row.label()
+                event["source_room"] = room_id
                 event["color"] = row.color
                 eligible.append((received - shifts[room_id], event))
         for _due, event in sorted(eligible, key=lambda item: item[0]):
             self.panel.add_event(event)
-            if self.video_danmaku is not None:
-                self.video_danmaku.add_event({**event,
-                    "text": f"【{event['source_label']}】 {event.get('text') or ''}"})
+            received = _due + shifts[event["source_room"]]
+            self.overlay_pending[event["source_room"]] = (received, {**event,
+                "text": f"【{event['source_label']}】 {event.get('text') or ''}"})
+        self._render_overlay(clock, shifts)
 
     def analyse(self):
         if not self.running or not self.alignment.automatic or self.matching or self.compare.isChecked():
@@ -1284,6 +1377,8 @@ class Viewer(QDialog):
                 self._restore_host_audio(player, tile)
         self.suppressed.clear()
         self.panel.set_status("已停止")
+        self.overlay_pending.clear()
+        self.overlay_last = ""
         if self.video_danmaku is not None:
             self.video_danmaku.clear()
         self.canvas.set_frame(None)

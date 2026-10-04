@@ -110,6 +110,36 @@ def check_motion(app):
         assert overlay.font_pixels() < 28
         tile.set_fullscreen_controls_hidden(True)
         assert overlay.height() == tile.video.height() and overlay.isVisible()
+        overlay.apply_settings(dict(settings, video_danmaku_area=100))
+        overlay.clear()
+        assert overlay.add_event({"text": "short" * 6})
+        first = overlay.comments[0]
+        first.x = 100
+        assert overlay.add_event({"text": "long" * 50})
+        overlay.comments[-1].lane = first.lane
+        overlay.comments[-1].x = 700
+        tile.resize(320, 540)
+        app.processEvents()
+        for a, b in zip(overlay.comments, overlay.comments[1:]):
+            if a.lane == b.lane:
+                assert b.x - a.x - a.image.width() / a.image.devicePixelRatioF() >= overlay.GAP, "缩放后轨道间距不足"
+        assert all(c.lane < overlay.lane_count() for c in overlay.comments)
+        tile.resize(900, 540)
+        app.processEvents()
+        overlay.clear()
+        assert overlay.add_event({"text": "short" * 6})
+        first = overlay.comments[0]
+        first.x = 100
+        assert overlay.add_event({"text": "short" * 6})
+        second = overlay.comments[-1]
+        second.lane = first.lane
+        second.x = first.x + first.image.width() / first.image.devicePixelRatioF() + overlay.GAP + 10
+        overlay.apply_settings(dict(settings, video_danmaku_size=72, video_danmaku_area=25))
+        assert len(overlay.comments) == 1 and overlay.comments[0] is first, "字号变大后应舍弃会重叠的后发弹幕"
+        assert all(c.lane < overlay.lane_count() for c in overlay.comments)
+        with patch("ddm.video_danmaku.time.monotonic", return_value=time.monotonic() + 20):
+            overlay._tick()
+        assert not overlay.comments and not overlay.timer.isActive(), "缩放后的弹幕也必须按时完全退出"
         tile.danmaku_button.setChecked(False)
         assert not overlay.isVisible() and not overlay.comments and not overlay.timer.isActive()
     finally:

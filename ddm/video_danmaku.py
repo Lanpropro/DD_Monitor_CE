@@ -33,6 +33,7 @@ class VideoDanmaku(QWidget):
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
         self.enabled = False
         self.active = False
+        self.native_video = True
         self.paused = False
         self.settings = {}
         self._comment_width = self.width()
@@ -58,6 +59,7 @@ class VideoDanmaku(QWidget):
                 for comment in self.comments:
                     distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
                     comment.speed = distance / 8 * int(values.get("video_danmaku_speed") or 100) / 100
+                self._prune_lanes()
                 self.update()
             if self.isVisible():
                 self._apply_layered()
@@ -65,6 +67,11 @@ class VideoDanmaku(QWidget):
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
         self._sync_visible()
+
+    def set_native_video(self, native: bool) -> None:
+        """Select the backing surface before the overlay is first shown."""
+        self.native_video = bool(native)
+        self.setAttribute(Qt.WA_NoSystemBackground, self.native_video)
 
     def set_active(self, active: bool) -> None:
         self.active = bool(active)
@@ -161,18 +168,26 @@ class VideoDanmaku(QWidget):
             comment.x = self.width() - progress * distance
             comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
         self._comment_width = self.width()
+        self._prune_lanes()
         self.update()
 
-    def _lane_available(self, lane: int, speed: float) -> bool:
+    def _prune_lanes(self) -> None:
+        comments, self.comments = self.comments, []
+        for comment in comments:
+            if (comment.lane < self.lane_count() and
+                    self._lane_available(comment.lane, comment.speed, comment.x)):
+                self.comments.append(comment)
+
+    def _lane_available(self, lane: int, speed: float, x: float | None = None) -> bool:
         for comment in self.comments:
             if comment.lane != lane:
                 continue
             right = comment.x + comment.image.width() / comment.image.devicePixelRatioF()
-            gap = self.width() - right
+            gap = (self.width() if x is None else x) - right
             if gap < self.GAP:
                 return False
             # 后发的长弹幕更快；必须在前一条离开画面之前追不上它。
-            if speed > comment.speed and gap / (speed - comment.speed) < right / comment.speed:
+            if speed > comment.speed and (gap - self.GAP) / (speed - comment.speed) < right / comment.speed:
                 return False
         return True
 
@@ -210,7 +225,8 @@ class VideoDanmaku(QWidget):
             painter.drawPixmap(round(comment.x), comment.lane * self.lane_height(), comment.image)
 
     def _native_layered(self) -> bool:
-        return sys.platform == "win32" and QApplication.platformName() == "windows"
+        return (self.native_video and sys.platform == "win32"
+                and QApplication.platformName() == "windows")
 
     def _apply_layered(self) -> None:
         if not self._native_layered():

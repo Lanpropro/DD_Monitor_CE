@@ -75,6 +75,7 @@ class Decoder:
         self.source_headers = {}
         self.events = Events()
         self.history = History()
+        self.last_frame_received = 0.0
         self.crop = (0.0, 0.0, 1.0, 1.0)
         self.cancelled = threading.Event()
         self.process = None
@@ -229,6 +230,7 @@ class Decoder:
                         sample = Sample(timestamp, signature, texture)
                     self.history.append(timestamp, jpeg, sample)
                     last_frame[0] = time.monotonic()
+                    self.last_frame_received = last_frame[0]
                     index += 1
                 if len(pending) > 4 * 1024 * 1024:
                     raise ValueError("Invalid JPEG stream")

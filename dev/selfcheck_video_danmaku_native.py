@@ -155,9 +155,27 @@ def main():
             # 原生播放窗口重建后，弹幕仍应在上面，播放器本身不需要换掉。
             window.players[target].play(source)
             settle(app, 1)
+            overlay.clear()
             show_comment(target, 100)
             settle(app)
             assert brightest_text(capture(target), target) > 200
+            moving = overlay.comments[0]
+            old_lane = moving.lane
+            moving.x = target.video.width() - 100
+            overlay.update()
+            settle(app)
+            moved = capture(target)
+            scale = moved.devicePixelRatio()
+            top = round(old_lane * overlay.lane_height() * scale)
+            assert max(moved.pixelColor(x, y).green()
+                       for y in range(top, min(moved.height(), top + round(overlay.lane_height() * scale)))
+                       for x in range(round(30 * scale), round(280 * scale))) < 100, \
+                "原生弹幕移动后，旧文字位置必须擦除，不能留下重影"
+            overlay.set_paused(False)
+            moving.x = -moving.image.width() / moving.image.devicePixelRatioF() - 1
+            overlay._tick()
+            settle(app)
+            assert not overlay.comments and not overlay.timer.isActive(), "离屏后必须停止并清除全部文字"
             target.danmaku_button.setChecked(False)
             settle(app)
             disabled = capture(target)
