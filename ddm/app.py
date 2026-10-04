@@ -2290,17 +2290,23 @@ class MainWindow(QMainWindow):
 
     def _login_choices(self) -> list:
         choices = [] if bili.SESSION_DATA else ["B站"]
-        return choices + [label for label, p in self._follow_platforms().items()
-                          if callable(getattr(p, "account_info", None)) and p.kind not in self._accounts]
+        return choices + [label for label, p in self._account_platforms().items()
+                          if p.kind not in self._accounts]
+
+    def _account_platforms(self) -> dict:
+        return {p.label or p.kind: p for p in self.plugins.platforms.values()
+                if callable(getattr(p, "account_info", None))
+                and (getattr(p, "account_login_url", "") or p.follow_login_url)
+                and (getattr(p, "account_cookie_domain", "") or p.follow_cookie_domain)}
 
     def _account_kind(self) -> str:
         return "bilibili" if bili.SESSION_DATA else next(
-            (p.kind for p in self._follow_platforms().values() if p.kind in self._accounts), "")
+            (p.kind for p in self._account_platforms().values() if p.kind in self._accounts), "")
 
     def _restore_platform_accounts(self) -> None:
         if os.environ.get("DDM_NO_SAVE") != "1":
             from .account_store import AccountStore
-            for platform in self._follow_platforms().values():
+            for platform in self._account_platforms().values():
                 try:
                     account = AccountStore(platform.kind).load_account()
                     if account.get("uid"):
@@ -2314,7 +2320,7 @@ class MainWindow(QMainWindow):
             return
         self.sidebar.can_login_other = bool(self._login_choices())
         kinds = (["bilibili"] if bili.SESSION_DATA else []) + [
-            p.kind for p in self._follow_platforms().values() if p.kind in self._accounts]
+            p.kind for p in self._account_platforms().values() if p.kind in self._accounts]
         self.sidebar.logged_accounts = [(kind, self._accounts.get(kind, {"uname": "B站账号"}))
                                        for kind in kinds]
         for account_kind, info in self.sidebar.logged_accounts:
@@ -2514,8 +2520,9 @@ class MainWindow(QMainWindow):
         if platform_kind is None and not choices:
             QMessageBox.information(self, "账号登录", "当前支持登录的平台均已成功登录。")
             return
-        providers = {label: p for label, p in self._follow_platforms().items()
-                     if callable(getattr(p, "account_info", None))}
+        providers = self._account_platforms()
+        providers.update({p.label or p.kind: p for p in self.plugins.platforms.values()
+                          if getattr(p, "account_login_notice", "")})
         if platform_kind is None:
             platform_kind = "bilibili" if choices[0] == "B站" else providers[choices[0]].kind
         self._open_account_dialog(providers, platform_kind=platform_kind)

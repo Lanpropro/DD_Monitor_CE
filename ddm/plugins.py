@@ -152,7 +152,9 @@ class Platform:
     follow_login_url = ""
     follow_cookie_domain = ""
     account_login_url = ""  # 可选：独立官方登录页面，未提供时使用关注页面。
+    account_cookie_domain = ""  # 仅登录的平台可独立声明 Cookie 域，不代表支持关注导入。
     account_info = None  # 可选：account_info(session, cancelled) 返回 uid/uname/face。
+    account_login_notice = ""  # 可选：尚未接入登录的平台展示说明，不创建登录浏览器。
 
     def follow_rooms(self, session, cancelled) -> list[dict]:
         """可选：后台用授权会话读取关注；每页检查 cancelled，失败抛异常。"""

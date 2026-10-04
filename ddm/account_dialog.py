@@ -35,12 +35,15 @@ class AccountPlatformDialog(QDialog):
         self.platform_buttons = {}
         self.group = QButtonGroup(self)
         for kind, label in [("bilibili", "B站"), *[(p.kind, p.label) for p in providers.values()]]:
+            if getattr(self.providers.get(kind), "account_login_notice", ""):
+                label += "（待接入）"
             button = QPushButton(label)
             button.setCheckable(True)
             button.setAutoDefault(False)
             button.setCursor(Qt.PointingHandCursor)
             button.setObjectName("IconButton")
-            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms", kind + ".ico")
+            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
+                                     "huya.png" if kind == "huya" else kind + ".ico")
             button.setIcon(QIcon(icon_path))
             button.clicked.connect(lambda _checked=False, k=kind: self.select_platform(k))
             self.group.addButton(button)
@@ -97,6 +100,17 @@ class AccountPlatformDialog(QDialog):
         self._clear_page()
         self.kind = kind
         self.platform_buttons[kind].setChecked(True)
+        notice = getattr(self.providers.get(kind), "account_login_notice", "")
+        if notice:
+            page = QWidget()
+            page.resize(560, 220)
+            layout = QVBoxLayout(page)
+            label = QLabel(notice)
+            label.setWordWrap(True)
+            layout.addWidget(label)
+            layout.addStretch()
+            self._set_page(page)
+            return
         if not self.import_follows and (bili.SESSION_DATA if kind == "bilibili"
                                         else kind in self.owner._accounts):
             account = self.owner._accounts.get(kind, {"uname": "B站账号"})

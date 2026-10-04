@@ -44,6 +44,8 @@ class PlatformFollowLoader(QThread):
                 session.cookies.update(self.cookies)
                 if callable(getattr(self.platform, "account_info", None)):
                     account = self.platform.account_info(session, self._cancelled.is_set)
+                    if not self._cancelled.is_set() and (not isinstance(account, dict) or not account.get("uid")):
+                        raise RuntimeError("未能确认平台账号，请完成登录后重试")
                     if not self._cancelled.is_set():
                         self.accountLoaded.emit(account)
                 elif self.login_only:
@@ -144,7 +146,7 @@ class PlatformFollowDialog(QDialog):
 
     def _valid_cookie(self, cookie):
         domain = cookie.domain().lstrip(".").lower()
-        root = self.platform.follow_cookie_domain
+        root = getattr(self.platform, "account_cookie_domain", "") or self.platform.follow_cookie_domain
         return domain == root or domain.endswith("." + root)
 
     def _on_cookie(self, cookie):
