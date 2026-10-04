@@ -206,6 +206,10 @@ class Probe(api.Plugin):
                 assert self.viewer.body_split.widget(2) is panel
                 assert self.viewer.main.isHidden() and panel.isAncestorOf(self.viewer.automatic)
                 assert self.viewer.layout().itemAt(0).widget() is self.viewer.picture_split and self.viewer.controls.frameShape() == QFrame.NoFrame
+                assert row.offset_hint.isVisible() and not row.offset_hint.wordWrap()
+                assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
+                assert row.offset_hint.font().pixelSize() == 12
+                assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
                 centers = [widget.geometry().center().y() for widget in row.control_widgets]
                 assert max(centers) - min(centers) <= 1
                 assert row.channel.width() == 100 and row.color_choice.width() == 82

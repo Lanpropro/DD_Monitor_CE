@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.11"
+        assert manager.catalog()[0]["version"] == "0.1.12"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -460,6 +460,10 @@ def embedded_checks(app):
         assert not hasattr(viewer, "start_button") and not hasattr(viewer, "controls_button")
         row = viewer.rows["42"]
         app.processEvents()
+        assert row.offset_hint.isVisible() and not row.offset_hint.wordWrap()
+        assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
+        assert row.offset_hint.font().pixelSize() == theme.FONT_CAPTION
+        assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
         centers = [widget.geometry().center().y() for widget in row.control_widgets]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
         assert row.control_widgets[-1].width() == 52
