@@ -7,6 +7,7 @@ import asyncio
 import http.cookies
 import logging
 import sys
+import threading
 
 from PySide6.QtCore import QThread, Signal
 
@@ -45,10 +46,12 @@ class DanmakuClient(QThread):
         self.room_id = str(room_id)
         self._loop = None
         self._client = None
+        self._stopped = threading.Event()
 
     # ---- 线程外控制 ----
     def stop(self) -> None:
         """让事件循环把客户端停掉（线程结束后调用也没关系）。"""
+        self._stopped.set()
         loop, client = self._loop, self._client
         if loop is None or client is None or loop.is_closed():
             return
@@ -59,6 +62,8 @@ class DanmakuClient(QThread):
 
     # ---- 线程里跑 ----
     def run(self) -> None:
+        if self._stopped.is_set():
+            return
         if blivedm is None:
             self.status.emit(f"弹幕组件不可用（{IMPORT_ERROR}）")
             return
@@ -82,24 +87,30 @@ class DanmakuClient(QThread):
             timeout=aiohttp.ClientTimeout(total=None, connect=15))
         session.cookie_jar.update_cookies(cookies)
 
-        self.status.emit("连接中…")
-        # 官方 getDanmuInfo 被风控挡了，用 getConf 拿服务器和 token
-        real_id, token, hosts = await asyncio.to_thread(bili.danmaku_conf, self.room_id)
-        if not hosts:
-            self.status.emit("拿不到弹幕服务器（网络或风控问题）")
-            await session.close()
-            return
-
-        client = _Client(real_id or room_id, session=session,
-                         on_status=self.status.emit, hosts=hosts, token=token)
-        client.set_handler(_Handler(self.message.emit))
-        self._client = client
-        client.start()
         try:
+            if self._stopped.is_set():
+                return
+            self.status.emit("连接中…")
+            # 官方 getDanmuInfo 被风控挡了，用 getConf 拿服务器和 token。
+            real_id, token, hosts = await asyncio.to_thread(bili.danmaku_conf, self.room_id)
+            if self._stopped.is_set():
+                return
+            if not hosts:
+                self.status.emit("拿不到弹幕服务器（网络或风控问题）")
+                return
+            client = _Client(real_id or room_id, session=session,
+                             on_status=self.status.emit, hosts=hosts, token=token)
+            client.set_handler(_Handler(self.message.emit))
+            self._client = client
+            client.start()
+            if self._stopped.is_set():
+                client.stop()
             await client.join()
         finally:
+            client = self._client
             self._client = None
-            await client.stop_and_close()
+            if client is not None:
+                await client.stop_and_close()
             await session.close()
 
 

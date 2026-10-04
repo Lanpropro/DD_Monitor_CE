@@ -147,6 +147,9 @@ class MainWindow(QMainWindow):
         self._fullscreen_cover_timer.timeout.connect(self._start_fullscreen_fade)
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
+        self._danmaku_clients: dict[str, object] = {}
+        self._danmaku_status: dict[str, str] = {}
+        self._danmaku_retired: list = []
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
@@ -628,6 +631,7 @@ class MainWindow(QMainWindow):
                     "volume": int(tile.volume),
                     "quality": int(tile.quality),
                     "audio_channel": int(tile.audio_channel),
+                    "video_danmaku_enabled": tile.danmaku_button.isChecked(),
                 }
                 for tile in self.wall.tiles
             ],
@@ -719,6 +723,7 @@ class MainWindow(QMainWindow):
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
         threads.extend(self._resolvers_running)
+        threads.extend(self._danmaku_retired)
         preview_threads = list(self.hover_preview._resolvers_running)
         threads.extend(preview_threads)
         deadline = time.time() + 2.5
@@ -730,6 +735,10 @@ class MainWindow(QMainWindow):
             except RuntimeError:             # 已被 Qt 回收
                 pass
         self._avatar_loaders.clear()
+        for thread in list(self._danmaku_retired):
+            if self._loader_running(thread):
+                thread.wait()
+        self._danmaku_retired.clear()
         platform_threads = [thread for thread in list(self._resolvers_running) + preview_threads
                             if getattr(thread, "platform", None) is not None]
         poller = self._poller
@@ -1538,6 +1547,7 @@ class MainWindow(QMainWindow):
             self.sidebar._folder_pending.discard(str(item.room.get("room_id")))
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
         self._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
+        self.sync_danmaku()
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
         if covers:
@@ -1905,6 +1915,7 @@ class MainWindow(QMainWindow):
             self.sidebar.hide()
             self.empty_hint.hide()
             self.wall.set_fullscreen_tile(tile)
+            self.sync_danmaku()
             tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
             if sys.platform == "win32" and QApplication.platformName() == "windows":
                 self._native_fullscreen_state = window_fullscreen.enter(self)
@@ -1992,6 +2003,8 @@ class MainWindow(QMainWindow):
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
+        tile.video_danmaku.apply_settings(self.settings)
+        tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile._actions_wired = True
 
     def _fill_plugin_menu(self, tile) -> None:
@@ -2493,57 +2506,93 @@ class MainWindow(QMainWindow):
         return {}
 
     def sync_danmaku(self) -> None:
-        """让弹幕连接对上当前布局/主画面（布局里没有弹幕格就断开）。"""
-        if not getattr(self, "plugins", None):
+        """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
+        if self._closing or not getattr(self, "plugins", None):
             return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
         panel = self.wall.danmaku
-        if not self.wall.has_danmaku:
-            self.stop_danmaku()
-            return
-        room = self._danmaku_target_room()
+        room = self._danmaku_target_room() if self.wall.has_danmaku else {}
         room_id = str(room.get("room_id") or "")
-        if room_id and room_id == self._danmaku_room and self._danmaku is not None:
-            return
-        self.stop_danmaku()
-        if not room_id:
+        wanted = {str(tile.room["room_id"]) for tile in self.wall.tiles
+                  if tile.isVisible() and tile.danmaku_button.isChecked()
+                  and tile.room.get("room_id") and tile.room.get("live")}
+        if room_id:
+            wanted.add(room_id)
+        if room_id != self._danmaku_room:
+            self._danmaku, self._danmaku_room = None, ""
+        for unused in set(self._danmaku_clients) - wanted:
+            self._stop_danmaku_client(unused)
+        if room_id and self._danmaku is None:
+            self.start_danmaku(room_id, room.get("uname", ""))
+        elif not room_id:
             panel.set_placeholder("把直播间拖到主画面，这里就会显示它的弹幕")
-            return
-        self.start_danmaku(room_id, room.get("uname", ""))
+        for target in wanted - set(self._danmaku_clients) - {room_id}:
+            self._ensure_danmaku_client(target)
+
+    def _on_video_danmaku_changed(self, enabled: bool) -> None:
+        self.sync_danmaku()
+        self._save_timer.start()
 
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         panel = self.wall.danmaku
-        if str(room_id).isdigit():
-            client = DanmakuClient(room_id, self)
-        else:
-            platform = self.plugins.platform_for(room_id)
-            client = platform.danmaku_client(room_id, self) if platform is not None else None
+        panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
+        panel.set_status(self._danmaku_status.get(str(room_id), "连接中…"))
+        client = self._ensure_danmaku_client(str(room_id), for_panel=True)
         if client is None:
             panel.set_placeholder("此平台弹幕尚未接入，直播画面可正常播放")
             panel.set_status("暂不支持")
-            return
-        panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
-        panel.set_status("连接中…")
-        client.message.connect(
-            lambda event, source=client: self._on_danmaku_message(source, event))
-        client.status.connect(
-            lambda text, source=client: self._on_danmaku_status(source, text))
-        client.finished.connect(client.deleteLater)
-        self._danmaku = client
-        self._danmaku_room = str(room_id)
-        client.start()
-        print(f"[弹幕] 开始接收 {uname or room_id}（房间 {room_id}）",
-              file=sys.stderr, flush=True)
+
+    def _ensure_danmaku_client(self, room_id: str, *, for_panel: bool = False):
+        client = self._danmaku_clients.get(room_id)
+        new = client is None
+        if new:
+            if room_id.isdigit():
+                client = DanmakuClient(room_id, self)
+            else:
+                platform = self.plugins.platform_for(room_id)
+                client = platform.danmaku_client(room_id, self) if platform is not None else None
+            if client is None:
+                for tile in self.wall.tiles:
+                    if str(tile.room.get("room_id") or "") == room_id:
+                        tile.danmaku_button.setToolTip("此平台弹幕尚未接入")
+                return None
+            self._danmaku_clients[room_id] = client
+            client.message.connect(
+                lambda event, source=client: self._on_danmaku_message(source, event))
+            client.status.connect(
+                lambda text, source=client: self._on_danmaku_status(source, text))
+            client.finished.connect(
+                lambda rid=room_id, source=client: self._on_danmaku_finished(rid, source))
+            client.finished.connect(client.deleteLater)
+        if for_panel:
+            self._danmaku, self._danmaku_room = client, room_id
+        if new:
+            client.start()
+            print(f"[弹幕] 开始接收房间 {room_id}", file=sys.stderr, flush=True)
+        return client
+
+    def _on_danmaku_finished(self, room_id: str, source) -> None:
+        if source in self._danmaku_retired:
+            self._danmaku_retired.remove(source)
+        if self._danmaku_clients.get(room_id) is source:
+            self._danmaku_clients.pop(room_id)
+            if self._danmaku is source:
+                self._danmaku, self._danmaku_room = None, ""
 
     def stop_danmaku(self) -> None:
-        client = self._danmaku
-        self._danmaku = None
-        self._danmaku_room = ""
-        if client is None:
-            return
+        self._danmaku, self._danmaku_room = None, ""
+        for room_id in list(self._danmaku_clients):
+            self._stop_danmaku_client(room_id)
+        for tile in self.wall.tiles:
+            tile.video_danmaku.clear()
+
+    def _stop_danmaku_client(self, room_id: str) -> None:
+        client = self._danmaku_clients.pop(room_id)
+        self._danmaku_status.pop(room_id, None)
         client.stop()
         try:
             if client.isRunning():
-                client.wait(2000)         # 线程还在跑就析构，Qt 会直接崩
+                # 取消取服务器信息时可能仍在等待 HTTP；换布局不阻塞，退出统一等待。
+                self._danmaku_retired.append(client)
         except RuntimeError:
             pass
 
@@ -2554,6 +2603,8 @@ class MainWindow(QMainWindow):
             int(self.settings.get("danmaku_font_size") or 13))
         self.wall.danmaku.set_max_blocks(
             int(self.settings.get("danmaku_max_blocks") or 3000))
+        for tile in self.wall.tiles:
+            tile.video_danmaku.apply_settings(self.settings)
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
@@ -2584,21 +2635,35 @@ class MainWindow(QMainWindow):
         return any(word.lower() in lowered for word in words)
 
     def _on_danmaku_message(self, source, event: dict) -> None:
-        if source is not self._danmaku:
+        room_id = next((rid for rid, client in self._danmaku_clients.items()
+                        if client is source), "")
+        if self._closing or not room_id:
             return                         # 已切换房间，忽略旧线程排队中的消息
         kind = event.get("kind") or "danmaku"
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
-        self.wall.danmaku.add_event(event)
-        self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=self._danmaku_room,
+        if source is self._danmaku:
+            self.wall.danmaku.add_event(event)
+        for tile in self.wall.tiles:
+            if str(tile.room.get("room_id") or "") == room_id:
+                tile.video_danmaku.add_event(event)
+        self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=room_id,
                           message=dict(event))
 
     def _on_danmaku_status(self, source, text: str) -> None:
-        if source is not self._danmaku:
+        room_id = next((rid for rid, client in self._danmaku_clients.items()
+                        if client is source), "")
+        if self._closing or not room_id:
             return                         # 旧连接不能覆盖当前连接的状态
-        self.wall.danmaku.set_status(text)
+        self._danmaku_status[room_id] = text
+        for tile in self.wall.tiles:
+            if str(tile.room.get("room_id") or "") == room_id:
+                tile.danmaku_button.setToolTip(
+                    f"画面弹幕：{text}\n显示参数在「设置 → 弹幕」调整")
+        if source is self._danmaku:
+            self.wall.danmaku.set_status(text)
         self.plugins.emit(plugin_api.EVENT_DANMAKU_STATUS,
-                          room_id=self._danmaku_room, status=text)
+                          room_id=room_id, status=text)
 
     # ---- 快捷键 ----
     def _tile_under_cursor(self):

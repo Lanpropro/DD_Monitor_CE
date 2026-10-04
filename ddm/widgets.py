@@ -28,6 +28,7 @@ from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
 from . import follow_folders
 from .player import TilePlayer
+from .video_danmaku import VideoDanmaku
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -5076,6 +5077,7 @@ class Tile(QFrame):
     audioChannelChanged = Signal(dict, int)
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
+    videoDanmakuChanged = Signal(bool)
     pluginMenuRequested = Signal()     # 右键菜单要弹了，请外部先把插件菜单项填好
 
     def __init__(self, room: dict, parent=None):
@@ -5114,6 +5116,7 @@ class Tile(QFrame):
         self.cover.setAlignment(Qt.AlignCenter)
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.video_danmaku = VideoDanmaku(self)
 
         # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
         self.bottom = QWidget(self)
@@ -5153,6 +5156,13 @@ class Tile(QFrame):
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
         self.recording_button.clicked.connect(self.recordingRequested)
+        self.danmaku_button = QPushButton("弹幕")
+        self.danmaku_button.setObjectName("TileCtrl")
+        self.danmaku_button.setCheckable(True)
+        self.danmaku_button.setFixedSize(44, 26)
+        self.danmaku_button.setToolTip("启用这一路的画面弹幕；显示参数在「设置 → 弹幕」调整")
+        self.danmaku_button.toggled.connect(self._toggle_video_danmaku)
+        self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
         # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
         self.recording_time = QLabel("")
         self.recording_time.setObjectName("TileTitle")
@@ -5165,6 +5175,7 @@ class Tile(QFrame):
         self.status_label.setObjectName("TileStatus")
         _ignore_mouse(self.status_label)
         _allow_shrink(self.status_label)
+        self.status_label.setMinimumWidth(0)
 
         # 音量条直接放在信息条里，不用翻右键菜单
         # 音量图标按钮 + 滑条 + 数值，都在信息条里
@@ -5186,6 +5197,7 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
+        bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
@@ -5231,6 +5243,7 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
+        self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
         self.stream_url = ""
@@ -5274,6 +5287,34 @@ class Tile(QFrame):
         self.stop_elapsed_timer()
         self._layout_cover()
 
+    def _toggle_video_danmaku(self, enabled: bool) -> None:
+        self.video_danmaku.set_enabled(enabled)
+        self.videoDanmakuChanged.emit(enabled)
+
+    def _layout_bottom_controls(self) -> None:
+        width = self.width()
+        compact = width < 420
+        layout = self.bottom.layout()
+        margin, spacing = (6, 4) if compact else (10, 8)
+        layout.setContentsMargins(margin, 4, margin, 4)
+        layout.setSpacing(spacing)
+        self.danmaku_button.setFixedWidth(26 if compact else 44)
+        self.danmaku_button.setText("弹" if compact else "弹幕")
+        self.volume_label.setVisible(width >= 260 and
+                                     (not self.recording_time.text() or width >= 420))
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 280
+                                       and getattr(self, "_recording_available", True))
+        self.volume_slider.setVisible(width >= 220)
+        controls = [self.pause_button, self.volume_button, self.volume_label,
+                    self.danmaku_button, self.recording_button, self.recording_time,
+                    self.fullscreen_button]
+        visible = [widget for widget in controls if not widget.isHidden()]
+        fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()
+                    for widget in visible)
+        remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - 8
+        self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
+        layout.activate()
+
     def set_recording_state(self, state: str) -> None:
         self._recording_state = state
         self._update_recording_button()
@@ -5289,7 +5330,7 @@ class Tile(QFrame):
         if not hasattr(self, "recording_time"):
             return
         self.recording_time.setText(text)
-        self.recording_time.setVisible(bool(text))
+        self._layout_bottom_controls()
 
     def set_recording_available(self, available: bool) -> None:
         """录制功能总开关：关掉时把底栏的「● 录制」按钮收起来。"""
@@ -5305,12 +5346,14 @@ class Tile(QFrame):
         available = getattr(self, "_recording_available", True)
         self.recording_button.setVisible(available)
         if not available:
+            self._layout_bottom_controls()
             return
         narrow = self.width() < 320
         labels = ({"record": "●", "cache": "◉", "": "●"} if narrow else
                   {"record": "● REC", "cache": "◉ 缓存", "": "● 录制"})
         self.recording_button.setFixedWidth(26 if narrow else 64)
         self.recording_button.setText(labels.get(getattr(self, "_recording_state", ""), "●"))
+        self._layout_bottom_controls()
 
     # ---- 接收拖拽 ----
     def dragEnterEvent(self, event) -> None:
@@ -5365,12 +5408,14 @@ class Tile(QFrame):
         窗口、并且被 raise 过，才既画得出来也点得到。所以每次摆完位都要再抬一次
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
+        self.video_danmaku.raise_()
         for widget in (self.controls, self.stream_badge, self.title_badge,
                        self.time_badge, self.spinner, self.pause_overlay):
             widget.raise_()
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
+        self.video_danmaku.set_active(active)
         self.cover.setVisible(not active)
         if active:
             self.spinner.stop()
@@ -5423,6 +5468,7 @@ class Tile(QFrame):
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)
         self.pause_button.set_paused(self.paused)
+        self.video_danmaku.set_paused(self.paused)
         if self.paused and self._player_active:
             self.pause_overlay.start()
             self.pause_overlay.raise_()
@@ -5699,6 +5745,8 @@ class Tile(QFrame):
             max(8, (video_height - self.pause_overlay.height()) // 2))
         self.pause_overlay.raise_()
         self.bottom.setGeometry(0, video_height, width, height - video_height)
+        self.video_danmaku.setGeometry(self.video.geometry())
+        self._layout_bottom_controls()
         self._layout_cover()
         # 摆完位重新抬一次浮层，并且按控制条当前位置重做视频遮罩：
         # 视频是原生窗口，压在浮层上就点不到按钮（用户报的竖屏 1+4 关不掉）

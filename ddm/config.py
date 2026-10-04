@@ -74,6 +74,11 @@ DEFAULT_SETTINGS = {
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
     "danmaku_retention_version": 1,  # 旧版默认 300 条的一次性升级标记
     "danmaku_block_words": [],  # 屏蔽词：弹幕里包含这些词就不显示
+    "video_danmaku_size": 28,
+    "video_danmaku_speed": 100,
+    "video_danmaku_opacity": 80,
+    "video_danmaku_area": 50,
+    "video_danmaku_scale": True,
 }
 
 STATE_VERSION = 1
@@ -220,6 +225,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
                 "volume": int(slot.get("volume", DEFAULT_VOLUME)),
                 "quality": int(slot.get("quality", 250)),
                 "audio_channel": int(slot.get("audio_channel", 0)),
+                "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
             })
             continue
         room = placeholder(room_id)
@@ -227,5 +233,6 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
         room["volume"] = int(slot.get("volume", DEFAULT_VOLUME))
         room["quality"] = int(slot.get("quality", 250))
         room["audio_channel"] = int(slot.get("audio_channel", 0))
+        room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))
         wall.append(room)
     return sidebar, wall
