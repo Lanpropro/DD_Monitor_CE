@@ -22,7 +22,6 @@ from ddm.account_store import AccountStore  # noqa: E402
 from ddm.platform_login import PlatformFollowDialog, PlatformFollowLoader  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.dialogs import FollowImportDialog  # noqa: E402
 
 ROOMS = [{"room_id": "douyu:6979222", "uname": "live", "title": "test", "live": True,
           "platform": "douyu", "face": "", "cover_url": "", "viewers": "", "live_known": True},
@@ -171,28 +170,21 @@ def check_host(app):
     provider = platform(lambda _session, _cancelled: ROOMS)
     window.plugins.platforms["douyu"] = provider
     try:
-        with patch.object(app_module.QInputDialog, "getItem", return_value=("斗鱼", True)), \
-                patch("ddm.platform_login.PlatformFollowDialog") as login, \
-                patch.object(window, "_on_follows_loaded") as loaded:
-            login.return_value.exec.return_value = QDialog.DialogCode.Accepted
-            login.return_value.rooms = ROOMS
-            login.return_value.account = {}
+        with patch("ddm.account_dialog.AccountPlatformDialog") as dialog, \
+                patch.object(window, "_import_selected_follows") as loaded:
+            dialog.return_value.exec.return_value = QDialog.DialogCode.Accepted
+            dialog.return_value.rooms = ROOMS
             window.open_import_follows()
+            assert dialog.call_args.kwargs["import_follows"]
             loaded.assert_called_once_with(ROOMS)
-        with patch.object(app_module.QInputDialog, "getItem", return_value=("B站", False)), \
-                patch.object(window, "open_login") as login:
+        with patch("ddm.account_dialog.AccountPlatformDialog") as dialog, \
+                patch.object(window, "_import_selected_follows") as loaded:
+            dialog.return_value.exec.return_value = QDialog.DialogCode.Rejected
             window.open_import_follows()
-            login.assert_not_called()
-
-        class SelectAll(FollowImportDialog):
-            def exec(self):
-                self._check_all(True)
-                return QDialog.DialogCode.Accepted
-
-        with patch.object(app_module, "FollowImportDialog", SelectAll), \
-                patch.object(window, "load_avatars_for"), patch.object(window, "_refresh_meta"):
-            window._on_follows_loaded(ROOMS)
-            window._on_follows_loaded(ROOMS)
+            loaded.assert_not_called()
+        with patch.object(window, "load_avatars_for"), patch.object(window, "_refresh_meta"):
+            window._import_selected_follows(ROOMS)
+            window._import_selected_follows(ROOMS)
             assert len(window.sidebar.rooms()) == 2 and window._save_timer.isActive()
             assert len(window.wall.tiles) == 0 or all(not tile.room.get("room_id") for tile in window.wall.tiles)
         dialog = PlatformFollowDialog(provider, window)

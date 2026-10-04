@@ -59,9 +59,11 @@ class PlatformFollowLoader(QThread):
 
 class PlatformFollowDialog(QDialog):
     accountCleared = Signal(str)
+    busyChanged = Signal(bool)
 
     def __init__(self, platform, parent=None, *, login_only=False):
         super().__init__(parent)
+        self._owner = parent
         # 只有用户主动导入时才加载浏览器，启动和播放不加载 WebEngine。
         from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
         from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -156,9 +158,10 @@ class PlatformFollowDialog(QDialog):
         self.status.setText("正在确认账号信息…" if self.login_only else "正在后台读取关注，完成后可勾选导入…")
         self.read_button.setEnabled(False)
         self.forget_button.setEnabled(False)
-        owner = self.parentWidget()
+        owner = self._owner
         worker = PlatformFollowLoader(self.platform, jar, owner or self, login_only=self.login_only)
         self._worker = worker
+        self.busyChanged.emit(True)
         if owner is not None and hasattr(owner, "_wait_background"):
             owner._follow_loader = worker
         worker.loaded.connect(self._loaded)
@@ -168,11 +171,11 @@ class PlatformFollowDialog(QDialog):
         worker.start()
 
     def _account_loaded(self, account):
-        if self._pending_done is None and not getattr(self.parentWidget(), "_closing", False):
+        if self._pending_done is None and not getattr(self._owner, "_closing", False):
             self.account = account
 
     def _loaded(self, rooms):
-        if self._pending_done is not None or getattr(self.parentWidget(), "_closing", False):
+        if self._pending_done is not None or getattr(self._owner, "_closing", False):
             return
         if os.environ.get("DDM_NO_SAVE") != "1":
             try:
@@ -191,7 +194,7 @@ class PlatformFollowDialog(QDialog):
             self.status.setText(reason)
 
     def _finished(self, worker):
-        owner = self.parentWidget()
+        owner = self._owner
         if getattr(owner, "_follow_loader", None) is worker:
             owner._follow_loader = None
         if self._worker is worker:
@@ -199,6 +202,7 @@ class PlatformFollowDialog(QDialog):
         worker.deleteLater()
         self.read_button.setEnabled(True)
         self.forget_button.setEnabled(True)
+        self.busyChanged.emit(False)
         if self._pending_done is not None:
             self.done(self._pending_done)
 

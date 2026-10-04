@@ -56,22 +56,16 @@ def main():
             QTest.mouseClick(row, Qt.LeftButton, pos=QPoint(12, 12))
             login.assert_called_once_with()
             imports.assert_not_called()
-        with patch.object(app_module.QInputDialog, "getItem", return_value=("斗鱼", True)) as picker, \
-                patch.object(window, "_open_platform_login") as login:
+        with patch.object(window, "_open_account_dialog") as login:
             window.open_login()
-            assert picker.call_args.args[3] == ["B站", "斗鱼"]
-            login.assert_called_once_with(provider, login_only=True)
-        with patch.object(app_module.QInputDialog, "getItem", return_value=("B站", False)), \
-                patch.object(window, "_open_platform_login") as login:
+            login.assert_called_once_with({"斗鱼": provider}, platform_kind="bilibili")
+        with patch.object(window, "_follow_loader", Mock(isRunning=Mock(return_value=True)), create=True), \
+                patch.object(window, "_open_account_dialog") as login:
             window.open_login()
             login.assert_not_called()
-        with patch.object(window, "_follow_loader", Mock(isRunning=Mock(return_value=True)), create=True), \
-                patch.object(app_module.QInputDialog, "getItem") as picker:
-            window.open_login()
-            picker.assert_not_called()
-        with patch("ddm.login.LoginWindow") as login:
+        with patch.object(window, "_open_account_dialog") as login:
             window.open_login("bilibili")
-            login.return_value.exec.assert_called_once()
+            login.assert_called_once_with({"斗鱼": provider}, platform_kind="bilibili")
 
         # 登录只查询身份，不分页读取关注；真实浏览器使用空白页。
         dialog = PlatformFollowDialog(provider, window, login_only=True)
@@ -117,12 +111,15 @@ def main():
             dialog.reject()
             dialog.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-        with patch("ddm.platform_login.PlatformFollowDialog") as login, \
-                patch.object(window, "_on_follows_loaded") as imports:
+        # 宿主接收统一窗口结果；登录模式不导入关注。
+        with patch("ddm.account_dialog.AccountPlatformDialog") as login, \
+                patch.object(window, "_import_selected_follows") as imports:
             login.return_value.exec.return_value = QDialog.DialogCode.Accepted
-            login.return_value.account, login.return_value.rooms = account, []
-            window._open_platform_login(provider, login_only=True)
+            login.return_value.rooms = []
+            window._open_account_dialog({"斗鱼": provider}, platform_kind="douyu")
             imports.assert_not_called()
+        window._accounts["douyu"] = dict(account)
+        window._render_account()
         row = window.sidebar.account_row
         assert row.platform == "douyu" and row.uid == account["uid"]
         assert row.platform_badge.isVisible() and not row.platform_badge.pixmap().isNull()
@@ -131,12 +128,11 @@ def main():
         assert "退出登录" in texts and "登录其他平台…" in texts
         assert window._login_choices() == ["B站"]
         with patch.object(window, "open_login") as login:
-            with patch.object(app_module.QInputDialog, "getItem"):
-                menu = window.sidebar.account_menu()
-                action = next(a for a in menu.actions() if a.text() == "登录其他平台…")
-                with patch.object(window.sidebar, "account_menu", return_value=menu), \
-                        patch.object(menu, "exec", return_value=action):
-                    window.sidebar._open_account_menu()
+            menu = window.sidebar.account_menu()
+            action = next(a for a in menu.actions() if a.text() == "登录其他平台…")
+            with patch.object(window.sidebar, "account_menu", return_value=menu), \
+                    patch.object(menu, "exec", return_value=action):
+                window.sidebar._open_account_menu()
             login.assert_called_once_with()
 
         # 两个平台头像交错返回，不能把斗鱼头像覆盖到 B 站。

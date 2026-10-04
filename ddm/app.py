@@ -15,7 +15,7 @@ from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimati
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMessageBox, QStackedWidget,
+    QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -33,10 +33,10 @@ from .fullscreen_cursor import FullscreenCursor
 from .audio_output import linear_to_vlc_volume, refresh_output_devices
 from .danmaku import DanmakuClient
 from .bili import (
-    AccountLoader, FollowLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
+    AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
 from .dialogs import (
-    SHORTCUT_ACTIONS, AddRoomDialog, FollowImportDialog, SettingsDialog,
+    SHORTCUT_ACTIONS, AddRoomDialog, SettingsDialog,
 )
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
@@ -2491,42 +2491,26 @@ class MainWindow(QMainWindow):
         follow_loader = getattr(self, "_follow_loader", None)
         if self._closing or (follow_loader is not None and self._loader_running(follow_loader)):
             return
-        providers = self._follow_platforms()
-        if platform_kind is None:
-            choices = self._login_choices()
-            if not choices:
-                return
-            label, accepted = QInputDialog.getItem(self, "登录", "选择平台", choices, 0, False)
-            if not accepted:
-                return
-            platform_kind = "bilibili" if label == "B站" else providers[label].kind
-        if platform_kind != "bilibili":
-            platform = next((p for p in providers.values() if p.kind == platform_kind), None)
-            if platform is not None:
-                self._open_platform_login(platform, login_only=True)
+        choices = self._login_choices()
+        if platform_kind is None and not choices:
             return
-        from .login import LoginWindow      # 延迟导入：QtWebEngine 比较重
+        providers = {label: p for label, p in self._follow_platforms().items()
+                     if callable(getattr(p, "account_info", None))}
+        if platform_kind is None:
+            platform_kind = "bilibili" if choices[0] == "B站" else providers[choices[0]].kind
+        self._open_account_dialog(providers, platform_kind=platform_kind)
 
-        window = LoginWindow(self)
-        window.sessionData.connect(self._on_login)
-        window.exec()
-
-    def _open_platform_login(self, platform, *, login_only=False) -> None:
-        from .platform_login import PlatformFollowDialog
-        dialog = PlatformFollowDialog(platform, self, login_only=login_only)
-        dialog.accountCleared.connect(self._clear_platform_account)
+    def _open_account_dialog(self, providers, *, import_follows=False, platform_kind="bilibili"):
+        from .account_dialog import AccountPlatformDialog
+        dialog = AccountPlatformDialog(self, providers, import_follows=import_follows,
+                                       platform_kind=platform_kind)
         try:
             result = dialog.exec()
-            rooms, account = dialog.rooms, dialog.account
+            selected = dialog.rooms
         finally:
             dialog.deleteLater()
-        if result != QDialog.DialogCode.Accepted or self._closing:
-            return
-        if account:
-            self._accounts[platform.kind] = dict(account)
-            self._render_account()
-        if not login_only:
-            self._on_follows_loaded(rooms)
+        if import_follows and result == QDialog.Accepted and not self._closing:
+            self._import_selected_follows(selected)
 
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
@@ -2543,60 +2527,13 @@ class MainWindow(QMainWindow):
         follow_loader = getattr(self, "_follow_loader", None)
         if follow_loader is not None and self._loader_running(follow_loader):
             return
-        providers = self._follow_platforms()
-        if providers:
-            label, accepted = QInputDialog.getItem(
-                self, "导入关注", "选择平台", ["B站", *providers], 0, False)
-            if not accepted:
-                return
-            if label != "B站":
-                self._open_platform_login(providers[label])
-                return
-        if not bili.SESSION_DATA:
-            print("导入关注需要先登录，打开登录窗口", file=sys.stderr, flush=True)
-            self.open_login("bilibili")
-            if not bili.SESSION_DATA:
-                print("未获取到登录状态，导入流程取消", file=sys.stderr, flush=True)
-                return
-        else:
-            print("已登录，直接拉取关注列表", file=sys.stderr, flush=True)
-        self.import_button_busy(True)
-        self._follow_loader = FollowLoader(self)
-        self._follow_loader.loaded.connect(self._on_follows_loaded)
-        self._follow_loader.failed.connect(self._on_follows_failed)
-        self._follow_loader.finished.connect(self._follow_loader.deleteLater)
-        self._follow_loader.start()
-
-    def import_button_busy(self, busy: bool) -> None:
-        self.sidebar.import_button.setEnabled(not busy)
-        self.sidebar.import_button.setText("拉取中…" if busy else "导入关注")
-
-    def _on_follows_failed(self, reason: str) -> None:
-        self.import_button_busy(False)
-        print(f"拉取关注列表失败: {reason}")
-
-    def _on_follows_loaded(self, rooms: list) -> None:
         if self._closing:
             return
-        self.import_button_busy(False)
-        existing = {str(room.get("room_id")) for room in self.sidebar.rooms()}
-        dialog = FollowImportDialog(rooms, existing, self)
-        faces = {str(room["room_id"]): room.get("face")
-                 for room in rooms if room.get("face")}
-        if faces:
-            loader = AvatarLoader(faces, self)
-            loader.loaded.connect(dialog.set_avatar)
-            loader.finished.connect(loader.deleteLater)
-            self._follow_avatar_loader = loader
-            loader.start()
-            # 先等第一批头像下载完（同一批会写进本地缓存，下次就直接有了）
-            deadline = time.time() + 1.5
-            while time.time() < deadline:
-                QApplication.processEvents()
-                time.sleep(0.03)
-        if dialog.exec() != FollowImportDialog.Accepted:
+        self._open_account_dialog(self._follow_platforms(), import_follows=True)
+
+    def _import_selected_follows(self, selected: list) -> None:
+        if self._closing:
             return
-        selected = dialog.selected()
         added = sum(1 for room in selected if self.sidebar.add_room(room))
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
