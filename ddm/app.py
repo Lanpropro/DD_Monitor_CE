@@ -2292,12 +2292,6 @@ class MainWindow(QMainWindow):
         providers = self._account_platforms()
         providers.update({p.label or p.kind: p for p in self.plugins.platforms.values()
                           if getattr(p, "account_login_notice", "")})
-        if not any(p.kind == "twitch" for p in providers.values()):
-            platform = plugin_api.Platform()
-            platform.kind, platform.label = "twitch", "Twitch"
-            platform.account_login_notice = ("Twitch 登录需要启用「Twitch 与 YouTube」插件。\n"
-                                             "请在插件管理中安装或启用支持登录的新版插件，然后重启软件。")
-            providers[platform.label] = platform
         return providers
 
     def _login_choices(self) -> list:
@@ -2567,9 +2561,7 @@ class MainWindow(QMainWindow):
             return
         if self._closing:
             return
-        providers = self._account_dialog_platforms()
-        providers.update(self._follow_platforms())
-        self._open_account_dialog(providers, import_follows=True)
+        self._open_account_dialog(self._follow_platforms(), import_follows=True)
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "") -> None:
         if self._closing:

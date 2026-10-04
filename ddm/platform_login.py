@@ -1,10 +1,11 @@
 """平台关注导入：官方网页登录、隔离 Cookie 和可取消的后台分页。"""
 import os
+import json
 import threading
 import time
 
 import requests
-from PySide6.QtCore import QByteArray, QThread, QUrl, Qt, Signal
+from PySide6.QtCore import QByteArray, QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtNetwork import QNetworkCookie
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel,
                               QPushButton, QVBoxLayout)
@@ -27,6 +28,7 @@ class PlatformFollowLoader(QThread):
     loaded = Signal(list)
     accountLoaded = Signal(dict)
     failed = Signal(str)
+    browserRequested = Signal(str, object)
 
     def __init__(self, platform, cookies, parent=None, *, login_only=False):
         super().__init__(parent)
@@ -35,6 +37,24 @@ class PlatformFollowLoader(QThread):
         self.login_only = login_only
         self._cancelled = threading.Event()
 
+    def _browser_get(self, url, **kwargs):
+        request = {"done": threading.Event(), "result": None}
+        prepared = requests.Request("GET", url, params=kwargs.get("params")).prepare()
+        self.browserRequested.emit(prepared.url, request)
+        deadline = time.monotonic() + 30
+        while not request["done"].wait(.1):
+            if self._cancelled.is_set() or time.monotonic() > deadline:
+                request["done"].set()
+                raise RuntimeError("抖音关注读取已取消或超时，请稍后重试")
+        result = request["result"]
+        if not isinstance(result, dict) or result.get("error"):
+            raise RuntimeError("抖音关注读取失败，请在官方页面完成登录或验证后重试")
+        response = requests.Response()
+        response.status_code = result["status"]
+        response._content = result["text"].encode("utf-8")
+        response.encoding = "utf-8"
+        return response
+
     def cancel(self):
         self._cancelled.set()
 
@@ -42,6 +62,11 @@ class PlatformFollowLoader(QThread):
         try:
             with requests.Session() as session:
                 session.cookies.update(self.cookies)
+                if not self.login_only and getattr(self.platform, "follow_browser_url", ""):
+                    get = session.get
+                    browser_url = self.platform.follow_browser_url
+                    session.get = lambda url, **kwargs: (self._browser_get(url, **kwargs)
+                        if url == browser_url else get(url, **kwargs))
                 if callable(getattr(self.platform, "account_info", None)):
                     account = self.platform.account_info(session, self._cancelled.is_set)
                     if not self._cancelled.is_set() and (not isinstance(account, dict) or not account.get("uid")):
@@ -85,7 +110,9 @@ class PlatformFollowDialog(QDialog):
         self._pending_done = None
         self._finished_dialog = False
         self._saved_cookies = []
-        self._login_url = getattr(platform, "account_login_url", "") or platform.follow_login_url
+        self._login_url = (platform.follow_login_url if not login_only and
+                           getattr(platform, "follow_browser_url", "") else
+                           getattr(platform, "account_login_url", "") or platform.follow_login_url)
         self.account_store = AccountStore(platform.kind)
         self.setWindowTitle(f"{platform.label} · " + ("登录" if login_only else "登录并导入关注"))
         size = (720, 540) if getattr(platform, "account_login_url", "") else (1000, 700)
@@ -181,8 +208,48 @@ class PlatformFollowDialog(QDialog):
         worker.loaded.connect(self._loaded)
         worker.accountLoaded.connect(self._account_loaded)
         worker.failed.connect(self._failed)
+        worker.browserRequested.connect(self._browser_request)
         worker.finished.connect(lambda w=worker: self._finished(w))
         worker.start()
+
+    def _browser_request(self, url, request):
+        if request["done"].is_set():
+            return
+        page = self.browser.page()
+        target = QUrl(self.platform.follow_login_url)
+        if self.browser.url().host() != target.host():
+            def ready(ok):
+                self.browser.loadFinished.disconnect(ready)
+                if ok:
+                    self._browser_request(url, request)
+                else:
+                    request["result"] = {"error": "page load failed"}
+                    request["done"].set()
+            self.browser.loadFinished.connect(ready)
+            self.browser.load(target)
+            return
+        # 使用官方页面已初始化的请求签名 SDK；不会导出浏览器存储或登录令牌。
+        page.runJavaScript("""window.__ddmFollowResult = null;
+            (() => { const xhr = new XMLHttpRequest();
+                xhr.open('GET', %s, true); xhr.withCredentials = true; xhr.timeout = 12000;
+                xhr.onload = () => { window.__ddmFollowResult = {status: xhr.status, text: xhr.responseText}; };
+                xhr.onerror = xhr.ontimeout = () => { window.__ddmFollowResult = {error: 'request failed'}; };
+                xhr.send(); })();""" % json.dumps(url))
+        def poll():
+            if request["done"].is_set():
+                return
+            def received(result):
+                if request["done"].is_set():
+                    return
+                if isinstance(result, str) and result not in ("", "null"):
+                    result = json.loads(result)
+                if isinstance(result, dict):
+                    request["result"] = result
+                    request["done"].set()
+                else:
+                    QTimer.singleShot(100, poll)
+            page.runJavaScript("JSON.stringify(window.__ddmFollowResult)", received)
+        QTimer.singleShot(100, poll)
 
     def _account_loaded(self, account):
         if self._pending_done is None and not getattr(self._owner, "_closing", False):

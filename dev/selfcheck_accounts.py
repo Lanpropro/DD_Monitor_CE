@@ -60,7 +60,7 @@ def main():
             window.open_login()
             login.assert_called_once()
             assert login.call_args.args[0]["斗鱼"] is provider
-            assert login.call_args.args[0]["Twitch"].account_login_notice
+            assert "Twitch" not in login.call_args.args[0]
             assert login.call_args.kwargs == {"platform_kind": "bilibili"}
         with patch.object(window, "_follow_loader", Mock(isRunning=Mock(return_value=True)), create=True), \
                 patch.object(window, "_open_account_dialog") as login:
@@ -136,6 +136,8 @@ def main():
         with patch.object(window, "open_login") as login:
             menu = window.sidebar.account_menu()
             action = next(a for a in menu.actions() if a.text() == "登录其他平台…")
+            assert action.defaultWidget().cursor().shape() == Qt.PointingHandCursor
+            assert "QPushButton:hover" in action.defaultWidget().styleSheet()
             with patch.object(window.sidebar, "account_menu", return_value=menu), \
                     patch.object(menu, "exec", return_value=action):
                 window.sidebar._open_account_menu()

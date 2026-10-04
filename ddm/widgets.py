@@ -3637,11 +3637,14 @@ class Sidebar(QFrame):
             action.setText("登录其他平台…" if getattr(self, "can_login_other", True)
                            else "所有平台均已登录")
             button = QPushButton(action.text(), menu)
+            button.setCursor(Qt.PointingHandCursor)
             button.setObjectName("AccountPopupButton")
             button.setFixedSize(popup_width, self.account_row.height() if not self.collapsed else 34)
-            button.setStyleSheet(f"""padding: 0; min-height: 32px; text-align: center;
+            button.setStyleSheet(f"""QPushButton {{ padding: 0; min-height: 32px; text-align: center;
                 background: {theme.CONTENT}; border: 1px solid {theme.BORDER};
-                border-radius: {theme.CONTROL_HEIGHT // 2}px;""")
+                border-radius: {theme.CONTROL_HEIGHT // 2}px; }}
+                QPushButton:hover {{ background: {theme.CONTENT_HOVER}; border-color: {theme.ACCENT}; }}
+                QPushButton:pressed {{ background: {theme.ACCENT_SOFT}; }}""")
             def activate(_checked=False):
                 menu.close()
                 self.loginRequested.emit()

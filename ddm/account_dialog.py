@@ -6,7 +6,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
-from . import bili
+from . import bili, theme
 from .bili import FollowLoader
 from .dialogs import FollowImportDialog
 from .widgets import AccountRow, BRAND_ASSETS_DIR
@@ -34,21 +34,35 @@ class AccountPlatformDialog(QDialog):
         toolbar.addWidget(QLabel("平台"), 0, 0)
         self.platform_buttons = {}
         self.group = QButtonGroup(self)
-        for index, (kind, label) in enumerate([("bilibili", "B站"), *[(p.kind, p.label) for p in providers.values()]]):
-            button = QPushButton(label)
-            button.setProperty("platformLabel", label)
-            button.setCheckable(True)
-            button.setAutoDefault(False)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setObjectName("IconButton")
-            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
-                                     "huya.png" if kind == "huya" else kind + ".ico")
-            button.setIcon(QIcon(icon_path))
-            button.clicked.connect(lambda _checked=False, k=kind: self.select_platform(k))
-            self.group.addButton(button)
-            self.platform_buttons[kind] = button
-            toolbar.addWidget(button, index // 3, index % 3 + 1)
-        toolbar.setColumnStretch(4, 1)
+        groups = [[("bilibili", "B站")]]
+        owners = getattr(owner.plugins, "_platform_owner", {})
+        plugin_rows = {}
+        for provider in providers.values():
+            plugin = owners.get(provider.kind, "domestic" if provider.kind in ("huya", "douyu", "douyin") else "global")
+            if plugin not in plugin_rows:
+                if provider.kind in ("huya", "douyu", "douyin"):
+                    plugin_rows[plugin] = 0
+                else:
+                    plugin_rows[plugin] = len(groups)
+                    groups.append([])
+            groups[plugin_rows[plugin]].append((provider.kind, provider.label))
+        for row, platforms in enumerate(groups):
+            for column, (kind, label) in enumerate(platforms, 1):
+                button = QPushButton(label)
+                button.setFixedWidth(112)
+                button.setProperty("platformLabel", label)
+                button.setCheckable(True)
+                button.setAutoDefault(False)
+                button.setCursor(Qt.PointingHandCursor)
+                button.setObjectName("IconButton")
+                icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
+                                         "huya.png" if kind == "huya" else kind + ".ico")
+                button.setIcon(QIcon(icon_path))
+                button.clicked.connect(lambda _checked=False, k=kind: self.select_platform(k))
+                self.group.addButton(button)
+                self.platform_buttons[kind] = button
+                toolbar.addWidget(button, row, column)
+        toolbar.setColumnStretch(max(map(len, groups)) + 1, 1)
         self.layout_box.addLayout(toolbar)
         self._update_platform_labels()
         self.pages = QStackedWidget(self)
@@ -58,15 +72,20 @@ class AccountPlatformDialog(QDialog):
     def _update_platform_labels(self):
         for kind, button in self.platform_buttons.items():
             label = button.property("platformLabel")
-            provider = self.providers.get(kind)
             logged = bool(bili.SESSION_DATA) if kind == "bilibili" else kind in self.owner._accounts
-            if logged:
-                label += "（已登录）"
-            elif getattr(provider, "account_login_notice", ""):
-                label += "（待接入）"
-            if self.import_follows and getattr(provider, "follow_import_notice", ""):
-                label += "（关注待接入）"
             button.setText(label)
+            button.setProperty("loggedIn", logged)
+            button.setToolTip("已登录" if logged else "")
+            button.setStyleSheet(f"""
+                QPushButton#IconButton[loggedIn="true"] {{
+                    background: {theme.mix(theme.CONTENT, theme.SUCCESS, 0.2)};
+                    color: {theme.SUCCESS}; border-color: {theme.SUCCESS};
+                }}
+                QPushButton#IconButton[loggedIn="true"]:hover {{
+                    background: {theme.mix(theme.CONTENT, theme.SUCCESS, 0.3)};
+                }}
+                QPushButton#IconButton[loggedIn="true"]:checked {{ border: 2px solid {theme.ACCENT}; }}
+            """)
 
     def _busy(self, busy):
         for button in self.platform_buttons.values():
@@ -115,8 +134,6 @@ class AccountPlatformDialog(QDialog):
         self.kind = kind
         self.platform_buttons[kind].setChecked(True)
         notice = getattr(self.providers.get(kind), "account_login_notice", "")
-        if self.import_follows:
-            notice = getattr(self.providers.get(kind), "follow_import_notice", "") or notice
         if notice:
             page = QWidget()
             page.resize(560, 220)
