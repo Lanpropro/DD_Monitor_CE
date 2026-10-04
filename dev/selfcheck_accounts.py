@@ -41,7 +41,8 @@ def main():
     app.setStyleSheet(theme.qss())
     account = {"uid": "7890123", "uname": "斗鱼测试账号", "face": ""}
     provider = SimpleNamespace(kind="douyu", label="斗鱼", follow_login_url="about:blank",
-        follow_cookie_domain="douyu.com", account_info=lambda _s, _c: account,
+        follow_cookie_domain="douyu.com", account_login_url="about:blank#standalone-login",
+        account_info=lambda _s, _c: account,
         follow_rooms=Mock(return_value=[]))
     with patch.object(app_module.QTimer, "singleShot"):
         window = MainWindow([], [], state={"plugins_enabled": []})
@@ -76,10 +77,35 @@ def main():
         dialog = PlatformFollowDialog(provider, window, login_only=True)
         dialog.show()
         assert dialog.read_button.text() == "确认登录"
+        assert dialog._login_url == provider.account_login_url and dialog.width() <= 720
+        assert dialog.height() <= 540
+        assert dialog.browser.zoomFactor() == .8
         dialog._read()
         wait_for(app, lambda: dialog._worker is None)
         assert dialog.result() == QDialog.DialogCode.Accepted and dialog.account == account
         provider.follow_rooms.assert_not_called()
+        dialog.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        # 导入关注和退出账号也使用独立登录页，不回到完整关注网站。
+        dialog = PlatformFollowDialog(provider, window)
+        assert dialog._login_url == provider.account_login_url
+        with patch.object(dialog.account_store, "clear"), patch.object(dialog.browser, "load") as load:
+            dialog._forget()
+            assert load.call_args.args[0].toString() == provider.account_login_url
+        dialog.reject()
+        dialog.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        # www 与 passport 的 Cookie 分别按原域恢复，不使用登录页域覆盖。
+        from PySide6.QtWebEngineCore import QWebEngineCookieStore
+        raw = ["www-test=value; domain=www.douyu.com; path=/; secure; HttpOnly",
+               "passport-test=value; domain=passport.douyu.com; path=/; secure; HttpOnly"]
+        with patch.dict(os.environ, {"DDM_NO_SAVE": "0"}), \
+                patch("ddm.account_store.AccountStore.load", return_value=raw), \
+                patch.object(QWebEngineCookieStore, "setCookie") as set_cookie:
+            dialog = PlatformFollowDialog(provider, window, login_only=True)
+            assert [call.args[1].host() for call in set_cookie.call_args_list] == [
+                "www.douyu.com", "passport.douyu.com"]
+        dialog.reject()
         dialog.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         with patch.object(provider, "account_info", side_effect=RuntimeError("登录已过期")):

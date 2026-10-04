@@ -75,9 +75,11 @@ class PlatformFollowDialog(QDialog):
         self._pending_done = None
         self._finished_dialog = False
         self._saved_cookies = []
+        self._login_url = getattr(platform, "account_login_url", "") or platform.follow_login_url
         self.account_store = AccountStore(platform.kind)
         self.setWindowTitle(f"{platform.label} · " + ("登录" if login_only else "登录并导入关注"))
-        self.resize(1000, 700)
+        size = (720, 540) if getattr(platform, "account_login_url", "") else (1000, 700)
+        self.resize(*size)
         layout = QVBoxLayout(self)
         self.status = QLabel("请在官方页面完成登录，然后点击「确认登录」" if login_only else
                              "请在官方页面完成登录，然后点击「读取关注」")
@@ -101,7 +103,6 @@ class PlatformFollowDialog(QDialog):
         toolbar.addWidget(cancel)
         layout.addLayout(toolbar)
         self.browser = QWebEngineView(self)
-        self.browser.setZoomFactor(.8)
         profile = _profiles.get(platform.kind)
         if profile is None:
             profile = QWebEngineProfile(QApplication.instance())  # off-the-record
@@ -112,6 +113,7 @@ class PlatformFollowDialog(QDialog):
         self._store.cookieAdded.connect(self._on_cookie)
         self._store.cookieRemoved.connect(self._on_cookie_removed)
         self.browser.setPage(QWebEnginePage(profile, self.browser))
+        self.browser.setZoomFactor(.8)
         layout.addWidget(self.browser, 1)
         try:
             saved = self.account_store.load() if os.environ.get("DDM_NO_SAVE") != "1" else []
@@ -119,11 +121,12 @@ class PlatformFollowDialog(QDialog):
                 for cookie in QNetworkCookie.parseCookies(QByteArray(raw.encode("utf-8"))):
                     if self._valid_cookie(cookie):
                         self._on_cookie(cookie)
-                        self._store.setCookie(cookie, QUrl(platform.follow_login_url))
+                        origin = QUrl("https://" + cookie.domain().lstrip(".") + "/")
+                        self._store.setCookie(cookie, origin)
         except (OSError, RuntimeError, ValueError):
             self.status.setText("保存的登录状态无法读取，请在官方页面重新登录")
         self._store.loadAllCookies()
-        self.browser.load(QUrl(platform.follow_login_url))
+        self.browser.load(QUrl(self._login_url))
 
     def _valid_cookie(self, cookie):
         domain = cookie.domain().lstrip(".").lower()
@@ -210,7 +213,7 @@ class PlatformFollowDialog(QDialog):
         self._store.deleteAllCookies()
         self._profile.clearHttpCache()
         self.accountCleared.emit(self.platform.kind)
-        self.browser.load(QUrl(self.platform.follow_login_url))
+        self.browser.load(QUrl(self._login_url))
         self.status.setText("已清除本机登录状态，请在官方页面重新登录")
 
     def done(self, result):

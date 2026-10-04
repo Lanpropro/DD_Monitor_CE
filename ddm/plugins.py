@@ -151,6 +151,7 @@ class Platform:
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""
+    account_login_url = ""  # 可选：独立官方登录页面，未提供时使用关注页面。
     account_info = None  # 可选：account_info(session, cancelled) 返回 uid/uname/face。
 
     def follow_rooms(self, session, cancelled) -> list[dict]:
