@@ -9,8 +9,9 @@ import tempfile
 import time
 from unittest.mock import patch
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -50,11 +51,17 @@ def capture(tile):
                                     tile.video.width(), tile.video.height()).toImage()
 
 
-def brightest_text(image):
+def brightest_text(image, tile):
     scale = image.devicePixelRatio()
+    overlay = tile.video_danmaku
+    comment = overlay.comments[0]
+    left = max(0, round(comment.x * scale))
+    top = round(comment.lane * overlay.lane_height() * scale)
+    width = comment.image.width() / comment.image.devicePixelRatioF()
+    height = comment.image.height() / comment.image.devicePixelRatioF()
     return max(image.pixelColor(x, y).green()
-               for y in range(int(84 * scale), int(120 * scale))
-               for x in range(int(30 * scale), min(image.width(), int(300 * scale))))
+               for y in range(top, min(image.height(), top + round(height * scale)))
+               for x in range(left, min(image.width(), left + round(width * scale))))
 
 
 def main():
@@ -99,13 +106,13 @@ def main():
             frame = window.frameGeometry()
             window.screen().grabWindow(0, frame.x(), frame.y(), frame.width(), frame.height()).save(str(shot))
             print(f"多格子截图：{shot}")
-            assert brightest_text(high) > 200, "弹幕应显示在真实 VLC 画面之上"
+            assert brightest_text(high, target) > 200, "弹幕应显示在真实 VLC 画面之上"
             center = high.pixelColor(high.width() // 2, high.height() // 2)
             assert center.blue() > 200 and center.red() < 40, "透明区域不能遮黑视频"
             show_comment(target, 20)
             settle(app)
             low = capture(target)
-            assert brightest_text(low) < brightest_text(high) - 100, "不透明度修改应影响真实画面"
+            assert brightest_text(low, target) < brightest_text(high, target) - 100, "不透明度修改应影响真实画面"
             user32 = ctypes.windll.user32
             user32.ChildWindowFromPointEx.argtypes = [wintypes.HWND, wintypes.POINT, wintypes.UINT]
             user32.ChildWindowFromPointEx.restype = wintypes.HWND
@@ -123,25 +130,38 @@ def main():
             assert user32.WindowFromPoint(screen_point) != int(target.video_danmaku.winId()), \
                 "实际鼠标命中不能被弹幕遮挡"
             handle = int(target.video.winId())
+            overlay = target.video_danmaku
+            comment = overlay.comments[0]
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=100))
+            QTest.mouseClick(target.danmaku_settings_button, Qt.LeftButton)
+            settle(app)
+            assert target.danmaku_settings_menu.isVisible(), "设置浮层应能显示在 VLC 窗口之上"
+            target.danmaku_settings_menu.controls["video_danmaku_opacity"].setValue(25)
+            settle(app)
+            assert window.settings["video_danmaku_opacity"] == 25
+            assert brightest_text(capture(target), target) < 120
+            target.danmaku_settings_menu.controls["video_danmaku_opacity"].setValue(100)
+            QTest.keyClick(target.danmaku_settings_menu, Qt.Key_Escape)
             window._on_fullscreen(target)
             window._clear_fullscreen_cover()
             settle(app)
-            show_comment(target, 100)
-            settle(app)
+            assert overlay.comments[0] is comment, "进入全屏不能通过清屏后重新发弹幕来恢复画面"
             assert int(target.video.winId()) == handle
-            assert brightest_text(capture(target)) > 200
+            assert brightest_text(capture(target), target) > 200
             window._exit_fullscreen()
             window._clear_fullscreen_cover()
             settle(app)
+            assert overlay.comments[0] is comment, "退出全屏也应保留当前弹幕"
             # 原生播放窗口重建后，弹幕仍应在上面，播放器本身不需要换掉。
             window.players[target].play(source)
             settle(app, 1)
             show_comment(target, 100)
             settle(app)
-            assert brightest_text(capture(target)) > 200
+            assert brightest_text(capture(target), target) > 200
             target.danmaku_button.setChecked(False)
             settle(app)
-            assert brightest_text(capture(target)) < 100
+            disabled = capture(target)
+            assert max(disabled.pixelColor(x, 100).green() for x in range(30, 300)) < 100
         finally:
             window.close()
     print("真 VLC 多格子/全屏弹幕、透明背景、不透明度、鼠标穿透与重连：通过")

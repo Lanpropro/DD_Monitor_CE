@@ -545,6 +545,8 @@ class MainWindow(QMainWindow):
                                 plugin_manager=self.plugins)
         if page == "recording":
             dialog.nav.setCurrentRow(2)
+        elif page == "danmaku":
+            dialog.nav.setCurrentRow(1)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
         decode_before = self.settings.get("decode_mode", "auto")
@@ -2014,6 +2016,8 @@ class MainWindow(QMainWindow):
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.video_danmaku.apply_settings(self.settings)
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
+        tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
+        tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
         tile._actions_wired = True
 
     def _fill_plugin_menu(self, tile) -> None:
@@ -2591,6 +2595,11 @@ class MainWindow(QMainWindow):
         self.sync_danmaku()
         self._save_timer.start()
 
+    def _on_video_danmaku_settings_changed(self, values: dict) -> None:
+        self.settings.update(values)
+        self.apply_danmaku_settings()
+        self._save_timer.start()
+
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         panel = self.wall.danmaku
         panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
@@ -2664,6 +2673,7 @@ class MainWindow(QMainWindow):
             int(self.settings.get("danmaku_max_blocks") or 3000))
         for tile in self.wall.tiles:
             tile.video_danmaku.apply_settings(self.settings)
+            tile.danmaku_settings_menu.apply_settings(self.settings)
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""

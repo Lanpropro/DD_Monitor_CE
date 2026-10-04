@@ -17,6 +17,8 @@ class _Comment:
     x: float
     lane: int
     speed: float
+    text: str
+    color: QColor
 
 
 class VideoDanmaku(QWidget):
@@ -33,6 +35,7 @@ class VideoDanmaku(QWidget):
         self.active = False
         self.paused = False
         self.settings = {}
+        self._comment_width = self.width()
         self.comments: list[_Comment] = []
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.PreciseTimer)
@@ -46,8 +49,16 @@ class VideoDanmaku(QWidget):
             "danmaku_font", "video_danmaku_size", "video_danmaku_speed",
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale")}
         if values != self.settings:
+            redraw = any(values.get(key) != self.settings.get(key)
+                         for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale"))
             self.settings = values
-            self.clear()
+            if redraw:
+                self._resize_comments()
+            else:
+                for comment in self.comments:
+                    distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
+                    comment.speed = distance / 8 * int(values.get("video_danmaku_speed") or 100) / 100
+                self.update()
             if self.isVisible():
                 self._apply_layered()
 
@@ -81,7 +92,13 @@ class VideoDanmaku(QWidget):
         return max(10, min(144, size))
 
     def lane_height(self) -> int:
-        return self.font_pixels() + 8
+        return QFontMetrics(self._font()).height() + 8
+
+    def _font(self) -> QFont:
+        font = QFont(str(self.settings.get("danmaku_font") or theme.FONT_DEFAULT))
+        font.setPixelSize(self.font_pixels())
+        font.setBold(True)
+        return font
 
     def lane_count(self) -> int:
         area = int(self.settings.get("video_danmaku_area") or 50)
@@ -96,36 +113,55 @@ class VideoDanmaku(QWidget):
         if not text or not self.lane_count():
             return False
         self._tick()
-        font = QFont(str(self.settings.get("danmaku_font") or theme.FONT_DEFAULT))
-        font.setPixelSize(self.font_pixels())
-        font.setBold(True)
-        metrics = QFontMetrics(font)
-        text = metrics.elidedText(text, Qt.ElideRight, max(128, self.width() * 2))
-        width = metrics.horizontalAdvance(text) + 8
+        color = QColor(str(event.get("color") or "#ffffff"))
+        if not color.isValid():
+            color = QColor("#ffffff")
+        image = self._render_text(text, color)
+        width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
         lane = next((lane for lane in range(self.lane_count())
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
+        self.comments.append(_Comment(image, float(self.width()), lane, speed, text, color))
+        self._start_timer()
+        return True
+
+    def _render_text(self, text: str, color: QColor) -> QPixmap:
+        font = self._font()
+        metrics = QFontMetrics(font)
+        text = metrics.elidedText(text, Qt.ElideRight, max(128, self.width() * 2))
+        path = QPainterPath()
+        path.addText(0, 0, font, text)
+        bounds = path.boundingRect()
+        left = min(0, bounds.left())
+        width = max(metrics.horizontalAdvance(text), bounds.right()) - left + 8
+        height = max(metrics.height(), bounds.height()) + 8
+        # 字形及描边都留出边距，避免默认字体的下沿、英文下伸部被裁切。
+        path.translate(4 - left, 4 - bounds.top())
         scale = self.devicePixelRatioF()
-        image = QPixmap(math.ceil(width * scale), math.ceil(self.lane_height() * scale))
+        image = QPixmap(math.ceil(width * scale), math.ceil(height * scale))
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.Antialiasing)
-        path = QPainterPath()
-        path.addText(4, 4 + metrics.ascent(), font, text)
-        color = QColor(str(event.get("color") or "#ffffff"))
-        if not color.isValid():
-            color = QColor("#ffffff")
         painter.setPen(QPen(QColor("#000000"), 2))
         painter.setBrush(color)
         painter.drawPath(path)
         painter.end()
-        self.comments.append(_Comment(image, float(self.width()), lane, speed))
-        self._start_timer()
-        return True
+        return image
+
+    def _resize_comments(self) -> None:
+        for comment in self.comments:
+            old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
+            progress = (self._comment_width - comment.x) / max(1, old_distance)
+            comment.image = self._render_text(comment.text, comment.color)
+            distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
+            comment.x = self.width() - progress * distance
+            comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
+        self._comment_width = self.width()
+        self.update()
 
     def _lane_available(self, lane: int, speed: float) -> bool:
         for comment in self.comments:
@@ -201,13 +237,15 @@ class VideoDanmaku(QWidget):
             self.setAttribute(Qt.WA_NativeWindow, True)
             self._apply_layered()
         if self.comments and not self.paused:
+            self._tick()
             self._start_timer()
         self.raise_()
 
     def hideEvent(self, event) -> None:
-        self.clear()
+        # 布局/全屏可能短暂隐藏浮层；仅停止绘制，显式关弹幕或换台才清空。
+        self.timer.stop()
         super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:
-        self.clear()
+        self._resize_comments()
         super().resizeEvent(event)

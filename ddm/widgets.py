@@ -29,6 +29,7 @@ from .images import AvatarLoader
 from . import follow_folders
 from .player import TilePlayer
 from .video_danmaku import VideoDanmaku
+from .video_danmaku_settings import VideoDanmakuSettings
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -5120,6 +5121,8 @@ class Tile(QFrame):
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
     videoDanmakuChanged = Signal(bool)
+    videoDanmakuSettingsChanged = Signal(dict)
+    videoDanmakuAdvancedRequested = Signal()
     pluginMenuRequested = Signal()     # 右键菜单要弹了，请外部先把插件菜单项填好
 
     def __init__(self, room: dict, parent=None):
@@ -5202,9 +5205,18 @@ class Tile(QFrame):
         self.danmaku_button.setObjectName("TileCtrl")
         self.danmaku_button.setCheckable(True)
         self.danmaku_button.setFixedSize(44, 26)
-        self.danmaku_button.setToolTip("启用这一路的画面弹幕；显示参数在「设置 → 弹幕」调整")
+        self.danmaku_button.setToolTip("启用这一路的画面弹幕；右侧齿轮可调整观看设置")
         self.danmaku_button.toggled.connect(self._toggle_video_danmaku)
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
+        self.danmaku_settings_button = QPushButton("⚙")
+        self.danmaku_settings_button.setObjectName("TileCtrl")
+        self.danmaku_settings_button.setFixedSize(26, 26)
+        self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
+        self.danmaku_settings_menu = VideoDanmakuSettings(self)
+        self.danmaku_settings_menu.settingsChanged.connect(self._change_video_danmaku_settings)
+        self.danmaku_settings_menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
+        self.danmaku_settings_button.clicked.connect(
+            lambda: self.danmaku_settings_menu.open_at(self.danmaku_settings_button, self.video_danmaku.settings))
         # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
         self.recording_time = QLabel("")
         self.recording_time.setObjectName("TileTitle")
@@ -5240,6 +5252,7 @@ class Tile(QFrame):
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
+        bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
@@ -5333,22 +5346,29 @@ class Tile(QFrame):
         self.video_danmaku.set_enabled(enabled)
         self.videoDanmakuChanged.emit(enabled)
 
+    def _change_video_danmaku_settings(self, values: dict) -> None:
+        self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
+        self.videoDanmakuSettingsChanged.emit(values)
+
     def _layout_bottom_controls(self) -> None:
         width = self.width()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
+        if width < 260:
+            margin, spacing = 4, 2
         layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
+        self.pause_button.setFixedWidth(26 if width < 260 else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 44)
         self.danmaku_button.setText("弹" if compact else "弹幕")
-        self.volume_label.setVisible(width >= 260 and
-                                     (not self.recording_time.text() or width >= 420))
-        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 280
+        self.volume_label.setVisible(width >= 280 and
+                                     (not self.recording_time.text() or width >= 480))
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
         self.volume_slider.setVisible(width >= 220)
         controls = [self.pause_button, self.volume_button, self.volume_label,
-                    self.danmaku_button, self.recording_button, self.recording_time,
+                    self.danmaku_button, self.danmaku_settings_button, self.recording_button, self.recording_time,
                     self.fullscreen_button]
         visible = [widget for widget in controls if not widget.isHidden()]
         fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()

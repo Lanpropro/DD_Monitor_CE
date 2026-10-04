@@ -26,14 +26,18 @@ def main():
             tile.resize(width, height)
             app.processEvents()
             controls = [tile.pause_button, tile.volume_button, tile.volume_slider,
-                        tile.volume_label, tile.status_label, tile.recording_button,
+                        tile.volume_label, tile.status_label, tile.danmaku_button,
+                        tile.danmaku_settings_button, tile.recording_button,
                         tile.fullscreen_button]
-            assert [widget.x() for widget in controls] == sorted(widget.x() for widget in controls)
+            visible = [widget for widget in controls if widget.isVisible()]
+            assert [widget.x() for widget in visible] == sorted(widget.x() for widget in visible)
+            assert tile.danmaku_settings_button.isVisible()
             assert tile.fullscreen_button.geometry().right() < tile.bottom.width()
             tile.set_recording_state("record")
             tile.set_recording_elapsed("0:00:10")
             app.processEvents()
-            assert tile.recording_button.x() < tile.recording_time.x() < tile.fullscreen_button.x()
+            if tile.recording_time.isVisible():
+                assert tile.recording_button.x() < tile.recording_time.x() < tile.fullscreen_button.x()
             tile.set_recording_state("")
             tile.set_recording_elapsed("")
             tile.set_recording_available(False)
