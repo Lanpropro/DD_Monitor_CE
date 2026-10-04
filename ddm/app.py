@@ -2512,6 +2512,7 @@ class MainWindow(QMainWindow):
             return
         choices = self._login_choices()
         if platform_kind is None and not choices:
+            QMessageBox.information(self, "账号登录", "当前支持登录的平台均已成功登录。")
             return
         providers = {label: p for label, p in self._follow_platforms().items()
                      if callable(getattr(p, "account_info", None))}

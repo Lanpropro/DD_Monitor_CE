@@ -158,7 +158,12 @@ def main():
             assert rows[0].width() == row.width()
             assert rows[0].findChild(QPushButton).parentWidget() is rows[0].findChild(AccountRow)
             assert menu.actions()[-1].defaultWidget() is rows[0]
-            assert [a.text() for a in menu.actions() if a.text()] == ["登录其他平台…"]
+            assert [a.text() for a in menu.actions() if a.text()] == ["所有平台均已登录"]
+            status_button = menu.actions()[0].defaultWidget()
+            assert status_button.isEnabled()
+            with patch.object(app_module.QMessageBox, "information") as notice:
+                status_button.click()
+                notice.assert_called_once_with(window, "账号登录", "当前支持登录的平台均已成功登录。")
             menu.show()
             app.processEvents()
             logout_button = rows[0].findChild(QPushButton)
