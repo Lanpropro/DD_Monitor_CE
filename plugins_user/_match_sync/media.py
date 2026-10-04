@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QImage
 
 from ddm import bili, danmaku, recording
-from .engine import FPS, History, Sample
+from .engine import FPS, History, Sample, SIGNATURE_BITS
 
 
 class Events(QObject):
@@ -30,20 +30,20 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
     image = image.copy(round(x * image.width()), round(y * image.height()),
                        max(1, round(width * image.width())),
                        max(1, round(height * image.height())))
-    image = image.scaled(9, 9, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_Grayscale8)
+    image = image.scaled(17, 17, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_Grayscale8)
     pixels = bytes(image.constBits())
     stride = image.bytesPerLine()
     signature = 0
     texture = 0
-    for row in range(8):
-        for column in range(8):
+    for row in range(16):
+        for column in range(16):
             pixel = pixels[row * stride + column]
             right = pixels[row * stride + column + 1]
             below = pixels[(row + 1) * stride + column]
             signature = (signature << 1) | (pixel > right)
             signature = (signature << 1) | (pixel > below)
             texture += abs(pixel - right) + abs(pixel - below)
-    return signature, texture / 128
+    return signature, texture / SIGNATURE_BITS
 
 
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250) -> list[str]:

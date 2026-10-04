@@ -145,6 +145,10 @@ class Probe(api.Plugin):
                     assert row.main_button.isChecked() and self.viewer.main.currentData() == "local:2"
                     self.viewer.render()
                     assert self.viewer.canvas.frame_key is not None
+                    assert self.viewer.compare.isChecked() and self.viewer.comparison_panel.isVisible()
+                    assert set(self.viewer.comparison_panel.cards) == {"1", "local:2"}
+                    assert all(not card[2].image.isNull() for card in self.viewer.comparison_panel.cards.values())
+                    self.viewer.comparison_panel.grab().save(str(Path(os.environ["MATCH_SYNC_TEST_PREVIEW"]).with_name("match-sync-comparison-preview.png")))
                     assert row.decoder.source_url == os.environ["MATCH_SYNC_TEST_MEDIA"]
                     assert row.platform.kind == "local" and row.chat.client is not None
                     for room_id in list(self.viewer.rows):
@@ -199,7 +203,7 @@ class Probe(api.Plugin):
                 assert self.viewer.controls.isVisible() and not self.viewer.controls.isWindow()
                 assert not hasattr(self.viewer, "start_button")
                 panel = self.viewer.settings_panel
-                assert self.viewer.body_split.widget(1) is panel
+                assert self.viewer.body_split.widget(2) is panel
                 assert self.viewer.main.isHidden() and panel.isAncestorOf(self.viewer.automatic)
                 assert self.viewer.layout().itemAt(0).widget() is self.viewer.picture_split and self.viewer.controls.frameShape() == QFrame.NoFrame
                 centers = [widget.geometry().center().y() for widget in row.control_widgets]

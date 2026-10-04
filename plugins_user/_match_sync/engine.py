@@ -12,6 +12,7 @@ RATE = 48_000
 FPS = 30
 HISTORY_SECONDS = 60
 FRAME_BYTES_LIMIT = 96 * 1024 * 1024
+SIGNATURE_BITS = 512
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,13 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
     """Positive lag means the other feed receives the same scene later."""
     if len(reference) < 10 or len(other) < 10:
         return Match(None, 0, "正在收集比赛画面")
+    dynamic = 0
+    for samples in (reference, other):
+        for sample in samples[1:]:
+            dynamic |= sample.signature ^ samples[0].signature
+    bits = dynamic.bit_count()
+    if bits < 16:
+        return Match(None, 0, "框选区域变化不足；可扩大比赛区域或对照微调")
     groups = defaultdict(list)
     for a in reference:
         if a.texture < 4:
@@ -39,7 +47,7 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
         for b in other:
             if b.texture < 4:
                 continue
-            distance = (a.signature ^ b.signature).bit_count() / 128
+            distance = ((a.signature ^ b.signature) & dynamic).bit_count() / bits
             if distance <= 0.20:
                 lag = b.time - a.time
                 if abs(lag) <= HISTORY_SECONDS - 5:
@@ -59,7 +67,7 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
         # similar scoreboards; static graphics otherwise dominate the vote.
         ranked.append((support * math.exp(-24 * distance), key, support, distance, pairs))
     if not ranked:
-        return Match(None, 0, "未找到共同的动态比赛画面；可调整匹配区域或手动偏移")
+        return Match(None, 0, "未找到共同的动态比赛画面；可扩大匹配区域或对照微调")
     ranked.sort(reverse=True, key=lambda item: item[0])
     score, key, support, distance, pairs = ranked[0]
     rival = next((item for item in ranked[1:] if abs(item[1] - key) >= 4), None)
@@ -207,7 +215,7 @@ class Alignment:
 
     def shifts(self, delays: dict[str, float]) -> dict[str, float]:
         lags = self.lags if self.automatic else {}
-        slowest = max([0.0] + [lags.get(key, 0) for key in delays])
+        positions = {key: lags.get(key, 0) - delay for key, delay in delays.items()}
+        slowest = max([0.0] + [lags.get(key, 0) for key in delays] + list(positions.values()))
         # The slowest source stays at least two seconds behind its decoder.
-        return {key: lags.get(key, 0) - slowest - 2.0 - delay
-                for key, delay in delays.items()}
+        return {key: position - slowest - 2.0 for key, position in positions.items()}

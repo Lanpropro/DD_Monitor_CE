@@ -20,13 +20,13 @@ from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QW
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
 from plugins_user._match_sync.engine import (Alignment, AudioRing, History,
-    Match, RATE, Sample, match_scenes, mix_pcm)  # noqa: E402
+    Match, RATE, Sample, SIGNATURE_BITS, match_scenes, mix_pcm)  # noqa: E402
 from plugins_user._match_sync.media import Events, fingerprint  # noqa: E402
 
 
 def engine_checks():
     randomizer = random.Random(1947)
-    samples = [Sample(100 + i * 0.5, randomizer.getrandbits(128), 20) for i in range(36)]
+    samples = [Sample(100 + i * 0.5, randomizer.getrandbits(SIGNATURE_BITS), 20) for i in range(36)]
     delayed = [Sample(s.time + 5.3, s.signature, s.texture) for s in samples]
     match = match_scenes(samples, delayed)
     assert match.lag is not None and abs(match.lag - 5.3) < 0.001, match
@@ -34,7 +34,7 @@ def engine_checks():
     earlier = [Sample(s.time - 4.2, s.signature ^ ((1 << 8) - 1), s.texture) for s in samples]
     assert abs(match_scenes(samples, earlier).lag + 4.2) < 0.001
     assert match_scenes(samples[:5], delayed).lag is None
-    unrelated = [Sample(s.time, randomizer.getrandbits(128), 20) for s in samples]
+    unrelated = [Sample(s.time, randomizer.getrandbits(SIGNATURE_BITS), 20) for s in samples]
     assert match_scenes(samples, unrelated).lag is None
     flat = [Sample(100 + i * 0.5, 0, 0) for i in range(40)]
     assert match_scenes(flat, flat).lag is None
@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.10"
+        assert manager.catalog()[0]["version"] == "0.1.11"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -215,7 +215,7 @@ def package_and_ui_checks(app):
             viewer.audio.sink = FakeSink()
             image = jpeg()
             signature, texture = fingerprint(image)
-            assert 0 <= signature < (1 << 128) and texture > 0
+            assert 0 <= signature < (1 << SIGNATURE_BITS) and texture > 0
             for row in viewer.rows.values():
                 for timestamp in range(94, 100):
                     row.decoder.history.append(timestamp, image)
@@ -451,7 +451,7 @@ def embedded_checks(app):
         app.sendEvent(viewer.panel, drop)
         assert "43" in viewer.rows and viewer.rows["43"].decoder is not None
         assert not viewer.panel.body.acceptDrops() and not viewer.panel.body.viewport().acceptDrops()
-        assert viewer.controls.isVisible() and viewer.body_split.widget(1) is viewer.settings_panel
+        assert viewer.controls.isVisible() and viewer.body_split.widget(2) is viewer.settings_panel
         assert viewer.main.isHidden()
         assert viewer.settings_panel.isAncestorOf(viewer.automatic)
         assert viewer.layout().itemAt(0).widget() is viewer.picture_split, "The picture must have no top settings toolbar"
@@ -567,7 +567,7 @@ def embedded_checks(app):
         assert viewer.running and not viewer.isHidden()
         assert panel.isHidden() and viewer.restore_settings.isVisible(), "Reopening preserves collapsed state"
         viewer.restore_settings.click()
-        assert panel.isVisible() and viewer.body_split.widget(1) is panel
+        assert panel.isVisible() and viewer.body_split.widget(2) is panel
         viewer.automatic.setChecked(False)
         clock = [100.0]
         viewer.audio.clock = lambda: clock[0]

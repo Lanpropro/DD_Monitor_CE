@@ -49,6 +49,7 @@ class Canvas(QFrame):
         super().__init__(parent)
         self.image = QImage()
         self.waiting = False
+        self.zoom_crop = False
         self.frame_key = None
         self.selecting = selecting
         self.crop = QRectF(0, 0, 1, 1)
@@ -73,11 +74,17 @@ class Canvas(QFrame):
             painter.setPen(QColor("#a1a1aa"))
             painter.drawText(self.rect(), Qt.AlignCenter, "将左侧关注栏卡片拖到这里，加入比赛二路")
             return
-        size = self.image.size().scaled(self.size(), Qt.KeepAspectRatio)
+        image = self.image
+        if self.zoom_crop:
+            rect = self.crop
+            image = image.copy(round(rect.x() * image.width()), round(rect.y() * image.height()),
+                               max(1, round(rect.width() * image.width())),
+                               max(1, round(rect.height() * image.height())))
+        size = image.size().scaled(self.size(), Qt.KeepAspectRatio)
         self.image_rect = QRectF((self.width() - size.width()) / 2,
                                 (self.height() - size.height()) / 2,
                                 size.width(), size.height())
-        painter.drawImage(self.image_rect, self.image)
+        painter.drawImage(self.image_rect, image)
         if self.selecting:
             painter.setPen(QPen(QColor("#38bdf8"), 2))
             rect = self.crop
@@ -193,6 +200,81 @@ class Results(QObject):
     matched = Signal(int, dict)
 
 
+class ComparisonPanel(QFrame):
+    def __init__(self, viewer):
+        super().__init__()
+        self.viewer = viewer
+        self.cards = {}
+        self.setObjectName("MatchSyncCompare")
+        self.setMinimumHeight(185)
+        self.setMaximumHeight(300)
+        self.setStyleSheet(f"""
+            #MatchSyncCompare {{ background: {theme.CONTENT}; border: none;
+                border-radius: {theme.RADIUS_MD}px; }}
+            #MatchSyncCompare QLabel, #MatchSyncCompare QCheckBox {{ color: {theme.TEXT1}; }}
+            #MatchSyncCompare QScrollArea {{ border: none; background: transparent; }}
+        """)
+        heading = QHBoxLayout()
+        heading.addWidget(QLabel("偏移对照 · 当前播放进度（对照期间暂停自动匹配）"))
+        heading.addStretch()
+        self.zoom = QCheckBox("放大框选区域")
+        self.zoom.setChecked(True)
+        heading.addWidget(self.zoom)
+        close = QPushButton("结束对照")
+        close.setObjectName("ChipButton")
+        close.clicked.connect(lambda: viewer.compare.setChecked(False))
+        heading.addWidget(close)
+        body = QWidget()
+        self.cards_layout = QHBoxLayout(body)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(body)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.addLayout(heading)
+        layout.addWidget(scroll, 1)
+        self.hide()
+
+    def render(self, clock, shifts):
+        rows = self.viewer.rows
+        if tuple(self.cards) != tuple(rows):
+            for card, *_ in self.cards.values():
+                self.cards_layout.removeWidget(card)
+                card.deleteLater()
+            self.cards.clear()
+            for room_id in rows:
+                card = QWidget()
+                name = QLabel()
+                canvas = Canvas()
+                canvas.setMinimumSize(200, 110)
+                state = QLabel()
+                state.setWordWrap(True)
+                layout = QVBoxLayout(card)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.addWidget(name)
+                layout.addWidget(canvas, 1)
+                layout.addWidget(state)
+                self.cards_layout.addWidget(card, 1)
+                self.cards[room_id] = (card, name, canvas, state)
+        reference = self.viewer.alignment.reference
+        for room_id, row in rows.items():
+            _card, name, canvas, state = self.cards[room_id]
+            name.setText(f"{'主画面' if room_id == reference else '对照'} · {row.label()}")
+            name.setStyleSheet(f"color: {row.color};")
+            canvas.crop = QRectF(*row.crop)
+            canvas.zoom_crop = self.zoom.isChecked()
+            if not row.paused:
+                frame = row.decoder.history.frame_at(clock + shifts[room_id]) if row.decoder else None
+                canvas.set_frame(frame)
+            canvas.waiting = canvas.image.isNull()
+            canvas.update()
+            relative = shifts[room_id] - shifts.get(reference, 0)
+            position = ("主画面基准" if room_id == reference else
+                        f"相对主画面{'提前' if relative >= 0 else '延后'} {abs(relative):.1f} 秒")
+            state.setText(f"{position} · {'已暂停' if row.paused else '等待播放缓存' if canvas.waiting else '播放中'}")
+
+
 class SettingsPanel(QWidget):
     def __init__(self, viewer):
         super().__init__(viewer)
@@ -288,6 +370,7 @@ class RoomRow(QFrame):
             signal.connect(viewer.sync_picture)
         self.delay = self._offset(preferences.get("delay", 0))
         self.delay.setFixedWidth(74)
+        self.delay.installEventFilter(viewer)
         self.show_chat = QCheckBox("弹幕")
         self.show_chat.setChecked(preferences.get("show_chat", True))
         self.color_choice = QComboBox()
@@ -303,6 +386,8 @@ class RoomRow(QFrame):
         self.increase = QPushButton("+")
         for button in (self.decrease, self.increase):
             button.setFixedWidth(24)
+        self.decrease.clicked.connect(lambda: viewer.compare.setChecked(True))
+        self.increase.clicked.connect(lambda: viewer.compare.setChecked(True))
         self.decrease.clicked.connect(self.delay.stepDown)
         self.increase.clicked.connect(self.delay.stepUp)
         region = QPushButton("选择比赛画面")
@@ -333,8 +418,8 @@ class RoomRow(QFrame):
         self.setFrameShape(QFrame.NoFrame)
         self.refresh_status()
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.delay.setToolTip("单位秒；+ 延后，− 提前。画面、声音和弹幕一起移动。")
-        self.delay.valueChanged.connect(viewer.changed)
+        self.delay.setToolTip("单位秒；+ 延后本路，− 相对提前本路（必要时延后其他路）。画面、声音和弹幕一起移动。")
+        self.delay.valueChanged.connect(viewer._delay_changed)
         self.volume.valueChanged.connect(viewer.changed)
         self.audible.toggled.connect(viewer.changed)
         self.show_chat.toggled.connect(self._chat_toggle)
@@ -402,6 +487,8 @@ class Viewer(QDialog):
         self.automatic = QCheckBox("自动对齐比赛画面")
         self.automatic.setChecked(context.setting("automatic", True))
         self.automatic.toggled.connect(self._automatic_changed)
+        self.compare = QCheckBox("对照微调")
+        self.compare.toggled.connect(self.set_comparison_visible)
         self.input = QLineEdit()
         self.input.setPlaceholderText("房间号、平台前缀或官方直播链接")
         self.input.returnPressed.connect(self._add_input)
@@ -430,6 +517,7 @@ class Viewer(QDialog):
         heading.setSpacing(6)
         self.main.hide()
         heading.addWidget(self.automatic)
+        heading.addWidget(self.compare)
         for widget in self.add_controls:
             heading.addWidget(widget)
         heading.addStretch()
@@ -488,8 +576,10 @@ class Viewer(QDialog):
         self.body_split.setHandleWidth(4)
         self.body_split.setStyleSheet("QSplitter::handle { background: #30343a; }")
         self.body_split.addWidget(self.picture)
+        self.comparison_panel = ComparisonPanel(self)
+        self.body_split.addWidget(self.comparison_panel)
         self.body_split.addWidget(self.settings_panel)
-        self.body_split.setSizes([660, 220])
+        self.body_split.setSizes([660, 0, 220])
         self.audio_status = QLabel()
         settings_layout = QVBoxLayout(self.settings_panel)
         settings_layout.setContentsMargins(12, 8, 12, 8)
@@ -547,6 +637,8 @@ class Viewer(QDialog):
         self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.FocusIn and any(watched is row.delay for row in self.rows.values()):
+            self.compare.setChecked(True)
         if watched in self.hidden_host_widgets and event.type() == QEvent.Show:
             watched.hide()
         if self.embedded and watched is self.parentWidget() and event.type() == QEvent.Resize:
@@ -614,12 +706,30 @@ class Viewer(QDialog):
     def set_settings_visible(self, visible):
         if not visible:
             self.settings_height = self.settings_panel.height()
+            self.compare.setChecked(False)
         self.settings_panel.setVisible(visible)
         self.restore_settings.setVisible(not visible)
         if visible:
             self.left_pane.layout().activate()
             self.body_split.setSizes([
-                max(1, self.body_split.height() - self.settings_height), self.settings_height])
+                max(1, self.body_split.height() - self.settings_height -
+                    (self.comparison_panel.height() if self.compare.isChecked() else 0)),
+                self.comparison_panel.height() if self.compare.isChecked() else 0, self.settings_height])
+
+    def set_comparison_visible(self, visible):
+        sizes = self.body_split.sizes()
+        self.comparison_panel.setVisible(visible)
+        self.generation += 1
+        height = 240 if visible else 0
+        self.body_split.setSizes([max(1, sizes[0] + sizes[1] - height), height, sizes[2]])
+        if visible:
+            self.comparison_panel.render(self.audio.clock(), self.shifts())
+
+    def _delay_changed(self, *_args):
+        self.compare.setChecked(True)
+        self.generation += 1
+        self.changed()
+        self.render()
 
     def _restore_host_widgets(self):
         sidebar = getattr(self.context.window, "sidebar", None)
@@ -959,6 +1069,8 @@ class Viewer(QDialog):
         self.sync_picture()
         clock = self.audio.clock()
         shifts = self.shifts()
+        if self.compare.isChecked():
+            self.comparison_panel.render(clock, shifts)
         row = self.rows.get(self.alignment.reference)
         if row is not None and row.decoder is not None and not row.paused:
             frame = row.decoder.history.frame_at(clock + shifts[row.room_id])
@@ -1005,7 +1117,7 @@ class Viewer(QDialog):
             self.panel.add_event(event)
 
     def analyse(self):
-        if not self.running or not self.alignment.automatic or self.matching:
+        if not self.running or not self.alignment.automatic or self.matching or self.compare.isChecked():
             return
         row = self.rows.get(self.alignment.reference)
         if row is None or row.decoder is None:
@@ -1023,7 +1135,8 @@ class Viewer(QDialog):
 
     def _matched(self, epoch, results):
         self.matching = False
-        if not self.running or epoch != self.generation or not self.alignment.automatic:
+        if (not self.running or epoch != self.generation or not self.alignment.automatic
+                or self.compare.isChecked()):
             return
         for room_id, match in results.items():
             row = self.rows.get(room_id)
@@ -1054,6 +1167,10 @@ class Viewer(QDialog):
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout = QVBoxLayout(dialog)
+        hint = QLabel("两路请框选相同内容；计时器需连续变化，包含数字周围的少量背景。"
+                      "匹配失败时可用「对照微调」查看同一播放进度，不会自动读取计时器数字。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
         layout.addWidget(canvas, 1)
         layout.addWidget(reset)
         layout.addWidget(buttons)
@@ -1061,7 +1178,6 @@ class Viewer(QDialog):
             rect = canvas.crop
             row.crop = (rect.x(), rect.y(), rect.width(), rect.height())
             row.decoder.set_crop(row.crop)
-            self.alignment.lags = {self.alignment.reference: 0}
             self.alignment.candidates.clear()
             self.generation += 1
             self.changed()
@@ -1107,7 +1223,12 @@ class Viewer(QDialog):
         self.generation += 1
         self.render_timer.stop()
         self.match_timer.stop()
+        self.compare.setChecked(False)
         self.audio.stop()
+        for _card, _name, canvas, state in self.comparison_panel.cards.values():
+            canvas.set_frame(None)
+            canvas.waiting = True
+            state.setText("已停止")
         for row in self.rows.values():
             self._stop_row(row)
             seed = self.sources.get(row.room_id) or {}
