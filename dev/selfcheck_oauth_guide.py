@@ -15,7 +15,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 from ddm import theme
 from ddm.account_store import AccountStore
 from ddm.oauth_login import OAuthAccountDialog
@@ -47,6 +47,9 @@ def main():
             page.show()
             app.processEvents()
             assert page.setup_button.isChecked() and page.setup.isVisible()
+            notices = [label for label in page.setup.findChildren(QLabel)
+                       if '登录配置可能较繁琐，不太建议登录。' in label.text()]
+            assert len(notices) == 1 and notices[0].isVisible(), kind
             assert page.read_button.isVisible() and page.isVisible()
             assert not hasattr(page, 'browser')
             with patch('ddm.oauth_login.QDesktopServices.openUrl', return_value=True) as opened:

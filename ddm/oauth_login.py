@@ -94,7 +94,8 @@ class OAuthAccountDialog(QDialog):
         content = QWidget()
         setup_layout = QVBoxLayout(content)
         setup_layout.setContentsMargins(0, 0, 8, 0)
-        hint = QLabel(f'首次配置只需完成一次，之后点击「{action_label}」即可授权。')
+        hint = QLabel(f'首次配置只需完成一次，之后点击「{action_label}」即可授权。\n'
+                      '登录配置可能较繁琐，不太建议登录。')
         hint.setWordWrap(True)
         setup_layout.addWidget(hint)
         if platform.kind == 'twitch':
