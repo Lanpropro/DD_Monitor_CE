@@ -64,6 +64,43 @@ def brightest_text(image, tile):
                for x in range(left, min(image.width(), left + round(width * scale))))
 
 
+def check_top_overlays(window, tile, app):
+    tile.set_live(True)
+    def visible_ink(widget):
+        point = widget.mapToGlobal(QPoint())
+        image = widget.screen().grabWindow(0, point.x(), point.y(),
+                                          widget.width(), widget.height()).toImage()
+        return sum(image.pixelColor(x, y).red() > 130 and image.pixelColor(x, y).green() > 60
+                   for y in range(image.height()) for x in range(image.width()))
+
+    for fullscreen in (False, True):
+        if fullscreen:
+            window._on_fullscreen(tile)
+            window._clear_fullscreen_cover()
+        tile.danmaku_button.setChecked(False)
+        QCursor.setPos(tile.video.mapToGlobal(tile.video.rect().center()))
+        tile.set_controls_visible(True)
+        settle(app)
+        widgets = (tile.controls, tile.stream_badge, tile.title_badge)
+        assert all(widget.isVisible() for widget in widgets)
+        before = [visible_ink(widget) for widget in widgets]
+        assert all(count > 20 for count in before), before
+        for enabled in (True, False, True):
+            QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+            assert tile.video_danmaku.enabled is enabled
+            settle(app)
+            after = [visible_ink(widget) for widget in widgets]
+            shot = Path(tempfile.gettempdir()) / "ddm-danmaku-top-overlays.png"
+            capture(tile).save(str(shot))
+            assert all(actual >= expected * .9 for actual, expected in zip(after, before)), \
+                ("弹幕开关不能遮黑顶部按钮、LIVE 和房间名", fullscreen, enabled, before, after, str(shot))
+        if fullscreen:
+            window._exit_fullscreen()
+            window._clear_fullscreen_cover()
+            settle(app)
+    print("开启/关闭弹幕后，普通和全屏模式的顶部控制栏、LIVE、房间名均保持可见：通过")
+
+
 def main():
     app = QApplication(sys.argv)
     if app.platformName() != "windows":
@@ -98,6 +135,7 @@ def main():
             settle(app, 2)
             assert all(player.player.get_time() > 0 for player in window.players.values())
             target = window.wall.tiles[0]
+            check_top_overlays(window, target, app)
             for tile in window.wall.tiles:
                 show_comment(tile, 100)
             settle(app)

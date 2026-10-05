@@ -5426,6 +5426,8 @@ class Tile(QFrame):
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
         self.video_danmaku.set_enabled(enabled)
+        if getattr(self, "_overlay_ready", False):
+            self.raise_overlays()
         self.videoDanmakuChanged.emit(enabled)
 
     def _change_video_danmaku_settings(self, values: dict) -> None:
