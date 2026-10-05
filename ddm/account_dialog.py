@@ -78,11 +78,10 @@ class AccountPlatformDialog(QDialog):
             button.setToolTip("已登录" if logged else "")
             button.setStyleSheet(f"""
                 QPushButton#IconButton[loggedIn="true"] {{
-                    background: {theme.mix(theme.CONTENT, theme.PINK, 0.2)};
-                    color: {theme.PINK}; border-color: {theme.PINK};
+                    background: {theme.CONTENT}; border-color: {theme.PINK};
                 }}
                 QPushButton#IconButton[loggedIn="true"]:hover {{
-                    background: {theme.mix(theme.CONTENT, theme.PINK, 0.3)};
+                    background: {theme.CONTENT_HOVER};
                 }}
                 QPushButton#IconButton[loggedIn="true"]:checked {{ border: 2px solid {theme.ACCENT}; }}
             """)

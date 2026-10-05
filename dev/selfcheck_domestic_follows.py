@@ -14,6 +14,7 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 import requests
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtWidgets import QApplication
+from PySide6.QtWebEngineCore import QWebEngineSettings
 from ddm.live_danmaku import tars_bytes, tars_fields, tars_int
 from ddm.platform_login import PlatformFollowDialog
 from plugins_user.domestic_live.plugin import HuyaPlatform, DouyinPlatform, huya_string
@@ -123,6 +124,13 @@ def check_douyin():
             fails(lambda: provider.follow_rooms(session, lambda: False))
         session.get = Mock(return_value=reply({"status_code": 0, "followings": [], "has_more": 0}))
         assert provider.follow_rooms(session, lambda: False) == []
+        session.get = Mock(return_value=reply({"status_code": 8}))
+        try:
+            provider.follow_rooms(session, lambda: False)
+        except RuntimeError as error:
+            assert "状态 8" in str(error) and "验证" in str(error)
+        else:
+            raise AssertionError("Unauthorized follow request accepted")
         session.get = Mock(side_effect=AssertionError("Cancelled request"))
         assert provider.follow_rooms(session, lambda: True) == []
 
@@ -131,10 +139,10 @@ def check_browser():
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication([])
     provider = DouyinPlatform()
-    provider.account_info = Mock(return_value={"uid": "42", "uname": "Fixture"})
     payload = {"status_code": 0, "followings": [{"uid": "101", "web_rid": "1001", "nickname": "Fixture"}],
                "has_more": 0}
     dialog = PlatformFollowDialog(provider, defer_login=True)
+    assert dialog.browser.page().settings().unknownUrlSchemePolicy() == QWebEngineSettings.DisallowUnknownUrlSchemes
     loaded = []
     dialog.browser.loadFinished.connect(loaded.append)
     def official_client(action):
@@ -146,6 +154,10 @@ def check_browser():
                     202: {U2: async (path, params, options) => {
                         window.fixtureStarted = true;
                         window.fixtureQuery = {path, params, options};
+                        (window.fixtureQueries ||= []).push(path);
+                        if (path === '/aweme/v1/web/user/profile/self/') return {
+                            status_code: 0, user: {uid: '42', sec_uid: 'fixture-sec', nickname: 'Fixture'}
+                        };
                         %s
                     }}
                 };
@@ -173,6 +185,22 @@ def check_browser():
     assert captured["path"] == "/aweme/v1/web/user/following/list/"
     assert captured["params"]["channel"] == "channel_pc_web"
     assert captured["params"]["user_id"] == "42" and captured["options"]["timeout"] == 12000
+    assert captured["params"]["sec_user_id"] == "fixture-sec"
+    dispose(app, dialog)
+
+    dialog = PlatformFollowDialog(provider, login_only=True, defer_login=True)
+    loaded = []
+    dialog.browser.loadFinished.connect(loaded.append)
+    dialog.browser.setHtml(html, QUrl("https://www.douyin.com/follow"))
+    wait_for(app, lambda: bool(loaded))
+    with patch.object(requests.Session, "get", side_effect=AssertionError("Login bypassed official browser")):
+        dialog._read()
+        wait_for(app, lambda: dialog._worker is None)
+    assert dialog.account["uid"] == "42" and not dialog.rooms
+    queries = []
+    dialog.browser.page().runJavaScript("JSON.stringify(window.fixtureQueries)", queries.append)
+    wait_for(app, lambda: bool(queries))
+    assert json.loads(queries[0]) == ['/aweme/v1/web/user/profile/self/']
     dispose(app, dialog)
 
     dialog = PlatformFollowDialog(provider, defer_login=True)

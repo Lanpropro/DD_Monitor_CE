@@ -57,13 +57,14 @@ def check_endpoints():
         data["userLogo"] = "https://msstatic.com.evil.invalid/avatar.png"
         session.get.return_value = response(text="ddmAccount(" + json.dumps(data) + ")")
         assert huya.account_info(session, lambda: False)["face"] == ""
-        session.get = Mock(return_value=response({"status_code": 0, "data": {
-            "id_str": "9007199254740999", "sec_uid": "fixture-sec", "nickname": "douyin-test", "avatar_thumb": {
+        session.get = Mock(return_value=response({"status_code": 0, "user": {
+            "uid": "9007199254740999", "sec_uid": "fixture-sec", "nickname": "douyin-test", "avatar_thumb": {
                 "url_list": ["https://evil.invalid/a.png", "https://p3.douyinpic.com/a.png"]}}}))
         assert douyin.account_info(session, lambda: False) == {
             "uid": "9007199254740999", "uname": "douyin-test", "face": "https://p3.douyinpic.com/a.png",
             "sec_uid": "fixture-sec"}
-        assert session.get.call_args.args[0] == "https://live.douyin.com/webcast/user/me/"
+        assert session.get.call_args.args[0] == "https://www.douyin.com/aweme/v1/web/user/profile/self/"
+        assert douyin.account_login_url == douyin.follow_login_url
         session.cookies.set("auth-token", "fixture-token", domain=".twitch.tv")
         identity = {"user_id": "456", "client_id": "fixture-client", "login": "twitch-test"}
         user = {"id": "456", "display_name": "Twitch Test",
@@ -78,8 +79,9 @@ def check_endpoints():
             assert provider.account_info(session, lambda: True) == {}
     rejected(huya, [response(text='ddmAccount({"isLogined":false,"uid":123})')])
     rejected(huya, [response(text='evilCallback({"isLogined":true,"uid":123})')])
-    rejected(douyin, [response({"status_code": 20003, "data": {"id_str": "123"}})])
-    rejected(douyin, [response({"status_code": 0, "data": {"id_str": "0"}})])
+    rejected(douyin, [response({"status_code": 20003, "user": {"uid": "123"}})])
+    rejected(douyin, [response({"status_code": 0, "user": {"uid": "0"}})])
+    rejected(douyin, [response({"status_code": 0, "data": {"id_str": "123"}})])
     rejected(twitch, [], cookie_domain="twitch.tv.evil.invalid")
     rejected(twitch, [response(status=401)])
     rejected(twitch, [response({"client_id": "app", "user_id": None})])
@@ -168,6 +170,8 @@ def check_dialogs():
             assert dialog.platform_buttons["bilibili"].property("loggedIn")
             assert theme.PINK in dialog.platform_buttons["bilibili"].styleSheet()
             assert theme.SUCCESS not in dialog.platform_buttons["bilibili"].styleSheet()
+            assert theme.mix(theme.CONTENT, theme.PINK, 0.2) not in dialog.platform_buttons["bilibili"].styleSheet()
+            assert f"background: {theme.CONTENT};" in dialog.platform_buttons["bilibili"].styleSheet()
             dialog.show()
             app.processEvents()
             check_center(dialog)

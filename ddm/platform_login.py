@@ -41,7 +41,7 @@ class PlatformFollowLoader(QThread):
         request = {"done": threading.Event(), "result": None}
         prepared = requests.Request("GET", url, params=kwargs.get("params")).prepare()
         self.browserRequested.emit(prepared.url, request)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 60
         while not request["done"].wait(.1):
             if self._cancelled.is_set() or time.monotonic() > deadline:
                 request["done"].set()
@@ -62,11 +62,13 @@ class PlatformFollowLoader(QThread):
         try:
             with requests.Session() as session:
                 session.cookies.update(self.cookies)
-                if not self.login_only and getattr(self.platform, "follow_browser_url", ""):
+                if getattr(self.platform, "follow_browser_url", ""):
                     get = session.get
-                    browser_url = self.platform.follow_browser_url
+                    browser_urls = self.platform.follow_browser_url
+                    if isinstance(browser_urls, str):
+                        browser_urls = (browser_urls,)
                     session.get = lambda url, **kwargs: (self._browser_get(url, **kwargs)
-                        if url == browser_url else get(url, **kwargs))
+                        if url in browser_urls else get(url, **kwargs))
                 if callable(getattr(self.platform, "account_info", None)):
                     account = self.platform.account_info(session, self._cancelled.is_set)
                     if not self._cancelled.is_set() and (not isinstance(account, dict) or not account.get("uid")):
@@ -98,7 +100,7 @@ class PlatformFollowDialog(QDialog):
         self._owner = owner if owner is not None else parent
         self._embedded = embedded
         # 只有用户主动导入时才加载浏览器，启动和播放不加载 WebEngine。
-        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
         from PySide6.QtWebEngineWidgets import QWebEngineView
 
         self.platform = platform
@@ -150,6 +152,8 @@ class PlatformFollowDialog(QDialog):
         self._store.cookieAdded.connect(self._on_cookie)
         self._store.cookieRemoved.connect(self._on_cookie_removed)
         self.browser.setPage(QWebEnginePage(profile, self.browser))
+        if platform.kind == "douyin":
+            self.browser.page().settings().setUnknownUrlSchemePolicy(QWebEngineSettings.DisallowUnknownUrlSchemes)
         self.browser.setZoomFactor(.8)
         layout.addWidget(self.browser, 1)
         try:
