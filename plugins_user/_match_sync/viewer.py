@@ -51,6 +51,7 @@ class Canvas(QFrame):
         self.waiting = False
         self.zoom_crop = False
         self.frame_key = None
+        self.frame = None
         self.selecting = selecting
         self.crop = QRectF(0, 0, 1, 1)
         self.anchor = None
@@ -62,6 +63,7 @@ class Canvas(QFrame):
         if key == self.frame_key and (item is not None or self.image.isNull()):
             return
         self.frame_key = key
+        self.frame = item
         self.image = QImage.fromData(item[1]) if item is not None else QImage()
         self.update()
 
@@ -1306,15 +1308,21 @@ class Viewer(QDialog):
             row.refresh_status()
 
     def choose_crop(self, row):
-        latest = row.decoder.history.latest() if row.decoder is not None else None
-        if latest is None:
+        if row.room_id == self.alignment.reference:
+            frame = self.canvas.frame
+        elif self.compare.isChecked() and row.room_id in self.comparison_panel.shown_rooms:
+            frame = self.comparison_panel.cards[row.room_id][2].frame
+        else:
+            frame = (row.decoder.history.frame_at(self.audio.clock() + self.shifts()[row.room_id])
+                     if row.decoder is not None else None)
+        if frame is None:
             self.notice.setText("请先开始观看，收到画面后再选择共同比赛区域")
             return
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{row.label()}：拖选共同比赛区域，尽量避开主播头像和字幕")
         dialog.resize(900, 600)
         canvas = Canvas(selecting=True)
-        canvas.set_frame(latest)
+        canvas.set_frame(frame)
         canvas.crop = QRectF(*row.crop)
         reset = QPushButton("使用整个画面")
         reset.clicked.connect(lambda: (setattr(canvas, "crop", QRectF(0, 0, 1, 1)), canvas.update()))

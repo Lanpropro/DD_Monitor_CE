@@ -91,6 +91,9 @@ def preview_checks(app):
                 image = clock_jpeg(112 - content // 2)
                 row.decoder.history.append(80 + i * .5, image)
                 row.decoder.history.audio.append(array("h", [1000 + content * 200] * RATE).tobytes())
+        with patch.object(module.QDialog, "exec", side_effect=AssertionError("An unseen cache frame must not open selection")):
+            viewer.choose_crop(main)
+        assert viewer.canvas.frame is None
         viewer.show()
         app.processEvents()
         assert viewer.comparison_panel.isHidden() and not viewer.compare.isChecked()
@@ -125,9 +128,13 @@ def preview_checks(app):
         assert "2" not in viewer.alignment.lags, "Automatic matching must not move targets during manual comparison"
         viewer.alignment.lags["2"] = 4.5
         def crop_dialog(dialog):
-            dialog.findChild(module.Canvas).crop = QRectF(.2, .1, .3, .2)
+            selector = dialog.findChild(module.Canvas)
+            assert selector.frame_key == cards["2"][2].frame_key
+            assert selector.image == cards["2"][2].image, "Crop selection must freeze the visible comparison frame"
+            selector.crop = QRectF(.2, .1, .3, .2)
             return QDialog.Accepted
-        with patch.object(module.QDialog, "exec", crop_dialog):
+        with patch.object(module.QDialog, "exec", crop_dialog), \
+                patch.object(late.decoder.history, "latest", side_effect=AssertionError("Latest cache is not the displayed picture")):
             viewer.choose_crop(late)
         assert viewer.alignment.lags["2"] == 4.5, "Changing crop must preserve confirmed alignment"
         assert late.decoder.crop == late.crop == (.2, .1, .3, .2)
@@ -136,6 +143,36 @@ def preview_checks(app):
         viewer.comparison_panel.zoom.setChecked(False)
         viewer.render()
         assert not cards["2"][2].zoom_crop
+        displayed = viewer.canvas.frame
+        main.paused = True
+        viewer.audio.clock = lambda: 105
+        viewer.render()
+        def main_dialog(dialog):
+            selector = dialog.findChild(module.Canvas)
+            assert selector.frame == displayed, "Paused or retained video must use the exact displayed frame"
+            assert selector.image == viewer.canvas.image
+            return QDialog.Rejected
+        with patch.object(module.QDialog, "exec", main_dialog), \
+                patch.object(main.decoder.history, "latest", side_effect=AssertionError("Do not substitute newer live content")):
+            viewer.choose_crop(main)
+            main.paused = False
+            viewer.audio.clock = lambda: 100
+            main.delay.setValue(60)
+            viewer.render()
+            assert viewer.canvas.waiting and viewer.canvas.frame == displayed
+            viewer.choose_crop(main)
+        main.delay.setValue(0)
+        viewer.compare.setChecked(False)
+        expected = late.decoder.history.frame_at(100 + viewer.shifts()["2"])
+        assert expected != late.decoder.history.latest()
+        def hidden_dialog(dialog):
+            assert dialog.findChild(module.Canvas).frame == expected, "Hidden rooms must use the shared playback position"
+            return QDialog.Rejected
+        with patch.object(module.QDialog, "exec", hidden_dialog):
+            viewer.choose_crop(late)
+        viewer.compare.setChecked(True)
+        viewer.render()
+        print("PASS: crop dialog freezes displayed main/comparison frames, retains pause/buffering snapshots, hidden rooms use playback time")
         decoder = main.decoder
         sizes = viewer.body_split.sizes()
         viewer.compare.setChecked(False)
@@ -152,6 +189,7 @@ def preview_checks(app):
         viewer.render()
         assert set(viewer.comparison_panel.cards) == {"1"}
         viewer.remove_room("1")
+        assert viewer.canvas.frame is None, "Removing every room must release the retained snapshot"
         assert all(card[2].image.isNull() for card in viewer.comparison_panel.cards.values())
         viewer.close()
         host.close()
