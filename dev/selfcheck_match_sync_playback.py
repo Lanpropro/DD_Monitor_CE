@@ -92,6 +92,7 @@ def main():
             viewer.rows["1"].delay.setValue(0)
             viewer.rows["2"].delay.setValue(-4)
             viewer.automatic.setChecked(False)
+            viewer.automatic.setChecked(True)  # Exercise the unlocked recovery policy separately.
             del viewer.audio.clock
             with patch.object(module.time, "monotonic", return_value=120):
                 for key, row in viewer.rows.items():
@@ -174,6 +175,9 @@ def main():
                     row.decoder.history.frames.clear()
                     for stamp in range(200, 211):
                         row.decoder.history.append(stamp, image)
+                viewer.locked_clock = None
+                viewer.sync_waiting = False
+                viewer.audio.correction = 0
                 viewer.render()
                 row = viewer.rows["2"]
                 row.chat.events.message.emit({"text": "斗鱼时间轴弹幕"})
@@ -181,6 +185,9 @@ def main():
                 viewer._reset(row, row.decoder)
                 assert row.pending, "Video reconnect must preserve independent chat messages"
             with patch.object(module.time, "monotonic", return_value=240.5):
+                for row in viewer.rows.values():
+                    row.decoder.history.append(210.5, image)
+                    row.decoder.last_frame_received = 240.5
                 viewer.render()
                 assert viewer.panel._blocks[-1]["text"] == "斗鱼时间轴弹幕"
             assert [row.decoder for row in viewer.rows.values()] == decoders[:2]

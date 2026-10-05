@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.17"
+        assert manager.catalog()[0]["version"] == "0.1.18"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -256,6 +256,8 @@ def package_and_ui_checks(app):
             assert host.players[participating].muted and not host.players[unrelated].muted
             assert participating.room["muted"] is False and participating.muted is False
             clock[0] = 104
+            for row in (row_a, row_b):
+                row.decoder.history.append(103, image)
             viewer.render()
             entry = viewer.panel._blocks[-1]
             assert entry["uname"] == "【主播甲】 A" and not entry["medal"]
@@ -306,6 +308,7 @@ def package_and_ui_checks(app):
             assert all(empty.pixelColor(x, y).name() == "#101216"
                        for x in range(0, empty.width(), 8) for y in range(0, empty.height(), 8)), "Buffering must not show the empty-room instruction"
             row_b.decoder.history.append(clock[0] + viewer.shifts()["2"], image)
+            row_b.decoder.history.append(clock[0] + viewer.shifts()["2"] + .3, image)
             viewer.render()
             assert not viewer.canvas.waiting and not viewer.picture._buffering
             assert viewer.picture.spinner.isHidden()
@@ -615,14 +618,18 @@ def embedded_checks(app):
             viewer.picture.pause_button.click()
             assert row.paused and row.volume.value() == 67 and row.channel.currentData() == 4
             viewer.picture.pause_button.click()
-            row.delay.setValue(1.5)
             clock[0] = 100
-            for timestamp in range(94, 101):
-                row.decoder.history.append(timestamp, jpeg())
+            for active in viewer.rows.values():
+                active.decoder.history.frames.clear()
+                for timestamp in range(94, 101):
+                    active.decoder.history.append(timestamp, jpeg())
+            row.delay.setValue(1.5)
             row.pending.append((99, {"uname": "观众", "text": "跨平台延后"}))
             viewer.render()
             assert viewer.canvas.frame_key == 96 and len(row.pending) == 1
             clock[0] = 103
+            for active in viewer.rows.values():
+                active.decoder.history.append(104, jpeg())
             viewer.render()
             entry = viewer.panel._blocks[-1]
             assert entry["uname"] == f"【{alias}】 观众" and not entry["medal"]

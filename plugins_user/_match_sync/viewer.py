@@ -185,7 +185,8 @@ class AudioPump(QObject):
             clock = self.anchor + self.written / RATE + self.correction
             inputs = []
             for room_id, row in self.viewer.rows.items():
-                if row.decoder is not None and row.audible.isChecked() and not row.paused:
+                if (row.decoder is not None and row.audible.isChecked() and not row.paused
+                        and not self.viewer.sync_waiting):
                     pcm = row.decoder.history.pcm_at(clock + shifts[room_id], frames)
                     pcm = route_pcm_s16_stereo(pcm, row.channel.currentData())
                     inputs.append((pcm, row.volume.value()))
@@ -302,7 +303,7 @@ class ComparisonPanel(QFrame):
                 frame = row.decoder.history.frame_at(clock + shifts[room_id]) if row.decoder else None
                 if frame is not None:
                     canvas.set_frame(frame)
-                canvas.waiting = frame is None
+                canvas.waiting = frame is None or self.viewer.sync_waiting
             canvas.update()
             relative = shifts[room_id] - shifts.get(reference, 0)
             position = ("主画面基准" if room_id == reference else
@@ -527,6 +528,8 @@ class Viewer(QDialog):
         self.alignment = Alignment()
         self.generation = 0
         self.matching = False
+        self.locked_clock = None
+        self.sync_waiting = False
         self.suppressed = {}
         self.embedded = False
         self.hidden_host_widgets = {}
@@ -540,6 +543,7 @@ class Viewer(QDialog):
         self.main.setFixedWidth(180)
         self.main.currentIndexChanged.connect(self._main_changed)
         self.automatic = QCheckBox("自动对齐比赛画面")
+        self.automatic.setToolTip("手动修改偏移会锁定相对时间；重新勾选可解除锁定并恢复自动对齐。")
         self.automatic.setChecked(context.setting("automatic", True))
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
@@ -792,6 +796,15 @@ class Viewer(QDialog):
 
     def _delay_changed(self, *_args):
         key = next((key for key, row in self.rows.items() if row.delay is self.sender()), "")
+        if not self.alignment.automatic and not self.alignment.manual_locked:
+            self.alignment.lags = {self.alignment.reference: 0}
+        self.alignment.manual_locked = True
+        self.automatic.setChecked(False)
+        self.alignment.candidates.clear()
+        self.locked_clock = None
+        for row in self.rows.values():
+            row.match_text = "手动时间已锁定；勾选自动对齐可解除"
+            row.refresh_status()
         self.show_comparison(key)
         self.generation += 1
         self.changed()
@@ -901,7 +914,8 @@ class Viewer(QDialog):
             self.generation += 1
             self.canvas.frame_key = None
             for key, row in self.rows.items():
-                row.match_text = "主画面基准" if key == selected else "等待重新确认"
+                row.match_text = ("手动时间已锁定；勾选自动对齐可解除" if self.alignment.manual_locked else
+                                  "主画面基准" if key == selected else "等待重新确认")
                 row.refresh_status()
         self.sync_picture()
         self.changed()
@@ -982,7 +996,8 @@ class Viewer(QDialog):
         self._stop_row(row)
         self.sources.pop(row.room_id, None)
         self._start_row(row)
-        self.alignment.lags = {self.alignment.reference: 0}
+        if not self.alignment.manual_locked:
+            self.alignment.lags = {self.alignment.reference: 0}
         self.alignment.candidates.clear()
         self.generation += 1
         self.canvas.set_frame(None)
@@ -1029,6 +1044,16 @@ class Viewer(QDialog):
 
     def _automatic_changed(self, *_args):
         self.alignment.automatic = self.automatic.isChecked()
+        if self.alignment.automatic:
+            if self.alignment.manual_locked:
+                for key, row in self.rows.items():
+                    row.match_text = "主画面基准" if key == self.alignment.reference else "等待重新确认"
+                    row.refresh_status()
+            self.alignment.manual_locked = False
+            self.sync_waiting = False
+            self.locked_clock = None
+            self.alignment.candidates.clear()
+            self.generation += 1
         self.changed()
 
     def remove_room(self, room_id):
@@ -1061,7 +1086,10 @@ class Viewer(QDialog):
             return
         self.running = True
         self.generation += 1
-        self.alignment.lags = {self.alignment.reference: 0}
+        if not self.alignment.manual_locked:
+            self.alignment.lags = {self.alignment.reference: 0}
+        self.locked_clock = None
+        self.sync_waiting = False
         self.alignment.candidates.clear()
         self.panel.set_status("多房间弹幕")
         for row in self.rows.values():
@@ -1074,6 +1102,8 @@ class Viewer(QDialog):
 
     def _start_row(self, row):
         row.paused = False
+        if self.alignment.manual_locked:
+            row.match_text = "手动时间已锁定；勾选自动对齐可解除"
         row.pending.clear()
         row.actual_quality = 0
         seed = dict(self.sources.get(row.room_id) or {})
@@ -1144,7 +1174,8 @@ class Viewer(QDialog):
 
     def _reset(self, row, worker):
         if self._valid(row, worker):
-            self.alignment.lags = {self.alignment.reference: 0}
+            if not self.alignment.manual_locked:
+                self.alignment.lags = {self.alignment.reference: 0}
             self.alignment.candidates.clear()
             self.generation += 1
 
@@ -1171,11 +1202,34 @@ class Viewer(QDialog):
         for key, row in self.rows.items():
             decoder = row.decoder
             if (decoder is None or row.paused or
-                    now - getattr(decoder, "last_frame_received", 0) > 3):
+                    (not self.alignment.manual_locked and
+                     now - getattr(decoder, "last_frame_received", 0) > 3)):
                 continue
             bounds = decoder.history.bounds()
             if bounds:
                 ranges.append((bounds[0] - shifts[key], bounds[1] - shifts[key]))
+        if self.alignment.manual_locked and active:
+            lower = max((start for start, _end in ranges), default=clock)
+            upper = min((end for _start, end in ranges), default=clock)
+            available = len(ranges) == active and lower <= upper - .25
+            waiting = (not available or clock > upper - .1 or
+                       (self.sync_waiting and self.locked_clock is not None and
+                        upper < self.locked_clock + .25))
+            fresh = all(now - getattr(row.decoder, "last_frame_received", 0) <= 3
+                        for row in self.rows.values() if row.decoder is not None and not row.paused)
+            if (available and fresh and (self.locked_clock is None or clock > upper + 1)
+                    and (self.locked_clock is None or upper >= self.locked_clock + .25)):
+                recovered = min(max(clock, lower + .1), upper - .25)
+                waiting = False
+            elif waiting:
+                recovered = (self.locked_clock if self.locked_clock is not None else
+                             min(clock, upper - .25) if available else clock)
+            else:
+                recovered = lower + .1 if clock < lower else clock
+            self.sync_waiting = waiting
+            self.locked_clock = recovered
+            self.audio.correction += recovered - clock
+            return recovered
         if ranges:
             lower = max(start for start, _end in ranges)
             upper = min(end for _start, end in ranges)
@@ -1225,8 +1279,10 @@ class Viewer(QDialog):
             frame = row.decoder.history.frame_at(clock + shifts[row.room_id])
             if frame is not None:
                 self.canvas.set_frame(frame)
-            self._show_buffering(frame is None)
-            if frame is None:
+            self._show_buffering(frame is None or self.sync_waiting)
+            if self.sync_waiting:
+                self.notice.setText("手动时间已锁定，等待各路播放缓存恢复；相对偏移保持不变")
+            elif frame is None:
                 bounds = row.decoder.history.bounds()
                 target = clock + shifts[row.room_id]
                 if bounds and target < bounds[0]:
@@ -1383,6 +1439,8 @@ class Viewer(QDialog):
             self.fullscreen_dialog.close()
         self._stop_recording()
         self.running = False
+        self.sync_waiting = False
+        self.locked_clock = None
         self.generation += 1
         self.render_timer.stop()
         self.match_timer.stop()

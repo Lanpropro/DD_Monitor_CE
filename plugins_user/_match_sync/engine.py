@@ -193,6 +193,7 @@ class Alignment:
         self.lags: dict[str, float] = {}
         self.candidates: dict[str, tuple[float, int]] = {}
         self.automatic = True
+        self.manual_locked = False
 
     def select_reference(self, room_id: str) -> None:
         origin = self.lags.get(room_id, 0)
@@ -202,6 +203,8 @@ class Alignment:
         self.candidates.clear()
 
     def accept(self, room_id: str, match: Match) -> bool:
+        if self.manual_locked:
+            return False
         if match.lag is None or not math.isfinite(match.lag):
             self.candidates.pop(room_id, None)
             return False
@@ -214,7 +217,7 @@ class Alignment:
         return False
 
     def shifts(self, delays: dict[str, float]) -> dict[str, float]:
-        lags = self.lags if self.automatic else {}
+        lags = self.lags if self.automatic or self.manual_locked else {}
         positions = {key: lags.get(key, 0) - delay for key, delay in delays.items()}
         slowest = max([0.0] + [lags.get(key, 0) for key in delays] + list(positions.values()))
         # The slowest source stays at least two seconds behind its decoder.
