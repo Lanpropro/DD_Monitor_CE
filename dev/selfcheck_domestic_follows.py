@@ -135,13 +135,10 @@ def check_douyin():
         assert provider.follow_rooms(session, lambda: True) == []
 
 
-def check_browser():
-    QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
-    app = QApplication([])
+def check_browser(app):
     provider = DouyinPlatform()
-    payload = {"status_code": 0, "followings": [{"uid": "101", "web_rid": "1001", "nickname": "Fixture"}],
-               "has_more": 0}
-    dialog = PlatformFollowDialog(provider, defer_login=True)
+    payload = {"status_code": 0, "user": {"uid": "42", "sec_uid": "fixture-sec", "nickname": "Fixture"}}
+    dialog = PlatformFollowDialog(provider, login_only=True, defer_login=True)
     assert dialog.browser.page().settings().unknownUrlSchemePolicy() == QWebEngineSettings.DisallowUnknownUrlSchemes
     loaded = []
     dialog.browser.loadFinished.connect(loaded.append)
@@ -155,9 +152,6 @@ def check_browser():
                         window.fixtureStarted = true;
                         window.fixtureQuery = {path, params, options};
                         (window.fixtureQueries ||= []).push(path);
-                        if (path === '/aweme/v1/web/user/profile/self/') return {
-                            status_code: 0, user: {uid: '42', sec_uid: 'fixture-sec', nickname: 'Fixture'}
-                        };
                         %s
                     }}
                 };
@@ -170,44 +164,28 @@ def check_browser():
             }, 150);
         </script>""" % action
     html = official_client("return " + json.dumps(payload) + ";")
-    dialog.browser.setHtml(html, QUrl("https://www.douyin.com/follow"))
+    dialog.browser.setHtml(html, QUrl("https://www.douyin.com/user/self"))
     wait_for(app, lambda: bool(loaded))
     assert loaded[-1]
     with patch.object(requests.Session, "get", side_effect=AssertionError("Signed request left browser")):
         dialog._read()
         wait_for(app, lambda: dialog._worker is None)
-    assert dialog.rooms[0]["room_id"] == "douyin:1001"
+    assert not dialog.rooms
     assert dialog.account["uid"] == "42"
     query = []
     dialog.browser.page().runJavaScript("JSON.stringify(window.fixtureQuery)", query.append)
     wait_for(app, lambda: bool(query))
     captured = json.loads(query[0])
-    assert captured["path"] == "/aweme/v1/web/user/following/list/"
+    assert captured["path"] == "/aweme/v1/web/user/profile/self/"
     assert captured["params"]["channel"] == "channel_pc_web"
-    assert captured["params"]["user_id"] == "42" and captured["options"]["timeout"] == 12000
-    assert captured["params"]["sec_user_id"] == "fixture-sec"
+    assert captured["options"]["timeout"] == 12000
     dispose(app, dialog)
 
     dialog = PlatformFollowDialog(provider, login_only=True, defer_login=True)
-    loaded = []
-    dialog.browser.loadFinished.connect(loaded.append)
-    dialog.browser.setHtml(html, QUrl("https://www.douyin.com/follow"))
-    wait_for(app, lambda: bool(loaded))
-    with patch.object(requests.Session, "get", side_effect=AssertionError("Login bypassed official browser")):
-        dialog._read()
-        wait_for(app, lambda: dialog._worker is None)
-    assert dialog.account["uid"] == "42" and not dialog.rooms
-    queries = []
-    dialog.browser.page().runJavaScript("JSON.stringify(window.fixtureQueries)", queries.append)
-    wait_for(app, lambda: bool(queries))
-    assert json.loads(queries[0]) == ['/aweme/v1/web/user/profile/self/']
-    dispose(app, dialog)
-
-    dialog = PlatformFollowDialog(provider, defer_login=True)
     loaded, started, failures = [], [], []
     dialog.browser.loadFinished.connect(loaded.append)
     dialog.readFailed.connect(failures.append)
-    dialog.browser.setHtml(official_client("return new Promise(() => {});"), QUrl("https://www.douyin.com/follow"))
+    dialog.browser.setHtml(official_client("return new Promise(() => {});"), QUrl("https://www.douyin.com/user/self"))
     wait_for(app, lambda: bool(loaded))
     assert loaded[-1]
     with patch.object(requests.Session, "get", side_effect=AssertionError("Cancelled request left browser")):
@@ -221,11 +199,11 @@ def check_browser():
     assert not dialog.rooms and not failures
     dispose(app, dialog)
 
-    dialog = PlatformFollowDialog(provider, defer_login=True)
+    dialog = PlatformFollowDialog(provider, login_only=True, defer_login=True)
     loaded, failures = [], []
     dialog.browser.loadFinished.connect(loaded.append)
     dialog.readFailed.connect(failures.append)
-    dialog.browser.setHtml(official_client("throw new Error('Verification required');"), QUrl("https://www.douyin.com/follow"))
+    dialog.browser.setHtml(official_client("throw new Error('Verification required');"), QUrl("https://www.douyin.com/user/self"))
     wait_for(app, lambda: bool(loaded))
     with patch.object(requests.Session, "get", side_effect=AssertionError("Failed request left browser")):
         dialog._read()
@@ -237,5 +215,8 @@ def check_browser():
 if __name__ == "__main__":
     check_huya()
     check_douyin()
-    check_browser()
+    QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
+    app = QApplication([])
+    app.setQuitOnLastWindowClosed(False)
+    check_browser(app)
     print("PASS: Huya WUP/all follows/profile IDs, Douyin live/offline pagination, dedup/expiry/cancel and WebEngine signed-request bridge")

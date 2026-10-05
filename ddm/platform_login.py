@@ -47,6 +47,10 @@ class PlatformFollowLoader(QThread):
                 request["done"].set()
                 raise RuntimeError("抖音关注读取已取消或超时，请稍后重试")
         result = request["result"]
+        if isinstance(result, dict) and result.get("error") == "follow_panel_not_found":
+            raise RuntimeError("请在官网个人页点开数字旁的「关注」列表，再点击「读取关注」")
+        if isinstance(result, dict) and result.get("error") == "follow_page_timeout":
+            raise RuntimeError("官网关注列表没有加载完成，请完成页面验证后重试")
         if not isinstance(result, dict) or result.get("error"):
             raise RuntimeError("抖音关注读取失败，请在官方页面完成登录或验证后重试")
         response = requests.Response()
@@ -100,7 +104,7 @@ class PlatformFollowDialog(QDialog):
         self._owner = owner if owner is not None else parent
         self._embedded = embedded
         # 只有用户主动导入时才加载浏览器，启动和播放不加载 WebEngine。
-        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
+        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineSettings
         from PySide6.QtWebEngineWidgets import QWebEngineView
 
         self.platform = platform
@@ -152,6 +156,14 @@ class PlatformFollowDialog(QDialog):
         self._store.cookieAdded.connect(self._on_cookie)
         self._store.cookieRemoved.connect(self._on_cookie_removed)
         self.browser.setPage(QWebEnginePage(profile, self.browser))
+        if getattr(platform, "follow_browser_init_script", ""):
+            script = QWebEngineScript()
+            script.setName("ddm-follow-list")
+            script.setInjectionPoint(QWebEngineScript.DocumentCreation)
+            script.setWorldId(QWebEngineScript.MainWorld)
+            script.setRunsOnSubFrames(False)
+            script.setSourceCode(platform.follow_browser_init_script)
+            self.browser.page().scripts().insert(script)
         if platform.kind == "douyin":
             self.browser.page().settings().setUnknownUrlSchemePolicy(QWebEngineSettings.DisallowUnknownUrlSchemes)
         self.browser.setZoomFactor(.8)
@@ -235,10 +247,12 @@ class PlatformFollowDialog(QDialog):
         # 使用官网请求客户端；不会导出浏览器存储或登录令牌。
         script = getattr(self.platform, "follow_browser_script", "")
         if script:
-            page.runJavaScript("""window.__ddmFollowResult = null;
+            page.runJavaScript("""window.__ddmFollowResult = null; window.__ddmFollowCancelled = false;
                 Promise.resolve().then(() => (%s)(%s))
                     .then(data => { window.__ddmFollowResult = {status: 200, text: JSON.stringify(data)}; })
-                    .catch(() => { window.__ddmFollowResult = {error: 'request failed'}; });
+                    .catch(error => { window.__ddmFollowResult = {error:
+                        ['follow_panel_not_found', 'follow_page_timeout'].includes(error.message)
+                            ? error.message : 'request failed'}; });
                 """ % (script, json.dumps(url)))
         else:
             page.runJavaScript("""window.__ddmFollowResult = null;
@@ -327,6 +341,8 @@ class PlatformFollowDialog(QDialog):
             return
         if self._worker is not None:
             self._pending_done = result
+            if getattr(self.platform, "follow_browser_init_script", ""):
+                self.browser.page().runJavaScript("window.__ddmFollowCancelled = true")
             self._worker.cancel()
             self.status.setText("正在结束当前请求…")
             return

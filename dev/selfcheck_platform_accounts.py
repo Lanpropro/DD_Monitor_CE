@@ -245,6 +245,8 @@ def check_dialogs():
                     dialog = AccountPlatformDialog(owner, owner._follow_platforms(),
                                                    import_follows=True, platform_kind=kind)
                     page = dialog._platform_pages[kind]
+                    if kind == "douyin":
+                        assert dialog.page is page and not page.isHidden()
                     wait_for(app, lambda: page._worker is None)
                     assert dialog.platform_buttons[kind].property("loggedIn")
                     assert dialog.platform_buttons[kind].text() == provider.label

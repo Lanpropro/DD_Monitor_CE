@@ -157,6 +157,7 @@ class Platform:
     account_login_notice = ""  # 可选：尚未接入登录的平台展示说明，不创建登录浏览器。
     follow_browser_url = ""  # 可选：需要官网浏览器签名的 GET 接口（字符串或元组），包括账号确认。
     follow_browser_script = ""  # 可选：官网请求函数 (url) => Promise<JSON>，只返回接口响应。
+    follow_browser_init_script = ""  # 可选：页面创建时安装官网列表响应监听，读取时保持页面可见。
 
     def follow_rooms(self, session, cancelled) -> list[dict]:
         """可选：后台用授权会话读取关注；每页检查 cancelled，失败抛异常。"""

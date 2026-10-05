@@ -199,7 +199,11 @@ class AccountPlatformDialog(QDialog):
                 page.readFailed.connect(lambda _reason, p=page: self._platform_failed(p))
                 self._platform_pages[kind] = page
                 if auto_read:
-                    self._show_loading(f"读取 {self.providers[kind].label}关注")
+                    if getattr(self.providers[kind], "follow_browser_init_script", ""):
+                        self._set_page(page)
+                        page.status.setText("正在读取官网关注列表；如出现验证，请在页面内完成")
+                    else:
+                        self._show_loading(f"读取 {self.providers[kind].label}关注")
                     page._read()
                     return
             else:
