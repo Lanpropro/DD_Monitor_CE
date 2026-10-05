@@ -30,6 +30,7 @@ from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
+from .fullscreen_quality import FullscreenQuality
 from .audio_output import linear_to_vlc_volume, refresh_output_devices
 from .danmaku import DanmakuClient
 from .bili import (
@@ -136,6 +137,7 @@ class MainWindow(QMainWindow):
         self._fullscreen_tile: Tile | None = None
         self._fullscreen_cursor = FullscreenCursor(self)
         self._fullscreen_audio_saved: dict[Tile, bool] = {}
+        self._fullscreen_quality = FullscreenQuality(self)
         self._fullscreen_was_maximized = False
         self._native_fullscreen_state = None
         self._fullscreen_saved_geometry = None
@@ -538,6 +540,7 @@ class MainWindow(QMainWindow):
         decode_before = self.settings.get("decode_mode", "auto")
         self.settings.update(dialog.settings())
         self._sync_fullscreen_audio()
+        self._fullscreen_quality.sync()
         self.shortcuts = dialog.shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
@@ -619,7 +622,7 @@ class MainWindow(QMainWindow):
                     "muted": self._fullscreen_audio_saved.get(tile, bool(tile.muted)),
                     # 音量属于格子；即使格子为空也要保存，重启后继续沿用。
                     "volume": int(tile.volume),
-                    "quality": int(tile.quality),
+                    "quality": self._fullscreen_quality.original(tile),
                     "audio_channel": int(tile.audio_channel),
                 }
                 for tile in self.wall.tiles
@@ -860,7 +863,7 @@ class MainWindow(QMainWindow):
                 continue
             if not str(tile.room["room_id"]).isdigit():
                 continue                  # 原画/720P 策略仅适用于 B 站，插件沿用本平台手选档位
-            if tile in self._capture_quality:
+            if tile in self._capture_quality or tile in self._fullscreen_quality.saved:
                 continue
             target = 10000 if index == main else 250
             if tile.quality != target:
@@ -1888,6 +1891,7 @@ class MainWindow(QMainWindow):
         self._fullscreen_saved_geometry = self.saveGeometry()
         self._fullscreen_tile = tile
         self._sync_fullscreen_audio()
+        self._fullscreen_quality.sync()
         self.centralWidget().setUpdatesEnabled(False)
         try:
             self.sidebar.hide()
@@ -1943,6 +1947,7 @@ class MainWindow(QMainWindow):
             self._apply_orientation()
         self._sync_restore_geometry()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
+        self._fullscreen_quality.sync()
         self._refresh_meta()
         self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
 
@@ -2089,6 +2094,7 @@ class MainWindow(QMainWindow):
         room_id, before = previous
         if str(tile.room.get("room_id") or "") != room_id:
             return
+        before = self._fullscreen_quality.capture_released(tile, room_id, before)
         if before != tile.quality:
             blocked = tile.blockSignals(True)
             try:

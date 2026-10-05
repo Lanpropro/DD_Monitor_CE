@@ -59,6 +59,7 @@ class GeneralSettingsPage(QWidget):
         ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
         ("default_muted", "新建格子的初始静音状态"),
         ("fullscreen_solo_audio", "全屏时只播放该路声音，退出后恢复原静音状态"),
+        ("fullscreen_original_quality", "全屏时切换原画，退出后恢复原画质（B站）"),
         ("sidebar_card_mode", "关注列表使用大封面卡片（关闭后为头像＋文字列表）"),
         ("sidebar_auto_compact", "关注较多时自动切换为紧凑列表"),
         ("preview_on_hover", "鼠标停在关注列表的直播上 1 秒，缩略图里直接播放静音预览"),
