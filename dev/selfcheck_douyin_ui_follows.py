@@ -18,10 +18,12 @@ import requests
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.account_dialog import AccountPlatformDialog
+from ddm.dialogs import FollowImportDialog
 from ddm.platform_login import PlatformFollowDialog
 from plugins_user.domestic_live.plugin import DouyinPlatform
 from dev.selfcheck_platform_follows import wait_for
 from dev.selfcheck_account_dialog import dispose
+from dev.selfcheck_live_platforms import dy_page
 
 HTML = """<!doctype html><meta charset="utf-8">
 <nav><a onclick="window.navigated=true"><div><div>关注1</div></div></a></nav>
@@ -29,6 +31,15 @@ HTML = """<!doctype html><meta charset="utf-8">
 <button onclick="openPanel()">3关注</button>
 <script>
 const mode = '__MODE__';
+if (mode === 'profile_counter') {
+    const counter = document.querySelector('button[onclick="openPanel()"]');
+    counter.dataset.e2e = 'user-info-follow';
+    counter.innerHTML = '关注3<span>1人正在直播</span>';
+    const menuCounter = document.createElement('p');
+    menuCounter.textContent = '关注3';
+    menuCounter.onclick = () => { window.navigated = true; };
+    counter.before(menuCounter);
+}
 function endpoint(uid, offset) {
     return '/aweme/v1/web/user/following/list/?user_id=' + uid + '&offset=' + offset +
         '&min_time=' + (offset ? 100 : 0) + '&max_time=0';
@@ -46,6 +57,7 @@ function openPanel() {
             avatarUri:'https://p3.douyinpic.com/a.png',
             roomData:{status:2, title:'Live fixture', owner:{web_rid:'1001'}, stream_url:'must-not-export'}};
         const second = {uid:'102', nickname:'Offline', roomData:{web_rid:'1002', status:4}};
+        if (mode === 'rendered_resolve') {first.roomData = {}; second.roomData = {};}
         const props = {userList:[first], isSelf:true, activeTab:0, searchVal:'',
             currentUserInfo:{uid:mode === 'rendered_other' ? '999' : '42'},
             refIsLoadingShow:{current:true}, refNoMoreText:{current:''}};
@@ -71,7 +83,7 @@ function openPanel() {
         panel.addEventListener('scroll', () => {
             clearTimeout(timer);
             timer = setTimeout(() => {
-                if (mode === 'rendered' || mode === 'rendered_fiber') render([first, second], true);
+                if (mode === 'rendered' || mode === 'rendered_fiber' || mode === 'rendered_resolve') render([first, second], true);
             }, 250);
         });
         return;
@@ -157,8 +169,8 @@ def main():
     provider.follow_login_url = f'http://127.0.0.1:{server.server_port}/user/self'
     provider.account_info = Mock(return_value={'uid': '42', 'uname': 'Fixture'})
     try:
-        for mode in ('normal', 'empty', 'error', 'second_error', 'no_panel', 'pending',
-                     'rendered', 'rendered_fiber', 'rendered_empty', 'rendered_other',
+        for mode in ('normal', 'profile_counter', 'empty', 'error', 'second_error', 'no_panel', 'pending',
+                     'rendered', 'rendered_fiber', 'rendered_resolve', 'rendered_empty', 'rendered_other',
                      'rendered_fans', 'rendered_search', 'rendered_stall', 'rendered_invalid_empty', 'rendered_pending'):
             state.update(mode=mode, requests=[])
             provider.follow_browser_init_script = DouyinPlatform.follow_browser_init_script.replace(
@@ -172,7 +184,34 @@ def main():
             dialog.show()
             wait_for(app, lambda: bool(loaded))
             assert loaded[-1]
-            with patch.object(requests.Session, 'get', side_effect=AssertionError('Software sent follow API request')):
+            def room_lookup(url, **kwargs):
+                assert mode == 'rendered_resolve' and url == 'https://live.douyin.com/webcast/room/info_by_user/'
+                uid = kwargs['params']['user_id']
+                assert uid in ('101', '102')
+                response = requests.Response()
+                response.status_code = 200
+                response._content = json.dumps({'status_code': 0, 'data': {
+                    'id_str': '9' + uid, 'owner_user_id': int(uid)}}).encode()
+                return response
+            def share_page(url, **kwargs):
+                if url in ('https://live.douyin.com/1001', 'https://live.douyin.com/1002'):
+                    response = requests.Response()
+                    response.status_code = 200
+                    response._content = dy_page(status=2 if url.endswith('1001') else 4).encode()
+                    return response
+                assert mode == 'rendered_resolve' and url.startswith('https://webcast.amemv.com/webcast/reflow/9')
+                assert 'cookies' not in kwargs
+                uid = url.rsplit('/', 1)[-1][1:]
+                room = {'idStr': '9' + uid, 'status': 2 if uid == '101' else 4,
+                    'title': 'Resolved ' + uid, 'owner': {'idStr': uid,
+                        'webRid': '1001' if uid == '101' else '1002'}}
+                response = requests.Response()
+                response.status_code = 200
+                chunk = '5:' + json.dumps(['$', '$L7', None, {'data': {'room': room}}])
+                response._content = ('<script>self.__rsc_f.push([1,' + json.dumps(chunk) + '])</script>').encode()
+                return response
+            with patch.object(requests.Session, 'get', side_effect=room_lookup), patch.object(
+                    requests, 'get', side_effect=share_page):
                 dialog._read()
                 if mode in ('pending', 'rendered_pending'):
                     started = []
@@ -182,16 +221,24 @@ def main():
                     wait_for(app, request_started)
                     dialog.reject()
                 wait_for(app, lambda: dialog._worker is None)
-            if mode in ('normal', 'rendered', 'rendered_fiber'):
+            if mode in ('normal', 'profile_counter', 'rendered', 'rendered_fiber', 'rendered_resolve'):
                 assert [room['room_id'] for room in dialog.rooms] == ['douyin:1001', 'douyin:1002']
                 assert dialog.rooms[0]['live'] and not dialog.rooms[1]['live']
-                if mode == 'normal':
-                    assert not dialog.rooms[1]['live_known']
+                if mode in ('normal', 'profile_counter'):
+                    assert dialog.rooms[1]['live_known']
                     assert state['requests'] == [('999', '0'), ('42', '0'), ('42', '1')]
                 else:
                     assert not state['requests']
                     assert dialog.rooms[0]['uname'] == 'Remark'
                     assert dialog.rooms[0]['face'] == 'https://p3.douyinpic.com/a.png'
+                    if mode == 'rendered_resolve':
+                        assert all(room['live_known'] for room in dialog.rooms)
+                        assert dialog.rooms[1]['uname'] == 'Offline' and dialog.rooms[1]['title'] == 'Resolved 102'
+                        selection = FollowImportDialog(dialog.rooms, set())
+                        assert '未开播' in selection.list.item(1).text()
+                        selection._check_live()
+                        assert [r['room_id'] for r in selection.selected()] == ['douyin:1001']
+                        dispose(app, selection)
                 result = []
                 dialog.browser.page().runJavaScript('JSON.stringify(window.__ddmFollowResult)', result.append)
                 wait_for(app, lambda: bool(result))
@@ -270,8 +317,9 @@ def main():
                         return true;
                     })()''', ready.append)
                     wait_for(app, lambda: bool(ready))
-                    page.read_button.click()
-                    wait_for(app, lambda: page._worker is None)
+                    with patch.object(requests, 'get', side_effect=share_page):
+                        page.read_button.click()
+                        wait_for(app, lambda: page._worker is None)
                     assert [r['room_id'] for r in dialog.page.rooms] == ['douyin:1001']
             dispose(app, dialog)
         owner.deleteLater()

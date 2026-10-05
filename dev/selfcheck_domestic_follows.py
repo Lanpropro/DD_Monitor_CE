@@ -19,6 +19,7 @@ from ddm.live_danmaku import tars_bytes, tars_fields, tars_int
 from ddm.platform_login import PlatformFollowDialog
 from ddm.dialogs import FollowImportDialog
 from ddm.widgets import NavItem
+from ddm.plugins import RoomInfo
 from plugins_user.domestic_live.plugin import HuyaPlatform, DouyinPlatform, huya_string
 from dev.selfcheck_account_dialog import dispose
 from dev.selfcheck_platform_follows import wait_for
@@ -146,23 +147,47 @@ def check_huya_import_ui(app, rooms):
 def check_douyin():
     provider = DouyinPlatform()
     provider.account_info = Mock(return_value={"uid": "42", "sec_uid": "fixture-sec"})
+    provider.room_info = Mock(return_value=RoomInfo(room_id='douyin:1001', platform='douyin',
+        uname='Current live', title='Current title', face='https://p3.douyinpic.com/live.png',
+        cover_url='https://p3.douyinpic.com/live-cover.png', live=True))
     live = {"uid": "101", "nickname": "Live", "room_data": json.dumps({
         "status": 2, "title": "Test", "owner": {"web_rid": "1001"}}),
         "avatar_medium": {"url_list": ["https://p3.douyinpic.com/a.png"]}}
     offline = {"uid": "102", "nickname": "Offline"}
     ordinary = {"uid": "103", "nickname": "User"}
-    with requests.Session() as session:
+    def reflow(room=None):
+        response = reply()
+        room = room or {'idStr': '902', 'status': 4, 'title': 'Last live',
+            'cover': {'urlList': ['https://p3.douyinpic.com/cover.png']},
+            'owner': {'idStr': '102', 'webRid': '1002',
+                'avatarThumb': {'urlList': ['https://p3.douyinpic.com/offline.png']}}}
+        chunk = '5:' + json.dumps(['$', '$L7', None, {'data': {'room': room}}])
+        response.text = '<script>self.__rsc_f.push([1,' + json.dumps(chunk) + '])</script>'
+        return response
+
+    with requests.Session() as session, patch('plugins_user.domestic_live.plugin.requests.get',
+            return_value=reflow()) as get_reflow:
         session.get = Mock(side_effect=[
             reply({"status_code": 0, "followings": [live, offline, ordinary], "has_more": 1,
                    "offset": 3, "min_time": 100, "max_time": 0}),
-            reply({"status_code": 0, "data": {"id_str": "102", "web_rid": "1002"}}),
-            reply({"status_code": 0, "data": {"id_str": "103", "web_rid": ""}}),
+            reply({"status_code": 0, "data": {"id_str": "902", "owner_user_id": 102}}),
+            reply({"status_code": 0, "data": {}}),
             reply({"status_code": 0, "followings": [live], "has_more": 0}),
         ])
         rooms = provider.follow_rooms(session, lambda: False)
         assert [r["room_id"] for r in rooms] == ["douyin:1001", "douyin:1002"]
         assert rooms[0]["live"] and rooms[0]["face"].endswith("/a.png")
-        assert not rooms[1]["live_known"]
+        assert rooms[0]['title'] == 'Current title' and rooms[0]['cover_url'].endswith('/live-cover.png')
+        assert rooms[0]['live_known'] and provider.room_info.call_count == 1
+        assert rooms[1]['live_known'] and not rooms[1]['live']
+        assert rooms[1]['uname'] == 'Offline' and rooms[1]['title'] == 'Last live'
+        assert rooms[1]['face'].endswith('/offline.png') and rooms[1]['cover_url'].endswith('/cover.png')
+        assert get_reflow.call_count == 1
+        assert get_reflow.call_args.args == ('https://webcast.amemv.com/webcast/reflow/902',)
+        assert 'cookies' not in get_reflow.call_args.kwargs
+        lookup = session.get.call_args_list[1]
+        assert lookup.args == ('https://live.douyin.com/webcast/room/info_by_user/',)
+        assert lookup.kwargs['params']['user_id'] == '102'
         assert session.get.call_args.kwargs["params"]["min_time"] == 100
         assert session.get.call_args.kwargs["params"]["sec_user_id"] == "fixture-sec"
         for payload in [
@@ -182,6 +207,42 @@ def check_douyin():
             raise AssertionError("Unauthorized follow request accepted")
         session.get = Mock(side_effect=AssertionError("Cancelled request"))
         assert provider.follow_rooms(session, lambda: True) == []
+
+        def lookup_response(data):
+            session.get = Mock(side_effect=[
+                reply({'status_code': 0, 'followings': [offline], 'has_more': 0}), reply(data)])
+        for bad in ({'status_code': 8}, {'status_code': 0, 'data': None},
+                    {'status_code': 0, 'data': {'id_str': '902', 'owner_user_id': 999}}):
+            lookup_response(bad)
+            fails(lambda: provider.follow_rooms(session, lambda: False))
+        lookup = {'status_code': 0, 'data': {'id_str': '902', 'owner_user_id': 102}}
+        for bad_room in ({'idStr': '902', 'status': 4, 'owner': {'idStr': '999', 'webRid': '9999'}},
+                         {'idStr': '903', 'status': 4, 'owner': {'idStr': '102', 'webRid': '1002'}},
+                         {'idStr': '902', 'owner': {'idStr': '102', 'webRid': '1002'}},
+                         {'idStr': '902', 'status': 4, 'owner': {'idStr': '102'}}):
+            lookup_response(lookup)
+            get_reflow.return_value = reflow(bad_room)
+            fails(lambda: provider.follow_rooms(session, lambda: False))
+        lookup_response(lookup)
+        get_reflow.side_effect = requests.Timeout('Fixture share-page timeout')
+        try:
+            provider.follow_rooms(session, lambda: False)
+        except requests.Timeout:
+            pass
+        else:
+            raise AssertionError('Share-page timeout returned an empty import')
+        get_reflow.side_effect = None
+        get_reflow.return_value = reflow({'idStr': '902', 'status': 2,
+            'owner': {'idStr': '102', 'webRid': '1002'}})
+        lookup_response(lookup)
+        assert provider.follow_rooms(session, lambda: False)[0]['live']
+        lookup_response(lookup)
+        cancelled = Mock(return_value=False)
+        def cancel_on_share(*_args, **_kwargs):
+            cancelled.return_value = True
+            return reflow()
+        get_reflow.side_effect = cancel_on_share
+        assert provider.follow_rooms(session, cancelled) == []
 
 
 def check_browser(app):
