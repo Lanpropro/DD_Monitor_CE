@@ -6515,7 +6515,7 @@ class WallGrid(QWidget):
                 else:
                     tile.setVisible(True)
             else:
-                # 布局严格按格子数走：放不下的先隐藏，换成更大的布局再显示
+                # 布局严格按格子数走，放不下的由主窗口停止播放。
                 tile.setVisible(False)
         if self.has_danmaku:
             row, column, rowspan, colspan = cells[self._danmaku_cell]

@@ -513,6 +513,8 @@ class MainWindow(QMainWindow):
                 else:
                     layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
         if layout_id != self.wall.layout_id:
+            if not first:
+                self._clear_expanded_slots(layout_id)
             self.wall.set_layout(layout_id, relayout=False)
             self.sidebar.set_layout_name(layout_id)
         # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
@@ -768,11 +770,23 @@ class MainWindow(QMainWindow):
                 thread.wait()
         self._platform_info_running.clear()
 
+    def _clear_expanded_slots(self, layout_id: str) -> None:
+        current = self.wall._capacity() or len(self.wall.tiles)
+        target = (layouts.capacity(layout_id)
+                  - int(layouts.danmaku_cell(layout_id) is not None)) or len(self.wall.tiles)
+        if target <= current:
+            return
+        # 扩大布局只补空位，先前隐藏的房间不能自动回到画面墙。
+        for tile in self.wall.tiles[current:]:
+            if tile.room.get("room_id"):
+                self._clear_tile_room(tile)
+
     def _prioritize_live_tiles(self, layout_id: str) -> None:
         """缩小布局时，用后面的开播格子填前面的未开播位置。"""
         capacity = layouts.capacity(layout_id) - int(layouts.danmaku_cell(layout_id) is not None)
         tiles = self.wall.tiles
-        if capacity <= 0 or capacity >= len(tiles):
+        if (capacity <= 0 or capacity >= len(tiles)
+                or capacity >= (self.wall._capacity() or len(tiles))):
             return
         live = lambda tile: bool(tile.room.get("room_id") and tile.room.get("live"))
         vacant = [index for index in range(capacity) if not live(tiles[index])]
@@ -799,6 +813,8 @@ class MainWindow(QMainWindow):
     def _on_layout_changed(self, layout_id: str) -> None:
         if layout_id == self.wall.layout_id:
             return
+        self._prioritize_live_tiles(layout_id)
+        self._clear_expanded_slots(layout_id)
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
@@ -811,7 +827,6 @@ class MainWindow(QMainWindow):
             # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
             self._pending_layout = layout_id
             self._reshape_window(want_portrait)
-        self._prioritize_live_tiles(layout_id)
         self.wall.set_layout(layout_id)
         self.wall.relayout(force=True)
         self.sidebar.set_layout_name(self.wall.layout_id)
@@ -1221,7 +1236,7 @@ class MainWindow(QMainWindow):
 
         布局从 9 格换成 6 格时，多出来的格子以前只是 ``setVisible(False)``：播放器
         一步没停，还在解码、**还在出声**（用户报「没显示出来的格子也在响」）。这里
-        把当前布局放不下的停掉；换回大布局、格子重新露出来时再接上。
+        把当前布局放不下的停掉；已选择的可见房间按需起播，新增位置保持空白。
         """
         if not getattr(self, "plugins", None):
             start_visible = False       # 构造期间插件还没装好，不能在这里起流
@@ -2001,17 +2016,20 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
         self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
 
-    def _on_close_tile(self, room: dict) -> None:
-        """关掉这一路，但留下空格子等新的直播间拖进来。"""
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        if tile is None:
-            return
+    def _clear_tile_room(self, tile: Tile) -> None:
         self._pending_capture.pop(tile, None)
         self.recorder.stop(tile)
         self._stop_tile(tile)
         tile.set_room(None)
         if tile not in self.recorder.sessions:
             self._restore_capture_quality(tile)
+
+    def _on_close_tile(self, room: dict) -> None:
+        """关掉这一路，但留下空格子等新的直播间拖进来。"""
+        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
+        if tile is None:
+            return
+        self._clear_tile_room(tile)
         self._refresh_meta()
         print(f"已关闭 {room.get('uname')}，格子已清空")
 

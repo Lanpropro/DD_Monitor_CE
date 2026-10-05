@@ -80,6 +80,11 @@ def main() -> None:
     window._on_layout_changed("corner")
     app.processEvents()
     assert len(window.wall.visible_tiles()) == 6
+    assert all(not tile.room.get("room_id") for tile in window.wall.tiles[3:]), \
+        "扩大布局不能自动填入先前隐藏的房间"
+    # 显式重新放入三个房间，再验证缩小布局和重复选择的原有行为。
+    for tile, room in zip(window.wall.tiles[3:], (rooms[1], rooms[4], rooms[5])):
+        tile.set_room(dict(room))
     order = list(window.wall.tiles)
     window._on_layout_changed("main2")
     app.processEvents()

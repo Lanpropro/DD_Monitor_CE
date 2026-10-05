@@ -95,7 +95,7 @@ def main() -> None:
         assert tile not in window.players, "停播的格子要从 players 表里摘掉"
     assert len(window.players) == 6, f"应该只剩 6 路在播，实际 {len(window.players)}"
 
-    print("\n=== 3. 切回 9 格：重新显示的格子要重新接上 ===")
+    print("\n=== 3. 切回 9 格：新增位置必须为空，不能自动恢复隐藏直播间 ===")
     started = []
     original_start = window.start_tile
     window.start_tile = lambda target: started.append(target)
@@ -104,7 +104,13 @@ def main() -> None:
     window.start_tile = original_start
     print(f"  可见={len(window.wall.visible_tiles())} 重新起播={len(started)}")
     assert window.wall.hidden_count() == 0
-    assert len(started) == 3, f"重新露出来的 3 个格子要重新起播，实际 {len(started)}"
+    assert not started, f"新增空格不应自动起播，实际 {len(started)}"
+    assert [tile.room.get("room_id") for tile in window.wall.tiles[:6]] == [
+        room["room_id"] for room in ROOMS[:6]]
+    assert all(not tile.room.get("room_id") for tile in window.wall.tiles[6:])
+    assert len(window.players) == 6 and all(not stubs[tile].released
+                                          for tile in window.wall.tiles[:6])
+    assert len(window.sidebar.rooms()) == len(ROOMS), "清空新增格子不能删除关注"
 
     window.close()
     settle(app, 0.3)
