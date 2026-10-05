@@ -17,6 +17,8 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from ddm.live_danmaku import tars_bytes, tars_fields, tars_int
 from ddm.platform_login import PlatformFollowDialog
+from ddm.dialogs import FollowImportDialog
+from ddm.widgets import NavItem
 from plugins_user.domestic_live.plugin import HuyaPlatform, DouyinPlatform, huya_string
 from dev.selfcheck_account_dialog import dispose
 from dev.selfcheck_platform_follows import wait_for
@@ -61,7 +63,18 @@ def fails(action):
 def check_huya():
     provider = HuyaPlatform()
     provider.account_info = Mock(return_value={"uid": "42"})
-    with requests.Session() as session:
+    def room_page(url, **_kwargs):
+        rid = url.rsplit('/', 1)[-1]
+        response = reply()
+        response.text = 'var TT_ROOM_DATA = ' + json.dumps({
+            'isOn': rid == '1001', 'introduction': 'Current ' + rid,
+            'screenshot': '//live-cover.msstatic.com/' + rid + '.jpg'}) + '; var TT_PROFILE_INFO = ' + json.dumps({
+            'nick': 'Current ' + rid, 'avatar': 'https://huyaimg.msstatic.com/' + rid + '.png'}) + ';'
+        return response
+
+    with requests.Session() as session, patch('plugins_user.domestic_live.plugin.requests.get',
+            side_effect=room_page) as get_room, patch.object(provider, '_streams',
+            side_effect=AssertionError('Follow status fetched stream URL')):
         session.cookies.set("fixture", "valid", domain=".huya.com")
         session.cookies.set("foreign", "excluded", domain="huya.com.evil.invalid")
         session.post = Mock(side_effect=[
@@ -72,7 +85,13 @@ def check_huya():
         ])
         rooms = provider.follow_rooms(session, lambda: False)
         assert [r["room_id"] for r in rooms] == ["huya:1001", "huya:1002"]
-        assert all(r["platform"] == "huya" and not r["live_known"] for r in rooms)
+        assert all(r["platform"] == "huya" and r["live_known"] for r in rooms)
+        assert rooms[0]['live'] and not rooms[1]['live']
+        assert rooms[0]['title'] == 'Current 1001' and rooms[0]['uname'] == 'Current 1001'
+        assert rooms[0]['cover_url'] == 'https://live-cover.msstatic.com/1001.jpg'
+        assert rooms[0]['face'] == 'https://huyaimg.msstatic.com/1001.png'
+        assert get_room.call_count == 2
+        assert all('cookies' not in call.kwargs for call in get_room.call_args_list)
         assert session.post.call_count == 4
         request = session.post.call_args_list[0].kwargs["data"]
         envelope = tars_fields(request[4:])
@@ -92,6 +111,36 @@ def check_huya():
         session.post = Mock(return_value=wup("getAllSubscribeToUidList", {1: [101]}))
         assert provider.follow_rooms(session, Mock(side_effect=[False, False, True])) == []
         assert session.post.call_count == 1
+        session.post = Mock(side_effect=[wup('getAllSubscribeToUidList', {1: [101, 102]}),
+            wup('getUserProfile', {0: {0: {0: 101}, 1: {10: 1001}}}),
+            wup('getUserProfile', {0: {0: {0: 102}, 1: {10: 1002}}})])
+        get_room.side_effect = [room_page('https://www.huya.com/1001'), requests.Timeout('Fixture status timeout')]
+        fails(lambda: provider.follow_rooms(session, lambda: False))
+        get_room.side_effect = room_page
+        session.post = Mock(side_effect=[wup('getAllSubscribeToUidList', {1: [101]}),
+            wup('getUserProfile', {0: {0: {0: 101}, 1: {10: 1001}}})])
+        cancelled = Mock(return_value=False)
+        original = provider.room_info
+        def cancel_during_status(room_id):
+            info = original(room_id)
+            cancelled.return_value = True
+            return info
+        with patch.object(provider, 'room_info', side_effect=cancel_during_status):
+            assert provider.follow_rooms(session, cancelled) == []
+    return rooms
+
+
+def check_huya_import_ui(app, rooms):
+    dialog = FollowImportDialog(rooms, set())
+    assert '直播中' in dialog.list.item(0).text() and '未开播' in dialog.list.item(1).text()
+    dialog._check_live()
+    selected = dialog.selected()
+    assert len(selected) == 1 and selected[0]['live'] and selected[0]['live_known']
+    items = [NavItem(room, index) for index, room in enumerate(rooms)]
+    assert [item.badge.text() for item in items] == ['直播中', '未开播']
+    for item in items:
+        item.deleteLater()
+    dispose(app, dialog)
 
 
 def check_douyin():
@@ -213,10 +262,11 @@ def check_browser(app):
 
 
 if __name__ == "__main__":
-    check_huya()
+    huya_rooms = check_huya()
     check_douyin()
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    check_huya_import_ui(app, huya_rooms)
     check_browser(app)
-    print("PASS: Huya WUP/all follows/profile IDs, Douyin live/offline pagination, dedup/expiry/cancel and WebEngine signed-request bridge")
+    print("PASS: Huya current live/offline import, card badges/live selection, HTTP failure/cancel; WUP/account IDs; Douyin pagination and WebEngine bridge")
