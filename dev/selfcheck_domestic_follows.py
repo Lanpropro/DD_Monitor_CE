@@ -95,7 +95,7 @@ def check_huya():
 
 def check_douyin():
     provider = DouyinPlatform()
-    provider.account_info = Mock(return_value={"uid": "42"})
+    provider.account_info = Mock(return_value={"uid": "42", "sec_uid": "fixture-sec"})
     live = {"uid": "101", "nickname": "Live", "room_data": json.dumps({
         "status": 2, "title": "Test", "owner": {"web_rid": "1001"}}),
         "avatar_medium": {"url_list": ["https://p3.douyinpic.com/a.png"]}}
@@ -114,6 +114,7 @@ def check_douyin():
         assert rooms[0]["live"] and rooms[0]["face"].endswith("/a.png")
         assert not rooms[1]["live_known"]
         assert session.get.call_args.kwargs["params"]["min_time"] == 100
+        assert session.get.call_args.kwargs["params"]["sec_user_id"] == "fixture-sec"
         for payload in [
             {"status_code": 20003}, {"status_code": 0, "followings": []},
             {"status_code": 0, "followings": [], "has_more": 1, "offset": 0, "min_time": 0, "max_time": 0},
@@ -136,10 +137,27 @@ def check_browser():
     dialog = PlatformFollowDialog(provider, defer_login=True)
     loaded = []
     dialog.browser.loadFinished.connect(loaded.append)
-    html = """<script>window.XMLHttpRequest = class {
-        open(method, url) { window.fixtureURL = url; }
-        send() { this.status=200; this.responseText=%s; this.onload(); }
-    };</script>""" % json.dumps(json.dumps(payload))
+    def official_client(action):
+        return """<script>
+            window.XMLHttpRequest = class { open() { throw new Error('Unsigned XHR'); } };
+            setTimeout(() => {
+                const values = {
+                    101: {COMMON_SEARCH_PARAMS: {channel: 'channel_pc_web'}},
+                    202: {U2: async (path, params, options) => {
+                        window.fixtureStarted = true;
+                        window.fixtureQuery = {path, params, options};
+                        %s
+                    }}
+                };
+                const require = id => values[id];
+                require.m = {
+                    101: function() { /* CHANNEL_PC_WEB:function COMMON_SEARCH_PARAMS:function */ },
+                    202: function() { /* skipCheckCode securitySdkInitWeb withCredentials */ }
+                };
+                window.webpackChunkdouyin_web = {push: chunk => chunk[2](require)};
+            }, 150);
+        </script>""" % action
+    html = official_client("return " + json.dumps(payload) + ";")
     dialog.browser.setHtml(html, QUrl("https://www.douyin.com/follow"))
     wait_for(app, lambda: bool(loaded))
     assert loaded[-1]
@@ -148,16 +166,20 @@ def check_browser():
         wait_for(app, lambda: dialog._worker is None)
     assert dialog.rooms[0]["room_id"] == "douyin:1001"
     assert dialog.account["uid"] == "42"
+    query = []
+    dialog.browser.page().runJavaScript("JSON.stringify(window.fixtureQuery)", query.append)
+    wait_for(app, lambda: bool(query))
+    captured = json.loads(query[0])
+    assert captured["path"] == "/aweme/v1/web/user/following/list/"
+    assert captured["params"]["channel"] == "channel_pc_web"
+    assert captured["params"]["user_id"] == "42" and captured["options"]["timeout"] == 12000
     dispose(app, dialog)
 
     dialog = PlatformFollowDialog(provider, defer_login=True)
     loaded, started, failures = [], [], []
     dialog.browser.loadFinished.connect(loaded.append)
     dialog.readFailed.connect(failures.append)
-    dialog.browser.setHtml("""<script>window.XMLHttpRequest = class {
-        open() {}
-        send() { window.fixtureStarted = true; }
-    };</script>""", QUrl("https://www.douyin.com/follow"))
+    dialog.browser.setHtml(official_client("return new Promise(() => {});"), QUrl("https://www.douyin.com/follow"))
     wait_for(app, lambda: bool(loaded))
     assert loaded[-1]
     with patch.object(requests.Session, "get", side_effect=AssertionError("Cancelled request left browser")):
@@ -169,6 +191,18 @@ def check_browser():
         dialog.reject()
         wait_for(app, lambda: dialog._worker is None)
     assert not dialog.rooms and not failures
+    dispose(app, dialog)
+
+    dialog = PlatformFollowDialog(provider, defer_login=True)
+    loaded, failures = [], []
+    dialog.browser.loadFinished.connect(loaded.append)
+    dialog.readFailed.connect(failures.append)
+    dialog.browser.setHtml(official_client("throw new Error('Verification required');"), QUrl("https://www.douyin.com/follow"))
+    wait_for(app, lambda: bool(loaded))
+    with patch.object(requests.Session, "get", side_effect=AssertionError("Failed request left browser")):
+        dialog._read()
+        wait_for(app, lambda: dialog._worker is None)
+    assert not dialog.rooms and len(failures) == 1 and "验证" in failures[0]
     dispose(app, dialog)
 
 

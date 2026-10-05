@@ -228,8 +228,16 @@ class PlatformFollowDialog(QDialog):
             self.browser.loadFinished.connect(ready)
             self.browser.load(target)
             return
-        # 使用官方页面已初始化的请求签名 SDK；不会导出浏览器存储或登录令牌。
-        page.runJavaScript("""window.__ddmFollowResult = null;
+        # 使用官网请求客户端；不会导出浏览器存储或登录令牌。
+        script = getattr(self.platform, "follow_browser_script", "")
+        if script:
+            page.runJavaScript("""window.__ddmFollowResult = null;
+                Promise.resolve().then(() => (%s)(%s))
+                    .then(data => { window.__ddmFollowResult = {status: 200, text: JSON.stringify(data)}; })
+                    .catch(() => { window.__ddmFollowResult = {error: 'request failed'}; });
+                """ % (script, json.dumps(url)))
+        else:
+            page.runJavaScript("""window.__ddmFollowResult = null;
             (() => { const xhr = new XMLHttpRequest();
                 xhr.open('GET', %s, true); xhr.withCredentials = true; xhr.timeout = 12000;
                 xhr.onload = () => { window.__ddmFollowResult = {status: xhr.status, text: xhr.responseText}; };

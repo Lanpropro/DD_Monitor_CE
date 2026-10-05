@@ -78,11 +78,11 @@ class AccountPlatformDialog(QDialog):
             button.setToolTip("已登录" if logged else "")
             button.setStyleSheet(f"""
                 QPushButton#IconButton[loggedIn="true"] {{
-                    background: {theme.mix(theme.CONTENT, theme.SUCCESS, 0.2)};
-                    color: {theme.SUCCESS}; border-color: {theme.SUCCESS};
+                    background: {theme.mix(theme.CONTENT, theme.PINK, 0.2)};
+                    color: {theme.PINK}; border-color: {theme.PINK};
                 }}
                 QPushButton#IconButton[loggedIn="true"]:hover {{
-                    background: {theme.mix(theme.CONTENT, theme.SUCCESS, 0.3)};
+                    background: {theme.mix(theme.CONTENT, theme.PINK, 0.3)};
                 }}
                 QPushButton#IconButton[loggedIn="true"]:checked {{ border: 2px solid {theme.ACCENT}; }}
             """)
@@ -124,6 +124,21 @@ class AccountPlatformDialog(QDialog):
         page.show()
         self.resize(size.width() + 24, size.height() + self.layout_box.itemAt(0).sizeHint().height() + 24)
         self.layout_box.activate()
+        if self.isVisible():
+            self._center_on_owner()
+
+    def _center_on_owner(self):
+        screen = self.owner.screen().availableGeometry()
+        target = self.owner.frameGeometry().center() if self.owner.isVisible() else screen.center()
+        frame = self.frameGeometry()
+        frame.moveCenter(target)
+        x = max(screen.left(), min(frame.left(), screen.right() - frame.width() + 1))
+        y = max(screen.top(), min(frame.top(), screen.bottom() - frame.height() + 1))
+        self.move(x, y)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._center_on_owner()
 
     def select_platform(self, kind):
         if self._closing_result is not None or kind == self.kind:

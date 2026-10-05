@@ -58,10 +58,11 @@ def check_endpoints():
         session.get.return_value = response(text="ddmAccount(" + json.dumps(data) + ")")
         assert huya.account_info(session, lambda: False)["face"] == ""
         session.get = Mock(return_value=response({"status_code": 0, "data": {
-            "id_str": "9007199254740999", "nickname": "douyin-test", "avatar_thumb": {
+            "id_str": "9007199254740999", "sec_uid": "fixture-sec", "nickname": "douyin-test", "avatar_thumb": {
                 "url_list": ["https://evil.invalid/a.png", "https://p3.douyinpic.com/a.png"]}}}))
         assert douyin.account_info(session, lambda: False) == {
-            "uid": "9007199254740999", "uname": "douyin-test", "face": "https://p3.douyinpic.com/a.png"}
+            "uid": "9007199254740999", "uname": "douyin-test", "face": "https://p3.douyinpic.com/a.png",
+            "sec_uid": "fixture-sec"}
         assert session.get.call_args.args[0] == "https://live.douyin.com/webcast/user/me/"
         session.cookies.set("auth-token", "fixture-token", domain=".twitch.tv")
         identity = {"user_id": "456", "client_id": "fixture-client", "login": "twitch-test"}
@@ -138,6 +139,17 @@ def check_dialogs():
     assert "Twitch" not in owner._account_dialog_platforms()
     for provider in [*providers, DouyuPlatform(), YouTubePlatform()]:
         owner.plugins.platforms[provider.kind] = provider
+    owner.show()
+    app.processEvents()
+    def check_center(dialog):
+        frame = dialog.frameGeometry()
+        screen = owner.screen().availableGeometry()
+        target = owner.frameGeometry().center()
+        if frame.width() < screen.width() and frame.height() < screen.height():
+            assert abs(frame.center().x() - max(screen.left() + frame.width() // 2,
+                min(target.x(), screen.right() - frame.width() // 2))) <= 2
+            assert abs(frame.center().y() - max(screen.top() + frame.height() // 2,
+                min(target.y(), screen.bottom() - frame.height() // 2))) <= 2
     try:
         assert set(owner._account_platforms()) == {"虎牙", "抖音", "Twitch", "斗鱼"}
         assert set(owner._follow_platforms()) == {"虎牙", "抖音", "斗鱼", "Twitch"}
@@ -154,8 +166,11 @@ def check_dialogs():
             dialog = AccountPlatformDialog(owner, pending_providers, platform_kind="youtube")
             assert dialog.platform_buttons["youtube"].text() == "YouTube"
             assert dialog.platform_buttons["bilibili"].property("loggedIn")
+            assert theme.PINK in dialog.platform_buttons["bilibili"].styleSheet()
+            assert theme.SUCCESS not in dialog.platform_buttons["bilibili"].styleSheet()
             dialog.show()
             app.processEvents()
+            check_center(dialog)
             assert dialog.platform_buttons["twitch"].isVisible()
             for button in dialog.platform_buttons.values():
                 assert dialog.rect().contains(button.geometry())
@@ -166,6 +181,12 @@ def check_dialogs():
             assert dialog.platform_buttons["twitch"].y() == dialog.platform_buttons["youtube"].y()
             assert any("需要 Google 桌面 OAuth" in label.text() for label in dialog.page.findChildren(QLabel))
             assert "youtube" not in owner._accounts
+            dialog.select_platform("bilibili")
+            app.processEvents()
+            check_center(dialog)
+            dialog.select_platform("youtube")
+            app.processEvents()
+            check_center(dialog)
             dispose(app, dialog)
         for provider in providers:
             account = {"uid": "123", "uname": provider.kind + "-test", "face": ""}
@@ -174,6 +195,8 @@ def check_dialogs():
                     patch.object(QWebEngineView, "load"):
                 dialog = AccountPlatformDialog(owner, owner._account_platforms(), platform_kind=provider.kind)
                 dialog.show()
+                app.processEvents()
+                check_center(dialog)
                 page = dialog.page
                 assert isinstance(page, PlatformFollowDialog) and page.login_only
                 cookie = QNetworkCookie(b"fixture", b"fixture-value")
