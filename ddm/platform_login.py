@@ -51,6 +51,8 @@ class PlatformFollowLoader(QThread):
             raise RuntimeError("请在官网个人页点开数字旁的「关注」列表，再点击「读取关注」")
         if isinstance(result, dict) and result.get("error") == "follow_page_timeout":
             raise RuntimeError("官网关注列表没有加载完成，请完成页面验证后重试")
+        if isinstance(result, dict) and result.get("error") == "follow_panel_wrong_list":
+            raise RuntimeError("请切换到当前账号的「关注」列表，并清空列表搜索后重试")
         if not isinstance(result, dict) or result.get("error"):
             raise RuntimeError("抖音关注读取失败，请在官方页面完成登录或验证后重试")
         response = requests.Response()
@@ -251,7 +253,7 @@ class PlatformFollowDialog(QDialog):
                 Promise.resolve().then(() => (%s)(%s))
                     .then(data => { window.__ddmFollowResult = {status: 200, text: JSON.stringify(data)}; })
                     .catch(error => { window.__ddmFollowResult = {error:
-                        ['follow_panel_not_found', 'follow_page_timeout'].includes(error.message)
+                        ['follow_panel_not_found', 'follow_page_timeout', 'follow_panel_wrong_list'].includes(error.message)
                             ? error.message : 'request failed'}; });
                 """ % (script, json.dumps(url)))
         else:
