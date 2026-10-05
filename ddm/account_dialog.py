@@ -89,6 +89,7 @@ class AccountPlatformDialog(QDialog):
             """)
 
     def _busy(self, busy):
+        self._update_platform_labels()
         page = self._platform_pages.get(self.kind)
         can_switch = page is not None and page._interactive_read and self._closing_result is None
         for button in self.platform_buttons.values():
@@ -108,7 +109,7 @@ class AccountPlatformDialog(QDialog):
                     old.reject()
             self.pages.removeWidget(old)
             old.hide()
-            if browser_page:
+            if browser_page and hasattr(old, "browser"):
                 old.browser.stop()
             if not retained:
                 old.deleteLater()
@@ -207,12 +208,15 @@ class AccountPlatformDialog(QDialog):
                 self._set_page(page)
         else:
             from .platform_login import PlatformFollowDialog
+            from .oauth_login import OAuthAccountDialog
             page = self._platform_pages.get(kind)
             if page is None:
                 auto_read = self.import_follows and kind in self.owner._accounts
-                page = PlatformFollowDialog(self.providers[kind], self.pages, owner=self.owner,
-                                            login_only=not self.import_follows, embedded=True,
-                                            defer_login=auto_read)
+                dialog_type = (OAuthAccountDialog if getattr(self.providers[kind], "oauth_provider", "")
+                               else PlatformFollowDialog)
+                page = dialog_type(self.providers[kind], self.pages, owner=self.owner,
+                                   login_only=not self.import_follows, embedded=True,
+                                   defer_login=auto_read)
                 page.accountCleared.connect(self.owner._clear_platform_account)
                 page.accountCleared.connect(lambda _kind: self._update_platform_labels())
                 page.busyChanged.connect(self._busy)
@@ -220,17 +224,24 @@ class AccountPlatformDialog(QDialog):
                 page.readFailed.connect(lambda _reason, p=page: self._platform_failed(p))
                 self._platform_pages[kind] = page
                 if auto_read:
-                    if getattr(self.providers[kind], "follow_browser_init_script", ""):
+                    if (getattr(self.providers[kind], "follow_browser_init_script", "")
+                            or getattr(self.providers[kind], "oauth_provider", "")):
                         self._set_page(page)
-                        page.status.setText("正在读取官网关注列表；如出现验证，请在页面内完成")
+                        if hasattr(page, "browser"):
+                            page.status.setText("正在读取官网关注列表；如出现验证，请在页面内完成")
                     else:
                         self._show_loading(f"读取 {self.providers[kind].label}关注")
                     page._read()
                     return
             else:
-                page.status.setText("请在官方页面完成登录，然后点击「读取关注」" if self.import_follows else
-                                    "请在官方页面完成登录，然后点击「确认登录」")
-                page.browser.load(QUrl(page._login_url))
+                if getattr(self.providers[kind], "oauth_provider", ""):
+                    page.status.setText("点击「读取关注」复用授权或在系统浏览器授权" if self.import_follows else
+                                        "点击「开始授权」，在系统浏览器完成登录")
+                else:
+                    page.status.setText("请在官方页面完成登录，然后点击「读取关注」" if self.import_follows else
+                                        "请在官方页面完成登录，然后点击「确认登录」")
+                if hasattr(page, "browser"):
+                    page.browser.load(QUrl(page._login_url))
             self._set_page(page)
             if reread:
                 page._read()
@@ -238,7 +249,8 @@ class AccountPlatformDialog(QDialog):
     def _platform_failed(self, page):
         if self._closing_result is None and self.page.property("loading"):
             self._set_page(page)
-            page.browser.load(QUrl(page._login_url))
+            if hasattr(page, "browser"):
+                page.browser.load(QUrl(page._login_url))
 
     def _page_finished(self, result, page=None):
         if self._closing_result is not None:

@@ -2288,7 +2288,8 @@ class MainWindow(QMainWindow):
     # ---- 登录 / 导入关注 ----
     def _follow_platforms(self) -> dict:
         return {p.label or p.kind: p for p in self.plugins.platforms.values()
-                if p.follow_login_url and p.follow_cookie_domain}
+                if (p.follow_login_url and p.follow_cookie_domain)
+                or getattr(p, "oauth_provider", "")}
 
     def _account_dialog_platforms(self) -> dict:
         providers = self._account_platforms()
@@ -2304,8 +2305,9 @@ class MainWindow(QMainWindow):
     def _account_platforms(self) -> dict:
         return {p.label or p.kind: p for p in self.plugins.platforms.values()
                 if callable(getattr(p, "account_info", None))
-                and (getattr(p, "account_login_url", "") or p.follow_login_url)
-                and (getattr(p, "account_cookie_domain", "") or p.follow_cookie_domain)}
+                and (getattr(p, "oauth_provider", "") or (
+                    (getattr(p, "account_login_url", "") or p.follow_login_url)
+                    and (getattr(p, "account_cookie_domain", "") or p.follow_cookie_domain)))}
 
     def _account_kind(self) -> str:
         return "bilibili" if bili.SESSION_DATA else next(

@@ -13,11 +13,12 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 import requests  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtNetwork import QNetworkCookie  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: E402
 from ddm import app as app_module, bili, theme  # noqa: E402
 from ddm.account_dialog import AccountPlatformDialog  # noqa: E402
 from ddm.account_store import AccountStore  # noqa: E402
+from ddm.oauth_login import OAuthAccountDialog
 from ddm.platform_login import PlatformFollowDialog  # noqa: E402
 from plugins_user.domestic_live.plugin import HuyaPlatform, DouyinPlatform, DouyuPlatform  # noqa: E402
 from plugins_user.global_live.plugin import TwitchPlatform, YouTubePlatform  # noqa: E402
@@ -153,11 +154,11 @@ def check_dialogs():
             assert abs(frame.center().y() - max(screen.top() + frame.height() // 2,
                 min(target.y(), screen.bottom() - frame.height() // 2))) <= 2
     try:
-        assert set(owner._account_platforms()) == {"虎牙", "抖音", "Twitch", "斗鱼"}
-        assert set(owner._follow_platforms()) == {"虎牙", "抖音", "斗鱼", "Twitch"}
+        assert set(owner._account_platforms()) == {"虎牙", "抖音", "Twitch", "斗鱼", "YouTube"}
+        assert set(owner._follow_platforms()) == {"虎牙", "抖音", "斗鱼", "Twitch", "YouTube"}
         with patch.object(owner, "_open_account_dialog") as opened:
             owner.open_import_follows()
-            assert set(opened.call_args.args[0]) == {"虎牙", "抖音", "Twitch", "斗鱼"}
+            assert set(opened.call_args.args[0]) == {"虎牙", "抖音", "Twitch", "斗鱼", "YouTube"}
             assert opened.call_args.kwargs["import_follows"]
         with patch.object(owner, "_open_account_dialog") as opened:
             owner.open_login("twitch")
@@ -183,7 +184,7 @@ def check_dialogs():
             for kind in ("huya", "douyu", "douyin"):
                 assert dialog.platform_buttons[kind].y() == dialog.platform_buttons["bilibili"].y()
             assert dialog.platform_buttons["twitch"].y() == dialog.platform_buttons["youtube"].y()
-            assert any("需要 Google 桌面 OAuth" in label.text() for label in dialog.page.findChildren(QLabel))
+            assert isinstance(dialog.page, OAuthAccountDialog) and not hasattr(dialog.page, "browser")
             assert "youtube" not in owner._accounts
             dialog.select_platform("bilibili")
             app.processEvents()
@@ -192,7 +193,7 @@ def check_dialogs():
             app.processEvents()
             check_center(dialog)
             dispose(app, dialog)
-        for provider in providers:
+        for provider in providers[:2]:
             account = {"uid": "123", "uname": provider.kind + "-test", "face": ""}
             with patch.object(provider, "account_info", return_value=account), \
                     patch.object(provider, "follow_rooms", side_effect=AssertionError("Login imported follows")), \

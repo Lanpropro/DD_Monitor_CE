@@ -51,8 +51,9 @@ class AccountStore:
             raise ValueError("Invalid saved cookies")
         cookies = result.get("cookies")
         account = result.get("account", {})
+        auth = result.get("auth", {})
         if (not isinstance(cookies, list) or not all(isinstance(item, str) for item in cookies)
-                or not isinstance(account, dict)):
+                or not isinstance(account, dict) or not isinstance(auth, dict)):
             raise ValueError("Invalid saved account")
         return result
 
@@ -62,8 +63,12 @@ class AccountStore:
     def load_account(self) -> dict:
         return self._load().get("account", {})
 
-    def save(self, cookies: list[str], account=None) -> None:
-        encoded = _crypt(json.dumps({"cookies": cookies, "account": account or {}}).encode("utf-8"))
+    def load_auth(self) -> dict:
+        return self._load().get("auth", {})
+
+    def save(self, cookies: list[str], account=None, *, auth=None) -> None:
+        encoded = _crypt(json.dumps({"cookies": cookies, "account": account or {},
+                                    "auth": auth or {}}).encode("utf-8"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_bytes(encoded)
