@@ -46,7 +46,9 @@ def main():
     dialog = FollowImportDialog(ROOMS, {"1001"}, folders=folders)
     dialog.show()
     app.processEvents()
-    assert "已在列表" in dialog.list.item(0).text()
+    assert all("已在列表" not in dialog.list.item(i).text() for i in range(3))
+    assert [dialog.list.item(i).checkState() for i in range(3)] == [Qt.Checked, Qt.Unchecked, Qt.Unchecked]
+    assert dialog.selected() == [ROOMS[0]] and "已勾选 1 个" in dialog.header.text()
     assert [a.text() for a in dialog.folder_button.menu().actions()] == ["未分类", "赛事"]
     assert dialog.folder_id == ""
     select_folder(dialog, "games")
@@ -58,6 +60,8 @@ def main():
     app.processEvents()
     rect = dialog.list.visualItemRect(dialog.list.item(0))
     QCursor.setPos(dialog.list.viewport().mapToGlobal(QPoint(120, rect.center().y())))
+    QTest.mouseClick(dialog.list.viewport(), Qt.LeftButton, pos=QPoint(120, rect.center().y()))
+    assert not dialog.selected(), "默认勾选的已有主播仍能通过整行点击取消勾选"
     QTest.mouseClick(dialog.list.viewport(), Qt.LeftButton, pos=QPoint(120, rect.center().y()))
     assert dialog.selected() == [ROOMS[0]]
     dialog.search_edit.setText("  apex  ")
@@ -105,6 +109,8 @@ def main():
     def confirm(account):
         account._show_rooms(ROOMS)
         page = account.page
+        assert {room["room_id"] for room in page.selected()} == {
+            room["room_id"] for room in window.sidebar.rooms()}
         assert [a.text() for a in page.folder_button.menu().actions()] == ["未分类", "已有分类", "导入分类"]
         select_folder(page, target)
         page.search_edit.setText("测试主播")

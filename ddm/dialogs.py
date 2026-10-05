@@ -841,7 +841,7 @@ class AddRoomDialog(QDialog):
 class FollowImportDialog(QDialog):
     """从关注列表里挑要加入监控室的直播间。
 
-    整行点击即可切换勾选；已在关注列表里的会标注但仍可勾选（重复导入不会重复添加）。
+    整行点击即可切换勾选；已在关注列表里的默认勾选（重复导入不会重复添加）。
     """
 
     INDICATOR_WIDTH = 30      # 勾选方块占据的左侧宽度
@@ -915,12 +915,10 @@ class FollowImportDialog(QDialog):
             flags.append("直播中" if room["live"] else "未开播")
             if room["title"]:
                 flags.append(room["title"][:18])
-            if room_id in self.existing:
-                flags.append("已在列表")
             item = QListWidgetItem("　".join(flags))
             item.setData(Qt.UserRole, room)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Unchecked)
+            item.setCheckState(Qt.Checked if room_id in self.existing else Qt.Unchecked)
             self.list.addItem(item)
         layout.addWidget(self.list, 1)
 
