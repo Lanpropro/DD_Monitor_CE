@@ -331,7 +331,11 @@ class AccountPlatformDialog(QDialog):
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:
-                self.owner._douyin_follow_cache = {"uid": str(uid), "rooms": deepcopy(rooms)}
+                cache_follows = getattr(self.owner, "_cache_douyin_follows", None)
+                if callable(cache_follows):
+                    cache_follows(rooms)
+                else:
+                    self.owner._douyin_follow_cache = {"uid": str(uid), "rooms": deepcopy(rooms)}
             page.reread_button = QPushButton("重新读取", page)
             page.reread_button.setObjectName("IconButton")
             page.reread_button.setCursor(Qt.PointingHandCursor)

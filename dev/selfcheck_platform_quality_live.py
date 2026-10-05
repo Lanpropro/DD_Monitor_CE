@@ -23,7 +23,8 @@ def main():
     state = {"plugins_enabled": ["domestic_live", "global_live"], "settings": {"auto_quality": True,
              "preview_on_hover": False, "recording_enabled": False,
              "recording_replay_enabled": False, "freeze_watch": False}}
-    with patch("ddm.app.QTimer.singleShot"):
+    with patch("ddm.app.QTimer.singleShot"), patch.dict(os.environ,
+            DDM_NO_SAVE="0" if room_id.startswith("douyin:") else "1"):
         window = MainWindow([], [], state=state, layout_id="corner")
     window.resize(1000, 700)
     window.show()

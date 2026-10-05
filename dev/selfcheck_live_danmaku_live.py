@@ -14,6 +14,12 @@ def main():
     app = QCoreApplication([])
     manager = PluginManager(enabled=["domestic_live", "global_live"])
     manager.load()
+    if "douyin" in manager.platforms:
+        from ddm.account_store import AccountStore
+        account = AccountStore("douyin").load_account()
+        cache = AccountStore("douyin_follows").load_account()
+        if account.get("uid") and cache.get("uid") == str(account["uid"]):
+            manager.platforms["douyin"].restore_follow_rooms(cache.get("rooms") or [])
     duration = float(sys.argv[1]) if len(sys.argv) > 1 else 70
     room_ids = sys.argv[2:] or ["huya:998", "douyu:36252", "douyin:557481980778"]
     clients, counts, statuses = [], {}, {}

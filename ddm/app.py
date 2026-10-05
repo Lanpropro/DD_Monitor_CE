@@ -4,6 +4,7 @@
 直播间拖进来；播放器按格子持有，和房间号解耦。
 """
 import faulthandler
+from copy import deepcopy
 import os
 import sys
 import time
@@ -2320,7 +2321,43 @@ class MainWindow(QMainWindow):
                         self._accounts[platform.kind] = account
                 except (OSError, RuntimeError, ValueError):
                     pass  # 登录数据无法读取时，由用户重新登录。
+            uid = str(self._accounts.get("douyin", {}).get("uid") or "")
+            try:
+                cache = AccountStore("douyin_follows").load_account()
+                rooms = cache.get("rooms")
+                if (uid and cache.get("uid") == uid and isinstance(rooms, list)
+                        and all(isinstance(room, dict) and str(room.get("room_id", "")).startswith("douyin:")
+                                for room in rooms)):
+                    self._douyin_follow_cache = cache
+                    platform = self.plugins.platforms.get("douyin")
+                    if callable(getattr(platform, "restore_follow_rooms", None)):
+                        platform.restore_follow_rooms(rooms)
+            except (OSError, RuntimeError, ValueError):
+                pass
         self._render_account(load_avatar=False)
+
+    def _cache_douyin_follows(self, rooms) -> None:
+        uid = str(self._accounts.get("douyin", {}).get("uid") or "")
+        if not uid:
+            return
+        self._douyin_follow_cache = {"uid": uid, "rooms": deepcopy(rooms)}
+        platform = self.plugins.platforms.get("douyin")
+        if callable(getattr(platform, "restore_follow_rooms", None)):
+            platform.restore_follow_rooms(rooms)
+        if os.environ.get("DDM_NO_SAVE") != "1":
+            from .account_store import AccountStore
+            store = AccountStore("douyin_follows")
+            try:
+                if self._platform_login_sessions.get("douyin", {}).get("remember", True):
+                    # 只保存房间身份与显示信息；带签名的媒体地址始终重新获取。
+                    keys = ("room_id", "platform", "uname", "title", "live", "live_known", "viewers",
+                            "cover_url", "face", "playback_mode", "anchor_uid")
+                    store.save([], {"uid": uid, "rooms": [
+                        {key: room[key] for key in keys if key in room} for room in rooms]})
+                else:
+                    store.clear()
+            except (OSError, RuntimeError):
+                print("[账号] 抖音关注缓存保存失败，本次读取结果仍可使用", file=sys.stderr)
 
     def _render_account(self, *, load_avatar=True) -> None:
         if self._closing:
@@ -2390,6 +2427,9 @@ class MainWindow(QMainWindow):
         self._platform_login_sessions.pop(kind, None)
         if kind == "douyin":
             self._douyin_follow_cache = None
+            if os.environ.get("DDM_NO_SAVE") != "1":
+                from .account_store import AccountStore
+                AccountStore("douyin_follows").clear()
         self._render_account()
 
     def load_cached_covers(self) -> None:

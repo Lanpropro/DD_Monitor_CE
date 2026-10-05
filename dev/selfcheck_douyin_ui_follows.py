@@ -23,7 +23,6 @@ from ddm.platform_login import PlatformFollowDialog
 from plugins_user.domestic_live.plugin import DouyinPlatform
 from dev.selfcheck_platform_follows import wait_for
 from dev.selfcheck_account_dialog import dispose
-from dev.selfcheck_live_platforms import dy_page
 
 HTML = """<!doctype html><meta charset="utf-8">
 <nav><a onclick="window.navigated=true"><div><div>关注1</div></div></a></nav>
@@ -185,7 +184,7 @@ def main():
             wait_for(app, lambda: bool(loaded))
             assert loaded[-1]
             def room_lookup(url, **kwargs):
-                assert mode == 'rendered_resolve' and url == 'https://live.douyin.com/webcast/room/info_by_user/'
+                assert url == 'https://live.douyin.com/webcast/room/info_by_user/'
                 uid = kwargs['params']['user_id']
                 assert uid in ('101', '102')
                 response = requests.Response()
@@ -194,12 +193,7 @@ def main():
                     'id_str': '9' + uid, 'owner_user_id': int(uid)}}).encode()
                 return response
             def share_page(url, **kwargs):
-                if url in ('https://live.douyin.com/1001', 'https://live.douyin.com/1002'):
-                    response = requests.Response()
-                    response.status_code = 200
-                    response._content = dy_page(status=2 if url.endswith('1001') else 4).encode()
-                    return response
-                assert mode == 'rendered_resolve' and url.startswith('https://webcast.amemv.com/webcast/reflow/9')
+                assert url.startswith('https://webcast.amemv.com/webcast/reflow/9')
                 assert 'cookies' not in kwargs
                 uid = url.rsplit('/', 1)[-1][1:]
                 room = {'idStr': '9' + uid, 'status': 2 if uid == '101' else 4,
@@ -318,7 +312,8 @@ def main():
                         return true;
                     })()''', ready.append)
                     wait_for(app, lambda: bool(ready))
-                    with patch.object(requests, 'get', side_effect=share_page):
+                    with patch.object(requests, 'get', side_effect=share_page), patch.object(
+                            requests.Session, 'get', side_effect=room_lookup):
                         page.read_button.click()
                         wait_for(app, lambda: page._worker is None)
                     assert [r['room_id'] for r in dialog.page.rooms] == ['douyin:1001']

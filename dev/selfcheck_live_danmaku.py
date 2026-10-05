@@ -140,24 +140,39 @@ async def check_tcp(platform):
     print("PASS: real local TCP login/join/heartbeat, authenticated status, fragmented receive and cancel cleanup")
 
 
-async def check_websocket(platform):
+async def check_websocket(platform, *, mapped=False):
     kind = platform.kind
     client = platform.danmaku_client(kind + ":123")
     received, statuses, sent = [], [], []
+    if mapped:
+        platform.restore_follow_rooms([{"room_id": "douyin:123", "anchor_uid": "101"}])
     done, ack_done, closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
     client.message.connect(lambda event: (received.append(event), done.set()))
     client.status.connect(statuses.append)
     async def room_page(_request):
+        assert not mapped, "Mapped anchor fell back to captcha page"
         if kind == "huya":
             page = 'var TT_ROOM_DATA = {"id":1234567890123};'
         else:
             state = {"state": {"roomStore": {"roomInfo": {"room": {"status": 2,
                 "id_str": "987654321"}}}, "streamStore": {}}}
             page = '<script>self.__pace_f.push([1,' + json.dumps("a:" + json.dumps([state])) + '])</script>'
-        return web.Response(text=page)
+        response = web.Response(text=page)
+        response.set_cookie("ttwid", "fixture-visitor")
+        return response
+    async def lookup(_request):
+        return web.json_response({"status_code": 0, "data": {"id_str": "987654321", "owner_user_id": 101}})
+    async def share(_request):
+        room = {"idStr": "987654321", "status": 2, "owner": {"idStr": "101", "webRid": "123"}}
+        chunk = "5:" + json.dumps(["$", "$L7", None, {"data": {"room": room}}])
+        response = web.Response(text='<script>self.__rsc_f.push([1,' + json.dumps(chunk) + '])</script>')
+        response.set_cookie("ttwid", "fixture-visitor")
+        return response
     async def socket(request):
         assert request.headers["Origin"] == ("https://www.huya.com" if kind == "huya" else "https://live.douyin.com")
         assert request.headers["Referer"] == platform.room_url(client.room_id)
+        if kind == "douyin":
+            assert request.cookies["ttwid"] == "fixture-visitor"
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         try:
@@ -181,6 +196,8 @@ async def check_websocket(platform):
         return ws
     application = web.Application()
     application.router.add_get("/room", room_page)
+    application.router.add_get("/lookup", lookup)
+    application.router.add_get("/share", share)
     application.router.add_get("/ws", socket)
     runner = web.AppRunner(application)
     await runner.setup()
@@ -191,6 +208,12 @@ async def check_websocket(platform):
         async with aiohttp.ClientSession() as session:
             get, connect = session.get, session.ws_connect
             def redirect_page(url, **kwargs):
+                if mapped:
+                    if url.endswith("/webcast/room/info_by_user/"):
+                        assert kwargs["params"]["user_id"] == "101"
+                        return get(base + "/lookup", **kwargs)
+                    assert url == "https://webcast.amemv.com/webcast/reflow/987654321"
+                    return get(base + "/share", **kwargs)
                 assert url == platform.room_url(client.room_id)
                 if kind == "douyin":
                     assert set(kwargs["cookies"]) == {"__ac_nonce"}
@@ -200,6 +223,7 @@ async def check_websocket(platform):
                     from urllib.parse import parse_qs, urlsplit
                     query = parse_qs(urlsplit(url).query)
                     assert query["room_id"] == ["987654321"] and query["signature"]
+                    assert query["enter_from"] == ["web_live"]
                 return connect(base.replace("http:", "ws:") + "/ws", **kwargs)
             with patch.object(session, "get", redirect_page), patch.object(session, "ws_connect", redirect_ws):
                 task = asyncio.create_task(client._websocket(session, 0))
@@ -306,6 +330,20 @@ def check_cancel(app, manager):
             assert client.wait(500) and client._loop is None and client._task is None
         app.processEvents()
         assert not any("出错" in status for status in statuses)
+    # 分享资料尚未响应时，直接取消 HTTP，不等待网络超时。
+    client = platform.danmaku_client("douyin:123")
+    entered = threading.Event()
+    class PendingResponse:
+        async def __aenter__(self):
+            entered.set()
+            await asyncio.Event().wait()
+        async def __aexit__(self, *_args):
+            return False
+    with patch.object(aiohttp.ClientSession, "get", return_value=PendingResponse()):
+        client.start()
+        assert entered.wait(1)
+        client.stop()
+        assert client.wait(500) and client._loop is None and client._task is None
     client = platform.danmaku_client("douyin:123")
     client.stop()
     with patch.object(client, "_websocket", side_effect=AssertionError("停止后不能启动网络")):
@@ -352,6 +390,8 @@ def main():
     asyncio.run(check_tcp(manager.platforms["douyu"]))
     for kind in ("huya", "douyin"):
         asyncio.run(check_websocket(manager.platforms[kind]))
+        if kind == "douyin":
+            asyncio.run(check_websocket(manager.platforms[kind], mapped=True))
     check_cancel(app, manager)
     check_window(app)
     check_window_cleanup()

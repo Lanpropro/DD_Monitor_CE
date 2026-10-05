@@ -8,7 +8,6 @@ import random
 import re
 import struct
 import threading
-import uuid
 from urllib.parse import urlencode
 
 import aiohttp
@@ -289,7 +288,7 @@ class LiveDanmakuClient(QThread):
                         await self._douyu(retries)
                     else:
                         await self._websocket(session, retries)
-            except (aiohttp.ClientError, OSError, ValueError, KeyError, asyncio.TimeoutError):
+            except (aiohttp.ClientError, OSError, ValueError, KeyError, RuntimeError, asyncio.TimeoutError):
                 if not self._stopped.is_set():
                     self.status.emit("弹幕连接中断，准备重连…")
             retries += 1
@@ -356,17 +355,18 @@ class LiveDanmakuClient(QThread):
             endpoint = "wss://cdnws.api.huya.com/"
             heartbeat = tars_int(0, 5) + tars_bytes(1, b"")
         else:
-            async with session.get(url, cookies={"__ac_nonce": uuid.uuid4().hex[:21]}) as response:
-                response.raise_for_status()
-                info = self.platform._page_info(await response.text())
+            info = await self.platform.room_data_async(session, self.room_id)
             room = info["room"]
+            if info.get("ttwid"):
+                headers["Cookie"] = "ttwid=" + info["ttwid"]
             if room["status"] != 2:
                 self.status.emit("主播未开播")
                 await asyncio.sleep(30)
                 return
             params = {"app_name": "douyin_web", "compress": "gzip", "device_platform": "web",
                 "browser_language": "zh-CN", "browser_platform": "Win32", "browser_name": "Mozilla",
-                "browser_version": "130.0.0.0", "aid": "6383", "live_id": "1", "version_code": "180800",
+                "browser_version": "130.0.0.0", "aid": "6383", "live_id": "1", "enter_from": "web_live",
+                "version_code": "180800",
                 "webcast_sdk_version": "1.0.15", "update_version_code": "1.0.15",
                 "host": "https://live.douyin.com", "did_rule": "3", "identity": "audience",
                 "endpoint": "live_pc", "need_persist_msg_count": "15", "heartbeatDuration": "0",

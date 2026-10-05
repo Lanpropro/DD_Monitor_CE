@@ -19,7 +19,6 @@ from ddm.live_danmaku import tars_bytes, tars_fields, tars_int
 from ddm.platform_login import PlatformFollowDialog
 from ddm.dialogs import FollowImportDialog
 from ddm.widgets import NavItem
-from ddm.plugins import RoomInfo
 from plugins_user.domestic_live.plugin import HuyaPlatform, DouyinPlatform, huya_string
 from dev.selfcheck_account_dialog import dispose
 from dev.selfcheck_platform_follows import wait_for
@@ -147,9 +146,7 @@ def check_huya_import_ui(app, rooms):
 def check_douyin():
     provider = DouyinPlatform()
     provider.account_info = Mock(return_value={"uid": "42", "sec_uid": "fixture-sec"})
-    provider.room_info = Mock(return_value=RoomInfo(room_id='douyin:1001', platform='douyin',
-        uname='Current live', title='Current title', face='https://p3.douyinpic.com/live.png',
-        cover_url='https://p3.douyinpic.com/live-cover.png', live=True))
+    provider.room_info = Mock(side_effect=AssertionError('Captcha-protected live page used for follows'))
     live = {"uid": "101", "nickname": "Live", "room_data": json.dumps({
         "status": 2, "title": "Test", "owner": {"web_rid": "1001"}}),
         "avatar_medium": {"url_list": ["https://p3.douyinpic.com/a.png"]}}
@@ -170,22 +167,28 @@ def check_douyin():
         session.get = Mock(side_effect=[
             reply({"status_code": 0, "followings": [live, offline, ordinary], "has_more": 1,
                    "offset": 3, "min_time": 100, "max_time": 0}),
+            reply({"status_code": 0, "data": {"id_str": "901", "owner_user_id": 101}}),
             reply({"status_code": 0, "data": {"id_str": "902", "owner_user_id": 102}}),
             reply({"status_code": 0, "data": {}}),
             reply({"status_code": 0, "followings": [live], "has_more": 0}),
         ])
+        get_reflow.side_effect = [reflow({'idStr': '901', 'status': 2, 'title': 'Current title',
+            'cover': {'urlList': ['https://p3.douyinpic.com/live-cover.png']},
+            'owner': {'idStr': '101', 'webRid': '1001'}}), reflow()]
         rooms = provider.follow_rooms(session, lambda: False)
+        get_reflow.side_effect = None
         assert [r["room_id"] for r in rooms] == ["douyin:1001", "douyin:1002"]
         assert rooms[0]["live"] and rooms[0]["face"].endswith("/a.png")
         assert rooms[0]['title'] == 'Current title' and rooms[0]['cover_url'].endswith('/live-cover.png')
-        assert rooms[0]['live_known'] and provider.room_info.call_count == 1
+        assert rooms[0]['live_known'] and provider.room_info.call_count == 0
+        assert [r['anchor_uid'] for r in rooms] == ['101', '102']
         assert rooms[1]['live_known'] and not rooms[1]['live']
         assert rooms[1]['uname'] == 'Offline' and rooms[1]['title'] == 'Last live'
         assert rooms[1]['face'].endswith('/offline.png') and rooms[1]['cover_url'].endswith('/cover.png')
-        assert get_reflow.call_count == 1
+        assert get_reflow.call_count == 2
         assert get_reflow.call_args.args == ('https://webcast.amemv.com/webcast/reflow/902',)
         assert 'cookies' not in get_reflow.call_args.kwargs
-        lookup = session.get.call_args_list[1]
+        lookup = session.get.call_args_list[2]
         assert lookup.args == ('https://live.douyin.com/webcast/room/info_by_user/',)
         assert lookup.kwargs['params']['user_id'] == '102'
         assert session.get.call_args.kwargs["params"]["min_time"] == 100

@@ -312,6 +312,8 @@ class PlatformFollowDialog(QDialog):
                     self.account_store.save(self._saved_cookies, self.account)
                 else:
                     self.account_store.clear()
+                    if self.platform.kind == "douyin":
+                        AccountStore("douyin_follows").clear()
             except (OSError, RuntimeError):
                 self._failed("登录状态保存失败；取消「记住登录」后重试")
                 return
