@@ -298,8 +298,9 @@ class ComparisonPanel(QFrame):
             canvas.zoom_crop = self.zoom.isChecked()
             if not row.paused:
                 frame = row.decoder.history.frame_at(clock + shifts[room_id]) if row.decoder else None
-                canvas.set_frame(frame)
-            canvas.waiting = canvas.image.isNull()
+                if frame is not None:
+                    canvas.set_frame(frame)
+                canvas.waiting = frame is None
             canvas.update()
             relative = shifts[room_id] - shifts.get(reference, 0)
             position = ("主画面基准" if room_id == reference else
@@ -950,7 +951,8 @@ class Viewer(QDialog):
             tile.stream_headers = getattr(row.decoder, "source_headers", {}) if row.decoder else {}
         finally:
             tile.blockSignals(False)
-        self._show_buffering(self.running and not row.paused and self.canvas.image.isNull())
+        self._show_buffering(self.running and not row.paused and
+                             (self.canvas.image.isNull() or self.canvas.waiting))
 
     def _picture_setting(self, key, value):
         row = self.rows.get(self.main.currentData())
@@ -1143,18 +1145,27 @@ class Viewer(QDialog):
             self.alignment.lags = {self.alignment.reference: 0}
             self.alignment.candidates.clear()
             self.generation += 1
-            row.pending.clear()
 
     def _message(self, row, worker, event):
         if self._valid(row, worker, True) and row.show_chat.isChecked():
             blocker = getattr(self.context.window, "_danmaku_blocked", None)
             if event.get("kind", "danmaku") == "danmaku" and blocker and blocker(event.get("text", "")):
                 return
-            row.pending.append((time.monotonic(), dict(event)))
+            now = time.monotonic()
+            received = now + self.audio.correction
+            decoder = row.decoder
+            if decoder is not None:
+                latest = decoder.history.latest()
+                arrival = getattr(decoder, "last_frame_received", 0)
+                if latest is not None and arrival and 0 <= now - arrival <= 3:
+                    # Messages arrive in wall time; playback follows decoded frame time.
+                    received = latest[0] + now - arrival
+            row.pending.append((received, dict(event)))
 
     def _recover_clock(self, clock, shifts):
         now = time.monotonic()
         ranges = []
+        active = sum(row.decoder is not None and not row.paused for row in self.rows.values())
         for key, row in self.rows.items():
             decoder = row.decoder
             if (decoder is None or row.paused or
@@ -1168,6 +1179,11 @@ class Viewer(QDialog):
             upper = min(end for _start, end in ranges)
             if clock > upper + 1 and lower <= upper - .25:
                 recovered = upper - .25
+                self.audio.correction += recovered - clock
+                return recovered
+            if clock < lower and len(ranges) == active and lower <= upper - .25:
+                # Reuse available history after an offset change or reconnect.
+                recovered = lower + .1
                 self.audio.correction += recovered - clock
                 return recovered
         return clock
@@ -1205,7 +1221,8 @@ class Viewer(QDialog):
         row = self.rows.get(self.alignment.reference)
         if row is not None and row.decoder is not None and not row.paused:
             frame = row.decoder.history.frame_at(clock + shifts[row.room_id])
-            self.canvas.set_frame(frame)
+            if frame is not None:
+                self.canvas.set_frame(frame)
             self._show_buffering(frame is None)
             if frame is None:
                 bounds = row.decoder.history.bounds()

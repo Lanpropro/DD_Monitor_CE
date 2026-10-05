@@ -14,7 +14,7 @@ from PySide6.QtGui import QImage
 from ddm import bili, danmaku, recording
 from .engine import FPS, History, Sample, SIGNATURE_BITS
 
-FRAME_TIMEOUT = 15.0
+FRAME_TIMEOUT = 8.0
 
 
 class Events(QObject):
@@ -53,7 +53,7 @@ def decode_command(executable: str, url: str, headers: dict, port: int, quality:
     inputs = recording.input_args(url, headers)
     if url.lower().startswith(("http://", "https://")):
         # Let the outer retry resolve a fresh address instead of looping on a broken CDN.
-        inputs = inputs[:-2] + ["-reconnect", "0", "-rw_timeout", "10000000"] + inputs[-2:]
+        inputs = inputs[:-2] + ["-reconnect", "0", "-rw_timeout", "6000000"] + inputs[-2:]
     return ([executable, "-nostdin", "-readrate", "1", "-threads", "2"]
             + inputs
             + ["-map", "0:v:0", "-an", "-vf",
@@ -160,7 +160,7 @@ class Decoder:
             except Exception:
                 if not self.cancelled.is_set():
                     self.events.state.emit("连接或解码失败；稍后重试，可停止后重新开始")
-            if self.cancelled.wait(min(10, 2 + attempt * 2)):
+            if self.cancelled.wait(min(5, .5 + attempt * .5)):
                 break
             attempt += 1
 

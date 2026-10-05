@@ -131,6 +131,60 @@ def main():
                 assert viewer._recover_clock(clock, viewer.shifts()) == clock
             assert viewer.rows["1"].decoder is decoders[0]
             print("PASS: healthy delayed decoders recover video/audio/chat clock, preserve offsets, ignore stale inputs and retain oversized-delay wait")
+            with patch.object(module.time, "monotonic", return_value=200):
+                viewer.audio.correction = 0
+                for row in viewer.rows.values():
+                    row.delay.setValue(0)
+                    row.decoder.last_frame_received = 200
+                    row.decoder.history.frames.clear()
+                    for stamp in (200, 200.25, 200.5):
+                        row.decoder.history.append(stamp, image)
+                viewer.render()
+                assert not viewer.picture._buffering, "Startup should use the first quarter second of shared history"
+                assert abs(viewer.audio.clock() - 202.1) < 1e-6
+                for row in viewer.rows.values():
+                    for stamp in (201, 202, 203, 204):
+                        row.decoder.history.append(stamp, image)
+                viewer.rows["2"].delay.setValue(-3)
+                shifts = viewer.shifts()
+                viewer.render()
+                assert not viewer.picture._buffering and shifts["2"] - shifts["1"] == 3
+                assert all(row.decoder.history.frame_at(viewer.audio.clock() + shifts[key]) is not None
+                           for key, row in viewer.rows.items()), "Offset changes should seek shared available history"
+                key = viewer.canvas.frame_key
+                viewer.rows["2"].delay.setValue(-60)
+                correction = viewer.audio.correction
+                viewer.render()
+                assert viewer.picture._buffering and not viewer.canvas.image.isNull()
+                assert viewer.canvas.frame_key == key and viewer.audio.correction == correction
+                assert viewer.comparison_panel.cards["1"][2].waiting
+                assert not viewer.comparison_panel.cards["1"][2].image.isNull()
+                with patch.object(viewer.picture, "set_buffering", wraps=viewer.picture.set_buffering) as buffering:
+                    viewer.render()
+                    viewer.render()
+                    assert not buffering.called, "Retained frame must not restart the spinner every render"
+            print("PASS: quarter-second startup, shared cache seek on offset change, last frame retained when history cannot overlap")
+
+            with patch.object(module.time, "monotonic", return_value=240):
+                viewer.audio.correction = 0
+                for row in viewer.rows.values():
+                    row.delay.setValue(0)
+                    row.pending.clear()
+                    row.decoder.last_frame_received = 240
+                    row.decoder.history.frames.clear()
+                    for stamp in range(200, 211):
+                        row.decoder.history.append(stamp, image)
+                viewer.render()
+                row = viewer.rows["2"]
+                row.chat.events.message.emit({"text": "斗鱼时间轴弹幕"})
+                assert row.pending[0][0] == 210, "Receipt must follow decoder time rather than drifted wall time"
+                viewer._reset(row, row.decoder)
+                assert row.pending, "Video reconnect must preserve independent chat messages"
+            with patch.object(module.time, "monotonic", return_value=240.5):
+                viewer.render()
+                assert viewer.panel._blocks[-1]["text"] == "斗鱼时间轴弹幕"
+            assert [row.decoder for row in viewer.rows.values()] == decoders[:2]
+            print("PASS: thirty-second decoder drift does not hide chat, pending messages survive video reset")
         finally:
             viewer.close()
             host.close()

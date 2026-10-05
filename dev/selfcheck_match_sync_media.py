@@ -103,7 +103,7 @@ def stalled_stream_checks(app):
     executable = recording.ffmpeg_path()
     command = media.decode_command(executable, "http://127.0.0.1/stream", {"Referer": "test"}, 12345)
     before_input = command[:command.index("-i")]
-    assert before_input[before_input.index("-rw_timeout") + 1] == "10000000"
+    assert before_input[before_input.index("-rw_timeout") + 1] == "6000000"
     assert before_input[-4:-2] == ["-reconnect", "0"]
     assert "Referer: test\r\n" in before_input
     released = threading.Event()
@@ -138,13 +138,15 @@ def stalled_stream_checks(app):
                     patch.object(media.bili, "play_url", return_value=(str(source), 250, "local", {})) as fresh:
                 try:
                     decoder.start()
-                    deadline = time.monotonic() + 5
+                    started = time.monotonic()
+                    deadline = started + 3.5
                     while time.monotonic() < deadline and not decoder.history.latest():
                         app.processEvents()
                         time.sleep(.02)
                     app.processEvents()
                     assert requested.is_set()
                     assert decoder.history.latest(), (states, "Stalled input must time out and resolve a fresh stream")
+                    assert time.monotonic() - started < 3.5, "First retry must not add a two-second backoff"
                     assert any("超时" in state for state in states), states
                     assert resets and fresh.call_count == 1
                     assert fresh.call_args.kwargs["source_offset"] == 1

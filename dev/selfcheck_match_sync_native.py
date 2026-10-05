@@ -112,6 +112,15 @@ def main():
             settle(app)
             assert viewer.canvas.isVisible() and not viewer.picture._buffering
             print("PASS: native match-sync Canvas, moving/expired glyph erasure, repeated renders and collapse preserve video")
+            viewer.rows["2"].delay.setValue(-60)
+            viewer.render()
+            settle(app)
+            waiting = capture(viewer)
+            pixel = waiting.pixelColor(waiting.width() // 3, waiting.height() // 2)
+            assert viewer.picture._buffering and viewer.canvas.waiting
+            assert pixel.blue() > 180 and pixel.green() < 60, "Buffering during alignment must retain the previous picture on screen"
+            waiting.save(str(REPO / "work/match-sync-native-buffering.png"))
+            print("PASS: native buffering spinner retains previous video while an oversized offset waits")
         finally:
             viewer.close()
             host.close()

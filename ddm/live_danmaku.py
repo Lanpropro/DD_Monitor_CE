@@ -14,6 +14,8 @@ import aiohttp
 from PySide6.QtCore import QThread, Signal
 
 MAX_PACKET = 4 * 1024 * 1024
+DOUYU_HEARTBEAT = 20.0
+DOUYU_RECEIVE_TIMEOUT = 45.0
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
 
@@ -254,6 +256,7 @@ class LiveDanmakuClient(QThread):
         self.platform = platform
         self._stopped = threading.Event()
         self._loop = self._task = None
+        self._connected = False
 
     def stop(self):
         self._stopped.set()
@@ -279,8 +282,10 @@ class LiveDanmakuClient(QThread):
         self._loop = asyncio.get_running_loop()
         self._task = asyncio.current_task()
         retries = 0
+        failures = 0
         while not self._stopped.is_set():
             self.status.emit("连接中…" if not retries else f"重连中…（第 {retries} 次）")
+            self._connected = False
             try:
                 async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT},
                         timeout=aiohttp.ClientTimeout(total=12, connect=5)) as session:
@@ -291,9 +296,10 @@ class LiveDanmakuClient(QThread):
             except (aiohttp.ClientError, OSError, ValueError, KeyError, RuntimeError, asyncio.TimeoutError):
                 if not self._stopped.is_set():
                     self.status.emit("弹幕连接中断，准备重连…")
+            failures = 1 if self._connected else failures + 1
             retries += 1
             if not self._stopped.is_set():
-                await asyncio.sleep(min(2 * retries, 15))
+                await asyncio.sleep(min(failures, 5))
 
     async def _douyu(self, retries=0):
         raw = self.room_id.split(":", 1)[1]
@@ -311,11 +317,12 @@ class LiveDanmakuClient(QThread):
                 if now >= heartbeat:
                     writer.write(douyu_packet("type@=mrkl/"))
                     await writer.drain()
-                    heartbeat = now + 40
+                    heartbeat = now + DOUYU_HEARTBEAT
                 try:
-                    chunk = await asyncio.wait_for(reader.read(65536), 10)
+                    deadline = last_received + (DOUYU_RECEIVE_TIMEOUT if authenticated else 5)
+                    chunk = await asyncio.wait_for(reader.read(65536), max(.01, min(heartbeat, deadline) - now))
                 except asyncio.TimeoutError:
-                    if not authenticated or asyncio.get_running_loop().time() - last_received > 65:
+                    if not authenticated or asyncio.get_running_loop().time() - last_received >= DOUYU_RECEIVE_TIMEOUT:
                         raise ValueError("Douyu response timeout")
                     continue
                 if not chunk:
@@ -329,7 +336,10 @@ class LiveDanmakuClient(QThread):
                         writer.write(douyu_packet(f"type@=joingroup/rid@={raw}/gid@=-9999/"))
                         await writer.drain()
                         authenticated = True
+                        self._connected = True
                         self.status.emit("已连接")
+                    elif data.get("type") == "error":
+                        raise ValueError("Douyu server rejected subscription")
                     elif data.get("type") == "chatmsg" and data.get("txt"):
                         self.message.emit({"kind": "danmaku", "uname": data.get("nn", ""),
                                            "text": data["txt"]})
@@ -399,6 +409,7 @@ class LiveDanmakuClient(QThread):
                     if ack is not None:
                         await ws.send_bytes(ack)
                     if ready and not connected:
+                        self._connected = True
                         self.status.emit("已连接")
                         connected = True
                     for event in events:

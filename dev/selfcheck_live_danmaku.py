@@ -140,6 +140,73 @@ async def check_tcp(platform):
     print("PASS: real local TCP login/join/heartbeat, authenticated status, fragmented receive and cancel cleanup")
 
 
+async def check_douyu_recovery(platform):
+    sent, closed = [], asyncio.Event()
+    rejected = False
+    client = platform.danmaku_client("douyu:123")
+    async def silent(reader, writer):
+        buffer = bytearray()
+        try:
+            while chunk := await reader.read(4096):
+                buffer.extend(chunk)
+                for message in dm.douyu_messages(buffer):
+                    sent.append(message["type"])
+                    if message["type"] == "loginreq":
+                        writer.write(dm.douyu_packet("type@=loginres/error@=0/"))
+                        await writer.drain()
+                    elif message["type"] == "joingroup" and rejected:
+                        writer.write(dm.douyu_packet("type@=error/code@=1/"))
+                        await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            closed.set()
+    server = await asyncio.start_server(silent, "127.0.0.1", 0)
+    connect = asyncio.open_connection
+    async def redirect(_host, _port):
+        return await connect("127.0.0.1", server.sockets[0].getsockname()[1])
+    try:
+        with patch.object(dm.asyncio, "open_connection", redirect), \
+                patch.object(dm, "DOUYU_HEARTBEAT", .04), \
+                patch.object(dm, "DOUYU_RECEIVE_TIMEOUT", .18):
+            try:
+                await asyncio.wait_for(client._douyu(), .8)
+            except ValueError as error:
+                assert str(error) == "Douyu response timeout"
+            else:
+                raise AssertionError("Silent authenticated socket must reconnect")
+            await asyncio.wait_for(closed.wait(), .5)
+        assert sent.count("mrkl") >= 4 and "joingroup" in sent, sent
+        rejected = True
+        closed.clear()
+        with patch.object(dm.asyncio, "open_connection", redirect):
+            try:
+                await asyncio.wait_for(client._douyu(), .8)
+            except ValueError as error:
+                assert str(error) == "Douyu server rejected subscription"
+            else:
+                raise AssertionError("Rejected subscription must reconnect without waiting for silence timeout")
+            await asyncio.wait_for(closed.wait(), .5)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    client = platform.danmaku_client("douyu:123")
+    attempts, waits = [], []
+    async def disconnect(retries):
+        attempts.append(retries)
+        client._connected = True
+        if len(attempts) == 4:
+            client._stopped.set()
+        raise OSError("Remote closed after successful subscription")
+    async def sleep(delay):
+        waits.append(delay)
+    with patch.object(client, "_douyu", disconnect), patch.object(dm.asyncio, "sleep", sleep):
+        await client._main()
+    assert attempts == [0, 1, 2, 3] and waits == [1, 1, 1], (attempts, waits)
+    print("PASS: Douyu heartbeat deadline, silent/rejected socket recovery, reset backoff after successful subscriptions")
+
+
 async def check_websocket(platform, *, mapped=False):
     kind = platform.kind
     client = platform.danmaku_client(kind + ":123")
@@ -388,6 +455,7 @@ def main():
     manager.load()
     check_protocols()
     asyncio.run(check_tcp(manager.platforms["douyu"]))
+    asyncio.run(check_douyu_recovery(manager.platforms["douyu"]))
     for kind in ("huya", "douyin"):
         asyncio.run(check_websocket(manager.platforms[kind]))
         if kind == "douyin":
