@@ -978,7 +978,11 @@ class MainWindow(QMainWindow):
         if ":" in str(tile.room.get("room_id") or ""):
             tile.set_live(True)
         if options:
+            discover_highest = (not tile.quality_options and self._fullscreen_tile is tile
+                                and requested_quality == 10000)
             tile.set_quality_options(options)
+            if discover_highest and self._upgrade_fullscreen_quality(tile):
+                return  # 首次档位迟到：直接取最高档，不先播放旧的较低档。
             if quality and requested_quality != AUTO_QUALITY and ":" in str(tile.room.get("room_id") or ""):
                 tile.quality = quality
                 tile.room["quality"] = quality
@@ -1910,6 +1914,18 @@ class MainWindow(QMainWindow):
                 if tile in self.wall.tiles and tile.muted != muted:
                     tile.set_muted(muted)
 
+    def _upgrade_fullscreen_quality(self, tile: Tile) -> bool:
+        if (tile.quality == AUTO_QUALITY or tile in self._capture_quality
+                or getattr(tile, "quality_locked", False)):
+            return False
+        # 平台档位按画质从高到低排列，编号大小不代表跨平台的清晰度。
+        highest = next((int(item["qn"]) for item in tile.quality_options
+                        if int(item["qn"]) != AUTO_QUALITY), 10000)
+        if tile.quality == highest:
+            return False
+        tile.set_quality(highest)
+        return True
+
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
@@ -1941,6 +1957,7 @@ class MainWindow(QMainWindow):
             self._release_fullscreen_frame()
         finished = time.perf_counter()
         self._fullscreen_cursor.start()
+        self._upgrade_fullscreen_quality(tile)
         self._report_fullscreen_cost("进入全屏", started, covered, finished, finished)
 
     def _exit_fullscreen(self) -> None:
