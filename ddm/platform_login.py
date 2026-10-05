@@ -115,6 +115,9 @@ class PlatformFollowDialog(QDialog):
         self.rooms = []
         self._cookies = {}
         self._worker = None
+        self._read_cancelled = False
+        self._forget_after_read = False
+        self._interactive_read = not login_only and bool(getattr(platform, "follow_browser_init_script", ""))
         self._pending_done = None
         self._finished_dialog = False
         self._saved_cookies = []
@@ -204,7 +207,10 @@ class PlatformFollowDialog(QDialog):
 
     def _read(self):
         if self._worker is not None:
+            if self._interactive_read:
+                self.cancel_read()
             return
+        self._read_cancelled = False
         jar = requests.cookies.RequestsCookieJar()
         for cookie in self._cookies.values():
             if cookie.expirationDate().isValid() and cookie.expirationDate().toSecsSinceEpoch() <= \
@@ -215,8 +221,10 @@ class PlatformFollowDialog(QDialog):
         self._saved_cookies = [bytes(cookie.toRawForm()).decode("utf-8")
                                for cookie in self._cookies.values()]
         self.status.setText("正在确认账号信息…" if self.login_only else "正在后台读取关注，完成后可勾选导入…")
-        self.read_button.setEnabled(False)
-        self.forget_button.setEnabled(False)
+        self.read_button.setEnabled(self._interactive_read)
+        self.forget_button.setEnabled(self._interactive_read)
+        if self._interactive_read:
+            self.read_button.setText("停止读取")
         owner = self._owner
         worker = PlatformFollowLoader(self.platform, jar, owner or self, login_only=self.login_only)
         self._worker = worker
@@ -229,6 +237,14 @@ class PlatformFollowDialog(QDialog):
         worker.browserRequested.connect(self._browser_request)
         worker.finished.connect(lambda w=worker: self._finished(w))
         worker.start()
+
+    def cancel_read(self):
+        if self._worker is not None:
+            self._read_cancelled = True
+            self.browser.page().runJavaScript("window.__ddmFollowCancelled = true; "
+                "window.__ddmFollowGeneration = (window.__ddmFollowGeneration || 0) + 1")
+            self._worker.cancel()
+            self.status.setText("正在停止读取…")
 
     def _browser_request(self, url, request):
         if request["done"].is_set():
@@ -250,11 +266,15 @@ class PlatformFollowDialog(QDialog):
         script = getattr(self.platform, "follow_browser_script", "")
         if script:
             page.runJavaScript("""window.__ddmFollowResult = null; window.__ddmFollowCancelled = false;
+                window.__ddmFollowGeneration = (window.__ddmFollowGeneration || 0) + 1;
+                (() => { const generation = window.__ddmFollowGeneration;
                 Promise.resolve().then(() => (%s)(%s))
-                    .then(data => { window.__ddmFollowResult = {status: 200, text: JSON.stringify(data)}; })
-                    .catch(error => { window.__ddmFollowResult = {error:
+                    .then(data => { if (generation === window.__ddmFollowGeneration)
+                        window.__ddmFollowResult = {status: 200, text: JSON.stringify(data)}; })
+                    .catch(error => { if (generation === window.__ddmFollowGeneration) window.__ddmFollowResult = {error:
                         ['follow_panel_not_found', 'follow_page_timeout', 'follow_panel_wrong_list'].includes(error.message)
                             ? error.message : 'request failed'}; });
+                })();
                 """ % (script, json.dumps(url)))
         else:
             page.runJavaScript("""window.__ddmFollowResult = null;
@@ -280,11 +300,11 @@ class PlatformFollowDialog(QDialog):
         QTimer.singleShot(100, poll)
 
     def _account_loaded(self, account):
-        if self._pending_done is None and not getattr(self._owner, "_closing", False):
+        if not self._read_cancelled and self._pending_done is None and not getattr(self._owner, "_closing", False):
             self.account = account
 
     def _loaded(self, rooms):
-        if self._pending_done is not None or getattr(self._owner, "_closing", False):
+        if self._read_cancelled or self._pending_done is not None or getattr(self._owner, "_closing", False):
             return
         if os.environ.get("DDM_NO_SAVE") != "1":
             try:
@@ -302,7 +322,7 @@ class PlatformFollowDialog(QDialog):
         self.accept()
 
     def _failed(self, reason):
-        if self._pending_done is None:
+        if not self._read_cancelled and self._pending_done is None:
             self.status.setText(reason)
             self.readFailed.emit(reason)
 
@@ -314,14 +334,24 @@ class PlatformFollowDialog(QDialog):
             self._worker = None
         worker.deleteLater()
         self.read_button.setEnabled(True)
+        self.read_button.setText("确认登录" if self.login_only else "读取关注")
         self.forget_button.setEnabled(True)
+        if self._read_cancelled:
+            self.status.setText("读取已停止，可以重试或切换平台")
         self.busyChanged.emit(False)
         if self._pending_done is not None:
             result = self._pending_done
             self._pending_done = None
             self.done(result)
+        elif self._forget_after_read:
+            self._forget_after_read = False
+            self._forget()
 
     def _forget(self):
+        if self._worker is not None:
+            self._forget_after_read = True
+            self.cancel_read()
+            return
         try:
             self.account_store.clear()
         except OSError:
@@ -343,9 +373,7 @@ class PlatformFollowDialog(QDialog):
             return
         if self._worker is not None:
             self._pending_done = result
-            if getattr(self.platform, "follow_browser_init_script", ""):
-                self.browser.page().runJavaScript("window.__ddmFollowCancelled = true")
-            self._worker.cancel()
+            self.cancel_read()
             self.status.setText("正在结束当前请求…")
             return
         if self._embedded:

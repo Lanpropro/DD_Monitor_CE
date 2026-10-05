@@ -28,6 +28,7 @@ class AccountPlatformDialog(QDialog):
         self._bili_loader = None
         self._pending_rooms = None
         self._closing_result = None
+        self._pending_platform = ""
         self.setWindowTitle("导入关注" if import_follows else "登录")
         self.layout_box = QVBoxLayout(self)
         toolbar = QGridLayout()
@@ -87,8 +88,13 @@ class AccountPlatformDialog(QDialog):
             """)
 
     def _busy(self, busy):
+        page = self._platform_pages.get(self.kind)
+        can_switch = page is not None and page._interactive_read and self._closing_result is None
         for button in self.platform_buttons.values():
-            button.setEnabled(not busy)
+            button.setEnabled(not busy or can_switch)
+        if not busy and self._pending_platform and self._closing_result is None:
+            kind, self._pending_platform = self._pending_platform, ""
+            self.select_platform(kind)
 
     def _clear_page(self):
         if self.page is not None:
@@ -143,6 +149,12 @@ class AccountPlatformDialog(QDialog):
         if self._closing_result is not None or kind == self.kind:
             return
         if not self.platform_buttons[kind].isEnabled():
+            return
+        page = self._platform_pages.get(self.kind)
+        if page is not None and page._worker is not None:
+            self._pending_platform = kind
+            self.platform_buttons[self.kind].setChecked(True)
+            page.cancel_read()
             return
         self._clear_page()
         self.kind = kind

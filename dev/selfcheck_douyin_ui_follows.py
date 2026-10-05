@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -15,13 +16,15 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')
 import requests
 from PySide6.QtCore import QUrl, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
+from ddm.account_dialog import AccountPlatformDialog
 from ddm.platform_login import PlatformFollowDialog
 from plugins_user.domestic_live.plugin import DouyinPlatform
 from dev.selfcheck_platform_follows import wait_for
 from dev.selfcheck_account_dialog import dispose
 
 HTML = """<!doctype html><meta charset="utf-8">
+<nav><a onclick="window.navigated=true"><div><div>关注1</div></div></a></nav>
 <button onclick="window.mutated=true">关注</button>
 <button onclick="openPanel()">3关注</button>
 <script>
@@ -204,7 +207,7 @@ def main():
             else:
                 assert not failed and not dialog.rooms
             changed = []
-            dialog.browser.page().runJavaScript('window.mutated === true', changed.append)
+            dialog.browser.page().runJavaScript('window.mutated === true || window.navigated === true', changed.append)
             wait_for(app, lambda: bool(changed))
             assert changed == [False]
             if mode.startswith('rendered'):
@@ -214,12 +217,70 @@ def main():
                 assert opened == [1]  # 已显示的面板直接读取，不重新打开或触发关注操作。
             dispose(app, dialog)
             state['gate'].set()
+
+        # 真实统一导入窗口：官网读取中仍可停止、退出或切到其他平台，不接收迟到结果。
+        owner = QWidget()
+        owner.plugins = SimpleNamespace(_platform_owner={})
+        owner._accounts = {'douyin': {'uid': '42'}}
+        owner._platform_login_sessions = {}
+        owner._clear_platform_account = lambda kind: owner._accounts.pop(kind, None)
+        owner._render_account = lambda: None
+        owner._start_avatar_loader = lambda *_args: None
+        owner.sidebar = SimpleNamespace(rooms=lambda: [], folder_state=lambda: [])
+        other = SimpleNamespace(kind='huya', label='虎牙', follow_login_url='about:blank',
+                                follow_cookie_domain='huya.com')
+        for action in ('stop', 'retry', 'switch', 'forget'):
+            state.update(mode='rendered_pending', requests=[])
+            dialog = AccountPlatformDialog(owner, {'douyin': provider, 'huya': other},
+                                           import_follows=True, platform_kind='douyin')
+            dialog.show()
+            page = dialog._platform_pages['douyin']
+            assert page.read_button.isEnabled() and page.read_button.text() == '停止读取'
+            assert page.forget_button.isEnabled()
+            assert all(button.isEnabled() for button in dialog.platform_buttons.values())
+            started = []
+            def opened():
+                page.browser.page().runJavaScript('window.opened > 0', started.append)
+                return any(started)
+            wait_for(app, opened)
+            with patch.object(page.account_store, 'clear') as clear:
+                if action in ('stop', 'retry'):
+                    page.read_button.click()
+                elif action == 'forget':
+                    page.forget_button.click()
+                else:
+                    dialog.platform_buttons['huya'].click()
+                wait_for(app, lambda: page._worker is None)
+                assert not dialog.rooms and not dialog._follow_pages
+                page._loaded([{'room_id': 'douyin:9999'}])
+                assert not dialog.rooms and not dialog._follow_pages
+                if action == 'switch':
+                    assert dialog.kind == 'huya' and dialog.page is dialog._platform_pages['huya']
+                else:
+                    assert page.read_button.text() == '读取关注' and page.read_button.isEnabled()
+                assert clear.call_count == (1 if action == 'forget' else 0)
+                if action == 'retry':
+                    ready = []
+                    page.browser.page().runJavaScript('''(() => {
+                        const panel = document.querySelector('[data-e2e="user-fans-container"]');
+                        const props = panel.__reactProps$fixture.children.props;
+                        props.refIsLoadingShow.current = false;
+                        props.refNoMoreText.current = '暂时没有更多了';
+                        panel.querySelector('[data-e2e="user-fans-footer"]').textContent = '暂时没有更多了';
+                        return true;
+                    })()''', ready.append)
+                    wait_for(app, lambda: bool(ready))
+                    page.read_button.click()
+                    wait_for(app, lambda: page._worker is None)
+                    assert [r['room_id'] for r in dialog.page.rooms] == ['douyin:1001']
+            dispose(app, dialog)
+        owner.deleteLater()
     finally:
         state['gate'].set()
         server.shutdown()
         server.server_close()
         thread.join(2)
-    print('PASS: rendered props/fiber without API capture, debounced pagination, complete/empty/error/cancel, account/tab/search isolation, no follow mutation or signed URLs')
+    print('PASS: profile entry excludes feed navigation; rendered/response pagination; stop/retry/switch/logout; account/tab/search isolation; no follow mutation or signed URLs')
 
 
 if __name__ == '__main__':
