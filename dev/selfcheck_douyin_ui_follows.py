@@ -277,6 +277,7 @@ def main():
         other = SimpleNamespace(kind='huya', label='虎牙', follow_login_url='about:blank',
                                 follow_cookie_domain='huya.com')
         for action in ('stop', 'retry', 'switch', 'forget'):
+            owner._douyin_follow_cache = None
             state.update(mode='rendered_pending', requests=[])
             dialog = AccountPlatformDialog(owner, {'douyin': provider, 'huya': other},
                                            import_follows=True, platform_kind='douyin')

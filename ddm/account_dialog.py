@@ -1,5 +1,6 @@
 """在同一窗口内切换平台、登录和勾选关注。"""
 import os
+from copy import deepcopy
 
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QIcon
@@ -145,8 +146,8 @@ class AccountPlatformDialog(QDialog):
         super().showEvent(event)
         self._center_on_owner()
 
-    def select_platform(self, kind):
-        if self._closing_result is not None or kind == self.kind:
+    def select_platform(self, kind, *, reread=False):
+        if self._closing_result is not None or (kind == self.kind and not reread):
             return
         if not self.platform_buttons[kind].isEnabled():
             return
@@ -156,6 +157,8 @@ class AccountPlatformDialog(QDialog):
             self.platform_buttons[self.kind].setChecked(True)
             page.cancel_read()
             return
+        if reread:
+            self._follow_pages.pop(kind, None)
         self._clear_page()
         self.kind = kind
         self.platform_buttons[kind].setChecked(True)
@@ -185,9 +188,15 @@ class AccountPlatformDialog(QDialog):
             layout.addStretch()
             self._set_page(page)
             return
-        if self.import_follows and kind in self._follow_pages:
+        if self.import_follows and not reread and kind in self._follow_pages:
             self._set_page(self._follow_pages[kind])
             return
+        if self.import_follows and kind == "douyin" and not reread:
+            cache = getattr(self.owner, "_douyin_follow_cache", None)
+            uid = self.owner._accounts.get(kind, {}).get("uid")
+            if uid and cache is not None and cache["uid"] == str(uid):
+                self._show_rooms(deepcopy(cache["rooms"]))
+                return
         if kind == "bilibili":
             if self.import_follows and bili.SESSION_DATA:
                 self._load_bili()
@@ -223,6 +232,8 @@ class AccountPlatformDialog(QDialog):
                                     "请在官方页面完成登录，然后点击「确认登录」")
                 page.browser.load(QUrl(page._login_url))
             self._set_page(page)
+            if reread:
+                page._read()
 
     def _platform_failed(self, page):
         if self._closing_result is None and self.page.property("loading"):
@@ -317,6 +328,16 @@ class AccountPlatformDialog(QDialog):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
         page = FollowImportDialog(rooms, existing, self.owner,
                                   folders=self.owner.sidebar.folder_state())
+        if self.kind == "douyin":
+            uid = self.owner._accounts.get(self.kind, {}).get("uid")
+            if uid:
+                self.owner._douyin_follow_cache = {"uid": str(uid), "rooms": deepcopy(rooms)}
+            page.reread_button = QPushButton("重新读取", page)
+            page.reread_button.setObjectName("IconButton")
+            page.reread_button.setCursor(Qt.PointingHandCursor)
+            page.reread_button.setAutoDefault(False)
+            page.reread_button.clicked.connect(lambda: self.select_platform("douyin", reread=True))
+            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
         self._set_page(page)

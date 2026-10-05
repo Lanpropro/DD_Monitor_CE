@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._accounts: dict[str, dict] = {}
         self._platform_login_sessions: dict[str, dict] = {}
+        self._douyin_follow_cache = None
         self._poller = None
         self._refresh_queued = False
         self._stats_poller = None
@@ -2387,6 +2388,8 @@ class MainWindow(QMainWindow):
     def _clear_platform_account(self, kind: str) -> None:
         self._accounts.pop(kind, None)
         self._platform_login_sessions.pop(kind, None)
+        if kind == "douyin":
+            self._douyin_follow_cache = None
         self._render_account()
 
     def load_cached_covers(self) -> None:
