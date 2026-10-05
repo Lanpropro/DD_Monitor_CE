@@ -188,6 +188,27 @@ https://cdn.test/audio.m3u8
     session.http.close()
     print("PASS: true portrait sizes/fps, stable native quality IDs, H.264 video only, isolated low preview")
 
+    # 高延迟代理可连续两次断开 TLS；第三次成功不能变成整格取流失败。
+    for kind, platform in manager.platforms.items():
+        rid = ROOMS[0] if kind == "twitch" else ROOMS[1]
+        original_streamlink = module.Streamlink
+        sessions = []
+        def create(options):
+            current = original_streamlink(options)
+            sessions.append(current)
+            return current
+        def parse(_parser):
+            sessions[-1].http.get("https://cdn.test/master.m3u8")
+            return streams
+        with patch.object(module, "Streamlink", side_effect=create), \
+                patch.object(platform.parser, "streams", new=parse), \
+                patch.object(module.requests.Session, "request", side_effect=[
+                    module.requests.exceptions.SSLError("temporary TLS EOF"),
+                    module.requests.exceptions.SSLError("temporary TLS EOF"), response()]) as download:
+            assert platform.play_url(rid)[0].endswith("high.m3u8")
+            assert download.call_count == 3
+    print("PASS: initial stream resolution retries two transient TLS failures")
+
 
 async def check_protocol(platform):
     kind = platform.kind
@@ -346,7 +367,12 @@ def check_window(app, records):
             try:
                 recovered = restored.current_state()
                 for key in ("rooms", "wall", "pinned", "platform_rooms"):
-                    assert recovered[key] == saved[key], (key, recovered[key], saved[key])
+                    expected = saved[key]
+                    if key == "wall":
+                        # 海外自动档属于房间；无房间的格子恢复为 B 站默认档。
+                        expected = [dict(slot, quality=250) if not slot.get("room_id") and
+                                    slot.get("quality") == AUTO_QUALITY else slot for slot in expected]
+                    assert recovered[key] == expected, (key, recovered[key], expected)
                 assert not recovered["suspended_platform_rooms"]
             finally:
                 restored.close()

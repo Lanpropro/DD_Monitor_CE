@@ -17,6 +17,8 @@ class HlsProxy:
         self._lock = threading.Lock()
         self._responses = set()
         self._samples = deque(maxlen=12)
+        self._idle_sessions = []
+        self.refresh_required = threading.Event()
         prefix = "/" + uuid.uuid4().hex + "/"
         relay = self
         proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -38,6 +40,9 @@ class HlsProxy:
                 if relay._stopped.is_set() or not self.path.startswith(prefix):
                     self.send_error(404)
                     return
+                if relay.refresh_required.is_set():
+                    self.send_error(503)
+                    return
                 try:
                     token = self.path[len(prefix):].rsplit("/", 1)[0]
                     url = base64.b64decode(token, altchars=b"-_", validate=True).decode()
@@ -50,18 +55,35 @@ class HlsProxy:
                 if self.headers.get("Range"):
                     request_headers["Range"] = self.headers["Range"]
                 response = None
+                session = None
                 try:
+                    # 每个并行请求独占 Session；完成后归还，跨分片复用代理/TLS 连接。
+                    with relay._lock:
+                        if relay._stopped.is_set():
+                            return
+                        session = relay._idle_sessions.pop() if relay._idle_sessions else requests.Session()
+                    started = time.monotonic()
                     for attempt in range(3):
                         try:
-                            response = requests.get(url, headers=request_headers, proxies=proxies,
+                            response = session.get(url, headers=request_headers, proxies=proxies,
                                 stream=True, timeout=(4, 8))
                             response.raise_for_status()
                             break
                         except requests.RequestException:
+                            status = response.status_code if response is not None else 0
+                            playlist = (urlsplit(url).path.endswith(".m3u8") or response is not None and
+                                        "mpegurl" in response.headers.get("Content-Type", "").lower())
+                            if status in (401, 403) or playlist and status in (404, 410):
+                                relay.refresh_required.set()  # 签名失效需重新解析，重试旧地址无效。
+                            if 400 <= status < 500 and status not in (408, 429):
+                                self.send_error(status)
+                                return
                             if response is not None:
                                 response.close()
+                                response = None
                             if attempt == 2 or relay._stopped.wait(.5 * (attempt + 1)):
                                 raise
+                    elapsed = time.monotonic() - started  # 计入代理连接、首包等待和请求重试。
                     with relay._lock:
                         if relay._stopped.is_set():
                             return
@@ -105,7 +127,7 @@ class HlsProxy:
                     if playlist:
                         self.wfile.write(body)
                     else:
-                        size, elapsed = 0, 0
+                        size = 0
                         chunks = response.iter_content(65536)
                         while True:
                             reading = time.monotonic()
@@ -130,6 +152,13 @@ class HlsProxy:
                         with relay._lock:
                             relay._responses.discard(response)
                         response.close()
+                    if session is not None:
+                        with relay._lock:
+                            close = relay._stopped.is_set() or relay.refresh_required.is_set()
+                            if not close:
+                                relay._idle_sessions.append(session)
+                        if close:
+                            session.close()
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._server.daemon_threads = True
@@ -139,7 +168,7 @@ class HlsProxy:
         self._thread.start()
 
     def network_speed(self):
-        """最近 30 秒分片载荷的下四分位吞吐；排除连接等待和播放器背压。"""
+        """最近 30 秒分片有效吞吐的下四分位值；包含连接等待，排除播放器背压。"""
         now = time.monotonic()
         with self._lock:
             rates = sorted(rate for when, rate in self._samples if now - when <= 30)
@@ -149,6 +178,10 @@ class HlsProxy:
         if self._stopped.is_set():
             return
         self._stopped.set()
+        with self._lock:
+            sessions, self._idle_sessions = self._idle_sessions, []
+        for session in sessions:
+            session.close()
         # 由请求线程关闭 response；跨线程 close 会等待读锁，阻塞窗口关闭。
         # 停止后不重试/不再写数据，正在进行的网络读取由上述有界超时退出。
         self._server.shutdown()

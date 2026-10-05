@@ -48,12 +48,17 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
     return signature, texture / SIGNATURE_BITS
 
 
-def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250) -> list[str]:
+def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,
+                   *, hls_retry=False) -> list[str]:
     width, height = (1920, 1080) if quality >= 400 else (1280, 720)
     inputs = recording.input_args(url, headers)
     if url.lower().startswith(("http://", "https://")):
         # Let the outer retry resolve a fresh address instead of looping on a broken CDN.
-        inputs = inputs[:-2] + ["-reconnect", "0", "-rw_timeout", "6000000"] + inputs[-2:]
+        inputs = inputs[:-2] + ["-reconnect", "0", "-rw_timeout",
+                               "30000000" if hls_retry else "6000000"] + inputs[-2:]
+        if hls_retry:
+            inputs = inputs[:-2] + ["-http_persistent", "0", "-http_multiple", "1",
+                                   "-seg_max_retry", "3"] + inputs[-2:]
     return ([executable, "-nostdin", "-readrate", "1", "-threads", "2"]
             + inputs
             + ["-map", "0:v:0", "-an", "-vf",
@@ -172,6 +177,7 @@ class Decoder:
         self.listener = listener
         audio_thread = threading.Thread(target=self._read_audio, daemon=True)
         process = None
+        hls_proxy = None
         finished = threading.Event()
         timed_out = threading.Event()
         last_frame = [time.monotonic()]
@@ -180,7 +186,9 @@ class Decoder:
             while not finished.wait(.2):
                 if self.cancelled.is_set() or process.poll() is not None:
                     return
-                if time.monotonic() - last_frame[0] > FRAME_TIMEOUT:
+                refresh = getattr(hls_proxy, "refresh_required", None)
+                if (refresh is not None and refresh.is_set() or
+                        time.monotonic() - last_frame[0] > FRAME_TIMEOUT):
                     timed_out.set()
                     try:
                         process.terminate()
@@ -191,8 +199,14 @@ class Decoder:
         watchdog = threading.Thread(target=watch_frames,
                                     name=f"match-sync-watchdog-{self.room_id}", daemon=True)
         try:
+            if self.platform is not None and self.platform.kind in ("twitch", "youtube"):
+                from ddm.global_danmaku import request_proxy
+                from ddm.hls_proxy import HlsProxy
+                hls_proxy = HlsProxy(url, headers, request_proxy(url))
+                url, headers = hls_proxy.url, {}
             process = subprocess.Popen(
-                decode_command(executable, url, headers, listener.getsockname()[1], self.seed.get("quality", 250)),
+                decode_command(executable, url, headers, listener.getsockname()[1], self.seed.get("quality", 250),
+                               hls_retry=hls_proxy is not None),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
                 creationflags=recording._FFMPEG_FLAGS)
             recording._adopt_process(process)
@@ -235,7 +249,9 @@ class Decoder:
                 if len(pending) > 4 * 1024 * 1024:
                     raise ValueError("Invalid JPEG stream")
             if not self.cancelled.is_set():
-                self.events.state.emit("画面接收超时，正在重新取流" if timed_out.is_set()
+                refresh = getattr(hls_proxy, "refresh_required", None)
+                self.events.state.emit("播放地址已失效，正在重新取流" if refresh is not None and refresh.is_set()
+                                       else "画面接收超时，正在重新取流" if timed_out.is_set()
                                        else "直播流已结束或中断，正在重连")
         finally:
             finished.set()
@@ -262,6 +278,8 @@ class Decoder:
                     pass
             if audio_thread.is_alive():
                 audio_thread.join(1)
+            if hls_proxy is not None:
+                hls_proxy.stop()
 
     def _read_audio(self) -> None:
         listener = self.listener

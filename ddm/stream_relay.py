@@ -83,6 +83,14 @@ class StreamRelay:
             kwargs={"poll_interval": 0.05}, name="live-stream-relay", daemon=True)
         self._thread.start()
 
+    def needs_restart(self):
+        """海外地址失效或转封装已退出时，不再等待播放器的缓冲超时。"""
+        with self._lock:
+            if self._stopped or self._hls_proxy is None:
+                return False
+            process = self._process
+        return self._hls_proxy.refresh_required.is_set() or process is not None and process.poll() is not None
+
     def stop(self):
         with self._lock:
             if self._stopped:

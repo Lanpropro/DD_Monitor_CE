@@ -22,7 +22,7 @@ def main():
     app.setStyleSheet(theme.qss())
     state = {"plugins_enabled": ["global_live"], "settings": {"recording_enabled": False,
         "recording_replay_enabled": False, "preview_on_hover": False, "danmaku_enabled": False}}
-    original_get = hls_proxy.requests.get
+    original_get = hls_proxy.requests.Session.get
     limit = [0]
     def download(*args, **kwargs):
         response = original_get(*args, **kwargs)
@@ -36,7 +36,7 @@ def main():
             response.iter_content = chunks
         return response
     with patch("ddm.app.QTimer.singleShot"), patch("ddm.app.MainWindow.sync_danmaku"), \
-            patch.object(hls_proxy.requests, "get", side_effect=download):
+            patch.object(hls_proxy.requests.Session, "get", new=download):
         window = MainWindow([], [], state=state, layout_id="corner")
         window.resize(1000, 700)
         window.show()

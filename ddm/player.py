@@ -600,6 +600,9 @@ class TilePlayer(QObject):
     def _check(self) -> None:
         if self.paused:
             return                          # 暂停时画面本来就不动，不能当成卡顿
+        if self._relay is not None and self._relay.needs_restart():
+            self._set_state("error")
+            return                          # 明确失败走已有重连，暂时缺片仍由 HLS 层恢复。
         self._ensure_audio_settings()       # aout 起来了就把静音/音量补回去
         state = self.player.get_state()
         width, _ = self.player.video_get_size(0)

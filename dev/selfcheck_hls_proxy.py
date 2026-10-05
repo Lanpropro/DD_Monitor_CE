@@ -14,13 +14,20 @@ from ddm.hls_proxy import HlsProxy  # noqa: E402
 
 
 def main():
-    attempts, headers = [], []
+    attempts, headers, connections = [], [], []
     class Origin(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def handle(self):
+            try:
+                super().handle()
+            except ConnectionError:
+                pass  # 测试主动关闭持久连接，Windows 会报告连接重置。
         def log_message(self, *_args):
             pass
         def do_GET(self):
             attempts.append(self.path)
             headers.append(dict(self.headers))
+            connections.append(self.client_address)
             if self.path.startswith("/dir/live.m3u8"):
                 if attempts.count(self.path) == 1:
                     self.send_response(503)
@@ -51,6 +58,7 @@ def main():
             else:
                 self.wfile.write(body)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Origin)
+    server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base = f"http://127.0.0.1:{server.server_port}"
@@ -73,12 +81,13 @@ def main():
             base64.urlsafe_b64encode((base + "/gzip.ts").encode()).decode())
         response = requests.get(compressed, timeout=3)
         assert response.content == b"transport stream" and response.headers["Transfer-Encoding"] == "chunked"
+        assert connections[-3] == connections[-2] == connections[-1], "Sequential resources must reuse TCP"
         assert proxy.network_speed() == (0, 0)  # 清单、密钥和小响应不充当测速
         large = segment.replace(segment.split("/")[-2],
             base64.urlsafe_b64encode((base + "/large.ts").encode()).decode())
         assert len(requests.get(large, timeout=3).content) == 65536
         speed, count = proxy.network_speed()
-        assert count == 1 and 0 < speed < 65536 * 8 / .07  # 真实载荷传输耗时计入吞吐
+        assert count == 1 and 0 < speed < 65536 * 8 / .14  # 首包及载荷等待都计入，不能高估网速
         with proxy._lock:
             proxy._samples.clear()
             proxy._samples.extend([(time.monotonic() - 31, 1), (time.monotonic(), 100),
@@ -96,7 +105,8 @@ def main():
         thread.join()
     assert not proxy._thread.is_alive() and proxy._server.socket.fileno() == -1
     assert not proxy._responses
-    print("PASS: loopback HLS, retry, relative/signed/key URLs, headers/ranges and idempotent cleanup")
+    assert not proxy._idle_sessions
+    print("PASS: loopback HLS, persistent TCP, first-byte throughput, retry, URLs/headers/ranges and cleanup")
 
 
 if __name__ == "__main__":

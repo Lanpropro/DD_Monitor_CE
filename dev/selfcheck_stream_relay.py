@@ -35,6 +35,7 @@ def main():
             patch.object(stream_relay.subprocess, "Popen", return_value=process) as start:
         relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {"Referer": "https://www.huya.com/"})
         try:
+            assert not relay.needs_restart()
             assert relay._server.server_address[0] == "127.0.0.1"
             bad = requests.get(relay.url + "-wrong", timeout=2)
             assert bad.status_code == 404 and not start.called
@@ -56,6 +57,7 @@ def main():
             relay.stop()
             relay.stop()
         assert process.killed == 1 and not relay._thread.is_alive()
+        assert not relay.needs_restart()  # 主动停止不能触发重新连接。
         assert relay._server.socket.fileno() == -1
     with patch.object(stream_relay, "ffmpeg_path", return_value="mock-ffmpeg"), \
             patch.object(stream_relay.subprocess, "Popen") as start:
@@ -69,6 +71,10 @@ def main():
         relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {},
                                         proxy="http://127.0.0.1:7890", hls_retry=True)
         try:
+            assert not relay.needs_restart()  # 尚未启动进程不属于故障。
+            relay._hls_proxy.refresh_required.set()
+            assert relay.needs_restart()
+            relay._hls_proxy.refresh_required.clear()
             assert requests.get(relay.url, timeout=2).content.startswith(b"FLV")
             command = start.call_args.args[0]
             assert command[command.index("-i") + 1] == relay._hls_proxy.url
@@ -77,6 +83,7 @@ def main():
             for option, value in (("-http_persistent", "0"),
                     ("-http_multiple", "1"), ("-seg_max_retry", "3"), ("-reconnect_on_network_error", "1")):
                 assert command[command.index(option) + 1] == value
+            assert relay.needs_restart()  # 转封装退出，不再额外等待 30 秒。
         finally:
             relay.stop()
         assert not relay._thread.is_alive() and process.poll() is not None
