@@ -1,4 +1,4 @@
-"""用户须知：确认后持久化、后续启动跳过、关闭不确认、主窗口保存保留状态。"""
+"""用户须知：确认或关闭后持久化、后续启动跳过、主窗口保存保留状态。"""
 from contextlib import ExitStack
 from copy import deepcopy
 import os
@@ -25,9 +25,15 @@ def main():
         original = deepcopy(state)
         rejected = real_dialog()
         QTimer.singleShot(0, rejected.close)
-        with patch.object(user_notice, "UserNoticeDialog", return_value=rejected):
-            assert not user_notice.confirm_user_notice(state)
-        assert state == original and not Path(config.CONFIG_PATH).exists()
+        dismissed = deepcopy(state)
+        with patch.object(user_notice, "UserNoticeDialog", return_value=rejected), \
+                patch.dict(os.environ):
+            os.environ.pop("DDM_NO_SAVE", None)
+            assert user_notice.confirm_user_notice(dismissed)
+        assert config.load() == dict(original, user_notice_accepted=True)
+        with patch.object(user_notice, "UserNoticeDialog") as dialog:
+            assert user_notice.confirm_user_notice(config.load())
+            dialog.assert_not_called()
 
         accepted = real_dialog()
         assert accepted.content.isReadOnly() and accepted.content.openExternalLinks()
@@ -68,7 +74,7 @@ def main():
         assert window.current_state()["user_notice_accepted"] is True
         window.close()
 
-    # 真正的启动入口：关闭须知也正常构建、显示主窗口，不记录为已确认。
+    # 真正的启动入口：关闭须知正常构建、显示主窗口，并记住已显示。
     closing = real_dialog()
     QTimer.singleShot(0, closing.reject)
     unconfirmed = {}
@@ -98,8 +104,8 @@ def main():
         window.assert_called_once()
         window.return_value.showMaximized.assert_called_once()
         warm.assert_called_once()
-        save.assert_not_called()
-        assert not unconfirmed.get("user_notice_accepted")
+        save.assert_called_once_with(unconfirmed)
+        assert unconfirmed["user_notice_accepted"] is True
     print("PASS: notice content, confirmation persistence, repeated launch and normal startup after dismissal")
 
 

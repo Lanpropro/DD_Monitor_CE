@@ -1,4 +1,4 @@
-"""首次启动的用户须知与确认状态。"""
+"""首次启动的用户须知与一次性显示状态。"""
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QTextBrowser, QVBoxLayout
 
 from . import config, theme
@@ -54,8 +54,8 @@ def confirm_user_notice(state: dict) -> bool:
         return True
     dialog = UserNoticeDialog()
     try:
-        if dialog.exec() != QDialog.Accepted:
-            return False
+        dialog.exec()
+        # 沿用原配置键，确认或直接关闭都记为已显示。
         state["user_notice_accepted"] = True
         state.setdefault("version", config.STATE_VERSION)
         config.save(state)
