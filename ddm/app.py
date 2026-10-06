@@ -2686,10 +2686,13 @@ class MainWindow(QMainWindow):
             result = dialog.exec()
             selected = dialog.rooms
             folder_id = dialog.folder_id
+            removed_ids = dialog.removed_ids
+            move_existing = dialog.folder_changed
         finally:
             dialog.deleteLater()
         if import_follows and result == QDialog.Accepted and not self._closing:
-            self._import_selected_follows(selected, folder_id=folder_id)
+            self._import_selected_follows(selected, folder_id=folder_id,
+                                          removed_ids=removed_ids, move_existing=move_existing)
 
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
@@ -2710,12 +2713,19 @@ class MainWindow(QMainWindow):
             return
         self._open_account_dialog(self._follow_platforms(), import_follows=True)
 
-    def _import_selected_follows(self, selected: list, *, folder_id: str = "") -> None:
+    def _import_selected_follows(self, selected: list, *, folder_id: str = "",
+                                 removed_ids=(), move_existing=False) -> None:
         if self._closing:
             return
+        selected_ids = {str(room["room_id"]) for room in selected}
+        removing = set(removed_ids) - selected_ids
+        for room in list(self.sidebar.rooms()):
+            if str(room["room_id"]) in removing:
+                self.remove_room(room)
         added_rooms = [room for room in selected if self.sidebar.add_room(room)]
-        if folder_id and added_rooms:
-            self.sidebar.move_to_folder([str(room["room_id"]) for room in added_rooms], folder_id)
+        moving = selected if move_existing else added_rooms
+        if (folder_id or move_existing) and moving:
+            self.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
         added = len(added_rooms)
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()

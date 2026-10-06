@@ -21,6 +21,8 @@ class AccountPlatformDialog(QDialog):
         self.import_follows = import_follows
         self.rooms = []
         self.folder_id = ""
+        self.folder_changed = False
+        self.removed_ids = []
         self.kind = ""
         self.page = None
         # 保留浏览器的控件树，避免切换时销毁或迁移窗口的图形渲染层。
@@ -263,6 +265,8 @@ class AccountPlatformDialog(QDialog):
         if isinstance(page, FollowImportDialog):
             self.rooms = page.selected()
             self.folder_id = page.folder_id
+            self.folder_changed = page.folder_changed
+            self.removed_ids = page.deselected_existing()
             self.accept()
             return
         if self.kind != "bilibili" and page.account:

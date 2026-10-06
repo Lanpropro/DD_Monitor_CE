@@ -175,9 +175,11 @@ def check_host(app):
             dialog.return_value.exec.return_value = QDialog.DialogCode.Accepted
             dialog.return_value.rooms = ROOMS
             dialog.return_value.folder_id = ""
+            dialog.return_value.folder_changed = False
+            dialog.return_value.removed_ids = []
             window.open_import_follows()
             assert dialog.call_args.kwargs["import_follows"]
-            loaded.assert_called_once_with(ROOMS, folder_id="")
+            loaded.assert_called_once_with(ROOMS, folder_id="", removed_ids=[], move_existing=False)
         with patch("ddm.account_dialog.AccountPlatformDialog") as dialog, \
                 patch.object(window, "_import_selected_follows") as loaded:
             dialog.return_value.exec.return_value = QDialog.DialogCode.Rejected

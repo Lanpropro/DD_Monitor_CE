@@ -905,6 +905,7 @@ class FollowImportDialog(QDialog):
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
         self.folder_id = ""
+        self.folder_changed = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -922,11 +923,11 @@ class FollowImportDialog(QDialog):
         layout.addWidget(self.search_edit)
 
         folder_row = QHBoxLayout()
-        folder_row.addWidget(QLabel("添加到文件夹"))
+        folder_row.addWidget(QLabel("放入文件夹"))
         self.folder_button = QPushButton("未分类")
         self.folder_button.setObjectName("IconButton")
         self.folder_button.setAutoDefault(False)
-        self.folder_button.setToolTip("选择普通文件夹；智能文件夹会按规则自动归类")
+        self.folder_button.setToolTip("选择后调整所有勾选主播的归属；未调整时保留已导入主播的归属")
         folder_menu = QMenu(self.folder_button)
         options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
@@ -939,6 +940,11 @@ class FollowImportDialog(QDialog):
         self.folder_button.setMenu(folder_menu)
         folder_row.addWidget(self.folder_button, 1)
         layout.addLayout(folder_row)
+
+        hint = QLabel("取消勾选并点击导入，会从本地关注栏移除对应主播；选择文件夹会调整已勾选主播的归属。")
+        hint.setObjectName("SettingsHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
 
         # 快捷筛选
         filters = QHBoxLayout()
@@ -993,6 +999,7 @@ class FollowImportDialog(QDialog):
 
     def _select_folder(self, action) -> None:
         self.folder_id = action.data()
+        self.folder_changed = True
         self.folder_button.setText(action.text())
         for option in self.folder_button.menu().actions():
             option.setChecked(option is action)
@@ -1038,6 +1045,12 @@ class FollowImportDialog(QDialog):
         self.header.setText(f"共 {len(self.rooms)} 个直播间{filtered}，已勾选 {selected} 个")
 
     # ---- 结果 ----
+    def deselected_existing(self) -> list[str]:
+        return [str(self.list.item(index).data(Qt.UserRole)["room_id"])
+                for index in range(self.list.count())
+                if str(self.list.item(index).data(Qt.UserRole)["room_id"]) in self.existing
+                and self.list.item(index).checkState() != Qt.Checked]
+
     def selected(self) -> list[dict]:
         result = []
         for index in range(self.list.count()):
