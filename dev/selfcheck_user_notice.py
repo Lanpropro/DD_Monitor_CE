@@ -41,6 +41,9 @@ def main():
         for content in ("开源与免费", "GNU LGPL 2.1", "不收取", "第三方平台与插件", "使用与反馈"):
             assert content in text
         html = accepted.content.toHtml()
+        assert "B站主页" not in text
+        for label in ("我个人", "B站私信"):
+            assert f'<a href="https://space.bilibili.com/193559518">{label}</a>' in user_notice.NOTICE_HTML
         for url in ("https://github.com/Lanpropro/DD_Monitor_CE/releases",
                     "https://github.com/Lanpropro/DD_Monitor_CE/issues",
                     "https://space.bilibili.com/193559518"):

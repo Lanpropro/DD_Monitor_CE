@@ -21,9 +21,10 @@ NOTICE_HTML = """
 <p>部分功能需要登录第三方平台或安装插件。请自行决定是否使用，并留意插件来源和所需权限。</p>
 <h3>4. 使用与反馈</h3>
 <p>请遵守所使用平台的相关规则，尊重主播及其他权利人的权益。</p>
-<p>本项目由我个人（<a href="https://space.bilibili.com/193559518">B站主页</a>）维护。
+<p>本项目由<a href="https://space.bilibili.com/193559518">我个人</a>维护。
 遇到问题或希望提出建议，请通过
-<a href="https://github.com/Lanpropro/DD_Monitor_CE/issues">提交 Issues</a>或者 B站私信联系我。</p>
+<a href="https://github.com/Lanpropro/DD_Monitor_CE/issues">提交 Issues</a>或者
+<a href="https://space.bilibili.com/193559518">B站私信</a>联系我。</p>
 """
 
 
