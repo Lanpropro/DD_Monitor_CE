@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
 
 from ddm.widgets import DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
+from ddm.fullscreen_cursor import FullscreenCursor
 from ddm import theme
 from .engine import Alignment, RATE, match_scenes, mix_pcm
 from .media import Chat, Decoder, PlatformChat
@@ -1027,9 +1028,12 @@ class Viewer(QDialog):
             return
         dialog = QDialog(self.window())
         dialog.setWindowTitle("比赛二路主画面")
+        dialog._fullscreen_tile = self.picture
+        dialog._fullscreen_cursor = FullscreenCursor(dialog)
         sizes = self.body_split.sizes()
         QVBoxLayout(dialog).addWidget(self.picture)
         def restore(_result):
+            dialog._fullscreen_cursor.stop()
             self.body_split.insertWidget(0, self.picture)
             self.body_split.setSizes(sizes)
             self.fullscreen_dialog = None
@@ -1037,6 +1041,7 @@ class Viewer(QDialog):
         dialog.finished.connect(restore)
         self.fullscreen_dialog = dialog
         dialog.showFullScreen()
+        dialog._fullscreen_cursor.start()
 
     def _stop_recording(self):
         recorder = getattr(self.context.window, "recorder", None)
