@@ -58,7 +58,8 @@ def main():
     with patch.object(SmartFolderDialog, "exec", choose):
         menu.actions()[1].trigger()
     smart = next(folder for folder in sidebar.folders if folder["name"] == "未开播虎牙")
-    assert smart["type"] == "smart" and smart["rule"] == {"status": "offline", "platforms": ["huya"]}
+    assert smart["type"] == "smart" and smart["rule"] == {
+        "status": "offline", "platforms": ["huya"], "sources": [], "display": "move"}
     sidebar.add_room({"room_id": "1", "uname": "主播", "live": False})
     sidebar.move_to_folder(["1"], ordinary["id"])
     app.processEvents()

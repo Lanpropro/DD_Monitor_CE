@@ -2577,24 +2577,44 @@ class SmartFolderCard(QWidget):
         super().__init__(parent)
         self.original = original
         self.room = original.room
-        self._rendering = False
         self._dragged = False
         self.setCursor(Qt.PointingHandCursor)
         original.installEventFilter(self)
+        for child in original.findChildren(QWidget):
+            child.installEventFilter(self)
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setInterval(50)
+        self._preview_timer.timeout.connect(self.update)
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Paint and not self._rendering:
+        if event.type() == QEvent.Paint and not getattr(self.original, "_smart_grabbing", False):
             self.update()
         return False
 
     def paintEvent(self, event):
-        self._rendering = True
+        self.original._smart_grabbing = True
         try:
             pixmap = self.original.grab()
         finally:
-            self._rendering = False
+            self.original._smart_grabbing = False
         painter = QPainter(self)
         painter.drawPixmap(self.rect(), pixmap)
+
+    def enterEvent(self, event):
+        self._preview_timer.start()
+        self.original.hovered.emit(self.room)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._preview_timer.stop()
+        self.original.unhovered.emit(self.room)
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        if self._preview_timer.isActive():
+            self._preview_timer.stop()
+            self.original.unhovered.emit(self.room)
+        super().hideEvent(event)
 
     def mousePressEvent(self, event):
         self._press_pos = event.pos()

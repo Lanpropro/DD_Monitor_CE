@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -60,7 +61,18 @@ def main():
     restored = Sidebar(rooms)
     restored.set_folders(sidebar.folder_state())
     assert restored.get_folder(smart)['rule'] == rule | {'display': 'copy'}
+    second = sidebar.create_folder('另一份筛选', rule=rule | {'display': 'copy'})
+    app.processEvents()
+    for card in sidebar._smart_cards.values():
+        card._preview_timer.stop()
+    with patch.object(original, 'grab', wraps=original.grab) as paint:
+        original.update()
+        QTest.qWait(80)
+        count = paint.call_count
+        QTest.qWait(80)
+        assert paint.call_count <= count + 2, 'multiple copies must not trigger continuous reciprocal repaints'
     sidebar.delete_folder(smart)
+    sidebar.delete_folder(second)
     assert sidebar.folder_for('1') == apex and len(sidebar.rooms()) == 3
     assert not sidebar._smart_cards
     # 来源不存在时不能误扩展成全部；旧规则仍不抢手动分类。
