@@ -20,10 +20,10 @@ def descriptor(t):
                        + 25 * math.sin(t * (3 + i * .017) - i)) for i in range(256))
 
 
-def samples(lag=0, phase=0, noise=0, start=0):
+def samples(lag=0, phase=0, noise=0, start=0, count=201):
     rng = random.Random(17)
     result = []
-    for index in range(201):
+    for index in range(count):
         content = start + phase + index * .05
         feature = bytes(max(0, min(255, value + rng.randint(-noise, noise))) for value in descriptor(content))
         result.append(Sample(100 + content + lag, index, 20, feature))
@@ -128,7 +128,7 @@ def main():
     assert not alignment.accept("other", first)
     assert alignment.accept("other", first)
     assert alignment.accept("other", Match(7.337, .9, "drift", refined=True))
-    assert abs(alignment.lags["other"] - 7.287) < .001, "Small corrections must be bounded"
+    assert abs(alignment.lags["other"] - 7.262) < .001, "Small corrections must stay inside picture prefetch"
     assert not alignment.accept("other", Match(12, .9, "jump", refined=True))
     assert alignment.accept("other", Match(12.03, .9, "jump", refined=True))
     previous = dict(alignment.lags)

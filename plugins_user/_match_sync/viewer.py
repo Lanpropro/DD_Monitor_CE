@@ -101,6 +101,7 @@ class Canvas(QFrame):
         self.image_rect = QRectF((self.width() - size.width()) / 2,
                                 (self.height() - size.height()) / 2,
                                 size.width(), size.height())
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         painter.drawImage(self.image_rect, image)
         if self.selecting:
             painter.setPen(QPen(QColor("#38bdf8"), 2))
@@ -418,7 +419,8 @@ class RoomRow(QFrame):
         self.channel.currentIndexChanged.connect(viewer.changed)
         for signal in (self.channel.currentIndexChanged, self.volume.valueChanged, self.audible.toggled):
             signal.connect(viewer.sync_picture)
-        self.delay = self._offset(preferences.get("delay", 0))
+        self.delay = self._offset(0 if viewer.automatic.isChecked() else preferences.get("delay", 0))
+        self.previous_delay = self.delay.value()
         self.delay.setFixedWidth(74)
         self.delay.installEventFilter(viewer)
         self.show_chat = QCheckBox("弹幕")
@@ -543,6 +545,7 @@ class Viewer(QDialog):
         self.matching = False
         self.locked_clock = None
         self.sync_waiting = False
+        self.offset_repositioning = False
         self.suppressed = {}
         self.prefer_highest = False
         self.embedded = False
@@ -557,7 +560,7 @@ class Viewer(QDialog):
         self.main.setFixedWidth(180)
         self.main.currentIndexChanged.connect(self._main_changed)
         self.automatic = QCheckBox("自动对齐比赛画面")
-        self.automatic.setToolTip("手动修改偏移会锁定相对时间；重新勾选可解除锁定并恢复自动对齐。")
+        self.automatic.setToolTip("手动修改偏移会锁定相对时间；重新勾选会清零手动偏移、收起对照并恢复自动对齐。")
         self.automatic.setChecked(context.setting("automatic", True))
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
@@ -817,12 +820,25 @@ class Viewer(QDialog):
 
     def _delay_changed(self, *_args):
         key = next((key for key, row in self.rows.items() if row.delay is self.sender()), "")
+        before = self.alignment.shifts({key: 0 if self.alignment.automatic else row.previous_delay
+                                       for key, row in self.rows.items()})
+        for row in self.rows.values():
+            row.previous_delay = row.delay.value()
         if not self.alignment.automatic and not self.alignment.manual_locked:
             self.alignment.lags = {self.alignment.reference: 0}
         self.alignment.manual_locked = True
         self.automatic.setChecked(False)
         self.alignment.candidates.clear()
         self.locked_clock = None
+        self.sync_waiting = False
+        self.offset_repositioning = True
+        reference = self.alignment.reference
+        shifts = self.shifts()
+        ranges = [(bounds[0] - shifts[key], bounds[1] - shifts[key])
+                  for key, row in self.rows.items() if row.decoder is not None and not row.paused
+                  if (bounds := row.decoder.history.bounds())]
+        if key != reference and (not ranges or max(start for start, _ in ranges) > min(end for _, end in ranges) - .25):
+            self.audio.correction += before.get(reference, 0) - shifts.get(reference, 0)
         for row in self.rows.values():
             row.match_text = "手动时间已锁定；勾选自动对齐可解除"
             row.refresh_status()
@@ -947,7 +963,7 @@ class Viewer(QDialog):
                 seed = getattr(row.decoder, "seed", None) or {}
                 known_highest = seed.get("quality", 10000) if seed.get("highest_quality") else 10000
                 highest = next((int(item["qn"]) for item in options if int(item["qn"]) != AUTO_QUALITY), known_highest)
-                reload_needed = row.quality != highest or (row.platform is None and not seed.get("highest_quality"))
+                reload_needed = row.quality != highest or (not seed.get("highest_quality") and row.actual_quality != highest)
                 row.quality = highest
                 if reload_needed:
                     self._reload_picture()
@@ -1096,6 +1112,12 @@ class Viewer(QDialog):
     def _automatic_changed(self, *_args):
         self.alignment.automatic = self.automatic.isChecked()
         if self.alignment.automatic:
+            for row in self.rows.values():
+                row.delay.blockSignals(True)
+                row.delay.setValue(0)
+                row.delay.blockSignals(False)
+                row.previous_delay = 0
+            self.compare.setChecked(False)
             if self.alignment.manual_locked:
                 for key, row in self.rows.items():
                     row.match_text = "主画面基准" if key == self.alignment.reference else "等待重新确认"
@@ -1103,6 +1125,7 @@ class Viewer(QDialog):
             self.alignment.manual_locked = False
             self.sync_waiting = False
             self.locked_clock = None
+            self.offset_repositioning = False
             self.alignment.candidates.clear()
             self.generation += 1
         self.changed()
@@ -1126,7 +1149,8 @@ class Viewer(QDialog):
         self.changed()
 
     def shifts(self):
-        return self.alignment.shifts({key: row.delay.value() for key, row in self.rows.items()})
+        return self.alignment.shifts({key: 0 if self.alignment.automatic else row.delay.value()
+                                      for key, row in self.rows.items()})
 
     def toggle_running(self):
         if self.running:
@@ -1270,6 +1294,15 @@ class Viewer(QDialog):
             lower = max((start for start, _end in ranges), default=clock)
             upper = min((end for _start, end in ranges), default=clock)
             available = len(ranges) == active and lower <= upper - .25
+            if self.offset_repositioning:
+                self.sync_waiting = False
+                if available:
+                    recovered = min(max(clock, lower + .1), upper - .25)
+                    self.offset_repositioning = False
+                    self.audio.correction += recovered - clock
+                    self.locked_clock = recovered
+                    return recovered
+                return clock
             waiting = (not available or clock > upper - .1 or
                        (self.sync_waiting and self.locked_clock is not None and
                         upper < self.locked_clock + .25))
@@ -1415,13 +1448,17 @@ class Viewer(QDialog):
             results = {}
             for key, samples in others.items():
                 if details.get(reference_id) and details.get(key):
-                    candidate = match_scenes(details[reference_id][::4], details[key][::4])
+                    candidate = (refine_match(Match(known[key], .9, "跟踪已确认偏移"), details[reference_id], details[key])
+                                 if key in known else Match(None, 0, "首次匹配"))
+                    if candidate.lag is None:
+                        candidate = match_scenes(details[reference_id][::4], details[key][::4])
                 else:
                     candidate = match_scenes(reference, samples)
                 if details.get(reference_id) and details.get(key):
                     if candidate.lag is None and not candidate.candidates and key in known:
                         candidate = Match(known[key], .9, "复核已确认偏移")
-                    candidate = refine_match(candidate, details[reference_id], details[key])
+                    if not candidate.refined:
+                        candidate = refine_match(candidate, details[reference_id], details[key])
                     if candidate.lag is not None and key in known and has_picture:
                         shown_reference = [s for s in details[reference_id] if s.time <= positions[reference_id]]
                         shown_other = [s for s in details[key] if s.time <= positions[key]]
@@ -1562,6 +1599,7 @@ class Viewer(QDialog):
         self.running = False
         self.sync_waiting = False
         self.locked_clock = None
+        self.offset_repositioning = False
         self.generation += 1
         self.render_timer.stop()
         self.match_timer.stop()

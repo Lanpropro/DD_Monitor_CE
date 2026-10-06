@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from fractions import Fraction
 from unittest.mock import patch
 
@@ -136,23 +137,44 @@ def run(app):
             # Poll a moving playback timeline, measuring actual frame presentation.
             clock = decoder.history.origin + 1
             from dev.selfcheck_match_sync_refinement import samples
-            from plugins_user._match_sync.engine import Match, refine_match
-            fine_reference, fine_other = samples(), samples(7.237, .027, 2)
+            from plugins_user._match_sync.engine import Alignment, Match, match_scenes, refine_match
+            def long_history(lag=0, phase=0, noise=0):
+                return [replace(s, signature=sum((value > 128) << i for i, value in enumerate(s.feature)))
+                        for s in samples(lag, phase, noise, count=1201)]
+            fine_reference, fine_other = long_history(), long_history(7.237, .027, 2)
+            canvas.resize(960, 540)
+            canvas.show()
             canvas.set_frame(ready(decoder, clock))
             canvas.presented = 0
             finish_analysis = threading.Event()
+            analysis_errors, analysis_rounds = [], []
 
             def analyse():
-                while not finish_analysis.is_set():
-                    refine_match(Match(7, .9, "coarse"), fine_reference, fine_other)
+                try:
+                    while not finish_analysis.is_set():
+                        started = time.perf_counter()
+                        coarse = match_scenes(fine_reference[::4], fine_other[::4])
+                        fine = refine_match(coarse, fine_reference, fine_other)
+                        assert fine.lag is not None and abs(fine.lag - 7.237) < .06, fine
+                        analysis_rounds.append(time.perf_counter() - started)
+                except Exception as error:
+                    analysis_errors.append(error)
 
             analysis = threading.Thread(target=analyse, daemon=True)
             analysis.start()
             start = time.monotonic()
             ticks = 0
+            drift = Alignment()
+            drift.lags["other"] = 0
+            drift.candidates["other"] = (.15, 2)
+            next_tracking = .25
             try:
                 while time.monotonic() - start < 1:
-                    canvas.show_at(decoder, clock + time.monotonic() - start)
+                    elapsed = time.monotonic() - start
+                    if elapsed >= next_tracking:
+                        drift.accept("other", Match(.15, 1, "tracking", refined=True))
+                        next_tracking += .25
+                    canvas.show_at(decoder, clock + elapsed - drift.lags["other"])
                     app.processEvents()
                     ticks += 1
                     time.sleep(.004)
@@ -160,8 +182,10 @@ def run(app):
                 finish_analysis.set()
                 analysis.join(3)
                 assert not analysis.is_alive()
+            assert not analysis_errors and analysis_rounds, analysis_errors
+            print(f"MEASURE: full 60s coarse/fine matching completed {len(analysis_rounds)} rounds, longest {max(analysis_rounds):.3f}s")
             print(f"MEASURE: {canvas.presented} distinct pictures in 1s; {ticks} presentation polls; {decoder.diagnostics()}")
-            assert canvas.presented >= 52, "60 fps presentation falls behind during scene analysis"
+            assert canvas.presented >= 50, "Presentation falls behind during full analysis and repeated backward tracking"
         finally:
             for decoder in decoders:
                 decoder.stop()

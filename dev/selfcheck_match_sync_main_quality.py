@@ -71,7 +71,25 @@ def main():
             assert viewer.rows["1"].decoder is original, "An existing highest-quality main must keep its decoder"
             viewer.select_main("2")
             assert viewer.rows["2"].quality == 10000 and viewer.rows["2"].decoder.seed["highest_quality"]
+            for key, kind in (("3", "huya"), ("4", "douyu")):
+                viewer.add_room(key, {"quality": 10000})
+                row = viewer.rows[key]
+                row.platform = plugins.Platform()
+                row.platform.kind = kind
+                row.platform.room_quality_options = lambda rid: [{"qn": 10000}]
+                cached = row.decoder
+                cached.seed.update(url="unverified-preview", highest_quality=False)
+                viewer.select_main(key)
+                assert cached.stopped and row.decoder is not cached, "Unverified platform preview was promoted without fetching highest"
+                assert row.decoder.seed["highest_quality"]
+                verified = row.decoder
+                verified.seed["highest_quality"] = False
+                row.actual_quality = 10000
+                viewer.select_main("1")
+                viewer.select_main(key)
+                assert row.decoder is verified, "A verified highest platform stream must keep playing"
             print("PASS: initial/switch main defaults highest, other decoder stays intact, explicit lower quality is retained")
+            print("PASS: Huya/Douyu cached previews fetch fresh highest; verified highest streams keep their decoder")
         finally:
             viewer.close()
             host.close()

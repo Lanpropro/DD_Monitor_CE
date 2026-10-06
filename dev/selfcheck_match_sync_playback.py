@@ -93,6 +93,7 @@ def main():
             viewer.rows["2"].delay.setValue(-4)
             viewer.automatic.setChecked(False)
             viewer.automatic.setChecked(True)  # Exercise the unlocked recovery policy separately.
+            viewer.alignment.lags["2"] = 4
             del viewer.audio.clock
             with patch.object(module.time, "monotonic", return_value=120):
                 for key, row in viewer.rows.items():
@@ -108,7 +109,7 @@ def main():
                 assert all(row.decoder.history.frame_at(clock + shifts[key]) is not None
                            for key, row in viewer.rows.items())
                 assert clock < 120 and viewer.audio.correction < 0
-                assert viewer.shifts() == shifts, "Clock recovery must preserve manual relative offsets"
+                assert viewer.shifts() == shifts, "Clock recovery must preserve confirmed relative offsets"
                 viewer.audio.sink = FakeSink()
                 viewer.audio.device = FakeDevice(viewer.audio.sink)
                 viewer.audio.anchor = 120
@@ -134,6 +135,7 @@ def main():
             print("PASS: healthy delayed decoders recover video/audio/chat clock, preserve offsets, ignore stale inputs and retain oversized-delay wait")
             with patch.object(module.time, "monotonic", return_value=200):
                 viewer.audio.correction = 0
+                viewer.alignment.lags = {viewer.alignment.reference: 0}
                 for row in viewer.rows.values():
                     row.delay.setValue(0)
                     row.decoder.last_frame_received = 200
@@ -156,9 +158,10 @@ def main():
                 viewer.rows["2"].delay.setValue(-60)
                 correction = viewer.audio.correction
                 viewer.render()
-                assert viewer.picture._buffering and not viewer.canvas.image.isNull()
+                assert not viewer.picture._buffering and not viewer.canvas.image.isNull()
                 assert viewer.canvas.frame_key == key and viewer.audio.correction == correction
-                assert viewer.comparison_panel.cards["1"][2].waiting
+                assert not viewer.comparison_panel.cards["1"][2].waiting
+                assert viewer.comparison_panel.cards["2"][2].waiting
                 assert not viewer.comparison_panel.cards["1"][2].image.isNull()
                 with patch.object(viewer.picture, "set_buffering", wraps=viewer.picture.set_buffering) as buffering:
                     viewer.render()

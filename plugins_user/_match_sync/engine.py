@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 import threading
 from array import array
-from bisect import bisect_left
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from statistics import median
@@ -60,22 +59,28 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
         a_features = np.frombuffer(b"".join(s.feature for s in reference), dtype=np.uint8).reshape(-1, 16, 16)[:, ::4, ::4].reshape(-1, 16).astype(np.int16)
         b_features = np.frombuffer(b"".join(s.feature for s in other), dtype=np.uint8).reshape(-1, 16, 16)[:, ::4, ::4].reshape(-1, 16).astype(np.int16)
         appearance_distances = np.abs(a_features[:, None, :] - b_features[None, :, :]).mean(axis=2) / 128
-    for ai, a in enumerate(reference):
-        if a.texture < 4:
-            continue
-        for bi, b in enumerate(other):
-            if b.texture < 4:
-                continue
-            distance = ((a.signature ^ b.signature) & dynamic).bit_count() / bits
-            if appearance_distances is not None:
-                distance = min(distance, float(appearance_distances[ai, bi]))
-            if distance <= 0.20:
-                lag = b.time - a.time
-                if abs(lag) <= HISTORY_SECONDS - 5:
-                    key = round(lag * 2)
-                    # Overlapping buckets keep jitter at a half-second edge together.
-                    for nearby in (key - 1, key, key + 1):
-                        groups[nearby].append((a, b, distance, lag))
+    if appearance_distances is not None:
+        a_bits = np.frombuffer(b"".join(s.signature.to_bytes(64, "little") for s in reference), dtype=np.uint8).reshape(-1, 64)
+        b_bits = np.frombuffer(b"".join(s.signature.to_bytes(64, "little") for s in other), dtype=np.uint8).reshape(-1, 64)
+        mask = np.frombuffer(dynamic.to_bytes(64, "little"), dtype=np.uint8)
+        distances = np.minimum(appearance_distances, np.bitwise_count((a_bits[:, None, :] ^ b_bits[None, :, :]) & mask).sum(axis=2) / bits)
+        lags = np.array([s.time for s in other])[None, :] - np.array([s.time for s in reference])[:, None]
+        eligible = (distances <= .20) & (np.abs(lags) <= HISTORY_SECONDS - 5)
+        eligible &= np.array([s.texture >= 4 for s in reference])[:, None]
+        eligible &= np.array([s.texture >= 4 for s in other])[None, :]
+        indices = np.nonzero(eligible)
+        comparisons = ((reference[ai], other[bi], float(distances[ai, bi])) for ai, bi in zip(*indices))
+    else:
+        comparisons = ((a, b, ((a.signature ^ b.signature) & dynamic).bit_count() / bits)
+                       for a in reference if a.texture >= 4 for b in other if b.texture >= 4)
+    for a, b, distance in comparisons:
+        if distance <= 0.20:
+            lag = b.time - a.time
+            if abs(lag) <= HISTORY_SECONDS - 5:
+                key = round(lag * 2)
+                # Overlapping buckets keep jitter at a half-second edge together.
+                for nearby in (key - 1, key, key + 1):
+                    groups[nearby].append((a, b, distance, lag))
     ranked = []
     for key, pairs in groups.items():
         lag = median(p[3] for p in pairs)
@@ -163,45 +168,37 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
     if np.count_nonzero(active) < 16:
         return Match(None, 0, "比赛区域变化不足，保持已确认偏移")
     distances = np.abs(a_features[:, None, active] - b_features[None, :, active]).mean(axis=2) / 128
-    times = [sample.time for sample in b]
-    ranked = []
-    # 25ms search steps, with support from many frames rather than one best pair.
-    for step in range(-40, 41):
-        candidate = lag + step * .025
-        pairs = []
-        used = set()
-        for ai, sample in enumerate(a):
-            index = bisect_left(times, sample.time + candidate)
-            choices = [i for i in (index - 1, index) if 0 <= i < len(b)]
-            if not choices:
-                continue
-            index = min(choices, key=lambda i: abs(times[i] - sample.time - candidate))
-            if index in used or abs(times[index] - sample.time - candidate) > .055:
-                continue
-            used.add(index)
-            target = b[index]
-            distance = float(distances[ai, index])
-            pairs.append((sample, target, distance))
-        if len(pairs) < max(30, len(a) * .8):
-            continue
-        errors = [pair[2] for pair in pairs]
-        score = sum(errors) / len(errors)
-        # Both halves must agree; transitions or replay boundaries cannot lock.
-        middle = len(pairs) // 2
-        halves = [sum(p[2] for p in part) / len(part) for part in (pairs[:middle], pairs[middle:])]
-        if max(halves) > .20:
-            continue
-        ranked.append((score, candidate, pairs))
-    if not ranked:
+    a_times, b_times = np.array([s.time for s in a]), np.array([s.time for s in b])
+    candidates = lag + np.arange(-40, 41) * .025
+    wanted = a_times[None, :] + candidates[:, None]
+    right = np.searchsorted(b_times, wanted)
+    left, right = np.clip(right - 1, 0, len(b) - 1), np.clip(right, 0, len(b) - 1)
+    indices = np.where(np.abs(b_times[left] - wanted) <= np.abs(b_times[right] - wanted), left, right)
+    valid = np.abs(b_times[indices] - wanted) <= .055
+    unique = np.ones_like(valid)
+    unique[:, 1:] = (np.diff(indices, axis=1) != 0) | ~valid[:, :-1]
+    valid &= unique
+    counts = valid.sum(axis=1)
+    errors = distances[np.arange(len(a))[None, :], indices]
+    scores = (errors * valid).sum(axis=1) / np.maximum(1, counts)
+    # Both ordered halves must agree; keep the same one-to-one support guards.
+    first = valid & (np.cumsum(valid, axis=1) <= counts[:, None] // 2)
+    second = valid & ~first
+    halves = np.maximum((errors * first).sum(axis=1) / np.maximum(1, first.sum(axis=1)),
+                        (errors * second).sum(axis=1) / np.maximum(1, second.sum(axis=1)))
+    admitted = (counts >= max(30, len(a) * .8)) & (halves <= .20)
+    scores = np.where(admitted, scores, np.inf)
+    best = int(np.argmin(scores))
+    score = float(scores[best])
+    if not np.isfinite(score):
         return Match(None, 0, "精校正尚未确认，保持已确认偏移")
-    ranked.sort(key=lambda item: item[0])
-    score, lag, pairs = ranked[0]
-    rival = next((item for item in ranked[1:] if abs(item[1] - lag) >= .2), None)
-    if score > .15 or (rival is not None and rival[0] <= score + .025):
+    rivals = scores[np.abs(candidates - candidates[best]) >= .2]
+    if score > .15 or (len(rivals) and float(rivals.min()) <= score + .025):
         return Match(None, 0, "精校正时间差不明确，保持已确认偏移")
     # The sample timestamps refine the grid centre without inventing sub-frame time.
-    precise = median(right.time - left.time for left, right, distance in pairs if distance <= .20)
-    confidence = min(1.0, len(pairs) / 60) * max(0, 1 - score)
+    good = valid[best] & (errors[best] <= .20)
+    precise = float(np.median(b_times[indices[best, good]] - a_times[good]))
+    confidence = min(1.0, int(counts[best]) / 60) * max(0, 1 - score)
     return Match(precise, confidence, "已精校正共同比赛画面", refined=True)
 
 
@@ -355,7 +352,9 @@ class Alignment:
         if count >= 2:
             current = self.lags.get(room_id)
             if match.refined and current is not None and abs(match.lag - current) <= .2:
-                self.lags[room_id] = current + (match.lag - current) * .5
+                # Small tracking jitter must stay inside the picture prefetch,
+                # rather than repeatedly seeking backwards through a full GOP.
+                self.lags[room_id] = current + max(-.025, min(.025, (match.lag - current) * .5))
             else:
                 self.lags[room_id] = match.lag
             return True
