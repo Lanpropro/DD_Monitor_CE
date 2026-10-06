@@ -323,6 +323,8 @@ class MainWindow(QMainWindow):
             platform = self.plugins.platform_for(str(room.get("room_id") or ""))
             if platform is not None:
                 room.update(platform=platform.kind, playback_mode=platform.playback_mode)
+                if callable(getattr(platform, "restore_follow_rooms", None)):
+                    platform.restore_follow_rooms([room])
         self.sidebar.browser_url_resolver = self._room_browser_url
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:
@@ -420,6 +422,17 @@ class MainWindow(QMainWindow):
     def _normalize_room_input(self, text: str) -> str | None:
         platform = self.plugins.platform_for(text)
         if platform is not None:
+            profile = getattr(platform, "profile_sec_uid", None)
+            sec_uid = profile(text) if callable(profile) else ""
+            if sec_uid:
+                from .profile_room import ProfileRoomDialog
+                dialog = ProfileRoomDialog(platform, sec_uid, self)
+                result = dialog.exec()
+                room_id = dialog.room_id
+                dialog.deleteLater()
+                if result != QDialog.Accepted:
+                    raise ValueError("主页读取已取消，可重新粘贴主页链接重试")
+                return room_id
             return platform.normalize(text)
         # 未装载的平台输入不能被旧的数字提取误当作 B 站房间。
         if ":" in text and urlsplit(text).hostname != "live.bilibili.com":
@@ -2294,6 +2307,9 @@ class MainWindow(QMainWindow):
                           if p.label)
         if labels:
             dialog.hint.setText(f"支持 B 站房间号，以及 {labels} 官方直播间链接")
+            if "douyin" in self.plugins.platforms:
+                dialog.hint.setText(dialog.hint.text() + "；抖音也支持主播个人主页链接")
+                dialog.hint.setWordWrap(True)
         if dialog.exec() != AddRoomDialog.Accepted:
             return
         self._add_room_id(dialog.room_id, folder_id=dialog.folder_id)

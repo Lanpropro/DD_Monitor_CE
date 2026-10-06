@@ -180,7 +180,7 @@ def main():
     session = module.Streamlink()
     with patch.object(douyu, "room_info", return_value=plugins.RoomInfo("douyu:123", live=True)), \
             patch.object(douyu, "_request_source", return_value={"rtmp_url": "https://cdn.test",
-                "rtmp_live": "source.flv"}) as request:
+                "rtmp_live": "source.flv", "rate": 0}) as request:
         assert douyu._streams(session, "douyu:123")["source"].to_url() == "https://cdn.test/source.flv"
         assert request.call_args.args[1] == "123" and request.call_count == 1
     edge = {"rtmp_url": "https://stream.example.edgesrv.com", "rtmp_live": "source.flv",
@@ -232,8 +232,10 @@ def main():
                     platform = window.plugins.platforms[kind]
                     headers = {"Referer": f"https://{platform.hosts[0]}/"}
                     with patch.object(platform, "room_info", return_value=plugins.RoomInfo(**{
-                            key: value for key, value in records[kind].items() if key not in ("playback_mode", "live_known")},
-                            extra={"playback_mode": "stream", "live_known": True})), \
+                            key: value for key, value in records[kind].items()
+                            if key not in ("playback_mode", "live_known", "anchor_uid")},
+                            extra={key: records[kind][key] for key in ("playback_mode", "live_known", "anchor_uid")
+                                   if key in records[kind]})), \
                             patch.object(platform, "play_url", return_value=("https://cdn.test/live.flv", 10000, kind, headers)):
                         def accept(dialog):
                             dialog.edit.setText(category_url if kind == "douyin" else platform.room_url(kind + ":123"))
