@@ -26,7 +26,7 @@ def picture_checks(app):
     platform.kind = "douyu"
     platform.room_info = lambda rid: plugins.RoomInfo(rid, uname="Local Douyu")
     platform.room_quality_options = lambda rid: [{"qn": 10000, "desc": "1080P60"}]
-    with tempfile.TemporaryDirectory(prefix="ddm_douyu_picture_") as root:
+    with tempfile.TemporaryDirectory(prefix="ddm_douyu_picture_", ignore_cleanup_errors=True) as root:
         source = Path(root) / "1080p60.mkv"
         subprocess.run([executable, "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=60",
@@ -85,6 +85,14 @@ def viewer_checks(app):
                 viewer.add_room("1")
                 viewer.add_room("douyu:42")
                 viewer.toggle_running()
+                for main in ("douyu:42", "1"):
+                    viewer.main.setCurrentIndex(viewer.main.findData(main))
+                    viewer.sync_picture()
+                    with patch.object(viewer.picture, "_layout_controls", wraps=viewer.picture._layout_controls) as layouts:
+                        for _ in range(60):
+                            viewer.sync_picture()
+                        assert layouts.call_count == 0, f"{main}: {layouts.call_count} control layouts during unchanged frames"
+                print("PASS: Douyu/Bilibili main switches do not repeat control layouts during steady playback")
                 viewer.rows["douyu:42"].delay.setValue(-1)
                 shifts = viewer.shifts()
                 viewer.main.setCurrentIndex(viewer.main.findData("douyu:42"))

@@ -123,13 +123,14 @@ async def check_tcp(platform):
     async def redirect(_host, _port):
         return await connect("127.0.0.1", server.sockets[0].getsockname()[1])
     try:
-        with patch.object(dm.asyncio, "open_connection", redirect):
+        with patch.object(dm.asyncio, "open_connection", redirect), \
+                patch.object(platform, "room_info", return_value=plugins.RoomInfo("douyu:456")):
             task = asyncio.create_task(client._douyu())
             try:
                 await asyncio.wait_for(done.wait(), 2)
                 assert statuses == ["已连接"] and received[0]["text"] == "真实 TCP 分片测试"
                 assert [x["type"] for x in sent] == ["loginreq", "mrkl", "joingroup"]
-                assert sent[-1]["rid"] == "123" and sent[-1]["gid"] == "-9999"
+                assert sent[0]["roomid"] == "456" and sent[-1]["rid"] == "456" and sent[-1]["gid"] == "-9999"
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -167,6 +168,7 @@ async def check_douyu_recovery(platform):
         return await connect("127.0.0.1", server.sockets[0].getsockname()[1])
     try:
         with patch.object(dm.asyncio, "open_connection", redirect), \
+                patch.object(platform, "room_info", return_value=plugins.RoomInfo("douyu:123")), \
                 patch.object(dm, "DOUYU_HEARTBEAT", .04), \
                 patch.object(dm, "DOUYU_RECEIVE_TIMEOUT", .18):
             try:
@@ -179,7 +181,8 @@ async def check_douyu_recovery(platform):
         assert sent.count("mrkl") >= 4 and "joingroup" in sent, sent
         rejected = True
         closed.clear()
-        with patch.object(dm.asyncio, "open_connection", redirect):
+        with patch.object(dm.asyncio, "open_connection", redirect), \
+                patch.object(platform, "room_info", return_value=plugins.RoomInfo("douyu:123")):
             try:
                 await asyncio.wait_for(client._douyu(), .8)
             except ValueError as error:

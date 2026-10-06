@@ -955,15 +955,21 @@ class Viewer(QDialog):
             tile.title_badge.setToolTip(row.title or row.label())
             tile.stream_badge.set_state(True, "")
             if row.platform is not None:
-                tile.set_quality_options(row.platform.room_quality_options(row.room_id))
+                options = row.platform.room_quality_options(row.room_id)
+                if options and tile.quality_options != options:
+                    tile.set_quality_options(options)
             if tile.quality != row.quality:
                 tile.set_quality(row.quality)
-            if row.platform is not None:
+            if row.platform is not None and tile.actual_quality != row.actual_quality:
                 tile.set_actual_quality(row.actual_quality)
-            tile.set_volume(row.volume.value())
-            tile.set_audio_channel(row.channel.currentData())
-            tile.set_muted(not row.audible.isChecked())
-            tile.set_paused(row.paused)
+            if tile.volume != row.volume.value():
+                tile.set_volume(row.volume.value())
+            if tile.audio_channel != row.channel.currentData():
+                tile.set_audio_channel(row.channel.currentData())
+            if tile.muted != (not row.audible.isChecked()):
+                tile.set_muted(not row.audible.isChecked())
+            if tile.paused != row.paused:
+                tile.set_paused(row.paused)
             if not tile._player_active:
                 tile.set_video_active(True)
             tile.cover.hide()

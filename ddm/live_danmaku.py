@@ -302,7 +302,11 @@ class LiveDanmakuClient(QThread):
                 await asyncio.sleep(min(failures, 5))
 
     async def _douyu(self, retries=0):
-        raw = self.room_id.split(":", 1)[1]
+        # The public URL can be a vanity number; subscription requires the actual room.
+        info = await asyncio.to_thread(self.platform.room_info, self.room_id)
+        if self._stopped.is_set():
+            return
+        raw = self.platform.normalize(info.room_id).split(":", 1)[1]
         reader, writer = await asyncio.wait_for(asyncio.open_connection(
             "danmuproxy.douyu.com", 8601 + retries % 2), 5)
         try:
