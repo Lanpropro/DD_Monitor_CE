@@ -7,7 +7,7 @@ import tempfile
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 from . import config, online, plugin_updates, update_install, version
 
@@ -208,25 +208,36 @@ class AppUpdatePage(OnlinePage):
         self.offer = None
         self.plan_path = ''
         self.install_requested = False
+        self._auto_download = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel('软件更新'))
+        title = QLabel('软件更新')
+        title.setObjectName('SettingsTitle')
+        layout.addWidget(title)
         layout.addWidget(QLabel('当前版本：' + version.VERSION))
         self.check = QPushButton('检查更新')
         self.check.setObjectName('IconButton')
         self.check.clicked.connect(self.check_update)
+        self.auto = QPushButton('自动更新')
+        self.auto.setObjectName('IconButton')
+        self.auto.setToolTip('一键检查并下载新版，准备完成后点击重启并更新。')
+        self.auto.clicked.connect(self.auto_update)
         self.action = QPushButton('下载更新')
         self.action.setObjectName('PrimaryButton')
         self.action.setEnabled(False)
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
         actions.addWidget(self.check)
+        actions.addWidget(self.auto)
         actions.addWidget(self.action)
         actions.addStretch(1)
         layout.addLayout(actions)
         layout.addWidget(self.status)
-        self.notes = QPlainTextEdit()
-        self.notes.setReadOnly(True)
+        layout.addWidget(QLabel('更新说明'))
+        self.notes = QTextBrowser()
+        self.notes.setObjectName('UpdateNotes')
+        self.notes.setOpenExternalLinks(True)
+        self.notes.setMarkdown('点击“检查更新”查看新版的 Release 更新说明。')
         layout.addWidget(self.notes, 1)
         self.release_button = QPushButton('打开发布页面')
         self.release_button.setObjectName('IconButton')
@@ -242,11 +253,29 @@ class AppUpdatePage(OnlinePage):
             except (OSError, ValueError, KeyError):
                 pass
         self.busyChanged.connect(self._busy)
+        self._busy(False)
 
     def _busy(self, busy):
         self.check.setEnabled(not busy and not self.plan_path)
+        self.auto.setEnabled(not busy and not self.plan_path and bool(getattr(sys, 'frozen', False)))
         self.action.setEnabled(not busy and bool(self.plan_path or self.offer)
                                and bool(getattr(sys, 'frozen', False)))
+
+    def _finished(self):
+        super()._finished()
+        if self._auto_download:
+            self._auto_download = False
+            if not self.stopping and self.offer:
+                self.download_update()
+
+    def _failed(self, payload):
+        super()._failed(payload)
+        if not self.stopping and not self.offer:
+            self.notes.setMarkdown('暂时无法获取 Release 更新说明，请稍后重试。')
+
+    def auto_update(self):
+        if getattr(sys, 'frozen', False):
+            self.check_update(automatic=True)
 
     def stop(self):
         tasks = list(self.jobs)
@@ -257,7 +286,12 @@ class AppUpdatePage(OnlinePage):
                     update_install.discard_plan(path, config.REPO)
             self.plan_path = ''
 
-    def check_update(self):
+    def check_update(self, automatic=False):
+        if self.jobs or self.stopping or self.plan_path:
+            return
+        self._auto_download = automatic
+        self.offer = None
+        self.notes.setMarkdown('正在获取新版的 Release 更新说明…')
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
             with online.session() as client:
@@ -266,7 +300,8 @@ class AppUpdatePage(OnlinePage):
 
     def _release_ready(self, offer):
         self.offer = offer
-        self.notes.setPlainText(offer['notes'] if offer else '')
+        self.notes.setMarkdown((offer.get('notes') or '此版本暂未提供更新说明。') if offer
+                               else '当前没有比 ' + version.VERSION + ' 更新的正式版本。\n\n发现新版后将在这里展示 Release 更新说明。')
         self.status.setText('发现新版 ' + offer['version'] if offer else '当前已是最新正式版本。')
         if offer and not getattr(sys, 'frozen', False):
             self.status.setText('发现新版 ' + offer['version'] + '；源码版请从仓库更新，EXE 版可自动安装。')

@@ -281,7 +281,7 @@ QSlider::handle:horizontal:hover {{
     font-size: {FONT_CAPTION}px;
 }}
 #PluginCard {{
-    background: {ELEVATED};
+    background: transparent;
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
 }}
@@ -290,10 +290,10 @@ QSlider::handle:horizontal:hover {{
 }}
 #PluginTabs::pane {{
     border: none;
-    background: {SIDEBAR};
+    background: transparent;
 }}
 #PluginTabs QTabBar::tab {{
-    background: {SIDEBAR};
+    background: transparent;
     color: {TEXT2};
     padding: 7px 14px;
     border: none;
@@ -304,6 +304,13 @@ QSlider::handle:horizontal:hover {{
 }}
 #PluginName {{
     font-weight: 600;
+    color: {TEXT1};
+}}
+#UpdateNotes, #UpdateNotes:focus {{
+    background: transparent;
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+    padding: 6px 8px;
     color: {TEXT1};
 }}
 

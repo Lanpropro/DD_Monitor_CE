@@ -12,7 +12,8 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QApplication, QFrame
 from ddm import app as app_module, config, online, theme
 from ddm.dialogs import SettingsDialog
 from ddm.online_ui import OnlinePage
@@ -91,6 +92,8 @@ def main():
             assert not dialog.plugin_page.checks['global_live'].isChecked()
             assert manager.enabled == set()
         update = dialog.update_page
+        assert not update.auto.isEnabled(), 'source checkout must not offer automatic EXE replacement'
+        assert 'Release' in update.notes.toPlainText(), 'notes must explain their purpose before checking'
         offer = {'version': '0.3.1', 'notes': '修复内容', 'release_url': 'https://github.com/Lanpropro/DD_Monitor_CE/releases'}
         with patch.object(online, 'session', return_value=Session()), \
                 patch.object(online, 'app_release', return_value=offer):
@@ -98,6 +101,16 @@ def main():
             settle(app, update)
             assert not update.action.isEnabled(), 'source checkout must not replace itself with EXE'
             assert update.notes.toPlainText() == '修复内容'
+        # 已安装和商店的卡片都应使用页面底色，而不是独立的灰底。
+        for tab in (0, 1):
+            dialog.plugin_page.tabs.setCurrentIndex(tab)
+            app.processEvents()
+            card = next(card for card in dialog.plugin_page.tabs.currentWidget().findChildren(QFrame)
+                        if card.objectName() == 'PluginCard' and card.isVisible())
+            capture = dialog.grab().toImage()
+            card_pixel = card.mapTo(dialog, QPoint(20, 5))
+            page_pixel = dialog.plugin_page.mapTo(dialog, QPoint(2, 2))
+            assert capture.pixelColor(card_pixel) == capture.pixelColor(page_pixel), 'plugin gray card fill must be removed'
         stage = root / 'stage'
         stage.mkdir()
         plan_path = stage / 'update-plan.json'
@@ -112,6 +125,37 @@ def main():
             assert update.action.text() == '重启并更新'
             update.action.click()
             assert update.install_requested and dialog.result() == SettingsDialog.Accepted
+            auto_dialog = SettingsDialog({}, {}, plugin_manager=manager)
+            auto_dialog.show()
+            automatic = auto_dialog.update_page
+            assert automatic.auto.isEnabled()
+            with patch.object(online, 'app_release', return_value=None), \
+                    patch.object(online, 'download') as download:
+                automatic.auto.click()
+                settle(app, automatic)
+                assert '当前没有' in automatic.notes.toPlainText()
+                assert automatic.auto.isEnabled() and not automatic.action.isEnabled()
+                download.assert_not_called()
+            with patch.object(online, 'app_release', side_effect=OSError('offline')), \
+                    patch.object(online, 'download') as download:
+                automatic.auto.click()
+                settle(app, automatic)
+                assert 'offline' in automatic.status.text() and automatic.auto.isEnabled()
+                assert '请稍后重试' in automatic.notes.toPlainText()
+                download.assert_not_called()
+            with patch.object(online, 'app_release', return_value=dict(offer, notes='# 新版\n\n- 修复内容')), \
+                    patch.object(online, 'download', return_value=str(archive)) as download:
+                automatic.auto.click()
+                assert not automatic.auto.isEnabled() and not auto_dialog.confirm_button.isEnabled()
+                settle(app, automatic)
+                download.assert_called_once()
+                assert automatic.plan_path == str(plan_path)
+                assert automatic.action.text() == '重启并更新'
+                assert not automatic.install_requested and not automatic.auto.isEnabled()
+                assert '新版' in automatic.notes.toPlainText() and '# 新版' not in automatic.notes.toPlainText()
+                automatic.action.click()
+                assert automatic.install_requested and auto_dialog.result() == SettingsDialog.Accepted
+            auto_dialog.close()
         with patch.object(app_module.QProcess, 'startDetached', return_value=(True, 123)) as launch:
             assert app_module._launch_update(str(plan_path))
             launch.assert_called_once_with(str(stage / 'DD监控室CE-v0.3.1.exe'),
