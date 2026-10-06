@@ -685,6 +685,7 @@ class MainWindow(QMainWindow):
     def current_state(self) -> dict:
         return {
             "version": config_module.STATE_VERSION,
+            "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
             "sessdata": bili.SESSION_DATA,
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
@@ -3017,6 +3018,9 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     state = config_module.load()
+    from .user_notice import confirm_user_notice
+    if not confirm_user_notice(state):
+        return 0
     from .update_install import clean_previous
     clean_previous(config_module.REPO)
     t_load = time.perf_counter()
