@@ -1,5 +1,6 @@
 """商店实际下载安装/升级、后台任务关闭、版本页和录制退出接入。"""
 import json
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -41,8 +42,9 @@ def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     ui_thread = threading.get_ident()
-    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
+        (root / 'RELEASE-v0.3.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
         archive = root / 'plugin.zip'
         def write_package(version):
             with zipfile.ZipFile(archive, 'w') as package:
@@ -61,13 +63,33 @@ def main():
         assert dialog.reset_button.isHidden()
         page = dialog.plugin_page.store_page
         offers = [{'id': 'global_live', 'name': '海外直播平台', 'description': 'Twitch / YouTube',
-                   'version': '1.0', 'available': True}]
+                   'version': '1.0', 'available': True,
+                   'url': f'https://github.com/{online.PLUGIN_REPOSITORY}/releases/download/v1.0/global_live-1.0.zip',
+                   'size': archive.stat().st_size, 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}]
         with patch.object(online, 'session', return_value=Session()), \
-                patch.object(online, 'plugin_catalog', return_value=offers), \
+                patch.object(online, 'plugin_catalog', return_value=offers) as catalog, \
                 patch.object(online, 'download', return_value=str(archive)):
             dialog.nav.setCurrentRow(4)
+            assert page.refresh.isHidden()
             dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, page)
+            assert page.refresh.isVisible()
+            assert page.refresh.y() < dialog.plugin_page.tabs.tabBar().height()
+            assert page.refresh.x() > dialog.plugin_page.tabs.tabBar().width()
+            bar = dialog.plugin_page.tabs.tabBar()
+            tab_rect = bar.tabRect(1)
+            tab_image = bar.grab().toImage()
+            assert tab_image.pixelColor(tab_rect.topLeft()) != tab_image.pixelColor(
+                tab_rect.topLeft() + QPoint(5, tab_rect.height() // 2)), 'selected tab corners must actually be rounded'
+            original_button = page.buttons['global_live']
+            dialog.plugin_page.tabs.setCurrentIndex(0)
+            assert page.refresh.isHidden()
+            dialog.plugin_page.tabs.setCurrentIndex(1)
+            settle(app, page)
+            assert catalog.call_count == 1 and page.buttons['global_live'] is original_button
+            page.refresh.click()
+            settle(app, page)
+            assert page.buttons['global_live'] is original_button, 'unchanged catalog must preserve displayed cards'
             assert page.buttons['global_live'].text() == '安装'
             page.buttons['global_live'].click()
             assert not dialog.confirm_button.isEnabled()
@@ -91,9 +113,23 @@ def main():
             assert read_manifest(str(root / 'plugins' / 'global_live'), 'global_live')['version'] == '1.0'
             assert not dialog.plugin_page.checks['global_live'].isChecked()
             assert manager.enabled == set()
+            cached_dialog = SettingsDialog({}, {}, plugin_manager=manager)
+            cached_dialog.show()
+            count = catalog.call_count
+            cached_dialog.nav.setCurrentRow(4)
+            cached_dialog.plugin_page.tabs.setCurrentIndex(1)
+            settle(app, cached_dialog.plugin_page.store_page)
+            assert catalog.call_count == count, 'reopening settings must reuse the persisted catalog'
+            assert cached_dialog.plugin_page.store_page.buttons['global_live'].text() == '待重启'
+            cached_dialog.close()
         update = dialog.update_page
-        assert not update.auto.isEnabled(), 'source checkout must not offer automatic EXE replacement'
-        assert 'Release' in update.notes.toPlainText(), 'notes must explain their purpose before checking'
+        assert update.auto.isEnabled() and not update.auto.isChecked()
+        assert '当前版本说明' in update.notes.toPlainText()
+        with patch.object(online, 'app_release') as check, patch.object(online, 'download') as download:
+            update.auto.click()
+            assert dialog.settings()['auto_update'] is True
+            check.assert_not_called()
+            download.assert_not_called()
         offer = {'version': '0.3.1', 'notes': '修复内容', 'release_url': 'https://github.com/Lanpropro/DD_Monitor_CE/releases'}
         with patch.object(online, 'session', return_value=Session()), \
                 patch.object(online, 'app_release', return_value=offer):
@@ -101,6 +137,7 @@ def main():
             settle(app, update)
             assert not update.action.isEnabled(), 'source checkout must not replace itself with EXE'
             assert update.notes.toPlainText() == '修复内容'
+            assert update.notes_title.text() == '新版 0.3.1 更新说明'
         # 已安装和商店的卡片都应使用页面底色，而不是独立的灰底。
         for tab in (0, 1):
             dialog.plugin_page.tabs.setCurrentIndex(tab)
@@ -125,33 +162,37 @@ def main():
             assert update.action.text() == '重启并更新'
             update.action.click()
             assert update.install_requested and dialog.result() == SettingsDialog.Accepted
-            auto_dialog = SettingsDialog({}, {}, plugin_manager=manager)
+            auto_dialog = SettingsDialog({'auto_update': True}, {}, plugin_manager=manager)
             auto_dialog.show()
             automatic = auto_dialog.update_page
-            assert automatic.auto.isEnabled()
+            assert automatic.auto.isChecked()
             with patch.object(online, 'app_release', return_value=None), \
                     patch.object(online, 'download') as download:
-                automatic.auto.click()
+                automatic.check.click()
                 settle(app, automatic)
-                assert '当前没有' in automatic.notes.toPlainText()
+                assert '当前版本说明' in automatic.notes.toPlainText()
+                assert automatic.notes_title.text() == '当前版本 0.3 更新说明'
                 assert automatic.auto.isEnabled() and not automatic.action.isEnabled()
                 download.assert_not_called()
             with patch.object(online, 'app_release', side_effect=OSError('offline')), \
                     patch.object(online, 'download') as download:
-                automatic.auto.click()
+                automatic.check.click()
                 settle(app, automatic)
                 assert 'offline' in automatic.status.text() and automatic.auto.isEnabled()
-                assert '请稍后重试' in automatic.notes.toPlainText()
+                assert '当前版本说明' in automatic.notes.toPlainText(), 'network failure must preserve current notes'
                 download.assert_not_called()
             with patch.object(online, 'app_release', return_value=dict(offer, notes='# 新版\n\n- 修复内容')), \
                     patch.object(online, 'download', return_value=str(archive)) as download:
-                automatic.auto.click()
-                assert not automatic.auto.isEnabled() and not auto_dialog.confirm_button.isEnabled()
+                automatic.check.click()
+                assert not auto_dialog.confirm_button.isEnabled()
+                settle(app, automatic)
+                download.assert_not_called()
+                automatic.action.click()
                 settle(app, automatic)
                 download.assert_called_once()
                 assert automatic.plan_path == str(plan_path)
                 assert automatic.action.text() == '重启并更新'
-                assert not automatic.install_requested and not automatic.auto.isEnabled()
+                assert not automatic.install_requested and automatic.auto.isEnabled()
                 assert '新版' in automatic.notes.toPlainText() and '# 新版' not in automatic.notes.toPlainText()
                 automatic.action.click()
                 assert automatic.install_requested and auto_dialog.result() == SettingsDialog.Accepted

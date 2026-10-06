@@ -296,7 +296,9 @@ QSlider::handle:horizontal:hover {{
     background: transparent;
     color: {TEXT2};
     padding: 7px 14px;
-    border: none;
+    margin-right: 6px;
+    border-radius: {RADIUS_MD}px;
+    border: 1px solid {BORDER};
 }}
 #PluginTabs QTabBar::tab:selected {{
     background: {ACCENT_SOFT};
@@ -312,6 +314,20 @@ QSlider::handle:horizontal:hover {{
     border-radius: {RADIUS_MD}px;
     padding: 6px 8px;
     color: {TEXT1};
+}}
+#UpdateNotice {{
+    background: transparent;
+    border: none;
+}}
+#NoticeClose {{
+    background: transparent;
+    border: none;
+    color: {TEXT3};
+}}
+#NoticeClose:hover {{
+    color: {TEXT1};
+    background: {CONTENT_HOVER};
+    border-radius: {RADIUS_SM}px;
 }}
 
 /* ---------- 侧栏 ---------- */

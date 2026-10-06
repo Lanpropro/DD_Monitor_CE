@@ -126,6 +126,10 @@ class MainWindow(QMainWindow):
         self._closing = False
         self._restart_requested = False
         self._update_plan = ""
+        self._available_update = None
+        self._startup_update_task = None
+        self._startup_update_checked = False
+        self._update_notice = None
         self._replay_suppressed: dict[Tile, str] = {}
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._accounts: dict[str, dict] = {}
@@ -346,6 +350,49 @@ class MainWindow(QMainWindow):
         self._stats_refresh_timer.setSingleShot(True)
         self._stats_refresh_timer.setInterval(1500)
         self._stats_refresh_timer.timeout.connect(self.refresh_stats)
+        self._startup_update_timer = QTimer(self)
+        self._startup_update_timer.setSingleShot(True)
+        self._startup_update_timer.setInterval(2500)
+        self._startup_update_timer.timeout.connect(self._check_startup_update)
+        if self.settings.get("auto_update", False):
+            self._startup_update_timer.start()
+
+    def _check_startup_update(self) -> None:
+        if self._closing or self._startup_update_checked or not self.settings.get("auto_update", False):
+            return
+        from . import online
+        from .online_ui import OnlineTask
+        self._startup_update_checked = True
+        def check(cancelled, progress):
+            with online.session() as client:
+                return online.app_release(client, version_module.VERSION)
+        task = OnlineTask(check, None, self)
+        self._startup_update_task = task
+        task.succeeded.connect(self._startup_update_ready)
+        task.failed.connect(self._startup_update_failed)
+        task.finished.connect(self._startup_update_finished)
+        task.start()
+
+    def _startup_update_ready(self, payload) -> None:
+        offer = payload[1]
+        if self._closing or not self.settings.get("auto_update", False) or not offer:
+            return
+        from .online_ui import UpdateNotice
+        self._available_update = offer
+        if self._update_notice is None:
+            self._update_notice = UpdateNotice(self)
+            self._update_notice.activated.connect(lambda: self.open_settings("updates"))
+        self._update_notice.show_offer(offer)
+
+    def _startup_update_failed(self, payload) -> None:
+        if not self._closing:
+            print(f"[更新检查] {payload[1]}", file=sys.stderr, flush=True)
+
+    def _startup_update_finished(self) -> None:
+        task = self.sender()
+        if task is self._startup_update_task:
+            self._startup_update_task = None
+        task.deleteLater()
 
     def _room_browser_url(self, room: dict) -> str:
         room_id = str(room.get("room_id") or "")
@@ -550,6 +597,9 @@ class MainWindow(QMainWindow):
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
+        if self._available_update:
+            dialog.update_page._release_ready(self._available_update)
+            dialog.update_page._busy(False)
         if page == "recording":
             dialog.nav.setCurrentRow(2)
         elif page == "danmaku":
@@ -560,6 +610,10 @@ class MainWindow(QMainWindow):
             return False
         decode_before = self.settings.get("decode_mode", "auto")
         self.settings.update(dialog.settings())
+        if not self.settings.get("auto_update", False):
+            self._startup_update_timer.stop()
+            if self._update_notice is not None:
+                self._update_notice.dismiss()
         self._sync_fullscreen_audio()
         self.shortcuts = dialog.shortcuts()
         enabled_plugins = dialog.enabled_plugins()
@@ -704,6 +758,11 @@ class MainWindow(QMainWindow):
         # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
         # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
         self._closing = True
+        self._startup_update_timer.stop()
+        if self._startup_update_task is not None:
+            self._startup_update_task.requestInterruption()
+        if self._update_notice is not None:
+            self._update_notice.dismiss()
         follow_loader = getattr(self, "_follow_loader", None)
         if getattr(follow_loader, "platform", None) is not None:
             follow_loader.cancel()
@@ -726,6 +785,8 @@ class MainWindow(QMainWindow):
         for player in players:
             player.release()
         self._wait_background()
+        if self._startup_update_task is not None:
+            self._startup_update_task.wait()
         self._resolvers.clear()
         self._resolvers_running.clear()
         total_ms = (time.perf_counter() - t0) * 1000

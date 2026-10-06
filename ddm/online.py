@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import json
 import tempfile
+import time
 from urllib.parse import urlsplit
 
 import requests
@@ -20,6 +21,7 @@ PUBLISHED_PLUGINS = (
     ('domestic_live', '1.0', 22886, 'fd0ee1403903bf7e75a4aefeaa626f31aa638a6a4a787203f7878eb7d2914030'),
     ('global_live', '1.0', 18061, '5d71e1e1658842ca16af66ad49e6531354f1bda85b0e94d400d92f8a149f8807'),
 )
+CATALOG_CHECK_SECONDS = 15 * 60
 
 
 def version_key(value):
@@ -37,18 +39,35 @@ def session():
     return client
 
 
-def releases(repository, client):
+def releases(repository, client, cache=None):
     if repository not in (APP_REPOSITORY, PLUGIN_REPOSITORY):
         raise ValueError('不支持的更新仓库')
     with client.get(f'https://api.github.com/repos/{repository}/releases',
-                    params={'per_page': 30}, timeout=(5, 15)) as response:
+                    params={'per_page': 30}, timeout=(5, 15),
+                    headers=_conditional_headers(cache, 'releases')) as response:
+        if response.status_code == 304 and cache is not None and 'releases' in cache:
+            cache['unchanged'] = True
+            return cache['releases']['data']
         if response.status_code in (403, 429) and getattr(response, 'headers', {}).get('X-RateLimit-Remaining') == '0':
             raise requests.HTTPError('GitHub 查询额度暂时用尽，请稍后重试或打开发布页面')
         response.raise_for_status()
         data = response.json()
     if not isinstance(data, list):
         raise ValueError('仓库版本列表格式无效')
-    return [release for release in data if not release.get('draft') and not release.get('prerelease')]
+    data = [release for release in data if not release.get('draft') and not release.get('prerelease')]
+    _remember_response(cache, 'releases', response, data)
+    return data
+
+
+def _conditional_headers(cache, key):
+    entry = (cache or {}).get(key, {})
+    return {'If-None-Match': entry['etag']} if entry.get('etag') else {}
+
+
+def _remember_response(cache, key, response, data):
+    if cache is not None:
+        cache['unchanged'] = data == cache.get(key, {}).get('data')
+        cache[key] = {'etag': getattr(response, 'headers', {}).get('ETag', ''), 'data': data}
 
 
 def asset_info(asset, repository):
@@ -66,9 +85,13 @@ def asset_info(asset, repository):
     return {'url': url, 'sha256': digest[7:].lower(), 'size': size, 'name': asset['name']}
 
 
-def latest_manifest(client, repository, name):
+def latest_manifest(client, repository, name, cache=None):
     with client.get(f'https://github.com/{repository}/releases/latest/download/{name}',
-                    timeout=(5, 15), stream=True) as response:
+                    timeout=(5, 15), stream=True,
+                    headers=_conditional_headers(cache, 'manifest')) as response:
+        if response.status_code == 304 and cache is not None and 'manifest' in cache:
+            cache['unchanged'] = True
+            return cache['manifest']['data']
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -77,7 +100,9 @@ def latest_manifest(client, repository, name):
             body.extend(chunk)
             if len(body) > 1024 * 1024:
                 raise ValueError('在线目录超过大小限制')
-    return json.loads(body.decode('utf-8-sig'))
+    data = json.loads(body.decode('utf-8-sig'))
+    _remember_response(cache, 'manifest', response, data)
+    return data
 
 
 def manifest_offer(entry, repository):
@@ -88,13 +113,17 @@ def manifest_offer(entry, repository):
     info = asset_info({'browser_download_url': entry['url'], 'name': entry['asset_name'],
                        'digest': 'sha256:' + entry['sha256'], 'size': entry['size']}, repository)
     entry.update(info)
+    if repository == PLUGIN_REPOSITORY:
+        entry['name'] = KNOWN_PLUGINS.get(entry.get('id'), (entry['name'], ''))[0]
     return entry
 
 
-def plugin_catalog(client, current_version):
+def plugin_catalog(client, current_version, cache=None):
     try:
-        catalog = latest_manifest(client, PLUGIN_REPOSITORY, 'plugin-catalog.json')
+        catalog = latest_manifest(client, PLUGIN_REPOSITORY, 'plugin-catalog.json', cache=cache)
         if catalog is not None:
+            if cache and cache.get('source') == 'manifest' and cache.get('unchanged') and cache.get('offers'):
+                return _compatible_offers(cache['offers'], current_version)
             offers = []
             for entry in catalog['plugins']:
                 if entry['id'] not in KNOWN_PLUGINS:
@@ -104,13 +133,19 @@ def plugin_catalog(client, current_version):
                 if not offer['available']:
                     offer['reason'] = '请先更新本体至 ' + entry['min_app_version']
                 offers.append(offer)
+            if cache is not None:
+                cache['source'] = 'manifest'
             return offers
     except requests.RequestException:
         pass
     offers = {}
     try:
-        published = releases(PLUGIN_REPOSITORY, client)
+        published = releases(PLUGIN_REPOSITORY, client, cache=cache)
+        if cache and cache.get('source') == 'releases' and cache.get('unchanged') and cache.get('offers'):
+            return _compatible_offers(cache['offers'], current_version)
     except requests.RequestException:
+        if cache and cache.get('offers'):
+            return _compatible_offers(cache['offers'], current_version)
         # 公开 API 额度用尽或离线时仍能展示已核实的官方安装包。
         published = [{'assets': [
             {'name': f'{plugin_id}-{plugin_version}.zip', 'size': size, 'digest': 'sha256:' + digest,
@@ -147,6 +182,7 @@ def plugin_catalog(client, current_version):
                      'release_url': release.get('html_url', ''), 'available': True, 'cached': cached}
             try:
                 offer.update(asset_info(asset, PLUGIN_REPOSITORY))
+                offer['name'] = name
             except ValueError as error:
                 offer.update(available=False, reason=str(error))
             if version_key(current_version) < version_key(offer['min_app_version']):
@@ -155,7 +191,73 @@ def plugin_catalog(client, current_version):
     for plugin_id, (name, description) in KNOWN_PLUGINS.items():
         offers.setdefault(plugin_id, {'id': plugin_id, 'name': name, 'description': description,
                                      'version': '', 'available': False, 'reason': '官方仓库暂未发布安装包'})
+    if cache is not None:
+        cache['source'] = 'releases'
     return list(offers.values())
+
+
+def _compatible_offers(offers, current_version):
+    result = []
+    for offer in offers:
+        offer = dict(offer)
+        minimum = offer.get('min_app_version', '0.3')
+        if offer.get('reason', '').startswith('请先更新本体至 '):
+            offer.pop('reason')
+            offer['available'] = True
+        if offer.get('available') and version_key(current_version) < version_key(minimum):
+            offer.update(available=False, reason='请先更新本体至 ' + minimum)
+        result.append(offer)
+    return result
+
+
+def load_plugin_cache(path):
+    try:
+        path = Path(path)
+        if path.stat().st_size > 4 * 1024 * 1024:
+            return {}
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if (not isinstance(data, dict) or data.get('repository') != PLUGIN_REPOSITORY
+                or not isinstance(data['checked_at'], (int, float)) or not isinstance(data['offers'], list)):
+            return {}
+        for offer in data['offers']:
+            if (not isinstance(offer, dict) or offer['id'] not in KNOWN_PLUGINS
+                    or not isinstance(offer['name'], str) or not isinstance(offer['description'], str)):
+                return {}
+            version_key(offer.get('min_app_version', '0.3'))
+            if offer.get('version'):
+                version_key(offer['version'])
+            if offer.get('available') or offer.get('url'):
+                asset_info({'browser_download_url': offer['url'], 'digest': 'sha256:' + offer['sha256'],
+                            'size': offer['size'], 'name': offer['name']}, PLUGIN_REPOSITORY)
+        for key, kind in (('manifest', dict), ('releases', list)):
+            if key in data and (not isinstance(data[key], dict) or not isinstance(data[key].get('data'), kind)
+                                or not isinstance(data[key].get('etag', ''), str)):
+                return {}
+        return data
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def cached_plugin_catalog(client, current_version, path, force=False):
+    cache = load_plugin_cache(path)
+    now = time.time()
+    if not force and cache and 0 <= now - cache['checked_at'] < CATALOG_CHECK_SECONDS:
+        return _compatible_offers(cache['offers'], current_version)
+    offers = plugin_catalog(client, current_version, cache=cache)
+    cache.update(repository=PLUGIN_REPOSITORY, offers=offers, checked_at=now)
+    path = Path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(prefix='.plugin-catalog-', dir=path.parent)
+        os.close(descriptor)
+        try:
+            Path(temporary).write_text(json.dumps(cache, ensure_ascii=False), encoding='utf-8')
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    except OSError:
+        pass
+    return offers
 
 
 def app_release(client, current_version):

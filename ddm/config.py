@@ -21,6 +21,7 @@ DEFAULT_VOLUME = 42
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 DEFAULT_SETTINGS = {
+    "auto_update": False,     # 启动时检查本体新版，悬浮提醒后由用户选择安装
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）

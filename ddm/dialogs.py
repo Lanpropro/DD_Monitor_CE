@@ -556,13 +556,16 @@ class PluginSettingsPage(QWidget):
         self.tabs.setObjectName("PluginTabs")
         self.tabs.addTab(scroll, "已安装")
         self.tabs.addTab(store_scroll, "插件商店")
+        self.tabs.setCornerWidget(self.store_page.refresh, Qt.TopRightCorner)
+        self.store_page.refresh.hide()
         self.tabs.currentChanged.connect(self._store_tab_changed)
         self.store_page.installed.connect(self._store_installed)
         layout.addWidget(self.tabs, 1)
 
     def _store_tab_changed(self, index):
-        if index == 1 and not self.store_page.offers and not self.store_page.jobs:
-            self.store_page.refresh_catalog()
+        self.store_page.refresh.setVisible(index == 1)
+        if index == 1:
+            self.store_page.open_catalog()
 
     def _store_installed(self, plugin_id):
         previous = {key: check.isChecked() for key, check in self.checks.items()}
@@ -727,7 +730,7 @@ class SettingsDialog(QDialog):
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.plugin_page = PluginSettingsPage(plugin_manager)
         from .online_ui import AppUpdatePage
-        self.update_page = AppUpdatePage()
+        self.update_page = AppUpdatePage(settings)
         self.stack.addWidget(self.general_page)
         self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.recording_page)
@@ -788,6 +791,7 @@ class SettingsDialog(QDialog):
         values = self.general_page.values()
         values.update(self.danmaku_page.values())
         values.update(self.recording_page.values())
+        values.update(self.update_page.values())
         return values
 
     def shortcuts(self) -> dict:
