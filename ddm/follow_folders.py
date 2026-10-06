@@ -1,4 +1,4 @@
-"""关注分组规则：手动归属优先，智能规则按文件夹顺序匹配。"""
+"""关注分组规则：保留手动归属，按来源及条件计算智能文件夹显示。"""
 from copy import deepcopy
 
 UNCLASSIFIED = "__unclassified__"
@@ -28,6 +28,10 @@ def normalize_folders(folders, default_sort="custom"):
             status = rule.get("status", "any")
             folder["rule"] = {"status": status if status in ("any", "live", "offline") else "any",
                               "platforms": list(dict.fromkeys(rule.get("platforms") or []))}
+            if "sources" in rule:
+                folder["rule"]["sources"] = list(dict.fromkeys(rule.get("sources") or []))
+            if "display" in rule:
+                folder["rule"]["display"] = "copy" if rule["display"] == "copy" else "move"
         result.append(folder)
         ids.add(fid)
     if UNCLASSIFIED not in ids:
@@ -56,15 +60,28 @@ def matches_rule(room, rule):
     return bool(room["live"]) == (status == "live")
 
 
+def smart_members(rooms, folders, folder, pending=()):
+    """来源是原来的普通文件夹；空来源表示全部，旧规则沿用未分类范围。"""
+    manual = {rid: folder["id"] for folder in folders if folder["type"] == "normal"
+              for rid in folder["rooms"]}
+    rule = folder["rule"]
+    sources = rule.get("sources", [UNCLASSIFIED])
+    return {str(room["room_id"]) for room in rooms
+            if str(room["room_id"]) not in pending
+            and (not sources or manual.get(str(room["room_id"]), UNCLASSIFIED) in sources)
+            and matches_rule(room, rule)}
+
+
 def assign_folders(rooms, folders, pending=()):
     manual = {rid: folder["id"] for folder in folders if folder["type"] == "normal"
               for rid in folder["rooms"]}
-    smart = [folder for folder in folders if folder["type"] == "smart"]
+    smart = [(folder, smart_members(rooms, folders, folder, pending)) for folder in folders
+             if folder["type"] == "smart" and folder["rule"].get("display") != "copy"]
     result = {}
     for room in rooms:
         rid = str(room.get("room_id"))
-        result[rid] = manual.get(rid) or (UNCLASSIFIED if rid in pending else next(
-            (folder["id"] for folder in smart if matches_rule(room, folder["rule"])), UNCLASSIFIED))
+        result[rid] = next((folder["id"] for folder, members in smart if rid in members),
+                           manual.get(rid, UNCLASSIFIED))
     return result
 
 

@@ -2518,6 +2518,22 @@ class SmartFolderDialog(QDialog):
             self.sort_combo.addItem(label, mode)
         self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(folder.get("sort", "custom"))))
         form.addRow("文件夹名称", self.name_edit)
+        self.source_combo = QComboBox()
+        self.source_combo.addItem("全部关注", "")
+        for source in sidebar.folders:
+            if source["type"] != "smart":
+                self.source_combo.addItem(source["name"], source["id"])
+        sources = rule.get("sources", [follow_folders.UNCLASSIFIED] if folder else [])
+        selected_source = sources[0] if sources else ""
+        if self.source_combo.findData(selected_source) < 0:
+            self.source_combo.addItem("原来源文件夹已删除（请重新选择）", selected_source)
+        self.source_combo.setCurrentIndex(self.source_combo.findData(selected_source))
+        self.display_combo = QComboBox()
+        self.display_combo.addItem("匹配时移入显示，不匹配时回到原处", "move")
+        self.display_combo.addItem("保留原处，同时在智能文件夹显示", "copy")
+        self.display_combo.setCurrentIndex(max(0, self.display_combo.findData(rule.get("display", "move"))))
+        form.addRow("来源文件夹", self.source_combo)
+        form.addRow("显示方式", self.display_combo)
         form.addRow("开播状态", self.status_combo)
         form.addRow("卡片排序", self.sort_combo)
         layout.addLayout(form)
@@ -2534,7 +2550,7 @@ class SmartFolderDialog(QDialog):
             check.setChecked(platform in rule.get("platforms", []))
             layout.addWidget(check)
             self.platform_checks[platform] = check
-        hint = QLabel("状态与平台条件同时满足时自动归类；手动分类优先。\n多条规则匹配时，归入位置最靠前的智能文件夹。")
+        hint = QLabel("从来源文件夹筛选同时满足状态与平台条件的主播，保留原归属。\n多条移入规则匹配时，优先显示在最靠前的智能文件夹。")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -2549,7 +2565,67 @@ class SmartFolderDialog(QDialog):
     def values(self):
         return {"name": self.name_edit.text().strip(), "sort": self.sort_combo.currentData(),
                 "rule": {"status": self.status_combo.currentData(),
-                         "platforms": [key for key, check in self.platform_checks.items() if check.isChecked()]}}
+                         "platforms": [key for key, check in self.platform_checks.items() if check.isChecked()],
+                         "sources": [self.source_combo.currentData()] if self.source_combo.currentData() else [],
+                         "display": self.display_combo.currentData()}}
+
+
+class SmartFolderCard(QWidget):
+    """同一关注卡片的显示副本；操作使用原卡片，不增加关注或播放实例。"""
+
+    def __init__(self, original, parent):
+        super().__init__(parent)
+        self.original = original
+        self.room = original.room
+        self._rendering = False
+        self._dragged = False
+        self.setCursor(Qt.PointingHandCursor)
+        original.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Paint and not self._rendering:
+            self.update()
+        return False
+
+    def paintEvent(self, event):
+        self._rendering = True
+        try:
+            pixmap = self.original.grab()
+        finally:
+            self._rendering = False
+        painter = QPainter(self)
+        painter.drawPixmap(self.rect(), pixmap)
+
+    def mousePressEvent(self, event):
+        self._press_pos = event.pos()
+        self._dragged = False
+
+    def mouseMoveEvent(self, event):
+        if not event.buttons() & Qt.LeftButton or self._dragged:
+            return
+        if (event.pos() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
+            return
+        self._dragged = True
+        drag = QDrag(self)
+        mime = QMimeData()
+        rid = str(self.room["room_id"])
+        mime.setData(ROOM_MIME, rid.encode("utf-8"))
+        mime.setText(rid)
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.exec(Qt.CopyAction)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and not self._dragged:
+            if self.original.select_mode:
+                self.original.check.setChecked(not self.original.check.isChecked())
+                self.original.checkedChanged.emit()
+            else:
+                self.original.clicked.emit(self.room)
+            self.update()
+
+    def contextMenuEvent(self, event):
+        self.original._context_menu().exec(event.globalPos())
 
 
 class FollowFolderButton(QToolButton):
@@ -2903,6 +2979,9 @@ class RoomListBox(QWidget):
                 is_folder = isinstance(entry, FollowFolderButton)
                 span = max(36, entry.minimumSizeHint().height()) if is_folder else (
                     width if self.horizontal else height)
+                if isinstance(entry, SmartFolderCard):
+                    run += span + NAV_ITEM_GAP
+                    continue
                 if not is_folder:
                     if y < run + span / 2:
                         return index
@@ -3328,6 +3407,7 @@ class Sidebar(QFrame):
         self.custom_order: list[str] = []      # 拖动排出来的顺序，切换排序方式也不丢
         self.folders: list[dict] = follow_folders.normalize_folders([])
         self._folder_assignments: dict[str, str] = {}
+        self._smart_cards: dict[tuple[str, str], SmartFolderCard] = {}
         self._folder_pending: set[str] = set()
         self._folders_folded_by_drag: set[str] = set()
         self._folder_drag_previous: dict[str, bool] = {}
@@ -3773,14 +3853,14 @@ class Sidebar(QFrame):
                 item.set_sort_selected(False)
                 item.check.setChecked(False)
 
-    def matches(self, item: NavItem, words: list[str]) -> bool:
+    def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
         """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
         if not words:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
                             for key in ("uname", "room_id", "title")).lower()
-        folder_id = self.folder_for(str(room.get("room_id")))
+        folder_id = folder_id or self.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in self.folders
                                 if folder["id"] == folder_id), "")
         return all(word in haystack for word in words)
@@ -4002,6 +4082,7 @@ class Sidebar(QFrame):
         entries = []
         visible = self.visible_items() if preview_items is None else [
             item for item in preview_items if not item.filtered_out]
+        active_copies = set()
         for folder in self.folders:
             button = self._folder_buttons.get(folder["id"])
             if button is None:
@@ -4010,6 +4091,31 @@ class Sidebar(QFrame):
             members = [item for item in visible
                        if self.folder_for(str(item.room.get("room_id"))) == folder["id"]]
             count = sum(fid == folder["id"] for fid in self._folder_assignments.values())
+            copies = folder["type"] == "smart" and folder["rule"].get("display") == "copy"
+            if copies:
+                matched = follow_folders.smart_members(self.rooms(), self.folders, folder, self._folder_pending)
+                count = len(matched)
+                members = [item for item in self._items if str(item.room["room_id"]) in matched
+                           and self.matches(item, self.filter_text.split(), folder["id"])]
+                order = self.import_order if folder["sort"] == "imported" else self.custom_order
+                positions = {rid: i for i, rid in enumerate(order)}
+                def copy_key(item):
+                    index = positions.get(str(item.room["room_id"]), len(positions))
+                    value = (str(item.room.get("uname") or "").casefold() if folder["sort"] == "name"
+                             else bool(item.room.get("live")) != (folder["sort"] == "live")
+                             if folder["sort"] in ("live", "offline") else index)
+                    return (not item.is_pinned, value, index)
+                members.sort(key=copy_key)
+                folded = folder["collapsed"] and (not self.filter_text or folder["id"] in self._folders_folded_by_drag)
+                displayed = []
+                if not folded:
+                    for item in members:
+                        key = (folder["id"], str(item.room["room_id"]))
+                        active_copies.add(key)
+                        if key not in self._smart_cards:
+                            self._smart_cards[key] = SmartFolderCard(item, self.list_box)
+                        displayed.append(self._smart_cards[key])
+                members = displayed
             arrow = "▸" if folder["collapsed"] and (
                 not self.filter_text or folder["id"] in self._folders_folded_by_drag) else "▾"
             title = f"{arrow} {folder['name']} · {count}"
@@ -4020,14 +4126,22 @@ class Sidebar(QFrame):
             button.setToolButtonStyle(Qt.ToolButtonIconOnly if self.collapsed and self.side == "left"
                                       else Qt.ToolButtonTextBesideIcon)
             button.setText(button.fontMetrics().elidedText(title, Qt.ElideRight, max(12, label_width - 44)))
+            search_match = bool(members) if copies else any(
+                self.folder_for(str(item.room.get("room_id"))) == folder["id"]
+                and self.matches(item, self.filter_text.split()) for item in self._items)
             button.setVisible((folder["type"] != "unclassified" or count > 0)
-                              and (not self.filter_text or any(
-                                  self.folder_for(str(item.room.get("room_id"))) == folder["id"]
-                                  and self.matches(item, self.filter_text.split()) for item in self._items)))
+                              and (not self.filter_text or search_match))
             if not button.isHidden():
                 entries.append(button)
                 entries.extend(None if dragging_ids and str(item.room.get("room_id")) in dragging_ids
                                else item for item in members)
+        originals = set(self._items)
+        for key, card in list(self._smart_cards.items()):
+            if key not in active_copies:
+                card.hide()
+            if card.original not in originals or not self.get_folder(key[0]):
+                self._smart_cards.pop(key)
+                card.deleteLater()
         return entries
 
     def _focus_room_list(self) -> None:

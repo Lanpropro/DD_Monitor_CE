@@ -112,7 +112,8 @@ def main():
     assert not any(action.text() == "重命名文件夹…" for action in menu.actions())
     # 编辑器可组合条件、保存排序，并保留暂时不可用的平台。
     dialog = SmartFolderDialog(sidebar, sidebar.get_folder(offline))
-    assert dialog.values()["rule"] == {"status": "offline", "platforms": ["huya"]}
+    assert dialog.values()["rule"] == {"status": "offline", "platforms": ["huya"],
+                                      "sources": [groups.UNCLASSIFIED], "display": "move"}
     dialog.name_edit.setText("规则修改")
     dialog.status_combo.setCurrentIndex(dialog.status_combo.findData("live"))
     dialog.platform_checks["douyu"].setChecked(True)
