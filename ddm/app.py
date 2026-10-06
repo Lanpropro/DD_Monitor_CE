@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
         self._closing = False
         self._restart_requested = False
+        self._update_plan = ""
         self._replay_suppressed: dict[Tile, str] = {}
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
         self._accounts: dict[str, dict] = {}
@@ -553,6 +554,8 @@ class MainWindow(QMainWindow):
             dialog.nav.setCurrentRow(2)
         elif page == "danmaku":
             dialog.nav.setCurrentRow(1)
+        elif page == "updates":
+            dialog.nav.setCurrentRow(5)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
         decode_before = self.settings.get("decode_mode", "auto")
@@ -580,7 +583,10 @@ class MainWindow(QMainWindow):
         self.apply_danmaku_settings()
         self.apply_preview_settings()
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        if getattr(dialog, "restart_requested", False):
+        if getattr(getattr(dialog, "update_page", None), "install_requested", False):
+            self._update_plan = dialog.update_page.plan_path
+            self.close()
+        elif getattr(dialog, "restart_requested", False):
             self._restart_requested = True
             self.close()
         return True
@@ -2913,6 +2919,15 @@ def _launch_restart() -> bool:
     return started
 
 
+def _launch_update(plan_path) -> bool:
+    import json
+    with open(plan_path, encoding="utf-8") as handle:
+        plan = json.load(handle)
+    executable = os.path.join(plan["stage"], plan["new_exe"])
+    started, _pid = QProcess.startDetached(executable, ["--apply-update", plan_path], plan["stage"])
+    return started
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
@@ -2931,6 +2946,8 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     state = config_module.load()
+    from .update_install import clean_previous
+    clean_previous(config_module.REPO)
     t_load = time.perf_counter()
     settings = dict(config_module.DEFAULT_SETTINGS)
     settings.update(state.get("settings") or {})
@@ -2977,7 +2994,15 @@ def main(argv: list[str] | None = None) -> int:
           file=sys.stderr, flush=True)
     code = app.exec()
     watchdog.stop()
-    if window._restart_requested and not _launch_restart():
+    if window._update_plan:
+        try:
+            launched = _launch_update(window._update_plan)
+        except (OSError, ValueError) as error:
+            launched = False
+            print(f"[更新] 启动助手失败：{error}", file=sys.stderr, flush=True)
+        if not launched:
+            QMessageBox.critical(None, "更新未执行", "无法启动更新助手，原程序已保留，请稍后重新下载更新。")
+    elif window._restart_requested and not _launch_restart():
         QMessageBox.critical(None, "重启失败", "无法重新启动软件，请手动打开程序。设置已保存。")
     # 关窗时可能还有网络线程在收尾，Qt / VLC 的析构顺序会偶发崩在退出瞬间，
     # 配置在 closeEvent 里已经存好了，这里直接退出进程最稳。

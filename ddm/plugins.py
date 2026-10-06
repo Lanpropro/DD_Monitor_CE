@@ -309,6 +309,8 @@ class PluginManager:
     def load(self) -> None:
         if not os.path.isdir(self.plugins_dir):
             return
+        from .plugin_updates import apply_pending
+        apply_pending(self)
         for old, new in RENAMED_PLUGINS.items():
             if not os.path.isfile(os.path.join(self.plugins_dir, new, "plugin.py")):
                 continue
@@ -439,6 +441,10 @@ class PluginManager:
             raise ValueError("只能删除插件目录中的有效插件")
         shutil.rmtree(target)
         self._removed.add(plugin_id)
+        pending = os.path.join(root, ".updates", plugin_id)
+        if os.path.isdir(pending) and not os.path.islink(pending) and os.path.commonpath(
+                (root, os.path.realpath(pending))) == root:
+            shutil.rmtree(pending)
         if self.enabled is not None:
             self.enabled.discard(plugin_id)
         self.plugin_settings.pop(plugin_id, None)

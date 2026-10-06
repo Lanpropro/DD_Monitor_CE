@@ -111,7 +111,7 @@ def main() -> None:
     assert not tile.spinner.isVisible()
     tile.set_status("断流，10 秒后重连（第 2 次）")
     print(f"  断流: 标签={tile.status_label.text()!r}")
-    assert "重连" in tile.status_label.text()
+    assert "重连" in tile.status_label._full_text, "完整状态文案不应受当前标签宽度影响"
     tile.set_status("")
     assert tile.status_label.text() == ""
 
@@ -199,7 +199,7 @@ def main() -> None:
     timer = window._freeze_retry_timers.get(tile)
     print(f"  刷新后仍静止：5 秒定时器={timer is not None} 状态={tile.status_label.text()!r}")
     assert timer is not None and timer.isActive()
-    assert "5 秒后再次刷新" in tile.status_label.text()
+    assert "5 秒后再次刷新" in tile.status_label._full_text
     window._on_picture_activity(tile)
     print(f"  画面恢复：定时器已取消={tile not in window._freeze_retry_timers}")
     assert tile not in window._freeze_retry_timers
@@ -442,7 +442,7 @@ def main() -> None:
         "开发指南应指向设置文案、入口、样式和默认值的实际文件"
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
-    assert pages == ["常规", "弹幕", "录制", "快捷键", "插件"] and dialog.stack.currentIndex() == 0
+    assert pages == ["常规", "弹幕", "录制", "快捷键", "插件", "软件更新"] and dialog.stack.currentIndex() == 0
     assert next(label for key, label, _default in SHORTCUT_ACTIONS if key == "restore") == \
         "退出全屏"
     dialog.nav.setCurrentRow(3)
@@ -456,8 +456,9 @@ def main() -> None:
     general = dialog.general_page
     defaults = dialog.settings()
     print(f"  读到的设置={defaults}")
-    assert set(defaults) == set(config_module.DEFAULT_SETTINGS) - {"danmaku_retention_version"}, \
-        "设置窗口要覆盖用户设置项（配置迁移版本由本体管理）"
+    global_keys = {key for key in config_module.DEFAULT_SETTINGS if not key.startswith("video_danmaku_")}
+    assert set(defaults) == global_keys - {"danmaku_retention_version"}, \
+        "全局设置应保留常规选项，画面弹幕观看参数由格子右下角调整"
     assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():
         if key not in defaults or key == "danmaku_font":
@@ -535,7 +536,7 @@ def main() -> None:
     retry_tile = window.wall.tiles[0]
     window._schedule_retry(retry_tile)                  # noqa: SLF001
     print(f"  内置自动重连：{retry_tile.status_label.text()!r}")
-    assert "秒后重连" in retry_tile.status_label.text()
+    assert "秒后重连" in retry_tile.status_label._full_text
     assert retry_tile in window._retry_timers and window._retry_timers[retry_tile].isActive()
     window._on_player_state(retry_tile, "playing")
     assert retry_tile not in window._retry_timers, "播放恢复后不能再触发旧的重连定时器"
@@ -695,7 +696,9 @@ def main() -> None:
     sidebar.set_sort_mode("live", notify=False)
     visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
     with mock.patch.object(config_module, "save") as persist:
-        freeze = next(action for action in sidebar.sort_button.menu().actions()
+        folder_menu = next(action.menu() for action in sidebar.sort_button.menu().actions()
+                           if action.text() == "未分类")
+        freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")
         freeze.trigger()
         assert persist.call_count == 1

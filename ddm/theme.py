@@ -288,6 +288,20 @@ QSlider::handle:horizontal:hover {{
 #PluginScroll, #PluginScroll > QWidget > QWidget {{
     background: transparent;
 }}
+#PluginTabs::pane {{
+    border: none;
+    background: {SIDEBAR};
+}}
+#PluginTabs QTabBar::tab {{
+    background: {SIDEBAR};
+    color: {TEXT2};
+    padding: 7px 14px;
+    border: none;
+}}
+#PluginTabs QTabBar::tab:selected {{
+    background: {ACCENT_SOFT};
+    color: {ACCENT};
+}}
 #PluginName {{
     font-weight: 600;
     color: {TEXT1};

@@ -8,6 +8,10 @@ python-vlc 在 import 的时候就要知道 libvlc 在哪，所以先设好环�
 import os
 import sys
 
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--apply-update":
+    from ddm.update_install import run_helper
+    raise SystemExit(run_helper(sys.argv[2]))
+
 PROJ = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PROJ)                       # 配置、日志、头像缓存都按这个目录算
 if PROJ not in sys.path:

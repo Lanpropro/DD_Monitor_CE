@@ -176,6 +176,8 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
     # 发布目录保留 -exe 区分源码包；用户双击的程序名与软件版本名一致。
     Move-Item -LiteralPath (Join-Path $exeDir "$name-exe.exe") -Destination (Join-Path $exeDir "$name.exe")
+    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
     # 而 onedir 的 _MEIPASS 就是 _internal）；插件也必须和 dll 挨着
     $internal = Join-Path $exeDir "_internal"
@@ -248,6 +250,14 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
         Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
         Write-Output "=== 压缩 exe 包 $exeZip ==="
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
+        $releaseNotes = Join-Path $repo "RELEASE-$version.md"
+        $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
+        @{ version = $version.TrimStart('v'); asset_name = "$name-exe.zip";
+           url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/download/$version/$name-exe.zip";
+           sha256 = (Get-FileHash -LiteralPath $exeZip -Algorithm SHA256).Hash.ToLower();
+           size = (Get-Item -LiteralPath $exeZip).Length; notes = $updateNotes;
+           release_url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/$version" } |
+            ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir "app-update.json") -Encoding UTF8
         Write-Output ("  {0:N0} MB" -f ((Get-Item $exeZip).Length / 1MB))
     }
     $exeFiles = Get-ChildItem $exeDir -Recurse -File

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
-    QScrollArea, QSlider, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSlider, QSpinBox, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -533,6 +533,8 @@ class PluginSettingsPage(QWidget):
         self._initial_enabled = {entry["id"]: entry["enabled"] for entry in entries}
         self._files_changed = any(entry["status"] == "待重启" for entry in entries) or bool(
             getattr(manager, "_removed", None))
+        from .plugin_updates import pending_versions
+        self._files_changed = self._files_changed or bool(manager and pending_versions(manager))
         self.empty = None
         if not entries:
             self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
@@ -543,7 +545,42 @@ class PluginSettingsPage(QWidget):
         for entry in entries:
             self._add_card(entry)
         scroll.setWidget(content)
-        layout.addWidget(scroll, 1)
+        from .online_ui import PluginStorePage
+        self.store_page = PluginStorePage(manager)
+        store_scroll = QScrollArea()
+        store_scroll.setObjectName("PluginScroll")
+        store_scroll.setWidgetResizable(True)
+        store_scroll.setFrameShape(QFrame.NoFrame)
+        store_scroll.setWidget(self.store_page)
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("PluginTabs")
+        self.tabs.addTab(scroll, "已安装")
+        self.tabs.addTab(store_scroll, "插件商店")
+        self.tabs.currentChanged.connect(self._store_tab_changed)
+        self.store_page.installed.connect(self._store_installed)
+        layout.addWidget(self.tabs, 1)
+
+    def _store_tab_changed(self, index):
+        if index == 1 and not self.store_page.offers and not self.store_page.jobs:
+            self.store_page.refresh_catalog()
+
+    def _store_installed(self, plugin_id):
+        previous = {key: check.isChecked() for key, check in self.checks.items()}
+        self.checks = {}
+        self.empty = None
+        while self.cards.count() > 1:
+            item = self.cards.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        from .plugin_updates import pending_versions
+        pending = pending_versions(self.manager)
+        for entry in self.manager.catalog():
+            entry["enabled"] = previous.get(entry["id"], entry["enabled"])
+            if entry["id"] in pending:
+                entry["status"] = "更新至 " + pending[entry["id"]] + " · 待重启"
+            self._add_card(entry)
+        self._files_changed = True
+        self.changed.emit()
 
     def _add_card(self, entry):
         card = QFrame()
@@ -657,7 +694,7 @@ class SettingsDialog(QDialog):
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("danmaku", "弹幕"),
-             ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件")]
+             ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件"), ("updates", "软件更新")]
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None):
         super().__init__(parent)
@@ -689,11 +726,14 @@ class SettingsDialog(QDialog):
         self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.plugin_page = PluginSettingsPage(plugin_manager)
+        from .online_ui import AppUpdatePage
+        self.update_page = AppUpdatePage()
         self.stack.addWidget(self.general_page)
         self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.recording_page)
         self.stack.addWidget(self.shortcut_page)
         self.stack.addWidget(self.plugin_page)
+        self.stack.addWidget(self.update_page)
         right.addWidget(self.stack, 1)
 
         buttons = QHBoxLayout()
@@ -716,20 +756,28 @@ class SettingsDialog(QDialog):
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
         self.plugin_page.changed.connect(self._update_save_button)
+        self.plugin_page.store_page.busyChanged.connect(self._update_save_button)
+        self.update_page.busyChanged.connect(self._update_save_button)
         self._update_save_button()
 
-    def _update_save_button(self) -> None:
+    def _update_save_button(self, *_args) -> None:
         self.confirm_button.setText("保存并重启" if self.plugin_page.needs_restart() else "保存")
+        self.confirm_button.setEnabled(not self.plugin_page.store_page.jobs and not self.update_page.jobs)
 
     def _save(self) -> None:
         self.restart_requested = self.plugin_page.needs_restart()
         self.accept()
 
+    def done(self, result):
+        self.plugin_page.store_page.stop()
+        self.update_page.stop()
+        super().done(result)
+
     def _on_page_changed(self, index: int) -> None:
         if index >= 0:
             self.stack.setCurrentIndex(index)
             self.reset_button.setText("恢复本页默认")
-            self.reset_button.setVisible(self.stack.currentWidget() is not self.plugin_page)
+            self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
 
     def _reset_current(self) -> None:
         page = self.stack.currentWidget()
