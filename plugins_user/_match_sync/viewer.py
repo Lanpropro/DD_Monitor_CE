@@ -5,6 +5,7 @@ import re
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
@@ -19,7 +20,7 @@ from ddm.widgets import AUTO_QUALITY, DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
 from ddm import theme
-from .engine import Alignment, RATE, match_scenes, mix_pcm
+from .engine import Alignment, Match, RATE, match_scenes, refine_match, mix_pcm
 from .media import Chat, Decoder, PlatformChat
 
 COLORS = ("#38bdf8", "#fb7185", "#a78bfa", "#4ade80", "#fbbf24", "#fb923c")
@@ -694,7 +695,7 @@ class Viewer(QDialog):
         self.render_timer.setInterval(33)
         self.render_timer.timeout.connect(self.render)
         self.match_timer = QTimer(self)
-        self.match_timer.setInterval(3000)
+        self.match_timer.setInterval(1500)
         self.match_timer.timeout.connect(self.analyse)
         self.results = Results()
         self.results.matched.connect(self._matched)
@@ -1394,12 +1395,41 @@ class Viewer(QDialog):
         reference = row.decoder.history.snapshots()
         others = {key: value.decoder.history.snapshots() for key, value in self.rows.items()
                   if key != row.room_id and value.decoder is not None}
+        details = {}
+        for key, value in self.rows.items():
+            if value.decoder is not None:
+                with value.decoder.history.lock:
+                    details[key] = (list(getattr(value.decoder.history, "details", ()))
+                                    if value.decoder.history.origin is not None else [])
+        known = dict(self.alignment.lags)
+        reference_id = row.room_id
+        clock, shifts = self.audio.clock(), self.shifts()
+        positions = {key: clock + shifts[key] for key in details}
+        has_picture = self.canvas.frame_key is not None
+        if has_picture:
+            positions[reference_id] = self.canvas.frame_key
         epoch, bridge = self.generation, self.results
         self.matching = True
 
         def run():
-            bridge.matched.emit(epoch, {key: match_scenes(reference, samples)
-                                       for key, samples in others.items()})
+            results = {}
+            for key, samples in others.items():
+                if details.get(reference_id) and details.get(key):
+                    candidate = match_scenes(details[reference_id][::4], details[key][::4])
+                else:
+                    candidate = match_scenes(reference, samples)
+                if details.get(reference_id) and details.get(key):
+                    if candidate.lag is None and not candidate.candidates and key in known:
+                        candidate = Match(known[key], .9, "复核已确认偏移")
+                    candidate = refine_match(candidate, details[reference_id], details[key])
+                    if candidate.lag is not None and key in known and has_picture:
+                        shown_reference = [s for s in details[reference_id] if s.time <= positions[reference_id]]
+                        shown_other = [s for s in details[key] if s.time <= positions[key]]
+                        verified = refine_match(Match(known[key], .9, "播放进度复核"), shown_reference, shown_other)
+                        if verified.lag is not None:
+                            candidate = replace(candidate, playback_error=verified.lag - (positions[key] - positions[reference_id]))
+                results[key] = candidate
+            bridge.matched.emit(epoch, results)
         threading.Thread(target=run, name="match-sync-analysis", daemon=True).start()
 
     def _matched(self, epoch, results):
@@ -1417,8 +1447,14 @@ class Viewer(QDialog):
             elif match.confidence < .65:
                 row.match_text = "匹配置信度不足；保持已确认偏移，继续收集画面"
             else:
-                row.match_text = (f"{'已对齐' if applied else '正在确认'}：相对主画面 {match.lag:+.1f} 秒，"
-                                  f"置信度 {match.confidence:.0%}")
+                if match.refined:
+                    verified = match.playback_error is not None and abs(match.playback_error) <= .15
+                    status = "播放进度已复核" if applied and verified else "已应用精校正，待复核" if applied else "正在确认精校正"
+                    error = f"，剩余误差约 {abs(match.playback_error):.2f} 秒" if match.playback_error is not None else ""
+                    row.match_text = f"{status}：相对主画面 {match.lag:+.2f} 秒{error}"
+                else:
+                    row.match_text = (f"{'已应用粗匹配，待精校正' if applied else '正在确认'}：相对主画面 {match.lag:+.1f} 秒，"
+                                      f"置信度 {match.confidence:.0%}")
             row.refresh_status()
 
     def choose_crop(self, row):

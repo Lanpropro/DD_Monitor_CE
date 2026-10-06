@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import http.cookies
-import socket
 import subprocess
 import threading
 import time
@@ -13,7 +12,7 @@ from PySide6.QtGui import QImage
 
 from ddm import bili, danmaku, recording
 from ddm.auto_quality import AUTO_QUALITY
-from .engine import FPS, Sample, SIGNATURE_BITS
+from .engine import FPS, Sample, SIGNATURE_BITS, np
 from .video import av, VideoHistory, PictureReader, StreamInput
 
 FRAME_TIMEOUT = 8.0
@@ -50,6 +49,16 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
     return signature, texture / SIGNATURE_BITS
 
 
+def scene_feature(image, crop):
+    x, y, width, height = crop
+    image = image.copy(round(x * image.width()), round(y * image.height()),
+                       max(1, round(width * image.width())), max(1, round(height * image.height())))
+    image = image.scaled(16, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_Grayscale8)
+    pixels = np.frombuffer(image.constBits(), dtype=np.uint8).reshape(16, image.bytesPerLine())[:, :16]
+    centre, scale = pixels.mean(), max(8, pixels.std())
+    return np.clip(np.rint(128 + (pixels.astype(np.float32) - centre) * 48 / scale), 0, 255).astype(np.uint8).tobytes()
+
+
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,
                    *, hls_retry=False, platform_kind="") -> list[str]:
     inputs = recording.input_args(url, headers)
@@ -60,14 +69,15 @@ def decode_command(executable: str, url: str, headers: dict, port: int, quality:
         if hls_retry:
             inputs = inputs[:-2] + ["-http_persistent", "0", "-http_multiple", "1",
                                    "-seg_max_retry", "3"] + inputs[-2:]
-    return ([executable, "-nostdin", "-readrate", "1", "-copyts", "-start_at_zero", "-threads", "2"]
+    # Only local fixtures/files need pacing. Throttling real live inputs loses
+    # packets when the server delivers a burst (especially Douyu's FLV).
+    pacing = [] if url.lower().startswith(("http://", "https://", "rtmp://", "rtmps://")) else ["-readrate", "1"]
+    return ([executable, "-nostdin"] + pacing + ["-copyts", "-start_at_zero", "-threads", "2"]
             + inputs
-            + ["-map", "0:v:0", "-an", "-c:v", "copy",
-               "-avoid_negative_ts", "disabled", "-f", "nut", "-flush_packets", "1", "pipe:1",
-               "-map", "0:a:0", "-vn", "-af",
-               "aresample=async=1:first_pts=0",
+            + ["-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af",
+               "aresample=async=1",
                "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
-               "-f", "s16le", f"tcp://127.0.0.1:{port}"])
+               "-avoid_negative_ts", "make_zero", "-f", "nut", "-flush_packets", "1", "pipe:1"])
 
 
 class Decoder:
@@ -86,8 +96,6 @@ class Decoder:
         self.crop = (0.0, 0.0, 1.0, 1.0)
         self.cancelled = threading.Event()
         self.process = None
-        self.listener = None
-        self.connection = None
         self.thread = None
         self.lock = threading.RLock()
 
@@ -101,6 +109,7 @@ class Decoder:
             self.crop = tuple(crop)
         with self.history.lock:
             self.history.samples.clear()
+            self.history.details.clear()
 
     def stop(self) -> None:
         self.cancelled.set()
@@ -120,8 +129,15 @@ class Decoder:
     def diagnostics(self):
         with self.history.lock:
             bounds = self.history.bounds()
+            stamps = [item[0] for item in self.history.frames]
+            gaps = sorted((b - a for a, b in zip(stamps, stamps[1:])), reverse=True)
+            recent = [stamp for stamp in stamps if stamps and stamp >= stamps[-1] - 3]
             return {"size": self.video_size, "fps": self.fps,
+                    "codec": self.history.codec[0] if self.history.codec else "",
+                    "received_packets": self.history.sequence,
                     "received_frames": self.history.received_frames,
+                    "largest_frame_gaps": gaps[:3],
+                    "recent_received_fps": ((len(recent) - 1) / (recent[-1] - recent[0])) if len(recent) > 1 else 0,
                     "packet_bytes": self.history.byte_size,
                     "buffer_seconds": bounds[1] - bounds[0] if bounds else 0,
                     "picture_decode_ms": self.pictures.decode_ms,
@@ -177,6 +193,9 @@ class Decoder:
         if av is None:
             self.events.state.emit("缺少二路视频解码组件 PyAV；请安装新版完整程序或更新 requirements.txt 中的依赖")
             return
+        if np is None:
+            self.events.state.emit("缺少二路图像比较组件 NumPy；请更新 requirements.txt 中的依赖")
+            return
         executable = recording.ffmpeg_path()
         if not executable:
             self.events.state.emit("找不到 FFmpeg：请使用完整发布包，或将 FFmpeg 放入 PATH")
@@ -202,12 +221,6 @@ class Decoder:
             attempt += 1
 
     def _capture(self, executable: str, url: str, headers: dict) -> None:
-        listener = socket.socket()
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(1)
-        listener.settimeout(0.2)
-        self.listener = listener
-        audio_thread = threading.Thread(target=self._read_audio, daemon=True)
         process = None
         hls_proxy = None
         finished = threading.Event()
@@ -237,7 +250,7 @@ class Decoder:
                 hls_proxy = HlsProxy(url, headers, request_proxy(url))
                 url, headers = hls_proxy.url, {}
             process = subprocess.Popen(
-                decode_command(executable, url, headers, listener.getsockname()[1], self.seed.get("quality", 250),
+                decode_command(executable, url, headers, 0, self.seed.get("quality", 250),
                                hls_retry=hls_proxy is not None,
                                platform_kind=self.platform.kind if self.platform is not None else ""),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
@@ -258,9 +271,10 @@ class Decoder:
                 process.terminate()
                 return
             watchdog.start()
-            audio_thread.start()
             next_sample = 0.0
-            with av.open(StreamInput(process.stdout), "r", format="nut") as container:
+            next_detail = 0.0
+            with av.open(StreamInput(process.stdout), "r", format="nut",
+                         options={"probesize": "65536", "analyzeduration": "100000"}) as container:
                 stream = container.streams.video[0]
                 stream.codec_context.thread_count = 2
                 stream.codec_context.thread_type = "SLICE"
@@ -268,29 +282,49 @@ class Decoder:
                 rate = stream.average_rate or stream.base_rate or stream.codec_context.framerate
                 if rate:
                     self.fps = float(rate)
-                for packet in container.demux(stream):
+                for packet in container.demux():
                     if self.cancelled.is_set():
                         break
+                    if packet.stream.type == "audio":
+                        for frame in packet.decode():
+                            if frame.pts is None:
+                                continue
+                            pts = float(frame.pts * frame.time_base)
+                            if self.history.origin is None:
+                                # Ignore an old cached video keyframe when anchoring live time.
+                                self.history.set_origin(time.monotonic() - pts)
+                                self.events.state.emit("取流已连接")
+                            pcm = bytes(frame.planes[0])[:frame.samples * 4]
+                            self.history.audio.append_at(round(pts * 48000), pcm)
+                        continue
                     if packet.size:
-                        if self.history.origin is None:
-                            pts = float((packet.pts or 0) * packet.time_base)
-                            self.history.origin = time.monotonic() - pts
-                            self.events.state.emit("取流已连接")
                         self.history.append_packet(packet)
                     for frame in packet.decode():
+                        if frame.pts is None:
+                            continue
                         pts = float(frame.pts * frame.time_base)
-                        timestamp = self.history.origin + pts
+                        if abs(pts) > 1e9:
+                            continue  # An invalid/missing source timestamp cannot establish time.
+                        timestamp = (self.history.origin or 0) + pts
                         self.video_size = (frame.width, frame.height)
                         sample = None
-                        if pts + .0001 >= next_sample:
-                            next_sample = pts + .5
+                        if pts + .0001 >= next_detail:
+                            while next_detail <= pts + .0001:
+                                next_detail += .05
                             with self.lock:
                                 crop = self.crop
                             gray = frame.reformat(width=min(640, frame.width), height=min(360, frame.height), format="gray")
                             plane = gray.planes[0]
                             image = QImage(bytes(plane), gray.width, gray.height, plane.line_size, QImage.Format_Grayscale8)
                             signature, texture = fingerprint(image, crop)
-                            sample = Sample(timestamp, signature, texture)
+                            detail = Sample(timestamp, signature, texture, scene_feature(image, crop))
+                            with self.history.lock:
+                                self.history.details.append(detail)
+                                while self.history.details and timestamp - self.history.details[0].time > self.history.seconds:
+                                    self.history.details.popleft()
+                            if pts + .0001 >= next_sample:
+                                next_sample = pts + .5
+                                sample = detail
                         self.history.append(timestamp, pts, sample)
                         last_frame[0] = time.monotonic()
                         self.last_frame_received = last_frame[0]
@@ -319,52 +353,8 @@ class Decoder:
                     process.kill()
                     process.wait()
                 process.stdout.close()
-            listener.close()
-            self.listener = None
-            connection = self.connection
-            if connection is not None:
-                try:
-                    connection.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-            if audio_thread.is_alive():
-                audio_thread.join(1)
             if hls_proxy is not None:
                 hls_proxy.stop()
-
-    def _read_audio(self) -> None:
-        listener = self.listener
-        connection = None
-        try:
-            while not self.cancelled.is_set():
-                try:
-                    connection, _address = listener.accept()
-                    break
-                except socket.timeout:
-                    if self.process is None or self.process.poll() is not None:
-                        return
-            if connection is None:
-                return
-            self.connection = connection
-            connection.settimeout(0.2)
-            pending = b""
-            while not self.cancelled.is_set():
-                try:
-                    data = connection.recv(16384)
-                except socket.timeout:
-                    continue
-                if not data:
-                    return
-                pending += data
-                size = len(pending) // 4 * 4
-                self.history.audio.append(pending[:size])
-                pending = pending[size:]
-        except OSError:
-            pass
-        finally:
-            if connection is not None:
-                connection.close()
-            self.connection = None
 
 
 class PlatformChat(QObject):

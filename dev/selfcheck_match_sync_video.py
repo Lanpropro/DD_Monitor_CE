@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import deque
 from fractions import Fraction
 from unittest.mock import patch
 
@@ -43,9 +44,20 @@ def fixture(executable, source, size, rate, seconds):
 def run(app):
     executable = recording.ffmpeg_path()
     assert executable and video.av is not None
+    for address in ("https://live.test/feed.flv", "http://live.test/feed.m3u8", "rtmp://live.test/feed"):
+        command = media.decode_command(executable, address, {}, 12345)
+        assert "-readrate" not in command, "Live sources must consume bursts without forced throttling"
+    assert "-readrate" in media.decode_command(executable, "fixture.mkv", {}, 12345)
     bounded = video.VideoHistory(seconds=1, byte_limit=6000)
+    pending = video.VideoHistory()
+    pending.pending_frames = deque((.1, .2))
+    assert pending.bounds() is None, "Unanchored media must not move the shared clock into source PTS"
+    pending.set_origin(100)
+    assert pending.frames[0] == (100.1, .1)
+    assert pending.origin == 100
     bounded.origin = 100
     bounded.codec = ("h264", b"")
+    unanchored = video.VideoHistory(seconds=1, byte_limit=6000)
     for index in range(20):
         packet = video.av.Packet(b"x" * 1000)
         packet.pts = packet.dts = index
@@ -53,6 +65,10 @@ def run(app):
         packet.is_keyframe = index % 4 == 0
         bounded.append_packet(packet)
         bounded.append(100 + index / 10, index / 10)
+        unanchored.append_packet(packet)
+        unanchored.append(index / 10, index / 10)
+        assert len(unanchored.pending_frames) <= 6
+        assert not unanchored.frames and not unanchored.snapshots()
         assert bounded.byte_size <= 6000
         assert not bounded.packets or bounded.packets[0].keyframe
         assert not bounded.frames or bounded.frames[0][1] >= bounded.packets[0].time
@@ -118,17 +134,34 @@ def run(app):
             assert changed is not None and changed[0] == other_frame[0]
             print("PASS: byte-identical decoded source pixels; backward/forward seek, bounded prefetch, no GUI JPEG decode")
             # Poll a moving playback timeline, measuring actual frame presentation.
-            start = time.monotonic()
             clock = decoder.history.origin + 1
+            from dev.selfcheck_match_sync_refinement import samples
+            from plugins_user._match_sync.engine import Match, refine_match
+            fine_reference, fine_other = samples(), samples(7.237, .027, 2)
+            canvas.set_frame(ready(decoder, clock))
             canvas.presented = 0
+            finish_analysis = threading.Event()
+
+            def analyse():
+                while not finish_analysis.is_set():
+                    refine_match(Match(7, .9, "coarse"), fine_reference, fine_other)
+
+            analysis = threading.Thread(target=analyse, daemon=True)
+            analysis.start()
+            start = time.monotonic()
             ticks = 0
-            while time.monotonic() - start < 1:
-                canvas.show_at(decoder, clock + time.monotonic() - start)
-                app.processEvents()
-                ticks += 1
-                time.sleep(.004)
+            try:
+                while time.monotonic() - start < 1:
+                    canvas.show_at(decoder, clock + time.monotonic() - start)
+                    app.processEvents()
+                    ticks += 1
+                    time.sleep(.004)
+            finally:
+                finish_analysis.set()
+                analysis.join(3)
+                assert not analysis.is_alive()
             print(f"MEASURE: {canvas.presented} distinct pictures in 1s; {ticks} presentation polls; {decoder.diagnostics()}")
-            assert canvas.presented >= 52, "60 fps presentation falls behind"
+            assert canvas.presented >= 52, "60 fps presentation falls behind during scene analysis"
         finally:
             for decoder in decoders:
                 decoder.stop()

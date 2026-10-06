@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import threading
 import time
 
@@ -63,6 +63,18 @@ class VideoHistory(History):
         self.sequence = 0
         self.received_frames = 0
         self.details = deque()
+        self.pending_frames = deque()
+
+    def set_origin(self, origin):
+        with self.lock:
+            self.origin = origin
+            self.frames.extend((origin + pts, pts) for pts in self.pending_frames)
+            self.pending_frames.clear()
+            self.samples = deque(replace(sample, time=origin + sample.time) for sample in self.samples)
+            self.details = deque(replace(sample, time=origin + sample.time) for sample in self.details)
+
+    def snapshots(self):
+        return super().snapshots() if self.origin is not None else []
 
     def append_packet(self, packet):
         with self.lock:
@@ -79,15 +91,22 @@ class VideoHistory(History):
                 # A decoder cannot start in the middle of an inter-frame GOP.
                 while self.packets and not self.packets[0].keyframe:
                     self.byte_size -= len(self.packets.popleft().data)
-            if self.origin is not None:
-                first = self.origin + self.packets[0].time if self.packets else float("inf")
+            first = self.packets[0].time if self.packets else float("inf")
+            if self.origin is None:
+                while self.pending_frames and self.pending_frames[0] < first:
+                    self.pending_frames.popleft()
+            else:
+                first += self.origin
                 while self.frames and self.frames[0][0] < first:
                     self.frames.popleft()
 
     def append(self, timestamp, pts, sample=None):
         with self.lock:
             if self.packets and pts >= self.packets[0].time:
-                self.frames.append((timestamp, pts))
+                if self.origin is None:
+                    self.pending_frames.append(pts)
+                else:
+                    self.frames.append((timestamp, pts))
             self.received_frames += 1
             if sample is not None:
                 self.samples.append(sample)

@@ -4,9 +4,15 @@ from __future__ import annotations
 import math
 import threading
 from array import array
+from bisect import bisect_left
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from statistics import median
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 RATE = 48_000
 FPS = 30
@@ -20,6 +26,7 @@ class Sample:
     time: float
     signature: int
     texture: float
+    feature: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,9 @@ class Match:
     lag: float | None
     confidence: float
     reason: str
+    refined: bool = False
+    playback_error: float | None = None
+    candidates: tuple[float, ...] = ()
 
 
 def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
@@ -45,13 +55,20 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
     if bits < 16:
         return Match(None, 0, "框选区域变化不足；可扩大比赛区域或对照微调")
     groups = defaultdict(list)
-    for a in reference:
+    appearance_distances = None
+    if np is not None and all(s.feature and len(s.feature) == 256 for s in reference + other):
+        a_features = np.frombuffer(b"".join(s.feature for s in reference), dtype=np.uint8).reshape(-1, 16, 16)[:, ::4, ::4].reshape(-1, 16).astype(np.int16)
+        b_features = np.frombuffer(b"".join(s.feature for s in other), dtype=np.uint8).reshape(-1, 16, 16)[:, ::4, ::4].reshape(-1, 16).astype(np.int16)
+        appearance_distances = np.abs(a_features[:, None, :] - b_features[None, :, :]).mean(axis=2) / 128
+    for ai, a in enumerate(reference):
         if a.texture < 4:
             continue
-        for b in other:
+        for bi, b in enumerate(other):
             if b.texture < 4:
                 continue
             distance = ((a.signature ^ b.signature) & dynamic).bit_count() / bits
+            if appearance_distances is not None:
+                distance = min(distance, float(appearance_distances[ai, bi]))
             if distance <= 0.20:
                 lag = b.time - a.time
                 if abs(lag) <= HISTORY_SECONDS - 5:
@@ -94,11 +111,98 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
     ranked.sort(reverse=True, key=lambda item: item[0])
     score, key, support, distance, pairs = ranked[0]
     lag = median(p[3] for p in pairs)
+    candidates = []
+    if reference[0].feature and other[0].feature:
+        for item in ranked:
+            candidate = median(p[3] for p in item[4])
+            if all(abs(candidate - existing) >= 1.5 for existing in candidates):
+                candidates.append(candidate)
+            if len(candidates) >= 8:
+                break
     rival = next((item for item in ranked[1:] if abs(median(p[3] for p in item[4]) - lag) >= .75), None)
     if rival and rival[0] >= score * 0.85:
-        return Match(None, 0, "画面存在重复或回放，时间差不明确")
+        return Match(None, 0, "画面存在重复或回放，时间差不明确", candidates=tuple(candidates))
     confidence = min(1.0, support / 10) * (1 - distance)
-    return Match(lag, confidence, "已匹配共同比赛画面")
+    return Match(lag, confidence, "已匹配共同比赛画面", candidates=tuple(candidates))
+
+
+def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> Match:
+    """Refine a coarse candidate using recent ordered, normalized grayscale scenes."""
+    if np is None:
+        return Match(None, 0, "缺少精校正组件 NumPy，请更新 requirements.txt 中的依赖")
+    if match.candidates:
+        results = [refine_match(Match(candidate, .9, "粗匹配候选"), reference, other)
+                   for candidate in match.candidates]
+        results = sorted((result for result in results if result.lag is not None),
+                         key=lambda result: result.confidence, reverse=True)
+        if not results:
+            return Match(None, 0, "粗匹配候选未通过精校正，保持已确认偏移")
+        rival = next((result for result in results[1:] if abs(result.lag - results[0].lag) >= .15), None)
+        if rival and rival.confidence >= results[0].confidence - .025:
+            return Match(None, 0, "连续画面存在多个相近时间差，保持已确认偏移")
+        return results[0]
+    if match.lag is None:
+        return match
+    if len(reference) < 40 or len(other) < 40:
+        return Match(None, 0, "正在收集精校正画面")
+    lag = match.lag
+    end = min(reference[-1].time, other[-1].time - lag)
+    begin = max(end - 4, reference[0].time, other[0].time - lag)
+    a = [sample for sample in reference if begin <= sample.time <= end and sample.texture >= 4]
+    b = [sample for sample in other if end - 5 + lag <= sample.time <= end + 1 + lag and sample.texture >= 4]
+    if len(a) < 30 or len(b) < 30 or not a[0].feature or not b[0].feature:
+        return Match(None, 0, "共同动态画面不足，保持已确认偏移")
+    if a[-1].time - a[0].time < 2:
+        return Match(None, 0, "精校正需要连续比赛画面")
+    length = len(a[0].feature)
+    if any(len(sample.feature) != length for sample in a + b):
+        return Match(None, 0, "比赛区域已变化，正在重新收集")
+    a_features = np.frombuffer(b"".join(s.feature for s in a), dtype=np.uint8).reshape(-1, length).astype(np.int16)
+    b_features = np.frombuffer(b"".join(s.feature for s in b), dtype=np.uint8).reshape(-1, length).astype(np.int16)
+    active = (np.ptp(a_features, axis=0) >= 12) & (np.ptp(b_features, axis=0) >= 12)
+    if np.count_nonzero(active) < 16:
+        return Match(None, 0, "比赛区域变化不足，保持已确认偏移")
+    distances = np.abs(a_features[:, None, active] - b_features[None, :, active]).mean(axis=2) / 128
+    times = [sample.time for sample in b]
+    ranked = []
+    # 25ms search steps, with support from many frames rather than one best pair.
+    for step in range(-40, 41):
+        candidate = lag + step * .025
+        pairs = []
+        used = set()
+        for ai, sample in enumerate(a):
+            index = bisect_left(times, sample.time + candidate)
+            choices = [i for i in (index - 1, index) if 0 <= i < len(b)]
+            if not choices:
+                continue
+            index = min(choices, key=lambda i: abs(times[i] - sample.time - candidate))
+            if index in used or abs(times[index] - sample.time - candidate) > .055:
+                continue
+            used.add(index)
+            target = b[index]
+            distance = float(distances[ai, index])
+            pairs.append((sample, target, distance))
+        if len(pairs) < max(30, len(a) * .8):
+            continue
+        errors = [pair[2] for pair in pairs]
+        score = sum(errors) / len(errors)
+        # Both halves must agree; transitions or replay boundaries cannot lock.
+        middle = len(pairs) // 2
+        halves = [sum(p[2] for p in part) / len(part) for part in (pairs[:middle], pairs[middle:])]
+        if max(halves) > .20:
+            continue
+        ranked.append((score, candidate, pairs))
+    if not ranked:
+        return Match(None, 0, "精校正尚未确认，保持已确认偏移")
+    ranked.sort(key=lambda item: item[0])
+    score, lag, pairs = ranked[0]
+    rival = next((item for item in ranked[1:] if abs(item[1] - lag) >= .2), None)
+    if score > .15 or (rival is not None and rival[0] <= score + .025):
+        return Match(None, 0, "精校正时间差不明确，保持已确认偏移")
+    # The sample timestamps refine the grid centre without inventing sub-frame time.
+    precise = median(right.time - left.time for left, right, distance in pairs if distance <= .20)
+    confidence = min(1.0, len(pairs) / 60) * max(0, 1 - score)
+    return Match(precise, confidence, "已精校正共同比赛画面", refined=True)
 
 
 class AudioRing:
@@ -124,6 +228,19 @@ class AudioRing:
             self.data[start:start + first] = pcm[:first]
             self.data[:len(pcm) - first] = pcm[first:]
             self.end = new_end
+
+    def append_at(self, start: int, pcm: bytes) -> None:
+        """Place native PCM by PTS, keeping gaps silent and trimming overlaps."""
+        with self.lock:
+            if start > self.end:
+                gap = start - self.end
+                if gap >= self.capacity:
+                    self.data[:] = bytes(len(self.data))
+                    self.end = start
+                else:
+                    self.append(bytes(gap * 4))
+            overlap = max(0, self.end - start)
+            self.append(pcm[min(len(pcm), overlap * 4):])
 
     def read(self, start: int, frames: int) -> bytes:
         output = bytearray(frames * 4)
@@ -233,10 +350,14 @@ class Alignment:
             self.candidates.pop(room_id, None)
             return False
         previous, count = self.candidates.get(room_id, (match.lag, 0))
-        count = count + 1 if abs(previous - match.lag) <= 0.6 else 1
+        count = count + 1 if abs(previous - match.lag) <= (.15 if match.refined else .6) else 1
         self.candidates[room_id] = (match.lag, count)
         if count >= 2:
-            self.lags[room_id] = match.lag
+            current = self.lags.get(room_id)
+            if match.refined and current is not None and abs(match.lag - current) <= .2:
+                self.lags[room_id] = current + (match.lag - current) * .5
+            else:
+                self.lags[room_id] = match.lag
             return True
         return False
 
