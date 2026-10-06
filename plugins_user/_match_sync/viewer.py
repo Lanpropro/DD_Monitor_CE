@@ -53,6 +53,8 @@ class Canvas(QFrame):
         self.zoom_crop = False
         self.frame_key = None
         self.frame = None
+        self.presented = 0
+        self.repeated = 0
         self.selecting = selecting
         self.crop = QRectF(0, 0, 1, 1)
         self.anchor = None
@@ -62,11 +64,22 @@ class Canvas(QFrame):
     def set_frame(self, item):
         key = item[0] if item is not None else None
         if key == self.frame_key and (item is not None or self.image.isNull()):
+            self.repeated += 1
             return
+        if item is not None:
+            self.presented += 1
         self.frame_key = key
         self.frame = item
-        self.image = QImage.fromData(item[1]) if item is not None else QImage()
+        self.image = (item[1] if isinstance(item[1], QImage) else QImage.fromData(item[1])) if item is not None else QImage()
         self.update()
+
+    def show_at(self, decoder, timestamp):
+        frame = decoder.history.frame_at(timestamp)
+        if frame is not None:
+            ready = decoder.picture_at(timestamp) if hasattr(decoder, "picture_at") else frame
+            if ready is not None:
+                self.set_frame(ready)
+        return frame
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -301,9 +314,7 @@ class ComparisonPanel(QFrame):
             canvas.crop = QRectF(*row.crop)
             canvas.zoom_crop = self.zoom.isChecked()
             if not row.paused:
-                frame = row.decoder.history.frame_at(clock + shifts[room_id]) if row.decoder else None
-                if frame is not None:
-                    canvas.set_frame(frame)
+                frame = canvas.show_at(row.decoder, clock + shifts[room_id]) if row.decoder else None
                 canvas.waiting = frame is None or self.viewer.sync_waiting
             canvas.update()
             relative = shifts[room_id] - shifts.get(reference, 0)
@@ -949,14 +960,15 @@ class Viewer(QDialog):
         self._main_changed()
 
     def _show_buffering(self, active):
-        self.canvas.waiting = bool(active)
-        self.canvas.update()
+        if self.canvas.waiting != bool(active):
+            self.canvas.waiting = bool(active)
+            self.canvas.update()
         if getattr(self.picture, "_buffering", False) != bool(active):
             self.picture.set_buffering(bool(active))
 
     def sync_picture(self, *_args):
         row = self.rows.get(self.main.currentData())
-        interval = 1000 // getattr(row.decoder, "fps", 30) if row is not None else 33
+        interval = max(4, int(1000 / getattr(row.decoder, "fps", 30))) if row is not None else 33
         if self.render_timer.interval() != interval:
             self.render_timer.setInterval(interval)
         tile = self.picture
@@ -1322,9 +1334,7 @@ class Viewer(QDialog):
             self.comparison_panel.render(clock, shifts)
         row = self.rows.get(self.alignment.reference)
         if row is not None and row.decoder is not None and not row.paused:
-            frame = row.decoder.history.frame_at(clock + shifts[row.room_id])
-            if frame is not None:
-                self.canvas.set_frame(frame)
+            frame = self.canvas.show_at(row.decoder, clock + shifts[row.room_id])
             self._show_buffering(frame is None or self.sync_waiting)
             if self.sync_waiting:
                 self.notice.setText("手动时间已锁定，等待各路播放缓存恢复；相对偏移保持不变")
@@ -1412,6 +1422,7 @@ class Viewer(QDialog):
             row.refresh_status()
 
     def choose_crop(self, row):
+        frozen = None
         if row.room_id == self.alignment.reference:
             frame = self.canvas.frame
         elif self.compare.isChecked() and row.room_id in self.comparison_panel.shown_rooms:
@@ -1419,7 +1430,10 @@ class Viewer(QDialog):
         else:
             frame = (row.decoder.history.frame_at(self.audio.clock() + self.shifts()[row.room_id])
                      if row.decoder is not None else None)
-        if frame is None:
+            if frame is not None and hasattr(row.decoder, "picture_at"):
+                frozen = (row.decoder.history, frame)
+                frame = row.decoder.picture_at(frame[0], exact=True)
+        if frame is None and frozen is None:
             self.notice.setText("请先开始观看，收到画面后再选择共同比赛区域")
             return
         dialog = QDialog(self)
@@ -1427,10 +1441,26 @@ class Viewer(QDialog):
         dialog.resize(900, 600)
         canvas = Canvas(selecting=True)
         canvas.set_frame(frame)
+        canvas.waiting = frame is None
         canvas.crop = QRectF(*row.crop)
         reset = QPushButton("使用整个画面")
         reset.clicked.connect(lambda: (setattr(canvas, "crop", QRectF(0, 0, 1, 1)), canvas.update()))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        if frame is None:
+            buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+            prepare = QTimer(dialog)
+            prepare.setInterval(16)
+
+            def show_frozen():
+                ready = row.decoder.pictures.get(*frozen, exact=True) if row.decoder is not None else None
+                if ready is not None:
+                    canvas.set_frame(ready)
+                    canvas.waiting = False
+                    buttons.button(QDialogButtonBox.Ok).setEnabled(True)
+                    prepare.stop()
+
+            prepare.timeout.connect(show_frozen)
+            prepare.start()
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout = QVBoxLayout(dialog)

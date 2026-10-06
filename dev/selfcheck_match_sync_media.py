@@ -76,7 +76,7 @@ def media_checks(app):
                 assert not any(b.history.pcm_at(b.history.origin + 0.4, 480))
                 assert any(b.history.pcm_at(b.history.origin + 0.6, 480)), "The shifted feed's audio marker must shift by the same two seconds"
                 assert abs((sa[-1].time - sa[0].time) - 6.5) < 0.01
-                print(f"PASS: two actual JPEG/PCM pipelines; expected lag {expected:.3f}s, matched {match.lag:.3f}s")
+                print(f"PASS: two actual original-video/PCM pipelines; expected lag {expected:.3f}s, matched {match.lag:.3f}s")
             finally:
                 processes = (a.process, b.process)
                 a.stop()

@@ -5,7 +5,7 @@ import zipfile
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCE = REPO / "plugins_user" / "_match_sync"
-FILES = ("plugin.json", "plugin.py", "engine.py", "media.py", "viewer.py", "README.md")
+FILES = ("plugin.json", "plugin.py", "engine.py", "media.py", "video.py", "viewer.py", "README.md")
 
 
 def build(destination=None):

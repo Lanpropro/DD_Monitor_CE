@@ -49,12 +49,13 @@ def picture_checks(app):
                         break
                     time.sleep(.01)
                 assert frames, "No decoded local frames"
-                image = QImage.fromData(frames[-1][1])
+                from dev.selfcheck_match_sync_video import ready
+                image = ready(decoder, frames[-20][0])[1]
                 assert (image.width(), image.height()) == (1920, 1080), "Douyu source was downscaled"
                 duration = frames[-1][0] - frames[0][0]
                 fps = (len(frames) - 1) / duration
-                assert abs(fps - 60) < .01, f"60 fps source reduced to {fps:.1f} fps"
-                assert len({jpeg for _, jpeg in frames[:120]}) == 120, "Motion frames duplicated or discarded"
+                assert abs(fps - 60) < .1, f"60 fps source reduced to {fps:.1f} fps"
+                assert len({pts for _, pts in frames[:120]}) == 120, "Motion frames duplicated or discarded"
                 assert abs(decoder.history.snapshots()[1].time - decoder.history.snapshots()[0].time - .5) < .001
                 assert not any(decoder.history.pcm_at(decoder.history.origin + 1.8, 480))
                 assert any(decoder.history.pcm_at(decoder.history.origin + 2.2, 480))

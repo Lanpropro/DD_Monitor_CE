@@ -13,7 +13,8 @@ from PySide6.QtGui import QImage
 
 from ddm import bili, danmaku, recording
 from ddm.auto_quality import AUTO_QUALITY
-from .engine import FPS, History, Sample, SIGNATURE_BITS
+from .engine import FPS, Sample, SIGNATURE_BITS
+from .video import av, VideoHistory, PictureReader, StreamInput
 
 FRAME_TIMEOUT = 8.0
 
@@ -26,7 +27,7 @@ class Events(QObject):
 
 
 def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
-    image = QImage.fromData(jpeg)
+    image = jpeg if isinstance(jpeg, QImage) else QImage.fromData(jpeg)
     if image.isNull():
         return 0, 0
     x, y, width, height = crop
@@ -51,10 +52,6 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
 
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,
                    *, hls_retry=False, platform_kind="") -> list[str]:
-    douyu = platform_kind == "douyu"
-    fps = 60 if douyu else FPS
-    # Platform quality IDs do not encode Bilibili's resolution tiers.
-    width, height = (1920, 1080) if douyu or quality >= 400 else (1280, 720)
     inputs = recording.input_args(url, headers)
     if url.lower().startswith(("http://", "https://")):
         # Let the outer retry resolve a fresh address instead of looping on a broken CDN.
@@ -63,14 +60,12 @@ def decode_command(executable: str, url: str, headers: dict, port: int, quality:
         if hls_retry:
             inputs = inputs[:-2] + ["-http_persistent", "0", "-http_multiple", "1",
                                    "-seg_max_retry", "3"] + inputs[-2:]
-    return ([executable, "-nostdin", "-readrate", "1", "-threads", "2"]
+    return ([executable, "-nostdin", "-readrate", "1", "-copyts", "-start_at_zero", "-threads", "2"]
             + inputs
-            + ["-map", "0:v:0", "-an", "-vf",
-               f"setpts=PTS-STARTPTS,fps={fps},scale=w='min({width},iw)':h='min({height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-               "-threads", "2", "-c:v", "mjpeg", "-q:v", "3" if douyu else "5",
-               "-pix_fmt", "yuvj420p", "-f", "image2pipe", "-flush_packets", "1", "pipe:1",
+            + ["-map", "0:v:0", "-an", "-c:v", "copy",
+               "-avoid_negative_ts", "disabled", "-f", "nut", "-flush_packets", "1", "pipe:1",
                "-map", "0:a:0", "-vn", "-af",
-               "asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0",
+               "aresample=async=1:first_pts=0",
                "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le",
                "-f", "s16le", f"tcp://127.0.0.1:{port}"])
 
@@ -84,7 +79,9 @@ class Decoder:
         self.source_url = ""
         self.source_headers = {}
         self.events = Events()
-        self.history = History()
+        self.history = VideoHistory()
+        self.pictures = PictureReader()
+        self.video_size = (0, 0)
         self.last_frame_received = 0.0
         self.crop = (0.0, 0.0, 1.0, 1.0)
         self.cancelled = threading.Event()
@@ -107,6 +104,7 @@ class Decoder:
 
     def stop(self) -> None:
         self.cancelled.set()
+        self.pictures.stop()
         with self.lock:
             process = self.process
         if process is not None and process.poll() is None:
@@ -114,6 +112,20 @@ class Decoder:
                 process.terminate()
             except OSError:
                 pass
+
+    def picture_at(self, timestamp, exact=False):
+        frame = self.history.frame_at(timestamp)
+        return self.pictures.get(self.history, frame, exact=exact) if frame is not None and not self.cancelled.is_set() else None
+
+    def diagnostics(self):
+        with self.history.lock:
+            bounds = self.history.bounds()
+            return {"size": self.video_size, "fps": self.fps,
+                    "received_frames": self.history.received_frames,
+                    "packet_bytes": self.history.byte_size,
+                    "buffer_seconds": bounds[1] - bounds[0] if bounds else 0,
+                    "picture_decode_ms": self.pictures.decode_ms,
+                    "rgb_frames": self.pictures.decoded}
 
     def _resolve(self, attempt: int) -> tuple[str, dict]:
         if self.cancelled.is_set():
@@ -162,6 +174,9 @@ class Decoder:
         return url, headers
 
     def _run(self) -> None:
+        if av is None:
+            self.events.state.emit("缺少二路视频解码组件 PyAV；请安装新版完整程序或更新 requirements.txt 中的依赖")
+            return
         executable = recording.ffmpeg_path()
         if not executable:
             self.events.state.emit("找不到 FFmpeg：请使用完整发布包，或将 FFmpeg 放入 PATH")
@@ -174,7 +189,7 @@ class Decoder:
                 if self.cancelled.is_set():
                     return
                 if attempt:
-                    self.history = History()
+                    self.history = VideoHistory()
                     self.events.reset.emit()
                 self._capture(executable, url, headers)
             except bili.Cancelled:
@@ -226,8 +241,17 @@ class Decoder:
                                hls_retry=hls_proxy is not None,
                                platform_kind=self.platform.kind if self.platform is not None else ""),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
-                creationflags=recording._FFMPEG_FLAGS)
+                creationflags=recording._FFMPEG_FLAGS & ~0x00004000)
             recording._adopt_process(process)
+            # Playback retains the host's orphan-process job, at normal priority.
+            kernel = getattr(recording, "_kernel32", None)
+            if kernel is not None:
+                handle = kernel.OpenProcess(recording._PROCESS_SET_INFORMATION, False, process.pid)
+                if handle:
+                    try:
+                        kernel.SetPriorityClass(handle, 0x00000020)
+                    finally:
+                        kernel.CloseHandle(handle)
             with self.lock:
                 self.process = process
             if self.cancelled.is_set():
@@ -235,42 +259,51 @@ class Decoder:
                 return
             watchdog.start()
             audio_thread.start()
-            pending = bytearray()
-            index = 0
-            origin = None
-            while not self.cancelled.is_set():
-                block = process.stdout.read(65536)
-                if not block:
-                    break
-                pending.extend(block)
-                while True:
-                    start = pending.find(b"\xff\xd8")
-                    end = pending.find(b"\xff\xd9", max(0, start + 2))
-                    if start < 0 or end < 0:
+            next_sample = 0.0
+            with av.open(StreamInput(process.stdout), "r", format="nut") as container:
+                stream = container.streams.video[0]
+                stream.codec_context.thread_count = 2
+                stream.codec_context.thread_type = "SLICE"
+                self.history.codec = (stream.codec_context.name, stream.codec_context.extradata)
+                rate = stream.average_rate or stream.base_rate or stream.codec_context.framerate
+                if rate:
+                    self.fps = float(rate)
+                for packet in container.demux(stream):
+                    if self.cancelled.is_set():
                         break
-                    jpeg = bytes(pending[start:end + 2])
-                    del pending[:end + 2]
-                    if origin is None:
-                        origin = time.monotonic()
-                        self.events.state.emit("取流已连接")
-                    timestamp = origin + index / self.fps
-                    sample = None
-                    if index % (self.fps // 2) == 0:
-                        with self.lock:
-                            crop = self.crop
-                        signature, texture = fingerprint(jpeg, crop)
-                        sample = Sample(timestamp, signature, texture)
-                    self.history.append(timestamp, jpeg, sample)
-                    last_frame[0] = time.monotonic()
-                    self.last_frame_received = last_frame[0]
-                    index += 1
-                if len(pending) > 4 * 1024 * 1024:
-                    raise ValueError("Invalid JPEG stream")
+                    if packet.size:
+                        if self.history.origin is None:
+                            pts = float((packet.pts or 0) * packet.time_base)
+                            self.history.origin = time.monotonic() - pts
+                            self.events.state.emit("取流已连接")
+                        self.history.append_packet(packet)
+                    for frame in packet.decode():
+                        pts = float(frame.pts * frame.time_base)
+                        timestamp = self.history.origin + pts
+                        self.video_size = (frame.width, frame.height)
+                        sample = None
+                        if pts + .0001 >= next_sample:
+                            next_sample = pts + .5
+                            with self.lock:
+                                crop = self.crop
+                            gray = frame.reformat(width=min(640, frame.width), height=min(360, frame.height), format="gray")
+                            plane = gray.planes[0]
+                            image = QImage(bytes(plane), gray.width, gray.height, plane.line_size, QImage.Format_Grayscale8)
+                            signature, texture = fingerprint(image, crop)
+                            sample = Sample(timestamp, signature, texture)
+                        self.history.append(timestamp, pts, sample)
+                        last_frame[0] = time.monotonic()
+                        self.last_frame_received = last_frame[0]
             if not self.cancelled.is_set():
                 refresh = getattr(hls_proxy, "refresh_required", None)
                 self.events.state.emit("播放地址已失效，正在重新取流" if refresh is not None and refresh.is_set()
                                        else "画面接收超时，正在重新取流" if timed_out.is_set()
                                        else "直播流已结束或中断，正在重连")
+        except Exception:
+            if timed_out.is_set() and not self.cancelled.is_set():
+                self.events.state.emit("画面接收超时，正在重新取流")
+            elif not self.cancelled.is_set():
+                raise
         finally:
             finished.set()
             if watchdog.is_alive():

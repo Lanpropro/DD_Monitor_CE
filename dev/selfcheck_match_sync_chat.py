@@ -56,6 +56,10 @@ def main():
                         viewer.match_timer.stop()
                     for stamp in range(90, 101):
                         viewer.rows[room_id].decoder.history.append(stamp, image)
+                    # Chat permutations use already-highest feeds; quality reloads
+                    # are covered separately and would replace this synthetic history.
+                    viewer.rows[room_id].quality = 10000
+                    viewer.rows[room_id].decoder.seed.update(quality=10000, highest_quality=True)
                     joined.append(room_id)
                     check_sources(viewer, joined)
                 viewer.render_timer.stop()
