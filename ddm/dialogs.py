@@ -818,7 +818,7 @@ class AddRoomDialog(QDialog):
 
         layout.addWidget(QLabel("房间号或直播间链接"))
         self.edit = QLineEdit()
-        self.edit.setPlaceholderText("例如 1001 或 https://live.bilibili.com/1001")
+        self.edit.setPlaceholderText("输入房间号或链接")
         self.edit.returnPressed.connect(self.accept)
         layout.addWidget(self.edit)
 
@@ -840,8 +840,9 @@ class AddRoomDialog(QDialog):
         folder_row.addWidget(self.folder_button, 1)
         layout.addLayout(folder_row)
 
-        self.hint = QLabel("支持直接粘贴直播间地址")
+        self.hint = QLabel("支持 B 站房间号")
         self.hint.setObjectName("AppSubtitle")
+        self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
         layout.addStretch(1)
 

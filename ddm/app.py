@@ -2303,13 +2303,10 @@ class MainWindow(QMainWindow):
     def open_add_room(self) -> None:
         dialog = AddRoomDialog(self, room_id_resolver=self._normalize_room_input,
                                folders=self.sidebar.folder_state())
-        labels = "、".join(p.label or p.kind for p in self.plugins.platforms.values()
-                          if p.label)
-        if labels:
-            dialog.hint.setText(f"支持 B 站房间号，以及 {labels} 官方直播间链接")
-            if "douyin" in self.plugins.platforms:
-                dialog.hint.setText(dialog.hint.text() + "；抖音也支持主播个人主页链接")
-                dialog.hint.setWordWrap(True)
+        hints = [hint for p in self.plugins.platforms.values()
+                 if (hint := getattr(p, "room_input_hint", ""))]
+        if hints:
+            dialog.hint.setText("支持 B 站房间号；" + "；".join(hints))
         if dialog.exec() != AddRoomDialog.Accepted:
             return
         self._add_room_id(dialog.room_id, folder_id=dialog.folder_id)

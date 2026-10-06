@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
@@ -53,6 +54,10 @@ def main():
             assert '直播记录' in str(error) and '重试' in str(error)
         else:
             raise AssertionError('Ordinary user became a room')
+    with patch.object(provider, '_share_room', side_effect=AssertionError('Should use homepage room')):
+        assert provider.profile_room('101', lambda: False, web_rid='456') == 'douyin:456'
+        assert provider._anchor_uids['douyin:456'] == '101'
+        assert provider.profile_room('101', lambda: True, web_rid='456') == ''
 
     mode = ['fetch']
     class Handler(BaseHTTPRequestHandler):
@@ -61,6 +66,8 @@ def main():
         def do_GET(self):
             user = {'uid': '101', 'sec_uid': SEC, 'nickname': 'Fixture', 'unneeded': 'do-not-export'}
             if urlsplit(self.path).path.endswith('/other/'):
+                if mode[0] == 'failed':
+                    user['sec_uid'] = 'another-user'
                 content = json.dumps({'status_code': 0, 'user': user}).encode()
                 content_type = 'application/json'
             else:
@@ -69,9 +76,30 @@ def main():
                     content = f'<script>fetch("{endpoint}")</script>'.encode()
                 elif mode[0] == 'xhr':
                     content = f'<script>let x=new XMLHttpRequest();x.open("GET","{endpoint}");x.send()</script>'.encode()
-                else:
+                elif mode[0] in ('ssr', 'camel_ssr'):
+                    if mode[0] == 'camel_ssr':
+                        user['secUid'] = user.pop('sec_uid')
                     content = ('<script id="RENDER_DATA" type="application/json">' +
                                json.dumps({'user': user}) + '</script>').encode()
+                elif mode[0] in ('react', 'direct', 'wrong_owner'):
+                    user['secUid'] = user.pop('sec_uid')
+                    if mode[0] in ('direct', 'wrong_owner'):
+                        user['roomData'] = json.dumps({'owner': {'idStr': '101' if mode[0] == 'direct' else '202',
+                                                               'webRid': '123'}})
+                    content = ('<div data-e2e="user-info"></div><script>' +
+                        'document.querySelector("div")["__reactProps$fixture"] = {userInfo:' +
+                        json.dumps(user) + '};</script>').encode()
+                else:
+                    content = ('''<script>window.webpackChunkdouyin_web = [];
+                        const common = function() { /* CHANNEL_PC_WEB:function COMMON_SEARCH_PARAMS:function */ };
+                        const client = function() { /* skipCheckCode securitySdkInitWeb withCredentials */ };
+                        const modules = {common: {COMMON_SEARCH_PARAMS: {aid: 6383}}, client: {U2: async (path, params) => {
+                            if (params.sec_user_id !== TARGET) throw new Error('Wrong target');
+                            return await (await fetch(path + '?' + new URLSearchParams(params))).json();
+                        }}};
+                        const require = key => modules[key]; require.m = {common, client};
+                        window.webpackChunkdouyin_web.push = data => data[2](require);</script>'''
+                        .replace('TARGET', json.dumps(SEC))).encode()
                 content_type = 'text/html'
             self.send_response(200)
             self.send_header('Content-Type', content_type)
@@ -83,7 +111,7 @@ def main():
         owner = QWidget()
         owner._platform_login_sessions, owner._closing = {}, False
         try:
-            for reading in ('fetch', 'xhr', 'ssr'):
+            for reading in ('fetch', 'xhr', 'ssr', 'camel_ssr', 'react', 'signed', 'direct', 'wrong_owner'):
                 mode[0] = reading
                 with patch.object(QWebEngineView, 'load'), patch.object(provider, 'profile_room', return_value='douyin:123') as resolve:
                     dialog = ProfileRoomDialog(provider, SEC, owner)
@@ -95,8 +123,40 @@ def main():
                     wait_for(app, lambda: bool(dialog.room_id) and dialog._worker is None)
                 assert dialog.room_id == 'douyin:123' and dialog.result() == QDialog.Accepted
                 assert resolve.call_args.args[0] == '101'
+                assert resolve.call_args.kwargs['web_rid'] == ('123' if reading == 'direct' else '')
+                # 浏览器返回必要身份字段，不能携带完整官网资料。
+                exported = []
+                dialog.browser.page().runJavaScript('JSON.stringify(window.__ddmDouyinProfile.peek())', exported.append)
+                wait_for(app, lambda: bool(exported))
+                assert set(json.loads(exported[0])) == {'uid', 'sec_uid', 'web_rid'}
                 assert owner._platform_login_sessions == {}
                 dispose(app, dialog)
+            # 官网主动请求失败时停止等待；重试必须重新加载页面，并能读取新渲染的资料。
+            mode[0] = 'failed'
+            with patch.object(QWebEngineView, 'load'):
+                dialog = ProfileRoomDialog(provider, SEC, owner)
+            dialog._profile_url = f'http://127.0.0.1:{server.server_port}/user/' + SEC
+            dialog.browser.load(QUrl(dialog._profile_url))
+            with patch.object(provider, 'profile_room', return_value='douyin:123') as resolve:
+                wait_for(app, lambda: '官网未返回' in dialog.status.text())
+                assert not dialog.poll.isActive() and dialog.read_button.isEnabled()
+                resolve.assert_not_called()
+                mode[0] = 'react'
+                dialog._read()
+                wait_for(app, lambda: bool(dialog.room_id) and dialog._worker is None)
+                assert dialog.room_id == 'douyin:123'
+            dispose(app, dialog)
+            # 页面回调未返回也必须超时；网络加载失败保持重试可用。
+            with patch.object(QWebEngineView, 'load'):
+                dialog = ProfileRoomDialog(provider, SEC, owner)
+            dialog._pending_script = True
+            dialog._deadline = time.monotonic() - 1
+            dialog._poll()
+            assert not dialog.poll.isActive() and '尚未加载' in dialog.status.text()
+            dialog._page_loaded(False)
+            assert '加载失败' in dialog.status.text() and dialog.read_button.isEnabled()
+            dialog.reject()
+            dispose(app, dialog)
             with patch.object(QWebEngineView, 'load'):
                 dialog = ProfileRoomDialog(provider, SEC, owner)
             dialog.show()
@@ -110,7 +170,7 @@ def main():
             dispose(app, dialog)
             # 查询已开始时关闭窗口会取消工作，迟到成功不能添加主播。
             entered = threading.Event()
-            def pending(_uid, cancelled):
+            def pending(_uid, cancelled, **_kwargs):
                 entered.set()
                 while not cancelled():
                     threading.Event().wait(.01)
@@ -156,7 +216,7 @@ def main():
     assert restored.plugins.platforms['douyin']._anchor_uids['douyin:123'] == '101'
     restored.close()
     app.processEvents()
-    print('PASS: profile input; offline fixed room; fetch/XHR/SSR browser identity; scoped results; account preservation; cancel; add dialog')
+    print('PASS: profile input; offline room; fetch/XHR/SSR/React; active official client; direct room; wrong owner; failure/reload; account preservation; cancel; add dialog')
 
 
 if __name__ == '__main__':

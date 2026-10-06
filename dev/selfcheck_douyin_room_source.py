@@ -1,8 +1,10 @@
 """关注身份恢复后，直播验证页不再阻断元数据、取流；内场 ID 每次更新。"""
 import json
+import asyncio
+from copy import deepcopy
 from pathlib import Path
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import requests
@@ -68,6 +70,43 @@ def main():
         else:
             raise AssertionError('Different anchor room accepted')
         assert all('/live.douyin.com/123' not in call.args[0] for call in get.call_args_list)
+    # 主页已提供固定房间号而历史记录为空时，同步取流和异步弹幕均可回退到官方直播页。
+    page_info = {'room': {'id_str': '903', 'status': 2, 'owner': {'id_str': '101'}}}
+    with patch.object(provider, '_share_room', return_value={}), patch.object(module.requests, 'get',
+            return_value=response('fixture-page')) as get, patch.object(provider, '_page_info',
+            side_effect=lambda _page: deepcopy(page_info)):
+        assert provider.room_data('douyin:123')['room']['id_str'] == '903'
+        assert get.call_args.args[0] == 'https://live.douyin.com/123'
+        page_info['room']['owner']['id_str'] = '202'
+        try:
+            provider.room_data('douyin:123')
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Different fallback anchor accepted')
+    async def fallback():
+        recorded = []
+        def get(url, **kwargs):
+            recorded.append(url)
+            item = Mock(cookies={})
+            item.json = AsyncMock(return_value={'status_code': 0, 'data': {}})
+            item.text = AsyncMock(return_value='fixture-page')
+            context = AsyncMock()
+            context.__aenter__.return_value = item
+            return context
+        session = Mock(get=get)
+        with patch.object(provider, '_page_info', side_effect=lambda _page: deepcopy(page_info)):
+            page_info['room']['owner']['id_str'] = '101'
+            assert (await provider.room_data_async(session, 'douyin:123'))['room']['id_str'] == '903'
+            assert recorded == ['https://live.douyin.com/webcast/room/info_by_user/', 'https://live.douyin.com/123']
+            page_info['room']['owner']['id_str'] = '202'
+            try:
+                await provider.room_data_async(session, 'douyin:123')
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('Different async fallback anchor accepted')
+    asyncio.run(fallback())
     print('PASS: restored identity bypasses captcha; current internal ID; visitor cookie; normal HLS entry; offline/mismatch; no credential/media persistence')
 
 

@@ -9,57 +9,13 @@ from PySide6.QtCore import QThread, QTimer, QUrl, Signal
 from .platform_login import PlatformFollowDialog
 
 
-PROFILE_SCRIPT = r"""(() => {
-    const target = %s;
-    const remember = user => {
-        if (user && user.sec_uid === target && /^[1-9][0-9]{0,19}$/.test(String(user.uid)))
-            window.__ddmProfileIdentity = {uid: String(user.uid), sec_uid: target};
-    };
-    const wanted = url => {
-        try {
-            const u = new URL(url, location.href);
-            return u.origin === location.origin && u.pathname === '/aweme/v1/web/user/profile/other/'
-                && u.searchParams.get('sec_user_id') === target;
-        } catch (_) { return false; }
-    };
-    const capture = data => { if (data?.status_code === 0) remember(data.user); };
-    const open = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url, ...args) {
-        if (wanted(url)) this.addEventListener('load', () => {
-            try { capture(this.responseType === 'json' ? this.response : JSON.parse(this.responseText)); }
-            catch (_) {}
-        }, {once: true});
-        return open.call(this, method, url, ...args);
-    };
-    const fetch = window.fetch;
-    window.fetch = function(input, ...args) {
-        const result = fetch.call(this, input, ...args);
-        if (wanted(typeof input === 'string' ? input : input?.url))
-            result.then(r => r.clone().json()).then(capture).catch(() => {});
-        return result;
-    };
-    // 官网可能直接在首屏 JSON 中提供身份，无需额外发起接口请求。
-    const visit = (data, depth = 0) => {
-        if (!data || typeof data !== 'object' || depth > 20) return;
-        remember(data);
-        Object.values(data).forEach(value => visit(value, depth + 1));
-    };
-    window.addEventListener('DOMContentLoaded', () => {
-        for (const script of document.querySelectorAll('script[type="application/json"], script#RENDER_DATA')) {
-            try { visit(JSON.parse(script.textContent)); }
-            catch (_) { try { visit(JSON.parse(decodeURIComponent(script.textContent))); } catch (_) {} }
-        }
-    }, {once: true});
-})();"""
-
-
 class ProfileRoomLoader(QThread):
     loaded = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, platform, uid, parent):
+    def __init__(self, platform, user, parent):
         super().__init__(parent)
-        self.platform, self.uid = platform, uid
+        self.platform, self.user = platform, user
         self.cancelled = threading.Event()
 
     def cancel(self):
@@ -67,7 +23,8 @@ class ProfileRoomLoader(QThread):
 
     def run(self):
         try:
-            rid = self.platform.profile_room(self.uid, self.cancelled.is_set)
+            rid = self.platform.profile_room(self.user['uid'], self.cancelled.is_set,
+                                             web_rid=self.user.get('web_rid', ''))
             if rid and not self.cancelled.is_set():
                 self.loaded.emit(rid)
         except Exception as error:  # noqa: BLE001
@@ -92,21 +49,40 @@ class ProfileRoomDialog(PlatformFollowDialog):
         script.setName('ddm-profile-identity')
         script.setInjectionPoint(QWebEngineScript.DocumentCreation)
         script.setWorldId(QWebEngineScript.MainWorld)
-        script.setSourceCode(PROFILE_SCRIPT % json.dumps(sec_uid))
+        script.setSourceCode('(%s)(%s);' % (platform.profile_browser_init_script, json.dumps(sec_uid)))
         self.browser.page().scripts().insert(script)
         self.poll = QTimer(self)
         self.poll.setInterval(500)
         self.poll.timeout.connect(self._poll)
         self._pending_script = False
-        self._deadline = time.monotonic() + 60
+        self._script_generation = 0
+        self._deadline = time.monotonic() + 30
+        self.browser.loadFinished.connect(self._page_loaded)
         self.poll.start()
         self.browser.load(QUrl(self._profile_url))
 
     def _read(self):
+        if self._worker is not None:
+            return
         self._read_cancelled = False
-        self._deadline = time.monotonic() + 60
-        self.status.setText('正在读取主播身份与最近直播记录…')
+        self._script_generation += 1
+        self._pending_script = False
+        self._deadline = time.monotonic() + 30
+        self.status.setText('正在重新加载主播主页并读取直播间…')
         self.poll.start()
+        self.browser.load(QUrl(self._profile_url))
+
+    def _page_loaded(self, ok):
+        if self._finished_dialog or self._pending_done is not None or self._worker is not None:
+            return
+        if not ok:
+            self.poll.stop()
+            self.status.setText('主播主页加载失败，请检查网络后点击「重试读取」')
+            return
+        if self.browser.url().toString().split('?', 1)[0].rstrip('/') != self._profile_url:
+            return
+        self.browser.page().runJavaScript(
+            'window.__ddmProfileCancelled = false; window.__ddmDouyinProfile?.read();')
         self._poll()
 
     def _poll(self):
@@ -114,14 +90,18 @@ class ProfileRoomDialog(PlatformFollowDialog):
                 or getattr(self._owner, '_closing', False)):
             self.poll.stop()
             return
-        if self._worker is not None or self._pending_script:
+        if self._worker is not None:
             return
         if time.monotonic() >= self._deadline:
             self.poll.stop()
             self.status.setText('主页资料尚未加载，请完成官网验证或登录后点击「重试读取」')
             return
+        if self._pending_script:
+            return
         self._pending_script = True
-        self.browser.page().runJavaScript('JSON.stringify(window.__ddmProfileIdentity)', self._identity)
+        generation = self._script_generation
+        self.browser.page().runJavaScript('JSON.stringify(window.__ddmDouyinProfile?.peek())',
+            lambda value: self._identity(value) if generation == self._script_generation else None)
 
     def _identity(self, value):
         self._pending_script = False
@@ -134,13 +114,17 @@ class ProfileRoomDialog(PlatformFollowDialog):
             user = json.loads(value) if isinstance(value, str) else value
         except ValueError:
             return
+        if isinstance(user, dict) and user.get('error'):
+            self.poll.stop()
+            self.status.setText('官网未返回主播资料，请完成页面验证或登录后点击「重试读取」')
+            return
         if (not isinstance(user, dict) or user.get('sec_uid') != self.sec_uid
                 or not re.fullmatch(r'[1-9][0-9]{0,19}', str(user.get('uid', '')))):
             return
         self.poll.stop()
         self.status.setText('已确认主播身份，正在查询最近直播记录…')
         self.read_button.setEnabled(False)
-        worker = ProfileRoomLoader(self.platform, user['uid'], self)
+        worker = ProfileRoomLoader(self.platform, user, self)
         self._worker = worker
         worker.loaded.connect(self._resolved)
         worker.failed.connect(self._failed)
@@ -159,4 +143,6 @@ class ProfileRoomDialog(PlatformFollowDialog):
 
     def done(self, result):
         self.poll.stop()
+        self._script_generation += 1
+        self.browser.page().runJavaScript('window.__ddmProfileCancelled = true')
         super().done(result)

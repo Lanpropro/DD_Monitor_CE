@@ -148,6 +148,7 @@ class Platform:
 
     kind = ""
     label = ""
+    room_input_hint = ""  # 可选：添加直播间窗口显示的输入支持说明，由插件提供。
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""
