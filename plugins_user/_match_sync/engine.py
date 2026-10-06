@@ -31,12 +31,16 @@ class Match:
 
 def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
     """Positive lag means the other feed receives the same scene later."""
-    if len(reference) < 10 or len(other) < 10:
+    if len(reference) < 8 or len(other) < 8:
         return Match(None, 0, "正在收集比赛画面")
-    dynamic = 0
+    dynamics = []
     for samples in (reference, other):
+        dynamic = 0
         for sample in samples[1:]:
             dynamic |= sample.signature ^ samples[0].signature
+        dynamics.append(dynamic)
+    # Ignore moving overlays whose positions never change in the other feed.
+    dynamic = dynamics[0] & dynamics[1]
     bits = dynamic.bit_count()
     if bits < 16:
         return Match(None, 0, "框选区域变化不足；可扩大比赛区域或对照微调")
@@ -51,16 +55,35 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
             if distance <= 0.20:
                 lag = b.time - a.time
                 if abs(lag) <= HISTORY_SECONDS - 5:
-                    groups[round(lag * 2)].append((a, b, distance, lag))
+                    key = round(lag * 2)
+                    # Overlapping buckets keep jitter at a half-second edge together.
+                    for nearby in (key - 1, key, key + 1):
+                        groups[nearby].append((a, b, distance, lag))
     ranked = []
     for key, pairs in groups.items():
+        lag = median(p[3] for p in pairs)
+        end = min(reference[-1].time, other[-1].time - lag)
+        pairs = [p for p in pairs if abs(p[3] - lag) <= .35 and p[0].time >= end - 8]
+        if not pairs:
+            continue
+        # Each frame contributes once; require an ordered sequence, not isolated hits.
+        used_a, used_b = set(), set()
+        sequence = []
+        for pair in sorted(pairs, key=lambda p: p[2]):
+            if pair[0].time not in used_a and pair[1].time not in used_b:
+                used_a.add(pair[0].time)
+                used_b.add(pair[1].time)
+                sequence.append(pair)
+        pairs = sorted(sequence, key=lambda p: p[0].time)
+        if any(b[1].time <= a[1].time for a, b in zip(pairs, pairs[1:])):
+            continue
         # A static screen or repeated near-identical frames cannot establish time.
         unique_a = {pair[0].signature for pair in pairs}
         unique_b = {pair[1].signature for pair in pairs}
         support = min(len(unique_a), len(unique_b))
         recent = min(reference[-1].time - max(p[0].time for p in pairs),
                      other[-1].time - max(p[1].time for p in pairs))
-        if support < 6 or recent > 3:
+        if support < 6 or recent > 1.5 or pairs[-1][0].time - pairs[0][0].time < 2.5:
             continue
         distance = sum(p[2] for p in pairs) / len(pairs)
         # Reward precise matches much more than a large number of vaguely
@@ -70,11 +93,12 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
         return Match(None, 0, "未找到共同的动态比赛画面；可扩大匹配区域或对照微调")
     ranked.sort(reverse=True, key=lambda item: item[0])
     score, key, support, distance, pairs = ranked[0]
-    rival = next((item for item in ranked[1:] if abs(item[1] - key) >= 4), None)
+    lag = median(p[3] for p in pairs)
+    rival = next((item for item in ranked[1:] if abs(median(p[3] for p in item[4]) - lag) >= .75), None)
     if rival and rival[0] >= score * 0.85:
         return Match(None, 0, "画面存在重复或回放，时间差不明确")
-    confidence = min(1.0, support / 12) * (1 - distance)
-    return Match(median(p[3] for p in pairs), confidence, "已匹配共同比赛画面")
+    confidence = min(1.0, support / 10) * (1 - distance)
+    return Match(lag, confidence, "已匹配共同比赛画面")
 
 
 class AudioRing:
@@ -205,7 +229,7 @@ class Alignment:
     def accept(self, room_id: str, match: Match) -> bool:
         if self.manual_locked:
             return False
-        if match.lag is None or not math.isfinite(match.lag):
+        if match.lag is None or not math.isfinite(match.lag) or match.confidence < .65:
             self.candidates.pop(room_id, None)
             return False
         previous, count = self.candidates.get(room_id, (match.lag, 0))

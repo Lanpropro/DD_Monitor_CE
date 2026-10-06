@@ -1373,6 +1373,8 @@ class Viewer(QDialog):
             applied = self.alignment.accept(room_id, match)
             if match.lag is None:
                 row.match_text = match.reason
+            elif match.confidence < .65:
+                row.match_text = "匹配置信度不足；保持已确认偏移，继续收集画面"
             else:
                 row.match_text = (f"{'已对齐' if applied else '正在确认'}：相对主画面 {match.lag:+.1f} 秒，"
                                   f"置信度 {match.confidence:.0%}")
