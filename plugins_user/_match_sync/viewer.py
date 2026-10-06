@@ -674,6 +674,9 @@ class Viewer(QDialog):
         layout.addWidget(split)
         self.audio = AudioPump(self)
         self.audio.status.connect(self.audio_status.setText)
+        self.host_audio_timer = QTimer(self)
+        self.host_audio_timer.setInterval(100)
+        self.host_audio_timer.timeout.connect(self._suppress_host_audio)
         self.render_timer = QTimer(self)
         self.render_timer.setTimerType(Qt.PreciseTimer)
         self.render_timer.setInterval(33)
@@ -717,6 +720,9 @@ class Viewer(QDialog):
         return super().eventFilter(watched, event)
 
     def showEvent(self, event):
+        if self.embedded:
+            self.host_audio_timer.start()
+            self._suppress_host_audio()
         if self.embedded and not self.hidden_host_widgets:
             host = self.context.window
             for widget in (getattr(host, "wall", None), getattr(host, "empty_hint", None)):
@@ -820,6 +826,8 @@ class Viewer(QDialog):
             self.comparison_panel.target.setCurrentIndex(index)
 
     def _restore_host_widgets(self):
+        self.host_audio_timer.stop()
+        self._release_host_audio()
         sidebar = getattr(self.context.window, "sidebar", None)
         if sidebar is not None and self.sidebar_style is not None:
             sidebar.setStyleSheet(self.sidebar_style)
@@ -1281,7 +1289,8 @@ class Viewer(QDialog):
     def render(self):
         if not self.running:
             return
-        self._suppress_host_audio()
+        if not self.embedded:
+            self._suppress_host_audio()
         self._sync_sidebar_marks()
         self.sync_picture()
         clock = self.audio.clock()
@@ -1421,7 +1430,8 @@ class Viewer(QDialog):
     def _suppress_host_audio(self):
         players = getattr(self.context.window, "players", {})
         current = {}
-        if self.audio.sink is not None:
+        active = self.host_audio_timer.isActive() if self.embedded else self.audio.sink is not None
+        if active:
             for tile, player in list(players.items()):
                 if (self.embedded or str((tile.room or {}).get("room_id") or "") in self.rows) and not player._released:
                     player.set_muted(True)
@@ -1435,6 +1445,12 @@ class Viewer(QDialog):
         players = getattr(self.context.window, "players", {})
         owner = next((tile for tile, value in players.items() if value is player), old_tile)
         player.set_muted(bool(owner.muted))
+
+    def _release_host_audio(self):
+        for player, tile in self.suppressed.items():
+            if not player._released:
+                self._restore_host_audio(player, tile)
+        self.suppressed.clear()
 
     @staticmethod
     def _stop_row(row):
@@ -1472,10 +1488,8 @@ class Viewer(QDialog):
             seed = self.sources.get(row.room_id) or {}
             if str(seed.get("url") or "").startswith(("http://", "https://")):
                 self.sources.pop(row.room_id, None)
-        for player, tile in self.suppressed.items():
-            if not player._released:
-                self._restore_host_audio(player, tile)
-        self.suppressed.clear()
+        if not self.host_audio_timer.isActive():
+            self._release_host_audio()
         self.panel.set_status("已停止")
         self.overlay_pending.clear()
         self.overlay_last = ""

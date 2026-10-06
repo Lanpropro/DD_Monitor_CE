@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.23"
+        assert manager.catalog()[0]["version"] == "0.1.24"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -389,7 +389,11 @@ def embedded_checks(app):
     host.wall = QWidget(host._content)
     host.wall.show()
     host.settings = {}
-    host.players = {}
+    wall_a, wall_b = FakeTile("42"), FakeTile("99")
+    wall_b.muted = True
+    wall_b.room["muted"] = True
+    host.players = {wall_a: FakePlayer(), wall_b: FakePlayer()}
+    host.players[wall_b].muted = True
     host.sidebar = QWidget()
     host.sidebar.setStyleSheet(theme.qss())
     host.sidebar.tool_row = QWidget(host.sidebar)
@@ -423,6 +427,14 @@ def embedded_checks(app):
         app.processEvents()
         assert viewer.embedded and viewer.parentWidget() is host._content
         assert host.wall.isHidden(), "Native host video must not cover the synced picture"
+        assert not viewer.rows and viewer.audio.sink is None
+        assert all(player.muted for player in host.players.values()), "Empty match mode must mute the original wall immediately"
+        viewer.stop()
+        assert all(player.muted for player in host.players.values()), "Stopping match playback must not restore the hidden wall's audio"
+        host.players[wall_a]._released = True
+        host.players[wall_a] = FakePlayer()
+        QTest.qWait(160)
+        assert host.players[wall_a].muted, "Recreated wall players must remain muted without match playback"
         host.wall.show()
         assert host.wall.isHidden(), "Host refresh must not expose native video during match mode"
         assert not viewer.isWindow() and not viewer.running
@@ -564,6 +576,8 @@ def embedded_checks(app):
         assert viewer.isHidden() and not viewer.running and worker.stopped
         assert not panel.isWindow() and not panel.isVisible(), "Closing match mode must leave settings hidden"
         assert not host.wall.isHidden()
+        assert not host.players[wall_a].muted and host.players[wall_b].muted
+        assert not wall_a.muted and wall_b.muted, "Mode mute must not modify saved tile mute settings"
         assert host.sidebar.styleSheet() == original_sidebar_style
         assert not card_a.property("matchSync") and card_b.property("onWall")
         assert not blue.isHidden()
@@ -648,10 +662,13 @@ def embedded_checks(app):
         assert not viewer.canvas.waiting and not viewer.picture._buffering
         assert not card_a.property("matchSync")
         assert all(worker.stopped for worker in workers)
+        assert all(player.muted for player in host.players.values()), "Removing every match room must keep the wall silent"
         assert viewer._add_dragged("huya:42") and viewer.running
         assert viewer.main.currentData() == "huya:42"
         viewer.close()
         assert not plugin.button.isChecked() and not viewer.running
+        assert not viewer.host_audio_timer.isActive() and not viewer.suppressed
+        assert not host.players[wall_a].muted and host.players[wall_b].muted
         plugin.on_unload()
         assert plugin.entry is None
     host.close()
@@ -659,6 +676,7 @@ def embedded_checks(app):
     print("PASS: full-height right chat, evenly distributed video-column controls, minimize/restore, scrolling, automatic start and view restoration")
     print("PASS: rounded transparent corners and uniform room source text without misleading fan medals")
     print("PASS: three platform card drops, canonical IDs, stream headers, shared controls/delays, chat source text and empty-room cleanup")
+    print("PASS: empty/stopped match mode mutes all wall players, including replacements; mode exit restores per-tile mute settings")
 
 
 def main():
