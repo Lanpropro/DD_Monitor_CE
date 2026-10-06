@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
     QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
-from ddm.widgets import DanmakuPanel, ROOM_MIME, Tile
+from ddm.widgets import AUTO_QUALITY, DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
 from ddm import theme
@@ -532,6 +532,7 @@ class Viewer(QDialog):
         self.locked_clock = None
         self.sync_waiting = False
         self.suppressed = {}
+        self.prefer_highest = False
         self.embedded = False
         self.hidden_host_widgets = {}
         self.sidebar_style = None
@@ -920,6 +921,7 @@ class Viewer(QDialog):
         for room_id, row in self.rows.items():
             row.main_button.setChecked(room_id == selected)
         if selected != self.alignment.reference:
+            self.prefer_highest = True
             self.alignment.select_reference(selected)
             self.generation += 1
             self.canvas.frame_key = None
@@ -927,6 +929,18 @@ class Viewer(QDialog):
                 row.match_text = ("手动时间已锁定；勾选自动对齐可解除" if self.alignment.manual_locked else
                                   "主画面基准" if key == selected else "等待重新确认")
                 row.refresh_status()
+            row = self.rows.get(selected)
+            if row is not None:
+                options = row.platform.room_quality_options(selected) if row.platform is not None else []
+                seed = getattr(row.decoder, "seed", None) or {}
+                known_highest = seed.get("quality", 10000) if seed.get("highest_quality") else 10000
+                highest = next((int(item["qn"]) for item in options if int(item["qn"]) != AUTO_QUALITY), known_highest)
+                reload_needed = row.quality != highest or (row.platform is None and not seed.get("highest_quality"))
+                row.quality = highest
+                if reload_needed:
+                    self._reload_picture()
+                elif row.decoder is not None:
+                    row.decoder.seed["highest_quality"] = True
         self.sync_picture()
         self.changed()
 
@@ -1004,6 +1018,7 @@ class Viewer(QDialog):
     def _quality_changed(self, _room, quality):
         row = self.rows.get(self.main.currentData())
         if row is not None:
+            self.prefer_highest = False
             row.quality = quality
             self._reload_picture()
             self.changed()
@@ -1134,6 +1149,7 @@ class Viewer(QDialog):
         if seed.get("quality", row.quality) != row.quality:
             seed.pop("url", None)
         seed["quality"] = row.quality
+        seed["highest_quality"] = self.prefer_highest and row.room_id == self.alignment.reference
         row.decoder = Decoder(row.room_id, seed, row.platform)
         row.decoder.set_crop(row.crop)
         decoder = row.decoder
@@ -1170,14 +1186,17 @@ class Viewer(QDialog):
     def _information(self, row, worker, info):
         if not self._valid(row, worker):
             return
+        if info.get("requested_quality"):
+            row.quality = int(info["requested_quality"])
         if "title" in info:
             row.title = info.get("title") or ""
-        if not row.alias.text().strip():
+        if not row.alias.text().strip() and info.get("uname"):
             row.alias.setText(info.get("uname") or "未命名主播")
             self.update_main_choices()
-        if row.platform is not None and info.get("actual_quality"):
+        if info.get("actual_quality"):
             row.actual_quality = int(info["actual_quality"])
-            if row.platform.kind != "douyu":
+            if (row.platform is not None and row.platform.kind != "douyu"
+                    and not (self.prefer_highest and row.room_id == self.alignment.reference)):
                 row.quality = row.actual_quality
             if row.room_id == self.main.currentData():
                 self.sync_picture()
@@ -1186,6 +1205,9 @@ class Viewer(QDialog):
             self.changed()
         if row.room_id == self.main.currentData():
             self.sync_picture()
+            options = info.get("quality_options")
+            if options and self.picture.quality_options != options:
+                self.picture.set_quality_options(options)
 
     def _state(self, row, worker, text, chat):
         if self._valid(row, worker, chat):

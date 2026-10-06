@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QImage
 
 from ddm import bili, danmaku, recording
+from ddm.auto_quality import AUTO_QUALITY
 from .engine import FPS, History, Sample, SIGNATURE_BITS
 
 FRAME_TIMEOUT = 8.0
@@ -115,6 +116,17 @@ class Decoder:
                 pass
 
     def _resolve(self, attempt: int) -> tuple[str, dict]:
+        if self.cancelled.is_set():
+            raise bili.Cancelled()
+        if self.seed.get("highest_quality"):
+            # The host lists tiers from highest to lowest; IDs are platform-specific.
+            options = (self.platform.room_quality_options(self.room_id) if self.platform is not None
+                       else bili.room_quality_options(self.room_id))
+            if self.cancelled.is_set():
+                raise bili.Cancelled()
+            self.seed["quality"] = next((int(item["qn"]) for item in options if int(item["qn"]) != AUTO_QUALITY), 10000)
+            self.seed.pop("url", None)
+            self.events.information.emit({"requested_quality": self.seed["quality"], "quality_options": options})
         # Douyu signed addresses may allow only one consumer; do not reuse the wall's URL.
         reuse_seed = self.platform is None or self.platform.kind != "douyu"
         if attempt == 0 and self.seed.get("url") and reuse_seed:
@@ -143,8 +155,9 @@ class Decoder:
             raise bili.Cancelled()
         if info:
             self.events.information.emit(info)
-        url, _quality, _profile, headers = bili.play_url(
+        url, quality, _profile, headers = bili.play_url(
             self.room_id, self.seed.get("quality", 250), cancelled=self.cancelled.is_set, source_offset=attempt)
+        self.events.information.emit({"actual_quality": quality})
         self.source_url, self.source_headers = url, headers
         return url, headers
 
