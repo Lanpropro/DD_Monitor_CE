@@ -49,8 +49,11 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
 
 
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,
-                   *, hls_retry=False) -> list[str]:
-    width, height = (1920, 1080) if quality >= 400 else (1280, 720)
+                   *, hls_retry=False, platform_kind="") -> list[str]:
+    douyu = platform_kind == "douyu"
+    fps = 60 if douyu else FPS
+    # Platform quality IDs do not encode Bilibili's resolution tiers.
+    width, height = (1920, 1080) if douyu or quality >= 400 else (1280, 720)
     inputs = recording.input_args(url, headers)
     if url.lower().startswith(("http://", "https://")):
         # Let the outer retry resolve a fresh address instead of looping on a broken CDN.
@@ -62,8 +65,8 @@ def decode_command(executable: str, url: str, headers: dict, port: int, quality:
     return ([executable, "-nostdin", "-readrate", "1", "-threads", "2"]
             + inputs
             + ["-map", "0:v:0", "-an", "-vf",
-               f"setpts=PTS-STARTPTS,fps={FPS},scale=w='min({width},iw)':h='min({height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-               "-threads", "2", "-c:v", "mjpeg", "-q:v", "5",
+               f"setpts=PTS-STARTPTS,fps={fps},scale=w='min({width},iw)':h='min({height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+               "-threads", "2", "-c:v", "mjpeg", "-q:v", "3" if douyu else "5",
                "-pix_fmt", "yuvj420p", "-f", "image2pipe", "-flush_packets", "1", "pipe:1",
                "-map", "0:a:0", "-vn", "-af",
                "asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0",
@@ -76,6 +79,7 @@ class Decoder:
         self.room_id = room_id
         self.seed = seed or {}
         self.platform = platform
+        self.fps = 60 if platform is not None and platform.kind == "douyu" else FPS
         self.source_url = ""
         self.source_headers = {}
         self.events = Events()
@@ -206,7 +210,8 @@ class Decoder:
                 url, headers = hls_proxy.url, {}
             process = subprocess.Popen(
                 decode_command(executable, url, headers, listener.getsockname()[1], self.seed.get("quality", 250),
-                               hls_retry=hls_proxy is not None),
+                               hls_retry=hls_proxy is not None,
+                               platform_kind=self.platform.kind if self.platform is not None else ""),
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
                 creationflags=recording._FFMPEG_FLAGS)
             recording._adopt_process(process)
@@ -235,9 +240,9 @@ class Decoder:
                     if origin is None:
                         origin = time.monotonic()
                         self.events.state.emit("取流已连接")
-                    timestamp = origin + index / FPS
+                    timestamp = origin + index / self.fps
                     sample = None
-                    if index % (FPS // 2) == 0:
+                    if index % (self.fps // 2) == 0:
                         with self.lock:
                             crop = self.crop
                         signature, texture = fingerprint(jpeg, crop)

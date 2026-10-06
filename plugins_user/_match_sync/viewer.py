@@ -674,6 +674,7 @@ class Viewer(QDialog):
         self.audio = AudioPump(self)
         self.audio.status.connect(self.audio_status.setText)
         self.render_timer = QTimer(self)
+        self.render_timer.setTimerType(Qt.PreciseTimer)
         self.render_timer.setInterval(33)
         self.render_timer.timeout.connect(self.render)
         self.match_timer = QTimer(self)
@@ -932,6 +933,9 @@ class Viewer(QDialog):
 
     def sync_picture(self, *_args):
         row = self.rows.get(self.main.currentData())
+        interval = 1000 // getattr(row.decoder, "fps", 30) if row is not None else 33
+        if self.render_timer.interval() != interval:
+            self.render_timer.setInterval(interval)
         tile = self.picture
         if row is None:
             self._stop_recording()
