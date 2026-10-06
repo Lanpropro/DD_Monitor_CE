@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import follow_folders as groups
@@ -55,12 +55,55 @@ def main():
     assert not copies[0].isHidden()
     sidebar.search.clear()
     dialog = SmartFolderDialog(sidebar, sidebar.get_folder(smart))
-    assert dialog.source_combo.currentData() == apex
+    assert dialog.source_checks[apex].isChecked() and not dialog.all_sources.isChecked()
     assert dialog.display_combo.currentData() == 'copy'
     assert dialog.values()['rule'] == sidebar.get_folder(smart)['rule']
     restored = Sidebar(rooms)
     restored.set_folders(sidebar.folder_state())
     assert restored.get_folder(smart)['rule'] == rule | {'display': 'copy'}
+    # 多选菜单保持打开，多个来源按并集筛选，并保留各自原归属。
+    dialog.show()
+    app.processEvents()
+    dialog.source_menu.popup(dialog.source_button.mapToGlobal(QPoint(0, dialog.source_button.height())))
+    app.processEvents()
+    music_check = dialog.source_checks[music]
+    QTest.mouseClick(music_check, Qt.LeftButton, pos=QPoint(8, music_check.height() // 2))
+    assert dialog.source_menu.isVisible(), 'checkbox selection must not close the multi-select menu'
+    assert set(dialog.values()['rule']['sources']) == {apex, music}
+    assert '2' in dialog.source_button.text()
+    dialog.source_menu.hide()
+    multi_rule = dialog.values()['rule']
+    sidebar.get_folder(smart)['rule'] = multi_rule
+    sidebar.resort()
+    assert {card.room['room_id'] for card in sidebar.folder_entries() if isinstance(card, SmartFolderCard)} == {'1', '3'}
+    assert sidebar.folder_for('1') == apex and sidebar.folder_for('3') == music
+    multi_restored = Sidebar(rooms)
+    multi_restored.set_folders(sidebar.folder_state())
+    assert multi_restored.get_folder(smart)['rule'] == multi_rule
+    edited = SmartFolderDialog(multi_restored, multi_restored.get_folder(smart))
+    assert set(edited.values()['rule']['sources']) == {apex, music}
+    multi_folders = groups.normalize_folders(sidebar.folder_state())
+    multi_smart = next(folder for folder in multi_folders if folder['id'] == smart)
+    multi_smart['rule']['display'] = 'move'
+    assert groups.assign_folders(rooms, multi_folders)['1'] == smart
+    assert groups.assign_folders(rooms, multi_folders)['3'] == smart
+    offline_music = [dict(room, live=False) if room['room_id'] == '3' else room for room in rooms]
+    assert groups.assign_folders(offline_music, multi_folders)['3'] == music
+    dialog.all_sources.setChecked(True)
+    assert dialog.values()['rule']['sources'] == [] and not any(check.isChecked() for check in dialog.source_checks.values())
+    dialog.source_checks[apex].setChecked(True)
+    dialog.source_checks[groups.UNCLASSIFIED].setChecked(True)
+    extra_rooms = rooms + [{'room_id': '4', 'uname': '未分类主播', 'live': True}]
+    multi_smart['rule'] = dialog.values()['rule']
+    assert groups.smart_members(extra_rooms, multi_folders, multi_smart) == {'1', '4'}
+    assert groups.smart_members(extra_rooms, multi_folders, multi_smart, pending=['4']) == {'1'}
+    multi_smart['rule']['platforms'] = ['huya']
+    platform_rooms = [dict(room, platform='huya') if room['room_id'] == '4' else room for room in extra_rooms]
+    assert groups.smart_members(platform_rooms, multi_folders, multi_smart) == {'4'}, \
+        'platform and status filters must still apply across all selected sources'
+    dialog.source_checks[apex].setChecked(False)
+    dialog.source_checks[groups.UNCLASSIFIED].setChecked(False)
+    assert dialog.all_sources.isChecked() and dialog.values()['rule']['sources'] == []
     second = sidebar.create_folder('另一份筛选', rule=rule | {'display': 'copy'})
     app.processEvents()
     for card in sidebar._smart_cards.values():
@@ -81,9 +124,15 @@ def main():
         {'id': 'missing', 'name': '来源已删', 'type': 'smart', 'rule': rule | {'sources': ['deleted']}},
         {'id': 'legacy', 'name': '旧规则', 'type': 'smart', 'rule': {'status': 'live'}}])
     assert groups.assign_folders(rooms, folders)['1'] == apex
-    for widget in (dialog, sidebar, restored):
+    missing = SmartFolderDialog(sidebar, {'name': '已删除来源', 'rule': rule | {'sources': [apex, 'deleted']}})
+    assert set(missing.values()['rule']['sources']) == {apex, 'deleted'}
+    missing.source_checks['deleted'].setChecked(False)
+    assert missing.values()['rule']['sources'] == [apex]
+    fresh = SmartFolderDialog(sidebar)
+    assert fresh.all_sources.isChecked() and fresh.values()['rule']['sources'] == []
+    for widget in (dialog, sidebar, restored, multi_restored, edited, missing, fresh):
         widget.close()
-    print('PASS: scoped smart folders, both display modes, return to source, shared actions and persistence')
+    print('PASS: multi-source selection, union matching, source return, both display modes and persistence')
 
 
 if __name__ == '__main__':

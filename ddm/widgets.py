@@ -2518,21 +2518,43 @@ class SmartFolderDialog(QDialog):
             self.sort_combo.addItem(label, mode)
         self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(folder.get("sort", "custom"))))
         form.addRow("文件夹名称", self.name_edit)
-        self.source_combo = QComboBox()
-        self.source_combo.addItem("全部关注", "")
-        for source in sidebar.folders:
-            if source["type"] != "smart":
-                self.source_combo.addItem(source["name"], source["id"])
         sources = rule.get("sources", [follow_folders.UNCLASSIFIED] if folder else [])
-        selected_source = sources[0] if sources else ""
-        if self.source_combo.findData(selected_source) < 0:
-            self.source_combo.addItem("原来源文件夹已删除（请重新选择）", selected_source)
-        self.source_combo.setCurrentIndex(self.source_combo.findData(selected_source))
+        self.source_button = QPushButton()
+        self.source_button.setObjectName("IconButton")
+        self.source_menu = QMenu(self.source_button)
+        source_content = QWidget()
+        source_layout = QVBoxLayout(source_content)
+        source_layout.setContentsMargins(12, 10, 12, 10)
+        self.all_sources = QCheckBox("全部关注")
+        self.all_sources.setChecked(not sources)
+        source_layout.addWidget(self.all_sources)
+        self.source_checks = {}
+        options = [(source["id"], source["name"]) for source in sidebar.folders if source["type"] != "smart"]
+        options.extend((fid, "原来源文件夹已删除（请重新选择）") for fid in sources
+                       if fid not in dict(options))
+        for fid, label in options:
+            check = QCheckBox(label)
+            check.setChecked(fid in sources)
+            check.toggled.connect(self._source_changed)
+            source_layout.addWidget(check)
+            self.source_checks[fid] = check
+        self.all_sources.toggled.connect(self._all_sources_changed)
+        source_scroll = QScrollArea()
+        source_scroll.setFrameShape(QFrame.NoFrame)
+        source_scroll.setWidgetResizable(True)
+        source_scroll.setMinimumWidth(260)
+        source_scroll.setFixedHeight(min(260, source_content.sizeHint().height()))
+        source_scroll.setWidget(source_content)
+        source_action = QWidgetAction(self.source_menu)
+        source_action.setDefaultWidget(source_scroll)
+        self.source_menu.addAction(source_action)
+        self.source_button.setMenu(self.source_menu)
+        self._update_source_label()
         self.display_combo = QComboBox()
         self.display_combo.addItem("匹配时移入显示，不匹配时回到原处", "move")
         self.display_combo.addItem("保留原处，同时在智能文件夹显示", "copy")
         self.display_combo.setCurrentIndex(max(0, self.display_combo.findData(rule.get("display", "move"))))
-        form.addRow("来源文件夹", self.source_combo)
+        form.addRow("来源文件夹（可多选）", self.source_button)
         form.addRow("显示方式", self.display_combo)
         form.addRow("开播状态", self.status_combo)
         form.addRow("卡片排序", self.sort_combo)
@@ -2562,11 +2584,32 @@ class SmartFolderDialog(QDialog):
         buttons.button(QDialogButtonBox.Ok).setEnabled(bool(self.name_edit.text().strip()))
         layout.addWidget(buttons)
 
+    def _source_changed(self, checked):
+        if checked:
+            self.all_sources.setChecked(False)
+        elif not any(check.isChecked() for check in self.source_checks.values()):
+            self.all_sources.setChecked(True)
+        self._update_source_label()
+
+    def _all_sources_changed(self, checked):
+        if checked:
+            for check in self.source_checks.values():
+                check.setChecked(False)
+        elif not any(check.isChecked() for check in self.source_checks.values()):
+            self.all_sources.setChecked(True)
+        self._update_source_label()
+
+    def _update_source_label(self):
+        labels = [check.text() for check in self.source_checks.values() if check.isChecked()]
+        self.source_button.setText("全部关注" if not labels else labels[0] if len(labels) == 1
+                                   else f"已选择 {len(labels)} 个文件夹")
+        self.source_button.setToolTip("、".join(labels) if labels else "从全部关注中筛选")
+
     def values(self):
         return {"name": self.name_edit.text().strip(), "sort": self.sort_combo.currentData(),
                 "rule": {"status": self.status_combo.currentData(),
                          "platforms": [key for key, check in self.platform_checks.items() if check.isChecked()],
-                         "sources": [self.source_combo.currentData()] if self.source_combo.currentData() else [],
+                         "sources": [key for key, check in self.source_checks.items() if check.isChecked()],
                          "display": self.display_combo.currentData()}}
 
 
