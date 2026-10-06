@@ -68,19 +68,39 @@ def main():
         assert window.current_state()["user_notice_accepted"] is True
         window.close()
 
-    # 真正的启动入口：未确认时不构建主窗口、不初始化播放器。
+    # 真正的启动入口：关闭须知也正常构建、显示主窗口，不记录为已确认。
     closing = real_dialog()
     QTimer.singleShot(0, closing.reject)
+    unconfirmed = {}
     with patch.object(app_module, "QApplication", return_value=app), \
             patch.object(app_module, "setup_file_log", return_value=""), \
-            patch.object(config, "load", return_value={}), \
+            patch.object(config, "load", return_value=unconfirmed), \
+            patch.object(config, "save") as save, \
             patch.object(user_notice, "UserNoticeDialog", return_value=closing), \
+            patch("ddm.update_install.clean_previous"), \
+            patch.object(app_module.overlay, "module_paths", return_value=[]), \
+            patch.object(app_module, "QTimer"), \
+            patch.object(app_module.watchdog, "start"), \
+            patch.object(app_module.watchdog, "stop"), \
+            patch.object(app, "exec", return_value=0), \
+            patch.object(app_module.os, "_exit", side_effect=SystemExit(0)), \
             patch.object(app_module, "MainWindow") as window, \
+            patch.object(app_module.TilePlayer, "vlc_version", return_value="test"), \
             patch.object(app_module.TilePlayer, "warm_up_vlc") as warm:
-        assert app_module.main([]) == 0
-        window.assert_not_called()
-        warm.assert_not_called()
-    print("PASS: notice content, confirmation persistence, repeated launch, cancellation and startup gating")
+        window.return_value._update_plan = ""
+        window.return_value._restart_requested = False
+        try:
+            app_module.main([])
+        except SystemExit as result:
+            assert result.code == 0
+        else:
+            raise AssertionError("main must complete its normal event loop and shutdown")
+        window.assert_called_once()
+        window.return_value.showMaximized.assert_called_once()
+        warm.assert_called_once()
+        save.assert_not_called()
+        assert not unconfirmed.get("user_notice_accepted")
+    print("PASS: notice content, confirmation persistence, repeated launch and normal startup after dismissal")
 
 
 if __name__ == "__main__":

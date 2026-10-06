@@ -3019,8 +3019,7 @@ def main(argv: list[str] | None = None) -> int:
 
     state = config_module.load()
     from .user_notice import confirm_user_notice
-    if not confirm_user_notice(state):
-        return 0
+    confirm_user_notice(state)
     from .update_install import clean_previous
     clean_previous(config_module.REPO)
     t_load = time.perf_counter()
