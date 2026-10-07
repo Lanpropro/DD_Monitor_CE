@@ -256,8 +256,9 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
         $releaseNotes = Join-Path $repo "RELEASE-$version.md"
         $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
-        @{ version = $version.TrimStart('v'); asset_name = "$name-exe.zip";
-           url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/download/$version/$name-exe.zip";
+        $remoteExeName = "DDMonitorCE-$version-exe.zip"
+        @{ version = $version.TrimStart('v'); asset_name = $remoteExeName;
+           url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/download/$version/$remoteExeName";
            sha256 = (Get-FileHash -LiteralPath $exeZip -Algorithm SHA256).Hash.ToLower();
            size = (Get-Item -LiteralPath $exeZip).Length; notes = $updateNotes;
            release_url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/$version" } |

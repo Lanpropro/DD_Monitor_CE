@@ -40,6 +40,8 @@ def main():
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'user_notice_accepted = $true' in source
     assert 'Remove-Item -LiteralPath $testConfig -Force' in source
+    assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
+    assert 'asset_name = $remoteExeName' in source
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
     result = subprocess.run(['powershell', '-NoProfile', '-Command',
