@@ -3,8 +3,8 @@ import ctypes
 import sys
 
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, Qt, QVariantAnimation
-from PySide6.QtGui import QColor, QPainter, QPixmap
-from PySide6.QtWidgets import QDialog, QGraphicsOpacityEffect, QStackedWidget
+from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap
+from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget
 
 
 def enabled() -> bool:
@@ -51,6 +51,61 @@ class AnimatedDialog(QDialog):
         self._entrance.stop()
         if interrupted:
             self.move(self._entrance_target)
+        super().hideEvent(event)
+
+
+class AnimatedMenu(QMenu):
+    """鼠标右键菜单轻微滑入；点击或键盘操作立即停止位移。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._animate_entry = False
+        self._entrance = QVariantAnimation(self)
+        self._entrance.setDuration(160)
+        self._entrance.setEasingCurve(QEasingCurve.OutCubic)
+        self._entrance.setStartValue(0.0)
+        self._entrance.setEndValue(1.0)
+        self._entrance.valueChanged.connect(self._reveal)
+
+    def exec_context(self, event):
+        self._animate_entry = event.reason() == QContextMenuEvent.Mouse
+        # Qt 自带菜单淡入会将窗口设为透明，与位置动画叠加产生闪变。
+        effects = (Qt.UI_FadeMenu, Qt.UI_AnimateMenu)
+        previous = [QApplication.isEffectEnabled(effect) for effect in effects]
+        for effect in effects:
+            QApplication.setEffectEnabled(effect, False)
+        try:
+            return self.exec(event.globalPos())
+        finally:
+            for effect, allowed in zip(effects, previous):
+                QApplication.setEffectEnabled(effect, allowed)
+
+    def _reveal(self, progress):
+        self.move(self._target + QPoint(0, round(self._offset * (1 - progress))))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._animate_entry or not enabled():
+            return
+        self._target = self.pos()
+        bounds = self.screen().availableGeometry()
+        self._offset = min(8, max(0, bounds.bottom() - self.geometry().bottom()))
+        if not self._offset:
+            self._offset = -min(8, max(0, self.y() - bounds.top()))
+        self._entrance.setCurrentTime(0)
+        self._reveal(0.0)
+        self._entrance.start()
+
+    def mousePressEvent(self, event):
+        self._entrance.stop()
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        self._entrance.stop()
+        super().keyPressEvent(event)
+
+    def hideEvent(self, event):
+        self._entrance.stop()
+        self._animate_entry = False
         super().hideEvent(event)
 
 

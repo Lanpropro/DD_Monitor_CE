@@ -2455,7 +2455,7 @@ class NavItem(QFrame):
         内容单独一个方法，好处是自检可以直接看有哪些项、并触发某一项验证接线，
         不用真的把菜单弹出来（弹出来会挡住自检、也没法断言）。
         """
-        menu = QMenu(self)
+        menu = motion.AnimatedMenu(self)
         if not self.select_mode:
             menu.addAction("取消置顶" if self._pinned else "置顶").triggered.connect(
                 lambda _checked=False: self.pinToggled.emit(self.room))
@@ -2500,7 +2500,7 @@ class NavItem(QFrame):
         if (not self.select_mode and self.drop_host is not None
                 and room_id not in self.drop_host.selected_sort_ids()):
             self.drop_host.clear_sort_selection()
-        self._context_menu().exec(event.globalPos())
+        self._context_menu().exec_context(event)
 
 
 class SmartFolderDialog(QDialog):
@@ -2696,7 +2696,7 @@ class SmartFolderCard(QWidget):
             self.update()
 
     def contextMenuEvent(self, event):
-        self.original._context_menu().exec(event.globalPos())
+        self.original._context_menu().exec_context(event)
 
 
 class FollowFolderButton(QToolButton):
@@ -2771,7 +2771,7 @@ class FollowFolderButton(QToolButton):
         self.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, self)
 
     def _context_menu(self):
-        menu = QMenu(self)
+        menu = motion.AnimatedMenu(self)
         folder = self.sidebar.get_folder(self.folder_id)
         self.sidebar.add_folder_sort_menu(menu.addMenu("排序"), folder)
         menu.addSeparator()
@@ -2794,7 +2794,7 @@ class FollowFolderButton(QToolButton):
         return menu
 
     def contextMenuEvent(self, event):
-        self._context_menu().exec(event.globalPos())
+        self._context_menu().exec_context(event)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(FOLDER_MIME) or (
@@ -2866,7 +2866,7 @@ class RoomListBox(QWidget):
         return self.sidebar.visible_items()
 
     def contextMenuEvent(self, event) -> None:
-        self.sidebar._folder_create_menu().exec(event.globalPos())
+        self.sidebar._folder_create_menu().exec_context(event)
         event.accept()
 
     def set_scroll_dir(self, direction: int, step: float | None = None) -> None:
@@ -3963,7 +3963,7 @@ class Sidebar(QFrame):
 
     # ---- 关注文件夹 ----
     def _folder_create_menu(self) -> QMenu:
-        menu = QMenu(self)
+        menu = motion.AnimatedMenu(self)
         menu.addAction("新建文件夹…").triggered.connect(lambda: self.prompt_folder())
         menu.addAction("新建智能文件夹…").triggered.connect(lambda: self.prompt_smart_folder())
         return menu
@@ -3971,7 +3971,7 @@ class Sidebar(QFrame):
     def contextMenuEvent(self, event) -> None:
         child = self.childAt(event.pos())
         if child is None or child in (self._head_strip, self._head_scroll.viewport(), self.scroll.viewport()):
-            self._folder_create_menu().exec(event.globalPos())
+            self._folder_create_menu().exec_context(event)
             event.accept()
         else:
             super().contextMenuEvent(event)
