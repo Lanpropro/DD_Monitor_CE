@@ -21,7 +21,7 @@ class AnimatedDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._entrance = QVariantAnimation(self)
-        self._entrance.setDuration(240)
+        self._entrance.setDuration(160)
         self._entrance.setEasingCurve(QEasingCurve.OutCubic)
         self._entrance.setStartValue(0.0)
         self._entrance.setEndValue(1.0)
@@ -29,7 +29,7 @@ class AnimatedDialog(QDialog):
         self._moving = False
 
     def _reveal(self, progress):
-        self.setWindowOpacity(0.35 + 0.65 * progress)
+        self.setWindowOpacity(0.85 + 0.15 * progress)
         self._moving = True
         self.move(self._entrance_target + QPoint(0, round(20 * (1 - progress))))
         self._moving = False

@@ -31,10 +31,12 @@ def main():
         app.processEvents()
         target = QPoint(dialog._entrance_target)
         assert dialog._entrance.state() == QAbstractAnimation.Running
-        assert dialog.pos().y() > target.y() and dialog.windowOpacity() < 1
+        assert dialog._entrance.duration() == 160
+        assert dialog.pos().y() > target.y() and 0.84 <= dialog.windowOpacity() < 1
         dialog._entrance.setCurrentTime(80)
+        assert dialog.windowOpacity() >= 0.97, "text must become fully readable early in the entrance"
         assert target.y() < dialog.pos().y() < target.y() + 20
-        QTest.qWait(280)
+        QTest.qWait(180)
         assert dialog.pos() == target and dialog.windowOpacity() == 1
         dialog.hide()
         dialog.show()
@@ -77,6 +79,8 @@ def main():
         settings = SettingsDialog(config.DEFAULT_SETTINGS, {})
         settings.show()
         app.processEvents()
+        assert settings._entrance.duration() == 160
+        assert settings.windowOpacity() >= 0.84
         original = settings.settings()
         nav = settings.nav
         QTest.mouseClick(nav.viewport(), Qt.LeftButton, pos=nav.visualItemRect(nav.item(1)).center())
