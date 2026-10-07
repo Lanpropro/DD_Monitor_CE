@@ -471,6 +471,11 @@ QSlider::handle:horizontal:hover {{
     border: 1px solid rgba(0, 161, 214, 0.45);
     color: {ACCENT};
 }}
+QPushButton#IconButton:pressed {{
+    background: {mix(CONTENT, "#000000", 0.12)};
+    border: 1px solid {ACCENT};
+    color: {TEXT1};
+}}
 #PrimaryButton {{
     background: {ACCENT};
     border: none;
@@ -482,6 +487,9 @@ QSlider::handle:horizontal:hover {{
 }}
 #PrimaryButton:hover {{
     background: {mix(ACCENT, "#ffffff", 0.12)};
+}}
+QPushButton#PrimaryButton:pressed {{
+    background: {mix(ACCENT, "#000000", 0.16)};
 }}
 #GhostButton {{
     background: transparent;
