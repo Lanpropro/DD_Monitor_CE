@@ -304,6 +304,10 @@ class TilePlayer(QObject):
         self._media = media
         self.player.set_media(media)
         self.player.play()
+        # VLC 异步创建原生输出窗口，开始播放或换流后重新裁切新窗口。
+        refresh_clip = getattr(self.video_widget, "refresh_clip", None)
+        if callable(refresh_clip):
+            refresh_clip()
         self._stall_ticks = 0
         self._last_time = None
         self._last_picture = None

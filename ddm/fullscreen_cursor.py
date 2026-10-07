@@ -1,5 +1,6 @@
 """Hide the idle fullscreen cursor, including over VLC's native video child."""
 import ctypes
+from ctypes import wintypes
 import sys
 import time
 
@@ -55,7 +56,16 @@ class FullscreenCursor(QObject):
         position = QCursor.pos()
         now = time.monotonic()
         # Poll the global position: VLC's child HWND does not send Qt mouse moves.
-        eligible = (tile is not None and self.window.isActiveWindow()
+        active = self.window.isActiveWindow()
+        if not active and sys.platform == "win32" and QApplication.platformName() == "windows":
+            # VLC 的原生子窗口获得焦点时，Qt 的活动窗口状态可能尚未同步。
+            user32 = ctypes.windll.user32
+            user32.GetForegroundWindow.restype = wintypes.HWND
+            user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+            user32.GetAncestor.restype = wintypes.HWND
+            foreground = user32.GetForegroundWindow()
+            active = bool(foreground and user32.GetAncestor(foreground, 2) == int(self.window.winId()))
+        eligible = (tile is not None and active
                     and QApplication.activePopupWidget() is None
                     and QApplication.activeModalWidget() is None
                     and not QApplication.mouseButtons()

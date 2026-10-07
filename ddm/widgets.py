@@ -28,6 +28,7 @@ from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
 from . import follow_folders
 from .player import TilePlayer
+from .video_surface import VideoSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 
@@ -5480,7 +5481,7 @@ class Tile(QFrame):
         self.quality_options: list[dict] = []
 
         # 画面区域：高度扣掉底部信息条，保证画面完整可见
-        self.video = QFrame(self)
+        self.video = VideoSurface(self)
         self.video.setObjectName("TileVideo")
         self.video.setAttribute(Qt.WA_StyledBackground, True)
         self.cover = QLabel(self.video)
@@ -6094,8 +6095,8 @@ class Tile(QFrame):
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
         self._update_recording_button()
-        video_height = max(60, height if getattr(self, "_fullscreen_controls_hidden", False)
-                           else height - TILE_BAR_HEIGHT)
+        # 隐藏控件只改变可见性，保留底栏位置，避免 VLC 重算比例使画面突然放大。
+        video_height = max(60, height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
         self._round_video()
