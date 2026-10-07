@@ -43,3 +43,18 @@
 当前三处Studio文案与移除占位提示一并纳入第一版成片源码提交，确保本地导出与已保存源文件一致。大体积媒体仍按既有规则仅存本机，不上传。
 
 旧样片、旧封存ZIP、原始录屏均保留。只接续宣传片；不发布、不推送、不改软件业务或清理其他未跟踪文件。
+
+## 用户文案与转场修订（v2）
+
+保留用户本轮在Studio保存的七个场景修改，包括“不止B站”“红队绿队一起看。”“为你的ALGS观看体验如‘虎’添翼”、精彩片段的双主播观赛文案和“让每次观看，都更随心应手。”；用户删除的手动说明不恢复。
+
+- 国内段关注计数在7.436–7.636秒淡出，8秒开始展示完整画面时右上角已无“关注09”。早期关注卡片计数保留。
+- 16秒三片转场改为深蓝、青蓝、深灰，保留既有切换时机与外侧留白。
+- 对齐段固定显示“自动对齐优先，必要时手动微调。”，移除6.061秒的脚本文案覆盖，因此32秒播放与Studio编辑都不会被旧句子覆盖。
+- 41.515秒精彩片段切换加入0.450秒叠化。静音过渡视频从前场景同一素材的18.791秒连续播放；双主播补声、提前0.200秒参数和全片时长保持原值。
+
+新版输出：`videos/dd-monitor-ce-plugins-promo/renders/dd-monitor-ce-plugins-promo-first-cut-v2.mp4`。1920×1080、30fps、1933帧、64.433333秒、双声道；SHA256 `9A55EA5A38B70584B7DCD88A71E8487FB07BEC168EBB5593DC3720443A22EFE8`。旧第一版输出保留。
+
+验证：33项既有回归和9项修订验收全部通过（另含6项VideoTogether专项回归）；HyperFrames检查零错误、警告及INFO。实际新版视频完整解码、双解说音频相关性、音频连续性通过；7秒计数区域有文字、8.1秒同一区域无文字；41秒边界相邻帧的平均亮度变化小于旧硬切的50%。用户文案及静音过渡素材的连续性均纳入测试。
+
+复现：运行 `python -m unittest dev.test_plugins_promo_sample dev.test_video_script_20261007 dev.test_promo_handoff_20261008 dev.test_promo_highlight_audio dev.test_promo_first_cut dev.test_promo_transition_revision -v`。检查报告 `work/promo-text-transition-edits-check.json`；时间点截图 `work/promo-text-transition-edits/frames/`；关键帧证明 `work/promo-text-transition-edits/bridge-proof.png`。

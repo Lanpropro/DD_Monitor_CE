@@ -30,6 +30,8 @@ class Copy(HTMLParser):
 
 
 class FirstCutTests(unittest.TestCase):
+    render = RENDER
+
     def test_no_placeholder_copy_or_sample_tag_in_active_scenes(self):
         for path in [PROJECT / "index.html", *sorted((PROJECT / "compositions").glob("*.html"))]:
             copy = "".join(Copy(path).text)
@@ -39,7 +41,9 @@ class FirstCutTests(unittest.TestCase):
         entry = (PROJECT / "index.html").read_text(encoding="utf-8")
         self.assertNotIn("sample-tag", entry)
         self.assertIn("highlight-dual-commentary-v3.wav", entry)
-        self.assertIn("多平台支持", (PROJECT / "compositions/intro.html").read_text(encoding="utf-8"))
+        intro = (PROJECT / "compositions/intro.html").read_text(encoding="utf-8")
+        self.assertIn("不止", intro)
+        self.assertIn(">B站</span>", intro)
 
     def test_all_active_media_are_available_and_within_source_duration(self):
         for path in [PROJECT / "index.html", *sorted((PROJECT / "compositions").glob("*.html"))]:
@@ -55,14 +59,14 @@ class FirstCutTests(unittest.TestCase):
                         self.assertLessEqual(end, float(metadata["format"]["duration"])+.04)
 
     def test_delivered_video_matches_full_timeline_and_decodes(self):
-        metadata = probe(RENDER, "-show_streams", "-show_format")
+        metadata = probe(self.render, "-show_streams", "-show_format")
         video, audio = metadata["streams"]
         self.assertEqual((video["width"], video["height"], video["r_frame_rate"]),
                          (1920, 1080, "30/1"))
         self.assertEqual(int(video["nb_frames"]), math.ceil(64.424*30))
         self.assertEqual(audio["channels"], 2)
         self.assertAlmostEqual(float(metadata["format"]["duration"]), 64.424, delta=.05)
-        subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(RENDER),
+        subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(self.render),
                         "-f", "null", "-"], check=True, capture_output=True)
 
     def test_delivered_highlight_uses_the_accepted_stereo_audio(self):
@@ -74,7 +78,7 @@ class FirstCutTests(unittest.TestCase):
             return data
         from dev.test_promo_highlight_audio import correlation
         expected = pcm(PROJECT / "assets/highlight-dual-commentary-v3.wav", .5)
-        rendered = pcm(RENDER, 42.015)
+        rendered = pcm(self.render, 42.015)
         length = min(len(expected), len(rendered))
         for channel in (0, 1):
             self.assertGreater(correlation(expected[channel:length:2],
@@ -83,7 +87,7 @@ class FirstCutTests(unittest.TestCase):
     def test_delivered_audio_has_no_unintended_gaps(self):
         data = array.array("f")
         data.frombytes(subprocess.check_output([
-            "ffmpeg", "-v", "error", "-i", str(RENDER), "-vn", "-ac", "1",
+            "ffmpeg", "-v", "error", "-i", str(self.render), "-vn", "-ac", "1",
             "-ar", "48000", "-f", "f32le", "-"]))
         for start in range(48000, 63*48000, 12000):
             window = data[start:start+12000]
