@@ -207,7 +207,9 @@ class PictureReader:
                     codec = av.CodecContext.create(config[0], "r")
                     codec.extradata = config[1]
                     codec.thread_count = 2
-                    codec.thread_type = "AUTO"
+                    # Seekable picture workers must release promptly on switch/close.
+                    # Frame-thread teardown can block the GUI when two are active.
+                    codec.thread_type = "SLICE"
                 owner, previous = history, target
                 for packet in packets:
                     if self.cancelled.is_set():
