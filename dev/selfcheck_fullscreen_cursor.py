@@ -38,6 +38,9 @@ def main():
     app = QApplication(sys.argv)
     rooms = [{"room_id": "1000", "uname": "Cursor test", "live": False}]
     window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x1")
+    window._upgrade_fullscreen_quality = lambda _tile: False
+    window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    window.isActiveWindow = lambda: True
     window.show()
     window.activateWindow()
     tile = window.wall.tiles[0]
@@ -60,13 +63,14 @@ def main():
             window.activateWindow()
             app.processEvents()
             video_point = tile.video.mapToGlobal(tile.video.rect().center())
+            video_geometry = tile.video.geometry()
             QCursor.setPos(video_point)
             wait(app, lambda: cursor.hidden)
             assert QApplication.overrideCursor().shape() == Qt.BlankCursor
             assert not tile.bottom.isVisible() and not tile.controls.isVisible()
             assert not tile.stream_badge.isVisible() and not tile.title_badge.isVisible()
             assert not tile.time_badge.isVisible()
-            assert tile.video.height() == tile.height() - 1
+            assert tile.video.geometry() == video_geometry
             # Metadata/hover/layout updates must not bring idle controls back.
             tile.set_controls_visible(True)
             tile.set_uname_title("Cursor test", "Updated title")
@@ -89,7 +93,7 @@ def main():
             assert tile.bottom.isVisible() and tile.controls.isVisible()
             assert tile.stream_badge.isVisible() and tile.title_badge.isVisible()
             assert tile.time_badge.isVisible()
-            assert tile.video.height() < tile.height() - 1
+            assert tile.video.geometry() == video_geometry
             if sys.platform == "win32" and app.platformName() == "windows":
                 info.cbSize = ctypes.sizeof(info)
                 assert ctypes.windll.user32.GetCursorInfo(ctypes.byref(info))
