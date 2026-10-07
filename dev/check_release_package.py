@@ -60,7 +60,7 @@ archive = results / f"{name}-exe.zip"
 assert metadata["version"] == VERSION and metadata["asset_name"] == archive.name
 assert metadata["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
 assert metadata["size"] == archive.stat().st_size
-assert metadata["notes"] == (repo / f"RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
+assert metadata["notes"].replace("\r\n", "\n") == (repo / f"RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
 assert metadata["url"].endswith(f"/{VERSION_TAG}/{archive.name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
 assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64"}
