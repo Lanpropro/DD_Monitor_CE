@@ -64,3 +64,9 @@
 首轮微调试听为 `renders/highlight-dual-commentary-v2.mp4`，预览音轨使用 `assets/highlight-dual-commentary-v2.wav`，避免已加载旧音频造成缓存混淆。声音测试4项通过，包含直接核对原回放取声位置；画面素材重建前后SHA256一致。原版试听保留，可供听感比较。
 
 用户反馈“仍然慢了一点”后，再提前玩机器原声0.100秒，累计提前0.200秒，实际从2067.766667秒起取声。当前试听 `renders/highlight-dual-commentary-v3.mp4`，预览使用 `assets/highlight-dual-commentary-v3.wav`；CSBOY、画面、混音权重及片长保持不变，v2试听保留。
+
+## 第一版完整成片（2026-10-08）
+
+用户确认v3“差不多对齐了”，随后要求补全第一版、去除占位内容。本体功能没有分别安排三段操作演示，采用现有软件全景作6.970秒总结，移除待替换提示；同时移除全片样片标记和更新样片标题，保留真实直播弹幕及手动微调说明。Studio已改的三处文案纳入本版源码提交。
+
+导出 `renders/dd-monitor-ce-plugins-promo-first-cut.mp4`：64.433333秒、1920×1080、30fps、1933帧、H.264/AAC、48kHz双声道、110165715 bytes。33项相关测试通过（含成片5项验收），HyperFrames check零错误/警告/INFO；实际成片九场景抽帧及完整解码通过，声轨匹配已确认v3且无意外断音。来源与交付记录见根目录 `docs/VIDEO-FIRST-CUT-2026-10-08.md`，待用户审阅，无发布或推送。
