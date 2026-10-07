@@ -1559,6 +1559,9 @@ class MainWindow(QMainWindow):
         poller.updated.connect(self._on_status_updated)
         if hasattr(poller, "failed"):
             poller.failed.connect(self._on_status_failed)
+        if hasattr(poller, "status_ready"):
+            poller.status_ready.connect(lambda p=poller:
+                self.sidebar.set_refreshing(False) if self._poller is p and not self._closing else None)
         poller.finished.connect(lambda p=poller: self._on_poller_finished(p))
         self._poller = poller
         poller.start()
@@ -1573,6 +1576,7 @@ class MainWindow(QMainWindow):
         if self._refresh_queued:
             self._refresh_queued = False
             self.refresh_status()
+            self.sidebar.set_refreshing(self._poller is not None)
             if self._poller is not None:
                 return
         self.sidebar.set_refreshing(False)

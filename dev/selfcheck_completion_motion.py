@@ -75,6 +75,10 @@ def main():
         show_result(owner, "导入完成：新增 2 个")
         assert owner._result_notice is notice and notice._progress == progress
         notice._motion.setCurrentTime(160)
+        assert notice.pos() == owner.mapToGlobal(QPoint((owner.width() - notice.width()) // 2, 20))
+        owner.resize(900, 650)
+        app.processEvents()
+        assert notice.pos() == owner.mapToGlobal(QPoint((owner.width() - notice.width()) // 2, 20))
         notice.timer.timeout.emit()
         notice._motion.setCurrentTime(180)
         assert not notice.isVisible() and notice.windowOpacity() == 1

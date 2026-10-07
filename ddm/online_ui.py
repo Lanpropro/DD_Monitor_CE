@@ -108,6 +108,7 @@ class PluginStorePage(OnlinePage):
         self.refresh.clicked.connect(lambda: self.refresh_catalog(force=True))
         layout.addWidget(self.status)
         self.cards = QVBoxLayout()
+        self.cards.setSpacing(10)
         layout.addLayout(self.cards)
         layout.addStretch(1)
         self.busyChanged.connect(self._busy)
@@ -173,8 +174,12 @@ class PluginStorePage(OnlinePage):
             card = QFrame()
             card.setObjectName('PluginCard')
             body = QVBoxLayout(card)
+            body.setContentsMargins(14, 12, 14, 12)
+            body.setSpacing(6)
             heading = QHBoxLayout()
-            heading.addWidget(QLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else '')))
+            title = QLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else ''))
+            title.setObjectName('PluginName')
+            heading.addWidget(title)
             heading.addStretch(1)
             button = QPushButton('安装')
             button.setObjectName('IconButton')
@@ -204,11 +209,10 @@ class PluginStorePage(OnlinePage):
             heading.addWidget(button)
             body.addLayout(heading)
             body.addWidget(description)
-            if note:
-                hint = QLabel(note)
-                hint.setWordWrap(True)
-                hint.setObjectName('SettingsHint')
-                body.addWidget(hint)
+            hint = QLabel(note or ' ')
+            hint.setWordWrap(True)
+            hint.setObjectName('SettingsHint')
+            body.addWidget(hint)
             self.cards.addWidget(card)
 
     def install_offer(self, offer):
@@ -500,9 +504,9 @@ class ResultNotice(UpdateNotice):
 
     def reposition(self):
         parent = self.parentWidget()
-        offset = round(12 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, parent.width() - self.width() - 20),
-                                           max(0, parent.height() - self.height() - 20) + offset)))
+        offset = round(-12 * (1 - self._progress)) if motion.enabled() else 0
+        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2),
+                                           20 + offset)))
 
 
 def show_result(parent, message):

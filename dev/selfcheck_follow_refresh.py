@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QObject, Qt, Signal, qInstallMessageHandler
+from PySide6.QtCore import QAbstractAnimation, QObject, Qt, Signal, qInstallMessageHandler
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -20,6 +20,7 @@ class Poller(QObject):
     updated = Signal(dict)
     failed = Signal(str)
     finished = Signal()
+    status_ready = Signal()
     instances = []
 
     def __init__(self, room_ids, parent=None, **kwargs):
@@ -92,9 +93,15 @@ def main(side):
         for _ in range(3):
             QTest.mouseClick(button, Qt.LeftButton)
         assert window._refresh_queued and len(Poller.instances) == count
+        first.status_ready.emit()
+        assert not button.property("refreshing") and button._spin.state() != QAbstractAnimation.Running
+        assert first.isRunning(), "avatar enrichment may still be running after status completion"
         first.finish()
         second = window._poller
         assert second is not first and len(Poller.instances) == count + 1
+        assert button.property("refreshing"), "the queued status round must resume busy feedback"
+        first.status_ready.emit()
+        assert button.property("refreshing"), "old-round completion must not stop the next round"
         second.failed.emit("test failure")
         second.finish()
         assert window._poller is None and button.isEnabled() and not button.property("refreshing")

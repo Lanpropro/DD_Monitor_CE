@@ -604,6 +604,7 @@ class StatusPoller(QThread):
 
     updated = Signal(dict)
     failed = Signal(str)
+    status_ready = Signal()
 
     def __init__(self, room_ids: list[str], parent=None, *, platforms=None):
         super().__init__(parent)
@@ -632,6 +633,7 @@ class StatusPoller(QThread):
                 self.updated.emit(platform.rooms_status(ids))
             except Exception:  # noqa: BLE001
                 self.failed.emit(f"{platform.label or kind} 状态获取失败")
+        self.status_ready.emit()
         before = {rid: info.get("face") for rid, info in status.items()}
         _fill_faces(status, uids)
         enriched = {rid: info for rid, info in status.items() if info.get("face") != before[rid]}
