@@ -3034,6 +3034,8 @@ def main(argv: list[str] | None = None) -> int:
         pass
     log_path = setup_file_log()
     app = QApplication(argv)
+    from .localization import install_chinese_translations
+    install_chinese_translations(app)
     app.setApplicationName(version_module.DISPLAY_NAME)
     app.setStyleSheet(theme.qss())
     for icon_path in (os.path.join(config_module.REPO, "assets", "favicon.ico"),
