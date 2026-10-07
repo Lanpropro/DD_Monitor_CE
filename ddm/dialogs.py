@@ -57,13 +57,13 @@ class GeneralSettingsPage(QWidget):
 
     ITEMS = [
         ("auto_quality", "B 站主画面自动用原画，其余自动 720P"),
-        ("freeze_watch", "画面卡死检测（静止画面可能误报，可关掉）"),
+        ("freeze_watch", "画面卡死检测"),
         ("default_muted", "新建格子的初始静音状态"),
         ("fullscreen_solo_audio", "全屏时只播放该路声音，退出后恢复原静音状态"),
-        ("sidebar_card_mode", "关注列表使用大封面卡片（关闭后为头像＋文字列表）"),
-        ("sidebar_auto_compact", "关注较多时自动切换为紧凑列表"),
-        ("preview_on_hover", "鼠标停在关注列表的直播上 1 秒，缩略图里直接播放静音预览"),
-        ("live_alert", "关注的主播开播时，列表上播一滴粉色水滴 + 「开播了」气泡"),
+        ("sidebar_card_mode", "关注列表使用大封面卡片"),
+        ("sidebar_auto_compact", "自动切换紧凑列表"),
+        ("preview_on_hover", "关注栏卡片预览"),
+        ("live_alert", "「开播」气泡提示"),
     ]
 
     def __init__(self, settings: dict, parent=None):
@@ -298,7 +298,7 @@ class DanmakuSettingsPage(QWidget):
         layout.addWidget(QLabel("屏蔽词（每行一个）"))
         self.block_edit = QPlainTextEdit()
         self.block_edit.setObjectName("BlockWords")
-        self.block_edit.setPlaceholderText("例如：\n晚安\n打卡\n广告")
+        self.block_edit.setPlaceholderText("例如：\n文静\n自研文静")
         palette = self.block_edit.palette()          # 占位文字要能在深色底上看清
         palette.setColor(QPalette.PlaceholderText, QColor("#8a8f98"))
         self.block_edit.setPalette(palette)
@@ -360,7 +360,7 @@ class RecordingSettingsPage(QWidget):
         self.format.addItem("TS（流媒体常用）", "ts")
         self.codec = QComboBox()
         self.codec.addItem("直接保存原始流（画质不变、负载低）", "copy")
-        self.codec.addItem("H.264 + AAC 重编码（可调码率/帧率）", "h264")
+        self.codec.addItem("H.264 + AAC 重编码", "h264")
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
         self.fps = QComboBox()
@@ -376,7 +376,7 @@ class RecordingSettingsPage(QWidget):
             "  3) 结束录制时也不再顺手存一份回放。\n"
             "录制本身不受影响，照常写完整文件。")
         self.replay_scope = QComboBox()
-        self.replay_scope.addItem("所有播放中的格子（随时都能回放）", "all")
+        self.replay_scope.addItem("所有格子启用", "all")
         self.replay_scope.addItem("手动开启，录制时自动开启", "recorded")
         self.replay_scope.setToolTip(
             "「保存最近 N 分钟」这个即时回放功能，给哪些格子开缓存。\n"

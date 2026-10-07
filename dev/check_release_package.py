@@ -6,6 +6,7 @@ import os
 import tempfile
 import time
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -15,7 +16,9 @@ parser.add_argument("--out-dir", type=Path, default=repo / "results")
 parser.add_argument("--old-zip", type=Path)
 args = parser.parse_args()
 results = args.out_dir.resolve()
-name = "DD监控室CE-v0.2"
+sys.path.insert(0, str(repo))
+from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
+name = f"{DISPLAY_NAME}-{VERSION_TAG}"
 source = results / name
 exe = results / f"{name}-exe"
 
@@ -27,12 +30,12 @@ for folder, zip_path in ((source, results / f"{name}.zip"),
         assert len(archive.namelist()) > 20, f"ZIP 内容不完整：{zip_path}"
         if folder == exe:
             names = archive.namelist()
-            assert any(item.endswith("v0.2.exe") for item in names), "ZIP 中缺少新文件名的 exe"
-            assert not any(item.endswith("v0.2-exe.exe") for item in names), \
+            assert any(item.endswith(f"{VERSION_TAG}.exe") for item in names), "ZIP 中缺少新文件名的 exe"
+            assert not any(item.endswith(f"{VERSION_TAG}-exe.exe") for item in names), \
                 "ZIP 中仍有旧文件名的 exe"
 
 for path in ("ddm/app.py", "ddm/widgets.py", "ddm/audio_output.py", "ddm/dialogs.py",
-             "ddm/plugins.py", "docs/PLUGINS.md", "RELEASE-v0.2.md"):
+             "ddm/plugins.py", "docs/PLUGINS.md", f"RELEASE-{VERSION_TAG}.md"):
     original = (repo / path).read_bytes()
     packaged = (source / path).read_bytes()
     assert packaged.replace(b"\r\n", b"\n") == original.replace(b"\r\n", b"\n"), \
@@ -47,7 +50,19 @@ for folder in (source, exe):
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
     assert not (folder / "utils" / "config.json").exists(), "发布包包含个人配置"
     assert not (folder / "logs").exists(), "发布包包含运行日志"
-    assert not (folder / "plugins_user" / "danmaku_log").exists(), "仍附带旧内置插件"
+    assert not any((folder / "plugins_user").iterdir()), "发布包包含本地用户插件"
+    assert not (folder / "utils" / "accounts").exists(), "发布包包含登录数据"
+    assert not (folder / "cache").exists(), "发布包包含缓存"
+    assert not (folder / "videos").exists(), "发布包包含宣传片工程"
+metadata = json.loads((results / "app-update.json").read_text(encoding="utf-8-sig"))
+archive = results / f"{name}-exe.zip"
+assert metadata["version"] == VERSION and metadata["asset_name"] == archive.name
+assert metadata["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
+assert metadata["size"] == archive.stat().st_size
+assert metadata["notes"] == (repo / f"RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
+assert metadata["url"].endswith(f"/{VERSION_TAG}/{archive.name}")
+build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
+assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64"}
 
 if args.old_zip:
     # 用真实旧包模拟用户目录，合并解压新包，然后启动覆盖后的 exe。
@@ -123,4 +138,4 @@ if args.old_zip:
             process.wait(timeout=10)
         print("OK: 旧版目录合并覆盖、配置/插件/数据保留、新 exe 启动与用户插件加载通过")
 
-print("OK: v0.2 源码与 exe 发布包完整，ZIP 可读，源码与打包工作区一致")
+print(f"OK: {VERSION_TAG} 源码与 exe 发布包完整，ZIP、更新元数据和隐私检查通过")

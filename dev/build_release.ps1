@@ -61,7 +61,8 @@ if (-not (Test-Path $ffmpegLicense) -or -not (Test-Path $ffmpegReadme)) {
     throw "FFmpeg 包缺少 LICENSE 或 README.txt，不能做发布包：$ffmpegHome"
 }
 
-Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
+if ((Split-Path $app -Parent) -ne $OutDir) { throw "源码包路径越界：$app" }
+Remove-Item -LiteralPath $app -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 
 # ---- 1) 源码：**只打包 git 跟踪的文件** ----
@@ -71,7 +72,8 @@ $tracked = & git -C $repo ls-files
 if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件列表（$repo 是 git 仓库吗？）" }
 foreach ($rel in $tracked) {
     if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
-    if ($rel -like "plugins_user/_danmaku_log/*") { continue }
+    if ($rel -like "plugins_user/*") { continue }
+    if ($rel -like "videos/*") { continue }
     $src = Join-Path $repo ($rel -replace "/", "\")
     $dst = Join-Path $app ($rel -replace "/", "\")
     $dir = Split-Path $dst -Parent
@@ -92,14 +94,6 @@ foreach ($file in @("libvlc.dll", "libvlccore.dll")) {
 robocopy (Join-Path $repo "plugins") (Join-Path $app "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
 # 用户插件目录：直播平台扩展由独立插件仓库发布。
 New-Item -ItemType Directory -Force -Path (Join-Path $app "plugins_user") | Out-Null
-foreach ($item in Get-ChildItem (Join-Path $repo "plugins_user") -Force -ErrorAction SilentlyContinue) {
-    if ($item.Name -in @("_danmaku_log", "danmaku_log", "__pycache__", "global_live", "domestic_live", "huya_watch")) { continue }
-    if ($item.PSIsContainer) {
-        robocopy $item.FullName (Join-Path $app "plugins_user\$($item.Name)") /E /XD __pycache__ /NFL /NDL /NJH /NJS /NP | Out-Null
-    } else {
-        Copy-Item $item.FullName (Join-Path $app "plugins_user") -Force
-    }
-}
 # utils 目录只要代码；配置和加密登录状态是用户数据，不带
 New-Item -ItemType Directory -Force -Path (Join-Path $app "utils") | Out-Null
 foreach ($item in Get-ChildItem (Join-Path $repo "utils") -Force -ErrorAction SilentlyContinue) {
@@ -160,8 +154,10 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     Write-Output "=== 冻 exe（PySide6 6.9）==="
     $exeDir = Join-Path $OutDir "$name-exe"
     $build = Join-Path $repo "work\exebuild"
-    Remove-Item $exeDir -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
+    if ((Split-Path $exeDir -Parent) -ne $OutDir -or
+        (Split-Path $build -Parent) -ne (Join-Path $repo "work")) { throw "构建目录路径越界" }
+    Remove-Item -LiteralPath $exeDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $build -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $build | Out-Null
     $versionInfo = Join-Path $build "windows-version.txt"
     & $py (Join-Path $repo "dev\build_windows_version.py") $versionInfo
@@ -199,14 +195,6 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
     # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
-    foreach ($item in Get-ChildItem (Join-Path $repo "plugins_user") -Force -ErrorAction SilentlyContinue) {
-        if ($item.Name -in @("_danmaku_log", "danmaku_log", "__pycache__", "global_live", "domestic_live", "huya_watch")) { continue }
-        if ($item.PSIsContainer) {
-            robocopy $item.FullName (Join-Path $exeDir "plugins_user\$($item.Name)") /E /XD __pycache__ /NFL /NDL /NJH /NJS /NP | Out-Null
-        } else {
-            Copy-Item $item.FullName (Join-Path $exeDir "plugins_user") -Force
-        }
-    }
     foreach ($file in @("LICENSE", "NOTICE.md", "RELEASE-v$($version.TrimStart('v')).md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }
