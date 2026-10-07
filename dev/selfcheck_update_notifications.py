@@ -83,7 +83,7 @@ def main():
         window.move(window.x() + 25, window.y() + 25)
         app.processEvents()
         assert notice.pos() != old_position
-        QTest.qWait(10_200)
+        QTest.qWait(10_400)
         assert not notice.isVisible() and activated.count() == 0
         class DisableDialog(SettingsDialog):
             def exec(self):

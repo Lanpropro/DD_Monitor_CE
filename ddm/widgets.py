@@ -2936,7 +2936,7 @@ class RoomListBox(QWidget):
     def sizeHint(self) -> QSize:
         return QSize(self.content_width(), self.content_height())
 
-    def _glide_to(self, item: NavItem, x: int, y: int, animate: bool) -> None:
+    def _glide_to(self, item: NavItem, x: int, y: int, animate: bool, duration=150) -> None:
         target = QPoint(x, y)
         previous = self._animations.get(item)
         if previous is not None:
@@ -2947,7 +2947,7 @@ class RoomListBox(QWidget):
             item.move(target)
             return
         animation = QPropertyAnimation(item, b"pos", item)
-        animation.setDuration(150)
+        animation.setDuration(duration)
         animation.setStartValue(item.pos())
         animation.setEndValue(target)
         animation.setEasingCurve(QEasingCurve.OutCubic)
@@ -2955,7 +2955,7 @@ class RoomListBox(QWidget):
         animation.start()
 
     def relayout(self, animate: bool = False, preview_order: list | None = None,
-                 dragging_ids: set[str] | None = None) -> None:
+                 dragging_ids: set[str] | None = None, *, duration=150, revealing=()) -> None:
         """按当前顺序摆卡片；拖动时用空位显示整组卡片的落点。
 
         竖屏顶部横栏里改成横向排（卡片向右排开，多了就左右滚）。
@@ -2982,12 +2982,16 @@ class RoomListBox(QWidget):
             entry_height = thickness if is_folder and not horizontal else item_height
             entry.resize(entry_width, entry_height)
             if horizontal:
-                self._glide_to(entry, run, 0, animate)
+                if animate and entry in revealing:
+                    entry.move(run + 24, 0)
+                self._glide_to(entry, run, 0, animate, duration)
                 run += entry_width + NAV_ITEM_GAP
             else:
                 # 回到左栏时必须把横栏留下的 x 清零，否则卡片会继续沿用
                 # 横向卡片条的位置，只剩第一张完整可见。
-                self._glide_to(entry, 0, run, animate)
+                if animate and entry in revealing:
+                    entry.move(0, run + 24)
+                self._glide_to(entry, 0, run, animate, duration)
                 run += entry_height + NAV_ITEM_GAP
         if not order:
             # 一条都没有：摆上那句话，并且把它的高度算进 run —— 不然滚动区
@@ -4124,6 +4128,7 @@ class Sidebar(QFrame):
             self.create_folder(**data)
 
     def _refresh_folders(self, notify: bool = True, *, animate=False) -> None:
+        revealing = {item for item in self._items if item.filtered_out} if animate else ()
         ids = {folder["id"] for folder in self.folders}
         self._folders_folded_by_drag.intersection_update(ids)
         for folder_id in list(self._folder_buttons):
@@ -4132,7 +4137,7 @@ class Sidebar(QFrame):
                 button.hide()
                 button.deleteLater()
         self.clear_sort_selection()
-        self.resort(animate=animate)
+        self.resort(animate=animate, duration=280 if animate else 150, revealing=revealing)
         for item in self._items:
             if item.filtered_out:
                 item.check.setChecked(False)
@@ -5284,7 +5289,7 @@ class Sidebar(QFrame):
         self.custom_order = [room_id for room_id in known if room_id in present]
         self.resort(animate=False)
 
-    def resort(self, animate: bool = False) -> None:
+    def resort(self, animate: bool = False, *, duration=150, revealing=()) -> None:
         """每个文件夹独立排序，置顶只作用于所在文件夹。"""
         self.sort_mode = self.get_folder(follow_folders.UNCLASSIFIED)["sort"]
         self._folder_assignments = follow_folders.assign_folders(
@@ -5310,7 +5315,7 @@ class Sidebar(QFrame):
         self._items = ordered
         # 先按搜索词重算谁该藏起来，再摆位置 —— 顺序反了会留下「藏起来的还占位」
         self._apply_filter_marks()
-        self.list_box.relayout(animate=animate)
+        self.list_box.relayout(animate=animate, duration=duration, revealing=revealing)
         self._sync_sort_menu()
         self._sync_count()             # 过滤时这里写成「露出来几路 / 一共几路」
         # 顺手把顶部横栏那一排头像也刷新：竖屏下它就是关注列表

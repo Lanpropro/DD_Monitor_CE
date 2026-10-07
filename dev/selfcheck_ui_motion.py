@@ -1,4 +1,4 @@
-"""轻量动效：真实鼠标点击、中间帧、连续打断、最终位置和系统动画关闭。"""
+"""界面动效：真实鼠标点击、明显入场、中间帧、连续打断、最终位置和系统动画关闭。"""
 import os
 from pathlib import Path
 import sys
@@ -16,6 +16,12 @@ from ddm.widgets import Sidebar
 
 
 def main():
+    callback_errors = []
+    original_hook = sys.excepthook
+    def capture_error(kind, error, trace):
+        callback_errors.append(error)
+        original_hook(kind, error, trace)
+    sys.excepthook = capture_error
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     with patch.object(motion, "enabled", return_value=True):
@@ -27,13 +33,14 @@ def main():
         QTest.mouseClick(nav.viewport(), Qt.LeftButton, pos=nav.visualItemRect(nav.item(1)).center())
         assert settings.stack.currentIndex() == 1
         assert settings.stack._fade.state() == QAbstractAnimation.Running
+        assert settings.stack._effect.opacity() == 0.25 and settings.stack._fade.duration() == 260
         settings.stack._fade.setCurrentTime(80)
         opacity = settings.stack._effect.opacity()
-        assert 0.65 < opacity < 1
+        assert 0.25 < opacity < 1
         QTest.mouseClick(nav.viewport(), Qt.LeftButton, pos=nav.visualItemRect(nav.item(2)).center())
         assert settings.stack.currentIndex() == 2
         assert settings.stack._effect.opacity() >= opacity, "rapid switching must not flash from the initial opacity"
-        QTest.qWait(210)
+        QTest.qWait(350)
         assert settings.stack.graphicsEffect() is None
         assert settings.settings() == original
         # 程序跳转 / 键盘导航不播放动画。
@@ -64,12 +71,17 @@ def main():
             assert sidebar.get_folder(folder)["collapsed"]
             animation = sidebar.list_box._animations[following]
             assert animation.state() == QAbstractAnimation.Running
+            assert animation.duration() == 280
             animation.setCurrentTime(75)
             intermediate = following.pos()
             assert intermediate != original_pos and intermediate != animation.endValue()
             QTest.mouseClick(button, Qt.LeftButton)
             assert not sidebar.get_folder(folder)["collapsed"]
-            QTest.qWait(210)
+            revealed = next(item for item in sidebar.items() if item.room["room_id"] == "0")
+            entrance = sidebar.list_box._animations[revealed]
+            delta = entrance.startValue() - entrance.endValue()
+            assert (delta.x(), delta.y()) == ((24, 0) if side == "top" else (0, 24))
+            QTest.qWait(350)
             assert following.pos() == original_pos
             with patch.object(motion, "enabled", return_value=False):
                 QTest.mouseClick(button, Qt.LeftButton)
@@ -85,6 +97,8 @@ def main():
         offer = {"version": "0.3.1"}
         notice.show_offer(offer)
         assert notice._motion.state() == QAbstractAnimation.Running and notice._progress == 0
+        assert notice._motion.duration() == 240
+        assert notice.y() == parent.mapToGlobal(parent.rect().topLeft()).y() + 20 - 24
         notice._motion.setCurrentTime(80)
         assert 0 < notice._progress < 1
         QTest.qWait(200)
@@ -97,7 +111,7 @@ def main():
         progress = notice._progress
         notice.show_offer(offer)
         assert not notice._leaving and notice._progress == progress
-        QTest.qWait(210)
+        QTest.qWait(350)
         assert notice.isVisible() and notice.pos() == anchored
         activated = []
         notice.activated.connect(lambda: activated.append(True))
@@ -114,7 +128,9 @@ def main():
         app.processEvents()
         assert not notice.isVisible() and notice._motion.state() != QAbstractAnimation.Running
         parent.close()
-    print("PASS: settings fade, folder reflow in both orientations, notice entry/exit, interruption and reduced motion")
+    sys.excepthook = original_hook
+    assert not callback_errors, callback_errors
+    print("PASS: settings slide/fade, folder reveal in both orientations, notice entry/exit, interruption and reduced motion")
 
 
 if __name__ == "__main__":

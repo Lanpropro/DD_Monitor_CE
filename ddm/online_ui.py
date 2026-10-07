@@ -412,7 +412,7 @@ class UpdateNotice(QFrame):
         self.raise_()
         self.timer.start()
         if self._progress < 1.0:
-            self._animate_to(1.0, 160)
+            self._animate_to(1.0, 240)
 
     def _animate_to(self, target, duration):
         start = self._progress
@@ -442,7 +442,7 @@ class UpdateNotice(QFrame):
 
     def reposition(self):
         parent = self.parentWidget()
-        offset = round(-6 * (1 - self._progress)) if motion.enabled() else 0
+        offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
         self.move(parent.mapToGlobal(QPoint(max(0, parent.width() - self.width() - 20), 20 + offset)))
 
     def eventFilter(self, watched, event):
@@ -458,7 +458,7 @@ class UpdateNotice(QFrame):
         if (animate and self.isVisible() and self.parentWidget().isVisible()
                 and not getattr(self.parentWidget(), '_closing', False) and motion.enabled()):
             self._leaving = True
-            self._animate_to(0.0, 140)
+            self._animate_to(0.0, 180)
         else:
             self._motion.stop()
             self.hide()
