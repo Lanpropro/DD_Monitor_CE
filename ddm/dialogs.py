@@ -6,13 +6,14 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
+    QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
-    QScrollArea, QSlider, QSpinBox, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSlider, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from . import theme
+from .motion import SettingsStack
 from .player import DECODE_MODES
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
@@ -722,7 +723,7 @@ class SettingsDialog(QDialog):
         right = QVBoxLayout()
         right.setContentsMargins(20, 18, 20, 16)
         right.setSpacing(14)
-        self.stack = QStackedWidget()
+        self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
         self.danmaku_page = DanmakuSettingsPage(settings)
@@ -772,13 +773,14 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def done(self, result):
+        self.stack.finish_transition()
         self.plugin_page.store_page.stop()
         self.update_page.stop()
         super().done(result)
 
     def _on_page_changed(self, index: int) -> None:
         if index >= 0:
-            self.stack.setCurrentIndex(index)
+            self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
             self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
 

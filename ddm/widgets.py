@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import layouts, mouse_hook, theme
+from . import layouts, motion, mouse_hook, theme
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -2704,7 +2704,7 @@ class FollowFolderButton(QToolButton):
         self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.setCursor(Qt.PointingHandCursor)
         self.setAcceptDrops(True)
-        self.clicked.connect(lambda: sidebar.toggle_folder(folder_id))
+        self.clicked.connect(lambda: sidebar.toggle_folder(folder_id, animate=self._press_pos is not None))
         self._press_pos = None
         self._drag_started = False
 
@@ -2740,12 +2740,13 @@ class FollowFolderButton(QToolButton):
             drag.deleteLater()
 
     def mouseReleaseEvent(self, event):
-        self._press_pos = None
         if self._drag_started:
+            self._press_pos = None
             self._drag_started = False
             self.setDown(False)
             return
         super().mouseReleaseEvent(event)
+        self._press_pos = None
 
     def paintEvent(self, event):
         if self.sidebar.side != "top":
@@ -3026,7 +3027,9 @@ class RoomListBox(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self.relayout(animate=False)
+        # 文件夹展开只改变内容高度，不重新排版打断正在进行的让位。
+        if not self.horizontal and event.size().width() != event.oldSize().width():
+            self.relayout(animate=False)
 
     def index_at(self, y: float) -> int:
         """鼠标落在第几个位置（0 = 最前面，len = 追加到最后）。
@@ -4007,12 +4010,12 @@ class Sidebar(QFrame):
         self.folders = [folder for folder in self.folders if folder["id"] != folder_id]
         self._refresh_folders()
 
-    def toggle_folder(self, folder_id: str) -> None:
+    def toggle_folder(self, folder_id: str, *, animate=False) -> None:
         for folder in self.folders:
             if folder["id"] == folder_id:
                 self._folders_folded_by_drag.discard(folder_id)
                 folder["collapsed"] = not folder["collapsed"]
-                self._refresh_folders()
+                self._refresh_folders(animate=animate and motion.enabled())
                 return
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
@@ -4120,7 +4123,7 @@ class Sidebar(QFrame):
         else:
             self.create_folder(**data)
 
-    def _refresh_folders(self, notify: bool = True) -> None:
+    def _refresh_folders(self, notify: bool = True, *, animate=False) -> None:
         ids = {folder["id"] for folder in self.folders}
         self._folders_folded_by_drag.intersection_update(ids)
         for folder_id in list(self._folder_buttons):
@@ -4129,7 +4132,7 @@ class Sidebar(QFrame):
                 button.hide()
                 button.deleteLater()
         self.clear_sort_selection()
-        self.resort(animate=False)
+        self.resort(animate=animate)
         for item in self._items:
             if item.filtered_out:
                 item.check.setChecked(False)

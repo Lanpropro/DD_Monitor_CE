@@ -5,12 +5,12 @@ import sys
 import tempfile
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
-from . import config, online, plugin_updates, theme, update_install, version
+from . import config, motion, online, plugin_updates, theme, update_install, version
 
 
 class OnlineTask(QThread):
@@ -376,7 +376,7 @@ class UpdateNotice(QFrame):
         close.setObjectName('NoticeClose')
         close.setFixedSize(24, 24)
         close.setToolTip('关闭提示')
-        close.clicked.connect(self.dismiss)
+        close.clicked.connect(lambda: self.dismiss())
         heading.addWidget(close)
         layout.addLayout(heading)
         layout.addWidget(QLabel('点击查看更新说明并选择安装'))
@@ -388,16 +388,49 @@ class UpdateNotice(QFrame):
         self.timer.setSingleShot(True)
         self.timer.setInterval(10_000)
         self.timer.timeout.connect(self.dismiss)
+        self._progress = 1.0
+        self._leaving = False
+        self._motion = QVariantAnimation(self)
+        self._motion.setEasingCurve(QEasingCurve.OutCubic)
+        self._motion.valueChanged.connect(self._motion_frame)
+        self._motion.finished.connect(self._motion_finished)
         parent.installEventFilter(self)
 
     def show_offer(self, offer):
+        was_visible = self.isVisible()
+        self._motion.stop()
+        self._leaving = False
         self.title.setText('发现新版本 v' + offer['version'])
         self.setFixedWidth(min(360, max(240, self.parentWidget().width() - 40)))
         self.adjustSize()
+        self._progress = self._progress if was_visible else 0.0
+        if not motion.enabled():
+            self._progress = 1.0
+        self.setWindowOpacity(self._progress)
         self.reposition()
         self.show()
         self.raise_()
         self.timer.start()
+        if self._progress < 1.0:
+            self._animate_to(1.0, 160)
+
+    def _animate_to(self, target, duration):
+        start = self._progress
+        self._motion.stop()
+        self._motion.setCurrentTime(0)
+        self._motion.setDuration(duration)
+        self._motion.setStartValue(start)
+        self._motion.setEndValue(target)
+        self._motion.start()
+
+    def _motion_frame(self, value):
+        self._progress = value
+        self.setWindowOpacity(value)
+        self.reposition()
+
+    def _motion_finished(self):
+        if self._leaving:
+            self.hide()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -409,20 +442,27 @@ class UpdateNotice(QFrame):
 
     def reposition(self):
         parent = self.parentWidget()
-        self.move(parent.mapToGlobal(QPoint(max(0, parent.width() - self.width() - 20), 20)))
+        offset = round(-6 * (1 - self._progress)) if motion.enabled() else 0
+        self.move(parent.mapToGlobal(QPoint(max(0, parent.width() - self.width() - 20), 20 + offset)))
 
     def eventFilter(self, watched, event):
         if self.isVisible():
             if event.type() in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
                 self.reposition()
             elif event.type() == QEvent.Hide:
-                self.dismiss()
+                self.dismiss(animate=False)
         return False
 
-    def dismiss(self):
+    def dismiss(self, animate=True):
         self.timer.stop()
-        self.hide()
+        if (animate and self.isVisible() and self.parentWidget().isVisible()
+                and not getattr(self.parentWidget(), '_closing', False) and motion.enabled()):
+            self._leaving = True
+            self._animate_to(0.0, 140)
+        else:
+            self._motion.stop()
+            self.hide()
 
     def _open(self):
-        self.dismiss()
+        self.dismiss(animate=False)
         self.activated.emit()
