@@ -28,6 +28,13 @@ def probe(path, *options):
 
 
 class PromoSampleTests(unittest.TestCase):
+    def test_preview_media_isolation_regression(self):
+        subprocess.run(["node", "--test", str(ROOT / "dev/test_promo_videotogether.cjs")],
+                       check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        entry = (PROJECT / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("limited-diagnostic", entry)
+        self.assertNotIn("127.0.0.1:3018", entry)
+
     def test_studio_motion_plugin_is_local_and_version_matches_gsap(self):
         # Studio injects this editing plugin from jsDelivr unless it is already
         # present. Shipping the matching local build avoids network-dependent reloads.
