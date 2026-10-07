@@ -1,0 +1,36 @@
+{
+  "picture_source": "Video_reference/双人精彩时刻.mp4",
+  "picture_start": 120.0,
+  "duration": 12.0,
+  "picture_asset": "assets/highlight-picture.mp4",
+  "audio_asset": "assets/highlight-dual-commentary.wav",
+  "preview": "renders/highlight-dual-commentary.mp4",
+  "machine": {
+    "source": "Video_reference/【玩机器解说】小蜜蜂VS_猎鹰__ESL_Pro_League_Season_24.阿努比斯.42495378388.mp4",
+    "start": 2067.566667,
+    "offset_from_picture_source": 1947.566667,
+    "median_frame_correlation": 0.946853
+  },
+  "csboy": {
+    "source": "Video_reference/Falcons_vs_小蜜蜂_EPL_S24【CSBOY解说】.图1_anubis.42495378171.mp4",
+    "start": 2425.7,
+    "offset_from_picture_source": 2305.7,
+    "median_frame_correlation": 0.952975
+  },
+  "alignment": {
+    "method": "30fps normalized grayscale gameplay correlation across the entire 12-second segment, excluding overlays and HUD",
+    "reference_crop": [372, 132, 2556, 1438],
+    "analysis_size": [320, 180],
+    "analysis_region": [100, 65, 125, 55],
+    "precision_seconds": 0.033334,
+    "time_stretch": false
+  },
+  "mix": {
+    "machine_gain": 0.5,
+    "csboy_gain": 0.5,
+    "left": {"machine": 0.8, "csboy": 0.2},
+    "right": {"machine": 0.2, "csboy": 0.8},
+    "sample_rate": 48000,
+    "note": "Retain each replay's native commentary and game sound; no voice synthesis or source audio time shift."
+  }
+}

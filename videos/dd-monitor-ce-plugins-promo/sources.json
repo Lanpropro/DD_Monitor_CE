@@ -213,5 +213,18 @@
     "source_start": 8.9,
     "duration": 16.4,
     "looped": false
+  },
+  {
+    "asset": "highlight-picture.mp4",
+    "source": "Video_reference/双人精彩时刻.mp4",
+    "source_start": 120,
+    "duration": 12,
+    "looped": false
+  },
+  {
+    "asset": "highlight-dual-commentary.wav",
+    "duration": 12,
+    "alignment_record": "highlight-sync.json",
+    "method": "Native replay audio aligned by gameplay frames, machine biased left and CSBOY biased right; no time stretch"
   }
 ]

@@ -60,7 +60,7 @@ class PromoSampleTests(unittest.TestCase):
         domestic = (PROJECT / "compositions/domestic.html").read_text(encoding="utf-8")
         global_scene = (PROJECT / "compositions/global.html").read_text(encoding="utf-8")
         self.assertIn("红队绿队一起看。", intro)
-        self.assertIn("为你的ALGS观看如“虎”添翼", domestic)
+        self.assertIn("为你的观看如“虎”添翼", domestic)
         self.assertNotIn("tl.set('#domestic-caption'", domestic)
         self.assertIn("海外的直播也一样", global_scene)
         self.assertIn("国（内）外大神视角一屏掌握", global_scene)
@@ -71,7 +71,7 @@ class PromoSampleTests(unittest.TestCase):
         self.assertIn("本段录屏展示手动偏移微调", alignment)
         self.assertNotIn("自动对齐演示", alignment)
         updates = (PROJECT / "compositions/updates.html").read_text(encoding="utf-8")
-        self.assertIn("让每次打开，都更顺手。", updates)
+        self.assertIn("让每次观赛，都更随心应手。", updates)
         for copy in ("关注，整理有序", "弹幕，随心调整", "插件，集中管理"):
             self.assertIn(copy, updates)
         self.assertNotIn("比赛二路", updates)
@@ -177,7 +177,7 @@ class PromoSampleTests(unittest.TestCase):
                 self.assertEqual(roots[0]["data-composition-id"], host["id"])
                 self.assertAlmostEqual(float(roots[0]["data-duration"]), duration)
                 previous += duration
-        self.assertAlmostEqual(previous, 60, places=3)
+        self.assertAlmostEqual(previous, 64.424, places=3)
 
     def test_all_media_fit_their_source_and_are_muted(self):
         for path in (PROJECT / "compositions").glob("*.html"):
@@ -223,7 +223,8 @@ class PromoSampleTests(unittest.TestCase):
                                        "-f", "f32le", "-"])
         samples = array.array("f")
         samples.frombytes(raw)
-        music = next(a for tag, a in Elements(PROJECT / "index.html").tags if tag == "audio")
+        music = next(a for tag, a in Elements(PROJECT / "index.html").tags
+                     if tag == "audio" and a["id"] == "music")
         points = json.loads(music["data-automation"])["lanes"][0]["points"]
         gaps = [(a["t"], b["t"]) for a, b in zip(points, points[1:])
                 if a["v"] == b["v"] == 0]
@@ -281,7 +282,7 @@ class PromoSampleTests(unittest.TestCase):
 
     def test_match_scenes_use_one_continuous_source_and_audition_is_separate(self):
         expected_end = 0
-        for scene in ("reveal", "alignment", "result", "audition"):
+        for scene in ("reveal", "alignment", "result"):
             tags = Elements(PROJECT / f"compositions/{scene}.html").tags
             videos = [a for tag, a in tags if tag == "video"]
             self.assertEqual(len(videos), 1)
@@ -289,8 +290,11 @@ class PromoSampleTests(unittest.TestCase):
             self.assertAlmostEqual(float(videos[0].get("data-media-start", 0)), expected_end)
             expected_end += float(videos[0]["data-duration"])
         audition = Elements(PROJECT / "compositions/audition.html").tags
+        video = next(a for tag, a in audition if tag == "video")
+        self.assertEqual(video["src"], "assets/highlight-picture.mp4")
+        self.assertEqual(float(video["data-duration"]), 12)
         self.assertFalse(any("caption" in a.get("class", "").split() for _, a in audition))
-        self.assertGreater(float(videos[0]["data-duration"]), 7)
+        self.assertGreater(float(video["data-duration"]), 7)
 
     def test_each_stitched_cell_has_no_extended_freeze(self):
         for cell in range(1, 10):
