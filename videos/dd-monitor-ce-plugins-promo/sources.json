@@ -206,5 +206,12 @@
         "score": 0.0
       }
     ]
+  },
+  {
+    "asset": "domestic-apex-v7.mp4",
+    "source": "Video_reference/国内apex1+5 重置.mp4",
+    "source_start": 8.9,
+    "duration": 16.4,
+    "looped": false
   }
 ]

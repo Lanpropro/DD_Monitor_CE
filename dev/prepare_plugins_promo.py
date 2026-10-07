@@ -53,41 +53,10 @@ def assemble_global_cells():
             "duration": 6.06, "selections": selections}
 
 
-def assemble_domestic_cells():
-    selections = json.loads((PROJECT / "domestic-cell-selections.json").read_text(encoding="utf-8"))
-    for selection in selections:
-        crop = ":".join(map(str, selection["crop"]))
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(selection["start"]),
-                        "-i", str(ROOT / selection["source"]), "-t", str(selection["duration"]),
-                        "-an", "-vf", f"scale=1920:1080:flags=lanczos,crop={crop},fps=30,setsar=1",
-                        "-c:v", "libx264", "-threads", "4", "-preset", "fast", "-crf", "20",
-                        "-g", "30", "-keyint_min", "30", "-sc_threshold", "0",
-                        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                        str(PROJECT / "assets" / selection["asset"])], check=True)
-    command = ["ffmpeg", "-y", "-v", "error", "-i", str(PROJECT / "assets/domestic-apex.mp4")]
-    for selection in selections:
-        command += ["-i", str(PROJECT / "assets" / selection["asset"])]
-    filters = []
-    for i, selection in enumerate(selections):
-        previous = "0:v" if i == 0 else f"mix{i}"
-        x, y = selection["position"]
-        filters.append(f"[{previous}][{i+1}:v]overlay={x}:{y}:shortest=1[mix{i+1}]")
-    command += ["-filter_complex", ";".join(filters), "-map", "[mix2]", "-an", "-t", "16.4",
-                "-c:v", "libx264", "-threads", "4", "-preset", "fast", "-crf", "20",
-                "-g", "30", "-keyint_min", "30", "-sc_threshold", "0", "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart", str(PROJECT / "assets/domestic-apex-v6.mp4")]
-    subprocess.run(command, check=True)
-    return {"asset": "domestic-apex-v6.mp4", "source": "Video_reference/国内apex 1+5.mp4",
-            "source_start": 0, "duration": 16.4, "looped": False,
-            "method": "Replace two stalled lower panes with recorded smooth ranges",
-            "selections": selections}
-
-
 def main():
     (PROJECT / "assets").mkdir(parents=True, exist_ok=True)
     sources = [
-        cut("Video_reference/国内apex 1+5.mp4", "domestic-apex.mp4", 0, 16.4),
-        assemble_domestic_cells(),
+        cut("Video_reference/国内apex1+5 重置.mp4", "domestic-apex-v7.mp4", 8.9, 16.4),
         cut("Video_reference/海外平台九格增补.mp4", "global.mp4", 10, 8),
         cut("Video_reference/二路直播对齐.mp4", "align-compare.mp4", 8, 6),
         cut("Video_reference/二路直播对齐.mp4", "align-result.mp4", 16, 6),

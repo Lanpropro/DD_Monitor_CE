@@ -3,12 +3,13 @@ import array
 import json
 import subprocess
 import unittest
+import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "videos/dd-monitor-ce-plugins-promo"
-RENDER = PROJECT / "renders/sample-v6.mp4"
+RENDER = PROJECT / "renders/sample-v7.mp4"
 
 
 class Elements(HTMLParser):
@@ -27,6 +28,26 @@ def probe(path, *options):
 
 
 class PromoSampleTests(unittest.TestCase):
+    def test_studio_motion_plugin_is_local_and_version_matches_gsap(self):
+        # Studio injects this editing plugin from jsDelivr unless it is already
+        # present. Shipping the matching local build avoids network-dependent reloads.
+        scripts = [a["src"] for tag,a in Elements(PROJECT / "index.html").tags
+                   if tag == "script" and "src" in a]
+        self.assertEqual(scripts, ["assets/lib/gsap.min.js", "assets/lib/MotionPathPlugin.min.js"])
+        for asset in scripts:
+            text = (PROJECT / asset).read_text(encoding="utf-8")
+            self.assertIn("3.14.2", text[:500])
+            self.assertNotIn("https://cdn", text)
+
+    def test_studio_lint_endpoint_has_no_findings(self):
+        # Studio also scans catalog components, which the CLI entry-file lint
+        # excludes. Verify the actual endpoint used by the preview's Lint button.
+        with urllib.request.urlopen(
+                "http://127.0.0.1:3017/api/projects/dd-monitor-ce-plugins-promo/lint",
+                timeout=15) as response:
+            findings = json.load(response)["findings"]
+        self.assertEqual(findings, [])
+
     def test_user_copy_is_preserved_and_manual_demonstration_is_labeled(self):
         intro = (PROJECT / "compositions/intro.html").read_text(encoding="utf-8")
         domestic = (PROJECT / "compositions/domestic.html").read_text(encoding="utf-8")
@@ -53,44 +74,52 @@ class PromoSampleTests(unittest.TestCase):
             "ffmpeg", "-v", "error", "-ss", "4.5", "-i", str(RENDER), "-frames:v", "1",
             "-vf", "crop=220:90:230:406,scale=64:36,format=gray", "-f", "rawvideo", "-"])
         source = subprocess.check_output([
-            "ffmpeg", "-v", "error", "-ss", "4.5", "-i", str(PROJECT / "assets/domestic-apex-v6.mp4"),
+            "ffmpeg", "-v", "error", "-ss", "4.5", "-i", str(PROJECT / "assets/domestic-apex-v7.mp4"),
             "-frames:v", "1", "-vf", "crop=112:46:18:106,scale=64:36,format=gray",
             "-f", "rawvideo", "-"])
         self.assertEqual(len(frame), 64*36)
         error = sum(abs(a-b) for a,b in zip(frame,source))/len(frame)
         self.assertLess(error, 10, "First camera beat skipped the topmost recorded card")
 
-    def test_domestic_replacement_panes_have_no_extended_freeze(self):
-        selections = json.loads((PROJECT / "domestic-cell-selections.json").read_text(encoding="utf-8"))
-        self.assertEqual({s["pane"] for s in selections}, {"bottom-left", "bottom-middle"})
-        for selection in selections:
+    def test_native_domestic_panes_have_no_extended_freeze_when_revealed(self):
+        # The source's early paused third player must stay hidden. Once each mask
+        # opens, all six panes must use smooth footage from the reset recording.
+        regions = [(198,14,1138,662),(1344,14,562,312),(1344,360,562,314),
+                   (200,710,562,310),(772,710,562,310),(1344,710,562,310)]
+        for pane, (x,y,w,h) in enumerate(regions):
+            visible = 3.636 + 4.9 + pane*.212
             raw = subprocess.check_output([
-                "ffmpeg", "-v", "error", "-i", str(PROJECT / "assets" / selection["asset"]),
-                "-vf", "scale=64:36,format=gray", "-f", "rawvideo", "-"])
+                "ffmpeg", "-v", "error", "-ss", str(visible), "-i",
+                str(PROJECT / "assets/domestic-apex-v7.mp4"), "-t", str(16.364-visible),
+                "-vf", f"crop={w}:{h}:{x}:{y},scale=64:36,format=gray",
+                "-f", "rawvideo", "-"])
             size = 64*36
             frames = [raw[i:i+size] for i in range(0,len(raw),size)]
             run = longest = 0
             for a,b in zip(frames,frames[1:]):
-                change = sum(abs(x-y) for x,y in zip(a,b))/size
+                change = sum(abs(u-v) for u,v in zip(a,b))/size
                 run = run+1 if change < .35 else 0
                 longest = max(longest,run)
-            with self.subTest(pane=selection["pane"]):
-                self.assertEqual(len(frames), 492)
-                self.assertLessEqual(longest/30, .3)
+            with self.subTest(pane=pane):
+                self.assertGreater(len(frames), 190)
+                self.assertLessEqual(longest/30, .5, "A native pane stalled for over half a second")
+        domestic = (PROJECT / "compositions/domestic.html").read_text(encoding="utf-8")
+        self.assertNotIn("部分画面以其他流畅片段替换", domestic)
+        self.assertIn("const ys=[112,178,263,349,434,519,604,690,775]", domestic)
 
     def test_domestic_is_the_new_recording_and_intro_joins_it_continuously(self):
         end = 0
         for name in ("intro", "domestic"):
             path = PROJECT / f"compositions/{name}.html"
             video = [a for tag, a in Elements(path).tags if tag == "video"][0]
-            self.assertEqual(video["src"], "assets/domestic-apex-v6.mp4")
+            self.assertEqual(video["src"], "assets/domestic-apex-v7.mp4")
             self.assertAlmostEqual(float(video.get("data-media-start", 0)), end)
             end += float(video["data-duration"])
             self.assertNotIn("待替换", path.read_text(encoding="utf-8"))
         source = next(s for s in json.loads((PROJECT / "sources.json").read_text(
-            encoding="utf-8")) if s["asset"] == "domestic-apex-v6.mp4")
-        self.assertEqual(source["source"], "Video_reference/国内apex 1+5.mp4")
-        self.assertEqual(source["source_start"], 0)
+            encoding="utf-8")) if s["asset"] == "domestic-apex-v7.mp4")
+        self.assertEqual(source["source"], "Video_reference/国内apex1+5 重置.mp4")
+        self.assertEqual(source["source_start"], 8.9)
         self.assertFalse(source["looped"])
         self.assertGreaterEqual(source["duration"], end)
 
@@ -117,7 +146,7 @@ class PromoSampleTests(unittest.TestCase):
                     # Accept the expected frame or its immediate predecessor, never a broad range.
                     expected = subprocess.check_output([
                         "ffmpeg", "-v", "error", "-ss", str(time-1/30), "-i",
-                        str(PROJECT / "assets/domestic-apex-v6.mp4"), "-frames:v", "2", "-vf",
+                        str(PROJECT / "assets/domestic-apex-v7.mp4"), "-frames:v", "2", "-vf",
                         "crop="+":".join(map(str,source_crop))+",scale=64:36,format=gray",
                         "-f", "rawvideo", "-"])
                     size = len(rendered)

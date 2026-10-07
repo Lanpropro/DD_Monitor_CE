@@ -21,6 +21,7 @@
 -->
 
 <div
+  id="root" data-composition-id="directional-wipe" data-width="1920" data-height="1080"
   class="hf-catalog-directional-wipe"
   data-composition-variables='[
     { "id": "palette", "type": "enum", "role": "style", "label": "Palette", "description": "Theme token for the ring marking the incoming panel. Slate rides --accent, teal --brand, ember --accent-2; each falls back to a neutral hairline.", "default": "slate", "options": [{ "value": "slate", "label": "Slate" }, { "value": "teal", "label": "Teal" }, { "value": "ember", "label": "Ember" }] },
@@ -34,7 +35,7 @@
 </div>
 
 <style>
-  .hf-catalog-directional-wipe {
+  #root {
     --hf-accent: var(--accent, rgba(255, 255, 255, 0.28));
     --hf-l1: rgba(255, 255, 255, 0.72);
     --hf-l3: rgba(255, 255, 255, 0.18);
@@ -46,7 +47,7 @@
     color: var(--hf-ink);
     font-family: Inter, system-ui, sans-serif;
   }
-  .hf-catalog-directional-wipe {
+  #root {
     position: relative;
     width: 760px;
     height: 428px;
@@ -55,7 +56,7 @@
     background: #111827;
     box-shadow: 0 28px 80px rgba(15, 23, 42, 0.2);
   }
-  .hf-catalog-directional-wipe .scene {
+  #root .scene {
     position: absolute;
     inset: 0;
     display: grid;
@@ -65,7 +66,7 @@
     letter-spacing: -0.05em;
     color: #fff;
   }
-  .hf-catalog-directional-wipe .from {
+  #root .from {
     background:
       repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 4px),
       var(--hf-l4);
@@ -73,7 +74,7 @@
       scale(var(--hf-from-scale, 1));
     filter: blur(var(--hf-from-blur, 0px));
   }
-  .hf-catalog-directional-wipe .to {
+  #root .to {
     background:
       repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 4px),
       var(--hf-l3);
@@ -84,14 +85,14 @@
         var(--hf-clip-left, 0%)
     );
   }
-  .hf-catalog-directional-wipe .fx {
+  #root .fx {
     position: absolute;
     inset: 0;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
     mix-blend-mode: screen;
     transform: translateX(var(--hf-fx-x, -110%));
   }
-  .hf-catalog-directional-wipe .rgb {
+  #root .rgb {
     position: absolute;
     inset: 0;
     pointer-events: none;
@@ -132,7 +133,7 @@
     var palette = palettes[pick(palettes, vars.palette, "slate")];
     var corner = corners[pick(corners, vars.corner, "rounded")];
 
-    var roots = document.querySelectorAll(".hf-catalog-directional-wipe");
+    var roots = document.querySelectorAll("#root");
     for (var i = 0; i < roots.length; i += 1) {
       roots[i].style.setProperty("--hf-accent", palette);
       roots[i].style.setProperty("--hf-corner", corner);
@@ -142,5 +143,5 @@
 
 <!--
   Timeline integration:
-  tl.fromTo('.hf-catalog-directional-wipe .to', { '--hf-clip-right': '100%', '--hf-to-x': '60px', '--hf-to-scale': 1.04 }, { '--hf-clip-right': '0%', '--hf-to-x': '0px', '--hf-to-scale': 1, duration: 0.9, ease: 'power3.inOut' }, startTime); tl.to('.hf-catalog-directional-wipe .from', { '--hf-from-x': '-70px', '--hf-from-scale': 0.96, '--hf-from-blur': '5px', duration: 0.9, ease: 'power3.inOut' }, startTime); tl.fromTo('.hf-catalog-directional-wipe .fx', { '--hf-fx-x': '-110%' }, { '--hf-fx-x': '110%', duration: 0.58, ease: 'power2.inOut' }, startTime + 0.18); tl.fromTo('.hf-catalog-directional-wipe .rgb', { '--hf-rgb-opacity': 0, '--hf-rgb-x': '-16px' }, { '--hf-rgb-opacity': 1, '--hf-rgb-x': '16px', repeat: 3, yoyo: true, duration: 0.07, ease: 'steps(1)' }, startTime + 0.32);
+  tl.fromTo('#root .to', { '--hf-clip-right': '100%', '--hf-to-x': '60px', '--hf-to-scale': 1.04 }, { '--hf-clip-right': '0%', '--hf-to-x': '0px', '--hf-to-scale': 1, duration: 0.9, ease: 'power3.inOut' }, startTime); tl.to('#root .from', { '--hf-from-x': '-70px', '--hf-from-scale': 0.96, '--hf-from-blur': '5px', duration: 0.9, ease: 'power3.inOut' }, startTime); tl.fromTo('#root .fx', { '--hf-fx-x': '-110%' }, { '--hf-fx-x': '110%', duration: 0.58, ease: 'power2.inOut' }, startTime + 0.18); tl.fromTo('#root .rgb', { '--hf-rgb-opacity': 0, '--hf-rgb-x': '-16px' }, { '--hf-rgb-opacity': 1, '--hf-rgb-x': '16px', repeat: 3, yoyo: true, duration: 0.07, ease: 'steps(1)' }, startTime + 0.32);
 -->
