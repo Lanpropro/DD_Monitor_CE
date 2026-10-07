@@ -33,6 +33,7 @@ def main():
     source = (Path(__file__).resolve().parents[1] / 'dev/build_release.ps1').read_text(encoding='utf-8')
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
+    assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
     result = subprocess.run(['powershell', '-NoProfile', '-Command',

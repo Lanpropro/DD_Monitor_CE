@@ -163,9 +163,13 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     Remove-Item $exeDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $build | Out-Null
+    $versionInfo = Join-Path $build "windows-version.txt"
+    & $py (Join-Path $repo "dev\build_windows_version.py") $versionInfo
+    if ($LASTEXITCODE -ne 0) { throw "Windows EXE 版本信息生成失败" }
     $env:PYTHONPATH = $deps
     & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name "$name-exe" `
         --icon (Join-Path $repo "favicon.ico") `
+        --version-file $versionInfo `
         --distpath $OutDir --workpath $build --specpath $build `
         --runtime-hook (Join-Path $repo "dev\pyi_rth_pyside6_paths.py") `
         --collect-all streamlink `
