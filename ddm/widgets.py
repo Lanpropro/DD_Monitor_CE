@@ -3484,6 +3484,10 @@ class Sidebar(QFrame):
         self._folder_assignments: dict[str, str] = {}
         self._smart_cards: dict[tuple[str, str], SmartFolderCard] = {}
         self._folder_pending: set[str] = set()
+        self._entering_room_ids: set[str] = set()
+        self._card_entry_timer = QTimer(self)
+        self._card_entry_timer.setSingleShot(True)
+        self._card_entry_timer.timeout.connect(self._reveal_added_rooms)
         self._folders_folded_by_drag: set[str] = set()
         self._folder_drag_previous: dict[str, bool] = {}
         self._folder_buttons: dict[str, FollowFolderButton] = {}
@@ -5028,7 +5032,18 @@ class Sidebar(QFrame):
         self._sync_count()
         self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
         self.refresh_strip()
+        if self.isVisible() and motion.enabled():
+            self._entering_room_ids.add(room_id)
+            self._card_entry_timer.start(0)
         return True
+
+    def _reveal_added_rooms(self) -> None:
+        """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
+        entering = {item for item in self._items
+                    if str(item.room.get("room_id")) in self._entering_room_ids}
+        self._entering_room_ids.clear()
+        if entering and self.isVisible() and motion.enabled():
+            self.list_box.relayout(animate=True, duration=220, revealing=entering)
 
     def remove_room(self, room: dict) -> None:
         item = next((entry for entry in self._items

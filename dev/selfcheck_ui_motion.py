@@ -145,6 +145,40 @@ def main():
                 QTest.mouseClick(button, Qt.LeftButton)
                 assert sidebar.get_folder(folder)["collapsed"]
                 assert all(anim.state() != QAbstractAnimation.Running for anim in sidebar.list_box._animations.values())
+            old_positions = {item: QPoint(item.pos()) for item in sidebar.items()}
+            for rid in ("new-a", "new-b"):
+                assert sidebar.add_room({"room_id": rid, "uname": rid, "live": False})
+            sidebar.move_to_folder(["new-a", "new-b"], other)
+            final_positions = {item: QPoint(item.pos()) for item in sidebar.items()
+                               if item.room["room_id"].startswith("new-")}
+            app.processEvents()
+            assert not sidebar._entering_room_ids
+            for item, final_pos in final_positions.items():
+                animation = sidebar.list_box._animations[item]
+                assert animation.duration() == 220 and animation.endValue() == final_pos
+                delta = animation.startValue() - final_pos
+                assert (delta.x(), delta.y()) == ((24, 0) if side == "top" else (0, 24))
+                animation.setCurrentTime(75)
+                assert item.pos() != final_pos and item.pos() != animation.startValue()
+            assert all(item.pos() == pos for item, pos in old_positions.items())
+            QTest.qWait(260)
+            assert all(item.pos() == pos for item, pos in final_positions.items())
+            sidebar.toggle_folder(other)
+            sidebar.add_room({"room_id": "hidden-new", "uname": "hidden", "live": False})
+            sidebar.move_to_folder(["hidden-new"], other)
+            app.processEvents()
+            hidden = next(item for item in sidebar.items() if item.room["room_id"] == "hidden-new")
+            assert hidden.isHidden() and hidden not in sidebar.list_box._animations
+            removed = {"room_id": "removed-new", "uname": "removed", "live": False}
+            sidebar.add_room(removed)
+            sidebar.remove_room(removed)
+            app.processEvents()
+            assert not sidebar._entering_room_ids
+            with patch.object(motion, "enabled", return_value=False):
+                sidebar.add_room({"room_id": "instant-new", "uname": "instant", "live": False})
+                app.processEvents()
+                instant = next(item for item in sidebar.items() if item.room["room_id"] == "instant-new")
+                assert instant not in sidebar.list_box._animations and not sidebar._card_entry_timer.isActive()
             sidebar.close()
 
         parent = QWidget()
@@ -188,7 +222,7 @@ def main():
         parent.close()
     sys.excepthook = original_hook
     assert not callback_errors, callback_errors
-    print("PASS: dialog entrance/interruption, drag lift/HiDPI, settings slide/fade, folder reveal, notice and reduced motion")
+    print("PASS: dialog entrance/interruption, drag lift/HiDPI, settings, folder/new-card reveal, notice and reduced motion")
 
 
 if __name__ == "__main__":
