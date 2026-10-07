@@ -36,7 +36,7 @@ def pcm(source):
 
 class HighlightAudioTests(unittest.TestCase):
     def test_machine_audio_is_advanced_and_csboy_keeps_its_original_offset(self):
-        self.assertEqual(SYNC["machine"]["audio_advance_seconds"], .1)
+        self.assertEqual(SYNC["machine"]["audio_advance_seconds"], .2)
         self.assertEqual(SYNC["csboy"]["audio_advance_seconds"], 0)
         for speaker in ("machine", "csboy"):
             source = SYNC[speaker]

@@ -3,12 +3,12 @@
   "picture_start": 120.0,
   "duration": 12.0,
   "picture_asset": "assets/highlight-picture.mp4",
-  "audio_asset": "assets/highlight-dual-commentary-v2.wav",
-  "preview": "renders/highlight-dual-commentary-v2.mp4",
+  "audio_asset": "assets/highlight-dual-commentary-v3.wav",
+  "preview": "renders/highlight-dual-commentary-v3.mp4",
   "machine": {
     "source": "Video_reference/【玩机器解说】小蜜蜂VS_猎鹰__ESL_Pro_League_Season_24.阿努比斯.42495378388.mp4",
     "start": 2067.566667,
-    "audio_advance_seconds": 0.1,
+    "audio_advance_seconds": 0.2,
     "offset_from_picture_source": 1947.566667,
     "median_frame_correlation": 0.946853
   },
@@ -33,6 +33,6 @@
     "left": {"machine": 0.8, "csboy": 0.2},
     "right": {"machine": 0.2, "csboy": 0.8},
     "sample_rate": 48000,
-    "note": "Retain native commentary and game sound; machine audio advanced 100ms after listening feedback, CSBOY unchanged. No voice synthesis or time stretch."
+    "note": "Retain native commentary and game sound; machine audio advanced 200ms after listening feedback, CSBOY unchanged. No voice synthesis or time stretch."
   }
 }

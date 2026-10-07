@@ -61,4 +61,6 @@
 
 用户试听反馈“左声道慢了一点”后，玩机器整路原声提前0.100秒：画面匹配基准仍为2067.566667秒，实际取声从2067.666667秒起。CSBOY维持2425.700秒；左右混音权重、画面和片长不变。参数 `audio_advance_seconds` 单独记录取声微调，正值表示提前，不改视觉匹配数据，不变速或填充静音。
 
-当前微调试听为 `renders/highlight-dual-commentary-v2.mp4`，预览音轨改用 `assets/highlight-dual-commentary-v2.wav`，避免已加载旧音频造成缓存混淆。声音测试4项通过，包含直接核对原回放取声位置；画面素材重建前后SHA256一致。原版试听保留，可供听感比较。
+首轮微调试听为 `renders/highlight-dual-commentary-v2.mp4`，预览音轨使用 `assets/highlight-dual-commentary-v2.wav`，避免已加载旧音频造成缓存混淆。声音测试4项通过，包含直接核对原回放取声位置；画面素材重建前后SHA256一致。原版试听保留，可供听感比较。
+
+用户反馈“仍然慢了一点”后，再提前玩机器原声0.100秒，累计提前0.200秒，实际从2067.766667秒起取声。当前试听 `renders/highlight-dual-commentary-v3.mp4`，预览使用 `assets/highlight-dual-commentary-v3.wav`；CSBOY、画面、混音权重及片长保持不变，v2试听保留。
