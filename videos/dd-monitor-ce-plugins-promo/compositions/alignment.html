@@ -1,0 +1,15 @@
+<template>
+<style>#alignment-root{position:absolute;inset:0;overflow:hidden}#alignment-mark{left:155px;top:645px;width:1160px;height:125px}</style>
+<div data-hf-id="hf-q6g5" id="alignment-root" data-composition-id="alignment" data-width="1920" data-height="1080" data-duration="12.121">
+<div data-hf-id="hf-a3c7" id="alignment-camera" class="camera" data-layout-allow-overflow="true">
+<video data-hf-id="hf-s9a6" id="alignment-video" class="clip" src="assets/match-continuous.mp4" data-start="0" data-media-start="3.031" data-duration="12.121" muted playsinline></video>
+<div data-hf-id="hf-aolq" id="alignment-mark" class="frame-mark"></div>
+</div><div data-hf-id="hf-wm20" class="kicker">比赛二路 · 比较与微调</div><div data-hf-id="hf-45gs" id="alignment-caption" class="caption">先对时间，再一起看。</div>
+</div><script>
+const tl=gsap.timeline({paused:true});tl.fromTo('#alignment-mark',{opacity:0},{opacity:1,duration:.3},1.212);
+tl.fromTo('#alignment-root .kicker, #alignment-caption',{opacity:0},{opacity:1,duration:.45,ease:'power2.out'},.15);
+tl.to('#alignment-camera',{scale:1.36,x:-170,y:-460,duration:.8,ease:'power3.inOut'},1.5);
+tl.to('#alignment-camera',{scale:1.6,x:-750,y:-700,duration:.75,ease:'power3.inOut'},6.061);tl.set('#alignment-caption',{textContent:'微调偏移，对齐比赛时间。'},6.061);
+tl.to('#alignment-camera',{scale:1.36,x:-170,y:-460,duration:.8,ease:'power3.inOut'},8.485);
+tl.to('#alignment-camera',{scale:1,x:0,y:0,duration:1,ease:'power3.inOut'},10.606);tl.to('#alignment-mark',{opacity:0,duration:.3},10.606);window.__timelines['alignment']=tl;
+</script></template>
