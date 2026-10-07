@@ -218,6 +218,13 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     Write-Output "=== 实跑 20 秒验证（看有没有写出启动日志）==="
     $logDir = Join-Path $exeDir "logs"
     Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
+    # 仅自检跳过首次须知，避免等待用户确认；配置不进入发布包。
+    $testConfig = Join-Path $exeDir "utils\config.json"
+    if (Test-Path -LiteralPath $testConfig) { throw "自检目录意外包含已有用户配置" }
+    New-Item -ItemType Directory -Force -Path (Split-Path $testConfig -Parent) | Out-Null
+    @{ version = 2; rooms = @(); wall = @(); user_notice_accepted = $true;
+       plugins_enabled = @(); settings = @{ auto_update = $false } } |
+        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $testConfig -Encoding UTF8
     $proc = Start-Process -FilePath (Join-Path $exeDir "$name.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 20
     $alive = -not $proc.HasExited
@@ -226,6 +233,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     # 上一次就把验证用的 logs 留在了交付目录里（zip 里倒是干净的）。
     try { $null = $proc.WaitForExit(5000) } catch { }
     Start-Sleep -Milliseconds 300
+    Remove-Item -LiteralPath $testConfig -Force
     $log = Get-ChildItem $logDir -Filter "ddm-*.log" -ErrorAction SilentlyContinue | Select-Object -First 1
     $started = $false
     if ($log) {
@@ -238,6 +246,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     Write-Output "  exe 启动验证通过 ✓ -> $exeDir"
     # 验证时写出来的 logs / cache / 插件的运行目录不留在发布包里
     Remove-Item (Join-Path $exeDir "logs"), (Join-Path $exeDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $exeDir "utils") -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $exeDir "plugins_user\_danmaku_log") -Recurse -Force -ErrorAction SilentlyContinue
     # 再压一个 zip：用户要的就是「下载一个 zip、解压直接双击 exe 用」
     if (-not $SkipZip) {
