@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import replace
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
@@ -92,17 +92,18 @@ class Canvas(QFrame):
             painter.drawText(self.rect(), Qt.AlignCenter, "将左侧关注栏卡片拖到这里，加入比赛二路")
             return
         image = self.image
+        source = image.rect()
         if self.zoom_crop:
             rect = self.crop
-            image = image.copy(round(rect.x() * image.width()), round(rect.y() * image.height()),
-                               max(1, round(rect.width() * image.width())),
-                               max(1, round(rect.height() * image.height())))
-        size = image.size().scaled(self.size(), Qt.KeepAspectRatio)
+            source = QRect(round(rect.x() * image.width()), round(rect.y() * image.height()),
+                           max(1, round(rect.width() * image.width())),
+                           max(1, round(rect.height() * image.height()))).intersected(source)
+        size = source.size().scaled(self.size(), Qt.KeepAspectRatio)
         self.image_rect = QRectF((self.width() - size.width()) / 2,
                                 (self.height() - size.height()) / 2,
                                 size.width(), size.height())
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        painter.drawImage(self.image_rect, image)
+        painter.drawImage(self.image_rect, image, QRectF(source))
         if self.selecting:
             painter.setPen(QPen(QColor("#38bdf8"), 2))
             rect = self.crop
@@ -312,13 +313,24 @@ class ComparisonPanel(QFrame):
                 continue
             _card, name, canvas, state = self.cards[room_id]
             name.setText(f"{'主画面' if room_id == reference else '对照'} · {row.label()}")
-            name.setStyleSheet(f"color: {row.color};")
-            canvas.crop = QRectF(*row.crop)
-            canvas.zoom_crop = self.zoom.isChecked()
+            style = f"color: {row.color};"
+            if name.styleSheet() != style:
+                name.setStyleSheet(style)
+            crop, zoom = QRectF(*row.crop), self.zoom.isChecked()
+            repaint = canvas.crop != crop or canvas.zoom_crop != zoom
+            canvas.crop, canvas.zoom_crop = crop, zoom
             if not row.paused:
-                frame = canvas.show_at(row.decoder, clock + shifts[room_id]) if row.decoder else None
-                canvas.waiting = frame is None or self.viewer.sync_waiting
-            canvas.update()
+                if room_id == reference:
+                    if self.viewer.canvas.frame is not None:
+                        canvas.set_frame(self.viewer.canvas.frame)
+                    waiting = self.viewer.canvas.waiting
+                else:
+                    frame = canvas.show_at(row.decoder, clock + shifts[room_id]) if row.decoder else None
+                    waiting = frame is None or self.viewer.sync_waiting
+                repaint |= canvas.waiting != waiting
+                canvas.waiting = waiting
+            if repaint:
+                canvas.update()
             relative = shifts[room_id] - shifts.get(reference, 0)
             position = ("主画面基准" if room_id == reference else
                         f"相对主画面{'提前' if relative >= 0 else '延后'} {abs(relative):.1f} 秒")
@@ -1364,8 +1376,6 @@ class Viewer(QDialog):
         clock = self.audio.clock()
         shifts = self.shifts()
         clock = self._recover_clock(clock, shifts)
-        if self.compare.isChecked():
-            self.comparison_panel.render(clock, shifts)
         row = self.rows.get(self.alignment.reference)
         if row is not None and row.decoder is not None and not row.paused:
             frame = self.canvas.show_at(row.decoder, clock + shifts[row.room_id])
@@ -1386,6 +1396,8 @@ class Viewer(QDialog):
                 delay = time.monotonic() - clock - shifts[row.room_id]
                 self.notice.setText(f"主画面：{row.label()} · 延后约 {delay:.1f} 秒 · "
                                     "无法匹配时保持已确认偏移，可手动校正")
+        if self.compare.isChecked():
+            self.comparison_panel.render(clock, shifts)
         eligible = []
         chat_budget = min(80, max(1, 200 // max(1, len(self.rows))))
         for room_id, row in self.rows.items():
