@@ -552,7 +552,10 @@ class RefreshButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         center = QPointF(self.width() / 2, self.height() / 2)
-        color = _icon_color(self)
+        if self.property("refreshing"):
+            color = QColor(theme.ACCENT)
+        else:
+            color = _icon_color(self, hover_dark=self.objectName() not in ("ChipButton", "BarIcon"))
         radius = min(7.0, self.height() / 2 - 5)
         rect = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
         pen = QPen(color, 1.7)
@@ -5388,9 +5391,11 @@ class Sidebar(QFrame):
             self.count_label.setText(f"关注中 · {len(self._items)}")
 
     def set_refreshing(self, busy: bool) -> None:
-        self.refresh_button.setEnabled(not busy)
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setProperty("refreshing", busy)
+        self.refresh_button.update()
         self.refresh_button.setToolTip(
-            "正在刷新关注列表…" if busy else "立刻刷新关注列表：直播状态、标题、在线人数、头像")
+            "正在刷新关注列表…再次点击可排队刷新" if busy else "立刻刷新关注列表：直播状态、标题、在线人数、头像")
 
 
 class Tile(QFrame):

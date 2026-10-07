@@ -1573,7 +1573,8 @@ class MainWindow(QMainWindow):
         if self._refresh_queued:
             self._refresh_queued = False
             self.refresh_status()
-            return
+            if self._poller is not None:
+                return
         self.sidebar.set_refreshing(False)
 
     def _on_status_failed(self, reason: str) -> None:
