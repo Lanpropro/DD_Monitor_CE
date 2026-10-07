@@ -56,6 +56,10 @@ function openPanel() {
             avatarUri:'https://p3.douyinpic.com/a.png',
             roomData:{status:2, title:'Live fixture', owner:{web_rid:'1001'}, stream_url:'must-not-export'}};
         const second = {uid:'102', nickname:'Offline', roomData:{web_rid:'1002', status:4}};
+        if (mode === 'rendered_camel') {
+            first.roomData.owner = {webRid:'1001', idStr:'101'};
+            second.roomData = {webRid:'1002', status:4};
+        }
         if (mode === 'rendered_resolve') {first.roomData = {}; second.roomData = {};}
         const props = {userList:[first], isSelf:true, activeTab:0, searchVal:'',
             currentUserInfo:{uid:mode === 'rendered_other' ? '999' : '42'},
@@ -82,7 +86,7 @@ function openPanel() {
         panel.addEventListener('scroll', () => {
             clearTimeout(timer);
             timer = setTimeout(() => {
-                if (mode === 'rendered' || mode === 'rendered_fiber' || mode === 'rendered_resolve') render([first, second], true);
+                if (mode === 'rendered' || mode === 'rendered_fiber' || mode === 'rendered_resolve' || mode === 'rendered_camel') render([first, second], true);
             }, 250);
         });
         return;
@@ -169,7 +173,7 @@ def main():
     provider.account_info = Mock(return_value={'uid': '42', 'uname': 'Fixture'})
     try:
         for mode in ('normal', 'profile_counter', 'empty', 'error', 'second_error', 'no_panel', 'pending',
-                     'rendered', 'rendered_fiber', 'rendered_resolve', 'rendered_empty', 'rendered_other',
+                     'rendered', 'rendered_fiber', 'rendered_resolve', 'rendered_camel', 'rendered_empty', 'rendered_other',
                      'rendered_fans', 'rendered_search', 'rendered_stall', 'rendered_invalid_empty', 'rendered_pending'):
             state.update(mode=mode, requests=[])
             provider.follow_browser_init_script = DouyinPlatform.follow_browser_init_script.replace(
@@ -184,6 +188,7 @@ def main():
             wait_for(app, lambda: bool(loaded))
             assert loaded[-1]
             def room_lookup(url, **kwargs):
+                assert mode != 'rendered_camel', 'Rendered room data should not need a supplemental request'
                 assert url == 'https://live.douyin.com/webcast/room/info_by_user/'
                 uid = kwargs['params']['user_id']
                 assert uid in ('101', '102')
@@ -215,7 +220,7 @@ def main():
                     wait_for(app, request_started)
                     dialog.reject()
                 wait_for(app, lambda: dialog._worker is None)
-            if mode in ('normal', 'profile_counter', 'rendered', 'rendered_fiber', 'rendered_resolve'):
+            if mode in ('normal', 'profile_counter', 'rendered', 'rendered_fiber', 'rendered_resolve', 'rendered_camel'):
                 assert [room['room_id'] for room in dialog.rooms] == ['douyin:1001', 'douyin:1002']
                 assert dialog.rooms[0]['live'] and not dialog.rooms[1]['live']
                 if mode in ('normal', 'profile_counter'):
