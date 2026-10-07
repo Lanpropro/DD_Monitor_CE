@@ -3,7 +3,7 @@ import os
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QSizePolicy, QToolButton, QVBoxLayout
+from PySide6.QtWidgets import QSizePolicy, QToolButton
 
 from ddm import plugins as api
 
@@ -15,7 +15,7 @@ from .viewer import Viewer
 
 
 class EntryButton(QToolButton):
-    """Keep the plugin entry outside the host's two-button tool row."""
+    """Use the original horizontal entry and a separate portrait icon."""
     def __init__(self, sidebar, action):
         super().__init__(sidebar)
         self.sidebar = sidebar
@@ -37,7 +37,19 @@ class EntryButton(QToolButton):
         self._placement = QTimer(self)
         self._placement.setSingleShot(True)
         self._placement.timeout.connect(self._place)
+        self._set_side_original = getattr(sidebar, "set_side", None)
+        if self._set_side_original is not None:
+            sidebar.set_side = self._set_side
         sidebar.installEventFilter(self)
+        self._place()
+
+    def _set_side(self, side):
+        # The host assumes two tool buttons while constructing its portrait row.
+        # Remove only our entry before that construction, then place it afterward.
+        if side == "top" and self.parentWidget() is self.sidebar.tool_row:
+            self.sidebar.tool_row.layout().removeWidget(self)
+            self.setParent(self.sidebar)
+        self._set_side_original(side)
         self._place()
 
     def eventFilter(self, watched, event):
@@ -54,29 +66,31 @@ class EntryButton(QToolButton):
             box = sidebar._bar_row_box
             anchor = sidebar.toggle_button
         else:
-            parent = sidebar
-            box = sidebar.layout() or QVBoxLayout(sidebar)
-            anchor = sidebar.tool_row
+            parent = sidebar.tool_row
+            box = parent.layout()
+            anchor = None
         if self._top != top:
             self._top = top
             self.setObjectName("BarIcon" if top else "IconButton")
             self.setToolButtonStyle(Qt.ToolButtonIconOnly if top else Qt.ToolButtonTextOnly)
             self.setMinimumSize(QSize(30, 30) if top else QSize(0, 0))
             self.setMaximumSize(QSize(30, 30) if top else QSize(16777215, 16777215))
-            self.setSizePolicy(QSizePolicy.Fixed if top else QSizePolicy.Expanding,
+            self.setSizePolicy(QSizePolicy.Fixed if top else QSizePolicy.Preferred,
                                QSizePolicy.Fixed)
             self.style().unpolish(self)
             self.style().polish(self)
-        if (self.parentWidget() is not parent or box.indexOf(self) < 0
-                or box.indexOf(self) + 1 != box.indexOf(anchor)):
+        index = box.indexOf(anchor) if top else 0
+        if self.parentWidget() is not parent or box.indexOf(self) != index - (1 if top else 0):
             old = self.parentWidget().layout()
             if old is not None:
                 old.removeWidget(self)
             self.setParent(parent)
-            box.insertWidget(box.indexOf(anchor), self)
+            box.insertWidget(box.indexOf(anchor) if top else 0, self)
         self.setVisible(top or not getattr(sidebar, "collapsed", False))
 
     def detach(self):
+        if self._set_side_original is not None and self.sidebar.set_side == self._set_side:
+            self.sidebar.set_side = self._set_side_original
         self.sidebar.removeEventFilter(self)
         self._placement.stop()
         if self.parentWidget().layout() is not None:

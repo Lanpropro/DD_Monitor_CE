@@ -10,8 +10,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QAction
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QToolButton, QVBoxLayout, QWidget
 from ddm import theme
 from ddm.widgets import Sidebar
 from plugins_user._match_sync.plugin import MatchSyncPlugin
@@ -81,9 +82,10 @@ for _ in range(4):
     assert native_geometry() == baseline
     sidebar.set_side("left")
     settle()
-    assert entry.parentWidget() is sidebar
-    assert native_tools() == [sidebar.layout_button, sidebar.settings_button]
-    assert sidebar.layout().indexOf(entry) == sidebar.layout().indexOf(sidebar.tool_row) - 1
+    assert entry.parentWidget() is sidebar.tool_row
+    assert native_tools() == [entry, sidebar.layout_button, sidebar.settings_button]
+    assert entry.objectName() == "IconButton"
+    assert entry.toolButtonStyle() == Qt.ToolButtonTextOnly
     sidebar.set_collapsed(True, animate=False)
     settle()
     assert entry.isHidden()
@@ -108,10 +110,23 @@ assert plugin.entry is None and plugin.button is None
 assert native_tools() == baseline_tools and native_geometry() == baseline
 sidebar.set_side("left")
 settle()
+legacy = QToolButton(sidebar.tool_row)
+legacy.setDefaultAction(QAction("比赛二路", host))
+legacy.setObjectName("IconButton")
+sidebar.tool_row.layout().insertWidget(0, legacy)
+legacy.show()
+settle()
+legacy_geometry = tuple(widget.geometry().getRect() for widget in
+                        (legacy, sidebar.layout_button, sidebar.settings_button))
+sidebar.tool_row.layout().removeWidget(legacy)
+legacy.hide()
+legacy.deleteLater()
 plugin.on_load(context)
 settle()
-assert plugin.entry.parentWidget() is sidebar
-assert native_tools() == [sidebar.layout_button, sidebar.settings_button]
+assert plugin.entry.parentWidget() is sidebar.tool_row
+assert native_tools() == [plugin.entry, sidebar.layout_button, sidebar.settings_button]
+assert tuple(widget.geometry().getRect() for widget in
+             (plugin.entry, sidebar.layout_button, sidebar.settings_button)) == legacy_geometry
 plugin.on_unload()
 settle()
 assert native_tools() == [sidebar.layout_button, sidebar.settings_button]
