@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "videos/dd-monitor-ce-plugins-promo"
-RENDER = PROJECT / "renders/sample-v5.mp4"
+RENDER = PROJECT / "renders/sample-v6.mp4"
 
 
 class Elements(HTMLParser):
@@ -27,17 +27,68 @@ def probe(path, *options):
 
 
 class PromoSampleTests(unittest.TestCase):
+    def test_user_copy_is_preserved_and_manual_demonstration_is_labeled(self):
+        intro = (PROJECT / "compositions/intro.html").read_text(encoding="utf-8")
+        domestic = (PROJECT / "compositions/domestic.html").read_text(encoding="utf-8")
+        global_scene = (PROJECT / "compositions/global.html").read_text(encoding="utf-8")
+        self.assertIn("红队绿队一起看。", intro)
+        self.assertIn("为你的ALGS观看如“虎”添翼", domestic)
+        self.assertNotIn("tl.set('#domestic-caption'", domestic)
+        self.assertIn("海外的直播也一样", global_scene)
+        self.assertIn("国（内）外大神视角一屏掌握", global_scene)
+        self.assertNotIn("九格来自不同时间片段拼接", global_scene)
+        self.assertNotIn("<br", global_scene)
+        alignment = (PROJECT / "compositions/alignment.html").read_text(encoding="utf-8")
+        self.assertIn("自动对齐优先，必要时手动微调。", alignment)
+        self.assertIn("本段录屏展示手动偏移微调", alignment)
+        self.assertNotIn("自动对齐演示", alignment)
+        updates = (PROJECT / "compositions/updates.html").read_text(encoding="utf-8")
+        self.assertIn("让每次打开，都更顺手。", updates)
+        for copy in ("关注，整理有序", "弹幕，随心调整", "插件，集中管理"):
+            self.assertIn(copy, updates)
+        self.assertNotIn("比赛二路", updates)
+
+    def test_follow_camera_starts_on_the_topmost_recorded_card(self):
+        frame = subprocess.check_output([
+            "ffmpeg", "-v", "error", "-ss", "4.5", "-i", str(RENDER), "-frames:v", "1",
+            "-vf", "crop=220:90:230:406,scale=64:36,format=gray", "-f", "rawvideo", "-"])
+        source = subprocess.check_output([
+            "ffmpeg", "-v", "error", "-ss", "4.5", "-i", str(PROJECT / "assets/domestic-apex-v6.mp4"),
+            "-frames:v", "1", "-vf", "crop=112:46:18:106,scale=64:36,format=gray",
+            "-f", "rawvideo", "-"])
+        self.assertEqual(len(frame), 64*36)
+        error = sum(abs(a-b) for a,b in zip(frame,source))/len(frame)
+        self.assertLess(error, 10, "First camera beat skipped the topmost recorded card")
+
+    def test_domestic_replacement_panes_have_no_extended_freeze(self):
+        selections = json.loads((PROJECT / "domestic-cell-selections.json").read_text(encoding="utf-8"))
+        self.assertEqual({s["pane"] for s in selections}, {"bottom-left", "bottom-middle"})
+        for selection in selections:
+            raw = subprocess.check_output([
+                "ffmpeg", "-v", "error", "-i", str(PROJECT / "assets" / selection["asset"]),
+                "-vf", "scale=64:36,format=gray", "-f", "rawvideo", "-"])
+            size = 64*36
+            frames = [raw[i:i+size] for i in range(0,len(raw),size)]
+            run = longest = 0
+            for a,b in zip(frames,frames[1:]):
+                change = sum(abs(x-y) for x,y in zip(a,b))/size
+                run = run+1 if change < .35 else 0
+                longest = max(longest,run)
+            with self.subTest(pane=selection["pane"]):
+                self.assertEqual(len(frames), 492)
+                self.assertLessEqual(longest/30, .3)
+
     def test_domestic_is_the_new_recording_and_intro_joins_it_continuously(self):
         end = 0
         for name in ("intro", "domestic"):
             path = PROJECT / f"compositions/{name}.html"
             video = [a for tag, a in Elements(path).tags if tag == "video"][0]
-            self.assertEqual(video["src"], "assets/domestic-apex.mp4")
+            self.assertEqual(video["src"], "assets/domestic-apex-v6.mp4")
             self.assertAlmostEqual(float(video.get("data-media-start", 0)), end)
             end += float(video["data-duration"])
             self.assertNotIn("待替换", path.read_text(encoding="utf-8"))
         source = next(s for s in json.loads((PROJECT / "sources.json").read_text(
-            encoding="utf-8")) if s["asset"] == "domestic-apex.mp4")
+            encoding="utf-8")) if s["asset"] == "domestic-apex-v6.mp4")
         self.assertEqual(source["source"], "Video_reference/国内apex 1+5.mp4")
         self.assertEqual(source["source_start"], 0)
         self.assertFalse(source["looped"])
@@ -66,7 +117,7 @@ class PromoSampleTests(unittest.TestCase):
                     # Accept the expected frame or its immediate predecessor, never a broad range.
                     expected = subprocess.check_output([
                         "ffmpeg", "-v", "error", "-ss", str(time-1/30), "-i",
-                        str(PROJECT / "assets/domestic-apex.mp4"), "-frames:v", "2", "-vf",
+                        str(PROJECT / "assets/domestic-apex-v6.mp4"), "-frames:v", "2", "-vf",
                         "crop="+":".join(map(str,source_crop))+",scale=64:36,format=gray",
                         "-f", "rawvideo", "-"])
                     size = len(rendered)
