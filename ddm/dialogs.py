@@ -527,9 +527,15 @@ class PluginSettingsPage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
-        self.cards = QVBoxLayout(content)
-        self.cards.setContentsMargins(0, 0, 4, 0)
+        installed_layout = QVBoxLayout(content)
+        installed_layout.setContentsMargins(0, 0, 4, 0)
+        hint_space = QLabel(" ")
+        hint_space.setObjectName("SettingsHint")
+        installed_layout.addWidget(hint_space)
+        self.cards = QVBoxLayout()
+        self.cards.setContentsMargins(0, 0, 0, 0)
         self.cards.setSpacing(10)
+        installed_layout.addLayout(self.cards)
         entries = manager.catalog() if manager else []
         self._initial_enabled = {entry["id"]: entry["enabled"] for entry in entries}
         self._files_changed = any(entry["status"] == "待重启" for entry in entries) or bool(

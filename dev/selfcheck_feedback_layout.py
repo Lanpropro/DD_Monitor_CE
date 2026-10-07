@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
+from PySide6.QtCore import QPoint
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -26,13 +27,16 @@ def main():
         page = PluginSettingsPage(manager)
         QVBoxLayout(owner).addWidget(page)
         page.store_page.show_offers([{**entry, "available": True}])
+        page.store_page.status.setText("选择插件即可下载安装，重启后启用。")
         owner.show()
         app.processEvents()
         installed = page.cards.itemAt(0).widget()
         size = installed.size()
+        installed_top = installed.mapTo(page, QPoint()).y()
         page.tabs.setCurrentIndex(1)
         app.processEvents()
         store = page.store_page.cards.itemAt(0).widget()
+        assert installed_top == store.mapTo(page, QPoint()).y(), (installed_top, store.mapTo(page, QPoint()).y())
         assert installed.size() == store.size(), (size, store.size())
         assert installed.layout().contentsMargins() == store.layout().contentsMargins()
         assert installed.layout().spacing() == store.layout().spacing() == 6
@@ -40,7 +44,7 @@ def main():
         assert installed.findChild(QLabel, "PluginName").font() == store.findChild(QLabel, "PluginName").font()
         page.store_page.stop()
         owner.close()
-    print("PASS: same-plugin installed/store card size, margins, row spacing and title font")
+    print("PASS: installed/store first-card alignment, size, margins, row spacing and title font")
 
 
 if __name__ == "__main__":
