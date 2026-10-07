@@ -7,6 +7,20 @@ BRIEF = ROOT / "docs/HANDOFF-PROMO-2026-10-08.md"
 
 
 class PromoHandoffTests(unittest.TestCase):
+    def test_takeover_records_verification_and_replacement_entries(self):
+        brief = BRIEF.read_text(encoding="utf-8")
+        current = (ROOT / "PROJECT_STATE.md").read_text(encoding="utf-8").split("\n---\n", 1)[0]
+        for record in ("已接手", "01a11758-8cca-7382-a41f-0a33ba0d0491",
+                       "88733939", "41.515–49.091", "49.091–56.061",
+                       "compositions/audition.html", "compositions/updates.html",
+                       "未验证浏览器播放"):
+            with self.subTest(record=record):
+                self.assertIn(record, brief)
+                self.assertIn(record, current)
+        for composition in ("audition", "updates"):
+            self.assertTrue((ROOT / "videos/dd-monitor-ce-plugins-promo/compositions" /
+                             f"{composition}.html").is_file())
+
     def test_handoff_matches_registered_task_and_preserves_history(self):
         brief = BRIEF.read_text(encoding="utf-8")
         state = (ROOT / "PROJECT_STATE.md").read_text(encoding="utf-8")
