@@ -20,7 +20,8 @@ def build():
     for name in ("machine", "csboy"):
         source = sync[name]
         handle = evidence / f"{name}-aligned-handles.wav"
-        run("-ss", source["start"]-5, "-i", ROOT / source["source"],
+        run("-ss", source["start"]+source["audio_advance_seconds"]-5,
+            "-i", ROOT / source["source"],
             "-t", duration+10, "-map", "0:a:0", "-ac", 1, "-ar", 48000,
             "-c:a", "pcm_s16le", handle)
         path = evidence / f"{name}-aligned.wav"

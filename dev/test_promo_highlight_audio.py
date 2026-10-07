@@ -35,6 +35,22 @@ def pcm(source):
 
 
 class HighlightAudioTests(unittest.TestCase):
+    def test_machine_audio_is_advanced_and_csboy_keeps_its_original_offset(self):
+        self.assertEqual(SYNC["machine"]["audio_advance_seconds"], .1)
+        self.assertEqual(SYNC["csboy"]["audio_advance_seconds"], 0)
+        for speaker in ("machine", "csboy"):
+            source = SYNC[speaker]
+            expected = array.array("f")
+            expected.frombytes(subprocess.check_output([
+                "ffmpeg", "-v", "error", "-ss",
+                str(source["start"]+source["audio_advance_seconds"]),
+                "-i", str(ROOT / source["source"]), "-t", "1",
+                "-map", "0:a:0", "-ac", "1", "-ar", "48000", "-f", "f32le", "-"]))
+            actual = pcm(ROOT / f"work/highlight-sync/{speaker}-aligned.wav")
+            with self.subTest(speaker=speaker):
+                self.assertGreater(correlation(expected[2048:46000],
+                                               actual[2048:46000]), .999)
+
     def test_replays_match_gameplay_at_multiple_points_without_stretching(self):
         self.assertFalse(SYNC["alignment"]["time_stretch"])
         for time in (0, 3, 6, 10):

@@ -222,7 +222,7 @@
     "looped": false
   },
   {
-    "asset": "highlight-dual-commentary.wav",
+    "asset": "highlight-dual-commentary-v2.wav",
     "duration": 12,
     "alignment_record": "highlight-sync.json",
     "method": "Native replay audio aligned by gameplay frames, machine biased left and CSBOY biased right; no time stretch"
