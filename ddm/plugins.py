@@ -159,6 +159,8 @@ class Platform:
     oauth_provider = ""  # 可选：twitch/youtube 使用本体的系统浏览器 OAuth 授权窗口。
     follow_browser_url = ""  # 可选：需要官网浏览器签名的 GET 接口（字符串或元组），包括账号确认。
     follow_browser_script = ""  # 可选：官网请求函数 (url) => Promise<JSON>，只返回接口响应。
+    follow_accounts = None  # 可选：完整关注账号列表；待识别账号 room_id 为空，anchor_uid 非空。
+    resolve_follow_account = None  # 可选：补充账号的固定房间；返回完整账号字典，不使用登录 Cookie。
     follow_browser_init_script = ""  # 可选：页面创建时安装官网列表响应监听，读取时保持页面可见。
 
     def follow_rooms(self, session, cancelled) -> list[dict]:

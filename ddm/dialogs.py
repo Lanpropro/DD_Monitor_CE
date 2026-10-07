@@ -979,14 +979,10 @@ class FollowImportDialog(QDialog):
         self.list.itemClicked.connect(self._on_item_clicked)
         for room in rooms:
             room_id = str(room["room_id"])
-            flags = [f"{room['uname']}"]
-            flags.append("直播中" if room["live"] else "未开播")
-            if room["title"]:
-                flags.append(room["title"][:18])
-            item = QListWidgetItem("　".join(flags))
+            item = QListWidgetItem(self._room_text(room))
             item.setData(Qt.UserRole, room)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if room_id in self.existing else Qt.Unchecked)
+            item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
             self.list.addItem(item)
         layout.addWidget(self.list, 1)
 
@@ -1052,7 +1048,27 @@ class FollowImportDialog(QDialog):
         selected = len(self.selected())
         shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
         filtered = f"，当前显示 {shown} 个" if self.search_edit.text().strip() else ""
-        self.header.setText(f"共 {len(self.rooms)} 个直播间{filtered}，已勾选 {selected} 个")
+        pending = sum(not room.get("room_id") for room in self.rooms)
+        noun = "关注账号" if any(room.get("anchor_uid") for room in self.rooms) else "直播间"
+        detail = f"，{pending} 个直播间待识别" if pending else ""
+        self.header.setText(f"共 {len(self.rooms)} 个{noun}{detail}{filtered}，已勾选 {selected} 个")
+
+    @staticmethod
+    def _room_text(room):
+        status = ("直播间待识别" if not room.get("room_id") else
+                  "直播状态待刷新" if room.get("live_known") is False else
+                  "直播中" if room["live"] else "未开播")
+        return "　".join([room["uname"], status] + ([room["title"][:18]] if room.get("title") else []))
+
+    def update_account(self, account):
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            if item.data(Qt.UserRole).get("anchor_uid") == account.get("anchor_uid"):
+                self.rooms[index] = dict(account)
+                item.setData(Qt.UserRole, dict(account))
+                item.setText(self._room_text(account))
+                self._update_header()
+                return
 
     # ---- 结果 ----
     def deselected_existing(self) -> list[str]:
@@ -1076,6 +1092,6 @@ class FollowImportDialog(QDialog):
         for index in range(self.list.count()):
             item = self.list.item(index)
             room = item.data(Qt.UserRole)
-            if str(room.get("room_id")) == str(room_id):
+            if str(room.get("room_id")) == str(room_id) or "account:" + str(room.get("anchor_uid")) == str(room_id):
                 item.setIcon(QIcon(icon_pixmap))
                 return

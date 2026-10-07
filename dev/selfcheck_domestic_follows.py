@@ -167,28 +167,25 @@ def check_douyin():
         session.get = Mock(side_effect=[
             reply({"status_code": 0, "followings": [live, offline, ordinary], "has_more": 1,
                    "offset": 3, "min_time": 100, "max_time": 0}),
-            reply({"status_code": 0, "data": {"id_str": "901", "owner_user_id": 101}}),
             reply({"status_code": 0, "data": {"id_str": "902", "owner_user_id": 102}}),
             reply({"status_code": 0, "data": {}}),
             reply({"status_code": 0, "followings": [live], "has_more": 0}),
         ])
-        get_reflow.side_effect = [reflow({'idStr': '901', 'status': 2, 'title': 'Current title',
-            'cover': {'urlList': ['https://p3.douyinpic.com/live-cover.png']},
-            'owner': {'idStr': '101', 'webRid': '1001'}}), reflow()]
+        get_reflow.side_effect = [reflow()]
         rooms = provider.follow_rooms(session, lambda: False)
         get_reflow.side_effect = None
         assert [r["room_id"] for r in rooms] == ["douyin:1001", "douyin:1002"]
         assert rooms[0]["live"] and rooms[0]["face"].endswith("/a.png")
-        assert rooms[0]['title'] == 'Current title' and rooms[0]['cover_url'].endswith('/live-cover.png')
+        assert rooms[0]['title'] == 'Test' and not rooms[0]['cover_url']
         assert rooms[0]['live_known'] and provider.room_info.call_count == 0
         assert [r['anchor_uid'] for r in rooms] == ['101', '102']
         assert rooms[1]['live_known'] and not rooms[1]['live']
         assert rooms[1]['uname'] == 'Offline' and rooms[1]['title'] == 'Last live'
         assert rooms[1]['face'].endswith('/offline.png') and rooms[1]['cover_url'].endswith('/cover.png')
-        assert get_reflow.call_count == 2
+        assert get_reflow.call_count == 1
         assert get_reflow.call_args.args == ('https://webcast.amemv.com/webcast/reflow/902',)
         assert 'cookies' not in get_reflow.call_args.kwargs
-        lookup = session.get.call_args_list[2]
+        lookup = session.get.call_args_list[1]
         assert lookup.args == ('https://live.douyin.com/webcast/room/info_by_user/',)
         assert lookup.kwargs['params']['user_id'] == '102'
         assert session.get.call_args.kwargs["params"]["min_time"] == 100

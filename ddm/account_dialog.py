@@ -1,8 +1,9 @@
 """在同一窗口内切换平台、登录和勾选关注。"""
 import os
+import time
 from copy import deepcopy
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QThread, QUrl, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
@@ -13,6 +14,30 @@ from .dialogs import FollowImportDialog
 from .widgets import AccountRow, BRAND_ASSETS_DIR
 
 
+class FollowAccountResolver(QThread):
+    updated = Signal(dict)
+
+    def __init__(self, platform, accounts, parent):
+        super().__init__(parent)
+        self.platform = platform
+        self.accounts = deepcopy(accounts)
+
+    def run(self):
+        deadline = time.monotonic() + 30
+        cancelled = lambda: self.isInterruptionRequested() or time.monotonic() >= deadline
+        for account in self.accounts:
+            if cancelled():
+                break
+            if account.get("room_id") and account.get("live_known") is not False:
+                continue
+            try:
+                resolved = self.platform.resolve_follow_account(account, cancelled)
+            except Exception:  # 单个账号失败不影响其余关注，也不覆盖原身份。
+                continue
+            if not cancelled():
+                self.updated.emit(resolved)
+
+
 class AccountPlatformDialog(QDialog):
     def __init__(self, owner, providers, *, import_follows=False, platform_kind="bilibili"):
         super().__init__(owner)
@@ -20,9 +45,11 @@ class AccountPlatformDialog(QDialog):
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
         self.rooms = []
+        self._account_resolver = None
         self.folder_id = ""
         self.folder_changed = False
         self.removed_ids = []
+        self.pending_count = 0
         self.kind = ""
         self.page = None
         # 保留浏览器的控件树，避免切换时销毁或迁移窗口的图形渲染层。
@@ -160,6 +187,12 @@ class AccountPlatformDialog(QDialog):
             self.platform_buttons[self.kind].setChecked(True)
             page.cancel_read()
             return
+        if self._account_resolver is not None:
+            self._account_resolver.requestInterruption()
+            old_page = self._follow_pages.get(self.kind)
+            if hasattr(old_page, "resolve_button"):
+                old_page.resolve_button.setText("补充识别")
+            self._account_resolver = None
         if reread:
             self._follow_pages.pop(kind, None)
         self._clear_page()
@@ -263,7 +296,14 @@ class AccountPlatformDialog(QDialog):
             return
         page = page if page is not None else self.page
         if isinstance(page, FollowImportDialog):
-            self.rooms = page.selected()
+            selected = page.selected()
+            self.rooms = [room for room in selected if room.get("room_id")]
+            if self.kind == "douyin" and callable(getattr(self.owner, "_cache_douyin_follows", None)):
+                pending = [dict(room, pending_folder_id=(page.folder_id if page.folder_changed else
+                                room.get("pending_folder_id", page.folder_id)))
+                           for room in selected if not room.get("room_id")]
+                self.pending_count = len(pending)
+                self.owner._cache_douyin_follows(page.rooms, pending=pending)
             self.folder_id = page.folder_id
             self.folder_changed = page.folder_changed
             self.removed_ids = page.deselected_existing()
@@ -342,6 +382,15 @@ class AccountPlatformDialog(QDialog):
 
     def _show_rooms(self, rooms):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
+        if self.kind == "douyin":
+            cache = getattr(self.owner, "_douyin_follow_cache", None) or {}
+            pending = {room.get("anchor_uid"): room for room in cache.get("pending", [])}
+            if cache.get("uid") != str(self.owner._accounts.get("douyin", {}).get("uid") or ""):
+                pending = {}
+            rooms = [{key: value for key, value in room.items() if key != "pending_import"} for room in rooms]
+            rooms = [dict(room, pending_import=True,
+                          pending_folder_id=pending[room.get("anchor_uid")].get("pending_folder_id", ""))
+                     if room.get("anchor_uid") in pending else dict(room) for room in rooms]
         page = FollowImportDialog(rooms, existing, self.owner,
                                   folders=self.owner.sidebar.folder_state())
         if self.kind == "douyin":
@@ -361,13 +410,56 @@ class AccountPlatformDialog(QDialog):
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
         self._set_page(page)
-        faces = {str(room["room_id"]): room.get("face") for room in rooms if room.get("face")}
+        faces = {str(room.get("room_id") or "account:" + str(room.get("anchor_uid"))): room.get("face")
+                 for room in rooms if room.get("face")}
         self.owner._start_avatar_loader(faces, page.set_avatar)
+        if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
+            page.resolve_button = QPushButton("补充识别", page)
+            page.resolve_button.setObjectName("IconButton")
+            page.resolve_button.setCursor(Qt.PointingHandCursor)
+            page.resolve_button.setAutoDefault(False)
+            page.resolve_button.clicked.connect(lambda: self._resolve_accounts(page))
+            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(1, page.resolve_button)
+            # 打开磁盘缓存不触发网络；新读取的列表才自动补充。
+            if "douyin" in self._platform_pages:
+                self._resolve_accounts(page)
+
+    def _resolve_accounts(self, page):
+        if self._account_resolver is not None:
+            self._account_resolver.requestInterruption()
+            return
+        worker = FollowAccountResolver(self.providers["douyin"], page.rooms, self.owner)
+        self._account_resolver = worker
+        running = getattr(self.owner, "_platform_info_running", None)
+        if running is not None:
+            running.add(worker)
+        page.resolve_button.setText("停止识别")
+        def update(account):
+            if (self._account_resolver is not worker or worker.isInterruptionRequested()
+                    or self._closing_result is not None or getattr(self.owner, "_closing", False)):
+                return
+            page.update_account(account)
+            cache = getattr(self.owner, "_cache_douyin_follows", None)
+            if callable(cache):
+                cache(page.rooms)
+        def finished():
+            if running is not None:
+                running.discard(worker)
+            if self._account_resolver is worker:
+                self._account_resolver = None
+                page.resolve_button.setText("补充识别")
+        worker.updated.connect(update)
+        worker.finished.connect(finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
     def done(self, result):
         if self._closing_result is not None:
             return
         self._closing_result = result
+        if self._account_resolver is not None:
+            self._account_resolver.requestInterruption()
+            self._account_resolver = None
         self._busy(True)
         platform_page = self._platform_pages.get(self.kind)
         if platform_page is not None and platform_page._worker is not None:

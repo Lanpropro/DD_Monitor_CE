@@ -222,15 +222,21 @@ def main():
                 wait_for(app, lambda: dialog._worker is None)
             if mode in ('normal', 'profile_counter', 'rendered', 'rendered_fiber', 'rendered_resolve', 'rendered_camel'):
                 assert [room['room_id'] for room in dialog.rooms] == ['douyin:1001', 'douyin:1002']
-                assert dialog.rooms[0]['live'] and not dialog.rooms[1]['live']
+                if mode != 'rendered_resolve':
+                    assert dialog.rooms[0]['live'] and not dialog.rooms[1]['live']
                 if mode in ('normal', 'profile_counter'):
-                    assert dialog.rooms[1]['live_known']
+                    assert not dialog.rooms[1]['live_known']
                     assert state['requests'] == [('999', '0'), ('42', '0'), ('42', '1')]
                 else:
                     assert not state['requests']
                     assert dialog.rooms[0]['uname'] == 'Remark'
                     assert dialog.rooms[0]['face'] == 'https://p3.douyinpic.com/a.png'
                     if mode == 'rendered_resolve':
+                        assert not any(room['live_known'] for room in dialog.rooms)
+                        with patch.object(requests, 'get', side_effect=lambda url, **kwargs: (
+                                room_lookup(url, **kwargs) if 'info_by_user' in url else share_page(url, **kwargs))):
+                            dialog.rooms = [provider.resolve_follow_account(room, lambda: False)
+                                            for room in dialog.rooms]
                         assert all(room['live_known'] for room in dialog.rooms)
                         assert dialog.rooms[1]['uname'] == 'Offline' and dialog.rooms[1]['title'] == 'Resolved 102'
                         selection = FollowImportDialog(dialog.rooms, set())
