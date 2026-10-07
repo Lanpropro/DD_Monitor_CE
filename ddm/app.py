@@ -780,6 +780,8 @@ class MainWindow(QMainWindow):
         follow_loader = getattr(self, "_follow_loader", None)
         if getattr(follow_loader, "platform", None) is not None:
             follow_loader.cancel()
+        for thread in list(self._platform_info_running):
+            thread.requestInterruption()
         self._stats_refresh_timer.stop()
         self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
@@ -2451,7 +2453,9 @@ class MainWindow(QMainWindow):
                 cache = AccountStore("douyin_follows").load_account()
                 rooms = cache.get("rooms")
                 if (uid and cache.get("uid") == uid and isinstance(rooms, list)
-                        and all(isinstance(room, dict) and str(room.get("room_id", "")).startswith("douyin:")
+                        and all(isinstance(room, dict) and (
+                            str(room.get("room_id", "")).startswith("douyin:") or
+                            (not room.get("room_id") and str(room.get("anchor_uid", "")).isdigit()))
                                 for room in rooms)):
                     self._douyin_follow_cache = cache
                     platform = self.plugins.platforms.get("douyin")
@@ -2461,11 +2465,14 @@ class MainWindow(QMainWindow):
                 pass
         self._render_account(load_avatar=False)
 
-    def _cache_douyin_follows(self, rooms) -> None:
+    def _cache_douyin_follows(self, rooms, *, pending=None) -> None:
         uid = str(self._accounts.get("douyin", {}).get("uid") or "")
         if not uid:
             return
-        self._douyin_follow_cache = {"uid": uid, "rooms": deepcopy(rooms)}
+        previous = self._douyin_follow_cache or {}
+        if pending is None:
+            pending = previous.get("pending", []) if previous.get("uid") == uid else []
+        self._douyin_follow_cache = {"uid": uid, "rooms": deepcopy(rooms), "pending": deepcopy(pending)}
         platform = self.plugins.platforms.get("douyin")
         if callable(getattr(platform, "restore_follow_rooms", None)):
             platform.restore_follow_rooms(rooms)
@@ -2476,9 +2483,11 @@ class MainWindow(QMainWindow):
                 if self._platform_login_sessions.get("douyin", {}).get("remember", True):
                     # 只保存房间身份与显示信息；带签名的媒体地址始终重新获取。
                     keys = ("room_id", "platform", "uname", "title", "live", "live_known", "viewers",
-                            "cover_url", "face", "playback_mode", "anchor_uid")
+                            "cover_url", "face", "playback_mode", "anchor_uid", "sec_uid",
+                            "pending_folder_id", "pending_import")
                     store.save([], {"uid": uid, "rooms": [
-                        {key: room[key] for key in keys if key in room} for room in rooms]})
+                        {key: room[key] for key in keys if key in room} for room in rooms], "pending": [
+                        {key: room[key] for key in keys if key in room} for room in pending]})
                 else:
                     store.clear()
             except (OSError, RuntimeError):
@@ -2709,6 +2718,7 @@ class MainWindow(QMainWindow):
         try:
             result = dialog.exec()
             selected = dialog.rooms
+            pending_count = dialog.pending_count
             folder_id = dialog.folder_id
             removed_ids = dialog.removed_ids
             move_existing = dialog.folder_changed
@@ -2716,7 +2726,7 @@ class MainWindow(QMainWindow):
             dialog.deleteLater()
         if import_follows and result == QDialog.Accepted and not self._closing:
             self._import_selected_follows(selected, folder_id=folder_id,
-                                          removed_ids=removed_ids, move_existing=move_existing)
+                                          removed_ids=removed_ids, move_existing=move_existing, pending_count=pending_count)
 
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
@@ -2738,7 +2748,7 @@ class MainWindow(QMainWindow):
         self._open_account_dialog(self._follow_platforms(), import_follows=True)
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False) -> None:
+                                 removed_ids=(), move_existing=False, pending_count=0) -> None:
         if self._closing:
             return
         selected_ids = {str(room["room_id"]) for room in selected}
@@ -2750,13 +2760,20 @@ class MainWindow(QMainWindow):
         moving = selected if move_existing else added_rooms
         if (folder_id or move_existing) and moving:
             self.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
+        if not move_existing:
+            for room in added_rooms:
+                if room.get("pending_folder_id"):
+                    self.sidebar.move_to_folder([str(room["room_id"])], room["pending_folder_id"])
         added = len(added_rooms)
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
         self._save_timer.start()
-        print(f"导入完成：选中 {len(selected)} 个，新增 {added} 个")
+        message = f"导入完成：选中 {len(selected)} 个，新增 {added} 个"
+        if pending_count:
+            message += f"，另保存 {pending_count} 个待识别账号"
+        print(message)
         from .online_ui import show_result
-        show_result(self, f"导入完成：选中 {len(selected)} 个，新增 {added} 个", rooms=selected)
+        show_result(self, message, rooms=selected)
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""

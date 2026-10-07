@@ -83,7 +83,8 @@ class PlatformFollowLoader(QThread):
                         self.accountLoaded.emit(account)
                 elif self.login_only:
                     raise RuntimeError("此平台尚未支持账号登录")
-                rooms = [] if self.login_only else self.platform.follow_rooms(session, self._cancelled.is_set)
+                read_follows = getattr(self.platform, "follow_accounts", None) or self.platform.follow_rooms
+                rooms = [] if self.login_only else read_follows(session, self._cancelled.is_set)
             if not self._cancelled.is_set():
                 self.loaded.emit(rooms)
         except Exception as error:  # noqa: BLE001
