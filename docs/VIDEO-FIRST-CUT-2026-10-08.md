@@ -58,3 +58,9 @@
 验证：33项既有回归和9项修订验收全部通过（另含6项VideoTogether专项回归）；HyperFrames检查零错误、警告及INFO。实际新版视频完整解码、双解说音频相关性、音频连续性通过；7秒计数区域有文字、8.1秒同一区域无文字；41秒边界相邻帧的平均亮度变化小于旧硬切的50%。用户文案及静音过渡素材的连续性均纳入测试。
 
 复现：运行 `python -m unittest dev.test_plugins_promo_sample dev.test_video_script_20261007 dev.test_promo_handoff_20261008 dev.test_promo_highlight_audio dev.test_promo_first_cut dev.test_promo_transition_revision -v`。检查报告 `work/promo-text-transition-edits-check.json`；时间点截图 `work/promo-text-transition-edits/frames/`；关键帧证明 `work/promo-text-transition-edits/bridge-proof.png`。
+
+## 恢复用户选定文案（v3）
+
+用户从Studio历史记录选定恢复两处文本：开场“多平台支持”，国内段“为您的观看如“虎”添翼”。仅恢复这两处，保留v2其余用户文案、转场和已确认声音对齐。当前验收测试改为核对这两处文案及v3成片；输出 `videos/dd-monitor-ce-plugins-promo/renders/dd-monitor-ce-plugins-promo-first-cut-v3.mp4`，旧成片保留。预览截图 `work/promo-restored-copy/`，检查报告 `work/promo-restored-copy-check.json`。
+
+验证：42项相关测试全部通过，HyperFrames检查通过，恢复文案的预览截图核对通过。v3完整解码、双解说声音相关性、音频连续性及转场边界检查通过；1920×1080、30fps、1933帧、64.433333秒。此次本机hardware GPU渲染耗时约84.5秒。

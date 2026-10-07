@@ -6,12 +6,12 @@ from dev.test_plugins_promo_sample import PROJECT, Elements
 
 
 class TransitionRevisionTests(first_cut.FirstCutTests):
-    render = PROJECT / "renders/dd-monitor-ce-plugins-promo-first-cut-v2.mp4"
+    render = PROJECT / "renders/dd-monitor-ce-plugins-promo-first-cut-v3.mp4"
 
     def test_user_copy_remains_editable_without_timeline_replacement(self):
         expected = {
             "intro": "红队绿队一起看。",
-            "domestic": "为你的ALGS观看体验如“虎”添翼",
+            "domestic": "为您的观看如“虎”添翼",
             "global": "海外的直播也一样",
             "alignment": "自动对齐优先，必要时手动微调。",
             "result": "不同直播间，弹幕一起看。",

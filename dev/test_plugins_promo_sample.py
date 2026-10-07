@@ -60,7 +60,7 @@ class PromoSampleTests(unittest.TestCase):
         domestic = (PROJECT / "compositions/domestic.html").read_text(encoding="utf-8")
         global_scene = (PROJECT / "compositions/global.html").read_text(encoding="utf-8")
         self.assertIn("红队绿队一起看。", intro)
-        self.assertIn("为你的ALGS观看体验如“虎”添翼", domestic)
+        self.assertIn("为您的观看如“虎”添翼", domestic)
         self.assertNotIn("tl.set('#domestic-caption'", domestic)
         self.assertIn("海外的直播也一样", global_scene)
         self.assertIn("国（内）外大神视角一屏掌握", global_scene)

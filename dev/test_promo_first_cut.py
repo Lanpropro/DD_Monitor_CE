@@ -42,8 +42,7 @@ class FirstCutTests(unittest.TestCase):
         self.assertNotIn("sample-tag", entry)
         self.assertIn("highlight-dual-commentary-v3.wav", entry)
         intro = (PROJECT / "compositions/intro.html").read_text(encoding="utf-8")
-        self.assertIn("不止", intro)
-        self.assertIn(">B站</span>", intro)
+        self.assertIn("多平台支持", intro)
 
     def test_all_active_media_are_available_and_within_source_duration(self):
         for path in [PROJECT / "index.html", *sorted((PROJECT / "compositions").glob("*.html"))]:
