@@ -2729,12 +2729,14 @@ class FollowFolderButton(QToolButton):
         mime = QMimeData()
         mime.setData(FOLDER_MIME, self.folder_id.encode("utf-8"))
         drag.setMimeData(mime)
-        drag.setHotSpot(self._press_pos)
+        hotspot = QPoint(self._press_pos)
         self._press_pos = None
         self._drag_started = True
         self.setDown(False)
         self.sidebar.start_folder_drag()
-        drag.setPixmap(self.grab())
+        pixmap, hotspot = motion.lifted_drag(self.grab(), hotspot)
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(hotspot)
         self.sidebar.begin_drag_scroll()
         try:
             drag.exec(Qt.MoveAction)

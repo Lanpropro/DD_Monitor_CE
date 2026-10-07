@@ -10,7 +10,7 @@ from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt
 from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from ddm import theme
+from ddm import motion, theme
 from ddm.follow_folders import UNCLASSIFIED
 from ddm.widgets import FOLDER_MIME, NAV_MIME, Sidebar
 
@@ -40,7 +40,7 @@ def main():
         assert not sidebar.visible_items()
         assert all(item.isHidden() for item in sidebar.items())
 
-    def simulate_drag(fid, target, point, *, cancel=False):
+    def simulate_drag(fid, target, point, *, cancel=False, animate=True):
         source = sidebar._folder_buttons[fid]
         press = source.rect().center()
         QTest.mousePress(source, Qt.LeftButton, pos=press)
@@ -54,6 +54,16 @@ def main():
             assert actions == Qt.MoveAction
             headers_only()
             mime = drag.return_value.setMimeData.call_args.args[0]
+            pixmap = drag.return_value.setPixmap.call_args.args[0]
+            hotspot = drag.return_value.setHotSpot.call_args.args[0]
+            if animate:
+                assert pixmap.deviceIndependentSize().width() > source.width()
+                assert pixmap.deviceIndependentSize().height() > source.height()
+                assert hotspot == QPoint(round(press.x() * 1.055) + 10,
+                                         round(press.y() * 1.055) + 10)
+            else:
+                assert pixmap.deviceIndependentSize().toSize() == source.size()
+                assert hotspot == press
             assert bytes(mime.data(FOLDER_MIME)).decode() == fid
             assert not mime.hasFormat(NAV_MIME), "文件夹拖动不能变成卡片归类"
             if cancel:
@@ -71,7 +81,8 @@ def main():
             return Qt.MoveAction
 
         with patch("ddm.widgets.QDrag") as drag, patch.object(sidebar, "begin_drag_scroll") as begin, \
-                patch.object(sidebar, "end_drag_scroll") as end:
+                patch.object(sidebar, "end_drag_scroll") as end, \
+                patch.object(motion, "enabled", return_value=animate):
             drag.return_value.exec.side_effect = execute
             QApplication.sendEvent(source, move)
             drag.return_value.exec.assert_called_once()
@@ -138,7 +149,7 @@ def main():
     simulate_drag(smart, unclassified_header, lambda: QPoint(1, 10))
     assert order()[0] == smart
     QTest.mouseClick(sidebar._folder_buttons[first], Qt.LeftButton)
-    simulate_drag(first, sidebar.list_box, lambda: QPoint(1, 10), cancel=True)
+    simulate_drag(first, sidebar.list_box, lambda: QPoint(1, 10), cancel=True, animate=False)
     QTest.mouseClick(sidebar._folder_buttons[first], Qt.LeftButton)
     simulate_drag(first, sidebar.list_box, lambda: QPoint(1, 10), cancel=True)
     before = order()

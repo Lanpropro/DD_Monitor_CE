@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+import time
 from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
@@ -14,6 +15,13 @@ from ddm import config, motion, theme
 from ddm.dialogs import AddRoomDialog, SettingsDialog
 from ddm.online_ui import UpdateNotice
 from ddm.widgets import Sidebar
+
+
+def wait_for(predicate):
+    deadline = time.monotonic() + 1
+    while not predicate() and time.monotonic() < deadline:
+        QTest.qWait(20)
+    return predicate()
 
 
 def main():
@@ -139,8 +147,10 @@ def main():
             entrance = sidebar.list_box._animations[revealed]
             delta = entrance.startValue() - entrance.endValue()
             assert (delta.x(), delta.y()) == ((24, 0) if side == "top" else (0, 24))
-            QTest.qWait(350)
-            assert following.pos() == original_pos
+            assert wait_for(lambda: following.pos() == original_pos and
+                            all(anim.state() != QAbstractAnimation.Running
+                                for anim in sidebar.list_box._animations.values())), \
+                (side, following.pos(), original_pos)
             with patch.object(motion, "enabled", return_value=False):
                 QTest.mouseClick(button, Qt.LeftButton)
                 assert sidebar.get_folder(folder)["collapsed"]
@@ -161,8 +171,8 @@ def main():
                 animation.setCurrentTime(75)
                 assert item.pos() != final_pos and item.pos() != animation.startValue()
             assert all(item.pos() == pos for item, pos in old_positions.items())
-            QTest.qWait(260)
-            assert all(item.pos() == pos for item, pos in final_positions.items())
+            assert wait_for(lambda: all(item.pos() == pos for item, pos in final_positions.items())), \
+                (side, [(item.room["room_id"], item.pos(), pos) for item, pos in final_positions.items()])
             sidebar.toggle_folder(other)
             sidebar.add_room({"room_id": "hidden-new", "uname": "hidden", "live": False})
             sidebar.move_to_folder(["hidden-new"], other)
