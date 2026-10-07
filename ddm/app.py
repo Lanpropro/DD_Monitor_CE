@@ -2779,6 +2779,10 @@ class MainWindow(QMainWindow):
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
         self.sidebar.set_wall_rooms(
             str(tile.room.get("room_id") or "") for tile in self.wall.tiles)
+        # 替换后格子仍保持聚焦，卡片选择需跟随它当前的房间。
+        focused = next((tile for tile in self.wall.tiles if tile.property("focused")), None)
+        if focused is not None:
+            self.sidebar.select_room(focused.room)
         self.wall.setVisible(bool(self.wall.tiles))
         self.empty_hint.setVisible(not self.wall.tiles)
         self.sync_danmaku()
