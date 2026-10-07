@@ -316,6 +316,12 @@ def mix_pcm(inputs: list[tuple[bytes, int]], frames: int) -> bytes:
     if not enabled:
         return bytes(frames * 4)
     headroom = max(1.0, sum(gain for _pcm, gain in enabled))
+    if np is not None:
+        output = np.zeros(frames * 2, dtype=np.float64)
+        for pcm, gain in enabled:
+            samples = np.frombuffer(pcm, dtype=np.int16)
+            output[:len(samples)] += samples.astype(np.float64) * gain / headroom
+        return np.clip(np.rint(output), -32768, 32767).astype(np.int16).tobytes()
     output = [0.0] * (frames * 2)
     for pcm, gain in enabled:
         samples = memoryview(pcm).cast("h")
