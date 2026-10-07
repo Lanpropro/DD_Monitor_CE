@@ -277,7 +277,7 @@ class Decoder:
                          options={"probesize": "65536", "analyzeduration": "100000"}) as container:
                 stream = container.streams.video[0]
                 stream.codec_context.thread_count = 2
-                stream.codec_context.thread_type = "SLICE"
+                stream.codec_context.thread_type = "AUTO"
                 self.history.codec = (stream.codec_context.name, stream.codec_context.extradata)
                 rate = stream.average_rate or stream.base_rate or stream.codec_context.framerate
                 if rate:
