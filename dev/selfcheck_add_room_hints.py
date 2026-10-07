@@ -40,7 +40,7 @@ def main():
             assert hint.startswith('支持 B 站房间号')
             for name in ('虎牙', '斗鱼', '抖音', 'Twitch', 'YouTube'):
                 assert (name in hint) == (name in names), (enabled, hint)
-            assert ('个人主页链接' in hint) == ('抖音' in names)
+            assert '个人主页链接' not in hint
             # 新插件的说明无需修改本体；旧插件没有可选字段也不会导致窗口打不开。
             window.plugins.platforms = {'custom': SimpleNamespace(room_input_hint='自定义链接格式'),
                                         'legacy': SimpleNamespace(label='旧平台')}

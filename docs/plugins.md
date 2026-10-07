@@ -130,7 +130,7 @@ def on_event(self, event, payload):
 class MyPlatform(api.Platform):
     kind = "douyin"
     label = "抖音"
-    room_input_hint = "抖音直播间链接或主播个人主页链接"  # 可选：添加窗口按装载平台显示
+    room_input_hint = "抖音直播间链接"  # 可选：添加窗口按装载平台显示
 
     def matches(self, room_id): ...      # 判断房间号是不是本平台
     def room_info(self, room_id): ...     # -> api.RoomInfo 或 None
