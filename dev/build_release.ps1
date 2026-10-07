@@ -74,6 +74,7 @@ foreach ($rel in $tracked) {
     if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
     if ($rel -like "plugins_user/*") { continue }
     if ($rel -like "videos/*") { continue }
+    if ($rel -like "dev/*promo*") { continue }
     $src = Join-Path $repo ($rel -replace "/", "\")
     $dst = Join-Path $app ($rel -replace "/", "\")
     $dir = Split-Path $dst -Parent

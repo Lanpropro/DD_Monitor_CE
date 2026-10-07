@@ -54,6 +54,7 @@ for folder in (source, exe):
     assert not (folder / "utils" / "accounts").exists(), "发布包包含登录数据"
     assert not (folder / "cache").exists(), "发布包包含缓存"
     assert not (folder / "videos").exists(), "发布包包含宣传片工程"
+    assert not list((folder / "dev").glob("*promo*")), "发布包包含宣传片工具"
 metadata = json.loads((results / "app-update.json").read_text(encoding="utf-8-sig"))
 archive = results / f"{name}-exe.zip"
 assert metadata["version"] == VERSION and metadata["asset_name"] == archive.name

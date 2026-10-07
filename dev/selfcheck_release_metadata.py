@@ -36,6 +36,7 @@ def main():
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
     assert 'if ($rel -like "plugins_user/*") { continue }' in source
     assert 'if ($rel -like "videos/*") { continue }' in source
+    assert 'if ($rel -like "dev/*promo*") { continue }' in source
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
