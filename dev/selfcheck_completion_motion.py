@@ -2,14 +2,17 @@
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QAbstractAnimation, QPoint, Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from ddm import motion, theme
+from ddm.app import MainWindow
 from ddm.dialogs import PluginSettingsPage
 from ddm.online_ui import PluginStorePage, show_result
 from ddm.widgets import RefreshButton
@@ -65,14 +68,35 @@ def main():
         QTest.keyClick(tabs.tabBar(), Qt.Key_Left)
         assert tabs.currentIndex() == 0 and tabs._slide.state() != QAbstractAnimation.Running
 
-        show_result(owner, "已添加测试主播")
+        rooms = [{"room_id": str(index), "uname": "主播" + str(index), "face": "mock-face"}
+                 for index in range(4)]
+        face = QPixmap(40, 40)
+        face.fill(QColor("red"))
+        with patch("ddm.images.load_cached_avatar", return_value=face):
+            show_result(owner, "已添加测试主播", rooms=rooms[:1])
         notice = owner._result_notice
         assert notice.isVisible() and notice.windowOpacity() == 1
         assert notice.timer.interval() == 3000 and notice.timer.isActive()
+        assert list(notice._avatars) == ["0"] and notice.avatar_strip.isVisible()
+        avatar = notice._avatars["0"]
+        assert avatar.pixmap().toImage().pixelColor(14, 14) == QColor("red")
+        assert avatar.pixmap().toImage().pixelColor(0, 0).alpha() == 0
+        face.fill(QColor("blue"))
+        MainWindow._on_room_avatar(SimpleNamespace(_result_notice=notice, sidebar=SimpleNamespace(_items=[])), "0", face)
+        assert avatar.pixmap().toImage().pixelColor(14, 14) == QColor("blue")
+        notice.set_room_avatar("unknown", face)
+        image = notice.grab().toImage()
+        assert image.pixelColor(0, 0).alpha() == 0, "capsule corners must be transparent"
+        assert image.pixelColor(3, 3).alpha() == 0, "use a pill radius rather than the old small radius"
+        assert image.pixelColor(image.width() // 2, 2).alpha() > 0
         notice._motion.setCurrentTime(60)
         assert 0 < notice._progress < 1
         progress = notice._progress
-        show_result(owner, "导入完成：新增 2 个")
+        with patch("ddm.images.load_cached_avatar", return_value=None), patch("ddm.images.load_room_avatar", return_value=None):
+            show_result(owner, "导入完成：新增 4 个", rooms=rooms)
+        assert list(notice._avatars) == ["0", "1", "2"]
+        assert notice.avatar_layout.count() == 3
+        assert all(avatar.text() == "主" for avatar in notice._avatars.values())
         assert owner._result_notice is notice and notice._progress == progress
         notice._motion.setCurrentTime(160)
         assert notice.pos() == owner.mapToGlobal(QPoint((owner.width() - notice.width()) // 2, 20))
@@ -82,10 +106,13 @@ def main():
         notice.timer.timeout.emit()
         notice._motion.setCurrentTime(180)
         assert not notice.isVisible() and notice.windowOpacity() == 1
-        show_result(owner, "插件已安装，重启后生效")
         plugins.store_page.installed.disconnect()
         plugins.store_page._installed(("test", False))
         assert "插件已安装" in notice.title.text() and notice.timer.isActive()
+        assert not notice._avatars and not notice.avatar_strip.isVisible()
+        assert notice.avatar_layout.count() == 0
+        notice.set_room_avatar("0", face)
+        assert not notice.avatar_strip.isVisible(), "late avatar callbacks must not affect plugin messages"
         owner.hide()
         assert not notice.isVisible() and not notice.timer.isActive()
         assert notice._motion.state() != QAbstractAnimation.Running
@@ -104,7 +131,7 @@ def main():
         plugins.store_page.stop()
     sys.excepthook = original_hook
     assert not errors, errors
-    print("PASS: refresh spin/reentry/stop, opaque plugin tabs, result notice reuse/timeout/hide and reduced motion")
+    print("PASS: refresh spin/reentry/stop, opaque plugin tabs, capsule/avatar cache/callback/reset, result notice reuse/timeout/hide and reduced motion")
 
 
 if __name__ == "__main__":

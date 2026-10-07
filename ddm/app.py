@@ -2351,7 +2351,7 @@ class MainWindow(QMainWindow):
                 self.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
             self.load_avatars_for([room])       # 新加的房间立刻显示头像
             from .online_ui import show_result
-            show_result(self, "已添加 " + str(room.get("uname") or room.get("room_id")))
+            show_result(self, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
         status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")
         if len(self.wall.tiles) < MAX_TILES:
@@ -2657,6 +2657,9 @@ class MainWindow(QMainWindow):
             return False
 
     def _on_room_avatar(self, room_id: str, pixmap) -> None:
+        notice = getattr(self, "_result_notice", None)
+        if notice is not None:
+            notice.set_room_avatar(room_id, pixmap)
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_face(pixmap)
@@ -2753,7 +2756,7 @@ class MainWindow(QMainWindow):
         self._save_timer.start()
         print(f"导入完成：选中 {len(selected)} 个，新增 {added} 个")
         from .online_ui import show_result
-        show_result(self, f"导入完成：选中 {len(selected)} 个，新增 {added} 个")
+        show_result(self, f"导入完成：选中 {len(selected)} 个，新增 {added} 个", rooms=selected)
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""

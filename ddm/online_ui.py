@@ -481,11 +481,53 @@ class ResultNotice(UpdateNotice):
         self.action.hide()
         self.title.setWordWrap(True)
         self.timer.setInterval(3000)
+        self.avatar_strip = QWidget(self)
+        self.avatar_layout = QHBoxLayout(self.avatar_strip)
+        self.avatar_layout.setContentsMargins(0, 0, 0, 0)
+        self.avatar_layout.setSpacing(4)
+        self.layout().itemAt(0).layout().insertWidget(0, self.avatar_strip)
+        self._avatars = {}
+        self.avatar_strip.hide()
 
-    def show_message(self, message):
+    def _set_rooms(self, rooms):
+        from .images import load_cached_avatar, load_room_avatar
+        from .widgets import Avatar
+        while self.avatar_layout.count():
+            widget = self.avatar_layout.takeAt(0).widget()
+            widget.hide()
+            widget.deleteLater()
+        self._avatars.clear()
+        for index, room in enumerate(rooms[:3]):
+            room_id = str(room.get("room_id", ""))
+            avatar = Avatar(str(room.get("uname") or "?"), index, size=28)
+            pixmap = load_cached_avatar(room.get("face")) if room.get("face") else None
+            if pixmap is None:
+                pixmap = load_room_avatar(room_id)
+            if pixmap is not None:
+                avatar.set_pixmap_image(pixmap)
+            self.avatar_layout.addWidget(avatar)
+            self._avatars[room_id] = avatar
+        self.avatar_strip.setVisible(bool(self._avatars))
+
+    def set_room_avatar(self, room_id, pixmap):
+        avatar = self._avatars.get(str(room_id))
+        if avatar is not None:
+            avatar.set_pixmap_image(pixmap)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QColor(theme.TILE_BG))
+        painter.setPen(QColor(131, 131, 145, 80))
+        radius = self.height() / 2
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                                radius, radius)
+
+    def show_message(self, message, rooms=()):
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)
+        self._set_rooms(rooms)
         self.setFixedWidth(min(360, max(240, self.parentWidget().width() - 40)))
         self.adjustSize()
         self._progress = self._progress if self.isVisible() else 0.0
@@ -509,10 +551,10 @@ class ResultNotice(UpdateNotice):
                                            20 + offset)))
 
 
-def show_result(parent, message):
+def show_result(parent, message, rooms=()):
     if not parent.isVisible():
         return
     notice = getattr(parent, '_result_notice', None)
     if notice is None:
         notice = parent._result_notice = ResultNotice(parent)
-    notice.show_message(message)
+    notice.show_message(message, rooms)
