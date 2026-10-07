@@ -17,7 +17,7 @@ def enabled() -> bool:
 
 
 class AnimatedDialog(QDialog):
-    """窗口入场；不对窗口内容或视频施加图形效果。"""
+    """窗口保持不透明，只通过位置变化呈现入场。"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self._entrance = QVariantAnimation(self)
@@ -29,7 +29,6 @@ class AnimatedDialog(QDialog):
         self._moving = False
 
     def _reveal(self, progress):
-        self.setWindowOpacity(0.85 + 0.15 * progress)
         self._moving = True
         self.move(self._entrance_target + QPoint(0, round(20 * (1 - progress))))
         self._moving = False
@@ -45,13 +44,11 @@ class AnimatedDialog(QDialog):
     def moveEvent(self, event):
         if not self._moving and self._entrance.state() == QAbstractAnimation.Running:
             self._entrance.stop()
-            self.setWindowOpacity(1.0)
         super().moveEvent(event)
 
     def hideEvent(self, event):
         interrupted = self._entrance.state() == QAbstractAnimation.Running
         self._entrance.stop()
-        self.setWindowOpacity(1.0)
         if interrupted:
             self.move(self._entrance_target)
         super().hideEvent(event)
