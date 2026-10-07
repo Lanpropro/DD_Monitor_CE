@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
-from .motion import SettingsStack
+from .motion import AnimatedDialog, SettingsStack
 from .player import DECODE_MODES
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
@@ -694,7 +694,7 @@ class PluginSettingsPage(QWidget):
             name for name, check in self.checks.items() if check.isChecked()]
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(AnimatedDialog):
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("danmaku", "弹幕"),
@@ -803,7 +803,7 @@ class SettingsDialog(QDialog):
         return self.plugin_page.enabled_plugins()
 
 
-class AddRoomDialog(QDialog):
+class AddRoomDialog(AnimatedDialog):
     """输入房间号或直播间链接。"""
 
     def __init__(self, parent=None, *, room_id_resolver=None, folders=None):

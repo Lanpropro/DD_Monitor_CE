@@ -6,11 +6,12 @@ from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QAbstractAnimation, Qt
+from PySide6.QtCore import QAbstractAnimation, QPoint, Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, motion, theme
-from ddm.dialogs import SettingsDialog
+from ddm.dialogs import AddRoomDialog, SettingsDialog
 from ddm.online_ui import UpdateNotice
 from ddm.widgets import Sidebar
 
@@ -25,6 +26,54 @@ def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     with patch.object(motion, "enabled", return_value=True):
+        dialog = AddRoomDialog()
+        dialog.show()
+        app.processEvents()
+        target = QPoint(dialog._entrance_target)
+        assert dialog._entrance.state() == QAbstractAnimation.Running
+        assert dialog.pos().y() > target.y() and dialog.windowOpacity() < 1
+        dialog._entrance.setCurrentTime(80)
+        assert target.y() < dialog.pos().y() < target.y() + 20
+        QTest.qWait(280)
+        assert dialog.pos() == target and dialog.windowOpacity() == 1
+        dialog.hide()
+        dialog.show()
+        app.processEvents()
+        dialog.reject()
+        assert not dialog.isVisible() and dialog.pos() == target
+        assert dialog._entrance.state() != QAbstractAnimation.Running
+        dialog.show()
+        app.processEvents()
+        dragged_position = dialog.pos() + QPoint(60, 40)
+        dialog.move(dragged_position)
+        app.processEvents()
+        assert dialog._entrance.state() != QAbstractAnimation.Running
+        assert dialog.windowOpacity() == 1
+        dialog.reject()
+        assert dialog.pos() == dragged_position, "user positioning must survive closing"
+        with patch.object(motion, "enabled", return_value=False):
+            dialog.show()
+            app.processEvents()
+            assert dialog.windowOpacity() == 1 and dialog.pos() == dragged_position
+            assert dialog._entrance.state() != QAbstractAnimation.Running
+            dialog.reject()
+
+        for ratio in (1, 2):
+            source = QPixmap(200 * ratio, 100 * ratio)
+            source.setDevicePixelRatio(ratio)
+            source.fill(QColor("red"))
+            lifted, hotspot = motion.lifted_drag(source, QPoint(40, 30))
+            assert lifted.devicePixelRatio() == ratio
+            assert lifted.width() == 231 * ratio and lifted.height() == round(100 * ratio * 1.055) + 20 * ratio
+            assert hotspot == QPoint(52, 42)
+            image = lifted.toImage()
+            assert image.pixelColor(0, 0).alpha() == 0
+            assert image.pixelColor(50 * ratio, 50 * ratio).red() == 255
+            assert source.width() == 200 * ratio
+            with patch.object(motion, "enabled", return_value=False):
+                plain, plain_hotspot = motion.lifted_drag(source, QPoint(40, 30))
+                assert plain.cacheKey() == source.cacheKey() and plain_hotspot == QPoint(40, 30)
+
         settings = SettingsDialog(config.DEFAULT_SETTINGS, {})
         settings.show()
         app.processEvents()
@@ -130,7 +179,7 @@ def main():
         parent.close()
     sys.excepthook = original_hook
     assert not callback_errors, callback_errors
-    print("PASS: settings slide/fade, folder reveal in both orientations, notice entry/exit, interruption and reduced motion")
+    print("PASS: dialog entrance/interruption, drag lift/HiDPI, settings slide/fade, folder reveal, notice and reduced motion")
 
 
 if __name__ == "__main__":

@@ -2307,8 +2307,11 @@ class NavItem(QFrame):
         drag.setMimeData(mime)
         drag_ids = self.drop_host.dragged_room_ids(room_id)
         self._drag_started = True
-        drag.setPixmap(self._drag_pixmap(len(drag_ids)))
-        drag.setHotSpot(QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
+        pixmap, hotspot = motion.lifted_drag(
+            self._drag_pixmap(len(drag_ids)),
+            QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(hotspot)
         # 抓起来的一瞬间就把自己那一格空出来
         self.drop_host.show_drop_indicator(room_id, self._index_in_host())
         # 拖动期间把滚轮借过来：DnD 里 Qt 收不到滚轮，只能靠低级鼠标钩子
@@ -2675,7 +2678,9 @@ class SmartFolderCard(QWidget):
         mime.setData(ROOM_MIME, rid.encode("utf-8"))
         mime.setText(rid)
         drag.setMimeData(mime)
-        drag.setPixmap(self.grab())
+        pixmap, hotspot = motion.lifted_drag(self.grab(), event.pos())
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(hotspot)
         drag.exec(Qt.CopyAction)
 
     def mouseReleaseEvent(self, event):
