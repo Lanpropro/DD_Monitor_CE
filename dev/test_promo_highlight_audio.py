@@ -105,8 +105,8 @@ class HighlightAudioTests(unittest.TestCase):
         self.assertEqual(voice["src"], SYNC["audio_asset"])
         music = next(a for tag,a in tags if tag == "audio" and a["id"] == "music")
         points = json.loads(music["data-automation"])["lanes"][0]["points"]
-        self.assertIn({"t": 41.515, "v": .08}, points)
-        self.assertIn({"t": 53.515, "v": .08}, points)
+        self.assertIn({"t": 41.515, "v": .12}, points)
+        self.assertIn({"t": 53.515, "v": .12}, points)
         self.assertFalse(any(a["v"] == b["v"] == 0 for a,b in zip(points,points[1:])))
         self.assertAlmostEqual(float(music["data-duration"]), 64.424)
         motion = json.loads((PROJECT / "index.motion.json").read_text(encoding="utf-8"))

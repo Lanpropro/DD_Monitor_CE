@@ -54,9 +54,9 @@
 <div data-hf-id="hf-1v9n" id="audition" class="clip scene-slot" data-composition-id="audition" data-composition-src="compositions/audition.html" data-start="41.515" data-duration="12" data-track-index="0" data-width="1920" data-height="1080"></div>
 <div data-hf-id="hf-vrq2" id="updates" class="clip scene-slot" data-composition-id="updates" data-composition-src="compositions/updates.html" data-start="53.515" data-duration="6.97" data-track-index="0" data-width="1920" data-height="1080"></div>
 <div data-hf-id="hf-ku1k" id="ending" class="clip scene-slot" data-composition-id="ending" data-composition-src="compositions/ending.html" data-start="60.485" data-duration="3.939" data-track-index="0" data-width="1920" data-height="1080"></div>
-<div id="highlight-bridge" class="camera"><video id="highlight-bridge-video" class="clip" src="assets/match-continuous.mp4" data-start="41.215" data-media-start="18.791" data-duration="0.75" data-track-index="3" muted playsinline></video></div>
+<div id="highlight-bridge" class="camera"><video id="highlight-bridge-video" class="clip" src="assets/match-continuous.mp4" data-start="41.215" data-media-start="18.791" data-duration="1.1" data-track-index="3" muted playsinline></video></div>
 <audio id="highlight-commentary" class="clip" src="assets/highlight-dual-commentary-v3.wav" data-start="41.515" data-duration="12" data-track-index="2" data-timeline-role="voiceover" data-volume="1"></audio>
-<audio data-hf-id="hf-ym48" id="music" class="clip" src=".media/audio/bgm/bgm_001.mp3" data-start="0" data-media-start="0.706" data-duration="64.424" data-track-index="1" data-timeline-role="music" data-volume="0.72" data-automation="{&quot;version&quot;:1,&quot;lanes&quot;:[{&quot;target&quot;:&quot;volume&quot;,&quot;points&quot;:[{&quot;t&quot;:0,&quot;v&quot;:0},{&quot;t&quot;:0.65,&quot;v&quot;:0.72},{&quot;t&quot;:41.365,&quot;v&quot;:0.72},{&quot;t&quot;:41.515,&quot;v&quot;:0.08},{&quot;t&quot;:53.515,&quot;v&quot;:0.08},{&quot;t&quot;:53.815,&quot;v&quot;:0.72},{&quot;t&quot;:63.724,&quot;v&quot;:0.72},{&quot;t&quot;:64.424,&quot;v&quot;:0}]}]}"></audio>
+<audio data-hf-id="hf-ym48" id="music" class="clip" src=".media/audio/bgm/bgm_001.mp3" data-start="0" data-media-start="0.706" data-duration="64.424" data-track-index="1" data-timeline-role="music" data-volume="0.72" data-automation="{&quot;version&quot;:1,&quot;lanes&quot;:[{&quot;target&quot;:&quot;volume&quot;,&quot;points&quot;:[{&quot;t&quot;:0,&quot;v&quot;:0},{&quot;t&quot;:0.65,&quot;v&quot;:0.72},{&quot;t&quot;:39.715,&quot;v&quot;:0.72},{&quot;t&quot;:40.165,&quot;v&quot;:0.63},{&quot;t&quot;:40.615,&quot;v&quot;:0.42},{&quot;t&quot;:41.065,&quot;v&quot;:0.21},{&quot;t&quot;:41.515,&quot;v&quot;:0.12},{&quot;t&quot;:53.515,&quot;v&quot;:0.12},{&quot;t&quot;:53.815,&quot;v&quot;:0.22},{&quot;t&quot;:54.115,&quot;v&quot;:0.44},{&quot;t&quot;:54.515,&quot;v&quot;:0.72},{&quot;t&quot;:63.724,&quot;v&quot;:0.72},{&quot;t&quot;:64.424,&quot;v&quot;:0}]}]}"></audio>
 <div data-hf-id="hf-9zh6" class="hairline"></div>
 <div data-hf-id="hf-r35x" id="wipe" data-layout-allow-overflow="true"><i data-hf-id="hf-wt6k"></i><i data-hf-id="hf-zeb8"></i><i data-hf-id="hf-y7e5"></i></div><div data-hf-id="hf-o6ww" id="progress"></div>
 </div><script>
@@ -64,7 +64,7 @@ const tl=gsap.timeline({paused:true});
 tl.fromTo('#progress',{scaleX:0},{scaleX:1,duration:64.424,ease:'none'},0);
 tl.set('#highlight-bridge',{opacity:0},0);
 tl.set('#highlight-bridge',{opacity:1},41.215);
-tl.to('#highlight-bridge',{opacity:0,duration:.45,ease:'power2.inOut'},41.515);
+tl.to('#highlight-bridge',{opacity:0,duration:.8,ease:'power2.inOut'},41.515);
 // Adapted from the installed directional-wipe primitive with three fixed panels.
 document.querySelectorAll('#wipe i').forEach((panel,i)=>{
  tl.fromTo(panel,{y:-945},{y:0,duration:.55,ease:'power2.inOut'},15.702+i*.05);
