@@ -7,8 +7,8 @@ import time
 from uuid import uuid4
 
 from PySide6.QtCore import (
-    QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
-    QTimer, QUrl, Signal,
+    QAbstractAnimation, QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
+    QTimer, QUrl, Signal, QVariantAnimation,
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
@@ -546,12 +546,45 @@ class RefreshButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(size + (6 if size < 30 else 8), size)
         self.setToolTip("刷新")
+        self._angle = 0.0
+        self._spin = QVariantAnimation(self)
+        self._spin.setStartValue(0.0)
+        self._spin.setEndValue(360.0)
+        self._spin.setDuration(1000)
+        self._spin.setLoopCount(-1)
+        self._spin.setEasingCurve(QEasingCurve.Linear)
+        self._spin.valueChanged.connect(self._spin_frame)
+
+    def _spin_frame(self, angle):
+        self._angle = angle
+        self.update()
+
+    def set_refreshing(self, busy):
+        self.setProperty("refreshing", busy)
+        if busy and self._spin.state() == QAbstractAnimation.Running and motion.enabled():
+            return
+        self._spin.stop()
+        self._angle = 0.0
+        if busy and self.isVisible() and motion.enabled():
+            self._spin.start()
+        self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.set_refreshing(bool(self.property("refreshing")))
+
+    def hideEvent(self, event):
+        self._spin.stop()
+        super().hideEvent(event)
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         center = QPointF(self.width() / 2, self.height() / 2)
+        painter.translate(center)
+        painter.rotate(self._angle)
+        painter.translate(-center)
         if self.property("refreshing"):
             color = QColor(theme.ACCENT)
         else:
@@ -5392,8 +5425,7 @@ class Sidebar(QFrame):
 
     def set_refreshing(self, busy: bool) -> None:
         self.refresh_button.setEnabled(True)
-        self.refresh_button.setProperty("refreshing", busy)
-        self.refresh_button.update()
+        self.refresh_button.set_refreshing(busy)
         self.refresh_button.setToolTip(
             "正在刷新关注列表…再次点击可排队刷新" if busy else "立刻刷新关注列表：直播状态、标题、在线人数、头像")
 

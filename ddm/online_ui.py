@@ -232,6 +232,7 @@ class PluginStorePage(OnlinePage):
         self.installed.emit(plugin_id)
         self.show_offers(self.offers)
         self.status.setText('安装包已校验，保存并重启后生效。')
+        show_result(self.window(), '插件已安装，保存并重启后生效')
 
 
 class AppUpdatePage(OnlinePage):
@@ -466,3 +467,48 @@ class UpdateNotice(QFrame):
     def _open(self):
         self.dismiss(animate=False)
         self.activated.emit()
+
+
+class ResultNotice(UpdateNotice):
+    """复用悬浮提醒；操作结果全程不透明，三秒后自动收起。"""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.layout().itemAt(1).widget().hide()
+        self.action.hide()
+        self.title.setWordWrap(True)
+        self.timer.setInterval(3000)
+
+    def show_message(self, message):
+        self._motion.stop()
+        self._leaving = False
+        self.title.setText(message)
+        self.setFixedWidth(min(360, max(240, self.parentWidget().width() - 40)))
+        self.adjustSize()
+        self._progress = self._progress if self.isVisible() else 0.0
+        if not motion.enabled():
+            self._progress = 1.0
+        self.reposition()
+        self.show()
+        self.raise_()
+        self.timer.start()
+        if self._progress < 1.0:
+            self._animate_to(1.0, 160)
+
+    def _motion_frame(self, value):
+        self._progress = value
+        self.reposition()
+
+    def reposition(self):
+        parent = self.parentWidget()
+        offset = round(12 * (1 - self._progress)) if motion.enabled() else 0
+        self.move(parent.mapToGlobal(QPoint(max(0, parent.width() - self.width() - 20),
+                                           max(0, parent.height() - self.height() - 20) + offset)))
+
+
+def show_result(parent, message):
+    if not parent.isVisible():
+        return
+    notice = getattr(parent, '_result_notice', None)
+    if notice is None:
+        notice = parent._result_notice = ResultNotice(parent)
+    notice.show_message(message)

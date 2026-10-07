@@ -9,11 +9,11 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
-    QScrollArea, QSlider, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import theme
-from .motion import AnimatedDialog, SettingsStack
+from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .player import DECODE_MODES
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
@@ -553,7 +553,7 @@ class PluginSettingsPage(QWidget):
         store_scroll.setWidgetResizable(True)
         store_scroll.setFrameShape(QFrame.NoFrame)
         store_scroll.setWidget(self.store_page)
-        self.tabs = QTabWidget()
+        self.tabs = SlidingTabs()
         self.tabs.setObjectName("PluginTabs")
         self.tabs.addTab(scroll, "已安装")
         self.tabs.addTab(store_scroll, "插件商店")
@@ -682,7 +682,8 @@ class PluginSettingsPage(QWidget):
         self._add_card(entry)
         self._files_changed = True
         self.changed.emit()
-        QMessageBox.information(self, "插件已安装", "插件将在下次启动时装载")
+        from .online_ui import show_result
+        show_result(self.window(), "插件已安装，保存并重启后生效")
 
     def needs_restart(self):
         return self._files_changed or {

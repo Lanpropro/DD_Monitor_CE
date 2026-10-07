@@ -2,9 +2,9 @@
 import ctypes
 import sys
 
-from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, Qt, QVariantAnimation
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPropertyAnimation, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap
-from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget
+from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabWidget
 
 
 def enabled() -> bool:
@@ -133,6 +133,38 @@ def lifted_drag(pixmap, hotspot):
     painter.end()
     return result, QPoint(round(hotspot.x() * scale) + padding,
                           round(hotspot.y() * scale) + padding)
+
+
+class SlidingTabs(QTabWidget):
+    """鼠标切换插件页时轻微滑入，不改变页面透明度。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._slide = QPropertyAnimation(self)
+        self._slide.setPropertyName(b"pos")
+        self._slide.setDuration(160)
+        self._slide.setEasingCurve(QEasingCurve.OutCubic)
+        self.currentChanged.connect(self._reveal_page)
+
+    def finish_transition(self):
+        target = self._slide.targetObject()
+        self._slide.stop()
+        if target is not None:
+            target.move(self._slide.endValue())
+
+    def _reveal_page(self, index):
+        self.finish_transition()
+        if index < 0 or not self.isVisible() or not QApplication.mouseButtons() or not enabled():
+            return
+        page = self.widget(index)
+        target = page.pos()
+        self._slide.setTargetObject(page)
+        self._slide.setStartValue(target + QPoint(16, 0))
+        self._slide.setEndValue(target)
+        self._slide.start()
+
+    def hideEvent(self, event):
+        self.finish_transition()
+        super().hideEvent(event)
 
 
 class PageRevealEffect(QGraphicsOpacityEffect):
