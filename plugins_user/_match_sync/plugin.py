@@ -1,8 +1,9 @@
 """Package entry point loaded by DD Monitor CE's single-file plugin loader."""
 import os
 
-from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QToolButton
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QSizePolicy, QToolButton, QVBoxLayout
 
 from ddm import plugins as api
 
@@ -11,6 +12,77 @@ __path__ = [os.path.dirname(__file__)]
 __package__ = __name__
 
 from .viewer import Viewer
+
+
+class EntryButton(QToolButton):
+    """Keep the plugin entry outside the host's two-button tool row."""
+    def __init__(self, sidebar, action):
+        super().__init__(sidebar)
+        self.sidebar = sidebar
+        self._top = None
+        self.setDefaultAction(action)
+        action.setToolTip("比赛二路：开启或关闭比赛二路模式")
+        self.setAccessibleName("比赛二路")
+        pixmap = QPixmap(36, 36)
+        pixmap.setDevicePixelRatio(2)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#dde3eb"), 1.5))
+        painter.drawRoundedRect(2, 3, 8, 12, 2, 2)
+        painter.drawRoundedRect(12, 6, 4, 9, 1, 1)
+        painter.end()
+        action.setIcon(QIcon(pixmap))
+        self.setIconSize(QSize(18, 18))
+        self._placement = QTimer(self)
+        self._placement.setSingleShot(True)
+        self._placement.timeout.connect(self._place)
+        sidebar.installEventFilter(self)
+        self._place()
+
+    def eventFilter(self, watched, event):
+        if watched is self.sidebar and event.type() in (
+                QEvent.LayoutRequest, QEvent.Resize, QEvent.Show):
+            self._placement.start(0)
+        return super().eventFilter(watched, event)
+
+    def _place(self):
+        sidebar = self.sidebar
+        top = getattr(sidebar, "side", "left") == "top"
+        if top:
+            parent = sidebar._bar_row
+            box = sidebar._bar_row_box
+            anchor = sidebar.toggle_button
+        else:
+            parent = sidebar
+            box = sidebar.layout() or QVBoxLayout(sidebar)
+            anchor = sidebar.tool_row
+        if self._top != top:
+            self._top = top
+            self.setObjectName("BarIcon" if top else "IconButton")
+            self.setToolButtonStyle(Qt.ToolButtonIconOnly if top else Qt.ToolButtonTextOnly)
+            self.setMinimumSize(QSize(30, 30) if top else QSize(0, 0))
+            self.setMaximumSize(QSize(30, 30) if top else QSize(16777215, 16777215))
+            self.setSizePolicy(QSizePolicy.Fixed if top else QSizePolicy.Expanding,
+                               QSizePolicy.Fixed)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        if (self.parentWidget() is not parent or box.indexOf(self) < 0
+                or box.indexOf(self) + 1 != box.indexOf(anchor)):
+            old = self.parentWidget().layout()
+            if old is not None:
+                old.removeWidget(self)
+            self.setParent(parent)
+            box.insertWidget(box.indexOf(anchor), self)
+        self.setVisible(top or not getattr(sidebar, "collapsed", False))
+
+    def detach(self):
+        self.sidebar.removeEventFilter(self)
+        self._placement.stop()
+        if self.parentWidget().layout() is not None:
+            self.parentWidget().layout().removeWidget(self)
+        self.hide()
+        self.deleteLater()
 
 
 class MatchSyncPlugin(api.Plugin):
@@ -29,12 +101,8 @@ class MatchSyncPlugin(api.Plugin):
             self.button = QAction("比赛二路", host)
             self.button.setCheckable(True)
             self.button.toggled.connect(self.set_enabled)
-            self.entry = QToolButton(sidebar.tool_row)
-            self.entry.setDefaultAction(self.button)
-            self.entry.setObjectName("IconButton")
-            self.entry.setToolTip("开启或关闭比赛二路模式")
-            sidebar.tool_row.layout().insertWidget(0, self.entry)
-        context.log("比赛二路同步已就绪；点击关注栏底部「比赛二路」按钮开启")
+            self.entry = EntryButton(sidebar, self.button)
+        context.log("比赛二路同步已就绪；点击关注栏「比赛二路」入口开启")
 
     def on_event(self, event, payload):
         if event == api.EVENT_STREAM_RESOLVED:
@@ -88,7 +156,7 @@ class MatchSyncPlugin(api.Plugin):
         if self.viewer is not None:
             self.viewer.close()
         if self.entry is not None:
-            self.entry.deleteLater()
+            self.entry.detach()
             self.entry = None
             self.button.deleteLater()
             self.button = None

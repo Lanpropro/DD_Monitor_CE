@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "0.1.28"
+        assert manager.catalog()[0]["version"] == "0.1.29"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -416,7 +416,7 @@ def embedded_checks(app):
     context = plugins.PluginContext(manager, "match_sync_embedded_test")
     plugin = MatchSyncPlugin()
     plugin.on_load(context)
-    assert plugin.entry.parentWidget() is host.sidebar.tool_row
+    assert plugin.entry.parentWidget() is host.sidebar
     assert plugin.button is not None and not plugin.tile_actions(FakeTile("42"))
     with patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
             patch.object(module, "PlatformChat", FakeChat), \
