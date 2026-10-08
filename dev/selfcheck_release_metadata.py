@@ -14,6 +14,11 @@ from ddm import online, version
 
 def main():
     assert version.VERSION == '0.3.1'
+    notes = (Path(__file__).resolve().parents[1] / 'RELEASE-v0.3.1.md').read_text(encoding='utf-8')
+    assert notes.index('更新提示：') < notes.index('## 0.3.1 小版本更新') < notes.index('## 此前更新内容')
+    assert '该问题已在 0.3.3 修复' in notes
+    assert '自动重试最多三次' in notes
+
     with tempfile.TemporaryDirectory(prefix='ddm-catalog-test-') as temporary:
         archive = Path(temporary) / 'global_live-1.2.zip'
         with zipfile.ZipFile(archive, 'w') as package:
