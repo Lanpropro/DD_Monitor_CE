@@ -179,7 +179,9 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
     # 主程序名固定；带版本号的兼容入口供旧0.3更新器识别，启动后转到主程序。
     Move-Item -LiteralPath (Join-Path $exeDir "$name-exe.exe") -Destination (Join-Path $exeDir "$display.exe")
-    Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
+    if ($version -eq "v0.3.1") {
+        Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
+    }
     @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
@@ -223,9 +225,10 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     $testConfig = Join-Path $exeDir "utils\config.json"
     if (Test-Path -LiteralPath $testConfig) { throw "自检目录意外包含已有用户配置" }
     New-Item -ItemType Directory -Force -Path (Split-Path $testConfig -Parent) | Out-Null
-    @{ version = 2; rooms = @(); wall = @(); user_notice_accepted = $true;
+    $probeJson = @{ version = 2; rooms = @(); wall = @(); user_notice_accepted = $true;
        plugins_enabled = @(); settings = @{ auto_update = $false } } |
-        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $testConfig -Encoding UTF8
+        ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($testConfig, $probeJson, (New-Object System.Text.UTF8Encoding($false)))
     $proc = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 20
     $alive = -not $proc.HasExited
