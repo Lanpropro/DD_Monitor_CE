@@ -8,9 +8,61 @@ import time
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
 from . import config, motion, online, plugin_updates, theme, update_install, version
+
+
+class UpdateDot(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(8, 8)
+        self.setStyleSheet('background: #ff5263; border: none; border-radius: 4px;')
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        if parent:
+            parent.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Resize, QEvent.Show):
+            self.move(watched.width() - 16, (watched.height() - 8) // 2)
+        return False
+
+
+def set_update_dot(widget, active):
+    if not hasattr(widget, '_update_dot'):
+        widget._update_dot = UpdateDot(widget)
+    widget._update_dot.move(widget.width() - 16, (widget.height() - 8) // 2)
+    widget._update_dot.setVisible(active)
+    widget._update_dot.raise_()
+
+
+class UpdateNavDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        if index.data(Qt.UserRole + 1):
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor('#ff5263'))
+            painter.drawEllipse(option.rect.right() - 22, option.rect.center().y() - 4, 8, 8)
+            painter.restore()
+
+
+def plugin_update_offers(manager, offers):
+    installed = {entry['id']: entry for entry in manager.catalog()} if manager else {}
+    pending = plugin_updates.pending_versions(manager) if manager else {}
+    result = []
+    for offer in offers:
+        existing = installed.get(offer['id'])
+        if not existing or offer['id'] in pending or not offer.get('available'):
+            continue
+        try:
+            newer = online.version_key(offer['version']) > online.version_key(existing['version'])
+        except (ValueError, KeyError):
+            newer = False
+        if newer:
+            result.append(offer)
+    return result
 
 
 class OnlineTask(QThread):
@@ -96,12 +148,14 @@ class OnlinePage(QWidget):
 
 class PluginStorePage(OnlinePage):
     installed = Signal(str)
+    offersChanged = Signal(object)
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.manager = manager
         self.offers = []
         self.buttons = {}
+        self.seen_versions = {}
         self.cache_path = Path(config.REPO) / 'cache' / 'plugin-catalog.json'
         self._checked_at = 0
         layout = QVBoxLayout(self)
@@ -174,6 +228,7 @@ class PluginStorePage(OnlinePage):
         self._checked_at = online.load_plugin_cache(self.cache_path).get('checked_at', self._checked_at)
         self.status.setText('暂时无法查询最新版本，显示内置的已发布插件目录。' if any(
             offer.get('cached') for offer in offers) else '选择插件即可下载安装，重启后启用。')
+        self.offersChanged.emit(self.offers)
 
     def show_offers(self, offers):
         while self.cards.count():
@@ -228,6 +283,13 @@ class PluginStorePage(OnlinePage):
             hint.setObjectName('SettingsHint')
             body.addWidget(hint)
             self.cards.addWidget(card)
+        self.update_dots()
+
+    def update_dots(self):
+        unread = {offer['id'] for offer in plugin_update_offers(self.manager, self.offers)
+                  if self.seen_versions.get(offer['id']) != offer['version']}
+        for plugin_id, button in self.buttons.items():
+            set_update_dot(button, plugin_id in unread)
         self._busy(bool(self.jobs))
 
     def install_offer(self, offer):
@@ -251,11 +313,14 @@ class PluginStorePage(OnlinePage):
             self.manager.save_plugin_settings()
         self.installed.emit(plugin_id)
         self.show_offers(self.offers)
+        self.offersChanged.emit(self.offers)
         self.status.setText('安装包已校验，保存并重启后生效。')
         show_result(self.window(), '插件已安装，保存并重启后生效')
 
 
 class AppUpdatePage(OnlinePage):
+    releaseChecked = Signal(object)
+
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
         self.offer = None
@@ -345,6 +410,7 @@ class AppUpdatePage(OnlinePage):
 
     def _release_ready(self, offer):
         self.offer = offer
+        self.releaseChecked.emit(offer)
         if offer:
             self.notes_title.setText('新版 ' + offer['version'] + ' 更新说明')
             self.notes.setMarkdown(offer.get('notes') or '此版本暂未提供更新说明。')
@@ -456,7 +522,7 @@ class UpdateNotice(QFrame):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QColor(theme.ELEVATED))
+        painter.setBrush(theme.qcolor(theme.ELEVATED))
         painter.setPen(QColor(131, 131, 145, 80))
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                                 theme.RADIUS_MD, theme.RADIUS_MD)
@@ -464,7 +530,7 @@ class UpdateNotice(QFrame):
     def reposition(self):
         parent = self.parentWidget()
         offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, parent.width() - self.width() - 20), 20 + offset)))
+        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2), 20 + offset)))
 
     def eventFilter(self, watched, event):
         if self.isVisible():
@@ -533,7 +599,7 @@ class ResultNotice(UpdateNotice):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QColor(theme.TILE_BG))
+        painter.setBrush(theme.qcolor(theme.ELEVATED))
         painter.setPen(QColor(131, 131, 145, 80))
         radius = self.height() / 2
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),

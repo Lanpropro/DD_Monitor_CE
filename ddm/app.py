@@ -129,6 +129,10 @@ class MainWindow(QMainWindow):
         self._available_update = None
         self._startup_update_task = None
         self._startup_update_checked = False
+        self._startup_plugin_task = None
+        self._startup_plugin_checked = False
+        self._plugin_update_offers = []
+        self._plugin_catalog_offers = []
         self._update_notice = None
         self._replay_suppressed: dict[Tile, str] = {}
         self._avatar_loaders: list = []                 # 头像下载线程，关窗时要等它们
@@ -357,10 +361,15 @@ class MainWindow(QMainWindow):
         self._startup_update_timer.setSingleShot(True)
         self._startup_update_timer.setInterval(2500)
         self._startup_update_timer.timeout.connect(self._check_startup_update)
-        if self.settings.get("auto_update", False):
+        from . import online
+        from pathlib import Path
+        cached = online.load_plugin_cache(Path(config_module.REPO) / 'cache' / 'plugin-catalog.json')
+        self._set_plugin_updates(cached.get('offers', []))
+        if self.settings.get("auto_update", False) or self.plugins.catalog():
             self._startup_update_timer.start()
 
     def _check_startup_update(self) -> None:
+        self._check_startup_plugins()
         if self._closing or self._startup_update_checked or not self.settings.get("auto_update", False):
             return
         from . import online
@@ -380,12 +389,93 @@ class MainWindow(QMainWindow):
         offer = payload[1]
         if self._closing or not self.settings.get("auto_update", False) or not offer:
             return
-        from .online_ui import UpdateNotice
+        self._set_app_update(offer)
+        self._show_update_notice()
+
+    def _set_app_update(self, offer):
         self._available_update = offer
+        self._mark_updates()
+
+    def _set_plugin_updates(self, offers):
+        from .online_ui import plugin_update_offers
+        self._plugin_catalog_offers = list(offers)
+        self._plugin_update_offers = plugin_update_offers(self.plugins, offers)
+        self._mark_updates()
+
+    def _mark_updates(self):
+        from .online_ui import set_update_dot
+        seen = self.settings.get('seen_update_entry_versions') or {}
+        offer = self._unread_app_update()
+        active = bool((offer and seen.get('app') != offer['version']) or any(
+            seen.get(entry['id']) != entry['version'] for entry in self._unread_plugin_updates()))
+        set_update_dot(self.sidebar.settings_button, active)
+        self.sidebar.settings_button.setToolTip('有新版本，打开设置查看' if active else '打开设置')
+
+    def _unread_app_update(self):
+        seen = self.settings.get('seen_update_versions') or {}
+        return self._available_update if (self._available_update
+            and seen.get('app') != self._available_update['version']) else None
+
+    def _unread_plugin_updates(self):
+        seen = self.settings.get('seen_update_versions') or {}
+        return [offer for offer in self._plugin_update_offers
+                if seen.get(offer['id']) != offer['version']]
+
+    def _remember_updates(self, versions):
+        self.settings['seen_update_versions'] = dict(versions)
+        self._mark_updates()
+        config_module.save(self.current_state())
+
+    def _check_startup_plugins(self):
+        if self._closing or self._startup_plugin_checked:
+            return
+        self._startup_plugin_checked = True
+        if not self.plugins.catalog():
+            return
+        from pathlib import Path
+        from . import online
+        from .online_ui import OnlineTask
+        path = Path(config_module.REPO) / 'cache' / 'plugin-catalog.json'
+        def check(cancelled, progress):
+            with online.session() as client:
+                return online.cached_plugin_catalog(client, version_module.VERSION, path)
+        task = OnlineTask(check, None, self)
+        self._startup_plugin_task = task
+        task.succeeded.connect(self._startup_plugins_ready)
+        task.failed.connect(self._startup_update_failed)
+        task.finished.connect(self._startup_plugins_finished)
+        task.start()
+
+    def _startup_plugins_ready(self, payload):
+        if self._closing:
+            return
+        self._set_plugin_updates(payload[1])
+        if self._unread_plugin_updates():
+            self._show_update_notice()
+
+    def _startup_plugins_finished(self):
+        task = self.sender()
+        if task is self._startup_plugin_task:
+            self._startup_plugin_task = None
+        task.deleteLater()
+
+    def _show_update_notice(self):
+        from .online_ui import UpdateNotice
+        app_offer = self._unread_app_update()
+        plugin_offers = self._unread_plugin_updates()
+        if not app_offer and not plugin_offers:
+            return
         if self._update_notice is None:
             self._update_notice = UpdateNotice(self)
-            self._update_notice.activated.connect(lambda: self.open_settings("updates"))
-        self._update_notice.show_offer(offer)
+            self._update_notice.activated.connect(lambda: self.open_settings(
+                "updates" if self._unread_app_update() else "plugins"))
+        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')})
+        parts = []
+        if app_offer:
+            parts.append('软件有新版 v' + app_offer['version'])
+        if plugin_offers:
+            parts.append(f'{len(plugin_offers)} 个插件可更新')
+        self._update_notice.title.setText(' · '.join(parts))
 
     def _startup_update_failed(self, payload) -> None:
         if not self._closing:
@@ -609,8 +699,21 @@ class MainWindow(QMainWindow):
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        seen = dict(self.settings.get('seen_update_entry_versions') or {})
+        if self._available_update:
+            seen['app'] = self._available_update['version']
+        seen.update({offer['id']: offer['version'] for offer in self._plugin_update_offers})
+        if seen != (self.settings.get('seen_update_entry_versions') or {}):
+            self.settings['seen_update_entry_versions'] = seen
+            self._mark_updates()
+            config_module.save(self.current_state())
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
+        dialog.update_page.releaseChecked.connect(self._set_app_update)
+        dialog.plugin_page.store_page.offersChanged.connect(self._set_plugin_updates)
+        dialog.updatesViewed.connect(self._remember_updates)
+        if self._plugin_catalog_offers:
+            dialog.plugin_page.store_page._catalog_ready(self._plugin_catalog_offers)
         if self._available_update:
             dialog.update_page._release_ready(self._available_update)
             dialog.update_page._busy(False)
@@ -620,6 +723,9 @@ class MainWindow(QMainWindow):
             dialog.nav.setCurrentRow(1)
         elif page == "updates":
             dialog.nav.setCurrentRow(5)
+        elif page == "plugins":
+            dialog.nav.setCurrentRow(4)
+            dialog.plugin_page.tabs.setCurrentIndex(1)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
         decode_before = self.settings.get("decode_mode", "auto")
@@ -776,6 +882,8 @@ class MainWindow(QMainWindow):
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
+        if self._startup_plugin_task is not None:
+            self._startup_plugin_task.requestInterruption()
         if self._update_notice is not None:
             self._update_notice.dismiss()
         follow_loader = getattr(self, "_follow_loader", None)
@@ -804,6 +912,8 @@ class MainWindow(QMainWindow):
         self._wait_background()
         if self._startup_update_task is not None:
             self._startup_update_task.wait()
+        if self._startup_plugin_task is not None:
+            self._startup_plugin_task.wait()
         self._resolvers.clear()
         self._resolvers_running.clear()
         total_ms = (time.perf_counter() - t0) * 1000
