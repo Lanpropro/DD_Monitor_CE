@@ -179,6 +179,7 @@ def plugin_catalog(client, current_version, cache=None):
             details = metadata.get(plugin_id, {})
             offer = {'id': plugin_id, 'name': name, 'description': description,
                      'version': plugin_version, 'min_app_version': details.get('min_app_version', '0.3'),
+                     'notes': details.get('notes') or release.get('body', ''),
                      'release_url': release.get('html_url', ''), 'available': True, 'cached': cached}
             try:
                 offer.update(asset_info(asset, PLUGIN_REPOSITORY))
