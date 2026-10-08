@@ -46,6 +46,7 @@ def main():
     assert 'Remove-Item -LiteralPath $testConfig -Force' in source
     assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
     assert 'asset_name = $remoteExeName' in source
+    assert 'notes = [string]$updateNotes' in source
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
     result = subprocess.run(['powershell', '-NoProfile', '-Command',

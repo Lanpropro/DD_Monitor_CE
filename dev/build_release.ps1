@@ -263,7 +263,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
         @{ version = $version.TrimStart('v'); asset_name = $remoteExeName;
            url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/download/$version/$remoteExeName";
            sha256 = (Get-FileHash -LiteralPath $exeZip -Algorithm SHA256).Hash.ToLower();
-           size = (Get-Item -LiteralPath $exeZip).Length; notes = $updateNotes;
+           size = (Get-Item -LiteralPath $exeZip).Length; notes = [string]$updateNotes;
            release_url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/$version" } |
             ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir "app-update.json") -Encoding UTF8
         Write-Output ("  {0:N0} MB" -f ((Get-Item $exeZip).Length / 1MB))
