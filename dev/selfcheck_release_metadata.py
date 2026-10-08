@@ -39,6 +39,8 @@ def main():
     assert 'if ($rel -like "dev/*promo*"' in source
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'user_notice_accepted = $true' in source
+    assert 'if ($version -eq "v0.3.1")' in source
+    assert 'UTF8Encoding($false)' in source
     assert 'Remove-Item -LiteralPath $testConfig -Force' in source
     assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
     assert 'asset_name = $remoteExeName' in source

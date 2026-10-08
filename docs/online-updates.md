@@ -39,3 +39,5 @@ python dev/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domes
 源码版可以检查新版和打开发布页，自动替换仅用于 EXE 版。旧 v0.2 EXE 没有更新入口，第一次需手动升级至包含该功能的版本；之后才能在线更新。
 
 开发验证：`selfcheck_online.py`、`selfcheck_online_ui.py` 和 `selfcheck_update_install.py` 覆盖校验失败、取消、兼容性、插件暂存及回滚、用户数据保留、Windows 父进程等待和录制退出接入。正式发版还需用真实冻结 EXE 在隔离目录中完成一次跨版本升级验收。
+
+0.3.1 作为固定程序名的过渡版本，额外提供 `DD监控室CE-v0.3.1.exe`，供旧 0.3 更新器识别；该入口启动后转交给 `DD监控室CE.exe`。之后的发布包只提供固定名称主程序，版本信息仍在更新清单和 Windows 文件属性中保留。
