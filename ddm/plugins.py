@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import config as config_module
+from .file_ops import replace_directory
 
 #: 插件目录要和 utils / cache / logs 一样落在**程序旁边**：源码运行时是仓库根，
 #: 打包成 exe 后是 exe 所在目录。这里用 config.REPO（它已经处理了 frozen），
@@ -424,7 +425,7 @@ class PluginManager:
                     with package.open(item) as source, open(destination, "wb") as output:
                         shutil.copyfileobj(source, output)
                 read_manifest(os.path.join(staging, plugin_id), plugin_id)
-                os.replace(os.path.join(staging, plugin_id), target)
+                replace_directory(os.path.join(staging, plugin_id), target)
         if self.enabled is not None:
             self.enabled.add(plugin_id)
             self.save_plugin_settings()

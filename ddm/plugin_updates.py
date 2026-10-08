@@ -5,6 +5,7 @@ import shutil
 import tempfile
 
 from .online import version_key
+from .file_ops import replace_directory
 from .version import VERSION
 
 
@@ -36,7 +37,7 @@ def stage(manager, archive, plugin_id, expected_version):
         check_compatibility(manifest)
         if manifest['version'] != expected_version:
             raise ValueError('插件版本与商店记录不一致')
-        os.replace(Path(temporary) / installed, destination)
+        replace_directory(Path(temporary) / installed, destination)
     return plugin_id
 
 
@@ -76,13 +77,13 @@ def apply_pending(manager):
                 read_manifest(str(merged), plugin_id)
                 if backup.exists():
                     shutil.rmtree(backup)
-                os.replace(target, backup)
+                replace_directory(target, backup)
                 moved = True
-                os.replace(merged, target)
+                replace_directory(merged, target)
             shutil.rmtree(package)
         except (OSError, ValueError) as error:
             if moved and not target.exists():
-                os.replace(backup, target)
+                replace_directory(backup, target)
             manager.skipped.append((plugin_id + ':update', f'更新失败，保留旧插件：{error}'))
 
 
