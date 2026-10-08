@@ -74,7 +74,7 @@ foreach ($rel in $tracked) {
     if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
     if ($rel -like "plugins_user/*") { continue }
     if ($rel -like "videos/*") { continue }
-    if ($rel -like "dev/*promo*") { continue }
+    if ($rel -like "dev/*promo*" -or $rel -like "dev/*highlight*" -or $rel -like "dev/*videotogether*" -or $rel -like "docs/*VIDEO*" -or $rel -like "docs/*PROMO*" -or $rel -like "HANDOFF-*") { continue }
     $src = Join-Path $repo ($rel -replace "/", "\")
     $dst = Join-Path $app ($rel -replace "/", "\")
     $dir = Split-Path $dst -Parent
@@ -177,8 +177,9 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
-    # 发布目录保留 -exe 区分源码包；用户双击的程序名与软件版本名一致。
-    Move-Item -LiteralPath (Join-Path $exeDir "$name-exe.exe") -Destination (Join-Path $exeDir "$name.exe")
+    # 主程序名固定；带版本号的兼容入口供旧0.3更新器识别，启动后转到主程序。
+    Move-Item -LiteralPath (Join-Path $exeDir "$name-exe.exe") -Destination (Join-Path $exeDir "$display.exe")
+    Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
     @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
@@ -204,7 +205,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
 DD 监控室 $version（exe 便携版）
 ================================
 
-双击 $name.exe 启动。不需要装 Python。
+双击 $display.exe 启动。不需要装 Python。
 配置 / 缓存 / 日志都在这个目录下（utils\config.json、cache\、logs\），
 plugins_user\ 里是插件，可在设置页装载 ZIP 包，
 整个目录拷到别的 Windows 10/11 64 位机器就能用。
@@ -225,7 +226,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     @{ version = 2; rooms = @(); wall = @(); user_notice_accepted = $true;
        plugins_enabled = @(); settings = @{ auto_update = $false } } |
         ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $testConfig -Encoding UTF8
-    $proc = Start-Process -FilePath (Join-Path $exeDir "$name.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
+    $proc = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 20
     $alive = -not $proc.HasExited
     if ($alive) { Stop-Process -Id $proc.Id -Force }

@@ -71,15 +71,16 @@ def prepare(archive, install_root, current_exe, cancelled=lambda: False, expecte
                 with package.open(item) as source, target.open('wb') as output:
                     shutil.copyfileobj(source, output)
                 paths.append(name)
-        executables = [name for name in paths if '/' not in name
-                       and name.startswith('DD监控室CE-v') and name.endswith('.exe')]
+        fixed = 'DD监控室CE.exe'
+        executables = ([fixed] if fixed in paths else [name for name in paths if '/' not in name
+                       and name.startswith('DD监控室CE-v') and name.endswith('.exe')])
         if len(executables) != 1 or not (stage / '_internal').is_dir():
             raise ValueError('此安装包不是 Windows EXE 便携版')
         build = json.loads((stage / 'ddm-build.json').read_text(encoding='utf-8-sig'))
         if build.get('update_protocol') != 1 or build.get('platform') != 'windows-x64':
             raise ValueError('更新包不支持当前更新协议')
         if expected_version and (build.get('version') != expected_version
-                                 or executables[0] != f'DD监控室CE-v{expected_version}.exe'):
+                                 or executables[0] not in (fixed, f'DD监控室CE-v{expected_version}.exe')):
             raise ValueError('更新包版本与发布记录不一致')
         plan = {'root': str(root), 'stage': str(stage), 'files': paths,
                 'old_exe': old_exe.name, 'new_exe': executables[0], 'parent_pid': os.getpid()}

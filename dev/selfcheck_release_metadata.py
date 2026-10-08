@@ -13,7 +13,7 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.3'
+    assert version.VERSION == '0.3.1'
     with tempfile.TemporaryDirectory(prefix='ddm-catalog-test-') as temporary:
         archive = Path(temporary) / 'global_live-1.2.zip'
         with zipfile.ZipFile(archive, 'w') as package:
@@ -36,7 +36,7 @@ def main():
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
     assert 'if ($rel -like "plugins_user/*") { continue }' in source
     assert 'if ($rel -like "videos/*") { continue }' in source
-    assert 'if ($rel -like "dev/*promo*") { continue }' in source
+    assert 'if ($rel -like "dev/*promo*"' in source
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'user_notice_accepted = $true' in source
     assert 'Remove-Item -LiteralPath $testConfig -Force' in source
@@ -50,7 +50,7 @@ def main():
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { $_.Message }; exit 1 }"],
         capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    print('PASS: plugin catalog generation, compatibility, 0.3 version and parsed release update metadata')
+    print('PASS: plugin catalog generation, compatibility, current version and parsed release update metadata')
 
 
 if __name__ == '__main__':
