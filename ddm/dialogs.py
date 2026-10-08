@@ -53,23 +53,25 @@ def _step_button(text: str, tooltip: str, slot) -> QPushButton:
 
 
 class GeneralSettingsPage(QWidget):
-    """常规：轮询、画质策略、画面卡死检测、新格子初始声音。"""
+    """常规：关注列表、直播预览、解码与新格子初始声音。"""
 
     ITEMS = [
-        ("auto_quality", "B 站主画面自动用原画，其余自动 720P"),
-        ("freeze_watch", "画面卡死检测"),
-        ("default_muted", "新建格子的初始静音状态"),
-        ("fullscreen_solo_audio", "全屏时只播放该路声音，退出后恢复原静音状态"),
-        ("sidebar_card_mode", "关注列表使用大封面卡片"),
+        ("default_muted", "新建格子初始静音"),
+        ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
-        ("preview_on_hover", "关注栏卡片预览"),
-        ("live_alert", "「开播」气泡提示"),
+        ("preview_on_hover", "关注栏直播预览"),
+        ("live_alert", "开播气泡提醒"),
     ]
 
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
         self._checks: dict[str, QCheckBox] = {}
+        self._hidden_values = {
+            "auto_quality": bool(settings.get("auto_quality", True)),
+            "sidebar_card_mode": bool(settings.get("sidebar_card_mode", True)),
+            "freeze_watch": True,
+        }
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -160,6 +162,8 @@ class GeneralSettingsPage(QWidget):
     def reset(self) -> None:
         from . import config as config_module
 
+        for key in self._hidden_values:
+            self._hidden_values[key] = config_module.DEFAULT_SETTINGS[key]
         self.poll_spin.setValue(config_module.DEFAULT_SETTINGS["poll_minutes"])
         for key, _label in self.ITEMS:
             self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
@@ -170,6 +174,7 @@ class GeneralSettingsPage(QWidget):
 
     def values(self) -> dict:
         result = {
+            **self._hidden_values,
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
