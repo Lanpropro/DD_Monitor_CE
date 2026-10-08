@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
+from ddm.version import DISPLAY_NAME, VERSION
 
 
 def build(output: Path) -> None:
@@ -15,7 +15,7 @@ def build(output: Path) -> None:
         "FileVersion": VERSION,
         "ProductVersion": VERSION,
         "InternalName": DISPLAY_NAME,
-        "OriginalFilename": f"{DISPLAY_NAME}-{VERSION_TAG}.exe",
+        "OriginalFilename": f"{DISPLAY_NAME}.exe",
     }
     entries = ",\n            ".join(f"StringStruct({key!r}, {value!r})" for key, value in strings.items())
     output.write_text(f"""VSVersionInfo(

@@ -30,7 +30,7 @@ for folder, zip_path in ((source, results / f"{name}.zip"),
         assert len(archive.namelist()) > 20, f"ZIP 内容不完整：{zip_path}"
         if folder == exe:
             names = archive.namelist()
-            assert any(item.endswith(f"{VERSION_TAG}.exe") for item in names), "ZIP 中缺少新文件名的 exe"
+            assert any(item.endswith(f"{DISPLAY_NAME}.exe") for item in names), "ZIP 中缺少新文件名的 exe"
             assert not any(item.endswith(f"{VERSION_TAG}-exe.exe") for item in names), \
                 "ZIP 中仍有旧文件名的 exe"
 
@@ -41,9 +41,9 @@ for path in ("ddm/app.py", "ddm/widgets.py", "ddm/audio_output.py", "ddm/dialogs
     assert packaged.replace(b"\r\n", b"\n") == original.replace(b"\r\n", b"\n"), \
         f"源码包与打包工作区不一致：{path}"
 
-assert (exe / f"{name}.exe").is_file(), "可执行文件缺失"
+assert (exe / f"{DISPLAY_NAME}.exe").is_file(), "可执行文件缺失"
 assert not (exe / f"{name}-exe.exe").exists(), "旧版 exe 文件名仍在包内"
-assert f"{name}.exe" in (exe / "运行说明.txt").read_text(encoding="utf-8-sig"), \
+assert f"{DISPLAY_NAME}.exe" in (exe / "运行说明.txt").read_text(encoding="utf-8-sig"), \
     "运行说明中的 exe 文件名不正确"
 for folder in (source, exe):
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
@@ -112,9 +112,9 @@ if args.old_zip:
         overlay(results / f"{name}-exe.zip")
         assert all(path.read_bytes() == data for path, data in before.items()), \
             "覆盖升级改写了配置、插件或用户数据"
-        updated_exe = installed / f"{name}.exe"
+        updated_exe = installed / f"{DISPLAY_NAME}.exe"
         assert hashlib.sha256(updated_exe.read_bytes()).digest() == hashlib.sha256(
-            (exe / f"{name}.exe").read_bytes()).digest(), "旧 exe 未被新包替换"
+            (exe / f"{DISPLAY_NAME}.exe").read_bytes()).digest(), "旧 exe 未被新包替换"
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 0

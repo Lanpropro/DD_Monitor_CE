@@ -16,7 +16,7 @@ def check():
                            for target in node.targets))
     archives = re.findall(r"DDMonitorCE-v([\d.]+)-exe\.zip", readme)
     executables = re.findall(r"DD监控室CE-v([\d.]+)\.exe", readme)
-    assert archives and executables, "missing portable download or launch example"
+    assert archives and "DD监控室CE.exe" in readme, "missing portable download or fixed launch name"
     assert all(value == version for value in archives + executables), "stale README version"
     anchors = {re.sub(r"[^\w\s\-]", "", heading.lower()).replace(" ", "-")
                for heading in re.findall(r"^#{1,6}\s+(.+)$", readme, re.M)}

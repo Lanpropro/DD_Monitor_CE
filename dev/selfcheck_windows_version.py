@@ -11,7 +11,7 @@ from PyInstaller.utils.win32.versioninfo import (
     write_version_info_to_executable,
 )
 from build_windows_version import build
-from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
+from ddm.version import DISPLAY_NAME, VERSION
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
         major, minor, *_ = [int(part) for part in VERSION.split(".")] + [0, 0]
         assert info.ffi.fileVersionMS == (major << 16) | minor
         bootloader = Path(PyInstaller.__file__).parent / "bootloader/Windows-64bit-intel/runw.exe"
-        exe = root / f"{DISPLAY_NAME}-{VERSION_TAG}.exe"
+        exe = root / f"{DISPLAY_NAME}.exe"
         shutil.copy2(bootloader, exe)
         write_version_info_to_executable(str(exe), info)
         actual = read_version_info_from_executable(str(exe))
