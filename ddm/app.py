@@ -45,7 +45,7 @@ from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
 from .recording import RecordingManager
-from .widgets import Sidebar, Tile, WallGrid
+from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
 AUDIO_AUDIT_MS = 2_000
@@ -3106,6 +3106,8 @@ class MainWindow(QMainWindow):
                     self._on_fullscreen(tile)
         elif pressed and pressed == shortcuts.get("mute"):
             self._toggle_mute_under_cursor()
+        elif pressed and pressed == shortcuts.get("audio_cycle"):
+            self._cycle_audio_under_cursor()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
         elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:
@@ -3122,6 +3124,20 @@ class MainWindow(QMainWindow):
         print(f"[快捷键] {target.room.get('uname')} "
               f"{'已静音' if target.muted else '已取消静音'}",
               file=sys.stderr, flush=True)
+
+    def _cycle_audio_under_cursor(self) -> None:
+        """E：鼠标所在格子依次启用双声道、左声道、右声道、静音。"""
+        target = self._tile_under_cursor()
+        if target is None or not target.room.get("room_id"):
+            return
+        if target.muted:
+            target.set_audio_channel(0)
+        elif target.audio_channel == VolumeButton.CHANNEL_RIGHT:
+            target.set_muted(True)
+        else:
+            target.set_audio_channel(VolumeButton.CHANNEL_RIGHT
+                                     if target.audio_channel == VolumeButton.CHANNEL_LEFT
+                                     else VolumeButton.CHANNEL_LEFT)
 
     def _toggle_solo_audio(self) -> None:
         """Alt+M：只让鼠标悬停的那一路有声，其他格子一律静音。

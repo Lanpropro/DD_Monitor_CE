@@ -22,6 +22,7 @@ SHORTCUT_ACTIONS = [
     ("focus", "全屏查看鼠标所在的格子", "F"),
     ("restore", "退出全屏", "Esc"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
+    ("audio_cycle", "声音轮询按键", "E"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
 
