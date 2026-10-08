@@ -92,12 +92,14 @@ def main():
         fallback = online.plugin_catalog(Client([]), '0.3')
         assert len(fallback) == 3
         assert all(offer.get('cached') for offer in fallback if offer['available'])
-    metadata = json.dumps({'plugins': [{'id': 'global_live', 'min_app_version': '0.4'}]}).encode()
+    metadata = json.dumps({'plugins': [{'id': 'global_live', 'min_app_version': '0.4',
+                                       'notes': 'plugin-specific fixes'}]}).encode()
     releases = [{'tag_name': 'v1', 'assets': [asset('global_live-1.0.zip'), asset('plugin-catalog.json', metadata)]},
                 {'tag_name': 'older', 'assets': [asset('global_live-0.9.zip')]}]
     offers = online.plugin_catalog(Client([Response(payload=releases), Response(metadata)]), '0.3')
     overseas = next(offer for offer in offers if offer['id'] == 'global_live')
     assert overseas['version'] == '1.0' and not overseas['available'] and '0.4' in overseas['reason']
+    assert overseas['notes'] == 'plugin-specific fixes'
     assert not next(offer for offer in offers if offer['id'] == 'match_sync')['available']
     with tempfile.TemporaryDirectory(prefix='ddm-online-test-') as temporary:
         root = Path(temporary)

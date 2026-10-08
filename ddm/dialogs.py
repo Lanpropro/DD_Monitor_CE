@@ -515,6 +515,8 @@ class PluginSettingsPage(QWidget):
         self.setAcceptDrops(True)
         self.setObjectName("SettingsPage")
         self.checks = {}
+        self.card_details = {}
+        self.update_buttons = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -572,7 +574,14 @@ class PluginSettingsPage(QWidget):
         self.store_page.refresh.hide()
         self.tabs.currentChanged.connect(self._store_tab_changed)
         self.store_page.installed.connect(self._store_installed)
+        self.store_page.offersChanged.connect(self._show_update_notes)
+        self.store_page.controlsChanged.connect(self._sync_update_buttons)
+        self._show_update_notes(self.store_page.offers)
         layout.addWidget(self.tabs, 1)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.store_page.open_catalog()
 
     def _store_tab_changed(self, index):
         self.store_page.refresh.setVisible(index == 1)
@@ -582,6 +591,8 @@ class PluginSettingsPage(QWidget):
     def _store_installed(self, plugin_id):
         previous = {key: check.isChecked() for key, check in self.checks.items()}
         self.checks = {}
+        self.card_details = {}
+        self.update_buttons = {}
         self.empty = None
         while self.cards.count() > 1:
             item = self.cards.takeAt(0)
@@ -596,6 +607,33 @@ class PluginSettingsPage(QWidget):
             self._add_card(entry)
         self._files_changed = True
         self.changed.emit()
+
+    def _show_update_notes(self, offers):
+        from .online_ui import plugin_update_notes
+        updates = plugin_update_notes(self.manager, offers)
+        for plugin_id, (description, status, text) in self.card_details.items():
+            description.setText(updates.get(plugin_id, text))
+            status.setVisible(plugin_id not in updates)
+        self._sync_update_buttons()
+
+    def _sync_update_buttons(self):
+        from .online_ui import plugin_update_offers
+        from .plugin_updates import pending_versions
+        offers = {offer['id']: offer for offer in
+                  plugin_update_offers(self.manager, self.store_page.offers)}
+        pending = pending_versions(self.manager) if self.manager else {}
+        running = {task.key: task for task in self.store_page.jobs}
+        for plugin_id, button in self.update_buttons.items():
+            task = running.get(plugin_id)
+            button.setVisible(plugin_id in offers or plugin_id in pending)
+            button.setEnabled(plugin_id in offers and None not in running and task is None)
+            button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
+                           if task else ('待重启' if plugin_id in pending else '更新'))
+
+    def _update_plugin(self, plugin_id):
+        offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), None)
+        if offer:
+            self.store_page.install_offer(offer)
 
     def _add_card(self, entry):
         card = QFrame()
@@ -613,12 +651,19 @@ class PluginSettingsPage(QWidget):
         self.checks[entry["id"]] = check
         check.toggled.connect(lambda _checked: self.changed.emit())
         top.addWidget(check)
+        update = QPushButton("更新")
+        update.setObjectName("IconButton")
+        update.hide()
+        update.clicked.connect(lambda: self._update_plugin(entry["id"]))
+        self.update_buttons[entry["id"]] = update
+        top.addWidget(update)
         remove = QPushButton("删除")
         remove.setObjectName("IconButton")
         remove.clicked.connect(lambda: self._remove(entry["id"], card))
         top.addWidget(remove)
         body.addLayout(top)
         description = QLabel(entry["description"] or "暂无说明")
+        description.setTextFormat(Qt.PlainText)
         description.setWordWrap(True)
         body.addWidget(description)
         status = QLabel(entry["id"] + "  ·  " + entry["status"] +
@@ -626,6 +671,7 @@ class PluginSettingsPage(QWidget):
         status.setObjectName("SettingsHint")
         status.setWordWrap(True)
         body.addWidget(status)
+        self.card_details[entry["id"]] = (description, status, description.text())
         self.cards.insertWidget(self.cards.count() - 1, card)
 
     def _remove(self, plugin_id, card):
@@ -642,6 +688,8 @@ class PluginSettingsPage(QWidget):
             QMessageBox.warning(self, "删除插件失败", str(error))
             return
         del self.checks[plugin_id]
+        self.card_details.pop(plugin_id, None)
+        self.update_buttons.pop(plugin_id, None)
         self.cards.removeWidget(card)
         card.deleteLater()
         self.store_page.show_offers(self.store_page.offers)

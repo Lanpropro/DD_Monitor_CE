@@ -65,6 +65,12 @@ def plugin_update_offers(manager, offers):
     return result
 
 
+def plugin_update_notes(manager, offers):
+    return {offer['id']: '更新日志 · v' + offer['version'] + '\n' +
+            (offer.get('notes') or '暂无更新日志')
+            for offer in plugin_update_offers(manager, offers)}
+
+
 class OnlineTask(QThread):
     succeeded = Signal(object)
     failed = Signal(object)
@@ -149,6 +155,7 @@ class OnlinePage(QWidget):
 class PluginStorePage(OnlinePage):
     installed = Signal(str)
     offersChanged = Signal(object)
+    controlsChanged = Signal()
 
     def __init__(self, manager, parent=None):
         super().__init__(parent)
@@ -201,6 +208,7 @@ class PluginStorePage(OnlinePage):
             button.setEnabled(bool(button.property('storeEnabled')) and not reading and task is None)
             button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
                            if task else button.property('storeText'))
+        self.controlsChanged.emit()
 
     def _progress(self, percent):
         if self.stopping:
@@ -238,6 +246,7 @@ class PluginStorePage(OnlinePage):
         self.buttons = {}
         installed = {entry['id']: entry for entry in self.manager.catalog()} if self.manager else {}
         pending = plugin_updates.pending_versions(self.manager) if self.manager else {}
+        updates = plugin_update_notes(self.manager, offers)
         for offer in offers:
             card = QFrame()
             card.setObjectName('PluginCard')
@@ -251,7 +260,8 @@ class PluginStorePage(OnlinePage):
             heading.addStretch(1)
             button = QPushButton('安装')
             button.setObjectName('IconButton')
-            description = QLabel(offer['description'])
+            description = QLabel(updates.get(offer['id'], offer['description']))
+            description.setTextFormat(Qt.PlainText)
             description.setWordWrap(True)
             note = offer.get('reason', '')
             allowed = offer.get('available', False) and self.manager is not None
@@ -281,6 +291,7 @@ class PluginStorePage(OnlinePage):
             hint = QLabel(note or ' ')
             hint.setWordWrap(True)
             hint.setObjectName('SettingsHint')
+            hint.setVisible(offer['id'] not in updates)
             body.addWidget(hint)
             self.cards.addWidget(card)
         self.update_dots()
