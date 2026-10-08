@@ -153,7 +153,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
 "@
     }
     Write-Output "=== 冻 exe（PySide6 6.9）==="
-    $exeDir = Join-Path $OutDir "$name-exe"
+    $exeDir = Join-Path $OutDir $display
     $build = Join-Path $repo "work\exebuild"
     if ((Split-Path $exeDir -Parent) -ne $OutDir -or
         (Split-Path $build -Parent) -ne (Join-Path $repo "work")) { throw "构建目录路径越界" }
@@ -164,7 +164,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     & $py (Join-Path $repo "dev\build_windows_version.py") $versionInfo
     if ($LASTEXITCODE -ne 0) { throw "Windows EXE 版本信息生成失败" }
     $env:PYTHONPATH = $deps
-    & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name "$name-exe" `
+    & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name $display `
         --icon (Join-Path $repo "favicon.ico") `
         --version-file $versionInfo `
         --distpath $OutDir --workpath $build --specpath $build `
@@ -178,7 +178,6 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         (Join-Path $repo "main.py")
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
     # 主程序名固定；带版本号的兼容入口供旧0.3更新器识别，启动后转到主程序。
-    Move-Item -LiteralPath (Join-Path $exeDir "$name-exe.exe") -Destination (Join-Path $exeDir "$display.exe")
     if ($version -eq "v0.3.1") {
         Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
     }

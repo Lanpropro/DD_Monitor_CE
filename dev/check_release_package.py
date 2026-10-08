@@ -20,7 +20,7 @@ sys.path.insert(0, str(repo))
 from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
 name = f"{DISPLAY_NAME}-{VERSION_TAG}"
 source = results / name
-exe = results / f"{name}-exe"
+exe = results / DISPLAY_NAME
 
 for folder, zip_path in ((source, results / f"{name}.zip"),
                          (exe, results / f"{name}-exe.zip")):
@@ -82,7 +82,7 @@ if args.old_zip:
                 archive.extractall(root)
 
         overlay(args.old_zip)
-        installed = root / f"{name}-exe"
+        installed = root / DISPLAY_NAME
         assert installed.is_dir(), "新旧包程序目录名称不一致"
         config = installed / "utils" / "config.json"
         config.parent.mkdir(exist_ok=True)
