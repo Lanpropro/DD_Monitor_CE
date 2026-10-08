@@ -40,6 +40,8 @@ def main():
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'user_notice_accepted = $true' in source
     assert 'if ($version -eq "v0.3.1")' in source
+    assert '$exeDir = Join-Path $OutDir $display' in source
+    assert '--onedir --name $display' in source
     assert 'UTF8Encoding($false)' in source
     assert 'Remove-Item -LiteralPath $testConfig -Force' in source
     assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
