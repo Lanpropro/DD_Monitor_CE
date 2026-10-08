@@ -48,10 +48,13 @@ class OnlinePage(QWidget):
         self.status.setWordWrap(True)
         self.status.setObjectName('SettingsHint')
 
-    def start(self, operation, callback):
-        if self.jobs or self.stopping:
+    def start(self, operation, callback, *, key=None):
+        if self.stopping or (self.jobs and (key is None or any(
+                task.key in (None, key) for task in self.jobs))):
             return
         task = OnlineTask(operation, callback, self)
+        task.key = key
+        task.percent = 0
         self.jobs.append(task)
         task.succeeded.connect(self._succeeded)
         task.failed.connect(self._failed)
@@ -137,12 +140,22 @@ class PluginStorePage(OnlinePage):
 
     def _busy(self, busy):
         self.refresh.setEnabled(not busy)
-        if busy:
-            for button in self.buttons.values():
-                button.setEnabled(False)
-        else:
-            for button in self.buttons.values():
-                button.setEnabled(bool(button.property('storeEnabled')))
+        reading = any(task.key is None for task in self.jobs)
+        running = {task.key: task for task in self.jobs}
+        for plugin_id, button in self.buttons.items():
+            task = running.get(plugin_id)
+            button.setEnabled(bool(button.property('storeEnabled')) and not reading and task is None)
+            button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
+                           if task else button.property('storeText'))
+
+    def _progress(self, percent):
+        if self.stopping:
+            return
+        task = self.sender()
+        task.percent = percent
+        self._busy(bool(self.jobs))
+        self.status.setText(f'正在并行安装 {len(self.jobs)} 个插件…' if len(self.jobs) > 1
+                            else '正在下载、校验和解压插件…')
 
     def refresh_catalog(self, force=False):
         if self.jobs or self.stopping:
@@ -202,6 +215,7 @@ class PluginStorePage(OnlinePage):
                 allowed = allowed and newer
             elif not offer.get('available'):
                 button.setText('暂不可安装')
+            button.setProperty('storeText', button.text())
             button.setProperty('storeEnabled', allowed)
             button.setEnabled(allowed and not self.jobs)
             button.clicked.connect(lambda _checked=False, entry=offer: self.install_offer(entry))
@@ -214,9 +228,11 @@ class PluginStorePage(OnlinePage):
             hint.setObjectName('SettingsHint')
             body.addWidget(hint)
             self.cards.addWidget(card)
+        self._busy(bool(self.jobs))
 
     def install_offer(self, offer):
-        if not self.manager or not offer.get('available'):
+        if (not self.manager or not offer.get('available') or self.stopping
+                or any(task.key in (None, offer['id']) for task in self.jobs)):
             return
         self.status.setText('正在下载安装包…')
         def install(cancelled, progress):
@@ -226,7 +242,7 @@ class PluginStorePage(OnlinePage):
                     raise InterruptedError('安装已取消')
                 new = offer['id'] not in {entry['id'] for entry in self.manager.catalog()}
                 return plugin_updates.install(self.manager, archive, offer), new
-        self.start(install, self._installed)
+        self.start(install, self._installed, key=offer['id'])
 
     def _installed(self, result):
         plugin_id, new = result
