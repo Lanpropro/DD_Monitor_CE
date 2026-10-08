@@ -9,14 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     content = (ROOT / "docs/customization-plan.md").read_text(encoding="utf-8")
     for heading in ("目标与现状", "第一阶段：深浅色模式", "第二阶段：皮肤",
-                    "第三阶段：自定义布局", "实施顺序与交付"):
+                    "第三阶段：自定义布局", "直播间组合预设（待实现）", "实施顺序与交付"):
         assert f"## {heading}" in content, heading
     assert "状态：待实现" in content
-    assert content.count("验收：") == 3
+    assert content.count("验收：") == 4
     for path in re.findall(r"`(ddm/[^`]+\.py)`", content):
         assert (ROOT / path).is_file(), path
     assert "新增格子保持空白" in content
     assert "不打断录制和弹幕" in content
+    assert "1+5布局中的6位主播" in content
+    assert "普通布局扩容仍保持新增格子为空" in content
     print("PASS: customization plan stages, pending status, acceptance and code references")
 
 
