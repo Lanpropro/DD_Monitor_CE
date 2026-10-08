@@ -89,6 +89,7 @@ def main():
         assert image.pixelColor(0, 0).alpha() == 0, "capsule corners must be transparent"
         assert image.pixelColor(3, 3).alpha() == 0, "use a pill radius rather than the old small radius"
         assert image.pixelColor(image.width() // 2, 2).alpha() > 0
+        assert image.pixelColor(image.width() // 2, 4) == theme.qcolor(theme.ELEVATED), "notice should use the themed floating background"
         notice._motion.setCurrentTime(60)
         assert 0 < notice._progress < 1
         progress = notice._progress

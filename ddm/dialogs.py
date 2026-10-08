@@ -644,6 +644,8 @@ class PluginSettingsPage(QWidget):
         del self.checks[plugin_id]
         self.cards.removeWidget(card)
         card.deleteLater()
+        self.store_page.show_offers(self.store_page.offers)
+        self.store_page.offersChanged.emit(self.store_page.offers)
         self._files_changed = True
         self.changed.emit()
         if not self.checks:
@@ -707,6 +709,7 @@ class PluginSettingsPage(QWidget):
 
 
 class SettingsDialog(AnimatedDialog):
+    updatesViewed = Signal(object)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("danmaku", "弹幕"),
@@ -716,6 +719,7 @@ class SettingsDialog(AnimatedDialog):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.restart_requested = False
+        self.seen_versions = dict(settings.get('seen_update_versions') or {})
         self.resize(720, 500)
 
         root = QHBoxLayout(self)
@@ -726,6 +730,8 @@ class SettingsDialog(AnimatedDialog):
         self.nav.setObjectName("SettingsNav")
         self.nav.setFixedWidth(180)
         self.nav.setFocusPolicy(Qt.NoFocus)
+        from .online_ui import UpdateNavDelegate, UpdateDot
+        self.nav.setItemDelegate(UpdateNavDelegate(self.nav))
         for key, label in self.PAGES:
             item = QListWidgetItem(label)
             item.setData(Qt.UserRole, key)
@@ -742,6 +748,10 @@ class SettingsDialog(AnimatedDialog):
         self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
         self.plugin_page = PluginSettingsPage(plugin_manager)
+        self.plugin_page.store_page.seen_versions = self.seen_versions
+        self._plugin_update_dot = UpdateDot()
+        from PySide6.QtWidgets import QTabBar
+        self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
         from .online_ui import AppUpdatePage
         self.update_page = AppUpdatePage(settings)
         self.stack.addWidget(self.general_page)
@@ -774,7 +784,37 @@ class SettingsDialog(AnimatedDialog):
         self.plugin_page.changed.connect(self._update_save_button)
         self.plugin_page.store_page.busyChanged.connect(self._update_save_button)
         self.update_page.busyChanged.connect(self._update_save_button)
+        self.plugin_page.store_page.offersChanged.connect(self._mark_plugin_updates)
+        self.update_page.releaseChecked.connect(self._mark_app_update)
+        self._mark_plugin_updates(self.plugin_page.store_page.offers)
         self._update_save_button()
+
+    def _mark_update_page(self, key, active):
+        for index in range(self.nav.count()):
+            item = self.nav.item(index)
+            if item.data(Qt.UserRole) == key:
+                item.setData(Qt.UserRole + 1, active)
+
+    def _remember_versions(self, versions):
+        if any(self.seen_versions.get(key) != value for key, value in versions.items()):
+            self.seen_versions.update(versions)
+            self.updatesViewed.emit(dict(self.seen_versions))
+
+    def _mark_app_update(self, offer):
+        if offer and self.nav.currentRow() == 5:
+            self._remember_versions({'app': offer['version']})
+        active = bool(offer and self.seen_versions.get('app') != offer['version'])
+        self._mark_update_page('updates', active)
+
+    def _mark_plugin_updates(self, offers):
+        from .online_ui import plugin_update_offers
+        updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
+        if self.nav.currentRow() == 4:
+            self._remember_versions({offer['id']: offer['version'] for offer in updates})
+        active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
+        self._mark_update_page('plugins', active)
+        self._plugin_update_dot.setVisible(active)
+        self.plugin_page.store_page.update_dots()
 
     def _update_save_button(self, *_args) -> None:
         self.confirm_button.setText("保存并重启" if self.plugin_page.needs_restart() else "保存")
@@ -795,6 +835,10 @@ class SettingsDialog(AnimatedDialog):
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
             self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
+            if index == 4:
+                self._mark_plugin_updates(self.plugin_page.store_page.offers)
+            elif index == 5:
+                self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
         page = self.stack.currentWidget()
@@ -806,6 +850,7 @@ class SettingsDialog(AnimatedDialog):
         values.update(self.danmaku_page.values())
         values.update(self.recording_page.values())
         values.update(self.update_page.values())
+        values['seen_update_versions'] = dict(self.seen_versions)
         return values
 
     def shortcuts(self) -> dict:
