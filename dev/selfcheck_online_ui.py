@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 from ddm import app as app_module, config, online, theme
 from ddm.dialogs import SettingsDialog
 from ddm.online_ui import OnlinePage
+from ddm.version import VERSION, VERSION_TAG
 from ddm.plugins import PluginManager, read_manifest
 
 
@@ -44,7 +45,7 @@ def main():
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
-        (root / 'RELEASE-v0.3.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
+        (root / f'RELEASE-{VERSION_TAG}.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
         archive = root / 'plugin.zip'
         def write_package(version):
             with zipfile.ZipFile(archive, 'w') as package:
@@ -171,7 +172,7 @@ def main():
                 automatic.check.click()
                 settle(app, automatic)
                 assert '当前版本说明' in automatic.notes.toPlainText()
-                assert automatic.notes_title.text() == '当前版本 0.3 更新说明'
+                assert automatic.notes_title.text() == f'当前版本 {VERSION} 更新说明'
                 assert automatic.auto.isEnabled() and not automatic.action.isEnabled()
                 download.assert_not_called()
             with patch.object(online, 'app_release', side_effect=OSError('offline')), \
