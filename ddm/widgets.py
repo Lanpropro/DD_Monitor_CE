@@ -3632,6 +3632,8 @@ class Sidebar(QFrame):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # 固定预留滚动条宽度，展开文件夹跨过滚动阈值时卡片不缩放。
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.scroll = scroll
         holder = RoomListBox(self)
         self.list_box = holder
@@ -4821,7 +4823,7 @@ class Sidebar(QFrame):
             # Qt 会把滚动条弹出来，挤掉高度后就只剩一张卡片可见了
             self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             self.scroll.setVerticalScrollBarPolicy(
-                Qt.ScrollBarAlwaysOff if self.collapsed else Qt.ScrollBarAsNeeded)
+                Qt.ScrollBarAlwaysOff if self.collapsed else Qt.ScrollBarAlwaysOn)
             self.scroll.horizontal_only = False
         self.list_box.relayout(animate=False)
 
@@ -4859,7 +4861,7 @@ class Sidebar(QFrame):
         # 窄条里列表一出现滚动条就会把内容挤窄，上下两排头像就对不齐了；
         # 收起时干脆不显示滚动条，滚轮照样能滚
         self.scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff if collapsed else Qt.ScrollBarAsNeeded)
+            Qt.ScrollBarAlwaysOff if collapsed else Qt.ScrollBarAlwaysOn)
         for index in range(self.title_box.count()):
             widget = self.title_box.itemAt(index).widget()
             if widget:

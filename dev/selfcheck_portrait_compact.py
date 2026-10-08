@@ -10,7 +10,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
-from ddm.widgets import (CAROUSEL_WIDTH, NAV_LIST_ITEM_HEIGHT, NavThumb,
+from ddm.widgets import (CAROUSEL_WIDTH, NAV_ITEM_HEIGHT, NAV_ITEM_GAP, NAV_LIST_ITEM_HEIGHT, NavThumb,
                          PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH, Sidebar)  # noqa: E402
 from ddm.preview import HoverPreview  # noqa: E402
 
@@ -55,11 +55,11 @@ def main():
     assert first.thumb.face.geometry().bottom() < first.name_label.geometry().top()
     assert first.name_label.geometry().bottom() < first.sub.geometry().top()
     assert first.sub.isVisible() and first.sub.text() == "直播中"
-    assert (second.x(), second.y()) == (PORTRAIT_LIST_WIDTH + 2, 0)
+    assert (second.x() - first.x(), second.y() - first.y()) == (PORTRAIT_LIST_WIDTH + NAV_ITEM_GAP, 0)
     assert first.thumb.face.y() < first.name_label.y()
     assert not first.live_dot.isHidden(), "头像加载后应显示直播状态圆点"
     assert first.thumb._preview_rect() == first.thumb.rect()
-    assert box.index_at(PORTRAIT_LIST_WIDTH + 2) == 1
+    assert box.index_at(PORTRAIT_LIST_WIDTH + NAV_ITEM_GAP) == 1
     assert sidebar.scroll.horizontal_only
     assert sidebar.scroll.viewport().width() > 300
 
@@ -121,7 +121,7 @@ def main():
     sidebar.set_card_mode(True)
     app.processEvents()
     assert first.width() == CAROUSEL_WIDTH
-    assert first.height() == PORTRAIT_LIST_HEIGHT
+    assert first.height() == NAV_ITEM_HEIGHT
     sidebar.close()
     print("竖屏窄竖条、预览和方向往返：通过")
 
