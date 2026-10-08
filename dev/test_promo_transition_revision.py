@@ -8,7 +8,7 @@ from dev.test_plugins_promo_sample import PROJECT, Elements
 
 
 class TransitionRevisionTests(first_cut.FirstCutTests):
-    render = PROJECT / "renders/dd-monitor-ce-plugins-promo-first-cut-v4.mp4"
+    render = PROJECT / "renders/dd-monitor-ce-plugins-promo-first-cut-v5.mp4"
 
     def test_user_copy_remains_editable_without_timeline_replacement(self):
         expected = {
@@ -76,6 +76,29 @@ class TransitionRevisionTests(first_cut.FirstCutTests):
         for envelope in (duck, recovery):
             for a, b in zip(envelope, envelope[1:]):
                 self.assertLessEqual(abs(b["v"]-a["v"])/(b["t"]-a["t"]), .8)
+
+    def test_summary_boundary_has_less_frame_change_than_previous_cut(self):
+        def difference(path):
+            raw = subprocess.check_output([
+                "ffmpeg", "-v", "error", "-ss", "53.5", "-i", str(path),
+                "-frames:v", "2", "-vf", "scale=160:90", "-pix_fmt", "gray",
+                "-f", "rawvideo", "-"])
+            size = 160 * 90
+            self.assertEqual(len(raw), size * 2)
+            return sum(abs(a-b) for a, b in zip(raw[:size], raw[size:])) / size
+        previous = PROJECT / "renders/dd-monitor-ce-plugins-promo-first-cut-v4.mp4"
+        self.assertLess(difference(self.render), difference(previous) * .5)
+
+    def test_ending_logo_precedes_name_without_delaying_final_copy(self):
+        def bright_pixels(at, crop):
+            raw = subprocess.check_output([
+                "ffmpeg", "-v", "error", "-ss", str(at), "-i", str(self.render),
+                "-frames:v", "1", "-vf", crop, "-pix_fmt", "gray",
+                "-f", "rawvideo", "-"])
+            return sum(pixel > 70 for pixel in raw)
+        self.assertGreater(bright_pixels(60.533333, "crop=140:150:890:245"), 100)
+        self.assertLess(bright_pixels(60.533333, "crop=1120:140:400:410"), 10)
+        self.assertGreater(bright_pixels(61.133333, "crop=1120:140:400:410"), 5000)
 
     def test_rendered_music_follows_fade_before_voice_and_after_voice(self):
         music = next(a for _, a in Elements(PROJECT / "index.html").tags
