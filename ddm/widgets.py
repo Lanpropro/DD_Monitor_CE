@@ -5834,6 +5834,7 @@ class Tile(QFrame):
         self._cover_source = None
         self._player_active = False
         self.cover.setVisible(True)
+        self.set_buffering(False)
         self.set_paused(False)
         self.stop_elapsed_timer()
         self._refresh_badge()

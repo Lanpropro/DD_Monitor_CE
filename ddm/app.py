@@ -1133,6 +1133,7 @@ class MainWindow(QMainWindow):
             tile.set_status("请启用对应的平台插件并重启")
             return
         if not room.get("live") and (platform is None or room.get("live_known", True)):
+            self._offline_tile(tile)
             tile.set_status("未开播")
             return
         timer = self._retry_timers.pop(tile, None)
@@ -1278,6 +1279,10 @@ class MainWindow(QMainWindow):
         if self._closing:
             return                    # 关窗后迟到的取流失败：别再拉轮询线程
         if requested_quality and int(tile.quality) != requested_quality:
+            return
+        if not tile.room.get("live") and tile.room.get("live_known", True):
+            self._offline_tile(tile)
+            tile.set_status("未开播")
             return
         if tile in self._pending_capture:
             self._pending_capture.pop(tile)
@@ -1721,15 +1726,21 @@ class MainWindow(QMainWindow):
             if not info:
                 continue
             was_live = tile_was_live[tile]
+            tile.room["live_known"] = info.get("live_known", True)
             tile.set_live(info["live"], info["viewers"])
             if info.get("uname") or info.get("title"):
                 tile.set_uname_title(info.get("uname", ""), info.get("title", ""))
             if info.get("live_start_ts"):
                 tile.room["live_start_ts"] = info["live_start_ts"]
-            if was_live and not info["live"]:
-                self._offline_tile(tile)          # 刚下播：黑屏但保留这一格
-                self.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
-                                  room=dict(tile.room or {}))
+            if not info["live"] and tile.room["live_known"]:
+                if (was_live or tile in self.players or tile in self._resolvers
+                        or tile in self._retry_timers or tile._status_text not in ("未开播", "已下播")):
+                    self._offline_tile(tile)
+                if was_live:
+                    self.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
+                                      room=dict(tile.room or {}))
+                else:
+                    tile.set_status("未开播")
             elif not was_live and info["live"]:
                 print(f"[开播] {tile.room.get('uname')} 自动开始播放",
                       file=sys.stderr, flush=True)
