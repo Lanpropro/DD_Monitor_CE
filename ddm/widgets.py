@@ -1666,6 +1666,7 @@ class NavThumb(QFrame):
         self.face.setObjectName("NavThumbFace")
         self._place_face()
         self.face.setVisible(False)
+        self._cover_dirty = False
         self._cover_hold = False         # 宽度动画期间挂起封面重裁，见 set_cover_hold()
         self._cover_source: QPixmap | None = None
         self._face_source: QPixmap | None = None
@@ -1839,13 +1840,14 @@ class NavThumb(QFrame):
         if hold == self._cover_hold:
             return
         self._cover_hold = hold
+        self._cover_dirty = True
         try:
             self.cover.setScaledContents(hold)
         except RuntimeError:                    # 控件已经被回收
             return
         # 解除挂起时**不在这里**重绘：由调用方决定哪些条目值得立刻补
         # （见 Sidebar._finish_collapse）—— 36 条一起补会把收尾那一下又拖垮。
-        # 没补到的条目滚进视野时会收到 resizeEvent，那时自然会重裁。
+        # 没补到的条目滚进视野时由 paintEvent 补裁，不依赖滚动时出现 resizeEvent。
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1862,6 +1864,11 @@ class NavThumb(QFrame):
         self._place_face()
         self._layout_overlay()
 
+    def paintEvent(self, event) -> None:
+        if self._cover_dirty and not self._cover_hold:
+            self._render_cover()
+        super().paintEvent(event)
+
     def _render_cover(self) -> None:
         """把封面裁成圆角，并加深色渐变供叠加文字阅读。"""
         if self._cover_hold:
@@ -1871,6 +1878,10 @@ class NavThumb(QFrame):
         source = getattr(self, "_cover_source", None)
         if source is None or source.isNull():
             return
+        if self.visibleRegion().isEmpty():
+            self._cover_dirty = True
+            return
+        self._cover_dirty = False
         width, height = self._size
         scaled = source.scaled(width, height, Qt.KeepAspectRatioByExpanding,
                                Qt.SmoothTransformation)
@@ -3004,6 +3015,8 @@ class RoomListBox(QWidget):
 
         竖屏顶部横栏里改成横向排（卡片向右排开，多了就左右滚）。
         """
+        if self.sidebar._collapse_animating:
+            return
         items = self._visible_items()
         order = preview_order if preview_order is not None else list(items)
         if self.sidebar.folders and preview_order is None:
@@ -3076,7 +3089,8 @@ class RoomListBox(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # 文件夹展开只改变内容高度，不重新排版打断正在进行的让位。
-        if not self.horizontal and event.size().width() != event.oldSize().width():
+        if (not self.sidebar._collapse_animating and not self.horizontal
+                and event.size().width() != event.oldSize().width()):
             self.relayout(animate=False)
 
     def index_at(self, y: float) -> int:
@@ -3481,6 +3495,7 @@ class Sidebar(QFrame):
     openBrowserRequested = Signal(str)
     deleteRequested = Signal(list)
     collapsedChanged = Signal(bool)
+    collapseAnimationChanged = Signal(bool)
     logoutRequested = Signal()
     platformLogoutRequested = Signal(str)
     loginRequested = Signal()
@@ -3504,6 +3519,8 @@ class Sidebar(QFrame):
         self.setFixedWidth(theme.SIDEBAR_WIDTH)
         self._items: list[NavItem] = []
         self.browser_url_resolver = lambda _room: ""
+        self._collapse_animating = False
+        self._collapse_animations = []
         self.collapsed = False
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
@@ -3642,6 +3659,8 @@ class Sidebar(QFrame):
             self._append_item(room)
         holder.relayout(animate=False)
         scroll.setWidget(holder)
+        for bar in (scroll.verticalScrollBar(), scroll.horizontalScrollBar()):
+            bar.valueChanged.connect(lambda _value: QTimer.singleShot(0, self._refresh_visible_covers))
         layout.addWidget(scroll, 1)
 
         # 底部：批量操作条 / 正常操作
@@ -4318,6 +4337,8 @@ class Sidebar(QFrame):
         竖屏下侧栏变成一条顶部横栏：宽度撑满、搜索框变宽、列表只留一行头像
         （收起时只剩头像，展开时多一行按钮），逻辑和横屏的收起/展开一致。
         """
+        if self._collapse_animating:
+            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
         side = "top" if side == "top" else "left"
         # 无论走哪个分支，先把约束解掉：
         # - 滚动区的高度上限（竖屏那条「只占一条」的限制留着，切回左栏就只剩一条）
@@ -4841,6 +4862,19 @@ class Sidebar(QFrame):
     def set_collapsed(self, collapsed: bool, animate: bool = True) -> None:
         if collapsed == self.collapsed:
             return
+        # 连续点击时停止旧目标，保留当前宽度，让新动画从当前位置继续。
+        was_animating = self._collapse_animating
+        for animation in self._collapse_animations:
+            animation.stop()
+        self._collapse_animations = []
+        animate = bool(animate and self.side == "left" and self.isVisible() and motion.enabled())
+        if animate and not was_animating:
+            self._collapse_animating = True
+            self.collapseAnimationChanged.emit(True)
+        if animate or was_animating:
+            for item in self._items + list(self._smart_cards.values()):
+                item.thumb.stop()
+                item.thumb.set_cover_hold(True)
         self.collapsed = collapsed
         if self.side == "top":
             # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件
@@ -4873,18 +4907,10 @@ class Sidebar(QFrame):
         self.list_box.relayout(animate=False)
 
         if not animate:
-            self.setFixedWidth(target)
+            self._finish_collapse(target)
             self.collapsedChanged.emit(collapsed)
             return
 
-        # 动画期间挂起封面重裁：改宽度会让**每一帧**都给每个条目发 resizeEvent，
-        # 而重裁一次就是平滑缩放 + 圆角裁剪 + 两段渐变，36 个关注足以把动画拖垮
-        # （见 NavThumb.set_cover_hold）。先挂起，收尾只补当前可见的那几条。
-        for item in self._items:
-            try:
-                item.thumb.set_cover_hold(True)
-            except RuntimeError:                # 条目已经被回收
-                continue
         group = []
         for prop in (b"minimumWidth", b"maximumWidth"):
             animation = QPropertyAnimation(self, prop)
@@ -4896,24 +4922,37 @@ class Sidebar(QFrame):
         group[-1].finished.connect(lambda: self._finish_collapse(target))
         for animation in group:
             animation.start()
-        self._animations = group          # 保持引用，避免被回收
+        self._collapse_animations = group
         self.collapsedChanged.emit(collapsed)
 
     def _finish_collapse(self, target: int) -> None:
-        """宽度动画收尾：补上动画期间省下的封面重裁。
-
-        只补**当前可见**的条目（滚动区里通常只有 5~8 条）—— 36 条一起补就会把
-        收尾这一下又拖住。看不见的那些等滚进视野时收到 resizeEvent 自己会重裁，
-        不会留下没更新的封面。
-        """
+        """收尾只重排一次；屏外封面等真正绘制时再补。"""
+        for animation in self._collapse_animations:
+            animation.stop()
+        self._collapse_animations = []
+        was_animating = self._collapse_animating
         self.setFixedWidth(target)
-        for item in self._items:
-            try:
-                item.thumb.set_cover_hold(False)
-                if item.isVisible():
-                    item.thumb.refresh_cover()
-            except RuntimeError:                # 条目已经被回收
-                continue
+        self._collapse_animating = False
+        self.list_box.relayout(animate=False)
+        for item in self._items + list(self._smart_cards.values()):
+            item.thumb.set_cover_hold(False)
+            if not item.thumb.visibleRegion().isEmpty():
+                item.thumb.refresh_cover()
+            item.thumb.update()
+        if was_animating:
+            self.collapseAnimationChanged.emit(False)
+
+    def _refresh_visible_covers(self) -> None:
+        if self._collapse_animating:
+            return
+        for item in self._items + list(self._smart_cards.values()):
+            if item.thumb._cover_dirty and not item.thumb.visibleRegion().isEmpty():
+                item.thumb.refresh_cover()
+
+    def hideEvent(self, event) -> None:
+        if self._collapse_animating:
+            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
+        super().hideEvent(event)
 
     def set_card_mode(self, enabled: bool) -> None:
         """切换关注列表样式；侧栏收起时只记录选择，展开后再呈现。"""
@@ -6488,6 +6527,7 @@ class WallGrid(QWidget):
         self._defer_show = False
         self._pending_reveal: list[Tile] = []
         self._stagger_first: Tile | None = None
+        self._sidebar_animating = False
         self._columns = 0
         self._last_height = 0
         self._last_count = 0
@@ -6710,7 +6750,20 @@ class WallGrid(QWidget):
         self._last_count = count
         return best_columns(count, max(self.width(), 1), height)
 
+    def set_sidebar_animating(self, active: bool) -> None:
+        """收缩期间保持原生视频窗口尺寸，结束后统一调整。"""
+        if active == self._sidebar_animating:
+            return
+        self._sidebar_animating = active
+        self._relayout_timer.stop()
+        self.grid.setEnabled(not active)
+        if not active:
+            self.relayout(force=True)
+            self.grid.activate()
+
     def relayout(self, force: bool = False) -> None:
+        if self._sidebar_animating:
+            return
         if force:
             self._relayout_timer.stop()
         self.ensure_slots()          # 按布局补空位
@@ -6879,7 +6932,7 @@ class WallGrid(QWidget):
         super().resizeEvent(event)
         # 自动布局和竖屏布局都是按当前尺寸算坐标的，尺寸变了必须重排；
         # 固定行列的布局由 Qt 自己按 stretch 摆，不用管。
-        if self.fullscreen_tile is None and (self.layout_id == "auto" or
+        if not self._sidebar_animating and self.fullscreen_tile is None and (self.layout_id == "auto" or
                                              layouts.is_portrait_layout(self.layout_id)):
             self._relayout_timer.start()
 

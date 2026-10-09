@@ -236,6 +236,7 @@ class MainWindow(QMainWindow):
         self._pending_layout = ""
 
         # 信号接线
+        self.sidebar.collapseAnimationChanged.connect(self.wall.set_sidebar_animating)
         self.sidebar.roomSelected.connect(self.wall.tileClicked.emit)
         self.sidebar.addRoomClicked.connect(self.open_add_room)
         self.sidebar.importFollowsClicked.connect(self.open_import_follows)
