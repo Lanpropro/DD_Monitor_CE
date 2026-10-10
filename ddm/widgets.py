@@ -26,6 +26,7 @@ from . import layouts, motion, mouse_hook, theme
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
+from .danmaku_content import content_runs, content_html
 from . import follow_folders
 from .player import TilePlayer
 from .video_surface import VideoSurface
@@ -913,11 +914,13 @@ class DanmakuPanel(QFrame):
                 event.get("kind") or "danmaku", theme.ACCENT),
             "medal": event.get("medal") or {},
             "emoticon": event.get("emoticon") or "",
+            "emoticons": event.get("emoticons") or {},
         }
         self._received += 1
         self._refresh_count()
-        if entry["emoticon"]:
-            self._ensure_emoticon(entry["emoticon"])
+        for _, url in content_runs(entry):
+            if url:
+                self._ensure_emoticon(url)
         self._blocks.append(entry)
         removed = max(0, len(self._blocks) - self.max_blocks)
         scroll_state = self._scroll_state(removed)
@@ -1045,15 +1048,8 @@ class DanmakuPanel(QFrame):
                 f'<span style="color:#e6e9ee">：{self._body_html(entry)}</span></div>')
 
     def _body_html(self, entry: dict) -> str:
-        url = entry["emoticon"]
-        image = self._images.get(url) if url else None
-        if image is not None and not image.isNull():
-            height = max(self.EMOTICON_HEIGHT // 2,
-                         round(self._font_size() * 1.7))     # 表情跟着字号一起放大
-            width = max(1, round(image.width() * height / max(1, image.height())))
-            return (f'<img src="{url}" width="{width}" height="{height}">'
-                    f'<span style="color:#8a8f98">&#160;{_escape(entry["text"])}</span>')
-        return _escape(entry["text"])
+        height = max(self.EMOTICON_HEIGHT // 2, round(self._font_size() * 1.7))
+        return content_html(content_runs(entry), self._images, height)
 
     def _medal_html(self, medal: dict) -> str:
         """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""
@@ -1093,6 +1089,7 @@ class DanmakuPanel(QFrame):
         self._loading_emoticons.add(url)
         loader = AvatarLoader({url: url}, self, subdir="emoticons")
         loader.loaded.connect(self._on_emoticon_loaded)
+        loader.finished.connect(lambda: self._loading_emoticons.discard(url))
         loader.finished.connect(loader.deleteLater)
         self._emoticon_loaders = [item for item in self._emoticon_loaders
                                   if _is_running(item)]
