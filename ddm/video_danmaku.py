@@ -4,11 +4,13 @@ import sys
 import time
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import QPointF, Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPixmap, QTextDocument
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
+from .danmaku_content import content_runs, content_html
+from .images import AvatarLoader
 
 
 @dataclass
@@ -19,6 +21,7 @@ class _Comment:
     speed: float
     text: str
     color: QColor
+    runs: list[tuple[str, str]]
 
 
 class VideoDanmaku(QWidget):
@@ -38,6 +41,8 @@ class VideoDanmaku(QWidget):
         self.settings = {}
         self._comment_width = self.width()
         self.comments: list[_Comment] = []
+        self._images = {}
+        self._emoticon_loaders = {}
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(16)
@@ -117,13 +122,14 @@ class VideoDanmaku(QWidget):
                 or len(self.comments) >= self.MAX_COMMENTS):
             return False
         text = " ".join(str(event.get("text") or "").split())[:300]
-        if not text or not self.lane_count():
+        if (not text and not event.get("emoticon")) or not self.lane_count():
             return False
         self._tick()
         color = QColor(str(event.get("color") or "#ffffff"))
         if not color.isValid():
             color = QColor("#ffffff")
-        image = self._render_text(text, color)
+        runs = content_runs(dict(event, text=text))
+        image = self._render_content(text, color, runs)
         width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
@@ -131,9 +137,58 @@ class VideoDanmaku(QWidget):
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
-        self.comments.append(_Comment(image, float(self.width()), lane, speed, text, color))
+        self.comments.append(_Comment(image, float(self.width()), lane, speed, text, color, runs))
+        for _, url in runs:
+            if url:
+                self._ensure_emoticon(url)
         self._start_timer()
         return True
+
+    def _ensure_emoticon(self, url: str) -> None:
+        if url in self._images or url in self._emoticon_loaders or len(self._emoticon_loaders) >= 16:
+            return
+        # The app owns downloads so removing a tile cannot destroy a running thread.
+        app = QApplication.instance()
+        loader = AvatarLoader({url: url}, app, subdir="emoticons")
+        self._emoticon_loaders[url] = loader
+        loader.loaded.connect(self._on_emoticon_loaded)
+        loader.finished.connect(lambda: self._emoticon_loaders.pop(url, None))
+        loader.finished.connect(loader.deleteLater)
+        app.aboutToQuit.connect(loader.wait)
+        loader.start()
+
+    def _on_emoticon_loaded(self, url: str, pixmap) -> None:
+        if pixmap.isNull():
+            return
+        if len(self._images) >= 128 and url not in self._images:
+            self._images.pop(next(iter(self._images)))
+        self._images[url] = pixmap.toImage()
+        if any(url == image_url for comment in self.comments for _, image_url in comment.runs):
+            self._resize_comments()
+
+    def _render_content(self, text, color, runs) -> QPixmap:
+        if not any(url in self._images for _, url in runs if url):
+            return self._render_text(text, color)
+        document = QTextDocument()
+        document.setDefaultFont(self._font())
+        document.setDocumentMargin(0)
+        for _, url in runs:
+            if url in self._images:
+                document.addResource(QTextDocument.ImageResource, QUrl(url), self._images[url])
+        body = content_html(runs, self._images, QFontMetrics(self._font()).height())
+        document.setHtml(f'<span style="color:{color.name()}">{body}</span>')
+        document.adjustSize()
+        document.setTextWidth(-1)  # A rolling comment stays on one line.
+        scale = self.devicePixelRatioF()
+        width = min(document.idealWidth(), max(128, self.width() * 2)) + 8
+        image = QPixmap(math.ceil(width * scale), math.ceil((document.size().height() + 8) * scale))
+        image.setDevicePixelRatio(scale)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.translate(4, 4)
+        document.drawContents(painter)
+        painter.end()
+        return image
 
     def _render_text(self, text: str, color: QColor) -> QPixmap:
         font = self._font()
@@ -143,19 +198,20 @@ class VideoDanmaku(QWidget):
         path.addText(0, 0, font, text)
         bounds = path.boundingRect()
         left = min(0, bounds.left())
+        top = min(-metrics.ascent(), bounds.top())
         width = max(metrics.horizontalAdvance(text), bounds.right()) - left + 8
-        height = max(metrics.height(), bounds.height()) + 8
+        height = max(metrics.descent(), bounds.bottom()) - top + 8
         # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
-        path.translate(4 - left, 4 - bounds.top())
         scale = self.devicePixelRatioF()
         image = QPixmap(math.ceil(width * scale), math.ceil(height * scale))
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(color)
-        painter.drawPath(path)
+        # drawText keeps Qt's font fallback and colour Unicode emoji glyphs.
+        painter.setPen(color)
+        painter.setFont(font)
+        painter.drawText(QPointF(4 - left, 4 - top), text)
         painter.end()
         return image
 
@@ -163,7 +219,7 @@ class VideoDanmaku(QWidget):
         for comment in self.comments:
             old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
             progress = (self._comment_width - comment.x) / max(1, old_distance)
-            comment.image = self._render_text(comment.text, comment.color)
+            comment.image = self._render_content(comment.text, comment.color, comment.runs)
             distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
             comment.x = self.width() - progress * distance
             comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
