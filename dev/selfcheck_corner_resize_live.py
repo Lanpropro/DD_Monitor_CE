@@ -14,10 +14,10 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(ROOT / "libvlc.dll"))
 os.environ.setdefault("QT_QPA_PLATFORM", "windows" if "--native" in sys.argv else "offscreen")
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
 import vlc
-from ddm import theme
+from ddm import layouts, theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from selfcheck_corner_resize import drag
@@ -105,6 +105,26 @@ def main():
                 settle(app, 0.6)
                 window.wall.reset_corner_ratios()
                 settle(app)
+                # 同一批真实播放器轮流进入所有其他预设，不经过取流/播放器重启。
+                # 隔离窗口方向自动切换；实际应用切到容量更小的布局会按设计停掉隐藏路。
+                stack.enter_context(patch.object(window, '_apply_orientation'))
+                for identifier in layouts.BY_ID:
+                    if identifier == 'corner':
+                        continue
+                    window.wall.set_layout(identifier)
+                    window.resize(850 if layouts.is_portrait_layout(identifier) else 1600, 1300)
+                    settle(app, .08)
+                    for key in list(window.wall._preset_dividers):
+                        handle = window.wall._preset_handles[key]
+                        direction = QPoint(1, 0) if handle.orientation == Qt.Horizontal else QPoint(0, 1)
+                        drag(app, handle, direction * 12)
+                    if identifier in ('3x2', 'two_rows', 'dm_left', 'portrait_dm4'):
+                        window.grab().save(str(ROOT / f'work/resize-{identifier}.png'))
+                    window.wall.reset_layout_ratios()
+                    settle(app, .04)
+                window.wall.set_layout('corner')
+                window.resize(1600, 950)
+                settle(app, .6)
                 assert all(window.players[player.video_widget.parentWidget()] is player
                            for player in players)
                 for player, identity, before in zip(players, identities, initial_time):
@@ -123,7 +143,7 @@ def main():
                         "#526173", "#38bdf8"), "原生分隔线必须完整填充背景"
                 window.grab().save(str(ROOT / "work/corner-resize-application.png"))
                 print(f"PASS: {app.platformName()}, six real VLC players, drag/resize/fullscreen "
-                      "geometry/hot swap, stable handles and continuous media")
+                      "geometry/hot swap/all presets, stable handles and continuous media")
             finally:
                 window.close()
                 settle(app)

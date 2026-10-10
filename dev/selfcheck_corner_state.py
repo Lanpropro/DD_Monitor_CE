@@ -117,8 +117,8 @@ def main():
             assert restarted.current_state()['wall'] == slots
             QTest.qWait(850)
             assert config.load()['ui']['corner_ratios'] == DEFAULT
-            # 其他布局没有这个入口，但会继续记住一大五小的比例。
-            other = LayoutPicker('3x3')
+            # 单画面没有分隔线，也没有恢复比例入口。
+            other = LayoutPicker('1x1')
             other.show()
             app.processEvents()
             assert not other.reset_button.isVisible()

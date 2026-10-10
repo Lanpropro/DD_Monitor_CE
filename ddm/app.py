@@ -217,7 +217,8 @@ class MainWindow(QMainWindow):
         self.wall = WallGrid(
             wall_rooms if wall_rooms is not None else [],
             layout_id if layout_id and layout_id != "auto"
-            else self._saved_layout("landscape"), corner_ratios=ui.get("corner_ratios"))
+            else self._saved_layout("landscape"), corner_ratios=ui.get("corner_ratios"),
+            layout_ratios=ui.get("layout_ratios"))
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()
@@ -253,7 +254,7 @@ class MainWindow(QMainWindow):
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self.open_settings)
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
-        self.sidebar.layoutResetRequested.connect(self.wall.reset_corner_ratios)
+        self.sidebar.layoutResetRequested.connect(self.wall.reset_layout_ratios)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
@@ -267,6 +268,7 @@ class MainWindow(QMainWindow):
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
+        self.wall.layoutRatiosChanged.connect(self._save_timer.start)
         # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
         # 要等真正开始播放才建。补设置靠 play() 后那几次重试 + 看门狗，个别机器上
         # （慢启动、断流重连、切音频输出路径）会错过窗口，于是「静音标志亮着、声音
@@ -834,6 +836,7 @@ class MainWindow(QMainWindow):
                 "layout_landscape": self._saved_layout("landscape"),
                 "layout_portrait": self._saved_layout("portrait"),
                 "corner_ratios": self.wall.corner_ratios(),
+                "layout_ratios": self.wall.layout_ratios(),
                 "shortcuts": dict(self.shortcuts),
             },
             "pinned": list(self.sidebar.pinned),

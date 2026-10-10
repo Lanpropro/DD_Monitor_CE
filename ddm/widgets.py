@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import layouts, motion, mouse_hook, theme
+from . import layouts, motion, mouse_hook, resize_layout, theme
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -6538,8 +6538,10 @@ class WallGrid(QWidget):
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
     cornerRatiosChanged = Signal()         # 松开或重置后通知外层保存，不在拖动帧中写配置
+    layoutRatiosChanged = Signal()
 
-    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, corner_ratios=None):
+    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, corner_ratios=None,
+                 layout_ratios=None):
         super().__init__(parent)
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
@@ -6597,6 +6599,31 @@ class WallGrid(QWidget):
             handle.setToolTip("拖动调整相邻两路宽度；双击让相邻两路等分")
         self.restore_corner_ratios(corner_ratios)
 
+        self._partitions = {}
+        for identifier, preset in layouts.BY_ID.items():
+            if identifier == "corner":
+                continue
+            cells = preset["spec"][2]
+            if layouts.is_portrait_layout(identifier):
+                small = len(cells) - 1 - int(preset.get("danmaku") is not None)
+                tree = resize_layout.portrait_partition(
+                    small, preset.get("danmaku") is not None, layouts.PORTRAIT_SMALL_COLUMNS)
+            else:
+                tree = resize_layout.build_partition(cells)
+            self._partitions[identifier] = tree
+        saved = layout_ratios if isinstance(layout_ratios, dict) else {}
+        self._layout_ratios = {
+            identifier: resize_layout.validated_weights(saved.get(identifier), tree)
+            for identifier, tree in self._partitions.items()}
+        self._preset_handles = {}
+        self._preset_dividers = {}
+        self._preset_pending_drag = None
+        self._preset_drag_timer = QTimer(self)
+        self._preset_drag_timer.setSingleShot(True)
+        self._preset_drag_timer.setTimerType(Qt.PreciseTimer)
+        self._preset_drag_timer.setInterval(32)
+        self._preset_drag_timer.timeout.connect(self._flush_preset_drag)
+
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
         self.danmaku.setVisible(False)
@@ -6610,6 +6637,11 @@ class WallGrid(QWidget):
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
+        self._cancel_corner_drag()
+        self._cancel_preset_drag()
+        self._preset_dividers = {}
+        for handle in (*self._corner_handles.values(), *self._preset_handles.values()):
+            handle.hide()
         self.layout_id = layout_id
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
         self._columns = -1
@@ -6792,6 +6824,10 @@ class WallGrid(QWidget):
 
     def _clear(self) -> None:
         self._cancel_corner_drag()
+        self._cancel_preset_drag()
+        self._preset_dividers = {}
+        for handle in self._preset_handles.values():
+            handle.hide()
         for handle in self._corner_handles.values():
             handle.hide()
         self.setMinimumSize(0, 0)
@@ -6854,34 +6890,170 @@ class WallGrid(QWidget):
                 self.grid.setRowStretch(row, 1)
             return
 
-        rows, columns, cells = spec
-        if layouts.is_portrait_layout(self.layout_id):
-            self._relayout_portrait(rows, columns, cells)
+        self._relayout_preset(apply_visibility=True)
+
+    # ---- 其余预设：分区树只计算几何，视频始终是 WallGrid 的直接子窗口 ----
+    def layout_ratios(self) -> dict:
+        return {identifier: {key: list(values) for key, values in ratios.items()}
+                for identifier, ratios in self._layout_ratios.items() if ratios}
+
+    def reset_layout_ratios(self) -> None:
+        """只恢复当前预设，不影响其他预设保存的比例。"""
+        if self.layout_id == "corner":
+            self.reset_corner_ratios()
             return
-        order = self._cell_order()
-        for index, tile in enumerate(self.tiles):
-            if index < len(order):
-                row, column, rowspan, colspan = cells[order[index]]
-                self.grid.addWidget(tile, row, column, rowspan, colspan)
-                if self._defer_show and tile is not self._stagger_first:
-                    self._pending_reveal.append(tile)      # 交给 reveal_tiles_staggered
-                else:
-                    tile.setVisible(True)
-            else:
-                # 布局严格按格子数走，放不下的由主窗口停止播放。
-                tile.setVisible(False)
+        self._cancel_preset_drag()
+        changed = bool(self._layout_ratios.get(self.layout_id))
+        self._layout_ratios[self.layout_id] = {}
+        if self.fullscreen_tile is None:
+            self._relayout_preset()
+        if changed:
+            self.layoutRatiosChanged.emit()
+
+    def _cancel_preset_drag(self) -> None:
+        self._preset_drag_timer.stop()
+        self._preset_pending_drag = None
+        for handle in self._preset_handles.values():
+            handle._press_offset = None
+
+    def _preset_defaults(self, node, area):
+        if node.key != "root" or not layouts.is_portrait_layout(self.layout_id):
+            return node.weights
+        gap = self.grid.spacing()
+        main = max(80, int(area.width() * 9 / 16))
+        danmaku = max(140, int(area.height() * .22)) if self.has_danmaku else 0
+        small = max(1, area.height() - main - danmaku - gap * (len(node.children) - 1))
+        return [main, small, danmaku] if self.has_danmaku else [main, small]
+
+    def _preset_widgets(self):
+        if layouts.is_portrait_layout(self.layout_id):
+            # 竖屏弹幕始终占底部，与原竖屏规则一致。
+            count = self._capacity()
+            widgets = {index: tile for index, tile in enumerate(self.tiles[:count])}
+            if self.has_danmaku:
+                widgets[count] = self.danmaku
+            return widgets
+        widgets = {cell: tile for cell, tile in zip(self._cell_order(), self.tiles)}
         if self.has_danmaku:
-            row, column, rowspan, colspan = cells[self._danmaku_cell]
-            self.grid.addWidget(self.danmaku, row, column, rowspan, colspan)
-            self.danmaku.setVisible(True)
-            self.danmaku.raise_()
-        else:
-            self.danmaku.setVisible(False)
-        for column in range(columns):
-            self.grid.setColumnStretch(column, 1)
-        for row in range(rows):
-            self.grid.setRowStretch(row, 1)
-        self._columns = columns
+            widgets[self._danmaku_cell] = self.danmaku
+        return widgets
+
+    def _preset_minimum(self, cell):
+        widget = self._preset_widgets().get(cell)
+        if widget is self.danmaku:
+            return QSize(max(200, widget.minimumWidth()), max(140, widget.minimumHeight()))
+        return QSize(max(200, widget.minimumWidth()), max(150, widget.minimumHeight()))
+
+    def _relayout_preset(self, apply_visibility=False):
+        if self.fullscreen_tile is not None or self.layout_id not in self._partitions:
+            return
+        widgets = self._preset_widgets()
+        if len(widgets) < len(self._cells()):
+            # 应用切方向时先选预设、再调整窗口、最后补齐格子；中间的 resize 不排布。
+            return
+        tree = self._partitions[self.layout_id]
+        gap = self.grid.spacing()
+        margins = self.grid.contentsMargins()
+        minimum = tree.minimum(gap, self._preset_minimum)
+        self.setMinimumSize(minimum.width() + margins.left() + margins.right(),
+                            minimum.height() + margins.top() + margins.bottom())
+        area = self._corner_area()
+        # 顶层窗口尺寸变更可能在下一次事件循环才完成，计算区域也遵守最小尺寸。
+        area.setWidth(max(area.width(), minimum.width()))
+        area.setHeight(max(area.height(), minimum.height()))
+        leaves, dividers = resize_layout.geometry(
+            tree, area, gap, self._preset_minimum,
+            self._layout_ratios[self.layout_id], self._preset_defaults)
+        for cell, rect in leaves.items():
+            widgets[cell].setGeometry(rect)
+        if apply_visibility:
+            active = set(widgets.values())
+            for tile in self.tiles:
+                if tile not in active:
+                    tile.hide()
+                elif self._defer_show and tile is not self._stagger_first:
+                    self._pending_reveal.append(tile)
+                else:
+                    tile.show()
+            self.danmaku.setVisible(self.has_danmaku)
+        old_regions = [handle.geometry() for handle in self._preset_handles.values()
+                       if not handle.isHidden()]
+        active_keys = set()
+        self._preset_dividers = {}
+        for node, index, rect, node_area, sizes in dividers:
+            key = (node.key, index)
+            active_keys.add(key)
+            self._preset_dividers[key] = (node, node_area, sizes)
+            if key not in self._preset_handles:
+                handle = WallResizeHandle(node.axis, self)
+                handle.dragged.connect(lambda coordinate, key=key: self._drag_preset(key, coordinate))
+                handle.dragFinished.connect(lambda coordinate, key=key: self._finish_preset_drag(key, coordinate))
+                handle.resetRequested.connect(lambda key=key: self._reset_preset_pair(key))
+                self._preset_handles[key] = handle
+            handle = self._preset_handles[key]
+            handle.orientation = node.axis
+            handle.setCursor(Qt.SplitHCursor if node.axis == Qt.Horizontal else Qt.SplitVCursor)
+            handle.setToolTip("拖动调整相邻区域；双击恢复相邻区域的默认比例")
+            handle.setGeometry(rect)
+            handle.show()
+            handle.raise_()
+        for key, handle in self._preset_handles.items():
+            if key not in active_keys:
+                handle.hide()
+        for rect in old_regions + [self._preset_handles[key].geometry() for key in active_keys]:
+            self.update(rect)
+        self._columns = layouts.BY_ID[self.layout_id]["spec"][1]
+
+    def _drag_preset(self, key, coordinate):
+        if self.fullscreen_tile is not None or key not in self._preset_dividers:
+            return
+        self._preset_pending_drag = (key, coordinate)
+        if not self._preset_drag_timer.isActive():
+            self._preset_drag_timer.start()
+
+    def _finish_preset_drag(self, key, coordinate):
+        self._drag_preset(key, coordinate)
+        self._preset_drag_timer.stop()
+        self._flush_preset_drag()
+        if self.fullscreen_tile is None and key in self._preset_dividers:
+            self.layoutRatiosChanged.emit()
+
+    def _flush_preset_drag(self):
+        pending, self._preset_pending_drag = self._preset_pending_drag, None
+        if pending is None or self.fullscreen_tile is not None:
+            return
+        key, coordinate = pending
+        if key not in self._preset_dividers:
+            return
+        node, area, current = self._preset_dividers[key]
+        index = key[1]
+        sizes = list(current)
+        horizontal = node.axis == Qt.Horizontal
+        mins = [child.minimum(self.grid.spacing(), self._preset_minimum) for child in node.children]
+        start = (area.x() if horizontal else area.y()) + sum(sizes[:index]) + index * self.grid.spacing()
+        pair = sizes[index] + sizes[index + 1]
+        lower = mins[index].width() if horizontal else mins[index].height()
+        upper = pair - (mins[index + 1].width() if horizontal else mins[index + 1].height())
+        sizes[index] = max(lower, min(upper, coordinate - start))
+        sizes[index + 1] = pair - sizes[index]
+        total = sum(sizes)
+        self._layout_ratios[self.layout_id][node.key] = [size / total for size in sizes]
+        self._relayout_preset()
+
+    def _reset_preset_pair(self, key):
+        self._cancel_preset_drag()
+        if key not in self._preset_dividers or self.fullscreen_tile is not None:
+            return
+        node, area, current = self._preset_dividers[key]
+        index = key[1]
+        defaults = self._preset_defaults(node, area)
+        start = (area.x() if node.axis == Qt.Horizontal else area.y())
+        start += sum(current[:index]) + index * self.grid.spacing()
+        pair = current[index] + current[index + 1]
+        coordinate = start + round(pair * defaults[index] / (defaults[index] + defaults[index + 1]))
+        self._preset_pending_drag = (key, coordinate)
+        self._flush_preset_drag()
+        self.layoutRatiosChanged.emit()
 
     # ---- 一大五小：手动几何保持视频 HWND 不变，拖动只调整区域比例 ----
     def corner_ratios(self) -> dict:
@@ -7075,97 +7247,6 @@ class WallGrid(QWidget):
         self.update(dirty)
         self._columns = 3
 
-    # ---- 竖屏摆放 ----
-    def _relayout_portrait(self, rows: int, columns: int, cells: list) -> None:
-        """竖屏：主画面按 16:9 固定高度，其余格子用自动网格填满剩下的空间。
-
-        为什么不用等分网格：竖屏里主画面要 16:9（占整宽时高度 = 宽 × 9/16），
-        小画面也要接近 16:9；等分网格只能满足一个 —— 主画面占整宽 1 行时，
-        小格子会被拉成 0.8 左右的竖条，画面缩成中间一条。这里改成手动摆。
-        """
-        margin = self.grid.contentsMargins()
-        spacing = self.grid.spacing()
-        # 竖屏是自己算坐标摆的，先把格子从网格布局里摘出来，否则布局会覆盖几何。
-        # removeWidget 只是解除管理，不改变父子关系，可以安全地再 addWidget 回去。
-        for tile in self.tiles:
-            self.grid.removeWidget(tile)
-        self.grid.removeWidget(self.danmaku)
-        for index in range(24):
-            self.grid.setColumnStretch(index, 0)
-            self.grid.setRowStretch(index, 0)
-
-        left = margin.left()
-        top = margin.top()
-        width = max(1, self.width() - margin.left() - margin.right())
-        height = max(1, self.height() - margin.top() - margin.bottom())
-
-        # 弹幕：最底下整宽一条，先把它和主画面的高度扣掉
-        danmaku_height = 0
-        if self.has_danmaku:
-            danmaku_height = max(140, int(height * 0.22))
-            self.danmaku.setGeometry(
-                QRect(left, top + height - danmaku_height, width, danmaku_height))
-            self.danmaku.setVisible(True)
-            self.danmaku.raise_()
-            danmaku_height += spacing
-        else:
-            self.danmaku.setVisible(False)
-
-        main = self.tiles[0] if self.tiles else None
-        rest = self.tiles[1:]
-        available = height - danmaku_height
-
-        if main is None:
-            self._columns = columns
-            return
-
-        # 主画面：整宽 + 16:9。**不给它加上限** —— 它是主角，先满足它；
-        # 小画面去适应剩下的高度（挤不下就矮一点，也比主画面变形好）。
-        main_height = max(80, int(width * 9 / 16))
-        main.setGeometry(QRect(left, top, width, main_height))
-        main.setVisible(True)
-
-        grid_top = top + main_height + spacing
-        grid_height = max(1, top + available - grid_top)
-        for index, tile in enumerate(rest):
-            if index < self._portrait_capacity() - 1:
-                tile.setVisible(True)
-            else:
-                tile.setVisible(False)
-        visible = [tile for tile in rest if tile.isVisible()]
-        # 小画面的列数**跟缩略图画的是同一个数**。交给 best_columns 自己挑的话，
-        # 竖屏这块又高又窄的区域在它眼里「1 列画面更大」，就会摆成上下，和缩略图
-        # （左右）对不上 —— 用户报的就是这个。
-        self._place_auto(visible, QRect(left, grid_top, width, grid_height), spacing,
-                         columns=layouts.PORTRAIT_SMALL_COLUMNS)
-        self._columns = columns
-
-    def _portrait_capacity(self) -> int:
-        return max(1, len(self._cell_order()))
-
-    def _place_auto(self, tiles: list, area: QRect, spacing: int,
-                    columns: int | None = None) -> None:
-        """在一个矩形里按网格摆这些格子。
-
-        ``columns`` 给了就照用（竖屏小画面要跟缩略图一致）；没给才让
-        ``best_columns`` 挑一个「画面尽量大」的列数。
-        """
-        if not tiles:
-            return
-        if columns is None:
-            columns = best_columns(len(tiles), max(area.width(), 1), max(area.height(), 1))
-        columns = max(1, min(int(columns), len(tiles)))
-        lines = math.ceil(len(tiles) / columns)
-        cell_width = (area.width() - spacing * (columns - 1)) / columns
-        cell_height = (area.height() - spacing * (lines - 1)) / lines
-        for index, tile in enumerate(tiles):
-            line, column = divmod(index, columns)
-            tile.setGeometry(QRect(
-                int(area.left() + column * (cell_width + spacing)),
-                int(area.top() + line * (cell_height + spacing)),
-                int(cell_width), int(cell_height)))
-
-
     def visible_tiles(self) -> list[Tile]:
         return [tile for tile in self.tiles if tile.isVisible()]
 
@@ -7182,10 +7263,12 @@ class WallGrid(QWidget):
         if self.fullscreen_tile is None and self.layout_id == "corner":
             self._relayout_corner()
             return
-        # 自动布局和竖屏布局都是按当前尺寸算坐标的，尺寸变了必须重排；
-        # 固定行列的布局由 Qt 自己按 stretch 摆，不用管。
-        if self.fullscreen_tile is None and (self.layout_id == "auto" or
-                                             layouts.is_portrait_layout(self.layout_id)):
+        if (self.fullscreen_tile is None and hasattr(self, "_partitions")
+                and self.layout_id in self._partitions):
+            self._relayout_preset()
+            return
+        # 兼容未指定预设的旧自动模式，仍由网格布局管理。
+        if self.fullscreen_tile is None and self.layout_id == "auto":
             self._relayout_timer.start()
 
 
@@ -7213,7 +7296,8 @@ class LayoutPicker(QFrame):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._cards: dict[str, list[QToolButton]] = {}
         self._sections: dict[str, list[QLabel]] = {}
-        self._can_reset_corner = current == "corner"
+        self._reset_layout_id = current
+        self._can_reset_layout = layouts.capacity(current) > 1
 
         # 两组都列出来（横屏也能点竖屏预设）：选中另一个方向的预设时，本体
         # 会把**窗口**也改成那个方向（见 MainWindow._on_layout_changed /
@@ -7251,7 +7335,7 @@ class LayoutPicker(QFrame):
         outer.addStretch(1)          # 各组行数不同，多出来的高度留在下面
         self.reset_button = QPushButton("恢复默认比例", self)
         self.reset_button.setObjectName("GhostButton")
-        self.reset_button.setToolTip("恢复一大五小的全部分隔线比例，保留直播间和音频设置")
+        self.reset_button.setToolTip("恢复当前布局的全部分隔线比例，保留直播间和音频设置")
         self.reset_button.clicked.connect(self._reset_ratios)
         outer.addWidget(self.reset_button)
 
@@ -7325,8 +7409,8 @@ class LayoutPicker(QFrame):
         for key, headings in self._sections.items():
             for heading in headings:
                 heading.setVisible(key == name)
-        self.reset_button.setVisible(self._can_reset_corner and any(
-            card.property("layoutId") == "corner" for card in self._cards[name]))
+        self.reset_button.setVisible(self._can_reset_layout and any(
+            card.property("layoutId") == self._reset_layout_id for card in self._cards[name]))
         self._group = name
         self.adjustSize()
         # 宽度固定（右边对齐布局按钮），高度跟着这一组卡片走
