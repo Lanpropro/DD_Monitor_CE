@@ -103,6 +103,8 @@ def main():
                 settle(app)
                 assert window._hot_swap(window.wall.tiles[0], window.wall.tiles[4])
                 settle(app, 0.6)
+                window.wall.reset_corner_ratios()
+                settle(app)
                 assert all(window.players[player.video_widget.parentWidget()] is player
                            for player in players)
                 for player, identity, before in zip(players, identities, initial_time):

@@ -3492,6 +3492,7 @@ class Sidebar(QFrame):
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
+    layoutResetRequested = Signal()
     settingsRequested = Signal()
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
@@ -3745,6 +3746,7 @@ class Sidebar(QFrame):
         # 只列当前方向能用的布局：横屏不列竖屏预设（套上去画面会变形）
         picker = LayoutPicker(self._layout_id, self, portrait=self.side == "top")
         picker.chosen.connect(self._on_layout_chosen)
+        picker.resetRequested.connect(self.layoutResetRequested.emit)
         # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
         source = self.account_row if self.collapsed else self.layout_button
         anchor = source.mapToGlobal(source.rect().topLeft())
@@ -6535,8 +6537,9 @@ class WallGrid(QWidget):
     tileCreated = Signal(object)
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
+    cornerRatiosChanged = Signal()         # 松开或重置后通知外层保存，不在拖动帧中写配置
 
-    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None):
+    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, corner_ratios=None):
         super().__init__(parent)
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
@@ -6592,6 +6595,7 @@ class WallGrid(QWidget):
         self._corner_right_handle.setToolTip("拖动调整右侧两路高度；双击让相邻两路等分")
         for handle in self._corner_bottom_handles:
             handle.setToolTip("拖动调整相邻两路宽度；双击让相邻两路等分")
+        self.restore_corner_ratios(corner_ratios)
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -6880,6 +6884,40 @@ class WallGrid(QWidget):
         self._columns = columns
 
     # ---- 一大五小：手动几何保持视频 HWND 不变，拖动只调整区域比例 ----
+    def corner_ratios(self) -> dict:
+        """导出独立比例；不依赖当前布局是否显示、窗口尺寸或全屏状态。"""
+        return {"width": self._corner_width_ratio, "height": self._corner_height_ratio,
+                "right": self._corner_right_ratio, "bottom": list(self._corner_bottom_ratios)}
+
+    def restore_corner_ratios(self, saved) -> None:
+        """旧配置或非法字段使用默认值；边界也排除 NaN、无穷值和布尔值。"""
+        saved = saved if isinstance(saved, dict) else {}
+
+        def valid(value):
+            return type(value) in (int, float) and 0 < value < 1
+
+        for name, attribute, default in (("width", "_corner_width_ratio", 2 / 3),
+                                         ("height", "_corner_height_ratio", 2 / 3),
+                                         ("right", "_corner_right_ratio", 1 / 2)):
+            value = saved.get(name)
+            setattr(self, attribute, float(value) if valid(value) else default)
+        bottom = saved.get("bottom")
+        if (isinstance(bottom, (list, tuple)) and len(bottom) == 2
+                and all(valid(value) for value in bottom) and bottom[0] < bottom[1]):
+            self._corner_bottom_ratios = [float(value) for value in bottom]
+        else:
+            self._corner_bottom_ratios = [1 / 3, 2 / 3]
+        if self.tiles and self.layout_id == "corner" and self.fullscreen_tile is None:
+            self._relayout_corner()
+
+    def reset_corner_ratios(self) -> None:
+        """恢复全部五条分隔线；保留房间、播放器和每个格子的音频设置。"""
+        before = self.corner_ratios()
+        self._cancel_corner_drag()
+        self.restore_corner_ratios(None)
+        if self.corner_ratios() != before:
+            self.cornerRatiosChanged.emit()
+
     def _corner_area(self) -> QRect:
         margins = self.grid.contentsMargins()
         return self.rect().adjusted(margins.left(), margins.top(),
@@ -6896,6 +6934,9 @@ class WallGrid(QWidget):
         self._corner_pending_drag = (target, coordinate)
         self._corner_drag_timer.stop()
         self._flush_corner_drag()
+        # 定时更新可能已经到达最终坐标；松开仍需保存整次拖动的结果。
+        if self.layout_id == "corner" and self.fullscreen_tile is None:
+            self.cornerRatiosChanged.emit()
 
     def _cancel_corner_drag(self) -> None:
         self._corner_drag_timer.stop()
@@ -6943,6 +6984,7 @@ class WallGrid(QWidget):
             self._relayout_corner()
 
     def _reset_corner(self, target) -> None:
+        before = self.corner_ratios()
         self._cancel_corner_drag()
         if target == Qt.Horizontal:
             self._corner_width_ratio = 2 / 3
@@ -6961,6 +7003,8 @@ class WallGrid(QWidget):
             self._corner_bottom_ratios = [first, second]
         if self.layout_id == "corner" and self.fullscreen_tile is None:
             self._relayout_corner()
+        if self.corner_ratios() != before:
+            self.cornerRatiosChanged.emit()
 
     def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
         if len(self.tiles) < 6:
@@ -7154,6 +7198,7 @@ class LayoutPicker(QFrame):
     """
 
     chosen = Signal(str)
+    resetRequested = Signal()
 
     #: 一行摆几张卡片
     COLUMNS = 4
@@ -7168,6 +7213,7 @@ class LayoutPicker(QFrame):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._cards: dict[str, list[QToolButton]] = {}
         self._sections: dict[str, list[QLabel]] = {}
+        self._can_reset_corner = current == "corner"
 
         # 两组都列出来（横屏也能点竖屏预设）：选中另一个方向的预设时，本体
         # 会把**窗口**也改成那个方向（见 MainWindow._on_layout_changed /
@@ -7203,6 +7249,11 @@ class LayoutPicker(QFrame):
         self._grid.setSpacing(6)
         outer.addLayout(self._grid)
         outer.addStretch(1)          # 各组行数不同，多出来的高度留在下面
+        self.reset_button = QPushButton("恢复默认比例", self)
+        self.reset_button.setObjectName("GhostButton")
+        self.reset_button.setToolTip("恢复一大五小的全部分隔线比例，保留直播间和音频设置")
+        self.reset_button.clicked.connect(self._reset_ratios)
+        outer.addWidget(self.reset_button)
 
         active = groups[0][0]
         for name, group in groups:
@@ -7274,6 +7325,8 @@ class LayoutPicker(QFrame):
         for key, headings in self._sections.items():
             for heading in headings:
                 heading.setVisible(key == name)
+        self.reset_button.setVisible(self._can_reset_corner and any(
+            card.property("layoutId") == "corner" for card in self._cards[name]))
         self._group = name
         self.adjustSize()
         # 宽度固定（右边对齐布局按钮），高度跟着这一组卡片走
@@ -7300,5 +7353,9 @@ class LayoutPicker(QFrame):
 
     def _choose(self, layout_id: str) -> None:
         self.chosen.emit(layout_id)
+        self.close()
+
+    def _reset_ratios(self) -> None:
+        self.resetRequested.emit()
         self.close()
 
