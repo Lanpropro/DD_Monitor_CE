@@ -1,0 +1,111 @@
+"""真实 VLC 本地视频：拖动、全屏几何恢复与换位不重启播放器，不联网。"""
+from contextlib import ExitStack
+import os
+from pathlib import Path
+import struct
+import sys
+import tempfile
+import time
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+os.environ.setdefault("DDM_NO_SAVE", "1")
+os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(ROOT / "libvlc.dll"))
+os.environ.setdefault("QT_QPA_PLATFORM", "windows" if "--native" in sys.argv else "offscreen")
+
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QApplication
+import vlc
+from ddm import theme
+from ddm.app import MainWindow
+from ddm.player import TilePlayer
+from selfcheck_corner_resize import drag
+
+
+def settle(app, seconds=0.3):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        app.processEvents()
+        time.sleep(0.01)
+
+
+def main():
+    app = QApplication([])
+    app.setStyleSheet(theme.qss())
+    rooms = [{"room_id": str(1000 + i), "uname": f"Local fixture {i}", "live": False,
+              "muted": True, "volume": 40} for i in range(6)]
+    with ExitStack() as stack:
+        for method in ("start_tile", "refresh_status", "refresh_stats", "refresh_account",
+                       "sync_danmaku", "load_avatars_for", "load_room_avatars",
+                       "load_cached_covers", "load_cached_avatars"):
+            stack.enter_context(patch.object(MainWindow, method))
+        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner",
+                            state={"plugins_enabled": [], "settings": {
+                                "recording_enabled": False, "recording_replay_enabled": False,
+                                "preview_on_hover": False, "auto_update": False}})
+        window.setGeometry(-9000, -9000, 1400, 900)
+        window.show()
+        settle(app)
+        window.start_tile.reset_mock()  # 启动布局的调用不属于后续拖动操作。
+        players = []
+        directory = ROOT / "work/corner-resize-tmp"
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=directory) as temporary:
+            path = Path(temporary) / "fixture.bmp"
+            width, height = 320, 180
+            pixels = (b"\x90\x45\x20" * (width // 2)
+                      + b"\x30\x50\xc0" * (width // 2)) * height
+            path.write_bytes(b"BM" + struct.pack("<IHHI", 54 + len(pixels), 0, 0, 54)
+                             + struct.pack("<IIIHHIIIIII", 40, width, height, 1, 24,
+                                           0, len(pixels), 0, 0, 0, 0) + pixels)
+            try:
+                for tile in window.wall.tiles:
+                    tile.room["live"] = True
+                    player = TilePlayer(tile.video, tile)
+                    player.freeze_watch = False
+                    player.set_muted(True)
+                    window.players[tile] = player
+                    players.append(player)
+                    player.play(str(path), options=[":image-duration=60", ":image-fps=25"])
+                    tile.set_video_active(True)
+                settle(app, 2)
+                assert all(player.player.is_playing() for player in players), "本地视频必须实际播放"
+                identities = [(player.player, player._media, int(player.video_widget.winId()))
+                              for player in players]
+                initial_time = [player.player.get_time() for player in players]
+                for index in range(4):
+                    drag(app, window.wall._corner_width_handle, QPoint(30 if index % 2 else -30, 0))
+                    drag(app, window.wall._corner_height_handle, QPoint(0, 25 if index % 2 else -25))
+                    settle(app)
+                window.resize(1600, 950)
+                settle(app)
+                target = window.wall.tiles[2]
+                window.wall.set_fullscreen_tile(target)
+                settle(app)
+                window.wall.set_fullscreen_tile(None)
+                settle(app)
+                assert window._hot_swap(window.wall.tiles[0], window.wall.tiles[4])
+                settle(app, 0.6)
+                assert all(window.players[player.video_widget.parentWidget()] is player
+                           for player in players)
+                for player, identity, before in zip(players, identities, initial_time):
+                    assert (player.player, player._media, int(player.video_widget.winId())) == identity
+                    assert player.player.is_playing() and player.player.get_time() > before
+                    stats = vlc.MediaStats()
+                    assert player._media.get_stats(stats) and stats.decoded_video > 0
+                    if app.platformName() == "windows":
+                        assert stats.displayed_pictures > 0, "Windows 原生输出必须显示视频帧"
+                    print(f"VLC time={player.player.get_time()}ms, decoded={stats.decoded_video}, "
+                          f"displayed={stats.displayed_pictures}", flush=True)
+                window.start_tile.assert_not_called()
+                window.grab().save(str(ROOT / "work/corner-resize-application.png"))
+                print(f"PASS: {app.platformName()}, six real VLC players, drag/resize/fullscreen "
+                      "geometry/hot swap, stable handles and continuous media")
+            finally:
+                window.close()
+                settle(app)
+
+
+if __name__ == "__main__":
+    main()

@@ -6468,6 +6468,54 @@ def best_columns(count: int, width: int, height: int, gap: int = 8, aspect: floa
     return best
 
 
+class WallResizeHandle(QFrame):
+    """只改变现有播放格的几何，避免拖动或全屏时重建 VLC 的父窗口。"""
+
+    dragged = Signal(int)
+    resetRequested = Signal()
+
+    def __init__(self, orientation, parent):
+        super().__init__(parent)
+        self.orientation = orientation
+        self._press_offset = None
+        self.setObjectName("WallResizeHandle")
+        self.setCursor(Qt.SplitHCursor if orientation == Qt.Horizontal else Qt.SplitVCursor)
+        self.setToolTip("拖动调整左右比例；双击恢复" if orientation == Qt.Horizontal
+                        else "拖动调整上下比例；双击恢复")
+        self.setStyleSheet("#WallResizeHandle {background: #526173; border-radius: 3px;} "
+                          "#WallResizeHandle:hover {background: #38bdf8;}")
+        self.hide()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            point = event.position().toPoint()
+            self._press_offset = point.x() if self.orientation == Qt.Horizontal else point.y()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._press_offset is not None and event.buttons() & Qt.LeftButton:
+            point = self.parentWidget().mapFromGlobal(event.globalPosition().toPoint())
+            coordinate = point.x() if self.orientation == Qt.Horizontal else point.y()
+            self.dragged.emit(coordinate - self._press_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._press_offset = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._press_offset = None
+            self.resetRequested.emit()
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+
 class WallGrid(QWidget):
     """画面墙：自动网格或指定布局方案。"""
 
@@ -6498,6 +6546,20 @@ class WallGrid(QWidget):
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
         self.grid.setSpacing(8)
+
+        # 一大五小保留原播放格及父窗口，只在空隙增加两条可拖动的分隔条。
+        self._corner_width_ratio = 2 / 3
+        self._corner_height_ratio = 2 / 3
+        self._corner_width_handle = WallResizeHandle(Qt.Horizontal, self)
+        self._corner_height_handle = WallResizeHandle(Qt.Vertical, self)
+        self._corner_width_handle.dragged.connect(
+            lambda coordinate: self._drag_corner(Qt.Horizontal, coordinate))
+        self._corner_height_handle.dragged.connect(
+            lambda coordinate: self._drag_corner(Qt.Vertical, coordinate))
+        self._corner_width_handle.resetRequested.connect(
+            lambda: self._reset_corner(Qt.Horizontal))
+        self._corner_height_handle.resetRequested.connect(
+            lambda: self._reset_corner(Qt.Vertical))
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -6693,6 +6755,9 @@ class WallGrid(QWidget):
             self._drop_tile(empty)
 
     def _clear(self) -> None:
+        self._corner_width_handle.hide()
+        self._corner_height_handle.hide()
+        self.setMinimumSize(0, 0)
         for index in range(24):
             self.grid.setColumnStretch(index, 0)
             self.grid.setRowStretch(index, 0)
@@ -6733,6 +6798,10 @@ class WallGrid(QWidget):
                     tile.setVisible(False)
             self.grid.setColumnStretch(0, 1)
             self.grid.setRowStretch(0, 1)
+            return
+
+        if self.layout_id == "corner":
+            self._relayout_corner(apply_visibility=True)
             return
 
         if spec is None:
@@ -6776,6 +6845,84 @@ class WallGrid(QWidget):
         for row in range(rows):
             self.grid.setRowStretch(row, 1)
         self._columns = columns
+
+    # ---- 一大五小：手动几何保持视频 HWND 不变，拖动只调整区域比例 ----
+    def _corner_area(self) -> QRect:
+        margins = self.grid.contentsMargins()
+        return self.rect().adjusted(margins.left(), margins.top(),
+                                    -margins.right(), -margins.bottom())
+
+    def _drag_corner(self, orientation, coordinate: int) -> None:
+        if self.layout_id != "corner" or self.fullscreen_tile is not None:
+            return
+        area, gap = self._corner_area(), self.grid.spacing()
+        if orientation == Qt.Horizontal:
+            span = max(1, area.width() - gap)
+            self._corner_width_ratio = max(0.0, min(1.0, (coordinate - area.left()) / span))
+            self._relayout_corner()
+            self._corner_width_ratio = self.tiles[0].width() / span
+        else:
+            span = max(1, area.height() - gap)
+            self._corner_height_ratio = max(0.0, min(1.0, (coordinate - area.top()) / span))
+            self._relayout_corner()
+            self._corner_height_ratio = self.tiles[0].height() / span
+
+    def _reset_corner(self, orientation) -> None:
+        if orientation == Qt.Horizontal:
+            self._corner_width_ratio = 2 / 3
+        else:
+            self._corner_height_ratio = 2 / 3
+        if self.layout_id == "corner" and self.fullscreen_tile is None:
+            self._relayout_corner()
+
+    def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
+        if len(self.tiles) < 6:
+            return
+        main, right_top, right_bottom, *bottom = self.tiles[:6]
+        gap = self.grid.spacing()
+        minimum_top = max(main.minimumHeight(),
+                          right_top.minimumHeight() + gap + right_bottom.minimumHeight())
+        minimum_bottom = max(tile.minimumHeight() for tile in bottom)
+        minimum_right = max(right_top.minimumWidth(), right_bottom.minimumWidth())
+        if apply_visibility:
+            margins = self.grid.contentsMargins()
+            minimum_width = max(main.minimumWidth() + gap + minimum_right,
+                                sum(tile.minimumWidth() for tile in bottom) + 2 * gap)
+            self.setMinimumSize(minimum_width + margins.left() + margins.right(),
+                                minimum_top + gap + minimum_bottom + margins.top() + margins.bottom())
+        area = self._corner_area()
+        width, height = max(1, area.width() - gap), max(1, area.height() - gap)
+        main_width = max(main.minimumWidth(),
+                         min(width - minimum_right, round(width * self._corner_width_ratio)))
+        top_height = max(minimum_top,
+                         min(height - minimum_bottom, round(height * self._corner_height_ratio)))
+        x, y = area.left(), area.top()
+        right_x, bottom_y = x + main_width + gap, y + top_height + gap
+        right_height = (top_height - gap) // 2
+        main.setGeometry(x, y, main_width, top_height)
+        right_top.setGeometry(right_x, y, width - main_width, right_height)
+        right_bottom.setGeometry(right_x, y + right_height + gap,
+                                 width - main_width, top_height - gap - right_height)
+        bottom_width = area.width() - 2 * gap
+        for index, tile in enumerate(bottom):
+            start, end = index * bottom_width // 3, (index + 1) * bottom_width // 3
+            tile.setGeometry(x + start + index * gap, bottom_y,
+                             end - start, height - top_height)
+        if apply_visibility:
+            self.danmaku.hide()
+            for index, tile in enumerate(self.tiles):
+                if index >= 6:
+                    tile.hide()
+                elif self._defer_show and tile is not self._stagger_first:
+                    self._pending_reveal.append(tile)
+                else:
+                    tile.show()
+        self._corner_width_handle.setGeometry(x + main_width, y, gap, top_height)
+        self._corner_height_handle.setGeometry(x, y + top_height, area.width(), gap)
+        for handle in (self._corner_width_handle, self._corner_height_handle):
+            handle.show()
+            handle.raise_()
+        self._columns = 3
 
     # ---- 竖屏摆放 ----
     def _relayout_portrait(self, rows: int, columns: int, cells: list) -> None:
@@ -6876,6 +7023,9 @@ class WallGrid(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self.fullscreen_tile is None and self.layout_id == "corner":
+            self._relayout_corner()
+            return
         # 自动布局和竖屏布局都是按当前尺寸算坐标的，尺寸变了必须重排；
         # 固定行列的布局由 Qt 自己按 stretch 摆，不用管。
         if self.fullscreen_tile is None and (self.layout_id == "auto" or
