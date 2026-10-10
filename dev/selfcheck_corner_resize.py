@@ -26,7 +26,7 @@ def drag(app, handle, movement):
     event = QMouseEvent(QEvent.MouseMove, QPointF(local), QPointF(destination),
                         Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
     QApplication.sendEvent(handle, event)
-    QTest.mouseRelease(handle, Qt.LeftButton, pos=handle.rect().center())
+    QTest.mouseRelease(handle, Qt.LeftButton, pos=handle.mapFromGlobal(destination))
     app.processEvents()
 
 

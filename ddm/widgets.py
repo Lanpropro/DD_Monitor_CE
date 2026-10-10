@@ -6472,17 +6472,20 @@ class WallResizeHandle(QFrame):
     """只改变现有播放格的几何，避免拖动或全屏时重建 VLC 的父窗口。"""
 
     dragged = Signal(int)
+    dragFinished = Signal(int)
     resetRequested = Signal()
 
     def __init__(self, orientation, parent):
         super().__init__(parent)
         self.orientation = orientation
         self._press_offset = None
+        # 分隔线完整覆盖自己的矩形，不使用透明圆角，避免原生窗口移动时拷贝旧背景。
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.setObjectName("WallResizeHandle")
         self.setCursor(Qt.SplitHCursor if orientation == Qt.Horizontal else Qt.SplitVCursor)
         self.setToolTip("拖动调整左右比例；双击恢复" if orientation == Qt.Horizontal
                         else "拖动调整上下比例；双击恢复")
-        self.setStyleSheet("#WallResizeHandle {background: #526173; border-radius: 3px;} "
+        self.setStyleSheet("#WallResizeHandle {background: #526173; border: none;} "
                           "#WallResizeHandle:hover {background: #38bdf8;}")
         self.hide()
 
@@ -6504,6 +6507,10 @@ class WallResizeHandle(QFrame):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._press_offset is not None:
+            point = self.parentWidget().mapFromGlobal(event.globalPosition().toPoint())
+            coordinate = point.x() if self.orientation == Qt.Horizontal else point.y()
+            self.dragFinished.emit(coordinate - self._press_offset)
         self._press_offset = None
         super().mouseReleaseEvent(event)
 
@@ -6527,6 +6534,7 @@ class WallGrid(QWidget):
     def __init__(self, rooms: list[dict], layout_id: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("WallGrid")
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
@@ -6550,12 +6558,23 @@ class WallGrid(QWidget):
         # 一大五小保留原播放格及父窗口，只在空隙增加两条可拖动的分隔条。
         self._corner_width_ratio = 2 / 3
         self._corner_height_ratio = 2 / 3
+        # 合并高频移动事件；定时应用最新坐标，松开立即收尾，不积累旧位置。
+        self._corner_pending_drag = None
+        self._corner_drag_timer = QTimer(self)
+        self._corner_drag_timer.setSingleShot(True)
+        self._corner_drag_timer.setTimerType(Qt.PreciseTimer)
+        self._corner_drag_timer.setInterval(32)
+        self._corner_drag_timer.timeout.connect(self._flush_corner_drag)
         self._corner_width_handle = WallResizeHandle(Qt.Horizontal, self)
         self._corner_height_handle = WallResizeHandle(Qt.Vertical, self)
         self._corner_width_handle.dragged.connect(
             lambda coordinate: self._drag_corner(Qt.Horizontal, coordinate))
         self._corner_height_handle.dragged.connect(
             lambda coordinate: self._drag_corner(Qt.Vertical, coordinate))
+        self._corner_width_handle.dragFinished.connect(
+            lambda coordinate: self._finish_corner_drag(Qt.Horizontal, coordinate))
+        self._corner_height_handle.dragFinished.connect(
+            lambda coordinate: self._finish_corner_drag(Qt.Vertical, coordinate))
         self._corner_width_handle.resetRequested.connect(
             lambda: self._reset_corner(Qt.Horizontal))
         self._corner_height_handle.resetRequested.connect(
@@ -6755,6 +6774,7 @@ class WallGrid(QWidget):
             self._drop_tile(empty)
 
     def _clear(self) -> None:
+        self._cancel_corner_drag()
         self._corner_width_handle.hide()
         self._corner_height_handle.hide()
         self.setMinimumSize(0, 0)
@@ -6855,6 +6875,28 @@ class WallGrid(QWidget):
     def _drag_corner(self, orientation, coordinate: int) -> None:
         if self.layout_id != "corner" or self.fullscreen_tile is not None:
             return
+        self._corner_pending_drag = (orientation, coordinate)
+        if not self._corner_drag_timer.isActive():
+            self._corner_drag_timer.start()
+
+    def _finish_corner_drag(self, orientation, coordinate: int) -> None:
+        self._corner_pending_drag = (orientation, coordinate)
+        self._corner_drag_timer.stop()
+        self._flush_corner_drag()
+
+    def _cancel_corner_drag(self) -> None:
+        self._corner_drag_timer.stop()
+        self._corner_pending_drag = None
+        for handle in (self._corner_width_handle, self._corner_height_handle):
+            handle._press_offset = None
+
+    def _flush_corner_drag(self) -> None:
+        pending, self._corner_pending_drag = self._corner_pending_drag, None
+        if pending is None:
+            return
+        if self.layout_id != "corner" or self.fullscreen_tile is not None:
+            return
+        orientation, coordinate = pending
         area, gap = self._corner_area(), self.grid.spacing()
         if orientation == Qt.Horizontal:
             span = max(1, area.width() - gap)
@@ -6868,6 +6910,7 @@ class WallGrid(QWidget):
             self._corner_height_ratio = self.tiles[0].height() / span
 
     def _reset_corner(self, orientation) -> None:
+        self._cancel_corner_drag()
         if orientation == Qt.Horizontal:
             self._corner_width_ratio = 2 / 3
         else:
@@ -6878,6 +6921,8 @@ class WallGrid(QWidget):
     def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
         if len(self.tiles) < 6:
             return
+        dirty = QRegion(self._corner_width_handle.geometry()).united(
+            QRegion(self._corner_height_handle.geometry()))
         main, right_top, right_bottom, *bottom = self.tiles[:6]
         gap = self.grid.spacing()
         minimum_top = max(main.minimumHeight(),
@@ -6922,6 +6967,9 @@ class WallGrid(QWidget):
         for handle in (self._corner_width_handle, self._corner_height_handle):
             handle.show()
             handle.raise_()
+            dirty = dirty.united(QRegion(handle.geometry()))
+        # 显式清理分隔线旧位置；update 合并到事件循环，不同步强制重绘六路视频。
+        self.update(dirty)
         self._columns = 3
 
     # ---- 竖屏摆放 ----
@@ -7020,6 +7068,11 @@ class WallGrid(QWidget):
 
     def hidden_count(self) -> int:
         return sum(1 for tile in self.tiles if not tile.isVisible())
+
+    def paintEvent(self, event) -> None:
+        # VLC 是独立原生窗口；画面墙负责把窗口之间新露出的空隙填回主题背景。
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), theme.qcolor(theme.BG))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

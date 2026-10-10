@@ -21,6 +21,7 @@ from ddm import theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from selfcheck_corner_resize import drag
+from selfcheck_corner_drag_updates import begin, move_to, release_at
 
 
 def settle(app, seconds=0.3):
@@ -74,6 +75,18 @@ def main():
                 identities = [(player.player, player._media, int(player.video_widget.winId()))
                               for player in players]
                 initial_time = [player.player.get_time() for player in players]
+                # 持续按住拖动，包含定时更新，不能只验证松开时的一次几何变化。
+                for handle, axis in ((window.wall._corner_width_handle, QPoint(1, 0)),
+                                     (window.wall._corner_height_handle, QPoint(0, 1))):
+                    origin = begin(handle)
+                    for frame in range(8):
+                        for sample in range(20):
+                            offset = (sample + frame * 20) % 61 - 30
+                            destination = origin + axis * offset
+                            move_to(handle, destination)
+                        settle(app, 0.05)
+                    release_at(handle, destination)
+                    settle(app)
                 for index in range(4):
                     drag(app, window.wall._corner_width_handle, QPoint(30 if index % 2 else -30, 0))
                     drag(app, window.wall._corner_height_handle, QPoint(0, 25 if index % 2 else -25))
