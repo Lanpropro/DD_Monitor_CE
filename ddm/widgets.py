@@ -6489,6 +6489,11 @@ class WallResizeHandle(QFrame):
                           "#WallResizeHandle:hover {background: #38bdf8;}")
         self.hide()
 
+    def paintEvent(self, event):
+        # WA_OpaquePaintEvent 要求控件自行填满背景；原生分隔线不能只依赖 QSS 填色。
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), QColor("#38bdf8" if self.underMouse() else "#526173"))
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             point = event.position().toPoint()
@@ -6555,9 +6560,11 @@ class WallGrid(QWidget):
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
         self.grid.setSpacing(8)
 
-        # 一大五小保留原播放格及父窗口，只在空隙增加两条可拖动的分隔条。
+        # 一大五小保留原播放格及父窗口，分隔条只占画面之间的空隙。
         self._corner_width_ratio = 2 / 3
         self._corner_height_ratio = 2 / 3
+        self._corner_right_ratio = 1 / 2
+        self._corner_bottom_ratios = [1 / 3, 2 / 3]  # 底部两条分隔线的累计宽度比例
         # 合并高频移动事件；定时应用最新坐标，松开立即收尾，不积累旧位置。
         self._corner_pending_drag = None
         self._corner_drag_timer = QTimer(self)
@@ -6567,18 +6574,24 @@ class WallGrid(QWidget):
         self._corner_drag_timer.timeout.connect(self._flush_corner_drag)
         self._corner_width_handle = WallResizeHandle(Qt.Horizontal, self)
         self._corner_height_handle = WallResizeHandle(Qt.Vertical, self)
-        self._corner_width_handle.dragged.connect(
-            lambda coordinate: self._drag_corner(Qt.Horizontal, coordinate))
-        self._corner_height_handle.dragged.connect(
-            lambda coordinate: self._drag_corner(Qt.Vertical, coordinate))
-        self._corner_width_handle.dragFinished.connect(
-            lambda coordinate: self._finish_corner_drag(Qt.Horizontal, coordinate))
-        self._corner_height_handle.dragFinished.connect(
-            lambda coordinate: self._finish_corner_drag(Qt.Vertical, coordinate))
-        self._corner_width_handle.resetRequested.connect(
-            lambda: self._reset_corner(Qt.Horizontal))
-        self._corner_height_handle.resetRequested.connect(
-            lambda: self._reset_corner(Qt.Vertical))
+        self._corner_right_handle = WallResizeHandle(Qt.Vertical, self)
+        self._corner_bottom_handles = [WallResizeHandle(Qt.Horizontal, self) for _ in range(2)]
+        self._corner_handles = {
+            Qt.Horizontal: self._corner_width_handle,
+            Qt.Vertical: self._corner_height_handle,
+            "right": self._corner_right_handle,
+            "bottom_left": self._corner_bottom_handles[0],
+            "bottom_right": self._corner_bottom_handles[1],
+        }
+        for target, handle in self._corner_handles.items():
+            handle.dragged.connect(
+                lambda coordinate, target=target: self._drag_corner(target, coordinate))
+            handle.dragFinished.connect(
+                lambda coordinate, target=target: self._finish_corner_drag(target, coordinate))
+            handle.resetRequested.connect(lambda target=target: self._reset_corner(target))
+        self._corner_right_handle.setToolTip("拖动调整右侧两路高度；双击让相邻两路等分")
+        for handle in self._corner_bottom_handles:
+            handle.setToolTip("拖动调整相邻两路宽度；双击让相邻两路等分")
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -6775,8 +6788,8 @@ class WallGrid(QWidget):
 
     def _clear(self) -> None:
         self._cancel_corner_drag()
-        self._corner_width_handle.hide()
-        self._corner_height_handle.hide()
+        for handle in self._corner_handles.values():
+            handle.hide()
         self.setMinimumSize(0, 0)
         for index in range(24):
             self.grid.setColumnStretch(index, 0)
@@ -6872,22 +6885,22 @@ class WallGrid(QWidget):
         return self.rect().adjusted(margins.left(), margins.top(),
                                     -margins.right(), -margins.bottom())
 
-    def _drag_corner(self, orientation, coordinate: int) -> None:
+    def _drag_corner(self, target, coordinate: int) -> None:
         if self.layout_id != "corner" or self.fullscreen_tile is not None:
             return
-        self._corner_pending_drag = (orientation, coordinate)
+        self._corner_pending_drag = (target, coordinate)
         if not self._corner_drag_timer.isActive():
             self._corner_drag_timer.start()
 
-    def _finish_corner_drag(self, orientation, coordinate: int) -> None:
-        self._corner_pending_drag = (orientation, coordinate)
+    def _finish_corner_drag(self, target, coordinate: int) -> None:
+        self._corner_pending_drag = (target, coordinate)
         self._corner_drag_timer.stop()
         self._flush_corner_drag()
 
     def _cancel_corner_drag(self) -> None:
         self._corner_drag_timer.stop()
         self._corner_pending_drag = None
-        for handle in (self._corner_width_handle, self._corner_height_handle):
+        for handle in self._corner_handles.values():
             handle._press_offset = None
 
     def _flush_corner_drag(self) -> None:
@@ -6896,33 +6909,65 @@ class WallGrid(QWidget):
             return
         if self.layout_id != "corner" or self.fullscreen_tile is not None:
             return
-        orientation, coordinate = pending
+        target, coordinate = pending
         area, gap = self._corner_area(), self.grid.spacing()
-        if orientation == Qt.Horizontal:
+        if target == Qt.Horizontal:
             span = max(1, area.width() - gap)
             self._corner_width_ratio = max(0.0, min(1.0, (coordinate - area.left()) / span))
             self._relayout_corner()
             self._corner_width_ratio = self.tiles[0].width() / span
-        else:
+        elif target == Qt.Vertical:
             span = max(1, area.height() - gap)
             self._corner_height_ratio = max(0.0, min(1.0, (coordinate - area.top()) / span))
             self._relayout_corner()
             self._corner_height_ratio = self.tiles[0].height() / span
+        elif target == "right":
+            top, bottom = self.tiles[1:3]
+            span = max(1, top.height() + bottom.height())
+            height = max(top.minimumHeight(), min(span - bottom.minimumHeight(),
+                                                  coordinate - area.top()))
+            self._corner_right_ratio = height / span
+            self._relayout_corner()
+        elif target in ("bottom_left", "bottom_right"):
+            left, middle, right = self.tiles[3:6]
+            span = max(1, left.width() + middle.width() + right.width())
+            first, second = left.width(), left.width() + middle.width()
+            # 固定另一条分隔线的实际位置，只在相邻两路之间重新分配宽度。
+            if target == "bottom_left":
+                first = max(left.minimumWidth(), min(second - middle.minimumWidth(),
+                                                     coordinate - area.left()))
+            else:
+                second = max(first + middle.minimumWidth(), min(span - right.minimumWidth(),
+                                                                coordinate - area.left() - gap))
+            self._corner_bottom_ratios = [first / span, second / span]
+            self._relayout_corner()
 
-    def _reset_corner(self, orientation) -> None:
+    def _reset_corner(self, target) -> None:
         self._cancel_corner_drag()
-        if orientation == Qt.Horizontal:
+        if target == Qt.Horizontal:
             self._corner_width_ratio = 2 / 3
-        else:
+        elif target == Qt.Vertical:
             self._corner_height_ratio = 2 / 3
+        elif target == "right":
+            self._corner_right_ratio = 1 / 2
+        elif target in ("bottom_left", "bottom_right"):
+            left, middle, right = self.tiles[3:6]
+            span = max(1, left.width() + middle.width() + right.width())
+            first, second = left.width() / span, (left.width() + middle.width()) / span
+            if target == "bottom_left":
+                first = second / 2
+            else:
+                second = (1 + first) / 2
+            self._corner_bottom_ratios = [first, second]
         if self.layout_id == "corner" and self.fullscreen_tile is None:
             self._relayout_corner()
 
     def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
         if len(self.tiles) < 6:
             return
-        dirty = QRegion(self._corner_width_handle.geometry()).united(
-            QRegion(self._corner_height_handle.geometry()))
+        dirty = QRegion()
+        for handle in self._corner_handles.values():
+            dirty = dirty.united(QRegion(handle.geometry()))
         main, right_top, right_bottom, *bottom = self.tiles[:6]
         gap = self.grid.spacing()
         minimum_top = max(main.minimumHeight(),
@@ -6943,14 +6988,24 @@ class WallGrid(QWidget):
                          min(height - minimum_bottom, round(height * self._corner_height_ratio)))
         x, y = area.left(), area.top()
         right_x, bottom_y = x + main_width + gap, y + top_height + gap
-        right_height = (top_height - gap) // 2
+        right_span = top_height - gap
+        right_height = max(right_top.minimumHeight(),
+                           min(right_span - right_bottom.minimumHeight(),
+                               round(right_span * self._corner_right_ratio)))
         main.setGeometry(x, y, main_width, top_height)
         right_top.setGeometry(right_x, y, width - main_width, right_height)
         right_bottom.setGeometry(right_x, y + right_height + gap,
                                  width - main_width, top_height - gap - right_height)
         bottom_width = area.width() - 2 * gap
+        first = max(bottom[0].minimumWidth(),
+                    min(bottom_width - bottom[1].minimumWidth() - bottom[2].minimumWidth(),
+                        round(bottom_width * self._corner_bottom_ratios[0])))
+        second = max(first + bottom[1].minimumWidth(),
+                     min(bottom_width - bottom[2].minimumWidth(),
+                         round(bottom_width * self._corner_bottom_ratios[1])))
+        boundaries = (0, first, second, bottom_width)
         for index, tile in enumerate(bottom):
-            start, end = index * bottom_width // 3, (index + 1) * bottom_width // 3
+            start, end = boundaries[index:index + 2]
             tile.setGeometry(x + start + index * gap, bottom_y,
                              end - start, height - top_height)
         if apply_visibility:
@@ -6964,7 +7019,11 @@ class WallGrid(QWidget):
                     tile.show()
         self._corner_width_handle.setGeometry(x + main_width, y, gap, top_height)
         self._corner_height_handle.setGeometry(x, y + top_height, area.width(), gap)
-        for handle in (self._corner_width_handle, self._corner_height_handle):
+        self._corner_right_handle.setGeometry(right_x, y + right_height, width - main_width, gap)
+        for index, handle in enumerate(self._corner_bottom_handles):
+            handle.setGeometry(x + boundaries[index + 1] + index * gap,
+                               bottom_y, gap, height - top_height)
+        for handle in self._corner_handles.values():
             handle.show()
             handle.raise_()
             dirty = dirty.united(QRegion(handle.geometry()))

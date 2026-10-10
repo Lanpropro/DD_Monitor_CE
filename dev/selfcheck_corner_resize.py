@@ -30,7 +30,7 @@ def drag(app, handle, movement):
     app.processEvents()
 
 
-def check_geometry(wall):
+def check_geometry(wall, *, equal_small=False):
     tiles = wall.tiles[:6]
     assert wall.visible_tiles() == tiles
     rects = [tile.geometry() for tile in tiles]
@@ -41,12 +41,13 @@ def check_geometry(wall):
         assert tile.width() >= tile.minimumWidth()
         assert tile.height() >= tile.minimumHeight()
         assert tile.parentWidget() is wall
-    for handle in (wall._corner_width_handle, wall._corner_height_handle):
+    for handle in wall._corner_handles.values():
         assert handle.isVisible()
         assert wall.rect().contains(handle.geometry())
         assert all(not handle.geometry().intersects(rect) for rect in rects)
-    assert abs(tiles[1].height() - tiles[2].height()) <= 1
-    assert max(tile.width() for tile in tiles[3:]) - min(tile.width() for tile in tiles[3:]) <= 1
+    if equal_small:
+        assert abs(tiles[1].height() - tiles[2].height()) <= 1
+        assert max(tile.width() for tile in tiles[3:]) - min(tile.width() for tile in tiles[3:]) <= 1
     assert tiles[0].x() == tiles[3].x()
     assert tiles[0].y() == tiles[1].y()
     assert tiles[2].geometry().bottom() == tiles[0].geometry().bottom()
@@ -64,7 +65,7 @@ def main():
     app.processEvents()
     try:
         assert hasattr(wall, "_corner_width_handle"), "一大五小尚未接入拖动条"
-        check_geometry(wall)
+        check_geometry(wall, equal_small=True)
         original_tiles = list(wall.tiles)
         video_ids = [int(tile.video.winId()) for tile in original_tiles]
         before = wall.tiles[0].size()
@@ -88,8 +89,7 @@ def main():
             wall.set_fullscreen_tile(target)
             app.processEvents()
             assert wall.visible_tiles() == [target]
-            assert not wall._corner_width_handle.isVisible()
-            assert not wall._corner_height_handle.isVisible()
+            assert all(not handle.isVisible() for handle in wall._corner_handles.values())
             wall.set_fullscreen_tile(None, stagger=True, first=target)
             assert target.isVisible()
             assert len(wall._pending_reveal) == 5
@@ -105,8 +105,7 @@ def main():
             wall.set_layout(preset["id"])
             for _ in range(4):
                 app.processEvents()
-            assert not wall._corner_width_handle.isVisible()
-            assert not wall._corner_height_handle.isVisible()
+            assert all(not handle.isVisible() for handle in wall._corner_handles.values())
             assert all(tile.parentWidget() is wall for tile in wall.tiles)
             wall.set_layout("corner")
             app.processEvents()

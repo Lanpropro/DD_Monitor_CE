@@ -77,7 +77,10 @@ def main():
                 initial_time = [player.player.get_time() for player in players]
                 # 持续按住拖动，包含定时更新，不能只验证松开时的一次几何变化。
                 for handle, axis in ((window.wall._corner_width_handle, QPoint(1, 0)),
-                                     (window.wall._corner_height_handle, QPoint(0, 1))):
+                                     (window.wall._corner_height_handle, QPoint(0, 1)),
+                                     (window.wall._corner_right_handle, QPoint(0, 1)),
+                                     (window.wall._corner_bottom_handles[0], QPoint(1, 0)),
+                                     (window.wall._corner_bottom_handles[1], QPoint(1, 0))):
                     origin = begin(handle)
                     for frame in range(8):
                         for sample in range(20):
@@ -112,6 +115,10 @@ def main():
                     print(f"VLC time={player.player.get_time()}ms, decoded={stats.decoded_video}, "
                           f"displayed={stats.displayed_pictures}", flush=True)
                 window.start_tile.assert_not_called()
+                for handle in window.wall._corner_handles.values():
+                    image = handle.grab().toImage()
+                    assert image.pixelColor(image.width() // 2, image.height() // 2).name() in (
+                        "#526173", "#38bdf8"), "原生分隔线必须完整填充背景"
                 window.grab().save(str(ROOT / "work/corner-resize-application.png"))
                 print(f"PASS: {app.platformName()}, six real VLC players, drag/resize/fullscreen "
                       "geometry/hot swap, stable handles and continuous media")
