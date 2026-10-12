@@ -6529,6 +6529,7 @@ class WallPaneBorder(QWidget):
             self.wall._move_border_drag(event.globalPosition().toPoint())
         else:
             self.hover_edges = self.edges_at(event.position().toPoint())
+            self.wall._set_hover_dividers(self.hover_edges.values())
             horizontal = next((edge for edge in self.hover_edges if edge in ("left", "right")), None)
             vertical = next((edge for edge in self.hover_edges if edge in ("top", "bottom")), None)
             if horizontal and vertical:
@@ -6563,6 +6564,7 @@ class WallPaneBorder(QWidget):
 
     def leaveEvent(self, event):
         self.hover_edges = {}
+        self.wall._set_hover_dividers(())
         self.update()
         super().leaveEvent(event)
 
@@ -6576,9 +6578,104 @@ class WallPaneBorder(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(event.rect(), theme.qcolor(theme.BG))
-        if self.wall._border_drag is None:
-            for edge in self.hover_edges:
-                painter.fillRect(self._edge_rect(edge), QColor("#38bdf8"))
+
+
+class WallDividerGrip(QWidget):
+    """One visible drag line in the shared gap, with pane corners left intact."""
+
+    LINE = 2
+
+    def __init__(self, wall, key):
+        super().__init__(wall)
+        self.wall = wall
+        self.key = key
+        self.hovered = False
+        self.setObjectName("WallDividerGrip")
+        self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.ClickFocus)
+        self.setToolTip("拖动调整相邻画面；双击恢复比例")
+        self.hide()
+
+    def sync(self, rect):
+        self.setGeometry(rect)
+        self.setCursor(Qt.SizeHorCursor if rect.width() < rect.height() else Qt.SizeVerCursor)
+        self.show()
+        self.raise_()
+
+    def set_hovered(self, hovered):
+        if self.hovered != hovered:
+            self.hovered = hovered
+            self.update()
+
+    def _owner(self):
+        for border in self.wall._pane_borders.values():
+            if border.isVisible():
+                for edge, key in border.targets.items():
+                    if key == self.key:
+                        return border, edge
+        return None, None
+
+    def enterEvent(self, event):
+        self.wall._set_hover_dividers((self.key,))
+        super().enterEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.wall._border_drag is not None and self.wall._border_drag["source"] is self:
+            self.wall._move_border_drag(event.globalPosition().toPoint())
+        else:
+            self.wall._set_hover_dividers((self.key,))
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            border, edge = self._owner()
+            if border is not None:
+                self.wall._begin_border_drag(border, {edge: self.key},
+                                             event.globalPosition().toPoint(), source=self)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            state = self.wall._border_drag
+            if state is not None and state["source"] is self:
+                self.wall._finish_border_drag(state["border"], event.globalPosition().toPoint())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            border, edge = self._owner()
+            if border is not None:
+                self.wall._reset_border(border, {edge: self.key})
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def leaveEvent(self, event):
+        self.wall._set_hover_dividers(())
+        super().leaveEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.wall._cancel_border_drag()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), theme.qcolor(theme.BG))
+        if self.hovered and self.wall._border_drag is None:
+            if self.width() < self.height():
+                line = QRect((self.width() - self.LINE) // 2, 0, self.LINE, self.height())
+            else:
+                line = QRect(0, (self.height() - self.LINE) // 2, self.width(), self.LINE)
+            painter.fillRect(line, QColor("#38bdf8"))
 
 
 class WallResizePreview(QWidget):
@@ -6697,6 +6794,8 @@ class WallGrid(QWidget):
         self._divider_rects = {}
 
         self._pane_borders = {}
+        self._divider_grips = {}
+        self._hover_dividers = set()
         self._border_drag = None
         self._border_pending = None
         self._border_drag_timer = QTimer(self)
@@ -6908,6 +7007,8 @@ class WallGrid(QWidget):
         self._cancel_border_drag()
         for border in self._pane_borders.values():
             border.hide()
+        for grip in self._divider_grips.values():
+            grip.hide()
         self._preset_dividers = {}
         self.setMinimumSize(0, 0)
         for index in range(24):
@@ -7072,6 +7173,22 @@ class WallGrid(QWidget):
                 self._pane_borders[pane] = WallPaneBorder(pane, self)
             targets = resize_layout.border_targets(pane.geometry(), dividers)
             self._pane_borders[pane].sync(targets)
+        for key, grip in self._divider_grips.items():
+            if key not in self._divider_rects:
+                grip.hide()
+        for key, rect in self._divider_rects.items():
+            if key not in self._divider_grips:
+                self._divider_grips[key] = WallDividerGrip(self, key)
+            self._divider_grips[key].sync(rect)
+        self._set_hover_dividers(self._hover_dividers & self._divider_rects.keys())
+
+    def _set_hover_dividers(self, keys):
+        active = set(keys) if self._border_drag is None else set()
+        if active == self._hover_dividers:
+            return
+        self._hover_dividers = active
+        for key, grip in self._divider_grips.items():
+            grip.set_hovered(key in active and grip.isVisible())
 
     def _border_model(self):
         if self.layout_id == "corner":
@@ -7087,7 +7204,7 @@ class WallGrid(QWidget):
         return (self._partitions[self.layout_id], self._layout_ratios[self.layout_id],
                 self._preset_widgets(), self._preset_minimum, self._preset_defaults)
 
-    def _begin_border_drag(self, border, edges, position):
+    def _begin_border_drag(self, border, edges, position, *, source=None):
         if not edges or self.fullscreen_tile is not None:
             return
         self._cancel_border_drag()
@@ -7100,6 +7217,7 @@ class WallGrid(QWidget):
             widths = [pane.width() for pane in self.tiles[3:6]]
             geometry_weights["root/1"] = [width / sum(widths) for width in widths]
         self._border_drag = dict(border=border, edges=edges, origin=position,
+                                 source=source or border,
                                  rect=QRect(border.parentWidget().geometry()), cell=cell,
                                  tree=tree, weights={key: list(values) for key, values in weights.items()},
                                  geometry_weights=geometry_weights,
@@ -7107,7 +7225,8 @@ class WallGrid(QWidget):
                                  minimum=minimums.__getitem__, defaults=defaults, area=self._corner_area(),
                                  before=self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios(),
                                  preview_weights=None)
-        border.setFocus(Qt.MouseFocusReason)
+        (source or border).setFocus(Qt.MouseFocusReason)
+        self._set_hover_dividers(())
         border.update()
 
     def _move_border_drag(self, position):
@@ -7181,9 +7300,11 @@ class WallGrid(QWidget):
         state, self._border_drag = self._border_drag, None
         if state is not None:
             border = state["border"]
-            if QWidget.mouseGrabber() is border:
-                border.releaseMouse()
+            source = state["source"]
+            if QWidget.mouseGrabber() is source:
+                source.releaseMouse()
             border.update()
+        self._set_hover_dividers(())
 
     def _reset_border(self, border, edges):
         if self.fullscreen_tile is not None or not border.isVisible() or not edges:

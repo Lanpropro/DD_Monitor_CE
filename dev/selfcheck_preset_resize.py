@@ -1,6 +1,7 @@
 """所有预设的实际鼠标拖动、边界、独立比例、全屏及弹幕换位；不联网。"""
 from copy import deepcopy
 from unittest.mock import patch
+from PySide6.QtGui import QColor
 
 from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme, border_for
 from selfcheck_corner_drag_updates import begin, move_to, release_at
@@ -21,10 +22,13 @@ def check(wall):
         assert len(wall._divider_rects) == len(panes) - 1, wall.layout_id
     assert not hasattr(wall, '_preset_handles')
     image = wall.grab().toImage()
-    for gap in wall._divider_rects.values():
+    for key, gap in wall._divider_rects.items():
         assert wall.rect().contains(gap)
         assert all(not gap.intersects(rect) for rect in rects)
-        assert image.pixelColor(gap.center()) == theme.qcolor(theme.BG)
+        grip = wall._divider_grips[key]
+        expected = QColor("#38bdf8") if grip.hovered and wall._border_drag is None else theme.qcolor(theme.BG)
+        assert image.pixelColor(gap.center()) == expected, (
+            wall.layout_id, key, image.pixelColor(gap.center()).name(), grip.hovered)
 
 
 def main():

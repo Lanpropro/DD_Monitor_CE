@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
+from PySide6.QtCore import QRect
 
 if "--native" in sys.argv:
     os.environ["QT_QPA_PLATFORM"] = "windows"
@@ -64,12 +65,24 @@ def check_resets(app, wall, identifiers):
                 wall.reset_layout_ratios()
                 before = pane.size()
                 point = point_on(border, [edge])
+                grip = wall._divider_grips[border.targets[edge]]
+                centre = grip.rect().center()
                 border.hover_edges = {}
                 assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
+                assert grip.grab().toImage().pixelColor(centre) == theme.qcolor(theme.BG)
                 move_to(border, border.mapToGlobal(point))
-                assert border.grab().toImage().pixelColor(point).name() == "#38bdf8"
+                assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
+                assert grip.grab().toImage().pixelColor(centre).name() == "#38bdf8"
+                span = grip.width() if grip.width() < grip.height() else grip.height()
+                image = grip.grab().toImage()
+                colors = [image.pixelColor(
+                    index if grip.width() < grip.height() else centre.x(),
+                    centre.y() if grip.width() < grip.height() else index).name()
+                    for index in range(span)]
+                assert colors.count("#38bdf8") == grip.LINE, colors
                 QApplication.sendEvent(border, QEvent(QEvent.Leave))
                 assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
+                assert grip.grab().toImage().pixelColor(centre) == theme.qcolor(theme.BG)
                 delta = {"left": QPoint(-18, 0), "right": QPoint(18, 0),
                          "top": QPoint(0, -18), "bottom": QPoint(0, 18)}[edge]
                 resize(app, border, [edge], delta)
@@ -175,9 +188,54 @@ def main():
                             assert sign * (pane.height() - before.height()) >= 0
                         check(wall)
                     corner_count += 1
+            for key in wall._divider_rects:
+                grip = wall._divider_grips[key]
+                owner, edge = grip._owner()
+                assert grip.isVisible() and owner is not None and owner.targets[edge] == key
             print(f"PASS borders {identifier}", flush=True)
 
         check_resets(app, wall, identifiers)
+
+        wall.set_layout("3x3")
+        wall.reset_layout_ratios()
+        wall.resize(1400, 1000)
+        app.processEvents()
+        key = ("root", 0)
+        grip = wall._divider_grips[key]
+        before_grip = QRect(grip.geometry())
+        before_panes = [tile.geometry() for tile in wall.visible_tiles()]
+        axis = QPoint(18, 0) if grip.width() < grip.height() else QPoint(0, 18)
+        centre = grip.rect().center()
+        origin = grip.mapToGlobal(centre)
+        move_to(grip, origin)
+        assert grip.grab().toImage().pixelColor(centre).name() == "#38bdf8"
+        with patch.object(wall, "layoutRatiosChanged") as changed:
+            QTest.mousePress(grip, Qt.LeftButton, pos=centre)
+            move_to(grip, origin + axis)
+            QTest.qWait(80)
+            assert wall._border_preview.isVisible()
+            assert [tile.geometry() for tile in wall.visible_tiles()] == before_panes
+            release_at(grip, origin + axis)
+            changed.emit.assert_called_once()
+        after_grip = grip.geometry()
+        assert (after_grip.left() - before_grip.left() if axis.x() else
+                after_grip.top() - before_grip.top()) == 18
+        assert not wall._border_preview.isVisible()
+        QTest.mouseDClick(grip, Qt.LeftButton, pos=grip.rect().center())
+        assert abs(grip.geometry().left() - before_grip.left() if axis.x() else
+                   grip.geometry().top() - before_grip.top()) <= 1
+        check(wall)
+        unchanged = [tile.geometry() for tile in wall.visible_tiles()]
+        centre = grip.rect().center()
+        origin = grip.mapToGlobal(centre)
+        QTest.mousePress(grip, Qt.LeftButton, pos=centre)
+        move_to(grip, origin + axis)
+        QTest.qWait(80)
+        assert wall._border_preview.isVisible()
+        QTest.keyClick(grip, Qt.Key_Escape)
+        release_at(grip, origin + axis)
+        assert [tile.geometry() for tile in wall.visible_tiles()] == unchanged
+        assert wall._border_drag is None and not wall._border_preview.isVisible()
 
         wall.set_layout("3x3")
         wall.reset_layout_ratios()
@@ -285,7 +343,8 @@ def main():
             assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(border.winId())
             gap = wall._divider_rects[("root/0", 0)].center()
             point = wall.mapToGlobal(gap)
-            assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(wall.winId())
+            assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(
+                wall._divider_grips[("root/0", 0)].winId())
         directory = Path(__file__).resolve().parents[1] / "work"
         wall.grab().save(str(directory / "pane-borders.png"))
         wall.reset_layout_ratios()

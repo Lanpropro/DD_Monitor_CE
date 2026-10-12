@@ -95,6 +95,23 @@ def main():
                     assert hit == int(border.winId()), (
                         f"VLC must not intercept border mouse hits: hit={hit}, border={int(border.winId())}, "
                         f"point={point}, wall={window.wall.geometry()}")
+                    move_to(border, point)
+                    settle(app, .05)
+                    grip = window.wall._divider_grips[border.targets["right"]]
+                    line = grip.mapToGlobal(grip.rect().center())
+                    screen = QApplication.screenAt(line)
+                    snapshot = screen.grabWindow(0).toImage()
+                    ratio = screen.devicePixelRatio()
+                    assert snapshot.pixelColor(
+                        round((line.x() - screen.geometry().left()) * ratio),
+                        round((line.y() - screen.geometry().top()) * ratio)).name() == "#38bdf8"
+                    top_left = window.wall.mapToGlobal(QPoint(0, 0))
+                    snapshot.copy(
+                        round((top_left.x() - screen.geometry().left()) * ratio),
+                        round((top_left.y() - screen.geometry().top()) * ratio),
+                        round(window.wall.width() * ratio),
+                        round(window.wall.height() * ratio)).save(
+                            str(ROOT / "work/single-divider-hover-native.png"))
                 resize_border(app, border, ["right", "bottom"], QPoint(-32, -32))
                 settle(app)
                 # 持续拖动只更新轮廓，VLC 原生窗口在松手前保持原几何和句柄。
@@ -122,6 +139,7 @@ def main():
                         assert all(int(tile.video.winId()) == identity[2]
                                    for tile, identity in zip(window.wall.tiles, identities))
                         if "--native" in sys.argv and target == Qt.Horizontal and frame == 0:
+                            settle(app, .1)
                             preview = window.wall._border_preview
                             guide = preview.guides[CORNER_KEYS[Qt.Horizontal]]
                             spot = window.wall.mapToGlobal(QPoint(
@@ -139,7 +157,10 @@ def main():
                             pixel = snapshot.pixelColor(
                                 round((spot.x() - screen.geometry().left()) * ratio),
                                 round((spot.y() - screen.geometry().top()) * ratio))
-                            assert pixel == preview.COLOR, pixel.name()
+                            assert pixel == preview.COLOR, (
+                                pixel.name(), spot, guide, window.wall.mapToGlobal(QPoint(0, 0)),
+                                int(user32.WindowFromPoint(wintypes.POINT(spot.x(), spot.y()))),
+                                int(preview.winId()))
                     release_at(handle, destination)
                     settle(app)
                     assert not window.wall._border_preview.isVisible()
