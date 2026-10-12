@@ -122,14 +122,20 @@ def main():
         handle, point = border_for(wall, key)
         original = list(wall._preset_dividers[key][2])
         with patch.object(wall, '_relayout_preset', wraps=wall._relayout_preset) as relayout:
+            unchanged = {cell: pane.geometry() for cell, pane in wall._preset_widgets().items()}
             origin = begin(handle, pos=point)
             for step in range(1, 121):
                 move_to(handle, origin + QPoint(0, step))
             assert relayout.call_count == 0
             QTest.qWait(80)
-            assert relayout.call_count == 1
+            assert relayout.call_count == 0
+            assert wall._border_preview.isVisible()
+            assert set(wall._border_preview.rectangles) == set(unchanged)
+            assert all(pane.geometry() == unchanged[cell]
+                       for cell, pane in wall._preset_widgets().items())
             release_at(handle, origin + QPoint(0, 125))
-            assert relayout.call_count == 2
+            assert relayout.call_count == 1
+            assert not wall._border_preview.isVisible()
         assert wall._preset_dividers[key][2][0] == original[0] + 125
         handle, point = border_for(wall, key)
         origin = begin(handle, pos=point)
@@ -137,6 +143,7 @@ def main():
         wall.set_layout('corner')
         QTest.qWait(80)
         assert wall._border_pending is None and not wall._preset_dividers
+        assert not wall._border_preview.isVisible()
         assert set(wall.tiles) == set(originals)
         assert [int(tile.video.winId()) for tile in originals] == identities
 

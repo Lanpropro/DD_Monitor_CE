@@ -1,4 +1,4 @@
-"""高频鼠标事件合并、松开最终位置、切布局取消待处理拖动；不联网。"""
+"""拖动轮廓预览、松开最终位置、切布局取消待处理拖动；不联网。"""
 from unittest.mock import patch
 
 from selfcheck_corner_resize import (
@@ -38,21 +38,26 @@ def main():
         before = wall.tiles[0].width()
         origin = begin(handle, pos=point)
         with patch.object(wall, "_relayout_corner", wraps=wall._relayout_corner) as layout:
+            unchanged = [tile.geometry() for tile in wall.tiles[:6]]
             for offset in range(1, 81):
                 move_to(handle, origin + QPoint(offset, 0))
             assert layout.call_count == 0, "事件突发必须合并，不能逐条重排六格"
             QTest.qWait(80)
-            assert layout.call_count == 1, "按住鼠标期间也必须应用最新位置"
-            assert wall.tiles[0].width() == before + 80
+            assert layout.call_count == 0, "按住鼠标期间不能重排视频窗口"
+            assert [tile.geometry() for tile in wall.tiles[:6]] == unchanged
+            assert wall._border_preview.isVisible()
+            assert len(wall._border_preview.rectangles) == 6
+            assert wall._border_preview.rectangles[0].width() == before + 80
             for offset in range(81, 121):
                 move_to(handle, origin + QPoint(offset, 0))
-            assert layout.call_count == 1
+            assert layout.call_count == 0
             # 松开位置比最后一次移动还远：压缩事件时不能丢失最终坐标。
             release_at(handle, origin + QPoint(125, 0))
-            assert layout.call_count == 2
+            assert layout.call_count == 1
             assert wall.tiles[0].width() == before + 125
+            assert not wall._border_preview.isVisible()
             QTest.qWait(80)
-            assert layout.call_count == 2, "松开后不能再执行旧坐标"
+            assert layout.call_count == 1, "松开后不能再执行旧坐标"
         check_geometry(wall)
         # 空隙由画面墙自己填充，不继承已经移动的分隔线或视频的旧背景。
         image = wall.grab().toImage()
@@ -85,12 +90,13 @@ def main():
             assert wall._border_drag is None
             assert not wall._border_drag_timer.isActive()
             assert wall._border_pending is None
+            assert not wall._border_preview.isVisible()
             wall.set_fullscreen_tile(None)
             wall.set_layout("corner")
             app.processEvents()
             check_geometry(wall)
         assert [int(tile.video.winId()) for tile in wall.tiles[:6]] == video_ids
-        print("PASS: 120 moves -> two layout updates, live feedback, exact release, "
+        print("PASS: 120 moves -> one layout update, outline preview, exact release, "
               "reset/layout/fullscreen cancellation and stable video handles")
     finally:
         wall.close()

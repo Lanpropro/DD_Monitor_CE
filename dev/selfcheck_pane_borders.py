@@ -186,6 +186,7 @@ def main():
         pane = wall.tiles[4]
         border = wall._pane_borders[pane]
         before = pane.geometry()
+        unchanged = {cell: item.geometry() for cell, item in wall._preset_widgets().items()}
         with patch.object(wall, "_relayout_preset", wraps=wall._relayout_preset) as relayout, \
                 patch.object(wall, "layoutRatiosChanged") as changed:
             origin = press(border, ["right", "bottom"])
@@ -193,21 +194,36 @@ def main():
                 move_to(border, origin + QPoint(i, i))
             assert relayout.call_count == 0
             QTest.qWait(80)
-            assert relayout.call_count == 1
+            assert relayout.call_count == 0
+            assert wall._border_preview.isVisible()
+            assert set(wall._border_preview.rectangles) == set(unchanged)
+            for rect in wall._border_preview.rectangles.values():
+                assert wall._border_preview.mask().contains(QPoint(rect.left(), rect.center().y()))
+                assert not wall._border_preview.mask().contains(rect.center())
+            assert all(item.geometry() == unchanged[cell]
+                       for cell, item in wall._preset_widgets().items())
+            preview = dict(wall._border_preview.rectangles)
+            assert preview[4].width() > before.width()
             changed.emit.assert_not_called()
-            release_at(border, origin + QPoint(125, 125))
-            assert relayout.call_count == 2
+            release_at(border, origin + QPoint(120, 120))
+            assert relayout.call_count == 1
             changed.emit.assert_called_once()
+            assert not wall._border_preview.isVisible()
+            assert all(item.geometry() == preview[cell]
+                       for cell, item in wall._preset_widgets().items())
             proportional(before, pane.geometry())
             assert pane.width() > before.width() and pane.height() > before.height()
             QTest.qWait(80)
-            assert relayout.call_count == 2
+            assert relayout.call_count == 1
         final = pane.geometry()
         origin = press(border, ["right", "bottom"])
         move_to(border, origin + QPoint(-30, -30))
         QTest.qWait(80)
+        assert wall._border_preview.isVisible()
+        assert pane.geometry() == final
         QTest.keyClick(border, Qt.Key_Escape)
         assert pane.geometry() == final
+        assert not wall._border_preview.isVisible()
         assert wall._border_drag is None
         assert not wall._border_drag_timer.isActive()
 
@@ -216,6 +232,7 @@ def main():
         wall.resize(wall.width() + 10, wall.height() + 10)
         QTest.qWait(80)
         assert wall._border_drag is None and wall._border_pending is None
+        assert not wall._border_preview.isVisible()
         with patch.object(wall, "layoutRatiosChanged") as changed:
             origin = press(border, ["right", "bottom"])
             release_at(border, origin)
@@ -231,6 +248,7 @@ def main():
             QTest.qWait(80)
             assert wall._border_drag is None and wall._border_pending is None
             assert not wall._border_drag_timer.isActive()
+            assert not wall._border_preview.isVisible()
             wall.set_fullscreen_tile(None, stagger=True, first=pane)
             wall.reveal_tiles_staggered()
             for _ in range(10):

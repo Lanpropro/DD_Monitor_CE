@@ -6568,7 +6568,7 @@ class WallPaneBorder(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
-            self.wall._cancel_border_drag(restore=True)
+            self.wall._cancel_border_drag()
             event.accept()
         else:
             super().keyPressEvent(event)
@@ -6578,6 +6578,42 @@ class WallPaneBorder(QWidget):
         painter.fillRect(event.rect(), theme.qcolor(theme.BG))
         for edge in self.hover_edges:
             painter.fillRect(self._edge_rect(edge), QColor("#38bdf8"))
+
+
+class WallResizePreview(QWidget):
+    """Masked native outlines stay above VLC while the video windows remain still."""
+
+    LINE = 2
+
+    def __init__(self, wall):
+        super().__init__(wall)
+        self.rectangles = {}
+        self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.hide()
+
+    def show_rectangles(self, rectangles):
+        self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
+        self.setGeometry(self.parentWidget().rect())
+        outline = QRegion()
+        for rect in self.rectangles.values():
+            outline |= QRegion(rect) - QRegion(rect.adjusted(
+                self.LINE, self.LINE, -self.LINE, -self.LINE))
+        if outline.isEmpty():
+            self.hide()
+            return
+        self.setMask(outline)
+        self.show()
+        self.raise_()
+        self.update()
+
+    def clear(self):
+        self.hide()
+        self.rectangles = {}
+
+    def paintEvent(self, event):
+        QPainter(self).fillRect(event.rect(), QColor("#38bdf8"))
 
 
 class WallGrid(QWidget):
@@ -6649,6 +6685,7 @@ class WallGrid(QWidget):
         self._border_drag_timer.setTimerType(Qt.PreciseTimer)
         self._border_drag_timer.setInterval(32)
         self._border_drag_timer.timeout.connect(self._flush_border_drag)
+        self._border_preview = WallResizePreview(self)
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -7048,7 +7085,8 @@ class WallGrid(QWidget):
                                  tree=tree, weights={key: list(values) for key, values in weights.items()},
                                  geometry_weights=geometry_weights,
                                  minimum=minimums.__getitem__, defaults=defaults, area=self._corner_area(),
-                                 before=self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios())
+                                 before=self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios(),
+                                 preview_weights=None)
         border.setFocus(Qt.MouseFocusReason)
 
     def _move_border_drag(self, position):
@@ -7076,13 +7114,21 @@ class WallGrid(QWidget):
         if state is None or position is None or self.fullscreen_tile is not None:
             return
         if position == state["origin"]:
-            self._apply_border_weights(state["weights"])
+            state["preview_weights"] = None
+            self._border_preview.clear()
             return
         weights = resize_layout.resize_borders(
             state["tree"], state["area"], self.grid.spacing(), state["minimum"],
             state["geometry_weights"], state["defaults"], state["cell"], state["edges"],
             state["rect"], position - state["origin"])
-        self._apply_border_weights(weights)
+        state["preview_weights"] = weights
+        if self.layout_id == "corner":
+            rectangles, _ = self._corner_rectangles(weights, state["area"])
+        else:
+            rectangles, _ = resize_layout.geometry(
+                state["tree"], state["area"], self.grid.spacing(), state["minimum"],
+                weights, state["defaults"])
+        self._border_preview.show_rectangles(rectangles)
 
     def _finish_border_drag(self, border, position):
         state = self._border_drag
@@ -7093,29 +7139,31 @@ class WallGrid(QWidget):
         self._flush_border_drag()
         before = state["before"]
         self._border_drag = None
+        self._border_preview.clear()
+        if state["preview_weights"] is not None:
+            self._apply_border_weights(state["preview_weights"])
         if self.layout_id == "corner":
             if before != self.corner_ratios():
                 self.cornerRatiosChanged.emit()
         elif before != self.layout_ratios():
             self.layoutRatiosChanged.emit()
 
-    def _cancel_border_drag(self, restore=False):
+    def _cancel_border_drag(self):
         if not hasattr(self, "_border_drag_timer"):
             return
         self._border_drag_timer.stop()
         self._border_pending = None
+        self._border_preview.clear()
         state, self._border_drag = self._border_drag, None
         if state is not None:
             border = state["border"]
             if QWidget.mouseGrabber() is border:
                 border.releaseMouse()
-            if restore:
-                self._apply_border_weights(state["weights"])
 
     def _reset_border(self, border, edges):
         if self.fullscreen_tile is not None or not border.isVisible() or not edges:
             return
-        self._cancel_border_drag(restore=True)
+        self._cancel_border_drag()
         keys = list(dict.fromkeys(value for edge, value in edges.items()
                                   if border.targets.get(edge) == value))
         before = self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios()
@@ -7206,50 +7254,73 @@ class WallGrid(QWidget):
         if self.layout_id == "corner" and self.fullscreen_tile is None:
             self._relayout_corner()
 
-    def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
-        if len(self.tiles) < 6:
-            return
-        old_regions = list(self._divider_rects.values())
+    def _corner_rectangles(self, weights, area):
         main, right_top, right_bottom, *bottom = self.tiles[:6]
         gap = self.grid.spacing()
         minimum_top = max(main.minimumHeight(),
                           right_top.minimumHeight() + gap + right_bottom.minimumHeight())
         minimum_bottom = max(tile.minimumHeight() for tile in bottom)
         minimum_right = max(right_top.minimumWidth(), right_bottom.minimumWidth())
+        width, height = max(1, area.width() - gap), max(1, area.height() - gap)
+        main_width = max(main.minimumWidth(),
+                         min(width - minimum_right, round(width * weights["root/0"][0])))
+        top_height = max(minimum_top,
+                         min(height - minimum_bottom, round(height * weights["root"][0])))
+        x, y = area.left(), area.top()
+        right_x, bottom_y = x + main_width + gap, y + top_height + gap
+        right_span = top_height - gap
+        right_height = max(right_top.minimumHeight(),
+                           min(right_span - right_bottom.minimumHeight(),
+                               round(right_span * weights["root/0/1"][0])))
+        bottom_width = area.width() - 2 * gap
+        first = max(bottom[0].minimumWidth(),
+                    min(bottom_width - bottom[1].minimumWidth() - bottom[2].minimumWidth(),
+                        round(bottom_width * weights["root/1"][0])))
+        second = max(first + bottom[1].minimumWidth(),
+                     min(bottom_width - bottom[2].minimumWidth(),
+                         round(bottom_width * sum(weights["root/1"][:2]))))
+        boundaries = (0, first, second, bottom_width)
+        rectangles = {
+            0: QRect(x, y, main_width, top_height),
+            1: QRect(right_x, y, width - main_width, right_height),
+            2: QRect(right_x, y + right_height + gap,
+                     width - main_width, top_height - gap - right_height),
+        }
+        for index in range(3):
+            start, end = boundaries[index:index + 2]
+            rectangles[index + 3] = QRect(x + start + index * gap, bottom_y,
+                                          end - start, height - top_height)
+        dividers = {
+            ("root", 0): QRect(x, y + top_height, area.width(), gap),
+            ("root/0", 0): QRect(x + main_width, y, gap, top_height),
+            ("root/0/1", 0): QRect(right_x, y + right_height, width - main_width, gap),
+            **{("root/1", index): QRect(x + boundaries[index + 1] + index * gap,
+                                       bottom_y, gap, height - top_height)
+               for index in range(2)},
+        }
+        return rectangles, dividers
+
+    def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
+        if len(self.tiles) < 6:
+            return
+        old_regions = list(self._divider_rects.values())
+        gap = self.grid.spacing()
         if apply_visibility:
+            main, right_top, right_bottom, *bottom = self.tiles[:6]
+            minimum_top = max(main.minimumHeight(),
+                              right_top.minimumHeight() + gap + right_bottom.minimumHeight())
+            minimum_bottom = max(tile.minimumHeight() for tile in bottom)
+            minimum_right = max(right_top.minimumWidth(), right_bottom.minimumWidth())
             margins = self.grid.contentsMargins()
             minimum_width = max(main.minimumWidth() + gap + minimum_right,
                                 sum(tile.minimumWidth() for tile in bottom) + 2 * gap)
             self.setMinimumSize(minimum_width + margins.left() + margins.right(),
                                 minimum_top + gap + minimum_bottom + margins.top() + margins.bottom())
         area = self._corner_area()
-        width, height = max(1, area.width() - gap), max(1, area.height() - gap)
-        main_width = max(main.minimumWidth(),
-                         min(width - minimum_right, round(width * self._corner_width_ratio)))
-        top_height = max(minimum_top,
-                         min(height - minimum_bottom, round(height * self._corner_height_ratio)))
-        x, y = area.left(), area.top()
-        right_x, bottom_y = x + main_width + gap, y + top_height + gap
-        right_span = top_height - gap
-        right_height = max(right_top.minimumHeight(),
-                           min(right_span - right_bottom.minimumHeight(),
-                               round(right_span * self._corner_right_ratio)))
-        main.setGeometry(x, y, main_width, top_height)
-        right_top.setGeometry(right_x, y, width - main_width, right_height)
-        right_bottom.setGeometry(right_x, y + right_height + gap,
-                                 width - main_width, top_height - gap - right_height)
-        bottom_width = area.width() - 2 * gap
-        first = max(bottom[0].minimumWidth(),
-                    min(bottom_width - bottom[1].minimumWidth() - bottom[2].minimumWidth(),
-                        round(bottom_width * self._corner_bottom_ratios[0])))
-        second = max(first + bottom[1].minimumWidth(),
-                     min(bottom_width - bottom[2].minimumWidth(),
-                         round(bottom_width * self._corner_bottom_ratios[1])))
-        boundaries = (0, first, second, bottom_width)
-        for index, tile in enumerate(bottom):
-            start, end = boundaries[index:index + 2]
-            tile.setGeometry(x + start + index * gap, bottom_y,
-                             end - start, height - top_height)
+        tree, weights, widgets, minimum, defaults = self._border_model()
+        rectangles, self._divider_rects = self._corner_rectangles(weights, area)
+        for cell, rect in rectangles.items():
+            widgets[cell].setGeometry(rect)
         if apply_visibility:
             self.danmaku.hide()
             for index, tile in enumerate(self.tiles):
@@ -7259,18 +7330,10 @@ class WallGrid(QWidget):
                     self._pending_reveal.append(tile)
                 else:
                     tile.show()
-        self._divider_rects = {
-            ("root", 0): QRect(x, y + top_height, area.width(), gap),
-            ("root/0", 0): QRect(x + main_width, y, gap, top_height),
-            ("root/0/1", 0): QRect(right_x, y + right_height, width - main_width, gap),
-            **{("root/1", index): QRect(x + boundaries[index + 1] + index * gap,
-                                       bottom_y, gap, height - top_height)
-               for index in range(2)}}
         # Repaint exposed gaps without creating another set of interactive widgets.
         for rect in old_regions + list(self._divider_rects.values()):
             self.update(rect)
         self._columns = 3
-        tree, weights, widgets, minimum, defaults = self._border_model()
         _, dividers = resize_layout.geometry(tree, area, gap, minimum, weights, defaults)
         # Use the rendered coordinates (corner rounding differs from the generic allocator).
         dividers = [(node, index, self._divider_rects[(node.key, index)], rect, sizes)

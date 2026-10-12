@@ -88,13 +88,15 @@ def main():
                     assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(border.winId()), "VLC must not intercept border mouse hits"
                 resize_border(app, border, ["right", "bottom"], QPoint(-32, -32))
                 settle(app)
-                # 持续按住拖动，包含定时更新，不能只验证松开时的一次几何变化。
+                # 持续拖动只更新轮廓，VLC 原生窗口在松手前保持原几何和句柄。
                 for target, axis in ((Qt.Horizontal, QPoint(1, 0)),
                                      (Qt.Vertical, QPoint(0, 1)),
                                      ("right", QPoint(0, 1)),
                                      ("bottom_left", QPoint(1, 0)),
                                      ("bottom_right", QPoint(1, 0))):
                     handle, point = border_for(window.wall, CORNER_KEYS[target])
+                    still = [tile.geometry() for tile in window.wall.tiles]
+                    video_still = [tile.video.geometry() for tile in window.wall.tiles]
                     origin = begin(handle, pos=point)
                     for frame in range(8):
                         for sample in range(20):
@@ -102,8 +104,25 @@ def main():
                             destination = origin + axis * offset
                             move_to(handle, destination)
                         settle(app, 0.05)
+                        assert [tile.geometry() for tile in window.wall.tiles] == still
+                        assert [tile.video.geometry() for tile in window.wall.tiles] == video_still
+                        assert window.wall._border_preview.isVisible()
+                        assert len(window.wall._border_preview.rectangles) == 6
+                        assert all(int(tile.video.winId()) == identity[2]
+                                   for tile, identity in zip(window.wall.tiles, identities))
+                        if "--native" in sys.argv and target == Qt.Horizontal and frame == 0:
+                            outline = window.wall._border_preview.rectangles[0]
+                            spot = window.wall.mapToGlobal(QPoint(outline.right() - 1, outline.center().y()))
+                            screen = QApplication.screenAt(spot)
+                            snapshot = screen.grabWindow(0).toImage()
+                            ratio = screen.devicePixelRatio()
+                            pixel = snapshot.pixelColor(
+                                round((spot.x() - screen.geometry().left()) * ratio),
+                                round((spot.y() - screen.geometry().top()) * ratio))
+                            assert pixel.name() == "#38bdf8", pixel.name()
                     release_at(handle, destination)
                     settle(app)
+                    assert not window.wall._border_preview.isVisible()
                     handle, point = border_for(window.wall, CORNER_KEYS[target])
                     QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
                     settle(app, .05)

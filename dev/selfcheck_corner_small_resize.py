@@ -73,13 +73,19 @@ def main():
             handle, point = border_for(wall, CORNER_KEYS[target])
             origin = begin(handle, pos=point)
             with patch.object(wall, "_relayout_corner", wraps=wall._relayout_corner) as layout:
+                unchanged = [tile.geometry() for tile in wall.tiles[:6]]
                 for sample in range(30):
                     move_to(handle, origin + axis * sample)
                 assert layout.call_count == 0
                 QTest.qWait(80)
+                assert layout.call_count == 0
+                assert [tile.geometry() for tile in wall.tiles[:6]] == unchanged
+                assert wall._border_preview.isVisible()
+                preview = dict(wall._border_preview.rectangles)
+                release_at(handle, origin + axis * 29)
                 assert layout.call_count == 1
-                release_at(handle, origin + axis * 35)
-                assert layout.call_count == 2
+                assert all(wall.tiles[cell].geometry() == rect for cell, rect in preview.items())
+                assert not wall._border_preview.isVisible()
             check_geometry(wall)
 
         saved_ratios = ratios(wall)
