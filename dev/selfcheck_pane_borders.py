@@ -52,6 +52,53 @@ def proportional(before, after):
     assert abs(before.width() * after.height() - before.height() * after.width()) <= 2 * (before.width() + before.height()), (before, after)
 
 
+def check_pane_ownership(app, wall):
+    wall.set_layout("corner")
+    wall.reset_layout_ratios()
+    wall.resize(1400, 1000)
+    app.processEvents()
+    directory = Path(__file__).resolve().parents[1] / "work"
+    lower, main = wall.tiles[3], wall.tiles[0]
+    border = wall._pane_borders[lower]
+    key = border.targets["top"]
+    grip = wall._divider_grips[key]
+    gap = wall._divider_rects[key]
+    lower_point = wall.mapToGlobal(QPoint(lower.geometry().center().x(), gap.bottom()))
+    upper_point = wall.mapToGlobal(QPoint(lower.geometry().center().x(), gap.top()))
+    before = [pane.geometry() for pane in wall.visible_tiles()]
+    assert 2 * border.BAND + gap.height() <= 11
+
+    move_to(border, border.mapToGlobal(point_on(border, ["top"])))
+    image = wall.grab().toImage()
+    assert all(image.pixelColor(x, gap.bottom()).name() == "#38bdf8"
+               for x in (lower.geometry().left(), lower.geometry().right()))
+    assert image.pixelColor(wall.tiles[4].geometry().center().x(), gap.bottom()) == theme.qcolor(theme.BG)
+    assert image.pixelColor(lower.geometry().center().x(), gap.top()) == theme.qcolor(theme.BG)
+    wall.grab().save(str(directory / "pane-border-edge-owned.png"))
+
+    for position, pane, edge in ((lower_point, lower, "top"), (upper_point, main, "bottom")):
+        owner, edges = grip._hit_edges(position)
+        assert owner is wall._pane_borders[pane] and edges == {edge: key}
+        move_to(grip, position)
+        assert wall._hover_border is owner
+        assert wall._hover_dividers == {key}
+        QTest.mousePress(grip, Qt.LeftButton, pos=grip.mapFromGlobal(position))
+        assert wall._border_drag["border"] is owner and wall._border_drag["edges"] == {edge: key}
+        release_at(grip, position)
+        assert [pane.geometry() for pane in wall.visible_tiles()] == before
+
+    middle = wall._pane_borders[wall.tiles[4]]
+    move_to(middle, middle.mapToGlobal(point_on(middle, ["left", "top"])))
+    assert len(middle.highlights) == 3
+    assert wall._hover_dividers == set(middle.targets.values())
+    assert all(middle.grab().toImage().pixelColor(point_on(middle, [edge])).name() == "#38bdf8"
+               for edge in middle.targets)
+    assert all(not candidate.highlights for candidate in wall._pane_borders.values() if candidate is not middle)
+    wall.grab().save(str(directory / "pane-border-corner-owned.png"))
+    wall._set_hover_border()
+    print("PASS: thinner borders, corner layout pane-only edges, half-gap ownership and whole-pane corner highlight")
+
+
 def check_resets(app, wall, identifiers):
     count = 0
     for identifier in identifiers:
@@ -67,16 +114,16 @@ def check_resets(app, wall, identifiers):
                 point = point_on(border, [edge])
                 grip = wall._divider_grips[border.targets[edge]]
                 centre = grip.rect().center()
-                border.hover_edges = {}
+                wall._set_hover_border()
                 assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
                 assert grip.grab().toImage().pixelColor(centre) == theme.qcolor(theme.BG)
                 move_to(border, border.mapToGlobal(point))
                 assert border.grab().toImage().pixelColor(point).name() == "#38bdf8"
                 hover = grip.mapFromGlobal(border.mapToGlobal(point))
                 if grip.width() < grip.height():
-                    hover.setX(centre.x())
+                    hover.setX(grip.width() - 1 if edge == "left" else 0)
                 else:
-                    hover.setY(centre.y())
+                    hover.setY(grip.height() - 1 if edge == "top" else 0)
                 assert grip.grab().toImage().pixelColor(hover).name() == "#38bdf8"
                 span = grip.width() if grip.width() < grip.height() else grip.height()
                 image = grip.grab().toImage()
@@ -84,14 +131,17 @@ def check_resets(app, wall, identifiers):
                     index if grip.width() < grip.height() else hover.x(),
                     hover.y() if grip.width() < grip.height() else index).name()
                     for index in range(span)]
-                assert colors == ["#38bdf8"] * span, colors
-                if max(grip.width(), grip.height()) > 2 * grip.HOVER_RADIUS + 20:
-                    far = QPoint(centre.x(), 0) if grip.width() < grip.height() else QPoint(0, centre.y())
-                    if abs((far.y() if grip.width() < grip.height() else far.x()) -
-                           (hover.y() if grip.width() < grip.height() else hover.x())) <= grip.HOVER_RADIUS:
-                        far = (QPoint(centre.x(), grip.height() - 1) if grip.width() < grip.height()
-                               else QPoint(grip.width() - 1, centre.y()))
-                    assert image.pixelColor(far) == theme.qcolor(theme.BG)
+                assert colors.count("#38bdf8") == span // 2, colors
+                assert colors.count(theme.qcolor(theme.BG).name()) == span // 2, colors
+                pane_start = grip.mapFromGlobal(pane.mapToGlobal(QPoint(0, 0)))
+                pane_end = grip.mapFromGlobal(pane.mapToGlobal(pane.rect().bottomRight()))
+                endpoints = ([QPoint(hover.x(), pane_start.y()), QPoint(hover.x(), pane_end.y())]
+                             if grip.width() < grip.height() else
+                             [QPoint(pane_start.x(), hover.y()), QPoint(pane_end.x(), hover.y())])
+                assert all(image.pixelColor(endpoint).name() == "#38bdf8" for endpoint in endpoints)
+                assert wall._hover_border is border
+                assert wall._hover_dividers == {border.targets[edge]}
+                assert all(not other.highlights for other in wall._pane_borders.values() if other is not border)
                 QApplication.sendEvent(border, QEvent(QEvent.Leave))
                 assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
                 assert grip.grab().toImage().pixelColor(centre) == theme.qcolor(theme.BG)
@@ -211,6 +261,7 @@ def main():
             print(f"PASS borders {identifier}", flush=True)
 
         check_resets(app, wall, identifiers)
+        check_pane_ownership(app, wall)
 
         wall.set_layout("3x3")
         wall.reset_layout_ratios()
@@ -222,10 +273,12 @@ def main():
                             corner_border.height() // 2)
         assert corner_border.mask().contains(snap_point)
         assert set(corner_border.edges_at(snap_point)) == {"right"}
-        corner_point = QPoint(corner_border.width() - corner_border.CORNER + 2,
+        corner_point = QPoint(corner_border.width() - 2,
                               corner_border.height() - corner_border.CORNER + 2)
         assert corner_border.mask().contains(corner_point)
         assert set(corner_border.edges_at(corner_point)) == {"right", "bottom"}
+        assert not corner_border.mask().contains(QPoint(corner_border.width() - 10,
+                                                       corner_border.height() - 10))
         vertical_key = corner_border.targets["right"]
         horizontal_key = corner_border.targets["bottom"]
         corner_grip = wall._divider_grips[vertical_key]
@@ -235,12 +288,13 @@ def main():
         owner, edges = corner_grip._hit_edges(near_corner)
         assert owner is corner_border and set(edges.values()) == {vertical_key, horizontal_key}
         corner_grip._hover_at(near_corner)
-        assert wall._hover_dividers == {vertical_key, horizontal_key}
+        assert wall._hover_dividers == set(corner_border.targets.values())
+        assert len(corner_border.highlights) == 4
         for divider_key in wall._hover_dividers:
             local = wall._divider_grips[divider_key].highlight
             assert not local.isEmpty()
-            assert (local.height() if local.width() < local.height() else local.width()) <= (
-                2 * wall._divider_grips[divider_key].HOVER_RADIUS)
+            gap = wall._divider_rects[divider_key]
+            assert (local.width() if gap.width() < gap.height() else local.height()) == wall.grid.spacing() // 2
         QTest.mousePress(corner_grip, Qt.LeftButton, pos=corner_grip.mapFromGlobal(near_corner))
         assert set(wall._border_drag["edges"].values()) == {vertical_key, horizontal_key}
         release_at(corner_grip, near_corner)
@@ -384,9 +438,12 @@ def main():
         gap = wall._divider_rects[border.targets["right"]]
         y = wall.tiles[0].y() + edge_point.y()
         image = wall.grab().toImage()
+        midpoint = gap.left() + gap.width() // 2
         assert all(image.pixelColor(x, y).name() == "#38bdf8"
-                   for x in range(gap.left() - border.BAND, gap.right() + border.BAND + 1))
-        assert image.pixelColor(gap.center().x(), gap.top() + 1) == theme.qcolor(theme.BG)
+                   for x in range(gap.left() - border.BAND, midpoint))
+        assert all(image.pixelColor(x, y) == theme.qcolor(theme.BG)
+                   for x in range(midpoint, gap.right() + border.BAND + 1))
+        assert image.pixelColor(gap.left(), gap.top() + 1).name() == "#38bdf8"
         directory = Path(__file__).resolve().parents[1] / "work"
         wall.grab().save(str(directory / "pane-borders-hover.png"))
         if "--native" in sys.argv:
@@ -404,6 +461,12 @@ def main():
         wall.grab().save(str(directory / "pane-borders.png"))
         wall.reset_layout_ratios()
         assert not wall.layout_ratios().get("2x2")
+        move_to(border, border.mapToGlobal(point_on(border, ["right"])))
+        assert wall._hover_border is border
+        wall._drop_tile(border.parentWidget())
+        assert wall._hover_border is None and not wall._hover_dividers
+        wall.relayout(force=True)
+        app.processEvents()
         print(f"PASS: {edge_count} edges, {corner_count} corners, limits/ratio/cursors/masks/coalescing/cancel/reveal/IDs ({app.platformName()})")
     finally:
         wall.close()
