@@ -26,7 +26,9 @@ def check(wall):
         assert wall.rect().contains(gap)
         assert all(not gap.intersects(rect) for rect in rects)
         grip = wall._divider_grips[key]
-        expected = QColor("#38bdf8") if grip.hovered and wall._border_drag is None else theme.qcolor(theme.BG)
+        local_center = grip.mapFromParent(gap.center())
+        expected = (QColor("#38bdf8") if grip.highlight.contains(local_center)
+                    and wall._border_drag is None else theme.qcolor(theme.BG))
         assert image.pixelColor(gap.center()) == expected, (
             wall.layout_id, key, image.pixelColor(gap.center()).name(), grip.hovered)
 

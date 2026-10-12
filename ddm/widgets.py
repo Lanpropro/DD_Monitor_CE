@@ -6473,14 +6473,15 @@ def best_columns(count: int, width: int, height: int, gap: int = 8, aspect: floa
 class WallPaneBorder(QWidget):
     """A masked native border keeps resize hits above VLC without covering its centre."""
 
-    BAND = 5
-    CORNER = 12
+    BAND = 7
+    CORNER = 18
 
     def __init__(self, pane, wall):
         super().__init__(pane)
         self.wall = wall
         self.targets = {}
         self.hover_edges = {}
+        self.highlights = []
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.setMouseTracking(True)
@@ -6524,12 +6525,17 @@ class WallPaneBorder(QWidget):
             "bottom" if point.y() >= self.height() - self.CORNER else None)
         return {edge: self.targets[edge] for edge in (horizontal, vertical) if edge in self.targets}
 
+    def set_highlights(self, rectangles):
+        if self.highlights != rectangles:
+            self.highlights = rectangles
+            self.update()
+
     def mouseMoveEvent(self, event):
         if self.wall._border_drag is not None and self.wall._border_drag["border"] is self:
             self.wall._move_border_drag(event.globalPosition().toPoint())
         else:
             self.hover_edges = self.edges_at(event.position().toPoint())
-            self.wall._set_hover_dividers(self.hover_edges.values())
+            self.wall._set_hover_dividers(self.hover_edges.values(), event.globalPosition().toPoint())
             horizontal = next((edge for edge in self.hover_edges if edge in ("left", "right")), None)
             vertical = next((edge for edge in self.hover_edges if edge in ("top", "bottom")), None)
             if horizontal and vertical:
@@ -6578,18 +6584,21 @@ class WallPaneBorder(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(event.rect(), theme.qcolor(theme.BG))
+        for rect in self.highlights:
+            painter.fillRect(rect, QColor("#38bdf8"))
 
 
 class WallDividerGrip(QWidget):
-    """One visible drag line in the shared gap, with pane corners left intact."""
+    """The shared gap is one drag target with a local full-width hover highlight."""
 
-    LINE = 2
+    HOVER_RADIUS = 56
 
     def __init__(self, wall, key):
         super().__init__(wall)
         self.wall = wall
         self.key = key
         self.hovered = False
+        self.highlight = QRect()
         self.setObjectName("WallDividerGrip")
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
@@ -6604,9 +6613,11 @@ class WallDividerGrip(QWidget):
         self.show()
         self.raise_()
 
-    def set_hovered(self, hovered):
-        if self.hovered != hovered:
+    def set_highlight(self, rect):
+        hovered = not rect.isEmpty()
+        if self.hovered != hovered or self.highlight != rect:
             self.hovered = hovered
+            self.highlight = rect
             self.update()
 
     def _owner(self):
@@ -6617,22 +6628,53 @@ class WallDividerGrip(QWidget):
                         return border, edge
         return None, None
 
+    def _hit_edges(self, position):
+        point = self.wall.mapFromGlobal(position)
+        candidates = []
+        for border in self.wall._pane_borders.values():
+            if not border.isVisible() or self.key not in border.targets.values():
+                continue
+            pane = border.parentWidget().geometry()
+            dx = max(pane.left() - point.x(), 0, point.x() - pane.right())
+            dy = max(pane.top() - point.y(), 0, point.y() - pane.bottom())
+            if max(dx, dy) > border.CORNER:
+                continue
+            edges = border.edges_at(border.mapFromGlobal(position))
+            if self.key in edges.values():
+                candidates.append((dx + dy, -len(edges), border, edges))
+        if candidates:
+            _, _, border, edges = min(candidates, key=lambda item: item[:2])
+            return border, edges
+        border, edge = self._owner()
+        return border, {edge: self.key} if edge else {}
+
+    def _hover_at(self, position):
+        _, edges = self._hit_edges(position)
+        self.wall._set_hover_dividers(edges.values(), position)
+        horizontal = next((edge for edge in edges if edge in ("left", "right")), None)
+        vertical = next((edge for edge in edges if edge in ("top", "bottom")), None)
+        if horizontal and vertical:
+            cursor = Qt.SizeFDiagCursor if (horizontal == "left") == (vertical == "top") else Qt.SizeBDiagCursor
+        else:
+            cursor = Qt.SizeHorCursor if horizontal else Qt.SizeVerCursor
+        self.setCursor(cursor)
+
     def enterEvent(self, event):
-        self.wall._set_hover_dividers((self.key,))
+        self._hover_at(QCursor.pos())
         super().enterEvent(event)
 
     def mouseMoveEvent(self, event):
         if self.wall._border_drag is not None and self.wall._border_drag["source"] is self:
             self.wall._move_border_drag(event.globalPosition().toPoint())
         else:
-            self.wall._set_hover_dividers((self.key,))
+            self._hover_at(event.globalPosition().toPoint())
         event.accept()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            border, edge = self._owner()
+            border, edges = self._hit_edges(event.globalPosition().toPoint())
             if border is not None:
-                self.wall._begin_border_drag(border, {edge: self.key},
+                self.wall._begin_border_drag(border, edges,
                                              event.globalPosition().toPoint(), source=self)
             event.accept()
         else:
@@ -6649,9 +6691,9 @@ class WallDividerGrip(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
-            border, edge = self._owner()
+            border, edges = self._hit_edges(event.globalPosition().toPoint())
             if border is not None:
-                self.wall._reset_border(border, {edge: self.key})
+                self.wall._reset_border(border, edges)
             event.accept()
         else:
             super().mouseDoubleClickEvent(event)
@@ -6671,11 +6713,7 @@ class WallDividerGrip(QWidget):
         painter = QPainter(self)
         painter.fillRect(event.rect(), theme.qcolor(theme.BG))
         if self.hovered and self.wall._border_drag is None:
-            if self.width() < self.height():
-                line = QRect((self.width() - self.LINE) // 2, 0, self.LINE, self.height())
-            else:
-                line = QRect(0, (self.height() - self.LINE) // 2, self.width(), self.LINE)
-            painter.fillRect(line, QColor("#38bdf8"))
+            painter.fillRect(self.highlight, QColor("#38bdf8"))
 
 
 class WallResizePreview(QWidget):
@@ -6796,6 +6834,7 @@ class WallGrid(QWidget):
         self._pane_borders = {}
         self._divider_grips = {}
         self._hover_dividers = set()
+        self._hover_position = None
         self._border_drag = None
         self._border_pending = None
         self._border_drag_timer = QTimer(self)
@@ -7182,13 +7221,37 @@ class WallGrid(QWidget):
             self._divider_grips[key].sync(rect)
         self._set_hover_dividers(self._hover_dividers & self._divider_rects.keys())
 
-    def _set_hover_dividers(self, keys):
+    def _set_hover_dividers(self, keys, position=None):
         active = set(keys) if self._border_drag is None else set()
-        if active == self._hover_dividers:
-            return
         self._hover_dividers = active
+        if position is not None:
+            self._hover_position = self.mapFromGlobal(position)
+        elif not active:
+            self._hover_position = None
+        bands = []
         for key, grip in self._divider_grips.items():
-            grip.set_hovered(key in active and grip.isVisible())
+            if key not in active or not grip.isVisible() or self._hover_position is None:
+                grip.set_highlight(QRect())
+                continue
+            rect = grip.geometry()
+            point = self._hover_position
+            radius = WallDividerGrip.HOVER_RADIUS
+            if rect.width() < rect.height():
+                start = max(rect.top(), min(point.y() - radius, rect.bottom()))
+                end = min(rect.bottom() + 1, max(point.y() + radius, rect.top() + 1))
+                highlight = QRect(rect.left(), start, rect.width(), end - start)
+                band = highlight.adjusted(-WallPaneBorder.BAND, 0, WallPaneBorder.BAND, 0)
+            else:
+                start = max(rect.left(), min(point.x() - radius, rect.right()))
+                end = min(rect.right() + 1, max(point.x() + radius, rect.left() + 1))
+                highlight = QRect(start, rect.top(), end - start, rect.height())
+                band = highlight.adjusted(0, -WallPaneBorder.BAND, 0, WallPaneBorder.BAND)
+            grip.set_highlight(highlight.translated(-rect.topLeft()))
+            bands.append(band)
+        for border in self._pane_borders.values():
+            pane = border.parentWidget()
+            border.set_highlights([band.intersected(pane.geometry()).translated(-pane.pos())
+                                   for band in bands if band.intersects(pane.geometry())])
 
     def _border_model(self):
         if self.layout_id == "corner":
