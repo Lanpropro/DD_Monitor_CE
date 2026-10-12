@@ -1,8 +1,9 @@
-"""小画面分隔线：相邻两路调整、边界、重置和比例保留；不联网。"""
+"""小画面边框：相邻两路调整、边界、重置和比例保留；不联网。"""
 from unittest.mock import patch
 
 from selfcheck_corner_resize import (
     QApplication, QPoint, QTest, Qt, WallGrid, check_geometry, drag, layouts, theme,
+    border_for, CORNER_KEYS,
 )
 from selfcheck_corner_drag_updates import begin, move_to, release_at
 
@@ -26,48 +27,51 @@ def main():
     wall.show()
     app.processEvents()
     try:
-        assert len(wall._corner_handles) == 5
+        assert len(wall._divider_rects) == 5
         check_geometry(wall, equal_small=True)
-        for handle in wall._corner_handles.values():
-            image = handle.grab().toImage()
-            assert image.pixelColor(image.width() // 2, image.height() // 2).name() in (
-                '#526173', '#38bdf8'), '分隔线必须实际填色，不能留下未初始化背景'
+        image = wall.grab().toImage()
+        for rect in wall._divider_rects.values():
+            assert image.pixelColor(rect.center()) == theme.qcolor(theme.BG)
         video_ids = [int(tile.video.winId()) for tile in wall.tiles]
-        cases = [(wall._corner_right_handle, QPoint(0, 45), (1, 2)),
-                 (wall._corner_bottom_handles[0], QPoint(60, 0), (3, 4)),
-                 (wall._corner_bottom_handles[1], QPoint(-40, 0), (4, 5))]
-        for handle, movement, affected in cases:
+        cases = [("right", QPoint(0, 45), (1, 2)),
+                 ("bottom_left", QPoint(60, 0), (3, 4)),
+                 ("bottom_right", QPoint(-40, 0), (4, 5))]
+        for target, movement, affected in cases:
+            handle, point = border_for(wall, CORNER_KEYS[target])
             before = sizes(wall)
             positions = [tile.geometry() for tile in wall.tiles]
-            drag(app, handle, movement)
+            drag(app, handle, movement, pos=point)
             after = sizes(wall)
             assert all(after[i] == before[i] for i in range(6) if i not in affected)
             assert all(wall.tiles[i].geometry() == positions[i]
                        for i in range(6) if i not in affected)
             assert all(after[i] != before[i] for i in affected)
             check_geometry(wall)
-            axis = QPoint(0, 1) if handle.orientation == Qt.Vertical else QPoint(1, 0)
+            axis = QPoint(0, 1) if target == "right" else QPoint(1, 0)
             for extreme in (-5000, 5000):
                 before = sizes(wall)
                 positions = [tile.geometry() for tile in wall.tiles]
-                drag(app, handle, axis * extreme)
+                handle, point = border_for(wall, CORNER_KEYS[target])
+                drag(app, handle, axis * extreme, pos=point)
                 assert all(sizes(wall)[i] == before[i] for i in range(6) if i not in affected)
                 assert all(wall.tiles[i].geometry() == positions[i]
                            for i in range(6) if i not in affected)
                 check_geometry(wall)
             positions = [tile.geometry() for tile in wall.tiles]
-            QTest.mouseDClick(handle, Qt.LeftButton, pos=handle.rect().center())
+            handle, point = border_for(wall, CORNER_KEYS[target])
+            QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
             app.processEvents()
             assert all(wall.tiles[i].geometry() == positions[i]
                        for i in range(6) if i not in affected)
             first, second = (wall.tiles[i] for i in affected)
-            first_span = first.height() if handle.orientation == Qt.Vertical else first.width()
-            second_span = second.height() if handle.orientation == Qt.Vertical else second.width()
+            first_span = first.height() if target == "right" else first.width()
+            second_span = second.height() if target == "right" else second.width()
             assert abs(first_span - second_span) <= 1
             check_geometry(wall)
 
-            # 新分隔线也必须合并事件，并在松开时落实最新坐标。
-            origin = begin(handle)
+            # 边框也必须合并事件，并在松开时落实最新坐标。
+            handle, point = border_for(wall, CORNER_KEYS[target])
+            origin = begin(handle, pos=point)
             with patch.object(wall, "_relayout_corner", wraps=wall._relayout_corner) as layout:
                 for sample in range(30):
                     move_to(handle, origin + axis * sample)
@@ -88,7 +92,7 @@ def main():
         for target in wall.tiles:
             wall.set_fullscreen_tile(target)
             app.processEvents()
-            assert all(not handle.isVisible() for handle in wall._corner_handles.values())
+            assert all(not border.isVisible() for border in wall._pane_borders.values())
             wall.set_fullscreen_tile(None, stagger=True, first=target)
             wall.reveal_tiles_staggered()
             for _ in range(8):
@@ -98,24 +102,23 @@ def main():
         for preset in layouts.BY_ID.values():
             wall.set_layout(preset['id'])
             app.processEvents()
-            if preset['id'] != 'corner':
-                assert all(not handle.isVisible() for handle in wall._corner_handles.values())
             wall.set_layout('corner')
             app.processEvents()
             assert ratios(wall) == saved_ratios
             check_geometry(wall)
-        for handle, movement, _ in cases:
+        for target, movement, _ in cases:
             old = ratios(wall)
-            origin = begin(handle)
+            handle, point = border_for(wall, CORNER_KEYS[target])
+            origin = begin(handle, pos=point)
             move_to(handle, origin + movement)
             wall.set_layout('3x3')
             QTest.qWait(80)
             assert ratios(wall) == old
-            assert handle._press_offset is None
+            assert wall._border_drag is None
             wall.set_layout('corner')
             app.processEvents()
         assert [int(tile.video.winId()) for tile in wall.tiles[:6]] == video_ids
-        print('PASS: three small-screen handles, adjacent pairs only, limits, pair reset, '
+        print('PASS: three small-screen borders, adjacent pairs only, limits, pair reset, '
               'coalescing, resize/fullscreen/all presets and cancellation')
     finally:
         wall.close()

@@ -2,7 +2,7 @@
 from copy import deepcopy
 from unittest.mock import patch
 
-from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme
+from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme, border_for
 from selfcheck_corner_drag_updates import begin, move_to, release_at
 
 
@@ -17,14 +17,14 @@ def check(wall):
     for tile in visible:
         assert tile.width() >= 200 and tile.height() >= 150
         assert tile.parentWidget() is wall
-    handles = [handle for handle in wall._preset_handles.values() if handle.isVisible()]
     if wall.layout_id != 'corner':
-        assert len(handles) == len(panes) - 1, (wall.layout_id, len(handles))
-    for handle in handles:
-        assert wall.rect().contains(handle.geometry())
-        assert all(not handle.geometry().intersects(rect) for rect in rects)
-        image = handle.grab().toImage()
-        assert image.pixelColor(image.width() // 2, image.height() // 2).name() in ('#526173', '#38bdf8')
+        assert len(wall._divider_rects) == len(panes) - 1, wall.layout_id
+    assert not hasattr(wall, '_preset_handles')
+    image = wall.grab().toImage()
+    for gap in wall._divider_rects.values():
+        assert wall.rect().contains(gap)
+        assert all(not gap.intersects(rect) for rect in rects)
+        assert image.pixelColor(gap.center()) == theme.qcolor(theme.BG)
 
 
 def main():
@@ -51,23 +51,31 @@ def main():
             if layouts.is_portrait_layout(identifier):
                 assert abs(wall.tiles[0].height() - int((wall.width() - 32) * 9 / 16)) <= 1
             for key in list(wall._preset_dividers):
-                handle = wall._preset_handles[key]
+                handle, point = border_for(wall, key)
                 node, area, before = wall._preset_dividers[key]
                 direction = QPoint(1, 0) if node.axis == Qt.Horizontal else QPoint(0, 1)
                 before = list(before)
-                drag(app, handle, direction * 24)
+                pane_before = handle.parentWidget().size()
+                edge = next(iter(handle.edges_at(point)))
+                drag(app, handle, direction * 24, pos=point)
                 check(wall)
                 after = wall._preset_dividers[key][2]
-                assert after[key[1]] == before[key[1]] + 24, (identifier, key, before, after)
+                pane_after = handle.parentWidget().size()
+                change = (pane_after.width() - pane_before.width() if node.axis == Qt.Horizontal
+                          else pane_after.height() - pane_before.height())
+                assert change == (24 if edge in ('right', 'bottom') else -24), (identifier, key, change)
                 assert sum(after) == sum(before)
                 assert all(after[index] == value for index, value in enumerate(before)
                            if index not in (key[1], key[1] + 1))
                 # 极端坐标不能越过相邻区域，双击恢复相邻默认比例。
-                drag(app, handle, direction * 10000)
+                handle, point = border_for(wall, key)
+                drag(app, handle, direction * 10000, pos=point)
                 check(wall)
-                drag(app, handle, direction * -20000)
+                handle, point = border_for(wall, key)
+                drag(app, handle, direction * -20000, pos=point)
                 check(wall)
-                QTest.mouseDClick(handle, Qt.LeftButton, pos=handle.rect().center())
+                handle, point = border_for(wall, key)
+                QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
                 app.processEvents()
                 check(wall)
             saved[identifier] = deepcopy(wall.layout_ratios().get(identifier, {}))
@@ -75,7 +83,7 @@ def main():
             target = wall.tiles[0]
             wall.set_fullscreen_tile(target)
             app.processEvents()
-            assert not any(handle.isVisible() for handle in wall._preset_handles.values())
+            assert not any(border.isVisible() for border in wall._pane_borders.values())
             wall.set_fullscreen_tile(None, stagger=True, first=target)
             wall.resize(wall.width() + 10, wall.height() + 10)
             app.processEvents()
@@ -111,10 +119,10 @@ def main():
         wall.resize(1800, 1500)
         app.processEvents()
         key = ('root', 0)
-        handle = wall._preset_handles[key]
+        handle, point = border_for(wall, key)
         original = list(wall._preset_dividers[key][2])
         with patch.object(wall, '_relayout_preset', wraps=wall._relayout_preset) as relayout:
-            origin = begin(handle)
+            origin = begin(handle, pos=point)
             for step in range(1, 121):
                 move_to(handle, origin + QPoint(0, step))
             assert relayout.call_count == 0
@@ -123,11 +131,12 @@ def main():
             release_at(handle, origin + QPoint(0, 125))
             assert relayout.call_count == 2
         assert wall._preset_dividers[key][2][0] == original[0] + 125
-        origin = begin(handle)
+        handle, point = border_for(wall, key)
+        origin = begin(handle, pos=point)
         move_to(handle, origin + QPoint(0, 70))
         wall.set_layout('corner')
         QTest.qWait(80)
-        assert wall._preset_pending_drag is None and not wall._preset_dividers
+        assert wall._border_pending is None and not wall._preset_dividers
         assert set(wall.tiles) == set(originals)
         assert [int(tile.video.winId()) for tile in originals] == identities
 

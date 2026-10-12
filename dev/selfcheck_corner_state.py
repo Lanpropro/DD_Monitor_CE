@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, theme
+from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, theme, border_for, CORNER_KEYS
 from selfcheck_corner_drag_updates import begin, move_to, release_at
 from ddm import bili, config
 from ddm.app import MainWindow
@@ -71,16 +71,18 @@ def main():
         try:
             assert window.wall.corner_ratios() == DEFAULT
             with patch.object(config, 'save', wraps=config.save) as save:
-                origin = begin(window.wall._corner_width_handle)
-                move_to(window.wall._corner_width_handle, origin + QPoint(40, 0))
+                border, point = border_for(window.wall, CORNER_KEYS[Qt.Horizontal])
+                origin = begin(border, pos=point)
+                move_to(border, origin + QPoint(40, 0))
                 QTest.qWait(80)
                 save.assert_not_called()
-                release_at(window.wall._corner_width_handle, origin + QPoint(50, 0))
-                for handle, movement in ((window.wall._corner_height_handle, QPoint(0, -40)),
-                                         (window.wall._corner_right_handle, QPoint(0, 35)),
-                                         (window.wall._corner_bottom_handles[0], QPoint(35, 0)),
-                                         (window.wall._corner_bottom_handles[1], QPoint(-25, 0))):
-                    drag(app, handle, movement)
+                release_at(border, origin + QPoint(50, 0))
+                for target, movement in ((Qt.Vertical, QPoint(0, -40)),
+                                         ("right", QPoint(0, 35)),
+                                         ("bottom_left", QPoint(35, 0)),
+                                         ("bottom_right", QPoint(-25, 0))):
+                    border, point = border_for(window.wall, CORNER_KEYS[target])
+                    drag(app, border, movement, pos=point)
                 save.assert_not_called()
                 QTest.qWait(850)
                 assert save.call_count == 1, "连续松开操作应由现有保存定时器合并"
@@ -102,8 +104,9 @@ def main():
             video_ids = [int(tile.video.winId()) for tile in tiles]
             slots = restarted.current_state()['wall']
             # 重置还要取消已经排队、但尚未应用的拖动，避免稍后改回旧位置。
-            origin = begin(restarted.wall._corner_width_handle)
-            move_to(restarted.wall._corner_width_handle, origin + QPoint(40, 0))
+            border, point = border_for(restarted.wall, CORNER_KEYS[Qt.Horizontal])
+            origin = begin(border, pos=point)
+            move_to(border, origin + QPoint(40, 0))
             restarted.sidebar.open_layout_picker()
             picker = restarted.sidebar._picker
             assert picker.reset_button.isVisible() and picker.reset_button.isEnabled()
@@ -123,7 +126,9 @@ def main():
             app.processEvents()
             assert not other.reset_button.isVisible()
             other.close()
-            restarted.wall._drag_corner(Qt.Horizontal, restarted.wall.tiles[0].x() + 500)
+            border, point = border_for(restarted.wall, CORNER_KEYS[Qt.Horizontal])
+            origin = begin(border, pos=point)
+            move_to(border, origin + QPoint(40, 0))
             restarted.wall.set_fullscreen_tile(restarted.wall.tiles[0])
             restarted.wall.reset_corner_ratios()
             assert restarted.wall.fullscreen_tile is restarted.wall.tiles[0]

@@ -6470,66 +6470,6 @@ def best_columns(count: int, width: int, height: int, gap: int = 8, aspect: floa
     return best
 
 
-class WallResizeHandle(QFrame):
-    """只改变现有播放格的几何，避免拖动或全屏时重建 VLC 的父窗口。"""
-
-    dragged = Signal(int)
-    dragFinished = Signal(int)
-    resetRequested = Signal()
-
-    def __init__(self, orientation, parent):
-        super().__init__(parent)
-        self.orientation = orientation
-        self._press_offset = None
-        # 分隔线完整覆盖自己的矩形，不使用透明圆角，避免原生窗口移动时拷贝旧背景。
-        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
-        self.setObjectName("WallResizeHandle")
-        self.setCursor(Qt.SplitHCursor if orientation == Qt.Horizontal else Qt.SplitVCursor)
-        self.setToolTip("拖动调整左右比例；双击恢复" if orientation == Qt.Horizontal
-                        else "拖动调整上下比例；双击恢复")
-        self.setStyleSheet("#WallResizeHandle {background: #526173; border: none;} "
-                          "#WallResizeHandle:hover {background: #38bdf8;}")
-        self.hide()
-
-    def paintEvent(self, event):
-        # WA_OpaquePaintEvent 要求控件自行填满背景；原生分隔线不能只依赖 QSS 填色。
-        painter = QPainter(self)
-        painter.fillRect(event.rect(), QColor("#38bdf8" if self.underMouse() else "#526173"))
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            point = event.position().toPoint()
-            self._press_offset = point.x() if self.orientation == Qt.Horizontal else point.y()
-            event.accept()
-        else:
-            super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._press_offset is not None and event.buttons() & Qt.LeftButton:
-            point = self.parentWidget().mapFromGlobal(event.globalPosition().toPoint())
-            coordinate = point.x() if self.orientation == Qt.Horizontal else point.y()
-            self.dragged.emit(coordinate - self._press_offset)
-            event.accept()
-        else:
-            super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._press_offset is not None:
-            point = self.parentWidget().mapFromGlobal(event.globalPosition().toPoint())
-            coordinate = point.x() if self.orientation == Qt.Horizontal else point.y()
-            self.dragFinished.emit(coordinate - self._press_offset)
-        self._press_offset = None
-        super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._press_offset = None
-            self.resetRequested.emit()
-            event.accept()
-        else:
-            super().mouseDoubleClickEvent(event)
-
-
 class WallPaneBorder(QWidget):
     """A masked native border keeps resize hits above VLC without covering its centre."""
 
@@ -6545,6 +6485,7 @@ class WallPaneBorder(QWidget):
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.ClickFocus)
+        self.setToolTip("拖动边框调整大小；拖动角落等比例缩放；双击恢复相邻区域比例")
         self.hide()
 
     def sync(self, targets):
@@ -6613,6 +6554,13 @@ class WallPaneBorder(QWidget):
         else:
             super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.wall._reset_border(self, self.edges_at(event.position().toPoint()))
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
     def leaveEvent(self, event):
         self.hover_edges = {}
         self.update()
@@ -6667,38 +6615,11 @@ class WallGrid(QWidget):
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
         self.grid.setSpacing(8)
 
-        # 一大五小保留原播放格及父窗口，分隔条只占画面之间的空隙。
+        # 一大五小保留原播放格及父窗口，边框交互只改变几何。
         self._corner_width_ratio = 2 / 3
         self._corner_height_ratio = 2 / 3
         self._corner_right_ratio = 1 / 2
         self._corner_bottom_ratios = [1 / 3, 2 / 3]  # 底部两条分隔线的累计宽度比例
-        # 合并高频移动事件；定时应用最新坐标，松开立即收尾，不积累旧位置。
-        self._corner_pending_drag = None
-        self._corner_drag_timer = QTimer(self)
-        self._corner_drag_timer.setSingleShot(True)
-        self._corner_drag_timer.setTimerType(Qt.PreciseTimer)
-        self._corner_drag_timer.setInterval(32)
-        self._corner_drag_timer.timeout.connect(self._flush_corner_drag)
-        self._corner_width_handle = WallResizeHandle(Qt.Horizontal, self)
-        self._corner_height_handle = WallResizeHandle(Qt.Vertical, self)
-        self._corner_right_handle = WallResizeHandle(Qt.Vertical, self)
-        self._corner_bottom_handles = [WallResizeHandle(Qt.Horizontal, self) for _ in range(2)]
-        self._corner_handles = {
-            Qt.Horizontal: self._corner_width_handle,
-            Qt.Vertical: self._corner_height_handle,
-            "right": self._corner_right_handle,
-            "bottom_left": self._corner_bottom_handles[0],
-            "bottom_right": self._corner_bottom_handles[1],
-        }
-        for target, handle in self._corner_handles.items():
-            handle.dragged.connect(
-                lambda coordinate, target=target: self._drag_corner(target, coordinate))
-            handle.dragFinished.connect(
-                lambda coordinate, target=target: self._finish_corner_drag(target, coordinate))
-            handle.resetRequested.connect(lambda target=target: self._reset_corner(target))
-        self._corner_right_handle.setToolTip("拖动调整右侧两路高度；双击让相邻两路等分")
-        for handle in self._corner_bottom_handles:
-            handle.setToolTip("拖动调整相邻两路宽度；双击让相邻两路等分")
         self.restore_corner_ratios(corner_ratios)
 
         self._partitions = {}
@@ -6717,14 +6638,8 @@ class WallGrid(QWidget):
         self._layout_ratios = {
             identifier: resize_layout.validated_weights(saved.get(identifier), tree)
             for identifier, tree in self._partitions.items()}
-        self._preset_handles = {}
         self._preset_dividers = {}
-        self._preset_pending_drag = None
-        self._preset_drag_timer = QTimer(self)
-        self._preset_drag_timer.setSingleShot(True)
-        self._preset_drag_timer.setTimerType(Qt.PreciseTimer)
-        self._preset_drag_timer.setInterval(32)
-        self._preset_drag_timer.timeout.connect(self._flush_preset_drag)
+        self._divider_rects = {}
 
         self._pane_borders = {}
         self._border_drag = None
@@ -6749,11 +6664,7 @@ class WallGrid(QWidget):
         if layout_id == self.layout_id:
             return
         self._cancel_border_drag()
-        self._cancel_corner_drag()
-        self._cancel_preset_drag()
         self._preset_dividers = {}
-        for handle in (*self._corner_handles.values(), *self._preset_handles.values()):
-            handle.hide()
         self.layout_id = layout_id
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
         self._columns = -1
@@ -6941,13 +6852,7 @@ class WallGrid(QWidget):
         self._cancel_border_drag()
         for border in self._pane_borders.values():
             border.hide()
-        self._cancel_corner_drag()
-        self._cancel_preset_drag()
         self._preset_dividers = {}
-        for handle in self._preset_handles.values():
-            handle.hide()
-        for handle in self._corner_handles.values():
-            handle.hide()
         self.setMinimumSize(0, 0)
         for index in range(24):
             self.grid.setColumnStretch(index, 0)
@@ -7021,19 +6926,12 @@ class WallGrid(QWidget):
         if self.layout_id == "corner":
             self.reset_corner_ratios()
             return
-        self._cancel_preset_drag()
         changed = bool(self._layout_ratios.get(self.layout_id))
         self._layout_ratios[self.layout_id] = {}
         if self.fullscreen_tile is None:
             self._relayout_preset()
         if changed:
             self.layoutRatiosChanged.emit()
-
-    def _cancel_preset_drag(self) -> None:
-        self._preset_drag_timer.stop()
-        self._preset_pending_drag = None
-        for handle in self._preset_handles.values():
-            handle._press_offset = None
 
     def _preset_defaults(self, node, area):
         if node.key != "root" or not layouts.is_portrait_layout(self.layout_id):
@@ -7095,31 +6993,14 @@ class WallGrid(QWidget):
                 else:
                     tile.show()
             self.danmaku.setVisible(self.has_danmaku)
-        old_regions = [handle.geometry() for handle in self._preset_handles.values()
-                       if not handle.isHidden()]
-        active_keys = set()
+        old_regions = list(self._divider_rects.values())
         self._preset_dividers = {}
+        self._divider_rects = {}
         for node, index, rect, node_area, sizes in dividers:
             key = (node.key, index)
-            active_keys.add(key)
             self._preset_dividers[key] = (node, node_area, sizes)
-            if key not in self._preset_handles:
-                handle = WallResizeHandle(node.axis, self)
-                handle.dragged.connect(lambda coordinate, key=key: self._drag_preset(key, coordinate))
-                handle.dragFinished.connect(lambda coordinate, key=key: self._finish_preset_drag(key, coordinate))
-                handle.resetRequested.connect(lambda key=key: self._reset_preset_pair(key))
-                self._preset_handles[key] = handle
-            handle = self._preset_handles[key]
-            handle.orientation = node.axis
-            handle.setCursor(Qt.SplitHCursor if node.axis == Qt.Horizontal else Qt.SplitVCursor)
-            handle.setToolTip("拖动调整相邻区域；双击恢复相邻区域的默认比例")
-            handle.setGeometry(rect)
-            handle.show()
-            handle.raise_()
-        for key, handle in self._preset_handles.items():
-            if key not in active_keys:
-                handle.hide()
-        for rect in old_regions + [self._preset_handles[key].geometry() for key in active_keys]:
+            self._divider_rects[key] = rect
+        for rect in old_regions + list(self._divider_rects.values()):
             self.update(rect)
         self._columns = layouts.BY_ID[self.layout_id]["spec"][1]
         self._sync_pane_borders(widgets, dividers)
@@ -7154,14 +7035,18 @@ class WallGrid(QWidget):
         if not edges or self.fullscreen_tile is not None:
             return
         self._cancel_border_drag()
-        self._cancel_preset_drag()
-        self._cancel_corner_drag()
         tree, weights, widgets, minimum, defaults = self._border_model()
         cell = next(cell for cell, pane in widgets.items() if pane is border.parentWidget())
         minimums = {index: minimum(index) for index in widgets}
+        geometry_weights = {key: list(values) for key, values in weights.items()}
+        if self.layout_id == "corner" and any(key[0] == "root/1" for key in edges.values()):
+            # Match cumulative corner rounding so the untouched bottom boundary stays fixed.
+            widths = [pane.width() for pane in self.tiles[3:6]]
+            geometry_weights["root/1"] = [width / sum(widths) for width in widths]
         self._border_drag = dict(border=border, edges=edges, origin=position,
                                  rect=QRect(border.parentWidget().geometry()), cell=cell,
                                  tree=tree, weights={key: list(values) for key, values in weights.items()},
+                                 geometry_weights=geometry_weights,
                                  minimum=minimums.__getitem__, defaults=defaults, area=self._corner_area(),
                                  before=self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios())
         border.setFocus(Qt.MouseFocusReason)
@@ -7195,7 +7080,7 @@ class WallGrid(QWidget):
             return
         weights = resize_layout.resize_borders(
             state["tree"], state["area"], self.grid.spacing(), state["minimum"],
-            state["weights"], state["defaults"], state["cell"], state["edges"],
+            state["geometry_weights"], state["defaults"], state["cell"], state["edges"],
             state["rect"], position - state["origin"])
         self._apply_border_weights(weights)
 
@@ -7227,57 +7112,40 @@ class WallGrid(QWidget):
             if restore:
                 self._apply_border_weights(state["weights"])
 
-    def _drag_preset(self, key, coordinate):
-        if self.fullscreen_tile is not None or key not in self._preset_dividers:
+    def _reset_border(self, border, edges):
+        if self.fullscreen_tile is not None or not border.isVisible() or not edges:
             return
-        self._preset_pending_drag = (key, coordinate)
-        if not self._preset_drag_timer.isActive():
-            self._preset_drag_timer.start()
-
-    def _finish_preset_drag(self, key, coordinate):
-        self._drag_preset(key, coordinate)
-        self._preset_drag_timer.stop()
-        self._flush_preset_drag()
-        if self.fullscreen_tile is None and key in self._preset_dividers:
-            self.layoutRatiosChanged.emit()
-
-    def _flush_preset_drag(self):
-        pending, self._preset_pending_drag = self._preset_pending_drag, None
-        if pending is None or self.fullscreen_tile is not None:
-            return
-        key, coordinate = pending
-        if key not in self._preset_dividers:
-            return
-        node, area, current = self._preset_dividers[key]
-        index = key[1]
-        sizes = list(current)
-        horizontal = node.axis == Qt.Horizontal
-        mins = [child.minimum(self.grid.spacing(), self._preset_minimum) for child in node.children]
-        start = (area.x() if horizontal else area.y()) + sum(sizes[:index]) + index * self.grid.spacing()
-        pair = sizes[index] + sizes[index + 1]
-        lower = mins[index].width() if horizontal else mins[index].height()
-        upper = pair - (mins[index + 1].width() if horizontal else mins[index + 1].height())
-        sizes[index] = max(lower, min(upper, coordinate - start))
-        sizes[index + 1] = pair - sizes[index]
-        total = sum(sizes)
-        self._layout_ratios[self.layout_id][node.key] = [size / total for size in sizes]
-        self._relayout_preset()
+        self._cancel_border_drag(restore=True)
+        keys = list(dict.fromkeys(value for edge, value in edges.items()
+                                  if border.targets.get(edge) == value))
+        before = self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios()
+        if self.layout_id == "corner":
+            targets = {("root", 0): Qt.Vertical, ("root/0", 0): Qt.Horizontal,
+                       ("root/0/1", 0): "right", ("root/1", 0): "bottom_left",
+                       ("root/1", 1): "bottom_right"}
+            for key in keys:
+                self._reset_corner(targets[key])
+            if self.corner_ratios() != before:
+                self.cornerRatiosChanged.emit()
+        else:
+            for key in keys:
+                self._reset_preset_pair(key)
+            if self.layout_ratios() != before:
+                self.layoutRatiosChanged.emit()
 
     def _reset_preset_pair(self, key):
-        self._cancel_border_drag()
-        self._cancel_preset_drag()
-        if key not in self._preset_dividers or self.fullscreen_tile is not None:
-            return
         node, area, current = self._preset_dividers[key]
         index = key[1]
         defaults = self._preset_defaults(node, area)
-        start = (area.x() if node.axis == Qt.Horizontal else area.y())
-        start += sum(current[:index]) + index * self.grid.spacing()
+        sizes = list(current)
         pair = current[index] + current[index + 1]
-        coordinate = start + round(pair * defaults[index] / (defaults[index] + defaults[index + 1]))
-        self._preset_pending_drag = (key, coordinate)
-        self._flush_preset_drag()
-        self.layoutRatiosChanged.emit()
+        minimums = [child.minimum(self.grid.spacing(), self._preset_minimum) for child in node.children]
+        spans = [size.width() if node.axis == Qt.Horizontal else size.height() for size in minimums]
+        sizes[index] = max(spans[index], min(pair - spans[index + 1],
+                           round(pair * defaults[index] / (defaults[index] + defaults[index + 1]))))
+        sizes[index + 1] = pair - sizes[index]
+        self._layout_ratios[self.layout_id][node.key] = [size / sum(sizes) for size in sizes]
+        self._relayout_preset()
 
     # ---- 一大五小：手动几何保持视频 HWND 不变，拖动只调整区域比例 ----
     def corner_ratios(self) -> dict:
@@ -7307,10 +7175,9 @@ class WallGrid(QWidget):
             self._relayout_corner()
 
     def reset_corner_ratios(self) -> None:
-        """恢复全部五条分隔线；保留房间、播放器和每个格子的音频设置。"""
+        """恢复全部区域比例；保留房间、播放器和每个格子的音频设置。"""
         before = self.corner_ratios()
         self._cancel_border_drag()
-        self._cancel_corner_drag()
         self.restore_corner_ratios(None)
         if self.corner_ratios() != before:
             self.cornerRatiosChanged.emit()
@@ -7320,70 +7187,7 @@ class WallGrid(QWidget):
         return self.rect().adjusted(margins.left(), margins.top(),
                                     -margins.right(), -margins.bottom())
 
-    def _drag_corner(self, target, coordinate: int) -> None:
-        if self.layout_id != "corner" or self.fullscreen_tile is not None:
-            return
-        self._corner_pending_drag = (target, coordinate)
-        if not self._corner_drag_timer.isActive():
-            self._corner_drag_timer.start()
-
-    def _finish_corner_drag(self, target, coordinate: int) -> None:
-        self._corner_pending_drag = (target, coordinate)
-        self._corner_drag_timer.stop()
-        self._flush_corner_drag()
-        # 定时更新可能已经到达最终坐标；松开仍需保存整次拖动的结果。
-        if self.layout_id == "corner" and self.fullscreen_tile is None:
-            self.cornerRatiosChanged.emit()
-
-    def _cancel_corner_drag(self) -> None:
-        self._corner_drag_timer.stop()
-        self._corner_pending_drag = None
-        for handle in self._corner_handles.values():
-            handle._press_offset = None
-
-    def _flush_corner_drag(self) -> None:
-        pending, self._corner_pending_drag = self._corner_pending_drag, None
-        if pending is None:
-            return
-        if self.layout_id != "corner" or self.fullscreen_tile is not None:
-            return
-        target, coordinate = pending
-        area, gap = self._corner_area(), self.grid.spacing()
-        if target == Qt.Horizontal:
-            span = max(1, area.width() - gap)
-            self._corner_width_ratio = max(0.0, min(1.0, (coordinate - area.left()) / span))
-            self._relayout_corner()
-            self._corner_width_ratio = self.tiles[0].width() / span
-        elif target == Qt.Vertical:
-            span = max(1, area.height() - gap)
-            self._corner_height_ratio = max(0.0, min(1.0, (coordinate - area.top()) / span))
-            self._relayout_corner()
-            self._corner_height_ratio = self.tiles[0].height() / span
-        elif target == "right":
-            top, bottom = self.tiles[1:3]
-            span = max(1, top.height() + bottom.height())
-            height = max(top.minimumHeight(), min(span - bottom.minimumHeight(),
-                                                  coordinate - area.top()))
-            self._corner_right_ratio = height / span
-            self._relayout_corner()
-        elif target in ("bottom_left", "bottom_right"):
-            left, middle, right = self.tiles[3:6]
-            span = max(1, left.width() + middle.width() + right.width())
-            first, second = left.width(), left.width() + middle.width()
-            # 固定另一条分隔线的实际位置，只在相邻两路之间重新分配宽度。
-            if target == "bottom_left":
-                first = max(left.minimumWidth(), min(second - middle.minimumWidth(),
-                                                     coordinate - area.left()))
-            else:
-                second = max(first + middle.minimumWidth(), min(span - right.minimumWidth(),
-                                                                coordinate - area.left() - gap))
-            self._corner_bottom_ratios = [first / span, second / span]
-            self._relayout_corner()
-
     def _reset_corner(self, target) -> None:
-        before = self.corner_ratios()
-        self._cancel_border_drag()
-        self._cancel_corner_drag()
         if target == Qt.Horizontal:
             self._corner_width_ratio = 2 / 3
         elif target == Qt.Vertical:
@@ -7401,15 +7205,11 @@ class WallGrid(QWidget):
             self._corner_bottom_ratios = [first, second]
         if self.layout_id == "corner" and self.fullscreen_tile is None:
             self._relayout_corner()
-        if self.corner_ratios() != before:
-            self.cornerRatiosChanged.emit()
 
     def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
         if len(self.tiles) < 6:
             return
-        dirty = QRegion()
-        for handle in self._corner_handles.values():
-            dirty = dirty.united(QRegion(handle.geometry()))
+        old_regions = list(self._divider_rects.values())
         main, right_top, right_bottom, *bottom = self.tiles[:6]
         gap = self.grid.spacing()
         minimum_top = max(main.minimumHeight(),
@@ -7459,28 +7259,21 @@ class WallGrid(QWidget):
                     self._pending_reveal.append(tile)
                 else:
                     tile.show()
-        self._corner_width_handle.setGeometry(x + main_width, y, gap, top_height)
-        self._corner_height_handle.setGeometry(x, y + top_height, area.width(), gap)
-        self._corner_right_handle.setGeometry(right_x, y + right_height, width - main_width, gap)
-        for index, handle in enumerate(self._corner_bottom_handles):
-            handle.setGeometry(x + boundaries[index + 1] + index * gap,
-                               bottom_y, gap, height - top_height)
-        for handle in self._corner_handles.values():
-            handle.show()
-            handle.raise_()
-            dirty = dirty.united(QRegion(handle.geometry()))
-        # 显式清理分隔线旧位置；update 合并到事件循环，不同步强制重绘六路视频。
-        self.update(dirty)
+        self._divider_rects = {
+            ("root", 0): QRect(x, y + top_height, area.width(), gap),
+            ("root/0", 0): QRect(x + main_width, y, gap, top_height),
+            ("root/0/1", 0): QRect(right_x, y + right_height, width - main_width, gap),
+            **{("root/1", index): QRect(x + boundaries[index + 1] + index * gap,
+                                       bottom_y, gap, height - top_height)
+               for index in range(2)}}
+        # Repaint exposed gaps without creating another set of interactive widgets.
+        for rect in old_regions + list(self._divider_rects.values()):
+            self.update(rect)
         self._columns = 3
         tree, weights, widgets, minimum, defaults = self._border_model()
         _, dividers = resize_layout.geometry(tree, area, gap, minimum, weights, defaults)
         # Use the rendered coordinates (corner rounding differs from the generic allocator).
-        handles = {("root", 0): self._corner_height_handle,
-                   ("root/0", 0): self._corner_width_handle,
-                   ("root/0/1", 0): self._corner_right_handle,
-                   ("root/1", 0): self._corner_bottom_handles[0],
-                   ("root/1", 1): self._corner_bottom_handles[1]}
-        dividers = [(node, index, handles[(node.key, index)].geometry(), rect, sizes)
+        dividers = [(node, index, self._divider_rects[(node.key, index)], rect, sizes)
                     for node, index, _handle, rect, sizes in dividers]
         self._sync_pane_borders(widgets, dividers)
 

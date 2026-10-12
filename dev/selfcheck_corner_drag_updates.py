@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from selfcheck_corner_resize import (
     QApplication, QEvent, QMouseEvent, QPoint, QPointF, QTest, Qt,
-    WallGrid, check_geometry, theme,
+    WallGrid, check_geometry, theme, border_for, CORNER_KEYS,
 )
 
 
@@ -18,8 +18,8 @@ def release_at(handle, global_position):
     QTest.mouseRelease(handle, Qt.LeftButton, pos=handle.mapFromGlobal(global_position))
 
 
-def begin(handle):
-    start = handle.rect().center()
+def begin(handle, *, pos=None):
+    start = pos if pos is not None else handle.rect().center()
     origin = handle.mapToGlobal(start)
     QTest.mousePress(handle, Qt.LeftButton, pos=start)
     return origin
@@ -34,9 +34,9 @@ def main():
     app.processEvents()
     video_ids = [int(tile.video.winId()) for tile in wall.tiles]
     try:
-        handle = wall._corner_width_handle
+        handle, point = border_for(wall, CORNER_KEYS[Qt.Horizontal])
         before = wall.tiles[0].width()
-        origin = begin(handle)
+        origin = begin(handle, pos=point)
         with patch.object(wall, "_relayout_corner", wraps=wall._relayout_corner) as layout:
             for offset in range(1, 81):
                 move_to(handle, origin + QPoint(offset, 0))
@@ -58,32 +58,33 @@ def main():
         image = wall.grab().toImage()
         assert image.pixelColor(4, 4) == theme.qcolor(theme.BG)
 
-        handle = wall._corner_height_handle
+        handle, point = border_for(wall, CORNER_KEYS[Qt.Vertical])
         before = wall.tiles[0].height()
-        origin = begin(handle)
+        origin = begin(handle, pos=point)
         move_to(handle, origin + QPoint(0, -25))
         release_at(handle, origin + QPoint(0, -30))
         assert wall.tiles[0].height() == before - 30
         check_geometry(wall)
 
-        origin = begin(handle)
+        handle, point = border_for(wall, CORNER_KEYS[Qt.Vertical])
+        origin = begin(handle, pos=point)
         move_to(handle, origin + QPoint(0, 40))
-        QTest.mouseDClick(handle, Qt.LeftButton, pos=handle.rect().center())
+        QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
         QTest.qWait(80)
         assert wall._corner_height_ratio == 2 / 3
 
-        handle = wall._corner_width_handle
         for interrupt in (lambda: wall.set_layout("3x3"),
                           lambda: wall.set_fullscreen_tile(wall.tiles[0])):
             ratio = wall._corner_width_ratio
-            origin = begin(handle)
+            handle, point = border_for(wall, CORNER_KEYS[Qt.Horizontal])
+            origin = begin(handle, pos=point)
             move_to(handle, origin + QPoint(-80, 0))
             interrupt()
             QTest.qWait(80)
             assert wall._corner_width_ratio == ratio, "切布局或全屏必须取消旧拖动"
-            assert handle._press_offset is None
-            assert not wall._corner_drag_timer.isActive()
-            assert wall._corner_pending_drag is None
+            assert wall._border_drag is None
+            assert not wall._border_drag_timer.isActive()
+            assert wall._border_pending is None
             wall.set_fullscreen_tile(None)
             wall.set_layout("corner")
             app.processEvents()

@@ -7,7 +7,7 @@ from unittest.mock import patch
 if "--native" in sys.argv:
     os.environ["QT_QPA_PLATFORM"] = "windows"
 
-from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, layouts, theme
+from selfcheck_corner_resize import QApplication, QEvent, QPoint, QTest, Qt, WallGrid, QWidget, layouts, theme
 from selfcheck_corner_drag_updates import move_to, release_at
 from selfcheck_preset_resize import check
 
@@ -51,6 +51,76 @@ def proportional(before, after):
     assert abs(before.width() * after.height() - before.height() * after.width()) <= 2 * (before.width() + before.height()), (before, after)
 
 
+def check_resets(app, wall, identifiers):
+    count = 0
+    for identifier in identifiers:
+        wall.set_layout(identifier)
+        wall.resize(950 if layouts.is_portrait_layout(identifier) else 1400, 1300)
+        app.processEvents()
+        panes = wall.visible_tiles() + ([wall.danmaku] if wall.has_danmaku else [])
+        for pane in panes:
+            border = wall._pane_borders[pane]
+            for edge in list(border.targets):
+                wall.reset_layout_ratios()
+                before = pane.size()
+                point = point_on(border, [edge])
+                border.hover_edges = {}
+                assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
+                move_to(border, border.mapToGlobal(point))
+                assert border.grab().toImage().pixelColor(point).name() == "#38bdf8"
+                QApplication.sendEvent(border, QEvent(QEvent.Leave))
+                assert border.grab().toImage().pixelColor(point) == theme.qcolor(theme.BG)
+                delta = {"left": QPoint(-18, 0), "right": QPoint(18, 0),
+                         "top": QPoint(0, -18), "bottom": QPoint(0, 18)}[edge]
+                resize(app, border, [edge], delta)
+                resized = pane.size() != before
+                signal = "cornerRatiosChanged" if identifier == "corner" else "layoutRatiosChanged"
+                with patch.object(wall, signal) as changed:
+                    point = point_on(border, [edge])
+                    QTest.mouseDClick(border, Qt.LeftButton, pos=point)
+                    assert changed.emit.call_count <= 1
+                    if resized:
+                        changed.emit.assert_called_once()
+                    assert wall._border_drag is None and wall._border_pending is None
+                    assert not wall._border_drag_timer.isActive()
+                    assert abs(pane.width() - before.width()) <= 1, (identifier, edge, before, pane.size())
+                    assert abs(pane.height() - before.height()) <= 1, (identifier, edge, before, pane.size())
+                    changed.emit.reset_mock()
+                    QTest.mouseDClick(border, Qt.LeftButton, pos=point_on(border, [edge]))
+                    changed.emit.assert_not_called()
+                check(wall)
+                count += 1
+
+    for identifier in ("corner", "3x3"):
+        wall.set_layout(identifier)
+        wall.resize(1400, 1000)
+        wall.reset_layout_ratios()
+        app.processEvents()
+        pane = wall.tiles[0]
+        border = wall._pane_borders[pane]
+        before = pane.size()
+        resize(app, border, ["right", "bottom"], QPoint(-35, -35))
+        origin = press(border, ["right", "bottom"])
+        move_to(border, origin + QPoint(15, 15))
+        QTest.qWait(80)
+        signal = "cornerRatiosChanged" if identifier == "corner" else "layoutRatiosChanged"
+        with patch.object(wall, signal) as changed:
+            QTest.mouseDClick(border, Qt.LeftButton, pos=point_on(border, ["right", "bottom"]))
+            changed.emit.assert_called_once()
+            assert wall._border_drag is None and wall._border_pending is None
+            QTest.qWait(80)
+            assert abs(pane.width() - before.width()) <= 1
+            assert abs(pane.height() - before.height()) <= 1
+            changed.emit.assert_called_once()
+        check(wall)
+        ratios = wall.corner_ratios() if identifier == "corner" else wall.layout_ratios()
+        wall.set_fullscreen_tile(pane)
+        QTest.mouseDClick(border, Qt.LeftButton, pos=point_on(border, ["right", "bottom"]))
+        assert (wall.corner_ratios() if identifier == "corner" else wall.layout_ratios()) == ratios
+        wall.set_fullscreen_tile(None)
+    print(f"PASS: {count} edge double-click resets, idle background, repeat no-op, two-axis reset/save/cancel/fullscreen")
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
@@ -68,6 +138,7 @@ def main():
             wall.resize(950 if layouts.is_portrait_layout(identifier) else 1400, 1300)
             app.processEvents()
             panes = wall.visible_tiles() + ([wall.danmaku] if wall.has_danmaku else [])
+            assert not wall.findChildren(QWidget, "WallResizeHandle")
             for pane in panes:
                 border = wall._pane_borders[pane]
                 assert not border.mask().contains(border.rect().center())
@@ -105,6 +176,8 @@ def main():
                         check(wall)
                     corner_count += 1
             print(f"PASS borders {identifier}", flush=True)
+
+        check_resets(app, wall, identifiers)
 
         wall.set_layout("3x3")
         wall.reset_layout_ratios()
@@ -180,6 +253,9 @@ def main():
             border = wall._pane_borders[wall.tiles[0]]
             point = border.mapToGlobal(point_on(border, ["right", "bottom"]))
             assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(border.winId())
+            gap = wall._divider_rects[("root/0", 0)].center()
+            point = wall.mapToGlobal(gap)
+            assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(wall.winId())
         directory = Path(__file__).resolve().parents[1] / "work"
         wall.grab().save(str(directory / "pane-borders.png"))
         wall.reset_layout_ratios()

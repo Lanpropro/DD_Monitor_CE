@@ -6,9 +6,9 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme
+from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme, border_for
 from selfcheck_corner_drag_updates import begin, move_to, release_at
-from selfcheck_pane_borders import press
+from selfcheck_pane_borders import press, point_on
 from ddm import bili, config, resize_layout
 from ddm.app import MainWindow
 
@@ -61,15 +61,17 @@ def main():
                     continue
                 first.wall.set_layout(identifier)
                 app.processEvents()
-                handle = next(first.wall._preset_handles[key] for key in first.wall._preset_dividers)
-                direction = QPoint(1, 0) if handle.orientation == Qt.Horizontal else QPoint(0, 1)
-                drag(app, handle, direction * 25)
+                key = next(iter(first.wall._preset_dividers))
+                handle, point = border_for(first.wall, key)
+                node = first.wall._preset_dividers[key][0]
+                direction = QPoint(1, 0) if node.axis == Qt.Horizontal else QPoint(0, 1)
+                drag(app, handle, direction * 25, pos=point)
             first.wall.set_layout('3x3')
             key = ('root', 0)
-            handle = first.wall._preset_handles[key]
+            handle, point = border_for(first.wall, key)
             QTest.qWait(850)
             with patch.object(config, 'save', wraps=config.save) as save:
-                origin = begin(handle)
+                origin = begin(handle, pos=point)
                 move_to(handle, origin + QPoint(0, 30))
                 QTest.qWait(850)
                 save.assert_not_called()
@@ -85,6 +87,13 @@ def main():
                 release_at(border, origin + QPoint(35, 35))
                 QTest.qWait(850)
                 assert save.call_count == 1
+            with patch.object(config, 'save', wraps=config.save) as save:
+                QTest.mouseDClick(border, Qt.LeftButton, pos=point_on(border, ["right", "bottom"]))
+                QTest.qWait(850)
+                assert save.call_count == 1, "two-axis reset must save only once"
+                QTest.mouseDClick(border, Qt.LeftButton, pos=point_on(border, ["right", "bottom"]))
+                QTest.qWait(850)
+                assert save.call_count == 1, "repeating an unchanged reset must not write again"
             saved = first.wall.layout_ratios()
             assert len(saved) == 24
             assert config.load()['ui']['layout_ratios'] == saved
@@ -108,8 +117,9 @@ def main():
             slots = second.current_state()['wall']
             originals = list(second.wall.tiles)
             ids = [int(tile.video.winId()) for tile in originals]
-            origin = begin(second.wall._preset_handles[key])
-            move_to(second.wall._preset_handles[key], origin + QPoint(0, 80))
+            handle, point = border_for(second.wall, key)
+            origin = begin(handle, pos=point)
+            move_to(handle, origin + QPoint(0, 80))
             second.sidebar.open_layout_picker()
             picker = second.sidebar._picker
             assert picker.reset_button.isVisible()
@@ -120,7 +130,7 @@ def main():
             assert config.load()['ui']['layout_ratios'] == expected
             assert second.current_state()['wall'] == slots and second.wall.tiles == originals
             assert [int(tile.video.winId()) for tile in originals] == ids
-            assert second.wall._preset_pending_drag is None
+            assert second.wall._border_pending is None
         finally:
             second.close()
             app.processEvents()

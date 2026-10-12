@@ -12,13 +12,35 @@ os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(ROOT / "libvlc.dll"))
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from ddm import layouts, theme
 from ddm.widgets import WallGrid
 
 
-def drag(app, handle, movement):
-    start = handle.rect().center()
+CORNER_KEYS = {Qt.Horizontal: ("root/0", 0), Qt.Vertical: ("root", 0),
+               "right": ("root/0/1", 0), "bottom_left": ("root/1", 0),
+               "bottom_right": ("root/1", 1)}
+
+
+def border_for(wall, key):
+    for border in wall._pane_borders.values():
+        if not border.isVisible():
+            continue
+        for edge, target in border.targets.items():
+            if target == key:
+                point = border.rect().center()
+                if edge in ("left", "right"):
+                    point.setX(2 if edge == "left" else border.width() - 3)
+                else:
+                    point.setY(2 if edge == "top" else border.height() - 3)
+                assert set(border.edges_at(point)) == {edge}
+                assert border.mask().contains(point)
+                return border, point
+    raise AssertionError((wall.layout_id, key))
+
+
+def drag(app, handle, movement, *, pos=None):
+    start = pos if pos is not None else handle.rect().center()
     origin = handle.mapToGlobal(start)
     QTest.mousePress(handle, Qt.LeftButton, pos=start)
     destination = origin + movement
@@ -41,10 +63,15 @@ def check_geometry(wall, *, equal_small=False):
         assert tile.width() >= tile.minimumWidth()
         assert tile.height() >= tile.minimumHeight()
         assert tile.parentWidget() is wall
-    for handle in wall._corner_handles.values():
-        assert handle.isVisible()
-        assert wall.rect().contains(handle.geometry())
-        assert all(not handle.geometry().intersects(rect) for rect in rects)
+    assert len(wall._divider_rects) == 5
+    assert not wall.findChildren(QWidget, "WallResizeHandle")
+    for rect in wall._divider_rects.values():
+        assert wall.rect().contains(rect)
+        assert all(not rect.intersects(pane) for pane in rects)
+    for tile in tiles:
+        border = wall._pane_borders[tile]
+        assert border.isVisible()
+        assert not border.mask().contains(border.rect().center())
     if equal_small:
         assert abs(tiles[1].height() - tiles[2].height()) <= 1
         assert max(tile.width() for tile in tiles[3:]) - min(tile.width() for tile in tiles[3:]) <= 1
@@ -64,15 +91,17 @@ def main():
     wall.show()
     app.processEvents()
     try:
-        assert hasattr(wall, "_corner_width_handle"), "一大五小尚未接入拖动条"
+        assert not hasattr(wall, "_corner_width_handle")
         check_geometry(wall, equal_small=True)
         original_tiles = list(wall.tiles)
         video_ids = [int(tile.video.winId()) for tile in original_tiles]
         before = wall.tiles[0].size()
-        drag(app, wall._corner_width_handle, QPoint(90, 0))
+        border, point = border_for(wall, CORNER_KEYS[Qt.Horizontal])
+        drag(app, border, QPoint(90, 0), pos=point)
         assert wall.tiles[0].width() > before.width()
         assert wall.tiles[0].height() == before.height()
-        drag(app, wall._corner_height_handle, QPoint(0, -60))
+        border, point = border_for(wall, CORNER_KEYS[Qt.Vertical])
+        drag(app, border, QPoint(0, -60), pos=point)
         assert wall.tiles[0].height() < before.height()
         check_geometry(wall)
         assert [int(tile.video.winId()) for tile in original_tiles] == video_ids
@@ -89,7 +118,7 @@ def main():
             wall.set_fullscreen_tile(target)
             app.processEvents()
             assert wall.visible_tiles() == [target]
-            assert all(not handle.isVisible() for handle in wall._corner_handles.values())
+            assert all(not border.isVisible() for border in wall._pane_borders.values())
             wall.set_fullscreen_tile(None, stagger=True, first=target)
             assert target.isVisible()
             assert len(wall._pending_reveal) == 5
@@ -105,7 +134,6 @@ def main():
             wall.set_layout(preset["id"])
             for _ in range(4):
                 app.processEvents()
-            assert all(not handle.isVisible() for handle in wall._corner_handles.values())
             assert all(tile.parentWidget() is wall for tile in wall.tiles)
             wall.set_layout("corner")
             app.processEvents()
@@ -113,14 +141,16 @@ def main():
             assert wall.tiles[:6] == original_tiles
             assert (wall._corner_width_ratio, wall._corner_height_ratio) == ratios
         assert [int(tile.video.winId()) for tile in original_tiles] == video_ids
-        for handle, movement in ((wall._corner_width_handle, QPoint(-5000, 0)),
-                                 (wall._corner_width_handle, QPoint(5000, 0)),
-                                 (wall._corner_height_handle, QPoint(0, -5000)),
-                                 (wall._corner_height_handle, QPoint(0, 5000))):
-            drag(app, handle, movement)
+        for target, movement in ((Qt.Horizontal, QPoint(-5000, 0)),
+                                 (Qt.Horizontal, QPoint(5000, 0)),
+                                 (Qt.Vertical, QPoint(0, -5000)),
+                                 (Qt.Vertical, QPoint(0, 5000))):
+            border, point = border_for(wall, CORNER_KEYS[target])
+            drag(app, border, movement, pos=point)
             check_geometry(wall)
-        for handle in (wall._corner_width_handle, wall._corner_height_handle):
-            QTest.mouseDClick(handle, Qt.LeftButton, pos=handle.rect().center())
+        for target in (Qt.Horizontal, Qt.Vertical):
+            border, point = border_for(wall, CORNER_KEYS[target])
+            QTest.mouseDClick(border, Qt.LeftButton, pos=point)
             app.processEvents()
         assert wall._corner_width_ratio == wall._corner_height_ratio == 2 / 3
         wall.resize(100, 100)

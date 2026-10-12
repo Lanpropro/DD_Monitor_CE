@@ -16,11 +16,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "windows" if "--native" in sys.argv els
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
 import vlc
 from ddm import layouts, theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
-from selfcheck_corner_resize import drag
+from selfcheck_corner_resize import drag, border_for, CORNER_KEYS
 from selfcheck_corner_drag_updates import begin, move_to, release_at
 from selfcheck_pane_borders import point_on, resize as resize_border
 
@@ -88,12 +89,13 @@ def main():
                 resize_border(app, border, ["right", "bottom"], QPoint(-32, -32))
                 settle(app)
                 # 持续按住拖动，包含定时更新，不能只验证松开时的一次几何变化。
-                for handle, axis in ((window.wall._corner_width_handle, QPoint(1, 0)),
-                                     (window.wall._corner_height_handle, QPoint(0, 1)),
-                                     (window.wall._corner_right_handle, QPoint(0, 1)),
-                                     (window.wall._corner_bottom_handles[0], QPoint(1, 0)),
-                                     (window.wall._corner_bottom_handles[1], QPoint(1, 0))):
-                    origin = begin(handle)
+                for target, axis in ((Qt.Horizontal, QPoint(1, 0)),
+                                     (Qt.Vertical, QPoint(0, 1)),
+                                     ("right", QPoint(0, 1)),
+                                     ("bottom_left", QPoint(1, 0)),
+                                     ("bottom_right", QPoint(1, 0))):
+                    handle, point = border_for(window.wall, CORNER_KEYS[target])
+                    origin = begin(handle, pos=point)
                     for frame in range(8):
                         for sample in range(20):
                             offset = (sample + frame * 20) % 61 - 30
@@ -102,9 +104,14 @@ def main():
                         settle(app, 0.05)
                     release_at(handle, destination)
                     settle(app)
+                    handle, point = border_for(window.wall, CORNER_KEYS[target])
+                    QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
+                    settle(app, .05)
                 for index in range(4):
-                    drag(app, window.wall._corner_width_handle, QPoint(30 if index % 2 else -30, 0))
-                    drag(app, window.wall._corner_height_handle, QPoint(0, 25 if index % 2 else -25))
+                    for target, movement in ((Qt.Horizontal, QPoint(30 if index % 2 else -30, 0)),
+                                             (Qt.Vertical, QPoint(0, 25 if index % 2 else -25))):
+                        handle, point = border_for(window.wall, CORNER_KEYS[target])
+                        drag(app, handle, movement, pos=point)
                     settle(app)
                 window.resize(1600, 950)
                 settle(app)
@@ -127,9 +134,12 @@ def main():
                     window.resize(850 if layouts.is_portrait_layout(identifier) else 1600, 1300)
                     settle(app, .08)
                     for key in list(window.wall._preset_dividers):
-                        handle = window.wall._preset_handles[key]
-                        direction = QPoint(1, 0) if handle.orientation == Qt.Horizontal else QPoint(0, 1)
-                        drag(app, handle, direction * 12)
+                        handle, point = border_for(window.wall, key)
+                        node = window.wall._preset_dividers[key][0]
+                        direction = QPoint(1, 0) if node.axis == Qt.Horizontal else QPoint(0, 1)
+                        drag(app, handle, direction * 12, pos=point)
+                        handle, point = border_for(window.wall, key)
+                        QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
                     pane = window.wall.tiles[0]
                     border = window.wall._pane_borders[pane]
                     if border.targets:
@@ -155,10 +165,9 @@ def main():
                     print(f"VLC time={player.player.get_time()}ms, decoded={stats.decoded_video}, "
                           f"displayed={stats.displayed_pictures}", flush=True)
                 window.start_tile.assert_not_called()
-                for handle in window.wall._corner_handles.values():
-                    image = handle.grab().toImage()
-                    assert image.pixelColor(image.width() // 2, image.height() // 2).name() in (
-                        "#526173", "#38bdf8"), "原生分隔线必须完整填充背景"
+                image = window.wall.grab().toImage()
+                for rect in window.wall._divider_rects.values():
+                    assert image.pixelColor(rect.center()) == theme.qcolor(theme.BG)
                 window.grab().save(str(ROOT / "work/corner-resize-application.png"))
                 print(f"PASS: {app.platformName()}, six real VLC players, drag/resize/fullscreen "
                       "geometry/hot swap/all presets, stable handles and continuous media")
