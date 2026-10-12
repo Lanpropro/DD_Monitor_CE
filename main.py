@@ -8,6 +8,16 @@ python-vlc 在 import 的时候就要知道 libvlc 在哪，所以先设好环�
 import os
 import sys
 
+# Python 3.12 的 WMI 查询可能在导入 aiohttp 时卡住，使用系统版本接口回退。
+if sys.platform == "win32":
+    import platform
+
+    def _skip_wmi_query(*_args):
+        raise OSError("WMI metadata queries are disabled in the app process")
+
+    if hasattr(platform, "_wmi_query"):
+        platform._wmi_query = _skip_wmi_query
+
 # 旧0.3更新器要求带版本号的入口；该入口只转交到固定名称主程序。
 if __name__ == "__main__" and getattr(sys, "frozen", False):
     from pathlib import Path
