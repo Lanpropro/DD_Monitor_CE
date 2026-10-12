@@ -22,6 +22,7 @@ from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from selfcheck_corner_resize import drag
 from selfcheck_corner_drag_updates import begin, move_to, release_at
+from selfcheck_pane_borders import point_on, resize as resize_border
 
 
 def settle(app, seconds=0.3):
@@ -45,7 +46,7 @@ def main():
                             state={"plugins_enabled": [], "settings": {
                                 "recording_enabled": False, "recording_replay_enabled": False,
                                 "preview_on_hover": False, "auto_update": False}})
-        window.setGeometry(-9000, -9000, 1400, 900)
+        window.setGeometry(40 if "--native" in sys.argv else -9000, 40, 1400, 900)
         window.show()
         settle(app)
         window.start_tile.reset_mock()  # 启动布局的调用不属于后续拖动操作。
@@ -75,6 +76,17 @@ def main():
                 identities = [(player.player, player._media, int(player.video_widget.winId()))
                               for player in players]
                 initial_time = [player.player.get_time() for player in players]
+                border = window.wall._pane_borders[window.wall.tiles[0]]
+                if app.platformName() == "windows":
+                    import ctypes
+                    from ctypes import wintypes
+                    user32 = ctypes.windll.user32
+                    user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+                    user32.WindowFromPoint.restype = wintypes.HWND
+                    point = border.mapToGlobal(point_on(border, ["right"]))
+                    assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(border.winId()), "VLC must not intercept border mouse hits"
+                resize_border(app, border, ["right", "bottom"], QPoint(-32, -32))
+                settle(app)
                 # 持续按住拖动，包含定时更新，不能只验证松开时的一次几何变化。
                 for handle, axis in ((window.wall._corner_width_handle, QPoint(1, 0)),
                                      (window.wall._corner_height_handle, QPoint(0, 1)),
@@ -118,6 +130,12 @@ def main():
                         handle = window.wall._preset_handles[key]
                         direction = QPoint(1, 0) if handle.orientation == Qt.Horizontal else QPoint(0, 1)
                         drag(app, handle, direction * 12)
+                    pane = window.wall.tiles[0]
+                    border = window.wall._pane_borders[pane]
+                    if border.targets:
+                        edges = (["right", "bottom"] if "right" in border.targets and "bottom" in border.targets
+                                 else [next(iter(border.targets))])
+                        resize_border(app, border, edges, QPoint(-12, -12))
                     if identifier in ('3x2', 'two_rows', 'dm_left', 'portrait_dm4'):
                         window.grab().save(str(ROOT / f'work/resize-{identifier}.png'))
                     window.wall.reset_layout_ratios()

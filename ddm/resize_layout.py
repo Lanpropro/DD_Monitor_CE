@@ -149,3 +149,101 @@ def geometry(partition, area, gap, leaf_minimum, saved, defaults=None):
 
     place(partition, area)
     return leaves, dividers
+
+
+def border_targets(rect, dividers):
+    """Map each movable pane edge to its adjacent partition boundary."""
+    targets = {}
+    for node, index, handle, _area, _sizes in dividers:
+        key = (node.key, index)
+        if node.axis == Qt.Horizontal:
+            if handle.top() <= rect.top() and handle.bottom() >= rect.bottom():
+                if handle.right() + 1 == rect.left():
+                    targets["left"] = key
+                if rect.right() + 1 == handle.left():
+                    targets["right"] = key
+        elif handle.left() <= rect.left() and handle.right() >= rect.right():
+            if handle.bottom() + 1 == rect.top():
+                targets["top"] = key
+            if rect.bottom() + 1 == handle.top():
+                targets["bottom"] = key
+    return targets
+
+
+def resize_borders(tree, area, gap, minimum, saved, defaults, cell, edges, original, delta):
+    """Resize one/two boundaries from the press snapshot; clamp corners as a unit."""
+    horizontal = next((edge for edge in edges if edge in ("left", "right")), None)
+    vertical = next((edge for edge in edges if edge in ("top", "bottom")), None)
+    sx = -1 if horizontal == "left" else 1
+    sy = -1 if vertical == "top" else 1
+
+    def trial(width, height):
+        weights = {key: list(values) for key, values in saved.items()}
+        # Ancestors must move first so descendants use their updated available area.
+        for edge, key in sorted(edges.items(), key=lambda item: len(item[1][0])):
+            _, dividers = geometry(tree, area, gap, minimum, weights, defaults)
+            node, index, _handle, _node_area, current = next(
+                divider for divider in dividers if (divider[0].key, divider[1]) == key)
+            is_horizontal = node.axis == Qt.Horizontal
+            sign = -1 if edge in ("left", "top") else 1
+            sizes = list(current)
+            mins = [child.minimum(gap, minimum) for child in node.children]
+            lower = mins[index].width() if is_horizontal else mins[index].height()
+            pair = sizes[index] + sizes[index + 1]
+            upper = pair - (mins[index + 1].width() if is_horizontal else mins[index + 1].height())
+            wanted = width if is_horizontal else height
+
+            def candidate(value):
+                sizes[index], sizes[index + 1] = value, pair - value
+                weights[node.key] = [size / sum(sizes) for size in sizes]
+                placed, _ = geometry(tree, area, gap, minimum, weights, defaults)
+                rect = placed[cell]
+                return rect.width() if is_horizontal else rect.height()
+
+            # An edge can belong to an ancestor: changing its span by N may only
+            # change this leaf by a fraction of N. Solve against the leaf itself.
+            low, high = lower, upper
+            while low < high:
+                middle = (low + high) // 2
+                if sign * candidate(middle) < sign * wanted:
+                    low = middle + 1
+                else:
+                    high = middle
+            options = {low, max(lower, low - 1)}
+            best = min(options, key=lambda value: (abs(candidate(value) - wanted), abs(value - current[index])))
+            candidate(best)
+        leaves, _ = geometry(tree, area, gap, minimum, weights, defaults)
+        return weights, leaves[cell]
+
+    if not (horizontal and vertical):
+        return trial(original.width() + sx * delta.x() if horizontal else original.width(),
+                     original.height() + sy * delta.y() if vertical else original.height())[0]
+    width, height = original.width(), original.height()
+    scale = max(0.0, 1 + (sx * delta.x() * width + sy * delta.y() * height)
+                / (width * width + height * height))
+
+    cache = {}
+
+    def scaled(value):
+        wanted_w, wanted_h = round(width * value), round(height * value)
+        if (wanted_w, wanted_h) in cache:
+            return cache[(wanted_w, wanted_h)]
+        weights, rect = trial(wanted_w, wanted_h)
+        valid = abs(rect.width() - wanted_w) <= 1 and abs(rect.height() - wanted_h) <= 1
+        cache[(wanted_w, wanted_h)] = weights, valid
+        return weights, valid
+
+    result, valid = scaled(scale)
+    if valid:
+        return result
+    # Find the furthest feasible scale before either axis reaches a neighbour's minimum.
+    feasible, blocked = 1.0, scale
+    result, _ = scaled(feasible)
+    for _ in range(24):
+        middle = (feasible + blocked) / 2
+        candidate, valid = scaled(middle)
+        if valid:
+            feasible, result = middle, candidate
+        else:
+            blocked = middle
+    return result

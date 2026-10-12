@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme
 from selfcheck_corner_drag_updates import begin, move_to, release_at
+from selfcheck_pane_borders import press
 from ddm import bili, config, resize_layout
 from ddm.app import MainWindow
 
@@ -73,6 +74,15 @@ def main():
                 QTest.qWait(850)
                 save.assert_not_called()
                 release_at(handle, origin + QPoint(0, 35))
+                QTest.qWait(850)
+                assert save.call_count == 1
+            border = first.wall._pane_borders[first.wall.tiles[0]]
+            with patch.object(config, 'save', wraps=config.save) as save:
+                origin = press(border, ["right", "bottom"])
+                move_to(border, origin + QPoint(20, 20))
+                QTest.qWait(850)
+                save.assert_not_called()
+                release_at(border, origin + QPoint(35, 35))
                 QTest.qWait(850)
                 assert save.call_count == 1
             saved = first.wall.layout_ratios()
