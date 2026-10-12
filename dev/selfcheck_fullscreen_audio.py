@@ -1,7 +1,8 @@
 """全屏独占声音：恢复静音状态，保存配置不写入临时状态，开关可关闭。"""
 import os
 import sys
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -74,7 +75,9 @@ def main():
             Accepted = QDialog.Accepted
 
             def __init__(self, *args, **kwargs):
-                pass
+                self.update_page = SimpleNamespace(releaseChecked=Mock(), install_requested=False)
+                self.plugin_page = SimpleNamespace(store_page=SimpleNamespace(offersChanged=Mock()))
+                self.updatesViewed = Mock()
 
             def exec(self):
                 return self.Accepted

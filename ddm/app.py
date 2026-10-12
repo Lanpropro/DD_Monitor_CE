@@ -1950,14 +1950,10 @@ class MainWindow(QMainWindow):
                 cached += 1
 
     def _audit_audio(self) -> None:
-        """巡检：格子记的静音 / 音量，和播放器**实际**的值有没有走散。
+        """按格子设置巡检实际音频输出，避免把 VLC 静音标志当作静音效果。
 
-        格子是权威（用户是按格子调的），走散了就按格子重新下发一次。需要这条
-        兜底是因为：`audio_set_mute` / `audio_set_volume` 作用在 aout 上，而 aout
-        要等真正开始播放才建 —— 补设置只能靠 `play()` 后那几次重试加看门狗，
-        慢启动 / 断流重连 / 切音频输出路径时可能整个错过那个窗口，结果就是
-        「静音标志亮着、这一格却还在出声」，用户听起来像「格子之间的音频连在
-        一起」。走散时打一行 `[音频]`，下次复现能直接从日志看出是哪一格、差多少。
+        PCM 路由检查独立输出的 enabled / volume；原生输出检查实际音量。
+        set_muted() 不设置 VLC 静音标志，因此不能用 audio_get_mute() 比较。
         """
         for tile in self.wall.tiles:
             player = self.players.get(tile)
@@ -1965,31 +1961,43 @@ class MainWindow(QMainWindow):
                 continue
             if getattr(player, "silent", False) or getattr(player, "_released", False):
                 continue
+            if not getattr(player, "_audio_ready", True):
+                continue                           # 等播放入口完成音频初始化
+            name = tile.room.get("uname") or tile.room.get("room_id")
+            muted = bool(tile.muted)
+            if bool(player.muted) != muted:
+                print(f"[音频] {name} 静音走散：格子={muted} "
+                      f"播放器={bool(player.muted)} → 按格子重新下发",
+                      file=sys.stderr, flush=True)
+                player.set_muted(muted)
+                continue
+            if getattr(player, "uses_pcm_routing", False):
+                output = player._audio_output
+                if bool(output.enabled) != (not muted):
+                    print(f"[音频] {name} 音频输出开关走散 → 按格子重新下发",
+                          file=sys.stderr, flush=True)
+                    player.set_muted(muted)
+                if int(output.volume) != int(tile.volume):
+                    print(f"[音频] {name} 音量走散：格子={tile.volume} "
+                          f"输出={output.volume} → 按格子重新下发",
+                          file=sys.stderr, flush=True)
+                    player.set_volume(int(tile.volume))
+                continue                           # VLC 音量不控制 PCM 回调样本
             vlc = getattr(player, "player", None)
             if vlc is None:
                 continue
-            name = tile.room.get("uname") or tile.room.get("room_id")
-            try:
-                actual_mute = int(vlc.audio_get_mute())
-            except Exception:                      # noqa: BLE001
-                continue
-            if actual_mute < 0:                    # aout 还没起来，这个接口答不了
-                continue
-            if bool(actual_mute) != bool(tile.muted):
-                print(f"[音频] {name} 静音走散：格子={bool(tile.muted)} "
-                      f"播放器={bool(actual_mute)} → 按格子重新下发",
-                      file=sys.stderr, flush=True)
-                player.set_muted(bool(tile.muted))
-                continue
-            if tile.muted:
-                continue                           # 静音时音量本来就是 0，不必比
-            if getattr(player, "uses_pcm_routing", False):
-                continue        # PCM 路由下 VLC 不管音量（实测），比了会误判
             try:
                 actual_volume = int(vlc.audio_get_volume())
             except Exception:                      # noqa: BLE001
                 continue
             if actual_volume < 0:
+                continue
+            if muted:
+                if actual_volume > player_module.SILENT_VOLUME:
+                    print(f"[音频] {name} 静音音量走散：播放器={actual_volume} "
+                          "→ 按格子重新下发",
+                          file=sys.stderr, flush=True)
+                    player.set_muted(True)
                 continue
             expected = linear_to_vlc_volume(int(tile.volume))
             if abs(actual_volume - expected) > 1:
