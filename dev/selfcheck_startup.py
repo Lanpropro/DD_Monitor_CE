@@ -127,7 +127,8 @@ def main() -> None:
     })
     assert alerts == [], "启动时补状态不该弹开播提醒（用户要的是「开播时」提醒）"
     assert item2.room.get("live") is True, "但徽标状态要摆正"
-    # 之后真的下播再开播，才应该提醒
+    # 首轮完整读取结束后，真的下播再开播才应该提醒。
+    window._startup_status_complete = True
     window._on_status_updated({
         "7002": {"live": False, "title": "标题乙", "uname": "主播乙",
                  "face": "", "cover_url": "", "viewers": ""},

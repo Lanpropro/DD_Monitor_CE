@@ -140,6 +140,7 @@ class MainWindow(QMainWindow):
         self._platform_login_sessions: dict[str, dict] = {}
         self._douyin_follow_cache = None
         self._poller = None
+        self._startup_status_complete = False
         self._refresh_queued = False
         self._stats_poller = None
         self._retry_count: dict[object, int] = {}
@@ -1692,6 +1693,7 @@ class MainWindow(QMainWindow):
         self._poller = None
         if self._closing:
             return
+        self._startup_status_complete = True
         if self._refresh_queued:
             self._refresh_queued = False
             self.refresh_status()
@@ -1720,6 +1722,8 @@ class MainWindow(QMainWindow):
         # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
         tile_was_live = {tile: bool(tile.room.get("live")) for tile in self.wall.tiles}
         item_was_live = {item: bool(item.room.get("live")) for item in self.sidebar._items}
+        item_was_known = {item: bool(item.room.get("live_known", True))
+                          for item in self.sidebar._items}
         faces: dict[str, str] = {}
         covers: dict[str, str] = {}
         for tile in self.wall.tiles:
@@ -1769,7 +1773,8 @@ class MainWindow(QMainWindow):
                 # 只有**本来就知道是没开播**的才算「刚开播」：启动时占位条目
                 # （live_known=False）第一次补上真实状态不算，否则一开软件满列表
                 # 冒气泡／弹提醒 —— 用户要的是「开播时」的提示。
-                if self.settings.get("live_alert", True) and item.room.get("live_known", True):
+                if (self._startup_status_complete and self.settings.get("live_alert", True)
+                        and item_was_known[item] and info.get("live_known", True)):
                     item.room["live"] = True        # 徽标由动效砸中时再换
                     just_went_live.append(item)
                 else:
@@ -1788,13 +1793,18 @@ class MainWindow(QMainWindow):
                 cached = load_cached_avatar(face)
                 if cached is not None:
                     item.thumb.set_face(cached)
-            item.room["live_known"] = True          # 这一路的直播状态从此算已知
+            item.room["live_known"] = info.get("live_known", True)
             self.sidebar._folder_pending.discard(str(item.room.get("room_id")))
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
         self._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
         self.sync_danmaku()
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
+            rooms = [dict(item.room) for item in just_went_live]
+            names = "、".join(str(room.get("uname") or room["room_id"]) for room in rooms[:2])
+            message = (names + " 开播了" if len(rooms) <= 2
+                       else f"{names} 等 {len(rooms)} 位主播开播了")
+            self._show_notice(message, rooms=rooms, kind="live")
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")
@@ -2421,13 +2431,14 @@ class MainWindow(QMainWindow):
     def _record_notice(self, message: str) -> None:
         if self._closing:
             return
-        if any(word in message for word in ("磁盘", "空间不足", "找不到 FFmpeg",
-                                            "启动失败", "续录失败", "导出失败",
-                                            "连接中", "只能录制", "正在结束", "保存目录", "原画")):
-            box = QMessageBox(QMessageBox.Warning, "录制提醒", message,
-                              QMessageBox.Ok, self)
-            box.setAttribute(Qt.WA_DeleteOnClose)
-            box.open()
+        warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
+        self._show_notice(message, kind="warning" if warning else "info")
+
+    def _show_notice(self, message: str, *, rooms=(), kind="info") -> None:
+        if self._closing:
+            return
+        from .online_ui import show_result
+        show_result(self, message, rooms=rooms, kind=kind)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3120,6 +3131,10 @@ class MainWindow(QMainWindow):
             self._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("audio_cycle"):
             self._cycle_audio_under_cursor()
+        elif pressed and pressed == shortcuts.get("video_danmaku"):
+            tile = self._tile_under_cursor()
+            if tile is not None and tile.room.get("room_id"):
+                tile.danmaku_button.toggle()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
         elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:

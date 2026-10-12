@@ -319,6 +319,10 @@ QSlider::handle:horizontal:hover {{
     background: transparent;
     border: none;
 }}
+#NoticeText {{
+    color: {TEXT1};
+    font-weight: 500;
+}}
 #NoticeClose {{
     background: transparent;
     border: none;

@@ -87,7 +87,7 @@ def main():
         notice.set_room_avatar("unknown", face)
         image = notice.grab().toImage()
         assert image.pixelColor(0, 0).alpha() == 0, "capsule corners must be transparent"
-        assert image.pixelColor(3, 3).alpha() == 0, "use a pill radius rather than the old small radius"
+        assert image.pixelColor(3, 3).alpha() == 0, "rounded notice corners must stay transparent"
         assert image.pixelColor(image.width() // 2, 2).alpha() > 0
         assert image.pixelColor(image.width() // 2, 4) == theme.qcolor(theme.ELEVATED), "notice should use the themed floating background"
         notice._motion.setCurrentTime(60)
@@ -132,7 +132,7 @@ def main():
         plugins.store_page.stop()
     sys.excepthook = original_hook
     assert not errors, errors
-    print("PASS: refresh spin/reentry/stop, opaque plugin tabs, capsule/avatar cache/callback/reset, result notice reuse/timeout/hide and reduced motion")
+    print("PASS: refresh spin/reentry/stop, opaque plugin tabs, notice/avatar cache/callback/reset, result notice reuse/timeout/hide and reduced motion")
 
 
 if __name__ == "__main__":

@@ -5573,7 +5573,7 @@ class Tile(QFrame):
         self.danmaku_button.setObjectName("TileCtrl")
         self.danmaku_button.setCheckable(True)
         self.danmaku_button.setFixedSize(44, 26)
-        self.danmaku_button.setToolTip("启用这一路的画面弹幕；右侧齿轮可调整观看设置")
+        self.danmaku_button.setToolTip("切换这一路的画面弹幕（默认 D）；右侧齿轮可调整观看设置")
         self.danmaku_button.toggled.connect(self._toggle_video_danmaku)
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
         self.danmaku_settings_button = QPushButton("⚙")

@@ -567,12 +567,18 @@ class UpdateNotice(QFrame):
 
 
 class ResultNotice(UpdateNotice):
-    """复用悬浮提醒；操作结果全程不透明，三秒后自动收起。"""
+    """顶部主提示：宽度随内容变化，不抢焦点，按提示类型自动收起。"""
     def __init__(self, parent):
         super().__init__(parent)
         self.layout().itemAt(1).widget().hide()
         self.action.hide()
         self.title.setWordWrap(True)
+        self.title.setTextFormat(Qt.PlainText)
+        self.title.setObjectName('NoticeText')
+        self.title.setMinimumWidth(0)
+        self.layout().setContentsMargins(12, 10, 10, 10)
+        self.layout().setSpacing(0)
+        self.layout().itemAt(0).layout().setSpacing(8)
         self.timer.setInterval(3000)
         self.avatar_strip = QWidget(self)
         self.avatar_layout = QHBoxLayout(self.avatar_strip)
@@ -581,6 +587,10 @@ class ResultNotice(UpdateNotice):
         self.layout().itemAt(0).layout().insertWidget(0, self.avatar_strip)
         self._avatars = {}
         self.avatar_strip.hide()
+        self.indicator = QLabel('✓', self)
+        self.indicator.setFixedSize(20, 24)
+        self.indicator.setAlignment(Qt.AlignCenter)
+        self.layout().itemAt(0).layout().insertWidget(0, self.indicator)
 
     def _set_rooms(self, rooms):
         from .images import load_cached_avatar, load_room_avatar
@@ -600,6 +610,8 @@ class ResultNotice(UpdateNotice):
                 avatar.set_pixmap_image(pixmap)
             self.avatar_layout.addWidget(avatar)
             self._avatars[room_id] = avatar
+        count = self.avatar_layout.count()
+        self.avatar_strip.setFixedWidth(count * 28 + max(0, count - 1) * self.avatar_layout.spacing())
         self.avatar_strip.setVisible(bool(self._avatars))
 
     def set_room_avatar(self, room_id, pixmap):
@@ -612,17 +624,22 @@ class ResultNotice(UpdateNotice):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(theme.qcolor(theme.ELEVATED))
         painter.setPen(QColor(131, 131, 145, 80))
-        radius = self.height() / 2
+        radius = theme.RADIUS_LG
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                                 radius, radius)
 
-    def show_message(self, message, rooms=()):
+    def show_message(self, message, rooms=(), *, kind='info'):
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)
         self._set_rooms(rooms)
-        self.setFixedWidth(min(360, max(240, self.parentWidget().width() - 40)))
-        self.adjustSize()
+        symbol, colour = {'live': ('●', theme.PINK),
+                          'warning': ('!', '#e8b86d')}.get(kind, ('✓', theme.ACCENT))
+        self.indicator.setText(symbol)
+        self.indicator.setStyleSheet('color: ' + colour + '; font-weight: 600;')
+        self.indicator.setVisible(not bool(self._avatars))
+        self.timer.setInterval({'live': 5000, 'warning': 6000}.get(kind, 3000))
+        self._resize_to_content()
         self._progress = self._progress if self.isVisible() else 0.0
         if not motion.enabled():
             self._progress = 1.0
@@ -632,6 +649,32 @@ class ResultNotice(UpdateNotice):
         self.timer.start()
         if self._progress < 1.0:
             self._animate_to(1.0, 160)
+
+    def _resize_to_content(self):
+        self.ensurePolished()
+        heading = self.layout().itemAt(0).layout()
+        margins = self.layout().contentsMargins()
+        widgets = [heading.itemAt(index).widget() for index in range(heading.count())]
+        visible = [widget for widget in widgets if not widget.isHidden()]
+        for widget in visible:
+            widget.ensurePolished()
+        reserved = margins.left() + margins.right() + heading.spacing() * (len(visible) - 1)
+        reserved += sum(widget.minimumWidth() if widget.minimumWidth() == widget.maximumWidth()
+                        else widget.sizeHint().width()
+                        for widget in visible if widget is not self.title)
+        text_width = max((self.title.fontMetrics().horizontalAdvance(line)
+                          for line in self.title.text().splitlines()), default=0)
+        width = min(max(80, self.parentWidget().width() - 32), 480,
+                    max(120, reserved + text_width + 8))
+        self.setFixedWidth(width)
+        self.layout().invalidate()
+        self.setFixedHeight(max(48, self.layout().heightForWidth(width)))
+        self.layout().activate()
+
+    def eventFilter(self, watched, event):
+        if self.isVisible() and event.type() == QEvent.Resize:
+            self._resize_to_content()
+        return super().eventFilter(watched, event)
 
     def _motion_frame(self, value):
         self._progress = value
@@ -644,10 +687,10 @@ class ResultNotice(UpdateNotice):
                                            20 + offset)))
 
 
-def show_result(parent, message, rooms=()):
+def show_result(parent, message, rooms=(), *, kind='info'):
     if not parent.isVisible():
         return
     notice = getattr(parent, '_result_notice', None)
     if notice is None:
         notice = parent._result_notice = ResultNotice(parent)
-    notice.show_message(message, rooms)
+    notice.show_message(message, rooms, kind=kind)

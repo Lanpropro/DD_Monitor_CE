@@ -23,6 +23,7 @@ SHORTCUT_ACTIONS = [
     ("restore", "退出全屏", "Esc"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("audio_cycle", "声音轮询按键", "E"),
+    ("video_danmaku", "切换鼠标所在格子的画面弹幕", "D"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
 
@@ -61,7 +62,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
-        ("live_alert", "开播气泡提醒"),
+        ("live_alert", "开播提醒（顶部提示与关注栏动效）"),
     ]
 
     def __init__(self, settings: dict, parent=None):
