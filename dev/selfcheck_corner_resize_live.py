@@ -47,6 +47,8 @@ def main():
                             state={"plugins_enabled": [], "settings": {
                                 "recording_enabled": False, "recording_replay_enabled": False,
                                 "preview_on_hover": False, "auto_update": False}})
+        if "--native" in sys.argv:
+            window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         window.setGeometry(40 if "--native" in sys.argv else -9000, 40, 1400, 900)
         window.show()
         settle(app)
@@ -74,6 +76,10 @@ def main():
                     tile.set_video_active(True)
                 settle(app, 2)
                 assert all(player.player.is_playing() for player in players), "本地视频必须实际播放"
+                if "--native" in sys.argv:
+                    window.raise_()
+                    window.activateWindow()
+                    settle(app, .1)
                 identities = [(player.player, player._media, int(player.video_widget.winId()))
                               for player in players]
                 initial_time = [player.player.get_time() for player in players]
@@ -85,7 +91,10 @@ def main():
                     user32.WindowFromPoint.argtypes = (wintypes.POINT,)
                     user32.WindowFromPoint.restype = wintypes.HWND
                     point = border.mapToGlobal(point_on(border, ["right"]))
-                    assert user32.WindowFromPoint(wintypes.POINT(point.x(), point.y())) == int(border.winId()), "VLC must not intercept border mouse hits"
+                    hit = user32.WindowFromPoint(wintypes.POINT(point.x(), point.y()))
+                    assert hit == int(border.winId()), (
+                        f"VLC must not intercept border mouse hits: hit={hit}, border={int(border.winId())}, "
+                        f"point={point}, wall={window.wall.geometry()}")
                 resize_border(app, border, ["right", "bottom"], QPoint(-32, -32))
                 settle(app)
                 # 持续拖动只更新轮廓，VLC 原生窗口在松手前保持原几何和句柄。
@@ -106,20 +115,31 @@ def main():
                         settle(app, 0.05)
                         assert [tile.geometry() for tile in window.wall.tiles] == still
                         assert [tile.video.geometry() for tile in window.wall.tiles] == video_still
-                        assert window.wall._border_preview.isVisible()
+                        assert window.wall._border_preview.isVisible(), (
+                            target, frame, destination, window.wall._border_preview.guides)
                         assert len(window.wall._border_preview.rectangles) == 6
+                        assert window.wall._border_preview.guides
                         assert all(int(tile.video.winId()) == identity[2]
                                    for tile, identity in zip(window.wall.tiles, identities))
                         if "--native" in sys.argv and target == Qt.Horizontal and frame == 0:
-                            outline = window.wall._border_preview.rectangles[0]
-                            spot = window.wall.mapToGlobal(QPoint(outline.right() - 1, outline.center().y()))
+                            preview = window.wall._border_preview
+                            guide = preview.guides[CORNER_KEYS[Qt.Horizontal]]
+                            spot = window.wall.mapToGlobal(QPoint(
+                                guide.center().x(), guide.top() + 8 * (preview.DASH + preview.GAP)))
                             screen = QApplication.screenAt(spot)
                             snapshot = screen.grabWindow(0).toImage()
                             ratio = screen.devicePixelRatio()
+                            top_left = window.wall.mapToGlobal(QPoint(0, 0))
+                            snapshot.copy(
+                                round((top_left.x() - screen.geometry().left()) * ratio),
+                                round((top_left.y() - screen.geometry().top()) * ratio),
+                                round(window.wall.width() * ratio),
+                                round(window.wall.height() * ratio)).save(
+                                    str(ROOT / "work/resize-guide-native.png"))
                             pixel = snapshot.pixelColor(
                                 round((spot.x() - screen.geometry().left()) * ratio),
                                 round((spot.y() - screen.geometry().top()) * ratio))
-                            assert pixel.name() == "#38bdf8", pixel.name()
+                            assert pixel == preview.COLOR, pixel.name()
                     release_at(handle, destination)
                     settle(app)
                     assert not window.wall._border_preview.isVisible()

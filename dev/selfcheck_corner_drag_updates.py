@@ -96,7 +96,7 @@ def main():
             app.processEvents()
             check_geometry(wall)
         assert [int(tile.video.winId()) for tile in wall.tiles[:6]] == video_ids
-        print("PASS: 120 moves -> one layout update, outline preview, exact release, "
+        print("PASS: 120 moves -> one layout update, dashed guide preview, exact release, "
               "reset/layout/fullscreen cancellation and stable video handles")
     finally:
         wall.close()

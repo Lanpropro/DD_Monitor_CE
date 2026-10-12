@@ -6576,30 +6576,48 @@ class WallPaneBorder(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(event.rect(), theme.qcolor(theme.BG))
-        for edge in self.hover_edges:
-            painter.fillRect(self._edge_rect(edge), QColor("#38bdf8"))
+        if self.wall._border_drag is None:
+            for edge in self.hover_edges:
+                painter.fillRect(self._edge_rect(edge), QColor("#38bdf8"))
 
 
 class WallResizePreview(QWidget):
-    """Masked native outlines stay above VLC while the video windows remain still."""
+    """Masked native guides stay above VLC while the video windows remain still."""
 
     LINE = 2
+    DASH = 6
+    GAP = 5
+    COLOR = QColor("#b7c1c4")
 
     def __init__(self, wall):
         super().__init__(wall)
         self.rectangles = {}
+        self.guides = {}
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.hide()
 
-    def show_rectangles(self, rectangles):
+    def show_guides(self, rectangles, dividers, originals):
         self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
+        self.guides = {}
         self.setGeometry(self.parentWidget().rect())
         outline = QRegion()
-        for rect in self.rectangles.values():
-            outline |= QRegion(rect) - QRegion(rect.adjusted(
-                self.LINE, self.LINE, -self.LINE, -self.LINE))
+        for key, rect in dividers.items():
+            previous = originals.get(key)
+            vertical = rect.width() < rect.height()
+            if previous is None or (rect.left() if vertical else rect.top()) == (
+                    previous.left() if vertical else previous.top()):
+                continue
+            self.guides[key] = QRect(rect)
+            length = rect.height() if vertical else rect.width()
+            for offset in range(0, length, self.DASH + self.GAP):
+                dash = min(self.DASH, length - offset)
+                x = rect.center().x() - self.LINE // 2 if vertical else rect.left() + offset
+                y = rect.top() + offset if vertical else rect.center().y() - self.LINE // 2
+                outline |= QRegion(QRect(x, y,
+                                         self.LINE if vertical else dash,
+                                         dash if vertical else self.LINE))
         if outline.isEmpty():
             self.hide()
             return
@@ -6611,9 +6629,10 @@ class WallResizePreview(QWidget):
     def clear(self):
         self.hide()
         self.rectangles = {}
+        self.guides = {}
 
     def paintEvent(self, event):
-        QPainter(self).fillRect(event.rect(), QColor("#38bdf8"))
+        QPainter(self).fillRect(event.rect(), self.COLOR)
 
 
 class WallGrid(QWidget):
@@ -7084,10 +7103,12 @@ class WallGrid(QWidget):
                                  rect=QRect(border.parentWidget().geometry()), cell=cell,
                                  tree=tree, weights={key: list(values) for key, values in weights.items()},
                                  geometry_weights=geometry_weights,
+                                 dividers={key: QRect(rect) for key, rect in self._divider_rects.items()},
                                  minimum=minimums.__getitem__, defaults=defaults, area=self._corner_area(),
                                  before=self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios(),
                                  preview_weights=None)
         border.setFocus(Qt.MouseFocusReason)
+        border.update()
 
     def _move_border_drag(self, position):
         if self._border_drag is None:
@@ -7123,12 +7144,14 @@ class WallGrid(QWidget):
             state["rect"], position - state["origin"])
         state["preview_weights"] = weights
         if self.layout_id == "corner":
-            rectangles, _ = self._corner_rectangles(weights, state["area"])
+            rectangles, dividers = self._corner_rectangles(weights, state["area"])
         else:
-            rectangles, _ = resize_layout.geometry(
+            rectangles, divider_items = resize_layout.geometry(
                 state["tree"], state["area"], self.grid.spacing(), state["minimum"],
                 weights, state["defaults"])
-        self._border_preview.show_rectangles(rectangles)
+            dividers = {(node.key, index): rect
+                        for node, index, rect, _area, _sizes in divider_items}
+        self._border_preview.show_guides(rectangles, dividers, state["dividers"])
 
     def _finish_border_drag(self, border, position):
         state = self._border_drag
@@ -7140,6 +7163,7 @@ class WallGrid(QWidget):
         before = state["before"]
         self._border_drag = None
         self._border_preview.clear()
+        border.update()
         if state["preview_weights"] is not None:
             self._apply_border_weights(state["preview_weights"])
         if self.layout_id == "corner":
@@ -7159,6 +7183,7 @@ class WallGrid(QWidget):
             border = state["border"]
             if QWidget.mouseGrabber() is border:
                 border.releaseMouse()
+            border.update()
 
     def _reset_border(self, border, edges):
         if self.fullscreen_tile is not None or not border.isVisible() or not edges:

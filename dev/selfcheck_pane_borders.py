@@ -187,6 +187,7 @@ def main():
         border = wall._pane_borders[pane]
         before = pane.geometry()
         unchanged = {cell: item.geometry() for cell, item in wall._preset_widgets().items()}
+        unchanged_dividers = dict(wall._divider_rects)
         with patch.object(wall, "_relayout_preset", wraps=wall._relayout_preset) as relayout, \
                 patch.object(wall, "layoutRatiosChanged") as changed:
             origin = press(border, ["right", "bottom"])
@@ -196,10 +197,21 @@ def main():
             QTest.qWait(80)
             assert relayout.call_count == 0
             assert wall._border_preview.isVisible()
+            assert border.grab().toImage().pixelColor(point_on(border, ["right"])) == theme.qcolor(theme.BG)
             assert set(wall._border_preview.rectangles) == set(unchanged)
-            for rect in wall._border_preview.rectangles.values():
-                assert wall._border_preview.mask().contains(QPoint(rect.left(), rect.center().y()))
-                assert not wall._border_preview.mask().contains(rect.center())
+            guides = wall._border_preview.guides
+            assert guides and len(guides) < len(unchanged_dividers)
+            for key, rect in guides.items():
+                previous = unchanged_dividers[key]
+                vertical = rect.width() < rect.height()
+                assert (rect.left() if vertical else rect.top()) != (
+                    previous.left() if vertical else previous.top())
+                first = QPoint(rect.center().x(), rect.top() + 1) if vertical else QPoint(
+                    rect.left() + 1, rect.center().y())
+                gap = first + (QPoint(0, wall._border_preview.DASH + 1) if vertical
+                               else QPoint(wall._border_preview.DASH + 1, 0))
+                assert wall._border_preview.mask().contains(first)
+                assert not wall._border_preview.mask().contains(gap)
             assert all(item.geometry() == unchanged[cell]
                        for cell, item in wall._preset_widgets().items())
             preview = dict(wall._border_preview.rectangles)
