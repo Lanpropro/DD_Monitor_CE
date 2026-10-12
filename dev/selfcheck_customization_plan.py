@@ -19,6 +19,9 @@ def main():
     assert "不打断录制和弹幕" in content
     assert "1+5布局中的6位主播" in content
     assert "普通布局扩容仍保持新增格子为空" in content
+    skin_section = content.split("## 第二阶段：皮肤", 1)[1].split("## 第三阶段", 1)[0]
+    assert "https://github.com/elysia395/dsh-wallpaper-engine" in skin_section
+    assert "本次仅记录参考，不启动实现" in skin_section
     print("PASS: customization plan stages, pending status, acceptance and code references")
 
 
