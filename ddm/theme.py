@@ -167,11 +167,12 @@ def _light_style(widget):
             return '#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
         return '#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
     return {
+        'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'Tile': '#Tile {background: #FFFFFF;} #Tile[empty="true"] {background: #F4F6F9;}',
         'TileVideo': '#TileVideo {background: #F4F6F9;}',
         'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
-        'TileBottom': '#TileBottom {background: transparent;} #TileBottom QLabel {color: #4A5565;}',
+        'TileBottom': '#TileBottom {background: #F4F6F9; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0;} #TileBottom QLabel {color: #4A5565;}',
         'TilePlaceholder': '#TilePlaceholder {color: #4A5565;}',
         'NavThumbCover': '#NavThumbCover {color: #F1F2F5;}',
         'NavThumbHint': '#NavThumbHint {color: #F1F2F5;}',
@@ -316,6 +317,10 @@ QLineEdit {{
     padding: 6px 10px;
     color: {TEXT1};
     selection-background-color: {ACCENT};
+}}
+#Search {{
+    placeholder-text-color: {TEXT3};
+    color: {TEXT1};
 }}
 QLineEdit:focus {{
     border: 1px solid {ACCENT};
@@ -1222,7 +1227,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #Tile[empty="true"], #TileVideo {background: #F4F6F9;}
         #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
         #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
-        #TileBottom {background: transparent;}
+        #TileBottom {background: #F4F6F9; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0;}
         #TileBottom #TileCtrl {background: transparent; color: #4A5565; border: none;}
         #TileBottom #TileCtrl:hover, #TileBottom #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
         #TileBottom QLabel {color: #4A5565;}

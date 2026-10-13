@@ -5587,6 +5587,7 @@ class Tile(QFrame):
 
         # 画面区域：高度扣掉底部信息条，保证画面完整可见
         self.video = VideoSurface(self)
+        self.video.rounded_bottom = False
         self.video.setObjectName("TileVideo")
         self.video.setAttribute(Qt.WA_StyledBackground, True)
         self.cover = QLabel(self.video)
@@ -6241,7 +6242,7 @@ class Tile(QFrame):
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
         self.pause_overlay.raise_()
-        self.bottom.setGeometry(0, video_height, width, height - video_height)
+        self.bottom.setGeometry(1, video_height, max(1, width - 2), max(1, height - video_height - 1))
         self.video_danmaku.setGeometry(self.video.geometry())
         self._layout_bottom_controls()
         self._layout_cover()
@@ -6285,6 +6286,9 @@ class Tile(QFrame):
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, max(1, self.video.width()), max(1, self.video.height())),
                             9, 9)
+        bottom = QPainterPath()
+        bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
+        path = path.united(bottom)
         self.video.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def _quality_button_width(self) -> int:

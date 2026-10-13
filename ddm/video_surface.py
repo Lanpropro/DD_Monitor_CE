@@ -59,6 +59,9 @@ class VideoSurface(QFrame):
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
         gdi32.CreateRoundRectRgn.argtypes = (ctypes.c_int,) * 6
         gdi32.CreateRoundRectRgn.restype = wintypes.HANDLE
+        gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+        gdi32.CreateRectRgn.restype = wintypes.HANDLE
+        gdi32.CombineRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.c_int)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
         root = int(self.winId())
         bounds = wintypes.RECT()
@@ -83,6 +86,15 @@ class VideoSurface(QFrame):
             region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
                 origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
             try:
+                if region and not getattr(self, 'rounded_bottom', True):
+                    bottom = gdi32.CreateRectRgn(origin.x,
+                        origin.y + bounds.bottom - diameter // 2,
+                        origin.x + bounds.right, origin.y + bounds.bottom)
+                    if bottom:
+                        try:
+                            gdi32.CombineRgn(region, region, bottom, 2)  # RGN_OR
+                        finally:
+                            gdi32.DeleteObject(bottom)
                 if region:
                     if user32.SetWindowRgn(hwnd, region, True):
                         region = None  # Ownership transfers to Windows.

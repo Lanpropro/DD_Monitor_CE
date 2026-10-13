@@ -288,7 +288,7 @@ class PluginStorePage(OnlinePage):
             heading.addWidget(button)
             body.addLayout(heading)
             body.addWidget(description)
-            hint = QLabel(note or ' ')
+            hint = QLabel(note or ' ', card)
             hint.setWordWrap(True)
             hint.setObjectName('SettingsHint')
             hint.setVisible(offer['id'] not in updates)
