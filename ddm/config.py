@@ -22,6 +22,8 @@ DEFAULT_VOLUME = 42
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 DEFAULT_SETTINGS = {
     "appearance_mode": "dark",
+    "skin_background": "",
+    "skin_mask": 35,
     "auto_update": False,     # 启动时检查本体新版，悬浮提醒后由用户选择安装
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P

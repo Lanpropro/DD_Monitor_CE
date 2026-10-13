@@ -761,10 +761,18 @@ class PluginSettingsPage(QWidget):
 class AppearanceSettingsPage(QWidget):
     modeChanged = Signal(str)
 
-    def __init__(self, settings, parent=None):
+    def __init__(self, settings, parent=None, skin_controller=None):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
         layout.addLayout(_page_head("外观", "设置软件界面的颜色模式，视频画面保持原有颜色"))
@@ -794,6 +802,9 @@ class AppearanceSettingsPage(QWidget):
             note.setWordWrap(True)
             note.setObjectName("SettingsHint")
             layout.addWidget(note)
+        from .skin_settings import SkinSettings
+        self.skin_settings = SkinSettings(settings, skin_controller, self)
+        layout.addWidget(self.skin_settings)
         layout.addStretch(1)
         self._mode = theme.normalize_mode(settings.get("appearance_mode"))
         self.sync(self._mode)
@@ -810,10 +821,11 @@ class AppearanceSettingsPage(QWidget):
         self.modeChanged.emit(mode)
 
     def values(self):
-        return {"appearance_mode": self._mode}
+        return {"appearance_mode": self._mode, **self.skin_settings.values()}
 
     def reset(self):
         self._choose("dark")
+        self.skin_settings.reset()
 
 
 class SettingsDialog(QDialog):
@@ -853,7 +865,8 @@ class SettingsDialog(QDialog):
         self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
-        self.appearance_page = AppearanceSettingsPage(settings)
+        self.appearance_page = AppearanceSettingsPage(settings,
+            skin_controller=getattr(parent, 'skin_controller', None))
         self.appearance_page.modeChanged.connect(self.appearanceChanged)
         self.danmaku_page = DanmakuSettingsPage(settings)
         self.recording_page = RecordingSettingsPage(settings)

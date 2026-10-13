@@ -169,6 +169,8 @@ class MainWindow(QMainWindow):
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
+        if not isinstance(self.settings.get('skin_background'), str):
+            self.settings['skin_background'] = ''
         theme.apply(self.settings["appearance_mode"])
         self.settings["freeze_watch"] = True  # 卡死检测固定开启，不再提供全局开关。
         if (saved_settings.get("danmaku_retention_version") != 1
@@ -231,6 +233,8 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.empty_hint, 1)
 
         self.setCentralWidget(root)
+        from .skins import SkinController
+        self.skin_controller = SkinController(self)
         self.orientation = ""                  # 由 _apply_orientation 填
         #: 各方向「切走之前在用的布局」：切回来时还原，别被容量折算换掉
         self._layout_by_orientation: dict[str, str] = {}
@@ -326,6 +330,7 @@ class MainWindow(QMainWindow):
         self.plugins._save_settings = lambda: config_module.save(self.current_state())
         plugin_api.set_manager(self.plugins)
         self.plugins.load()
+        self.refresh_skin()
         self._restore_platform_accounts()
         self._sync_platform_rooms()
         # 旧版虎牙网页卡片升级为格子播放；保留原关注、排序和置顶。
@@ -752,6 +757,7 @@ class MainWindow(QMainWindow):
         self.shortcuts = dialog.shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
+        self.refresh_skin()
         self._sync_platform_rooms()
         self.state["settings"] = dict(self.settings)
         self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
@@ -778,6 +784,17 @@ class MainWindow(QMainWindow):
             self._restart_requested = True
             self.close()
         return True
+
+    def refresh_skin(self):
+        self.skin_controller.refresh()
+
+    def set_skin(self, values):
+        if self.plugins.active_skin() is not None:
+            self.refresh_skin()
+            return
+        self.settings.update(values)
+        self.refresh_skin()
+        config_module.save(self.current_state())
 
     def _sync_platform_rooms(self) -> None:
         self.hover_preview.cancel()
@@ -912,6 +929,7 @@ class MainWindow(QMainWindow):
         self._record_clock.stop()
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
+        self.skin_controller.stop()
         self.plugins.unload()
         config_module.save(self.current_state())
         self.stop_danmaku()

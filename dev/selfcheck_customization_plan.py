@@ -11,7 +11,7 @@ def main():
     for heading in ("目标与现状", "第一阶段：深浅色模式", "第二阶段：皮肤",
                     "第三阶段：自定义布局", "直播间组合预设（待实现）", "实施顺序与交付"):
         assert f"## {heading}" in content, heading
-    assert "深浅色已实装，其余待实现" in content
+    assert "深浅色与背景皮肤已实装" in content
     assert content.count("验收：") == 4
     for path in re.findall(r"`(ddm/[^`]+\.py)`", content):
         assert (ROOT / path).is_file(), path
@@ -21,7 +21,8 @@ def main():
     assert "普通布局扩容仍保持新增格子为空" in content
     skin_section = content.split("## 第二阶段：皮肤", 1)[1].split("## 第三阶段", 1)[0]
     assert "https://github.com/elysia395/dsh-wallpaper-engine" in skin_section
-    assert "本次仅记录参考，不启动实现" in skin_section
+    assert "不连接 Wallpaper Engine" in skin_section
+    assert "图片、视频和皮肤插件" in skin_section
     print("PASS: customization plan stages, pending status, acceptance and code references")
 
 

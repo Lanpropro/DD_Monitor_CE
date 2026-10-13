@@ -120,6 +120,32 @@ _mode = "dark"
 _light = False
 _styles = WeakKeyDictionary()
 _signals = None
+_skin_active = False
+
+
+def set_skin_active(active):
+    global _skin_active
+    if _skin_active != bool(active):
+        _skin_active = bool(active)
+        apply(_mode)
+
+
+def _skin_style(widget):
+    if not _skin_active:
+        return ''
+    name = widget.objectName()
+    if name == 'Root':
+        return '#Root {background: transparent;}'
+    if name == 'TileVideo':
+        return '#TileVideo {background: transparent;}'
+    colors = {'Sidebar': SIDEBAR, 'Tile': BG,
+              'TileBottom': BG, 'DanmakuPanel': CONTENT}
+    if name not in colors:
+        return ''
+    color = qcolor(colors[name])
+    opacity = .92 if name == 'Sidebar' else (.84 if name == 'Tile' else .88)
+    selector = '#Tile, #Tile[empty="true"]' if name == 'Tile' else '#' + name
+    return f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}'
 
 
 # Stable QSS reads colours from the palette; switching no longer re-polishes
@@ -189,8 +215,8 @@ class ThemeSignals(QObject):
 
     def eventFilter(self, widget, event):
         # Newly opened settings/popups need the same exceptions as existing UI.
-        if _light and event.type() == QEvent.Polish and isinstance(widget, QWidget):
-            extra = _light_style(widget)
+        if (_light or _skin_active) and event.type() == QEvent.Polish and isinstance(widget, QWidget):
+            extra = _light_style(widget) + _skin_style(widget)
             if extra and widget not in _styles:
                 source = widget.styleSheet()
                 styled = source + '\n' + extra
@@ -265,7 +291,7 @@ def apply(value):
             patterns[key] = pattern, replacements
         pattern, replacements = patterns[key]
         styled = pattern.sub(lambda match: replacements[match.group()], source) if source else ''
-        extra = _light_style(widget)
+        extra = _light_style(widget) + _skin_style(widget)
         if extra:
             styled += '\n' + extra
         if styled != widget.styleSheet():
