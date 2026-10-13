@@ -10,7 +10,7 @@ LOCAL_ONLY = (
     "HANDOFF-*.md", "docs/HANDOFF-*.md", "videos/*",
     "docs/VIDEO-*.md", "docs/PROMO-*.md", "dev/*promo*",
     "dev/*highlight*", "dev/*videotogether*", "dev/test_video_*.py",
-    "dev/preview_*.py", "dev/run-preview.cmd", "dev/make_shots.py",
+    "dev/preview_*.py", "dev/watch_layout_preview.py", "dev/run-preview.cmd", "dev/make_shots.py",
     "dev/thumb_sheet.py", "dev/mock_portrait2.py",
     "docs/portrait-bar.png", "docs/portrait-current.png", "docs/portrait-mock.png",
 )
