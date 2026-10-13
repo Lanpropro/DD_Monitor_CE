@@ -59,9 +59,6 @@ class VideoSurface(QFrame):
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
         gdi32.CreateRoundRectRgn.argtypes = (ctypes.c_int,) * 6
         gdi32.CreateRoundRectRgn.restype = wintypes.HANDLE
-        gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
-        gdi32.CreateRectRgn.restype = wintypes.HANDLE
-        gdi32.CombineRgn.argtypes = (wintypes.HANDLE,) * 3 + (ctypes.c_int,)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
         root = int(self.winId())
         bounds = wintypes.RECT()
@@ -80,21 +77,18 @@ class VideoSurface(QFrame):
                     output_found.append(hwnd)
             origin = wintypes.POINT()
             user32.MapWindowPoints(root, hwnd, ctypes.byref(origin), 1)
-            client = wintypes.RECT()
-            if not user32.GetClientRect(hwnd, ctypes.byref(client)):
-                return True
+            # VLC can grow its output after creation without resizing this Qt
+            # surface. Windows already clips to the child's current bounds;
+            # intersecting with its initial bounds would freeze a small mask.
             region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
                 origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
-            rectangle = gdi32.CreateRectRgn(0, 0, client.right, client.bottom)
             try:
-                if region and rectangle and gdi32.CombineRgn(region, region, rectangle, 1):  # RGN_AND
+                if region:
                     if user32.SetWindowRgn(hwnd, region, True):
                         region = None  # Ownership transfers to Windows.
             finally:
                 if region:
                     gdi32.DeleteObject(region)
-                if rectangle:
-                    gdi32.DeleteObject(rectangle)
             return True
 
         if apply_root:
