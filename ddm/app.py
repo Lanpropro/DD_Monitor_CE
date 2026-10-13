@@ -257,7 +257,6 @@ class MainWindow(QMainWindow):
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self.open_settings)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
-        self.sidebar.appearanceSettingsRequested.connect(lambda: self.open_settings("appearance"))
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)

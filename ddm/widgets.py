@@ -3501,8 +3501,10 @@ class AppearanceButton(QPushButton):
         self.refresh_theme()
 
     def refresh_theme(self):
-        label = {"dark": "深色", "light": "浅色", "system": "跟随系统"}[theme.mode()]
-        self.setToolTip("切换外观（当前：" + label + "）")
+        current = "浅色" if theme.is_light() else "深色"
+        target = "深色" if theme.is_light() else "浅色"
+        following = "，跟随系统" if theme.mode() == "system" else ""
+        self.setToolTip("切换为" + target + "（当前：" + current + following + "）")
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -3548,7 +3550,6 @@ class Sidebar(QFrame):
     layoutChosen = Signal(str)
     settingsRequested = Signal()
     appearanceChanged = Signal(str)
-    appearanceSettingsRequested = Signal()
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
     # （用户报的「登录按钮点了没反应」就是踩了这个）。
@@ -3681,7 +3682,8 @@ class Sidebar(QFrame):
         self.sort_button.setMenu(self._build_sort_menu())
         self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
         self.appearance_button = AppearanceButton(self)
-        self.appearance_button.clicked.connect(self.open_appearance_menu)
+        self.appearance_button.clicked.connect(lambda: self.appearanceChanged.emit(
+            "dark" if theme.is_light() else "light"))
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         status_box.addWidget(self.count_label, 1)
         status_box.addWidget(self.sort_button, 0, Qt.AlignRight)
@@ -3797,20 +3799,6 @@ class Sidebar(QFrame):
         self._sync_count()
 
     # ---- 账号 ----
-    def open_appearance_menu(self):
-        menu = QMenu(self)
-        group = QActionGroup(menu)
-        group.setExclusive(True)
-        for key, label in (("dark", "深色"), ("light", "浅色"), ("system", "跟随系统")):
-            action = menu.addAction(label)
-            action.setCheckable(True)
-            action.setChecked(theme.mode() == key)
-            group.addAction(action)
-            action.triggered.connect(lambda _checked=False, mode=key: self.appearanceChanged.emit(mode))
-        menu.addSeparator()
-        menu.addAction("外观设置…").triggered.connect(self.appearanceSettingsRequested)
-        menu.exec(self.appearance_button.mapToGlobal(QPoint(0, self.appearance_button.height())))
-
     def _sync_appearance_row(self):
         self.appearance_button.setVisible(True)
         if self.side == "left":

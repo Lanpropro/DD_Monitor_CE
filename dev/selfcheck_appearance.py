@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *args: (_ for _ in ()).throw(OSError('Isolated test'))
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtWidgets import QApplication, QLabel, QMenu
+from PySide6.QtWidgets import QApplication, QLabel
 from PySide6.QtTest import QTest
 from ddm import theme, config, app as app_module
 from ddm.dialogs import SettingsDialog
@@ -60,22 +60,17 @@ def main():
         assert handles == [int(t.video.winId()) for t in window.wall.tiles]
         assert theme.TEXT1 == '#202630' and theme.TILE_BG == '#101114'
         assert '浅色' in window.sidebar.appearance_button.toolTip()
-        class InspectMenu(QMenu):
-            choice = 0
-            def exec(self, _point):
-                self.actions()[self.choice].trigger()
-        with patch('ddm.widgets.QMenu', InspectMenu):
+        assert '切换为深色' in window.sidebar.appearance_button.toolTip()
+        with patch('ddm.widgets.QMenu', side_effect=AssertionError('Toggle must not open a menu')), \
+                patch.object(window, 'open_settings', return_value=False) as open_settings:
             window.sidebar.appearance_button.click()
-        assert theme.mode() == 'dark'
-        InspectMenu.choice = 1
-        with patch('ddm.widgets.QMenu', InspectMenu):
+            assert theme.mode() == window.settings['appearance_mode'] == 'dark'
+            assert '切换为浅色' in window.sidebar.appearance_button.toolTip()
             window.sidebar.appearance_button.click()
-        assert theme.mode() == 'light'
-        InspectMenu.choice = -1
-        with patch.object(window, 'open_settings', return_value=False) as open_settings, \
-                patch('ddm.widgets.QMenu', InspectMenu):
-            window.sidebar.appearance_button.click()
-        open_settings.assert_called_once_with('appearance')
+            assert theme.mode() == window.settings['appearance_mode'] == 'light'
+            assert save.call_args.args[0]['settings']['appearance_mode'] == 'light'
+            open_settings.assert_not_called()
+        assert handles == [int(t.video.winId()) for t in window.wall.tiles]
         assert '#FFFFFF' in local.styleSheet()
         assert panel._blocks == messages and '#202630' in panel.body.toHtml()
         if app.platformName() == 'windows':
@@ -103,9 +98,16 @@ def main():
         with patch.object(app.styleHints(), 'colorScheme', return_value=Qt.ColorScheme.Light) as scheme:
             window.set_appearance('system')
             assert theme.is_light() and window.settings['appearance_mode'] == 'system'
+            window.sidebar.appearance_button.click()
+            assert not theme.is_light() and window.settings['appearance_mode'] == 'dark'
+            app.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Light)
+            assert not theme.is_light(), 'Manual toggle must stop following the system'
+            window.set_appearance('system')
             scheme.return_value = Qt.ColorScheme.Dark
             app.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Dark)
             assert not theme.is_light() and theme.mode() == 'system'
+            window.sidebar.appearance_button.click()
+            assert theme.is_light() and window.settings['appearance_mode'] == 'light'
         for side in ('left', 'top', 'left'):
             window.sidebar.set_side(side)
             for collapsed in (True, False):
