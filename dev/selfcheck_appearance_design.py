@@ -34,6 +34,9 @@ def main():
         assert requirement in doc, requirement
     assert '格子顶部悬浮栏也改为浅色' in doc
     assert '不改变底部控制条' in doc
+    for requirement in ('避免用逻辑整数 QRegion 再裁切抗锯齿边缘',
+                        '细边框向内收半像素', '半透明过渡像素', '正式原生视频浮层实现须另验'):
+        assert requirement in doc, requirement
     print("PASS: original dark appearance, actual UI placement and light text contrast")
 
 
