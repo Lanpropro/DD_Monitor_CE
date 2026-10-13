@@ -51,6 +51,7 @@ def main():
             window.set_appearance('light')
             assert grab.call_count == 1, 'A normal switch needs only its old UI snapshot'
         transition = window._theme_transition
+        assert transition.animation.duration() == 360
         assert transition.overlays and transition.animation.state() == QAbstractAnimation.Running
         QTest.qWait(40)
         assert transition.overlays, 'Theme wave cancelled during normal painting'

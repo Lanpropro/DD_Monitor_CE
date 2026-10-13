@@ -197,10 +197,12 @@ def _light_style(widget):
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return '#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
+            return '#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
         return '#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
     return {
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
+        'Sidebar': '#Sidebar #BadgeOff {background: rgba(16, 20, 28, 0.78); color: #F1F2F5; border: 1px solid rgba(255, 255, 255, 0.16);}',
+        'BadgeOff': '#BadgeOff {background: rgba(16, 20, 28, 0.78); color: #F1F2F5; border: 1px solid rgba(255, 255, 255, 0.16);}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
         'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}',
@@ -1293,6 +1295,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;}
         #TileBottom #TileCtrl {background: transparent; color: #4A5565; border: none;}
         #TileBottom #TileCtrl:hover, #TileBottom #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
+        #TileBottom #TileCtrl:checked {background: #DDF3FB; color: #007BA8;}
         #TileBottom QLabel {color: #4A5565;}
         #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
         #TilePlaceholder {color: #4A5565;}

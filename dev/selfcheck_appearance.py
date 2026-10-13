@@ -114,7 +114,7 @@ def main():
                 window.sidebar.set_collapsed(collapsed, animate=False)
                 QTest.qWait(40)
                 button = window.sidebar.appearance_button
-                assert button.isVisible() and not button.text()
+                assert button.isVisible() == (not collapsed) and not button.text()
                 assert button.size() == QSize(22, 22), (side, collapsed, button.size(), button.minimumSize(), button.maximumSize())
                 if side == 'left' and not collapsed:
                     row = window.sidebar.status_row.layout()

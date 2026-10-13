@@ -1,6 +1,6 @@
 """Interruptible wave reveal of UI snapshots, leaving live video uncovered."""
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QVariantAnimation
-from PySide6.QtGui import QImage, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import motion, theme
@@ -17,22 +17,25 @@ def wave_path(progress, width, height, origin=None):
 
 
 def ui_snapshot(window):
-    snapshot = window.grab().toImage().convertToFormat(QImage.Format_ARGB32_Premultiplied)
+    captured = window.grab()
+    snapshot = QPixmap(captured.size())
+    snapshot.setDevicePixelRatio(captured.devicePixelRatio())
+    snapshot.fill(Qt.transparent)
     # Native VLC output cannot be captured by QWidget.grab(). A hole leaves the
     # real output playing beneath the transition, rather than freezing a frame.
     painter = QPainter(snapshot)
+    painter.drawPixmap(0, 0, captured)
     painter.setCompositionMode(QPainter.CompositionMode_Clear)
     for surface in window.findChildren(VideoSurface):
         if surface.isVisible():
             painter.fillRect(QRect(surface.mapTo(window, QPoint()), surface.size()), Qt.transparent)
-    painter.end()
-    painter = QPainter(snapshot)
+    painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
     for tile in getattr(getattr(window, 'wall', None), 'tiles', []):
         for badge in (tile.stream_badge, tile.title_badge, tile.time_badge, tile.controls):
             if badge.isVisible():
                 painter.drawPixmap(badge.mapTo(window, QPoint()), badge.grab())
     painter.end()
-    return QPixmap.fromImage(snapshot)
+    return snapshot
 
 
 class WaveOverlay(QWidget):
@@ -55,8 +58,10 @@ class WaveOverlay(QWidget):
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
         revealed = wave_path(self.progress, self.width(), self.height(), self.origin)
         full = QPainterPath()
+        full.setFillRule(Qt.OddEvenFill)
         full.addRect(0, 0, self.width(), self.height())
-        painter.setClipPath(full.subtracted(revealed))
+        full.addPath(revealed)
+        painter.setClipPath(full)
         painter.drawPixmap(0, 0, self.snapshot)
 
 

@@ -3823,9 +3823,9 @@ class Sidebar(QFrame):
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
-        self.appearance_button.setVisible(True)
+        self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
-            self.status_row.setVisible(True)
+            self.status_row.setVisible(not self.collapsed)
             for widget in (self.count_label, self.sort_button, self.refresh_button):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,

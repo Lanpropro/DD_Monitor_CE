@@ -29,7 +29,8 @@ def main():
     app = QApplication([])
     module.StatusPoller = module.StatsPoller = SilentPoller
     with patch('PySide6.QtCore.QTimer.singleShot'):
-        window = module.MainWindow([], [], layout_id='1x1',
+        window = module.MainWindow([dict(room_id='1', uname='Offline', live=False),
+            dict(room_id='2', uname='Live to offline', live=True)], [], layout_id='1x1',
             state={'plugins_enabled': [], 'settings': {'auto_update': False}})
     window.setAttribute(Qt.WA_ShowWithoutActivating)
     window.move(-10000, -10000)
@@ -47,6 +48,13 @@ def main():
             window.set_appearance(mode)
             QTest.qWait(50)
             if mode == 'light':
+                badge = window.sidebar.items()[0].badge
+                assert badge.palette().color(QPalette.WindowText) == QColor('#F1F2F5')
+                assert 'rgba(16, 20, 28, 0.78)' in badge.styleSheet()
+                changing = window.sidebar.items()[1]
+                changing.set_live(True)
+                changing.set_live(False)
+                assert changing.badge.palette().color(QPalette.WindowText) == QColor('#F1F2F5'), 'A newly offline card must keep readable badge colours'
                 assert sample(tile.video, QPoint(20, tile.video.height()//2)) == QColor('#FFFFFF')
                 assert tile.bottom.geometry().left() == tile.video.geometry().left()
                 assert tile.bottom.geometry().bottom() < tile.height()-1, 'Footer must leave the outer card border visible'

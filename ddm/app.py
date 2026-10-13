@@ -2972,7 +2972,7 @@ class MainWindow(QMainWindow):
         room_id = str(room.get("room_id") or "")
         wanted = {str(tile.room["room_id"]) for tile in self.wall.tiles
                   if tile.isVisible() and tile.danmaku_button.isChecked()
-                  and tile.room.get("room_id") and tile.room.get("live")}
+                  and tile.room.get("room_id") and (tile.room.get("live") or tile._player_active)}
         if room_id:
             wanted.add(room_id)
         if room_id != self._danmaku_room:
