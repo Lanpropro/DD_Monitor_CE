@@ -30,7 +30,7 @@ def main():
     app_module.StatusPoller = app_module.StatsPoller = SilentPoller
     room = dict(room_id='990000', uname='Wave test', live=False)
     with patch('PySide6.QtCore.QTimer.singleShot'):
-        window = app_module.MainWindow([room], [dict(room)], layout_id='1x1',
+        window = app_module.MainWindow([room], [dict(room)], layout_id='corner',
             state={'plugins_enabled': [], 'settings': {'auto_update': False}})
     window.setAttribute(Qt.WA_ShowWithoutActivating)
     window.move(-10000, -10000)
@@ -54,6 +54,7 @@ def main():
         assert transition.overlays and transition.animation.state() == QAbstractAnimation.Running
         QTest.qWait(40)
         assert transition.overlays, 'Theme wave cancelled during normal painting'
+        assert window.wall.grid.spacing() == 10
         transition.animation.setCurrentTime(motion.THEME_WAVE_MS//2)
         progress = transition.progress
         assert 0 < progress < 1
@@ -82,6 +83,12 @@ def main():
         transition.animation.setCurrentTime(transition.animation.duration())
         assert not transition.overlays and transition.animation.state() == QAbstractAnimation.Stopped
         assert theme.is_light() and window.settings['appearance_mode'] == 'light'
+        for _ in range(5):
+            QTest.qWait(30)
+            assert theme.is_light() and not transition.overlays, 'Settled light theme must not revive a dark snapshot'
+            footer = window.wall.tiles[0].bottom.grab().toImage()
+            scale = footer.devicePixelRatio()
+            assert footer.pixelColor(round(20*scale), round(5*scale)).name() == '#f0f3f8', 'Light footer must keep its rendered colour after switching'
         assert handles == [int(tile.video.winId()) for tile in window.wall.tiles]
         with patch('PySide6.QtCore.QTimer.singleShot'):
             dialog = SettingsDialog(window.settings, window.shortcuts, window)
@@ -102,6 +109,7 @@ def main():
         transition.finish()
         window.set_appearance('dark')
         assert transition.overlays
+        assert window.wall.grid.spacing() == 8
         window.resize(1300, 740)
         app.processEvents()
         assert not transition.overlays, 'Resize must release snapshot windows'

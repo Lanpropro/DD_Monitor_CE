@@ -6641,6 +6641,9 @@ class WallGrid(QWidget):
 
     def refresh_theme(self):
         self.grid.setSpacing(10 if theme.is_light() else 8)
+        # Finish theme-driven geometry before snapshot overlays start watching
+        # video surfaces; a delayed Resize would cancel the reveal immediately.
+        self.grid.activate()
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
