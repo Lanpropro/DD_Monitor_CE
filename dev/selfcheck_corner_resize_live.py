@@ -24,6 +24,7 @@ from ddm.player import TilePlayer
 from selfcheck_corner_resize import drag, border_for, CORNER_KEYS
 from selfcheck_corner_drag_updates import begin, move_to, release_at
 from selfcheck_pane_borders import point_on, resize as resize_border
+from selfcheck_resize_preview_cleanup import assert_clean
 
 
 def settle(app, seconds=0.3):
@@ -138,6 +139,8 @@ def main():
                         assert window.wall._border_preview.guides
                         assert all(int(tile.video.winId()) == identity[2]
                                    for tile, identity in zip(window.wall.tiles, identities))
+                        if app.platformName() == "windows":
+                            assert_clean(app, window.wall, ("VLC", target, frame))
                         if "--native" in sys.argv and target == Qt.Horizontal and frame == 0:
                             settle(app, .1)
                             preview = window.wall._border_preview
@@ -164,6 +167,9 @@ def main():
                     release_at(handle, destination)
                     settle(app)
                     assert not window.wall._border_preview.isVisible()
+                    if app.platformName() == "windows":
+                        window.wall._set_hover_border()
+                        assert_clean(app, window.wall, ("VLC", target, "release"))
                     handle, point = border_for(window.wall, CORNER_KEYS[target])
                     QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
                     settle(app, .05)

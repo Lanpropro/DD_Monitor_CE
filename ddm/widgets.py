@@ -6719,6 +6719,7 @@ class WallResizePreview(QWidget):
         super().__init__(wall)
         self.rectangles = {}
         self.guides = {}
+        self._outline = QRegion()
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -6744,21 +6745,27 @@ class WallResizePreview(QWidget):
                 outline |= QRegion(QRect(x, y,
                                          self.LINE if vertical else dash,
                                          dash if vertical else self.LINE))
+        previous_outline, self._outline = self._outline, outline
         if outline.isEmpty():
             self.hide()
-            return
-        self.setMask(outline)
-        self.show()
-        self.raise_()
-        self.update()
+        else:
+            self.setMask(outline)
+            self.show()
+            self.raise_()
+            self.update()
+        self.parentWidget()._repaint_preview_damage(previous_outline.subtracted(outline))
 
     def clear(self):
         self.hide()
+        previous_outline, self._outline = self._outline, QRegion()
         self.rectangles = {}
         self.guides = {}
+        self.parentWidget()._repaint_preview_damage(previous_outline)
 
     def paintEvent(self, event):
-        QPainter(self).fillRect(event.rect(), self.COLOR)
+        painter = QPainter(self)
+        painter.setClipRegion(self._outline)
+        painter.fillRect(event.rect(), self.COLOR)
 
 
 class WallGrid(QWidget):
@@ -7213,6 +7220,24 @@ class WallGrid(QWidget):
                 self._divider_grips[key] = WallDividerGrip(self, key)
             self._divider_grips[key].sync(rect)
         self._set_hover_border(self._hover_border, self._hover_edges)
+
+    def _repaint_preview_damage(self, region):
+        if region.isEmpty():
+            return
+        # Native mask changes expose stale Qt backing-store pixels unless owners repaint them.
+        self.update(region)
+        for grip in self._divider_grips.values():
+            if grip.isVisible():
+                local = region.translated(-grip.pos()).intersected(grip.rect())
+                if not local.isEmpty():
+                    grip.update(local)
+        for pane, border in self._pane_borders.items():
+            if pane.isVisible():
+                local = region.translated(-pane.pos()).intersected(pane.rect())
+                if not local.isEmpty():
+                    pane.update(local)
+                    if border.isVisible():
+                        border.update(local.intersected(border.mask()))
 
     def _set_hover_border(self, border=None, edges=None):
         if (self._border_drag is not None or border is None or
