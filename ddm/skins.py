@@ -80,8 +80,8 @@ def plugin_skin(plugin, folder):
     if path.suffix.lower() not in IMAGES | VIDEOS:
         raise ValueError('皮肤背景格式不受支持')
     mask = spec.get('mask', 35)
-    if type(mask) is not int or not 0 <= mask <= 80:
-        raise ValueError('皮肤 mask 必须是 0–80 的整数')
+    if type(mask) is not int or not 0 <= mask <= 100:
+        raise ValueError('皮肤 mask 必须是 0–100 的整数')
     return {'path': str(path), 'mask': mask, 'owner': plugin.context.name, 'name': plugin.name}
 
 
@@ -143,6 +143,7 @@ class BackgroundLayer(QWidget):
         now = time.monotonic()
         if (self.player is None or self.player.source().isEmpty()
                 or Path(self.path).suffix.lower() not in VIDEOS
+                or self.mask == 100 or not self._window.isVisible() or self._window.isMinimized()
                 or self.error or not frame.isValid() or now - self._last_frame < 1 / 30):
             return
         self._last_frame = now
@@ -161,9 +162,9 @@ class BackgroundLayer(QWidget):
         self.failed.emit(self.error)
 
     def _visibility(self):
-        if self.player is None or self.player.source().isEmpty():
+        if self.player is None or self.player.source().isEmpty() or self.error:
             return
-        if self._window.isVisible() and not self._window.isMinimized():
+        if self._window.isVisible() and not self._window.isMinimized() and self.mask < 100:
             self.player.play()
         else:
             self.player.pause()
@@ -178,7 +179,7 @@ class BackgroundLayer(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.fillRect(self.rect(), theme.qcolor(theme.BG))
-        if self.image is not None and not self.image.isNull():
+        if self.mask < 100 and self.image is not None and not self.image.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
             scale = max(self.width() / self.image.width(), self.height() / self.image.height())
             width, height = self.image.width() * scale, self.image.height() * scale
@@ -213,13 +214,14 @@ class SkinController(QObject):
                 path = ''
         self.error = ''
         try:
-            mask = max(0, min(80, int(settings.get('skin_mask', 35))))
+            mask = max(0, min(100, int(settings.get('skin_mask', 35))))
         except (TypeError, ValueError):
             mask = 35
         self.layer.mask = self.override['mask'] if self.override is not None else mask
         sidebar = self.override is not None or bool(settings.get('skin_sidebar', False))
         theme.set_skin_active(bool(path), sidebar)
         self.layer.load(str(path) if path else '')
+        self.layer._visibility()
         self.error = self.layer.error
         self.layer.update()
         self.changed.emit()

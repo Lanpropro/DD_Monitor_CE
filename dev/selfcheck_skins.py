@@ -136,16 +136,24 @@ def main():
             assert layer.image.pixelColor(0, 0) == QColor('#426CDB')
             controls.mask_slider.setValue(50)
             assert layer.mask == 50 and window.settings['skin_mask'] == 50
+            assert controls.mask_slider.maximum() == 100
+            controls.mask_slider.setValue(100)
+            assert layer.mask == 100 and window.settings['skin_mask'] == 100
+            assert layer.grab().toImage().pixelColor(10, 10) == theme.qcolor(theme.BG)
+            controls.mask_slider.setValue(50)
             # Install through the existing ZIP API; it only executes after load.
             archive = folder / 'skin.zip'
             manifest = dict(id='test_skin', name='Test skin', description='Offline fixture', version='1.0',
-                skin={'background': 'assets/background.png', 'mask': 20})
+                skin={'background': 'assets/background.png', 'mask': 100})
             with zipfile.ZipFile(archive, 'w') as package:
                 package.writestr('test_skin/plugin.json', json.dumps(manifest))
                 package.writestr('test_skin/plugin.py', 'from ddm.plugins import Plugin\nplugin = Plugin()\n')
                 package.writestr('test_skin/assets/background.png', original)
             manager = PluginManager(window, str(folder/'plugins'), enabled=[])
             manager.install_zip(str(archive))
+            manifest['skin']['mask'] = 20
+            installed_manifest = folder/'plugins/test_skin/plugin.json'
+            installed_manifest.write_text(json.dumps(manifest), encoding='utf-8')
             assert manager.active_skin() is None
             manager.load()
             window.plugins = manager
@@ -202,6 +210,14 @@ def main():
             wait_for(lambda: layer.image is not None)
             assert layer.player.audioOutput() is None and layer.player.loops() == QMediaPlayer.Infinite
             assert layer.player.playbackState() == QMediaPlayer.PlayingState
+            window.set_skin({'skin_mask': 100})
+            wait_for(lambda: layer.player.playbackState() == QMediaPlayer.PausedState)
+            frame = layer.image
+            QTest.qWait(150)
+            assert layer.image is frame, 'Fully masked video must skip frame conversion'
+            assert layer.grab().toImage().pixelColor(10, 10) == theme.qcolor(theme.BG)
+            window.set_skin({'skin_mask': 35})
+            wait_for(lambda: layer.player.playbackState() == QMediaPlayer.PlayingState)
             QTest.qWait(1400)
             assert layer.player.playbackState() == QMediaPlayer.PlayingState, 'Background must loop'
             assert live.player.get_time() > live_time and live.player.is_playing(), 'Skin changes must leave live playback running'

@@ -27,6 +27,7 @@ from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
 from . import follow_folders
+from .folder_icons import FolderIconDialog, folder_icon
 from .player import TilePlayer
 from .video_surface import VideoSurface
 from .badge_surface import BadgeSurface
@@ -2766,14 +2767,19 @@ class FollowFolderButton(QToolButton):
         self.sidebar = sidebar
         self.folder_id = folder_id
         self.setObjectName("IconButton")
-        kind = sidebar.get_folder(folder_id)["type"]
-        self.setIcon(self.style().standardIcon(QStyle.SP_DirLinkIcon if kind == "smart" else QStyle.SP_DirIcon))
+        self.setIconSize(QSize(18, 18))
+        self.refresh_theme()
         self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.setCursor(Qt.PointingHandCursor)
         self.setAcceptDrops(True)
         self.clicked.connect(lambda: sidebar.toggle_folder(folder_id, animate=self._press_pos is not None))
         self._press_pos = None
         self._drag_started = False
+
+    def refresh_theme(self):
+        folder = self.sidebar.get_folder(self.folder_id)
+        if folder is not None:
+            self.setIcon(folder_icon(folder, self))
 
     def mousePressEvent(self, event):
         self._press_pos = event.position().toPoint() if event.button() == Qt.LeftButton else None
@@ -2840,6 +2846,8 @@ class FollowFolderButton(QToolButton):
         elif folder["type"] == "normal":
             menu.addAction("重命名文件夹…").triggered.connect(
                 lambda: self.sidebar.prompt_folder(folder_id=self.folder_id))
+        if folder["type"] != "unclassified":
+            menu.addAction("修改图标…").triggered.connect(self._edit_icon)
         index = self.sidebar.folders.index(folder)
         up = menu.addAction("文件夹上移")
         up.setEnabled(index > 0)
@@ -2851,6 +2859,18 @@ class FollowFolderButton(QToolButton):
             menu.addAction("删除文件夹（保留关注）").triggered.connect(
                 lambda: self.sidebar.delete_folder(self.folder_id))
         return menu
+
+    def _edit_icon(self):
+        folder = self.sidebar.get_folder(self.folder_id)
+        dialog = FolderIconDialog(folder, self)
+        if dialog.exec() == QDialog.Accepted:
+            if dialog.result_icon is None:
+                folder.pop('icon', None)
+            else:
+                folder['icon'] = dialog.result_icon
+            self.refresh_theme()
+            self.sidebar._refresh_folders()
+        dialog.deleteLater()
 
     def contextMenuEvent(self, event):
         self._context_menu().exec_context(event)

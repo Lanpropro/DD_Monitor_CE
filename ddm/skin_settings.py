@@ -37,7 +37,7 @@ class SkinSettings(QWidget):
         mask_row = QHBoxLayout()
         mask_row.addWidget(QLabel('背景遮罩'))
         self.mask_slider = QSlider(Qt.Horizontal)
-        self.mask_slider.setRange(0, 80)
+        self.mask_slider.setRange(0, 100)
         try:
             value = int(settings.get('skin_mask', 35))
         except (TypeError, ValueError):
