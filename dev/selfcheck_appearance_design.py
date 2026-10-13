@@ -15,20 +15,21 @@ def main():
     doc = (ROOT / "docs/appearance-design.md").read_text(encoding="utf-8")
     assert "设计完成，待实现" in doc
     assert "appearance-design.md" in (ROOT / "docs/customization-plan.md").read_text(encoding="utf-8")
-    rows = re.findall(r"\| [^|]+ (\w+) \| (#[0-9A-F]{6}) \| (#[0-9A-F]{6}) \|", doc)
-    colors = {name: (dark, light) for name, dark, light in rows}
-    for mode in (0, 1):
-        for text in ("TEXT1", "TEXT2", "TEXT3"):
-            for background in ("BG", "SIDEBAR", "CONTENT", "CONTENT_HOVER", "ELEVATED"):
-                values = sorted((luminance(colors[text][mode]), luminance(colors[background][mode])))
-                contrast = (values[1] + .05) / (values[0] + .05)
-                assert contrast >= 4.5, (mode, text, background, contrast)
+    rows = re.findall(r"\| [^|]+ (\w+) \| (#[0-9A-F]{6}) \|", doc)
+    colors = dict(rows)
+    for text in ("TEXT1", "TEXT2", "TEXT3"):
+        for background in ("BG", "SIDEBAR", "CONTENT", "CONTENT_HOVER", "ELEVATED"):
+            values = sorted((luminance(colors[text]), luminance(colors[background])))
+            contrast = (values[1] + .05) / (values[0] + .05)
+            assert contrast >= 4.5, (text, background, contrast)
     for requirement in ("colorSchemeChanged", "不重新绑定视频 HWND", "取消不改变配置",
                         "utils/folder-icons/", "PNG、JPEG、ICO", "5MB", "4096×4096",
                         "回退默认图标", "普通文件夹和智能文件夹", "175%",
-                        "外置主题按钮", "独立「外观」页面", "用户确认后再实装"):
+                        "外置主题入口", "独立「外观」页面", "用户确认后再实装",
+                        "22×22 纯图标按钮", "排序」和刷新按钮之间", "深色完全沿用当前软件",
+                        "真实 `Sidebar`、`WallGrid` 和 `SettingsDialog`"):
         assert requirement in doc, requirement
-    print("PASS: design scope, persistence, icon fallback and dark/light text contrast")
+    print("PASS: original dark appearance, actual UI placement and light text contrast")
 
 
 if __name__ == "__main__":
