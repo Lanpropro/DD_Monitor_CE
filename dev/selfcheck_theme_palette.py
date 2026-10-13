@@ -60,10 +60,33 @@ def main():
     layout.addWidget(new)
     QTest.qWait(20)
     assert '#F7F9FC' in new.styleSheet()
+    # Platform/style palette notifications can arrive with no user input.
+    original = app.palette()
+    reference = window.grab().toImage()
+    changes = []
+    theme.signals().changed.connect(changes.append)
+    external = QPalette(original)
+    external.setColor(QPalette.Window, QColor('#101114'))
+    external.setColor(QPalette.Button, QColor('#202126'))
+    app.setPalette(external)
+    assert app.palette().color(QPalette.Window) == theme.qcolor(theme.BG), 'External palette reset must not replace a manually selected light theme'
+    assert not changes and theme.is_light(), 'Palette repair must not switch modes or start/cancel a wave'
+    QTest.qWait(20)
+    assert window.grab().toImage() == reference, 'Idle palette repair must preserve the rendered light UI'
+    assert editor.palette().color(QPalette.PlaceholderText) == QColor('#8a8f98')
+    for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
+        assert app.palette().color(group, QPalette.Window) == theme.qcolor(theme.BG)
+    # The repair must not block a genuine follow-system colour change.
+    hints = app.styleHints()
+    with patch.object(hints, 'colorScheme', return_value=Qt.ColorScheme.Light):
+        theme.apply('system')
+    with patch.object(hints, 'colorScheme', return_value=Qt.ColorScheme.Dark):
+        theme._system_changed(Qt.ColorScheme.Dark)
+    assert theme.mode() == 'system' and not theme.is_light()
     theme.apply('dark')
     assert new.styleSheet() == '', 'New widget must restore its original dark stylesheet'
     window.close()
-    print('PASS: identical rendered dark/light designs, stable global QSS, and newly created controls')
+    print('PASS: identical rendered dark/light designs, stable global QSS, new controls, synchronous idle palette repair, custom roles and genuine system changes')
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated test'))
 from PySide6.QtCore import QAbstractAnimation, QEvent, QPoint, Qt
-from PySide6.QtGui import QKeyEvent, QPainter
+from PySide6.QtGui import QColor, QKeyEvent, QPainter, QPalette
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from ddm import app as app_module, motion, theme
@@ -59,6 +59,10 @@ def main():
         progress = transition.progress
         assert 0 < progress < 1
         overlay = transition.overlays[0]
+        reset_palette = QPalette(app.palette())
+        reset_palette.setColor(QPalette.Window, QColor('#101114'))
+        app.setPalette(reset_palette)
+        assert transition.overlays[0] is overlay and transition.progress == progress, 'External palette refresh must not cancel or restart the reveal'
         origin = window.sidebar.appearance_button.mapTo(window, QPoint())
         assert overlay.origin == origin, 'Origin must be the button top-left, not the window edge or click centre'
         early = wave_path(.1, width, height, origin)

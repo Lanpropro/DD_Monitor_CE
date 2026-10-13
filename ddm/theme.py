@@ -10,6 +10,7 @@ Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻�
 
 import os
 import re
+import sys
 from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -220,6 +221,31 @@ def _light_style(widget):
 class ThemeSignals(QObject):
     changed = Signal(str)
 
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._repairing_palette = False
+
+    def palette_changed(self, _palette):
+        if self._repairing_palette:
+            return
+        app = QApplication.instance()
+        colors = _LIGHT if _light else _DARK
+        expected = {QPalette.Window: colors['BG'], QPalette.Base: colors['CONTENT'],
+                    QPalette.Button: colors['CONTENT_HOVER'], QPalette.WindowText: colors['TEXT1']}
+        if all(app.palette().color(group, role) == qcolor(color)
+               for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled)
+               for role, color in expected.items()):
+            return
+        self._repairing_palette = True
+        try:
+            # Restore synchronously: deferring until the next event-loop turn
+            # allows palette-based QSS to paint one frame in the platform colour.
+            _apply_palette(app, colors)
+            print('[主题] 已拦截外部调色板重置，保持当前模式：' + _mode,
+                  file=sys.stderr, flush=True)
+        finally:
+            self._repairing_palette = False
+
     def eventFilter(self, widget, event):
         # Newly opened settings/popups need the same exceptions as existing UI.
         if (_light or _skin_active) and event.type() == QEvent.Polish and isinstance(widget, QWidget):
@@ -238,6 +264,7 @@ def signals():
         app = QApplication.instance()
         _signals = ThemeSignals(app)
         app.installEventFilter(_signals)
+        app.paletteChanged.connect(_signals.palette_changed)
         app.styleHints().colorSchemeChanged.connect(_system_changed)
     return _signals
 
