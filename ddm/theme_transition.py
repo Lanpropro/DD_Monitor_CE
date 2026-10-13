@@ -1,4 +1,5 @@
 """Interruptible wave reveal of UI snapshots, leaving live video uncovered."""
+import sys
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
@@ -48,21 +49,83 @@ class WaveOverlay(QWidget):
         self.snapshot = snapshot
         self.origin = window.mapFromGlobal(origin)
         self.progress = 0.0
+        self._native_clip = sys.platform == 'win32' and QApplication.platformName() == 'windows'
         self.setGeometry(QRect(window.mapToGlobal(QPoint()), window.size()))
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        self._paint(painter, clipped=not self._native_clip)
+
+    def _paint(self, painter, *, clipped):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setCompositionMode(QPainter.CompositionMode_Source)
         painter.fillRect(self.rect(), Qt.transparent)
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        revealed = wave_path(self.progress, self.width(), self.height(), self.origin)
-        full = QPainterPath()
-        full.setFillRule(Qt.OddEvenFill)
-        full.addRect(0, 0, self.width(), self.height())
-        full.addPath(revealed)
-        painter.setClipPath(full)
+        if clipped:
+            revealed = wave_path(self.progress, self.width(), self.height(), self.origin)
+            full = QPainterPath()
+            full.setFillRule(Qt.OddEvenFill)
+            full.addRect(0, 0, self.width(), self.height())
+            full.addPath(revealed)
+            painter.setClipPath(full)
         painter.drawPixmap(0, 0, self.snapshot)
+
+    def grab(self):
+        # Qt's grab does not include a Win32 window region. Compose the visible
+        # frame explicitly when a second click interrupts the native reveal.
+        if not self._native_clip:
+            return super().grab()
+        visible = QPixmap(self.snapshot.size())
+        visible.setDevicePixelRatio(self.snapshot.devicePixelRatio())
+        visible.fill(Qt.transparent)
+        painter = QPainter(visible)
+        self._paint(painter, clipped=True)
+        painter.end()
+        return visible
+
+    def reveal(self, progress):
+        self.progress = progress
+        if self._native_clip:
+            if self._clip_native():
+                return
+            self._native_clip = False
+            import ctypes
+            ctypes.windll.user32.SetWindowRgn(int(self.winId()), None, False)
+        self.update()
+
+    def _clip_native(self):
+        import ctypes
+        from ctypes import wintypes
+
+        gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
+        gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+        gdi32.CreateRectRgn.restype = wintypes.HANDLE
+        gdi32.CreateEllipticRgn.argtypes = (ctypes.c_int,) * 4
+        gdi32.CreateEllipticRgn.restype = wintypes.HANDLE
+        gdi32.CombineRgn.argtypes = (wintypes.HANDLE,) * 3 + (ctypes.c_int,)
+        gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+        user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
+        scale = self.devicePixelRatioF()
+        radius = max(((x-self.origin.x())**2 + (y-self.origin.y())**2)**.5
+            for x in (0, self.width()) for y in (0, self.height())) * self.progress
+        region = gdi32.CreateRectRgn(0, 0, round(self.width()*scale), round(self.height()*scale))
+        hole = gdi32.CreateEllipticRgn(round((self.origin.x()-radius)*scale),
+            round((self.origin.y()-radius)*scale), round((self.origin.x()+radius)*scale),
+            round((self.origin.y()+radius)*scale))
+        try:
+            if not region or not hole or not gdi32.CombineRgn(region, region, hole, 4):  # RGN_DIFF
+                return False
+            # DWM clips the already uploaded snapshot; do not invalidate and
+            # re-upload its full 4K bitmap for every animation frame.
+            if user32.SetWindowRgn(int(self.winId()), region, False):
+                region = None  # Ownership transfers to Windows.
+                return True
+            return False
+        finally:
+            if hole:
+                gdi32.DeleteObject(hole)
+            if region:
+                gdi32.DeleteObject(region)
 
 
 class ThemeTransition(QObject):
@@ -148,8 +211,7 @@ class ThemeTransition(QObject):
     def _frame(self, progress):
         self.progress = float(progress)
         for overlay in self.overlays:
-            overlay.progress = self.progress
-            overlay.update()
+            overlay.reveal(self.progress)
 
     def finish(self):
         self.animation.stop()

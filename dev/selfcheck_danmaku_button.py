@@ -40,9 +40,23 @@ def main():
                 client = window._danmaku_clients['1001']
                 client.message.emit({'text': 'Button works before live status arrives'})
                 assert tile.video_danmaku.comments
-                QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+                QTest.qWait(30)
+                paints = []
+                overlay = tile.video_danmaku
+                original_repaint = overlay.repaint
+                def track_repaint():
+                    paints.append((bool(overlay.comments), overlay.isVisible()))
+                    original_repaint()
+                with patch.object(overlay, 'repaint', track_repaint):
+                    QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+                    assert paints[-1] == (False, True), 'Erase old native pixels before hiding, not on the next show'
                 assert not tile.video_danmaku.enabled and not tile.video_danmaku.isVisible()
                 assert '1001' not in window._danmaku_clients and client.stopped
+                QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+                assert not tile.video_danmaku.comments, 'Reopening must start with no previous comments'
+                client.message.emit({'text': 'Late message from the closed connection'})
+                assert not tile.video_danmaku.comments
+                QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
         tile.set_video_active(False)
         QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
         assert '1001' not in window._danmaku_clients, 'A genuinely offline room must not open a connection'

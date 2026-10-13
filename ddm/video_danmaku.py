@@ -86,10 +86,12 @@ class VideoDanmaku(QWidget):
 
     def _sync_visible(self) -> None:
         visible = self.enabled and self.active
-        self.setVisible(visible)
         if not visible:
+            # Erase the native backing while still visible. Hiding first leaves
+            # its last rendered comments cached until the next asynchronous paint.
             self.clear()
-        elif self.comments and not self.paused:
+        self.setVisible(visible)
+        if visible and self.comments and not self.paused:
             self._start_timer()
 
     def font_pixels(self) -> int:
@@ -213,7 +215,10 @@ class VideoDanmaku(QWidget):
         self.timer.stop()
         self.comments.clear()
         self._last_tick = 0.0
-        self.update()
+        if self.isVisible():
+            self.repaint()
+        else:
+            self.update()
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
