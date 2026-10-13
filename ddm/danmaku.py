@@ -5,6 +5,7 @@ blivedm 是异步库，这里把它放进 QThread 里跑一个独立的事件循
 """
 import asyncio
 import http.cookies
+import json
 import logging
 import sys
 import threading
@@ -208,12 +209,24 @@ class _Handler(_HandlerBase):
 
     def _on_danmaku(self, client, message):
         emoticon = message.emoticon_options_dict if message.dm_type == 1 else {}
+        # Text messages can contain several inline emotes in mode_info.extra.
+        mode_info = getattr(message, "mode_info", {})
+        extra = mode_info.get("extra", {}) if isinstance(mode_info, dict) else {}
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except (ValueError, TypeError):
+                extra = {}
+        emotes = extra.get("emots", {}) if isinstance(extra, dict) else {}
+        emotes = emotes if isinstance(emotes, dict) else {}
         self._emit({
             "kind": "danmaku",
             "uname": message.uname,
             "text": message.msg,
             "medal": _medal_info(message),
-            "emoticon": (emoticon or {}).get("url") or "",
+            "emoticon": emoticon.get("url", "") if isinstance(emoticon, dict) else "",
+            "emoticons": {text: item["url"] for text, item in emotes.items()
+                          if isinstance(item, dict) and isinstance(item.get("url"), str)},
         })
 
     def _on_gift(self, client, message):
