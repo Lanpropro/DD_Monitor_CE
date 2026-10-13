@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QMimeData, QPointF, Qt
+from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage
 from PySide6.QtWidgets import QApplication, QDialog
 from ddm import config, theme
@@ -37,13 +37,13 @@ def main():
             for name in ('folder', 'star', 'heart', 'game', 'music', 'video'):
                 dialog.select_builtin(name)
                 assert not dialog.preview.pixmap().isNull()
-            dialog.color.setCurrentIndex(2)
+            dialog.set_color('pink')
             assert dialog.selection['color'] == 'pink' and 'icon' not in folder
             dialog.reject()
             assert 'icon' not in folder, 'Cancel must preserve the folder'
             def save(editor):
                 editor.select_builtin('heart')
-                editor.color.setCurrentIndex(2)
+                editor.set_color('pink')
                 editor.accept()
                 return QDialog.Accepted
             with patch.object(FolderIconDialog, 'exec', save):
@@ -64,7 +64,24 @@ def main():
         image.save(str(source))
         original = source.read_bytes()
         dialog = FolderIconDialog(folder, button)
-        dialog.import_image(source)
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(source))])
+        enter = QDragEnterEvent(dialog.drop_area.rect().center(), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(dialog.drop_area, enter)
+        assert enter.isAccepted() and dialog.drop_area.property('dragging')
+        drop = QDropEvent(QPointF(dialog.drop_area.rect().center()), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(dialog.drop_area, drop)
+        assert drop.isAccepted() and not dialog.drop_area.property('dragging')
+        assert 'icon' in folder and folder['icon'] == old, 'Dropping must not apply before Save'
+        remote = QMimeData()
+        remote.setUrls([QUrl('https://example.com/icon.png')])
+        rejected = QDragEnterEvent(dialog.drop_area.rect().center(), Qt.CopyAction, remote, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(dialog.drop_area, rejected)
+        assert not rejected.isAccepted()
+        remote.setUrls([QUrl.fromLocalFile(str(source)), QUrl.fromLocalFile(str(source))])
+        rejected = QDragEnterEvent(dialog.drop_area.rect().center(), Qt.CopyAction, remote, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(dialog.drop_area, rejected)
+        assert not rejected.isAccepted()
         assert not dialog.color.isEnabled()
         assert dialog.image.pixelColor(128, 0).alpha() == 0
         assert dialog.image.pixelColor(128, 128) == QColor('#E95C93')

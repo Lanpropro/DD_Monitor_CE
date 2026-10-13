@@ -6607,6 +6607,7 @@ class WallGrid(QWidget):
     def __init__(self, rooms: list[dict], layout_id: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("WallGrid")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
@@ -6626,7 +6627,7 @@ class WallGrid(QWidget):
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
-        self.grid.setSpacing(8)
+        self.grid.setSpacing(10 if theme.is_light() else 8)
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -6637,6 +6638,9 @@ class WallGrid(QWidget):
         for room in rooms:
             self._make_tile(room)
         self.relayout(force=True)
+
+    def refresh_theme(self):
+        self.grid.setSpacing(10 if theme.is_light() else 8)
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:

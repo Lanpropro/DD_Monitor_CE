@@ -140,6 +140,8 @@ def _skin_style(widget):
         return ''
     if name == 'Root':
         return '#Root {background: transparent;}'
+    if name == 'WallGrid':
+        return '#WallGrid {background: transparent;}'
     if name == 'TileVideo':
         return '#TileVideo {background: transparent;}'
     colors = {'Sidebar': SIDEBAR, 'Tile': BG,
@@ -199,10 +201,11 @@ def _light_style(widget):
     return {
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
-        'Tile': '#Tile {background: #FFFFFF;} #Tile[empty="true"] {background: #F4F6F9;}',
-        'TileVideo': '#TileVideo {background: #F4F6F9;}',
+        'WallGrid': '#WallGrid {background: #E6EBF2;}',
+        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}',
+        'TileVideo': '#TileVideo {background: #FFFFFF;}',
         'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
-        'TileBottom': '#TileBottom {background: #F4F6F9; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0;} #TileBottom QLabel {color: #4A5565;}',
+        'TileBottom': '#TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;} #TileBottom QLabel {color: #4A5565;}',
         'TilePlaceholder': '#TilePlaceholder {color: #4A5565;}',
         'NavThumbCover': '#NavThumbCover {color: #F1F2F5;}',
         'NavThumbHint': '#NavThumbHint {color: #F1F2F5;}',
@@ -1253,11 +1256,14 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;}
         #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;}
         #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}
-        #Tile, #DanmakuPanel {background: #FFFFFF;}
-        #Tile[empty="true"], #TileVideo {background: #F4F6F9;}
+        #WallGrid {background: #E6EBF2;}
+        #Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;}
+        #Tile:hover {border-color: #95A7BE;}
+        #Tile[focused="true"] {border-color: #00A1D6;}
+        #DanmakuPanel, #TileVideo {background: #FFFFFF;}
         #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
         #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
-        #TileBottom {background: #F4F6F9; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0;}
+        #TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;}
         #TileBottom #TileCtrl {background: transparent; color: #4A5565; border: none;}
         #TileBottom #TileCtrl:hover, #TileBottom #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
         #TileBottom QLabel {color: #4A5565;}

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated test'))
-from PySide6.QtCore import QPoint, Qt, QEvent, QObject
+from PySide6.QtCore import QPoint, QRect, Qt, QEvent, QObject
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -47,11 +47,18 @@ def main():
             window.set_appearance(mode)
             QTest.qWait(50)
             if mode == 'light':
-                assert sample(tile.video, QPoint(20, tile.video.height()//2)) == QColor('#F4F6F9')
+                assert sample(tile.video, QPoint(20, tile.video.height()//2)) == QColor('#FFFFFF')
                 assert tile.bottom.geometry().left() == tile.video.geometry().left()
                 assert tile.bottom.geometry().bottom() < tile.height()-1, 'Footer must leave the outer card border visible'
                 point = tile.bottom.mapTo(window, QPoint(5, tile.bottom.height()//2))
-                assert sample(window, point) == QColor('#F4F6F9')
+                assert sample(window, point) == QColor('#F0F3F8')
+                output = ROOT/'work/appearance-delivery'
+                output.mkdir(parents=True, exist_ok=True)
+                tile.grab(QRect(0, tile.height()-40, tile.width(), 40)).save(str(output/'tile-bottom-corners.png'))
+                for x in (6, tile.width()-7):
+                    curve = sample(tile, QPoint(x, tile.height()-2))
+                    assert curve != QColor('#F0F3F8') and curve != QColor('#FFFFFF'), 'Bottom corner border must curve above the footer fill'
+                assert sample(window.wall, QPoint(2, 2)) == QColor('#E6EBF2')
                 button = window.sidebar.add_button
                 assert sample(button, QPoint(20, button.height()//2)) == QColor('#FB7299')
                 assert account.name.palette().color(QPalette.WindowText) == QColor('#202630')

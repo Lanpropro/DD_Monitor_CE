@@ -2,11 +2,11 @@
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QGridLayout, QHBoxLayout, QLabel, QPushButton, QStyle, QToolButton, QVBoxLayout)
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame,
+    QGridLayout, QHBoxLayout, QLabel, QPushButton, QStyle, QToolButton, QVBoxLayout, QWidget)
 
 from . import config, theme
 from .follow_folders import ICON_COLORS, ICON_NAMES, normalize_icon
@@ -71,42 +71,134 @@ def folder_icon(folder, widget, size=18):
     return widget.style().standardIcon(kind)
 
 
+class IconDropArea(QPushButton):
+    fileDropped = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__('将图片拖到这里\n或点击选择 PNG / JPEG / ICO', parent)
+        self.setObjectName('IconDropArea')
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(64)
+
+    def _path(self, event):
+        urls = event.mimeData().urls()
+        if len(urls) == 1 and urls[0].isLocalFile():
+            path = urls[0].toLocalFile()
+            if Path(path).suffix.lower() in ('.png', '.jpg', '.jpeg', '.ico'):
+                return path
+        return ''
+
+    def _highlight(self, active):
+        self.setProperty('dragging', active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def dragEnterEvent(self, event):
+        if self._path(event):
+            self._highlight(True)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._path(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._highlight(False)
+        event.accept()
+
+    def dropEvent(self, event):
+        self._highlight(False)
+        path = self._path(event)
+        if path:
+            self.fileDropped.emit(path)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
 class FolderIconDialog(QDialog):
     def __init__(self, folder, parent=None):
         super().__init__(parent)
         self.setWindowTitle('修改文件夹图标')
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setObjectName('FolderIconDialog')
+        self.setFixedWidth(430)
         self.folder = folder
         self.selection = normalize_icon(folder.get('icon'))
         self.image = None
         self.result_icon = self.selection
+        self._color = self.selection['color'] if self.selection and self.selection['type'] == 'builtin' else 'default'
         layout = QVBoxLayout(self)
-        top = QHBoxLayout()
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(14)
+        heading = QHBoxLayout()
+        title = QLabel('修改文件夹图标')
+        title.setStyleSheet('font-size: 18px; font-weight: 600;')
+        heading.addWidget(title, 1)
+        close = QPushButton('×')
+        close.setObjectName('IconClose')
+        close.setFixedSize(26, 26)
+        close.clicked.connect(self.reject)
+        heading.addWidget(close)
+        layout.addLayout(heading)
+        current = QFrame()
+        current.setObjectName('IconCurrent')
+        top = QHBoxLayout(current)
+        top.setContentsMargins(14, 12, 14, 12)
         self.preview = QLabel()
+        self.preview.setFixedSize(40, 40)
+        self.preview.setAlignment(Qt.AlignCenter)
         top.addWidget(self.preview)
-        top.addWidget(QLabel(folder['name']), 1)
-        layout.addLayout(top)
+        labels = QVBoxLayout()
+        labels.setSpacing(3)
+        labels.addWidget(QLabel(folder['name']))
+        hint = QLabel(('智能文件夹' if folder['type'] == 'smart' else '普通文件夹') + ' · 图标预览')
+        hint.setProperty('hint', True)
+        labels.addWidget(hint)
+        top.addLayout(labels, 1)
+        layout.addWidget(current)
+        layout.addWidget(QLabel('内置图标'))
         grid = QGridLayout()
+        grid.setSpacing(8)
         self.choices = []
         for index, name in enumerate(ICON_NAMES):
             button = QToolButton()
+            button.setObjectName('IconChoice')
+            button.setFixedSize(122, 66)
             button.setText(NAMES[index])
-            button.setIconSize(QSize(32, 32))
+            button.setIconSize(QSize(24, 24))
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             button.setCheckable(True)
-            button.setStyleSheet('QToolButton:checked {border: 1px solid #4D8DFF; border-radius: 6px;}')
             button.clicked.connect(lambda _checked=False, value=name: self.select_builtin(value))
             grid.addWidget(button, index//3, index%3)
             self.choices.append(button)
         layout.addLayout(grid)
-        self.color = QComboBox()
-        self.color.addItems(('默认颜色', '蓝色', '粉色', '绿色', '橙色', '紫色'))
-        if self.selection and self.selection['type'] == 'builtin':
-            self.color.setCurrentIndex(ICON_COLORS.index(self.selection['color']))
-        self.color.currentIndexChanged.connect(self._color_changed)
+        self.color = QWidget()
+        colors = QHBoxLayout(self.color)
+        colors.setContentsMargins(0, 0, 0, 0)
+        colors.addWidget(QLabel('图标颜色'))
+        colors.addStretch()
+        self.swatches = {}
+        for name, label in zip(ICON_COLORS, ('默认', '蓝色', '粉色', '绿色', '橙色', '紫色')):
+            button = QPushButton()
+            button.setFixedSize(24, 24)
+            button.setToolTip(label)
+            button.clicked.connect(lambda _checked=False, value=name: self.set_color(value))
+            colors.addWidget(button)
+            self.swatches[name] = button
         layout.addWidget(self.color)
-        choose = QPushButton('选择本地图片…')
-        choose.clicked.connect(self._choose)
-        layout.addWidget(choose)
+        self.drop_area = IconDropArea(self)
+        self.drop_area.clicked.connect(self._choose)
+        self.drop_area.fileDropped.connect(self.import_image)
+        layout.addWidget(self.drop_area)
+        hint = QLabel('最大 5MB，图片保留原色。保存后应用。')
+        hint.setProperty('hint', True)
+        layout.addWidget(hint)
         previews = QHBoxLayout()
         self.image_previews = []
         for background in ('#191A1F', '#F4F6F9'):
@@ -118,38 +210,75 @@ class FolderIconDialog(QDialog):
             self.image_previews.append(label)
         layout.addLayout(previews)
         self.error = QLabel()
+        self.error.setObjectName('IconError')
         self.error.setWordWrap(True)
         layout.addWidget(self.error)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Save).setText('保存')
-        buttons.button(QDialogButtonBox.Cancel).setText('取消')
-        reset = buttons.addButton('恢复默认', QDialogButtonBox.ResetRole)
+        buttons = QHBoxLayout()
+        reset = QPushButton('恢复默认')
+        reset.setObjectName('IconReset')
         reset.clicked.connect(self.reset)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        buttons.addWidget(reset)
+        buttons.addStretch()
+        cancel = QPushButton('取消')
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+        save = QPushButton('保存')
+        save.setObjectName('IconSave')
+        save.setDefault(True)
+        save.clicked.connect(self.accept)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+        self.refresh_theme()
+
+    def refresh_theme(self):
+        dark = not theme.is_light()
+        bg, text, secondary, border, card = (
+            ('#24262B', '#F1F2F5', '#B8BDC5', '#424650', '#2D3036') if dark else
+            ('#F7F9FC', '#202630', '#5E6A7D', '#D7DDE7', '#FFFFFF'))
+        self.setStyleSheet(f'''
+            #FolderIconDialog {{background: {bg}; border: 1px solid {border}; border-radius: 14px;}}
+            #FolderIconDialog QLabel {{color: {text}; background: transparent;}}
+            #FolderIconDialog QLabel[hint="true"] {{color: {secondary}; font-size: 12px;}}
+            #IconCurrent {{background: {card}; border: 1px solid {border}; border-radius: 10px;}}
+            #IconChoice {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 9px; padding: 8px;}}
+            #IconChoice:checked {{background: {'#243A44' if dark else '#ECF7FC'}; border-color: #00A1D6;}}
+            #FolderIconDialog QPushButton {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 7px 12px;}}
+            #FolderIconDialog #IconSave {{background: #00A1D6; border-color: #00A1D6; color: white;}}
+            #FolderIconDialog #IconReset, #FolderIconDialog #IconClose {{background: transparent; border: none; color: {secondary};}}
+            #FolderIconDialog #IconClose {{padding: 0; font-size: 20px;}}
+            #FolderIconDialog #IconDropArea {{border-style: dashed;}}
+            #FolderIconDialog #IconDropArea[dragging="true"] {{border-color: #00A1D6; background: {'#243A44' if dark else '#ECF7FC'};}}
+            #FolderIconDialog #IconError {{color: #E5484D;}}
+        ''')
         self.refresh()
 
     def select_builtin(self, name):
-        self.selection = {'type': 'builtin', 'name': name, 'color': ICON_COLORS[self.color.currentIndex()]}
+        self.selection = {'type': 'builtin', 'name': name, 'color': self._color}
         self.image = None
         self.refresh()
 
-    def _color_changed(self, index):
+    def set_color(self, color):
+        if not self.color.isEnabled():
+            return
+        self._color = color
         if self.selection and self.selection['type'] == 'builtin':
-            self.selection['color'] = ICON_COLORS[index]
+            self.selection['color'] = color
         self.refresh()
 
     def refresh(self):
         folder = dict(self.folder, icon=self.selection)
-        icon = QIcon(QPixmap.fromImage(self.image)) if self.image is not None else folder_icon(folder, self, 48)
-        self.preview.setPixmap(icon.pixmap(QSize(48, 48), self.devicePixelRatioF()))
+        icon = QIcon(QPixmap.fromImage(self.image)) if self.image is not None else folder_icon(folder, self, 32)
+        self.preview.setPixmap(icon.pixmap(QSize(32, 32), self.devicePixelRatioF()))
         for name, button in zip(ICON_NAMES, self.choices):
             selected = bool(self.selection and self.selection.get('name') == name)
             button.setChecked(selected)
             button.setText(NAMES[ICON_NAMES.index(name)] + (' ✓' if selected else ''))
             button.setIcon(folder_icon(dict(self.folder, icon={'type': 'builtin', 'name': name,
-                'color': ICON_COLORS[self.color.currentIndex()]}), self, 32))
+                'color': self._color}), self, 24))
+        for name, button in self.swatches.items():
+            button.setText('✓' if name == self._color else '')
+            button.setStyleSheet(f'background: {COLORS[name] or theme.qcolor(theme.TEXT2).name()}; color: white; border: '
+                + ('2px solid #00A1D6' if name == self._color else 'none') + '; border-radius: 12px; padding: 0;')
         is_image = self.image is not None or bool(self.selection and self.selection['type'] == 'image')
         self.color.setEnabled(not is_image)
         for label in self.image_previews:
