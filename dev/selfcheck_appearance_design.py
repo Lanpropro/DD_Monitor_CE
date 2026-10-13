@@ -36,7 +36,8 @@ def main():
     assert '不改变底部控制条' in doc
     assert '点击图标直接切换深浅色，不弹出菜单或设置窗口' in doc
     assert '保存为手动选择' in doc
-    assert '280ms 波浪过渡' in doc and '连续点击从当前进度反向衔接' in doc
+    assert '280ms 圆弧扩散过渡' in doc and '连续点击保留当前可见的混合画面' in doc
+    assert '按钮的左上角' in doc and '不重新应用整份全局 QSS' in doc
     for requirement in ('避免用逻辑整数 QRegion 再裁切抗锯齿边缘',
                         '细边框向内收半像素', '半透明过渡像素', '正式原生视频浮层实现'):
         assert requirement in doc, requirement

@@ -12,7 +12,7 @@ import webbrowser
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimation,
-                           Qt, QtMsgType, QTimer, qInstallMessageHandler)
+                           QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
@@ -707,7 +707,10 @@ class MainWindow(QMainWindow):
         from .theme_transition import ThemeTransition
         if not hasattr(self, '_theme_transition'):
             self._theme_transition = ThemeTransition(self)
-        self._theme_transition.change(self.settings["appearance_mode"])
+        source = self.sender()
+        page = getattr(source, 'appearance_page', None)
+        button = page.buttons[self.settings["appearance_mode"]] if page is not None else self.sidebar.appearance_button
+        self._theme_transition.change(self.settings["appearance_mode"], button.mapToGlobal(QPoint()))
         config_module.save(self.current_state())
 
     def open_settings(self, page: str = "general") -> bool:

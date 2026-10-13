@@ -12,8 +12,8 @@ import os
 import re
 from weakref import WeakKeyDictionary
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
 
@@ -122,8 +122,77 @@ _styles = WeakKeyDictionary()
 _signals = None
 
 
+# Stable QSS reads colours from the palette; switching no longer re-polishes
+# every widget's fonts, metrics and layout through QApplication.setStyleSheet.
+_PALETTE_ROLES = dict(zip(_DARK, (
+    'window', 'alternate-base', 'base', 'button', 'tooltip-base',
+    'window-text', 'text', 'button-text', 'tooltip-text', 'mid', 'dark',
+    'highlight', 'light')))
+_MIX_ROLES = {('ACCENT', '#ffffff', .35): 'midlight',
+    ('CONTENT', '#000000', .12): 'shadow',
+    ('ACCENT', '#ffffff', .12): 'link',
+    ('ACCENT', '#000000', .16): 'link-visited'}
+
+
+def _apply_palette(app, colors):
+    palette = QPalette()
+    roles = {name.lower().replace('_', '').replace('-', ''): role
+        for name, role in QPalette.ColorRole.__members__.items()}
+    values = {role: colors[name] for name, role in _PALETTE_ROLES.items()}
+    values.update({role: mix(colors[name], other, ratio)
+        for (name, other, ratio), role in _MIX_ROLES.items()})
+    for name, color in values.items():
+        parsed = qcolor(color)
+        if color.startswith('rgba('):
+            parsed.setAlpha(int(float(color[5:-1].split(',')[-1]) * 255))
+        palette.setColor(roles[name.replace('-', '')], parsed)
+    app.setPalette(palette.resolve(app.palette()))
+    for widget in app.allWidgets():
+        widget.setPalette(palette.resolve(widget.palette()))
+    # Clear cached palette-dependent paint rules once, without re-polishing
+    # every widget or resetting its geometry and fonts.
+    app.style().unpolish(app)
+    app.style().polish(app)
+
+
+def _light_style(widget):
+    if not _light:
+        return ''
+    name = widget.objectName()
+    if name == 'TileCtrl':
+        parent = widget.parentWidget()
+        while parent is not None and parent.objectName() != 'TileBottom':
+            parent = parent.parentWidget()
+        if parent is not None:
+            return '#TileCtrl {background: rgba(12,13,16,0.78); color: #D6DAE0; border: none;} #TileCtrl:hover {background: #007BA8; color: #FFFFFF;} #TileCtrl[recording="true"] {color: #E5484D;}'
+        return '#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
+    return {
+        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;}',
+        'TileBottom': '#TileBottom QLabel {color: #B8BDC5;}',
+        'TilePlaceholder': '#TilePlaceholder {color: #B8BDC5;}',
+        'NavThumbCover': '#NavThumbCover {color: #F1F2F5;}',
+        'NavThumbHint': '#NavThumbHint {color: #F1F2F5;}',
+        'PauseOverlay': '#PauseOverlay QLabel {color: #F1F2F5;}',
+        'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
+        'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
+        'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
+        'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
+    }.get(name, '')
+
+
 class ThemeSignals(QObject):
     changed = Signal(str)
+
+    def eventFilter(self, widget, event):
+        # Newly opened settings/popups need the same exceptions as existing UI.
+        if _light and event.type() == QEvent.Polish and isinstance(widget, QWidget):
+            extra = _light_style(widget)
+            if extra and widget not in _styles:
+                source = widget.styleSheet()
+                styled = source + '\n' + extra
+                _styles[widget] = (source, {name: globals()[name] for name in _DARK}, styled)
+                widget.setStyleSheet(styled)
+        return False
 
 
 def signals():
@@ -131,6 +200,7 @@ def signals():
     if _signals is None:
         app = QApplication.instance()
         _signals = ThemeSignals(app)
+        app.installEventFilter(_signals)
         app.styleHints().colorSchemeChanged.connect(_system_changed)
     return _signals
 
@@ -177,12 +247,23 @@ def apply(value):
         if not saved or style != saved[2]:
             _styles[widget] = (style, previous, style)
     globals().update(palette)
-    app.setStyleSheet(qss())
+    _apply_palette(app, palette)
+    stable_style = qss(palette_roles=True)
+    if app.styleSheet() != stable_style:
+        app.setStyleSheet(stable_style)
+    patterns = {}
     for widget in widgets:
         source, colors, _last = _styles[widget]
-        replacements = {old: palette[name] for name, old in colors.items()}
-        pattern = "|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True))
-        styled = re.sub(pattern, lambda match: replacements[match.group()], source)
+        key = tuple(colors.items())
+        if key not in patterns:
+            replacements = {old: palette[name] for name, old in colors.items()}
+            pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
+            patterns[key] = pattern, replacements
+        pattern, replacements = patterns[key]
+        styled = pattern.sub(lambda match: replacements[match.group()], source) if source else ''
+        extra = _light_style(widget)
+        if extra:
+            styled += '\n' + extra
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
         _styles[widget] = (source, colors, styled)
@@ -193,8 +274,15 @@ def apply(value):
     signals().changed.emit(value)
 
 
-def qss() -> str:
+def qss(palette_roles=False) -> str:
     """全局样式表。"""
+    colors = {name: globals()[name] for name in _DARK}
+    if palette_roles:
+        colors = {name: f'palette({role})' for name, role in _PALETTE_ROLES.items()}
+    BG, SIDEBAR, CONTENT, CONTENT_HOVER, ELEVATED, TEXT1, TEXT2, TEXT3, TEXT4, BORDER, BORDER_STRONG, ACCENT, ACCENT_SOFT = colors.values()
+    def style_mix(name, other, ratio):
+        return (f'palette({_MIX_ROLES[name, other, ratio]})' if palette_roles
+            else mix(colors[name], other, ratio))
     style = f"""
 QPushButton#AppearanceChoice {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
@@ -337,7 +425,7 @@ QSlider::handle:horizontal {{
     background: #ffffff;
 }}
 QSlider::handle:horizontal:hover {{
-    background: {mix(ACCENT, "#ffffff", 0.35)};
+    background: {style_mix("ACCENT", "#ffffff", 0.35)};
 }}
 
 /* ---------- 设置窗口（左侧选类别，右侧改内容） ---------- */
@@ -570,7 +658,7 @@ QSlider::handle:horizontal:hover {{
     color: {ACCENT};
 }}
 QPushButton#IconButton:pressed {{
-    background: {mix(CONTENT, "#000000", 0.12)};
+    background: {style_mix("CONTENT", "#000000", 0.12)};
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
@@ -584,10 +672,10 @@ QPushButton#IconButton:pressed {{
     font-weight: 700;
 }}
 #PrimaryButton:hover {{
-    background: {mix(ACCENT, "#ffffff", 0.12)};
+    background: {style_mix("ACCENT", "#ffffff", 0.12)};
 }}
 QPushButton#PrimaryButton:pressed {{
-    background: {mix(ACCENT, "#000000", 0.16)};
+    background: {style_mix("ACCENT", "#000000", 0.16)};
 }}
 #GhostButton {{
     background: transparent;
@@ -1115,7 +1203,7 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
     width: 0;
 }}
 """
-    if _light:
+    if _light and not palette_roles:
         style += """
         #PrimaryButton {color: #FFFFFF;}
         #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}

@@ -7,18 +7,12 @@ from . import motion, theme
 from .video_surface import VideoSurface
 
 
-def wave_path(progress, width, height):
-    amplitude = min(52.0, width * .035)
-    edge = progress * (width + amplitude * 2) - amplitude
+def wave_path(progress, width, height, origin=None):
+    origin = origin if origin is not None else QPoint()
+    radius = max(((x-origin.x())**2 + (y-origin.y())**2)**.5
+        for x in (0, width) for y in (0, height)) * progress
     path = QPainterPath()
-    path.moveTo(0, 0)
-    path.lineTo(edge, 0)
-    path.cubicTo(edge + amplitude, height * .18,
-                 edge - amplitude, height * .35, edge, height * .5)
-    path.cubicTo(edge + amplitude, height * .68,
-                 edge - amplitude, height * .85, edge, height)
-    path.lineTo(0, height)
-    path.closeSubpath()
+    path.addEllipse(origin.x()-radius, origin.y()-radius, radius*2, radius*2)
     return path
 
 
@@ -42,15 +36,15 @@ def ui_snapshot(window):
 
 
 class WaveOverlay(QWidget):
-    def __init__(self, window, dark, light):
+    def __init__(self, window, snapshot, origin):
         super().__init__(window, Qt.Tool | Qt.FramelessWindowHint |
             Qt.WindowTransparentForInput | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.dark, self.light = dark, light
+        self.snapshot = snapshot
+        self.origin = window.mapFromGlobal(origin)
         self.progress = 0.0
-        self.target_light = True
         self.setGeometry(QRect(window.mapToGlobal(QPoint()), window.size()))
 
     def paintEvent(self, event):
@@ -59,13 +53,11 @@ class WaveOverlay(QWidget):
         painter.setCompositionMode(QPainter.CompositionMode_Source)
         painter.fillRect(self.rect(), Qt.transparent)
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        visible = wave_path(self.progress, self.width(), self.height())
-        if self.target_light:
-            full = QPainterPath()
-            full.addRect(0, 0, self.width(), self.height())
-            visible = full.subtracted(visible)
-        painter.setClipPath(visible)
-        painter.drawPixmap(0, 0, self.dark if self.target_light else self.light)
+        revealed = wave_path(self.progress, self.width(), self.height(), self.origin)
+        full = QPainterPath()
+        full.addRect(0, 0, self.width(), self.height())
+        painter.setClipPath(full.subtracted(revealed))
+        painter.drawPixmap(0, 0, self.snapshot)
 
 
 class ThemeTransition(QObject):
@@ -96,49 +88,56 @@ class ThemeTransition(QObject):
                 windows.append(widget)
         return windows
 
-    def change(self, mode):
+    def change(self, mode, origin=None):
         if not motion.enabled() or self._keyboard or not self.window.isVisible():
             self.finish()
             self._apply(mode)
             return
         previous_light = theme.is_light()
         windows = self._windows()
-        running = bool(self.overlays)
-        before = [] if running else [(window, ui_snapshot(window)) for window in windows]
+        if origin is None:
+            origin = self.window.sidebar.appearance_button.mapToGlobal(QPoint())
+        before = []
+        for window in windows:
+            snapshot = ui_snapshot(window)
+            # Preserve the visible mixture when another click interrupts a reveal.
+            # The next colour still flows from its button, without a full-frame flash.
+            for overlay in self.overlays:
+                if overlay.parentWidget() is window:
+                    painter = QPainter(snapshot)
+                    painter.drawPixmap(0, 0, overlay.grab())
+                    painter.end()
+            before.append((window, snapshot))
+        self.finish()
         self._apply(mode)
-        target_light = theme.is_light()
-        if target_light == previous_light:
+        if theme.is_light() == previous_light:
             return
-        if not running:
-            self.progress = float(previous_light)
-            for window, old in before:
-                new = ui_snapshot(window)
-                dark, light = (old, new) if target_light else (new, old)
-                overlay = WaveOverlay(window, dark, light)
-                self.overlays.append(overlay)
-                self._watched.extend([window] + window.findChildren(VideoSurface))
-        target = float(target_light)
-        start = self.progress
-        self.animation.blockSignals(True)
-        self.animation.stop()
-        for overlay in self.overlays:
-            overlay.target_light = target_light
-            overlay.progress = start
+        self.progress = 0.0
+        for window, old in before:
+            overlay = WaveOverlay(window, old, origin)
+            self.overlays.append(overlay)
+            self._watched.extend([window] + window.findChildren(VideoSurface))
             overlay.show()
             overlay.raise_()
-        self.animation.setDuration(max(1, round(motion.THEME_WAVE_MS * abs(target-start))))
-        self.animation.setStartValue(start)
-        self.animation.setEndValue(target)
+        self.animation.blockSignals(True)
+        self.animation.setDuration(motion.THEME_WAVE_MS)
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
         self.animation.setCurrentTime(0)
         self.animation.blockSignals(False)
-        self.progress = start
         self.animation.start()
 
     def _apply(self, mode):
         self._changing = True
+        app = QApplication.instance()
+        app.removeEventFilter(self)
+        updates_enabled = self.window.updatesEnabled()
+        self.window.setUpdatesEnabled(False)
         try:
             theme.apply(mode)
         finally:
+            self.window.setUpdatesEnabled(updates_enabled)
+            app.installEventFilter(self)
             self._changing = False
 
     def _frame(self, progress):
@@ -151,7 +150,7 @@ class ThemeTransition(QObject):
         self.animation.stop()
         for overlay in self.overlays:
             overlay.hide()
-            overlay.dark = overlay.light = QPixmap()
+            overlay.snapshot = QPixmap()
             overlay.deleteLater()
         self.overlays.clear()
         self._watched.clear()
@@ -162,11 +161,12 @@ class ThemeTransition(QObject):
             self.finish()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.KeyPress:
+        kind = event.type()
+        if kind == QEvent.KeyPress:
             self._keyboard = True
-        elif event.type() == QEvent.MouseButtonPress:
+        elif kind == QEvent.MouseButtonPress:
             self._keyboard = False
-        if watched in self._watched and event.type() in (
+        if watched in self._watched and kind in (
                 QEvent.Resize, QEvent.Move, QEvent.Hide, QEvent.Close,
                 QEvent.DevicePixelRatioChange, QEvent.WindowStateChange):
             self.finish()

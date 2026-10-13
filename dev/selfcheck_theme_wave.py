@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated test'))
 from PySide6.QtCore import QAbstractAnimation, QEvent, QPoint, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeyEvent, QPainter
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from ddm import app as app_module, motion, theme
@@ -47,7 +47,9 @@ def main():
     assert snapshot.pixelColor(round(center.x()*ratio), round(center.y()*ratio)).alpha() == 0
     handles = [int(tile.video.winId()) for tile in window.wall.tiles]
     with patch.object(motion, 'enabled', return_value=True):
-        window.set_appearance('light')
+        with patch.object(app, 'setStyleSheet', side_effect=AssertionError('Theme switch must not re-polish the global stylesheet')), patch('ddm.theme_transition.ui_snapshot', wraps=ui_snapshot) as grab:
+            window.set_appearance('light')
+            assert grab.call_count == 1, 'A normal switch needs only its old UI snapshot'
         transition = window._theme_transition
         assert transition.overlays and transition.animation.state() == QAbstractAnimation.Running
         QTest.qWait(40)
@@ -56,16 +58,27 @@ def main():
         progress = transition.progress
         assert 0 < progress < 1
         overlay = transition.overlays[0]
+        origin = window.sidebar.appearance_button.mapTo(window, QPoint())
+        assert overlay.origin == origin, 'Origin must be the button top-left, not the window edge or click centre'
+        early = wave_path(.1, width, height, origin)
+        assert early.contains(origin + QPoint(1, 1))
+        assert not early.contains(QPoint(width-1, height-1))
+        assert wave_path(1, width, height, origin).contains(QPoint(width-1, height-1))
         assert overlay.testAttribute(Qt.WA_TransparentForMouseEvents)
         assert overlay.windowFlags() & Qt.WindowTransparentForInput
         output = ROOT / 'work/appearance-delivery'
         output.mkdir(parents=True, exist_ok=True)
         assert overlay.grab().save(str(output / 'wave-half.png'))
+        visible = ui_snapshot(window)
+        painter = QPainter(visible)
+        painter.drawPixmap(0, 0, overlay.grab())
+        painter.end()
         window.set_appearance('dark')
-        assert transition.progress == progress, 'Reverse must start at the visible position'
-        assert transition.animation.endValue() == 0.0
+        assert transition.overlays[0].snapshot.toImage() == visible.toImage(), 'Interruption must preserve the visible frame'
+        assert transition.progress == 0.0, 'New colour must flow from the button'
+        assert transition.animation.endValue() == 1.0
         window.set_appearance('light')
-        assert transition.progress == progress and transition.animation.endValue() == 1.0
+        assert transition.progress == 0.0 and transition.animation.endValue() == 1.0
         transition.animation.setCurrentTime(transition.animation.duration())
         assert not transition.overlays and transition.animation.state() == QAbstractAnimation.Stopped
         assert theme.is_light() and window.settings['appearance_mode'] == 'light'
@@ -79,6 +92,8 @@ def main():
             QTest.qWait(40)
         dialog.appearance_page.buttons['dark'].click()
         assert len(transition.overlays) == 2, 'Main and settings windows should both transition'
+        button_origin = dialog.appearance_page.buttons['dark'].mapToGlobal(QPoint())
+        assert all(o.origin == o.parentWidget().mapFromGlobal(button_origin) for o in transition.overlays)
         QTest.qWait(40)
         assert len(transition.overlays) == 2
         dialog.reject()
@@ -114,7 +129,7 @@ def main():
         assert not transition.overlays, 'Close must leave no floating overlay'
     app.processEvents()
     assert not errors, errors
-    print('PASS: wave endpoints, live-video holes, continuous reversal, input passthrough, resize/close/system cancellation, keyboard/reduced-motion fallback and stable video HWNDs')
+    print('PASS: wave endpoints, live-video holes, continuous interrupted snapshots, input passthrough, resize/close/system cancellation, keyboard/reduced-motion fallback and stable video HWNDs')
 
 
 if __name__ == '__main__':
