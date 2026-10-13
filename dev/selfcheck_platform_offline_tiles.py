@@ -18,7 +18,7 @@ def main():
     app = QApplication([])
     with patch.object(module, 'StatusPoller', IdlePoller), patch.object(module, 'StatsPoller', IdlePoller), \
             patch.object(bili, 'play_url', side_effect=RuntimeError('offline fixture')):
-        window = MainWindow([], [], layout_id='single')
+        window = MainWindow([], [], layout_id='single', state={'plugins_enabled': []})
         window.refresh_status = lambda: None
         tile = window.wall.tiles[0]
         try:

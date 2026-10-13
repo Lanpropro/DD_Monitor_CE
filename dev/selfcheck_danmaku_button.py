@@ -57,11 +57,33 @@ def main():
                 client.message.emit({'text': 'Late message from the closed connection'})
                 assert not tile.video_danmaku.comments
                 QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+        # Confirmed offline status must clear the overlay even if VLC has not
+        # emitted a stopped event yet (the last frame can remain frozen).
+        tile.room['live'] = True
+        QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+        client = window._danmaku_clients['1001']
+        client.message.emit({'text': 'Last comment before the host goes offline'})
+        assert tile.video_danmaku.comments and tile.video_danmaku.isVisible()
+        window._on_status_updated({'1001': dict(live=False, live_known=True, viewers='', title='')})
+        assert not tile.video_danmaku.active and not tile.video_danmaku.isVisible()
+        assert not tile.video_danmaku.comments and not tile.video_danmaku.timer.isActive()
+        assert tile.danmaku_button.isChecked(), 'Going offline must retain the user switch'
+        assert '1001' not in window._danmaku_clients and client.stopped
+        client.message.emit({'text': 'Queued old message after offline'})
+        assert not tile.video_danmaku.comments
+        with patch.object(window, 'start_tile'):
+            window._on_status_updated({'1001': dict(live=True, live_known=True, viewers='', title='')})
+        tile.set_video_active(True)
+        assert tile.video_danmaku.isVisible() and not tile.video_danmaku.comments
+        window._danmaku_clients['1001'].message.emit({'text': 'New broadcast'})
+        assert tile.video_danmaku.comments
+        QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+        tile.room['live'] = False
         tile.set_video_active(False)
         QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
         assert '1001' not in window._danmaku_clients, 'A genuinely offline room must not open a connection'
         window.close()
-    print('PASS: native button events, checked appearance, active playback with stale offline metadata, received comments, disable and offline gating')
+    print('PASS: button state, received comments, clear before hide, confirmed offline cleanup, ignored late messages, retained switch and clean live restart')
 
 
 if __name__ == '__main__':

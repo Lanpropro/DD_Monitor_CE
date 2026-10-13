@@ -5956,8 +5956,7 @@ class Tile(QFrame):
         """下播：画面清成黑的，格子继续留给这个直播间。"""
         self.room["live"] = False
         self._cover_source = None
-        self._player_active = False
-        self.cover.setVisible(True)
+        self.set_video_active(False)
         self.set_buffering(False)
         self.set_paused(False)
         self.stop_elapsed_timer()
