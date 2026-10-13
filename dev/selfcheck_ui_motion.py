@@ -89,11 +89,8 @@ def main():
         settings = SettingsDialog(config.DEFAULT_SETTINGS, {})
         settings.show()
         app.processEvents()
-        assert settings._entrance.duration() == 160
+        assert not hasattr(settings, '_entrance'), 'Settings must open directly without a second entrance stage'
         assert settings.windowOpacity() == 1
-        for frame in (0, 40, 80, 120):
-            settings._entrance.setCurrentTime(frame)
-            assert settings.windowOpacity() == 1
         original = settings.settings()
         nav = settings.nav
         QTest.mouseClick(nav.viewport(), Qt.LeftButton, pos=nav.visualItemRect(nav.item(1)).center())

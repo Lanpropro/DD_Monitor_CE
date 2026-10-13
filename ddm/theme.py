@@ -164,12 +164,15 @@ def _light_style(widget):
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return '#TileCtrl {background: rgba(12,13,16,0.78); color: #D6DAE0; border: none;} #TileCtrl:hover {background: #007BA8; color: #FFFFFF;} #TileCtrl[recording="true"] {color: #E5484D;}'
+            return '#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
         return '#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
     return {
-        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;}',
-        'TileBottom': '#TileBottom QLabel {color: #B8BDC5;}',
-        'TilePlaceholder': '#TilePlaceholder {color: #B8BDC5;}',
+        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
+        'Tile': '#Tile {background: #FFFFFF;} #Tile[empty="true"] {background: #F4F6F9;}',
+        'TileVideo': '#TileVideo {background: #F4F6F9;}',
+        'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
+        'TileBottom': '#TileBottom {background: transparent;} #TileBottom QLabel {color: #4A5565;}',
+        'TilePlaceholder': '#TilePlaceholder {color: #4A5565;}',
         'NavThumbCover': '#NavThumbCover {color: #F1F2F5;}',
         'NavThumbHint': '#NavThumbHint {color: #F1F2F5;}',
         'PauseOverlay': '#PauseOverlay QLabel {color: #F1F2F5;}',
@@ -832,6 +835,12 @@ QPushButton#PrimaryButton:pressed {{
 #ShortcutEdit:focus {{
     border: 1px solid {ACCENT};
 }}
+#AccountId {{
+    color: {TEXT3}; background: transparent;
+}}
+#AccountName {{
+    color: {TEXT1}; font-size: {FONT_CONTROL}px; font-weight: 700; background: transparent;
+}}
 #AccountRow {{
     background: {CONTENT};
     border: 1px solid {BORDER};
@@ -917,7 +926,7 @@ QPushButton#PrimaryButton:pressed {{
     font-size: {FONT_CAPTION}px;
 }}
 #TileBottom {{
-    background: rgba(10, 11, 13, 0.72);
+    background: rgba(10, 11, 13, 0.24);
     border-radius: {RADIUS_MD}px;
 }}
 #TilePlaceholder {{
@@ -1206,13 +1215,19 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
     if _light and not palette_roles:
         style += """
         #PrimaryButton {color: #FFFFFF;}
+        #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;}
+        #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;}
+        #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}
+        #Tile, #DanmakuPanel {background: #FFFFFF;}
+        #Tile[empty="true"], #TileVideo {background: #F4F6F9;}
         #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
         #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
-        #TileBottom #TileCtrl {background: rgba(12,13,16,0.78); color: #D6DAE0; border: none;}
-        #TileBottom #TileCtrl:hover {background: #007BA8; color: #FFFFFF;}
-        #TileBottom QLabel {color: #B8BDC5;}
+        #TileBottom {background: transparent;}
+        #TileBottom #TileCtrl {background: transparent; color: #4A5565; border: none;}
+        #TileBottom #TileCtrl:hover, #TileBottom #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
+        #TileBottom QLabel {color: #4A5565;}
         #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
-        #TilePlaceholder {color: #B8BDC5;}
+        #TilePlaceholder {color: #4A5565;}
         #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
         #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
         #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}

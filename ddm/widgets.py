@@ -394,7 +394,8 @@ class VolumeButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = QColor("#9499a0" if self.muted else "#f1f2f3")
+        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1) if theme.is_light()
+                 else QColor("#9499a0" if self.muted else "#f1f2f3"))
         if self.underMouse():
             color = QColor(theme.ACCENT)
         pen = QPen(color, 1.7)
@@ -448,8 +449,7 @@ def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     if button.underMouse() or button.property("hovered") is True:
         return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
     if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
-                            or (button.objectName() == "TileCtrl" and
-                                button.parentWidget().objectName() != "TileBottom")):
+                            or button.objectName() == "TileCtrl"):
         return theme.qcolor(theme.TEXT2)
     return QColor("#e7ebf0")
 
@@ -1291,12 +1291,12 @@ class AccountRow(QFrame):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(0)
         self.name = ElidedLabel("")
-        self.name.setObjectName("NavName")
+        self.name.setObjectName("AccountName")
         _ignore_mouse(self.name)
         _allow_shrink(self.name)
         text_layout.addWidget(self.name)
         self.account_id = ElidedLabel("")
-        self.account_id.setObjectName("NavSub")
+        self.account_id.setObjectName("AccountId")
         self.account_id.setStyleSheet("font-size: 10px;")
         self.account_id.setFixedHeight(12)
         _ignore_mouse(self.account_id)
@@ -1313,9 +1313,11 @@ class AccountRow(QFrame):
         layout.addWidget(self.arrow)
         self.logout_button = QPushButton("退出", self)
         self.logout_button.setObjectName("AccountLogoutButton")
-        self.logout_button.setStyleSheet(f"""padding: 0; min-height: 0; min-width: 0; text-align: center;
-            background: {theme.CONTENT}; border: 1px solid {theme.BORDER}; border-radius: 12px;""")
-        self.logout_button.setFixedSize(44, 24)
+        self.logout_button.setStyleSheet(f"""#AccountLogoutButton {{padding: 0; min-height: 22px; min-width: 46px; text-align: center;
+            font-size: 11px; color: {theme.TEXT2}; background: {theme.CONTENT};
+            border: 1px solid {theme.BORDER}; border-radius: 8px;}}
+            #AccountLogoutButton:hover {{background: {theme.CONTENT_HOVER}; color: {theme.TEXT1};}}""")
+        self.logout_button.setFixedSize(48, 24)
         self.logout_button.clicked.connect(self.logoutClicked)
         layout.addWidget(self.logout_button)
         self.logout_button.hide()
@@ -3774,6 +3776,7 @@ class Sidebar(QFrame):
         self.add_button = QPushButton("+  添加直播间")
         self.add_button.setFocusPolicy(Qt.TabFocus)
         self.add_button.setObjectName("PrimaryButton")
+        self.add_button.setProperty("addRoom", True)
         self.add_button.setCursor(Qt.PointingHandCursor)
         self.add_button.clicked.connect(self.addRoomClicked.emit)
         normal_layout.addWidget(self.import_button)

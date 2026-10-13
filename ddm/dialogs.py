@@ -816,7 +816,7 @@ class AppearanceSettingsPage(QWidget):
         self._choose("dark")
 
 
-class SettingsDialog(AnimatedDialog):
+class SettingsDialog(QDialog):
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""

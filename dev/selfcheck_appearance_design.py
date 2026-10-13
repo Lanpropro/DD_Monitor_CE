@@ -33,7 +33,7 @@ def main():
                         "真实 `Sidebar`、`WallGrid` 和 `SettingsDialog`"):
         assert requirement in doc, requirement
     assert '格子顶部悬浮栏也改为浅色' in doc
-    assert '不改变底部控制条' in doc
+    assert '底部控制条也采用浅色' in doc
     assert '点击图标直接切换深浅色，不弹出菜单或设置窗口' in doc
     assert '保存为手动选择' in doc
     assert '280ms 圆弧扩散过渡' in doc and '连续点击保留当前可见的混合画面' in doc
