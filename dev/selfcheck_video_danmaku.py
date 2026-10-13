@@ -220,7 +220,7 @@ def check_settings(app):
     values = dict(config.DEFAULT_SETTINGS, video_danmaku_size=40, video_danmaku_speed=150,
                   video_danmaku_opacity=35, video_danmaku_area=25, video_danmaku_scale=False)
     dialog = SettingsDialog(values, {})
-    dialog.nav.setCurrentRow(1)
+    dialog.nav.setCurrentRow(2)
     dialog.show()
     app.processEvents()
     page = dialog.danmaku_page

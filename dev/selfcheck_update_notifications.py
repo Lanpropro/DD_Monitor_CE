@@ -76,7 +76,7 @@ def main():
                 return self.result()
         with patch.object(app_module, 'SettingsDialog', InspectDialog):
             QTest.mouseClick(notice.action, Qt.LeftButton)
-        assert opened == [(5, offer, True)] and not notice.isVisible()
+        assert opened == [(6, offer, True)] and not notice.isVisible()
         assert not notice.timer.isActive() and window.settings['auto_update']
         assert window.sidebar.settings_button._update_dot.isHidden()
         assert window.settings['seen_update_versions']['app'] == offer['version']
@@ -129,7 +129,7 @@ def main():
             assert plugins_window.sidebar.settings_button._update_dot.x() > plugins_window.sidebar.settings_button.width() // 2
             class GeneralInspectDialog(SettingsDialog):
                 def exec(self):
-                    assert self.nav.item(4).data(Qt.UserRole + 1)
+                    assert self.nav.item(5).data(Qt.UserRole + 1)
                     self.reject()
                     return self.result()
             with patch.object(app_module, 'SettingsDialog', GeneralInspectDialog):
@@ -150,7 +150,7 @@ def main():
                     return self.result()
             with patch.object(app_module, 'SettingsDialog', PluginInspectDialog):
                 plugin_notice.action.click()
-            assert plugin_opened == [(4, 1)] and not plugin_notice.isVisible()
+            assert plugin_opened == [(5, 1)] and not plugin_notice.isVisible()
             assert plugins_window.sidebar.settings_button._update_dot.isHidden()
             assert plugins_window.settings['seen_update_versions']['domestic_live'] == '2.0'
             plugins_window._startup_plugins_ready((None, [plugin_offer]))
@@ -163,16 +163,16 @@ def main():
             assert not plugins_window.sidebar.settings_button._update_dot.isHidden()
             dialog = SettingsDialog(plugins_window.settings, {}, plugins_window, plugin_manager=plugins_window.plugins)
             dialog.plugin_page.store_page._catalog_ready([plugin_offer])
-            assert dialog.nav.item(4).data(Qt.UserRole + 1)
+            assert dialog.nav.item(5).data(Qt.UserRole + 1)
             assert not dialog._plugin_update_dot.isHidden()
             dialog.update_page._release_ready(offer)
-            assert dialog.nav.item(5).data(Qt.UserRole + 1)
+            assert dialog.nav.item(6).data(Qt.UserRole + 1)
             dialog.update_page._release_ready(None)
-            assert not dialog.nav.item(5).data(Qt.UserRole + 1)
+            assert not dialog.nav.item(6).data(Qt.UserRole + 1)
             with patch.object(plugin_updates, 'pending_versions', return_value={'domestic_live': '2.1'}):
                 dialog.plugin_page.store_page._catalog_ready([plugin_offer])
                 plugins_window._set_plugin_updates([plugin_offer])
-                assert not dialog.nav.item(4).data(Qt.UserRole + 1)
+                assert not dialog.nav.item(5).data(Qt.UserRole + 1)
                 assert dialog._plugin_update_dot.isHidden()
                 assert plugins_window.sidebar.settings_button._update_dot.isHidden()
             # 未安装或版本相同的插件不应产生红点。
@@ -181,9 +181,9 @@ def main():
             assert not plugins_window._plugin_update_offers
             dialog.seen_versions.pop('domestic_live', None)
             dialog.plugin_page.store_page._catalog_ready([plugin_offer])
-            assert dialog.nav.item(4).data(Qt.UserRole + 1)
-            dialog.nav.setCurrentRow(4)
-            assert not dialog.nav.item(4).data(Qt.UserRole + 1)
+            assert dialog.nav.item(5).data(Qt.UserRole + 1)
+            dialog.nav.setCurrentRow(5)
+            assert not dialog.nav.item(5).data(Qt.UserRole + 1)
             assert dialog._plugin_update_dot.isHidden()
             assert dialog.plugin_page.store_page.buttons['domestic_live']._update_dot.isHidden()
             assert dialog.plugin_page.store_page.buttons['domestic_live'].property('storeEnabled')

@@ -29,6 +29,7 @@ from .images import AvatarLoader
 from . import follow_folders
 from .player import TilePlayer
 from .video_surface import VideoSurface
+from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 
@@ -139,7 +140,7 @@ def _badge_font() -> QFont:
     return font
 
 
-class StreamBadge(QWidget):
+class StreamBadge(BadgeSurface):
     """画面左上角的浮标：左侧同心圆环，右边是 LIVE 和直播间人数。"""
 
     def __init__(self, parent=None):
@@ -209,35 +210,34 @@ class StreamBadge(QWidget):
         # 圆环和圆点在 paintEvent 里用同一个中心画；不再把圆孔做成遮罩，
         # 避免路径转整数 QRegion 后圆孔边缘与抗锯齿圆点错开 1px。
         self._mask_path = pill
-        self.setMask(QRegion(self._mask_path.toFillPolygon().toPolygon()))
+        self.refresh_theme()
 
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
+    def paint_badge(self, painter) -> None:
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillPath(self._mask_path, QColor("#15171c"))
+        painter.fillPath(self.badge_path, theme.overlay_color("#15171c", "#F7F9FC"))
         dot = HOLE_MARGIN + HOLE_SIZE / 2
         center = QPointF(dot, BADGE_HEIGHT / 2)
         painter.setPen(QPen(QColor("#7b828c"), 2))
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(center, HOLE_SIZE / 2 - 1, HOLE_SIZE / 2 - 1)
-        painter.setBrush(QColor("#fb7299" if self.live else "#7b828c"))
+        painter.setBrush(theme.overlay_color("#fb7299", "#B93665") if self.live else QColor("#7b828c"))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(center, 4.5, 4.5)
         font = _badge_font()
         painter.setFont(font)
         metrics = QFontMetrics(font)
         x = float(HOLE_MARGIN * 2 + HOLE_SIZE + 6)
-        painter.setPen(QColor("#fb7299"))
+        painter.setPen(theme.overlay_color("#fb7299", "#B93665"))
         painter.drawText(QRectF(x, 0, 120, BADGE_HEIGHT),
                          int(Qt.AlignVCenter | Qt.AlignLeft), self._text())
         if self.live and self.viewers:
             x += metrics.horizontalAdvance(self._text()) + 8
-            painter.setPen(QColor("#e6e9ef"))
+            painter.setPen(theme.overlay_color("#e6e9ef", "#202630"))
             painter.drawText(QRectF(x, 0, 120, BADGE_HEIGHT),
                              int(Qt.AlignVCenter | Qt.AlignLeft), self.viewers)
 
 
-class TimeBadge(QWidget):
+class TimeBadge(BadgeSurface):
     """画面右下角的直播时长浮标（和 LIVE 浮标同款样式）。"""
 
     def __init__(self, parent=None):
@@ -263,13 +263,12 @@ class TimeBadge(QWidget):
         path.addRoundedRect(QRectF(0, 0, width, BADGE_HEIGHT),
                             BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
         self._mask_path = path
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self.refresh_theme()
 
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
+    def paint_badge(self, painter) -> None:
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillPath(self._mask_path, QColor("#15171c"))
-        painter.setPen(QColor("#d7dbe2"))
+        painter.fillPath(self.badge_path, theme.overlay_color("#15171c", "#F7F9FC"))
+        painter.setPen(theme.overlay_color("#d7dbe2", "#4A5565"))
         painter.setFont(_badge_font())
         painter.drawText(self.rect(), int(Qt.AlignCenter), self.text)
 
@@ -448,6 +447,10 @@ def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
     if button.underMouse() or button.property("hovered") is True:
         return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
+    if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
+                            or (button.objectName() == "TileCtrl" and
+                                button.parentWidget().objectName() != "TileBottom")):
+        return theme.qcolor(theme.TEXT2)
     return QColor("#e7ebf0")
 
 
@@ -619,7 +622,7 @@ def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,
     painter.drawPolygon(QPolygonF([tip, left, right]))
 
 
-class TitleBadge(QWidget):
+class TitleBadge(BadgeSurface):
     """浮在画面上的标题条：主播名 + 直播间标题，摆在 LIVE 浮标右侧。"""
 
     def __init__(self, parent=None):
@@ -667,21 +670,20 @@ class TitleBadge(QWidget):
         path.addRoundedRect(QRectF(0, 0, self.width(), BADGE_HEIGHT),
                             BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
         self._mask_path = path
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self.refresh_theme()
         self.update()
 
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
+    def paint_badge(self, painter) -> None:
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillPath(self._mask_path, QColor("#15171c"))
+        painter.fillPath(self.badge_path, theme.overlay_color("#15171c", "#F7F9FC"))
         metrics = self.fontMetrics()
         x = 10
-        painter.setPen(QColor("#eef1f5"))
+        painter.setPen(theme.overlay_color("#eef1f5", "#202630"))
         painter.drawText(QRectF(x, 0, self.width(), BADGE_HEIGHT),
                          int(Qt.AlignVCenter | Qt.AlignLeft), self._name_text)
         if self._title_text:
             x += metrics.horizontalAdvance(self._name_text)
-            painter.setPen(QColor("#98a0ab"))
+            painter.setPen(theme.overlay_color("#98a0ab", "#4A5565"))
             painter.drawText(QRectF(x, 0, self.width() - x, BADGE_HEIGHT),
                              int(Qt.AlignVCenter | Qt.AlignLeft),
                              " · " + self._title_text)
@@ -871,15 +873,17 @@ class DanmakuPanel(QFrame):
         self._status = "未接入"
         self._follow_tail = True
         self._refresh_count()
+        color = "#5e6a7d" if theme.is_light() else "#8a8f98"
         self.body.setHtml(
-            f'<div style="color:#8a8f98;line-height:160%">{text}</div>')
+            f'<div style="color:{color};line-height:160%">{text}</div>')
 
     def set_status(self, text: str) -> None:
         """连接状态（连接中… / 已连接 / 连接失败…）。"""
         self._status = text
         self._refresh_count()
         if text == "已连接" and not self._has_content:
-            self.body.setHtml('<div style="color:#8a8f98;line-height:160%">等待弹幕…</div>')
+            color = "#5e6a7d" if theme.is_light() else "#8a8f98"
+            self.body.setHtml(f'<div style="color:{color};line-height:160%">等待弹幕…</div>')
 
     def set_count(self, text: str) -> None:
         self._status = text
@@ -998,6 +1002,13 @@ class DanmakuPanel(QFrame):
             self._follow_tail = self._at_scroll_tail()
 
     # ---- 渲染 ----
+    def refresh_theme(self) -> None:
+        if self._blocks:
+            self._render_all()
+        else:
+            old, new = ("#8a8f98", "#5e6a7d") if theme.is_light() else ("#5e6a7d", "#8a8f98")
+            self.body.setHtml(self.body.toHtml().replace(old, new))
+
     def apply_style(self, font_family: str = "", font_size: int = BASE_FONT_SIZE) -> None:
         """设置里的字体和字号（字号也能在底部滑块上实时拖）。"""
         self._font_family = font_family or theme.FONT_DEFAULT
@@ -1039,10 +1050,11 @@ class DanmakuPanel(QFrame):
 
     def _block_html(self, entry: dict) -> str:
         size = self._font_size()
+        color = "#202630" if theme.is_light() else "#e6e9ee"
         name = (f'<span style="color:{entry["color"]}">{_escape(entry["uname"])}</span>')
         return (f'<div style="font-size:{size}px;line-height:150%;margin:0 0 4px 0">'
                 f'{self._medal_html(entry["medal"])}{name}'
-                f'<span style="color:#e6e9ee">：{self._body_html(entry)}</span></div>')
+                f'<span style="color:{color}">：{self._body_html(entry)}</span></div>')
 
     def _body_html(self, entry: dict) -> str:
         url = entry["emoticon"]
@@ -3479,6 +3491,33 @@ class PinnedArc(QWidget):
         painter.drawArc(rect, self.START_ANGLE * 16, self.SPAN_ANGLE * 16)
 
 
+class AppearanceButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("ChipButton")
+        self.setFixedSize(22, 22)
+        self.setStyleSheet("padding: 0; min-width: 20px; min-height: 20px;")
+        self.setCursor(Qt.PointingHandCursor)
+        self.refresh_theme()
+
+    def refresh_theme(self):
+        label = {"dark": "深色", "light": "浅色", "system": "跟随系统"}[theme.mode()]
+        self.setToolTip("切换外观（当前：" + label + "）")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF((self.width()-14)/2, (self.height()-14)/2, 14, 14)
+        color = theme.qcolor(theme.ACCENT if self.underMouse() else theme.TEXT2)
+        painter.setPen(QPen(color, 1.4))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(rect)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawPie(rect, 90*16, 180*16)
+
+
 class Sidebar(QFrame):
     """左侧房间列表：可收起、可批量选择删除。"""
 
@@ -3508,6 +3547,8 @@ class Sidebar(QFrame):
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
     settingsRequested = Signal()
+    appearanceChanged = Signal(str)
+    appearanceSettingsRequested = Signal()
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
     # （用户报的「登录按钮点了没反应」就是踩了这个）。
@@ -3639,9 +3680,12 @@ class Sidebar(QFrame):
         self.sort_button.setToolTip("分别设置各文件夹的排序；Ctrl / Shift 点击卡片可直接多选")
         self.sort_button.setMenu(self._build_sort_menu())
         self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
+        self.appearance_button = AppearanceButton(self)
+        self.appearance_button.clicked.connect(self.open_appearance_menu)
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         status_box.addWidget(self.count_label, 1)
         status_box.addWidget(self.sort_button, 0, Qt.AlignRight)
+        status_box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         status_box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         layout.addWidget(self.status_row)
 
@@ -3753,6 +3797,29 @@ class Sidebar(QFrame):
         self._sync_count()
 
     # ---- 账号 ----
+    def open_appearance_menu(self):
+        menu = QMenu(self)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        for key, label in (("dark", "深色"), ("light", "浅色"), ("system", "跟随系统")):
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(theme.mode() == key)
+            group.addAction(action)
+            action.triggered.connect(lambda _checked=False, mode=key: self.appearanceChanged.emit(mode))
+        menu.addSeparator()
+        menu.addAction("外观设置…").triggered.connect(self.appearanceSettingsRequested)
+        menu.exec(self.appearance_button.mapToGlobal(QPoint(0, self.appearance_button.height())))
+
+    def _sync_appearance_row(self):
+        self.appearance_button.setVisible(True)
+        if self.side == "left":
+            self.status_row.setVisible(True)
+            for widget in (self.count_label, self.sort_button, self.refresh_button):
+                widget.setVisible(not self.collapsed)
+            self.status_row.layout().setAlignment(self.appearance_button,
+                Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
+
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
         self._layout_id = layout_id
@@ -4476,7 +4543,7 @@ class Sidebar(QFrame):
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
         return [self.search, self._head_scroll, self.batch_button, self.sort_button,
-                self.refresh_button, self.account_row, self.tool_row,
+                self.appearance_button, self.refresh_button, self.account_row, self.tool_row,
                 self.batch_bar, self.toggle_button]
 
     def _place_account(self, in_right_block: bool) -> None:
@@ -4543,7 +4610,7 @@ class Sidebar(QFrame):
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
-        return (self.batch_button, self.sort_button, self.refresh_button)
+        return (self.batch_button, self.sort_button, self.appearance_button, self.refresh_button)
 
     def _sync_bar_icons(self) -> None:
         """竖屏那一行把「多选 / 排序 / 刷新」压成小图标；横屏还原成文字按钮。
@@ -4569,6 +4636,7 @@ class Sidebar(QFrame):
                     button.set_icon_mode(False)
             self.batch_button.setFixedHeight(22)     # 标题行里那套矮样式
             self.refresh_button.setFixedSize(28, 22)  # RefreshButton 的原始尺寸
+        self.appearance_button.setFixedSize(22, 22)
         for button in self._bar_icons():
             _repolish(button)
 
@@ -4579,12 +4647,14 @@ class Sidebar(QFrame):
         self._header_row.layout().addWidget(self.batch_button, 0, Qt.AlignTop)
 
         box = self.status_row.layout()
-        for widget in (self.count_label, self.sort_button, self.refresh_button):
+        for widget in (self.count_label, self.sort_button, self.appearance_button, self.refresh_button):
             box.removeWidget(widget)
         box.addWidget(self.count_label, 1)
         box.addWidget(self.sort_button, 0, Qt.AlignRight)
+        box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         self.sort_button.setParent(self.status_row)
+        self.appearance_button.setParent(self.status_row)
         self.refresh_button.setParent(self.status_row)
         self._sync_bar_icons()
 
@@ -4602,7 +4672,7 @@ class Sidebar(QFrame):
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
                            self.batch_bar, self.batch_button, self.sort_button,
-                           self.refresh_button, self.toggle_button):
+                           self.appearance_button, self.refresh_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
             # 左边是 logo，然后是搜索框（收起时换成头像排）、多选条、图标、展开键。
@@ -4752,6 +4822,7 @@ class Sidebar(QFrame):
         """
         self._sync_toggle_arrow()          # 竖屏要上下箭头，横屏左右
         if self.side != "top":
+            self._sync_appearance_row()
             return
         self._adopt_bar_row()
         self._sync_bar_density()
@@ -4807,6 +4878,7 @@ class Sidebar(QFrame):
             self.tool_row.setVisible(True)           # 布局预设 + 设置并排
             self.settings_button.setVisible(True)
             self._apply_scroll_axis()
+        self._sync_appearance_row()
 
     def _show_logo_title(self) -> None:
         """竖屏横栏只挂紧凑 Logo，不改变原有第一行高度。"""
@@ -4902,6 +4974,7 @@ class Sidebar(QFrame):
                 widget.setVisible(not collapsed)
         self._layout.setContentsMargins(8 if collapsed else 12, 14, 8 if collapsed else 12, 12)
         self._sync_toggle_arrow()
+        self._sync_appearance_row()
         for item in self._items:
             item.set_compact(collapsed)
         self.list_box.relayout(animate=False)

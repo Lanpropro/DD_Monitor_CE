@@ -59,8 +59,8 @@ def main():
         manager._save_settings = lambda: saves.append(threading.get_ident())
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         dialog.show()
-        assert dialog.nav.item(5).text() == '软件更新'
-        dialog.nav.setCurrentRow(5)
+        assert dialog.nav.item(6).text() == '软件更新'
+        dialog.nav.setCurrentRow(6)
         assert dialog.reset_button.isHidden()
         page = dialog.plugin_page.store_page
         offers = [{'id': 'global_live', 'name': '海外直播平台', 'description': 'Twitch / YouTube',
@@ -70,7 +70,7 @@ def main():
         with patch.object(online, 'session', return_value=Session()), \
                 patch.object(online, 'plugin_catalog', return_value=offers) as catalog, \
                 patch.object(online, 'download', return_value=str(archive)):
-            dialog.nav.setCurrentRow(4)
+            dialog.nav.setCurrentRow(5)
             assert page.refresh.isHidden()
             dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, page)
@@ -117,7 +117,7 @@ def main():
             cached_dialog = SettingsDialog({}, {}, plugin_manager=manager)
             cached_dialog.show()
             count = catalog.call_count
-            cached_dialog.nav.setCurrentRow(4)
+            cached_dialog.nav.setCurrentRow(5)
             cached_dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, cached_dialog.plugin_page.store_page)
             assert catalog.call_count == count, 'reopening settings must reuse the persisted catalog'

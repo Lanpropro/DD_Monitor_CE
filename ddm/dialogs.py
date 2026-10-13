@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
+    QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
 )
@@ -758,11 +758,70 @@ class PluginSettingsPage(QWidget):
             name for name, check in self.checks.items() if check.isChecked()]
 
 
+class AppearanceSettingsPage(QWidget):
+    modeChanged = Signal(str)
+
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
+        layout.addLayout(_page_head("外观", "设置软件界面的颜色模式，视频画面保持原有颜色"))
+        title = QLabel("颜色模式")
+        title.setObjectName("SettingsTitle")
+        layout.addWidget(title)
+        row = QHBoxLayout()
+        self.buttons = {}
+        self.group = QButtonGroup(self)
+        for key, label in (("dark", "深色"), ("light", "浅色"), ("system", "跟随系统")):
+            button = QPushButton(label)
+            button.setObjectName("AppearanceChoice")
+            button.setCheckable(True)
+            button.setMinimumHeight(48)
+            button.setCursor(Qt.PointingHandCursor)
+            self.group.addButton(button)
+            self.buttons[key] = button
+            button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
+            row.addWidget(button)
+        layout.addLayout(row)
+        self.current_label = QLabel()
+        self.current_label.setObjectName("SettingsHint")
+        layout.addWidget(self.current_label)
+        for text in ("立即生效并保存，无需重启。", "主界面入口：关注栏排序和刷新之间的圆形图标。",
+                     "切换不重连直播，不中断录制与弹幕。"):
+            note = QLabel(text)
+            note.setWordWrap(True)
+            note.setObjectName("SettingsHint")
+            layout.addWidget(note)
+        layout.addStretch(1)
+        self._mode = theme.normalize_mode(settings.get("appearance_mode"))
+        self.sync(self._mode)
+        theme.signals().changed.connect(self.sync)
+
+    def sync(self, mode):
+        self._mode = mode
+        self.buttons[mode].setChecked(True)
+        actual = "浅色" if theme.is_light() else "深色"
+        self.current_label.setText("当前：" + actual + ("（跟随系统）" if mode == "system" else ""))
+
+    def _choose(self, mode):
+        self.sync(mode)
+        self.modeChanged.emit(mode)
+
+    def values(self):
+        return {"appearance_mode": self._mode}
+
+    def reset(self):
+        self._choose("dark")
+
+
 class SettingsDialog(AnimatedDialog):
     updatesViewed = Signal(object)
+    appearanceChanged = Signal(str)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
-    PAGES = [("general", "常规"), ("danmaku", "弹幕"),
+    PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
              ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件"), ("updates", "软件更新")]
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None):
@@ -794,6 +853,8 @@ class SettingsDialog(AnimatedDialog):
         self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
+        self.appearance_page = AppearanceSettingsPage(settings)
+        self.appearance_page.modeChanged.connect(self.appearanceChanged)
         self.danmaku_page = DanmakuSettingsPage(settings)
         self.recording_page = RecordingSettingsPage(settings)
         self.shortcut_page = ShortcutSettingsPage(shortcuts)
@@ -805,6 +866,7 @@ class SettingsDialog(AnimatedDialog):
         from .online_ui import AppUpdatePage
         self.update_page = AppUpdatePage(settings)
         self.stack.addWidget(self.general_page)
+        self.stack.addWidget(self.appearance_page)
         self.stack.addWidget(self.danmaku_page)
         self.stack.addWidget(self.recording_page)
         self.stack.addWidget(self.shortcut_page)
@@ -851,7 +913,7 @@ class SettingsDialog(AnimatedDialog):
             self.updatesViewed.emit(dict(self.seen_versions))
 
     def _mark_app_update(self, offer):
-        if offer and self.nav.currentRow() == 5:
+        if offer and self.nav.currentRow() == self.stack.indexOf(self.update_page):
             self._remember_versions({'app': offer['version']})
         active = bool(offer and self.seen_versions.get('app') != offer['version'])
         self._mark_update_page('updates', active)
@@ -859,7 +921,7 @@ class SettingsDialog(AnimatedDialog):
     def _mark_plugin_updates(self, offers):
         from .online_ui import plugin_update_offers
         updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
-        if self.nav.currentRow() == 4:
+        if self.nav.currentRow() == self.stack.indexOf(self.plugin_page):
             self._remember_versions({offer['id']: offer['version'] for offer in updates})
         active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
         self._mark_update_page('plugins', active)
@@ -885,9 +947,9 @@ class SettingsDialog(AnimatedDialog):
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
             self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
-            if index == 4:
+            if index == self.stack.indexOf(self.plugin_page):
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
-            elif index == 5:
+            elif index == self.stack.indexOf(self.update_page):
                 self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
@@ -897,6 +959,7 @@ class SettingsDialog(AnimatedDialog):
 
     def settings(self) -> dict:
         values = self.general_page.values()
+        values.update(self.appearance_page.values())
         values.update(self.danmaku_page.values())
         values.update(self.recording_page.values())
         values.update(self.update_page.values())

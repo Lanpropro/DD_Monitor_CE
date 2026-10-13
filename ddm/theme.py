@@ -9,8 +9,12 @@ Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻�
 
 
 import os
+import re
+from weakref import WeakKeyDictionary
 
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -105,9 +109,99 @@ AVATAR_SIZE = 32              # 关注列表里的头像尺寸（收起侧栏后
 SCROLLBAR_SIZE = 8            # 滚动条粗细（两轴同一个值；横排列表要按它留高度）
 
 
+_DARK = {name: globals()[name] for name in (
+    "BG", "SIDEBAR", "CONTENT", "CONTENT_HOVER", "ELEVATED", "TEXT1", "TEXT2",
+    "TEXT3", "TEXT4", "BORDER", "BORDER_STRONG", "ACCENT", "ACCENT_SOFT")}
+_LIGHT = dict(BG="#F4F6F9", SIDEBAR="#EBEEF3", CONTENT="#FFFFFF",
+    CONTENT_HOVER="#E7EFF7", ELEVATED="#FFFFFF", TEXT1="#202630", TEXT2="#4A5565",
+    TEXT3="#5E6A7D", TEXT4="#7A8596", BORDER="#D7DDE7", BORDER_STRONG="#BCC6D5",
+    ACCENT="#007BA8", ACCENT_SOFT="rgba(0, 123, 168, 0.12)")
+_mode = "dark"
+_light = False
+_styles = WeakKeyDictionary()
+_signals = None
+
+
+class ThemeSignals(QObject):
+    changed = Signal(str)
+
+
+def signals():
+    global _signals
+    if _signals is None:
+        app = QApplication.instance()
+        _signals = ThemeSignals(app)
+        app.styleHints().colorSchemeChanged.connect(_system_changed)
+    return _signals
+
+
+def normalize_mode(value):
+    return value if value in ("dark", "light", "system") else "dark"
+
+
+def mode():
+    return _mode
+
+
+def is_light():
+    return _light
+
+
+def overlay_color(dark, light):
+    return QColor(light if _light else dark)
+
+
+def _system_changed(_scheme):
+    if _mode == "system":
+        apply("system")
+
+
+def apply(value):
+    """重绘主题，不重建控件、播放器或视频窗口。"""
+    global _mode, _light
+    app = QApplication.instance()
+    signals()
+    value = normalize_mode(value)
+    light = value == "light" or (value == "system" and
+        app.styleHints().colorScheme() == Qt.ColorScheme.Light)
+    previous = {name: globals()[name] for name in _DARK}
+    _mode = value
+    _light = light
+    palette = _LIGHT if light else _DARK
+    widgets = list(app.allWidgets())
+    # Keep the source palette of local QSS, so identical light backgrounds can
+    # return to their distinct original dark colours without lossy replacement.
+    for widget in widgets:
+        style = widget.styleSheet()
+        saved = _styles.get(widget)
+        if not saved or style != saved[2]:
+            _styles[widget] = (style, previous, style)
+    globals().update(palette)
+    app.setStyleSheet(qss())
+    for widget in widgets:
+        source, colors, _last = _styles[widget]
+        replacements = {old: palette[name] for name, old in colors.items()}
+        pattern = "|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True))
+        styled = re.sub(pattern, lambda match: replacements[match.group()], source)
+        if styled != widget.styleSheet():
+            widget.setStyleSheet(styled)
+        _styles[widget] = (source, colors, styled)
+        refresh = getattr(widget, "refresh_theme", None)
+        if callable(refresh):
+            refresh()
+        QWidget.update(widget)
+    signals().changed.emit(value)
+
+
 def qss() -> str:
     """全局样式表。"""
-    return f"""
+    style = f"""
+QPushButton#AppearanceChoice {{
+    background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
+}}
+QPushButton#AppearanceChoice:checked {{
+    background: {ACCENT_SOFT}; color: {ACCENT}; border: 1px solid {ACCENT};
+}}
 * {{
     font-family: {FONT_FAMILY};
     font-size: {FONT_CONTROL}px;
@@ -1021,3 +1115,21 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
     width: 0;
 }}
 """
+    if _light:
+        style += """
+        #PrimaryButton {color: #FFFFFF;}
+        #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
+        #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
+        #TileBottom #TileCtrl {background: rgba(12,13,16,0.78); color: #D6DAE0; border: none;}
+        #TileBottom #TileCtrl:hover {background: #007BA8; color: #FFFFFF;}
+        #TileBottom QLabel {color: #B8BDC5;}
+        #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
+        #TilePlaceholder {color: #B8BDC5;}
+        #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
+        #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
+        #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}
+        #DanmakuCount[state="connected"] {color: #007BA8;}
+        #DanmakuCount[state="error"] {color: #B93665;}
+        #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
+        """
+    return style

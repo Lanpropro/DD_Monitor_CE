@@ -168,6 +168,8 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
+        theme.apply(self.settings["appearance_mode"])
         self.settings["freeze_watch"] = True  # 卡死检测固定开启，不再提供全局开关。
         if (saved_settings.get("danmaku_retention_version") != 1
                 and self.settings.get("danmaku_max_blocks") == 300):
@@ -254,6 +256,8 @@ class MainWindow(QMainWindow):
         self.sidebar.foldersChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self.open_settings)
+        self.sidebar.appearanceChanged.connect(self.set_appearance)
+        self.sidebar.appearanceSettingsRequested.connect(lambda: self.open_settings("appearance"))
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
@@ -699,6 +703,11 @@ class MainWindow(QMainWindow):
         minutes = int(self.settings.get("poll_minutes", 1) or 1)
         return max(1, min(30, minutes)) * 60_000
 
+    def set_appearance(self, mode: str) -> None:
+        self.settings["appearance_mode"] = theme.normalize_mode(mode)
+        theme.apply(self.settings["appearance_mode"])
+        config_module.save(self.current_state())
+
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
@@ -714,19 +723,17 @@ class MainWindow(QMainWindow):
         dialog.update_page.releaseChecked.connect(self._set_app_update)
         dialog.plugin_page.store_page.offersChanged.connect(self._set_plugin_updates)
         dialog.updatesViewed.connect(self._remember_updates)
+        dialog.appearanceChanged.connect(self.set_appearance)
         if self._plugin_catalog_offers:
             dialog.plugin_page.store_page._catalog_ready(self._plugin_catalog_offers)
         if self._available_update:
             dialog.update_page._release_ready(self._available_update)
             dialog.update_page._busy(False)
-        if page == "recording":
-            dialog.nav.setCurrentRow(2)
-        elif page == "danmaku":
-            dialog.nav.setCurrentRow(1)
-        elif page == "updates":
-            dialog.nav.setCurrentRow(5)
-        elif page == "plugins":
-            dialog.nav.setCurrentRow(4)
+        for index, (key, _label) in enumerate(dialog.PAGES):
+            if key == page:
+                dialog.nav.setCurrentRow(index)
+                break
+        if page == "plugins":
             dialog.plugin_page.tabs.setCurrentIndex(1)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
@@ -3220,6 +3227,7 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     state = config_module.load()
+    theme.apply((state.get("settings") or {}).get("appearance_mode", "dark"))
     from .user_notice import confirm_user_notice
     confirm_user_notice(state)
     from .update_install import clean_previous
