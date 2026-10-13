@@ -2,9 +2,13 @@
 import ctypes
 import sys
 
-from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPropertyAnimation, Qt, QVariantAnimation
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPointF, QPropertyAnimation, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabWidget
+
+THEME_WAVE_MS = 280
+THEME_WAVE_EASING = QEasingCurve(QEasingCurve.BezierSpline)
+THEME_WAVE_EASING.addCubicBezierSegment(QPointF(.77, 0), QPointF(.175, 1), QPointF(1, 1))
 
 
 def enabled() -> bool:

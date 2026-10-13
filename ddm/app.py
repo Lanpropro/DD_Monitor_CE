@@ -704,7 +704,10 @@ class MainWindow(QMainWindow):
 
     def set_appearance(self, mode: str) -> None:
         self.settings["appearance_mode"] = theme.normalize_mode(mode)
-        theme.apply(self.settings["appearance_mode"])
+        from .theme_transition import ThemeTransition
+        if not hasattr(self, '_theme_transition'):
+            self._theme_transition = ThemeTransition(self)
+        self._theme_transition.change(self.settings["appearance_mode"])
         config_module.save(self.current_state())
 
     def open_settings(self, page: str = "general") -> bool:
