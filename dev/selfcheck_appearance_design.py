@@ -22,6 +22,9 @@ def main():
             values = sorted((luminance(colors[text]), luminance(colors[background])))
             contrast = (values[1] + .05) / (values[0] + .05)
             assert contrast >= 4.5, (text, background, contrast)
+    for text in ('#202630', '#4A5565', '#B93665'):
+        contrast = (luminance('#F7F9FC') + .05) / (luminance(text) + .05)
+        assert contrast >= 4.5, ('overlay', text, contrast)
     for requirement in ("colorSchemeChanged", "不重新绑定视频 HWND", "取消不改变配置",
                         "utils/folder-icons/", "PNG、JPEG、ICO", "5MB", "4096×4096",
                         "回退默认图标", "普通文件夹和智能文件夹", "175%",
@@ -29,6 +32,8 @@ def main():
                         "22×22 纯图标按钮", "排序」和刷新按钮之间", "深色完全沿用当前软件",
                         "真实 `Sidebar`、`WallGrid` 和 `SettingsDialog`"):
         assert requirement in doc, requirement
+    assert '格子顶部悬浮栏也改为浅色' in doc
+    assert '不改变底部控制条' in doc
     print("PASS: original dark appearance, actual UI placement and light text contrast")
 
 
