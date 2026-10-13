@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
 from .skins import AssetImport
 
@@ -49,6 +49,10 @@ class SkinSettings(QWidget):
         mask_row.addWidget(self.mask_label)
         self.mask_slider.valueChanged.connect(self._mask_changed)
         layout.addLayout(mask_row)
+        self.sidebar_toggle = QCheckBox('背景覆盖左侧关注栏')
+        self.sidebar_toggle.setChecked(bool(settings.get('skin_sidebar', False)))
+        self.sidebar_toggle.toggled.connect(self._sidebar_changed)
+        layout.addWidget(self.sidebar_toggle)
         note = QLabel('图片居中铺满；视频静音循环，最小化时暂停。文件复制到软件目录，立即生效并保存。'
                       '皮肤插件在插件页安装、启用并重启装载后，会覆盖并锁定自定义选项；停用后恢复原选择。')
         note.setWordWrap(True)
@@ -60,13 +64,16 @@ class SkinSettings(QWidget):
         self.sync()
 
     def values(self):
-        return {'skin_background': self.path, 'skin_mask': self._mask}
+        return {'skin_background': self.path, 'skin_mask': self._mask,
+                'skin_sidebar': self.sidebar_toggle.isChecked()}
 
     def sync(self):
         override = self.controller.override if self.controller is not None else None
         locked = override is not None or self.job is not None
-        for widget in (self.choose, self.clear, self.mask_slider):
+        for widget in (self.choose, self.clear, self.mask_slider, self.sidebar_toggle):
             widget.setEnabled(not locked)
+        self.sidebar_toggle.setVisible(bool(self.path) and override is None
+            and not (self.controller is not None and self.controller.error))
         value = override['mask'] if override else self._mask
         previous = self.mask_slider.blockSignals(True)
         self.mask_slider.setValue(value)
@@ -91,6 +98,11 @@ class SkinSettings(QWidget):
             return
         self._mask = value
         self.sync()
+        self.changed.emit(self.values())
+
+    def _sidebar_changed(self, value):
+        if self.controller is not None and self.controller.override is not None:
+            return
         self.changed.emit(self.values())
 
     def _choose(self):
@@ -135,6 +147,7 @@ class SkinSettings(QWidget):
         if not self.clear.isEnabled():
             return
         self.path = ''
+        self.sidebar_toggle.setChecked(False)
         self.mask_slider.setValue(35)
         self.changed.emit(self.values())
         self.sync()

@@ -25,6 +25,7 @@ from ddm.plugins import PluginManager, read_manifest
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
 from ddm.skins import import_asset, validate_asset
+from ddm.skin_settings import SkinSettings
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
@@ -73,6 +74,9 @@ def main():
         QTest.qWait(20)
         layer = window.skin_controller.layer
         assert layer.player is None, 'Default/image skins must not create a video decoder'
+        default_controls = SkinSettings(window.settings, window.skin_controller, window)
+        assert default_controls.sidebar_toggle.isHidden(), 'Default background must hide the coverage switch'
+        default_controls.deleteLater()
         hwnd = int(window.wall.tiles[0].video.winId())
         with patch.object(motion, 'enabled', return_value=False), patch.object(config, 'save') as save:
             window.set_skin({'skin_background': path, 'skin_mask': 35})
@@ -85,7 +89,7 @@ def main():
             tile_image = window.wall.tiles[0].video.grab().toImage()
             color = tile_image.pixelColor(20, tile_image.height()//2)
             assert max(abs(a-b) for a, b in zip(color.getRgb()[:3], QColor('#F4F6F9').getRgb()[:3])) >= 10, 'Skin is hidden behind opaque UI panels'
-            assert 'rgba(' in window.sidebar.styleSheet()
+            assert 'rgba(' not in window.sidebar.styleSheet(), 'Sidebar coverage must be opt-in'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
                 '-i', 'color=c=blue:size=320x180:rate=15', '-t', '20', '-c:v', 'libx264',
@@ -105,6 +109,23 @@ def main():
             dialog.show()
             controls = dialog.appearance_page.skin_settings
             assert controls.choose.isEnabled()
+            assert not controls.sidebar_toggle.isHidden() and not controls.sidebar_toggle.isChecked()
+            sidebar_point = QPoint(window.sidebar.width()//2, window.sidebar.height()-8)
+            plain_color = window.sidebar.grab().toImage().pixelColor(sidebar_point)
+            controls.sidebar_toggle.setChecked(True)
+            QTest.qWait(30)
+            covered_color = window.sidebar.grab().toImage().pixelColor(sidebar_point)
+            assert 'rgba(' in window.sidebar.styleSheet() and covered_color != plain_color
+            assert window.settings['skin_sidebar'] and save.call_args.args[0]['settings']['skin_sidebar']
+            assert window.settings['skin_background'] == path and layer.mask == 35
+            window.set_appearance('dark')
+            assert 'rgba(' in window.sidebar.styleSheet()
+            window.set_appearance('light')
+            controls.sidebar_toggle.setChecked(False)
+            QTest.qWait(30)
+            assert window.sidebar.grab().toImage().pixelColor(sidebar_point) == plain_color
+            assert 'rgba(' not in window.sidebar.styleSheet()
+            controls.sidebar_toggle.setChecked(True)
             next_source = folder / 'next.png'
             image.fill(QColor('#426CDB'))
             image.save(str(next_source))
@@ -131,6 +152,8 @@ def main():
             window.refresh_skin()
             assert window.skin_controller.override['owner'] == 'test_skin'
             assert not controls.choose.isEnabled() and not controls.mask_slider.isEnabled()
+            assert controls.sidebar_toggle.isHidden() and not controls.sidebar_toggle.isEnabled()
+            assert controls.values()['skin_sidebar'], 'Plugin ownership must preserve the user preference'
             assert controls.mask_slider.value() == 20 and controls.values()['skin_mask'] == 50
             assert layer.mask == 20 and layer.image.pixelColor(0, 0) == QColor('#E95C93')
             window.set_skin({'skin_background': '', 'skin_mask': 0})
@@ -139,6 +162,8 @@ def main():
             window.refresh_skin()
             assert controls.choose.isEnabled() and layer.mask == 50
             assert controls.mask_slider.value() == 50
+            assert not controls.sidebar_toggle.isHidden() and controls.sidebar_toggle.isChecked()
+            assert 'rgba(' in window.sidebar.styleSheet()
             assert layer.image.pixelColor(0, 0) == QColor('#426CDB')
             manager.enabled.add('test_skin')
             window.refresh_skin()
@@ -162,6 +187,10 @@ def main():
             output.mkdir(parents=True, exist_ok=True)
             window.grab().save(str(output/'skin-light.png'))
             dialog.grab().save(str(output/'skin-settings.png'))
+            controls.reset()
+            assert controls.sidebar_toggle.isHidden() and not controls.sidebar_toggle.isChecked()
+            assert not window.settings['skin_sidebar'] and 'rgba(' not in window.sidebar.styleSheet()
+            window.set_skin({'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True})
             dialog.reject()
             video = folder/'background.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
@@ -199,14 +228,15 @@ def main():
             window.close()
         # Saved relative asset paths survive window reconstruction.
         with patch.object(config, 'CONFIG_PATH', str(folder/'saved-state.json')), patch.dict(os.environ, {'DDM_NO_SAVE': ''}):
-            config.save({'version': config.STATE_VERSION, 'plugins_enabled': [], 'settings': {'skin_background': custom, 'skin_mask': 50, 'auto_update': False}})
+            config.save({'version': config.STATE_VERSION, 'plugins_enabled': [], 'settings': {'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True, 'auto_update': False}})
             persisted = config.load()
         with patch('PySide6.QtCore.QTimer.singleShot'):
             restored = module.MainWindow([], [], state=persisted)
         assert restored.skin_controller.layer.image.pixelColor(0, 0) == QColor('#426CDB')
+        assert restored.settings['skin_sidebar'] and 'rgba(' in restored.sidebar.styleSheet()
         restored.close()
         theme.set_skin_active(False)
-    print('PASS: copied/persisted image, asynchronous import, translucent panels, plugin install/override/disable/remove, path validation, muted looping video, pause/resume and stable video HWND')
+    print('PASS: copied/persisted image, opt-in sidebar coverage and conditional controls, asynchronous import, translucent panels, plugin install/override/disable/remove, path validation, muted looping video, pause/resume and stable video HWND')
 
 
 if __name__ == '__main__':

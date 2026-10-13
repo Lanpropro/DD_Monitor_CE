@@ -121,12 +121,14 @@ _light = False
 _styles = WeakKeyDictionary()
 _signals = None
 _skin_active = False
+_skin_sidebar = False
 
 
-def set_skin_active(active):
-    global _skin_active
-    if _skin_active != bool(active):
-        _skin_active = bool(active)
+def set_skin_active(active, sidebar=False):
+    global _skin_active, _skin_sidebar
+    active, sidebar = bool(active), bool(sidebar)
+    if (_skin_active, _skin_sidebar) != (active, sidebar):
+        _skin_active, _skin_sidebar = active, sidebar
         apply(_mode)
 
 
@@ -134,6 +136,8 @@ def _skin_style(widget):
     if not _skin_active:
         return ''
     name = widget.objectName()
+    if name == 'Sidebar' and not _skin_sidebar:
+        return ''
     if name == 'Root':
         return '#Root {background: transparent;}'
     if name == 'TileVideo':
@@ -143,7 +147,7 @@ def _skin_style(widget):
     if name not in colors:
         return ''
     color = qcolor(colors[name])
-    opacity = .92 if name == 'Sidebar' else (.84 if name == 'Tile' else .88)
+    opacity = .84 if name in ('Sidebar', 'Tile') else .88
     selector = '#Tile, #Tile[empty="true"]' if name == 'Tile' else '#' + name
     return f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}'
 

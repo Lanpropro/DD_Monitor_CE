@@ -217,7 +217,8 @@ class SkinController(QObject):
         except (TypeError, ValueError):
             mask = 35
         self.layer.mask = self.override['mask'] if self.override is not None else mask
-        theme.set_skin_active(bool(path))
+        sidebar = self.override is not None or bool(settings.get('skin_sidebar', False))
+        theme.set_skin_active(bool(path), sidebar)
         self.layer.load(str(path) if path else '')
         self.error = self.layer.error
         self.layer.update()
