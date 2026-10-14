@@ -14,6 +14,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import config
+from .encoders import gop_args, resolve_encoder, segment_extension, segment_format
 
 SEGMENT_SECONDS = 10
 CHECK_MS = 2000
@@ -194,32 +195,50 @@ def input_args(url: str, headers: dict) -> list[str]:
     return args + ["-i", url]
 
 
-def segment_args(settings: dict, pattern: Path) -> list[str]:
+def segment_extension_for(settings: dict, video_codec: str) -> str:
+    """设置里的格式 + 这一路流的实际编码 -> 本次分段真正能用的扩展名。
+
+    默认只在 ``mkv/mov/ts`` 三个里认设置值，其余一律 mp4；再交给
+    ``segment_extension`` 挑一个装得下视频编码的容器（AV1 装不进 MOV）。
+    """
+    extension = (settings.get("recording_format") if settings.get("recording_format")
+                 in ("mkv", "mov", "ts") else "mp4")
+    return segment_extension(extension, video_codec)
+
+
+def segment_args(settings: dict, pattern: Path, video_codec: str = "") -> list[str]:
     args = ["-map", "0:v:0", "-map", "0:a?", "-sn", "-dn"]
     if settings.get("recording_codec", "copy") == "h264":
+        encoder, extra, family = resolve_encoder(
+            settings.get("recording_encoder", "auto"), ffmpeg_path(settings))
         fps = max(1, int(settings.get("recording_fps", 30)))
         bitrate = max(500, int(settings.get("recording_bitrate", 6000)))
-        args += ["-c:v", "libx264", "-preset", "veryfast", "-b:v", f"{bitrate}k",
-                 "-r", str(fps), "-g", str(fps * SEGMENT_SECONDS),
-                 "-sc_threshold", "0", "-c:a", "aac", "-b:a", "160k"]
+        # GOP 参数按编码器族生成：-sc_threshold 是 x264 独有的，塞给硬件编码器
+        # 会让 FFmpeg 直接启动失败。
+        args += ["-c:v", encoder, *extra, "-b:v", f"{bitrate}k",
+                 "-r", str(fps), *gop_args(family, fps, SEGMENT_SECONDS),
+                 "-c:a", "aac", "-b:a", "160k"]
     else:
         args += ["-c", "copy"]
-    fmt = {"mkv": "matroska", "mov": "mov", "ts": "mpegts"}.get(
-        settings.get("recording_format"), "mp4")
+    fmt = segment_format(segment_extension_for(settings, video_codec))
     return args + ["-f", "segment", "-segment_time", str(SEGMENT_SECONDS),
                    "-reset_timestamps", "1", "-segment_format", fmt, str(pattern)]
 
 
 class _Session:
-    def __init__(self, tile, settings: dict, recording: bool, folder: Path):
+    def __init__(self, tile, settings: dict, recording: bool, folder: Path,
+                 video_codec: str = ""):
         self.tile = tile
         self.settings = dict(settings)
         self.recording = recording
         self.folder = folder
         self.name = str(tile.room.get("uname") or "直播")
         self.room_id = str(tile.room.get("room_id") or "")
-        self.extension = (settings.get("recording_format") if settings.get("recording_format")
-                          in ("mkv", "mov", "ts") else "mp4")
+        #: 这一路流的视频编码（avc / hevc / av1），由 start() 从格子上取。分段容器
+        #: 要靠它挑（AV1 装不进 MOV）；取不到就是空串，而 segment_extension 对认不出
+        #: 的编码原样返回，所以老路径行为不变。
+        self.video_codec = video_codec
+        self.extension = segment_extension_for(settings, self.video_codec)
         self.parts: list[Path] = []
         self.process: subprocess.Popen | None = None
         self.active_pattern: Path | None = None
@@ -315,7 +334,10 @@ class RecordingManager(QObject):
             if not self._free_enough(folder):
                 self._say("录制未开始：保存目录所在磁盘剩余空间不足")
                 return False
-            session = _Session(tile, self.settings, recording, folder)
+            # 取不到 stream_codec 的老格子（或插件造的假格子）按空串处理：
+            # segment_extension 认不出编码就原样返回，行为跟改动前一致。
+            session = _Session(tile, self.settings, recording, folder,
+                               str(getattr(tile, "stream_codec", "") or ""))
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
             self.changed.emit(tile)
@@ -334,7 +356,7 @@ class RecordingManager(QObject):
         nonce = f"{time.time_ns()}_{session.chunk}"
         pattern = parts_dir / f"{safe_name(session.name)}_{nonce}_%05d.{session.extension}"
         command = [ffmpeg_path(session.settings), "-y"] + input_args(url, headers)
-        command += segment_args(session.settings, pattern)
+        command += segment_args(session.settings, pattern, session.video_codec)
         log_path = parts_dir / f"{safe_name(session.name)}_{nonce}.log"
         with log_path.open("wb") as log:
             session.process = subprocess.Popen(command, stdin=subprocess.PIPE,
