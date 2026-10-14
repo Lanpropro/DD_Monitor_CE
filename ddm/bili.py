@@ -27,6 +27,25 @@ STREAM_WEB = {"User-Agent": UA, "Referer": "https://live.bilibili.com/"}
 # 这里先把档位留着，等接入登录后再启用。
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 
+#: 直播流编码方式：设置值 -> (界面文案, app-room 接口的 codec 参数)。
+#: 同一路直播按编码分开发流：H.264 是 FLV + fMP4 两条通道，HEVC / AV1 只有
+#: fMP4（HLS）通道，而且 VLC 播不了这种分片，必须先用 FFmpeg 转封装（见
+#: ``stream_relay``），所以这两档只在「转封装播放」下可用。
+BILI_CODECS = (
+    ("avc", "H.264 / AVC（兼容性最好）", 0),
+    ("hevc", "HEVC / H.265（同画质省约一半码率）", 1),
+    ("av1", "AV1（码率最低，解码要求最高）", 2),
+)
+
+#: 设置值 -> 接口 codec 参数。
+CODEC_PARAM = {value: param for value, _label, param in BILI_CODECS}
+
+#: 接口 codec 参数 -> 设置值。
+CODEC_NAME = {param: value for value, _label, param in BILI_CODECS}
+
+#: 只有 HLS 通道的编码：VLC 打不开 B 站的分片，必须走转封装。
+HLS_ONLY_CODECS = ("hevc", "av1")
+
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
 _UID_CACHE: dict = {"uid": None}

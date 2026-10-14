@@ -26,6 +26,9 @@ DEFAULT_SETTINGS = {
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
     "decode_mode": "auto",    # VLC 自动 / D3D11 / DXVA2 / 软件解码
+    #: B 站直播流的编码方式。H.264 兼容性最好（默认）；HEVC 同画质码率约省一半；
+    #: AV1 更省但只有 HLS 通道，需要 FFmpeg 转封装后才能给 VLC 播。
+    "bili_codec": "avc",
     "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "default_volume": DEFAULT_VOLUME,
@@ -43,6 +46,8 @@ DEFAULT_SETTINGS = {
     "recording_dir": "",         # 首次录制前必须由用户选择
     "recording_format": "mp4",
     "recording_codec": "copy",    # 不重编码；选 h264 时才使用码率/帧率
+    #: 重编码时用哪个编码器：auto 优先显卡、不可用回退 CPU；也可以手动指定。
+    "recording_encoder": "auto",
     "recording_bitrate": 6000,    # kbps
     "recording_fps": 30,
     "recording_replay_minutes": 3,
