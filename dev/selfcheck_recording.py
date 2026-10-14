@@ -17,8 +17,12 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.config import DEFAULT_SETTINGS  # noqa: E402
 from ddm.dialogs import SettingsDialog  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.encoders import HARDWARE_ENCODERS, SOFTWARE_ENCODER, resolve_encoder  # noqa: E402
 from ddm.recording import (RecordingManager, ffmpeg_path, input_args, output_path,
-                           safe_name, segment_args)  # noqa: E402
+                           safe_name, segment_args, _Session)  # noqa: E402
+
+#: 硬件编码器名字集合；断言不能写死 libx264 —— 本机可能真的用上显卡。
+ENCODER_NAMES = {encoder for encoder, _args in HARDWARE_ENCODERS.values()} | {SOFTWARE_ENCODER}
 
 
 class FakeTile:
@@ -26,10 +30,48 @@ class FakeTile:
         self.room = {"uname": name, "room_id": room_id, "live": True}
         self.stream_url = url
         self.stream_headers = {}
+        self.stream_codec = ""
         self.visible = True
 
     def isVisible(self):
         return self.visible
+
+
+def ffprobe_path(ffmpeg: str) -> str:
+    """优先用 PATH 上的 ffprobe，没有就找与 ffmpeg 同目录的那一份。"""
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    sibling = Path(ffmpeg).with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
+    return str(sibling) if sibling.is_file() else ""
+
+
+def _run_text(command: list[str]) -> subprocess.CompletedProcess:
+    # FFmpeg 的横幅里会出现中文路径，默认按 GBK 解会炸掉读取线程。
+    return subprocess.run(command, check=True, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+
+
+def assert_h264(probe_path: str, path: Path, note: str, ffmpeg: str) -> None:
+    """确认输出就是 h264，并且整条流能完整解一遍。"""
+    if probe_path:
+        result = _run_text([probe_path, "-v", "error", "-show_entries",
+                            "stream=codec_name,codec_type", "-of", "csv=p=0", str(path)])
+        streams = [line.split(",") for line in result.stdout.strip().splitlines()]
+        assert any(codec == "h264" and kind == "video" for codec, kind in streams), \
+            f"{note} 的视频流不是 h264：{result.stdout}"
+        assert any(kind == "audio" for _codec, kind in streams), f"{note} 丢了音轨"
+    else:
+        # 没有 ffprobe 时用 ffmpeg 自己看编码名（发布包只带 ffmpeg.exe）。
+        # 只给 `-i` 不给输出参数时 ffmpeg 打完信息会以 1 退出，属正常。
+        info = subprocess.run([ffmpeg, "-hide_banner", "-i", str(path)],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace")
+        assert "Video: h264" in info.stderr, \
+            f"{note} 的视频流不是 h264：{info.stderr[-400:]}"
+        assert "Audio:" in info.stderr, f"{note} 丢了音轨"
+    subprocess.run([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def until(app, condition, seconds=10):
@@ -51,8 +93,32 @@ def main():
         "-headers", "User-Agent: A\r\nReferer: B\r\n", "-i", "x"][-3:]
     assert "-c" in segment_args(DEFAULT_SETTINGS, Path("x_%05d.mp4"))
     assert "6000k" in segment_args({"recording_codec": "h264"}, Path("x_%05d.mp4"))
+    # 重编码会真的探测硬件编码器（本机 NVENC 可用），所以只断言「是 h264 系的
+    # 某个编码器」，写死 libx264 在显卡机器上必挂。
+    transcoded = segment_args({"recording_codec": "h264"}, Path("x_%05d.mp4"))
+    assert transcoded[transcoded.index("-c:v") + 1] in ENCODER_NAMES, transcoded
+    cpu_only = segment_args({"recording_codec": "h264", "recording_encoder": "cpu"},
+                            Path("x_%05d.mp4"))
+    assert cpu_only[cpu_only.index("-c:v") + 1] == SOFTWARE_ENCODER
     assert "mov" in segment_args({"recording_format": "mov"}, Path("x_%05d.mov"))
     assert "mpegts" in segment_args({"recording_format": "ts"}, Path("x_%05d.ts"))
+    # AV1 源选 MOV 时容器要换成 MP4，否则 FFmpeg 直接拒绝启动。
+    av1_args = segment_args({"recording_format": "mov"}, Path("x_%05d.mp4"), "av1")
+    assert av1_args[av1_args.index("-segment_format") + 1] == "mp4"
+
+    # 会话的扩展名跟着这一路流的编码走（MOV + AV1 -> mp4）。
+    av1_tile = FakeTile("AV1 源", "70007", "x")
+    av1_tile.stream_codec = "av1"
+    mov = dict(DEFAULT_SETTINGS, recording_format="mov")
+    assert _Session(av1_tile, mov, True, Path.cwd(), av1_tile.stream_codec).extension == "mp4"
+    assert _Session(av1_tile, mov, True, Path.cwd(), "av1").extension == "mp4"
+    assert _Session(av1_tile, dict(mov, recording_codec="h264"), True, Path.cwd(),
+                    "av1").extension == "mp4"
+    assert _Session(FakeTile("HEVC 源", "80008", "x"), mov, True, Path.cwd(),
+                    "hevc").extension == "mov"
+    assert _Session(av1_tile, dict(DEFAULT_SETTINGS), True, Path.cwd(), "av1").extension == "mp4"
+    # 老格子取不到 stream_codec，扩展名按设置原样走。
+    assert _Session(FakeTile("未知源", "90009", "x"), mov, True, Path.cwd()).extension == "mov"
 
     dialog = SettingsDialog(DEFAULT_SETTINGS, {})
     assert dialog.recording_page.values()["recording_format"] == "mp4"
@@ -156,6 +222,52 @@ def main():
                                          "stream=codec_type", "-of", "csv=p=0", str(files[0])],
                                         check=True, capture_output=True, text=True)
                 assert "video" in result.stdout and "audio" in result.stdout
+        # 真跑一次硬件编码：auto 选中显卡时把那一族钉死在设置里再录一遍，
+        # 确认这段命令在本机起得来、出来的确实还是 h264。
+        auto_encoder, _auto_extra, auto_family = resolve_encoder("auto", ffmpeg)
+        if auto_family == "cpu":
+            print(f"本机 auto 解析为 {auto_encoder}（没有可用的硬件编码器），"
+                  "跳过硬件编码录制自检")
+        else:
+            hardware = FakeTile(f"硬件_{auto_family}", f"27{auto_family}", str(source))
+            manager.settings = dict(settings, recording_format="mp4", recording_codec="h264",
+                                    recording_encoder=auto_family)
+            assert manager.start(hardware, recording=True)
+            assert until(app, lambda: hardware not in manager.sessions and
+                         not manager.exports, 30), f"{auto_family} 硬件录制没收尾"
+            hardware_files = list((root / "out").glob(f"硬件_{auto_family}*.mp4"))
+            assert len(hardware_files) == 1, f"{auto_family} 硬件录制没出文件"
+            assert hardware_files[0].stat().st_size > 500
+            assert_h264(ffprobe_path(ffmpeg), hardware_files[0],
+                        f"{auto_family} 硬件录制", ffmpeg)
+            print(f"本机 auto 解析为 {auto_encoder}，硬件编码录制自检通过")
+
+        # AV1 源 + MOV：FFmpeg 的 MOV 复用器明确拒绝 AV1（"av1 only supported in
+        # MP4 and AVIF"），所以扩展名要换成 mp4，否则这一路直接启动即失败。
+        av1_source = root / "source-av1.mp4"
+        made_av1 = subprocess.run(
+            [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+             "-f", "lavfi", "-i", "color=c=red:s=160x90:r=10",
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+             "-t", "2", "-c:v", "libsvtav1", "-preset", "12", "-c:a", "aac",
+             str(av1_source)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if made_av1.returncode:
+            print("这份 FFmpeg 编不出 AV1，跳过 AV1 选 MOV 的容器修正自检")
+        else:
+            for codec in ("copy", "h264"):
+                av1_tile = FakeTile(f"AV1_{codec}", f"28{codec}", str(av1_source))
+                av1_tile.stream_codec = "av1"
+                manager.settings = dict(settings, recording_format="mov",
+                                        recording_codec=codec)
+                assert manager.start(av1_tile, recording=True)
+                assert until(app, lambda: av1_tile not in manager.sessions and
+                             not manager.exports, 30), f"AV1 {codec} 录制没收尾"
+                assert not list((root / "out").glob(f"AV1_{codec}*.mov")), \
+                    "AV1 装不进 MOV，不能真的写出 .mov"
+                av1_files = list((root / "out").glob(f"AV1_{codec}*.mp4"))
+                assert len(av1_files) == 1 and av1_files[0].stat().st_size > 500, \
+                    f"AV1 {codec} 录制没落到 mp4"
+            print("AV1 源选 MOV 时自动换 MP4 容器：通过")
         manager.settings = settings
 
         # 缓存模式不生成完整文件；结束时只删它自己创建的临时分段。
