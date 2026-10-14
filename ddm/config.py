@@ -196,6 +196,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     """
     room_ids = _unique(state.get("rooms", []))
     wall_slots = state.get("wall", []) or []
+    default_volume = int((state.get("settings") or {}).get("default_volume", DEFAULT_VOLUME))
 
     def placeholder(room_id: str) -> dict:
         room = {
@@ -227,7 +228,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             wall.append({
                 "room_id": "",
                 "muted": bool(slot.get("muted", True)),
-                "volume": int(slot.get("volume", DEFAULT_VOLUME)),
+                "volume": int(slot.get("volume", default_volume)),
                 "quality": int(slot.get("quality", 250)),
                 "audio_channel": int(slot.get("audio_channel", 0)),
                 "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
@@ -235,7 +236,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             continue
         room = placeholder(room_id)
         room["muted"] = bool(slot.get("muted", True))
-        room["volume"] = int(slot.get("volume", DEFAULT_VOLUME))
+        room["volume"] = int(slot.get("volume", default_volume))
         room["quality"] = int(slot.get("quality", 250))
         room["audio_channel"] = int(slot.get("audio_channel", 0))
         room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))

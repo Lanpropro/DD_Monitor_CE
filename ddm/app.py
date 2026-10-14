@@ -222,7 +222,7 @@ class MainWindow(QMainWindow):
         self.wall = WallGrid(
             wall_rooms if wall_rooms is not None else [],
             layout_id if layout_id and layout_id != "auto"
-            else self._saved_layout("landscape"))
+            else self._saved_layout("landscape"), prepare_room=self._prepare_room)
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()

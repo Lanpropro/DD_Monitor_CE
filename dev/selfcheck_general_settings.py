@@ -44,7 +44,39 @@ def main():
     assert window.settings["freeze_watch"] is True, "Old setting disabled always-on detection"
     window.close()
     app.processEvents()
-    print("PASS: general setting order and labels, hidden values, defaults and always-on freeze detection")
+    for default_volume in (40, 0, 100):
+        state = {'plugins_enabled': [], 'settings': {
+            'default_volume': default_volume, 'auto_update': False}}
+        with patch('ddm.app.QTimer.singleShot'):
+            window = app_module.MainWindow([], [], layout_id='1x1', state=state)
+        try:
+            first = window.wall.tiles[0]
+            assert first.volume == default_volume, 'Startup empty slots must use the configured default volume'
+            first.set_volume(17)
+            window.settings['default_volume'] = 23
+            window._on_layout_changed('2x2')
+            assert [tile.volume for tile in window.wall.tiles] == [17, 23, 23, 23]
+            assert all(tile.volume_slider.value() == tile.volume
+                       and tile.volume_label.text() == str(tile.volume) for tile in window.wall.tiles)
+            window.wall.tiles[1].set_room({'room_id': '1', 'uname': 'Fixture'})
+            assert window.wall.tiles[1].volume == 23, 'Replacing a room must preserve slot volume'
+            saved = window.current_state()
+            _, wall = config.build_rooms(saved)
+            assert [room['volume'] for room in wall] == [17, 23, 23, 23]
+        finally:
+            window.close()
+    state = {'plugins_enabled': [], 'settings': {'default_volume': 40, 'auto_update': False},
+             'wall': [{'room_id': '1', 'volume': 42}, {'room_id': '2', 'volume': 0},
+                      {'room_id': '3'}, {'room_id': ''}, {'room_id': '', 'volume': 17}]}
+    rooms, wall = config.build_rooms(state)
+    assert [room['volume'] for room in wall] == [42, 0, 40, 40, 17], 'Only missing values should inherit the default'
+    with patch('ddm.app.QTimer.singleShot'):
+        window = app_module.MainWindow(rooms, wall, layout_id='corner', state=state)
+    try:
+        assert [tile.volume for tile in window.wall.tiles] == [42, 0, 40, 40, 17, 40]
+    finally:
+        window.close()
+    print("PASS: general settings, startup/default volume, new-slot inheritance, saved slot volumes, boundaries and always-on freeze detection")
 
 
 if __name__ == "__main__":

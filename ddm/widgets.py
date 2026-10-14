@@ -6666,8 +6666,9 @@ class WallGrid(QWidget):
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
 
-    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None):
+    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None):
         super().__init__(parent)
+        self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_StyledBackground, True)
         # 老配置里可能存着已经删掉的布局，回落到自动布局
@@ -6776,6 +6777,8 @@ class WallGrid(QWidget):
         return tile
 
     def _make_tile(self, room: dict) -> Tile:
+        if self._prepare_room is not None:
+            room = self._prepare_room(room)
         # 竖屏布局是手动 setGeometry，不经过 QGridLayout 的 addWidget；
         # 先挂到画面墙，新增空格才不会在 setVisible() 时变成顶层悬浮窗。
         tile = Tile(room, self)
