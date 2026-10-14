@@ -83,12 +83,28 @@ def main():
             assert save.call_args.args[0]['settings']['skin_background'] == path
             source.unlink()
             assert layer.image is not None and not layer.image.isNull()
+            original_background = layer.image.copy()
+            for mode in ('dark', 'light', 'dark', 'light'):
+                window.set_appearance(mode)
+                window.set_skin({'skin_mask': 0})
+                samples = []
+                for background in ('#FF0000', '#0000FF'):
+                    layer.image.fill(QColor(background))
+                    layer.update()
+                    QTest.qWait(20)
+                    video = window.wall.tiles[0].video
+                    root = window.centralWidget()
+                    point = video.mapTo(root, QPoint(20, video.height()//2))
+                    frame = root.grab().toImage()
+                    scale = frame.devicePixelRatio()
+                    samples.append(frame.pixelColor(round(point.x()*scale),
+                        round(point.y()*scale)).getRgb()[:3])
+                difference = max(abs(a-b) for a, b in zip(*samples))
+                assert difference >= 20, (mode, samples, 'The actual background must show through empty tiles')
+            layer.image = original_background
+            window.set_skin({'skin_mask': 35})
             window.set_appearance('light')
             QTest.qWait(30)
-            # The background must actually show through an empty native video surface.
-            tile_image = window.wall.tiles[0].video.grab().toImage()
-            color = tile_image.pixelColor(20, tile_image.height()//2)
-            assert max(abs(a-b) for a, b in zip(color.getRgb()[:3], QColor('#FFFFFF').getRgb()[:3])) >= 10, 'Skin is hidden behind opaque UI panels'
             assert 'rgba(' not in window.sidebar.styleSheet(), 'Sidebar coverage must be opt-in'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',

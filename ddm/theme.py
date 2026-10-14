@@ -142,11 +142,9 @@ def _skin_style(widget):
         return ''
     if name == 'Root':
         return '#Root {background: transparent;}'
-    if name == 'WallGrid':
-        return '#WallGrid {background: transparent;}'
-    if name == 'TileVideo':
+    if name in ('WallGrid', 'TileVideo'):
         mode = 'true' if _light else 'false'
-        return f'#TileVideo[appearanceLight="{mode}"] {{background: transparent;}}'
+        return f'#{name}[appearanceLight="{mode}"] {{background: transparent;}}'
     colors = {'Sidebar': SIDEBAR, 'Tile': BG,
               'TileBottom': BG, 'DanmakuPanel': CONTENT}
     if name not in colors:
