@@ -78,6 +78,7 @@ def preview_checks(app):
     with patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
             patch.object(module.AudioPump, "start", lambda self: None):
         viewer = module.Viewer(context, {})
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         viewer.add_room("1", {"alias": "Machine", "volume": 100})
         viewer.add_room("2", {"alias": "CS-advent", "volume": 100})
         viewer.automatic.setChecked(False)
@@ -112,6 +113,9 @@ def preview_checks(app):
         viewer.audio.sink = FakeSink()
         viewer.audio.device = FakeDevice(viewer.audio.sink)
         viewer.audio.anchor = 100
+        for row in viewer.rows.values():
+            row.sync_state, row.mix_gain = "已同步", 1.0
+        viewer.playback_rate = 1.0
         viewer.audio.fill()
         assert set(array("h", viewer.audio.device.data)) == {6400}, "Mixed PCM must immediately use the adjusted shared timeline"
         late.pending.append((97, {"uname": "A", "text": "adjusted chat"}))

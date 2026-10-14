@@ -28,6 +28,7 @@ def main():
         host.settings = {}
         manager = plugins.PluginManager(window=host, plugins_dir=root)
         viewer = module.Viewer(plugins.PluginContext(manager, "lock_check"), {})
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         try:
             viewer.add_room("1", {"alias": "主画面"})
             viewer.add_room("2", {"alias": "二路"})
@@ -77,11 +78,13 @@ def main():
                     viewer.render()
                     if viewer.sync_waiting:
                         clocks.append(viewer.audio.clock())
-                assert len(clocks) >= 3 and max(clocks) - min(clocks) < 1e-7, clocks
-                assert viewer.picture._buffering and not viewer.canvas.image.isNull()
+                if stalled == viewer.alignment.reference:
+                    assert len(clocks) >= 3 and max(clocks) - min(clocks) < 1e-7, clocks
+                    assert viewer.picture._buffering and not viewer.canvas.image.isNull()
+                else:
+                    assert not viewer.sync_waiting and not viewer.picture._buffering
+                    assert viewer.rows[stalled].sync_state == "暂时隔离"
                 assert viewer.shifts() == shifts and secondary.delay.value() == -1
-                for row in viewer.rows.values():
-                    assert row.decoder.history.frame_at(clocks[-1] + shifts[row.room_id]) is not None
                 viewer.audio.sink = FakeSink()
                 viewer.audio.device = FakeDevice(viewer.audio.sink)
                 with patch.object(secondary.decoder.history, "pcm_at") as pcm:
@@ -93,7 +96,8 @@ def main():
                 worker.history = History()
                 viewer._reset(viewer.rows[stalled], worker)
                 viewer.render()
-                assert viewer.sync_waiting and viewer.alignment.lags == baseline
+                assert viewer.sync_waiting == (stalled == viewer.alignment.reference)
+                assert viewer.alignment.lags == baseline
                 now[0] = 140
                 for key, row in viewer.rows.items():
                     for stamp in range(136, 141):
@@ -110,7 +114,7 @@ def main():
                 assert viewer.shifts() == shifts and viewer.alignment.lags == baseline
                 assert all(row.decoder.history.frame_at(viewer.audio.clock() + shifts[key]) is not None
                            for key, row in viewer.rows.items())
-                print(f"PASS: source {stalled} stalls over three seconds, pair waits silently, reset preserves alignment, common cache resumes")
+                print(f"PASS: source {stalled} stalls over three seconds, main stall waits; secondary stall isolates, reset preserves alignment, cache resumes")
 
             previous = secondary.decoder
             viewer.select_main("2")
@@ -138,11 +142,11 @@ def main():
                         row.decoder.history.append(stamp, image)
                         row.decoder.last_frame_received = stamp
                 viewer.render()
-            assert viewer.sync_waiting
+            assert not viewer.sync_waiting and viewer.rows["3"].mix_gain == 0
             viewer.rows["3"].paused = True
             viewer.render()
             assert not viewer.sync_waiting, "A room explicitly paused by the user must not block the remaining rooms"
-            print("PASS: third source joins locked pair, its stall holds all rooms, explicit pause releases the remaining pair")
+            print("PASS: third source joins locked pair, its stall is isolated, healthy pair continues")
             viewer.automatic.setChecked(True)
             assert not viewer.alignment.manual_locked and not viewer.sync_waiting
             viewer.compare.setChecked(False)

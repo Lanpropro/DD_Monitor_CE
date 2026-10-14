@@ -26,6 +26,7 @@ def main():
         host.settings = {"video_danmaku_size": 16, "video_danmaku_scale": False}
         manager = plugins.PluginManager(window=host, plugins_dir=root)
         viewer = module.Viewer(plugins.PluginContext(manager, "playback_check"), {})
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         viewer.resize(1600, 1000)
         viewer.show()
         try:
@@ -94,6 +95,7 @@ def main():
             viewer.automatic.setChecked(False)
             viewer.automatic.setChecked(True)  # Exercise the unlocked recovery policy separately.
             viewer.alignment.lags["2"] = 4
+            viewer.rows["2"].match_confirmed = True
             del viewer.audio.clock
             with patch.object(module.time, "monotonic", return_value=120):
                 for key, row in viewer.rows.items():
@@ -113,8 +115,8 @@ def main():
                 viewer.audio.sink = FakeSink()
                 viewer.audio.device = FakeDevice(viewer.audio.sink)
                 viewer.audio.anchor = 120
-                with patch.object(viewer.rows["1"].decoder.history, "pcm_at", return_value=bytes(1920)) as main_pcm, \
-                        patch.object(viewer.rows["2"].decoder.history, "pcm_at", return_value=bytes(1920)) as other_pcm:
+                with patch.object(viewer.rows["1"].decoder.history, "pcm_at", side_effect=lambda _timestamp, frames: bytes(frames * 4)) as main_pcm, \
+                        patch.object(viewer.rows["2"].decoder.history, "pcm_at", side_effect=lambda _timestamp, frames: bytes(frames * 4)) as other_pcm:
                     viewer.audio.fill()
                     assert abs(main_pcm.call_args.args[0] - clock - shifts["1"]) < 1e-7
                     assert abs(other_pcm.call_args.args[0] - clock - shifts["2"]) < 1e-7
@@ -125,7 +127,7 @@ def main():
                 correction = viewer.audio.correction
                 for row in viewer.rows.values():
                     row.decoder.last_frame_received = 100
-                assert viewer._recover_clock(140, shifts) == 140
+                assert viewer._recover_clock(viewer.audio.clock(), shifts) == viewer.audio.clock()
                 assert viewer.audio.correction == correction, "Disconnected rooms must not repeatedly rewind playback"
                 viewer.rows["1"].decoder.last_frame_received = 120
                 viewer.rows["1"].delay.setValue(60)
@@ -142,9 +144,15 @@ def main():
                     row.decoder.history.frames.clear()
                     for stamp in (200, 200.25, 200.5):
                         row.decoder.history.append(stamp, image)
+                viewer.audio.correction = 0
+                viewer.sync_waiting = viewer.offset_repositioning = False
+                viewer.locked_clock = None
+                viewer.admitted_rooms.clear()
+                for row in viewer.rows.values():
+                    row.was_isolated = False
                 viewer.render()
-                assert not viewer.picture._buffering, "Startup should use the first quarter second of shared history"
-                assert abs(viewer.audio.clock() - 202.1) < 1e-6
+                assert viewer.picture._buffering, "A fresh stream must accumulate its safety buffer"
+                assert abs(viewer.audio.clock() - 200) < 1e-6
                 for row in viewer.rows.values():
                     for stamp in (201, 202, 203, 204):
                         row.decoder.history.append(stamp, image)
@@ -167,7 +175,7 @@ def main():
                     viewer.render()
                     viewer.render()
                     assert not buffering.called, "Retained frame must not restart the spinner every render"
-            print("PASS: quarter-second startup, shared cache seek on offset change, last frame retained when history cannot overlap")
+            print("PASS: startup safety margin, explicit shared cache seek on offset change, last frame retained when history cannot overlap")
 
             with patch.object(module.time, "monotonic", return_value=240):
                 viewer.audio.correction = 0
@@ -187,10 +195,10 @@ def main():
                 assert row.pending[0][0] == 210, "Receipt must follow decoder time rather than drifted wall time"
                 viewer._reset(row, row.decoder)
                 assert row.pending, "Video reconnect must preserve independent chat messages"
-            with patch.object(module.time, "monotonic", return_value=240.5):
+            with patch.object(module.time, "monotonic", return_value=243.5):
                 for row in viewer.rows.values():
-                    row.decoder.history.append(210.5, image)
-                    row.decoder.last_frame_received = 240.5
+                    row.decoder.history.append(213.5, image)
+                    row.decoder.last_frame_received = 243.5
                 viewer.render()
                 assert viewer.panel._blocks[-1]["text"] == "斗鱼时间轴弹幕"
             assert [row.decoder for row in viewer.rows.values()] == decoders[:2]

@@ -121,18 +121,19 @@ class VideoHistory(History):
 
     def packet_range(self, sequence, target):
         with self.lock:
-            packets = list(self.packets)
-            if not packets or self.codec is None:
+            if not self.packets or self.codec is None:
                 return None
-            if sequence is None or sequence < packets[0].sequence:
-                starts = [i for i, packet in enumerate(packets) if packet.keyframe and packet.time <= target]
-                if not starts:
-                    return None
-                packets = packets[starts[-1]:]
-                reset = True
-            else:
-                packets = [packet for packet in packets if packet.sequence >= sequence]
-                reset = False
+            reset = sequence is None or sequence < self.packets[0].sequence
+            packets = []
+            for packet in reversed(self.packets):
+                if not reset and packet.sequence < sequence:
+                    break
+                packets.append(packet)
+                if reset and packet.keyframe and packet.time <= target:
+                    break
+            if reset and (not packets or not packets[-1].keyframe or packets[-1].time > target):
+                return None
+            packets.reverse()
             return self.codec, packets, reset
 
 
@@ -150,6 +151,21 @@ class PictureReader:
         self.requested = 0.0
         self.decode_ms = 0.0
         self.decoded = 0
+        self.byte_limit = 64 * 1024 * 1024
+        self.max_frames = 8
+        self.fps = 60.0
+        self.lead = .1
+
+    def configure(self, byte_limit, fps, lead=.25):
+        with self.lock:
+            if (self.byte_limit, self.fps, self.lead, self.max_frames) == (byte_limit, max(1, fps), lead, 24):
+                return
+            self.byte_limit = byte_limit
+            self.max_frames = 24
+            self.fps = max(1, fps)
+            self.lead = lead
+            while len(self.images) > 1 and sum(image.sizeInBytes() for image in self.images.values()) > byte_limit:
+                self.images.pop(next(iter(self.images)))
 
     def get(self, history, frame, exact=False):
         with self.lock:
@@ -157,7 +173,8 @@ class PictureReader:
                 self.images.clear()
                 self.history = history
             self.requested = time.monotonic()
-            if frame != self.target or frame[0] not in self.images:
+            cached_backward = frame[0] in self.images and self.target is not None and frame[0] < self.target[0]
+            if not cached_backward and (frame != self.target or frame[0] not in self.images):
                 self.target = frame
                 self.wake.set()
             if self.thread is None and not self.cancelled.is_set():
@@ -195,7 +212,7 @@ class PictureReader:
                     codec = sequence = decoded_until = None
                     with self.lock:
                         self.images.clear()
-                horizon = target + max(1, capacity - 2) / 60
+                horizon = target + min(self.lead, max(1, capacity // 2) / self.fps)
                 if decoded_until is not None and decoded_until >= horizon:
                     continue
                 result = history.packet_range(sequence, target)
@@ -232,8 +249,8 @@ class PictureReader:
                             if self.history is not history or self.cancelled.is_set():
                                 break
                             self.images[key] = image
-                            capacity = max(1, min(8, 64 * 1024 * 1024 // image.sizeInBytes()))
-                            horizon = target + max(1, capacity - 2) / 60
+                            capacity = max(1, min(self.max_frames, self.byte_limit // image.sizeInBytes()))
+                            horizon = target + min(self.lead, max(1, capacity // 2) / self.fps)
                             while len(self.images) > capacity:
                                 self.images.pop(next(iter(self.images)))
                             self.decoded += 1

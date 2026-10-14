@@ -59,6 +59,7 @@ def gui_checks():
             with patch.object(viewer.audio, "clock", return_value=118):
                 for _ in range(3):
                     viewer.canvas.frame_key = 118 + viewer.shifts()["1"]
+                    viewer.canvas.waiting = False  # This fixture supplies an already displayed reference.
                     viewer.analyse()
                     assert viewer.matching
                     deadline = time.monotonic() + 3
@@ -68,7 +69,7 @@ def gui_checks():
                     assert not viewer.matching, "Fine worker did not deliver to the GUI"
             row = viewer.rows["2"]
             assert abs(viewer.alignment.lags["2"] - 7.237) < .06
-            assert "播放进度已复核" in row.match_text and "剩余误差" in row.match_text, row.match_text
+            assert "播放进度已复核" in row.match_text and "预计播放误差" in row.match_text, row.match_text
             viewer.canvas.frame_key -= 1
             with patch.object(viewer.audio, "clock", return_value=118):
                 viewer.analyse()

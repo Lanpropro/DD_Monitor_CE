@@ -41,4 +41,24 @@ host._closing = True
 MainWindow.set_match_sync_playback(host, True)
 MainWindow.set_match_sync_playback(host, False)
 assert host.start_tile.call_count == 2
+# A protected recording may resolve again while the hidden wall is suspended.
+# Its new player must be muted before play(), not on a later suppression tick.
+host._closing = False
+host.settings = {}
+host.media_options = lambda: ()
+host._emit_stream_resolved = Mock()
+host._sync_replay_scope = Mock()
+host.recorder.on_resolved = Mock()
+recording = tiles[3]
+recording.volume, recording.audio_channel, recording.muted = 80, 0, False
+recording.quality = 10000
+player = Mock()
+host.players[recording] = player
+host._match_sync_active = True
+MainWindow._play_on(host, recording, "https://example.invalid/live", profile="web")
+player.set_muted.assert_called_once_with(True)
+player.play.assert_called_once()
+host._match_sync_active = False
+MainWindow._play_on(host, recording, "https://example.invalid/live", profile="web")
+assert player.set_muted.call_args.args == (False,)
 print("PASS: hidden playback released once, recording protected, room identity/paused state preserved, closing skips resume")

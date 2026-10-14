@@ -1253,7 +1253,7 @@ class MainWindow(QMainWindow):
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         player.set_volume(int(tile.volume))
         player.set_audio_channel(int(tile.audio_channel))
-        player.set_muted(tile.muted)
+        player.set_muted(tile.muted or bool(getattr(self, "_match_sync_active", False)))
         # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
         # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}

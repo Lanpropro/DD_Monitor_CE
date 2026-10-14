@@ -197,6 +197,17 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
         return Match(None, 0, "精校正时间差不明确，保持已确认偏移")
     # The sample timestamps refine the grid centre without inventing sub-frame time.
     good = valid[best] & (errors[best] <= .20)
+    if length == 256:
+        grid = np.arange(256).reshape(16, 16)
+        regions = [grid[y:y + 8, x:x + 8].ravel() for y in (0, 8) for x in (0, 8)]
+        supported = 0
+        for region in regions:
+            area = region[active[region]]
+            if len(area) >= 8:
+                error = np.abs(a_features[good][:, area] - b_features[indices[best, good]][:, area]).mean() / 128
+                supported += error <= .20
+        if supported < 2:
+            return Match(None, 0, "共同比赛区域不足；请框选比赛画面，避开局部动画")
     precise = float(np.median(b_times[indices[best, good]] - a_times[good]))
     confidence = min(1.0, int(counts[best]) / 60) * max(0, 1 - score)
     return Match(precise, confidence, "已精校正共同比赛画面", refined=True)
@@ -331,6 +342,45 @@ def mix_pcm(inputs: list[tuple[bytes, int]], frames: int) -> bytes:
                        for value in output)).tobytes()
 
 
+class SafetyBuffer:
+    """Bounded jitter target; playback reaches it through gradual clock changes."""
+    def __init__(self):
+        self.target = 3.0
+        self.arrivals = {}
+        self.gaps = deque(maxlen=240)
+        self.last_change = None
+
+    def observe(self, key, arrival, fps):
+        previous = self.arrivals.get(key)
+        if arrival and (previous is None or arrival > previous):
+            self.arrivals[key] = arrival
+            if previous is not None:
+                self.gaps.append(max(0.0, arrival - previous - 1 / max(1, fps)))
+
+    def rate(self, now, available):
+        dt = max(0, min(1, now - self.last_change)) if self.last_change is not None else 0
+        self.last_change = now
+        if len(self.gaps) >= 30:
+            ordered = sorted(self.gaps)
+            desired = max(2.0, min(8.0, 2.0 + 2 * ordered[int((len(ordered) - 1) * .95)]))
+            self.target = desired if desired > self.target else max(desired, self.target - .02 * dt)
+        error = available - self.target
+        return 1.0 if abs(error) <= .1 else max(.98, min(1.01, 1 + error * .01))
+
+
+def resample_pcm(pcm, frames):
+    """Small shared audio/video speed changes; stereo and frame count retained."""
+    source = np.frombuffer(pcm, dtype=np.int16).reshape(-1, 2)
+    if len(source) == frames:
+        return pcm
+    positions = np.arange(frames) * len(source) / frames
+    left = np.minimum(positions.astype(np.int64), len(source) - 1)
+    right = np.minimum(left + 1, len(source) - 1)
+    weight = (positions - left)[:, None]
+    mixed = source[left].astype(np.float64) * (1 - weight) + source[right] * weight
+    return np.clip(np.rint(mixed), -32768, 32767).astype(np.int16).tobytes()
+
+
 class Alignment:
     def __init__(self):
         self.reference = ""
@@ -338,6 +388,7 @@ class Alignment:
         self.candidates: dict[str, tuple[float, int]] = {}
         self.automatic = True
         self.manual_locked = False
+        self.buffer_seconds = 2.0
 
     def select_reference(self, room_id: str) -> None:
         origin = self.lags.get(room_id, 0)
@@ -371,4 +422,4 @@ class Alignment:
         positions = {key: lags.get(key, 0) - delay for key, delay in delays.items()}
         slowest = max([0.0] + [lags.get(key, 0) for key in delays] + list(positions.values()))
         # The slowest source stays at least two seconds behind its decoder.
-        return {key: position - slowest - 2.0 for key, position in positions.items()}
+        return {key: position - slowest - self.buffer_seconds for key, position in positions.items()}

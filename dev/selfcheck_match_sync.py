@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "1.0.2"
+        assert manager.catalog()[0]["version"] == "1.2"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -205,6 +205,7 @@ def package_and_ui_checks(app):
                 patch.object(module.AudioPump, "start", lambda self: None):
             plugin.open_viewer({"room_id": "1", "uname": "主播甲"})
             viewer = plugin.viewer
+            viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
             assert viewer.add_room("2", {"alias": "主播乙"})
             assert not viewer.add_room("2")
             viewer.toggle_running()
@@ -225,6 +226,9 @@ def package_and_ui_checks(app):
                 row.volume.setValue(100)
                 for value in range(1, 7):
                     row.decoder.history.audio.append(array("h", [value * 1000, value * 1000] * RATE).tobytes())
+            for row in viewer.rows.values():
+                row.sync_state, row.mix_gain = "已同步", 1.0
+            viewer.playback_rate = 1.0
             viewer.audio.device = FakeDevice(viewer.audio.sink)
             viewer.audio.anchor = 100
             viewer.audio.fill()
@@ -234,6 +238,7 @@ def package_and_ui_checks(app):
             viewer.audio.sink.free = 480 * 4
             viewer.audio.device.data = b""
             viewer.audio.written = 0
+            viewer.audio.media_written = 0
             viewer.audio.fill()
             routed = array("h", viewer.audio.device.data)
             assert set(routed[::2]) == {1000} and set(routed[1::2]) == {2500}
@@ -424,6 +429,7 @@ def embedded_checks(app):
         host.show()
         plugin.button.trigger()
         viewer = plugin.viewer
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         app.processEvents()
         assert viewer.embedded and viewer.parentWidget() is host._content
         assert host.wall.isHidden(), "Native host video must not cover the synced picture"
@@ -482,10 +488,11 @@ def embedded_checks(app):
         assert row.offset_hint.font().pixelSize() == theme.FONT_CAPTION
         assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
         assert abs(row.offset_hint.x() - row.control_widgets[8].x()) <= 1
-        centers = [widget.geometry().center().y() for widget in row.control_widgets]
+        visible_controls = [widget for widget in row.control_widgets if not widget.isHidden()]
+        centers = [widget.geometry().center().y() for widget in visible_controls]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
-        assert row.control_widgets[-1].width() == 52
-        assert row.control_widgets[-1].geometry().right() >= row.width() - 9, "Controls must use the entire row width"
+        assert visible_controls[-1].width() == 52
+        assert visible_controls[-1].geometry().right() >= row.width() - 9, "Controls must use the entire row width"
         assert row.channel.width() == 100 and row.color_choice.width() == 82
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
@@ -511,7 +518,7 @@ def embedded_checks(app):
             assert rendered.pixelColor(x, y).alpha() > 180, "Top corners must match the 8px playback bar radius"
             assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0, "Preserve the 12px bottom corners"
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
-        assert row.control_widgets[-1].geometry().right() >= row.width() - 9
+        assert [widget for widget in row.control_widgets if not widget.isHidden()][-1].geometry().right() >= row.width() - 9
         assert row.main_button.x() - row.alias.geometry().right() <= 7
         assert row.volume_number.x() - row.volume.geometry().right() <= 7
         assert viewer.picture_split.widget(0) is viewer.left_pane

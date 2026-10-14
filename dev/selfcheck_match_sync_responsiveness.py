@@ -51,9 +51,11 @@ def main():
             assert saved.rows["1"].delay.value() == 1.5, "Manual preferences were cleared during construction"
             saved.close()
         viewer = module.Viewer(context, {})
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         try:
             viewer.add_room("1", {"alias": "Main"})
             viewer.add_room("2", {"alias": "Other"})
+            viewer.rows["1"].delay.setValue(0)  # This fixture starts with an unshifted main.
             viewer.automatic.setChecked(False)
             viewer.toggle_running()
             viewer.render_timer.stop()
