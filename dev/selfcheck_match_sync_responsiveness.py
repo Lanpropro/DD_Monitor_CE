@@ -89,14 +89,14 @@ def main():
             assert all(row.decoder.history.frame_at(viewer.audio.clock() + viewer.shifts()[key])
                        for key, row in viewer.rows.items())
             viewer.automatic.setChecked(True)
-            assert not viewer.compare.isChecked() and not viewer.alignment.manual_locked
+            assert viewer.compare.isChecked() and not viewer.alignment.manual_locked
             assert all(row.delay.value() == 0 for row in viewer.rows.values())
             assert viewer.shifts() == {"1": -2, "2": -2}
         finally:
             viewer.close()
             host.close()
             app.processEvents()
-    print("PASS: cache-limited secondary edit keeps main advancing, common cache resumes, automatic clears manual trim/comparison")
+    print("PASS: cache-limited secondary edit keeps main advancing, common cache resumes, automatic clears manual trim and retains comparison")
 
 
 if __name__ == "__main__":

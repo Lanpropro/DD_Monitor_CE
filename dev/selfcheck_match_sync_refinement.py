@@ -84,8 +84,9 @@ def gui_checks():
             assert viewer.alignment.lags == previous and row.match_text == status
             row.delay.setValue(.4)
             assert viewer.alignment.manual_locked and not viewer.alignment.automatic
+            locked = dict(viewer.alignment.lags)
             viewer._matched(viewer.generation, {"2": Match(30, 1, "manual", refined=True)})
-            assert viewer.alignment.lags == previous and "已锁定" in row.match_text
+            assert viewer.alignment.lags == locked and "已锁定" in row.match_text
         finally:
             viewer.close()
             host.close()

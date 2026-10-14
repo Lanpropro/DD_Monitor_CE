@@ -48,7 +48,7 @@ def main():
             viewer.compare.setChecked(False)
             baseline = dict(viewer.alignment.lags)
             shifts = viewer.shifts()
-            assert shifts == {"1": -8, "2": -2}
+            assert shifts == {"1": -7, "2": -6}
             assert viewer.alignment.manual_locked and not viewer.automatic.isChecked()
             assert "已锁定" in secondary.match_text
             for _ in range(4):
@@ -134,7 +134,7 @@ def main():
                 for stamp in range(150, 181):
                     row.decoder.history.append(stamp, image)
             viewer.render()
-            assert viewer.shifts()["2"] - viewer.shifts()["1"] == 6
+            assert viewer.shifts()["2"] - viewer.shifts()["1"] == 1
             for stamp in range(181, 190):
                 now[0] = stamp
                 for key, row in viewer.rows.items():

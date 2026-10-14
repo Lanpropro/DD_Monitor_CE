@@ -128,7 +128,7 @@ def preview_checks(app):
         late.delay.setValue(5)
         assert cards["2"][2].frame_key == 93
         viewer.automatic.setChecked(True)
-        assert not viewer.compare.isChecked() and all(row.delay.value() == 0 for row in viewer.rows.values())
+        assert viewer.compare.isChecked() and all(row.delay.value() == 0 for row in viewer.rows.values())
         viewer._matched(viewer.generation, {"2": Match(4.5, 1, "ok")})
         assert "2" not in viewer.alignment.lags, "A single automatic result still needs confirmation"
         viewer.alignment.lags["2"] = 4.5

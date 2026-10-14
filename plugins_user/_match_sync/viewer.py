@@ -558,7 +558,7 @@ class RoomRow(QFrame):
     def _offset(value):
         spin = QDoubleSpinBox()
         spin.setRange(-60, 60)
-        spin.setDecimals(1)
+        spin.setDecimals(2)
         spin.setSingleStep(0.1)
         spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         spin.setSuffix(" s")
@@ -589,7 +589,7 @@ class RoomRow(QFrame):
     def refresh_status(self):
         match_text = self.match_text
         if not self.viewer.alignment.automatic:
-            match_text = "延时已锁定" if self.viewer.alignment.manual_locked else "自动对齐已关闭"
+            match_text = "自动对齐已关闭；延时已锁定" if self.viewer.delay_frozen else "自动对齐已关闭；手动偏移"
         elif self.room_id == self.viewer.alignment.reference:
             match_text = "主画面基准"
         text = f"{self.video_text} · {match_text} · {self.chat_text}"
@@ -617,6 +617,7 @@ class Viewer(QDialog):
         self.safety_buffer = SafetyBuffer()
         self.playback_rate = 1.0
         self.stable_reference_shift = None
+        self.delay_frozen = False
         self.last_health_update = None
         self.analysis_cursor = 0
         self.admitted_rooms = set()
@@ -644,8 +645,9 @@ class Viewer(QDialog):
         self.main.setFixedWidth(180)
         self.main.currentIndexChanged.connect(self._main_changed)
         self.automatic = QCheckBox("自动对齐比赛画面")
-        self.automatic.setToolTip("手动修改偏移会锁定相对时间；重新勾选会清零手动偏移、收起对照并恢复自动对齐。")
+        self.automatic.setToolTip("关闭时保存当前相对偏移；重新勾选或主动修改偏移可解除保存状态。切换不收起对照。")
         self.automatic.setChecked(context.setting("automatic", True))
+        self.alignment.automatic = self.automatic.isChecked()
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
         self.compare.toggled.connect(self.set_comparison_visible)
@@ -912,9 +914,13 @@ class Viewer(QDialog):
 
     def _delay_changed(self, *_args):
         key = next((key for key, row in self.rows.items() if row.delay is self.sender()), "")
-        if self.alignment.automatic and self.rendered_shifts and self.alignment.reference in self.rendered_shifts:
-            reference = self.rendered_shifts[self.alignment.reference]
-            self.alignment.lags = {room_id: position - reference for room_id, position in self.rendered_shifts.items()}
+        if self.alignment.automatic:
+            value = self.rows[key].delay.value()
+            self._save_delay_offsets(self.shifts())
+            self.rows[key].delay.blockSignals(True)
+            self.rows[key].delay.setValue(value)
+            self.rows[key].delay.blockSignals(False)
+            self.automatic.setChecked(False)
         self.offset_target = key
         before = self.alignment.shifts({key: 0 if self.alignment.automatic else row.previous_delay
                                        for key, row in self.rows.items()})
@@ -928,6 +934,7 @@ class Viewer(QDialog):
         if not self.alignment.automatic and not self.alignment.manual_locked:
             self.alignment.lags = {self.alignment.reference: 0}
         self.alignment.manual_locked = True
+        self._set_delay_frozen(False)
         self.automatic.setChecked(False)
         self.alignment.candidates.clear()
         self.locked_clock = None
@@ -1053,9 +1060,12 @@ class Viewer(QDialog):
         for room_id, row in self.rows.items():
             row.main_button.setChecked(room_id == selected)
         if selected != self.alignment.reference:
+            saved = self.shifts() if self.alignment.manual_locked else None
             self.stable_reference_shift = None
             self.prefer_highest = True
             self.alignment.select_reference(selected)
+            if saved is not None:
+                self._save_delay_offsets(saved)
             self.generation += 1
             self.canvas.frame_key = None
             for key, row in self.rows.items():
@@ -1214,33 +1224,51 @@ class Viewer(QDialog):
             else:
                 recorder.start(self.picture, recording=True)
 
+    def _save_delay_offsets(self, shifts):
+        reference = self.alignment.reference
+        if reference in shifts:
+            origin = shifts[reference]
+            for key, row in self.rows.items():
+                row.delay.blockSignals(True)
+                row.delay.setValue(origin - shifts[key])
+                row.delay.blockSignals(False)
+                row.previous_delay = row.delay.value()
+            # Retain the sub-display rounding residual, without applying the offset twice.
+            self.alignment.lags = {key: value - origin + self.rows[key].delay.value()
+                                   for key, value in shifts.items()}
+            self.stable_reference_shift = origin
+        self.alignment.manual_locked = True
+
+    def _set_delay_frozen(self, frozen):
+        self.delay_frozen = frozen
+        self.lock_delay.blockSignals(True)
+        self.lock_delay.setChecked(frozen)
+        self.lock_delay.setText("解锁延时" if frozen else "锁定延时")
+        self.lock_delay.blockSignals(False)
+
     def _lock_delay_changed(self, checked):
         if checked:
-            shifts = self.shifts()
-            reference = self.alignment.reference
-            main = self.rows.get(reference)
-            if main is not None:
-                origin = shifts[reference]
-                self.alignment.lags = {key: value - origin + self.rows[key].delay.value() - main.delay.value()
-                                       for key, value in shifts.items()}
-                self.stable_reference_shift = origin + main.delay.value()
-            self.alignment.manual_locked = True
+            self._save_delay_offsets(self.shifts())
+            self._set_delay_frozen(True)
             self.automatic.setChecked(False)
             self.alignment.candidates.clear()
             self.relative_rates.clear()
             self.generation += 1
         else:
-            comparison = self.compare.isChecked()
             self.automatic.setChecked(True)
-            self.compare.setChecked(comparison)
-        self.lock_delay.setText("解锁延时" if checked else "锁定延时")
         for row in self.rows.values():
             row.refresh_status()
         self.render()
 
     def _automatic_changed(self, *_args):
+        if (not self.automatic.isChecked() and self.alignment.automatic and not self.alignment.manual_locked
+                and (self.running or self.rendered_shifts)):
+            self._save_delay_offsets(self.shifts())
+            self._set_delay_frozen(True)
         self.alignment.automatic = self.automatic.isChecked()
         if self.alignment.automatic:
+            self._set_delay_frozen(False)
+            self.alignment.lags = {self.alignment.reference: 0}
             self.stable_reference_shift = None
             self.rendered_shifts.clear()
             self.relative_rates.clear()
@@ -1254,7 +1282,6 @@ class Viewer(QDialog):
                 row.delay.setValue(0)
                 row.delay.blockSignals(False)
                 row.previous_delay = 0
-            self.compare.setChecked(False)
             if self.alignment.manual_locked:
                 for key, row in self.rows.items():
                     row.match_text = "主画面基准" if key == self.alignment.reference else "等待重新确认"
@@ -1265,11 +1292,6 @@ class Viewer(QDialog):
             self.offset_repositioning = False
             self.alignment.candidates.clear()
             self.generation += 1
-        locked = self.alignment.manual_locked and not self.alignment.automatic
-        self.lock_delay.blockSignals(True)
-        self.lock_delay.setChecked(locked)
-        self.lock_delay.setText("解锁延时" if locked else "锁定延时")
-        self.lock_delay.blockSignals(False)
         for row in self.rows.values():
             row.refresh_status()
         self.changed()
@@ -1342,7 +1364,8 @@ class Viewer(QDialog):
             return
         self.running = True
         self.safety_buffer = SafetyBuffer()
-        self.stable_reference_shift = None
+        if not self.alignment.manual_locked:
+            self.stable_reference_shift = None
         self.last_health_update = None
         self.playback_rate = 1.0
         self.admitted_rooms.clear()
@@ -1631,6 +1654,14 @@ class Viewer(QDialog):
         self.sync_picture()
         clock = self.audio.clock()
         shifts = self._smooth_shifts(self.target_shifts())
+        if self.alignment.automatic:
+            origin = shifts.get(self.alignment.reference, 0)
+            for key, row in self.rows.items():
+                if not row.delay.lineEdit().isModified():
+                    row.delay.blockSignals(True)
+                    row.delay.setValue(origin - shifts[key])
+                    row.delay.blockSignals(False)
+                    row.previous_delay = row.delay.value()
         self._configure_picture_budget()
         clock = self._recover_clock(clock, shifts)
         row = self.rows.get(self.alignment.reference)
@@ -1654,7 +1685,7 @@ class Viewer(QDialog):
             else:
                 delay = time.monotonic() - clock - shifts[row.room_id]
                 mode = ("自动对齐已开启" if self.alignment.automatic else
-                        "延时已锁定" if self.alignment.manual_locked else "自动对齐已关闭")
+                        "自动对齐已关闭；延时已锁定" if self.delay_frozen else "自动对齐已关闭；手动偏移")
                 self.notice.setText(f"主画面：{row.label()} · 本地播放延后约 {delay:.1f} 秒 · {mode}")
         if self.compare.isChecked():
             self.comparison_panel.render(clock, shifts)

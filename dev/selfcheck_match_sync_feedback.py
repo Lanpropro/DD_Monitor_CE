@@ -63,6 +63,29 @@ def main():
             now[0] += .16
             assert canvas.playback_waiting(main_row.decoder, target, None)
             canvas.playback_waiting(main_row.decoder, target, canvas.frame)
+            viewer.alignment.lags['2'] = .437
+            viewer.rendered_shifts.clear()
+            viewer.render()
+            assert viewer.rows['1'].delay.value() == 0
+            assert viewer.rows['2'].delay.value() == -.44, 'Automatic relative delay must reach the input'
+            automatic_shifts = viewer.shifts()
+            viewer.automatic.setChecked(False)
+            assert viewer.compare.isChecked() and viewer.delay_frozen and viewer.lock_delay.isChecked()
+            assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in automatic_shifts.items()), 'Turning auto off must preserve exact offsets'
+            viewer._matched(viewer.generation, {'2': Match(15, 1, 'pending correction', refined=True)})
+            assert abs(viewer.shifts()['2'] - automatic_shifts['2']) < 1e-9
+            viewer.rows['2'].delay.setValue(-.34)
+            assert not viewer.delay_frozen and not viewer.lock_delay.isChecked()
+            assert not viewer.automatic.isChecked() and viewer.compare.isChecked()
+            assert abs(viewer.shifts()['1'] - automatic_shifts['1']) < 1e-9
+            assert abs(viewer.shifts()['2'] - automatic_shifts['2'] + .1) < 1e-9, 'The first manual edit must not apply the old automatic lag twice'
+            viewer.automatic.setChecked(True)
+            assert viewer.compare.isChecked() and not viewer.delay_frozen
+            assert all(row.delay.value() == 0 for row in viewer.rows.values())
+            assert viewer.alignment.lags == {'1': 0}
+            viewer.alignment.lags['2'] = .4
+            viewer.rows['2'].match_confirmed = True
+            viewer.render()
             # Lock preserves the exact rendered offsets despite saved manual trims.
             for key, value in (('1', .4), ('2', .7)):
                 viewer.rows[key].delay.blockSignals(True)
