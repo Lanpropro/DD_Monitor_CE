@@ -88,10 +88,11 @@ def main():
             assert not viewer.offset_repositioning and not viewer.sync_waiting
             assert all(row.decoder.history.frame_at(viewer.audio.clock() + viewer.shifts()[key])
                        for key, row in viewer.rows.items())
+            before_auto = viewer.shifts()["1"]
             viewer.automatic.setChecked(True)
             assert viewer.compare.isChecked() and not viewer.alignment.manual_locked
             assert all(row.delay.value() == 0 for row in viewer.rows.values())
-            assert viewer.shifts() == {"1": -2, "2": -2}
+            assert viewer.shifts() == {"1": before_auto, "2": before_auto}
         finally:
             viewer.close()
             host.close()

@@ -169,7 +169,8 @@ def preview_checks(app):
             viewer.choose_crop(main)
         main.delay.setValue(0)
         viewer.compare.setChecked(False)
-        expected = late.decoder.history.frame_at(100 + viewer.shifts()["2"])
+        viewer.audio.clock = lambda: 97  # Preserved main progress requires a target inside this finite fixture.
+        expected = late.decoder.history.frame_at(viewer.audio.clock() + viewer.shifts()["2"])
         assert expected != late.decoder.history.latest()
         def hidden_dialog(dialog):
             assert dialog.findChild(module.Canvas).frame == expected, "Hidden rooms must use the shared playback position"

@@ -55,6 +55,7 @@ class Canvas(QFrame):
         self.frame_key = None
         self.frame = None
         self.missing_since = None
+        self.transparent_background = False
         self.presented = 0
         self.repeated = 0
         self.selecting = selecting
@@ -99,11 +100,12 @@ class Canvas(QFrame):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#101216"))
+        if not self.transparent_background:
+            painter.fillRect(self.rect(), theme.qcolor(theme.CONTENT) if theme.is_light() else QColor("#101216"))
         if self.image.isNull():
             if self.waiting:
                 return
-            painter.setPen(QColor("#a1a1aa"))
+            painter.setPen(theme.qcolor(theme.TEXT3))
             painter.drawText(self.rect(), Qt.AlignCenter, "将左侧关注栏卡片拖到这里，加入比赛二路")
             return
         image = self.image
@@ -311,6 +313,7 @@ class ComparisonPanel(QFrame):
                 card = QWidget()
                 name = QLabel()
                 canvas = Canvas()
+                canvas.transparent_background = self.viewer.skin_visible
                 canvas.setMinimumSize(200, 110)
                 state = QLabel()
                 state.setWordWrap(True)
@@ -378,6 +381,7 @@ class ComparisonPanel(QFrame):
 class SettingsPanel(QWidget):
     def __init__(self, viewer):
         super().__init__(viewer)
+        self.viewer = viewer
         self.setObjectName("MatchSyncSettings")
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setMinimumHeight(130)
@@ -392,7 +396,7 @@ class SettingsPanel(QWidget):
             }}
             #MatchSyncSettings QPushButton, #MatchSyncSettings QLineEdit,
             #MatchSyncSettings QComboBox, #MatchSyncSettings QDoubleSpinBox {{
-                background: rgba(58, 63, 71, 170); color: {theme.TEXT1};
+                background: palette(button); color: palette(window-text);
                 border: 1px solid {theme.BORDER};
                 border-radius: {theme.RADIUS_MD}px; padding: 4px 6px;
             }}
@@ -405,6 +409,8 @@ class SettingsPanel(QWidget):
         """)
 
     def paintEvent(self, event):
+        if self.viewer.skin_visible:
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         path = QPainterPath()
@@ -414,8 +420,11 @@ class SettingsPanel(QWidget):
                            theme.RADIUS_MD, theme.RADIUS_MD)
         path = path.united(top)
         tint = QLinearGradient(0, 0, 0, self.height())
-        tint.setColorAt(0, QColor(48, 53, 62, 238))
-        tint.setColorAt(1, QColor(29, 33, 40, 245))
+        top_color, bottom_color = theme.qcolor(theme.CONTENT), theme.qcolor(theme.BG)
+        top_color.setAlpha(238)
+        bottom_color.setAlpha(245)
+        tint.setColorAt(0, top_color)
+        tint.setColorAt(1, bottom_color)
         painter.fillPath(path, tint)
 
 
@@ -435,6 +444,7 @@ class RoomRow(QFrame):
         self.actual_position = None
         self.match_confirmed = False
         self.match_failures = 0
+        self.alignment_started = time.monotonic()
         room = next((item for item in getattr(viewer.context.window, "rooms", [])
                      if str(item.get("room_id") or "") == room_id), {})
         self.title = room.get("title") or (viewer.sources.get(room_id) or {}).get("title") or ""
@@ -597,6 +607,8 @@ class RoomRow(QFrame):
 
     def playback_status(self):
         if self.sync_state == "已同步":
+            if self.room_id in self.viewer.independent_shifts:
+                return "独立播放（未对齐）"
             return "播放正常" if self.room_id == self.viewer.alignment.reference else (
                 "已对齐" if self.viewer.alignment.automatic else "按当前偏移播放")
         return self.sync_state
@@ -618,6 +630,8 @@ class Viewer(QDialog):
         self.playback_rate = 1.0
         self.stable_reference_shift = None
         self.delay_frozen = False
+        self.skin_visible = False
+        self.independent_shifts = {}
         self.last_health_update = None
         self.analysis_cursor = 0
         self.admitted_rooms = set()
@@ -651,7 +665,7 @@ class Viewer(QDialog):
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
         self.compare.toggled.connect(self.set_comparison_visible)
-        self.lock_delay = QPushButton("锁定延时")
+        self.lock_delay = QCheckBox("锁定延时")
         self.lock_delay.setCheckable(True)
         self.lock_delay.setToolTip("锁定当前各路相对偏移，停止自动校正；缓冲恢复继续。再次点击恢复自动对齐。")
         self.lock_delay.toggled.connect(self._lock_delay_changed)
@@ -672,7 +686,7 @@ class Viewer(QDialog):
         self.restore_settings = QPushButton("展开设置")
         self.restore_settings.setFixedWidth(90)
         self.restore_settings.setStyleSheet(f"""
-            QPushButton {{ background: rgba(58, 63, 71, 170); color: {theme.TEXT1};
+            QPushButton {{ background: palette(button); color: palette(window-text);
                 border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_MD}px;
                 padding: 4px 6px; }}
             QPushButton:hover {{ background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT}; }}
@@ -728,7 +742,7 @@ class Viewer(QDialog):
         self.panel.set_max_blocks(int(settings.get("danmaku_max_blocks") or 3000))
         split = QSplitter(Qt.Horizontal)
         split.setHandleWidth(4)
-        split.setStyleSheet("QSplitter::handle { background: #30343a; }")
+        split.setStyleSheet("QSplitter::handle { background: transparent; } QSplitter::handle:hover { background: palette(mid); }")
         self.picture_split = split
         self.notice = QLabel("选择共同比赛区域可提高匹配成功率；自动估计约 0.5 秒分辨率，手动微调 0.1 秒。")
         self.notice.setWordWrap(True)
@@ -748,7 +762,7 @@ class Viewer(QDialog):
         self.controls.setMinimumHeight(60)
         self.body_split = QSplitter(Qt.Vertical)
         self.body_split.setHandleWidth(4)
-        self.body_split.setStyleSheet("QSplitter::handle { background: #30343a; }")
+        self.body_split.setStyleSheet("QSplitter::handle { background: transparent; } QSplitter::handle:hover { background: palette(mid); }")
         self.body_split.addWidget(self.picture)
         self.comparison_panel = ComparisonPanel(self)
         self.body_split.addWidget(self.comparison_panel)
@@ -804,6 +818,36 @@ class Viewer(QDialog):
         if index >= 0:
             self.main.setCurrentIndex(index)
         self._automatic_changed()
+        theme.signals().changed.connect(self.refresh_appearance)
+        controller = getattr(context.window, "skin_controller", None)
+        if controller is not None:
+            controller.changed.connect(self.refresh_appearance)
+        self.refresh_appearance()
+
+    def refresh_appearance(self, *_args):
+        controller = getattr(self.context.window, "skin_controller", None)
+        self.skin_visible = bool(controller is not None and controller.layer.path and not controller.layer.error)
+        background = "transparent" if self.skin_visible else "palette(base)"
+        self.comparison_panel.setStyleSheet(f"""
+            #MatchSyncCompare {{ background: {background}; border: none; border-radius: 8px; }}
+            #MatchSyncCompare QLabel, #MatchSyncCompare QCheckBox {{ color: palette(window-text); }}
+            #MatchSyncCompare QScrollArea, #MatchSyncCompare QScrollArea > QWidget {{ background: transparent; border: none; }}
+        """)
+        self.panel.setStyleSheet(f"#MatchSync #DanmakuPanel {{ background: {background}; border: none; }}")
+        for widget, name in ((self.panel.bar, "DanmakuBar"),
+                             (self.panel.findChild(QWidget, "DanmakuHeader"), "DanmakuHeader")):
+            widget.setStyleSheet(f"#MatchSync #{name} {{ background: {background}; border: none; }}")
+        for label in self.panel.bar.findChildren(QLabel):
+            label.setStyleSheet("color: palette(window-text); background: transparent;")
+        self.panel.body.viewport().setAutoFillBackground(False)
+        self.picture.setStyleSheet("#MatchSync #Tile, #MatchSync #TileVideo, #MatchSync #TileBottom { background: transparent; }"
+                                   if self.skin_visible else "")
+        self.canvas.transparent_background = self.skin_visible
+        self.canvas.update()
+        for _card, _name, canvas, _state in self.comparison_panel.cards.values():
+            canvas.transparent_background = self.skin_visible
+            canvas.update()
+        self.settings_panel.update()
 
     def embed(self, content):
         self.embedded = True
@@ -1061,7 +1105,7 @@ class Viewer(QDialog):
             row.main_button.setChecked(room_id == selected)
         if selected != self.alignment.reference:
             saved = self.shifts() if self.alignment.manual_locked else None
-            self.stable_reference_shift = None
+            self.stable_reference_shift = self.independent_shifts.pop(selected, None)
             self.prefer_highest = True
             self.alignment.select_reference(selected)
             if saved is not None:
@@ -1113,10 +1157,12 @@ class Viewer(QDialog):
         tile.blockSignals(True)
         try:
             if str(tile.room.get("room_id") or "") != row.room_id:
+                controls_visible = tile._overlay_visible
                 self._stop_recording()
                 self.canvas.set_frame(None)
                 tile.set_room({"room_id": row.room_id, "uname": row.label(), "live": True,
                                "quality": row.quality})
+                tile.set_controls_visible(controls_visible)
             tile.room["title"] = row.title
             tile.title_badge.set_text(row.title or row.label(), "")
             tile.title_badge.setToolTip(row.title or row.label())
@@ -1238,6 +1284,7 @@ class Viewer(QDialog):
                                    for key, value in shifts.items()}
             self.stable_reference_shift = origin
         self.alignment.manual_locked = True
+        self.independent_shifts.clear()
 
     def _set_delay_frozen(self, frozen):
         self.delay_frozen = frozen
@@ -1261,15 +1308,24 @@ class Viewer(QDialog):
         self.render()
 
     def _automatic_changed(self, *_args):
+        preserved_main = (self.shifts().get(self.alignment.reference)
+                          if self.running and not self.alignment.automatic else None)
+        main = self.rows.get(self.alignment.reference)
+        bounds = main.decoder.history.bounds() if main is not None and main.decoder is not None else None
+        if bounds is None or preserved_main is None or not bounds[0] <= self.audio.clock() + preserved_main <= bounds[1] - .05:
+            preserved_main = None
+        too_far = {key for key, row in self.rows.items() if key != self.alignment.reference
+                   and abs(row.delay.value() - self.rows[self.alignment.reference].delay.value()) > 15}
         if (not self.automatic.isChecked() and self.alignment.automatic and not self.alignment.manual_locked
                 and (self.running or self.rendered_shifts)):
             self._save_delay_offsets(self.shifts())
             self._set_delay_frozen(True)
         self.alignment.automatic = self.automatic.isChecked()
         if self.alignment.automatic:
+            self.independent_shifts.clear()
             self._set_delay_frozen(False)
             self.alignment.lags = {self.alignment.reference: 0}
-            self.stable_reference_shift = None
+            self.stable_reference_shift = preserved_main
             self.rendered_shifts.clear()
             self.relative_rates.clear()
             self.shift_reference = None
@@ -1277,6 +1333,7 @@ class Viewer(QDialog):
             for row in self.rows.values():
                 row.match_confirmed = False
                 row.match_failures = 0
+                row.alignment_started = time.monotonic()
             for row in self.rows.values():
                 row.delay.blockSignals(True)
                 row.delay.setValue(0)
@@ -1292,12 +1349,15 @@ class Viewer(QDialog):
             self.offset_repositioning = False
             self.alignment.candidates.clear()
             self.generation += 1
+            for key in too_far:
+                self._block_alignment(key, "偏差超过 15 秒，暂不自动对齐；各路独立播放")
         for row in self.rows.values():
             row.refresh_status()
         self.changed()
 
     def remove_room(self, room_id):
         row = self.rows.pop(room_id)
+        self.independent_shifts.pop(room_id, None)
         self.admitted_rooms.discard(room_id)
         self.rendered_shifts.pop(room_id, None)
         self.relative_rates.pop(room_id, None)
@@ -1320,13 +1380,32 @@ class Viewer(QDialog):
 
     def target_shifts(self):
         shifts = self.alignment.shifts({key: 0 if self.alignment.automatic else row.delay.value()
-                                       for key, row in self.rows.items()})
+                                       for key, row in self.rows.items() if key not in self.independent_shifts})
         reference = self.alignment.reference
         if self.stable_reference_shift is not None and reference in shifts:
             delay = 0 if self.alignment.automatic else self.rows[reference].delay.value()
             correction = self.stable_reference_shift - delay - shifts[reference]
             shifts = {key: value + correction for key, value in shifts.items()}
+        shifts.update(self.independent_shifts)
         return shifts
+
+    def _block_alignment(self, room_id, reason):
+        main = self.rows.get(self.alignment.reference)
+        main_bounds = main.decoder.history.bounds() if main is not None and main.decoder is not None else None
+        main_shift = self.shifts().get(self.alignment.reference)
+        if main_bounds is not None and main_shift is not None and main_bounds[0] <= self.audio.clock() + main_shift <= main_bounds[1] - .05:
+            self.stable_reference_shift = main_shift
+        row = self.rows[room_id]
+        bounds = row.decoder.history.bounds() if row.decoder is not None else None
+        self.independent_shifts[room_id] = (bounds[1] - self.safety_buffer.target - self.audio.clock()
+                                           if bounds is not None else -self.safety_buffer.target)
+        self.alignment.lags.pop(room_id, None)
+        self.alignment.candidates.pop(room_id, None)
+        self.admitted_rooms.discard(room_id)
+        self.rendered_shifts.clear()
+        row.match_confirmed = False
+        row.match_text = reason
+        row.refresh_status()
 
     def shifts(self):
         if (self.alignment.automatic and self.shift_reference == self.alignment.reference
@@ -1363,6 +1442,7 @@ class Viewer(QDialog):
             self.notice.setText("请先添加直播间")
             return
         self.running = True
+        self.independent_shifts.clear()
         self.safety_buffer = SafetyBuffer()
         if not self.alignment.manual_locked:
             self.stable_reference_shift = None
@@ -1397,6 +1477,7 @@ class Viewer(QDialog):
         row.actual_position = None
         row.match_confirmed = False
         row.match_failures = 0
+        row.alignment_started = time.monotonic()
         if self.alignment.manual_locked:
             row.match_text = "手动时间已锁定；勾选自动对齐可解除"
         row.pending.clear()
@@ -1572,7 +1653,7 @@ class Viewer(QDialog):
             visible = key == self.alignment.reference or (self.compare.isChecked() and key in self.comparison_panel.shown_rooms)
             if available and visible and hasattr(decoder, "picture_at"):
                 available = row.actual_position is not None and abs(row.actual_position - target) <= .2
-            known = (key == self.alignment.reference or not self.alignment.automatic
+            known = (key == self.alignment.reference or key in self.independent_shifts or not self.alignment.automatic
                      or key in self.alignment.lags and row.match_confirmed)
             ready = (decoder is not None and not row.paused and fresh and available and known
                      and not (self.sync_waiting and key == self.alignment.reference))
@@ -1588,22 +1669,25 @@ class Viewer(QDialog):
                 recovered = not row.was_isolated or (now - row.recovery_since >= .5 and bounds[1] - target >= .3)
                 row.sync_state = "已同步" if recovered else "恢复缓存"
                 if recovered:
-                    self.admitted_rooms.add(key)
+                    if key not in self.independent_shifts:
+                        self.admitted_rooms.add(key)
                     row.mix_gain = min(1.0, row.mix_gain + dt / .2)
             if before != row.sync_state:
                 row.refresh_status()
-            if row.sync_state == "已同步":
+            if row.sync_state == "已同步" and key not in self.independent_shifts:
                 self.safety_buffer.observe(key, arrival, getattr(decoder, "fps", 30))
             else:
                 self.safety_buffer.arrivals.pop(key, None)
             needed = max(0, target - bounds[1] + .3) if bounds is not None else 0
             joining = (self.alignment.automatic and key != self.alignment.reference and known
+                       and key not in self.independent_shifts
                        and fresh and not row.paused and needed > .3 and row.sync_state != "已同步")
             row.join.setVisible(joining)
             if joining:
                 row.join.setText(f"延后约 {needed:.1f} 秒并加入")
         if (self.alignment.automatic and self.stable_reference_shift is None
-                and sum(row.sync_state == "已同步" for row in self.rows.values()) >= 2):
+                and sum(row.sync_state == "已同步" for key, row in self.rows.items()
+                        if key not in self.independent_shifts) >= 2):
             self.stable_reference_shift = shifts[self.alignment.reference]
 
     def admit_pending(self, room_id):
@@ -1750,7 +1834,7 @@ class Viewer(QDialog):
             return
         reference = row.decoder.history.snapshots()
         others = {key: value.decoder.history.snapshots() for key, value in self.rows.items()
-                  if key != row.room_id and value.decoder is not None}
+                  if key != row.room_id and key not in self.independent_shifts and value.decoder is not None}
         if not others:
             return
         keys = list(others)
@@ -1817,21 +1901,41 @@ class Viewer(QDialog):
             return
         for room_id, match in results.items():
             row = self.rows.get(room_id)
-            if row is None:
+            if row is None or room_id in self.independent_shifts:
                 continue
+            if match.lag is not None and match.confidence >= .65 and abs(match.lag) > 15:
+                self._block_alignment(room_id, "偏差超过 15 秒，暂不自动对齐；各路独立播放")
+                continue
+            main = self.rows.get(self.alignment.reference)
+            if match.lag is not None and match.confidence >= .65 and main is not None and main.decoder is not None and row.decoder is not None:
+                main_bounds, other_bounds = main.decoder.history.bounds(), row.decoder.history.bounds()
+                main_shift = self.shifts()[main.room_id]
+                if self.stable_reference_shift is None:
+                    main_shift = min(main_shift, -self.alignment.buffer_seconds - max(0, match.lag))
+                target = self.audio.clock() + main_shift
+                if self.stable_reference_shift is None and main_bounds and other_bounds and not (
+                        main_bounds[0] <= target <= main_bounds[1] - .05
+                        and other_bounds[0] <= target + match.lag <= other_bounds[1] - .05):
+                    row.match_text = "正在积累对齐所需缓存；主画面继续播放"
+                    row.refresh_status()
+                    continue
             applied = self.alignment.accept(room_id, match)
             if match.lag is None:
                 insufficient = any(reason in match.reason for reason in (
                     "变化不足", "正在收集", "需要连续", "共同动态画面不足", "共同比赛区域不足"))
                 if not insufficient:
                     row.match_failures += 1
-                if row.match_failures >= 3:
+                if row.match_failures >= 3 or (not row.match_confirmed and time.monotonic() - row.alignment_started >= 10):
                     row.match_confirmed = False
+                    self._block_alignment(room_id, "无法确认共同比赛画面；暂按各自进度播放，请选择比赛区域后重新开启自动对齐")
+                    continue
                 row.match_text = match.reason
             elif match.confidence < .65:
                 row.match_failures += 1
                 if row.match_failures >= 3:
                     row.match_confirmed = False
+                    self._block_alignment(room_id, "无法确认共同比赛画面；暂按各自进度播放，请选择比赛区域后重新开启自动对齐")
+                    continue
                 row.match_text = "匹配置信度不足；保持已确认偏移，继续收集画面"
             else:
                 row.match_failures = 0
