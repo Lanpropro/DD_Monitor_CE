@@ -6623,6 +6623,10 @@ class Tile(QFrame):
         self._layout_controls()
 
     def set_audio_channel(self, value: int) -> None:
+        if self.audio_channel != int(value):
+            print(f"[声道切换] 房间={self.room.get('room_id', '')} "
+                  f"{self.audio_channel} -> {int(value)} 来源={sys._getframe(1).f_code.co_name}",
+                  file=sys.stderr, flush=True)
         if self.muted:
             self.set_muted(False)
         self.audio_channel = int(value)

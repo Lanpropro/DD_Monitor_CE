@@ -2244,6 +2244,9 @@ class MainWindow(QMainWindow):
         covered = time.perf_counter()
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_saved_geometry = self.saveGeometry()
+        print(f"[全屏音频] 进入原格子={self.wall.tiles.index(tile)+1} "
+              f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
+              f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
         self._fullscreen_tile = tile
         self._sync_fullscreen_audio()
         self.centralWidget().setUpdatesEnabled(False)
@@ -2263,6 +2266,8 @@ class MainWindow(QMainWindow):
         finished = time.perf_counter()
         self._fullscreen_cursor.start()
         self._upgrade_fullscreen_quality(tile)
+        print(f"[全屏音频] 展开后音量={tile.volume} 声道={tile.audio_channel} "
+              f"静音={tile.muted}", file=sys.stderr, flush=True)
         self._report_fullscreen_cost("进入全屏", started, covered, finished, finished)
 
     def _exit_fullscreen(self) -> None:
