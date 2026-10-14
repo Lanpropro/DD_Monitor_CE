@@ -1196,7 +1196,8 @@ class MainWindow(QMainWindow):
             self._play_on(t, url, qn, profile, options, headers=resolver.headers,
                           room_id=room_id, requested_quality=quality) if current() else None)
         resolver.failed.connect(lambda rid, reason, t=tile, q=quality:
-                                self._on_resolve_failed(t, reason, requested_quality=q)
+                                self._on_resolve_failed(t, reason, requested_quality=q,
+                                                        login_required=resolver.login_required)
                                 if current() else None)
         resolver.finished.connect(lambda t=tile, r=resolver: self._on_resolver_finished(t, r))
         resolver.finished.connect(resolver.deleteLater)
@@ -1316,7 +1317,8 @@ class MainWindow(QMainWindow):
         """按设置给每一路画面墙媒体选择 VLC 解码方式。"""
         return player_module.decode_media_options(self.settings.get("decode_mode", "auto"))
 
-    def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0) -> None:
+    def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0,
+                           *, login_required=False) -> None:
         if self._closing:
             return                    # 关窗后迟到的取流失败：别再拉轮询线程
         if requested_quality and int(tile.quality) != requested_quality:
@@ -1329,6 +1331,19 @@ class MainWindow(QMainWindow):
             self._pending_capture.pop(tile)
             self._record_notice(f"原画取流失败，录制未开始：{reason}")
             self._restore_capture_quality(tile)
+            if not login_required:
+                return
+        if login_required:
+            tile.set_buffering(False)
+            tile.set_status(reason)
+            kind = str(tile.room.get("room_id") or "").partition(":")[0]
+            account = self._accounts.get(kind)
+            already_warned = bool(account and account.get("_login_expired"))
+            if account is not None:
+                account["_login_expired"] = True
+            self._render_account(load_avatar=False)
+            if not already_warned:
+                self._show_notice(reason, kind="warning")
             return
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
@@ -2633,7 +2648,7 @@ class MainWindow(QMainWindow):
     def _login_choices(self) -> list:
         choices = [] if bili.SESSION_DATA else ["B站"]
         return choices + [label for label, p in self._account_platforms().items()
-                          if p.kind not in self._accounts]
+                          if p.kind not in self._accounts or self._accounts[p.kind].get("_login_expired")]
 
     def _account_platforms(self) -> dict:
         return {p.label or p.kind: p for p in self.plugins.platforms.values()
@@ -2717,6 +2732,8 @@ class MainWindow(QMainWindow):
         kind = self._account_kind()
         if not kind:
             self.sidebar.clear_account()
+            from .online_ui import set_update_dot
+            set_update_dot(self.sidebar.account_row, False)
             return
         account = self._accounts.get(kind, {"uname": "B站账号"})
         name = account.get("uname") or str(account.get("uid") or "已登录")
@@ -2724,6 +2741,16 @@ class MainWindow(QMainWindow):
         if "_pixmap" not in account:
             account["_pixmap"] = load_cached_avatar(face)
         self.sidebar.set_account(name, account.get("_pixmap"), platform=kind, uid=account.get("uid"))
+        from .online_ui import set_update_dot
+        expired = [p.label or p.kind for p in self._account_platforms().values()
+                   if self._accounts.get(p.kind, {}).get("_login_expired")]
+        set_update_dot(self.sidebar.account_row, bool(expired))
+        self.sidebar.account_row.account_id.setStyleSheet(
+            f"color: {theme.PINK};" if account.get("_login_expired") else "")
+        if account.get("_login_expired"):
+            self.sidebar.account_row.account_id.setText("登录已失效 · 请重新登录")
+        if expired:
+            self.sidebar.account_row.setToolTip("、".join(expired) + "登录已失效，请重新登录")
 
     def _load_account_avatar(self, kind, account):
         face = account.get("face") or ""

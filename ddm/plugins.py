@@ -96,6 +96,10 @@ ALL_EVENTS = (
 )
 
 
+class LoginRequiredError(RuntimeError):
+    """The platform explicitly rejected the account's login credentials."""
+
+
 @dataclass
 class StreamSource:
     """一路直播流的「取流结果」：录像类插件靠它直接拉流。
