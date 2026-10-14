@@ -143,19 +143,21 @@ def _skin_style(widget):
     if name == 'Root':
         return '#Root {background: transparent;}'
     if name in ('WallGrid', 'TileVideo'):
-        mode = 'true' if _light else 'false'
-        return f'#{name}[appearanceLight="{mode}"] {{background: transparent;}}'
-    colors = {'Sidebar': SIDEBAR, 'Tile': BG,
-              'TileBottom': BG, 'DanmakuPanel': CONTENT}
+        return (f'#{name}[appearanceLight="false"], #{name}[appearanceLight="true"] '
+                '{background: transparent;}')
+    colors = {'Sidebar': 'SIDEBAR', 'Tile': 'BG',
+              'TileBottom': 'BG', 'DanmakuPanel': 'CONTENT'}
     if name not in colors:
         return ''
-    color = qcolor(colors[name])
     opacity = .84 if name in ('Sidebar', 'Tile') else .88
-    mode = 'true' if _light else 'false'
-    selector = '#' + name + (f'[appearanceLight="{mode}"]' if name != 'Sidebar' else '')
-    if name == 'Tile':
-        selector += ', ' + selector + '[empty="true"]'
-    return f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}'
+    rules = []
+    for mode, palette in (('false', _DARK), ('true', _LIGHT)):
+        color = qcolor(palette[colors[name]])
+        selector = '#' + name + f'[appearanceLight="{mode}"]'
+        if name == 'Tile':
+            selector += ', ' + selector + '[empty="true"]'
+        rules.append(f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}')
+    return ''.join(rules)
 
 
 # Stable QSS reads colours from the palette; switching no longer re-polishes
@@ -196,7 +198,7 @@ def refresh_theme_properties(widget):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
-    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton',
+    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
                     'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'WallGrid'):
         return
