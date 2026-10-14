@@ -46,6 +46,16 @@ CODEC_NAME = {param: value for value, _label, param in BILI_CODECS}
 #: 只有 HLS 通道的编码：VLC 打不开 B 站的分片，必须走转封装。
 HLS_ONLY_CODECS = ("hevc", "av1")
 
+#: 通道名后缀。B 站的 fMP4 HLS 分片地址 VLC 打不开（Windows 上解析相对分片
+#: 路径会失败，实测三种编码都停在 Opening），所以这类流统一先经 FFmpeg 转封装
+#: 再喂给 VLC。后缀就是给播放器的信号：``app-hls`` / ``web-hls`` 需要转封装。
+HLS_SUFFIX = "-hls"
+
+
+def relay_required(profile: str) -> bool:
+    """这个通道名对应的流是否必须先转封装才能播。"""
+    return str(profile or "").endswith(HLS_SUFFIX)
+
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
 _UID_CACHE: dict = {"uid": None}
