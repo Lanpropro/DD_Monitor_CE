@@ -105,7 +105,7 @@ class Canvas(QFrame):
         if self.image.isNull():
             if self.waiting:
                 return
-            painter.setPen(theme.qcolor(theme.TEXT3))
+            painter.setPen(theme.qcolor(theme.TEXT1 if self.transparent_background else theme.TEXT3))
             painter.drawText(self.rect(), Qt.AlignCenter, "将左侧关注栏卡片拖到这里，加入比赛二路")
             return
         image = self.image
@@ -409,8 +409,6 @@ class SettingsPanel(QWidget):
         """)
 
     def paintEvent(self, event):
-        if self.viewer.skin_visible:
-            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         path = QPainterPath()
@@ -421,8 +419,8 @@ class SettingsPanel(QWidget):
         path = path.united(top)
         tint = QLinearGradient(0, 0, 0, self.height())
         top_color, bottom_color = theme.qcolor(theme.CONTENT), theme.qcolor(theme.BG)
-        top_color.setAlpha(238)
-        bottom_color.setAlpha(245)
+        top_color.setAlpha(round(255 * self.viewer.panel_alpha) if self.viewer.skin_visible else 238)
+        bottom_color.setAlpha(round(255 * self.viewer.panel_alpha) if self.viewer.skin_visible else 245)
         tint.setColorAt(0, top_color)
         tint.setColorAt(1, bottom_color)
         painter.fillPath(path, tint)
@@ -545,7 +543,7 @@ class RoomRow(QFrame):
         self.offset_hint.setWordWrap(True)
         self.offset_hint.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.offset_hint.setStyleSheet(
-            f"QLabel#MatchSyncOffsetHint {{ color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px; }}")
+            f"QLabel#MatchSyncOffsetHint {{ color: palette(window-text); font-size: {theme.FONT_CAPTION}px; }}")
         controls.addWidget(self.status, 1, 0, 1, columns[8] - 1)
         controls.addWidget(self.offset_hint, 1, columns[8], 1, columns[12] - columns[8])
         layout = QVBoxLayout(self)
@@ -631,6 +629,7 @@ class Viewer(QDialog):
         self.stable_reference_shift = None
         self.delay_frozen = False
         self.skin_visible = False
+        self.panel_alpha = 1.0
         self.independent_shifts = {}
         self.last_health_update = None
         self.analysis_cursor = 0
@@ -827,7 +826,12 @@ class Viewer(QDialog):
     def refresh_appearance(self, *_args):
         controller = getattr(self.context.window, "skin_controller", None)
         self.skin_visible = bool(controller is not None and controller.layer.path and not controller.layer.error)
-        background = "transparent" if self.skin_visible else "palette(base)"
+        # A fully transparent panel cannot keep text legible over a detailed skin.
+        # Keep a readable theme veil even at zero mask; the same slider strengthens it.
+        self.panel_alpha = .72 + .28 * max(0, min(100, controller.layer.mask)) / 100 if self.skin_visible else 1.0
+        color = theme.qcolor(theme.CONTENT)
+        background = (f"rgba({color.red()}, {color.green()}, {color.blue()}, {round(255 * self.panel_alpha)})"
+                      if self.skin_visible else "palette(base)")
         self.comparison_panel.setStyleSheet(f"""
             #MatchSyncCompare {{ background: {background}; border: none; border-radius: 8px; }}
             #MatchSyncCompare QLabel, #MatchSyncCompare QCheckBox {{ color: palette(window-text); }}
@@ -836,11 +840,12 @@ class Viewer(QDialog):
         self.panel.setStyleSheet(f"#MatchSync #DanmakuPanel {{ background: {background}; border: none; }}")
         for widget, name in ((self.panel.bar, "DanmakuBar"),
                              (self.panel.findChild(QWidget, "DanmakuHeader"), "DanmakuHeader")):
-            widget.setStyleSheet(f"#MatchSync #{name} {{ background: {background}; border: none; }}")
+            widget.setStyleSheet(f"#MatchSync #{name} {{ background: transparent; border: none; }}")
         for label in self.panel.bar.findChildren(QLabel):
             label.setStyleSheet("color: palette(window-text); background: transparent;")
         self.panel.body.viewport().setAutoFillBackground(False)
-        self.picture.setStyleSheet("#MatchSync #Tile, #MatchSync #TileVideo, #MatchSync #TileBottom { background: transparent; }"
+        self.picture.setStyleSheet(f"#MatchSync #Tile {{ background: {background}; }} "
+                                   "#MatchSync #TileVideo, #MatchSync #TileBottom { background: transparent; }"
                                    if self.skin_visible else "")
         self.canvas.transparent_background = self.skin_visible
         self.canvas.update()

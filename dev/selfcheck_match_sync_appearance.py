@@ -87,12 +87,19 @@ def main():
             points=[(compare_canvas,QPoint(3,3)),(viewer.panel.body.viewport(),QPoint(8,200)),
                     (viewer.settings_panel,QPoint(4,30))]
             colors=[sample(w,p) for w,p in points]
-            print('MEASURE: transparent samples',[c.name() for c in colors])
-            assert all(c.green()>c.red()+40 for c in colors), 'Skin must show through panel and comparison letterbox'
+            video_point = QPoint(compare_canvas.width()//2, compare_canvas.height()//2)
+            video_pixel = sample(compare_canvas, video_point)
+            print('MEASURE: readable panel samples',[c.name() for c in colors])
+            assert all(c.red()>160 and c.green()>c.red()+10 for c in colors), 'A light theme veil must retain some skin without losing readability'
+            assert viewer.panel_alpha == .72
             viewer.panel.add_event({'uname':'测试主播','text':'弹幕与字号颜色检查','color':'#fb7299'})
             host.skin_controller.layer.mask=35
             host.skin_controller.layer.update()
+            host.skin_controller.changed.emit()
             app.processEvents()
+            medium=[sample(w,p) for w,p in points]
+            assert viewer.panel_alpha > .72
+            assert all(c.red()>old.red() for c,old in zip(medium,colors)), 'Increasing mask must strengthen the panel veil'
             host.grab().save(str(Path(tempfile.gettempdir())/'match-sync-appearance-light.png'))
             host.skin_controller.layer.mask=100
             host.skin_controller.layer.update()
@@ -100,14 +107,38 @@ def main():
             app.processEvents()
             masked=[sample(w,p) for w,p in points]
             assert all(abs(c.red()-c.green())<35 for c in masked), 'Host mask must control every transparent region'
+            assert sample(compare_canvas, video_point) == video_pixel, 'The veil must not change video pixels'
             theme.apply('dark')
             app.processEvents()
             assert all(label.palette().color(QPalette.WindowText).lightness()>150
                        for label in viewer.panel.bar.findChildren(module.QLabel))
             host.skin_controller.layer.mask=35
             host.skin_controller.layer.update()
+            host.skin_controller.changed.emit()
             app.processEvents()
             host.grab().save(str(Path(tempfile.gettempdir())/'match-sync-appearance-dark.png'))
+            host.skin_controller.layer.mask=0
+            host.skin_controller.layer.update()
+            host.skin_controller.changed.emit()
+            app.processEvents()
+            assert all(sample(w,p).lightness()<95 for w,p in points), 'Dark panels must remain legible even with zero host mask'
+            def luminance(color):
+                channels = [color.redF(), color.greenF(), color.blueF()]
+                linear = [c/12.92 if c <= .04045 else ((c+.055)/1.055)**2.4 for c in channels]
+                return sum(c*w for c,w in zip(linear, (.2126,.7152,.0722)))
+            for mode in ('light', 'dark'):
+                theme.apply(mode)
+                for skin in ('#000000', '#ffffff'):
+                    host.skin_controller.layer.image.fill(QColor(skin))
+                    host.skin_controller.layer.update()
+                    host.skin_controller.changed.emit()
+                    app.processEvents()
+                    foreground = luminance(app.palette().color(QPalette.WindowText))
+                    for widget, point in points:
+                        background = luminance(sample(widget, point))
+                        contrast = (max(foreground, background)+.05)/(min(foreground, background)+.05)
+                        assert contrast >= 4.5, (mode, skin, contrast)
+                    assert sample(compare_canvas, video_point) == video_pixel
             # Excessive lag never reaches Alignment.accept or moves the primary.
             before=viewer.shifts()['1']
             with patch.object(viewer.alignment,'accept',wraps=viewer.alignment.accept) as accept:
