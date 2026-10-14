@@ -4017,6 +4017,10 @@ class Sidebar(QFrame):
                 row.setFixedHeight(self.account_row.height() if not self.collapsed else 34)
                 row.set_account(account.get("uname") or str(account.get("uid") or "已登录"),
                                 account.get("_pixmap"), platform=kind, uid=account.get("uid"))
+                if account.get("_login_expired"):
+                    row.account_id.setText("登录已失效 · 请重新登录")
+                    row.account_id.setStyleSheet(f"color: {theme.PINK};")
+                    row.setToolTip("登录已失效，请通过上方登录按钮重新登录")
                 row.arrow.hide()
                 layout.addWidget(row, 1)
                 button = row.logout_button
