@@ -8,16 +8,35 @@ import uuid
 from .recording import _adopt_process, ffmpeg_path
 
 
+#: 转封装容器 -> (ffmpeg 输出参数, 路由后缀, Content-Type)。
+#: **容器必须跟编码走**：FLV 只装得下 H.264，HEVC / AV1 要装 matroska；
+#: 实测 FLV + HEVC 在 VLC 里是黑屏。
+CONTAINERS = {
+    "flv": (["-f", "flv", "-flvflags", "no_duration_filesize"], ".flv", "video/x-flv"),
+    "matroska": (["-f", "matroska"], ".mkv", "video/x-matroska"),
+}
+
+#: 视频编码 -> 装得下它的容器。
+CONTAINER_BY_CODEC = {"avc": "flv", "hevc": "matroska", "av1": "matroska"}
+
+
+def container_for_codec(codec: str) -> str:
+    """这个编码的转封装该用哪个容器（默认 FLV，保持原先的行为）。"""
+    return CONTAINER_BY_CODEC.get(str(codec or "").lower(), "flv")
+
+
 class StreamRelay:
-    def __init__(self, source: str, headers: dict, *, proxy=None, hls_retry=False):
+    def __init__(self, source: str, headers: dict, *, proxy=None, hls_retry=False,
+                 container: str = "flv"):
         executable = ffmpeg_path()
         if not executable:
             raise RuntimeError("直播播放需要 FFmpeg，请检查程序目录中的 ffmpeg.exe")
+        format_options, suffix, content_type = CONTAINERS.get(container, CONTAINERS["flv"])
         self._lock = threading.Lock()
         self._stopped = False
         self._process = None
         self._hls_proxy = None
-        route = "/" + uuid.uuid4().hex + ".flv"
+        route = "/" + uuid.uuid4().hex + suffix
         relay = self
         # 海外本机 HLS 会重试分片；FFmpeg 要等到重试完成，避免提前断流。
         command = [executable, "-nostdin", "-hide_banner", "-loglevel", "error",
@@ -36,7 +55,7 @@ class StreamRelay:
         if headers:
             command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in headers.items())]
         command += ["-i", source, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-                    "-f", "flv", "-flvflags", "no_duration_filesize", "-flush_packets", "1", "pipe:1"]
+                    *format_options, "-flush_packets", "1", "pipe:1"]
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
@@ -58,7 +77,7 @@ class StreamRelay:
                     _adopt_process(process)
                 try:
                     self.send_response(200)
-                    self.send_header("Content-Type", "video/x-flv")
+                    self.send_header("Content-Type", content_type)
                     self.send_header("Connection", "close")
                     self.end_headers()
                     while not relay._stopped:
