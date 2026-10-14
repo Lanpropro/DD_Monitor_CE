@@ -180,6 +180,8 @@ class TilePlayer(QObject):
         #: 这一段流的取流结果（「秒切」时跟着播放器一起搬到别的格子）
         self.stream_url = ""
         self.stream_profile = "web"
+        #: 这一路流的视频编码（avc / hevc / av1），录制那边按它挑分段容器
+        self.stream_codec = ""
         self.stream_headers: dict = {}
         self.actual_quality = 0
         self.auto_quality = None
@@ -271,15 +273,23 @@ class TilePlayer(QObject):
         playback_url = url
         platform_relay = profile in ("huya", "douyu", "douyin", "twitch", "youtube")
         overseas_hls = profile in ("twitch", "youtube")
+        # B 站的 HLS 通道（app-hls-hevc / app-hls-av1 / web-hls）VLC 打不开
+        # （Windows 上分片相对路径解析失败），同样先转封装；上游是 1 秒分片，
+        # 起播要多留缓冲，所以沿用平台那一档，不另开一档。
+        from .bili import codec_from_profile, relay_required
+        platform_relay = platform_relay or relay_required(profile)
         self._picture_limit = 20 if overseas_hls else 8 if platform_relay else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas_hls else 6
         if platform_relay:
-            from .stream_relay import StreamRelay
+            from .stream_relay import StreamRelay, container_for_codec
             relay_options = {}
             if overseas_hls:
                 from .global_danmaku import request_proxy
                 relay_options["proxy"] = request_proxy(url)
                 relay_options["hls_retry"] = True
+            # 容器跟编码走：FLV 只装得下 H.264，HEVC / AV1 装进 matroska
+            # （实测 FLV + HEVC 在 VLC 里是黑屏）。
+            relay_options["container"] = container_for_codec(codec_from_profile(profile))
             self._relay = StreamRelay(url, headers or {}, **relay_options)
             playback_url = self._relay.url
         media = self._instance.media_new(playback_url)
