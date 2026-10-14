@@ -24,9 +24,10 @@ def ui_snapshot(window):
     snapshot.fill(Qt.transparent)
     # Native VLC output cannot be captured by QWidget.grab(). A hole leaves the
     # real output playing beneath the transition, rather than freezing a frame.
+    # Empty surfaces are ordinary UI and must retain the old theme in the snapshot.
     region = QRegion(window.rect())
     for surface in window.findChildren(VideoSurface):
-        if surface.isVisible():
+        if surface.isVisible() and getattr(surface.parentWidget(), '_player_active', False):
             region = region.subtracted(QRegion(QRect(surface.mapTo(window, QPoint()), surface.size())))
     painter = QPainter(snapshot)
     window.render(painter, QPoint(), region, QWidget.DrawWindowBackground | QWidget.DrawChildren)

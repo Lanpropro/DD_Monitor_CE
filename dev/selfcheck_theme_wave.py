@@ -44,7 +44,11 @@ def main():
     center = surface.mapTo(window, surface.rect().center())
     snapshot = ui_snapshot(window).toImage()
     ratio = snapshot.devicePixelRatio()
-    assert snapshot.pixelColor(round(center.x()*ratio), round(center.y()*ratio)).alpha() == 0
+    assert snapshot.pixelColor(round(center.x()*ratio), round(center.y()*ratio)).alpha() == 255, 'Empty tiles must participate in the wave, not switch instantly'
+    window.wall.tiles[0]._player_active = True
+    playing_snapshot = ui_snapshot(window).toImage()
+    assert playing_snapshot.pixelColor(round(center.x()*ratio), round(center.y()*ratio)).alpha() == 0, 'Playing video must remain uncovered'
+    window.wall.tiles[0]._player_active = False
     handles = [int(tile.video.winId()) for tile in window.wall.tiles]
     with patch.object(motion, 'enabled', return_value=True):
         with patch.object(app, 'setStyleSheet', side_effect=AssertionError('Theme switch must not re-polish the global stylesheet')), patch('ddm.theme_transition.ui_snapshot', wraps=ui_snapshot) as grab:
@@ -132,6 +136,19 @@ def main():
         assert not transition.overlays and theme.is_light(), 'Keyboard action should switch immediately'
         QTest.mouseClick(window.sidebar.appearance_button, Qt.LeftButton)
         assert transition.overlays
+        overlay = transition.overlays[0]
+        origin = window.sidebar.appearance_button.mapTo(window, QPoint())
+        assert overlay.origin == origin
+        # Inspect the actual overlay pixels after the sidebar click. Points on
+        # the same vertical line must reveal at different times, unlike a sweep.
+        overlay.reveal(.25)
+        frame = overlay.grab().toImage()
+        scale = frame.devicePixelRatio()
+        x = window.wall.tiles[0].video.mapTo(window, QPoint()).x() + 40
+        near = QPoint(x, origin.y() + 30)
+        far = QPoint(x, window.height() - 120)
+        assert frame.pixelColor(round(near.x()*scale), round(near.y()*scale)).alpha() == 0
+        assert frame.pixelColor(round(far.x()*scale), round(far.y()*scale)).alpha() == 255, 'The lower empty tile must retain the old theme until the circular wave reaches it'
     with patch.object(motion, 'enabled', return_value=False):
         window.set_appearance('light')
         assert not transition.overlays and theme.is_light()
