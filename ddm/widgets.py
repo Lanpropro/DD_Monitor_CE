@@ -2779,6 +2779,49 @@ class FollowFolderButton(QToolButton):
         self._press_pos = None
         self._drag_started = False
 
+        self._name_edit = None
+        self._editing_name = False
+
+    def begin_rename(self):
+        folder = self.sidebar.get_folder(self.folder_id)
+        if self._name_edit is None:
+            self._name_edit = QLineEdit(self)
+            self._name_edit.setAccessibleName('文件夹名称')
+            self._name_edit.installEventFilter(self)
+            self._name_edit.editingFinished.connect(self._finish_rename)
+        edit = self._name_edit
+        if self.sidebar.side == 'top':
+            edit.setParent(self.sidebar.list_box)
+            point = self.mapTo(self.sidebar.list_box, QPoint())
+            width = min(180, self.sidebar.list_box.width())
+            edit.setGeometry(min(point.x(), self.sidebar.list_box.width()-width),
+                             point.y(), width, max(28, self.fontMetrics().height()+10))
+        else:
+            edit.setParent(self)
+            edit.setGeometry(26, 2, max(12, self.width()-30), self.height()-4)
+        self._editing_name = True
+        edit.setText(folder['name'])
+        edit.show()
+        edit.raise_()
+        edit.setFocus(Qt.OtherFocusReason)
+        edit.selectAll()
+
+    def _finish_rename(self, cancel=False):
+        if not self._editing_name:
+            return
+        self._editing_name = False
+        name = self._name_edit.text()
+        self._name_edit.hide()
+        self._name_edit.setParent(self)
+        if not cancel:
+            self.sidebar.rename_folder(self.folder_id, name)
+
+    def eventFilter(self, watched, event):
+        if watched is self._name_edit and event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape:
+            self._finish_rename(cancel=True)
+            return True
+        return super().eventFilter(watched, event)
+
     def refresh_theme(self):
         folder = self.sidebar.get_folder(self.folder_id)
         if folder is not None:
@@ -2854,7 +2897,7 @@ class FollowFolderButton(QToolButton):
                 lambda: self.sidebar.prompt_smart_folder(self.folder_id))
         elif folder["type"] == "normal":
             menu.addAction("重命名文件夹…").triggered.connect(
-                lambda: self.sidebar.prompt_folder(folder_id=self.folder_id))
+                self.begin_rename)
         if folder["type"] != "unclassified":
             menu.addAction("修改图标…").triggered.connect(self._edit_icon)
         index = self.sidebar.folders.index(folder)
@@ -2871,8 +2914,10 @@ class FollowFolderButton(QToolButton):
 
     def _edit_icon(self):
         folder = self.sidebar.get_folder(self.folder_id)
-        dialog = FolderIconDialog(folder, self)
+        dialog = FolderIconDialog(folder, self, existing_names=(
+            item['name'] for item in self.sidebar.folders if item['id'] != self.folder_id))
         if dialog.exec() == QDialog.Accepted:
+            folder['name'] = dialog.result_name
             if dialog.result_icon is None:
                 folder.pop('icon', None)
             else:
@@ -4145,6 +4190,15 @@ class Sidebar(QFrame):
         self.folders.insert(index, follow_folders.normalize_folders([folder])[0])
         self._refresh_folders()
         return folder_id
+
+    def rename_folder(self, folder_id, name):
+        folder = self.get_folder(folder_id)
+        name = name.strip()
+        if not name or any(item['name'] == name and item['id'] != folder_id for item in self.folders):
+            return
+        if name != folder['name']:
+            folder['name'] = name
+            self._refresh_folders()
 
     def prompt_folder(self, room_ids=None, *, folder_id="") -> None:
         folder = next((item for item in self.folders if item["id"] == folder_id), None)

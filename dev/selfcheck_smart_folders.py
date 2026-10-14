@@ -73,7 +73,8 @@ def main():
     sidebar.toggle_folder(live)
     # 从真实排序按钮触发某个文件夹的动作，其他文件夹不变。
     before = ids(sidebar, live), ids(sidebar, groups.UNCLASSIFIED)
-    submenu = next(action.menu() for action in sidebar.sort_button.menu().actions() if action.text() == "手动分组")
+    sort_action = next(action for action in sidebar.sort_button.menu().actions() if action.text() == "手动分组")
+    submenu = sort_action.menu()
     next(action for action in submenu.actions() if action.text() == "开播优先").trigger()
     assert ids(sidebar, manual) == ["2", "1"]
     assert (ids(sidebar, live), ids(sidebar, groups.UNCLASSIFIED)) == before

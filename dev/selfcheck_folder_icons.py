@@ -31,17 +31,23 @@ def main():
         sidebar.foldersChanged.connect(lambda: changes.append(True))
         for fid in (normal, smart):
             folder = sidebar.get_folder(fid)
+            original_name = folder['name']
             button = sidebar._folder_buttons[fid]
             action = next(a for a in button._context_menu().actions() if a.text() == '修改图标…')
+            if fid == normal:
+                assert any(a.text() == '重命名文件夹…' for a in button._context_menu().actions())
             dialog = FolderIconDialog(folder, button)
+            assert dialog.name_edit.text() == original_name
+            dialog.name_edit.setText('Cancelled name')
             for name in ('folder', 'star', 'heart', 'game', 'music', 'video'):
                 dialog.select_builtin(name)
                 assert not dialog.preview.pixmap().isNull()
             dialog.set_color('pink')
             assert dialog.selection['color'] == 'pink' and 'icon' not in folder
             dialog.reject()
-            assert 'icon' not in folder, 'Cancel must preserve the folder'
+            assert 'icon' not in folder and folder['name'] == original_name, 'Cancel must preserve the folder'
             def save(editor):
+                editor.name_edit.setText('  ' + original_name + ' renamed  ')
                 editor.select_builtin('heart')
                 editor.set_color('pink')
                 editor.accept()
@@ -49,6 +55,8 @@ def main():
             with patch.object(FolderIconDialog, 'exec', save):
                 action.trigger()
             assert folder['icon'] == {'type': 'builtin', 'name': 'heart', 'color': 'pink'}
+            assert folder['name'] == original_name + ' renamed'
+            assert folder['name'] in button.toolTip()
             assert changes and button.iconSize().width() == 18
             assert normalize_folders(sidebar.folder_state()) == sidebar.folder_state()
             assert button.acceptDrops()
@@ -63,6 +71,13 @@ def main():
         source = Path(directory)/'source.png'
         image.save(str(source))
         original = source.read_bytes()
+        for invalid in ('   ', sidebar.get_folder(smart)['name']):
+            validation = FolderIconDialog(folder, button, existing_names=[sidebar.get_folder(smart)['name']])
+            validation.name_edit.setText(invalid)
+            validation.image = image
+            validation.accept()
+            assert validation.result() != QDialog.Accepted and validation.error.text()
+            assert not (Path(directory)/'utils/folder-icons').exists(), 'Invalid names must not copy icons'
         dialog = FolderIconDialog(folder, button)
         mime = QMimeData()
         mime.setUrls([QUrl.fromLocalFile(str(source))])

@@ -5,7 +5,7 @@ from uuid import uuid4
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame,
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QLineEdit,
     QGridLayout, QHBoxLayout, QLabel, QPushButton, QStyle, QToolButton, QVBoxLayout, QWidget)
 
 from . import config, theme
@@ -122,13 +122,15 @@ class IconDropArea(QPushButton):
 
 
 class FolderIconDialog(QDialog):
-    def __init__(self, folder, parent=None):
+    def __init__(self, folder, parent=None, *, existing_names=()):
         super().__init__(parent)
         self.setWindowTitle('修改文件夹图标')
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setObjectName('FolderIconDialog')
         self.setFixedWidth(430)
         self.folder = folder
+        self.existing_names = set(existing_names)
+        self.result_name = folder['name']
         self.selection = normalize_icon(folder.get('icon'))
         self.image = None
         self.result_icon = self.selection
@@ -156,7 +158,11 @@ class FolderIconDialog(QDialog):
         top.addWidget(self.preview)
         labels = QVBoxLayout()
         labels.setSpacing(3)
-        labels.addWidget(QLabel(folder['name']))
+        self.name_edit = QLineEdit(folder['name'])
+        self.name_edit.setObjectName('IconFolderName')
+        self.name_edit.setAccessibleName('文件夹名称')
+        self.name_edit.setToolTip('直接修改文件夹名称，保存后应用')
+        labels.addWidget(self.name_edit)
         hint = QLabel(('智能文件夹' if folder['type'] == 'smart' else '普通文件夹') + ' · 图标预览')
         hint.setProperty('hint', True)
         labels.addWidget(hint)
@@ -240,6 +246,9 @@ class FolderIconDialog(QDialog):
             #FolderIconDialog QLabel {{color: {text}; background: transparent;}}
             #FolderIconDialog QLabel[hint="true"] {{color: {secondary}; font-size: 12px;}}
             #IconCurrent {{background: {card}; border: 1px solid {border}; border-radius: 10px;}}
+            #IconFolderName {{background: transparent; color: {text}; border: 1px solid transparent; border-radius: 4px; padding: 2px 0;}}
+            #IconFolderName:hover {{border-color: {border};}}
+            #IconFolderName:focus {{border-color: #00A1D6;}}
             #IconChoice {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 9px; padding: 8px;}}
             #IconChoice:checked {{background: {'#243A44' if dark else '#ECF7FC'}; border-color: #00A1D6;}}
             #FolderIconDialog QPushButton {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 7px 12px;}}
@@ -306,6 +315,11 @@ class FolderIconDialog(QDialog):
         self.refresh()
 
     def accept(self):
+        name = self.name_edit.text().strip()
+        if not name or name in self.existing_names:
+            self.error.setText('文件夹名称不能为空' if not name else '已存在同名文件夹')
+            self.name_edit.setFocus()
+            return
         selection = self.selection
         if self.image is not None:
             path = Path(config.REPO) / 'utils' / 'folder-icons' / (uuid4().hex + '.png')
@@ -319,4 +333,5 @@ class FolderIconDialog(QDialog):
                 return
             selection = {'type': 'image', 'path': path.relative_to(config.REPO).as_posix()}
         self.result_icon = selection
+        self.result_name = name
         super().accept()

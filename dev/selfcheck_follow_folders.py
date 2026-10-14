@@ -9,6 +9,7 @@ os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QMimeData, QPointF, Qt
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import config, theme
 from ddm.widgets import NAV_MIME, Sidebar
@@ -33,7 +34,8 @@ def main():
     sidebar.select_sort_item("1", Qt.ControlModifier)
     sidebar.select_sort_item("huya:a", Qt.ControlModifier)
     menu = entries["1"]._context_menu()
-    folder_menu = next(action.menu() for action in menu.actions() if action.text() == "移入文件夹")
+    folder_action = next(action for action in menu.actions() if action.text() == "移入文件夹")
+    folder_menu = folder_action.menu()
     next(action for action in folder_menu.actions() if action.text() == "赛事").trigger()
     assert sidebar.folder_for("1") == sidebar.folder_for("huya:a") == folder_id
     assert set(sidebar.rooms()[i]["room_id"] for i in range(3)) == {"1", "2", "huya:a"}
@@ -54,10 +56,31 @@ def main():
     sidebar.search.setText("赛事")
     assert {item.room["room_id"] for item in sidebar.visible_items()} == {"1", "huya:a"}
     sidebar.search.clear()
-    with patch("ddm.widgets.QInputDialog.getText", return_value=("比赛直播", True)):
+    with patch("ddm.widgets.QInputDialog.getText", side_effect=AssertionError('Rename must stay inline')):
         next(action for action in header._context_menu().actions()
              if action.text() == "重命名文件夹…").trigger()
+        assert header._name_edit.isVisible() and header._name_edit.text() == '赛事'
+        collapsed = sidebar.get_folder(folder_id)['collapsed']
+        header._name_edit.setText('  比赛直播  ')
+        QTest.keyClick(header._name_edit, Qt.Key_Return)
+        assert not header._name_edit.isVisible()
+        assert sidebar.get_folder(folder_id)['collapsed'] == collapsed
     assert sidebar.folders[0]["name"] == "比赛直播"
+    for invalid in ('   ', '未分类'):
+        header.begin_rename()
+        header._name_edit.setText(invalid)
+        QTest.keyClick(header._name_edit, Qt.Key_Return)
+        assert sidebar.folders[0]['name'] == '比赛直播'
+    header.begin_rename()
+    header._name_edit.setText('Cancelled')
+    QTest.keyClick(header._name_edit, Qt.Key_Escape)
+    assert sidebar.folders[0]['name'] == '比赛直播'
+    header.begin_rename()
+    header._name_edit.setText('Focus out')
+    sidebar.search.setFocus()
+    app.processEvents()
+    assert sidebar.folders[0]['name'] == 'Focus out'
+    sidebar.rename_folder(folder_id, '比赛直播')
     header.click()
     sidebar.set_select_mode(True)
     entries["1"].check.setChecked(True)
@@ -91,6 +114,10 @@ def main():
         sidebar.set_side(side)
         sidebar.set_collapsed(collapsed, animate=False)
         app.processEvents()
+        if side == 'top':
+            header.begin_rename()
+            assert header._name_edit.isVisible() and header._name_edit.width() >= 100
+            QTest.keyClick(header._name_edit, Qt.Key_Escape)
         rects = [item.geometry() for item in sidebar.visible_items()] + [header.geometry()]
         assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:]), (side, rects)
         if side == "top":
