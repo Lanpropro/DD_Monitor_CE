@@ -54,6 +54,7 @@ class Canvas(QFrame):
         self.zoom_crop = False
         self.frame_key = None
         self.frame = None
+        self.missing_since = None
         self.presented = 0
         self.repeated = 0
         self.selecting = selecting
@@ -82,6 +83,19 @@ class Canvas(QFrame):
                 self.set_frame(ready)
             return ready
         return None
+
+    def playback_waiting(self, decoder, timestamp, frame, shared_wait=False):
+        if frame is not None:
+            self.missing_since = None
+            return shared_wait
+        now = time.monotonic()
+        if self.missing_since is None:
+            self.missing_since = now
+        bounds = decoder.history.bounds() if decoder is not None else None
+        retained = (bounds is not None and bounds[0] <= timestamp <= bounds[1]
+                    and self.frame_key is not None and 0 <= timestamp - self.frame_key <= .15
+                    and now - self.missing_since <= .15)
+        return shared_wait or not retained
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -347,16 +361,18 @@ class ComparisonPanel(QFrame):
                     waiting = self.viewer.canvas.waiting
                 else:
                     frame = canvas.show_at(row.decoder, clock + shifts[room_id]) if row.decoder else None
-                    waiting = frame is None or self.viewer.sync_waiting
+                    waiting = canvas.playback_waiting(row.decoder, clock + shifts[room_id], frame, self.viewer.sync_waiting)
                 repaint |= canvas.waiting != waiting
                 canvas.waiting = waiting
             row.actual_position = canvas.frame_key
             if repaint:
                 canvas.update()
             relative = shifts[room_id] - shifts.get(reference, 0)
-            position = ("主画面基准" if room_id == reference else
+            position = ("主画面基准" if room_id == reference else "与主画面偏移相同" if abs(relative) < .05 else
                         f"相对主画面{'提前' if relative >= 0 else '延后'} {abs(relative):.1f} 秒")
-            state.setText(f"{position} · {'已暂停' if row.paused else '等待播放缓存' if canvas.waiting else row.sync_state}")
+            text = f"{position} · {'已暂停' if row.paused else '等待播放缓存' if canvas.waiting else row.playback_status()}"
+            if state.text() != text:
+                state.setText(text)
 
 
 class SettingsPanel(QWidget):
@@ -571,8 +587,19 @@ class RoomRow(QFrame):
                 "show_chat": self.show_chat.isChecked(), "crop": list(self.crop)}
 
     def refresh_status(self):
-        text = f"{self.video_text} · {self.match_text} · {self.chat_text}"
-        self.status.setText(text + f" · {self.sync_state}" + (f" · {self.buffer_text}" if self.buffer_text else ""))
+        match_text = self.match_text
+        if not self.viewer.alignment.automatic:
+            match_text = "延时已锁定" if self.viewer.alignment.manual_locked else "自动对齐已关闭"
+        elif self.room_id == self.viewer.alignment.reference:
+            match_text = "主画面基准"
+        text = f"{self.video_text} · {match_text} · {self.chat_text}"
+        self.status.setText(text + f" · {self.playback_status()}" + (f" · {self.buffer_text}" if self.buffer_text else ""))
+
+    def playback_status(self):
+        if self.sync_state == "已同步":
+            return "播放正常" if self.room_id == self.viewer.alignment.reference else (
+                "已对齐" if self.viewer.alignment.automatic else "按当前偏移播放")
+        return self.sync_state
 
 
 class Viewer(QDialog):
@@ -622,6 +649,10 @@ class Viewer(QDialog):
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
         self.compare.toggled.connect(self.set_comparison_visible)
+        self.lock_delay = QPushButton("锁定延时")
+        self.lock_delay.setCheckable(True)
+        self.lock_delay.setToolTip("锁定当前各路相对偏移，停止自动校正；缓冲恢复继续。再次点击恢复自动对齐。")
+        self.lock_delay.toggled.connect(self._lock_delay_changed)
         self.input = QLineEdit()
         self.input.setPlaceholderText("房间号、平台前缀或官方直播链接")
         self.input.returnPressed.connect(self._add_input)
@@ -651,6 +682,7 @@ class Viewer(QDialog):
         self.main.hide()
         heading.addWidget(self.automatic)
         heading.addWidget(self.compare)
+        heading.addWidget(self.lock_delay)
         for widget in self.add_controls:
             heading.addWidget(widget)
         heading.addStretch()
@@ -1182,6 +1214,30 @@ class Viewer(QDialog):
             else:
                 recorder.start(self.picture, recording=True)
 
+    def _lock_delay_changed(self, checked):
+        if checked:
+            shifts = self.shifts()
+            reference = self.alignment.reference
+            main = self.rows.get(reference)
+            if main is not None:
+                origin = shifts[reference]
+                self.alignment.lags = {key: value - origin + self.rows[key].delay.value() - main.delay.value()
+                                       for key, value in shifts.items()}
+                self.stable_reference_shift = origin + main.delay.value()
+            self.alignment.manual_locked = True
+            self.automatic.setChecked(False)
+            self.alignment.candidates.clear()
+            self.relative_rates.clear()
+            self.generation += 1
+        else:
+            comparison = self.compare.isChecked()
+            self.automatic.setChecked(True)
+            self.compare.setChecked(comparison)
+        self.lock_delay.setText("解锁延时" if checked else "锁定延时")
+        for row in self.rows.values():
+            row.refresh_status()
+        self.render()
+
     def _automatic_changed(self, *_args):
         self.alignment.automatic = self.automatic.isChecked()
         if self.alignment.automatic:
@@ -1209,6 +1265,13 @@ class Viewer(QDialog):
             self.offset_repositioning = False
             self.alignment.candidates.clear()
             self.generation += 1
+        locked = self.alignment.manual_locked and not self.alignment.automatic
+        self.lock_delay.blockSignals(True)
+        self.lock_delay.setChecked(locked)
+        self.lock_delay.setText("解锁延时" if locked else "锁定延时")
+        self.lock_delay.blockSignals(False)
+        for row in self.rows.values():
+            row.refresh_status()
         self.changed()
 
     def remove_room(self, room_id):
@@ -1574,10 +1637,11 @@ class Viewer(QDialog):
         if row is not None and row.decoder is not None and not row.paused:
             frame = self.canvas.show_at(row.decoder, clock + shifts[row.room_id])
             row.actual_position = self.canvas.frame_key
-            self._show_buffering(frame is None or self.sync_waiting)
+            waiting = self.canvas.playback_waiting(row.decoder, clock + shifts[row.room_id], frame, self.sync_waiting)
+            self._show_buffering(waiting)
             if self.sync_waiting:
                 self.notice.setText("主画面等待缓存恢复；异常二路已静音，已确认偏移保持不变")
-            elif frame is None:
+            elif waiting:
                 bounds = row.decoder.history.bounds()
                 target = clock + shifts[row.room_id]
                 if bounds and target < bounds[0]:
@@ -1589,8 +1653,9 @@ class Viewer(QDialog):
                     self.notice.setText("主画面等待缓存或连接；较大延后量需要先积累足够内容")
             else:
                 delay = time.monotonic() - clock - shifts[row.room_id]
-                self.notice.setText(f"主画面：{row.label()} · 延后约 {delay:.1f} 秒 · "
-                                    "无法匹配时保持已确认偏移，可手动校正")
+                mode = ("自动对齐已开启" if self.alignment.automatic else
+                        "延时已锁定" if self.alignment.manual_locked else "自动对齐已关闭")
+                self.notice.setText(f"主画面：{row.label()} · 本地播放延后约 {delay:.1f} 秒 · {mode}")
         if self.compare.isChecked():
             self.comparison_panel.render(clock, shifts)
         self._update_sync_health(clock, shifts)
@@ -1600,7 +1665,7 @@ class Viewer(QDialog):
             bounds = row.decoder.history.bounds() if row.decoder is not None else None
             text = ""
             if bounds:
-                text = f"可用缓存约 {int(bounds[1] - bounds[0])} 秒"
+                text = f"历史缓存约 {int(bounds[1] - bounds[0])} 秒"
                 position = clock + shifts[room_id]
                 if position < bounds[0] or position > bounds[1] + 1:
                     text += "，当前播放偏移超出范围"

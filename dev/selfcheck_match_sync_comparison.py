@@ -95,10 +95,15 @@ def main():
             def measure():
                 viewer.canvas.presented = 0
                 begin = time.monotonic()
+                waits = ticks = 0
                 while time.monotonic() - begin < 1.2:
                     viewer.render()
+                    waits += viewer.canvas.waiting
+                    ticks += 1
                     app.processEvents()
                     time.sleep(.004)
+                assert waits / ticks <= .05, ("Repeated main buffering after warmup", waits, ticks)
+                print(f"MEASURE: main buffer indications {waits}/{ticks} polls")
                 return viewer.canvas.presented / (time.monotonic() - begin)
 
             warmup([viewer.canvas])
