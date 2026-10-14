@@ -96,6 +96,8 @@ def main():
             assert viewer.rows["3"].mix_gain == 0, "Late third stream must not shift the established main"
             for step in (0, .25, .55, .8):
                 now[0] = 127 + step
+                if step:
+                    viewer.rows["2"].match_confirmed = True  # Reconfirmation precedes the recovery/fade fixture.
                 for key in ("1", "2"):
                     row = viewer.rows[key]
                     row.decoder.history.append(now[0], image)

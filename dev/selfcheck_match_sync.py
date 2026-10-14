@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "1.2.4"
+        assert manager.catalog()[0]["version"] == "1.2.5"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -536,11 +536,12 @@ def embedded_checks(app):
         viewer.minimize_settings.click()
         app.processEvents()
         assert panel.isHidden() and viewer.restore_settings.isVisible()
-        assert "border-radius:" in viewer.restore_settings.styleSheet()
+        assert viewer.restore_settings.objectName() == "TileCtrl"
+        assert viewer.restore_settings.parentWidget() is viewer.picture.bottom
         assert viewer.picture.height() > picture_height, "Collapsed settings must free picture space"
-        assert viewer.restore_settings.parentWidget() is viewer.left_pane
-        assert viewer.restore_settings.geometry().right() >= viewer.left_pane.width() - 2
-        assert viewer.restore_settings.geometry().bottom() >= viewer.left_pane.height() - 2
+        bottom = viewer.picture.bottom.layout()
+        assert bottom.indexOf(viewer.restore_settings) + 1 == bottom.indexOf(viewer.picture.danmaku_button)
+        assert viewer.restore_settings.geometry().right() < viewer.picture.danmaku_button.geometry().left()
         assert viewer.panel.geometry() == chat_geometry, "Minimizing settings must not resize chat"
         assert row.decoder is worker and viewer.running and not worker.stopped
         assert viewer.render_timer.isActive() and viewer.match_timer.isActive()

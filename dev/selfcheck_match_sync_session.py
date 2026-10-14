@@ -27,7 +27,7 @@ def main():
         subprocess.run([recording.ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "lavfi", "-i", "nullsrc=size=320x180:rate=60,geq=lum='128+40*sin(X*0.03+N*0.13)+40*sin(Y*0.04+N*0.061)+25*sin((X+Y)*0.02+N*0.027)':cb=128:cr=128",
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-            "-t", "14", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast",
+            "-t", "24", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast",
             "-c:a", "pcm_s16le", str(source)], check=True, capture_output=True, timeout=30,
             creationflags=recording._FFMPEG_FLAGS)
         host = QWidget()
@@ -78,6 +78,40 @@ def main():
             print(f"MEASURE: three real pipelines confirmed in {matched_at-begin:.2f}s; visible scene error {abs(actual-expected)*1000:.0f}ms")
             assert all(row.mix_gain == 1 for row in viewer.rows.values())
             assert viewer.compare.isChecked() and viewer.alignment.automatic
+            # Resume one stream with a new PTS origin, reproducing a delayed rejoin.
+            peer_lag = viewer.alignment.lags["3"]
+            row = viewer.rows["2"]
+            row.decoder.stop()
+            row.decoder = media.Decoder("2", {"url": str(source)})
+            decoders.append(row.decoder)
+            viewer._reset(row, row.decoder)
+            row.decoder.start()
+            resumed = time.monotonic()
+            next_match = resumed
+            recovered_at = None
+            while time.monotonic() - resumed < 10:
+                viewer.render()
+                if time.monotonic() >= next_match:
+                    viewer.analyse()
+                    next_match = time.monotonic() + .5
+                app.processEvents()
+                expected = (row.decoder.history.origin - decoders[0].history.origin
+                            if row.decoder.history.origin is not None else None)
+                actual = row.actual_position - viewer.rows["1"].actual_position if row.actual_position is not None else None
+                if (expected is not None and actual is not None and row.match_confirmed
+                        and row.sync_state == "已同步" and abs(actual-expected) <= .1):
+                    if recovered_at is None:
+                        recovered_at = time.monotonic()
+                    if time.monotonic() - recovered_at >= .5:
+                        break
+                time.sleep(.005)
+            assert recovered_at is not None, (row.match_text, row.sync_state, viewer.alignment.lags,
+                viewer.shifts(), viewer.audio.clock(), row.actual_position, viewer.rows['1'].actual_position,
+                row.decoder.history.bounds(), viewer.rematch_rooms, viewer.rematch_admit,
+                row.match_confirmed, row.recovery_since, row.decoder.last_frame_received)
+            assert abs(viewer.alignment.lags["3"] - peer_lag) <= .08
+            assert not viewer.rows["1"].paused and not viewer.sync_waiting
+            print(f"MEASURE: changed-origin stream realigned in {recovered_at-resumed:.2f}s; scene error {abs(actual-expected)*1000:.0f}ms")
         finally:
             viewer.close()
             for decoder in decoders:

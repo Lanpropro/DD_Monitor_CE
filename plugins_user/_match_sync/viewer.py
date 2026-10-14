@@ -8,10 +8,10 @@ from collections import deque
 from dataclasses import replace
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QShortcut
+from PySide6.QtCore import QEvent, QMimeData, QObject, QPointF, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QDrag, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
-from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
     QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
@@ -24,6 +24,7 @@ from .engine import Alignment, Match, RATE, SafetyBuffer, match_scenes, refine_m
 from .media import Chat, Decoder, PlatformChat
 
 COLORS = ("#38bdf8", "#fb7185", "#a78bfa", "#4ade80", "#fbbf24", "#fb923c")
+ROW_MIME = "application/x-ddm-match-sync-row"
 
 
 def parse_room(text: str, manager=None) -> str:
@@ -264,6 +265,7 @@ class ComparisonPanel(QFrame):
         super().__init__()
         self.viewer = viewer
         self.cards = {}
+        self.retry_buttons = {}
         self.shown_rooms = ()
         self.setObjectName("MatchSyncCompare")
         self.setMinimumHeight(185)
@@ -308,6 +310,7 @@ class ComparisonPanel(QFrame):
                 self.cards_layout.removeWidget(card)
                 card.deleteLater()
             self.cards.clear()
+            self.retry_buttons.clear()
             self.shown_rooms = ()
             for room_id in rows:
                 card = QWidget()
@@ -317,9 +320,16 @@ class ComparisonPanel(QFrame):
                 canvas.setMinimumSize(200, 110)
                 state = QLabel()
                 state.setWordWrap(True)
+                retry = QPushButton("重新对齐")
+                retry.setObjectName("ChipButton")
+                retry.clicked.connect(lambda _checked=False, key=room_id: self.viewer.retry_alignment(key))
+                self.retry_buttons[room_id] = retry
+                heading = QHBoxLayout()
+                heading.addWidget(name, 1)
+                heading.addWidget(retry)
                 layout = QVBoxLayout(card)
                 layout.setContentsMargins(0, 0, 0, 0)
-                layout.addWidget(name)
+                layout.addLayout(heading)
                 layout.addWidget(canvas, 1)
                 layout.addWidget(state)
                 card.hide()
@@ -351,6 +361,7 @@ class ComparisonPanel(QFrame):
                 continue
             _card, name, canvas, state = self.cards[room_id]
             name.setText(f"{'主画面' if room_id == reference else '对照'} · {row.label()}")
+            self.retry_buttons[room_id].setVisible(room_id != reference)
             style = f"color: {row.color};"
             if name.styleSheet() != style:
                 name.setStyleSheet(style)
@@ -426,11 +437,39 @@ class SettingsPanel(QWidget):
         painter.fillPath(path, tint)
 
 
+class RowGrip(QLabel):
+    def __init__(self, row):
+        super().__init__("↕", row)
+        self.row = row
+        self.anchor = None
+        self.setFixedWidth(18)
+        self.setCursor(Qt.OpenHandCursor)
+        self.setToolTip("拖动此处，上下调整直播间顺序")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.anchor = event.position().toPoint()
+
+    def mouseMoveEvent(self, event):
+        if (self.anchor is not None and event.buttons() & Qt.LeftButton
+                and (event.position().toPoint() - self.anchor).manhattanLength() >= QApplication.startDragDistance()):
+            self.anchor = None
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setData(ROW_MIME, self.row.room_id.encode("utf-8"))
+            drag.setMimeData(mime)
+            drag.exec(Qt.MoveAction)
+
+    def mouseReleaseEvent(self, event):
+        self.anchor = None
+
+
 class RoomRow(QFrame):
     def __init__(self, viewer, room_id, preferences, color):
         super().__init__(viewer)
         self.viewer = viewer
         self.room_id = room_id
+        self.setAcceptDrops(True)
         self.platform = viewer.context.manager.platform_for(room_id)
         self.decoder = None
         self.chat = None
@@ -443,6 +482,7 @@ class RoomRow(QFrame):
         self.match_confirmed = False
         self.match_failures = 0
         self.alignment_started = time.monotonic()
+        self.recheck_alignment = False
         room = next((item for item in getattr(viewer.context.window, "rooms", [])
                      if str(item.get("room_id") or "") == room_id), {})
         self.title = room.get("title") or (viewer.sources.get(room_id) or {}).get("title") or ""
@@ -513,6 +553,9 @@ class RoomRow(QFrame):
         region.setFixedWidth(112)
         region.setToolTip("仅在自动对齐困难时使用：框选各主播画面中相同的比赛内容，避开头像和字幕。")
         region.clicked.connect(lambda: viewer.choose_crop(self))
+        self.realign = QPushButton("重新对齐")
+        self.realign.setToolTip("重新匹配本路比赛画面，不重启直播流，不改变其他路已确认偏移。")
+        self.realign.clicked.connect(lambda: viewer.retry_alignment(room_id))
         remove = QPushButton("移除")
         remove.setFixedWidth(52)
         remove.clicked.connect(lambda: viewer.remove_room(room_id))
@@ -523,7 +566,7 @@ class RoomRow(QFrame):
         self.control_widgets = (self.alias, self.main_button, self.audible, self.volume,
                                 self.volume_number, self.channel,
                                 self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
-                                self.delay, self.increase, region, remove, self.join)
+                                self.delay, self.increase, region, self.realign, remove, self.join)
         controls = QGridLayout()
         controls.setHorizontalSpacing(6)
         controls.setVerticalSpacing(4)
@@ -550,7 +593,11 @@ class RoomRow(QFrame):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)
         layout.setSizeConstraint(QLayout.SetMinimumSize)
-        layout.addLayout(controls)
+        line = QHBoxLayout()
+        self.grip = RowGrip(self)
+        line.addWidget(self.grip)
+        line.addLayout(controls, 1)
+        layout.addLayout(line)
         self.setFrameShape(QFrame.NoFrame)
         self.refresh_status()
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
@@ -572,6 +619,28 @@ class RoomRow(QFrame):
         spin.setSuffix(" s")
         spin.setValue(value)
         return spin
+
+    def dragEnterEvent(self, event):
+        source = event.source()
+        if isinstance(source, RowGrip) and source.row.viewer is self.viewer and event.mimeData().hasFormat(ROW_MIME):
+            event.acceptProposedAction()
+        elif event.mimeData().hasFormat(ROOM_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        source = event.source()
+        if isinstance(source, RowGrip) and source.row.viewer is self.viewer and event.mimeData().hasFormat(ROW_MIME):
+            self.viewer.reorder_room(source.row.room_id, self.room_id, event.position().y() >= self.height() / 2)
+            event.acceptProposedAction()
+        elif event.mimeData().hasFormat(ROOM_MIME):
+            self.viewer.dropEvent(event)
+        else:
+            event.ignore()
 
     def label(self):
         return self.alias.text().strip() or "未命名主播"
@@ -631,6 +700,8 @@ class Viewer(QDialog):
         self.skin_visible = False
         self.panel_alpha = 1.0
         self.independent_shifts = {}
+        self.rematch_rooms = set()
+        self.rematch_admit = set()
         self.last_health_update = None
         self.analysis_cursor = 0
         self.admitted_rooms = set()
@@ -684,12 +755,6 @@ class Viewer(QDialog):
         self.minimize_settings.clicked.connect(lambda: self.set_settings_visible(False))
         self.restore_settings = QPushButton("展开设置")
         self.restore_settings.setFixedWidth(90)
-        self.restore_settings.setStyleSheet(f"""
-            QPushButton {{ background: palette(button); color: palette(window-text);
-                border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_MD}px;
-                padding: 4px 6px; }}
-            QPushButton:hover {{ background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT}; }}
-        """)
         self.restore_settings.clicked.connect(lambda: self.set_settings_visible(True))
         self.restore_settings.hide()
         heading = QHBoxLayout()
@@ -703,6 +768,13 @@ class Viewer(QDialog):
         heading.addStretch()
         heading.addWidget(self.minimize_settings)
         self.picture = Tile({})
+        self.restore_settings.setParent(self.picture.bottom)
+        self.restore_settings.setObjectName("TileCtrl")
+        self.restore_settings.setFixedHeight(26)
+        self.picture.bottom.layout().insertWidget(self.picture.bottom.layout().indexOf(self.picture.danmaku_button),
+                                                 self.restore_settings, 0, Qt.AlignVCenter)
+        self.restore_settings.hide()
+        self.picture.bottom.installEventFilter(self)
         self.canvas = Canvas(self.picture.video)
         video_layout = QVBoxLayout(self.picture.video)
         video_layout.setContentsMargins(0, 0, 0, 0)
@@ -785,7 +857,6 @@ class Viewer(QDialog):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(4)
         left_layout.addWidget(self.body_split, 1)
-        left_layout.addWidget(self.restore_settings, 0, Qt.AlignRight)
         split.addWidget(self.left_pane)
         split.addWidget(self.panel)
         split.setSizes([930, 330])
@@ -864,6 +935,8 @@ class Viewer(QDialog):
         self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
 
     def eventFilter(self, watched, event):
+        if watched is self.picture.bottom and event.type() == QEvent.Resize:
+            QTimer.singleShot(0, self._layout_restore_control)
         if event.type() == QEvent.FocusIn:
             for key, row in self.rows.items():
                 if watched is row.delay:
@@ -940,17 +1013,37 @@ class Viewer(QDialog):
                 frame.raise_()
 
     def set_settings_visible(self, visible):
+        if visible and self.fullscreen_dialog is not None:
+            self.fullscreen_dialog.close()
         if not visible:
             self.settings_height = self.settings_panel.height()
             self.compare.setChecked(False)
         self.settings_panel.setVisible(visible)
         self.restore_settings.setVisible(not visible)
+        self._layout_restore_control()
         if visible:
             self.left_pane.layout().activate()
             self.body_split.setSizes([
                 max(1, self.body_split.height() - self.settings_height -
                     (self.comparison_panel.height() if self.compare.isChecked() else 0)),
                 self.comparison_panel.height() if self.compare.isChecked() else 0, self.settings_height])
+
+    def _layout_restore_control(self):
+        tile = self.picture
+        tile._layout_bottom_controls()
+        if self.restore_settings.isHidden():
+            return
+        self.restore_settings.setFixedWidth(58 if tile.width() < 420 else 90)
+        self.restore_settings.setText("展开" if tile.width() < 420 else "展开设置")
+        layout = tile.bottom.layout()
+        fixed = [layout.itemAt(i).widget() for i in range(layout.count())]
+        fixed = [widget for widget in fixed if widget is not None and not widget.isHidden()
+                 and widget not in (tile.volume_slider, tile.status_label)]
+        margins = layout.contentsMargins()
+        remaining = tile.width() - margins.left() - margins.right() - layout.spacing() * (len(fixed) + 1) - 8
+        remaining -= sum(widget.sizeHint().width() if widget is tile.recording_time else widget.width() for widget in fixed)
+        tile.volume_slider.setFixedWidth(max(18, min(86, remaining)))
+        layout.activate()
 
     def set_comparison_visible(self, visible):
         sizes = self.body_split.sizes()
@@ -960,6 +1053,56 @@ class Viewer(QDialog):
         self.body_split.setSizes([max(1, sizes[0] + sizes[1] - height), height, sizes[2]])
         if visible:
             self.comparison_panel.render(self.audio.clock(), self.shifts())
+
+    def reorder_room(self, room_id, target_id, after=False):
+        if room_id == target_id or room_id not in self.rows or target_id not in self.rows:
+            return
+        keys = list(self.rows)
+        keys.remove(room_id)
+        keys.insert(keys.index(target_id) + int(after), room_id)
+        self.rows = {key: self.rows[key] for key in keys}
+        for index, row in enumerate(self.rows.values()):
+            self.rows_layout.insertWidget(index, row)
+        self.update_main_choices()
+        self.changed()
+
+    def _queue_rematch(self, row):
+        row.match_confirmed = False
+        row.match_failures = 0
+        row.alignment_started = time.monotonic()
+        row.recheck_alignment = False
+        row.match_text = "正在重新对齐比赛画面"
+        self.independent_shifts.pop(row.room_id, None)
+        self.alignment.candidates.pop(row.room_id, None)
+        self.rematch_rooms.add(row.room_id)
+        if row.room_id in self.admitted_rooms:
+            self.rematch_admit.add(row.room_id)
+        row.refresh_status()
+
+    def retry_alignment(self, room_id):
+        if not self.running or room_id not in self.rows or self.rows[room_id].decoder is None:
+            self.notice.setText("请先播放直播间，再重新对齐比赛画面")
+            return
+        reference = self.alignment.reference
+        before = self.shifts()
+        if not self.alignment.automatic:
+            self.alignment.lags = {key: value - before[reference] for key, value in before.items()}
+        self.stable_reference_shift = before[reference]
+        self.alignment.automatic = True
+        self.alignment.manual_locked = False
+        self._set_delay_frozen(False)
+        self.automatic.blockSignals(True)
+        self.automatic.setChecked(True)
+        self.automatic.blockSignals(False)
+        targets = set(self.rows) - {reference} if room_id == reference else {room_id}
+        for key in targets:
+            self.alignment.lags[key] = before[key] - before[reference]
+            self._queue_rematch(self.rows[key])
+            self.rematch_admit.add(key)
+        self.generation += 1
+        self.changed()
+        self.render()
+        self.analyse()
 
     def _delay_changed(self, *_args):
         key = next((key for key, row in self.rows.items() if row.delay is self.sender()), "")
@@ -1108,6 +1251,7 @@ class Viewer(QDialog):
         selected = self.main.currentData() or ""
         for room_id, row in self.rows.items():
             row.main_button.setChecked(room_id == selected)
+            row.realign.setVisible(room_id != selected)
         if selected != self.alignment.reference:
             saved = self.shifts() if self.alignment.manual_locked else None
             self.stable_reference_shift = self.independent_shifts.pop(selected, None)
@@ -1290,6 +1434,8 @@ class Viewer(QDialog):
             self.stable_reference_shift = origin
         self.alignment.manual_locked = True
         self.independent_shifts.clear()
+        self.rematch_rooms.clear()
+        self.rematch_admit.clear()
 
     def _set_delay_frozen(self, frozen):
         self.delay_frozen = frozen
@@ -1319,8 +1465,6 @@ class Viewer(QDialog):
         bounds = main.decoder.history.bounds() if main is not None and main.decoder is not None else None
         if bounds is None or preserved_main is None or not bounds[0] <= self.audio.clock() + preserved_main <= bounds[1] - .05:
             preserved_main = None
-        too_far = {key for key, row in self.rows.items() if key != self.alignment.reference
-                   and abs(row.delay.value() - self.rows[self.alignment.reference].delay.value()) > 15}
         if (not self.automatic.isChecked() and self.alignment.automatic and not self.alignment.manual_locked
                 and (self.running or self.rendered_shifts)):
             self._save_delay_offsets(self.shifts())
@@ -1328,6 +1472,8 @@ class Viewer(QDialog):
         self.alignment.automatic = self.automatic.isChecked()
         if self.alignment.automatic:
             self.independent_shifts.clear()
+            self.rematch_rooms = set(self.rows) - {self.alignment.reference}
+            self.rematch_admit = set(self.rematch_rooms) if self.running else set()
             self._set_delay_frozen(False)
             self.alignment.lags = {self.alignment.reference: 0}
             self.stable_reference_shift = preserved_main
@@ -1354,14 +1500,14 @@ class Viewer(QDialog):
             self.offset_repositioning = False
             self.alignment.candidates.clear()
             self.generation += 1
-            for key in too_far:
-                self._block_alignment(key, "偏差超过 15 秒，暂不自动对齐；各路独立播放")
         for row in self.rows.values():
             row.refresh_status()
         self.changed()
 
     def remove_room(self, room_id):
         row = self.rows.pop(room_id)
+        self.rematch_rooms.discard(room_id)
+        self.rematch_admit.discard(room_id)
         self.independent_shifts.pop(room_id, None)
         self.admitted_rooms.discard(room_id)
         self.rendered_shifts.pop(room_id, None)
@@ -1395,6 +1541,8 @@ class Viewer(QDialog):
         return shifts
 
     def _block_alignment(self, room_id, reason):
+        self.rematch_rooms.discard(room_id)
+        self.rematch_admit.discard(room_id)
         main = self.rows.get(self.alignment.reference)
         main_bounds = main.decoder.history.bounds() if main is not None and main.decoder is not None else None
         main_shift = self.shifts().get(self.alignment.reference)
@@ -1448,6 +1596,8 @@ class Viewer(QDialog):
             return
         self.running = True
         self.independent_shifts.clear()
+        self.rematch_rooms = set(self.rows) - {self.alignment.reference} if self.alignment.automatic else set()
+        self.rematch_admit.clear()
         self.safety_buffer = SafetyBuffer()
         if not self.alignment.manual_locked:
             self.stable_reference_shift = None
@@ -1483,6 +1633,7 @@ class Viewer(QDialog):
         row.match_confirmed = False
         row.match_failures = 0
         row.alignment_started = time.monotonic()
+        row.recheck_alignment = False
         if self.alignment.manual_locked:
             row.match_text = "手动时间已锁定；勾选自动对齐可解除"
         row.pending.clear()
@@ -1567,9 +1718,17 @@ class Viewer(QDialog):
             row.mix_gain = 0
             row.recovery_since = None
             self.alignment.candidates.pop(row.room_id, None)
+            row.match_failures = 0
+            row.alignment_started = time.monotonic()
+            if self.alignment.automatic and row.room_id != self.alignment.reference:
+                self._queue_rematch(row)
             if row.room_id == self.alignment.reference:
                 for peer in self.rows.values():
                     peer.match_confirmed = False
+                    peer.match_failures = 0
+                    peer.alignment_started = time.monotonic()
+                    if peer.room_id != row.room_id and self.alignment.automatic:
+                        self._queue_rematch(peer)
                 self.alignment.candidates.clear()
             self.generation += 1
 
@@ -1654,6 +1813,12 @@ class Viewer(QDialog):
             arrival = getattr(decoder, "last_frame_received", 0)
             fresh = not arrival or now - arrival <= 3
             target = clock + shifts[key]
+            if self.alignment.automatic and key != self.alignment.reference and key not in self.independent_shifts:
+                if not fresh and row.match_confirmed and not row.paused and (row.sync_state == "已同步" or row.was_isolated):
+                    row.recheck_alignment = True
+                elif fresh and bounds is not None and row.recheck_alignment:
+                    self._queue_rematch(row)
+                    self.generation += 1
             available = bounds is not None and bounds[0] <= target <= bounds[1] - .05
             visible = key == self.alignment.reference or (self.compare.isChecked() and key in self.comparison_panel.shown_rooms)
             if available and visible and hasattr(decoder, "picture_at"):
@@ -1714,6 +1879,7 @@ class Viewer(QDialog):
         self.shift_reference = None
         self.generation += 1
         self.render()
+        return True
 
     def _render_overlay(self, clock, shifts):
         if self.video_danmaku is None:
@@ -1843,6 +2009,7 @@ class Viewer(QDialog):
         if not others:
             return
         keys = list(others)
+        keys = [key for key in keys if key in self.rematch_rooms] or keys
         key = keys[self.analysis_cursor % len(keys)]
         self.analysis_cursor += 1
         others = {key: others[key]}
@@ -1853,6 +2020,8 @@ class Viewer(QDialog):
                     details[key] = (list(getattr(value.decoder.history, "details", ()))
                                     if value.decoder.history.origin is not None else [])
         known = dict(self.alignment.lags)
+        for key in self.rematch_rooms:
+            known.pop(key, None)
         confirmed_peers = {key for key, value in self.rows.items()
                            if value.match_confirmed and value.sync_state == "已同步"}
         reference_id = row.room_id
@@ -1947,6 +2116,13 @@ class Viewer(QDialog):
                 if match.refined:
                     if applied:
                         row.match_confirmed = match.playback_error is None or abs(match.playback_error) <= .2
+                        if row.match_confirmed:
+                            if room_id in self.rematch_admit:
+                                self.rendered_shifts.clear()
+                                self.shift_reference = None
+                            if room_id not in self.rematch_admit or self.admit_pending(room_id):
+                                self.rematch_rooms.discard(room_id)
+                                self.rematch_admit.discard(room_id)
                     verified = match.playback_error is not None and abs(match.playback_error) <= .15
                     status = "播放进度已复核" if applied and verified else "已应用精校正，待复核" if applied else "正在确认精校正"
                     actual = self.compare.isChecked() and room_id in self.comparison_panel.shown_rooms
@@ -2013,8 +2189,7 @@ class Viewer(QDialog):
             rect = canvas.crop
             row.crop = (rect.x(), rect.y(), rect.width(), rect.height())
             row.decoder.set_crop(row.crop)
-            self.alignment.candidates.clear()
-            self.generation += 1
+            self.retry_alignment(row.room_id)
             self.changed()
 
     def _suppress_host_audio(self):

@@ -56,6 +56,7 @@ def gui_checks():
                 history.samples = deque(detail[::10])
                 history.details = deque(detail)
             viewer.alignment.lags["2"] = 7.537
+            viewer.rematch_rooms.clear()  # This fixture tests local tracking of an established lag.
             with patch.object(viewer.audio, "clock", return_value=118):
                 for _ in range(3):
                     viewer.canvas.frame_key = 118 + viewer.shifts()["1"]

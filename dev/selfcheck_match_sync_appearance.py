@@ -172,6 +172,8 @@ def main():
             viewer.rows['2'].delay.setValue(26)
             before_auto = viewer.shifts()['1']
             viewer.automatic.setChecked(True)
+            assert '2' in viewer.rematch_rooms and '2' not in viewer.independent_shifts
+            viewer._matched(viewer.generation, {'2':Match(26,1,'fresh excessive lag',refined=True)})
             assert '2' in viewer.independent_shifts
             assert viewer.shifts()['1'] == before_auto, 'Oversized auto enable must retain valid main progress'
             assert not viewer.sync_waiting
