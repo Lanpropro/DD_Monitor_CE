@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ONLY = (
-    "HANDOFF-*.md", "docs/HANDOFF-*.md", "videos/*",
+    "HANDOFF-*.md", "docs/HANDOFF-*.md", "docs/local/*", "videos/*",
     "docs/VIDEO-*.md", "docs/PROMO-*.md", "dev/*promo*",
     "dev/*highlight*", "dev/*videotogether*", "dev/test_video_*.py",
     "dev/preview_*.py", "dev/run-preview.cmd", "dev/make_shots.py",
@@ -16,7 +16,7 @@ LOCAL_ONLY = (
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
-    "LICENSE", "NOTICE.md", "favicon.ico", "assets/logo.png",
+    "LICENSE", "docs/NOTICE.md", "favicon.ico", "assets/logo.png",
     "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py",
     "dev/build_release.ps1", "dev/build_windows_version.py",
     "dev/pyi_rth_pyside6_paths.py", "dev/selfcheck_video_danmaku.py",

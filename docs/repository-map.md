@@ -1,6 +1,6 @@
 # 仓库文件分类清单
 
-盘点日期：2026-10-14。用户已确认深浅色功能完成；本次仅整理文件用途，不移动或删除文件。
+盘点日期：2026-10-14。用户已确认深浅色功能完成；首轮完成分类盘点；本轮按用户要求集中说明并删除四个过时脚本，详见 repository-cleanup-review.md。
 以下按当前工作区与 Git 索引盘点，不代表远端仓库状态；未读取真实配置、账号数据或媒体内容。
 
 ## 软件本体与插件功能范围
@@ -21,25 +21,22 @@
 
 ### 仓库管理、许可及发布入口
 
-共 6 项。
+共 5 项。
 
 - `.gitignore`
 - `AGENTS.md`
 - `LICENSE`
-- `NOTICE.md`
 - `publish.cmd`
 - `results/.gitignore`
 
 ### 软件与插件说明、设计及版本资料
 
-共 15 项。
+共 18 项。
 
 - `README.md`
-- `RELEASE-v0.1.md`
-- `RELEASE-v0.2.md`
-- `RELEASE-v0.3.1.md`
-- `RELEASE-v0.3.md`
 - `docs/BUG-STATUS-2026-10-02.md`
+- `docs/NOTICE.md`
+- `docs/README.md`
 - `docs/appearance-design.md`
 - `docs/customization-plan.md`
 - `docs/online-updates.md`
@@ -47,8 +44,13 @@
 - `docs/overview1_Portrait_Mode.png`
 - `docs/overview2_Landscape_mode.png`
 - `docs/plugins.md`
-- `docs/skins.md`
+- `docs/releases/RELEASE-v0.1.md`
+- `docs/releases/RELEASE-v0.2.md`
+- `docs/releases/RELEASE-v0.3.1.md`
+- `docs/releases/RELEASE-v0.3.md`
+- `docs/repository-cleanup-review.md`
 - `docs/repository-map.md`
+- `docs/skins.md`
 
 ### 构建、调试与开发工具（开发维护用途）
 
@@ -71,9 +73,9 @@
 - `dev/run-checks.cmd`
 - `dev/screens.py`
 
-### 软件与插件回归测试（开发维护用途）
+### 软件、插件及仓库回归测试（开发维护用途）
 
-共 205 项。
+共 201 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -85,7 +87,6 @@
 - `dev/selfcheck_appearance.py`
 - `dev/selfcheck_appearance_design.py`
 - `dev/selfcheck_appearance_playback.py`
-- `dev/selfcheck_appearance_prototype.py`
 - `dev/selfcheck_audio_cycle_shortcut.py`
 - `dev/selfcheck_audio_hotplug.py`
 - `dev/selfcheck_audio_isolation.py`
@@ -130,7 +131,6 @@
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
 - `dev/selfcheck_feedback_layout.py`
-- `dev/selfcheck_final2.py`
 - `dev/selfcheck_fixed_exe_entry.py`
 - `dev/selfcheck_folder_blank_menu.py`
 - `dev/selfcheck_folder_card_drag.py`
@@ -163,7 +163,6 @@
 - `dev/selfcheck_live_danmaku_live.py`
 - `dev/selfcheck_live_platforms.py`
 - `dev/selfcheck_localization.py`
-- `dev/selfcheck_login2.py`
 - `dev/selfcheck_main_notices.py`
 - `dev/selfcheck_match_sync.py`
 - `dev/selfcheck_match_sync_alignment.py`
@@ -231,7 +230,6 @@
 - `dev/selfcheck_qr_responsiveness.py`
 - `dev/selfcheck_qt_log.py`
 - `dev/selfcheck_quality.py`
-- `dev/selfcheck_quality2.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
 - `dev/selfcheck_recording_shutdown.py`
@@ -239,6 +237,7 @@
 - `dev/selfcheck_remove_follow_position.py`
 - `dev/selfcheck_replay_scope.py`
 - `dev/selfcheck_repository_files.py`
+- `dev/selfcheck_repository_map.py`
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_search.py`
@@ -279,7 +278,6 @@
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_windows_version.py`
-- `dev/selfcheck_repository_map.py`
 
 ### 独立网站资料（与软件、插件运行无关）
 
@@ -302,8 +300,8 @@
 | `results/*promo*` | 宣传片归档和校验记录 | 已忽略；保留 |
 | `results/` 其他内容 | 软件/插件发布包、发布校验及测试产物，不能整目录归为宣传资料 | 已忽略（除 .gitignore）；保留 |
 | `work/` | 混合临时目录：构建、依赖、Git 工作树、测试截图及宣传资料 | 已忽略；不整体清理 |
-| `HANDOFF-*.md`、`docs/HANDOFF-*.md`、`PROJECT_STATE.md` | 本机交接及状态记录，涉及多个历史任务 | 已忽略；保留当前交接 |
-| `idea.txt` | 本机需求建议 | 已忽略；保留 |
+| `docs/local/HANDOFF-*.md`、`docs/HANDOFF-*.md`、`PROJECT_STATE.md` | 本机交接及状态记录，涉及多个历史任务 | 已忽略；保留当前交接 |
+| `docs/local/idea.txt` | 本机需求建议 | 已忽略；保留 |
 | `docs/VIDEO-*.md`、`docs/PROMO-*.md` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
 | `dev/*promo*`、`dev/*highlight*`、`dev/*videotogether*`、`dev/test_video_*.py` | 宣传片专项脚本与校验工具；不含 selfcheck_video_* 软件测试 | 已忽略；保留 |
 | `dev/preview_*.py`、`dev/run-preview.cmd`、`dev/make_shots.py`、`dev/thumb_sheet.py` | 软件开发预览、截图工具，仍与软件维护相关 | 已忽略；保留 |
@@ -326,5 +324,5 @@
 
 严格属于其他任务的内容包括独立网站资料、宣传片工程、参考素材和宣传过程工具；
 测试、构建、软件文档和开发原型属于软件维护资料，已单独标出。
-本轮只新增分类清单及清单检查，不移动路径、不删除文件、不改变打包或运行逻辑。
+本轮文档移动与四项删除见 [整理审查](repository-cleanup-review.md)，软件和打包读取路径已相应调整。
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。

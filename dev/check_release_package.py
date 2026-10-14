@@ -35,7 +35,7 @@ for folder, zip_path in ((source, results / f"{name}.zip"),
                 "ZIP 中仍有旧文件名的 exe"
 
 for path in ("ddm/app.py", "ddm/widgets.py", "ddm/audio_output.py", "ddm/dialogs.py",
-             "ddm/plugins.py", "docs/PLUGINS.md", f"RELEASE-{VERSION_TAG}.md"):
+             "ddm/plugins.py", "docs/PLUGINS.md", f"docs/releases/RELEASE-{VERSION_TAG}.md"):
     original = (repo / path).read_bytes()
     packaged = (source / path).read_bytes()
     assert packaged.replace(b"\r\n", b"\n") == original.replace(b"\r\n", b"\n"), \
@@ -61,7 +61,7 @@ remote_name = f"DDMonitorCE-{VERSION_TAG}-exe.zip"
 assert metadata["version"] == VERSION and metadata["asset_name"] == remote_name
 assert metadata["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
 assert metadata["size"] == archive.stat().st_size
-assert metadata["notes"].replace("\r\n", "\n") == (repo / f"RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
+assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
 assert metadata["url"].endswith(f"/{VERSION_TAG}/{remote_name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
 assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64"}

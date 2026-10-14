@@ -394,7 +394,11 @@ class AppUpdatePage(OnlinePage):
     def show_current_notes(self):
         self.notes_title.setText('当前版本 ' + version.VERSION + ' 更新说明')
         try:
-            notes = (Path(config.REPO) / ('RELEASE-v' + version.VERSION + '.md')).read_text(encoding='utf-8-sig')
+            filename = 'RELEASE-v' + version.VERSION + '.md'
+            path = Path(config.REPO) / 'docs' / 'releases' / filename
+            if not path.is_file():
+                path = Path(config.REPO) / filename
+            notes = path.read_text(encoding='utf-8-sig')
         except OSError:
             notes = '本地未附带当前版本的更新说明，可点击“打开发布页面”查看。'
         self.notes.setMarkdown(notes)

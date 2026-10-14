@@ -32,7 +32,7 @@ python dev/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domes
 
 点击设置入口后清除入口的红点，尚未查看的更新页仍保留标记。用户查看对应更新页面后，即使暂不安装，也会清除该版本的红点并保存已查看记录；同一版本不再重复提示，更高版本仍会重新提醒。关闭悬浮提示本身不算查看，更新按钮保持可用。提示栏使用软件主题的浮层背景色。
 
-「更新说明」区域按 Markdown 展示更新清单中的 `notes`，或 GitHub Release 正文；发布脚本会将本次 `RELEASE-v*.md` 内容写入清单。未检查、没有新版或网络失败时显示随程序附带的当前版本 `RELEASE-v*.md`，缺少文件时提示前往发布页查看。
+「更新说明」区域按 Markdown 展示更新清单中的 `notes`，或 GitHub Release 正文；发布脚本会将本次 `docs/releases/RELEASE-v*.md` 内容写入清单。未检查、没有新版或网络失败时显示源码目录 `docs/releases/` 或 EXE 同级附带的当前版本 `RELEASE-v*.md`，缺少文件时提示前往发布页查看。
 
 `utils`（含关注配置、账号凭据）、`cache`、`logs`、`plugins_user` 和录制目录不会被更新包覆盖。程序文件清单用于后续更新清理过期运行库，未记录的用户文件保留。临时程序和备份在更新完成后的正常启动中清理，文件仍占用时留待后续启动。
 

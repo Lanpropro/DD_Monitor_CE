@@ -129,8 +129,8 @@ ffmpeg-license\             FFmpeg 的许可与来源说明
 plugins_user\               插件目录（新插件含 plugin.json 和 plugin.py）
 utils\                      配置目录（首次运行会生成 config.json）
 docs\                       文档与截图
-LICENSE / NOTICE.md         许可与第三方声明
-RELEASE-$version.md         这一版改了什么
+LICENSE / docs\NOTICE.md    许可与第三方声明
+docs\releases\RELEASE-$version.md 这一版改了什么
 
 说明
 ----
@@ -198,7 +198,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
     # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
-    foreach ($file in @("LICENSE", "NOTICE.md", "RELEASE-v$($version.TrimStart('v')).md")) {
+    foreach ($file in @("LICENSE", "docs/NOTICE.md", "docs/releases/RELEASE-v$($version.TrimStart('v')).md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }
     }
@@ -257,7 +257,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
         Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
         Write-Output "=== 压缩 exe 包 $exeZip ==="
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
-        $releaseNotes = Join-Path $repo "RELEASE-$version.md"
+        $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$version.md"
         $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
         $remoteExeName = "DDMonitorCE-$version-exe.zip"
         @{ version = $version.TrimStart('v'); asset_name = $remoteExeName;

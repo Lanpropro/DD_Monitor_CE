@@ -1,5 +1,7 @@
 <div align="center">
 
+[项目说明与文档目录](docs/README.md)
+
 # DD监控室CE
 
 免费、开源的多窗口直播监控与观看工具，支持通过插件接入多个平台
@@ -348,7 +350,7 @@ powershell -File dev\build_release.ps1
 - 接别的平台的骨架：`plugins_user/_template_platform/plugin.py`
 
 插件是受信任代码，和本体同进程运行 —— 只装自己看过源码的插件。
-还没做、打算怎么做的，记在本地 `idea.txt`（不随仓库提交）。
+还没做、打算怎么做的，记在本地 `docs/local/idea.txt`（不随仓库提交）。
 
 ## 贡献
 
@@ -362,7 +364,7 @@ powershell -File dev\build_release.ps1
 - [blivedm](https://github.com/xfgryujk/blivedm)：B 站直播弹幕协议实现。
 - [BewlyCat](https://github.com/keleus/BewlyCat)：界面配色和部分视觉设计参考。
 
-详细来源说明请参阅 [`NOTICE.md`](NOTICE.md)。
+详细来源说明请参阅 [`NOTICE.md`](docs/NOTICE.md)。
 
 ## 许可与来源
 
@@ -371,7 +373,7 @@ powershell -File dev\build_release.ps1
 使用、修改或分发本项目之前，请阅读：
 
 - [`LICENSE`](LICENSE)
-- [`NOTICE.md`](NOTICE.md)
+- [`NOTICE.md`](docs/NOTICE.md)
 
 ## 免责声明
 
