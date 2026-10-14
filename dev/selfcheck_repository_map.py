@@ -29,14 +29,21 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertEqual(len(listed), len(set(listed)), "Duplicate inventory path")
 
     def test_document_index_links_resolve(self):
-        for name in ("docs/README.md", "docs/repository-cleanup-review.md", "README.md"):
+        for name in ("docs/README.md", "docs/repository-cleanup-review.md", "README.md",
+                     "docs/plugins.md"):
             path = ROOT / name
             content = path.read_text(encoding="utf-8")
             for target in re.findall(r"\]\(([^)]+)\)", content):
                 if "://" in target or target.startswith("#"):
                     continue
                 with self.subTest(document=name, target=target):
-                    self.assertTrue((path.parent / target.split("#", 1)[0]).exists())
+                    destination = path.parent / target.split("#", 1)[0]
+                    if not destination.exists():
+                        # Local notes are intentionally absent from clean clones.
+                        ignored = subprocess.run(
+                            ["git", "check-ignore", "--", str(destination)], cwd=ROOT,
+                            capture_output=True)
+                        self.assertEqual(ignored.returncode, 0, target)
 
     def test_current_notes_source_and_portable_layouts(self):
         # Exercise the real UI method with label doubles; no QApplication,

@@ -350,7 +350,7 @@ powershell -File dev\build_release.ps1
 - 接别的平台的骨架：`plugins_user/_template_platform/plugin.py`
 
 插件是受信任代码，和本体同进程运行 —— 只装自己看过源码的插件。
-还没做、打算怎么做的，记在本地 `docs/local/idea.txt`（不随仓库提交）。
+还没做、打算怎么做的，记在本地 `docs/local/idea.md`（不随仓库提交）。
 
 ## 贡献
 
