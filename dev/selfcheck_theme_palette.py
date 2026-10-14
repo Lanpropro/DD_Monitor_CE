@@ -60,6 +60,7 @@ def main():
     layout.addWidget(new)
     QTest.qWait(20)
     assert '#F7F9FC' in new.styleSheet()
+    cached_style = new.styleSheet()
     # Platform/style palette notifications can arrive with no user input.
     original = app.palette()
     reference = window.grab().toImage()
@@ -84,7 +85,7 @@ def main():
         theme._system_changed(Qt.ColorScheme.Dark)
     assert theme.mode() == 'system' and not theme.is_light()
     theme.apply('dark')
-    assert new.styleSheet() == '', 'New widget must restore its original dark stylesheet'
+    assert new.styleSheet() == cached_style and new.property('appearanceLight') is False, 'Dark mode must disable the cached light rules without resetting the stylesheet'
     window.close()
     print('PASS: identical rendered dark/light designs, stable global QSS, new controls, synchronous idle palette repair, custom roles and genuine system changes')
 

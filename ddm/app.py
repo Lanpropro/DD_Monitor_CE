@@ -716,7 +716,7 @@ class MainWindow(QMainWindow):
         page = getattr(source, 'appearance_page', None)
         button = page.buttons[self.settings["appearance_mode"]] if page is not None else self.sidebar.appearance_button
         self._theme_transition.change(self.settings["appearance_mode"], button.mapToGlobal(QPoint()))
-        config_module.save(self.current_state())
+        self._save_timer.start()
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""

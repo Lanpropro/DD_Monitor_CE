@@ -53,7 +53,8 @@ def main():
     assert theme.mode() == window.settings['appearance_mode'] == 'dark'
     with patch.object(config, 'save') as save:
         window.sidebar.appearanceChanged.emit('light')
-        QTest.qWait(120)
+        assert save.call_count == 0 and window._save_timer.isActive(), 'Disk writes must not block the first animation frame'
+        QTest.qWait(window._save_timer.interval() + 50)
         assert theme.is_light() and save.call_args.args[0]['settings']['appearance_mode'] == 'light'
         saved_light = save.call_args.args[0]
         assert objects == (window.wall, window.recorder, tile.video_danmaku)

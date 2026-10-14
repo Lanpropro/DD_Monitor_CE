@@ -1,7 +1,7 @@
 """Interruptible wave reveal of UI snapshots, leaving live video uncovered."""
 import sys
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QVariantAnimation
-from PySide6.QtGui import QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import motion, theme
@@ -18,19 +18,18 @@ def wave_path(progress, width, height, origin=None):
 
 
 def ui_snapshot(window):
-    captured = window.grab()
-    snapshot = QPixmap(captured.size())
-    snapshot.setDevicePixelRatio(captured.devicePixelRatio())
+    scale = window.devicePixelRatioF()
+    snapshot = QPixmap(round(window.width()*scale), round(window.height()*scale))
+    snapshot.setDevicePixelRatio(scale)
     snapshot.fill(Qt.transparent)
     # Native VLC output cannot be captured by QWidget.grab(). A hole leaves the
     # real output playing beneath the transition, rather than freezing a frame.
-    painter = QPainter(snapshot)
-    painter.drawPixmap(0, 0, captured)
-    painter.setCompositionMode(QPainter.CompositionMode_Clear)
+    region = QRegion(window.rect())
     for surface in window.findChildren(VideoSurface):
         if surface.isVisible():
-            painter.fillRect(QRect(surface.mapTo(window, QPoint()), surface.size()), Qt.transparent)
-    painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            region = region.subtracted(QRegion(QRect(surface.mapTo(window, QPoint()), surface.size())))
+    painter = QPainter(snapshot)
+    window.render(painter, QPoint(), region, QWidget.DrawWindowBackground | QWidget.DrawChildren)
     for tile in getattr(getattr(window, 'wall', None), 'tiles', []):
         for badge in (tile.stream_badge, tile.title_badge, tile.time_badge, tile.controls):
             if badge.isVisible():

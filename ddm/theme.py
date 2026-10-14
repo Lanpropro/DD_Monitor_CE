@@ -11,6 +11,7 @@ Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻�
 import os
 import re
 import sys
+from functools import lru_cache
 from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -144,14 +145,18 @@ def _skin_style(widget):
     if name == 'WallGrid':
         return '#WallGrid {background: transparent;}'
     if name == 'TileVideo':
-        return '#TileVideo {background: transparent;}'
+        mode = 'true' if _light else 'false'
+        return f'#TileVideo[appearanceLight="{mode}"] {{background: transparent;}}'
     colors = {'Sidebar': SIDEBAR, 'Tile': BG,
               'TileBottom': BG, 'DanmakuPanel': CONTENT}
     if name not in colors:
         return ''
     color = qcolor(colors[name])
     opacity = .84 if name in ('Sidebar', 'Tile') else .88
-    selector = '#Tile, #Tile[empty="true"]' if name == 'Tile' else '#' + name
+    mode = 'true' if _light else 'false'
+    selector = '#' + name + (f'[appearanceLight="{mode}"]' if name != 'Sidebar' else '')
+    if name == 'Tile':
+        selector += ', ' + selector + '[empty="true"]'
     return f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}'
 
 
@@ -182,27 +187,49 @@ def _apply_palette(app, colors):
     app.setPalette(palette.resolve(app.palette()))
     for widget in app.allWidgets():
         widget.setPalette(palette.resolve(widget.palette()))
+        refresh_theme_properties(widget)
     # Clear cached palette-dependent paint rules once, without re-polishing
     # every widget or resetting its geometry and fonts.
     app.style().unpolish(app)
     app.style().polish(app)
 
 
+def refresh_theme_properties(widget):
+    # The light exceptions are installed once. Change the selector property,
+    # not hundreds of local stylesheets, and invalidate only affected widgets.
+    name = widget.objectName()
+    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton',
+                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'WallGrid'):
+        return
+    if widget.property('appearanceLight') != _light:
+        widget.setProperty('appearanceLight', _light)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+
+@lru_cache(maxsize=32)
+def _conditional_light_style(style):
+    # Restrict matching to selectors so hexadecimal colour values stay intact.
+    rules = []
+    for selector, body in re.findall(r'([^{}]+)\{([^{}]*)\}', style):
+        selector = re.sub(r'#[A-Za-z]\w*', lambda match:
+            match.group() + '[appearanceLight="true"]', selector)
+        rules.append(selector + '{' + body + '}')
+    return ''.join(rules)
+
+
 def _light_style(widget):
-    if not _light:
-        return ''
     name = widget.objectName()
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return '#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
-        return '#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}'
-    return {
+            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+        return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+    return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
-        'Sidebar': '#Sidebar #BadgeOff {background: rgba(16, 20, 28, 0.78); color: #F1F2F5; border: 1px solid rgba(255, 255, 255, 0.16);}',
-        'BadgeOff': '#BadgeOff {background: rgba(16, 20, 28, 0.78); color: #F1F2F5; border: 1px solid rgba(255, 255, 255, 0.16);}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
         'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}',
@@ -210,14 +237,12 @@ def _light_style(widget):
         'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
         'TileBottom': '#TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;} #TileBottom QLabel {color: #4A5565;}',
         'TilePlaceholder': '#TilePlaceholder {color: #4A5565;}',
-        'NavThumbCover': '#NavThumbCover {color: #F1F2F5;}',
-        'NavThumbHint': '#NavThumbHint {color: #F1F2F5;}',
         'PauseOverlay': '#PauseOverlay QLabel {color: #F1F2F5;}',
         'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
         'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
-    }.get(name, '')
+    }.get(name, ''))
 
 
 class ThemeSignals(QObject):
@@ -250,7 +275,9 @@ class ThemeSignals(QObject):
 
     def eventFilter(self, widget, event):
         # Newly opened settings/popups need the same exceptions as existing UI.
-        if (_light or _skin_active) and event.type() == QEvent.Polish and isinstance(widget, QWidget):
+        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+            refresh_theme_properties(widget)
+        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
             extra = _light_style(widget) + _skin_style(widget)
             if extra and widget not in _styles:
                 source = widget.styleSheet()
@@ -336,6 +363,7 @@ def apply(value):
         refresh = getattr(widget, "refresh_theme", None)
         if callable(refresh):
             refresh()
+        refresh_theme_properties(widget)
         QWidget.update(widget)
     signals().changed.emit(value)
 
@@ -349,6 +377,10 @@ def qss(palette_roles=False) -> str:
     def style_mix(name, other, ratio):
         return (f'palette({_MIX_ROLES[name, other, ratio]})' if palette_roles
             else mix(colors[name], other, ratio))
+    badge_bg = 'rgba(16, 20, 28, 0.78)' if _light and not palette_roles else 'rgba(131, 131, 145, 0.28)'
+    badge_text = '#F1F2F5' if _light and not palette_roles else TEXT2
+    cover_text = '#F1F2F5' if _light and not palette_roles else TEXT4
+    hint_text = '#F1F2F5' if _light and not palette_roles else TEXT2
     style = f"""
 QPushButton#AppearanceChoice {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
@@ -674,8 +706,8 @@ QSlider::handle:horizontal:hover {{
     font-weight: 700;
 }}
 #BadgeOff {{
-    background: rgba(131, 131, 145, 0.28);
-    color: {TEXT2};
+    background: {badge_bg};
+    color: {badge_text};
     border-radius: {RADIUS_MD}px;
     padding: 1px 6px;
     font-size: 11px;
@@ -1129,7 +1161,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #NavThumbCover {{
     background: rgba(18, 20, 25, 0.82);
-    color: {TEXT4};
+    color: {cover_text};
     font-size: {FONT_CAPTION}px;
     border-radius: 6px;
 }}
@@ -1146,7 +1178,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #NavThumbHint {{
     background: rgba(10, 11, 13, 0.66);
-    color: {TEXT2};
+    color: {hint_text};
     font-size: {FONT_CAPTION}px;
     border-radius: 6px;
 }}
@@ -1279,7 +1311,13 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
     width: 0;
 }}
 """
+    if palette_roles:
+        style += '''
+        #BadgeOff[appearanceLight="true"] {background: rgba(16, 20, 28, 0.78); color: #F1F2F5; border: 1px solid rgba(255, 255, 255, 0.16);}
+        #NavThumbCover[appearanceLight="true"], #NavThumbHint[appearanceLight="true"] {color: #F1F2F5;}
+        '''
     if _light and not palette_roles:
+        style += '#BadgeOff {border: 1px solid rgba(255, 255, 255, 0.16);}'
         style += """
         #PrimaryButton {color: #FFFFFF;}
         #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;}

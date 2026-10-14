@@ -2144,7 +2144,7 @@ class NavItem(QFrame):
         self.live_dot.setFixedSize(12, 12)
         # Avatar 会用内联样式切换占位色/透明背景；圆点也用内联样式，避免被父级覆盖。
         self.live_dot.setStyleSheet(
-            f"background: {theme.PINK}; border: 2px solid {theme.SIDEBAR}; border-radius: 6px;")
+            f"background: {theme.PINK}; border: 2px solid palette(alternate-base); border-radius: 6px;")
         self.live_dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.live_dot.setVisible(False)
 
@@ -2287,6 +2287,7 @@ class NavItem(QFrame):
         if not self.room.get("title"):
             self.sub.setText("直播中" if live else "未开播")
         self.badge.setObjectName("BadgeLive" if live else "BadgeOff")
+        theme.refresh_theme_properties(self.badge)
         _repolish(self.badge)
         self._sync_live_dot()
         self.thumb._layout_overlay()
@@ -2768,6 +2769,8 @@ class FollowFolderButton(QToolButton):
         self.folder_id = folder_id
         self.setObjectName("IconButton")
         self.setIconSize(QSize(18, 18))
+        self._default_icon = None
+        self._default_icon_type = None
         self.refresh_theme()
         self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.setCursor(Qt.PointingHandCursor)
@@ -2779,7 +2782,13 @@ class FollowFolderButton(QToolButton):
     def refresh_theme(self):
         folder = self.sidebar.get_folder(self.folder_id)
         if folder is not None:
-            self.setIcon(folder_icon(folder, self))
+            if not folder.get('icon'):
+                if self._default_icon is None or self._default_icon_type != folder['type']:
+                    self._default_icon = folder_icon(folder, self)
+                    self._default_icon_type = folder['type']
+                self.setIcon(self._default_icon)
+            else:
+                self.setIcon(folder_icon(folder, self))
 
     def mousePressEvent(self, event):
         self._press_pos = event.position().toPoint() if event.button() == Qt.LeftButton else None
@@ -6626,7 +6635,7 @@ class WallGrid(QWidget):
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
-        self.grid.setSpacing(10 if theme.is_light() else 8)
+        self.grid.setSpacing(8)
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -6639,7 +6648,7 @@ class WallGrid(QWidget):
         self.relayout(force=True)
 
     def refresh_theme(self):
-        self.grid.setSpacing(10 if theme.is_light() else 8)
+        self.grid.setSpacing(8)
         # Finish theme-driven geometry before snapshot overlays start watching
         # video surfaces; a delayed Resize would cancel the reveal immediately.
         self.grid.activate()

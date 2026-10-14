@@ -88,7 +88,7 @@ def main():
             # The background must actually show through an empty native video surface.
             tile_image = window.wall.tiles[0].video.grab().toImage()
             color = tile_image.pixelColor(20, tile_image.height()//2)
-            assert max(abs(a-b) for a, b in zip(color.getRgb()[:3], QColor('#F4F6F9').getRgb()[:3])) >= 10, 'Skin is hidden behind opaque UI panels'
+            assert max(abs(a-b) for a, b in zip(color.getRgb()[:3], QColor('#FFFFFF').getRgb()[:3])) >= 10, 'Skin is hidden behind opaque UI panels'
             assert 'rgba(' not in window.sidebar.styleSheet(), 'Sidebar coverage must be opt-in'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',

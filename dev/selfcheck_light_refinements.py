@@ -50,7 +50,7 @@ def main():
             if mode == 'light':
                 badge = window.sidebar.items()[0].badge
                 assert badge.palette().color(QPalette.WindowText) == QColor('#F1F2F5')
-                assert 'rgba(16, 20, 28, 0.78)' in badge.styleSheet()
+                assert badge.property('appearanceLight') is True
                 changing = window.sidebar.items()[1]
                 changing.set_live(True)
                 changing.set_live(False)

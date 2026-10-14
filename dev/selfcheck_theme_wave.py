@@ -55,7 +55,7 @@ def main():
         assert transition.overlays and transition.animation.state() == QAbstractAnimation.Running
         QTest.qWait(40)
         assert transition.overlays, 'Theme wave cancelled during normal painting'
-        assert window.wall.grid.spacing() == 10
+        assert window.wall.grid.spacing() == 8
         transition.animation.setCurrentTime(motion.THEME_WAVE_MS//2)
         progress = transition.progress
         assert 0 < progress < 1
