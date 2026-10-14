@@ -1152,6 +1152,9 @@ class MainWindow(QMainWindow):
         return changed
 
     def start_tile(self, tile, *, stream_quality: int | None = None) -> None:
+        if self._match_sync_holds(tile):
+            self._match_sync_saved.setdefault(tile, (str(tile.room.get("room_id") or ""), tile.paused))
+            return
         if self._closing:
             return                    # 关窗途中别再起取流/播放器
         room = tile.room or {}
@@ -1213,6 +1216,8 @@ class MainWindow(QMainWindow):
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
+        if self._match_sync_holds(tile):
+            return
         if room_id and str(tile.room.get("room_id") or "") != str(room_id):
             return                    # 迟到的取流结果（格子已经换台/被换走了）
         if requested_quality and int(tile.quality) != requested_quality:
@@ -1273,6 +1278,10 @@ class MainWindow(QMainWindow):
         if tile in self._pending_capture:
             self._finish_pending_capture(tile)
         self._emit_stream_resolved(tile, quality)
+        resume = getattr(self, "_match_sync_resume_pause", {}).pop(tile, None)
+        if resume == str(tile.room.get("room_id") or ""):
+            tile.set_paused(True)
+            player.set_paused(True)
         # 直播起来了：即时回放该开的就在这里开，不用用户手动点
         self._sync_replay_scope()
 
@@ -1462,6 +1471,34 @@ class MainWindow(QMainWindow):
         self.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
                           room=dict(tile.room or {}))
 
+    def _match_sync_holds(self, tile):
+        if not getattr(self, "_match_sync_active", False):
+            return False
+        return tile not in self.recorder.sessions and tile not in self._pending_capture
+
+    def set_match_sync_playback(self, active):
+        """Release hidden watching sessions, preserving independent recordings."""
+        if bool(active) == getattr(self, "_match_sync_active", False):
+            return
+        self._match_sync_active = bool(active)
+        if active:
+            self._match_sync_saved = {}
+            self._match_sync_resume_pause = {}
+            for tile in set(self.players) | set(self._resolvers) | set(self._retry_timers):
+                if self._match_sync_holds(tile):
+                    self._match_sync_saved[tile] = (str(tile.room.get("room_id") or ""), tile.paused)
+                    self._stop_tile(tile)
+        else:
+            saved, self._match_sync_saved = getattr(self, "_match_sync_saved", {}), {}
+            if self._closing:
+                return
+            for tile, (room_id, paused) in saved.items():
+                if (tile.isVisible() and room_id == str(tile.room.get("room_id") or "")
+                        and tile.room.get("live")):
+                    if paused:
+                        self._match_sync_resume_pause[tile] = room_id
+                    self.start_tile(tile)
+
     def _sync_tile_playback(self, *, start_visible: bool = False) -> None:
         """只让**看得见**的格子播放。
 
@@ -1472,6 +1509,8 @@ class MainWindow(QMainWindow):
         if not getattr(self, "plugins", None):
             start_visible = False       # 构造期间插件还没装好，不能在这里起流
         for tile in self.wall.tiles:
+            if getattr(self, "_match_sync_active", False):
+                continue
             player = self.players.get(tile)
             if tile.isVisible():
                 if start_visible and player is None and tile.room.get("live"):

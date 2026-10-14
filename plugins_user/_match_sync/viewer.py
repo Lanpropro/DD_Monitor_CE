@@ -749,6 +749,9 @@ class Viewer(QDialog):
 
     def showEvent(self, event):
         if self.embedded:
+            suspend = getattr(self.context.window, "set_match_sync_playback", None)
+            if callable(suspend):
+                suspend(True)
             self.host_audio_timer.start()
             self._suppress_host_audio()
         if self.embedded and not self.hidden_host_widgets:
@@ -883,6 +886,9 @@ class Viewer(QDialog):
         for widget, visible in previous.items():
             widget.removeEventFilter(self)
             widget.setVisible(visible)
+        resume = getattr(self.context.window, "set_match_sync_playback", None)
+        if self.embedded and callable(resume):
+            resume(False)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(ROOM_MIME):
