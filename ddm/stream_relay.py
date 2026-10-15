@@ -105,10 +105,15 @@ class StreamRelay:
     def needs_restart(self):
         """海外地址失效或转封装已退出时，不再等待播放器的缓冲超时。"""
         with self._lock:
-            if self._stopped or self._hls_proxy is None:
+            if self._stopped:
                 return False
             process = self._process
-        return self._hls_proxy.refresh_required.is_set() or process is not None and process.poll() is not None
+            proxy = self._hls_proxy
+        # 转封装进程死了就立刻报故障，别等缓冲超时：B 站 HEVC / AV1 这条走的是
+        # 不带 HlsProxy 的转封装（proxy=None），上游偶发 5xx 会让 FFmpeg 直接退出。
+        if process is not None and process.poll() is not None:
+            return True
+        return proxy is not None and proxy.refresh_required.is_set()
 
     def stop(self):
         with self._lock:

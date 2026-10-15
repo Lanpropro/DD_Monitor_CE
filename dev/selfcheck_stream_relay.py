@@ -97,6 +97,23 @@ def main():
             finally:
                 relay.stop()
         assert not relay._thread.is_alive()
+    # B 站 HEVC / AV1 走的是不带 HlsProxy 的转封装（proxy=None）：转封装进程一死
+    # 就必须立刻报故障，否则只能等播放器的缓冲超时（实测 4 秒以上）。
+    process = Process()
+    with patch.object(stream_relay, "ffmpeg_path", return_value="mock-ffmpeg"), \
+            patch.object(stream_relay, "_adopt_process"), \
+            patch.object(stream_relay.subprocess, "Popen", return_value=process):
+        relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {},
+                                        container="matroska")
+        try:
+            assert relay._hls_proxy is None
+            assert not relay.needs_restart()   # 进程还没起来，不算故障
+            assert requests.get(relay.url, timeout=2).status_code == 200
+            process.returncode = 0             # 模拟 FFmpeg 遇上游 5xx 提前退出
+            assert relay.needs_restart()
+        finally:
+            relay.stop()
+        assert not relay.needs_restart()       # 主动停止不算故障
     # 未知容器沿用原来的 FLV，不能因为拼错名字就换掉容器。
     assert stream_relay.container_for_codec("") == "flv"
     assert stream_relay.container_for_codec("garbage") == "flv"

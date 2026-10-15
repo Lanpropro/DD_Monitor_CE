@@ -28,9 +28,10 @@ STREAM_WEB = {"User-Agent": UA, "Referer": "https://live.bilibili.com/"}
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 
 #: 直播流编码方式：设置值 -> (界面文案, app-room 接口的 codec 参数)。
-#: 同一路直播按编码分开发流：H.264 是 FLV + fMP4 两条通道，HEVC / AV1 只有
-#: fMP4（HLS）通道，而且 VLC 播不了这种分片，必须先用 FFmpeg 转封装（见
-#: ``stream_relay``），所以这两档只在「转封装播放」下可用。
+#: 同一路直播按编码分开发流，H.264 有 FLV + fMP4 两条通道；HEVC 也常给出 FLV，
+#: 但那是把 HEVC 硬塞进 FLV，VLC 打开就是黑屏，AV1 则只有 fMP4（HLS）通道。
+#: 所以 HEVC / AV1 统一走 HLS，再用 FFmpeg 转封装成 VLC 认得的容器（见
+#: ``stream_relay``）—— 这两档只在「转封装播放」下可用。
 BILI_CODECS = (
     ("avc", "H.264 / AVC（兼容性最好）", 0),
     ("hevc", "HEVC / H.265（同画质省约一半码率）", 1),
