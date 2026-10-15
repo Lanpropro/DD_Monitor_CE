@@ -3259,7 +3259,7 @@ class MainWindow(QMainWindow):
             self._cycle_audio_under_cursor()
         elif pressed and pressed == shortcuts.get("video_danmaku"):
             tile = self._tile_under_cursor()
-            if tile is not None and tile.room.get("room_id"):
+            if tile is not None:
                 tile.danmaku_button.toggle()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
@@ -3272,7 +3272,7 @@ class MainWindow(QMainWindow):
     def _toggle_mute_under_cursor(self) -> None:
         """M：静音 / 取消静音鼠标所在的那一路（只动这一路，别的格子不变）。"""
         target = self._tile_under_cursor()
-        if target is None or not target.room.get("room_id"):
+        if target is None:
             return
         target.set_muted(not target.muted)
         print(f"[快捷键] {target.room.get('uname')} "

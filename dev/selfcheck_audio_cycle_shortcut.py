@@ -101,6 +101,44 @@ def check_hover_shortcuts(app, window):
         assert second.danmaku_button.isChecked() == before
 
 
+def check_corner_empty_slots(app):
+    rooms = [dict(room_id=str(2000 + i), uname=f'corner {i}', live=True) for i in range(6)]
+    window = MainWindow(rooms, [dict(rooms[0])], layout_id='corner',
+                        state={'plugins_enabled': []})
+    window.resize(1400, 850)
+    window.show()
+    window.activateWindow()
+    app.processEvents()
+    try:
+        assert len(window.wall.tiles) == 6
+        window.sidebar.settings_button.setFocus()
+        for index, tile in enumerate(window.wall.tiles):
+            # 起初只有主画面有房间，其余五个都是空格；焦点始终留在侧栏。
+            assert bool(tile.room.get('room_id')) == (index == 0)
+            point = window.wall.mapToGlobal(tile.geometry().center())
+            with patch('ddm.app.QCursor.pos', return_value=point):
+                assert window._tile_under_cursor() is tile
+                before = [(t.muted, t.danmaku_button.isChecked()) for t in window.wall.tiles]
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
+                for i, other in enumerate(window.wall.tiles):
+                    expected = tuple(not value for value in before[i]) if i == index else before[i]
+                    assert (other.muted, other.danmaku_button.isChecked()) == expected, (index, i)
+                selected = (tile.muted, tile.danmaku_button.isChecked())
+                # 走真实拖入处理，检查空格子的预设不会在填入房间时丢失。
+                if index:
+                    window._on_room_dropped(tile, rooms[index]['room_id'])
+                    assert (tile.muted, tile.danmaku_button.isChecked()) == selected
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
+                assert (tile.muted, tile.danmaku_button.isChecked()) == before[index]
+                saved = window.current_state()['wall'][index]
+                assert (saved['muted'], saved['video_danmaku_enabled']) == before[index]
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def main():
     app = QApplication([])
     room = {'room_id': '1001', 'uname': '测试', 'live': True,
@@ -110,6 +148,7 @@ def main():
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars'):
             stack.enter_context(patch.object(MainWindow, method))
+        check_corner_empty_slots(app)
         window = MainWindow([dict(room)], [dict(room), dict(room)], layout_id='2x2',
                             state={'plugins_enabled': [], 'ui': {'shortcuts': {'mute': 'M', 'video_danmaku': 'D'}}})
         first, second = window.wall.tiles[:2]
