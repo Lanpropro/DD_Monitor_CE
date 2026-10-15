@@ -23,7 +23,7 @@ SHORTCUT_ACTIONS = [
     ("restore", "退出全屏", "Esc"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("audio_cycle", "声音轮询按键", "E"),
-    ("video_danmaku", "切换鼠标所在格子的画面弹幕", "D"),
+    ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
 

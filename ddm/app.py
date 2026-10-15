@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimation,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
-from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap
+from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
@@ -557,6 +557,11 @@ class MainWindow(QMainWindow):
         self.sidebar.set_folders(self.state.get("follow_folders") or [])
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
+        # 旧版画面弹幕的默认键为 D，随本次默认键调整到 B；其他自定义键保留。
+        if (not (self.state.get("ui") or {}).get("danmaku_shortcut_default_b")
+                and self.shortcuts.get("video_danmaku") == "D"):
+            self.shortcuts["video_danmaku"] = "B"
+        self._refresh_shortcuts()
         # 布局按方向分别记（老配置的 layout 键在 __init__ 里已经并到横屏那格）；
         # 第一次启动（配置里还没有这一项）＝ 第一次启动的默认布局
         ui = self.state.setdefault("ui", {})
@@ -755,6 +760,7 @@ class MainWindow(QMainWindow):
                 self._update_notice.dismiss()
         self._sync_fullscreen_audio()
         self.shortcuts = dialog.shortcuts()
+        self._refresh_shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
         self.refresh_skin()
@@ -863,6 +869,7 @@ class MainWindow(QMainWindow):
                 "layout_landscape": self._saved_layout("landscape"),
                 "layout_portrait": self._saved_layout("portrait"),
                 "shortcuts": dict(self.shortcuts),
+                "danmaku_shortcut_default_b": True,
             },
             "pinned": list(self.sidebar.pinned),
             "sort": self.sidebar.sort_mode,
@@ -3201,6 +3208,20 @@ class MainWindow(QMainWindow):
                           room_id=room_id, status=text)
 
     # ---- 快捷键 ----
+    def _refresh_shortcuts(self) -> None:
+        for shortcut in getattr(self, "_window_shortcuts", []):
+            shortcut.setEnabled(False)
+            shortcut.deleteLater()
+        self._window_shortcuts = []
+        for sequence in dict.fromkeys(self.shortcuts.values()):
+            if not sequence:
+                continue
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(lambda key=sequence: self._handle_shortcut(key))
+            self._window_shortcuts.append(shortcut)
+
     def _tile_under_cursor(self):
         """鼠标现在压在哪一格的画面上（没有就 None）。
 
@@ -3220,6 +3241,10 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event) -> None:
         pressed = QKeySequence(event.keyCombination()).toString()
+        if not self._handle_shortcut(pressed):
+            super().keyPressEvent(event)
+
+    def _handle_shortcut(self, pressed: str) -> bool:
         shortcuts = self.shortcuts
         if pressed and pressed == shortcuts.get("focus"):
             if self._fullscreen_tile is not None:
@@ -3241,7 +3266,8 @@ class MainWindow(QMainWindow):
         elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:
             self._exit_fullscreen()
         else:
-            super().keyPressEvent(event)
+            return False
+        return True
 
     def _toggle_mute_under_cursor(self) -> None:
         """M：静音 / 取消静音鼠标所在的那一路（只动这一路，别的格子不变）。"""
