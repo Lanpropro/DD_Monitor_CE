@@ -53,12 +53,15 @@ baseline_height = sidebar.height()
 context = Mock(window=host)
 plugin = MatchSyncPlugin()
 plugin.set_enabled = Mock()
-plugin.on_load(context)
+with patch.object(motion, 'THEME_WAVE_EASING'):
+    del motion.THEME_WAVE_EASING
+    plugin.on_load(context)
 settle()
 assert native_geometry() == baseline, (native_geometry(), baseline)
 assert native_tools() == baseline_tools
 assert sidebar.height() == baseline_height
 entry = plugin.entry
+assert entry._stretch.easingCurve().type().name == 'OutCubic', 'Released hosts must load without the new easing constant'
 assert entry.parentWidget() is sidebar._bar_row
 assert entry.size().toTuple() == (30, 30)
 assert entry.toolButtonStyle() == Qt.ToolButtonIconOnly

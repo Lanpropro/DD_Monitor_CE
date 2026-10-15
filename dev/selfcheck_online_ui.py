@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QFrame
-from ddm import app as app_module, config, online, theme
+from ddm import app as app_module, config, online, theme, update_install
 from ddm.dialogs import SettingsDialog
 from ddm.online_ui import OnlinePage
 from ddm.version import VERSION, VERSION_TAG
@@ -163,10 +163,21 @@ def main():
             assert update.action.text() == '重启并更新'
             update.action.click()
             assert update.install_requested and dialog.result() == SettingsDialog.Accepted
+            (root / update_install.RESULT).write_text(json.dumps({'message': '软件更新完成'}), encoding='utf-8')
             auto_dialog = SettingsDialog({'auto_update': True}, {}, plugin_manager=manager)
             auto_dialog.show()
             automatic = auto_dialog.update_page
             assert automatic.auto.isChecked()
+            assert automatic.status.text() == '软件更新完成'
+            assert automatic.action.text() == '请先检查更新' and not automatic.action.isEnabled()
+            app.processEvents()
+            pixel = lambda: automatic.action.grab().toImage().pixelColor(10, automatic.action.height() // 2)
+            assert pixel() != theme.qcolor(theme.ACCENT), 'Unavailable update must not look like an active blue button'
+            automatic._release_ready(offer)
+            assert automatic.action.isEnabled() and automatic.action.text() == '下载更新'
+            assert pixel() == theme.qcolor(theme.ACCENT)
+            automatic._release_ready(None)
+            assert not automatic.action.isEnabled() and automatic.action.text() == '已是最新版本'
             with patch.object(online, 'app_release', return_value=None), \
                     patch.object(online, 'download') as download:
                 automatic.check.click()
@@ -174,12 +185,14 @@ def main():
                 assert '当前版本说明' in automatic.notes.toPlainText()
                 assert automatic.notes_title.text() == f'当前版本 {VERSION} 更新说明'
                 assert automatic.auto.isEnabled() and not automatic.action.isEnabled()
+                assert automatic.action.text() == '已是最新版本'
                 download.assert_not_called()
             with patch.object(online, 'app_release', side_effect=OSError('offline')), \
                     patch.object(online, 'download') as download:
                 automatic.check.click()
                 settle(app, automatic)
                 assert 'offline' in automatic.status.text() and automatic.auto.isEnabled()
+                assert automatic.action.text() == '请先检查更新' and automatic.check.isEnabled()
                 assert '当前版本说明' in automatic.notes.toPlainText(), 'network failure must preserve current notes'
                 download.assert_not_called()
             with patch.object(online, 'app_release', return_value=dict(offer, notes='# 新版\n\n- 修复内容')), \
@@ -188,6 +201,12 @@ def main():
                 assert not auto_dialog.confirm_button.isEnabled()
                 settle(app, automatic)
                 download.assert_not_called()
+                with patch.object(online, 'download', side_effect=OSError('download failed')):
+                    automatic.action.click()
+                    settle(app, automatic)
+                    assert 'download failed' in automatic.status.text()
+                    assert automatic.action.isEnabled() and automatic.action.text() == '下载更新'
+                    assert not automatic.plan_path
                 automatic.action.click()
                 settle(app, automatic)
                 download.assert_called_once()

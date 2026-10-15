@@ -1,7 +1,7 @@
 """Package entry point loaded by DD Monitor CE's single-file plugin loader."""
 import os
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QSize, Qt, QTimer, QVariantAnimation
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QStyle, QStyleOptionToolButton, QStylePainter, QToolButton
 
@@ -27,7 +27,7 @@ class EntryButton(QToolButton):
         self._paint_width = None
         self._stretch = QVariantAnimation(self)
         self._stretch.setDuration(160)
-        self._stretch.setEasingCurve(motion.THEME_WAVE_EASING)
+        self._stretch.setEasingCurve(getattr(motion, 'THEME_WAVE_EASING', QEasingCurve.OutCubic))
         self._stretch.valueChanged.connect(self._stretch_frame)
         self._stretch.finished.connect(self._stretch_finished)
         self.setDefaultAction(action)

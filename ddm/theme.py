@@ -782,6 +782,9 @@ QPushButton#IconButton:pressed {{
 #PrimaryButton:hover {{
     background: {style_mix("ACCENT", "#ffffff", 0.12)};
 }}
+#PrimaryButton[updateAction="true"]:disabled {{
+    background: {CONTENT}; color: {TEXT3}; border: 1px solid {BORDER_STRONG};
+}}
 QPushButton#PrimaryButton:pressed {{
     background: {style_mix("ACCENT", "#000000", 0.16)};
 }}

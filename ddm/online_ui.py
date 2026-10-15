@@ -335,6 +335,7 @@ class AppUpdatePage(OnlinePage):
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
         self.offer = None
+        self._checked = False
         self.plan_path = ''
         self.install_requested = False
         layout = QVBoxLayout(self)
@@ -352,6 +353,7 @@ class AppUpdatePage(OnlinePage):
         layout.addWidget(self.auto)
         self.action = QPushButton('下载更新')
         self.action.setObjectName('PrimaryButton')
+        self.action.setProperty('updateAction', True)
         self.action.setEnabled(False)
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
@@ -372,8 +374,8 @@ class AppUpdatePage(OnlinePage):
         self.release_button.clicked.connect(lambda: QDesktopServices.openUrl(
             QUrl(f'https://github.com/{online.APP_REPOSITORY}/releases')))
         layout.addWidget(self.release_button, 0, Qt.AlignLeft)
-        if not getattr(sys, 'frozen', False):
-            self.status.setText('源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
+        self.status.setText('点击“检查更新”查询可下载的新版。' if getattr(sys, 'frozen', False) else
+                            '源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
         result = Path(config.REPO) / update_install.RESULT
         if result.is_file():
             try:
@@ -387,6 +389,21 @@ class AppUpdatePage(OnlinePage):
         self.check.setEnabled(not busy and not self.plan_path)
         self.action.setEnabled(not busy and bool(self.plan_path or self.offer)
                                and bool(getattr(sys, 'frozen', False)))
+        if busy:
+            text, hint = (('正在下载…', '正在下载和校验更新包，请等待完成') if self.offer else
+                          ('检查中…', '正在查询正式版本，请等待检查结果'))
+        elif self.plan_path:
+            text, hint = '重启并更新', '更新包已准备完成，点击保存设置并重启安装'
+        elif not getattr(sys, 'frozen', False):
+            text, hint = '仅 EXE 版可更新', '当前为源码运行，请通过仓库更新源码'
+        elif self.offer:
+            text, hint = '下载更新', '下载并校验新版软件，完成后再确认重启安装'
+        elif self._checked:
+            text, hint = '已是最新版本', '未发现比当前版本更新的正式版本，无需下载'
+        else:
+            text, hint = '请先检查更新', '点击“检查更新”；如果检查失败，可重试或打开发布页面手动下载'
+        self.action.setText(text)
+        self.action.setToolTip(hint)
 
     def values(self):
         return {'auto_update': self.auto.isChecked()}
@@ -416,6 +433,7 @@ class AppUpdatePage(OnlinePage):
         if self.jobs or self.stopping or self.plan_path:
             return
         self.offer = None
+        self._checked = False
         self.show_current_notes()
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
@@ -425,6 +443,8 @@ class AppUpdatePage(OnlinePage):
 
     def _release_ready(self, offer):
         self.offer = offer
+        self._checked = True
+        self._busy(bool(self.jobs))
         self.releaseChecked.emit(offer)
         if offer:
             self.notes_title.setText('新版 ' + offer['version'] + ' 更新说明')
