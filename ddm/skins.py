@@ -96,6 +96,7 @@ def plugin_skin(plugin, folder):
 
 class BackgroundLayer(QWidget):
     failed = Signal(str)
+    frameReady = Signal()
 
     def __init__(self, root, window):
         super().__init__(root)
@@ -160,6 +161,7 @@ class BackgroundLayer(QWidget):
         if not image.isNull():
             self.image = image
             self.update()
+            self.frameReady.emit()
 
     def _error(self, _code, message):
         if self.player.source().isEmpty() or Path(self.path).suffix.lower() not in VIDEOS:

@@ -26,7 +26,7 @@ from ddm.plugins import PluginManager, read_manifest
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
 from ddm.skins import import_asset, validate_asset
-from ddm.skin_settings import SkinSettings
+from ddm.skin_settings import PartSettings, SkinSettings
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
@@ -141,6 +141,19 @@ def check_parts(app):
             editor.move(-10000, -10000)
             editor.show()
             app.processEvents()
+            assert editor.part.currentData() == 'background'
+            assert editor.preview.selected == 'background' and editor.scenes.currentIndex() == 0
+            assert editor.background_controls.isVisible() and editor.parameter_box.isHidden()
+            assert editor.introduction.text() == '点击左侧预览图中可修改部分 在下方自定义修改'
+            assert editor.selection_title.text() == '软件整体背景'
+            assert editor.page_title.y() < editor.introduction.y()
+            output = ROOT/'work/appearance-delivery'
+            output.mkdir(parents=True, exist_ok=True)
+            editor.grab().save(str(output/'parts-editor-default.png'))
+            original_mask = editor.background_controls.mask_slider.value()
+            editor.background_controls.mask_slider.setValue(44)
+            assert controls.values() == editor.background_controls.values(), 'Outer settings must retain edits made in the preview page'
+            editor.background_controls.mask_slider.setValue(original_mask)
             from ddm.skin_parts import PARTS
             clicked = []
             editor.preview.partSelected.connect(clicked.append)
@@ -150,6 +163,8 @@ def check_parts(app):
                 editor.preview.grab()
                 QTest.mouseClick(editor.preview, Qt.LeftButton, pos=editor.preview.point_for(part))
                 assert clicked[-1] == part and editor.part.currentData() == part
+                assert editor.page_title.text() == '界面美化'
+                assert editor.introduction.text() == '点击左侧预览图中可修改部分 在下方自定义修改'
             assert editor.background_controls.isVisible() and editor.parameter_box.isHidden()
             editor.part.setCurrentIndex(editor.part.findData('sidebar'))
             editor.preview.grab()
@@ -598,8 +613,20 @@ def main():
                 '-i', 'sine=frequency=440:sample_rate=44100', '-t', '1', '-c:v', 'libx264', '-c:a', 'aac',
                 '-pix_fmt', 'yuv420p', str(video)], check=True)
             video_path = import_asset(video)
+            video_editor = PartSettings(window)
+            video_editor.setAttribute(Qt.WA_ShowWithoutActivating)
+            video_editor.move(-10000, -10000)
+            video_editor.show()
+            app.processEvents()
             window.set_skin({'skin_background': video_path, 'skin_mask': 35})
             wait_for(lambda: layer.image is not None)
+            assert video_editor.preview.background is layer.image
+            before_frame = video_editor.preview.background.copy()
+            before_preview = video_editor.preview.grab().toImage()
+            player = layer.player
+            wait_for(lambda: video_editor.preview.background != before_frame)
+            assert video_editor.preview.grab().toImage() != before_preview, 'Video frames must animate in the miniature'
+            assert layer.player is player and not video_editor.findChildren(QMediaPlayer), 'Preview must reuse the existing decoder'
             assert layer.player.audioOutput() is None and layer.player.loops() == QMediaPlayer.Infinite
             assert layer.player.playbackState() == QMediaPlayer.PlayingState
             window.set_skin({'skin_mask': 100})
@@ -607,6 +634,7 @@ def main():
             frame = layer.image
             QTest.qWait(150)
             assert layer.image is frame, 'Fully masked video must skip frame conversion'
+            assert video_editor.preview.background is frame
             assert layer.grab().toImage().pixelColor(10, 10) == theme.qcolor(theme.BG)
             window.set_skin({'skin_mask': 35})
             wait_for(lambda: layer.player.playbackState() == QMediaPlayer.PlayingState)
@@ -627,6 +655,8 @@ def main():
             window.set_skin({'skin_background': window.settings['skin_background'], 'skin_mask': 40})
             assert window.skin_controller.error, 'Changing the mask must not hide a decoder error'
             window.set_skin({'skin_background': '', 'skin_mask': 35})
+            assert video_editor.preview.background is None
+            video_editor.close()
             assert layer.player.playbackState() == QMediaPlayer.StoppedState
             assert not theme._skin_active and 'rgba(' not in window.sidebar.styleSheet()
             missing = 'utils/skins/missing.png'

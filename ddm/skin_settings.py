@@ -95,6 +95,12 @@ class SkinSettings(QWidget):
         dialog.deleteLater()
 
     def sync(self):
+        if self.controller is not None:
+            settings = self.controller.window.settings
+            self.path = settings.get('skin_background', '')
+            self._mask = settings.get('skin_mask', 35)
+            self._sidebar = bool(settings.get('skin_sidebar', False))
+            self._overrides = {key: bool(settings.get(key, False)) for key in self._overrides}
         override = self.controller.override if self.controller is not None else None
         locked = self._locked() or self.job is not None
         for widget in (self.choose, self.clear, self.mask_slider, self.sidebar_toggle):
@@ -224,29 +230,35 @@ class PartSettings(QDialog):
         legend.setWordWrap(True)
         preview_column.addWidget(legend)
         outer.addLayout(preview_column, 3)
+        right = QVBoxLayout()
+        self.page_title = QLabel('界面美化')
+        self.page_title.setObjectName('SettingsTitle')
+        right.addWidget(self.page_title)
+        self.introduction = QLabel('点击左侧预览图中可修改部分 在下方自定义修改')
+        self.introduction.setObjectName('SettingsHint')
+        self.introduction.setWordWrap(True)
+        right.addWidget(self.introduction)
+        outer.addLayout(right, 2)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setMinimumWidth(350)
         content = QWidget()
         scroll.setWidget(content)
-        outer.addWidget(scroll, 2)
+        right.addWidget(scroll, 1)
         layout = QVBoxLayout(content)
         self.selection_title = QLabel()
         self.selection_title.setObjectName('SettingsTitle')
         layout.addWidget(self.selection_title)
-        note = QLabel('勾选要修改的字段，缩略图会同步预览。切换区域会保留修改，点击“应用并保存”后生效。'
-                      '未勾选项跟随美化包或软件默认。')
-        note.setWordWrap(True)
-        layout.addWidget(note)
         self.part = QComboBox(self)
         self.part.addItem('软件整体背景', 'background')
         for key, label in PARTS.items():
             self.part.addItem(label, key)
         self.part.hide()
-        self.part.setCurrentIndex(self.part.findData('sidebar'))
+        self.part.setCurrentIndex(self.part.findData('background'))
         self.background_controls = SkinSettings(owner.settings, owner.skin_controller, content)
         self.background_controls.parts_button.hide()
+        self.background_controls.findChild(QLabel, 'SettingsTitle').hide()
         layout.addWidget(self.background_controls)
         self.parameter_box = QWidget(content)
         parameters = QVBoxLayout(self.parameter_box)
@@ -315,6 +327,7 @@ class PartSettings(QDialog):
         self.scenes.currentChanged.connect(self._select_scene)
         self.preview.partSelected.connect(self._select_part)
         owner.skin_controller.changed.connect(self._update_background)
+        owner.skin_controller.layer.frameReady.connect(self._update_background)
         from . import theme
         theme.signals().changed.connect(self._update_preview)
         for check, edit in self.fields.values():
@@ -330,7 +343,7 @@ class PartSettings(QDialog):
         self.part.setCurrentIndex(self.part.findData(part))
 
     def _select_scene(self, index):
-        self._select_part(('sidebar', 'settings', 'menus')[index])
+        self._select_part(('background', 'settings', 'menus')[index])
 
     def _update_background(self):
         layer = self.owner.skin_controller.layer
