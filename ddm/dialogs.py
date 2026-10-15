@@ -140,7 +140,14 @@ class GeneralSettingsPage(QWidget):
         mode = settings.get("decode_mode") or (
             "auto" if settings.get("hw_decode", True) else "none")
         self.decode_mode.setCurrentIndex(max(0, self.decode_mode.findData(mode)))
-        self.decode_mode.setToolTip("自动优先使用可用的硬件解码；软件解码占用更多 CPU。切换后正在播放的直播会重新取流。")
+        self.decode_mode.setToolTip(
+            "每一路画面由谁解码：\n"
+            "  自动（推荐）：让 VLC 自己挑显卡解码器，挑不到就用 CPU。\n"
+            "  Direct3D 11：较新的显卡解码接口，Windows 上优先用它。\n"
+            "  DXVA2：更早的显卡解码接口，Direct3D 11 出问题时用。\n"
+            "  软件解码：完全用 CPU，兼容性最好；显卡解不动或花屏 / 绿屏时改用它。\n"
+            "显卡解码把活交给显卡，CPU 占用通常更低。哪个能用取决于显卡和驱动，\n"
+            "用不了时 VLC 会自动退回软件解码，不会放不出来。切换后正在播放的会重新取流。")
         grid.addWidget(self.decode_mode, row, 1)
         row += 1
         grid.addWidget(QLabel("B站直播编码"), row, 0)

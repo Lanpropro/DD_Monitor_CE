@@ -16,9 +16,13 @@ REFERRER = "https://live.bilibili.com/"
 APP_UA = ("Mozilla/5.0 BiliDroid/6.25.0 (bbcallen@gmail.com) os/android model/MuMu "
           "mobi_app/android build/6250300 channel/bili innerVer/6250300 osVer/6.0.1 network/2")
 
-#: 解码方式是 media 级选项；自动沿用实例默认值，其余强制指定 VLC 模块。
-DECODE_MODES = (("自动（推荐）", "auto"), ("Direct3D 11", "d3d11va"),
-                ("DXVA2", "dxva2"), ("软件解码", "none"))
+#: 解码器选择，media 级选项；自动沿用实例默认值（``--avcodec-hw=any``，VLC 自己
+#: 挑显卡解码器，挑不到就用 CPU），其余指定 VLC 的 ``avcodec-hw`` 模块。
+#: 标签要说清「谁在解码」—— 显卡还是 CPU，别只甩 D3D11VA / DXVA2 这种接口名。
+DECODE_MODES = (("自动（优先显卡解码，不可用回退 CPU）", "auto"),
+                ("Direct3D 11 显卡解码（较新的接口）", "d3d11va"),
+                ("DXVA2 显卡解码（更早的接口）", "dxva2"),
+                ("软件解码（纯 CPU，兼容性最好）", "none"))
 HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
 
 
