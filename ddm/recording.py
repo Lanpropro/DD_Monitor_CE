@@ -420,7 +420,15 @@ class RecordingManager(QObject):
             return
         if str(tile.room.get("room_id") or "") != session.room_id:
             self.stop(tile)
-        elif session.process is None:
+            return
+        # 中途换编码（设置里从 H.264 切到 AV1）会重新取流，容器得跟着换：AV1 装不进
+        # MOV，TS 又会把 AV1 塞成读不出画面的私有流。会话只在开始时快照过一次编码，
+        # 这里在换流前再对一次，否则会拿旧编码挑错容器、录出坏文件。
+        codec = str(getattr(tile, "stream_codec", "") or "")
+        if codec != session.video_codec:
+            session.video_codec = codec
+            session.extension = segment_extension_for(session.settings, codec)
+        if session.process is None:
             try:
                 self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
                 self._say(f"{session.name} 取到新流，继续录制")

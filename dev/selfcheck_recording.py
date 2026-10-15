@@ -37,6 +37,13 @@ class FakeTile:
         return self.visible
 
 
+class FakeProcess:
+    """假装还在跑的 FFmpeg：轮询时 poll() 返回 None（进程未退出）。"""
+
+    def poll(self):
+        return None
+
+
 def ffprobe_path(ffmpeg: str) -> str:
     """优先用 PATH 上的 ffprobe，没有就找与 ffmpeg 同目录的那一份。"""
     found = shutil.which("ffprobe")
@@ -119,6 +126,22 @@ def main():
     assert _Session(av1_tile, dict(DEFAULT_SETTINGS), True, Path.cwd(), "av1").extension == "mp4"
     # 老格子取不到 stream_codec，扩展名按设置原样走。
     assert _Session(FakeTile("未知源", "90009", "x"), mov, True, Path.cwd()).extension == "mov"
+
+    # 录制中途换编码（设置里从 H.264 切到 AV1）会重新取流：会话要跟着换容器，
+    # 否则 MOV 装不下 AV1、TS 会把 AV1 塞成读不出画面的私有流。
+    switched = FakeTile("换编码", "91010", "x")
+    switched.stream_codec = "avc"
+    manager_switch = RecordingManager(dict(mov))
+    session = _Session(switched, mov, True, Path.cwd(), switched.stream_codec)
+    assert session.extension == "mov"
+    session.process = FakeProcess()     # 正在录制：非 None 且 stream_url 未变
+    session.url = switched.stream_url
+    manager_switch.sessions[switched] = session
+    switched.stream_codec = "av1"       # 取回 AV1 流
+    manager_switch.on_resolved(switched)
+    assert session.video_codec == "av1" and session.extension == "mp4", \
+        "换编码后会话仍按旧编码挑容器，会录出坏文件"
+    manager_switch.timer.stop()
 
     dialog = SettingsDialog(DEFAULT_SETTINGS, {})
     assert dialog.recording_page.values()["recording_format"] == "mp4"
