@@ -133,6 +133,17 @@ def run(app):
                 time.sleep(.005)
                 changed = decoder.pictures.get(other.history, other_frame, exact=True)
             assert changed is not None and changed[0] == other_frame[0]
+            decoder.pictures.snapshot_until = 0
+            decoder.pictures.configure(64 * 1024 * 1024, 60, active=False)
+            assert not decoder.pictures.active and not decoder.pictures.images
+            changed = decoder.pictures.get(other.history, other_frame, exact=True)
+            deadline = time.monotonic() + 2
+            while changed is None and time.monotonic() < deadline:
+                time.sleep(.005)
+                changed = decoder.pictures.get(other.history, other_frame, exact=True)
+            assert changed is not None, 'Reactivating the same cached timestamp must rebuild the picture decoder'
+            decoder.pictures.configure(64 * 1024 * 1024, 60, active=False)
+            assert decoder.pictures.active, 'An explicit hidden-source crop snapshot must survive periodic background suspension'
             print("PASS: byte-identical decoded source pixels; backward/forward seek, bounded prefetch, no GUI JPEG decode")
             # Poll a moving playback timeline, measuring actual frame presentation.
             clock = decoder.history.origin + 1

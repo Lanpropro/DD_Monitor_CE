@@ -155,9 +155,18 @@ class PictureReader:
         self.max_frames = 8
         self.fps = 60.0
         self.lead = .1
+        self.active = True
+        self.snapshot_until = 0.0
+        self.reset_requested = False
 
-    def configure(self, byte_limit, fps, lead=.25):
+    def configure(self, byte_limit, fps, lead=.25, active=True):
         with self.lock:
+            previous_active = self.active
+            self.active = active or time.monotonic() < self.snapshot_until
+            if not self.active:
+                self.reset_requested |= previous_active
+                self.target = None
+                self.images.clear()
             if (self.byte_limit, self.fps, self.lead, self.max_frames) == (byte_limit, max(1, fps), lead, 24):
                 return
             self.byte_limit = byte_limit
@@ -169,6 +178,10 @@ class PictureReader:
 
     def get(self, history, frame, exact=False):
         with self.lock:
+            # Explicit crop dialogs may request a snapshot of a hidden source.
+            self.active = True
+            if exact:
+                self.snapshot_until = time.monotonic() + .5
             if self.history is not history:
                 self.images.clear()
                 self.history = history
@@ -207,6 +220,12 @@ class PictureReader:
                 if self.cancelled.is_set():
                     break
                 with self.lock:
+                    if self.reset_requested:
+                        codec = owner = sequence = previous = decoded_until = None
+                        self.reset_requested = False
+                    if self.target is None or not self.active:
+                        codec = owner = sequence = previous = decoded_until = None
+                        continue
                     history, (timestamp, target) = self.history, self.target
                 if owner is not history or previous is None or target < previous - .05 or target > previous + .5:
                     codec = sequence = decoded_until = None
@@ -232,7 +251,7 @@ class PictureReader:
                     if self.cancelled.is_set():
                         break
                     with self.lock:
-                        if self.history is not history or abs(self.target[1] - target) > .25:
+                        if not self.active or self.target is None or self.history is not history or abs(self.target[1] - target) > .25:
                             break
                     started = time.perf_counter()
                     frames = codec.decode(packet.decode_packet())
@@ -246,7 +265,7 @@ class PictureReader:
                         image = image_from_frame(frame)
                         key = history.origin + pts
                         with self.lock:
-                            if self.history is not history or self.cancelled.is_set():
+                            if not self.active or self.history is not history or self.cancelled.is_set():
                                 break
                             self.images[key] = image
                             capacity = max(1, min(self.max_frames, self.byte_limit // image.sizeInBytes()))

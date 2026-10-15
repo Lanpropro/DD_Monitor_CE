@@ -94,6 +94,7 @@ class Decoder:
         self.video_size = (0, 0)
         self.last_frame_received = 0.0
         self.crop = (0.0, 0.0, 1.0, 1.0)
+        self.analysis_size = (640, 360)
         self.cancelled = threading.Event()
         self.process = None
         self.thread = None
@@ -313,7 +314,10 @@ class Decoder:
                                 next_detail += .05
                             with self.lock:
                                 crop = self.crop
-                            gray = frame.reformat(width=min(640, frame.width), height=min(360, frame.height), format="gray")
+                                width, height = self.analysis_size
+                            if crop != (0, 0, 1, 1):
+                                width, height = 640, 360
+                            gray = frame.reformat(width=min(width, frame.width), height=min(height, frame.height), format="gray")
                             plane = gray.planes[0]
                             image = QImage(bytes(plane), gray.width, gray.height, plane.line_size, QImage.Format_Grayscale8)
                             signature, texture = fingerprint(image, crop)

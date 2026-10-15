@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QPushButton, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
 from plugins_user._match_sync.engine import (Alignment, AudioRing, History,
@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "1.2.6"
+        assert manager.catalog()[0]["version"] == "1.2.7"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -403,6 +403,8 @@ def embedded_checks(app):
     host.sidebar.setStyleSheet(theme.qss())
     host.sidebar.tool_row = QWidget(host.sidebar)
     QHBoxLayout(host.sidebar.tool_row)
+    host.sidebar.layout_button = QPushButton("布局预设")
+    host.sidebar.tool_row.layout().addWidget(host.sidebar.layout_button)
     card_a = NavItem({"room_id": "42", "uname": "关注主播"}, 0, host.sidebar)
     card_b = NavItem({"room_id": "99", "uname": "原布局主播"}, 1, host.sidebar)
     host.sidebar._items = [card_a, card_b]
@@ -520,7 +522,8 @@ def embedded_checks(app):
             assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0, "Preserve the 12px bottom corners"
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
         assert [widget for widget in row.control_widgets if not widget.isHidden()][-1].geometry().right() >= row.width() - 9
-        assert row.main_button.x() - row.alias.geometry().right() <= 7
+        assert row.main_button.x() - row.avatar.geometry().right() <= 7
+        assert row.alias.isHidden() and row.avatar.isVisible()
         assert row.volume_number.x() - row.volume.geometry().right() <= 7
         assert viewer.picture_split.widget(0) is viewer.left_pane
         assert viewer.picture_split.widget(1) is viewer.panel

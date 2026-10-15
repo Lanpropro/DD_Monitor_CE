@@ -8,7 +8,9 @@ from unittest.mock import Mock, patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 os.environ.setdefault('DDM_NO_SAVE','1')
-from PySide6.QtCore import QMimeData, QPointF, QRectF
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRectF, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget, QDialog
 from ddm import plugins
 from dev.selfcheck_match_sync import FakeDecoder, FakeChat, jpeg
@@ -45,6 +47,39 @@ def main():
             app.processEvents()
             assert viewer.rows['1'].realign.isHidden()
             assert not viewer.rows['2'].realign.isHidden() and not viewer.rows['3'].realign.isHidden()
+            row = viewer.rows['3']
+            original = {key: item.geometry() for key, item in viewer.rows.items()}
+            drags = []
+            native_drag = module.QDrag
+            def make_drag(source):
+                drag = native_drag(source)
+                drags.append(drag)
+                return drag
+            def cancel_drag(*_args):
+                assert row.isHidden() and viewer.dragged_row == '3'
+                assert bytes(drags[-1].mimeData().data(module.ROW_MIME)) == b'3'
+                assert drags[-1].pixmap().width() >= row.width(), 'The entire card must move with the pointer'
+                viewer.preview_row_drag(QPoint(0, 0))
+                assert viewer.row_preview == ['3', '1', '2'] and viewer.row_animations
+                QTest.qWait(170)
+                assert viewer.rows['1'].y() > original['1'].y(), 'Other cards must make room during hover'
+                return Qt.IgnoreAction
+            with patch.object(module.motion, 'enabled', return_value=True), \
+                    patch.object(module, 'QDrag', side_effect=make_drag), patch.object(native_drag, 'exec', side_effect=cancel_drag):
+                QTest.mousePress(row, Qt.LeftButton, pos=QPoint(4, 4))
+                app.sendEvent(row, QMouseEvent(QEvent.MouseMove, QPointF(35, 4), QPointF(35, 4),
+                                               Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+            app.processEvents()
+            assert viewer.dragged_row is None and not row.isHidden() and list(viewer.rows) == ['1', '2', '3']
+            assert all(item.geometry() == original[key] for key, item in viewer.rows.items()), 'Cancelled drag restores every card'
+            viewer.begin_row_drag('3')
+            with patch.object(module.motion, 'enabled', return_value=False):
+                viewer.preview_row_drag(QPoint(0, 0))
+                assert not viewer.row_animations
+                viewer.finish_row_drag(QPoint(0, 0))
+            assert list(viewer.rows) == ['3', '1', '2']
+            viewer.reorder_room('3', '2', after=True)
+            assert list(viewer.rows) == ['1', '2', '3']
             assert not hasattr(viewer.comparison_panel, 'retry_buttons')
             assert viewer.rows['2'].realign.x() - viewer.rows['2'].main_button.geometry().right() <= 7
             originals={key:row.decoder for key,row in viewer.rows.items()}
@@ -96,7 +131,7 @@ def main():
             main_id=viewer.alignment.reference
             mime=QMimeData()
             mime.setData(module.ROW_MIME,b'3')
-            event=SimpleNamespace(source=lambda:viewer.rows['3'].grip,mimeData=lambda:mime,
+            event=SimpleNamespace(source=lambda:viewer.rows['3'],mimeData=lambda:mime,
                                   position=lambda:QPointF(0,0),acceptProposedAction=Mock(),ignore=Mock())
             viewer.rows['1'].dropEvent(event)
             event.acceptProposedAction.assert_called_once()

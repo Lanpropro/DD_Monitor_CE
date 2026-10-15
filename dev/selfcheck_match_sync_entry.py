@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 import sys
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -13,7 +13,7 @@ from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QToolButton, QVBoxLayout, QWidget
-from ddm import theme
+from ddm import motion, theme
 from ddm.widgets import Sidebar
 from plugins_user._match_sync.plugin import MatchSyncPlugin
 
@@ -95,6 +95,29 @@ for _ in range(4):
     assert entry.parentWidget() is sidebar._bar_row and entry.isVisible()
     assert native_tools() == baseline_tools
     assert native_geometry() == baseline
+
+for side in ('left', 'top', 'left'):
+    sidebar.set_side(side)
+    settle()
+    old_width = entry.width()
+    with patch.object(motion, 'enabled', return_value=True):
+        entry.set_mode(True)
+    settle()
+    assert sidebar.layout_button.isHidden()
+    assert entry.parentWidget() is sidebar.tool_row and entry.toolButtonStyle() == Qt.ToolButtonTextOnly
+    assert entry.width() > old_width, 'Active match entry must occupy the freed preset space'
+    width = entry.width()
+    entry._stretch.setCurrentTime(80)
+    assert entry.width() == width, 'The stretch is painted without repeatedly relaying out the sidebar'
+    entry._stretch.setCurrentTime(160)
+    assert entry._paint_width is None
+    with patch.object(motion, 'enabled', return_value=False):
+        entry.set_mode(False)
+    settle()
+    assert not sidebar.layout_button.isHidden()
+sidebar.set_side('top')
+settle()
+assert native_geometry() == baseline
 
 if "--snapshot" in sys.argv:
     output = REPO / "work" / "match-sync-portrait-entry.png"

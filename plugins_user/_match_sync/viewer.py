@@ -8,18 +8,18 @@ from collections import deque
 from dataclasses import replace
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEvent, QMimeData, QObject, QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QDrag, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QShortcut
+from PySide6.QtCore import QEasingCurve, QEvent, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QDrag, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRegion, QShortcut
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
+    QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
 
-from ddm.widgets import AUTO_QUALITY, DanmakuPanel, ROOM_MIME, Tile
+from ddm.widgets import AUTO_QUALITY, Avatar, DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
-from ddm import theme
+from ddm import motion, theme
 from .engine import Alignment, Match, RATE, SafetyBuffer, match_scenes, refine_match, mix_pcm, resample_pcm
 from .media import Chat, Decoder, PlatformChat
 
@@ -398,21 +398,21 @@ class SettingsPanel(QWidget):
             #MatchSyncSettings, #MatchSyncRows {{
                 background: transparent; border: none;
             }}
-            #MatchSyncSettings QLabel, #MatchSyncSettings QCheckBox {{ color: {theme.TEXT1}; }}
+            #MatchSyncSettings QLabel, #MatchSyncSettings QCheckBox {{ color: palette(window-text); }}
             #MatchSyncSettings QScrollArea, #MatchSyncSettings QScrollArea > QWidget {{
                 background: transparent; border: none;
             }}
             #MatchSyncSettings QPushButton, #MatchSyncSettings QLineEdit,
             #MatchSyncSettings QComboBox, #MatchSyncSettings QDoubleSpinBox {{
                 background: palette(button); color: palette(window-text);
-                border: 1px solid {theme.BORDER};
+                border: 1px solid palette(mid);
                 border-radius: {theme.RADIUS_MD}px; padding: 4px 6px;
             }}
             #MatchSyncSettings QPushButton:hover {{
-                background: {theme.ACCENT_SOFT}; border-color: {theme.ACCENT};
+                background: palette(light); border-color: palette(highlight);
             }}
             #MatchSyncSettings QPushButton:checked {{
-                background: rgba(251, 114, 153, 45); border-color: {theme.PINK};
+                background: rgba(251, 114, 153, 45); border-color: palette(highlight);
             }}
         """)
 
@@ -434,38 +434,13 @@ class SettingsPanel(QWidget):
         painter.fillPath(path, tint)
 
 
-class RowGrip(QLabel):
-    def __init__(self, row):
-        super().__init__("↕", row)
-        self.row = row
-        self.anchor = None
-        self.setFixedWidth(18)
-        self.setCursor(Qt.OpenHandCursor)
-        self.setToolTip("拖动此处，上下调整直播间顺序")
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.anchor = event.position().toPoint()
-
-    def mouseMoveEvent(self, event):
-        if (self.anchor is not None and event.buttons() & Qt.LeftButton
-                and (event.position().toPoint() - self.anchor).manhattanLength() >= QApplication.startDragDistance()):
-            self.anchor = None
-            drag = QDrag(self)
-            mime = QMimeData()
-            mime.setData(ROW_MIME, self.row.room_id.encode("utf-8"))
-            drag.setMimeData(mime)
-            drag.exec(Qt.MoveAction)
-
-    def mouseReleaseEvent(self, event):
-        self.anchor = None
-
-
 class RoomRow(QFrame):
     def __init__(self, viewer, room_id, preferences, color):
         super().__init__(viewer)
         self.viewer = viewer
         self.room_id = room_id
+        self.setObjectName("MatchSyncRoomRow")
+        self.anchor = None
         self.setAcceptDrops(True)
         self.platform = viewer.context.manager.platform_for(room_id)
         self.decoder = None
@@ -495,8 +470,14 @@ class RoomRow(QFrame):
         self.chat_text = "弹幕未连接"
         self.buffer_text = ""
         self.alias = QLineEdit(preferences.get("alias", ""))
+        self.alias.setParent(self)
+        self.alias.hide()
         self.alias.setPlaceholderText("主播名称")
         self.alias.setFixedWidth(100)
+        self.avatar = Avatar(self.label(), len(viewer.rows), size=32, parent=self)
+        self.avatar_key = None
+        self.setCursor(Qt.OpenHandCursor)
+        self.refresh_avatar()
         self.main_button = QPushButton("主画面")
         self.main_button.setCheckable(True)
         self.main_button.setFixedWidth(64)
@@ -551,6 +532,9 @@ class RoomRow(QFrame):
         region.setToolTip("仅在自动对齐困难时使用：框选各主播画面中相同的比赛内容，避开头像和字幕。")
         region.clicked.connect(lambda: viewer.choose_crop(self))
         self.realign = QPushButton("重新对齐")
+        policy = self.realign.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.realign.setSizePolicy(policy)
         self.realign.setToolTip("重新匹配本路比赛画面，不重启直播流，不改变其他路已确认偏移。")
         self.realign.clicked.connect(lambda: viewer.retry_alignment(room_id))
         remove = QPushButton("移除")
@@ -560,7 +544,7 @@ class RoomRow(QFrame):
         self.join.setToolTip("本路内容到达更晚；增加整组观看延迟后加入，原有各路保持相对同步。")
         self.join.clicked.connect(lambda: viewer.admit_pending(room_id))
         self.join.hide()
-        self.control_widgets = (self.alias, self.main_button, self.realign, self.audible, self.volume,
+        self.control_widgets = (self.avatar, self.main_button, self.realign, self.audible, self.volume,
                                 self.volume_number, self.channel,
                                 self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
                                 self.delay, self.increase, region, remove, self.join)
@@ -579,9 +563,11 @@ class RoomRow(QFrame):
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.status.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.offset_hint = QLabel("单位：秒 · + 正数延后本路 · − 负数相对提前本路")
         self.offset_hint.setObjectName("MatchSyncOffsetHint")
         self.offset_hint.setWordWrap(True)
+        self.offset_hint.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.offset_hint.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.offset_hint.setStyleSheet(
             f"QLabel#MatchSyncOffsetHint {{ color: palette(window-text); font-size: {theme.FONT_CAPTION}px; }}")
@@ -592,8 +578,6 @@ class RoomRow(QFrame):
         layout.setSpacing(4)
         layout.setSizeConstraint(QLayout.SetMinimumSize)
         line = QHBoxLayout()
-        self.grip = RowGrip(self)
-        line.addWidget(self.grip)
         line.addLayout(controls, 1)
         layout.addLayout(line)
         self.setFrameShape(QFrame.NoFrame)
@@ -605,6 +589,7 @@ class RoomRow(QFrame):
         self.audible.toggled.connect(viewer.changed)
         self.show_chat.toggled.connect(self._chat_toggle)
         self.alias.textChanged.connect(viewer.changed)
+        self.alias.textChanged.connect(self.refresh_avatar)
         self.alias.editingFinished.connect(viewer.update_main_choices)
 
     @staticmethod
@@ -618,9 +603,70 @@ class RoomRow(QFrame):
         spin.setValue(value)
         return spin
 
+    def refresh_avatar(self, *_args):
+        self.avatar.setToolTip(f"{self.label()} · 拖动整张卡片调整顺序，右键修改名称")
+        self.setToolTip(self.avatar.toolTip())
+        sidebar = getattr(self.viewer.context.window, "sidebar", None)
+        item = next((item for item in getattr(sidebar, "_items", [])
+                     if str(item.room.get("room_id") or "") == self.room_id), None)
+        pixmap = item.thumb.face_pixmap() if item is not None else None
+        if pixmap is not None and not pixmap.isNull():
+            if self.avatar_key != pixmap.cacheKey():
+                self.avatar_key = pixmap.cacheKey()
+                self.avatar.set_pixmap_image(pixmap)
+        elif self.avatar_key is None:
+            self.avatar.setText(self.label()[0])
+
+    def contextMenuEvent(self, event):
+        menu = motion.AnimatedMenu(self)
+        action = menu.addAction("修改主播名称")
+        def rename():
+            value, accepted = QInputDialog.getText(self, "修改主播名称", "主播名称", text=self.alias.text())
+            if accepted and value.strip():
+                self.alias.setText(value.strip())
+                self.viewer.update_main_choices()
+        action.triggered.connect(rename)
+        menu.exec_context(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.anchor = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self.anchor is not None and event.buttons() & Qt.LeftButton
+                and (event.position().toPoint() - self.anchor).manhattanLength() >= QApplication.startDragDistance()):
+            anchor, self.anchor = self.anchor, None
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setData(ROW_MIME, self.room_id.encode("utf-8"))
+            drag.setMimeData(mime)
+            pixmap = QPixmap(self.size())
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
+            painter.setBrush(theme.qcolor(theme.ELEVATED))
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 8, 8)
+            painter.end()
+            self.render(pixmap, QPoint(), QRegion(), QWidget.DrawChildren)
+            pixmap, hotspot = motion.lifted_drag(pixmap, anchor)
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(hotspot)
+            self.viewer.begin_row_drag(self.room_id)
+            try:
+                drag.exec(Qt.MoveAction)
+            finally:
+                self.viewer.end_row_drag()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.anchor = None
+        super().mouseReleaseEvent(event)
+
     def dragEnterEvent(self, event):
         source = event.source()
-        if isinstance(source, RowGrip) and source.row.viewer is self.viewer and event.mimeData().hasFormat(ROW_MIME):
+        if isinstance(source, RoomRow) and source.viewer is self.viewer and event.mimeData().hasFormat(ROW_MIME):
             event.acceptProposedAction()
         elif event.mimeData().hasFormat(ROOM_MIME):
             event.acceptProposedAction()
@@ -629,11 +675,16 @@ class RoomRow(QFrame):
 
     def dragMoveEvent(self, event):
         self.dragEnterEvent(event)
+        if isinstance(event.source(), RoomRow) and event.source().viewer is self.viewer:
+            self.viewer.preview_row_drag(self.mapTo(self.viewer.controls.widget(), event.position().toPoint()))
 
     def dropEvent(self, event):
         source = event.source()
-        if isinstance(source, RowGrip) and source.row.viewer is self.viewer and event.mimeData().hasFormat(ROW_MIME):
-            self.viewer.reorder_room(source.row.room_id, self.room_id, event.position().y() >= self.height() / 2)
+        if isinstance(source, RoomRow) and source.viewer is self.viewer and event.mimeData().hasFormat(ROW_MIME):
+            if self.viewer.dragged_row is not None:
+                self.viewer.finish_row_drag(self.mapTo(self.viewer.controls.widget(), event.position().toPoint()))
+            else:
+                self.viewer.reorder_room(source.room_id, self.room_id, event.position().y() >= self.height() / 2)
             event.acceptProposedAction()
         elif event.mimeData().hasFormat(ROOM_MIME):
             self.viewer.dropEvent(event)
@@ -686,6 +737,9 @@ class Viewer(QDialog):
         self.context = context
         self.sources = sources
         self.rows = {}
+        self.dragged_row = None
+        self.row_animations = {}
+        self.row_preview = []
         self.saved_rooms = {str(item["room_id"]): item for item in context.setting("rooms", [])}
         self.running = False
         self.overlay_pending = {}
@@ -829,6 +883,10 @@ class Viewer(QDialog):
         self.controls.viewport().setAutoFillBackground(False)
         self.controls.setWidgetResizable(True)
         self.controls.setWidget(body)
+        body.installEventFilter(self)
+        self.controls.viewport().installEventFilter(self)
+        body.setAcceptDrops(True)
+        self.controls.viewport().setAcceptDrops(True)
         self.controls.setMinimumHeight(60)
         self.body_split = QSplitter(Qt.Vertical)
         self.body_split.setHandleWidth(4)
@@ -894,6 +952,12 @@ class Viewer(QDialog):
         self.refresh_appearance()
 
     def refresh_appearance(self, *_args):
+        if not hasattr(self, "appearance_styles"):
+            self.appearance_styles = {}
+        def styled(widget, value):
+            if self.appearance_styles.get(widget) != value:
+                self.appearance_styles[widget] = value
+                widget.setStyleSheet(value)
         controller = getattr(self.context.window, "skin_controller", None)
         self.skin_visible = bool(controller is not None and controller.layer.path and not controller.layer.error)
         # A fully transparent panel cannot keep text legible over a detailed skin.
@@ -902,19 +966,19 @@ class Viewer(QDialog):
         color = theme.qcolor(theme.CONTENT)
         background = (f"rgba({color.red()}, {color.green()}, {color.blue()}, {round(255 * self.panel_alpha)})"
                       if self.skin_visible else "palette(base)")
-        self.comparison_panel.setStyleSheet(f"""
+        styled(self.comparison_panel, f"""
             #MatchSyncCompare {{ background: {background}; border: none; border-radius: 8px; }}
             #MatchSyncCompare QLabel, #MatchSyncCompare QCheckBox {{ color: palette(window-text); }}
             #MatchSyncCompare QScrollArea, #MatchSyncCompare QScrollArea > QWidget {{ background: transparent; border: none; }}
         """)
-        self.panel.setStyleSheet(f"#MatchSync #DanmakuPanel {{ background: {background}; border: none; }}")
+        styled(self.panel, f"#MatchSync #DanmakuPanel {{ background: {background}; border: none; }}")
         for widget, name in ((self.panel.bar, "DanmakuBar"),
                              (self.panel.findChild(QWidget, "DanmakuHeader"), "DanmakuHeader")):
-            widget.setStyleSheet(f"#MatchSync #{name} {{ background: transparent; border: none; }}")
+            styled(widget, f"#MatchSync #{name} {{ background: transparent; border: none; }}")
         for label in self.panel.bar.findChildren(QLabel):
-            label.setStyleSheet("color: palette(window-text); background: transparent;")
+            styled(label, "color: palette(window-text); background: transparent;")
         self.panel.body.viewport().setAutoFillBackground(False)
-        self.picture.setStyleSheet(f"#MatchSync #Tile {{ background: {background}; }} "
+        styled(self.picture, f"#MatchSync #Tile {{ background: {background}; }} "
                                    "#MatchSync #TileVideo, #MatchSync #TileBottom { background: transparent; }"
                                    if self.skin_visible else "")
         self.canvas.transparent_background = self.skin_visible
@@ -934,6 +998,18 @@ class Viewer(QDialog):
         self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
 
     def eventFilter(self, watched, event):
+        if (getattr(self, "controls", None) is not None
+                and watched in (self.controls.widget(), self.controls.viewport())
+                and event.type() in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop)
+                and isinstance(event.source(), RoomRow) and event.source().viewer is self
+                and event.mimeData().hasFormat(ROW_MIME)):
+            point = watched.mapTo(self.controls.widget(), event.position().toPoint())
+            if event.type() == QEvent.Drop:
+                self.finish_row_drag(point)
+            else:
+                self.preview_row_drag(point)
+            event.acceptProposedAction()
+            return True
         if watched is self.picture.bottom and event.type() == QEvent.Resize:
             QTimer.singleShot(0, self._layout_restore_control)
         if event.type() == QEvent.FocusIn:
@@ -968,6 +1044,15 @@ class Viewer(QDialog):
         sidebar = getattr(self.context.window, "sidebar", None)
         if not self.embedded or sidebar is None or self.isHidden():
             return
+        now = time.monotonic()
+        state = (self.running, tuple((key, id(row.decoder)) for key, row in self.rows.items()),
+                 getattr(sidebar, "side", "left"), getattr(sidebar, "collapsed", False),
+                 len(getattr(sidebar, "_items", [])), theme.is_light())
+        if state == getattr(self, "sidebar_marks_state", None) and now < self.sidebar_marks_due:
+            return
+        self.sidebar_marks_state, self.sidebar_marks_due = state, now + .25
+        for row in self.rows.values():
+            row.refresh_avatar()
         if self.sidebar_style is None:
             self.sidebar_style = sidebar.styleSheet()
             sidebar.setStyleSheet(self.sidebar_style + """
@@ -1064,6 +1149,71 @@ class Viewer(QDialog):
             self.rows_layout.insertWidget(index, row)
         self.update_main_choices()
         self.changed()
+
+    def begin_row_drag(self, room_id):
+        self.dragged_row = room_id
+        self.row_preview = list(self.rows)
+        self.row_slots = {key: row.geometry() for key, row in self.rows.items()}
+        self.rows_layout.setEnabled(False)
+        self.rows[room_id].hide()
+
+    def preview_row_drag(self, point):
+        if self.dragged_row is None:
+            return
+        order = [key for key in self.rows if key != self.dragged_row]
+        index = sum(point.y() >= self.row_slots[key].center().y() for key in order)
+        order.insert(index, self.dragged_row)
+        if order != self.row_preview:
+            self.row_preview = order
+            y = 0
+            for key in order:
+                row = self.rows[key]
+                if key != self.dragged_row:
+                    previous = self.row_animations.pop(key, None)
+                    if previous is not None:
+                        previous.stop()
+                        previous.deleteLater()
+                    target = QPoint(self.row_slots[key].x(), y)
+                    if motion.enabled():
+                        animation = QPropertyAnimation(row, b"pos", self)
+                        animation.setDuration(150)
+                        animation.setEasingCurve(QEasingCurve.OutCubic)
+                        animation.setStartValue(row.pos())
+                        animation.setEndValue(target)
+                        self.row_animations[key] = animation
+                        animation.start()
+                    else:
+                        row.move(target)
+                y += self.row_slots[key].height() + self.rows_layout.spacing()
+        viewport = self.controls.viewport()
+        local = self.controls.widget().mapTo(viewport, point)
+        bar = self.controls.verticalScrollBar()
+        if local.y() < 24:
+            bar.setValue(bar.value() - 12)
+        elif local.y() > viewport.height() - 24:
+            bar.setValue(bar.value() + 12)
+
+    def finish_row_drag(self, point):
+        if self.dragged_row is None:
+            return
+        self.preview_row_drag(point)
+        self.rows = {key: self.rows[key] for key in self.row_preview}
+        self.end_row_drag()
+        self.update_main_choices()
+        self.changed()
+
+    def end_row_drag(self):
+        for animation in self.row_animations.values():
+            animation.stop()
+            animation.deleteLater()
+        self.row_animations.clear()
+        if self.dragged_row in self.rows:
+            self.rows[self.dragged_row].show()
+        self.dragged_row = None
+        for index, row in enumerate(self.rows.values()):
+            self.rows_layout.insertWidget(index, row)
+        self.rows_layout.setEnabled(True)
+        self.rows_layout.activate()
 
     def _queue_rematch(self, row):
         row.match_confirmed = False
@@ -1985,6 +2135,9 @@ class Viewer(QDialog):
         comparison = self.comparison_panel.target.currentData() if self.compare.isChecked() else None
         inactive = max(1, len(self.rows) - (2 if comparison else 1))
         for key, row in self.rows.items():
+            visible = key == reference or key == comparison
+            if row.decoder is not None and hasattr(row.decoder, "analysis_size"):
+                row.decoder.analysis_size = (640, 360) if visible else (320, 180)
             reader = getattr(row.decoder, "pictures", None)
             if reader is not None:
                 if key == reference:
@@ -1993,7 +2146,7 @@ class Viewer(QDialog):
                     megabytes = 128
                 else:
                     megabytes = max(1, (64 if comparison else 128) // inactive)
-                reader.configure(megabytes * 1024 * 1024, getattr(row.decoder, "fps", 30))
+                reader.configure(megabytes * 1024 * 1024, getattr(row.decoder, "fps", 30), active=visible)
 
     def analyse(self):
         if not self.running or not self.alignment.automatic or self.matching:

@@ -865,12 +865,16 @@ class SettingsDialog(QDialog):
         self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
-        self.appearance_page = AppearanceSettingsPage(settings,
-            skin_controller=getattr(parent, 'skin_controller', None))
-        self.appearance_page.modeChanged.connect(self.appearanceChanged)
-        self.danmaku_page = DanmakuSettingsPage(settings)
-        self.recording_page = RecordingSettingsPage(settings)
-        self.shortcut_page = ShortcutSettingsPage(shortcuts)
+        # Build the expensive controls only when their page is first requested.
+        # Keep the public page properties so callers and settings validation
+        # still use the same controls and value normalization.
+        self._page_factories = {
+            1: lambda: AppearanceSettingsPage(settings, skin_controller=getattr(parent, 'skin_controller', None)),
+            2: lambda: DanmakuSettingsPage(settings),
+            3: lambda: RecordingSettingsPage(settings),
+            4: lambda: ShortcutSettingsPage(shortcuts),
+        }
+        self._loaded_pages = {}
         self.plugin_page = PluginSettingsPage(plugin_manager)
         self.plugin_page.store_page.seen_versions = self.seen_versions
         self._plugin_update_dot = UpdateDot()
@@ -879,10 +883,8 @@ class SettingsDialog(QDialog):
         from .online_ui import AppUpdatePage
         self.update_page = AppUpdatePage(settings)
         self.stack.addWidget(self.general_page)
-        self.stack.addWidget(self.appearance_page)
-        self.stack.addWidget(self.danmaku_page)
-        self.stack.addWidget(self.recording_page)
-        self.stack.addWidget(self.shortcut_page)
+        for _index in range(4):
+            self.stack.addWidget(QWidget())
         self.stack.addWidget(self.plugin_page)
         self.stack.addWidget(self.update_page)
         right.addWidget(self.stack, 1)
@@ -919,6 +921,23 @@ class SettingsDialog(QDialog):
             item = self.nav.item(index)
             if item.data(Qt.UserRole) == key:
                 item.setData(Qt.UserRole + 1, active)
+
+    def _page(self, index):
+        if index not in self._loaded_pages:
+            placeholder = self.stack.widget(index)
+            page = self._page_factories[index]()
+            self._loaded_pages[index] = page
+            self.stack.removeWidget(placeholder)
+            self.stack.insertWidget(index, page)
+            placeholder.deleteLater()
+            if index == 1:
+                page.modeChanged.connect(self.appearanceChanged)
+        return self._loaded_pages[index]
+
+    appearance_page = property(lambda self: self._page(1))
+    danmaku_page = property(lambda self: self._page(2))
+    recording_page = property(lambda self: self._page(3))
+    shortcut_page = property(lambda self: self._page(4))
 
     def _remember_versions(self, versions):
         if any(self.seen_versions.get(key) != value for key, value in versions.items()):
@@ -957,6 +976,8 @@ class SettingsDialog(QDialog):
 
     def _on_page_changed(self, index: int) -> None:
         if index >= 0:
+            if index in self._page_factories:
+                self._page(index)
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
             self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))

@@ -15,7 +15,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
-from ddm import plugins, recording
+from ddm import plugins, recording, theme
+from ddm.dialogs import SettingsDialog
 from dev.selfcheck_match_sync import FakeChat, FakeDecoder
 from dev.selfcheck_match_sync_video import fixture
 from plugins_user._match_sync import media, viewer as module
@@ -125,14 +126,39 @@ def main():
                 assert styles.call_count == 0, "Stable labels must not repolish each tick"
                 assert redraw.call_count == 0, "Unchanged main comparisons must not redraw"
             opened = measure()
+            assert decoders[0].analysis_size == decoders[1].analysis_size == (640, 360)
+            assert decoders[2].analysis_size == (320, 180)
+            assert not decoders[2].pictures.active and not decoders[2].pictures.images
             print(f"MEASURE: actual three-stream Viewer, closed {closed:.1f} fps; comparison + zoom open {opened:.1f} fps")
             assert opened >= 45 and opened >= closed * .8, (closed, opened)
+            reactions = []
+            presented = viewer.canvas.presented
+            for mode in ('light', 'dark'):
+                started = time.perf_counter()
+                theme.apply(mode)
+                reactions.append((time.perf_counter() - started) * 1000)
+            started = time.perf_counter()
+            dialog = SettingsDialog({}, {}, viewer, plugin_manager=context.manager)
+            dialog.show()
+            app.processEvents()
+            reactions.append((time.perf_counter() - started) * 1000)
+            dialog.close()
+            end = time.monotonic() + .3
+            while time.monotonic() < end:
+                viewer.render()
+                app.processEvents()
+                time.sleep(.002)
+            assert max(reactions) < 250, reactions
+            assert viewer.canvas.presented > presented + 5 and not viewer.canvas.waiting
+            print(f'MEASURE: active three-stream theme/settings reactions {reactions} ms; playback resumed from cached originals')
             viewer.comparison_panel.zoom.setChecked(False)
             viewer.render()
             assert not main_card.zoom_crop
             viewer.show_comparison("3")
             viewer.render()
             assert viewer.comparison_panel.shown_rooms == ("1", "3")
+            assert not decoders[1].pictures.active and not decoders[1].pictures.images
+            assert decoders[2].pictures.active and decoders[2].analysis_size == (640, 360)
             viewer.compare.setChecked(False)
             viewer.render()
             assert viewer.comparison_panel.isHidden()
