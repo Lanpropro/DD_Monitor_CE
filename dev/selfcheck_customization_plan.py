@@ -12,6 +12,12 @@ def main():
                     "第三阶段：自定义布局", "直播间组合预设（待实现）", "实施顺序与交付"):
         assert f"## {heading}" in content, heading
     assert "深浅色与背景皮肤已实装" in content
+    assert "下次计划发布版本：0.4（未发布）" in content
+    release_gate = content.split("## 0.4 发布前置条件", 1)[1].split("## 目标与现状", 1)[0]
+    assert "保存并恢复布局、主播及所在位置" in release_gate
+    assert "皮肤／美化功能" in release_gate and "用户逐项验收" in release_gate
+    assert "不修改软件版本号、不发布更新、不合并远端 PR 或上传源码" in release_gate
+    assert "当前软件版本继续保持 0.3.1" in release_gate
     assert content.count("验收：") == 4
     for path in re.findall(r"`(ddm/[^`]+\.py)`", content):
         assert (ROOT / path).is_file(), path

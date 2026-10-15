@@ -19,6 +19,7 @@ def main():
     assert '该问题已在 0.3.1 修复' in notes
     assert '自动重试最多三次' in notes
     assert '## 本地待发布改动（2026-10-15）' in notes
+    assert '0.4（未发布）' in notes and '不属于已发布的 0.3.1 内容' in notes
     assert '[Milkyway-66](https://github.com/Milkyway-66)' in notes
     assert 'https://github.com/Lanpropro/DD_Monitor_CE/pull/6' in notes
     assert 'https://github.com/Lanpropro/DD_Monitor_CE/pull/7' in notes
