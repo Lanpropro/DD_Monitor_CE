@@ -472,7 +472,11 @@ def main() -> None:
         assert defaults[key] == value, f"{key} 不该被设置窗口改掉：{defaults[key]!r} != {value!r}"
     assert dialog.shortcuts() == window.shortcuts
     general.poll_spin.setValue(5)
+    # 主画面自动原画、侧栏卡片样式已经不在界面上，改成格子里的入口，
+    # 设置页只负责原样带着这两个值往返，所以直接改隐藏值再读回。
+    general._hidden_values["auto_quality"] = False        # noqa: SLF001
     general._checks["default_muted"].setChecked(False)    # noqa: SLF001
+    general._hidden_values["sidebar_card_mode"] = False   # noqa: SLF001
     general._checks["sidebar_auto_compact"].setChecked(True)  # noqa: SLF001
     general.compact_threshold_spin.setValue(12)
     general.volume_slider.setValue(30)
@@ -554,11 +558,13 @@ def main() -> None:
         failed = Signal(str, str)
         finished = Signal()
 
-        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None):
+        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None,
+                     codec="avc"):
             super().__init__(parent)
             self.room_id = room_id
             self.headers = {}
             self.source_offset = source_offset
+            self.codec = codec
             self.cancelled = False
 
         def start(self):
@@ -700,8 +706,13 @@ def main() -> None:
     sidebar.set_sort_mode("live", notify=False)
     visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
     with mock.patch.object(config_module, "save") as persist:
-        folder_menu = next(action.menu() for action in sidebar.sort_button.menu().actions()
-                           if action.text() == "未分类")
+        # 顶层菜单和那一项都要留住引用：PySide6 给 QAction.menu() 发的包装对象
+        # 会在中途回收，只存子菜单的话 gc 一跑就成了「C++ object already deleted」，
+        # 底层 QMenu 其实还活着。测试里要保持这整条链。
+        sort_menu = sidebar.sort_button.menu()
+        folder_action = next(action for action in sort_menu.actions()
+                             if action.text() == "未分类")
+        folder_menu = folder_action.menu()
         freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")
         freeze.trigger()
