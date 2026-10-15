@@ -35,7 +35,9 @@ DEFAULT_SETTINGS = {
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
-    "decode_mode": "auto",    # VLC 自动 / D3D11 / DXVA2 / 软件解码
+    #: 每一路画面由谁解码：VLC 自动挑显卡 / 强制 D3D11VA / 强制 DXVA2 / 纯 CPU 软解；
+    #: 选项文案见 ddm/player.py 的 DECODE_MODES，用户说明见 README「视频解码方式」。
+    "decode_mode": "auto",
     #: B 站直播流的编码方式。H.264 兼容性最好（默认）；HEVC 同画质码率约省一半；
     #: AV1 更省但只有 HLS 通道，需要 FFmpeg 转封装后才能给 VLC 播。
     "bili_codec": "avc",

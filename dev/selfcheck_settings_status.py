@@ -515,6 +515,15 @@ def main() -> None:
     from ddm.player import DECODE_MODES, PlayerPool
     assert [general.decode_mode.itemData(i) for i in range(general.decode_mode.count())] == [
         value for _label, value in DECODE_MODES]
+    # 选项文案要说清「谁在解码」（显卡 / CPU），不能只甩 D3D11VA / DXVA2 这种接口名：
+    # 用户看不懂接口名，也不知道选了会动到哪儿。
+    decode_labels = {value: label for label, value in DECODE_MODES}
+    for value, label in decode_labels.items():
+        assert "解码" in label, f"{value} 的文案没说是谁在解码：{label!r}"
+    assert "显卡" in decode_labels["auto"] and "CPU" in decode_labels["auto"]
+    assert "显卡" in decode_labels["d3d11va"] and "显卡" in decode_labels["dxva2"]
+    assert "CPU" in decode_labels["none"], "软件解码要写明用的是 CPU"
+    print(f"  解码方式文案={list(decode_labels.values())}")
     for mode, options in (("auto", ()), ("d3d11va", (":avcodec-hw=d3d11va",)),
                           ("dxva2", (":avcodec-hw=dxva2",)),
                           ("none", (":avcodec-hw=none",))):
