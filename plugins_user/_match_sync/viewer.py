@@ -2116,6 +2116,8 @@ class Viewer(QDialog):
                                         "偏移超出可用范围，请等待缓存或减小延后量")
                 elif bounds and target > bounds[1] + 1:
                     self.notice.setText("主画面所需内容尚未收到；请减小提前量，或检查该路连接")
+                elif bounds and bounds[0] <= target <= bounds[1]:
+                    self.notice.setText("主画面显示帧准备较慢；正在追赶播放进度，声音继续播放")
                 else:
                     self.notice.setText("主画面等待缓存或连接；较大延后量需要先积累足够内容")
             else:

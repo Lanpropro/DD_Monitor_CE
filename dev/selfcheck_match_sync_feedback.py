@@ -51,6 +51,8 @@ def main():
                 now[0] += .11
                 viewer.render()
                 assert viewer.canvas.waiting, 'Sustained lag must remain visible'
+                assert '显示帧准备较慢' in viewer.notice.text()
+                assert '连接' not in viewer.notice.text(), 'Cached video must not be reported as a connection failure'
             viewer.render()
             assert not viewer.canvas.waiting
             canvas = viewer.canvas

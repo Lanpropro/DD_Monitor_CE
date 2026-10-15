@@ -188,6 +188,8 @@ class PictureReader:
             self.requested = time.monotonic()
             cached_backward = frame[0] in self.images and self.target is not None and frame[0] < self.target[0]
             if not cached_backward and (frame != self.target or frame[0] not in self.images):
+                if self.target is not None and (frame[1] < self.target[1] - .05 or frame[1] > self.target[1] + .5):
+                    self.reset_requested = True
                 self.target = frame
                 self.wake.set()
             if self.thread is None and not self.cancelled.is_set():
@@ -195,7 +197,7 @@ class PictureReader:
                 self.thread.start()
             image = self.images.get(frame[0])
             if image is None and not exact:
-                past = [key for key in self.images if frame[0] - .05 <= key <= frame[0]]
+                past = [key for key in self.images if frame[0] - .15 <= key <= frame[0]]
                 if past:
                     key = max(past)
                     return key, self.images[key]
@@ -205,7 +207,6 @@ class PictureReader:
         codec = None
         owner = None
         sequence = None
-        previous = None
         decoded_until = None
         capacity = 8
         try:
@@ -214,20 +215,20 @@ class PictureReader:
                     with self.lock:
                         if time.monotonic() - self.requested >= 1:
                             self.images.clear()
-                            codec = owner = sequence = previous = decoded_until = None
+                            codec = owner = sequence = decoded_until = None
                     continue
                 self.wake.clear()
                 if self.cancelled.is_set():
                     break
                 with self.lock:
                     if self.reset_requested:
-                        codec = owner = sequence = previous = decoded_until = None
+                        codec = owner = sequence = decoded_until = None
                         self.reset_requested = False
                     if self.target is None or not self.active:
-                        codec = owner = sequence = previous = decoded_until = None
+                        codec = owner = sequence = decoded_until = None
                         continue
                     history, (timestamp, target) = self.history, self.target
-                if owner is not history or previous is None or target < previous - .05 or target > previous + .5:
+                if owner is not history:
                     codec = sequence = decoded_until = None
                     with self.lock:
                         self.images.clear()
@@ -246,12 +247,13 @@ class PictureReader:
                     # Seekable picture workers must release promptly on switch/close.
                     # Frame-thread teardown can block the GUI when two are active.
                     codec.thread_type = "SLICE"
-                owner, previous = history, target
+                owner = history
                 for packet in packets:
                     if self.cancelled.is_set():
                         break
                     with self.lock:
-                        if not self.active or self.target is None or self.history is not history or abs(self.target[1] - target) > .25:
+                        if (not self.active or self.target is None or self.history is not history
+                                or self.reset_requested):
                             break
                     started = time.perf_counter()
                     frames = codec.decode(packet.decode_packet())
@@ -260,7 +262,9 @@ class PictureReader:
                     for frame in frames:
                         pts = float(frame.pts * frame.time_base)
                         decoded_until = pts
-                        if pts + .00001 < target:
+                        with self.lock:
+                            requested_target = self.target[1] if self.target is not None else target
+                        if pts + .00001 < max(target, requested_target - .05):
                             continue
                         image = image_from_frame(frame)
                         key = history.origin + pts
