@@ -206,14 +206,15 @@ class SkinSettings(QWidget):
 
 class PartSettings(QDialog):
     """Edit only explicit personal overrides; omitted fields inherit the skin pack."""
-    def __init__(self, owner, parent=None):
+    def __init__(self, owner, parent=None, *, professional=False):
         super().__init__(parent)
         from .skin_parts import PARTS, NUMBERS
-        from .skin_preview import SkinPreview
+        from .skin_preview import BASIC_PARTS, GROUPS, SkinPreview
         self.owner = owner
+        self.professional = professional
         self._drafts = {}
         self._loading = False
-        self.setWindowTitle('分区美化（界面预览）')
+        self.setWindowTitle('专业美化' if professional else '分区美化（界面预览）')
         self.resize(1100, 700)
         outer = QHBoxLayout(self)
         preview_column = QVBoxLayout()
@@ -221,12 +222,20 @@ class PartSettings(QDialog):
         self.scenes.setStyleSheet('QTabBar::tab {background: palette(base); color: palette(text);'
             'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
             'QTabBar::tab:selected {background: palette(light); border-color: palette(highlight);}')
-        for text in ('主界面', '设置页面', '菜单与提示'):
+        for text in ('主界面', '设置页面', '菜单与提示' if professional else '布局预设'):
             self.scenes.addTab(text)
         preview_column.addWidget(self.scenes)
-        self.preview = SkinPreview(self)
+        self.preview = SkinPreview(self, editable_parts=None if professional else BASIC_PARTS)
         preview_column.addWidget(self.preview, 1)
-        legend = QLabel('点击亮框选择区域；实线表示当前选择。\n空画面、顶部浮标和关注卡片不提供修改入口。')
+        self.group_labels = {}
+        if not professional:
+            colors = QHBoxLayout()
+            for key, (name, _dark, _light) in GROUPS.items():
+                label = QLabel('● ' + name)
+                colors.addWidget(label)
+                self.group_labels[key] = label
+            preview_column.addLayout(colors)
+        legend = QLabel('点击彩色框选择区域；实线表示当前选择。\n空画面、顶部浮标和关注卡片不提供修改入口。')
         legend.setWordWrap(True)
         preview_column.addWidget(legend)
         outer.addLayout(preview_column, 3)
@@ -253,7 +262,9 @@ class PartSettings(QDialog):
         self.part = QComboBox(self)
         self.part.addItem('软件整体背景', 'background')
         for key, label in PARTS.items():
-            self.part.addItem(label, key)
+            if professional or key in BASIC_PARTS:
+                self.part.addItem('设置页面背景' if key == 'settings' and not professional else
+                                  '布局预设背景' if key == 'layout_menu' and not professional else label, key)
         self.part.hide()
         self.part.setCurrentIndex(self.part.findData('background'))
         self.background_controls = SkinSettings(owner.settings, owner.skin_controller, content)
@@ -270,7 +281,9 @@ class PartSettings(QDialog):
                 ('disabled', '禁用'), ('muted', '静音'), ('paused', '暂停')):
             self.variant.addItem(label, key)
         parameters.addWidget(self.variant)
+        self.variant.setVisible(professional)
         form = QFormLayout()
+        self.form = form
         self.fields = {}
         self.asset_buttons = {}
         for key, label in (('background', '底色'), ('foreground', '文字颜色'),
@@ -317,6 +330,12 @@ class PartSettings(QDialog):
         defaults.addWidget(self.reset_button)
         defaults.addWidget(self.builtin_button)
         layout.addLayout(defaults)
+        if not professional:
+            advanced = QPushButton('专业美化…')
+            advanced.setObjectName('IconButton')
+            advanced.setAutoDefault(False)
+            advanced.clicked.connect(self.open_professional)
+            layout.addWidget(advanced)
         for button in (self.apply_button, close):
             button.setAutoDefault(False)
             row.addWidget(button)
@@ -340,10 +359,21 @@ class PartSettings(QDialog):
         self._update_background()
 
     def _select_part(self, part):
-        self.part.setCurrentIndex(self.part.findData(part))
+        index = self.part.findData(part)
+        if index >= 0:
+            self.part.setCurrentIndex(index)
 
     def _select_scene(self, index):
-        self._select_part(('background', 'settings', 'menus')[index])
+        self._select_part(('background', 'settings', 'menus' if self.professional else 'layout_menu')[index])
+
+    def open_professional(self):
+        dialog = PartSettings(self.owner, self, professional=True)
+        dialog.exec()
+        dialog.deleteLater()
+        self.load_part()
+
+    def _editable_fields(self):
+        return set(self.fields) if self.professional else {'icon' if self.part.currentData().startswith('buttons.') else 'image'}
 
     def _update_background(self):
         layer = self.owner.skin_controller.layer
@@ -373,6 +403,10 @@ class PartSettings(QDialog):
         target = {key: edit.value() if isinstance(edit, QSpinBox) else edit.text().strip()
                   for key, (check, edit) in self.fields.items() if check.isChecked() and check.isEnabled()}
         background = self.part.currentData() == 'background'
+        if not self.professional and not background:
+            previous = self._draft_values().get(self.part.currentData(), {})
+            target = {key: value for key, value in previous.items()
+                      if key in self.fields and key not in self._editable_fields()} | target
         try:
             values = self._draft_values(None if background else target)
             self.preview.personal = validate_parts(values, Path(config.REPO)/'utils/skins')
@@ -390,6 +424,9 @@ class PartSettings(QDialog):
                 self._drafts[key] = target
         variant = self.variant.currentData()
         self.preview.light = variant == 'light' or (variant != 'dark' and theme.is_light())
+        from .skin_preview import group_color
+        for group, label in self.group_labels.items():
+            label.setStyleSheet('color: ' + group_color(group, self.preview.light).name() + ';')
         self.preview.state = variant if variant not in ('light', 'dark') else ''
         self.preview.update()
         self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
@@ -408,20 +445,25 @@ class PartSettings(QDialog):
         blocked = self.scenes.blockSignals(True)
         self.scenes.setCurrentIndex(('main', 'settings', 'popups').index(self.preview.scene))
         self.scenes.blockSignals(blocked)
-        self.selection_title.setText(PARTS.get(part, '软件整体背景'))
+        self.selection_title.setText(self.part.currentText())
         self.background_controls.setVisible(background)
         self.parameter_box.setVisible(not background)
         for button in (self.reset_button, self.builtin_button):
             button.setVisible(not background)
+        if not self.professional:
+            self.builtin_button.hide()
+            self.reset_button.setText('底图／图标跟随美化包或默认')
         self._loading = True
         values = self._draft_values().get(part, {})
         variant = self.variant.currentData()
         if variant:
             values = values.get(variant, {})
         for key, (check, edit) in self.fields.items():
+            visible = key in self._editable_fields()
+            self.form.setRowVisible(check, visible)
             check.setChecked(key in values)
             part = self.part.currentData()
-            check.setEnabled(not (key == 'foreground' and part == 'sidebar') and
+            check.setEnabled(visible and not (key == 'foreground' and part == 'sidebar') and
                 not (key == 'icon' and part != 'folders' and not part.startswith('buttons')))
             if key in self.asset_buttons:
                 self.asset_buttons[key].setEnabled(check.isEnabled())
@@ -463,7 +505,14 @@ class PartSettings(QDialog):
     def reset_part(self):
         self._drafts = {key: value for key, value in self._drafts.items() if key[0] != self.part.currentData()}
         values = deepcopy(self.owner.settings.get('skin_parts', {}))
-        values.pop(self.part.currentData(), None)
+        if self.professional:
+            values.pop(self.part.currentData(), None)
+        else:
+            target = values.get(self.part.currentData(), {})
+            for field in self._editable_fields():
+                target.pop(field, None)
+                for variant in ('dark', 'light'):
+                    target.get(variant, {}).pop(field, None)
         self.owner.set_skin_parts(values)
         self.load_part()
 

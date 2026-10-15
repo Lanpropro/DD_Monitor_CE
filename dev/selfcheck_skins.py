@@ -136,7 +136,7 @@ def check_parts(app):
             notice.grab()
             controls = dialog.appearance_page.skin_settings
             assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
-            editor = PartSettings(window, dialog)
+            editor = PartSettings(window, dialog, professional=True)
             editor.setAttribute(Qt.WA_ShowWithoutActivating)
             editor.move(-10000, -10000)
             editor.show()
@@ -228,12 +228,69 @@ def check_parts(app):
             assert int(tile.video.winId()) == handle
             window.set_skin_parts({})
             # Restore the miniature editor as the default entry, preserving saved artwork.
-            window.set_skin_parts({'layout_menu': {'image': managed}})
+            window.set_skin_parts({'layout_menu': {'image': managed},
+                                   'settings': {'radius': 13, 'foreground': '#abcdef'}})
             before = window.current_state()['settings']['skin_parts']
             def inspect_preview(page):
+                from ddm.skin_preview import BASIC_PARTS, GROUPS, group_color
                 assert page.preview.accessibleName() == '可点击的界面分区预览'
                 assert page.scenes.count() == 3
                 assert window.settings['skin_parts'] == before
+                page.setAttribute(Qt.WA_ShowWithoutActivating)
+                page.move(-10000, -10000)
+                page.show()
+                app.processEvents()
+                assert {page.part.itemData(i) for i in range(page.part.count())} == BASIC_PARTS
+                assert set(page.group_labels) == set(GROUPS)
+                for mode in ('dark', 'light'):
+                    theme.apply(mode)
+                    assert len({group_color(group, theme.is_light()).name() for group in GROUPS}) == 4
+                    for part in BASIC_PARTS:
+                        page._select_part(part)
+                        app.processEvents()
+                        page.preview.grab()
+                        assert {key for key, _rect in page.preview.regions} <= BASIC_PARTS
+                        point = page.preview.point_for(part)
+                        QTest.mouseClick(page.preview, Qt.LeftButton, pos=point)
+                        assert page.part.currentData() == part
+                        if part != 'background':
+                            visible = {key for key, (check, _edit) in page.fields.items() if check.isVisible()}
+                            assert visible == {'icon' if part.startswith('buttons.') else 'image'}
+                    for index, part in enumerate(('background', 'settings', 'layout_menu')):
+                        page.scenes.setCurrentIndex((index + 1) % 3)
+                        page.scenes.setCurrentIndex(index)
+                        app.processEvents()
+                        assert page.part.currentData() == part
+                        page.grab().save(str(output/f'parts-basic-{part}-{mode}.png'))
+                theme.apply('dark')
+                page._select_part('settings')
+                with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(source), '')):
+                    page._choose('image')
+                page.apply_part()
+                assert window.settings['skin_parts']['settings']['radius'] == 13
+                assert window.settings['skin_parts']['settings']['foreground'] == '#abcdef'
+                assert values_for('settings.navigation')['background'] == '#00000000'
+                assert values_for('settings.content')['background'] == '#00000000'
+                capture = dialog.grab().toImage()
+                point = dialog.nav.mapTo(dialog, QPoint(5, 5))
+                dpr = capture.devicePixelRatio()
+                assert capture.pixelColor(round(point.x()*dpr), round(point.y()*dpr)) == QColor('#ff8800')
+                page.reset_part()
+                assert 'image' not in values_for('settings') and window.settings['skin_parts']['settings']['radius'] == 13
+                def inspect_professional(advanced):
+                    assert advanced.professional and advanced.part.findData('sidebar') >= 0
+                    return PartSettings.Rejected
+                with patch.object(PartSettings, 'exec', inspect_professional):
+                    page.open_professional()
+                page._select_part('background')
+                page.preview.grab()
+                scale, offset = page.preview._transform()
+                # Sidebar and playback bars are context only; their old entry points are gone.
+                for rect in page.preview.protected:
+                    assert not page.preview.part_at((rect.center()*scale+offset).toPoint())
+                page._select_part('controls')
+                assert page.part.currentData() == 'background'
+                page.close()
                 return PartSettings.Rejected
             with patch.object(PartSettings, 'exec', inspect_preview):
                 controls._edit_parts()

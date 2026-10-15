@@ -6,11 +6,32 @@ from PySide6.QtWidgets import QWidget, QToolTip
 from . import theme
 from .skin_parts import PARTS, resolve_values
 
+GROUPS = {
+    'background': ('软件整体背景', '#40BFFA', '#007AA8'),
+    'settings': ('设置页面背景', '#48D7A0', '#087F5B'),
+    'layout_menu': ('布局预设背景', '#FFB454', '#A75B00'),
+    'buttons': ('按钮／图标', '#C69BFF', '#8650BE'),
+}
+BASIC_PARTS = frozenset(('background', 'settings', 'layout_menu')) | frozenset(
+    key for key in PARTS if key.startswith('buttons.'))
+
+
+def group_for(part):
+    if part.startswith('buttons'):
+        return 'buttons'
+    if part.startswith('settings'):
+        return 'settings'
+    return part if part in GROUPS else 'background'
+
+
+def group_color(group, light):
+    return QColor(GROUPS[group][2 if light else 1])
+
 
 class SkinPreview(QWidget):
     partSelected = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, editable_parts=None):
         super().__init__(parent)
         self.setMinimumSize(420, 320)
         self.setMouseTracking(True)
@@ -24,6 +45,7 @@ class SkinPreview(QWidget):
         self.background_mask = 35
         self.regions = []
         self.protected = []
+        self.editable_parts = editable_parts
         self.setAccessibleName('可点击的界面分区预览')
 
     @staticmethod
@@ -128,8 +150,10 @@ class SkinPreview(QWidget):
                     painter.drawText(rect.adjusted(32, 0, -3, 0), Qt.AlignCenter, text)
         elif text:
             painter.drawText(rect, Qt.AlignCenter, text)
-        if part:
+        if part and (self.editable_parts is None or part in self.editable_parts):
             self.regions.append((part, QRectF(rect)))
+        elif part and self.scene == 'main':
+            self.protected.append(QRectF(rect))
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -163,11 +187,15 @@ class SkinPreview(QWidget):
         for key, rect in self.regions:
             active = key == self.selected
             painter.setBrush(Qt.NoBrush)
+            color = group_color(group_for(key), self.light)
             if active:
-                painter.setPen(QPen(QColor(64, 210, 241, 55), 8))
+                glow = QColor(color)
+                glow.setAlpha(55)
+                painter.setPen(QPen(glow, 8))
                 painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 7, 7)
-            pen = QPen(QColor('#40D2F1') if active or key == self.hovered else QColor(64, 210, 241, 115),
-                       2.5 if active else 1)
+            if not active and key != self.hovered:
+                color.setAlpha(210)
+            pen = QPen(color, 2.5 if active else 1.5)
             if not active and key != self.hovered:
                 pen.setStyle(Qt.DashLine)
             painter.setPen(pen)
@@ -229,6 +257,12 @@ class SkinPreview(QWidget):
         self._box(p, 'buttons', QRectF(646, 442, 100, 32), '保存')
 
     def _popups(self, p):
+        if self.editable_parts is not None:
+            self._box(p, 'layout_menu', QRectF(40, 40, 720, 440))
+            self._box(p, '', QRectF(65, 60, 670, 40), '布局预设 · 直播间组合', default='#00000000')
+            for index, label in enumerate(('单画面', '上下两分', '四分', '主画面 + 5 小', '弹幕布局', '竖屏布局')):
+                self._box(p, '', QRectF(65+(index % 3)*225, 125+(index // 3)*155, 205, 125), label)
+            return
         self._box(p, 'dialogs', QRectF(30, 60, 460, 390))
         self._box(p, '', QRectF(55, 84, 410, 40), '添加直播间／导入关注', default='#00000000',
                   foreground=self._values('dialogs').get('foreground'))

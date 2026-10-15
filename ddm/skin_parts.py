@@ -155,6 +155,18 @@ def resolve_values(part, light, personal):
                         result.setdefault(name, {}).update(value)
                     else:
                         result[name] = value
+    if part in ('settings.navigation', 'settings.content') and 'image' in resolve_values('settings', light, personal):
+        root = personal.get('settings', {})
+        mode = 'light' if light else 'dark'
+        personal_wallpaper = 'image' in root or 'image' in root.get(mode, {})
+        layers = (personal,) if personal_wallpaper else (_package, personal)
+        separate_background = any(
+            values.get('builtin') or any(field in entry for field in ('image', 'background'))
+            for layer in layers for values in (layer.get(part, {}),)
+            for entry in (values, values.get(mode, {})))
+        if not separate_background:
+            result.pop('image', None)
+            result['background'] = '#00000000'
     return result
 
 
