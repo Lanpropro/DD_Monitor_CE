@@ -837,8 +837,9 @@ class SettingsDialog(QDialog):
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
              ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件"), ("updates", "软件更新")]
 
-    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None):
+    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
         super().__init__(parent)
+        self._preview_only = preview
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
@@ -876,13 +877,19 @@ class SettingsDialog(QDialog):
             4: lambda: ShortcutSettingsPage(shortcuts),
         }
         self._loaded_pages = {}
-        self.plugin_page = PluginSettingsPage(plugin_manager)
-        self.plugin_page.store_page.seen_versions = self.seen_versions
-        self._plugin_update_dot = UpdateDot()
-        from PySide6.QtWidgets import QTabBar
-        self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
-        from .online_ui import AppUpdatePage
-        self.update_page = AppUpdatePage(settings)
+        if preview:
+            # The appearance thumbnail needs the real controls, without creating
+            # update/download workers or reading an installation result.
+            self.plugin_page = QWidget()
+            self.update_page = QWidget()
+        else:
+            self.plugin_page = PluginSettingsPage(plugin_manager)
+            self.plugin_page.store_page.seen_versions = self.seen_versions
+            self._plugin_update_dot = UpdateDot()
+            from PySide6.QtWidgets import QTabBar
+            self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
+            from .online_ui import AppUpdatePage
+            self.update_page = AppUpdatePage(settings)
         self.stack.addWidget(self.general_page)
         for _index in range(4):
             self.stack.addWidget(QWidget())
@@ -909,6 +916,8 @@ class SettingsDialog(QDialog):
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
+        if preview:
+            return
         self.plugin_page.changed.connect(self._update_save_button)
         self.plugin_page.store_page.busyChanged.connect(self._update_save_button)
         self.update_page.busyChanged.connect(self._update_save_button)
@@ -970,6 +979,8 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def done(self, result):
+        if self._preview_only:
+            return super().done(result)
         self.stack.finish_transition()
         self.plugin_page.store_page.stop()
         self.update_page.stop()

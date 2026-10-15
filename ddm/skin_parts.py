@@ -186,8 +186,8 @@ def _declarations(values):
     return ''.join(rules)
 
 
-def style_for(widget):
-    if not _active:
+def style_for(widget, *, personal=None, light=None):
+    if not _active and personal is None:
         return ''
     part = part_for(widget)
     if not part:
@@ -195,7 +195,7 @@ def style_for(widget):
     # Mark only this widget; never apply a descendant-wide card/video rule.
     if widget.property('skinPart') != part:
         widget.setProperty('skinPart', part)
-    values = values_for(part)
+    values = values_for(part) if personal is None else resolve_values(part, light, personal)
     name = widget.objectName()
     selector = (f'#{name}' if name else '*') + f'[skinPart="{part}"]'
     rules = _declarations(values)

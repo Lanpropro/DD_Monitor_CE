@@ -15,18 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated skin test'))
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor, QFontDatabase, QImage
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QImage
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QToolButton
+from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea, QToolButton
 from ddm import app as module, config, motion, theme
 from ddm.dialogs import SettingsDialog
 from ddm.plugins import PluginManager, read_manifest
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
 from ddm.skins import import_asset, validate_asset
-from ddm.skin_settings import PartSettings, SkinSettings
+from ddm.skin_settings import PartSettings, SkinSettings, SkinAssetDropArea
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
@@ -255,7 +255,10 @@ def check_parts(app):
                         assert page.part.currentData() == part
                         if part != 'background':
                             visible = {key for key, (check, _edit) in page.fields.items() if check.isVisible()}
-                            assert visible == {'icon' if part.startswith('buttons.') else 'image'}
+                            assert not visible, 'Simple artwork imports have no enable checkbox'
+                            key = 'icon' if part.startswith('buttons.') else 'image'
+                            assert page.asset_buttons[key].isVisible()
+                            assert page.fields[key][1].isHidden()
                     for index, part in enumerate(('background', 'settings', 'layout_menu')):
                         page.scenes.setCurrentIndex((index + 1) % 3)
                         page.scenes.setCurrentIndex(index)
@@ -264,6 +267,53 @@ def check_parts(app):
                         page.grab().save(str(output/f'parts-basic-{part}-{mode}.png'))
                 theme.apply('dark')
                 page._select_part('settings')
+                row = dialog.nav.currentRow()
+                with patch('ddm.dialogs.PluginSettingsPage', side_effect=AssertionError('Preview must not create plugin workers')), \
+                        patch('ddm.online_ui.AppUpdatePage', side_effect=AssertionError('Preview must not create the updater')), \
+                        patch.object(config, 'save') as save:
+                    page._update_preview()
+                    save.assert_not_called()
+                assert dialog.nav.currentRow() == row, 'Preview must not navigate the live settings dialog'
+                assert page.preview.interface_image and not page.preview.interface_image.isNull()
+                rendered = page.preview.interface_image.toImage()
+                mime = QMimeData()
+                mime.setUrls([QUrl.fromLocalFile(str(source))])
+                area = page.asset_buttons['image']
+                enter = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                area.dragEnterEvent(enter)
+                assert enter.isAccepted() and area.property('dragging')
+                drop = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                area.dropEvent(drop)
+                assert drop.isAccepted() and not area.property('dragging')
+                assert page.fields['image'][0].isChecked()
+                assert page.preview.interface_image.toImage() != rendered, 'Real settings controls must preview the imported draft'
+                assert window.settings['skin_parts'] == before, 'Import remains a draft until Apply'
+                assert isinstance(page.background_controls.choose, SkinAssetDropArea)
+                assert all(isinstance(button, SkinAssetDropArea) for button in page.asset_buttons.values())
+                for urls in ([QUrl('https://example.invalid/image.png')],
+                             [QUrl.fromLocalFile(str(source)), QUrl.fromLocalFile(str(source))]):
+                    mime.setUrls(urls)
+                    event = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                    area.dragEnterEvent(event)
+                    assert not event.isAccepted()
+                video = source.with_suffix('.mp4')
+                video.write_bytes(b'fixture')
+                mime.setUrls([QUrl.fromLocalFile(str(video))])
+                event = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                area.dragEnterEvent(event)
+                assert not event.isAccepted(), 'Part backgrounds accept only static images'
+                page.background_controls.choose.dragEnterEvent(event)
+                assert event.isAccepted(), 'Whole-window backgrounds also accept video'
+                page.background_controls.choose.dragLeaveEvent(event)
+                for width, height in ((1100, 700), (950, 520)):
+                    page.resize(width, height)
+                    app.processEvents()
+                    assert page.apply_button.isVisible() and page.close_button.isVisible()
+                    assert page.apply_button.mapTo(page, QPoint()).y() > page.height() - page.apply_button.height() - 30
+                    assert abs(page.apply_button.mapTo(page, QPoint()).y() - page.close_button.mapTo(page, QPoint()).y()) <= 2
+                    assert not any(isinstance(parent, QScrollArea) for parent in
+                                   (page.apply_button.parentWidget(), page.close_button.parentWidget()))
+                page.resize(1100, 700)
                 with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(source), '')):
                     page._choose('image')
                 page.apply_part()
@@ -277,11 +327,16 @@ def check_parts(app):
                 assert capture.pixelColor(round(point.x()*dpr), round(point.y()*dpr)) == QColor('#ff8800')
                 page.reset_part()
                 assert 'image' not in values_for('settings') and window.settings['skin_parts']['settings']['radius'] == 13
-                def inspect_professional(advanced):
-                    assert advanced.professional and advanced.part.findData('sidebar') >= 0
-                    return PartSettings.Rejected
-                with patch.object(PartSettings, 'exec', inspect_professional):
-                    page.open_professional()
+                assert not any('专业美化' in button.text() for button in page.findChildren(QPushButton))
+                assert not hasattr(page, 'open_professional'), 'Professional editor has no user entry point'
+                for part, field in (('layout_menu', 'image'), ('buttons.pause', 'icon')):
+                    page._select_part(part)
+                    mime.setUrls([QUrl.fromLocalFile(str(source))])
+                    drop = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                    page.asset_buttons[field].dropEvent(drop)
+                    assert drop.isAccepted() and page.fields[field][0].isChecked()
+                    assert page.fields[field][1].text()
+                page._drafts.clear()
                 page._select_part('background')
                 page.preview.grab()
                 scale, offset = page.preview._transform()

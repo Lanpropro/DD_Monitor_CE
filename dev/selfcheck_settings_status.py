@@ -461,7 +461,9 @@ def main() -> None:
     defaults = dialog.settings()
     print(f"  读到的设置={defaults}")
     global_keys = {key for key in config_module.DEFAULT_SETTINGS if not key.startswith("video_danmaku_")}
-    assert set(defaults) == (global_keys - {"danmaku_retention_version"}) | {"seen_update_versions"}, \
+    # PartSettings persists artwork independently; saving the outer settings
+    # must not replace those edits with an older copy.
+    assert set(defaults) == (global_keys - {"danmaku_retention_version", "skin_parts"}) | {"seen_update_versions"}, \
         "全局设置应保留常规选项，画面弹幕观看参数由格子右下角调整"
     assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():

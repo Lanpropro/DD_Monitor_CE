@@ -7,6 +7,28 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QForm
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .skins import AssetImport
+from .folder_icons import IconDropArea
+
+
+class SkinAssetDropArea(IconDropArea):
+    def __init__(self, parent=None, *, video=False):
+        super().__init__(parent)
+        from .skins import IMAGES, VIDEOS
+        self.extensions = IMAGES | VIDEOS if video else IMAGES
+        self.setText('将图片或视频拖到这里\n或点击选择文件' if video else '将图片拖到这里\n或点击选择文件')
+        self.setAutoDefault(False)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('#IconDropArea {background: palette(button); color: palette(button-text);'
+            'border: 1px dashed #70839A; border-radius: 10px; padding: 10px;}'
+            '#IconDropArea:hover, #IconDropArea[dragging="true"] {border-color: palette(highlight);}')
+
+    def _path(self, event):
+        urls = event.mimeData().urls()
+        if len(urls) == 1 and urls[0].isLocalFile():
+            path = urls[0].toLocalFile()
+            if Path(path).suffix.lower() in self.extensions and Path(path).is_file():
+                return path
+        return ''
 
 
 class SkinSettings(QWidget):
@@ -30,13 +52,13 @@ class SkinSettings(QWidget):
         self.status.setObjectName('SettingsHint')
         layout.addWidget(self.status)
         row = QHBoxLayout()
-        self.choose = QPushButton('导入图片或视频…')
-        self.choose.setObjectName('IconButton')
+        self.choose = SkinAssetDropArea(video=True)
         self.choose.clicked.connect(self._choose)
+        self.choose.fileDropped.connect(self.import_file)
         self.clear = QPushButton('恢复默认背景')
         self.clear.setObjectName('IconButton')
         self.clear.clicked.connect(self.reset)
-        row.addWidget(self.choose)
+        layout.addWidget(self.choose)
         row.addWidget(self.clear)
         layout.addLayout(row)
         self.follow = QPushButton('跟随美化包背景')
@@ -300,10 +322,10 @@ class PartSettings(QDialog):
                 edit.setReadOnly(key in ('image', 'icon'))
             row.addWidget(edit)
             if key in ('image', 'icon'):
-                button = QPushButton('选择图片')
-                button.setObjectName('IconButton')
+                button = SkinAssetDropArea()
                 button.setAutoDefault(False)
                 button.clicked.connect(lambda _checked=False, field=key: self._choose(field))
+                button.fileDropped.connect(lambda source, field=key: self._import_part_asset(field, source))
                 row.addWidget(button)
                 self.asset_buttons[key] = button
             form.addRow(check, row)
@@ -330,16 +352,11 @@ class PartSettings(QDialog):
         defaults.addWidget(self.reset_button)
         defaults.addWidget(self.builtin_button)
         layout.addLayout(defaults)
-        if not professional:
-            advanced = QPushButton('专业美化…')
-            advanced.setObjectName('IconButton')
-            advanced.setAutoDefault(False)
-            advanced.clicked.connect(self.open_professional)
-            layout.addWidget(advanced)
         for button in (self.apply_button, close):
             button.setAutoDefault(False)
             row.addWidget(button)
-        layout.addLayout(row)
+        self.close_button = close
+        right.addLayout(row)
         layout.addStretch(1)
         self.part.currentIndexChanged.connect(self.load_part)
         self.variant.currentIndexChanged.connect(self.load_part)
@@ -365,12 +382,6 @@ class PartSettings(QDialog):
 
     def _select_scene(self, index):
         self._select_part(('background', 'settings', 'menus' if self.professional else 'layout_menu')[index])
-
-    def open_professional(self):
-        dialog = PartSettings(self.owner, self, professional=True)
-        dialog.exec()
-        dialog.deleteLater()
-        self.load_part()
 
     def _editable_fields(self):
         return set(self.fields) if self.professional else {'icon' if self.part.currentData().startswith('buttons.') else 'image'}
@@ -428,6 +439,8 @@ class PartSettings(QDialog):
         for group, label in self.group_labels.items():
             label.setStyleSheet('color: ' + group_color(group, self.preview.light).name() + ';')
         self.preview.state = variant if variant not in ('light', 'dark') else ''
+        if not self.professional and self.preview.scene != 'main':
+            self.preview.capture_interface(self.owner)
         self.preview.update()
         self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
         return True
@@ -461,6 +474,9 @@ class PartSettings(QDialog):
         for key, (check, edit) in self.fields.items():
             visible = key in self._editable_fields()
             self.form.setRowVisible(check, visible)
+            if not self.professional and key in self.asset_buttons:
+                check.hide()
+                edit.hide()
             check.setChecked(key in values)
             part = self.part.currentData()
             check.setEnabled(visible and not (key == 'foreground' and part == 'sidebar') and
@@ -471,15 +487,20 @@ class PartSettings(QDialog):
                 edit.setValue(values.get(key, 0))
             else:
                 edit.setText(values.get(key, ''))
+            if key in self.asset_buttons:
+                self.asset_buttons[key].setToolTip(values.get(key, '') or '尚未导入；跟随美化包或默认')
         self._loading = False
         self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
         self._update_preview()
 
     def _choose(self, key):
-        from .skins import import_asset, validate_asset, IMAGES
         source, _ = QFileDialog.getOpenFileName(self, '导入分区图片', '', '图片 (*.png *.jpg *.jpeg *.webp *.bmp)')
         if not source:
             return
+        self._import_part_asset(key, source)
+
+    def _import_part_asset(self, key, source):
+        from .skins import import_asset, validate_asset, IMAGES
         try:
             path = validate_asset(source)
             if path.suffix.lower() not in IMAGES or path.stat().st_size > 8 * 1024 * 1024:
@@ -498,7 +519,7 @@ class PartSettings(QDialog):
         try:
             self.owner.set_skin_parts(values)
             self._drafts.clear()
-            self.status.setText('已应用并保存；未勾选字段继续跟随美化包／默认。')
+            self.status.setText('已应用并保存；未修改的部分继续跟随美化包／默认。')
         except (OSError, ValueError) as error:
             self.status.setText(str(error))
 

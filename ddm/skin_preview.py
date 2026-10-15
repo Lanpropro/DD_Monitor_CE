@@ -43,6 +43,7 @@ class SkinPreview(QWidget):
         self.state = ''
         self.background = None
         self.background_mask = 35
+        self.interface_image = None
         self.regions = []
         self.protected = []
         self.editable_parts = editable_parts
@@ -241,6 +242,9 @@ class SkinPreview(QWidget):
                     self._box(p, 'buttons.'+key, QRectF(bar.x()+x, bar.y()+3, width, 25), text)
 
     def _settings(self, p):
+        if self.editable_parts is not None:
+            self._interface(p, 'settings')
+            return
         self._box(p, 'settings', QRectF(25, 20, 750, 480))
         self._box(p, 'settings.navigation', QRectF(36, 34, 155, 452))
         for index, text in enumerate(('常规', '外观', '弹幕', '录制', '快捷键', '插件')):
@@ -258,10 +262,7 @@ class SkinPreview(QWidget):
 
     def _popups(self, p):
         if self.editable_parts is not None:
-            self._box(p, 'layout_menu', QRectF(40, 40, 720, 440))
-            self._box(p, '', QRectF(65, 60, 670, 40), '布局预设 · 直播间组合', default='#00000000')
-            for index, label in enumerate(('单画面', '上下两分', '四分', '主画面 + 5 小', '弹幕布局', '竖屏布局')):
-                self._box(p, '', QRectF(65+(index % 3)*225, 125+(index // 3)*155, 205, 125), label)
+            self._interface(p, 'layout_menu')
             return
         self._box(p, 'dialogs', QRectF(30, 60, 460, 390))
         self._box(p, '', QRectF(55, 84, 410, 40), '添加直播间／导入关注', default='#00000000',
@@ -277,3 +278,38 @@ class SkinPreview(QWidget):
                       foreground=state.get('foreground', values.get('foreground')))
         self._box(p, 'layout_menu', QRectF(520, 205, 245, 130), '布局预设／直播间组合')
         self._box(p, 'notices', QRectF(520, 355, 245, 95), '操作结果／顶部提示')
+
+    def capture_interface(self, owner):
+        """Render real, isolated widgets; drafts never change the running UI."""
+        from .dialogs import SettingsDialog
+        from .widgets import LayoutPicker
+        from .skin_parts import style_for
+        widget = (SettingsDialog(owner.settings, owner.shortcuts, preview=True)
+                  if self.scene == 'settings' else LayoutPicker(owner.sidebar._layout_id, presets_host=owner))
+        widget.setAttribute(Qt.WA_DontShowOnScreen)
+        widget.setAttribute(Qt.WA_ShowWithoutActivating)
+        widget.setWindowFlags(Qt.Widget)
+        try:
+            widget.ensurePolished()
+            for child in (widget, *widget.findChildren(QWidget)):
+                child.ensurePolished()
+                extra = style_for(child, personal=self.personal, light=self.light)
+                if extra:
+                    child.setStyleSheet(child.styleSheet() + '\n' + extra)
+            widget.show()
+            widget.layout().activate()
+            self.interface_image = widget.grab()
+        finally:
+            widget.hide()
+            widget.deleteLater()
+
+    def _interface(self, painter, part):
+        image = self.interface_image
+        if image is None or image.isNull():
+            return
+        size = image.deviceIndependentSize()
+        scale = min(770 / size.width(), 490 / size.height())
+        width, height = size.width()*scale, size.height()*scale
+        rect = QRectF((800-width)/2, (520-height)/2, width, height)
+        painter.drawPixmap(rect, image, QRectF(image.rect()))
+        self.regions.append((part, rect))
