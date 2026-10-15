@@ -126,6 +126,18 @@ def run(app):
                 reference = next(f for i, f in enumerate(container.decode(video=0)) if i == 90)
                 expected = video.image_from_frame(reference)
             assert shown[1] == expected, "Native pixels changed during caching/playback"
+            retained = decoder.history
+            resumed = video.VideoHistory()
+            resumed.previous = retained
+            probe = media.Decoder('retained_probe')
+            probe.history = resumed
+            try:
+                assert ready(probe, frame[0])[1] == expected, 'Reconnect must retain native old-epoch pictures'
+                stamp = retained.origin + 1.2
+                assert resumed.pcm_at(stamp, 480) == retained.pcm_at(stamp, 480)
+                assert any(resumed.pcm_at(stamp, 480)), 'Reconnect must retain actual audible old PCM'
+            finally:
+                probe.stop()
             with patch.object(media.QImage, "fromData", side_effect=AssertionError("JPEG decode on GUI thread")):
                 canvas.set_frame(shown)
                 assert canvas.image == expected and canvas.frame_key == frame[0]

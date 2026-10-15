@@ -70,11 +70,71 @@ class VideoHistory(History):
         self.received_frames = 0
         self.details = deque()
         self.pending_frames = deque()
+        self.previous = None
+        self.intervals = deque()
+
+    def _track(self, timestamp):
+        if not self.intervals or timestamp - self.intervals[-1][1] > .25:
+            self.intervals.append([timestamp, timestamp])
+        else:
+            self.intervals[-1][1] = timestamp
+
+    def segment_at(self, timestamp):
+        if self.previous is not None:
+            bounds = self.previous.bounds()
+            if bounds and bounds[0] <= timestamp <= bounds[1] + .05:
+                return self.previous
+        bounds = super().bounds()
+        if bounds and bounds[0] <= timestamp <= bounds[1] + .05:
+            return self
+        return None
+
+    def bounds_at(self, timestamp):
+        segment = self.segment_at(timestamp)
+        if segment is not None and segment is not self:
+            return segment.bounds_at(timestamp)
+        with self.lock:
+            bounds = super().bounds()
+            if bounds is None:
+                return None
+            while self.intervals and self.intervals[0][1] < bounds[0]:
+                self.intervals.popleft()
+            for start, end in self.intervals:
+                if timestamp <= end + .05:
+                    return max(start, bounds[0]), min(end, bounds[1])
+            return bounds
+
+    def frame_at(self, timestamp):
+        segment = self.segment_at(timestamp)
+        if segment is not None and segment is not self:
+            return segment.frame_at(timestamp)
+        bounds = self.bounds_at(timestamp)
+        if bounds is None or not bounds[0] <= timestamp <= bounds[1] + .05:
+            return None
+        return super().frame_at(timestamp)
+
+    def pcm_at(self, timestamp, frames):
+        segment = self.segment_at(timestamp)
+        if segment is not None and segment is not self:
+            return segment.pcm_at(timestamp, frames)
+        return super().pcm_at(timestamp, frames)
+
+    def trim_bytes(self, limit):
+        with self.lock:
+            while self.packets and self.byte_size > limit:
+                self.byte_size -= len(self.packets.popleft().data)
+                while self.packets and not self.packets[0].keyframe:
+                    self.byte_size -= len(self.packets.popleft().data)
+            first = self.packets[0].time + (self.origin or 0) if self.packets else float('inf')
+            while self.frames and self.frames[0][0] < first:
+                self.frames.popleft()
 
     def set_origin(self, origin):
         with self.lock:
             self.origin = origin
             self.frames.extend((origin + pts, pts) for pts in self.pending_frames)
+            for timestamp, _pts in self.frames:
+                self._track(timestamp)
             self.pending_frames.clear()
             self.samples = deque(replace(sample, time=origin + sample.time) for sample in self.samples)
             self.details = deque(replace(sample, time=origin + sample.time) for sample in self.details)
@@ -91,6 +151,8 @@ class VideoHistory(History):
                 return
             self.packets.append(record)
             self.byte_size += len(record.data)
+            if self.previous is not None:
+                self.previous.trim_bytes(max(0, self.byte_limit - self.byte_size))
             while self.packets and (self.byte_size > self.byte_limit or
                                     record.time - self.packets[0].time > self.seconds):
                 self.byte_size -= len(self.packets.popleft().data)
@@ -113,6 +175,7 @@ class VideoHistory(History):
                     self.pending_frames.append(pts)
                 else:
                     self.frames.append((timestamp, pts))
+                    self._track(timestamp)
             self.received_frames += 1
             if sample is not None:
                 self.samples.append(sample)

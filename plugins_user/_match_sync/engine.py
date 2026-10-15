@@ -55,9 +55,11 @@ def match_scenes(reference: list[Sample], other: list[Sample], *, focused=False)
         return Match(None, 0, "框选区域变化不足；可扩大比赛区域或对照微调")
     groups = defaultdict(list)
     appearance_distances = None
-    if np is not None and all(s.feature and len(s.feature) == 256 for s in reference + other):
-        a_features = np.frombuffer(b"".join(s.feature for s in reference), dtype=np.uint8).reshape(-1, 16, 16)[:, ::4, ::4].reshape(-1, 16).astype(np.int16)
-        b_features = np.frombuffer(b"".join(s.feature for s in other), dtype=np.uint8).reshape(-1, 16, 16)[:, ::4, ::4].reshape(-1, 16).astype(np.int16)
+    length = len(reference[0].feature)
+    if np is not None and length in (256, 1536) and all(len(s.feature) == length for s in reference + other):
+        height, width = (24, 64) if length == 1536 else (16, 16)
+        a_features = np.frombuffer(b"".join(s.feature for s in reference), dtype=np.uint8).reshape(-1, height, width)[:, ::height // 4, ::width // 4].reshape(-1, 16).astype(np.int16)
+        b_features = np.frombuffer(b"".join(s.feature for s in other), dtype=np.uint8).reshape(-1, height, width)[:, ::height // 4, ::width // 4].reshape(-1, 16).astype(np.int16)
         appearance_distances = np.abs(a_features[:, None, :] - b_features[None, :, :]).mean(axis=2) / 128
     if appearance_distances is not None:
         a_bits = np.frombuffer(b"".join(s.signature.to_bytes(64, "little") for s in reference), dtype=np.uint8).reshape(-1, 64)
@@ -322,6 +324,9 @@ class History:
     def bounds(self) -> tuple[float, float] | None:
         with self.lock:
             return (self.frames[0][0], self.frames[-1][0]) if self.frames else None
+
+    def bounds_at(self, timestamp):
+        return self.bounds()
 
     def snapshots(self) -> list[Sample]:
         with self.lock:

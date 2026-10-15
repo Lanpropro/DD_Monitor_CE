@@ -39,6 +39,7 @@ def main():
                     row.decoder.history.append(stamp/60,image)
                 row.decoder.last_frame_received=now[0]
                 row.match_confirmed=True
+                row.user_confirmed=True
             viewer.alignment.lags.update({'2':.4,'3':1.2})
             viewer.rematch_rooms.clear()
             viewer.render()
@@ -92,12 +93,14 @@ def main():
             assert viewer.shifts()['1']==before['1'] and viewer.shifts()['3']==before['3']
             deliveries=[]
             viewer.results.matched.connect(lambda epoch,results:deliveries.append(tuple(results)))
-            with patch.object(module,'match_scenes',return_value=Match(2.5,1,'fresh global match',refined=True)) as search, \
+            with patch.object(module,'match_scenes',side_effect=[Match(lag,1,'fresh global match',refined=True) for lag in (2.5,1.2,2.5,1.2)]) as search, \
                     patch.object(module.threading,'Thread') as worker:
                 worker.side_effect=lambda **kwargs:type('Inline',(),{'start':lambda self:kwargs['target']()})()
                 viewer.analyse()
                 viewer.analyse()
-                assert search.call_count==2 and deliveries==[('2',),('2',)]
+                viewer.analyse()
+                viewer.analyse()
+                assert search.call_count==4 and deliveries==[('2',),('3',),('2',),('3',)]
             assert abs(viewer.alignment.lags['2']-2.5)<1e-9 and viewer.rows['2'].match_confirmed
             assert not viewer.rematch_rooms and not viewer.rematch_admit
             assert all(viewer.rows[key].decoder is decoder and not decoder.stopped for key,decoder in originals.items())

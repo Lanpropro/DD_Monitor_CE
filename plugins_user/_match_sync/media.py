@@ -49,12 +49,13 @@ def fingerprint(jpeg: bytes, crop=(0.0, 0.0, 1.0, 1.0)) -> tuple[int, float]:
     return signature, texture / SIGNATURE_BITS
 
 
-def scene_feature(image, crop):
+def scene_feature(image, crop, size=(16, 16)):
     x, y, width, height = crop
     image = image.copy(round(x * image.width()), round(y * image.height()),
                        max(1, round(width * image.width())), max(1, round(height * image.height())))
-    image = image.scaled(16, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_Grayscale8)
-    pixels = np.frombuffer(image.constBits(), dtype=np.uint8).reshape(16, image.bytesPerLine())[:, :16]
+    width, height = size
+    image = image.scaled(width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_Grayscale8)
+    pixels = np.frombuffer(image.constBits(), dtype=np.uint8).reshape(height, image.bytesPerLine())[:, :width]
     centre, scale = pixels.mean(), max(8, pixels.std())
     return np.clip(np.rint(128 + (pixels.astype(np.float32) - centre) * 48 / scale), 0, 255).astype(np.uint8).tobytes()
 
@@ -74,7 +75,7 @@ def frame_sample(frame, timestamp, crop, size):
             image = image.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         crop = (0, 0, 1, 1)
     signature, texture = fingerprint(image, crop)
-    return Sample(timestamp, signature, texture, scene_feature(image, crop))
+    return Sample(timestamp, signature, texture, scene_feature(image, crop, (64, 24) if selected else (16, 16)))
 
 
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,
@@ -108,6 +109,7 @@ class Decoder:
         self.source_headers = {}
         self.events = Events()
         self.history = VideoHistory()
+        self.playback_timestamp = None
         self.pictures = PictureReader()
         self.video_size = (0, 0)
         self.last_frame_received = 0.0
@@ -142,8 +144,11 @@ class Decoder:
                 pass
 
     def picture_at(self, timestamp, exact=False):
-        frame = self.history.frame_at(timestamp)
-        return self.pictures.get(self.history, frame, exact=exact) if frame is not None and not self.cancelled.is_set() else None
+        if not exact:
+            self.playback_timestamp = timestamp
+        history = self.history.segment_at(timestamp) or self.history
+        frame = history.frame_at(timestamp)
+        return self.pictures.get(history, frame, exact=exact) if frame is not None and not self.cancelled.is_set() else None
 
     def diagnostics(self):
         with self.history.lock:
@@ -227,7 +232,11 @@ class Decoder:
                 if self.cancelled.is_set():
                     return
                 if attempt:
+                    previous = (self.history.segment_at(self.playback_timestamp)
+                                if self.playback_timestamp is not None else None) or self.history
+                    previous.previous = None
                     self.history = VideoHistory()
+                    self.history.previous = previous
                     self.events.reset.emit()
                 self._capture(executable, url, headers)
             except bili.Cancelled:

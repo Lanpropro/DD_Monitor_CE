@@ -24,10 +24,12 @@ def main():
             patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
             patch.object(module.AudioPump, "start", lambda _self: None):
         source = Path(root) / "scene.mkv"
+        # Locally similar motion phases must not replace the exact timestamp
+        # relationship when a cropped stream restarts from the beginning.
         subprocess.run([recording.ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "lavfi", "-i", "nullsrc=size=320x180:rate=60,geq=lum='128+40*sin(X*0.03+N*0.13)+40*sin(Y*0.04+N*0.061)+25*sin((X+Y)*0.02+N*0.027)':cb=128:cr=128",
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-            "-t", "24", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast",
+            "-t", "36", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast",
             "-c:a", "pcm_s16le", str(source)], check=True, capture_output=True, timeout=30,
             creationflags=recording._FFMPEG_FLAGS)
         host = QWidget()
@@ -61,6 +63,10 @@ def main():
                     viewer.analyse()
                     next_match = elapsed + .5
                 app.processEvents()
+                for key, pending in viewer.rows.items():
+                    if pending.awaiting_confirmation and pending.match_confirmed:
+                        assert pending.mix_gain == 0
+                        viewer.admit_pending(key)
                 if all(row.sync_state == "已同步" for row in viewer.rows.values()):
                     if matched_at is None:
                         matched_at = time.monotonic()
@@ -78,11 +84,31 @@ def main():
             print(f"MEASURE: three real pipelines confirmed in {matched_at-begin:.2f}s; visible scene error {abs(actual-expected)*1000:.0f}ms")
             assert all(row.mix_gain == 1 for row in viewer.rows.values())
             assert viewer.compare.isChecked() and viewer.alignment.automatic
+            # Recollect the larger focused features on all three feeds without
+            # losing the human approvals or moving the healthy main timeline.
+            main_shift = viewer.shifts()['1']
+            for row in viewer.rows.values():
+                row.crop = (.1, .1, .8, .8)
+                row.decoder.set_crop(row.crop)
+            viewer.retry_alignment('1')
+            recrop_started = time.monotonic()
+            while time.monotonic() - recrop_started < 8:
+                viewer.render()
+                viewer.analyse()
+                app.processEvents()
+                assert viewer.shifts()['1'] == main_shift and not viewer.sync_waiting
+                assert not any(row.awaiting_confirmation for row in viewer.rows.values())
+                if all(row.sync_state == '已同步' for row in viewer.rows.values()):
+                    break
+                time.sleep(.01)
+            assert all(row.sync_state == '已同步' for row in viewer.rows.values()), [(r.match_text, r.sync_state) for r in viewer.rows.values()]
+            print('PASS: three focused feature streams reacquire fairly without repeated approval or moving the main')
             # Resume one stream with a new PTS origin, reproducing a delayed rejoin.
             peer_lag = viewer.alignment.lags["3"]
             row = viewer.rows["2"]
             row.decoder.stop()
             row.decoder = media.Decoder("2", {"url": str(source)})
+            row.decoder.set_crop(row.crop)
             decoders.append(row.decoder)
             viewer._reset(row, row.decoder)
             row.decoder.start()
@@ -91,7 +117,9 @@ def main():
             recovered_at = None
             admitted_late = False
             main_shift = viewer.shifts()['1']
-            while time.monotonic() - resumed < 10:
+            # Cropping cleared the pre-crop features. The restarted file must
+            # reach that retained scene interval before a true overlap exists.
+            while time.monotonic() - resumed < 18:
                 viewer.render()
                 if time.monotonic() >= next_match:
                     viewer.analyse()
@@ -105,6 +133,8 @@ def main():
                 expected = (row.decoder.history.origin - decoders[0].history.origin
                             if row.decoder.history.origin is not None else None)
                 actual = row.actual_position - viewer.rows["1"].actual_position if row.actual_position is not None else None
+                if expected is not None and actual is not None and row.match_confirmed and row.sync_state == '已同步':
+                    assert abs(actual - expected) <= .2, ('False recovery confirmation', actual, expected, row.match_text)
                 if (expected is not None and actual is not None and row.match_confirmed
                         and row.sync_state == "已同步" and abs(actual-expected) <= .1):
                     if recovered_at is None:
@@ -115,7 +145,7 @@ def main():
             assert recovered_at is not None, (row.match_text, row.sync_state, viewer.alignment.lags,
                 viewer.shifts(), viewer.audio.clock(), row.actual_position, viewer.rows['1'].actual_position,
                 row.decoder.history.bounds(), viewer.rematch_rooms, viewer.rematch_admit,
-                row.match_confirmed, row.recovery_since, row.decoder.last_frame_received)
+                row.match_confirmed, row.recovery_since, row.decoder.last_frame_received, expected, actual)
             assert abs(viewer.alignment.lags["3"] - peer_lag) <= .08
             assert not viewer.rows["1"].paused and not viewer.sync_waiting
             print(f"MEASURE: changed-origin stream realigned in {recovered_at-resumed:.2f}s; scene error {abs(actual-expected)*1000:.0f}ms")

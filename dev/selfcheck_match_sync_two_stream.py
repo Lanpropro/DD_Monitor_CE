@@ -93,6 +93,9 @@ def main():
                     next_match = elapsed + .5
                 app.processEvents()
                 row = viewer.rows['2']
+                if row.awaiting_confirmation and row.match_confirmed:
+                    assert row.mix_gain == 0, 'First alignment must remain muted until human approval'
+                    viewer.admit_pending('2')
                 if row.match_confirmed and row.sync_state == '已同步':
                     matched = elapsed if matched is None else matched
                     if cropped:
