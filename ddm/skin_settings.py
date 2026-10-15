@@ -226,17 +226,23 @@ class SkinSettings(QWidget):
 
 class PartSettings(QDialog):
     """Edit only explicit personal overrides; omitted fields inherit the skin pack."""
-    def __init__(self, owner, parent=None, *, professional=False):
+    def __init__(self, owner, parent=None, *, professional=False, embedded=False):
         super().__init__(parent)
         from .skin_parts import PARTS, NUMBERS
         from .skin_preview import BASIC_PARTS, GROUPS, SkinPreview
         self.owner = owner
         self.professional = professional
+        self.embedded = embedded
+        if embedded:
+            self.setWindowFlags(Qt.Widget)
+            self.setProperty('skinPart', 'settings.content')
         self._drafts = {}
         self._loading = False
         self.setWindowTitle('专业美化' if professional else '分区美化')
         self.resize(1100, 700)
-        outer = QHBoxLayout(self)
+        outer = QVBoxLayout(self) if embedded else QHBoxLayout(self)
+        if embedded:
+            outer.setContentsMargins(0, 0, 0, 0)
         preview_column = QVBoxLayout()
         self.scenes = QTabBar()
         self.scenes.setStyleSheet('QTabBar::tab {background: palette(base); color: palette(text);'
@@ -246,6 +252,9 @@ class PartSettings(QDialog):
             self.scenes.addTab(text)
         preview_column.addWidget(self.scenes)
         self.preview = SkinPreview(self, editable_parts=None if professional else BASIC_PARTS)
+        if embedded:
+            self.preview.setMinimumSize(320, 280)
+            self.preview.setFixedHeight(280)
         preview_column.addWidget(self.preview, 1)
         self.group_labels = {}
         if not professional:
@@ -258,24 +267,32 @@ class PartSettings(QDialog):
         legend = QLabel('点击彩色框选择区域；实线表示当前选择。\n空画面、顶部浮标和关注卡片不提供修改入口。')
         legend.setWordWrap(True)
         preview_column.addWidget(legend)
-        outer.addLayout(preview_column, 3)
+        legend.setVisible(not embedded)
+        outer.addLayout(preview_column, 0 if embedded else 3)
         right = QVBoxLayout()
         self.page_title = QLabel('界面美化')
         self.page_title.setObjectName('SettingsTitle')
         right.addWidget(self.page_title)
-        self.introduction = QLabel('点击左侧预览图中可修改部分 在下方自定义修改')
+        self.page_title.setVisible(not embedded)
+        self.introduction = QLabel('点击上方预览图中可修改部分 在下方自定义修改' if embedded else
+                                  '点击左侧预览图中可修改部分 在下方自定义修改')
         self.introduction.setObjectName('SettingsHint')
         self.introduction.setWordWrap(True)
         right.addWidget(self.introduction)
-        outer.addLayout(right, 2)
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setMinimumWidth(350)
+        outer.addLayout(right, 0 if embedded else 2)
         content = QWidget()
-        scroll.setWidget(content)
-        right.addWidget(scroll, 1)
+        if embedded:
+            right.addWidget(content)
+        else:
+            scroll = QScrollArea(self)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QScrollArea.NoFrame)
+            scroll.setMinimumWidth(350)
+            scroll.setWidget(content)
+            right.addWidget(scroll, 1)
         layout = QVBoxLayout(content)
+        if embedded:
+            layout.setContentsMargins(0, 0, 0, 0)
         self.selection_title = QLabel()
         self.selection_title.setObjectName('SettingsTitle')
         layout.addWidget(self.selection_title)
@@ -355,7 +372,11 @@ class PartSettings(QDialog):
             row.addWidget(button)
         self.close_button = close
         right.addLayout(row)
-        layout.addStretch(1)
+        if embedded:
+            self.apply_button.hide()
+            close.hide()
+        else:
+            layout.addStretch(1)
         self.part.currentIndexChanged.connect(self.load_part)
         self.variant.currentIndexChanged.connect(self.load_part)
         self.scenes.currentChanged.connect(self._select_scene)
@@ -372,6 +393,12 @@ class PartSettings(QDialog):
                 edit.textChanged.connect(self._update_preview)
         self.load_part()
         self._update_background()
+
+    def keyPressEvent(self, event):
+        if self.embedded:
+            QWidget.keyPressEvent(self, event)
+        else:
+            super().keyPressEvent(event)
 
     def _select_part(self, part):
         index = self.part.findData(part)
@@ -443,7 +470,9 @@ class PartSettings(QDialog):
         if not self.professional and self.preview.scene != 'main':
             self.preview.capture_interface(self.owner)
         self.preview.update()
-        self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
+        self.status.setText('整体背景选择后立即生效。' if background else
+                           '预览已同步；点击设置页下方“保存”后生效。' if self.embedded else
+                           '预览已同步；点击应用并保存后生效。')
         return True
 
     def load_part(self):
@@ -491,7 +520,9 @@ class PartSettings(QDialog):
             if key in self.asset_buttons:
                 self.asset_buttons[key].setToolTip(values.get(key, '') or '尚未导入；跟随美化包或默认')
         self._loading = False
-        self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
+        self.status.setText('整体背景选择后立即生效。' if background else
+                           '预览已同步；点击设置页下方“保存”后生效。' if self.embedded else
+                           '预览已同步；点击应用并保存后生效。')
         self._update_preview()
 
     def _choose(self, key):
@@ -514,6 +545,10 @@ class PartSettings(QDialog):
             self.status.setText(str(error))
 
     def apply_part(self):
+        if self.save_changes() and not self.professional and not self.embedded:
+            self.accept()
+
+    def save_changes(self):
         if not self.professional and not self._drafts:
             part = self.part.currentData()
             field = 'icon' if part.startswith('buttons.') else 'image'
@@ -521,19 +556,18 @@ class PartSettings(QDialog):
             current = edit.text().strip() if check.isChecked() else None
             saved = self.owner.settings.get('skin_parts', {}).get(part, {}).get(field)
             if part == 'background' or current == saved:
-                self.accept()
-                return
+                return True
         if not self._update_preview():
-            return
+            return False
         values = self._draft_values()
         try:
             self.owner.set_skin_parts(values)
             self._drafts.clear()
             self.status.setText('已应用并保存；未修改的部分继续跟随美化包／默认。')
-            if not self.professional:
-                self.accept()
+            return True
         except (OSError, ValueError) as error:
             self.status.setText(str(error))
+            return False
 
     def reset_part(self):
         self._drafts = {key: value for key, value in self._drafts.items() if key[0] != self.part.currentData()}

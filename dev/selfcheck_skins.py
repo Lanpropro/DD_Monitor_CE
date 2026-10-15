@@ -138,15 +138,16 @@ def check_parts(app):
             dialog.nav.setCurrentRow(1)
             app.processEvents()
             assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
-            assert controls.isHidden() and controls.parts_button.text() == '分区美化'
+            assert controls.parts_button.isHidden()
             appearance = dialog.appearance_page
-            assert controls.parts_button.parentWidget() is not controls
-            appearance_parts = controls.parts_button
-            assert appearance_parts.isVisible()
-            assert abs(appearance_parts.mapTo(appearance, QPoint()).y() -
-                       appearance.buttons['dark'].mapTo(appearance, QPoint()).y()) <= 2
+            embedded = appearance.parts_editor
+            assert embedded.isVisible() and embedded.embedded and not embedded.isWindow()
+            assert embedded.apply_button.isHidden() and embedded.close_button.isHidden()
+            assert embedded.preview.mapTo(embedded, QPoint()).y() < embedded.selection_title.mapTo(embedded, QPoint()).y()
+            assert embedded.introduction.text() == '点击上方预览图中可修改部分 在下方自定义修改'
             forbidden = ('背景皮肤', '颜色模式', '当前：', '立即生效并保存', '主界面入口：', '切换不重连直播')
-            assert not any(label.isVisible() and any(text in label.text() for text in forbidden)
+            assert not any(label.isVisible() and not embedded.isAncestorOf(label) and
+                           any(text in label.text() for text in forbidden)
                            for label in appearance.findChildren(QLabel))
             dialog.nav.setCurrentRow(0)
             editor = PartSettings(window, dialog, professional=True)
@@ -423,6 +424,48 @@ def check_parts(app):
             with patch.object(PartSettings, 'exec', inspect_preview):
                 controls._edit_parts()
             assert window.settings['skin_parts'] == before
+            # Inline drafts are committed by the existing settings footer only.
+            for action in ('save', 'cancel', 'fail'):
+                inline_dialog = SettingsDialog(window.settings, window.shortcuts, window)
+                inline_dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+                inline_dialog.move(-10000, -10000)
+                inline_dialog.resize(720, 645)
+                inline_dialog.show()
+                with patch.object(PartSettings, 'exec', side_effect=AssertionError('Appearance must not open another dialog')):
+                    inline_dialog.nav.setCurrentRow(1)
+                    app.processEvents()
+                    inline = inline_dialog.appearance_page.parts_editor
+                    assert inline.parentWidget().isAncestorOf(inline) and not inline.isWindow()
+                    assert inline.preview.mapTo(inline, QPoint()).y() < inline.selection_title.mapTo(inline, QPoint()).y()
+                    if action == 'save':
+                        inline_dialog.grab().save(str(output/'appearance-inline-preview.png'))
+                        inline_dialog.appearance_page.scroll.ensureWidgetVisible(inline.background_controls.choose)
+                        app.processEvents()
+                        assert inline_dialog.confirm_button.isVisible()
+                        inline_dialog.grab().save(str(output/'appearance-inline-controls.png'))
+                    inline._select_part('settings')
+                    inline._import_part_asset('image', str(source))
+                    draft = inline.fields['image'][1].text()
+                    assert window.settings['skin_parts'] == before and inline._drafts
+                    if action == 'save':
+                        inline_dialog.nav.setCurrentRow(0)
+                        QTest.mouseClick(inline_dialog.confirm_button, Qt.LeftButton)
+                        assert inline_dialog.result() == SettingsDialog.Accepted and inline_dialog.isHidden()
+                        assert window.settings['skin_parts']['settings']['image'] == draft
+                        window.set_skin_parts(before)
+                    elif action == 'cancel':
+                        QTest.keyClick(inline, Qt.Key_Escape)
+                        assert inline_dialog.isHidden(), 'Escape must close settings, not hide just the embedded editor'
+                        assert window.settings['skin_parts'] == before
+                    else:
+                        with patch.object(window, 'set_skin_parts', side_effect=ValueError('Inline save failure')):
+                            inline_dialog.nav.setCurrentRow(0)
+                            QTest.mouseClick(inline_dialog.confirm_button, Qt.LeftButton)
+                        assert inline_dialog.isVisible() and inline_dialog.nav.currentRow() == 1
+                        assert 'Inline save failure' in inline.status.text()
+                        inline_dialog.reject()
+                inline_dialog.deleteLater()
+                app.processEvents()
             for part in ('background', 'settings', 'layout_menu'):
                 clean = PartSettings(window, dialog)
                 clean.setAttribute(Qt.WA_ShowWithoutActivating)

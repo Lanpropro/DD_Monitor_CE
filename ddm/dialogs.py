@@ -768,6 +768,7 @@ class AppearanceSettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea(self)
+        self.scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
@@ -791,14 +792,16 @@ class AppearanceSettingsPage(QWidget):
             self.buttons[key] = button
             button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
             row.addWidget(button)
-        from .skin_settings import SkinSettings
-        self.skin_settings = SkinSettings(settings, skin_controller, self)
-        self.skin_settings.hide()
-        row.addSpacing(12)
-        self.skin_settings.parts_button.setMinimumWidth(112)
-        self.skin_settings.parts_button.setMinimumHeight(36)
-        row.addWidget(self.skin_settings.parts_button)
         layout.addLayout(row)
+        from .skin_settings import PartSettings, SkinSettings
+        self.parts_editor = None
+        if skin_controller is not None:
+            self.parts_editor = PartSettings(skin_controller.window, content, embedded=True)
+            self.skin_settings = self.parts_editor.background_controls
+            layout.addWidget(self.parts_editor)
+        else:
+            self.skin_settings = SkinSettings(settings, skin_controller, self)
+            self.skin_settings.hide()
         layout.addStretch(1)
         self._mode = theme.normalize_mode(settings.get("appearance_mode"))
         self.sync(self._mode)
@@ -965,6 +968,12 @@ class SettingsDialog(QDialog):
         self.confirm_button.setEnabled(not self.plugin_page.store_page.jobs and not self.update_page.jobs)
 
     def _save(self) -> None:
+        appearance = self._loaded_pages.get(1)
+        if appearance is not None and appearance.parts_editor is not None:
+            if not appearance.parts_editor.save_changes():
+                self.nav.setCurrentRow(1)
+                appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
+                return
         self.restart_requested = self.plugin_page.needs_restart()
         self.accept()
 
