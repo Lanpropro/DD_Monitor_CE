@@ -72,23 +72,22 @@ def main():
             assert viewer.rows['2'].delay.value() == -.44, 'Automatic relative delay must reach the input'
             automatic_shifts = viewer.shifts()
             viewer.automatic.setChecked(False)
-            assert viewer.compare.isChecked() and viewer.delay_frozen and viewer.lock_delay.isChecked()
+            assert viewer.compare.isChecked() and viewer.alignment.manual_locked
             assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in automatic_shifts.items()), 'Turning auto off must preserve exact offsets'
             viewer._matched(viewer.generation, {'2': Match(15, 1, 'pending correction', refined=True)})
             assert abs(viewer.shifts()['2'] - automatic_shifts['2']) < 1e-9
             viewer.rows['2'].delay.setValue(-.34)
-            assert not viewer.delay_frozen and not viewer.lock_delay.isChecked()
             assert not viewer.automatic.isChecked() and viewer.compare.isChecked()
             assert abs(viewer.shifts()['1'] - automatic_shifts['1']) < 1e-9
             assert abs(viewer.shifts()['2'] - automatic_shifts['2'] + .1) < 1e-9, 'The first manual edit must not apply the old automatic lag twice'
             viewer.automatic.setChecked(True)
-            assert viewer.compare.isChecked() and not viewer.delay_frozen
+            assert viewer.compare.isChecked() and not viewer.alignment.manual_locked
             assert all(row.delay.value() == 0 for row in viewer.rows.values())
             assert viewer.alignment.lags == {'1': 0}
             viewer.alignment.lags['2'] = .4
             viewer.rows['2'].match_confirmed = True
             viewer.render()
-            # Lock preserves the exact rendered offsets despite saved manual trims.
+            # Turning auto off preserves exact rendered offsets despite saved manual trims.
             for key, value in (('1', .4), ('2', .7)):
                 viewer.rows[key].delay.blockSignals(True)
                 viewer.rows[key].delay.setValue(value)
@@ -96,26 +95,19 @@ def main():
                 viewer.rows[key].delay.blockSignals(False)
             before = viewer.shifts()
             clock = viewer.audio.clock()
-            viewer.lock_delay.click()
+            viewer.automatic.setChecked(False)
             assert not viewer.automatic.isChecked() and viewer.alignment.manual_locked
-            assert viewer.lock_delay.text() == '解锁延时'
             assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in before.items())
             assert viewer.audio.clock() == clock and viewer.compare.isChecked()
             assert not viewer.offset_repositioning
             epoch = viewer.generation
             viewer._matched(epoch, {'2': Match(12, 1, 'late result', refined=True)})
-            assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in before.items()), 'Locked delays reject pending automatic results'
+            assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in before.items()), 'Manual offsets reject pending automatic results'
             with patch.object(module.threading, 'Thread') as worker:
                 viewer.analyse()
                 worker.assert_not_called()
             assert '已同步' not in viewer.rows['2'].status.text()
-            assert '延时已锁定' in viewer.rows['2'].status.text()
-            viewer.lock_delay.click()
-            assert not viewer.automatic.isChecked() and viewer.alignment.manual_locked
-            assert not viewer.delay_frozen
-            assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in before.items())
-            assert viewer.compare.isChecked(), 'Unlock should retain the comparison'
-            viewer.automatic.setChecked(False)
+            assert '手动偏移' in viewer.rows['2'].status.text()
             viewer.rows['2'].sync_state = '已同步'
             viewer.rows['2'].refresh_status()
             assert '自动对齐已关闭' in viewer.rows['2'].status.text()
@@ -126,15 +118,17 @@ def main():
             assert '设置偏移' in viewer.comparison_panel.cards['2'][3].text()
             assert '自动对齐已关闭' in viewer.notice.text()
             assert '历史缓存约' in viewer.rows['2'].status.text()
-            # The new control follows comparison in the heading, without moving the entry button.
+            # Only automatic alignment and comparison remain in the heading.
             viewer.show()
             app.processEvents()
-            assert viewer.lock_delay.x() > viewer.compare.x()
+            assert not hasattr(viewer, 'lock_delay')
+            assert not any(widget.text() in ('锁定延时', '解锁延时')
+                           for widget in viewer.findChildren(module.QCheckBox))
         finally:
             viewer.close()
             host.close()
             app.processEvents()
-    print('PASS: transient versus sustained buffering, mode-specific labels, exact delay lock and unlock, stale-result rejection')
+    print('PASS: transient versus sustained buffering, mode-specific labels, removed delay lock, preserved manual offsets, stale-result rejection')
 
 
 if __name__ == '__main__':

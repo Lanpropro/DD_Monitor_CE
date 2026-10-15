@@ -134,6 +134,9 @@ def preview_checks(app):
         viewer.alignment.lags["2"] = 4.5
         viewer.show_comparison("2")
         def crop_dialog(dialog):
+            assert any(label.text() == "自动对齐请保留完整画面；如需人工细调，可只框选计时区域。"
+                       "两路请选择相同内容，框选不会自动读取计时器数字。"
+                       for label in dialog.findChildren(module.QLabel))
             selector = dialog.findChild(module.Canvas)
             assert selector.frame_key == cards["2"][2].frame_key
             assert selector.image == cards["2"][2].image, "Crop selection must freeze the visible comparison frame"

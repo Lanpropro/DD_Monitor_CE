@@ -73,9 +73,9 @@ def main():
             host.skin_controller.layer.show()
             host.skin_controller.layer.lower()
             app.processEvents()
-            assert viewer.skin_visible and isinstance(viewer.lock_delay,QCheckBox)
-            assert viewer.lock_delay.height()==viewer.compare.height()==viewer.automatic.height()
-            assert viewer.lock_delay.y()==viewer.compare.y()==viewer.automatic.y()
+            assert viewer.skin_visible and isinstance(viewer.compare,QCheckBox)
+            assert viewer.compare.height()==viewer.automatic.height()
+            assert viewer.compare.y()==viewer.automatic.y()
             assert 'background: transparent' in viewer.body_split.styleSheet()
             for label in viewer.panel.bar.findChildren(module.QLabel):
                 assert label.palette().color(QPalette.WindowText).lightness()<130

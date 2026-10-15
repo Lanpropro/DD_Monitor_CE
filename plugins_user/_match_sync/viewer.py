@@ -731,7 +731,7 @@ class RoomRow(QFrame):
         self.realign.setVisible(self.viewer.alignment.automatic and self.room_id != self.viewer.alignment.reference)
         match_text = self.match_text
         if not self.viewer.alignment.automatic:
-            match_text = "自动对齐已关闭；延时已锁定" if self.viewer.delay_frozen else "自动对齐已关闭；手动偏移"
+            match_text = "自动对齐已关闭；手动偏移"
         elif self.room_id == self.viewer.alignment.reference:
             match_text = "主画面基准"
         text = f"{self.video_text} · {match_text} · {self.chat_text}"
@@ -766,7 +766,6 @@ class Viewer(QDialog):
         self.safety_buffer = SafetyBuffer()
         self.playback_rate = 1.0
         self.stable_reference_shift = None
-        self.delay_frozen = False
         self.skin_visible = False
         self.panel_alpha = 1.0
         self.independent_shifts = {}
@@ -806,10 +805,6 @@ class Viewer(QDialog):
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
         self.compare.toggled.connect(self.set_comparison_visible)
-        self.lock_delay = QCheckBox("锁定延时")
-        self.lock_delay.setCheckable(True)
-        self.lock_delay.setToolTip("锁定当前各路相对偏移，停止自动校正；解锁保留偏移，需要主动开启自动对齐才重新匹配。")
-        self.lock_delay.toggled.connect(self._lock_delay_changed)
         self.input = QLineEdit()
         self.input.setPlaceholderText("房间号、平台前缀或官方直播链接")
         self.input.returnPressed.connect(self._add_input)
@@ -833,7 +828,6 @@ class Viewer(QDialog):
         self.main.hide()
         heading.addWidget(self.automatic)
         heading.addWidget(self.compare)
-        heading.addWidget(self.lock_delay)
         for widget in self.add_controls:
             heading.addWidget(widget)
         heading.addStretch()
@@ -1279,7 +1273,6 @@ class Viewer(QDialog):
         self.stable_reference_shift = before[reference]
         self.alignment.automatic = True
         self.alignment.manual_locked = False
-        self._set_delay_frozen(False)
         self.automatic.blockSignals(True)
         self.automatic.setChecked(True)
         self.automatic.blockSignals(False)
@@ -1315,7 +1308,6 @@ class Viewer(QDialog):
         if not self.alignment.automatic and not self.alignment.manual_locked:
             self.alignment.lags = {self.alignment.reference: 0}
         self.alignment.manual_locked = True
-        self._set_delay_frozen(False)
         self.automatic.setChecked(False)
         self.alignment.candidates.clear()
         self.locked_clock = None
@@ -1626,27 +1618,6 @@ class Viewer(QDialog):
         self.rematch_rooms.clear()
         self.rematch_admit.clear()
 
-    def _set_delay_frozen(self, frozen):
-        self.delay_frozen = frozen
-        self.lock_delay.blockSignals(True)
-        self.lock_delay.setChecked(frozen)
-        self.lock_delay.setText("解锁延时" if frozen else "锁定延时")
-        self.lock_delay.blockSignals(False)
-
-    def _lock_delay_changed(self, checked):
-        if checked:
-            self._save_delay_offsets(self.shifts())
-            self._set_delay_frozen(True)
-            self.automatic.setChecked(False)
-            self.alignment.candidates.clear()
-            self.relative_rates.clear()
-            self.generation += 1
-        else:
-            self._set_delay_frozen(False)
-        for row in self.rows.values():
-            row.refresh_status()
-        self.render()
-
     def _automatic_changed(self, *_args):
         self.analysis_serial += 1
         self.matching = False
@@ -1659,13 +1630,11 @@ class Viewer(QDialog):
         if (not self.automatic.isChecked() and self.alignment.automatic and not self.alignment.manual_locked
                 and (self.running or self.rendered_shifts)):
             self._save_delay_offsets(self.shifts())
-            self._set_delay_frozen(True)
         self.alignment.automatic = self.automatic.isChecked()
         if self.alignment.automatic:
             self.independent_shifts.clear()
             self.rematch_rooms = set(self.rows) - {self.alignment.reference}
             self.rematch_admit = set(self.rematch_rooms) if self.running else set()
-            self._set_delay_frozen(False)
             self.alignment.lags = {self.alignment.reference: 0}
             self.stable_reference_shift = preserved_main
             self.rendered_shifts.clear()
@@ -2105,7 +2074,6 @@ class Viewer(QDialog):
             self.alignment.automatic = True
             self.alignment.manual_locked = False
             self.alignment.candidates.clear()
-            self._set_delay_frozen(False)
             self.automatic.blockSignals(True)
             self.automatic.setChecked(True)
             self.automatic.blockSignals(False)
@@ -2221,7 +2189,7 @@ class Viewer(QDialog):
             else:
                 delay = time.monotonic() - clock - shifts[row.room_id]
                 mode = ("自动对齐已开启" if self.alignment.automatic else
-                        "自动对齐已关闭；延时已锁定" if self.delay_frozen else "自动对齐已关闭；手动偏移")
+                        "自动对齐已关闭；手动偏移")
                 self.notice.setText(f"主画面：{row.label()} · 本地播放延后约 {delay:.1f} 秒 · {mode}")
         if self.compare.isChecked():
             self.comparison_panel.render(clock, shifts)
@@ -2501,8 +2469,8 @@ class Viewer(QDialog):
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout = QVBoxLayout(dialog)
-        hint = QLabel("两路请框选相同内容；计时器需连续变化，包含数字周围的少量背景。"
-                      "匹配失败时可用「对照微调」查看同一播放进度，不会自动读取计时器数字。")
+        hint = QLabel("自动对齐请保留完整画面；如需人工细调，可只框选计时区域。"
+                      "两路请选择相同内容，框选不会自动读取计时器数字。")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         layout.addWidget(canvas, 1)
