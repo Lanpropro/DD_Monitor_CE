@@ -12,14 +12,14 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QLinearGradient, QMovie, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRegion,
+    QLinearGradient, QMovie, QPainter, QPainterPath, QPalette, QPen, QPixmap, QPolygonF, QRegion,
     QShortcut, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import layouts, motion, mouse_hook, theme
@@ -1257,6 +1257,22 @@ class Avatar(QLabel):
         self.setStyleSheet("background: transparent;")
         self.setText("")
         super().setPixmap(rounded)
+
+
+class AccountPopupMenu(QMenu):
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        for action in self.actions():
+            if not action.isVisible() or isinstance(action, QWidgetAction):
+                continue
+            option = QStyleOptionMenuItem()
+            self.initStyleOption(option, action)
+            option.rect = self.actionGeometry(action)
+            text, option.text = option.text, ''
+            self.style().drawControl(QStyle.CE_MenuItem, option, painter, self)
+            if text and not action.isSeparator():
+                self.style().drawItemText(painter, option.rect, Qt.AlignCenter, option.palette,
+                                          bool(option.state & QStyle.State_Enabled), text, QPalette.Text)
 
 
 class AccountRow(QFrame):
@@ -3965,7 +3981,7 @@ class Sidebar(QFrame):
         是并排摆在横栏上的按钮，只有收起时（按钮藏起来）才需要放进菜单。
         单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
         """
-        menu = QMenu(self)
+        menu = AccountPopupMenu(self)
         menu.setObjectName("AccountPopup")
         menu.setStyleSheet(f"""
             QMenu#AccountPopup {{ background: transparent; border: none; padding: 0; }}
@@ -3981,11 +3997,11 @@ class Sidebar(QFrame):
         account_actions = []
         if not self.account_row.uname:
             # 未登录时这一格就是「登录」按钮（用户要求：没登录也要放出来）
-            menu.addAction("登录…")
+            menu.addAction("登录")
             menu.addSeparator()
         else:
             action = QWidgetAction(menu)
-            action.setText("登录其他平台…" if getattr(self, "can_login_other", True)
+            action.setText("登录其他平台" if getattr(self, "can_login_other", True)
                            else "所有平台均已登录")
             button = QPushButton(action.text(), menu)
             button.setCursor(Qt.PointingHandCursor)
@@ -4017,6 +4033,8 @@ class Sidebar(QFrame):
                 row.setFixedHeight(self.account_row.height() if not self.collapsed else 34)
                 row.set_account(account.get("uname") or str(account.get("uid") or "已登录"),
                                 account.get("_pixmap"), platform=kind, uid=account.get("uid"))
+                row.name.setAlignment(Qt.AlignCenter)
+                row.account_id.setAlignment(Qt.AlignCenter)
                 if account.get("_login_expired"):
                     row.account_id.setText("登录已失效 · 请重新登录")
                     row.account_id.setStyleSheet(f"color: {theme.PINK};")
@@ -4034,18 +4052,18 @@ class Sidebar(QFrame):
                 account_actions.append(action)
         if self.side == "top":
             menu.addSeparator()
-            menu.addAction("导入关注…")
-            menu.addAction("+ 添加直播间…")
+            menu.addAction("导入关注")
+            menu.addAction("+ 添加直播间")
             if self.collapsed:
                 menu.addSeparator()
-                menu.addAction("布局预设…")
-                menu.addAction("设置…")
+                menu.addAction("布局预设")
+                menu.addAction("设置")
         elif self.collapsed:
             # 横屏收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
             # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
             menu.addSeparator()
-            menu.addAction("布局预设…")
-            menu.addAction("设置…")
+            menu.addAction("布局预设")
+            menu.addAction("设置")
         for action in account_actions:
             menu.removeAction(action)
             menu.addAction(action)
@@ -4075,18 +4093,18 @@ class Sidebar(QFrame):
         if chosen is None:
             return
         label = chosen.text()
-        if label in ("退出登录", "登录…", "登录其他平台…", "所有平台均已登录"):
+        if label in ("退出登录", "登录", "登录其他平台", "所有平台均已登录"):
             if label != "退出登录":
                 self.loginRequested.emit()
             else:
                 self.logoutRequested.emit()
-        elif label == "布局预设…":
+        elif label == "布局预设":
             self.open_layout_picker()
-        elif label == "设置…":
+        elif label == "设置":
             self.settingsRequested.emit()
-        elif label == "导入关注…":
+        elif label == "导入关注":
             self.importFollowsClicked.emit()
-        elif label == "+ 添加直播间…":
+        elif label == "+ 添加直播间":
             self.addRoomClicked.emit()
 
     # ---- 竖屏横栏 ----

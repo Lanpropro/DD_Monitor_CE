@@ -924,8 +924,8 @@ def part_strip_interaction(app) -> None:
     print(f"  账号菜单里装着：{labels}")
     assert not hasattr(sidebar, "tool_row_more"), "「更多」按钮已经去掉"
     assert not sidebar.normal_bar.isVisible(), "导入/添加收进账号菜单，不该再占一行"
-    assert "导入关注…" in labels and "+ 添加直播间…" in labels, labels
-    assert "设置…" not in labels, "设置已经摆在右侧那一块上，展开态菜单里不用再来一份"
+    assert "导入关注" in labels and "+ 添加直播间" in labels, labels
+    assert "设置" not in labels, "设置已经摆在右侧那一块上，展开态菜单里不用再来一份"
 
     print("\n=== 12c. 点「多选」不能把横栏顶高（画面墙不抖）===")
     height_before = sidebar.height()
@@ -1127,7 +1127,7 @@ def part_login_button(app) -> None:
     # 菜单里那几项也要走这两个信号：把模态菜单换成「直接返回某一项」来验
     items = {action.text(): action for action in sidebar.account_menu().actions()}
     fired: list = []
-    # 先把 app 的真槽摘掉：不然选「+ 添加直播间…」会弹真的模态对话框，自查会卡住
+    # 先把 app 的真槽摘掉：不然选「+ 添加直播间」会弹真的模态对话框，自查会卡住
     sidebar.importFollowsClicked.disconnect()
     sidebar.loginRequested.disconnect()
     sidebar.addRoomClicked.disconnect()
@@ -1135,8 +1135,8 @@ def part_login_button(app) -> None:
     sidebar.loginRequested.connect(lambda box=fired: box.append("login"))
     sidebar.addRoomClicked.connect(lambda box=fired: box.append("add"))
     try:
-        for label, expect in (("登录…", "login"), ("导入关注…", "import"),
-                              ("+ 添加直播间…", "add")):
+        for label, expect in (("登录", "login"), ("导入关注", "import"),
+                              ("+ 添加直播间", "add")):
             assert label in items, f"菜单里应该有「{label}」"
             fired.clear()
 
