@@ -18,6 +18,11 @@ def main():
     assert notes.index('更新提示：') < notes.index('## 0.3.1 小版本更新') < notes.index('## 此前更新内容')
     assert '该问题已在 0.3.1 修复' in notes
     assert '自动重试最多三次' in notes
+    assert '## 本地待发布改动（2026-10-15）' in notes
+    assert '[Milkyway-66](https://github.com/Milkyway-66)' in notes
+    assert 'https://github.com/Lanpropro/DD_Monitor_CE/pull/6' in notes
+    assert 'https://github.com/Lanpropro/DD_Monitor_CE/pull/7' in notes
+    assert '我们修改后的版本' in notes and '当前仅保留本地' in notes
 
     with tempfile.TemporaryDirectory(prefix='ddm-catalog-test-') as temporary:
         archive = Path(temporary) / 'global_live-1.2.zip'
