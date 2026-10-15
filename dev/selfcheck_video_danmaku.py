@@ -207,6 +207,7 @@ def check_routing(app):
             window.sync_danmaku()
             assert "1002" in window._danmaku_clients
             second.room["live"] = False
+            second.set_video_active(False)  # 实际下播也会停止播放器，不能保留“正在播放”状态。
             window.sync_danmaku()
             assert "1002" not in window._danmaku_clients
             clients = list(window._danmaku_clients.values())

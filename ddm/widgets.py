@@ -5900,6 +5900,9 @@ class Tile(QFrame):
         self.video_danmaku.set_enabled(enabled)
         if getattr(self, "_overlay_ready", False):
             self.raise_overlays()
+            # Creating the layered danmaku HWND can expose Qt's rectangular
+            # backing masks; restore native overlay contours after it settles.
+            QTimer.singleShot(0, self._refresh_overlay_masks)
         self.videoDanmakuChanged.emit(enabled)
 
     def _change_video_danmaku_settings(self, values: dict) -> None:
@@ -6364,6 +6367,7 @@ class Tile(QFrame):
         self.pause_overlay.raise_()
         self.bottom.setGeometry(1, video_height, max(1, width - 2), max(1, height - video_height - 1))
         self.video_danmaku.setGeometry(self.video.geometry())
+        self.video_danmaku.setMask(self.video.mask())
         self._layout_bottom_controls()
         self._layout_cover()
         # 摆完位重新抬一次浮层，并且按控制条当前位置重做视频遮罩：
@@ -6454,7 +6458,7 @@ class Tile(QFrame):
 
     def _refresh_overlay_masks(self) -> None:
         """所有原生浮层都要重新换算遮罩，文字不变时 Qt 不会自动更新它。"""
-        for widget in (self.video, self.controls, self.stream_badge,
+        for widget in (self.video, self.video_danmaku, self.controls, self.stream_badge,
                        self.title_badge, self.time_badge):
             mask = widget.mask()
             widget.clearMask()

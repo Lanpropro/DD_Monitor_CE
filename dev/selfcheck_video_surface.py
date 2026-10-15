@@ -113,6 +113,52 @@ def reset_output_regions(tile):
     assert reset, 'Test must reset real VLC output windows'
 
 
+def check_danmaku_region(tile):
+    overlay = tile.video_danmaku
+    assert overlay.isVisible() and overlay.geometry() == tile.video.geometry()
+    assert not overlay.mask().isEmpty(), 'Danmaku native window has no rounded mask'
+    assert overlay.mask() == tile.video.mask(), 'Danmaku and video boundaries differ'
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    try:
+        assert user32.GetWindowRgn(int(overlay.winId()), region), 'Missing native danmaku clip'
+        assert not gdi32.PtInRegion(region, 0, 0), 'Danmaku paints over the rounded corner'
+        scale = overlay.devicePixelRatioF()
+        assert gdi32.PtInRegion(region, round(overlay.width() * scale / 2),
+                              round(overlay.height() * scale / 2))
+    finally:
+        gdi32.DeleteObject(region)
+
+
+def overlay_sizes(tile):
+    result = []
+    for widget in (tile.controls, tile.stream_badge, tile.title_badge, tile.time_badge,
+                   tile.quality_button, tile.reload_button, tile.close_button, tile.bottom):
+        native = None
+        if widget.testAttribute(Qt.WA_NativeWindow):
+            rect = wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(int(widget.winId()), ctypes.byref(rect))
+            native = (rect.right - rect.left, rect.bottom - rect.top)
+        result.append((widget.size(), widget.font(), widget.devicePixelRatioF(), native))
+    return result
+
+
+def check_control_background(tile):
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    try:
+        assert user32.GetWindowRgn(int(tile.controls.winId()), region)
+        scale = tile.controls.devicePixelRatioF()
+        for button in (tile.quality_button, tile.reload_button, tile.close_button):
+            rect = button.geometry()
+            x, y = round(rect.x() * scale), round(rect.y() * scale)
+            assert not gdi32.PtInRegion(region, x, y), 'Rectangular backing expands control background'
+            assert gdi32.PtInRegion(region, round(rect.center().x() * scale),
+                                  round(rect.center().y() * scale))
+    finally:
+        gdi32.DeleteObject(region)
+
+
 def check_pixels(tile):
     point = tile.video.mapToGlobal(QPoint())
     image = tile.screen().grabWindow(0, point.x(), point.y(), tile.video.width(), tile.video.height()).toImage()
@@ -158,6 +204,7 @@ def main():
                 with patch('ddm.app.QTimer.singleShot'):
                     window = MainWindow([room], [dict(room)], layout_id='1x1', state={'plugins_enabled': ['domestic_live', 'global_live'], 'settings': {'auto_update': False}})
                 window._upgrade_fullscreen_quality = lambda _tile: False
+                window.sync_danmaku = lambda: None
                 interactions = ExitStack()
                 if args.background:
                     window.setAttribute(Qt.WA_ShowWithoutActivating, True)
@@ -198,6 +245,25 @@ def main():
                         raise
                     reset_output_regions(tile)
                     wait(app, lambda: check_regions(tile))
+                    tile.set_video_active(True)
+                    sizes = overlay_sizes(tile)
+                    for enabled in (True, False, True):
+                        # Qt can reapply its rectangular paint mask when a
+                        # layered sibling is created; native contours must recover.
+                        mask = tile.controls.mask()
+                        tile.controls.clearMask()
+                        tile.controls.setMask(mask)
+                        tile.danmaku_button.setChecked(enabled)
+                        if enabled:
+                            assert tile.video_danmaku.add_event({'text': 'Rounded overlay regression'})
+                            tile.video_danmaku.comments[-1].x = 0
+                        app.processEvents()
+                        check_control_background(tile)
+                        assert overlay_sizes(tile) == sizes, (platform, enabled, sizes, overlay_sizes(tile))
+                        if enabled:
+                            check_danmaku_region(tile)
+                        else:
+                            assert not tile.video_danmaku.isVisible()
                     tile.set_controls_visible(False)
                     if not args.background:
                         wait(app, lambda: check_pixels(tile))
@@ -206,6 +272,8 @@ def main():
                     if not args.background:
                         window.activateWindow()
                     wait(app, lambda: check_regions(tile))
+                    check_danmaku_region(tile)
+                    check_control_background(tile)
                     geometry = tile.video.geometry()
                     point = tile.video.mapToGlobal(tile.video.rect().center())
                     if args.background:
@@ -242,11 +310,12 @@ def main():
                     window._clear_fullscreen_cover()
                     player.play(source, profile='web' if platform == 'bilibili' else platform)
                     wait(app, lambda: player.player.get_time() > 0 and check_regions(tile))
+                    check_danmaku_region(tile)
                     tile.set_controls_visible(False)
                     if not args.background:
                         wait(app, lambda: check_pixels(tile))
                     print('PASS:', platform, 'background' if args.background else 'visible',
-                          'native corners/reset recovery; fullscreen edges; idle/wake geometry; controls; renderer rebuild')
+                          'danmaku rounded mask/on/off; stable control size/background; native reset; fullscreen/idle/rebuild')
                 finally:
                     window.close()
                     app.processEvents()
