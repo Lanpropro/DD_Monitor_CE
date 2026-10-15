@@ -98,8 +98,7 @@ def main():
                         f"point={point}, wall={window.wall.geometry()}")
                     move_to(border, point)
                     settle(app, .05)
-                    grip = window.wall._divider_grips[border.targets["right"]]
-                    line = grip.mapToGlobal(grip.rect().center())
+                    line = border.mapToGlobal(point_on(border, ["right"]))
                     screen = QApplication.screenAt(line)
                     snapshot = screen.grabWindow(0).toImage()
                     ratio = screen.devicePixelRatio()
