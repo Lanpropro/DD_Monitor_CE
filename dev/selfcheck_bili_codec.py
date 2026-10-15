@@ -67,6 +67,9 @@ def check_channel_name() -> None:
         assert profile == f"app-hls-{codec}", profile
         assert bili.HLS_SUFFIX in profile and bili.relay_required(profile)
     assert bili._app_profile("avc") == "app"
+    # 平台插件的通道名由插件作者定，可能凑巧带 hls —— 不归 B 站这条规则管。
+    for profile in ("huya-hls", "my-hls-1", "douyu", "huya"):
+        assert bili.relay_required(profile) is False, profile
 
 
 def check_codec_from_profile() -> None:
@@ -77,6 +80,8 @@ def check_codec_from_profile() -> None:
     assert bili.codec_from_profile("web") == "avc"
     assert bili.codec_from_profile("web-hls") == "", "没写编码的 HLS 通道不猜"
     assert bili.codec_from_profile("huya") == "", "平台插件的通道不是 B 站流"
+    for profile in ("huya-av1", "douyu-hevc", "hevc", "av1", "huya-hls-av1"):
+        assert bili.codec_from_profile(profile) == "", profile
     assert bili.codec_from_profile("") == ""
 
 

@@ -41,9 +41,6 @@ BILI_CODECS = (
 #: 设置值 -> 接口 codec 参数。
 CODEC_PARAM = {value: param for value, _label, param in BILI_CODECS}
 
-#: 接口 codec 参数 -> 设置值。
-CODEC_NAME = {param: value for value, _label, param in BILI_CODECS}
-
 #: 只有 HLS 通道的编码：VLC 打不开 B 站的分片，必须走转封装。
 HLS_ONLY_CODECS = ("hevc", "av1")
 
@@ -57,10 +54,15 @@ HLS_SUFFIX = "-hls"
 def relay_required(profile: str) -> bool:
     """这个通道名对应的流是否必须先转封装才能播。
 
-    原样保留「以 ``-hls`` 结尾」（``app-hls`` / ``web-hls``）；带编码的
-    ``app-hls-hevc`` 把编码写在标记后面，也认 —— 两种都要转封装。
+    只看 B 站自己的通道（``app…`` / ``web…``）：原样保留「以 ``-hls`` 结尾」
+    （``app-hls`` / ``web-hls``）；带编码的 ``app-hls-hevc`` 把编码写在标记后面，
+    也认 —— 两种都要转封装。平台插件的通道名由插件作者定，可能凑巧带 ``hls``，
+    不归这里管（它们要不要转封装由播放器的平台分支决定）。
     """
-    text = str(profile or "").lower()
+    parts = [item for item in str(profile or "").lower().split("-") if item]
+    if not parts or parts[0] not in ("app", "web"):
+        return False
+    text = "-".join(parts)
     return text.endswith(HLS_SUFFIX) or f"{HLS_SUFFIX}-" in text
 
 
@@ -74,10 +76,12 @@ def codec_from_profile(profile: str) -> str:
     表示「不知道编码，按原来的容器走」。
     """
     parts = [item for item in str(profile or "").lower().split("-") if item]
+    if not parts or parts[0] not in ("app", "web"):
+        return ""                     # 平台插件的通道不是 B 站流，别去猜编码
     for codec in CODEC_PARAM:
         if codec in parts:
             return codec
-    if parts and parts[0] in ("app", "web") and not relay_required(profile):
+    if not relay_required(profile):
         return "avc"                  # B 站 FLV 直连通道，必然是 H.264
     return ""
 
@@ -294,8 +298,8 @@ def _app_codec_entry(stream: dict, codec: str) -> dict | None:
     for entry in entries:
         if entry.get("codec_name") == codec:
             return entry
-    if codec != "avc" and any(entry.get("codec_name") for entry in entries):
-        return None
+    if codec != "avc":
+        return None                   # HEVC / AV1 认不到同名条目就报错，不将就
     return entries[0]
 
 
