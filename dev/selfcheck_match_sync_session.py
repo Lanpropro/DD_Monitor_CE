@@ -89,12 +89,19 @@ def main():
             resumed = time.monotonic()
             next_match = resumed
             recovered_at = None
+            admitted_late = False
+            main_shift = viewer.shifts()['1']
             while time.monotonic() - resumed < 10:
                 viewer.render()
                 if time.monotonic() >= next_match:
                     viewer.analyse()
                     next_match = time.monotonic() + .5
                 app.processEvents()
+                if row.match_confirmed and not admitted_late and not row.join.isHidden():
+                    assert viewer.shifts()['1'] == main_shift, 'An automatic late recovery must not rewind the main'
+                    assert viewer.rows['1'].sync_state == '已同步' and row.mix_gain == 0
+                    viewer.admit_pending('2')  # Simulate the explicit add-delay confirmation.
+                    admitted_late = True
                 expected = (row.decoder.history.origin - decoders[0].history.origin
                             if row.decoder.history.origin is not None else None)
                 actual = row.actual_position - viewer.rows["1"].actual_position if row.actual_position is not None else None

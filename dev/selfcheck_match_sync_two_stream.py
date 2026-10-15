@@ -76,6 +76,9 @@ def main():
             next_match = 0
             matched = None
             cropped = False
+            pause = None
+            pause_started = None
+            pause_done = False
             recropped = None
             checks = 0
             while time.monotonic() - begin < 17:
@@ -100,7 +103,15 @@ def main():
                     assert main_row.mix_gain == 1 and main_row.sync_state == '已同步', (elapsed, main_row.sync_state)
                     assert not sink.silent, 'The real PCM mix must remain audible after startup'
                     checks += 1
-                    if not cropped and elapsed - matched >= 2:
+                    if pause_started is None:
+                        viewer.show_comparison('2')
+                        pause = patch.object(decoders[1], 'picture_at', return_value=None)
+                        pause.start()
+                        pause_started = elapsed
+                    if not pause_done and elapsed - pause_started >= .8:
+                        pause.stop()
+                        pause_done = True
+                    if not cropped and elapsed - matched >= 2 and pause_done:
                         for target in viewer.rows.values():
                             target.crop = (.1, .1, .8, .8)
                             target.decoder.set_crop(target.crop)
@@ -116,6 +127,8 @@ def main():
             assert checks >= 100
             print(f'PASS: two mixed-resolution/native-FPS streams matched at {matched:.2f}s; full-scene recrop at {recropped:.2f}s; {checks} checks without main buffering/quarantine/silent PCM')
         finally:
+            if 'pause' in locals() and pause is not None:
+                pause.stop()
             viewer.close()
             for decoder in decoders:
                 if decoder.thread is not None:

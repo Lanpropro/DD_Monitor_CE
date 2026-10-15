@@ -63,6 +63,7 @@ def main():
         host.settings = {}
         context = plugins.PluginContext(plugins.PluginManager(window=host, plugins_dir=root), "comparison_perf")
         viewer = module.Viewer(context, {})
+        viewer.alignment.buffer_seconds = 3  # The rendering benchmark starts at source PTS 3.
         decoders = []
         try:
             viewer.resize(1280, 900)

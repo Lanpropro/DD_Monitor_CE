@@ -21,7 +21,7 @@ from plugins_user._match_sync.video import PictureReader
 
 def main():
     buffer = SafetyBuffer()
-    assert buffer.target == 3
+    assert buffer.target == 6
     for i in range(40):
         buffer.observe("main", 1 + i * 3.1, 60)
         buffer.rate(1 + i * 3.1, 3)
@@ -58,6 +58,7 @@ def main():
         host.settings = {}
         context = plugins.PluginContext(plugins.PluginManager(window=host, plugins_dir=root), "control_check")
         viewer = module.Viewer(context, {})
+        viewer.alignment.buffer_seconds = 3  # Exercise this legacy admission fixture on its fixed timeline.
         try:
             for key in ("1", "2", "3"):
                 viewer.add_room(key, {"alias": key})
@@ -83,6 +84,8 @@ def main():
             assert not viewer.rows["2"].match_confirmed
             viewer.rows["2"].match_confirmed = True
             viewer.rows["2"].match_failures = 0
+            viewer.independent_shifts.pop("2", None)
+            viewer.alignment.lags["2"] = 0
             original = viewer.canvas.frame_key
             viewer.alignment.lags["3"] = 8
             viewer.rows["3"].match_confirmed = True

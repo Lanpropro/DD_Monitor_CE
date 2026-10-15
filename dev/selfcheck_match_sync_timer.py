@@ -14,7 +14,8 @@ from ddm import plugins
 from dev.selfcheck_match_sync import FakeDecoder, FakeChat
 from dev.selfcheck_match_sync_offsets import clock_jpeg
 from plugins_user._match_sync.engine import Match, Sample, match_scenes, refine_match
-from plugins_user._match_sync.media import fingerprint, scene_feature
+from plugins_user._match_sync.media import av, fingerprint, frame_sample, scene_feature
+from plugins_user._match_sync.engine import np
 from plugins_user._match_sync import viewer as module
 
 
@@ -33,6 +34,21 @@ def samples(lag=0, scale=1, paused=False, repeated=False):
 def main():
     app = QApplication([])
     assert QFontDatabase.addApplicationFont('C:/Windows/Fonts/consola.ttf') >= 0
+    native = []
+    for width, height, lag in ((3840, 2160, 0), (1920, 1080, 4.537)):
+        sequence = []
+        for i in range(300):
+            stamp = i * .05
+            clock = QImage.fromData(clock_jpeg(112 - math.floor(stamp - lag))).scaled(90, 36).convertToFormat(QImage.Format_Grayscale8)
+            plane = np.full((height, width), 40, dtype=np.uint8)
+            plane[10:46, 10:100] = np.frombuffer(clock.constBits(), dtype=np.uint8).reshape(36, clock.bytesPerLine())[:, :90]
+            frame = av.VideoFrame.from_ndarray(plane, format='gray')
+            sequence.append(frame_sample(frame, stamp, (10 / width, 10 / height, 90 / width, 36 / height), (640, 360)))
+        native.append(sequence)
+    coarse = match_scenes(native[0][::4], native[1][::4], focused=True)
+    fine = refine_match(coarse, *native, focused=True)
+    assert fine.lag is not None and abs(fine.lag - 4.537) <= .06, (coarse, fine)
+    print('PASS: a 90x36 timer cropped from native 4K/1080p frames retains timing detail')
     reference = samples()
     for lag in (4.537, -2.163):
         other = samples(lag, 2)

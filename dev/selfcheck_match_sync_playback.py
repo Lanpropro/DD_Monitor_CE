@@ -33,6 +33,7 @@ def main():
             for key in ("1", "2", "3", "4", "5", "6"):
                 viewer.add_room(key, {"alias": "主播" + key})
             viewer.toggle_running()
+            viewer.safety_buffer.target = 3  # Fixed recovery margin for this legacy timeline fixture.
             viewer.render_timer.stop()
             viewer.match_timer.stop()
             viewer.audio.clock = lambda: 100
@@ -97,16 +98,18 @@ def main():
             viewer.alignment.lags["2"] = 4
             viewer.rows["2"].match_confirmed = True
             del viewer.audio.clock
-            with patch.object(module.time, "monotonic", return_value=120):
+            with patch.object(module.time, "monotonic", return_value=120) as tick:
                 for key, row in viewer.rows.items():
                     row.decoder.last_frame_received = 120
                     row.decoder.history.frames.clear()
-                    for stamp in range(80, 111 if key == "1" else 109):
+                    for stamp in range(80, 111 if key == "1" else 115):
                         row.decoder.history.append(stamp, image)
                 shifts = viewer.shifts()
                 assert shifts["2"] - shifts["1"] == 4
                 viewer.render()
                 assert not viewer.canvas.image.isNull() and not viewer.picture._buffering, "Live video must recover when the clock outruns decoded frames"
+                tick.return_value = 120.8
+                viewer.render()  # Allow the isolated secondary's recovery/fade interval.
                 clock = viewer.audio.clock()
                 assert all(row.decoder.history.frame_at(clock + shifts[key]) is not None
                            for key, row in viewer.rows.items())
@@ -114,10 +117,11 @@ def main():
                 assert viewer.shifts() == shifts, "Clock recovery must preserve confirmed relative offsets"
                 viewer.audio.sink = FakeSink()
                 viewer.audio.device = FakeDevice(viewer.audio.sink)
-                viewer.audio.anchor = 120
+                viewer.audio.anchor = tick.return_value
                 with patch.object(viewer.rows["1"].decoder.history, "pcm_at", side_effect=lambda _timestamp, frames: bytes(frames * 4)) as main_pcm, \
                         patch.object(viewer.rows["2"].decoder.history, "pcm_at", side_effect=lambda _timestamp, frames: bytes(frames * 4)) as other_pcm:
                     viewer.audio.fill()
+                    assert other_pcm.called, [(key, row.sync_state, row.match_confirmed, row.recheck_alignment, row.was_isolated) for key, row in viewer.rows.items()]
                     assert abs(main_pcm.call_args.args[0] - clock - shifts["1"]) < 1e-7
                     assert abs(other_pcm.call_args.args[0] - clock - shifts["2"]) < 1e-7
                 viewer.audio.stop()
@@ -132,7 +136,8 @@ def main():
                 viewer.rows["1"].decoder.last_frame_received = 120
                 viewer.rows["1"].delay.setValue(60)
                 clock = viewer.audio.clock()
-                assert viewer._recover_clock(clock, viewer.shifts()) == clock
+                recovered = viewer._recover_clock(clock, viewer.shifts())
+                assert recovered == clock, (clock, recovered, viewer.shifts(), viewer.rows['1'].was_isolated, viewer.sync_waiting, viewer.offset_repositioning, viewer.admitted_rooms)
             assert viewer.rows["1"].decoder is decoders[0]
             print("PASS: healthy delayed decoders recover video/audio/chat clock, preserve offsets, ignore stale inputs and retain oversized-delay wait")
             with patch.object(module.time, "monotonic", return_value=200):

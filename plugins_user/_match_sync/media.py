@@ -59,6 +59,24 @@ def scene_feature(image, crop):
     return np.clip(np.rint(128 + (pixels.astype(np.float32) - centre) * 48 / scale), 0, 255).astype(np.uint8).tobytes()
 
 
+def frame_sample(frame, timestamp, crop, size):
+    width, height = size
+    selected = crop != (0, 0, 1, 1)
+    gray = (frame.reformat(format="gray") if selected else
+            frame.reformat(width=min(width, frame.width), height=min(height, frame.height), format="gray"))
+    plane = gray.planes[0]
+    image = QImage(memoryview(plane), gray.width, gray.height, plane.line_size, QImage.Format_Grayscale8)
+    if selected:
+        x, y, w, h = crop
+        image = image.copy(round(x * gray.width), round(y * gray.height),
+                           max(1, round(w * gray.width)), max(1, round(h * gray.height)))
+        if image.width() > width or image.height() > height:
+            image = image.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        crop = (0, 0, 1, 1)
+    signature, texture = fingerprint(image, crop)
+    return Sample(timestamp, signature, texture, scene_feature(image, crop))
+
+
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,
                    *, hls_retry=False, platform_kind="") -> list[str]:
     inputs = recording.input_args(url, headers)
@@ -317,11 +335,7 @@ class Decoder:
                                 width, height = self.analysis_size
                             if crop != (0, 0, 1, 1):
                                 width, height = 640, 360
-                            gray = frame.reformat(width=min(width, frame.width), height=min(height, frame.height), format="gray")
-                            plane = gray.planes[0]
-                            image = QImage(bytes(plane), gray.width, gray.height, plane.line_size, QImage.Format_Grayscale8)
-                            signature, texture = fingerprint(image, crop)
-                            detail = Sample(timestamp, signature, texture, scene_feature(image, crop))
+                            detail = frame_sample(frame, timestamp, crop, (width, height))
                             with self.history.lock:
                                 self.history.details.append(detail)
                                 while self.history.details and timestamp - self.history.details[0].time > self.history.seconds:

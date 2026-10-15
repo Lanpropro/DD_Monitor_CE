@@ -159,7 +159,7 @@ class PictureReader:
         self.snapshot_until = 0.0
         self.reset_requested = False
 
-    def configure(self, byte_limit, fps, lead=.25, active=True):
+    def configure(self, byte_limit, fps, lead=.35, active=True):
         with self.lock:
             previous_active = self.active
             self.active = active or time.monotonic() < self.snapshot_until
@@ -231,7 +231,7 @@ class PictureReader:
                     codec = sequence = decoded_until = None
                     with self.lock:
                         self.images.clear()
-                horizon = target + min(self.lead, max(1, capacity // 2) / self.fps)
+                horizon = target + min(self.lead, max(1, capacity * 3 // 4) / self.fps)
                 if decoded_until is not None and decoded_until >= horizon:
                     continue
                 result = history.packet_range(sequence, target)
@@ -269,7 +269,7 @@ class PictureReader:
                                 break
                             self.images[key] = image
                             capacity = max(1, min(self.max_frames, self.byte_limit // image.sizeInBytes()))
-                            horizon = target + min(self.lead, max(1, capacity // 2) / self.fps)
+                            horizon = target + min(self.lead, max(1, capacity * 3 // 4) / self.fps)
                             while len(self.images) > capacity:
                                 self.images.pop(next(iter(self.images)))
                             self.decoded += 1

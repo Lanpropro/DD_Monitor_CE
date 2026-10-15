@@ -111,6 +111,7 @@ def main():
             viewer.rows['2'].decoder.last_frame_received=now[0]
             viewer.render()
             assert '2' in viewer.rematch_rooms and not viewer.rows['2'].match_confirmed
+            assert viewer.rows['2'].rematch_locally, 'A buffered resume should recheck the saved offset first'
             assert viewer.rows['3'].match_confirmed
             assert not viewer.sync_waiting
             # Accepting a crop clears the independent fallback and actively enables retry.

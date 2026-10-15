@@ -359,7 +359,7 @@ def mix_pcm(inputs: list[tuple[bytes, int]], frames: int) -> bytes:
 class SafetyBuffer:
     """Bounded jitter target; playback reaches it through gradual clock changes."""
     def __init__(self):
-        self.target = 3.0
+        self.target = 6.0
         self.arrivals = {}
         self.gaps = deque(maxlen=240)
         self.last_change = None
@@ -376,7 +376,7 @@ class SafetyBuffer:
         self.last_change = now
         if len(self.gaps) >= 30:
             ordered = sorted(self.gaps)
-            desired = max(2.0, min(8.0, 2.0 + 2 * ordered[int((len(ordered) - 1) * .95)]))
+            desired = max(4.0, min(8.0, 4.0 + 2 * ordered[int((len(ordered) - 1) * .95)]))
             self.target = desired if desired > self.target else max(desired, self.target - .02 * dt)
         error = available - self.target
         return 1.0 if abs(error) <= .1 else max(.98, min(1.01, 1 + error * .01))

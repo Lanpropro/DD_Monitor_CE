@@ -150,8 +150,8 @@ def main():
                     row.decoder.last_frame_received=now[0]
                 viewer.render()
             assert viewer.shifts()['1']==before and not viewer.sync_waiting
-            assert all(row.sync_state=='已同步' for row in viewer.rows.values())
-            assert all(row.mix_gain==1 for row in viewer.rows.values())
+            assert viewer.rows['1'].sync_state=='已同步' and viewer.rows['1'].mix_gain==1
+            assert viewer.rows['2'].sync_state!='已同步' and viewer.rows['2'].mix_gain==0
             assert '独立播放' in viewer.rows['2'].playback_status()
             assert '偏差超过' in viewer.rows['2'].status.text()
             with ExitStack() as stack:
@@ -162,7 +162,7 @@ def main():
                 viewer.audio.device = FakeDevice(viewer.audio.sink)
                 viewer.audio.anchor = now[0]
                 viewer.audio.fill()
-                assert all(read.called for read in pcm_reads), 'Both independent rooms must remain in the audible mix'
+                assert pcm_reads[0].called and not pcm_reads[1].called, 'Only the aligned main stays audible when secondary matching fails'
                 assert any(viewer.audio.device.data)
                 viewer.audio.stop()
             with patch.object(module.threading,'Thread') as worker:
