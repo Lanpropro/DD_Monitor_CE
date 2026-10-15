@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     content = (ROOT / "docs/customization-plan.md").read_text(encoding="utf-8")
     for heading in ("目标与现状", "第一阶段：深浅色模式", "第二阶段：皮肤",
-                    "第三阶段：自定义布局", "直播间组合预设（待实现）", "实施顺序与交付"):
+                    "第三阶段：自定义布局", "直播间组合预设（首版待验收）", "实施顺序与交付"):
         assert f"## {heading}" in content, heading
     assert "深浅色与背景皮肤已实装" in content
     assert "下次计划发布版本：0.4（未发布）" in content
@@ -27,7 +27,7 @@ def main():
     assert "普通布局扩容仍保持新增格子为空" in content
     assert "[直播间组合预设设计](room-presets-design.md)" in content
     design = (ROOT / "docs/room-presets-design.md").read_text(encoding="utf-8")
-    assert "设计稿，功能待实现" in design
+    assert "首版已实现，待用户验收" in design
     assert "现有的“布局预设”弹层" in design and "直播间组合" in design
     for field in ("layout.ratios", "layout.danmaku_cell", "slots", "room_id", "volume", "muted", "audio_channel"):
         assert f"`{field}`" in design, field

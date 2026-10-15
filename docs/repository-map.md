@@ -77,7 +77,7 @@
 
 ### 软件、插件及仓库回归测试（开发维护用途）
 
-共 220 项。
+共 221 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -260,6 +260,7 @@
 - `dev/selfcheck_repository_map.py`
 - `dev/selfcheck_resize_preview_cleanup.py`
 - `dev/selfcheck_resolve_retry.py`
+- `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_search.py`
 - `dev/selfcheck_settings_status.py`

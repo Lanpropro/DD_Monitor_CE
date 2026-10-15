@@ -3922,7 +3922,8 @@ class Sidebar(QFrame):
 
     def open_layout_picker(self) -> None:
         # 只列当前方向能用的布局：横屏不列竖屏预设（套上去画面会变形）
-        picker = LayoutPicker(self._layout_id, self, portrait=self.side == "top")
+        picker = LayoutPicker(self._layout_id, self, portrait=self.side == "top",
+                              presets_host=getattr(self, "room_presets_host", None))
         picker.chosen.connect(self._on_layout_chosen)
         picker.resetRequested.connect(self.layoutResetRequested.emit)
         # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
@@ -7700,7 +7701,7 @@ class LayoutPicker(QFrame):
     #: 卡片最小宽度（名字都很短时也别挤成一条）
     _min_card_width = 108
 
-    def __init__(self, current: str, parent=None, portrait: bool = False):
+    def __init__(self, current: str, parent=None, portrait: bool = False, *, presets_host=None):
         super().__init__(parent, Qt.Popup)
         self.setObjectName("LayoutPicker")
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -7708,6 +7709,7 @@ class LayoutPicker(QFrame):
         self._sections: dict[str, list[QLabel]] = {}
         self._reset_layout_id = current
         self._can_reset_layout = layouts.capacity(current) > 1
+        self.presets_page = None
 
         # 两组都列出来（横屏也能点竖屏预设）：选中另一个方向的预设时，本体
         # 会把**窗口**也改成那个方向（见 MainWindow._on_layout_changed /
@@ -7790,6 +7792,21 @@ class LayoutPicker(QFrame):
             self._sections[name] = sections
             if any(item["id"] == current for item in group):
                 active = name
+        if presets_host is not None:
+            from .room_presets_ui import RoomPresetsPage
+            name = "直播间组合"
+            button = QPushButton(name)
+            button.setObjectName("PickerTab")
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(lambda: self.set_group(name))
+            tabs.insertWidget(len(self._tabs), button)
+            self._tabs[name] = button
+            self._cards[name] = []
+            self._sections[name] = []
+            self.presets_page = RoomPresetsPage(presets_host, self)
+            outer.insertWidget(2, self.presets_page, 1)
+            self.presets_page.hide()
         self._even_cards()
         self.set_group(active)
         self._lock_size()
@@ -7812,6 +7829,11 @@ class LayoutPicker(QFrame):
         """切到某一组布局（普通 / 弹幕 / 竖屏）。"""
         if name not in self._cards:
             return
+        if self.presets_page is not None:
+            self.presets_page.setVisible(name == "直播间组合")
+            self.layout().setStretch(self.layout().count() - 2, 0 if name == "直播间组合" else 1)
+            if name == "直播间组合":
+                self.presets_page.refresh()
         for key, button in self._tabs.items():
             button.setChecked(key == name)
             _repolish(button)

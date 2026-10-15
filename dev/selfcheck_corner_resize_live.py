@@ -84,6 +84,18 @@ def main():
                 identities = [(player.player, player._media, int(player.video_widget.winId()))
                               for player in players]
                 initial_time = [player.player.get_time() for player in players]
+                # Named combinations can restore/reorder the same six native players without reconnecting.
+                from copy import deepcopy
+                combination = window.save_room_preset("六路本地视频")
+                alternate = deepcopy(window.room_presets["items"][0])
+                alternate.update(id="alternate", name="六分换位")
+                alternate["layout"] = dict(id="3x2", ratios={}, danmaku_cell=None)
+                for index, slot in enumerate(reversed(alternate["slots"])):
+                    slot["cell"] = index
+                window.room_presets["items"].append(alternate)
+                assert window.apply_room_preset("alternate")
+                assert window.apply_room_preset(combination)
+                window.start_tile.assert_not_called()
                 border = window.wall._pane_borders[window.wall.tiles[0]]
                 if "--native" in sys.argv:
                     import ctypes
