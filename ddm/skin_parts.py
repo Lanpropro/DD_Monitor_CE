@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QDialog, QMenu, QPushButton, QStyle, QStyleOption
 PARTS = {
     'sidebar': '关注栏底板', 'folders': '文件夹', 'controls': '播放底部控制条',
     'settings': '设置窗口', 'settings.navigation': '设置导航', 'settings.content': '设置内容区',
-    'menus': '菜单', 'dialogs': '普通对话框', 'notices': '提示条', 'buttons': '通用按钮',
+    'menus': '菜单', 'layout_menu': '布局预设菜单', 'dialogs': '普通对话框', 'notices': '提示条', 'buttons': '通用按钮',
     'buttons.pause': '暂停／播放', 'buttons.volume': '音量／静音',
     'buttons.danmaku': '弹幕开关', 'buttons.danmaku_settings': '弹幕设置',
     'buttons.recording': '录制', 'buttons.fullscreen': '全屏',
@@ -111,7 +111,9 @@ def part_for(widget):
         return 'folders'
     if type(widget).__name__ == 'SettingsDialog':
         return 'settings'
-    if isinstance(widget, QMenu) or name == 'LayoutPicker':
+    if name == 'LayoutPicker':
+        return 'layout_menu'
+    if isinstance(widget, QMenu):
         return 'menus'
     if name == 'PresetManageButton':
         return 'buttons'
@@ -140,7 +142,8 @@ def resolve_values(part, light, personal):
     """Resolve a preview without changing the application's active appearance."""
     result = {}
     for layer in (_package, personal):
-        for key in (('buttons', part) if part.startswith('buttons.') else (part,)):
+        keys = ('buttons', part) if part.startswith('buttons.') else (('menus', part) if part == 'layout_menu' else (part,))
+        for key in keys:
             values = layer.get(key, {})
             if values.get('builtin'):
                 result.clear()
@@ -187,6 +190,8 @@ def style_for(widget):
     result = f'{selector} {{{rules}}}' if rules else ''
     if 'foreground' in values and part in ('controls', 'settings', 'settings.content', 'dialogs', 'notices'):
         result += f'{selector} QLabel {{color: {QColor(values["foreground"]).name(QColor.HexArgb)};}}'
+    if part == 'layout_menu':
+        return result
     for state in ('hover', 'pressed', 'checked', 'disabled'):
         rules = _declarations(values.get(state, {}))
         if rules:

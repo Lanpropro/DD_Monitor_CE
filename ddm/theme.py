@@ -968,6 +968,12 @@ QPushButton#PrimaryButton:pressed {{
 }}
 
 /* 布局选择弹层 */
+#SimpleSkinTabs::pane {{border: none; background: transparent;}}
+#SimpleSkinTabs QTabBar::tab {{
+    background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER_STRONG};
+    border-radius: 9px; padding: 7px 16px; margin: 0 6px 8px 0;
+}}
+#SimpleSkinTabs QTabBar::tab:selected {{background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {TEXT1};}}
 #LayoutPicker {{
     background: {BG};
     border: 1px solid {BORDER_STRONG};

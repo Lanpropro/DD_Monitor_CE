@@ -30,7 +30,7 @@ class SkinPreview(QWidget):
     def scene_for(part):
         if part.startswith('settings') or part == 'buttons':
             return 'settings'
-        return 'popups' if part in ('menus', 'dialogs', 'notices') else 'main'
+        return 'popups' if part in ('menus', 'layout_menu', 'dialogs', 'notices') else 'main'
 
     def select_part(self, part):
         self.selected = part
@@ -234,11 +234,12 @@ class SkinPreview(QWidget):
                   foreground=self._values('dialogs').get('foreground'))
         for y, text in ((155, '房间号或直播间链接'), (215, '选择文件夹')):
             self._box(p, '', QRectF(55, y, 410, 40), text)
-        self._box(p, 'menus', QRectF(520, 60, 245, 265))
+        self._box(p, 'menus', QRectF(520, 60, 245, 130))
         values = self._values('menus')
         for index, text in enumerate(('右键菜单', '账号菜单', '菜单选项')):
             state = values.get(self.state, {}) if index == 1 and self.selected == 'menus' else {}
-            self._box(p, '', QRectF(532, 87+index*75, 221, 44), text,
+            self._box(p, '', QRectF(532, 68+index*39, 221, 32), text,
                       default=state.get('background', '#00000000'),
                       foreground=state.get('foreground', values.get('foreground')))
+        self._box(p, 'layout_menu', QRectF(520, 205, 245, 130), '布局预设／直播间组合')
         self._box(p, 'notices', QRectF(520, 355, 245, 95), '操作结果／顶部提示')
