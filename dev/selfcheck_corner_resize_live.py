@@ -187,7 +187,7 @@ def main():
                 settle(app)
                 assert window._hot_swap(window.wall.tiles[0], window.wall.tiles[4])
                 settle(app, 0.6)
-                window.wall.reset_corner_ratios()
+                window._on_layout_changed("corner")
                 settle(app)
                 # 同一批真实播放器轮流进入所有其他预设，不经过取流/播放器重启。
                 # 隔离窗口方向自动切换；实际应用切到容量更小的布局会按设计停掉隐藏路。

@@ -123,8 +123,14 @@ def main():
             second.sidebar.open_layout_picker()
             picker = second.sidebar._picker
             assert picker.reset_button.isVisible()
-            QTest.mouseClick(picker.reset_button, Qt.LeftButton)
-            QTest.qWait(850)
+            card = next(card for cards in picker._cards.values() for card in cards
+                        if card.property('layoutId') == '3x3')
+            assert '再次点击恢复默认比例' in card.toolTip()
+            with patch.object(config, 'save', wraps=config.save) as save:
+                QTest.mouseClick(card, Qt.LeftButton)
+                QTest.qWait(850)
+                assert save.call_count == 1
+                assert not picker.isVisible()
             expected = {identifier: ratios for identifier, ratios in saved.items() if identifier != '3x3'}
             assert second.wall.layout_ratios() == expected
             assert config.load()['ui']['layout_ratios'] == expected

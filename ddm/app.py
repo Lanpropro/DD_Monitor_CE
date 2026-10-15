@@ -1060,6 +1060,7 @@ class MainWindow(QMainWindow):
 
     def _on_layout_changed(self, layout_id: str) -> None:
         if layout_id == self.wall.layout_id:
+            self.wall.reset_layout_ratios()
             return
         self._prioritize_live_tiles(layout_id)
         self._clear_expanded_slots(layout_id)

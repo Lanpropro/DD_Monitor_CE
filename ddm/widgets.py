@@ -7776,6 +7776,8 @@ class LayoutPicker(QFrame):
                 button.setChecked(layout["id"] == current)
                 button.setProperty("layoutId", layout["id"])
                 button.setToolTip(layout.get("hint") or layout["name"])
+                if layout["id"] == current and self._can_reset_layout:
+                    button.setToolTip(button.toolTip() + "\n再次点击恢复默认比例")
                 button.setCursor(Qt.PointingHandCursor)
                 button.clicked.connect(
                     lambda _checked=False, lid=layout["id"]: self._choose(lid))

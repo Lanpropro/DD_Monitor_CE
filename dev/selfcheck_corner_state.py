@@ -103,6 +103,31 @@ def main():
             tiles = list(restarted.wall.tiles)
             video_ids = [int(tile.video.winId()) for tile in tiles]
             slots = restarted.current_state()['wall']
+            # 再次点击当前一大五小卡片也应重置并保存，不重建播放格子。
+            restarted.sidebar.open_layout_picker()
+            picker = restarted.sidebar._picker
+            card = next(card for cards in picker._cards.values() for card in cards
+                        if card.property('layoutId') == 'corner')
+            with patch.object(config, 'save', wraps=config.save) as save:
+                QTest.mouseClick(card, Qt.LeftButton)
+                QTest.qWait(850)
+                assert save.call_count == 1
+            assert restarted.wall.corner_ratios() == DEFAULT
+            assert not picker.isVisible()
+            assert restarted.wall.tiles == tiles
+            assert [int(tile.video.winId()) for tile in tiles] == video_ids
+            assert restarted.current_state()['wall'] == slots
+            # 已经默认时再次点击不应产生重复保存。
+            with patch.object(config, 'save') as save:
+                restarted.sidebar.open_layout_picker()
+                picker = restarted.sidebar._picker
+                card = next(card for cards in picker._cards.values() for card in cards
+                            if card.property('layoutId') == 'corner')
+                QTest.mouseClick(card, Qt.LeftButton)
+                QTest.qWait(850)
+                save.assert_not_called()
+            border, point = border_for(restarted.wall, CORNER_KEYS[Qt.Horizontal])
+            drag(app, border, QPoint(30, 0), pos=point)
             # 重置还要取消已经排队、但尚未应用的拖动，避免稍后改回旧位置。
             border, point = border_for(restarted.wall, CORNER_KEYS[Qt.Horizontal])
             origin = begin(border, pos=point)
