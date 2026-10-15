@@ -1,6 +1,6 @@
 """Room combinations live inside the existing layout picker."""
 from PySide6.QtCore import QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QMenu, QMessageBox, QPushButton, QScrollArea, QToolButton,
                                QVBoxLayout, QWidget)
@@ -19,10 +19,11 @@ def thumbnail(snapshot):
     slots = {slot["cell"]: slot for slot in snapshot["slots"]}
     for cell, rect in room_presets.thumbnail_geometry(snapshot, QRect(5, 5, 214, 128)).items():
         slot = slots.get(cell)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.qcolor(theme.CONTENT))
+        occupied = bool(slot and slot['room_id'])
+        painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
+        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if occupied else theme.CONTENT))
         painter.drawRoundedRect(rect, 3, 3)
-        painter.setPen(theme.qcolor(theme.TEXT1 if slot and slot["room_id"] else theme.TEXT3))
+        painter.setPen(theme.qcolor(theme.TEXT1 if occupied else theme.TEXT2))
         name = (slot["label"] or slot["room_id"]) if slot and slot["room_id"] else ("空位" if slot else "弹幕")
         text = painter.fontMetrics().elidedText(name, Qt.ElideRight, max(0, rect.width() - 6))
         painter.drawText(rect.adjusted(3, 2, -3, -2), Qt.AlignCenter, text)
@@ -47,8 +48,9 @@ class RoomPresetsPage(QWidget):
         bar.addWidget(self.save_button)
         outer.addLayout(bar)
         self.name_form = QWidget()
+        self.name_form.setObjectName("RoomPresetNameForm")
         form = QVBoxLayout(self.name_form)
-        form.setContentsMargins(0, 0, 0, 0)
+        form.setContentsMargins(10, 10, 10, 10)
         row = QHBoxLayout()
         row.addWidget(QLabel("组合名称"))
         self.name_edit = QLineEdit()
@@ -80,6 +82,7 @@ class RoomPresetsPage(QWidget):
         self.grid = QGridLayout(self.holder)
         self.grid.setContentsMargins(0, 4, 0, 0)
         self.grid.setAlignment(Qt.AlignTop)
+        self.grid.setSpacing(12)
         scroll.setWidget(self.holder)
         outer.addWidget(scroll, 1)
         self.refresh()
@@ -93,7 +96,7 @@ class RoomPresetsPage(QWidget):
         self.cards = {}
         self.save_button.setEnabled(self.host.room_presets["version"] == 1)
         records = self.host.room_presets["items"]
-        columns = max(1, (max(self.picker.width(), 460) - 32) // 236)
+        columns = max(1, (max(self.picker.width(), 460) - 32) // 256)
         if not records:
             label = QLabel("尚未保存直播间组合\n点击右上方“保存当前组合…”开始")
             label.setAlignment(Qt.AlignCenter)
@@ -103,20 +106,22 @@ class RoomPresetsPage(QWidget):
         except ValueError:
             current = None
         for index, record in enumerate(records):
-            container = QWidget()
-            container.setFixedWidth(224)
+            container = QFrame()
+            container.setObjectName("RoomPresetEntry")
+            container.setFixedWidth(244)
             box = QVBoxLayout(container)
-            box.setContentsMargins(0, 0, 0, 0)
+            box.setContentsMargins(10, 10, 10, 10)
             actions = QHBoxLayout()
             name = str(record.get("name") or "无效组合")
             label = QLabel(name)
-            label.setMaximumWidth(190)
+            label.setObjectName("RoomPresetName")
+            label.setMaximumWidth(170)
             label.setWordWrap(True)
             actions.addWidget(label, 1)
             menu = QToolButton()
-            menu.setText("···")
-            menu.setObjectName("GhostButton")
-            menu.setFixedSize(28, 24)
+            menu.setText("管理")
+            menu.setObjectName("PresetManageButton")
+            menu.setFixedSize(48, 28)
             menu.setToolTip("管理此组合")
             menu.clicked.connect(lambda _checked=False, item=record, button=menu: self.manage(item, button))
             actions.addWidget(menu)
@@ -136,6 +141,7 @@ class RoomPresetsPage(QWidget):
                 card.setIconSize(QSize(208, 128))
                 active = record.get("id") == self.host._active_room_preset_id
                 equal = current is not None and room_presets.same(snapshot, current)
+                container.setProperty("current", active and equal)
                 suffix = " · 已调整" if active and not equal else (" · 当前" if active else "")
                 label.setText(name + suffix)
                 count = sum(bool(slot["room_id"]) for slot in snapshot["slots"])

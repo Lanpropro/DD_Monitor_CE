@@ -7699,7 +7699,7 @@ class LayoutPicker(QFrame):
     #: 一行摆几张卡片
     COLUMNS = 4
     #: 卡片图标尺寸（所有卡片统一，否则格子会错开）
-    _icon_size = QSize(52, 34)
+    _icon_size = QSize(64, 42)
     #: 卡片最小宽度（名字都很短时也别挤成一条）
     _min_card_width = 108
 
@@ -7748,7 +7748,7 @@ class LayoutPicker(QFrame):
         outer.addLayout(self._grid)
         outer.addStretch(1)          # 各组行数不同，多出来的高度留在下面
         self.reset_button = QPushButton("恢复默认比例", self)
-        self.reset_button.setObjectName("GhostButton")
+        self.reset_button.setObjectName("LayoutResetButton")
         self.reset_button.setToolTip("恢复当前布局的全部分隔线比例，保留直播间和音频设置")
         self.reset_button.clicked.connect(self._reset_ratios)
         outer.addWidget(self.reset_button)
@@ -7773,6 +7773,7 @@ class LayoutPicker(QFrame):
                 button.setObjectName("LayoutCard")
                 button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
                 button.setIcon(QIcon(layouts.thumbnail(layout["spec"],
+                                                       size=(self._icon_size.width(), self._icon_size.height()),
                                                        danmaku=layout.get("danmaku"))))
                 button.setIconSize(self._icon_size)
                 button.setText(layout["name"])

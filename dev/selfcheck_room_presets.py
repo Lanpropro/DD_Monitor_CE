@@ -11,8 +11,8 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QApplication, QMessageBox, QMenu
+from PySide6.QtGui import QFont, QFontDatabase, QPalette
+from PySide6.QtWidgets import QApplication, QMessageBox, QMenu, QToolButton
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
@@ -26,6 +26,15 @@ def expect_invalid(snapshot):
     except ValueError:
         return
     raise AssertionError(snapshot)
+
+
+def contrast(first, second):
+    def luminance(color):
+        values = [v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4
+                  for v in (color.redF(), color.greenF(), color.blueF())]
+        return sum(a * b for a, b in zip(values, (.2126, .7152, .0722)))
+    a, b = sorted((luminance(first), luminance(second)))
+    return (b + .05) / (a + .05)
 
 
 def main():
@@ -74,6 +83,7 @@ def main():
             assert not page.name_form.isVisible() and picker.isVisible()
             key = window.room_presets['items'][0]['id']
             assert page.cards[key].isChecked()
+            assert page.cards[key].parentWidget().property('current') is True
             assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
             assert thumbnail(a).size().width() == 224
             picker.close()
@@ -279,10 +289,36 @@ def main():
                                   'portrait_dm4': '竖屏观看', 'corner': '六路观看'}.get(record['name'], record['name'])
             for mode in ('light', 'dark'):
                 theme.apply(mode)
-                window.sidebar._picker.presets_page.refresh()
+                # Reopen just as users do after changing the app theme, so raster icons regenerate.
+                window.sidebar._picker.close()
+                window.sidebar.open_layout_picker()
+                picker = window.sidebar._picker
+                picker.set_group('普通布局')
                 QTest.qWait(30)
-                window.sidebar._picker.grab().save(str(directory / f'room-presets-{mode}.png'))
-                page = window.sidebar._picker.presets_page
+                picker.grab().save(str(directory / f'layout-picker-{mode}.png'))
+                for group in picker._cards.values():
+                    for card in group:
+                        icon = card.icon().pixmap(card.iconSize()).toImage()
+                        visible = sum(icon.pixelColor(x, y).alpha() > 200 and
+                                      contrast(icon.pixelColor(x, y), theme.qcolor(theme.CONTENT)) >= 3
+                                      for x in range(icon.width()) for y in range(icon.height()))
+                        assert visible > icon.width() * icon.height() * .04, card.text()
+                for button in (*picker._tabs.values(), picker.reset_button):
+                    assert contrast(button.palette().color(QPalette.ButtonText),
+                                    theme.qcolor(theme.CONTENT)) >= 4.5, button.text()
+                picker.set_group('直播间组合')
+                QTest.qWait(30)
+                picker.grab().save(str(directory / f'room-presets-{mode}.png'))
+                page = picker.presets_page
+                management = page.findChildren(QToolButton, 'PresetManageButton')
+                assert management and all(button.text() == '管理' for button in management)
+                for button in management:
+                    assert contrast(button.palette().color(QPalette.ButtonText),
+                                    theme.qcolor(theme.CONTENT)) >= 4.5
+                for card in page.cards.values():
+                    if card.isEnabled():
+                        assert contrast(card.palette().color(QPalette.ButtonText),
+                                        theme.qcolor(theme.CONTENT)) >= 4.5
                 page.save_new()
                 page.name_edit.setText('我的直播间组合')
                 window.sidebar._picker.grab().save(str(directory / f'room-presets-inline-{mode}.png'))

@@ -966,16 +966,16 @@ QPushButton#PrimaryButton:pressed {{
 
 /* 布局选择弹层 */
 #LayoutPicker {{
-    background: {ELEVATED};
+    background: {BG};
     border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_LG}px;
 }}
 #LayoutCard {{
-    background: transparent;
-    border: 1px solid transparent;
+    background: {CONTENT};
+    border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_MD}px;
     padding: 6px 4px 4px 4px;
-    color: {TEXT3};
+    color: {TEXT1};
     font-size: {FONT_CAPTION}px;
 }}
 #LayoutCard:hover {{
@@ -984,15 +984,19 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #LayoutCard:checked {{
     background: {ACCENT_SOFT};
-    border: 1px solid rgba(0, 161, 214, 0.45);
-    color: {ACCENT};
+    border: 1px solid {ACCENT};
+    color: {TEXT1};
+}}
+#LayoutCard:focus {{
+    border: 1px solid {ACCENT};
+    outline: none;
 }}
 #PickerTab {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: 11px;
     padding: 3px 14px;
-    color: {TEXT3};
+    color: {TEXT2};
     font-size: {FONT_CAPTION}px;
     font-weight: 600;
 }}
@@ -1002,8 +1006,31 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #PickerTab:checked {{
     background: {ACCENT_SOFT};
-    border: 1px solid rgba(0, 161, 214, 0.45);
-    color: {ACCENT};
+    border: 1px solid {ACCENT};
+    color: {TEXT1};
+}}
+#LayoutPicker #SectionLabel {{color: {TEXT2};}}
+#LayoutResetButton, #PresetManageButton {{
+    background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER_STRONG};
+    border-radius: 8px; min-height: 28px; padding: 2px 10px;
+}}
+#LayoutResetButton:hover, #PresetManageButton:hover {{
+    background: {CONTENT_HOVER}; color: {TEXT1}; border-color: {ACCENT};
+}}
+#LayoutResetButton:focus, #PresetManageButton:focus {{border-color: {ACCENT}; outline: none;}}
+#RoomPresetEntry {{
+    background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
+}}
+#RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {ACCENT_SOFT};}}
+#RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
+#RoomPresetEntry #LayoutCard {{
+    background: transparent; border: none; padding: 0; color: {TEXT2};
+}}
+#RoomPresetEntry #LayoutCard:hover, #RoomPresetEntry #LayoutCard:checked {{color: {TEXT1};}}
+#RoomPresetEntry #LayoutCard:focus {{border: 1px solid {ACCENT};}}
+#PresetManageButton {{min-height: 24px; padding: 0;}}
+#LayoutPicker #RoomPresetNameForm {{
+    background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
 }}
 
 /* ---------- 画面墙 ---------- */

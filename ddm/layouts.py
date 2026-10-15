@@ -244,8 +244,10 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
                 painter.drawRect(QRectF(x + 2, line_y, max(1.0, w - 4), 1.0))
             continue
         if spec:
-            painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
-            painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+            fill = theme.mix(theme.CONTENT, '#000000' if theme.is_light() else '#ffffff',
+                             .08 if theme.is_light() else .40)
+            painter.setBrush(theme.qcolor(fill))
+            painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.5))
         else:
             painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
             pen = QPen(theme.qcolor(theme.ACCENT), 1, Qt.DashLine)
