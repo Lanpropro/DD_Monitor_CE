@@ -179,9 +179,24 @@ def main():
                 page.manage(next(item for item in window.room_presets['items'] if item['id'] == second), page.save_button)
             assert room_presets.same(room_presets.validate(window.room_presets['items'][1]), b)
             discarded = window.save_room_preset('待删除')
+            page.refresh()
+            app.processEvents()
             with patch('ddm.room_presets_ui.QMenu', choose('删除组合')), \
-                    patch('ddm.room_presets_ui.QMessageBox.question', return_value=QMessageBox.Yes):
-                page.manage(next(item for item in window.room_presets['items'] if item['id'] == discarded), page.save_button)
+                    patch('ddm.room_presets_ui.QMessageBox.question', side_effect=AssertionError('Delete must stay inline')):
+                record = next(item for item in window.room_presets['items'] if item['id'] == discarded)
+                page.manage(record, page.save_button)
+                panel, card, confirm, cancel = page.delete_panels[discarded]
+                assert panel.isVisible() and card.isHidden() and panel.window() is picker
+                assert any(item['id'] == discarded for item in window.room_presets['items'])
+                QTest.mouseClick(cancel, Qt.LeftButton)
+                assert panel.isHidden() and card.isVisible()
+                assert any(item['id'] == discarded for item in window.room_presets['items'])
+                page.manage(record, page.save_button)
+                page._ask_delete(key)
+                assert panel.isHidden() and page.delete_panels[key][0].isVisible()
+                page.manage(record, page.save_button)
+                QTest.mouseClick(confirm, Qt.LeftButton)
+                assert picker.isVisible()
             assert not any(item['id'] == discarded for item in window.room_presets['items'])
             assert room_presets.same(window.room_preset_snapshot(), b)
             picker.close()
@@ -310,6 +325,10 @@ def main():
                 QTest.qWait(30)
                 picker.grab().save(str(directory / f'room-presets-{mode}.png'))
                 page = picker.presets_page
+                candidate = next(iter(page.cards))
+                page._ask_delete(candidate)
+                picker.grab().save(str(directory / f'room-presets-delete-{mode}.png'))
+                page._cancel_delete()
                 management = page.findChildren(QToolButton, 'PresetManageButton')
                 assert management and all(button.text() == '管理' for button in management)
                 for button in management:

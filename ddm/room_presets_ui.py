@@ -94,6 +94,7 @@ class RoomPresetsPage(QWidget):
                 item.widget().hide()
                 item.widget().deleteLater()
         self.cards = {}
+        self.delete_panels = {}
         self.save_button.setEnabled(self.host.room_presets["version"] == 1)
         records = self.host.room_presets["items"]
         columns = max(1, (max(self.picker.width(), 460) - 32) // 256)
@@ -160,6 +161,28 @@ class RoomPresetsPage(QWidget):
                 card.setToolTip(str(error))
                 card.setEnabled(False)
             box.addWidget(card)
+            confirmation = QWidget()
+            confirmation.setFixedSize(224, 175)
+            confirmation_box = QVBoxLayout(confirmation)
+            confirmation_box.setContentsMargins(4, 12, 4, 12)
+            prompt = QLabel("删除此组合？\n当前播放保持不变。")
+            prompt.setAlignment(Qt.AlignCenter)
+            prompt.setWordWrap(True)
+            confirmation_box.addWidget(prompt, 1)
+            buttons = QHBoxLayout()
+            confirm = QPushButton("确认删除")
+            confirm.setObjectName("IconButton")
+            confirm.setProperty("deleteConfirm", True)
+            confirm.clicked.connect(lambda _checked=False, key=record.get('id'): self._delete_confirmed(key))
+            buttons.addWidget(confirm)
+            cancel = QPushButton("取消")
+            cancel.setObjectName("IconButton")
+            cancel.clicked.connect(self._cancel_delete)
+            buttons.addWidget(cancel)
+            confirmation_box.addLayout(buttons)
+            box.addWidget(confirmation)
+            confirmation.hide()
+            self.delete_panels[record.get('id', str(index))] = (confirmation, card, confirm, cancel)
             self.cards[record.get("id", str(index))] = card
             self.grid.addWidget(container, index // columns, index % columns, Qt.AlignTop | Qt.AlignHCenter)
 
@@ -224,6 +247,23 @@ class RoomPresetsPage(QWidget):
         except ValueError as error:
             self._error(error)
 
+    def _cancel_delete(self):
+        for panel, card, _confirm, _cancel in self.delete_panels.values():
+            panel.hide()
+            card.show()
+
+    def _ask_delete(self, preset_id):
+        self._cancel_delete()
+        panel, card, _confirm, cancel = self.delete_panels[preset_id]
+        card.hide()
+        panel.show()
+        cancel.setFocus()
+        self.scroll.ensureWidgetVisible(panel)
+
+    def _delete_confirmed(self, preset_id):
+        self.host.delete_room_preset(preset_id)
+        self.refresh()
+
     def manage(self, record, button):
         menu = QMenu(self)
         rename = menu.addAction("重命名")
@@ -240,8 +280,8 @@ class RoomPresetsPage(QWidget):
                 if self._confirm("更新组合", f"是否用当前画面更新“{record.get('name', '')}”？"):
                     self.host.save_room_preset(record.get("name", ""), record.get("id"))
             elif action is delete:
-                if self._confirm("删除组合", f"是否删除“{record.get('name', '')}”？当前播放保持不变。"):
-                    self.host.delete_room_preset(record.get("id"))
+                self._ask_delete(record.get("id"))
+                return
             self.refresh()
         except ValueError as error:
             self._error(error)

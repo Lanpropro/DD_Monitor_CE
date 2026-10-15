@@ -1026,6 +1026,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {ACCENT_SOFT};}}
 #RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
+#RoomPresetEntry QPushButton[deleteConfirm="true"] {{border-color: {ERROR};}}
 #RoomPresetEntry #LayoutCard {{
     background: transparent; border: none; padding: 0; color: {TEXT2};
 }}
