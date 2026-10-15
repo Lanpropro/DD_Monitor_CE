@@ -31,7 +31,7 @@
 
 ### 软件与插件说明、设计及版本资料
 
-共 20 项。
+共 21 项。
 
 - `README.md`
 - `docs/BUG-STATUS-2026-10-02.md`
@@ -45,6 +45,7 @@
 - `docs/overview2_Landscape_mode.png`
 - `docs/plugins.md`
 - `docs/pr6-pr7-layout-testing.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.md`
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
 - `docs/releases/RELEASE-v0.3.1.md`
@@ -77,7 +78,7 @@
 
 ### 软件、插件及仓库回归测试（开发维护用途）
 
-共 221 项。
+共 226 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -177,12 +178,14 @@
 - `dev/selfcheck_match_sync_chat.py`
 - `dev/selfcheck_match_sync_comparison.py`
 - `dev/selfcheck_match_sync_control.py`
+- `dev/selfcheck_match_sync_crop_style.py`
 - `dev/selfcheck_match_sync_douyu_picture.py`
 - `dev/selfcheck_match_sync_empty.py`
 - `dev/selfcheck_match_sync_entry.py`
 - `dev/selfcheck_match_sync_exe.py`
 - `dev/selfcheck_match_sync_feedback.py`
 - `dev/selfcheck_match_sync_fullscreen_cursor.py`
+- `dev/selfcheck_match_sync_health.py`
 - `dev/selfcheck_match_sync_host_release.py`
 - `dev/selfcheck_match_sync_live.py`
 - `dev/selfcheck_match_sync_lock.py`
@@ -193,12 +196,15 @@
 - `dev/selfcheck_match_sync_offsets.py`
 - `dev/selfcheck_match_sync_overseas.py`
 - `dev/selfcheck_match_sync_playback.py`
+- `dev/selfcheck_match_sync_recovery.py`
 - `dev/selfcheck_match_sync_refinement.py`
 - `dev/selfcheck_match_sync_refinement_media.py`
 - `dev/selfcheck_match_sync_responsiveness.py`
 - `dev/selfcheck_match_sync_retry_rows.py`
 - `dev/selfcheck_match_sync_session.py`
+- `dev/selfcheck_match_sync_shortcuts.py`
 - `dev/selfcheck_match_sync_timer.py`
+- `dev/selfcheck_match_sync_two_stream.py`
 - `dev/selfcheck_match_sync_ui.py`
 - `dev/selfcheck_match_sync_video.py`
 - `dev/selfcheck_menu_motion.py`

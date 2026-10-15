@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from ddm import theme
 from ddm.app import MainWindow
 from ddm.dialogs import AddRoomDialog
+from ddm.folder_icons import FolderIconDialog
 from ddm.follow_folders import UNCLASSIFIED
 
 
@@ -37,6 +38,17 @@ def select(dialog, folder_id):
     next(action for action in dialog.folder_button.menu().actions() if action.data() == folder_id).trigger()
     assert dialog.folder_id == folder_id
     assert sum(action.isChecked() for action in dialog.folder_button.menu().actions()) == 1
+
+
+def edit_folder(text, accepted=True):
+    def execute(editor):
+        assert editor.windowTitle() == '新建文件夹'
+        editor.name_edit.setText(text)
+        editor.select_builtin('star')
+        editor.set_color('blue')
+        editor.accept() if accepted else editor.reject()
+        return editor.result()
+    return execute
 
 
 def main():
@@ -126,13 +138,14 @@ def main():
             assert dialog.new_folder_button.isEnabled()
             for text, accepted in (('取消', False), ('   ', True), ('赛事', True)):
                 before = window.sidebar.folder_state()
-                with patch('ddm.dialogs.QInputDialog.getText', return_value=(text, accepted)), \
+                with patch.object(FolderIconDialog, 'exec', edit_folder(text, accepted)), \
                         patch('ddm.dialogs.QMessageBox.warning'):
                     QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
                 assert window.sidebar.folder_state() == before
                 assert dialog.folder_id == '' and dialog.edit.text() == '105'
-            with patch('ddm.dialogs.QInputDialog.getText', return_value=('  新分组  ', True)):
+            with patch.object(FolderIconDialog, 'exec', edit_folder('  新分组  ')):
                 QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+            assert window.sidebar.get_folder(dialog.folder_id)['icon'] == {'type': 'builtin', 'name': 'star', 'color': 'blue'}
             created.append(dialog.folder_id)
             assert dialog.folder_button.text() == '新分组'
             assert window.sidebar.get_folder(dialog.folder_id)['name'] == '新分组'

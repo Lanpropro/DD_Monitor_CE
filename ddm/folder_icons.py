@@ -6,7 +6,8 @@ from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QLineEdit,
-    QGridLayout, QHBoxLayout, QLabel, QPushButton, QStyle, QToolButton, QVBoxLayout, QWidget)
+    QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QStyle, QStyleOption,
+    QToolButton, QVBoxLayout, QWidget)
 
 from . import config, theme
 from .follow_folders import ICON_COLORS, ICON_NAMES, normalize_icon
@@ -121,12 +122,28 @@ class IconDropArea(QPushButton):
             event.ignore()
 
 
+def create_folder_dialog(parent, creator, existing_names):
+    dialog = FolderIconDialog({'name': '', 'type': 'normal'}, parent,
+                              existing_names=existing_names, create=True)
+    try:
+        if dialog.exec() != QDialog.Accepted:
+            return '', ''
+        folder_id = creator(dialog.result_name, icon=dialog.result_icon)
+        if not folder_id:
+            QMessageBox.warning(parent, '新建文件夹', '已存在同名文件夹，请使用其他名称')
+        return folder_id, dialog.result_name
+    finally:
+        dialog.deleteLater()
+
+
 class FolderIconDialog(QDialog):
-    def __init__(self, folder, parent=None, *, existing_names=()):
+    def __init__(self, folder, parent=None, *, existing_names=(), create=False):
         super().__init__(parent)
-        self.setWindowTitle('修改文件夹图标')
+        self.setWindowTitle('新建文件夹' if create else '修改文件夹图标')
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('FolderIconDialog')
+        self._drag_offset = None
         self.setFixedWidth(430)
         self.folder = folder
         self.existing_names = set(existing_names)
@@ -138,8 +155,11 @@ class FolderIconDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 18)
         layout.setSpacing(14)
-        heading = QHBoxLayout()
-        title = QLabel('修改文件夹图标')
+        self.header = QWidget()
+        heading = QHBoxLayout(self.header)
+        heading.setContentsMargins(0, 0, 0, 0)
+        title = QLabel(self.windowTitle())
+        title.setAttribute(Qt.WA_TransparentForMouseEvents)
         title.setStyleSheet('font-size: 18px; font-weight: 600;')
         heading.addWidget(title, 1)
         close = QPushButton('×')
@@ -147,7 +167,7 @@ class FolderIconDialog(QDialog):
         close.setFixedSize(26, 26)
         close.clicked.connect(self.reject)
         heading.addWidget(close)
-        layout.addLayout(heading)
+        layout.addWidget(self.header)
         current = QFrame()
         current.setObjectName('IconCurrent')
         top = QHBoxLayout(current)
@@ -161,7 +181,8 @@ class FolderIconDialog(QDialog):
         self.name_edit = QLineEdit(folder['name'])
         self.name_edit.setObjectName('IconFolderName')
         self.name_edit.setAccessibleName('文件夹名称')
-        self.name_edit.setToolTip('直接修改文件夹名称，保存后应用')
+        self.name_edit.setPlaceholderText('输入文件夹名称')
+        self.name_edit.setToolTip('填写文件夹名称，创建后应用' if create else '直接修改文件夹名称，保存后应用')
         labels.addWidget(self.name_edit)
         hint = QLabel(('智能文件夹' if folder['type'] == 'smart' else '普通文件夹') + ' · 图标预览')
         hint.setProperty('hint', True)
@@ -202,7 +223,7 @@ class FolderIconDialog(QDialog):
         self.drop_area.clicked.connect(self._choose)
         self.drop_area.fileDropped.connect(self.import_image)
         layout.addWidget(self.drop_area)
-        hint = QLabel('最大 5MB，图片保留原色。保存后应用。')
+        hint = QLabel('最大 5MB，图片保留原色。' + ('创建后应用。' if create else '保存后应用。'))
         hint.setProperty('hint', True)
         layout.addWidget(hint)
         previews = QHBoxLayout()
@@ -228,13 +249,38 @@ class FolderIconDialog(QDialog):
         cancel = QPushButton('取消')
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
-        save = QPushButton('保存')
+        save = QPushButton('创建' if create else '保存')
         save.setObjectName('IconSave')
         save.setDefault(True)
         save.clicked.connect(self.accept)
         buttons.addWidget(save)
         layout.addLayout(buttons)
         self.refresh_theme()
+
+    def paintEvent(self, event):
+        option = QStyleOption()
+        option.initFrom(self)
+        painter = QPainter(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and event.position().y() <= self.header.geometry().bottom():
+            self._drag_offset = event.globalPosition().toPoint() - self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_offset is not None and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_offset = None
+        super().mouseReleaseEvent(event)
 
     def refresh_theme(self):
         dark = not theme.is_light()

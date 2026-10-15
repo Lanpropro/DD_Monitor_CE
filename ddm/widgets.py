@@ -27,7 +27,7 @@ from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
 from . import follow_folders
-from .folder_icons import FolderIconDialog, folder_icon
+from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
 from .player import TilePlayer
 from .video_surface import VideoSurface
 from .badge_surface import BadgeSurface
@@ -4213,7 +4213,7 @@ class Sidebar(QFrame):
         self.folders = follow_folders.normalize_folders(folders, self.sort_mode)
         self._refresh_folders(notify=False)
 
-    def create_folder(self, name: str, *, rule=None, sort="custom") -> str:
+    def create_folder(self, name: str, *, rule=None, sort="custom", icon=None) -> str:
         name = name.strip()
         if not name or any(folder["name"] == name for folder in self.folders):
             return ""
@@ -4222,6 +4222,8 @@ class Sidebar(QFrame):
                   "collapsed": False, "rooms": [], "sort": sort}
         if rule is not None:
             folder["rule"] = rule
+        if icon is not None:
+            folder['icon'] = icon
         index = self.folders.index(self.get_folder(follow_folders.UNCLASSIFIED))
         self.folders.insert(index, follow_folders.normalize_folders([folder])[0])
         self._refresh_folders()
@@ -4238,21 +4240,21 @@ class Sidebar(QFrame):
 
     def prompt_folder(self, room_ids=None, *, folder_id="") -> None:
         folder = next((item for item in self.folders if item["id"] == folder_id), None)
+        if folder is None:
+            folder_id, _name = create_folder_dialog(self, self.create_folder,
+                                                    (item['name'] for item in self.folders))
+            if folder_id and room_ids:
+                self.move_to_folder(room_ids, folder_id)
+            return
         name, accepted = QInputDialog.getText(
-            self, "重命名文件夹" if folder else "新建文件夹", "文件夹名称：",
-            text=folder["name"] if folder else "")
+            self, "重命名文件夹", "文件夹名称：", text=folder["name"])
         if not accepted or not name.strip():
             return
         name = name.strip()
         if any(item["name"] == name and item["id"] != folder_id for item in self.folders):
             return
-        if folder:
-            folder["name"] = name
-            self._refresh_folders()
-        else:
-            folder_id = self.create_folder(name)
-            if room_ids:
-                self.move_to_folder(room_ids, folder_id)
+        folder["name"] = name
+        self._refresh_folders()
 
     def delete_folder(self, folder_id: str) -> None:
         if folder_id == follow_folders.UNCLASSIFIED:

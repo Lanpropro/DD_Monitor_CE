@@ -8,8 +8,9 @@ os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QContextMenuEvent
-from PySide6.QtWidgets import QApplication, QDialog, QMenu
-from ddm import theme
+from PySide6.QtWidgets import QApplication, QDialog
+from ddm.folder_icons import FolderIconDialog
+from ddm import motion, theme
 from ddm.widgets import Sidebar, SmartFolderDialog
 
 
@@ -23,12 +24,16 @@ def main():
 
     def context(target, position):
         shown = []
-        class ProbeMenu(QMenu):
-            def exec(self, global_pos):
-                shown.append(self)
+        original = motion.AnimatedMenu
+        def probe_menu(*args, **kwargs):
+            menu = original(*args, **kwargs)
+            def execute(global_pos):
+                shown.append(menu)
                 assert global_pos == target.mapToGlobal(position)
+            menu.exec = execute
+            return menu
         event = QContextMenuEvent(QContextMenuEvent.Mouse, position, target.mapToGlobal(position))
-        with patch("ddm.widgets.QMenu", ProbeMenu):
+        with patch.object(motion, 'AnimatedMenu', probe_menu):
             QApplication.sendEvent(target, event)
         assert event.isAccepted() and len(shown) == 1
         return shown[0]
@@ -41,12 +46,19 @@ def main():
     # 没有卡片时，提示文字上和侧栏边缘的空白处都可创建。
     blank_menu(sidebar.list_box.empty_hint, sidebar.list_box.empty_hint.rect().center())
     menu = blank_menu(sidebar, QPoint(1, 1))
-    with patch("ddm.widgets.QInputDialog.getText", return_value=("赛事", True)):
+    def create(editor):
+        assert editor.windowTitle() == '新建文件夹'
+        editor.name_edit.setText('赛事')
+        editor.select_builtin('game')
+        editor.accept()
+        return editor.result()
+    with patch.object(FolderIconDialog, 'exec', create):
         menu.actions()[0].trigger()
     ordinary = next(folder for folder in sidebar.folders if folder["name"] == "赛事")
     assert ordinary["type"] == "normal"
+    assert ordinary['icon'] == {'type': 'builtin', 'name': 'game', 'color': 'default'}
     snapshot = sidebar.folder_state()
-    with patch("ddm.widgets.QInputDialog.getText", return_value=("", False)):
+    with patch.object(FolderIconDialog, 'exec', return_value=QDialog.Rejected):
         menu.actions()[0].trigger()
     assert sidebar.folder_state() == snapshot
     menu = blank_menu(sidebar.list_box, sidebar.list_box.rect().bottomRight() - QPoint(1, 1))

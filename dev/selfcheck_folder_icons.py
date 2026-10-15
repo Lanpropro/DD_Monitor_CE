@@ -7,9 +7,10 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QMouseEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
 from ddm import config, theme
 from ddm.folder_icons import FolderIconDialog, folder_icon, read_image
 from ddm.follow_folders import normalize_folders, normalize_icon
@@ -27,6 +28,44 @@ def main():
         normal = sidebar.create_folder('Normal')
         smart = sidebar.create_folder('Smart', rule={'status': 'live', 'platforms': []})
         app.processEvents()
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            for create in (False, True):
+                editor = FolderIconDialog({'name': '' if create else 'Normal', 'type': 'normal'},
+                                          create=create)
+                editor.setAttribute(Qt.WA_ShowWithoutActivating)
+                editor.move(-10000, -10000)
+                editor.show()
+                app.processEvents()
+                assert editor.windowTitle() == ('新建文件夹' if create else '修改文件夹图标')
+                assert editor.findChild(QPushButton, 'IconSave').text() == ('创建' if create else '保存')
+                image = editor.grab().toImage()
+                for x in (0, image.width()-1):
+                    for y in (0, image.height()-1):
+                        assert image.pixelColor(x, y).alpha() == 0, 'Window corners must be transparent'
+                assert image.pixelColor(image.width()//2, 4).alpha() > 240
+                # Actual title-label events must reach the drag handler.
+                title = editor.header.findChild(QLabel)
+                start = editor.pos()
+                QTest.mousePress(title, Qt.LeftButton, pos=title.rect().center())
+                assert editor._drag_offset is not None
+                delta = QPoint(45, 25)
+                local = editor.mapFromGlobal(title.mapToGlobal(title.rect().center()))
+                event = QMouseEvent(QEvent.MouseMove, QPointF(local + delta),
+                                    QPointF(editor.mapToGlobal(local) + delta),
+                                    Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+                QApplication.sendEvent(editor, event)
+                QTest.mouseRelease(title, Qt.LeftButton)
+                assert editor.pos() == start + delta and editor._drag_offset is None
+                start = editor.pos()
+                QTest.mousePress(editor.name_edit, Qt.LeftButton)
+                assert editor._drag_offset is None, 'Editing a name must not drag the window'
+                QTest.mouseRelease(editor.name_edit, Qt.LeftButton)
+                assert editor.pos() == start
+                QTest.mouseClick(editor.findChild(QPushButton, 'IconClose'), Qt.LeftButton)
+                assert not editor.isVisible() and editor.result() == QDialog.Rejected
+                editor.deleteLater()
+        theme.apply('dark')
         changes = []
         sidebar.foldersChanged.connect(lambda: changes.append(True))
         for fid in (normal, smart):
@@ -71,6 +110,22 @@ def main():
         source = Path(directory)/'source.png'
         image.save(str(source))
         original = source.read_bytes()
+        def create_with_image(editor):
+            editor.name_edit.setText('New image folder')
+            editor.import_image(source)
+            editor.accept()
+            return editor.result()
+        with patch.object(FolderIconDialog, 'exec', create_with_image):
+            sidebar.prompt_folder(['1'])
+        new_folder = next(item for item in sidebar.folders if item['name'] == 'New image folder')
+        assert sidebar.folder_for('1') == new_folder['id']
+        assert new_folder['icon']['type'] == 'image'
+        assert (Path(directory)/new_folder['icon']['path']).is_file()
+        assert source.read_bytes() == original
+        sidebar.delete_folder(new_folder['id'])
+        (Path(directory)/new_folder['icon']['path']).unlink()
+        (Path(directory)/'utils/folder-icons').rmdir()
+        (Path(directory)/'utils').rmdir()
         for invalid in ('   ', sidebar.get_folder(smart)['name']):
             validation = FolderIconDialog(folder, button, existing_names=[sidebar.get_folder(smart)['name']])
             validation.name_edit.setText(invalid)

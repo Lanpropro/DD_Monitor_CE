@@ -8,11 +8,12 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
+    QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import theme
+from .folder_icons import create_folder_dialog
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .player import DECODE_MODES
 
@@ -1017,14 +1018,10 @@ def _add_folder_option(dialog, menu, folder_id, name):
 
 
 def _create_folder_for_dialog(dialog, folder_creator):
-    name, accepted = QInputDialog.getText(dialog, "新建文件夹", "文件夹名称：")
-    if not accepted or not name.strip():
-        return
-    name = name.strip()
-    folder_id = folder_creator(name)
+    folder_id, name = create_folder_dialog(dialog, folder_creator, dialog.folder_names)
     if not folder_id:
-        QMessageBox.warning(dialog, "新建文件夹", "已存在同名文件夹，请使用其他名称")
         return
+    dialog.folder_names.add(name)
     action = _add_folder_option(dialog, dialog.folder_button.menu(), folder_id, name)
     dialog._select_folder(action)
 
@@ -1039,6 +1036,7 @@ class AddRoomDialog(AnimatedDialog):
         self.room_id = ""
         self.folder_id = ""
         self.room_id_resolver = room_id_resolver
+        self.folder_names = {folder['name'] for folder in folders or []}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -1138,6 +1136,7 @@ class FollowImportDialog(QDialog):
         self.existing = {str(item) for item in existing}
         self.folder_id = ""
         self.folder_changed = False
+        self.folder_names = {folder['name'] for folder in folders or []}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
