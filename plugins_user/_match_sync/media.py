@@ -75,7 +75,7 @@ def frame_sample(frame, timestamp, crop, size):
             image = image.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         crop = (0, 0, 1, 1)
     signature, texture = fingerprint(image, crop)
-    return Sample(timestamp, signature, texture, scene_feature(image, crop, (64, 24) if selected else (16, 16)))
+    return Sample(timestamp, signature, texture, scene_feature(image, crop, (128, 48) if selected else (16, 16)))
 
 
 def decode_command(executable: str, url: str, headers: dict, port: int, quality: int = 250,

@@ -51,6 +51,18 @@ def main():
             viewer.show()
             app.processEvents()
             assert 1 <= row.join.x() - row.realign.geometry().right() <= 7, 'Confirmation must sit directly to the right of retry'
+            for width in (2400, 1600):
+                viewer.resize(width, 900)
+                viewer.rows['3'].join.setText('确认对齐并延后约 59.9 秒加入')
+                viewer.rows['3'].join.show()
+                row.status.setText('较长的同步状态和缓存提示，不能改变控件的列位置。' * 8)
+                app.processEvents()
+                app.processEvents()
+                for widgets in zip(*(item.control_widgets for item in viewer.rows.values())):
+                    assert max(widget.x() for widget in widgets) - min(widget.x() for widget in widgets) <= 1, \
+                        'Main/confirmation/late-rejoin rows must keep identical control columns'
+                    assert max(widget.y() for widget in widgets) - min(widget.y() for widget in widgets) <= 1, \
+                        'Controls must also keep the same baseline inside each row'
             row.delay.setValue(row.delay.value() + .1)
             assert not viewer.alignment.automatic and row.mix_gain == 0 and not row.join.isHidden()
             preview = viewer.shifts()
@@ -82,7 +94,10 @@ def main():
             assert ('2',) in deliveries and ('3',) in deliveries
             assert row.match_confirmed and '2' not in viewer.independent_shifts
             assert row.user_confirmed and not row.awaiting_confirmation, 'Recovery must reuse the human approval'
+            row.recheck_alignment = True
             assert viewer.admit_pending('2')
+            assert row.match_confirmed and not row.recheck_alignment and '2' not in viewer.rematch_rooms, \
+                'An explicit confirmed rejoin must not immediately invalidate the recovered alignment'
             position = viewer.audio.clock() + viewer.shifts()['2']
             assert row.decoder.history.bounds_at(position)[1] - position >= viewer.safety_buffer.target - .001, \
                 'Explicit late admission must restore the safety reserve, not a 300ms underrun loop'

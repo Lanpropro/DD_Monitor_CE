@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtGui import QFontDatabase, QImage
+from PySide6.QtCore import Qt, QRect
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import plugins
 from dev.selfcheck_match_sync import FakeDecoder, FakeChat
@@ -31,9 +32,46 @@ def samples(lag=0, scale=1, paused=False, repeated=False):
     return result
 
 
+def scoreboard_samples(lag=0, paused=False):
+    result = []
+    for i in range(360):
+        stamp = i * .05
+        image = QImage(760, 180, QImage.Format_RGB32)
+        image.fill(QColor('#625346'))
+        painter = QPainter(image)
+        painter.fillRect(60, 18, 540, 80, QColor('#172c43'))
+        painter.fillRect(60, 18, 160, 80, QColor('#344fa0'))
+        painter.fillRect(440, 18, 160, 80, QColor('#92364c'))
+        font = QFont('Consolas')
+        font.setPixelSize(45)
+        painter.setFont(font)
+        painter.setPen(Qt.white)
+        painter.drawText(QRect(120, 18, 90, 80), Qt.AlignCenter, '7')
+        painter.drawText(QRect(440, 18, 90, 80), Qt.AlignCenter, '1')
+        clock = QImage.fromData(clock_jpeg(95 if paused else 112 - math.floor(stamp - lag)))
+        painter.drawImage(QRect(285, 30, 70, 29), clock)
+        font.setPixelSize(12)
+        painter.setFont(font)
+        painter.drawText(QRect(275, 64, 100, 22), Qt.AlignCenter, 'ROUND 9')
+        painter.end()
+        gray = image.convertToFormat(QImage.Format_Grayscale8)
+        plane = np.frombuffer(gray.constBits(), dtype=np.uint8).reshape(180, gray.bytesPerLine())[:, :760].copy()
+        frame = av.VideoFrame.from_ndarray(plane, format='gray')
+        result.append(frame_sample(frame, stamp, (0, 0, .999, .999), (640, 360)))
+    return result
+
+
 def main():
     app = QApplication([])
     assert QFontDatabase.addApplicationFont('C:/Windows/Fonts/consola.ttf') >= 0
+    board_reference, board_other = scoreboard_samples(), scoreboard_samples(2.36)
+    board_coarse = match_scenes(board_reference[::4], board_other[::4], focused=True)
+    board_fine = refine_match(board_coarse, board_reference, board_other, focused=True)
+    assert board_fine.lag is not None and abs(board_fine.lag - 2.36) <= .06, (board_coarse, board_fine)
+    print('PASS: a small changing timer inside a largely static scoreboard aligns without discarding its digit evidence')
+    frozen_board = scoreboard_samples(paused=True)
+    assert match_scenes(frozen_board[::4], frozen_board[::4], focused=True).lag is None
+    assert refine_match(Match(0, 1, 'paused scoreboard'), frozen_board, frozen_board, focused=True).lag is None
     native = []
     for width, height, lag in ((3840, 2160, 0), (1920, 1080, 4.537)):
         sequence = []

@@ -546,6 +546,7 @@ class RoomRow(QFrame):
         remove.setFixedWidth(52)
         remove.clicked.connect(lambda: viewer.remove_room(room_id))
         self.join = QPushButton("增加延后并加入")
+        self.join.setSizePolicy(policy)
         self.join.setToolTip("本路内容到达更晚；增加整组观看延迟后加入，原有各路保持相对同步。")
         self.join.clicked.connect(lambda: viewer.confirm_alignment(room_id))
         self.join.hide()
@@ -554,6 +555,7 @@ class RoomRow(QFrame):
                                 self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
                                 self.delay, self.increase, region, remove)
         controls = QGridLayout()
+        self.controls_grid = controls
         controls.setHorizontalSpacing(6)
         controls.setVerticalSpacing(4)
         columns = []
@@ -565,8 +567,10 @@ class RoomRow(QFrame):
             columns.append(column)
             controls.addWidget(widget, 0, column)
             column += 1
+        self.control_columns = columns
         self.status = QLabel()
         self.status.setWordWrap(True)
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.status.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.status.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.offset_hint = QLabel("单位：秒 · + 正数延后本路 · − 负数相对提前本路")
@@ -596,6 +600,12 @@ class RoomRow(QFrame):
         self.alias.textChanged.connect(viewer.changed)
         self.alias.textChanged.connect(self.refresh_avatar)
         self.alias.editingFinished.connect(viewer.update_main_choices)
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.LayoutRequest and hasattr(self, 'control_columns'):
+            self.viewer.align_room_controls()
+        return result
 
     @staticmethod
     def _offset(value):
@@ -1164,6 +1174,17 @@ class Viewer(QDialog):
             self.rows_layout.insertWidget(index, row)
         self.update_main_choices()
         self.changed()
+
+    def align_room_controls(self):
+        rows = list(self.rows.values())
+        if not rows:
+            return
+        widths = [max(min(widget.maximumWidth(), max(widget.minimumWidth(), widget.sizeHint().width()))
+                      for widget in widgets) for widgets in zip(*(row.control_widgets for row in rows))]
+        for row in rows:
+            for column, width in zip(row.control_columns, widths):
+                if row.controls_grid.columnMinimumWidth(column) != width:
+                    row.controls_grid.setColumnMinimumWidth(column, width)
 
     def begin_row_drag(self, room_id):
         self.dragged_row = room_id
@@ -2121,6 +2142,10 @@ class Viewer(QDialog):
         if not keep_main:
             row.user_confirmed = True
             row.awaiting_confirmation = False
+            row.recheck_alignment = False
+            self.rematch_rooms.discard(room_id)
+            self.rematch_admit.discard(room_id)
+            row.rematch_locally = False
         self.stable_reference_shift = shifts[main.room_id] - delay
         self.rendered_shifts.clear()
         self.shift_reference = None
