@@ -829,6 +829,9 @@ class Viewer(QDialog):
         self.restore_settings.hide()
         self.picture.bottom.installEventFilter(self)
         self.canvas = Canvas(self.picture.video)
+        # Canvas owns the empty-state prompt, including when its skin is transparent.
+        self.picture.cover.installEventFilter(self)
+        self.picture.cover.hide()
         video_layout = QVBoxLayout(self.picture.video)
         video_layout.setContentsMargins(0, 0, 0, 0)
         video_layout.addWidget(self.canvas)
@@ -998,6 +1001,9 @@ class Viewer(QDialog):
         self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
 
     def eventFilter(self, watched, event):
+        if watched is self.picture.cover and event.type() == QEvent.Show:
+            watched.hide()
+            return False
         if (getattr(self, "controls", None) is not None
                 and watched in (self.controls.widget(), self.controls.viewport())
                 and event.type() in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop)
