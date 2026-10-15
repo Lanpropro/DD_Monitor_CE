@@ -222,7 +222,8 @@ class MainWindow(QMainWindow):
         self.wall = WallGrid(
             wall_rooms if wall_rooms is not None else [],
             layout_id if layout_id and layout_id != "auto"
-            else self._saved_layout("landscape"), prepare_room=self._prepare_room)
+            else self._saved_layout("landscape"), prepare_room=self._prepare_room,
+            corner_ratios=ui.get("corner_ratios"), layout_ratios=ui.get("layout_ratios"))
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()
@@ -262,6 +263,7 @@ class MainWindow(QMainWindow):
         self.sidebar.settingsRequested.connect(self.open_settings)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
+        self.sidebar.layoutResetRequested.connect(self.wall.reset_layout_ratios)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
@@ -274,6 +276,8 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
+        self.wall.cornerRatiosChanged.connect(self._save_timer.start)
+        self.wall.layoutRatiosChanged.connect(self._save_timer.start)
         # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
         # 要等真正开始播放才建。补设置靠 play() 后那几次重试 + 看门狗，个别机器上
         # （慢启动、断流重连、切音频输出路径）会错过窗口，于是「静音标志亮着、声音
@@ -877,6 +881,8 @@ class MainWindow(QMainWindow):
                 "sidebar_collapsed": self.sidebar.collapsed,
                 "layout_landscape": self._saved_layout("landscape"),
                 "layout_portrait": self._saved_layout("portrait"),
+                "corner_ratios": self.wall.corner_ratios(),
+                "layout_ratios": self.wall.layout_ratios(),
                 "shortcuts": dict(self.shortcuts),
                 "danmaku_shortcut_default_b": True,
             },
@@ -1068,7 +1074,12 @@ class MainWindow(QMainWindow):
             # 转窗口会同步触发 _apply_orientation，而那里会把「切走前的记忆」摆回来，
             # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
             self._pending_layout = layout_id
+            previous_orientation, previous_layout = self.orientation, self.wall.layout_id
+            # resize 时必须按目标预设计算最小尺寸，避免旧的密集网格挡住转方向。
+            self.wall.set_layout(layout_id, relayout=False)
             self._reshape_window(want_portrait)
+            if previous_orientation:
+                self._layout_by_orientation[previous_orientation] = previous_layout
         self.wall.set_layout(layout_id)
         self.wall.relayout(force=True)
         self.sidebar.set_layout_name(self.wall.layout_id)
@@ -1111,6 +1122,14 @@ class MainWindow(QMainWindow):
             left = min(max(left, area.left()), max(area.left(), area.right() - new_width))
             top = min(max(top, area.top()), max(area.top(), area.bottom() - new_height))
             self.move(left, top)
+        # 拖动布局有自己的最小尺寸；转方向前先解除旧预设的约束，
+        # 否则横屏最小宽度会挡住变窄，resizeEvent 无法进入竖屏排布。
+        self.wall.setMinimumSize(0, 0)
+        self._build_arrangement("portrait" if portrait else "landscape")
+        self._content.layout().invalidate()
+        self._content.layout().activate()
+        self._root_layout.invalidate()
+        self._root_layout.activate()
         self.resize(new_width, new_height)
         print(f"[窗口] 改成 {'竖屏' if portrait else '横屏'} {new_width}x{new_height}",
               file=sys.stderr, flush=True)

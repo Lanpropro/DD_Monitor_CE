@@ -31,7 +31,7 @@
 
 ### 软件与插件说明、设计及版本资料
 
-共 18 项。
+共 19 项。
 
 - `README.md`
 - `docs/BUG-STATUS-2026-10-02.md`
@@ -44,6 +44,7 @@
 - `docs/overview1_Portrait_Mode.png`
 - `docs/overview2_Landscape_mode.png`
 - `docs/plugins.md`
+- `docs/pr6-pr7-layout-testing.md`
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
 - `docs/releases/RELEASE-v0.3.1.md`
@@ -75,7 +76,7 @@
 
 ### 软件、插件及仓库回归测试（开发维护用途）
 
-共 201 项。
+共 220 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -107,6 +108,11 @@
 - `dev/selfcheck_control_dpi.py`
 - `dev/selfcheck_control_edges.py`
 - `dev/selfcheck_control_physical_edges.py`
+- `dev/selfcheck_corner_drag_updates.py`
+- `dev/selfcheck_corner_resize.py`
+- `dev/selfcheck_corner_resize_live.py`
+- `dev/selfcheck_corner_small_resize.py`
+- `dev/selfcheck_corner_state.py`
 - `dev/selfcheck_cover_cache.py`
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
@@ -166,12 +172,17 @@
 - `dev/selfcheck_main_notices.py`
 - `dev/selfcheck_match_sync.py`
 - `dev/selfcheck_match_sync_alignment.py`
+- `dev/selfcheck_match_sync_appearance.py`
 - `dev/selfcheck_match_sync_chat.py`
 - `dev/selfcheck_match_sync_comparison.py`
+- `dev/selfcheck_match_sync_control.py`
 - `dev/selfcheck_match_sync_douyu_picture.py`
+- `dev/selfcheck_match_sync_empty.py`
 - `dev/selfcheck_match_sync_entry.py`
 - `dev/selfcheck_match_sync_exe.py`
+- `dev/selfcheck_match_sync_feedback.py`
 - `dev/selfcheck_match_sync_fullscreen_cursor.py`
+- `dev/selfcheck_match_sync_host_release.py`
 - `dev/selfcheck_match_sync_live.py`
 - `dev/selfcheck_match_sync_lock.py`
 - `dev/selfcheck_match_sync_main_quality.py`
@@ -184,6 +195,10 @@
 - `dev/selfcheck_match_sync_refinement.py`
 - `dev/selfcheck_match_sync_refinement_media.py`
 - `dev/selfcheck_match_sync_responsiveness.py`
+- `dev/selfcheck_match_sync_retry_rows.py`
+- `dev/selfcheck_match_sync_session.py`
+- `dev/selfcheck_match_sync_timer.py`
+- `dev/selfcheck_match_sync_ui.py`
 - `dev/selfcheck_match_sync_video.py`
 - `dev/selfcheck_menu_motion.py`
 - `dev/selfcheck_native_control_hit.py`
@@ -198,10 +213,12 @@
 - `dev/selfcheck_orientation_work.py`
 - `dev/selfcheck_overseas_playback_live.py`
 - `dev/selfcheck_overseas_stability.py`
+- `dev/selfcheck_pane_borders.py`
 - `dev/selfcheck_parallel_plugin_downloads.py`
 - `dev/selfcheck_platform_accounts.py`
 - `dev/selfcheck_platform_follow_reopen.py`
 - `dev/selfcheck_platform_follows.py`
+- `dev/selfcheck_platform_login_expiry.py`
 - `dev/selfcheck_platform_logo_background.py`
 - `dev/selfcheck_platform_offline_tiles.py`
 - `dev/selfcheck_platform_preview.py`
@@ -222,6 +239,8 @@
 - `dev/selfcheck_portrait_native.py`
 - `dev/selfcheck_portrait_sidebar_return.py`
 - `dev/selfcheck_portrait_small.py`
+- `dev/selfcheck_preset_resize.py`
+- `dev/selfcheck_preset_state.py`
 - `dev/selfcheck_preview.py`
 - `dev/selfcheck_preview_audio.py`
 - `dev/selfcheck_preview_collapsed.py`
@@ -238,6 +257,7 @@
 - `dev/selfcheck_replay_scope.py`
 - `dev/selfcheck_repository_files.py`
 - `dev/selfcheck_repository_map.py`
+- `dev/selfcheck_resize_preview_cleanup.py`
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_search.py`

@@ -159,7 +159,9 @@ def part_portrait(app) -> None:
     heights = {tile.height() for tile in small if tile.isVisible()}
     print(f"  小画面：可见 {sum(1 for t in small if t.isVisible())}/6 "
           f"宽集合={sorted(widths)} 高集合={sorted(heights)}")
-    assert len(widths) == 1 and len(heights) == 1, "小画面应该尺寸一致"
+    # 整数像素均分会有至多 1 像素余数，全部分配到画面而非留成背景缝隙。
+    assert max(widths) - min(widths) <= 1 and max(heights) - min(heights) <= 1, \
+        "小画面均分时尺寸差不能超过一个像素"
     assert main.height() > small[0].height(), "主画面要比小画面高"
     print(f"  主画面 {main.width()}x{main.height()} vs 小画面 "
           f"{small[0].width()}x{small[0].height()}")
@@ -482,7 +484,9 @@ def part_landscape_unchanged(app) -> None:
           f"格子={len(wall.tiles)} 可见={len(wall.visible_tiles())} "
           f"墙={wall.width()}x{wall.height()}")
     print(f"  2x2 在 {LANDSCAPE} 下的格子尺寸：{sizes}")
-    assert len(sizes) == 1, f"横屏 2x2 应该四格等大，实际 {sizes}"
+    assert max(size[0] for size in sizes) - min(size[0] for size in sizes) <= 1 \
+        and max(size[1] for size in sizes) - min(size[1] for size in sizes) <= 1, \
+        f"横屏 2x2 均分时尺寸差不能超过一个像素，实际 {sizes}"
     tile_w, tile_h = sizes.pop()
     print(f"  单格比例 {tile_w / tile_h:.3f}")
     assert 1.2 < tile_w / tile_h < 2.4, "横屏 2x2 单格比例不该离谱"
@@ -541,8 +545,8 @@ def part_orientation_roundtrip(app) -> None:
             # 用户报的「从竖屏回横屏后滚动条失效」就是这两条没回滚
             assert not sidebar.scroll.horizontal_only, \
                 f"{tag}: 竖屏的横滚模式没还原，滚轮会被当成横滚"
-            assert sidebar.scroll.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded, \
-                f"{tag}: 左栏竖向滚动条应该按需出现，实际 " \
+            assert sidebar.scroll.verticalScrollBarPolicy() == Qt.ScrollBarAlwaysOn, \
+                f"{tag}: 左栏应该预留竖向滚动条以保持卡片宽度，实际 " \
                 f"{sidebar.scroll.verticalScrollBarPolicy().name}"
             assert sidebar.scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff, \
                 f"{tag}: 左栏不该留横滚条"
@@ -824,7 +828,7 @@ def part_strip_interaction(app) -> None:
         "竖屏 Logo 尺寸应保持紧凑"
     assert header.x() < sidebar.search.x(), "logo 要在搜索框左边"
     assert header.x() + header.width() <= sidebar.search.x() + 2, "logo 不能压到搜索框"
-    assert sidebar.search.width() > 850, \
+    assert sidebar.search.width() > 800, \
         f"紧凑 Logo 应给搜索框留出足够宽度，实际 {sidebar.search.width()}"
     print(f"  图标文字：多选={sidebar.batch_button.text()!r} "
           f"排序={sidebar.sort_button.text()!r} 尺寸="

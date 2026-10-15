@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import layouts, motion, mouse_hook, theme
+from . import layouts, motion, mouse_hook, resize_layout, theme
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -3651,6 +3651,7 @@ class Sidebar(QFrame):
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
+    layoutResetRequested = Signal()
     settingsRequested = Signal()
     appearanceChanged = Signal(str)
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
@@ -3923,6 +3924,7 @@ class Sidebar(QFrame):
         # 只列当前方向能用的布局：横屏不列竖屏预设（套上去画面会变形）
         picker = LayoutPicker(self._layout_id, self, portrait=self.side == "top")
         picker.chosen.connect(self._on_layout_chosen)
+        picker.resetRequested.connect(self.layoutResetRequested.emit)
         # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
         source = self.account_row if self.collapsed else self.layout_button
         anchor = source.mapToGlobal(source.rect().topLeft())
@@ -6695,6 +6697,304 @@ def best_columns(count: int, width: int, height: int, gap: int = 8, aspect: floa
     return best
 
 
+class WallPaneBorder(QWidget):
+    """A masked native border keeps resize hits above VLC without covering its centre."""
+
+    BAND = 3
+    CORNER = 18
+
+    def __init__(self, pane, wall):
+        super().__init__(pane)
+        self.wall = wall
+        self.targets = {}
+        self.hover_edges = {}
+        self.highlights = []
+        self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.ClickFocus)
+        self.setToolTip("拖动边框调整大小；拖动角落等比例缩放；双击恢复相邻区域比例")
+        self.hide()
+
+    def sync(self, targets):
+        self.targets = targets
+        if not self.underMouse():
+            self.hover_edges = {}
+        self.setGeometry(self.parentWidget().rect())
+        region = QRegion()
+        for edge in targets:
+            region |= QRegion(self._edge_rect(edge))
+        if region.isEmpty():
+            self.hide()
+            return
+        self.setMask(region)
+        self.show()
+        self.raise_()
+
+    def _edge_rect(self, edge):
+        width, height = self.width(), self.height()
+        return {"left": QRect(0, 0, self.BAND, height),
+                "right": QRect(width - self.BAND, 0, self.BAND, height),
+                "top": QRect(0, 0, width, self.BAND),
+                "bottom": QRect(0, height - self.BAND, width, self.BAND)}[edge]
+
+    def edges_at(self, point):
+        horizontal = "left" if point.x() < self.CORNER else (
+            "right" if point.x() >= self.width() - self.CORNER else None)
+        vertical = "top" if point.y() < self.CORNER else (
+            "bottom" if point.y() >= self.height() - self.CORNER else None)
+        return {edge: self.targets[edge] for edge in (horizontal, vertical) if edge in self.targets}
+
+    def set_highlights(self, rectangles):
+        if self.highlights != rectangles:
+            self.highlights = rectangles
+            self.update()
+
+    def mouseMoveEvent(self, event):
+        if self.wall._border_drag is not None and self.wall._border_drag["border"] is self:
+            self.wall._move_border_drag(event.globalPosition().toPoint())
+        else:
+            self.hover_edges = self.edges_at(event.position().toPoint())
+            self.wall._set_hover_border(self, self.hover_edges)
+            horizontal = next((edge for edge in self.hover_edges if edge in ("left", "right")), None)
+            vertical = next((edge for edge in self.hover_edges if edge in ("top", "bottom")), None)
+            if horizontal and vertical:
+                cursor = Qt.SizeFDiagCursor if (horizontal == "left") == (vertical == "top") else Qt.SizeBDiagCursor
+            else:
+                cursor = Qt.SizeHorCursor if horizontal else Qt.SizeVerCursor
+            self.setCursor(cursor)
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            edges = self.edges_at(event.position().toPoint())
+            self.wall._begin_border_drag(self, edges, event.globalPosition().toPoint())
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.wall._finish_border_drag(self, event.globalPosition().toPoint())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.wall._reset_border(self, self.edges_at(event.position().toPoint()))
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def leaveEvent(self, event):
+        self.hover_edges = {}
+        self.wall._set_hover_border()
+        self.update()
+        super().leaveEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.wall._cancel_border_drag()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), theme.qcolor(theme.BG))
+        for rect in self.highlights:
+            painter.fillRect(rect, QColor("#38bdf8"))
+
+
+class WallDividerGrip(QWidget):
+    """Each half of the shared gap belongs to its nearest pane."""
+
+    def __init__(self, wall, key):
+        super().__init__(wall)
+        self.wall = wall
+        self.key = key
+        self.hovered = False
+        self.highlight = QRect()
+        self.setObjectName("WallDividerGrip")
+        self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.ClickFocus)
+        self.setToolTip("拖动调整相邻画面；双击恢复比例")
+        self.hide()
+
+    def sync(self, rect):
+        self.setGeometry(rect)
+        self.setCursor(Qt.SizeHorCursor if rect.width() < rect.height() else Qt.SizeVerCursor)
+        self.show()
+        self.raise_()
+
+    def set_highlight(self, rect):
+        hovered = not rect.isEmpty()
+        if self.hovered != hovered or self.highlight != rect:
+            self.hovered = hovered
+            self.highlight = rect
+            self.update()
+
+    def _owner(self):
+        for border in self.wall._pane_borders.values():
+            if border.isVisible():
+                for edge, key in border.targets.items():
+                    if key == self.key:
+                        return border, edge
+        return None, None
+
+    def _hit_edges(self, position):
+        point = self.wall.mapFromGlobal(position)
+        candidates = []
+        for border in self.wall._pane_borders.values():
+            if not border.isVisible() or self.key not in border.targets.values():
+                continue
+            pane = border.parentWidget().geometry()
+            dx = max(pane.left() - point.x(), 0, point.x() - pane.right())
+            dy = max(pane.top() - point.y(), 0, point.y() - pane.bottom())
+            if max(dx, dy) > border.CORNER:
+                continue
+            edges = border.edges_at(border.mapFromGlobal(position))
+            if self.key in edges.values():
+                candidates.append((dx + dy, -len(edges), border, edges))
+        if candidates:
+            _, _, border, edges = min(candidates, key=lambda item: item[:2])
+            return border, edges
+        border, edge = self._owner()
+        return border, {edge: self.key} if edge else {}
+
+    def _hover_at(self, position):
+        border, edges = self._hit_edges(position)
+        self.wall._set_hover_border(border, edges)
+        horizontal = next((edge for edge in edges if edge in ("left", "right")), None)
+        vertical = next((edge for edge in edges if edge in ("top", "bottom")), None)
+        if horizontal and vertical:
+            cursor = Qt.SizeFDiagCursor if (horizontal == "left") == (vertical == "top") else Qt.SizeBDiagCursor
+        else:
+            cursor = Qt.SizeHorCursor if horizontal else Qt.SizeVerCursor
+        self.setCursor(cursor)
+
+    def enterEvent(self, event):
+        self._hover_at(QCursor.pos())
+        super().enterEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.wall._border_drag is not None and self.wall._border_drag["source"] is self:
+            self.wall._move_border_drag(event.globalPosition().toPoint())
+        else:
+            self._hover_at(event.globalPosition().toPoint())
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            border, edges = self._hit_edges(event.globalPosition().toPoint())
+            if border is not None:
+                self.wall._begin_border_drag(border, edges,
+                                             event.globalPosition().toPoint(), source=self)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            state = self.wall._border_drag
+            if state is not None and state["source"] is self:
+                self.wall._finish_border_drag(state["border"], event.globalPosition().toPoint())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            border, edges = self._hit_edges(event.globalPosition().toPoint())
+            if border is not None:
+                self.wall._reset_border(border, edges)
+            event.accept()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+    def leaveEvent(self, event):
+        self.wall._set_hover_border()
+        super().leaveEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.wall._cancel_border_drag()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), theme.qcolor(theme.BG))
+        if self.hovered and self.wall._border_drag is None:
+            painter.fillRect(self.highlight, QColor("#38bdf8"))
+
+
+class WallResizePreview(QWidget):
+    """Masked native guides stay above VLC while the video windows remain still."""
+
+    LINE = 2
+    DASH = 6
+    GAP = 5
+    COLOR = QColor("#b7c1c4")
+
+    def __init__(self, wall):
+        super().__init__(wall)
+        self.rectangles = {}
+        self.guides = {}
+        self._outline = QRegion()
+        self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.hide()
+
+    def show_guides(self, rectangles, dividers, originals):
+        self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
+        self.guides = {}
+        self.setGeometry(self.parentWidget().rect())
+        outline = QRegion()
+        for key, rect in dividers.items():
+            previous = originals.get(key)
+            vertical = rect.width() < rect.height()
+            if previous is None or (rect.left() if vertical else rect.top()) == (
+                    previous.left() if vertical else previous.top()):
+                continue
+            self.guides[key] = QRect(rect)
+            length = rect.height() if vertical else rect.width()
+            for offset in range(0, length, self.DASH + self.GAP):
+                dash = min(self.DASH, length - offset)
+                x = rect.center().x() - self.LINE // 2 if vertical else rect.left() + offset
+                y = rect.top() + offset if vertical else rect.center().y() - self.LINE // 2
+                outline |= QRegion(QRect(x, y,
+                                         self.LINE if vertical else dash,
+                                         dash if vertical else self.LINE))
+        previous_outline, self._outline = self._outline, outline
+        if outline.isEmpty():
+            self.hide()
+        else:
+            self.setMask(outline)
+            self.show()
+            self.raise_()
+            self.update()
+        self.parentWidget()._repaint_preview_damage(previous_outline.subtracted(outline))
+
+    def clear(self):
+        self.hide()
+        previous_outline, self._outline = self._outline, QRegion()
+        self.rectangles = {}
+        self.guides = {}
+        self.parentWidget()._repaint_preview_damage(previous_outline)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setClipRegion(self._outline)
+        painter.fillRect(event.rect(), self.COLOR)
+
+
 class WallGrid(QWidget):
     """画面墙：自动网格或指定布局方案。"""
 
@@ -6702,8 +7002,11 @@ class WallGrid(QWidget):
     tileCreated = Signal(object)
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
+    cornerRatiosChanged = Signal()         # 松开或重置后通知外层保存，不在拖动帧中写配置
+    layoutRatiosChanged = Signal()
 
-    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None):
+    def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None,
+                 corner_ratios=None, layout_ratios=None):
         super().__init__(parent)
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
@@ -6727,7 +7030,47 @@ class WallGrid(QWidget):
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
-        self.grid.setSpacing(8)
+        self.grid.setSpacing(4)
+
+        # 一大五小保留原播放格及父窗口，边框交互只改变几何。
+        self._corner_width_ratio = 2 / 3
+        self._corner_height_ratio = 2 / 3
+        self._corner_right_ratio = 1 / 2
+        self._corner_bottom_ratios = [1 / 3, 2 / 3]  # 底部两条分隔线的累计宽度比例
+        self.restore_corner_ratios(corner_ratios)
+
+        self._partitions = {}
+        for identifier, preset in layouts.BY_ID.items():
+            if identifier == "corner":
+                continue
+            cells = preset["spec"][2]
+            if layouts.is_portrait_layout(identifier):
+                small = len(cells) - 1 - int(preset.get("danmaku") is not None)
+                tree = resize_layout.portrait_partition(
+                    small, preset.get("danmaku") is not None, layouts.PORTRAIT_SMALL_COLUMNS)
+            else:
+                tree = resize_layout.build_partition(cells)
+            self._partitions[identifier] = tree
+        saved = layout_ratios if isinstance(layout_ratios, dict) else {}
+        self._layout_ratios = {
+            identifier: resize_layout.validated_weights(saved.get(identifier), tree)
+            for identifier, tree in self._partitions.items()}
+        self._preset_dividers = {}
+        self._divider_rects = {}
+
+        self._pane_borders = {}
+        self._divider_grips = {}
+        self._hover_dividers = set()
+        self._hover_border = None
+        self._hover_edges = {}
+        self._border_drag = None
+        self._border_pending = None
+        self._border_drag_timer = QTimer(self)
+        self._border_drag_timer.setSingleShot(True)
+        self._border_drag_timer.setTimerType(Qt.PreciseTimer)
+        self._border_drag_timer.setInterval(32)
+        self._border_drag_timer.timeout.connect(self._flush_border_drag)
+        self._border_preview = WallResizePreview(self)
 
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
@@ -6748,6 +7091,8 @@ class WallGrid(QWidget):
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
+        self._cancel_border_drag()
+        self._preset_dividers = {}
         self.layout_id = layout_id
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
         self._columns = -1
@@ -6828,6 +7173,10 @@ class WallGrid(QWidget):
         return tile
 
     def _drop_tile(self, tile: Tile) -> None:
+        border = self._pane_borders.pop(tile, None)
+        if border is not None and (self._hover_border is border or
+                                   self._border_drag is not None and self._border_drag["border"] is border):
+            self._cancel_border_drag()
         self.grid.removeWidget(tile)
         tile.hide()                     # 先隐藏，否则 setParent(None) 会让它变成独立窗口
         tile.setParent(None)
@@ -6931,6 +7280,13 @@ class WallGrid(QWidget):
             self._drop_tile(empty)
 
     def _clear(self) -> None:
+        self._cancel_border_drag()
+        for border in self._pane_borders.values():
+            border.hide()
+        for grip in self._divider_grips.values():
+            grip.hide()
+        self._preset_dividers = {}
+        self.setMinimumSize(0, 0)
         for index in range(24):
             self.grid.setColumnStretch(index, 0)
             self.grid.setRowStretch(index, 0)
@@ -6986,6 +7342,10 @@ class WallGrid(QWidget):
             self.grid.setRowStretch(0, 1)
             return
 
+        if self.layout_id == "corner":
+            self._relayout_corner(apply_visibility=True)
+            return
+
         if spec is None:
             self.danmaku.setVisible(False)
             columns = self._auto_columns()
@@ -6999,125 +7359,471 @@ class WallGrid(QWidget):
                 self.grid.setRowStretch(row, 1)
             return
 
-        rows, columns, cells = spec
+        self._relayout_preset(apply_visibility=True)
+
+    # ---- 其余预设：分区树只计算几何，视频始终是 WallGrid 的直接子窗口 ----
+    def layout_ratios(self) -> dict:
+        return {identifier: {key: list(values) for key, values in ratios.items()}
+                for identifier, ratios in self._layout_ratios.items() if ratios}
+
+    def reset_layout_ratios(self) -> None:
+        """只恢复当前预设，不影响其他预设保存的比例。"""
+        self._cancel_border_drag()
+        if self.layout_id == "corner":
+            self.reset_corner_ratios()
+            return
+        changed = bool(self._layout_ratios.get(self.layout_id))
+        self._layout_ratios[self.layout_id] = {}
+        if self.fullscreen_tile is None:
+            self._relayout_preset()
+        if changed:
+            self.layoutRatiosChanged.emit()
+
+    def _preset_defaults(self, node, area):
+        if node.key != "root" or not layouts.is_portrait_layout(self.layout_id):
+            return node.weights
+        gap = self.grid.spacing()
+        main = max(80, int(area.width() * 9 / 16))
+        danmaku = max(140, int(area.height() * .22)) if self.has_danmaku else 0
+        small = max(1, area.height() - main - danmaku - gap * (len(node.children) - 1))
+        return [main, small, danmaku] if self.has_danmaku else [main, small]
+
+    def _preset_widgets(self):
         if layouts.is_portrait_layout(self.layout_id):
-            self._relayout_portrait(rows, columns, cells)
+            # 竖屏弹幕始终占底部，与原竖屏规则一致。
+            count = self._capacity()
+            widgets = {index: tile for index, tile in enumerate(self.tiles[:count])}
+            if self.has_danmaku:
+                widgets[count] = self.danmaku
+            return widgets
+        widgets = {cell: tile for cell, tile in zip(self._cell_order(), self.tiles)}
+        if self.has_danmaku:
+            widgets[self._danmaku_cell] = self.danmaku
+        return widgets
+
+    def _preset_minimum(self, cell):
+        widget = self._preset_widgets().get(cell)
+        if widget is self.danmaku:
+            return QSize(max(200, widget.minimumWidth()), max(140, widget.minimumHeight()))
+        return QSize(max(200, widget.minimumWidth()), max(150, widget.minimumHeight()))
+
+    def _relayout_preset(self, apply_visibility=False):
+        if self.fullscreen_tile is not None or self.layout_id not in self._partitions:
             return
-        order = self._cell_order()
-        for index, tile in enumerate(self.tiles):
-            if index < len(order):
-                row, column, rowspan, colspan = cells[order[index]]
-                self.grid.addWidget(tile, row, column, rowspan, colspan)
-                if self._defer_show and tile is not self._stagger_first:
-                    self._pending_reveal.append(tile)      # 交给 reveal_tiles_staggered
+        widgets = self._preset_widgets()
+        if len(widgets) < len(self._cells()):
+            # 应用切方向时先选预设、再调整窗口、最后补齐格子；中间的 resize 不排布。
+            return
+        tree = self._partitions[self.layout_id]
+        gap = self.grid.spacing()
+        margins = self.grid.contentsMargins()
+        minimum = tree.minimum(gap, self._preset_minimum)
+        self.setMinimumSize(minimum.width() + margins.left() + margins.right(),
+                            minimum.height() + margins.top() + margins.bottom())
+        area = self._corner_area()
+        # 顶层窗口尺寸变更可能在下一次事件循环才完成，计算区域也遵守最小尺寸。
+        area.setWidth(max(area.width(), minimum.width()))
+        area.setHeight(max(area.height(), minimum.height()))
+        leaves, dividers = resize_layout.geometry(
+            tree, area, gap, self._preset_minimum,
+            self._layout_ratios[self.layout_id], self._preset_defaults)
+        for cell, rect in leaves.items():
+            widgets[cell].setGeometry(rect)
+        if apply_visibility:
+            active = set(widgets.values())
+            for tile in self.tiles:
+                if tile not in active:
+                    tile.hide()
+                elif self._defer_show and tile is not self._stagger_first:
+                    self._pending_reveal.append(tile)
                 else:
-                    tile.setVisible(True)
-            else:
-                # 布局严格按格子数走，放不下的由主窗口停止播放。
-                tile.setVisible(False)
-        if self.has_danmaku:
-            row, column, rowspan, colspan = cells[self._danmaku_cell]
-            self.grid.addWidget(self.danmaku, row, column, rowspan, colspan)
-            self.danmaku.setVisible(True)
-            self.danmaku.raise_()
-        else:
-            self.danmaku.setVisible(False)
-        for column in range(columns):
-            self.grid.setColumnStretch(column, 1)
-        for row in range(rows):
-            self.grid.setRowStretch(row, 1)
-        self._columns = columns
+                    tile.show()
+            self.danmaku.setVisible(self.has_danmaku)
+        old_regions = list(self._divider_rects.values())
+        self._preset_dividers = {}
+        self._divider_rects = {}
+        for node, index, rect, node_area, sizes in dividers:
+            key = (node.key, index)
+            self._preset_dividers[key] = (node, node_area, sizes)
+            self._divider_rects[key] = rect
+        for rect in old_regions + list(self._divider_rects.values()):
+            self.update(rect)
+        self._columns = layouts.BY_ID[self.layout_id]["spec"][1]
+        self._sync_pane_borders(widgets, dividers)
 
-    # ---- 竖屏摆放 ----
-    def _relayout_portrait(self, rows: int, columns: int, cells: list) -> None:
-        """竖屏：主画面按 16:9 固定高度，其余格子用自动网格填满剩下的空间。
+    def _sync_pane_borders(self, widgets, dividers):
+        for pane, border in list(self._pane_borders.items()):
+            if pane not in self.tiles and pane is not self.danmaku:
+                del self._pane_borders[pane]
+            elif pane not in widgets.values() or pane.isHidden():
+                border.hide()
+        for pane in widgets.values():
+            if pane not in self._pane_borders:
+                self._pane_borders[pane] = WallPaneBorder(pane, self)
+            targets = resize_layout.border_targets(pane.geometry(), dividers)
+            self._pane_borders[pane].sync(targets)
+        for key, grip in self._divider_grips.items():
+            if key not in self._divider_rects:
+                grip.hide()
+        for key, rect in self._divider_rects.items():
+            if key not in self._divider_grips:
+                self._divider_grips[key] = WallDividerGrip(self, key)
+            self._divider_grips[key].sync(rect)
+        self._set_hover_border(self._hover_border, self._hover_edges)
 
-        为什么不用等分网格：竖屏里主画面要 16:9（占整宽时高度 = 宽 × 9/16），
-        小画面也要接近 16:9；等分网格只能满足一个 —— 主画面占整宽 1 行时，
-        小格子会被拉成 0.8 左右的竖条，画面缩成中间一条。这里改成手动摆。
-        """
-        margin = self.grid.contentsMargins()
-        spacing = self.grid.spacing()
-        # 竖屏是自己算坐标摆的，先把格子从网格布局里摘出来，否则布局会覆盖几何。
-        # removeWidget 只是解除管理，不改变父子关系，可以安全地再 addWidget 回去。
-        for tile in self.tiles:
-            self.grid.removeWidget(tile)
-        self.grid.removeWidget(self.danmaku)
-        for index in range(24):
-            self.grid.setColumnStretch(index, 0)
-            self.grid.setRowStretch(index, 0)
-
-        left = margin.left()
-        top = margin.top()
-        width = max(1, self.width() - margin.left() - margin.right())
-        height = max(1, self.height() - margin.top() - margin.bottom())
-
-        # 弹幕：最底下整宽一条，先把它和主画面的高度扣掉
-        danmaku_height = 0
-        if self.has_danmaku:
-            danmaku_height = max(140, int(height * 0.22))
-            self.danmaku.setGeometry(
-                QRect(left, top + height - danmaku_height, width, danmaku_height))
-            self.danmaku.setVisible(True)
-            self.danmaku.raise_()
-            danmaku_height += spacing
-        else:
-            self.danmaku.setVisible(False)
-
-        main = self.tiles[0] if self.tiles else None
-        rest = self.tiles[1:]
-        available = height - danmaku_height
-
-        if main is None:
-            self._columns = columns
+    def _repaint_preview_damage(self, region):
+        if region.isEmpty():
             return
+        # Native mask changes expose stale Qt backing-store pixels unless owners repaint them.
+        self.update(region)
+        for grip in self._divider_grips.values():
+            if grip.isVisible():
+                local = region.translated(-grip.pos()).intersected(grip.rect())
+                if not local.isEmpty():
+                    grip.update(local)
+        for pane, border in self._pane_borders.items():
+            if pane.isVisible():
+                local = region.translated(-pane.pos()).intersected(pane.rect())
+                if not local.isEmpty():
+                    pane.update(local)
+                    if border.isVisible():
+                        border.update(local.intersected(border.mask()))
 
-        # 主画面：整宽 + 16:9。**不给它加上限** —— 它是主角，先满足它；
-        # 小画面去适应剩下的高度（挤不下就矮一点，也比主画面变形好）。
-        main_height = max(80, int(width * 9 / 16))
-        main.setGeometry(QRect(left, top, width, main_height))
-        main.setVisible(True)
+    def _set_hover_border(self, border=None, edges=None):
+        if (self._border_drag is not None or border is None or
+                border not in self._pane_borders.values() or not border.isVisible()):
+            border, edges = None, {}
+        else:
+            edges = {edge: key for edge, key in (edges or {}).items()
+                     if border.targets.get(edge) == key and key in self._divider_rects}
+        self._hover_border, self._hover_edges = border, edges
+        # A corner names the pane as a whole; an edge names only that side.
+        displayed = border.targets if border is not None and len(edges) > 1 else edges
+        self._hover_dividers = set(displayed.values())
+        highlights = {}
+        if border is not None:
+            pane = border.parentWidget().geometry()
+            outward = {edge: 0 for edge in ("left", "top", "right", "bottom")}
+            for edge, key in displayed.items():
+                gap = self._divider_rects[key]
+                outward[edge] = (gap.width() if edge in ("left", "right") else gap.height()) // 2
+            outline = pane.adjusted(-outward["left"], -outward["top"],
+                                    outward["right"], outward["bottom"])
+            for edge, key in displayed.items():
+                gap = self._divider_rects[key]
+                if edge in ("left", "right"):
+                    half = gap.width() // 2
+                    start = gap.left() + half if edge == "left" else gap.left()
+                    width = gap.width() - half if edge == "left" else half
+                    highlight = QRect(start, outline.top(), width, outline.height())
+                else:
+                    half = gap.height() // 2
+                    start = gap.top() + half if edge == "top" else gap.top()
+                    height = gap.height() - half if edge == "top" else half
+                    highlight = QRect(outline.left(), start, outline.width(), height)
+                highlights[key] = highlight.intersected(gap)
+        for key, grip in self._divider_grips.items():
+            highlight = highlights.get(key, QRect())
+            grip.set_highlight(highlight.translated(-grip.pos()) if grip.isVisible() else QRect())
+        for candidate in self._pane_borders.values():
+            candidate.set_highlights([candidate._edge_rect(edge) for edge in displayed]
+                                     if candidate is border else [])
 
-        grid_top = top + main_height + spacing
-        grid_height = max(1, top + available - grid_top)
-        for index, tile in enumerate(rest):
-            if index < self._portrait_capacity() - 1:
-                tile.setVisible(True)
-            else:
-                tile.setVisible(False)
-        visible = [tile for tile in rest if tile.isVisible()]
-        # 小画面的列数**跟缩略图画的是同一个数**。交给 best_columns 自己挑的话，
-        # 竖屏这块又高又窄的区域在它眼里「1 列画面更大」，就会摆成上下，和缩略图
-        # （左右）对不上 —— 用户报的就是这个。
-        self._place_auto(visible, QRect(left, grid_top, width, grid_height), spacing,
-                         columns=layouts.PORTRAIT_SMALL_COLUMNS)
-        self._columns = columns
+    def _border_model(self):
+        if self.layout_id == "corner":
+            tree = resize_layout.build_partition(layouts.BY_ID["corner"]["spec"][2])
+            first, second = self._corner_bottom_ratios
+            weights = {"root": [self._corner_height_ratio, 1 - self._corner_height_ratio],
+                       "root/0": [self._corner_width_ratio, 1 - self._corner_width_ratio],
+                       "root/0/1": [self._corner_right_ratio, 1 - self._corner_right_ratio],
+                       "root/1": [first, second - first, 1 - second]}
+            widgets = dict(enumerate(self.tiles[:6]))
+            minimum = lambda cell: widgets[cell].minimumSize()
+            return tree, weights, widgets, minimum, None
+        return (self._partitions[self.layout_id], self._layout_ratios[self.layout_id],
+                self._preset_widgets(), self._preset_minimum, self._preset_defaults)
 
-    def _portrait_capacity(self) -> int:
-        return max(1, len(self._cell_order()))
-
-    def _place_auto(self, tiles: list, area: QRect, spacing: int,
-                    columns: int | None = None) -> None:
-        """在一个矩形里按网格摆这些格子。
-
-        ``columns`` 给了就照用（竖屏小画面要跟缩略图一致）；没给才让
-        ``best_columns`` 挑一个「画面尽量大」的列数。
-        """
-        if not tiles:
+    def _begin_border_drag(self, border, edges, position, *, source=None):
+        if not edges or self.fullscreen_tile is not None:
             return
-        if columns is None:
-            columns = best_columns(len(tiles), max(area.width(), 1), max(area.height(), 1))
-        columns = max(1, min(int(columns), len(tiles)))
-        lines = math.ceil(len(tiles) / columns)
-        cell_width = (area.width() - spacing * (columns - 1)) / columns
-        cell_height = (area.height() - spacing * (lines - 1)) / lines
-        for index, tile in enumerate(tiles):
-            line, column = divmod(index, columns)
-            tile.setGeometry(QRect(
-                int(area.left() + column * (cell_width + spacing)),
-                int(area.top() + line * (cell_height + spacing)),
-                int(cell_width), int(cell_height)))
+        self._cancel_border_drag()
+        tree, weights, widgets, minimum, defaults = self._border_model()
+        cell = next(cell for cell, pane in widgets.items() if pane is border.parentWidget())
+        minimums = {index: minimum(index) for index in widgets}
+        geometry_weights = {key: list(values) for key, values in weights.items()}
+        if self.layout_id == "corner" and any(key[0] == "root/1" for key in edges.values()):
+            # Match cumulative corner rounding so the untouched bottom boundary stays fixed.
+            widths = [pane.width() for pane in self.tiles[3:6]]
+            geometry_weights["root/1"] = [width / sum(widths) for width in widths]
+        self._border_drag = dict(border=border, edges=edges, origin=position,
+                                 source=source or border,
+                                 rect=QRect(border.parentWidget().geometry()), cell=cell,
+                                 tree=tree, weights={key: list(values) for key, values in weights.items()},
+                                 geometry_weights=geometry_weights,
+                                 dividers={key: QRect(rect) for key, rect in self._divider_rects.items()},
+                                 minimum=minimums.__getitem__, defaults=defaults, area=self._corner_area(),
+                                 before=self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios(),
+                                 preview_weights=None)
+        (source or border).setFocus(Qt.MouseFocusReason)
+        self._set_hover_border()
+        border.update()
 
+    def _move_border_drag(self, position):
+        if self._border_drag is None:
+            return
+        self._border_pending = position
+        if not self._border_drag_timer.isActive():
+            self._border_drag_timer.start()
+
+    def _apply_border_weights(self, weights):
+        if self.layout_id == "corner":
+            self._corner_height_ratio = weights["root"][0]
+            self._corner_width_ratio = weights["root/0"][0]
+            self._corner_right_ratio = weights["root/0/1"][0]
+            bottom = weights["root/1"]
+            self._corner_bottom_ratios = [bottom[0], bottom[0] + bottom[1]]
+            self._relayout_corner()
+        else:
+            self._layout_ratios[self.layout_id] = weights
+            self._relayout_preset()
+
+    def _flush_border_drag(self):
+        position, self._border_pending = self._border_pending, None
+        state = self._border_drag
+        if state is None or position is None or self.fullscreen_tile is not None:
+            return
+        if position == state["origin"]:
+            state["preview_weights"] = None
+            self._border_preview.clear()
+            return
+        weights = resize_layout.resize_borders(
+            state["tree"], state["area"], self.grid.spacing(), state["minimum"],
+            state["geometry_weights"], state["defaults"], state["cell"], state["edges"],
+            state["rect"], position - state["origin"])
+        state["preview_weights"] = weights
+        if self.layout_id == "corner":
+            rectangles, dividers = self._corner_rectangles(weights, state["area"])
+        else:
+            rectangles, divider_items = resize_layout.geometry(
+                state["tree"], state["area"], self.grid.spacing(), state["minimum"],
+                weights, state["defaults"])
+            dividers = {(node.key, index): rect
+                        for node, index, rect, _area, _sizes in divider_items}
+        self._border_preview.show_guides(rectangles, dividers, state["dividers"])
+
+    def _finish_border_drag(self, border, position):
+        state = self._border_drag
+        if state is None or state["border"] is not border:
+            return
+        self._border_pending = position
+        self._border_drag_timer.stop()
+        self._flush_border_drag()
+        before = state["before"]
+        self._border_drag = None
+        self._border_preview.clear()
+        border.update()
+        if state["preview_weights"] is not None:
+            self._apply_border_weights(state["preview_weights"])
+        if self.layout_id == "corner":
+            if before != self.corner_ratios():
+                self.cornerRatiosChanged.emit()
+        elif before != self.layout_ratios():
+            self.layoutRatiosChanged.emit()
+
+    def _cancel_border_drag(self):
+        if not hasattr(self, "_border_drag_timer"):
+            return
+        self._border_drag_timer.stop()
+        self._border_pending = None
+        self._border_preview.clear()
+        state, self._border_drag = self._border_drag, None
+        if state is not None:
+            border = state["border"]
+            source = state["source"]
+            if QWidget.mouseGrabber() is source:
+                source.releaseMouse()
+            border.update()
+        self._set_hover_border()
+
+    def _reset_border(self, border, edges):
+        if self.fullscreen_tile is not None or not border.isVisible() or not edges:
+            return
+        self._cancel_border_drag()
+        keys = list(dict.fromkeys(value for edge, value in edges.items()
+                                  if border.targets.get(edge) == value))
+        before = self.corner_ratios() if self.layout_id == "corner" else self.layout_ratios()
+        if self.layout_id == "corner":
+            targets = {("root", 0): Qt.Vertical, ("root/0", 0): Qt.Horizontal,
+                       ("root/0/1", 0): "right", ("root/1", 0): "bottom_left",
+                       ("root/1", 1): "bottom_right"}
+            for key in keys:
+                self._reset_corner(targets[key])
+            if self.corner_ratios() != before:
+                self.cornerRatiosChanged.emit()
+        else:
+            for key in keys:
+                self._reset_preset_pair(key)
+            if self.layout_ratios() != before:
+                self.layoutRatiosChanged.emit()
+
+    def _reset_preset_pair(self, key):
+        node, area, current = self._preset_dividers[key]
+        index = key[1]
+        defaults = self._preset_defaults(node, area)
+        sizes = list(current)
+        pair = current[index] + current[index + 1]
+        minimums = [child.minimum(self.grid.spacing(), self._preset_minimum) for child in node.children]
+        spans = [size.width() if node.axis == Qt.Horizontal else size.height() for size in minimums]
+        sizes[index] = max(spans[index], min(pair - spans[index + 1],
+                           round(pair * defaults[index] / (defaults[index] + defaults[index + 1]))))
+        sizes[index + 1] = pair - sizes[index]
+        self._layout_ratios[self.layout_id][node.key] = [size / sum(sizes) for size in sizes]
+        self._relayout_preset()
+
+    # ---- 一大五小：手动几何保持视频 HWND 不变，拖动只调整区域比例 ----
+    def corner_ratios(self) -> dict:
+        """导出独立比例；不依赖当前布局是否显示、窗口尺寸或全屏状态。"""
+        return {"width": self._corner_width_ratio, "height": self._corner_height_ratio,
+                "right": self._corner_right_ratio, "bottom": list(self._corner_bottom_ratios)}
+
+    def restore_corner_ratios(self, saved) -> None:
+        """旧配置或非法字段使用默认值；边界也排除 NaN、无穷值和布尔值。"""
+        saved = saved if isinstance(saved, dict) else {}
+
+        def valid(value):
+            return type(value) in (int, float) and 0 < value < 1
+
+        for name, attribute, default in (("width", "_corner_width_ratio", 2 / 3),
+                                         ("height", "_corner_height_ratio", 2 / 3),
+                                         ("right", "_corner_right_ratio", 1 / 2)):
+            value = saved.get(name)
+            setattr(self, attribute, float(value) if valid(value) else default)
+        bottom = saved.get("bottom")
+        if (isinstance(bottom, (list, tuple)) and len(bottom) == 2
+                and all(valid(value) for value in bottom) and bottom[0] < bottom[1]):
+            self._corner_bottom_ratios = [float(value) for value in bottom]
+        else:
+            self._corner_bottom_ratios = [1 / 3, 2 / 3]
+        if self.tiles and self.layout_id == "corner" and self.fullscreen_tile is None:
+            self._relayout_corner()
+
+    def reset_corner_ratios(self) -> None:
+        """恢复全部区域比例；保留房间、播放器和每个格子的音频设置。"""
+        before = self.corner_ratios()
+        self._cancel_border_drag()
+        self.restore_corner_ratios(None)
+        if self.corner_ratios() != before:
+            self.cornerRatiosChanged.emit()
+
+    def _corner_area(self) -> QRect:
+        margins = self.grid.contentsMargins()
+        return self.rect().adjusted(margins.left(), margins.top(),
+                                    -margins.right(), -margins.bottom())
+
+    def _reset_corner(self, target) -> None:
+        if target == Qt.Horizontal:
+            self._corner_width_ratio = 2 / 3
+        elif target == Qt.Vertical:
+            self._corner_height_ratio = 2 / 3
+        elif target == "right":
+            self._corner_right_ratio = 1 / 2
+        elif target in ("bottom_left", "bottom_right"):
+            left, middle, right = self.tiles[3:6]
+            span = max(1, left.width() + middle.width() + right.width())
+            first, second = left.width() / span, (left.width() + middle.width()) / span
+            if target == "bottom_left":
+                first = second / 2
+            else:
+                second = (1 + first) / 2
+            self._corner_bottom_ratios = [first, second]
+        if self.layout_id == "corner" and self.fullscreen_tile is None:
+            self._relayout_corner()
+
+    def _corner_rectangles(self, weights, area):
+        main, right_top, right_bottom, *bottom = self.tiles[:6]
+        gap = self.grid.spacing()
+        minimum_top = max(main.minimumHeight(),
+                          right_top.minimumHeight() + gap + right_bottom.minimumHeight())
+        minimum_bottom = max(tile.minimumHeight() for tile in bottom)
+        minimum_right = max(right_top.minimumWidth(), right_bottom.minimumWidth())
+        width, height = max(1, area.width() - gap), max(1, area.height() - gap)
+        main_width = max(main.minimumWidth(),
+                         min(width - minimum_right, round(width * weights["root/0"][0])))
+        top_height = max(minimum_top,
+                         min(height - minimum_bottom, round(height * weights["root"][0])))
+        x, y = area.left(), area.top()
+        right_x, bottom_y = x + main_width + gap, y + top_height + gap
+        right_span = top_height - gap
+        right_height = max(right_top.minimumHeight(),
+                           min(right_span - right_bottom.minimumHeight(),
+                               round(right_span * weights["root/0/1"][0])))
+        bottom_width = area.width() - 2 * gap
+        first = max(bottom[0].minimumWidth(),
+                    min(bottom_width - bottom[1].minimumWidth() - bottom[2].minimumWidth(),
+                        round(bottom_width * weights["root/1"][0])))
+        second = max(first + bottom[1].minimumWidth(),
+                     min(bottom_width - bottom[2].minimumWidth(),
+                         round(bottom_width * sum(weights["root/1"][:2]))))
+        boundaries = (0, first, second, bottom_width)
+        rectangles = {
+            0: QRect(x, y, main_width, top_height),
+            1: QRect(right_x, y, width - main_width, right_height),
+            2: QRect(right_x, y + right_height + gap,
+                     width - main_width, top_height - gap - right_height),
+        }
+        for index in range(3):
+            start, end = boundaries[index:index + 2]
+            rectangles[index + 3] = QRect(x + start + index * gap, bottom_y,
+                                          end - start, height - top_height)
+        dividers = {
+            ("root", 0): QRect(x, y + top_height, area.width(), gap),
+            ("root/0", 0): QRect(x + main_width, y, gap, top_height),
+            ("root/0/1", 0): QRect(right_x, y + right_height, width - main_width, gap),
+            **{("root/1", index): QRect(x + boundaries[index + 1] + index * gap,
+                                       bottom_y, gap, height - top_height)
+               for index in range(2)},
+        }
+        return rectangles, dividers
+
+    def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
+        if len(self.tiles) < 6:
+            return
+        old_regions = list(self._divider_rects.values())
+        gap = self.grid.spacing()
+        if apply_visibility:
+            main, right_top, right_bottom, *bottom = self.tiles[:6]
+            minimum_top = max(main.minimumHeight(),
+                              right_top.minimumHeight() + gap + right_bottom.minimumHeight())
+            minimum_bottom = max(tile.minimumHeight() for tile in bottom)
+            minimum_right = max(right_top.minimumWidth(), right_bottom.minimumWidth())
+            margins = self.grid.contentsMargins()
+            minimum_width = max(main.minimumWidth() + gap + minimum_right,
+                                sum(tile.minimumWidth() for tile in bottom) + 2 * gap)
+            self.setMinimumSize(minimum_width + margins.left() + margins.right(),
+                                minimum_top + gap + minimum_bottom + margins.top() + margins.bottom())
+        area = self._corner_area()
+        tree, weights, widgets, minimum, defaults = self._border_model()
+        rectangles, self._divider_rects = self._corner_rectangles(weights, area)
+        for cell, rect in rectangles.items():
+            widgets[cell].setGeometry(rect)
+        if apply_visibility:
+            self.danmaku.hide()
+            for index, tile in enumerate(self.tiles):
+                if index >= 6:
+                    tile.hide()
+                elif self._defer_show and tile is not self._stagger_first:
+                    self._pending_reveal.append(tile)
+                else:
+                    tile.show()
+        # Repaint exposed gaps without creating another set of interactive widgets.
+        for rect in old_regions + list(self._divider_rects.values()):
+            self.update(rect)
+        self._columns = 3
+        _, dividers = resize_layout.geometry(tree, area, gap, minimum, weights, defaults)
+        # Use the rendered coordinates (corner rounding differs from the generic allocator).
+        dividers = [(node, index, self._divider_rects[(node.key, index)], rect, sizes)
+                    for node, index, _handle, rect, sizes in dividers]
+        self._sync_pane_borders(widgets, dividers)
 
     def visible_tiles(self) -> list[Tile]:
         return [tile for tile in self.tiles if tile.isVisible()]
@@ -7125,12 +7831,26 @@ class WallGrid(QWidget):
     def hidden_count(self) -> int:
         return sum(1 for tile in self.tiles if not tile.isVisible())
 
+    def paintEvent(self, event) -> None:
+        # 原生视频移动后重绘空隙；皮肤启用时保留背景层的透明通路。
+        if not theme._skin_active:
+            painter = QPainter(self)
+            painter.fillRect(event.rect(), theme.qcolor(theme.BG))
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # 自动布局和竖屏布局都是按当前尺寸算坐标的，尺寸变了必须重排；
-        # 固定行列的布局由 Qt 自己按 stretch 摆，不用管。
-        if not self._sidebar_animating and self.fullscreen_tile is None and (self.layout_id == "auto" or
-                                             layouts.is_portrait_layout(self.layout_id)):
+        self._cancel_border_drag()
+        if self._sidebar_animating:
+            return
+        if self.fullscreen_tile is None and self.layout_id == "corner":
+            self._relayout_corner()
+            return
+        if (self.fullscreen_tile is None and hasattr(self, "_partitions")
+                and self.layout_id in self._partitions):
+            self._relayout_preset()
+            return
+        # 兼容未指定预设的旧自动模式，仍由网格布局管理。
+        if self.fullscreen_tile is None and self.layout_id == "auto":
             self._relayout_timer.start()
 
 
@@ -7143,6 +7863,7 @@ class LayoutPicker(QFrame):
     """
 
     chosen = Signal(str)
+    resetRequested = Signal()
 
     #: 一行摆几张卡片
     COLUMNS = 4
@@ -7157,6 +7878,8 @@ class LayoutPicker(QFrame):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._cards: dict[str, list[QToolButton]] = {}
         self._sections: dict[str, list[QLabel]] = {}
+        self._reset_layout_id = current
+        self._can_reset_layout = layouts.capacity(current) > 1
 
         # 两组都列出来（横屏也能点竖屏预设）：选中另一个方向的预设时，本体
         # 会把**窗口**也改成那个方向（见 MainWindow._on_layout_changed /
@@ -7192,6 +7915,11 @@ class LayoutPicker(QFrame):
         self._grid.setSpacing(6)
         outer.addLayout(self._grid)
         outer.addStretch(1)          # 各组行数不同，多出来的高度留在下面
+        self.reset_button = QPushButton("恢复默认比例", self)
+        self.reset_button.setObjectName("GhostButton")
+        self.reset_button.setToolTip("恢复当前布局的全部分隔线比例，保留直播间和音频设置")
+        self.reset_button.clicked.connect(self._reset_ratios)
+        outer.addWidget(self.reset_button)
 
         active = groups[0][0]
         for name, group in groups:
@@ -7263,6 +7991,8 @@ class LayoutPicker(QFrame):
         for key, headings in self._sections.items():
             for heading in headings:
                 heading.setVisible(key == name)
+        self.reset_button.setVisible(self._can_reset_layout and any(
+            card.property("layoutId") == self._reset_layout_id for card in self._cards[name]))
         self._group = name
         self.adjustSize()
         # 宽度固定（右边对齐布局按钮），高度跟着这一组卡片走
@@ -7289,5 +8019,9 @@ class LayoutPicker(QFrame):
 
     def _choose(self, layout_id: str) -> None:
         self.chosen.emit(layout_id)
+        self.close()
+
+    def _reset_ratios(self) -> None:
+        self.resetRequested.emit()
         self.close()
 

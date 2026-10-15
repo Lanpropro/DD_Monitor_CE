@@ -56,6 +56,7 @@ idea.txt
 .DS_Store
 # 本机开发预览工具，不进入仓库和源码发布包
 /dev/preview_*.py
+/dev/watch_layout_preview.py
 /dev/run-preview.cmd
 /dev/make_shots.py
 /dev/thumb_sheet.py
