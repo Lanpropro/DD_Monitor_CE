@@ -130,8 +130,13 @@ def values_for(part):
 
 @lru_cache(maxsize=64)
 def _values(part, light):
+    return resolve_values(part, light, _personal)
+
+
+def resolve_values(part, light, personal):
+    """Resolve a preview without changing the application's active appearance."""
     result = {}
-    for layer in (_package, _personal):
+    for layer in (_package, personal):
         for key in (('buttons', part) if part.startswith('buttons.') else (part,)):
             values = layer.get(key, {})
             if values.get('builtin'):

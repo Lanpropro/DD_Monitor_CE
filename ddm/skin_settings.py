@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget)
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .skins import AssetImport
 
@@ -90,7 +90,9 @@ class SkinSettings(QWidget):
         self.changed.emit(self.values())
 
     def _edit_parts(self):
-        PartSettings(self.controller.window, self).exec()
+        dialog = PartSettings(self.controller.window, self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def sync(self):
         override = self.controller.override if self.controller is not None else None
@@ -201,24 +203,61 @@ class PartSettings(QDialog):
     def __init__(self, owner, parent=None):
         super().__init__(parent)
         from .skin_parts import PARTS, NUMBERS
+        from .skin_preview import SkinPreview
         self.owner = owner
+        self._drafts = {}
+        self._loading = False
         self.setWindowTitle('分区美化')
-        self.resize(580, 520)
-        layout = QVBoxLayout(self)
-        note = QLabel('勾选需要单独修改的字段；未勾选项跟随美化包或软件默认。应用立即保存。'
-                      '不修改空画面底、顶部浮标和关注卡片。图片居中拉伸铺满，图标保持比例。')
+        self.resize(1100, 700)
+        outer = QHBoxLayout(self)
+        preview_column = QVBoxLayout()
+        self.scenes = QTabBar()
+        self.scenes.setStyleSheet('QTabBar::tab {background: palette(base); color: palette(text);'
+            'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
+            'QTabBar::tab:selected {background: palette(light); border-color: palette(highlight);}')
+        for text in ('主界面', '设置页面', '菜单与提示'):
+            self.scenes.addTab(text)
+        preview_column.addWidget(self.scenes)
+        self.preview = SkinPreview(self)
+        preview_column.addWidget(self.preview, 1)
+        legend = QLabel('点击亮框选择区域；实线表示当前选择。\n空画面、顶部浮标和关注卡片不提供修改入口。')
+        legend.setWordWrap(True)
+        preview_column.addWidget(legend)
+        outer.addLayout(preview_column, 3)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setMinimumWidth(350)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, 2)
+        layout = QVBoxLayout(content)
+        self.selection_title = QLabel()
+        self.selection_title.setObjectName('SettingsTitle')
+        layout.addWidget(self.selection_title)
+        note = QLabel('勾选要修改的字段，缩略图会同步预览。切换区域会保留修改，点击“应用并保存”后生效。'
+                      '未勾选项跟随美化包或软件默认。')
         note.setWordWrap(True)
         layout.addWidget(note)
-        self.part = QComboBox()
+        self.part = QComboBox(self)
+        self.part.addItem('软件整体背景', 'background')
         for key, label in PARTS.items():
             self.part.addItem(label, key)
-        layout.addWidget(self.part)
+        self.part.hide()
+        self.part.setCurrentIndex(self.part.findData('sidebar'))
+        self.background_controls = SkinSettings(owner.settings, owner.skin_controller, content)
+        self.background_controls.parts_button.hide()
+        layout.addWidget(self.background_controls)
+        self.parameter_box = QWidget(content)
+        parameters = QVBoxLayout(self.parameter_box)
+        parameters.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.parameter_box)
         self.variant = QComboBox()
         for key, label in (('', '通用'), ('dark', '深色'), ('light', '浅色'),
                 ('hover', '悬停'), ('pressed', '按下'), ('checked', '选中'),
                 ('disabled', '禁用'), ('muted', '静音'), ('paused', '暂停')):
             self.variant.addItem(label, key)
-        layout.addWidget(self.variant)
+        parameters.addWidget(self.variant)
         form = QFormLayout()
         self.fields = {}
         self.asset_buttons = {}
@@ -244,12 +283,12 @@ class PartSettings(QDialog):
                 self.asset_buttons[key] = button
             form.addRow(check, row)
             self.fields[key] = (check, edit)
-        layout.addLayout(form)
+        parameters.addLayout(form)
         self.status = QLabel('')
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         row = QHBoxLayout()
-        self.apply_button = QPushButton('应用本分区')
+        self.apply_button = QPushButton('应用并保存')
         self.apply_button.setObjectName('PrimaryButton')
         self.apply_button.clicked.connect(self.apply_part)
         self.reset_button = QPushButton('本分区跟随美化包／默认')
@@ -270,12 +309,99 @@ class PartSettings(QDialog):
             button.setAutoDefault(False)
             row.addWidget(button)
         layout.addLayout(row)
+        layout.addStretch(1)
         self.part.currentIndexChanged.connect(self.load_part)
         self.variant.currentIndexChanged.connect(self.load_part)
+        self.scenes.currentChanged.connect(self._select_scene)
+        self.preview.partSelected.connect(self._select_part)
+        owner.skin_controller.changed.connect(self._update_background)
+        from . import theme
+        theme.signals().changed.connect(self._update_preview)
+        for check, edit in self.fields.values():
+            check.toggled.connect(self._update_preview)
+            if isinstance(edit, QSpinBox):
+                edit.valueChanged.connect(self._update_preview)
+            else:
+                edit.textChanged.connect(self._update_preview)
         self.load_part()
+        self._update_background()
+
+    def _select_part(self, part):
+        self.part.setCurrentIndex(self.part.findData(part))
+
+    def _select_scene(self, index):
+        self._select_part(('sidebar', 'settings', 'menus')[index])
+
+    def _update_background(self):
+        layer = self.owner.skin_controller.layer
+        self.preview.background = layer.image
+        self.preview.background_mask = layer.mask
+        self.preview.update()
+
+    def _draft_values(self, extra=None):
+        values = deepcopy(self.owner.settings.get('skin_parts', {}))
+        drafts = dict(self._drafts)
+        if extra is not None:
+            drafts[(self.part.currentData(), self.variant.currentData())] = extra
+        for (part, variant), target in drafts.items():
+            if variant:
+                values.setdefault(part, {})[variant] = target
+            else:
+                previous = values.get(part, {})
+                values[part] = {key: value for key, value in previous.items()
+                               if isinstance(value, dict) or key == 'builtin'} | target
+        return values
+
+    def _update_preview(self, *_args):
+        if self._loading:
+            return False
+        from . import config, theme
+        from .skin_parts import validate_parts
+        target = {key: edit.value() if isinstance(edit, QSpinBox) else edit.text().strip()
+                  for key, (check, edit) in self.fields.items() if check.isChecked() and check.isEnabled()}
+        background = self.part.currentData() == 'background'
+        try:
+            values = self._draft_values(None if background else target)
+            self.preview.personal = validate_parts(values, Path(config.REPO)/'utils/skins')
+        except (OSError, ValueError) as error:
+            self.status.setText('预览保留上次有效参数：' + str(error))
+            return False
+        if not background:
+            key = (self.part.currentData(), self.variant.currentData())
+            saved = self.owner.settings.get('skin_parts', {}).get(key[0], {})
+            saved = saved.get(key[1], {}) if key[1] else {
+                name: value for name, value in saved.items() if not isinstance(value, dict) and name != 'builtin'}
+            if saved == target:
+                self._drafts.pop(key, None)
+            else:
+                self._drafts[key] = target
+        variant = self.variant.currentData()
+        self.preview.light = variant == 'light' or (variant != 'dark' and theme.is_light())
+        self.preview.state = variant if variant not in ('light', 'dark') else ''
+        self.preview.update()
+        self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
+        return True
 
     def load_part(self):
-        values = self.owner.settings.get('skin_parts', {}).get(self.part.currentData(), {})
+        from .skin_parts import PARTS
+        part = self.part.currentData()
+        if getattr(self, '_loaded_part', None) != part:
+            previous = self.variant.blockSignals(True)
+            self.variant.setCurrentIndex(0)
+            self.variant.blockSignals(previous)
+            self._loaded_part = part
+        background = part == 'background'
+        self.preview.select_part(part)
+        blocked = self.scenes.blockSignals(True)
+        self.scenes.setCurrentIndex(('main', 'settings', 'popups').index(self.preview.scene))
+        self.scenes.blockSignals(blocked)
+        self.selection_title.setText(PARTS.get(part, '软件整体背景'))
+        self.background_controls.setVisible(background)
+        self.parameter_box.setVisible(not background)
+        for button in (self.reset_button, self.builtin_button):
+            button.setVisible(not background)
+        self._loading = True
+        values = self._draft_values().get(part, {})
         variant = self.variant.currentData()
         if variant:
             values = values.get(variant, {})
@@ -290,7 +416,9 @@ class PartSettings(QDialog):
                 edit.setValue(values.get(key, 0))
             else:
                 edit.setText(values.get(key, ''))
-        self.status.setText('只编辑当前分区和当前状态；切换分区前请先应用。')
+        self._loading = False
+        self.status.setText('整体背景选择后立即生效。' if background else '预览已同步；点击应用并保存后生效。')
+        self._update_preview()
 
     def _choose(self, key):
         from .skins import import_asset, validate_asset, IMAGES
@@ -309,28 +437,25 @@ class PartSettings(QDialog):
             self.status.setText(str(error))
 
     def apply_part(self):
-        values = deepcopy(self.owner.settings.get('skin_parts', {}))
-        part, variant = self.part.currentData(), self.variant.currentData()
-        target = {key: edit.value() if isinstance(edit, QSpinBox) else edit.text().strip()
-                  for key, (check, edit) in self.fields.items() if check.isChecked() and check.isEnabled()}
-        if variant:
-            values.setdefault(part, {})[variant] = target
-        else:
-            previous = values.get(part, {})
-            values[part] = {key: value for key, value in previous.items() if isinstance(value, dict) or key == 'builtin'} | target
+        if not self._update_preview():
+            return
+        values = self._draft_values()
         try:
             self.owner.set_skin_parts(values)
+            self._drafts.clear()
             self.status.setText('已应用并保存；未勾选字段继续跟随美化包／默认。')
         except (OSError, ValueError) as error:
             self.status.setText(str(error))
 
     def reset_part(self):
+        self._drafts = {key: value for key, value in self._drafts.items() if key[0] != self.part.currentData()}
         values = deepcopy(self.owner.settings.get('skin_parts', {}))
         values.pop(self.part.currentData(), None)
         self.owner.set_skin_parts(values)
         self.load_part()
 
     def use_builtin(self):
+        self._drafts = {key: value for key, value in self._drafts.items() if key[0] != self.part.currentData()}
         values = deepcopy(self.owner.settings.get('skin_parts', {}))
         values[self.part.currentData()] = {'builtin': True}
         self.owner.set_skin_parts(values)

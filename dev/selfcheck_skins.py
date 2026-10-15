@@ -137,6 +137,54 @@ def check_parts(app):
             controls = dialog.appearance_page.skin_settings
             assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
             editor = PartSettings(window, dialog)
+            editor.setAttribute(Qt.WA_ShowWithoutActivating)
+            editor.move(-10000, -10000)
+            editor.show()
+            app.processEvents()
+            from ddm.skin_parts import PARTS
+            clicked = []
+            editor.preview.partSelected.connect(clicked.append)
+            for part in (*PARTS, 'background'):
+                editor.part.setCurrentIndex(editor.part.findData(part))
+                app.processEvents()
+                editor.preview.grab()
+                QTest.mouseClick(editor.preview, Qt.LeftButton, pos=editor.preview.point_for(part))
+                assert clicked[-1] == part and editor.part.currentData() == part
+            assert editor.background_controls.isVisible() and editor.parameter_box.isHidden()
+            editor.part.setCurrentIndex(editor.part.findData('sidebar'))
+            editor.preview.grab()
+            scale, offset = editor.preview._transform()
+            for rect in editor.preview.protected:
+                point = (rect.center()*scale+offset).toPoint()
+                assert not editor.preview.part_at(point), 'cards and video must not be editable hotspots'
+            # Live drafts change the miniature, not global styling or saved settings.
+            editor.part.setCurrentIndex(editor.part.findData('controls'))
+            before = editor.preview.grab().toImage()
+            old_settings = window.current_state()['settings']['skin_parts']
+            editor.fields['background'][0].setChecked(True)
+            editor.fields['background'][1].setText('#72A9C1')
+            assert editor.preview._values('controls')['background'] == '#72A9C1'
+            assert editor.preview.grab().toImage() != before
+            assert values_for('controls')['background'] == '#114455'
+            assert window.current_state()['settings']['skin_parts'] == old_settings
+            editor.fields['background'][1].setText('#')
+            with patch.object(window, 'set_skin_parts') as apply:
+                editor.apply_part()
+                apply.assert_not_called()
+            assert editor.preview._values('controls')['background'] == '#72A9C1'
+            editor.fields['background'][1].setText('#72A9C1')
+            editor.part.setCurrentIndex(editor.part.findData('folders'))
+            editor.fields['radius'][0].setChecked(True)
+            editor.fields['radius'][1].setValue(20)
+            editor.part.setCurrentIndex(editor.part.findData('controls'))
+            assert editor.fields['background'][1].text() == '#72A9C1'
+            with patch.object(config, 'save') as save:
+                QTest.mouseClick(editor.apply_button, Qt.LeftButton)
+                assert save.called
+            assert values_for('controls')['background'] == '#72A9C1'
+            assert values_for('folders')['radius'] == 20
+            window.set_skin_parts({})
+            editor.load_part()
             output = ROOT/'work/appearance-delivery'
             output.mkdir(parents=True, exist_ok=True)
             window.grab().save(str(output/'parts-main-test.png'))
@@ -206,7 +254,7 @@ def check_parts(app):
             window.close()
             from ddm.skin_parts import configure
             configure({}, {})
-    print('PASS: parts ZIP install, protected areas, styling, real icons, editor, inheritance, mode overrides, reset and stable HWND')
+    print('PASS: parts ZIP, clickable scenes/all hotspots, protected areas, draft previews/persistence, styling, icons, inheritance, reset and stable HWND')
 
 
 def write_demo():
