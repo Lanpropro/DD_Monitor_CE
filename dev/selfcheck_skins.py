@@ -32,7 +32,7 @@ from dev.selfcheck_tile_fullscreen import SilentPoller
 
 def check_parts(app):
     from ddm.skin_parts import validate_parts, values_for, part_for, icon_path
-    from ddm.skin_settings import PartSettings, SimpleSkinSettings
+    from ddm.skin_settings import PartSettings
     from ddm.online_ui import ResultNotice
     from PySide6.QtWidgets import QMenu
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -212,56 +212,18 @@ def check_parts(app):
                        for x in range(capture.width()) for y in range(capture.height())), 'Management button must paint the custom icon'
             assert int(tile.video.winId()) == handle
             window.set_skin_parts({})
-            simple = SimpleSkinSettings(window, controls, dialog)
-            simple.setAttribute(Qt.WA_ShowWithoutActivating)
-            simple.move(-10000, -10000)
-            simple.show()
-            app.processEvents()
-            with patch.object(SimpleSkinSettings, 'exec', return_value=SimpleSkinSettings.Rejected) as entry:
-                controls._edit_parts()
-                entry.assert_called_once()
-            with patch.object(controls, '_choose') as choose_background, patch.object(controls, 'reset') as reset_background:
-                simple.choose_asset('background', 'image')
-                simple.reset_asset('background', 'image')
-                choose_background.assert_called_once()
-                reset_background.assert_called_once()
-            for part in ('settings.content', 'layout_menu', 'sidebar'):
-                before = window.current_state()['settings']['skin_parts']
-                with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=('', '')):
-                    simple.choose_asset(part, 'image')
+            # Restore the miniature editor as the default entry, preserving saved artwork.
+            window.set_skin_parts({'layout_menu': {'image': managed}})
+            before = window.current_state()['settings']['skin_parts']
+            def inspect_preview(page):
+                assert page.preview.accessibleName() == '可点击的界面分区预览'
+                assert page.scenes.count() == 3
                 assert window.settings['skin_parts'] == before
-                with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(source), '')):
-                    simple.choose_asset(part, 'image')
-                assert Path(values_for(part)['image']).is_file()
-            assert 'image' not in values_for('menus'), 'Layout wallpaper must not change other menus'
-            assert 'layout_menu' in picker.styleSheet()
-            with patch.object(config, 'CONFIG_PATH', str(root/'simple-state.json')), patch.dict(os.environ, {'DDM_NO_SAVE': ''}):
-                config.save(window.current_state())
-                assert config.load()['settings']['skin_parts'] == window.settings['skin_parts']
-            window.set_skin_parts({**window.settings['skin_parts'], 'buttons.pause': {
-                'radius': 11, 'dark': {'icon': managed, 'foreground': '#abcdef'}}})
-            simple.icon_target.setCurrentIndex(simple.icon_target.findData('buttons.pause'))
-            with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(source), '')):
-                simple.choose_asset('buttons.pause', 'icon')
-            assert not simple.icon_preview.pixmap().isNull()
-            assert window.settings['skin_parts']['buttons.pause']['radius'] == 11
-            assert window.settings['skin_parts']['buttons.pause']['dark'] == {'foreground': '#abcdef'}
-            simple.reset_asset('layout_menu', 'image')
-            assert 'image' not in values_for('layout_menu') and Path(values_for('settings.content')['image']).is_file()
-            for mode in ('dark', 'light'):
-                theme.apply(mode)
-                app.processEvents()
-                simple.grab().save(str(output/f'simple-beautify-{mode}.png'))
-                simple.tabs.setCurrentIndex(1)
-                app.processEvents()
-                simple.grab().save(str(output/f'simple-icons-{mode}.png'))
-                simple.tabs.setCurrentIndex(0)
-            theme.apply('dark')
-            with patch.object(PartSettings, 'exec', return_value=PartSettings.Rejected) as advanced:
-                simple.open_advanced()
-                advanced.assert_called_once()
-            simple.close()
-            assert window.settings['skin_parts']['buttons.pause']['icon']
+                return PartSettings.Rejected
+            with patch.object(PartSettings, 'exec', inspect_preview):
+                controls._edit_parts()
+            assert window.settings['skin_parts'] == before
+            assert 'image' not in values_for('menus') and Path(values_for('layout_menu')['image']).is_file()
             window.set_skin_parts({})
             picker.close()
             editor.part.setCurrentIndex(editor.part.findData('controls'))

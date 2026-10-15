@@ -3,9 +3,8 @@ from pathlib import Path
 from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QTabBar, QTabWidget, QVBoxLayout, QWidget)
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .skins import AssetImport
 
@@ -68,7 +67,7 @@ class SkinSettings(QWidget):
         note.setWordWrap(True)
         note.setObjectName('SettingsHint')
         layout.addWidget(note)
-        self.parts_button = QPushButton('简单美化（更换底图与图标）')
+        self.parts_button = QPushButton('分区美化（界面预览）')
         self.parts_button.setObjectName('IconButton')
         self.parts_button.setEnabled(controller is not None)
         self.parts_button.clicked.connect(self._edit_parts)
@@ -91,7 +90,7 @@ class SkinSettings(QWidget):
         self.changed.emit(self.values())
 
     def _edit_parts(self):
-        dialog = SimpleSkinSettings(self.controller.window, self, self)
+        dialog = PartSettings(self.controller.window, self)
         dialog.exec()
         dialog.deleteLater()
 
@@ -199,159 +198,6 @@ class SkinSettings(QWidget):
         super().hideEvent(event)
 
 
-class SimpleSkinSettings(QDialog):
-    """Replace artwork without exposing the professional style fields."""
-    def __init__(self, owner, background_controls, parent=None):
-        super().__init__(parent)
-        from .skin_parts import PARTS
-        self.owner, self.background_controls = owner, background_controls
-        self.setWindowTitle('简单美化')
-        self.resize(760, 560)
-        outer = QVBoxLayout(self)
-        note = QLabel('选择底图或图标，立即应用并保存。更多颜色和状态设置可进入“专业美化”。')
-        note.setWordWrap(True)
-        outer.addWidget(note)
-        tabs = QTabWidget()
-        tabs.setObjectName('SimpleSkinTabs')
-        self.tabs = tabs
-        outer.addWidget(tabs, 1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        content = QWidget()
-        grid = QGridLayout(content)
-        scroll.setWidget(content)
-        tabs.addTab(scroll, '背景底图')
-        self.background_previews = {}
-        for index, (part, title) in enumerate((('background', '软件背景'),
-                ('settings.content', '设置菜单背景（右侧内容区）'),
-                ('layout_menu', '布局预设背景'), ('sidebar', '关注栏背景'))):
-            frame = QFrame()
-            frame.setObjectName('PluginCard')
-            box = QVBoxLayout(frame)
-            box.addWidget(QLabel(title))
-            preview = QLabel()
-            preview.setAlignment(Qt.AlignCenter)
-            preview.setFixedHeight(105)
-            box.addWidget(preview)
-            self.background_previews[part] = preview
-            row = QHBoxLayout()
-            choose = QPushButton('更换底图')
-            choose.setObjectName('IconButton')
-            choose.clicked.connect(lambda _checked=False, key=part: self.choose_asset(key, 'image'))
-            row.addWidget(choose)
-            reset = QPushButton('恢复默认' if part == 'background' else '跟随美化包／默认')
-            reset.setObjectName('IconButton')
-            reset.clicked.connect(lambda _checked=False, key=part: self.reset_asset(key, 'image'))
-            row.addWidget(reset)
-            box.addLayout(row)
-            grid.addWidget(frame, index // 2, index % 2)
-        icons = QWidget()
-        icon_box = QVBoxLayout(icons)
-        self.icon_target = QComboBox()
-        for key, label in PARTS.items():
-            if key.startswith('buttons.') or key == 'folders':
-                self.icon_target.addItem(label, key)
-        icon_box.addWidget(QLabel('选择要替换的按钮或文件夹图标'))
-        icon_box.addWidget(self.icon_target)
-        self.icon_preview = QLabel()
-        self.icon_preview.setAlignment(Qt.AlignCenter)
-        self.icon_preview.setMinimumHeight(110)
-        icon_box.addWidget(self.icon_preview, 1)
-        row = QHBoxLayout()
-        choose = QPushButton('更换图标')
-        choose.setObjectName('IconButton')
-        choose.clicked.connect(lambda: self.choose_asset(self.icon_target.currentData(), 'icon'))
-        row.addWidget(choose)
-        reset = QPushButton('跟随美化包／默认')
-        reset.setObjectName('IconButton')
-        reset.clicked.connect(lambda: self.reset_asset(self.icon_target.currentData(), 'icon'))
-        row.addWidget(reset)
-        icon_box.addLayout(row)
-        tabs.addTab(icons, '按钮图标')
-        self.status = QLabel('底图和图标可独立替换；不会修改直播画面、音量或声道。')
-        self.status.setWordWrap(True)
-        outer.addWidget(self.status)
-        row = QHBoxLayout()
-        advanced = QPushButton('专业美化…')
-        advanced.setObjectName('IconButton')
-        advanced.clicked.connect(self.open_advanced)
-        row.addWidget(advanced)
-        row.addStretch()
-        close = QPushButton('完成')
-        close.setObjectName('PrimaryButton')
-        close.clicked.connect(self.accept)
-        row.addWidget(close)
-        outer.addLayout(row)
-        for button in self.findChildren(QPushButton):
-            button.setAutoDefault(False)
-        self.icon_target.currentIndexChanged.connect(self.refresh)
-        owner.skin_controller.changed.connect(self.refresh)
-        self.refresh()
-
-    def refresh(self, *_args):
-        from .skin_parts import values_for
-        for part, label in self.background_previews.items():
-            if part == 'background':
-                source = self.owner.skin_controller.layer.image
-                image = QPixmap.fromImage(source) if source is not None else QPixmap()
-            else:
-                image = QPixmap(values_for(part).get('image', ''))
-            if image.isNull():
-                label.setText('当前使用视频背景' if part == 'background' and self.owner.skin_controller.layer.path else '跟随美化包／默认')
-            else:
-                label.setPixmap(image.scaled(260, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        image = QPixmap(values_for(self.icon_target.currentData()).get('icon', ''))
-        if image.isNull():
-            self.icon_preview.setText('当前使用默认图标')
-        else:
-            self.icon_preview.setPixmap(image.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-
-    def _change_asset(self, part, field, value=None):
-        values = deepcopy(self.owner.settings.get('skin_parts', {}))
-        target = values.setdefault(part, {})
-        # A simple replacement applies in both themes, without changing other professional fields.
-        for variant in ('dark', 'light'):
-            target.get(variant, {}).pop(field, None)
-        if value is None:
-            target.pop(field, None)
-        else:
-            target[field] = value
-        self.owner.set_skin_parts(values)
-        self.status.setText('已应用并保存。')
-        self.refresh()
-
-    def choose_asset(self, part, field):
-        if part == 'background':
-            self.background_controls._choose()
-            return
-        from .skins import IMAGES, import_asset, validate_asset
-        source, _ = QFileDialog.getOpenFileName(self, '选择底图' if field == 'image' else '选择图标', '',
-                                               '图片 (*.png *.jpg *.jpeg *.webp *.bmp)')
-        if not source:
-            return
-        try:
-            path = validate_asset(source)
-            if path.suffix.lower() not in IMAGES or path.stat().st_size > 8 * 1024 * 1024:
-                raise ValueError('请选择不超过 8MB 的图片')
-            imported = Path(import_asset(path)).relative_to('utils/skins').as_posix()
-            self._change_asset(part, field, imported)
-        except (OSError, ValueError) as error:
-            self.status.setText(str(error))
-
-    def reset_asset(self, part, field):
-        if part == 'background':
-            self.background_controls.reset()
-        else:
-            self._change_asset(part, field)
-
-    def open_advanced(self):
-        dialog = PartSettings(self.owner, self)
-        dialog.exec()
-        dialog.deleteLater()
-        self.refresh()
-
-
 class PartSettings(QDialog):
     """Edit only explicit personal overrides; omitted fields inherit the skin pack."""
     def __init__(self, owner, parent=None):
@@ -361,7 +207,7 @@ class PartSettings(QDialog):
         self.owner = owner
         self._drafts = {}
         self._loading = False
-        self.setWindowTitle('专业美化')
+        self.setWindowTitle('分区美化（界面预览）')
         self.resize(1100, 700)
         outer = QHBoxLayout(self)
         preview_column = QVBoxLayout()
