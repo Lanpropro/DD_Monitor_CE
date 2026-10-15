@@ -152,7 +152,7 @@ class GeneralSettingsPage(QWidget):
         self.bili_codec.setToolTip(
             "B 站同一路直播按编码分开推流：\n"
             "  H.264：兼容性最好，FLV 直连播放，不额外占 CPU。\n"
-            "  HEVC：同画质码率约省一半，但只有 HLS 通道，要先转封装。\n"
+            "  HEVC：同画质码率约省一半，走 HLS 通道，要先转封装。\n"
             "  AV1：码率最低，但解码要求最高，同样要先转封装。\n"
             "只有部分主播开了 HEVC / AV1 推流；没开时自动回退 H.264。\n"
             "转封装会多占一点 CPU 和内存。切换后正在播放的直播会重新取流。")
