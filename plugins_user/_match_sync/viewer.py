@@ -224,8 +224,6 @@ class AudioPump(QObject):
         if self.sink is None or self.device is None:
             return
         shifts = self.viewer.shifts()
-        main = self.viewer.rows.get(self.viewer.alignment.reference)
-        can_mix = main is None or main.paused or main.sync_state == "已同步"
         for _ in range(3):
             frames = min(2048, self.sink.bytesFree() // 4)
             if frames < 240:
@@ -236,7 +234,7 @@ class AudioPump(QObject):
             inputs = []
             for room_id, row in self.viewer.rows.items():
                 if (row.decoder is not None and row.audible.isChecked() and not row.paused
-                        and can_mix and not self.viewer.sync_waiting and row.sync_state == "已同步"):
+                        and not self.viewer.sync_waiting and row.sync_state == "已同步"):
                     local_rate = rate + self.viewer.relative_rates.get(room_id, 1.0) - 1.0
                     pcm = row.decoder.history.pcm_at(clock + shifts[room_id], max(1, round(frames * local_rate)))
                     pcm = route_pcm_s16_stereo(pcm, row.channel.currentData())
@@ -451,6 +449,7 @@ class RoomRow(QFrame):
         self.recovery_since = None
         self.was_isolated = False
         self.actual_position = None
+        self.picture_wait_since = None
         self.match_confirmed = False
         self.match_failures = 0
         self.alignment_started = time.monotonic()
@@ -1786,6 +1785,7 @@ class Viewer(QDialog):
         row.recovery_since = None
         row.was_isolated = False
         row.actual_position = None
+        row.picture_wait_since = None
         row.match_confirmed = False
         row.match_failures = 0
         row.alignment_started = time.monotonic()
@@ -1873,6 +1873,7 @@ class Viewer(QDialog):
             row.match_confirmed = False
             row.mix_gain = 0
             row.recovery_since = None
+            row.picture_wait_since = None
             self.alignment.candidates.pop(row.room_id, None)
             row.match_failures = 0
             row.alignment_started = time.monotonic()
@@ -1969,19 +1970,29 @@ class Viewer(QDialog):
             arrival = getattr(decoder, "last_frame_received", 0)
             fresh = not arrival or now - arrival <= 3
             target = clock + shifts[key]
+            available = bounds is not None and bounds[0] <= target <= bounds[1] - .05
             if self.alignment.automatic and key != self.alignment.reference and key not in self.independent_shifts:
-                if not fresh and row.match_confirmed and not row.paused and (row.sync_state == "已同步" or row.was_isolated):
+                if not fresh and not available and row.match_confirmed and not row.paused and (row.sync_state == "已同步" or row.was_isolated):
                     row.recheck_alignment = True
                 elif fresh and bounds is not None and row.recheck_alignment:
                     self._queue_rematch(row)
                     self.generation += 1
-            available = bounds is not None and bounds[0] <= target <= bounds[1] - .05
             visible = key == self.alignment.reference or (self.compare.isChecked() and key in self.comparison_panel.shown_rooms)
             if available and visible and hasattr(decoder, "picture_at"):
-                available = row.actual_position is not None and abs(row.actual_position - target) <= .2
+                displayed = row.actual_position is not None and abs(row.actual_position - target) <= .2
+                if displayed:
+                    row.picture_wait_since = None
+                else:
+                    if row.picture_wait_since is None:
+                        row.picture_wait_since = now
+                    # RGB preparation can briefly lag valid compressed/PCM history.
+                    # Do not turn a short cache miss into repeated half-second mutes.
+                    available = row.sync_state == "已同步" and now - row.picture_wait_since <= .3
+            else:
+                row.picture_wait_since = None
             known = (key == self.alignment.reference or key in self.independent_shifts or not self.alignment.automatic
                      or key in self.alignment.lags and row.match_confirmed)
-            ready = (decoder is not None and not row.paused and fresh and available and known
+            ready = (decoder is not None and not row.paused and available and known
                      and not (self.sync_waiting and key == self.alignment.reference))
             before = row.sync_state
             if not ready:

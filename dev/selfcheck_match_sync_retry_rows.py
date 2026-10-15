@@ -104,6 +104,10 @@ def main():
             # Buffer recovery invalidates only the affected source and queues a fresh search.
             viewer.rows['2'].decoder.last_frame_received=116
             viewer.render()
+            assert viewer.rows['2'].match_confirmed and '2' not in viewer.rematch_rooms, 'A receive gap covered by cache must preserve confirmation'
+            target = viewer.audio.clock() + viewer.shifts()['2']
+            with patch.object(viewer.rows['2'].decoder.history, 'bounds', return_value=(80, target - .5)):
+                viewer.render()
             viewer.rows['2'].decoder.last_frame_received=now[0]
             viewer.render()
             assert '2' in viewer.rematch_rooms and not viewer.rows['2'].match_confirmed
