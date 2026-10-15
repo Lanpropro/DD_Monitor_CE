@@ -119,6 +119,34 @@ def main():
         saved = window.current_state()
         assert "101" in next(folder["rooms"] for folder in saved["follow_folders"] if folder["id"] == first)
         assert "huya:a" in next(folder["rooms"] for folder in saved["follow_folders"] if folder["id"] == second)
+        # 在实际添加窗口中新建文件夹，自动选中，取消/空名/重名不改变原选择。
+        created = []
+        def create_and_add(dialog):
+            dialog.edit.setText('105')
+            assert dialog.new_folder_button.isEnabled()
+            for text, accepted in (('取消', False), ('   ', True), ('赛事', True)):
+                before = window.sidebar.folder_state()
+                with patch('ddm.dialogs.QInputDialog.getText', return_value=(text, accepted)), \
+                        patch('ddm.dialogs.QMessageBox.warning'):
+                    QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+                assert window.sidebar.folder_state() == before
+                assert dialog.folder_id == '' and dialog.edit.text() == '105'
+            with patch('ddm.dialogs.QInputDialog.getText', return_value=('  新分组  ', True)):
+                QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+            created.append(dialog.folder_id)
+            assert dialog.folder_button.text() == '新分组'
+            assert window.sidebar.get_folder(dialog.folder_id)['name'] == '新分组'
+            assert window.sidebar.get_folder(dialog.folder_id)['type'] == 'normal'
+            select(dialog, first)
+            select(dialog, created[0])
+            dialog.accept()
+            return dialog.result()
+        with patch.object(AddRoomDialog, 'exec', create_and_add):
+            window.open_add_room()
+        InfoFixture.pending[-1].complete()
+        assert window.sidebar.folder_for('105') == created[0]
+        assert '105' in next(folder['rooms'] for folder in window.current_state()['follow_folders']
+                             if folder['id'] == created[0])
     window.close()
     print("PASS: add-room folder button, validation, both platform paths, concurrent results, fallback and persistence")
 

@@ -8,7 +8,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
-    QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -1010,13 +1010,14 @@ class SettingsDialog(QDialog):
 class AddRoomDialog(AnimatedDialog):
     """输入房间号或直播间链接。"""
 
-    def __init__(self, parent=None, *, room_id_resolver=None, folders=None):
+    def __init__(self, parent=None, *, room_id_resolver=None, folders=None, folder_creator=None):
         super().__init__(parent)
         self.setWindowTitle("添加直播间")
         self.resize(400, 170)
         self.room_id = ""
         self.folder_id = ""
         self.room_id_resolver = room_id_resolver
+        self._folder_creator = folder_creator
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -1037,13 +1038,15 @@ class AddRoomDialog(AnimatedDialog):
         options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
                                        if folder.get("type", "normal") == "normal"]
         for folder_id, name in options:
-            action = folder_menu.addAction(name)
-            action.setData(folder_id)
-            action.setCheckable(True)
-            action.setChecked(not folder_id)
-            action.triggered.connect(lambda _checked=False, selected=action: self._select_folder(selected))
+            self._add_folder_option(folder_menu, folder_id, name)
         self.folder_button.setMenu(folder_menu)
         folder_row.addWidget(self.folder_button, 1)
+        self.new_folder_button = QPushButton("新建文件夹")
+        self.new_folder_button.setObjectName("IconButton")
+        self.new_folder_button.setAutoDefault(False)
+        self.new_folder_button.setEnabled(folder_creator is not None)
+        self.new_folder_button.clicked.connect(self._create_folder)
+        folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
         self.hint = QLabel("支持 B 站房间号")
@@ -1063,6 +1066,26 @@ class AddRoomDialog(AnimatedDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(confirm)
         layout.addLayout(buttons)
+
+    def _add_folder_option(self, menu, folder_id, name):
+        action = menu.addAction(name)
+        action.setData(folder_id)
+        action.setCheckable(True)
+        action.setChecked(not folder_id)
+        action.triggered.connect(lambda _checked=False: self._select_folder(action))
+        return action
+
+    def _create_folder(self) -> None:
+        name, accepted = QInputDialog.getText(self, "新建文件夹", "文件夹名称：")
+        if not accepted or not name.strip():
+            return
+        name = name.strip()
+        folder_id = self._folder_creator(name)
+        if not folder_id:
+            QMessageBox.warning(self, "新建文件夹", "已存在同名文件夹，请使用其他名称")
+            return
+        action = self._add_folder_option(self.folder_button.menu(), folder_id, name)
+        self._select_folder(action)
 
     def _select_folder(self, action) -> None:
         self.folder_id = action.data()

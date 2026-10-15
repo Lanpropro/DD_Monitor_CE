@@ -2539,7 +2539,8 @@ class MainWindow(QMainWindow):
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
         dialog = AddRoomDialog(self, room_id_resolver=self._normalize_room_input,
-                               folders=self.sidebar.folder_state())
+                               folders=self.sidebar.folder_state(),
+                               folder_creator=self.sidebar.create_folder)
         hints = [hint for p in self.plugins.platforms.values()
                  if (hint := getattr(p, "room_input_hint", ""))]
         if hints:
