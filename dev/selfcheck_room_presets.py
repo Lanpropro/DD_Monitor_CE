@@ -63,8 +63,15 @@ def main():
             picker.set_group('直播间组合')
             page = picker.presets_page
             assert page.isVisible() and not picker.reset_button.isVisible()
-            with patch('ddm.room_presets_ui.QInputDialog.getText', return_value=('比赛', True)):
+            with patch('ddm.room_presets_ui.QInputDialog.getText', side_effect=AssertionError('Save must stay inline')):
                 QTest.mouseClick(page.save_button, Qt.LeftButton)
+                assert page.name_form.isVisible() and picker.isVisible()
+                assert page.name_edit.window() is picker
+                QTest.mouseClick(page.confirm_save, Qt.LeftButton)
+                assert page.name_hint.text() and not window.room_presets['items']
+                page.name_edit.setText('  比赛  ')
+                QTest.keyClick(page.name_edit, Qt.Key_Return)
+            assert not page.name_form.isVisible() and picker.isVisible()
             key = window.room_presets['items'][0]['id']
             assert page.cards[key].isChecked()
             assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
@@ -120,9 +127,29 @@ def main():
             picker = window.sidebar._picker
             picker.set_group('直播间组合')
             page = picker.presets_page
-            with patch('ddm.room_presets_ui.QInputDialog.getText', return_value=('取消保存', False)):
+            with patch('ddm.room_presets_ui.QInputDialog.getText', side_effect=AssertionError('Save must stay inline')), \
+                    patch('ddm.room_presets_ui.QMessageBox.question', side_effect=AssertionError('Save confirmation must stay inline')):
                 QTest.mouseClick(page.save_button, Qt.LeftButton)
+                page.name_edit.setText('取消保存')
+                QTest.mouseClick(page.cancel_save, Qt.LeftButton)
                 assert len(window.room_presets['items']) == 2
+                QTest.mouseClick(page.save_button, Qt.LeftButton)
+                page.name_edit.setText('比赛')
+                QTest.mouseClick(page.confirm_save, Qt.LeftButton)
+                assert page.confirm_save.text() == '确认覆盖' and page.name_hint.text()
+                assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
+                page.name_edit.setText('比赛改名')
+                assert page.confirm_save.text() == '保存' and not page.name_hint.text()
+                QTest.mouseClick(page.cancel_save, Qt.LeftButton)
+                QTest.mouseClick(page.save_button, Qt.LeftButton)
+                assert not page.name_edit.text()
+                page.name_edit.setText('日常观看')
+                QTest.mouseClick(page.confirm_save, Qt.LeftButton)
+                QTest.mouseClick(page.confirm_save, Qt.LeftButton)
+                assert len(window.room_presets['items']) == 2
+                assert room_presets.same(room_presets.validate(window.room_presets['items'][1]), b)
+                assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
+                assert not page.name_form.isVisible() and picker.isVisible()
             first_record = window.room_presets['items'][0]
             def choose(text):
                 def create(parent):
@@ -255,6 +282,11 @@ def main():
                 window.sidebar._picker.presets_page.refresh()
                 QTest.qWait(30)
                 window.sidebar._picker.grab().save(str(directory / f'room-presets-{mode}.png'))
+                page = window.sidebar._picker.presets_page
+                page.save_new()
+                page.name_edit.setText('我的直播间组合')
+                window.sidebar._picker.grab().save(str(directory / f'room-presets-inline-{mode}.png'))
+                page._cancel_name()
             window.sidebar._picker.grab().save(str(directory / 'room-presets-preview.png'))
         finally:
             window.close()

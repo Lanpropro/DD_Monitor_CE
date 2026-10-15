@@ -1,7 +1,7 @@
 """Room combinations live inside the existing layout picker."""
 from PySide6.QtCore import QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
                                QMenu, QMessageBox, QPushButton, QScrollArea, QToolButton,
                                QVBoxLayout, QWidget)
 
@@ -46,6 +46,32 @@ class RoomPresetsPage(QWidget):
         self.save_button.clicked.connect(self.save_new)
         bar.addWidget(self.save_button)
         outer.addLayout(bar)
+        self.name_form = QWidget()
+        form = QVBoxLayout(self.name_form)
+        form.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("组合名称"))
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("输入当前组合的名称")
+        self.name_edit.setAccessibleName("组合名称")
+        self.name_edit.textChanged.connect(self._name_changed)
+        self.name_edit.returnPressed.connect(self._save_named)
+        row.addWidget(self.name_edit, 1)
+        self.confirm_save = QPushButton("保存")
+        self.confirm_save.setObjectName("PrimaryButton")
+        self.confirm_save.clicked.connect(self._save_named)
+        row.addWidget(self.confirm_save)
+        self.cancel_save = QPushButton("取消")
+        self.cancel_save.setObjectName("IconButton")
+        self.cancel_save.clicked.connect(self._cancel_name)
+        row.addWidget(self.cancel_save)
+        form.addLayout(row)
+        self.name_hint = QLabel()
+        self.name_hint.setWordWrap(True)
+        form.addWidget(self.name_hint)
+        self._overwrite_id = None
+        self.name_form.hide()
+        outer.addWidget(self.name_form)
         scroll = QScrollArea()
         self.scroll = scroll
         scroll.setWidgetResizable(True)
@@ -150,18 +176,38 @@ class RoomPresetsPage(QWidget):
             self.picker.show()
 
     def save_new(self):
-        name, accepted = self._ask_name("保存当前组合")
-        if not accepted:
-            return
+        self.name_edit.clear()
+        self._name_changed()
+        self.name_form.show()
+        self.save_button.hide()
+        self.name_edit.setFocus()
+
+    def _name_changed(self):
+        self._overwrite_id = None
+        self.confirm_save.setText("保存")
+        self.name_hint.clear()
+
+    def _cancel_name(self):
+        self.name_form.hide()
+        self.name_edit.clear()
+        self.save_button.show()
+
+    def _save_named(self):
+        name = self.name_edit.text().strip()
         existing = next((item for item in self.host.room_presets["items"] if item.get("name") == name), None)
-        if existing and not self._confirm("覆盖组合", f"是否用当前画面覆盖“{name}”？"):
+        if existing and self._overwrite_id != existing.get("id"):
+            self._overwrite_id = existing["id"]
+            self.name_hint.setText(f"已存在“{name}”，再次确认将用当前画面覆盖此组合。")
+            self.confirm_save.setText("确认覆盖")
             return
         try:
             key = self.host.save_room_preset(name, existing.get("id") if existing else None)
+            self._cancel_name()
             self.refresh()
             QTimer.singleShot(0, lambda: self.scroll.ensureWidgetVisible(self.cards[key]) if key in self.cards else None)
         except ValueError as error:
-            self._error(error)
+            self.name_hint.setText(str(error))
+            self.name_edit.setFocus()
 
     def apply(self, preset_id):
         try:
