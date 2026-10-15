@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
 from . import theme
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .player import DECODE_MODES
+from .bili import BILI_CODECS
+from .encoders import ENCODER_CHOICES
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
@@ -138,8 +140,30 @@ class GeneralSettingsPage(QWidget):
         mode = settings.get("decode_mode") or (
             "auto" if settings.get("hw_decode", True) else "none")
         self.decode_mode.setCurrentIndex(max(0, self.decode_mode.findData(mode)))
-        self.decode_mode.setToolTip("自动优先使用可用的硬件解码；软件解码占用更多 CPU。切换后正在播放的直播会重新取流。")
+        self.decode_mode.setToolTip(
+            "每一路画面由谁解码：\n"
+            "  自动（推荐）：让 VLC 自己挑显卡解码器，挑不到就用 CPU。\n"
+            "  Direct3D 11：较新的显卡解码接口，Windows 上优先用它。\n"
+            "  DXVA2：更早的显卡解码接口，Direct3D 11 出问题时用。\n"
+            "  软件解码：完全用 CPU，兼容性最好；显卡解不动或花屏 / 绿屏时改用它。\n"
+            "显卡解码把活交给显卡，CPU 占用通常更低。哪个能用取决于显卡和驱动，\n"
+            "用不了时 VLC 会自动退回软件解码，不会放不出来。切换后正在播放的会重新取流。")
         grid.addWidget(self.decode_mode, row, 1)
+        row += 1
+        grid.addWidget(QLabel("B站直播编码"), row, 0)
+        self.bili_codec = QComboBox()
+        for value, label, _param in BILI_CODECS:
+            self.bili_codec.addItem(label, value)
+        self.bili_codec.setCurrentIndex(max(0, self.bili_codec.findData(
+            settings.get("bili_codec", "avc"))))
+        self.bili_codec.setToolTip(
+            "B 站同一路直播按编码分开推流：\n"
+            "  H.264：兼容性最好，FLV 直连播放，不额外占 CPU。\n"
+            "  HEVC：同画质码率约省一半，走 HLS 通道，要先转封装。\n"
+            "  AV1：码率最低，但解码要求最高，同样要先转封装。\n"
+            "只有部分主播开了 HEVC / AV1 推流；没开时自动回退 H.264。\n"
+            "转封装会多占一点 CPU 和内存。切换后正在播放的直播会重新取流。")
+        grid.addWidget(self.bili_codec, row, 1)
         row += 1
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
@@ -171,6 +195,8 @@ class GeneralSettingsPage(QWidget):
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self.decode_mode.setCurrentIndex(0)
+        self.bili_codec.setCurrentIndex(max(0, self.bili_codec.findData(
+            config_module.DEFAULT_SETTINGS["bili_codec"])))
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
     def values(self) -> dict:
@@ -180,6 +206,7 @@ class GeneralSettingsPage(QWidget):
             "default_volume": int(self.volume_slider.value()),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             "decode_mode": self.decode_mode.currentData(),
+            "bili_codec": self.bili_codec.currentData(),
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())
@@ -367,6 +394,16 @@ class RecordingSettingsPage(QWidget):
         self.codec = QComboBox()
         self.codec.addItem("直接保存原始流（画质不变、负载低）", "copy")
         self.codec.addItem("H.264 + AAC 重编码", "h264")
+        self.encoder = QComboBox()
+        for value, label in ENCODER_CHOICES:
+            self.encoder.addItem(label, value)
+        self.encoder.setToolTip(
+            "重编码时用哪个编码器。\n"
+            "自动：优先显卡编码（NVENC / QSV / AMF），不可用就回退 CPU。\n"
+            "显卡编码同样码率下画质不差，CPU 占用却低一个数量级，不会和游戏抢核；\n"
+            "但它要求显卡、驱动和随包的 FFmpeg 三者同时支持。\n"
+            "手动指定显卡方案时，程序会真的起一次编码进程来探测；这台机器上跑不起来\n"
+            "的方案（比如没有对应显卡）会自动回退 CPU，不会录不出来。")
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
         self.fps = QComboBox()
@@ -404,6 +441,7 @@ class RecordingSettingsPage(QWidget):
         for row, (label, widget, unit) in enumerate((
             ("录制功能", self.recording_enabled, ""),
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
+            ("编码器", self.encoder, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
             ("即时回放", self.replay_enabled, ""),
             ("即时回放范围", self.replay_scope, ""),
@@ -419,7 +457,7 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 11, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 12, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self.replay_scope.currentIndexChanged.connect(self._update_enabled)
         self.replay_enabled.toggled.connect(self._update_enabled)
@@ -439,6 +477,8 @@ class RecordingSettingsPage(QWidget):
         self.directory.setText(str(settings.get("recording_dir") or ""))
         self.format.setCurrentIndex(max(0, self.format.findData(settings.get("recording_format", "mp4"))))
         self.codec.setCurrentIndex(max(0, self.codec.findData(settings.get("recording_codec", "copy"))))
+        self.encoder.setCurrentIndex(max(0, self.encoder.findData(
+            settings.get("recording_encoder", "auto"))))
         self.bitrate.setValue(int(settings.get("recording_bitrate", 6000)))
         fps_index = self.fps.findData(int(settings.get("recording_fps", 30)))
         self.fps.setCurrentIndex(fps_index if fps_index >= 0 else self.fps.findData(30))
@@ -460,6 +500,9 @@ class RecordingSettingsPage(QWidget):
                 "当前使用 H.264 重编码，码率和帧率均会生效")
         self.bitrate.setToolTip(hint)
         self.fps.setToolTip(hint)
+        # 编码器只影响重编码；直存原始流时它没有意义，一并跟着录制总开关置灰。
+        self.encoder.setEnabled(self.recording_enabled.isChecked()
+                                and self.codec.currentData() != "copy")
 
     def _update_enabled(self) -> None:
         """按两个总开关把不起作用的项置灰，免得用户改了以为没生效。
@@ -471,6 +514,7 @@ class RecordingSettingsPage(QWidget):
         for widget in (self.directory, self.browse, self.format, self.codec,
                        self.bitrate, self.fps, self.min_free, self.lock_quality):
             widget.setEnabled(recording)
+        self._update_codec()
         replay = self.replay_enabled.isChecked()
         self.replay_scope.setEnabled(replay)
         self.replay_minutes.setEnabled(replay)
@@ -494,6 +538,7 @@ class RecordingSettingsPage(QWidget):
             "recording_dir": self.directory.text().strip(),
             "recording_format": self.format.currentData(),
             "recording_codec": self.codec.currentData(),
+            "recording_encoder": self.encoder.currentData(),
             "recording_bitrate": self.bitrate.value(),
             "recording_fps": self.fps.currentData(),
             "recording_replay_minutes": self.replay_minutes.value(),

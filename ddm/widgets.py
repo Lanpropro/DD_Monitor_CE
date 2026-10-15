@@ -5459,6 +5459,9 @@ class Tile(QFrame):
         #: 当前这一路的取流结果，插件（录像等）从这里拿
         self.stream_url = ""
         self.stream_profile = ""
+        #: 这一路流的视频编码（avc / hevc / av1）。录制要靠它挑装得下的分段容器
+        #: —— AV1 装不进 MOV，FFmpeg 会直接拒绝，所以得提前知道编码。
+        self.stream_codec = ""
         self.stream_headers: dict = {}
         self.room = room
         self._cover_source = room.get("cover")

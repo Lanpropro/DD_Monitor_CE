@@ -457,7 +457,10 @@ def main() -> None:
     defaults = dialog.settings()
     print(f"  读到的设置={defaults}")
     global_keys = {key for key in config_module.DEFAULT_SETTINGS if not key.startswith("video_danmaku_")}
-    assert set(defaults) == global_keys - {"danmaku_retention_version"}, \
+    # 设置页读回的键 = 全部常规选项（除一次性迁移标记），再加更新角标的「已看过」记录：
+    # 后者是跟着配置走的内部状态，不是界面选项，所以没进 DEFAULT_SETTINGS；
+    # 它的往返读写由 selfcheck_update_notifications 覆盖。
+    assert set(defaults) == (global_keys - {"danmaku_retention_version"}) | {"seen_update_versions"}, \
         "全局设置应保留常规选项，画面弹幕观看参数由格子右下角调整"
     assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():
@@ -466,9 +469,11 @@ def main() -> None:
         assert defaults[key] == value, f"{key} 不该被设置窗口改掉：{defaults[key]!r} != {value!r}"
     assert dialog.shortcuts() == window.shortcuts
     general.poll_spin.setValue(5)
-    general._checks["auto_quality"].setChecked(False)     # noqa: SLF001
+    # 主画面自动原画、侧栏卡片样式已经不在界面上，改成格子里的入口，
+    # 设置页只负责原样带着这两个值往返，所以直接改隐藏值再读回。
+    general._hidden_values["auto_quality"] = False        # noqa: SLF001
     general._checks["default_muted"].setChecked(False)    # noqa: SLF001
-    general._checks["sidebar_card_mode"].setChecked(False)  # noqa: SLF001
+    general._hidden_values["sidebar_card_mode"] = False   # noqa: SLF001
     general._checks["sidebar_auto_compact"].setChecked(True)  # noqa: SLF001
     general.compact_threshold_spin.setValue(12)
     general.volume_slider.setValue(30)
@@ -507,6 +512,15 @@ def main() -> None:
     from ddm.player import DECODE_MODES, PlayerPool
     assert [general.decode_mode.itemData(i) for i in range(general.decode_mode.count())] == [
         value for _label, value in DECODE_MODES]
+    # 选项文案要说清「谁在解码」（显卡 / CPU），不能只甩 D3D11VA / DXVA2 这种接口名：
+    # 用户看不懂接口名，也不知道选了会动到哪儿。
+    decode_labels = {value: label for label, value in DECODE_MODES}
+    for value, label in decode_labels.items():
+        assert "解码" in label, f"{value} 的文案没说是谁在解码：{label!r}"
+    assert "显卡" in decode_labels["auto"] and "CPU" in decode_labels["auto"]
+    assert "显卡" in decode_labels["d3d11va"] and "显卡" in decode_labels["dxva2"]
+    assert "CPU" in decode_labels["none"], "软件解码要写明用的是 CPU"
+    print(f"  解码方式文案={list(decode_labels.values())}")
     for mode, options in (("auto", ()), ("d3d11va", (":avcodec-hw=d3d11va",)),
                           ("dxva2", (":avcodec-hw=dxva2",)),
                           ("none", (":avcodec-hw=none",))):
@@ -550,11 +564,13 @@ def main() -> None:
         failed = Signal(str, str)
         finished = Signal()
 
-        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None):
+        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None,
+                     codec="avc"):
             super().__init__(parent)
             self.room_id = room_id
             self.headers = {}
             self.source_offset = source_offset
+            self.codec = codec
             self.cancelled = False
 
         def start(self):
@@ -696,8 +712,13 @@ def main() -> None:
     sidebar.set_sort_mode("live", notify=False)
     visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
     with mock.patch.object(config_module, "save") as persist:
-        folder_menu = next(action.menu() for action in sidebar.sort_button.menu().actions()
-                           if action.text() == "未分类")
+        # 顶层菜单和那一项都要留住引用：PySide6 给 QAction.menu() 发的包装对象
+        # 会在中途回收，只存子菜单的话 gc 一跑就成了「C++ object already deleted」，
+        # 底层 QMenu 其实还活着。测试里要保持这整条链。
+        sort_menu = sidebar.sort_button.menu()
+        folder_action = next(action for action in sort_menu.actions()
+                             if action.text() == "未分类")
+        folder_menu = folder_action.menu()
         freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")
         freeze.trigger()

@@ -27,11 +27,13 @@ def main():
     assert [text for _, text in sorted(labels)] == [
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "开播气泡提醒",
-        "视频解码方式", "新建格子的初始音量"]
+        "视频解码方式", "B站直播编码", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False
     assert values["freeze_watch"] is True and values["default_volume"] == 21
+    # 直播编码跟着解码方式走：两档都是「B 站这一路怎么播」的选择。
+    assert values["bili_codec"] == config.DEFAULT_SETTINGS["bili_codec"]
     page._checks["sidebar_auto_compact"].setChecked(False)
     assert not page.compact_threshold_spin.isEnabled()
     page.reset()
