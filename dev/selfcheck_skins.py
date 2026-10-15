@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 from unittest.mock import patch
+from contextlib import ExitStack
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,277 @@ from ddm.skin_settings import SkinSettings
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
+def check_parts(app):
+    from ddm.skin_parts import validate_parts, values_for, part_for, icon_path
+    from ddm.skin_settings import PartSettings
+    from ddm.online_ui import ResultNotice
+    from PySide6.QtWidgets import QMenu
+    with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+        root = Path(directory)
+        stack.enter_context(patch.object(config, 'REPO', directory))
+        for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+                       'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
+                       'load_cached_covers', 'load_cached_avatars'):
+            stack.enter_context(patch.object(module.MainWindow, method))
+        image = QImage(32, 32, QImage.Format_RGB32)
+        image.fill(QColor('#ff8800'))
+        source = root/'icon.png'
+        image.save(str(source))
+        managed = Path(import_asset(source)).relative_to('utils/skins').as_posix()
+        parts = {'controls': {'background': '#114455', 'radius': 8},
+                 'folders': {'background': '#223366', 'icon': 'icon.png'},
+                 'buttons.pause': {'icon': 'icon.png', 'paused': {'icon': 'icon.png'}},
+                 'buttons.volume': {'icon': 'icon.png'},
+                 'settings': {'background': '#334455'}, 'settings.navigation': {'background': '#223344'},
+                 'settings.content': {'background': '#445566'}, 'sidebar': {'background': '#123456'},
+                 'menus': {'background': '#225544'}, 'notices': {'background': '#551155'},
+                 'dialogs': {'background': '#445522'}}
+        from ddm.skin_parts import _validate_image
+        _validate_image.cache_clear()
+        with patch('ddm.skins.validate_asset', wraps=validate_asset) as decode:
+            validate_parts(parts, root)
+            validate_parts(parts, root)
+            assert decode.call_count == 1, 'unchanged icons must not be decoded again on every mask adjustment'
+        for invalid in ({'tile': {'background': '#ffffff'}}, {'controls': {'image': '../icon.png'}},
+                        {'controls': {'icon': str(source)}}, {'controls': {'radius': 900}},
+                        {'controls': {'background': 'red; border: none'}},
+                        {'sidebar': {'foreground': '#ffffff'}}):
+            try:
+                validate_parts(invalid, root)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(invalid)
+        window = module.MainWindow([{'room_id': '1001', 'uname': 'fixture', 'live': False}],
+            [], layout_id='1x1', state={'plugins_enabled': []})
+        window.resize(1200, 800)
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        window.move(-10000, -10000)
+        window.show()
+        app.processEvents()
+        tile = window.wall.tiles[0]
+        folder_id = window.sidebar.create_folder('fixture')
+        folder_button = window.sidebar._folder_buttons[folder_id]
+        window.set_skin({'skin_background': 'utils/skins/' + managed})
+        background = window.skin_controller.layer.path
+        untouched = [tile.video.styleSheet(), tile.stream_badge.styleSheet(), tile.title_badge.styleSheet(),
+                     window.sidebar._items[0].styleSheet()]
+        handle = int(tile.video.winId())
+        manifest = dict(id='test_parts', name='Parts fixture', description='Offline skin', version='1.0',
+                        skin={'version': 2, 'parts': parts})
+        archive = root/'pack.zip'
+        with zipfile.ZipFile(archive, 'w') as package:
+            package.writestr('test_parts/plugin.json', json.dumps(manifest))
+            package.writestr('test_parts/plugin.py', 'from ddm.plugins import Plugin\nplugin = Plugin()\n')
+            package.write(source, 'test_parts/icon.png')
+        manager = PluginManager(window, str(root/'plugins'), enabled=[])
+        manager.install_zip(str(archive))
+        manager.load()
+        window.plugins = manager
+        window.refresh_skin()
+        try:
+            assert window.skin_controller.override['version'] == 2
+            assert window.skin_controller.layer.path == background, 'parts-only pack must preserve the personal background'
+            assert '#ff114455' in tile.bottom.styleSheet()
+            assert '#ff123456' in window.sidebar.styleSheet()
+            assert icon_path(tile.pause_button).endswith('icon.png')
+            folder_button.grab()
+            folder = window.sidebar.get_folder(folder_id)
+            folder['icon'] = {'type': 'builtin', 'name': 'heart', 'color': 'pink'}
+            folder_button.refresh_theme()
+            individual = folder_button.icon().pixmap(18, 18).toImage()
+            theme.apply(theme.mode())
+            assert folder_button.icon().pixmap(18, 18).toImage() == individual, 'individual folder icons win over the package'
+            folder.pop('icon')
+            folder_button.refresh_theme()
+            assert not part_for(tile.reload_button), 'top controls are excluded'
+            icon_image = tile.pause_button.grab().toImage()
+            assert any(icon_image.pixelColor(x, y) == QColor('#ff8800')
+                       for x in range(icon_image.width()) for y in range(icon_image.height()))
+            tile.volume_button.set_state(False, 40, 4)
+            tile.volume_button.grab()
+            assert tile.volume_button.audio_channel == 4
+            dialog = SettingsDialog(window.settings, window.shortcuts, window, plugin_manager=manager)
+            dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+            dialog.move(-10000, -10000)
+            dialog.show()
+            app.processEvents()
+            assert '#ff334455' in dialog.styleSheet()
+            assert '#ff223344' in dialog.nav.styleSheet()
+            assert '#ff445566' in dialog.stack.styleSheet()
+            menu = QMenu(window)
+            menu.addAction('fixture')
+            menu.ensurePolished()
+            assert '#ff225544' in menu.styleSheet()
+            notice = ResultNotice(window)
+            notice.grab()
+            controls = dialog.appearance_page.skin_settings
+            assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
+            editor = PartSettings(window, dialog)
+            output = ROOT/'work/appearance-delivery'
+            output.mkdir(parents=True, exist_ok=True)
+            window.grab().save(str(output/'parts-main-test.png'))
+            dialog.grab().save(str(output/'parts-settings-test.png'))
+            editor.grab().save(str(output/'parts-editor-test.png'))
+            editor.part.setCurrentIndex(editor.part.findData('controls'))
+            check, edit = editor.fields['background']
+            check.setChecked(True)
+            edit.setText('#abcdef')
+            with patch.object(config, 'save') as save:
+                editor.apply_part()
+                assert save.called
+            assert values_for('controls')['background'] == '#abcdef'
+            assert window.current_state()['settings']['skin_parts']['controls']['background'] == '#abcdef'
+            with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(source), '')):
+                editor._choose('image')
+            assert editor.fields['image'][0].isChecked()
+            relative = editor.fields['image'][1].text()
+            assert (root/'utils/skins'/relative).is_file()
+            editor.apply_part()
+            source.unlink()
+            assert Path(values_for('controls')['image']).is_file(), 'imported art must survive source removal'
+            painted = tile.bottom.grab().toImage()
+            assert painted.pixelColor(painted.width()//2, painted.height()//2) == QColor('#ff8800')
+            window.set_skin_parts({'buttons.pause': {'icon': managed}, 'controls': {'light': {'background': '#fedcba'}}})
+            for mode in ('light', 'dark'):
+                theme.apply(mode)
+                assert values_for('controls')['background'] == ('#fedcba' if mode == 'light' else '#114455')
+            window.set_skin_parts({'buttons.pause': {'icon': managed}, 'controls': {'background': '#abcdef'}})
+            theme.apply('light')
+            assert values_for('controls')['background'] == '#abcdef'
+            theme.apply('dark')
+            editor.reset_part()
+            assert values_for('controls')['background'] == '#114455'
+            editor.use_builtin()
+            assert not values_for('controls')
+            assert 'skinPart="controls"' not in tile.bottom.styleSheet()
+            editor.reset_part()
+            assert values_for('controls')['background'] == '#114455'
+            assert [tile.video.styleSheet(), tile.stream_badge.styleSheet(), tile.title_badge.styleSheet(),
+                    window.sidebar._items[0].styleSheet()] == untouched
+            manager.enabled.clear()
+            window.refresh_skin()
+            assert 'skinPart="controls"' not in tile.bottom.styleSheet()
+            assert icon_path(tile.pause_button), 'personal icon survives package disable'
+            window.set_skin_parts({})
+            assert not icon_path(tile.pause_button)
+            assert int(tile.video.winId()) == handle
+            # V2 background remains individually editable without dropping the package.
+            manager.enabled.add('test_parts')
+            plugin = manager.plugins[0]
+            plugin.skin['background'] = 'icon.png'
+            window.refresh_skin()
+            controls.sync()
+            assert controls.choose.isEnabled() and window.skin_controller.layer.path
+            controls.mask_slider.setValue(60)
+            assert window.skin_controller.layer.path and window.skin_controller.layer.mask == 60
+            controls.reset()
+            assert not window.skin_controller.layer.path
+            controls._follow_package()
+            assert window.skin_controller.layer.path and window.skin_controller.layer.mask == 35
+            manager.enabled.clear()
+            window.refresh_skin()
+            editor.close()
+            dialog.close()
+        finally:
+            window.close()
+            from ddm.skin_parts import configure
+            configure({}, {})
+    print('PASS: parts ZIP install, protected areas, styling, real icons, editor, inheritance, mode overrides, reset and stable HWND')
+
+
+def write_demo():
+    """Build a harmless ordinary plugin ZIP with generated, non-user artwork."""
+    from PySide6.QtGui import QLinearGradient, QPainter, QPainterPath, QPen
+    from PySide6.QtCore import QRectF
+    output = ROOT/'work/appearance-delivery/skin_parts_demo.zip'
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as directory:
+        folder = Path(directory)
+        image = QImage(1280, 720, QImage.Format_RGB32)
+        painter = QPainter(image)
+        gradient = QLinearGradient(0, 0, 1280, 720)
+        gradient.setColorAt(0, QColor('#172B45'))
+        gradient.setColorAt(1, QColor('#4A657A'))
+        painter.fillRect(image.rect(), gradient)
+        painter.end()
+        image.save(str(folder/'background.png'))
+        for name in ('pause', 'play', 'volume', 'muted', 'folder'):
+            icon = QImage(48, 48, QImage.Format_ARGB32)
+            icon.fill(Qt.transparent)
+            painter = QPainter(icon)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor('#7DE0DD'), 3))
+            painter.setBrush(QColor('#7DE0DD'))
+            if name == 'pause':
+                for x in (14, 28):
+                    painter.drawRoundedRect(QRectF(x, 10, 6, 28), 2, 2)
+            elif name == 'play':
+                path = QPainterPath()
+                path.moveTo(15, 9)
+                path.lineTo(37, 24)
+                path.lineTo(15, 39)
+                path.closeSubpath()
+                painter.drawPath(path)
+            elif name == 'folder':
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(QRectF(6, 15, 36, 25), 4, 4)
+                painter.drawLine(9, 15, 9, 9)
+                painter.drawLine(9, 9, 23, 9)
+                painter.drawLine(23, 9, 29, 15)
+            else:
+                path = QPainterPath()
+                path.moveTo(8, 19)
+                path.lineTo(15, 19)
+                path.lineTo(24, 11)
+                path.lineTo(24, 37)
+                path.lineTo(15, 29)
+                path.lineTo(8, 29)
+                path.closeSubpath()
+                painter.drawPath(path)
+                if name == 'muted':
+                    painter.drawLine(31, 18, 41, 30)
+                    painter.drawLine(41, 18, 31, 30)
+                else:
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawArc(20, 11, 22, 26, -70*16, 140*16)
+            painter.end()
+            icon.save(str(folder/(name+'.png')))
+        parts = {
+            'sidebar': {'background': '#DA203346'},
+            'folders': {'background': '#AA2D465C', 'foreground': '#E7F1F8', 'radius': 10,
+                        'border_color': '#667D9AAF', 'border_width': 1, 'icon': 'folder.png'},
+            'controls': {'background': '#D0142D35', 'radius': 9},
+            'settings': {'background': '#1F3045'},
+            'settings.navigation': {'background': '#17283B', 'checked': {'background': '#325A76'}},
+            'settings.content': {'background': '#253950'},
+            'menus': {'background': '#253950', 'foreground': '#E7F1F8', 'radius': 8},
+            'dialogs': {'background': '#253950'},
+            'notices': {'background': '#253950', 'foreground': '#E7F1F8', 'radius': 12},
+            'buttons': {'background': '#354F68', 'foreground': '#E7F1F8', 'radius': 8,
+                        'hover': {'background': '#48738C'}, 'pressed': {'background': '#294357'},
+                        'checked': {'background': '#26767E'}, 'disabled': {'background': '#303D4A'}},
+            'buttons.pause': {'icon': 'pause.png', 'paused': {'icon': 'play.png'}},
+            'buttons.volume': {'icon': 'volume.png', 'muted': {'icon': 'muted.png'}},
+        }
+        for part, color in {'sidebar': '#DAE6F1F7', 'folders': '#DAE2EEF4', 'controls': '#D0DDEFF2',
+                'settings': '#ECF3F8', 'settings.navigation': '#DEE9F1', 'settings.content': '#F5F8FB',
+                'menus': '#ECF3F8', 'dialogs': '#ECF3F8', 'notices': '#ECF3F8', 'buttons': '#D8E7EF'}.items():
+            parts[part]['light'] = {'background': color}
+            if part in ('folders', 'menus', 'notices', 'buttons'):
+                parts[part]['light']['foreground'] = '#233C4F'
+        for state in ('hover', 'pressed', 'checked'):
+            parts['buttons'][state]['foreground'] = '#FFFFFF'
+        manifest = dict(id='skin_parts_demo', name='分区美化测试包', description='逐项测试分区、图标和个人覆盖',
+                        version='1.0.0', skin={'version': 2, 'background': 'background.png', 'mask': 25, 'parts': parts})
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as package:
+            package.writestr('skin_parts_demo/plugin.json', json.dumps(manifest, ensure_ascii=False, indent=2))
+            package.writestr('skin_parts_demo/plugin.py', 'from ddm.plugins import Plugin\nplugin = Plugin()\n')
+            for path in folder.iterdir():
+                package.write(path, 'skin_parts_demo/'+path.name)
+    print('Demo:', output)
+
+
 def wait_for(predicate):
     deadline = time.monotonic() + 10
     while not predicate() and time.monotonic() < deadline:
@@ -38,6 +310,12 @@ def wait_for(predicate):
 
 def main():
     app = QApplication([])
+    check_parts(app)
+    if '--make-demo' in sys.argv:
+        write_demo()
+        return
+    if '--parts-only' in sys.argv:
+        return
     module.StatusPoller = module.StatsPoller = SilentPoller
     with tempfile.TemporaryDirectory() as directory, patch.object(config, 'REPO', directory):
         folder = Path(directory)
@@ -216,6 +494,19 @@ def main():
             assert not window.settings['skin_sidebar'] and 'rgba(' not in window.sidebar.styleSheet()
             window.set_skin({'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True})
             dialog.reject()
+            # Exercise the new slots while the real VLC player is running.
+            audio = (tile.muted, tile.volume, tile.audio_channel)
+            with patch.object(window, 'start_tile') as restart, patch.object(window.recorder, 'stop') as stop:
+                for color in ('#345678', '#456789'):
+                    window.set_skin_parts({'controls': {'background': color},
+                                           'buttons.pause': {'icon': Path(custom).name}})
+                    tile.pause_button.grab()
+                    QTest.qWait(40)
+                window.set_skin_parts({})
+                restart.assert_not_called()
+                stop.assert_not_called()
+            assert (tile.muted, tile.volume, tile.audio_channel) == audio
+            assert window.players[tile] is live and int(tile.video.winId()) == hwnd
             video = folder/'background.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
                 '-i', 'testsrc2=size=320x180:rate=15', '-f', 'lavfi',

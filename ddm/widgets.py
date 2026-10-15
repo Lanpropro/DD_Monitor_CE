@@ -2842,6 +2842,11 @@ class FollowFolderButton(QToolButton):
         folder = self.sidebar.get_folder(self.folder_id)
         if folder is not None:
             if not folder.get('icon'):
+                from .skin_parts import icon_path
+                custom = icon_path(self)
+                if custom:
+                    self.setIcon(QIcon(custom))
+                    return
                 if self._default_icon is None or self._default_icon_type != folder['type']:
                     self._default_icon = folder_icon(folder, self)
                     self._default_icon_type = folder['type']
@@ -2892,15 +2897,21 @@ class FollowFolderButton(QToolButton):
         self._press_pos = None
 
     def paintEvent(self, event):
-        if self.sidebar.side != "top":
+        from .skin_parts import icon_path
+        folder = self.sidebar.get_folder(self.folder_id)
+        custom = icon_path(self) if folder and not folder.get('icon') else ''
+        if self.sidebar.side != "top" and not custom:
             super().paintEvent(event)
             return
         option = QStyleOptionToolButton()
         self.initStyleOption(option)
-        option.rect = QRect(0, 0, self.height(), self.width())
+        if custom:
+            option.icon = QIcon(custom)
         painter = QPainter(self)
-        painter.translate(self.width(), 0)
-        painter.rotate(90)
+        if self.sidebar.side == "top":
+            option.rect = QRect(0, 0, self.height(), self.width())
+            painter.translate(self.width(), 0)
+            painter.rotate(90)
         self.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, self)
 
     def _context_menu(self):

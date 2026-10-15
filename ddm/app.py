@@ -795,10 +795,19 @@ class MainWindow(QMainWindow):
         self.skin_controller.refresh()
 
     def set_skin(self, values):
-        if self.plugins.active_skin() is not None:
+        active = self.plugins.active_skin()
+        if active is not None and active['version'] == 1:
             self.refresh_skin()
             return
         self.settings.update(values)
+        self.refresh_skin()
+        config_module.save(self.current_state())
+
+    def set_skin_parts(self, values):
+        from .skin_parts import validate_parts
+        from pathlib import Path
+        validate_parts(values, Path(config_module.REPO) / 'utils' / 'skins')
+        self.settings['skin_parts'] = deepcopy(values)
         self.refresh_skin()
         config_module.save(self.current_state())
 
@@ -2354,6 +2363,12 @@ class MainWindow(QMainWindow):
         # 格子创建时接线一次；之后填入或替换房间不再重复连接。
         if getattr(tile, "_actions_wired", False):
             return
+        for attribute, key in (('pause_button', 'pause'), ('volume_button', 'volume'),
+                ('danmaku_button', 'danmaku'), ('danmaku_settings_button', 'danmaku_settings'),
+                ('recording_button', 'recording'), ('fullscreen_button', 'fullscreen')):
+            button = getattr(tile, attribute)
+            button.setProperty('skinPart', 'buttons.' + key)
+            button.setProperty('skinIconOnly', key in ('pause', 'volume', 'danmaku_settings', 'fullscreen'))
         tile.qualityChanged.connect(self._on_quality_changed)
         tile.muteToggled.connect(self._on_mute_changed)
         tile.volumeChanged.connect(self._on_volume_changed)

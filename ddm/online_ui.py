@@ -6,7 +6,7 @@ import tempfile
 import time
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal, QVariantAnimation
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
@@ -535,12 +535,23 @@ class UpdateNotice(QFrame):
             self.hide()
 
     def paintEvent(self, event):
+        from .skin_parts import values_for
+        from PySide6.QtGui import QPainterPath, QPixmap
+        custom = values_for('notices')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(theme.qcolor(theme.ELEVATED))
-        painter.setPen(QColor(131, 131, 145, 80))
+        painter.setBrush(theme.qcolor(custom.get('background', theme.ELEVATED)))
+        painter.setPen(Qt.NoPen if custom.get('border_width') == 0 else
+            QPen(theme.qcolor(custom.get('border_color', 'rgba(131, 131, 145, 0.31)')),
+                 custom.get('border_width', 1)))
+        radius = custom.get('radius', theme.RADIUS_MD)
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
-                                theme.RADIUS_MD, theme.RADIUS_MD)
+                                radius, radius)
+        if custom.get('image'):
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(self.rect()), radius, radius)
+            painter.setClipPath(clip)
+            painter.drawPixmap(self.rect(), QPixmap(custom['image']))
 
     def reposition(self):
         parent = self.parentWidget()

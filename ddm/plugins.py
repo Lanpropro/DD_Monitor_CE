@@ -17,8 +17,8 @@
 4. **弹幕发送**（``Plugin.send_danmaku``）—— 由插件实现怎么发，
    本体只在需要时调用。各家平台差异太大，塞进本体不划算。
 
-5. **背景皮肤**（``Plugin.skin`` / 清单 ``skin``）—— 包内图片或视频与主题遮罩，
-   装载后优先于用户自定义背景，停用或卸载后恢复用户选择。
+5. **皮肤美化**（``Plugin.skin`` / 清单 ``skin``）—— 背景、分区样式及按钮图标；
+   v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/skins.md。
 
 插件放 ``plugins/<插件名>/plugin.py``，里面必须有一个名为 ``plugin`` 的
 ``Plugin`` 实例（见 ``plugins/example/plugin.py``）。插件是**受信任的代码**，
@@ -279,7 +279,7 @@ class Plugin:
     #: 一句话说明，插件列表里展示
     description = ""
     version = ""
-    skin = None  # Optional {background: package-relative media path, mask: 0..80}.
+    skin = None  # Optional declarative skin v1/v2; see docs/skins.md.
 
     def __init__(self) -> None:
         self.context: PluginContext | None = None

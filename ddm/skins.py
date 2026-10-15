@@ -1,5 +1,6 @@
 """Local image/video backgrounds, independent of live-stream players."""
 import os
+import sys
 from pathlib import Path
 import time
 import uuid
@@ -70,19 +71,27 @@ class AssetImport(QThread):
 def plugin_skin(plugin, folder):
     """Resolve a declarative skin inside its own installed plugin folder."""
     spec = plugin.skin
-    if not isinstance(spec, dict) or not isinstance(spec.get('background'), str):
+    if not isinstance(spec, dict):
+        raise ValueError('皮肤必须是对象')
+    version = spec.get('version', 1)
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError('不支持的皮肤接口版本')
+    if not isinstance(spec.get('background', '' if version == 2 else None), str):
         raise ValueError('皮肤需要 background 相对路径')
     root = Path(folder).resolve()
-    relative = Path(spec['background'])
+    relative = Path(spec.get('background') or '')
     path = (root / relative).resolve()
     if relative.is_absolute() or not path.is_relative_to(root):
         raise ValueError('皮肤背景必须位于插件包内')
-    if path.suffix.lower() not in IMAGES | VIDEOS:
+    if (version == 1 or spec.get('background')) and path.suffix.lower() not in IMAGES | VIDEOS:
         raise ValueError('皮肤背景格式不受支持')
     mask = spec.get('mask', 35)
     if type(mask) is not int or not 0 <= mask <= 100:
         raise ValueError('皮肤 mask 必须是 0–100 的整数')
-    return {'path': str(path), 'mask': mask, 'owner': plugin.context.name, 'name': plugin.name}
+    from .skin_parts import validate_parts
+    parts = validate_parts(spec.get('parts', {}), root)
+    return {'path': str(path) if spec.get('background') else '', 'mask': mask,
+            'owner': plugin.context.name, 'name': plugin.name, 'version': version, 'parts': parts}
 
 
 class BackgroundLayer(QWidget):
@@ -199,6 +208,14 @@ class SkinController(QObject):
         self.override = None
         self.error = ''
         self.layer.failed.connect(self._failed)
+        sidebar = window.sidebar
+        for attribute, key in (('sort_button', 'sort'), ('refresh_button', 'refresh'),
+                ('appearance_button', 'appearance'), ('toggle_button', 'sidebar_toggle'),
+                ('settings_button', 'settings'), ('layout_button', 'layout'),
+                ('import_button', 'import'), ('add_button', 'add')):
+            button = getattr(sidebar, attribute)
+            button.setProperty('skinPart', 'buttons.' + key)
+            button.setProperty('skinIconOnly', key in ('sort', 'refresh', 'appearance', 'sidebar_toggle'))
 
     def refresh(self):
         if getattr(self.window, '_closing', False):
@@ -206,8 +223,17 @@ class SkinController(QObject):
         manager = getattr(self.window, 'plugins', None)
         self.override = manager.active_skin() if manager is not None else None
         settings = self.window.settings
-        path = (self.override['path'] if self.override is not None else settings.get('skin_background', ''))
-        if path and self.override is None:
+        from .skin_parts import configure, validate_parts
+        try:
+            personal = validate_parts(settings.get('skin_parts', {}), Path(config.REPO) / 'utils' / 'skins')
+        except (OSError, ValueError) as error:
+            personal = {}
+            print(f'[皮肤] 个人分区配置无效：{error}', file=sys.stderr)
+        configure(self.override.get('parts', {}) if self.override else {}, personal)
+        use_package = self.override is not None and (self.override['version'] == 1
+            or (bool(self.override['path']) and not settings.get('skin_background_override', False)))
+        path = self.override['path'] if use_package else settings.get('skin_background', '')
+        if path and not use_package:
             root = Path(config.REPO).resolve()
             path = (root / path).resolve()
             if not path.is_relative_to(root / 'utils' / 'skins'):
@@ -217,8 +243,11 @@ class SkinController(QObject):
             mask = max(0, min(100, int(settings.get('skin_mask', 35))))
         except (TypeError, ValueError):
             mask = 35
-        self.layer.mask = self.override['mask'] if self.override is not None else mask
-        sidebar = self.override is not None or bool(settings.get('skin_sidebar', False))
+        legacy = self.override is not None and self.override['version'] == 1
+        self.layer.mask = self.override['mask'] if use_package and (legacy or not settings.get('skin_mask_override')) else mask
+        sidebar = bool(settings.get('skin_sidebar', False))
+        if use_package and (legacy or not settings.get('skin_sidebar_override')):
+            sidebar = True
         theme.set_skin_active(bool(path), sidebar)
         self.layer.load(str(path) if path else '')
         self.layer._visibility()

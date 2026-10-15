@@ -274,11 +274,16 @@ class ThemeSignals(QObject):
             self._repairing_palette = False
 
     def eventFilter(self, widget, event):
+        if event.type() == QEvent.Paint and isinstance(widget, QWidget):
+            from .skin_parts import paint_button
+            if paint_button(widget):
+                return True
         # Newly opened settings/popups need the same exceptions as existing UI.
         if event.type() == QEvent.Polish and isinstance(widget, QWidget):
             refresh_theme_properties(widget)
         if event.type() == QEvent.Polish and isinstance(widget, QWidget):
-            extra = _light_style(widget) + _skin_style(widget)
+            from .skin_parts import style_for
+            extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
             if extra and widget not in _styles:
                 source = widget.styleSheet()
                 styled = source + '\n' + extra
@@ -354,7 +359,8 @@ def apply(value):
             patterns[key] = pattern, replacements
         pattern, replacements = patterns[key]
         styled = pattern.sub(lambda match: replacements[match.group()], source) if source else ''
-        extra = _light_style(widget) + _skin_style(widget)
+        from .skin_parts import style_for
+        extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         if extra:
             styled += '\n' + extra
         if styled != widget.styleSheet():

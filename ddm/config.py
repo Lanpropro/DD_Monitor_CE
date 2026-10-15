@@ -25,6 +25,10 @@ DEFAULT_SETTINGS = {
     "skin_background": "",
     "skin_sidebar": False,
     "skin_mask": 35,
+    "skin_parts": {},
+    "skin_background_override": False,
+    "skin_mask_override": False,
+    "skin_sidebar_override": False,
     "auto_update": False,     # 启动时检查本体新版，悬浮提醒后由用户选择安装
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
