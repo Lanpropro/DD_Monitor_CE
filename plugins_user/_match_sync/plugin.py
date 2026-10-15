@@ -22,6 +22,8 @@ class EntryButton(QToolButton):
         self.sidebar = sidebar
         self._top = None
         self._mode = False
+        self._closing = False
+        self._compact_width = 0
         self._paint_width = None
         self._stretch = QVariantAnimation(self)
         self._stretch.setDuration(160)
@@ -53,16 +55,22 @@ class EntryButton(QToolButton):
         self._place()
 
     def set_mode(self, active):
-        old_width = self.width()
-        changed = self._mode != bool(active)
+        if self._mode == bool(active):
+            return
+        old_width = self._paint_width if self._paint_width is not None else self.width()
+        if active and not self._closing:
+            self._compact_width = self.width()
         self._mode = bool(active)
         self._stretch.stop()
         self._paint_width = None
+        self._closing = bool(not active and self.isVisible() and motion.enabled()
+                             and old_width > self._compact_width)
         self._place()
         self.parentWidget().layout().activate()
-        if changed and active and self.isVisible() and motion.enabled() and self.width() > old_width:
+        target = self._compact_width if self._closing else self.width()
+        if self.isVisible() and motion.enabled() and target != old_width:
             self._stretch.setStartValue(float(old_width))
-            self._stretch.setEndValue(float(self.width()))
+            self._stretch.setEndValue(float(target))
             self._stretch.start()
         self.update()
 
@@ -72,6 +80,10 @@ class EntryButton(QToolButton):
 
     def _stretch_finished(self):
         self._paint_width = None
+        if self._closing:
+            self._closing = False
+            self._place()
+            self.parentWidget().layout().activate()
         self.update()
 
     def paintEvent(self, event):
@@ -85,6 +97,8 @@ class EntryButton(QToolButton):
         painter.drawComplexControl(QStyle.CC_ToolButton, option)
 
     def _set_side(self, side):
+        self._stretch.stop()
+        self._stretch_finished()
         # The host assumes two tool buttons while constructing its portrait row.
         # Remove only our entry before that construction, then place it afterward.
         if side == "top" and self.parentWidget() is self.sidebar.tool_row:
@@ -94,8 +108,11 @@ class EntryButton(QToolButton):
         self._place()
 
     def eventFilter(self, watched, event):
-        if watched is self.sidebar.layout_button and event.type() == QEvent.Show and self._mode:
+        if watched is self.sidebar.layout_button and event.type() == QEvent.Show and (self._mode or self._closing):
             watched.hide()
+        if watched is self.sidebar and event.type() == QEvent.Resize and self._closing:
+            self._stretch.stop()
+            self._stretch_finished()
         if watched is self.sidebar and event.type() in (
                 QEvent.LayoutRequest, QEvent.Resize, QEvent.Show):
             self._placement.start(0)
@@ -103,8 +120,9 @@ class EntryButton(QToolButton):
 
     def _place(self):
         sidebar = self.sidebar
-        top = getattr(sidebar, "side", "left") == "top" and not self._mode
-        sidebar.layout_button.setVisible(not self._mode)
+        occupied = self._mode or self._closing
+        top = getattr(sidebar, "side", "left") == "top" and not occupied
+        sidebar.layout_button.setVisible(not occupied)
         if top:
             parent = sidebar._bar_row
             box = sidebar._bar_row_box
@@ -132,7 +150,7 @@ class EntryButton(QToolButton):
             box.insertWidget(box.indexOf(anchor) if top else 0, self)
         self.setVisible(top or not getattr(sidebar, "collapsed", False))
         if not top:
-            box.setStretch(box.indexOf(self), int(self._mode))
+            box.setStretch(box.indexOf(self), int(occupied))
 
     def detach(self):
         if self._set_side_original is not None and self.sidebar.set_side == self._set_side:

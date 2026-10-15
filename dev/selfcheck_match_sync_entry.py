@@ -111,10 +111,42 @@ for side in ('left', 'top', 'left'):
     assert entry.width() == width, 'The stretch is painted without repeatedly relaying out the sidebar'
     entry._stretch.setCurrentTime(160)
     assert entry._paint_width is None
+    with patch.object(motion, 'enabled', return_value=True):
+        entry.set_mode(False)
+        assert entry._closing and sidebar.layout_button.isHidden()
+        assert entry._stretch.startValue() == width and entry._stretch.endValue() == old_width
+        entry._stretch.setCurrentTime(80)
+        halfway = entry._paint_width
+        assert old_width <= halfway < width and entry.width() == width
+        # Reopening midway reverses from the visible edge, without a jump.
+        entry.set_mode(True)
+        assert not entry._closing and entry._stretch.startValue() == halfway
+        entry._stretch.setCurrentTime(160)
+        entry.set_mode(False)
+        entry._stretch.setCurrentTime(160)
+    settle()
+    assert not entry._closing and entry._paint_width is None
+    assert not sidebar.layout_button.isHidden()
+    assert entry.width() == old_width
+    with patch.object(motion, 'enabled', return_value=True):
+        entry.set_mode(True)
+        entry._stretch.setCurrentTime(160)
     with patch.object(motion, 'enabled', return_value=False):
         entry.set_mode(False)
     settle()
     assert not sidebar.layout_button.isHidden()
+sidebar.set_side('top')
+settle()
+assert native_geometry() == baseline
+with patch.object(motion, 'enabled', return_value=True):
+    entry.set_mode(True)
+    entry._stretch.setCurrentTime(160)
+    entry.set_mode(False)
+    assert entry._closing
+    sidebar.set_side('left')
+settle()
+assert not entry._closing and not sidebar.layout_button.isHidden()
+assert entry.parentWidget() is sidebar.tool_row
 sidebar.set_side('top')
 settle()
 assert native_geometry() == baseline
