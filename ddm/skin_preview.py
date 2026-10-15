@@ -43,7 +43,8 @@ class SkinPreview(QWidget):
         self.state = ''
         self.background = None
         self.background_mask = 35
-        self.interface_image = None
+        self.interface_images = {}
+        self._capturing = False
         self.regions = []
         self.protected = []
         self.editable_parts = editable_parts
@@ -281,15 +282,20 @@ class SkinPreview(QWidget):
 
     def capture_interface(self, owner):
         """Render real, isolated widgets; drafts never change the running UI."""
+        if self._capturing:
+            return
+        self._capturing = True
+        scene = self.scene
         from .dialogs import SettingsDialog
         from .widgets import LayoutPicker
         from .skin_parts import style_for
-        widget = (SettingsDialog(owner.settings, owner.shortcuts, preview=True)
-                  if self.scene == 'settings' else LayoutPicker(owner.sidebar._layout_id, presets_host=owner))
-        widget.setAttribute(Qt.WA_DontShowOnScreen)
-        widget.setAttribute(Qt.WA_ShowWithoutActivating)
-        widget.setWindowFlags(Qt.Widget)
+        widget = None
         try:
+            widget = (SettingsDialog(owner.settings, owner.shortcuts, preview=True)
+                      if scene == 'settings' else LayoutPicker(owner.sidebar._layout_id, presets_host=owner))
+            widget.setAttribute(Qt.WA_DontShowOnScreen)
+            widget.setAttribute(Qt.WA_ShowWithoutActivating)
+            widget.setWindowFlags(Qt.Widget)
             widget.ensurePolished()
             for child in (widget, *widget.findChildren(QWidget)):
                 child.ensurePolished()
@@ -298,10 +304,18 @@ class SkinPreview(QWidget):
                     child.setStyleSheet(child.styleSheet() + '\n' + extra)
             widget.show()
             widget.layout().activate()
-            self.interface_image = widget.grab()
+            self.interface_images[scene] = widget.grab()
         finally:
-            widget.hide()
-            widget.deleteLater()
+            if widget is not None:
+                widget.hide()
+                widget.deleteLater()
+            self._capturing = False
+        if self.scene != scene and self.scene != 'main':
+            self.capture_interface(owner)
+
+    @property
+    def interface_image(self):
+        return self.interface_images.get(self.scene)
 
     def _interface(self, painter, part):
         image = self.interface_image

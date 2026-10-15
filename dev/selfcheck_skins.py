@@ -19,7 +19,7 @@ from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QImage
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea, QToolButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QToolButton
 from ddm import app as module, config, motion, theme
 from ddm.dialogs import SettingsDialog
 from ddm.plugins import PluginManager, read_manifest
@@ -136,6 +136,12 @@ def check_parts(app):
             notice.grab()
             controls = dialog.appearance_page.skin_settings
             assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
+            assert controls.isHidden() and controls.parts_button.text() == '分区美化'
+            appearance = dialog.appearance_page
+            assert controls.parts_button.parentWidget() is not controls
+            forbidden = ('背景皮肤', '颜色模式', '当前：', '立即生效并保存', '主界面入口：', '切换不重连直播')
+            assert not any(label.isVisible() and any(text in label.text() for text in forbidden)
+                           for label in appearance.findChildren(QLabel))
             editor = PartSettings(window, dialog, professional=True)
             editor.setAttribute(Qt.WA_ShowWithoutActivating)
             editor.move(-10000, -10000)
@@ -227,6 +233,34 @@ def check_parts(app):
                        for x in range(capture.width()) for y in range(capture.height())), 'Management button must paint the custom icon'
             assert int(tile.video.winId()) == handle
             window.set_skin_parts({})
+            # Busy or bright wallpaper cannot show through label/selection plates.
+            picker.set_group('普通布局')
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                samples = []
+                for color in ('#000000', '#ffffff'):
+                    background_source = root / ('layout-' + color[1:] + '.png')
+                    backdrop = QImage(32, 32, QImage.Format_RGB32)
+                    backdrop.fill(QColor(color))
+                    backdrop.save(str(background_source))
+                    relative = Path(import_asset(background_source)).relative_to('utils/skins').as_posix()
+                    window.set_skin_parts({'layout_menu': {'image': relative}})
+                    app.processEvents()
+                    capture = picker.grab().toImage()
+                    dpr = capture.devicePixelRatio()
+                    selected = next(card for card in picker._cards['普通布局'] if card.isChecked())
+                    heading = picker._sections['普通布局'][0]
+                    tab = picker._tabs['普通布局']
+                    pixels = []
+                    for control in (selected, heading, tab):
+                        point = control.mapTo(picker, QPoint(control.width()-10, 8))
+                        pixels.append(capture.pixelColor(round(point.x()*dpr), round(point.y()*dpr)))
+                    samples.append(pixels)
+                assert samples[0] == samples[1], 'Wallpaper must not bleed through selected cards, headings or tabs'
+                assert all(pixel.alpha() == 255 for pixel in samples[0])
+                picker.grab().save(str(output/f'layout-wallpaper-readable-{mode}.png'))
+            theme.apply('dark')
+            window.set_skin_parts({})
             # Restore the miniature editor as the default entry, preserving saved artwork.
             window.set_skin_parts({'layout_menu': {'image': managed},
                                    'settings': {'radius': 13, 'foreground': '#abcdef'}})
@@ -267,6 +301,19 @@ def check_parts(app):
                         page.grab().save(str(output/f'parts-basic-{part}-{mode}.png'))
                 theme.apply('dark')
                 page._select_part('settings')
+                original_show = SettingsDialog.show
+                def change_scene_while_rendering(widget):
+                    original_show(widget)
+                    page._select_part('layout_menu')
+                with patch.object(SettingsDialog, 'show', change_scene_while_rendering):
+                    page.preview.capture_interface(window)
+                assert page.preview.scene == 'popups'
+                settings_image = page.preview.interface_images['settings']
+                layout_image = page.preview.interface_images['popups']
+                assert settings_image.toImage() != layout_image.toImage()
+                assert page.preview.interface_image.cacheKey() == layout_image.cacheKey()
+                page._select_part('settings')
+                assert page.preview.interface_image.cacheKey() != layout_image.cacheKey()
                 row = dialog.nav.currentRow()
                 with patch('ddm.dialogs.PluginSettingsPage', side_effect=AssertionError('Preview must not create plugin workers')), \
                         patch('ddm.online_ui.AppUpdatePage', side_effect=AssertionError('Preview must not create the updater')), \
@@ -317,6 +364,11 @@ def check_parts(app):
                 with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(source), '')):
                     page._choose('image')
                 page.apply_part()
+                assert page.result() == PartSettings.Accepted and page.isHidden(), 'Apply must save and close'
+                page.show()
+                with patch.object(window, 'set_skin_parts', side_effect=ValueError('Fixture save failure')):
+                    page.apply_part()
+                assert page.isVisible() and 'Fixture save failure' in page.status.text(), 'Save failures must keep the editor open'
                 assert window.settings['skin_parts']['settings']['radius'] == 13
                 assert window.settings['skin_parts']['settings']['foreground'] == '#abcdef'
                 assert values_for('settings.navigation')['background'] == '#00000000'
@@ -565,7 +617,8 @@ def main():
         layer = window.skin_controller.layer
         assert layer.player is None, 'Default/image skins must not create a video decoder'
         default_controls = SkinSettings(window.settings, window.skin_controller, window)
-        assert default_controls.sidebar_toggle.isHidden(), 'Default background must hide the coverage switch'
+        assert not hasattr(default_controls, 'sidebar_toggle'), 'Sidebar coverage is always enabled'
+        assert default_controls.video_toggle.isHidden() and default_controls.values()['skin_video_enabled']
         default_controls.deleteLater()
         hwnd = int(window.wall.tiles[0].video.winId())
         with patch.object(motion, 'enabled', return_value=False), patch.object(config, 'save') as save:
@@ -595,7 +648,7 @@ def main():
             window.set_skin({'skin_mask': 35})
             window.set_appearance('light')
             QTest.qWait(30)
-            assert 'rgba(' not in window.sidebar.styleSheet(), 'Sidebar coverage must be opt-in'
+            assert 'rgba(' in window.sidebar.styleSheet(), 'Background must cover the sidebar by default'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
                 '-i', 'color=c=blue:size=320x180:rate=15', '-t', '20', '-c:v', 'libx264',
@@ -615,23 +668,15 @@ def main():
             dialog.show()
             controls = dialog.appearance_page.skin_settings
             assert controls.choose.isEnabled()
-            assert not controls.sidebar_toggle.isHidden() and not controls.sidebar_toggle.isChecked()
-            sidebar_point = QPoint(window.sidebar.width()//2, window.sidebar.height()-8)
-            plain_color = window.sidebar.grab().toImage().pixelColor(sidebar_point)
-            controls.sidebar_toggle.setChecked(True)
+            assert not hasattr(controls, 'sidebar_toggle')
             QTest.qWait(30)
-            covered_color = window.sidebar.grab().toImage().pixelColor(sidebar_point)
-            assert 'rgba(' in window.sidebar.styleSheet() and covered_color != plain_color
-            assert window.settings['skin_sidebar'] and save.call_args.args[0]['settings']['skin_sidebar']
+            assert 'rgba(' in window.sidebar.styleSheet()
+            assert controls.values()['skin_sidebar']
             assert window.settings['skin_background'] == path and layer.mask == 35
             window.set_appearance('dark')
             assert 'rgba(' in window.sidebar.styleSheet()
             window.set_appearance('light')
-            controls.sidebar_toggle.setChecked(False)
-            QTest.qWait(30)
-            assert window.sidebar.grab().toImage().pixelColor(sidebar_point) == plain_color
-            assert 'rgba(' not in window.sidebar.styleSheet()
-            controls.sidebar_toggle.setChecked(True)
+            assert 'rgba(' in window.sidebar.styleSheet()
             next_source = folder / 'next.png'
             image.fill(QColor('#426CDB'))
             image.save(str(next_source))
@@ -666,7 +711,7 @@ def main():
             window.refresh_skin()
             assert window.skin_controller.override['owner'] == 'test_skin'
             assert not controls.choose.isEnabled() and not controls.mask_slider.isEnabled()
-            assert controls.sidebar_toggle.isHidden() and not controls.sidebar_toggle.isEnabled()
+            assert not controls.video_toggle.isEnabled()
             assert controls.values()['skin_sidebar'], 'Plugin ownership must preserve the user preference'
             assert controls.mask_slider.value() == 20 and controls.values()['skin_mask'] == 50
             assert layer.mask == 20 and layer.image.pixelColor(0, 0) == QColor('#E95C93')
@@ -676,7 +721,7 @@ def main():
             window.refresh_skin()
             assert controls.choose.isEnabled() and layer.mask == 50
             assert controls.mask_slider.value() == 50
-            assert not controls.sidebar_toggle.isHidden() and controls.sidebar_toggle.isChecked()
+            assert controls.values()['skin_sidebar']
             assert 'rgba(' in window.sidebar.styleSheet()
             assert layer.image.pixelColor(0, 0) == QColor('#426CDB')
             manager.enabled.add('test_skin')
@@ -702,8 +747,7 @@ def main():
             window.grab().save(str(output/'skin-light.png'))
             dialog.grab().save(str(output/'skin-settings.png'))
             controls.reset()
-            assert controls.sidebar_toggle.isHidden() and not controls.sidebar_toggle.isChecked()
-            assert not window.settings['skin_sidebar'] and 'rgba(' not in window.sidebar.styleSheet()
+            assert window.settings['skin_sidebar'] and 'rgba(' not in window.sidebar.styleSheet()
             window.set_skin({'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True})
             dialog.reject()
             # Exercise the new slots while the real VLC player is running.
@@ -741,6 +785,38 @@ def main():
             assert layer.player is player and not video_editor.findChildren(QMediaPlayer), 'Preview must reuse the existing decoder'
             assert layer.player.audioOutput() is None and layer.player.loops() == QMediaPlayer.Infinite
             assert layer.player.playbackState() == QMediaPlayer.PlayingState
+            video_controls = video_editor.background_controls
+            assert video_controls.video_toggle.isVisible() and video_controls.video_toggle.isChecked()
+            wait_for(lambda: layer.player.position() >= 350)
+            late_frame = layer.image.copy()
+            video_controls.video_toggle.setChecked(False)
+            wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PausedState)
+            first_frame = layer.image.copy()
+            assert first_frame != late_frame and layer.player.position() < 200, 'Static mode must decode the beginning, not freeze the current frame'
+            assert not window.settings['skin_video_enabled'] and not video_controls.values()['skin_video_enabled']
+            assert not save.call_args.args[0]['settings']['skin_video_enabled']
+            QTest.qWait(250)
+            assert layer.image == first_frame and video_editor.preview.background == first_frame
+            window.set_skin({'skin_mask': 45})
+            assert layer.image == first_frame and layer.player.playbackState() == QMediaPlayer.PausedState
+            window.hide()
+            window.show()
+            QTest.qWait(60)
+            assert layer.player.playbackState() == QMediaPlayer.PausedState and layer.image == first_frame
+            # Loading saved video settings starts at the same first frame.
+            layer.load('')
+            window.refresh_skin()
+            wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PausedState)
+            assert layer.image == first_frame and not video_controls.video_toggle.isChecked()
+            video_controls.video_toggle.setChecked(True)
+            wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PlayingState)
+            video_controls.video_toggle.setChecked(False)
+            wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PausedState)
+            assert layer.image == first_frame, 'Toggling off repeatedly must select the same starting frame'
+            video_controls.import_file(str(video))
+            wait_for(lambda: video_controls.job is None)
+            wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PlayingState)
+            assert video_controls.video_toggle.isChecked() and window.settings['skin_video_enabled'], 'New videos start enabled'
             window.set_skin({'skin_mask': 100})
             wait_for(lambda: layer.player.playbackState() == QMediaPlayer.PausedState)
             frame = layer.image
@@ -786,7 +862,7 @@ def main():
         assert restored.settings['skin_sidebar'] and 'rgba(' in restored.sidebar.styleSheet()
         restored.close()
         theme.set_skin_active(False)
-    print('PASS: copied/persisted image, opt-in sidebar coverage and conditional controls, asynchronous import, translucent panels, plugin install/override/disable/remove, path validation, muted looping video, pause/resume and stable video HWND')
+    print('PASS: copied/persisted image, default sidebar coverage, asynchronous import, translucent panels, plugin ownership, path validation, muted video/first-frame mode, pause/resume and stable video HWND')
 
 
 if __name__ == '__main__':

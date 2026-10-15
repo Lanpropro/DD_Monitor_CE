@@ -100,6 +100,7 @@ class RoomPresetsPage(QWidget):
         columns = max(1, (max(self.picker.width(), 460) - 32) // 256)
         if not records:
             label = QLabel("尚未保存直播间组合\n点击右上方“保存当前组合…”开始")
+            label.setObjectName("SectionLabel")
             label.setAlignment(Qt.AlignCenter)
             self.grid.addWidget(label, 0, 0, 1, columns)
         try:

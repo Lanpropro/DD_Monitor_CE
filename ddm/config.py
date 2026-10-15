@@ -23,7 +23,8 @@ DEFAULT_VOLUME = 42
 DEFAULT_SETTINGS = {
     "appearance_mode": "dark",
     "skin_background": "",
-    "skin_sidebar": False,
+    "skin_sidebar": True,
+    "skin_video_enabled": True,
     "skin_mask": 35,
     "skin_parts": {},
     "skin_background_override": False,

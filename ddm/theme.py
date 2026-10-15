@@ -986,7 +986,7 @@ QPushButton#PrimaryButton:pressed {{
     color: {TEXT1};
 }}
 #LayoutCard:checked {{
-    background: {ACCENT_SOFT};
+    background: {CONTENT_HOVER};
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
@@ -1008,11 +1008,13 @@ QPushButton#PrimaryButton:pressed {{
     color: {TEXT1};
 }}
 #PickerTab:checked {{
-    background: {ACCENT_SOFT};
+    background: {CONTENT_HOVER};
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
-#LayoutPicker #SectionLabel {{color: {TEXT2};}}
+#LayoutPicker #SectionLabel {{
+    color: {TEXT1}; background: {CONTENT}; border-radius: 6px; padding: 4px 8px;
+}}
 #LayoutResetButton, #PresetManageButton {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER_STRONG};
     border-radius: 8px; min-height: 28px; padding: 2px 10px;
@@ -1024,7 +1026,7 @@ QPushButton#PrimaryButton:pressed {{
 #RoomPresetEntry {{
     background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
 }}
-#RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {ACCENT_SOFT};}}
+#RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {CONTENT_HOVER};}}
 #RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
 #RoomPresetEntry QPushButton[deleteConfirm="true"] {{border-color: {ERROR};}}
 #RoomPresetEntry #LayoutCard {{

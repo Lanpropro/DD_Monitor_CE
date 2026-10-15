@@ -776,10 +776,7 @@ class AppearanceSettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
-        layout.addLayout(_page_head("外观", "设置软件界面的颜色模式，视频画面保持原有颜色"))
-        title = QLabel("颜色模式")
-        title.setObjectName("SettingsTitle")
-        layout.addWidget(title)
+        layout.addLayout(_page_head("外观", ""))
         row = QHBoxLayout()
         self.buttons = {}
         self.group = QButtonGroup(self)
@@ -794,18 +791,10 @@ class AppearanceSettingsPage(QWidget):
             button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
             row.addWidget(button)
         layout.addLayout(row)
-        self.current_label = QLabel()
-        self.current_label.setObjectName("SettingsHint")
-        layout.addWidget(self.current_label)
-        for text in ("立即生效并保存，无需重启。", "主界面入口：关注栏排序和刷新之间的圆形图标。",
-                     "切换不重连直播，不中断录制与弹幕。"):
-            note = QLabel(text)
-            note.setWordWrap(True)
-            note.setObjectName("SettingsHint")
-            layout.addWidget(note)
         from .skin_settings import SkinSettings
         self.skin_settings = SkinSettings(settings, skin_controller, self)
-        layout.addWidget(self.skin_settings)
+        self.skin_settings.hide()
+        layout.addWidget(self.skin_settings.parts_button)
         layout.addStretch(1)
         self._mode = theme.normalize_mode(settings.get("appearance_mode"))
         self.sync(self._mode)
@@ -814,8 +803,6 @@ class AppearanceSettingsPage(QWidget):
     def sync(self, mode):
         self._mode = mode
         self.buttons[mode].setChecked(True)
-        actual = "浅色" if theme.is_light() else "深色"
-        self.current_label.setText("当前：" + actual + ("（跟随系统）" if mode == "system" else ""))
 
     def _choose(self, mode):
         self.sync(mode)
@@ -826,7 +813,6 @@ class AppearanceSettingsPage(QWidget):
 
     def reset(self):
         self._choose("dark")
-        self.skin_settings.reset()
 
 
 class SettingsDialog(QDialog):

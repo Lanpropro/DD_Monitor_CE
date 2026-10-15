@@ -104,6 +104,7 @@ class BackgroundLayer(QWidget):
         self._window = window
         self.image = None
         self.mask = 35
+        self.video_enabled = True
         self.path = ''
         self._last_frame = 0
         self.player = None
@@ -115,14 +116,16 @@ class BackgroundLayer(QWidget):
         self.lower()
         self.hide()
 
-    def load(self, path):
-        if path == self.path:
+    def load(self, path, *, video_enabled=True):
+        if path == self.path and video_enabled == self.video_enabled:
             return
         if self.player is not None:
             self.player.stop()
             self.player.setSource(QUrl())
         self.image = None
         self.path = path
+        self.video_enabled = video_enabled
+        self._last_frame = 0
         self.error = ''
         if path:
             try:
@@ -153,13 +156,17 @@ class BackgroundLayer(QWidget):
         now = time.monotonic()
         if (self.player is None or self.player.source().isEmpty()
                 or Path(self.path).suffix.lower() not in VIDEOS
-                or self.mask == 100 or not self._window.isVisible() or self._window.isMinimized()
+                or (self.mask == 100 and self.video_enabled)
+                or (not self.video_enabled and self.image is not None)
+                or not self._window.isVisible() or self._window.isMinimized()
                 or self.error or not frame.isValid() or now - self._last_frame < 1 / 30):
             return
         self._last_frame = now
         image = frame.toImage()
         if not image.isNull():
             self.image = image
+            if not self.video_enabled:
+                self.player.pause()
             self.update()
             self.frameReady.emit()
 
@@ -175,7 +182,9 @@ class BackgroundLayer(QWidget):
     def _visibility(self):
         if self.player is None or self.player.source().isEmpty() or self.error:
             return
-        if self._window.isVisible() and not self._window.isMinimized() and self.mask < 100:
+        needs_frame = not self.video_enabled and self.image is None
+        if (self._window.isVisible() and not self._window.isMinimized()
+                and (needs_frame or (self.video_enabled and self.mask < 100))):
             self.player.play()
         else:
             self.player.pause()
@@ -247,11 +256,8 @@ class SkinController(QObject):
             mask = 35
         legacy = self.override is not None and self.override['version'] == 1
         self.layer.mask = self.override['mask'] if use_package and (legacy or not settings.get('skin_mask_override')) else mask
-        sidebar = bool(settings.get('skin_sidebar', False))
-        if use_package and (legacy or not settings.get('skin_sidebar_override')):
-            sidebar = True
-        theme.set_skin_active(bool(path), sidebar)
-        self.layer.load(str(path) if path else '')
+        theme.set_skin_active(bool(path), True)
+        self.layer.load(str(path) if path else '', video_enabled=bool(settings.get('skin_video_enabled', True)))
         self.layer._visibility()
         self.error = self.layer.error
         self.layer.update()

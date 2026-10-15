@@ -38,7 +38,7 @@ class SkinSettings(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.path = settings.get('skin_background', '')
-        self._sidebar = bool(settings.get('skin_sidebar', False))
+        self._video_enabled = bool(settings.get('skin_video_enabled', True))
         self.job = None
         self._overrides = {key: bool(settings.get(key, False)) for key in
                            ('skin_background_override', 'skin_mask_override', 'skin_sidebar_override')}
@@ -80,16 +80,15 @@ class SkinSettings(QWidget):
         mask_row.addWidget(self.mask_label)
         self.mask_slider.valueChanged.connect(self._mask_changed)
         layout.addLayout(mask_row)
-        self.sidebar_toggle = QCheckBox('背景覆盖左侧关注栏')
-        self.sidebar_toggle.setChecked(bool(settings.get('skin_sidebar', False)))
-        self.sidebar_toggle.toggled.connect(self._sidebar_changed)
-        layout.addWidget(self.sidebar_toggle)
-        note = QLabel('图片居中铺满；视频静音循环，最小化时暂停。文件复制到软件目录，立即生效并保存。'
-                      '美化包沿用插件安装入口；新版美化包可继续单独修改，旧版背景插件仍保留接管行为。')
+        self.video_toggle = QCheckBox('启用视频')
+        self.video_toggle.setChecked(self._video_enabled)
+        self.video_toggle.toggled.connect(self._video_changed)
+        layout.addWidget(self.video_toggle)
+        note = QLabel('图片居中铺满；视频静音循环，最小化时暂停。关闭“启用视频”后使用视频首帧作为静态背景。')
         note.setWordWrap(True)
         note.setObjectName('SettingsHint')
         layout.addWidget(note)
-        self.parts_button = QPushButton('分区美化（界面预览）')
+        self.parts_button = QPushButton('分区美化')
         self.parts_button.setObjectName('IconButton')
         self.parts_button.setEnabled(controller is not None)
         self.parts_button.clicked.connect(self._edit_parts)
@@ -101,7 +100,7 @@ class SkinSettings(QWidget):
 
     def values(self):
         return {'skin_background': self.path, 'skin_mask': self._mask,
-                'skin_sidebar': self._sidebar, **self._overrides}
+                'skin_sidebar': True, 'skin_video_enabled': self._video_enabled, **self._overrides}
 
     def _locked(self):
         override = self.controller.override if self.controller else None
@@ -121,24 +120,24 @@ class SkinSettings(QWidget):
             settings = self.controller.window.settings
             self.path = settings.get('skin_background', '')
             self._mask = settings.get('skin_mask', 35)
-            self._sidebar = bool(settings.get('skin_sidebar', False))
+            self._video_enabled = bool(settings.get('skin_video_enabled', True))
             self._overrides = {key: bool(settings.get(key, False)) for key in self._overrides}
         override = self.controller.override if self.controller is not None else None
         locked = self._locked() or self.job is not None
-        for widget in (self.choose, self.clear, self.mask_slider, self.sidebar_toggle):
+        for widget in (self.choose, self.clear, self.mask_slider, self.video_toggle):
             widget.setEnabled(not locked)
         self.follow.setVisible(override is not None and not self._locked())
         self.follow.setEnabled(not locked)
-        self.sidebar_toggle.setVisible(bool(self.path or (override or {}).get('path')) and not self._locked()
-            and not (self.controller is not None and self.controller.error))
+        from .skins import VIDEOS
+        path = self.controller.layer.path if self.controller else self.path
+        self.video_toggle.setVisible(Path(path).suffix.lower() in VIDEOS)
         value = self.controller.layer.mask if self.controller else self._mask
         previous = self.mask_slider.blockSignals(True)
         self.mask_slider.setValue(value)
         self.mask_slider.blockSignals(previous)
-        previous = self.sidebar_toggle.blockSignals(True)
-        from . import theme
-        self.sidebar_toggle.setChecked(theme._skin_sidebar if self.controller and not self._locked() else self._sidebar)
-        self.sidebar_toggle.blockSignals(previous)
+        previous = self.video_toggle.blockSignals(True)
+        self.video_toggle.setChecked(self._video_enabled)
+        self.video_toggle.blockSignals(previous)
         self.mask_label.setText(str(value) + '%')
         if self.job is not None:
             self.status.setText('正在导入背景文件…')
@@ -163,11 +162,10 @@ class SkinSettings(QWidget):
         self.changed.emit(self.values())
         self.sync()
 
-    def _sidebar_changed(self, value):
+    def _video_changed(self, value):
         if self._locked():
             return
-        self._overrides['skin_sidebar_override'] = True
-        self._sidebar = value
+        self._video_enabled = value
         self.changed.emit(self.values())
 
     def _choose(self):
@@ -194,6 +192,7 @@ class SkinSettings(QWidget):
         if self.job is None or self.job.isInterruptionRequested():
             return
         self.path = path
+        self._video_enabled = True
         self._overrides['skin_background_override'] = True
         self.changed.emit(self.values())
 
@@ -213,9 +212,8 @@ class SkinSettings(QWidget):
         if not self.clear.isEnabled():
             return
         self.path = ''
-        self._sidebar = False
+        self._video_enabled = True
         self._overrides = dict.fromkeys(self._overrides, True)
-        self.sidebar_toggle.setChecked(False)
         self.mask_slider.setValue(35)
         self.changed.emit(self.values())
         self.sync()
@@ -236,7 +234,7 @@ class PartSettings(QDialog):
         self.professional = professional
         self._drafts = {}
         self._loading = False
-        self.setWindowTitle('专业美化' if professional else '分区美化（界面预览）')
+        self.setWindowTitle('专业美化' if professional else '分区美化')
         self.resize(1100, 700)
         outer = QHBoxLayout(self)
         preview_column = QVBoxLayout()
@@ -520,6 +518,8 @@ class PartSettings(QDialog):
             self.owner.set_skin_parts(values)
             self._drafts.clear()
             self.status.setText('已应用并保存；未修改的部分继续跟随美化包／默认。')
+            if not self.professional:
+                self.accept()
         except (OSError, ValueError) as error:
             self.status.setText(str(error))
 
