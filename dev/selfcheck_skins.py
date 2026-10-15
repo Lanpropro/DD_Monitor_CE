@@ -16,10 +16,10 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated skin test'))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QFontDatabase, QImage
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolButton
 from ddm import app as module, config, motion, theme
 from ddm.dialogs import SettingsDialog
 from ddm.plugins import PluginManager, read_manifest
@@ -190,6 +190,29 @@ def check_parts(app):
             window.grab().save(str(output/'parts-main-test.png'))
             dialog.grab().save(str(output/'parts-settings-test.png'))
             editor.grab().save(str(output/'parts-editor-test.png'))
+            # The custom layout popup shares menu styling, while its thumbnails keep their content.
+            window.save_room_preset('美化验收组合')
+            window.sidebar.open_layout_picker()
+            picker = window.sidebar._picker
+            picker.set_group('直播间组合')
+            app.processEvents()
+            assert part_for(picker) == 'menus' and '#ff225544' in picker.styleSheet()
+            assert part_for(picker.presets_page.save_button) == 'buttons'
+            management = picker.findChildren(QToolButton, 'PresetManageButton')
+            assert management and part_for(management[0]) == 'buttons'
+            card = next(iter(picker.presets_page.cards.values()))
+            assert not part_for(card), 'Combination thumbnails are not generic skinnable buttons'
+            original_icon = card.icon().cacheKey()
+            window.set_skin_parts({'buttons': {'icon': managed}})
+            app.processEvents()
+            assert icon_path(management[0]).endswith(managed)
+            assert not icon_path(card) and card.icon().cacheKey() == original_icon
+            capture = management[0].grab().toImage()
+            assert any(capture.pixelColor(x, y) == QColor('#ff8800')
+                       for x in range(capture.width()) for y in range(capture.height())), 'Management button must paint the custom icon'
+            assert int(tile.video.winId()) == handle
+            window.set_skin_parts({})
+            picker.close()
             editor.part.setCurrentIndex(editor.part.findData('controls'))
             check, edit = editor.fields['background']
             check.setChecked(True)
@@ -358,6 +381,7 @@ def wait_for(predicate):
 
 def main():
     app = QApplication([])
+    QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
     check_parts(app)
     if '--make-demo' in sys.argv:
         write_demo()

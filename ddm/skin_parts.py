@@ -4,9 +4,10 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter
-from PySide6.QtWidgets import QDialog, QMenu, QPushButton, QStyle, QStyleOptionButton
+from PySide6.QtWidgets import (QDialog, QMenu, QPushButton, QStyle, QStyleOptionButton,
+                              QStyleOptionToolButton, QToolButton)
 
 PARTS = {
     'sidebar': '关注栏底板', 'folders': '文件夹', 'controls': '播放底部控制条',
@@ -110,14 +111,16 @@ def part_for(widget):
         return 'folders'
     if type(widget).__name__ == 'SettingsDialog':
         return 'settings'
-    if isinstance(widget, QMenu):
+    if isinstance(widget, QMenu) or name == 'LayoutPicker':
         return 'menus'
+    if name == 'PresetManageButton':
+        return 'buttons'
     if isinstance(widget, QDialog):
         return 'dialogs'
     if isinstance(widget, QPushButton):
         parent = widget.parentWidget()
         while parent:
-            if isinstance(parent, QDialog):
+            if isinstance(parent, QDialog) or parent.objectName() == 'LayoutPicker':
                 return 'buttons'
             parent = parent.parentWidget()
     return ''
@@ -211,7 +214,7 @@ def icon_path(widget):
 
 
 def paint_button(widget):
-    if not _active or not isinstance(widget, QPushButton):
+    if not _active or not isinstance(widget, (QPushButton, QToolButton)):
         return False
     path = icon_path(widget)
     if not path:
@@ -219,14 +222,20 @@ def paint_button(widget):
     icon = QIcon(path)
     if icon.isNull():
         return False
-    option = QStyleOptionButton()
+    tool = isinstance(widget, QToolButton)
+    option = QStyleOptionToolButton() if tool else QStyleOptionButton()
     widget.initStyleOption(option)
     option.icon = icon
     option.iconSize = QSize(18, 18)
+    if tool and option.toolButtonStyle == Qt.ToolButtonTextOnly:
+        option.toolButtonStyle = Qt.ToolButtonTextBesideIcon
     if widget.property('skinIconOnly'):
         option.text = ''
     if widget.property('skinPart') == 'buttons.volume':
         option.text = {3: 'L', 4: 'R'}.get(getattr(widget, 'audio_channel', 0), '')
     painter = QPainter(widget)
-    widget.style().drawControl(QStyle.CE_PushButton, option, painter, widget)
+    if tool:
+        widget.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, widget)
+    else:
+        widget.style().drawControl(QStyle.CE_PushButton, option, painter, widget)
     return True
