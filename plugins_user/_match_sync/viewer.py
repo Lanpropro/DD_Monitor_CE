@@ -9,16 +9,17 @@ from dataclasses import replace
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QEasingCurve, QEvent, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QDrag, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRegion, QShortcut
+from PySide6.QtGui import QColor, QCursor, QDrag, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
     QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit,
-    QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget)
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QTextEdit, QVBoxLayout, QWidget)
 
 from ddm.widgets import AUTO_QUALITY, Avatar, DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
+from ddm.dialogs import SHORTCUT_ACTIONS
 from ddm import motion, theme
 from .engine import Alignment, Match, RATE, SafetyBuffer, match_scenes, refine_match, mix_pcm, resample_pcm
 from .media import Chat, Decoder, PlatformChat
@@ -857,10 +858,6 @@ class Viewer(QDialog):
         self.picture.pauseToggled.connect(lambda _room: self._pause_picture())
         self.picture.fullscreenRequested.connect(lambda _tile: self._fullscreen_picture())
         self.picture.recordingRequested.connect(self._record_picture)
-        self.focus_shortcut = QShortcut(QKeySequence(
-            getattr(context.window, "shortcuts", {}).get("focus", "F")), self.picture)
-        self.focus_shortcut.setAutoRepeat(False)
-        self.focus_shortcut.activated.connect(self._fullscreen_picture)
         self.fullscreen_dialog = None
         self.panel = DanmakuPanel(self)
         self.panel.roomDropped.connect(self._add_dragged)
@@ -1013,7 +1010,66 @@ class Viewer(QDialog):
             widget.hide()
         self.notice.setText("从左侧关注栏拖入直播间；选择主画面，各路声音与弹幕会合并。")
 
+    def _shortcut_action(self, watched, event):
+        if not self.isVisible() or not isinstance(watched, QWidget):
+            return None
+        if watched.window() not in (self.window(), self.fullscreen_dialog):
+            return None
+        if QApplication.activeModalWidget() not in (None, self, self.fullscreen_dialog):
+            return None
+        if isinstance(watched, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)):
+            return None
+        if isinstance(watched, QComboBox) and watched.isEditable():
+            return None
+        pressed = QKeySequence(event.keyCombination()).toString()
+        shortcuts = getattr(self.context.window, "shortcuts", {})
+        return next((action for action, _label, default in SHORTCUT_ACTIONS
+                     if pressed and pressed == shortcuts.get(action, default)), None)
+
+    def _handle_shortcut(self, action):
+        if action == "restore":
+            if self.fullscreen_dialog is not None:
+                self.fullscreen_dialog.close()
+            return
+        if action == "focus" and self.fullscreen_dialog is not None:
+            self.fullscreen_dialog.close()
+            return
+        point = QCursor.pos()
+        target = None
+        if self.picture.isVisible() and self.picture.rect().contains(self.picture.mapFromGlobal(point)):
+            target = self.rows.get(self.main.currentData())
+        else:
+            for key, (card, _name, _canvas, _state) in self.comparison_panel.cards.items():
+                if card.isVisible() and card.rect().contains(card.mapFromGlobal(point)):
+                    target = self.rows.get(key)
+                    break
+        if action == "solo":
+            for row in self.rows.values():
+                row.audible.setChecked(row is target)
+        elif target is not None:
+            if action == "focus":
+                self._fullscreen_picture()
+            elif action == "mute":
+                target.audible.toggle()
+            elif action == "video_danmaku":
+                self.picture.danmaku_button.toggle()
+            elif action == "audio_cycle":
+                if not target.audible.isChecked():
+                    target.channel.setCurrentIndex(0)
+                    target.audible.setChecked(True)
+                elif target.channel.currentIndex() == target.channel.count() - 1:
+                    target.audible.setChecked(False)
+                else:
+                    target.channel.setCurrentIndex(target.channel.currentIndex() + 1)
+
     def eventFilter(self, watched, event):
+        if event.type() in (QEvent.ShortcutOverride, QEvent.KeyPress):
+            action = self._shortcut_action(watched, event)
+            if action is not None:
+                event.accept()
+                if event.type() == QEvent.KeyPress and not event.isAutoRepeat():
+                    self._handle_shortcut(action)
+                return True
         if watched is self.picture.cover and event.type() == QEvent.Show:
             watched.hide()
             return False
@@ -1043,6 +1099,7 @@ class Viewer(QDialog):
         return super().eventFilter(watched, event)
 
     def showEvent(self, event):
+        QApplication.instance().installEventFilter(self)
         if self.embedded:
             suspend = getattr(self.context.window, "set_match_sync_playback", None)
             if callable(suspend):
@@ -1058,6 +1115,10 @@ class Viewer(QDialog):
                     widget.hide()
         self._sync_sidebar_marks()
         super().showEvent(event)
+
+    def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        super().hideEvent(event)
 
     def _sync_sidebar_marks(self):
         sidebar = getattr(self.context.window, "sidebar", None)
@@ -2451,6 +2512,23 @@ class Viewer(QDialog):
         reset = QPushButton("使用整个画面")
         reset.clicked.connect(lambda: (setattr(canvas, "crop", QRectF(0, 0, 1, 1)), canvas.update()))
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setObjectName("MatchSyncCropConfirm")
+        dialog.setStyleSheet(f"""
+            QPushButton {{
+                background: {theme.CONTENT_HOVER}; color: {theme.TEXT1};
+                border: 1px solid {theme.BORDER_STRONG}; border-radius: 6px;
+                padding: 6px 16px;
+            }}
+            QPushButton:hover {{ background: {theme.ELEVATED}; border-color: {theme.ACCENT}; }}
+            QPushButton:pressed {{ background: {theme.CONTENT}; }}
+            QPushButton:focus {{ border: 2px solid {theme.ACCENT}; }}
+            QPushButton#MatchSyncCropConfirm {{ background: #006a92; color: #ffffff; border-color: #006a92; }}
+            QPushButton#MatchSyncCropConfirm:hover {{ background: #007ba8; }}
+            QPushButton#MatchSyncCropConfirm:pressed {{ background: #005778; }}
+            QPushButton:disabled, QPushButton#MatchSyncCropConfirm:disabled {{
+                background: {theme.CONTENT_HOVER}; color: {theme.TEXT3}; border-color: {theme.BORDER};
+            }}
+        """)
         if frame is None:
             buttons.button(QDialogButtonBox.Ok).setEnabled(False)
             prepare = QTimer(dialog)
