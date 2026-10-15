@@ -109,7 +109,9 @@ def main():
             assert '已同步' not in viewer.rows['2'].status.text()
             assert '延时已锁定' in viewer.rows['2'].status.text()
             viewer.lock_delay.click()
-            assert viewer.automatic.isChecked() and not viewer.alignment.manual_locked
+            assert not viewer.automatic.isChecked() and viewer.alignment.manual_locked
+            assert not viewer.delay_frozen
+            assert all(abs(viewer.shifts()[key] - value) < 1e-9 for key, value in before.items())
             assert viewer.compare.isChecked(), 'Unlock should retain the comparison'
             viewer.automatic.setChecked(False)
             viewer.rows['2'].sync_state = '已同步'
@@ -119,7 +121,7 @@ def main():
             viewer.alignment.lags.clear()
             viewer.render()
             viewer.comparison_panel.render(viewer.audio.clock(), viewer.shifts())
-            assert '与主画面偏移相同' in viewer.comparison_panel.cards['2'][3].text()
+            assert '设置偏移' in viewer.comparison_panel.cards['2'][3].text()
             assert '自动对齐已关闭' in viewer.notice.text()
             assert '历史缓存约' in viewer.rows['2'].status.text()
             # The new control follows comparison in the heading, without moving the entry button.

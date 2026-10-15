@@ -45,12 +45,12 @@ def main():
             app.processEvents()
             assert viewer.rows['1'].realign.isHidden()
             assert not viewer.rows['2'].realign.isHidden() and not viewer.rows['3'].realign.isHidden()
-            assert viewer.comparison_panel.retry_buttons['1'].isHidden()
-            assert not viewer.comparison_panel.retry_buttons['2'].isHidden()
+            assert not hasattr(viewer.comparison_panel, 'retry_buttons')
+            assert viewer.rows['2'].realign.x() - viewer.rows['2'].main_button.geometry().right() <= 7
             originals={key:row.decoder for key,row in viewer.rows.items()}
             before=viewer.shifts()
             with patch.object(viewer,'analyse') as kick:
-                viewer.comparison_panel.retry_buttons['2'].click()
+                viewer.rows['2'].realign.click()
                 kick.assert_called_once()
             assert viewer.rematch_rooms=={'2'} and not viewer.rows['2'].match_confirmed
             assert viewer.rows['3'].match_confirmed and viewer.alignment.lags['3']==1.2
@@ -76,7 +76,13 @@ def main():
             assert not viewer.sync_waiting
             # Accepting a crop clears the independent fallback and actively enables retry.
             viewer._block_alignment('2','blocked fixture')
+            viewer.rows['2'].sync_state = '已同步'
+            viewer.comparison_panel.render(viewer.audio.clock(), viewer.shifts())
+            state = viewer.comparison_panel.cards['2'][3].text()
+            assert '画面时间差尚未确认' in state and '独立播放' in state
+            assert '提前' not in state and '延后' not in state
             viewer.automatic.setChecked(False)
+            assert all(row.realign.isHidden() for row in viewer.rows.values())
             def crop(dialog):
                 dialog.findChild(module.Canvas).crop=QRectF(.1,.1,.7,.7)
                 return QDialog.Accepted
@@ -84,6 +90,7 @@ def main():
                 viewer.choose_crop(viewer.rows['2'])
                 kick.assert_called_once()
             assert viewer.automatic.isChecked() and '2' not in viewer.independent_shifts
+            assert not viewer.rows['2'].realign.isHidden()
             assert '2' in viewer.rematch_rooms and viewer.rows['2'].crop==(.1,.1,.7,.7)
             # Use the row's actual drop handler, preserving IDs, main choice and decoders.
             main_id=viewer.alignment.reference

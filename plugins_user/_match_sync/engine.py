@@ -38,7 +38,7 @@ class Match:
     candidates: tuple[float, ...] = ()
 
 
-def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
+def match_scenes(reference: list[Sample], other: list[Sample], *, focused=False) -> Match:
     """Positive lag means the other feed receives the same scene later."""
     if len(reference) < 8 or len(other) < 8:
         return Match(None, 0, "正在收集比赛画面")
@@ -51,7 +51,7 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
     # Ignore moving overlays whose positions never change in the other feed.
     dynamic = dynamics[0] & dynamics[1]
     bits = dynamic.bit_count()
-    if bits < 16:
+    if bits < (8 if focused else 16):
         return Match(None, 0, "框选区域变化不足；可扩大比赛区域或对照微调")
     groups = defaultdict(list)
     appearance_distances = None
@@ -112,6 +112,8 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
         # similar scoreboards; static graphics otherwise dominate the vote.
         ranked.append((support * math.exp(-24 * distance), key, support, distance, pairs))
     if not ranked:
+        if focused:
+            return Match(None, 0, "正在收集框选区域的连续变化；请等待计时器变化或扩大区域")
         return Match(None, 0, "未找到共同的动态比赛画面；可扩大匹配区域或对照微调")
     ranked.sort(reverse=True, key=lambda item: item[0])
     score, key, support, distance, pairs = ranked[0]
@@ -131,12 +133,12 @@ def match_scenes(reference: list[Sample], other: list[Sample]) -> Match:
     return Match(lag, confidence, "已匹配共同比赛画面", candidates=tuple(candidates))
 
 
-def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> Match:
+def refine_match(match: Match, reference: list[Sample], other: list[Sample], *, focused=False) -> Match:
     """Refine a coarse candidate using recent ordered, normalized grayscale scenes."""
     if np is None:
         return Match(None, 0, "缺少精校正组件 NumPy，请更新 requirements.txt 中的依赖")
     if match.candidates:
-        results = [refine_match(Match(candidate, .9, "粗匹配候选"), reference, other)
+        results = [refine_match(Match(candidate, .9, "粗匹配候选"), reference, other, focused=focused)
                    for candidate in match.candidates]
         results = sorted((result for result in results if result.lag is not None),
                          key=lambda result: result.confidence, reverse=True)
@@ -152,9 +154,9 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
         return Match(None, 0, "正在收集精校正画面")
     lag = match.lag
     end = min(reference[-1].time, other[-1].time - lag)
-    begin = max(end - 4, reference[0].time, other[0].time - lag)
+    begin = max(end - (8 if focused else 4), reference[0].time, other[0].time - lag)
     a = [sample for sample in reference if begin <= sample.time <= end and sample.texture >= 4]
-    b = [sample for sample in other if end - 5 + lag <= sample.time <= end + 1 + lag and sample.texture >= 4]
+    b = [sample for sample in other if begin - 1 + lag <= sample.time <= end + 1 + lag and sample.texture >= 4]
     if len(a) < 30 or len(b) < 30 or not a[0].feature or not b[0].feature:
         return Match(None, 0, "共同动态画面不足，保持已确认偏移")
     if a[-1].time - a[0].time < 2:
@@ -169,6 +171,18 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
         return Match(None, 0, "比赛区域变化不足，保持已确认偏移")
     distances = np.abs(a_features[:, None, active] - b_features[None, :, active]).mean(axis=2) / 128
     a_times, b_times = np.array([s.time for s in a]), np.array([s.time for s in b])
+    if focused:
+        # Timer digits hold for a second: their transitions, rather than the
+        # repeated still frames, establish sub-second timing in an explicit ROI.
+        changes = np.flatnonzero(np.abs(np.diff(a_features[:, active], axis=0)).mean(axis=1) / 128 >= .04)
+        if len(changes) < 3:
+            return Match(None, 0, "框选区域变化不足；请等待计时器连续变化或扩大比赛区域")
+        if len(changes) < len(a) * .2:
+            if len({sample.signature for sample in a}) < 6:
+                return Match(None, 0, "正在收集计时器连续变化；至少需要六个不同读数")
+            edges = np.unique(np.clip((changes[:, None] + np.arange(-1, 4)).ravel(), 0, len(a) - 1))
+            distances, a_times, a_features = distances[edges], a_times[edges], a_features[edges]
+            a = [a[index] for index in edges]
     candidates = lag + np.arange(-40, 41) * .025
     wanted = a_times[None, :] + candidates[:, None]
     right = np.searchsorted(b_times, wanted)
@@ -186,7 +200,7 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
     second = valid & ~first
     halves = np.maximum((errors * first).sum(axis=1) / np.maximum(1, first.sum(axis=1)),
                         (errors * second).sum(axis=1) / np.maximum(1, second.sum(axis=1)))
-    admitted = (counts >= max(30, len(a) * .8)) & (halves <= .20)
+    admitted = (counts >= max(12 if focused else 30, len(a) * .8)) & (halves <= .20)
     scores = np.where(admitted, scores, np.inf)
     best = int(np.argmin(scores))
     score = float(scores[best])
@@ -197,7 +211,7 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
         return Match(None, 0, "精校正时间差不明确，保持已确认偏移")
     # The sample timestamps refine the grid centre without inventing sub-frame time.
     good = valid[best] & (errors[best] <= .20)
-    if length == 256:
+    if length == 256 and not focused:
         grid = np.arange(256).reshape(16, 16)
         regions = [grid[y:y + 8, x:x + 8].ravel() for y in (0, 8) for x in (0, 8)]
         supported = 0
@@ -209,7 +223,7 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample]) -> 
         if supported < 2:
             return Match(None, 0, "共同比赛区域不足；请框选比赛画面，避开局部动画")
     precise = float(np.median(b_times[indices[best, good]] - a_times[good]))
-    confidence = min(1.0, int(counts[best]) / 60) * max(0, 1 - score)
+    confidence = min(1.0, int(counts[best]) / (30 if focused else 60)) * max(0, 1 - score)
     return Match(precise, confidence, "已精校正共同比赛画面", refined=True)
 
 
