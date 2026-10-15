@@ -394,8 +394,9 @@ class RecordingSettingsPage(QWidget):
             "重编码时用哪个编码器。\n"
             "自动：优先显卡编码（NVENC / QSV / AMF），不可用就回退 CPU。\n"
             "显卡编码同样码率下画质不差，CPU 占用却低一个数量级，不会和游戏抢核；\n"
-            "但它要求显卡、驱动和随包的 FFmpeg 三者同时支持 —— 程序会真的起一次\n"
-            "编码进程来探测，探测不到的方案不会出现在可用列表里。")
+            "但它要求显卡、驱动和随包的 FFmpeg 三者同时支持。\n"
+            "手动指定显卡方案时，程序会真的起一次编码进程来探测；这台机器上跑不起来\n"
+            "的方案（比如没有对应显卡）会自动回退 CPU，不会录不出来。")
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
         self.fps = QComboBox()

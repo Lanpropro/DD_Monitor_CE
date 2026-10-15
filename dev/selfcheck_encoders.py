@@ -59,9 +59,14 @@ def main():
     assert gop_args("nvenc", 0, 0) == ["-g", "1", "-no-scenecut", "1"], "非法帧率不能算出 -g 0"
 
     assert segment_extension("mov", "av1") == "mp4", "MOV 装不下 AV1，FFmpeg 会直接拒绝"
+    assert segment_extension("ts", "av1") == "mp4", \
+        "mpegts 会把 AV1 塞成读不出的 bin_data（退出码还 0），必须换容器"
     assert segment_extension("mov", "hevc") == "mov"
+    assert segment_extension("ts", "hevc") == "ts"
     assert segment_extension("mkv", "av1") == "mkv"
+    assert segment_extension("mp4", "av1") == "mp4"
     assert segment_extension("mov", "") == "mov", "认不出的编码要原样返回，老路径不变"
+    assert segment_extension("ts", "") == "ts"
     assert segment_format("mov") == "mov" and segment_format("mkv") == "matroska"
     assert segment_format("ts") == "mpegts" and segment_format("mp4") == "mp4"
 
@@ -84,6 +89,9 @@ def main():
     av1_args = segment_args({"recording_format": "mov"}, Path("x_%05d.mp4"), "av1")
     assert av1_args[av1_args.index("-segment_format") + 1] == "mp4", \
         "AV1 源选 MOV 时要换成 MP4 容器"
+    av1_ts_args = segment_args({"recording_format": "ts"}, Path("x_%05d.mp4"), "av1")
+    assert av1_ts_args[av1_ts_args.index("-segment_format") + 1] == "mp4", \
+        "AV1 源选 TS 时要换成 MP4 容器，否则录出读不出画面的假 TS"
     print("编码器探测回退、GOP 分族与 AV1 容器修正：通过")
     print(f"本机 auto 解析为 {chosen}")
 
