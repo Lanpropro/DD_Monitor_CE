@@ -394,7 +394,8 @@ class AccountPlatformDialog(QDialog):
                           pending_folder_id=pending[room.get("anchor_uid")].get("pending_folder_id", ""))
                      if room.get("anchor_uid") in pending else dict(room) for room in rooms]
         page = FollowImportDialog(rooms, existing, self.owner,
-                                  folders=self.owner.sidebar.folder_state())
+                                  folders=self.owner.sidebar.folder_state(),
+                                  folder_creator=self.owner.sidebar.create_folder)
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:

@@ -197,6 +197,38 @@ def main():
             window.open_import_follows()
             imported.assert_not_called()
         assert window.sidebar.folder_state() == before
+        created = []
+        def create_folder_and_import(account):
+            account._show_rooms(ROOMS)
+            page = account.page
+            page._check_all(True)
+            page.search_edit.setText('测试主播')
+            checked = [page.list.item(i).checkState() for i in range(page.list.count())]
+            hidden = [page.list.item(i).isHidden() for i in range(page.list.count())]
+            assert page.new_folder_button.isEnabled()
+            for name, accepted in (('取消', False), ('  ', True), ('已有分类', True)):
+                before_folders = window.sidebar.folder_state()
+                with patch('ddm.dialogs.QInputDialog.getText', return_value=(name, accepted)), \
+                        patch('ddm.dialogs.QMessageBox.warning'):
+                    QTest.mouseClick(page.new_folder_button, Qt.LeftButton)
+                assert window.sidebar.folder_state() == before_folders
+                assert not page.folder_changed
+            with patch('ddm.dialogs.QInputDialog.getText', return_value=('新导入分组', True)):
+                QTest.mouseClick(page.new_folder_button, Qt.LeftButton)
+            created.append(page.folder_id)
+            assert page.folder_changed and page.folder_button.text() == '新导入分组'
+            assert sum(a.isChecked() for a in page.folder_button.menu().actions()) == 1
+            assert page.search_edit.text() == '测试主播'
+            assert [page.list.item(i).checkState() for i in range(page.list.count())] == checked
+            assert [page.list.item(i).isHidden() for i in range(page.list.count())] == hidden
+            page.accept()
+            assert account.folder_id == created[0] and account.folder_changed
+            return account.result()
+        with patch.object(AccountPlatformDialog, 'exec', create_folder_and_import):
+            window.open_import_follows()
+        assert all(window.sidebar.folder_for(room['room_id']) == created[0] for room in ROOMS)
+        saved = next(f for f in window.current_state()['follow_folders'] if f['id'] == created[0])
+        assert set(saved['rooms']) == {room['room_id'] for room in ROOMS}
     window.close()
     print("PASS: shared account page passes target, cross-platform import, dedup, collapse, persistence, fallback and cancel")
 
