@@ -549,17 +549,17 @@ class RoomRow(QFrame):
         self.join.setToolTip("本路内容到达更晚；增加整组观看延迟后加入，原有各路保持相对同步。")
         self.join.clicked.connect(lambda: viewer.confirm_alignment(room_id))
         self.join.hide()
-        self.control_widgets = (self.avatar, self.main_button, self.realign, self.audible, self.volume,
+        self.control_widgets = (self.avatar, self.main_button, self.realign, self.join, self.audible, self.volume,
                                 self.volume_number, self.channel,
                                 self.show_chat, self.color_choice, QLabel("偏移"), self.decrease,
-                                self.delay, self.increase, region, remove, self.join)
+                                self.delay, self.increase, region, remove)
         controls = QGridLayout()
         controls.setHorizontalSpacing(6)
         controls.setVerticalSpacing(4)
         columns = []
         column = 0
         for index, widget in enumerate(self.control_widgets):
-            if index in (3, 7, 9, 13):
+            if index in (4, 8, 10, 14):
                 controls.setColumnStretch(column, 1)
                 column += 1
             columns.append(column)
@@ -576,8 +576,8 @@ class RoomRow(QFrame):
         self.offset_hint.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.offset_hint.setStyleSheet(
             f"QLabel#MatchSyncOffsetHint {{ color: palette(window-text); font-size: {theme.FONT_CAPTION}px; }}")
-        controls.addWidget(self.status, 1, 0, 1, columns[9] - 1)
-        controls.addWidget(self.offset_hint, 1, columns[9], 1, columns[13] - columns[9])
+        controls.addWidget(self.status, 1, 0, 1, columns[10] - 1)
+        controls.addWidget(self.offset_hint, 1, columns[10], 1, columns[14] - columns[10])
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(4)

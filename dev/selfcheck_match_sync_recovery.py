@@ -48,6 +48,9 @@ def main():
             row = viewer.rows['2']
             assert row.match_confirmed and row.awaiting_confirmation and row.mix_gain == 0
             assert row.join.text() == '确认对齐并加入' and not row.join.isHidden()
+            viewer.show()
+            app.processEvents()
+            assert 1 <= row.join.x() - row.realign.geometry().right() <= 7, 'Confirmation must sit directly to the right of retry'
             row.delay.setValue(row.delay.value() + .1)
             assert not viewer.alignment.automatic and row.mix_gain == 0 and not row.join.isHidden()
             preview = viewer.shifts()

@@ -182,7 +182,7 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "1.2.13"
+        assert manager.catalog()[0]["version"] == "1.2.14"
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -489,7 +489,7 @@ def embedded_checks(app):
         assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
         assert row.offset_hint.font().pixelSize() == theme.FONT_CAPTION
         assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
-        assert abs(row.offset_hint.x() - row.control_widgets[9].x()) <= 1
+        assert abs(row.offset_hint.x() - row.control_widgets[10].x()) <= 1
         assert row.status.geometry().top() == row.offset_hint.geometry().top()
         visible_controls = [widget for widget in row.control_widgets if not widget.isHidden()]
         centers = [widget.geometry().center().y() for widget in visible_controls]
