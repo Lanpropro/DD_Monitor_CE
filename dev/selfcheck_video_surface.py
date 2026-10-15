@@ -97,6 +97,22 @@ def check_controls(tile):
         assert hwnd == controls or user32.IsChild(controls, hwnd), 'Video blocks overlay controls'
 
 
+def reset_output_regions(tile):
+    user32 = ctypes.windll.user32
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
+    reset = []
+    def clear(hwnd, _unused):
+        name = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, name, len(name))
+        if name.value.startswith('VLC video'):
+            assert user32.SetWindowRgn(hwnd, None, False)
+            reset.append(hwnd)
+        return True
+    user32.EnumChildWindows(int(tile.video.winId()), callback_type(clear), 0)
+    assert reset, 'Test must reset real VLC output windows'
+
+
 def check_pixels(tile):
     point = tile.video.mapToGlobal(QPoint())
     image = tile.screen().grabWindow(0, point.x(), point.y(), tile.video.width(), tile.video.height()).toImage()
@@ -180,6 +196,8 @@ def main():
                     except AssertionError:
                         print('RENDER_STATE', platform, str(player.player.get_state()), player.player.get_time(), getattr(check_regions, 'last', None))
                         raise
+                    reset_output_regions(tile)
+                    wait(app, lambda: check_regions(tile))
                     tile.set_controls_visible(False)
                     if not args.background:
                         wait(app, lambda: check_pixels(tile))
@@ -228,7 +246,7 @@ def main():
                     if not args.background:
                         wait(app, lambda: check_pixels(tile))
                     print('PASS:', platform, 'background' if args.background else 'visible',
-                          'native corners; fullscreen edges; idle/wake geometry; controls; renderer rebuild')
+                          'native corners/reset recovery; fullscreen edges; idle/wake geometry; controls; renderer rebuild')
                 finally:
                     window.close()
                     app.processEvents()

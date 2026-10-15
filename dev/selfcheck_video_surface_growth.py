@@ -4,6 +4,7 @@ from ctypes import wintypes
 import os
 from pathlib import Path
 import sys
+import time
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -65,12 +66,34 @@ def main():
         with patch.object(user32, "GetClassNameW", side_effect=class_name):
             surface.refresh_clip()
             surface._retry_clip()
-            assert not surface._clip_timer.isActive(), "Output found: no ongoing polling"
             # VLC expands asynchronously after output creation, without Qt resizing.
             assert user32.SetWindowPos(child, None, 0, 0, width, height, 0x0014)
             assert contains(width * 3 // 4, height * 3 // 4), "Initial clip truncates grown output"
             assert not contains(0, 0), "Rounded corner must remain clipped"
             assert not contains(width, height), "Output must stay inside video surface"
+            # A renderer can reset its HWND region without creating a new child
+            # or resizing Qt. Initial-output detection alone cannot catch this.
+            assert user32.SetWindowRgn(child, None, False)
+            assert user32.SetWindowRgn(root, None, False)
+            deadline = time.monotonic() + 2
+            recovered = False
+            while time.monotonic() < deadline:
+                app.processEvents()
+                region = gdi32.CreateRectRgn(0, 0, 0, 0)
+                try:
+                    recovered = bool(user32.GetWindowRgn(child, region)
+                                     and user32.GetWindowRgn(root, region))
+                finally:
+                    gdi32.DeleteObject(region)
+                if recovered:
+                    break
+                time.sleep(.01)
+            assert recovered, "Renderer reset left the native output above the rounded mask"
+            assert not contains(0, 0)
+            with patch.object(user32, "SetWindowRgn", wraps=user32.SetWindowRgn) as apply:
+                surface._retry_clip()
+                surface._retry_clip()
+                assert apply.call_count == 0, "Unchanged native regions must not trigger redraws"
             # Parent layout resize still updates the output boundary.
             surface.resize(600, 400)
             app.processEvents()
@@ -79,7 +102,13 @@ def main():
             user32.GetClientRect(root, ctypes.byref(bounds))
             assert contains(bounds.right // 2, bounds.bottom // 2)
             assert not contains(bounds.right + 10, bounds.bottom // 2)
-        print("PASS: native output growth, rounded corners and parent resize")
+            surface.hide()
+            surface._retry_clip()
+            assert not surface._clip_timer.isActive(), "Hidden surfaces must stop polling"
+            surface.show()
+            app.processEvents()
+            assert surface._clip_timer.isActive(), "Shown surfaces must resume native clipping"
+        print("PASS: native output growth, renderer reset recovery, stable regions and parent resize")
     finally:
         user32.DestroyWindow(child)
         surface.close()
