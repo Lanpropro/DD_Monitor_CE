@@ -108,15 +108,17 @@ def gop_args(family: str, fps: int, segment_seconds: int) -> list[str]:
 SEGMENT_FORMATS = {"mkv": "matroska", "mov": "mov", "ts": "mpegts", "mp4": "mp4"}
 
 #: 装不进某些容器的视频编码 -> 那些容器的扩展名。
-#: AV1 的 MOV 复用器在 FFmpeg 里是明确拒绝的（"av1 only supported in MP4 and
-#: AVIF"），用户选 MOV 又录到 AV1 源时会直接启动失败，所以这里提前换容器。
-INCOMPATIBLE_FORMATS = {"av1": ("mov",)}
+#: MOV 装不下 AV1：FFmpeg 明确拒绝（"av1 only supported in MP4 and AVIF"），
+#: 用户选 MOV 又录到 AV1 源时会直接启动失败。
+#: TS 更隐蔽：mpegts 复用器收下 AV1 却把它塞进私有数据流（bin_data），退出码 0、
+#: 一句错都不报，录出来的文件却读不出画面 —— 静默损坏比直接失败更糟，所以也要换。
+INCOMPATIBLE_FORMATS = {"av1": ("mov", "ts")}
 
 
 def segment_extension(extension: str, video_codec: str) -> str:
     """挑一个装得下 ``video_codec`` 的分段扩展名。
 
-    AV1 只能装进 MP4 / MKV / TS，所以「MOV + AV1」这一组换成 MP4；其余原样返回。
+    AV1 只能装进 MP4 / MKV，所以「MOV + AV1」「TS + AV1」这两组换成 MP4；其余原样返回。
     """
     if extension in INCOMPATIBLE_FORMATS.get(video_codec, ()):
         return "mp4"
