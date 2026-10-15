@@ -74,7 +74,7 @@ def main():
         window = MainWindow([], [], state={"plugins_enabled": []})
     first = window.sidebar.create_folder("赛事")
     second = window.sidebar.create_folder("娱乐")
-    window.sidebar.create_folder("智能", rule={"status": "any", "platforms": []})
+    smart = window.sidebar.create_folder("智能", rule={"status": "any", "platforms": []})
     window.sidebar.toggle_folder(first)
     with patch("ddm.app.InfoResolver", InfoFixture), \
             patch.object(window.plugins, "platform_for", side_effect=lambda rid: object() if ":" in rid else None), \
@@ -96,15 +96,15 @@ def main():
         assert window.sidebar.folder_for("huya:a") == second
         assert window.sidebar.get_folder(first)["collapsed"], "添加到收起的文件夹不应更改其展开状态"
         assert "101" not in window.sidebar._folder_pending
-        # 不选择文件夹、或查询期间目标被删除时，保留默认未分类。
+        # 不选择文件夹、或查询期间目标被删除时，默认来源立即交给智能规则。
         window._add_room_id("102")
         InfoFixture.pending[-1].complete()
-        assert window.sidebar.folder_for("102") == UNCLASSIFIED
+        assert window.sidebar.folder_for("102") == smart
         gone = window.sidebar.create_folder("临时")
         window._add_room_id("103", folder_id=gone)
         window.sidebar.delete_folder(gone)
         InfoFixture.pending[-1].complete()
-        assert window.sidebar.folder_for("103") == UNCLASSIFIED
+        assert window.sidebar.folder_for("103") == smart
         # 重复添加不重复查询，也不改变已有卡片归属；失败/取消不添加卡片。
         count = len(InfoFixture.pending)
         window._add_room_id("101", folder_id=second)

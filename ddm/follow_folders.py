@@ -86,8 +86,9 @@ def smart_members(rooms, folders, folder, pending=()):
               for rid in folder["rooms"]}
     rule = folder["rule"]
     sources = rule.get("sources", [UNCLASSIFIED])
+    # 平台和来源在导入时已知，只有直播状态条件需要等待状态刷新。
     return {str(room["room_id"]) for room in rooms
-            if str(room["room_id"]) not in pending
+            if (rule.get("status", "any") == "any" or str(room["room_id"]) not in pending)
             and (not sources or manual.get(str(room["room_id"]), UNCLASSIFIED) in sources)
             and matches_rule(room, rule)}
 
