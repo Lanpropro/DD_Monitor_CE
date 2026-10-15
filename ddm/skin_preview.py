@@ -295,16 +295,19 @@ class SkinPreview(QWidget):
                       if scene == 'settings' else LayoutPicker(owner.sidebar._layout_id, presets_host=owner))
             widget.setAttribute(Qt.WA_DontShowOnScreen)
             widget.setAttribute(Qt.WA_ShowWithoutActivating)
-            widget.setWindowFlags(Qt.Widget)
             widget.ensurePolished()
             for child in (widget, *widget.findChildren(QWidget)):
                 child.ensurePolished()
                 extra = style_for(child, personal=self.personal, light=self.light)
                 if extra:
                     child.setStyleSheet(child.styleSheet() + '\n' + extra)
-            widget.show()
             widget.layout().activate()
-            self.interface_images[scene] = widget.grab()
+            dpr = self.devicePixelRatioF()
+            image = QPixmap(round(widget.width()*dpr), round(widget.height()*dpr))
+            image.setDevicePixelRatio(dpr)
+            image.fill(Qt.transparent)
+            widget.render(image)
+            self.interface_images[scene] = image
         finally:
             if widget is not None:
                 widget.hide()

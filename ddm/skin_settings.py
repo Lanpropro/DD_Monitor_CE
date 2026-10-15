@@ -420,6 +420,9 @@ class PartSettings(QDialog):
             values = self._draft_values(None if background else target)
             self.preview.personal = validate_parts(values, Path(config.REPO)/'utils/skins')
         except (OSError, ValueError) as error:
+            if not self.professional and self.preview.scene != 'main':
+                self.preview.capture_interface(self.owner)
+                self.preview.update()
             self.status.setText('预览保留上次有效参数：' + str(error))
             return False
         if not background:
@@ -462,8 +465,8 @@ class PartSettings(QDialog):
         for button in (self.reset_button, self.builtin_button):
             button.setVisible(not background)
         if not self.professional:
-            self.builtin_button.hide()
-            self.reset_button.setText('底图／图标跟随美化包或默认')
+            self.builtin_button.setText('恢复默认图标' if part.startswith('buttons.') else '恢复默认背景')
+            self.reset_button.setText('跟随美化包')
         self._loading = True
         values = self._draft_values().get(part, {})
         variant = self.variant.currentData()
@@ -511,6 +514,15 @@ class PartSettings(QDialog):
             self.status.setText(str(error))
 
     def apply_part(self):
+        if not self.professional and not self._drafts:
+            part = self.part.currentData()
+            field = 'icon' if part.startswith('buttons.') else 'image'
+            check, edit = self.fields[field]
+            current = edit.text().strip() if check.isChecked() else None
+            saved = self.owner.settings.get('skin_parts', {}).get(part, {}).get(field)
+            if part == 'background' or current == saved:
+                self.accept()
+                return
         if not self._update_preview():
             return
         values = self._draft_values()
@@ -530,6 +542,7 @@ class PartSettings(QDialog):
             values.pop(self.part.currentData(), None)
         else:
             target = values.get(self.part.currentData(), {})
+            target.pop('builtin', None)
             for field in self._editable_fields():
                 target.pop(field, None)
                 for variant in ('dark', 'light'):
@@ -540,7 +553,13 @@ class PartSettings(QDialog):
     def use_builtin(self):
         self._drafts = {key: value for key, value in self._drafts.items() if key[0] != self.part.currentData()}
         values = deepcopy(self.owner.settings.get('skin_parts', {}))
-        values[self.part.currentData()] = {'builtin': True}
+        part = self.part.currentData()
+        target = {} if self.professional else values.get(part, {})
+        for field in self._editable_fields():
+            target.pop(field, None)
+            for variant in ('dark', 'light'):
+                target.get(variant, {}).pop(field, None)
+        values[part] = target | {'builtin': True}
         self.owner.set_skin_parts(values)
         self.load_part()
         self.status.setText('本分区已使用软件默认；可继续在默认基础上修改。')

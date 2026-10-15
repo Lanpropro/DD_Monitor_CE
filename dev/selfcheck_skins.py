@@ -135,13 +135,20 @@ def check_parts(app):
             notice = ResultNotice(window)
             notice.grab()
             controls = dialog.appearance_page.skin_settings
+            dialog.nav.setCurrentRow(1)
+            app.processEvents()
             assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
             assert controls.isHidden() and controls.parts_button.text() == '分区美化'
             appearance = dialog.appearance_page
             assert controls.parts_button.parentWidget() is not controls
+            appearance_parts = controls.parts_button
+            assert appearance_parts.isVisible()
+            assert abs(appearance_parts.mapTo(appearance, QPoint()).y() -
+                       appearance.buttons['dark'].mapTo(appearance, QPoint()).y()) <= 2
             forbidden = ('背景皮肤', '颜色模式', '当前：', '立即生效并保存', '主界面入口：', '切换不重连直播')
             assert not any(label.isVisible() and any(text in label.text() for text in forbidden)
                            for label in appearance.findChildren(QLabel))
+            dialog.nav.setCurrentRow(0)
             editor = PartSettings(window, dialog, professional=True)
             editor.setAttribute(Qt.WA_ShowWithoutActivating)
             editor.move(-10000, -10000)
@@ -301,11 +308,11 @@ def check_parts(app):
                         page.grab().save(str(output/f'parts-basic-{part}-{mode}.png'))
                 theme.apply('dark')
                 page._select_part('settings')
-                original_show = SettingsDialog.show
-                def change_scene_while_rendering(widget):
-                    original_show(widget)
+                original_render = SettingsDialog.render
+                def change_scene_while_rendering(widget, *args):
+                    original_render(widget, *args)
                     page._select_part('layout_menu')
-                with patch.object(SettingsDialog, 'show', change_scene_while_rendering):
+                with patch.object(SettingsDialog, 'render', change_scene_while_rendering):
                     page.preview.capture_interface(window)
                 assert page.preview.scene == 'popups'
                 settings_image = page.preview.interface_images['settings']
@@ -366,6 +373,7 @@ def check_parts(app):
                 page.apply_part()
                 assert page.result() == PartSettings.Accepted and page.isHidden(), 'Apply must save and close'
                 page.show()
+                page._import_part_asset('image', str(source))
                 with patch.object(window, 'set_skin_parts', side_effect=ValueError('Fixture save failure')):
                     page.apply_part()
                 assert page.isVisible() and 'Fixture save failure' in page.status.text(), 'Save failures must keep the editor open'
@@ -379,15 +387,28 @@ def check_parts(app):
                 assert capture.pixelColor(round(point.x()*dpr), round(point.y()*dpr)) == QColor('#ff8800')
                 page.reset_part()
                 assert 'image' not in values_for('settings') and window.settings['skin_parts']['settings']['radius'] == 13
+                assert page.builtin_button.isVisible() and page.builtin_button.text() == '恢复默认背景'
+                QTest.mouseClick(page.builtin_button, Qt.LeftButton)
+                assert values_for('settings').get('background') is None, 'Restore default must skip the package wallpaper/background'
+                assert window.settings['skin_parts']['settings']['radius'] == 13
+                QTest.mouseClick(page.reset_button, Qt.LeftButton)
+                assert values_for('settings')['background'] == '#334455', 'Follow pack must clear the builtin marker'
                 assert not any('专业美化' in button.text() for button in page.findChildren(QPushButton))
                 assert not hasattr(page, 'open_professional'), 'Professional editor has no user entry point'
                 for part, field in (('layout_menu', 'image'), ('buttons.pause', 'icon')):
+                    saved_parts = window.current_state()['settings']['skin_parts']
                     page._select_part(part)
                     mime.setUrls([QUrl.fromLocalFile(str(source))])
                     drop = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
                     page.asset_buttons[field].dropEvent(drop)
                     assert drop.isAccepted() and page.fields[field][0].isChecked()
                     assert page.fields[field][1].text()
+                    assert page.builtin_button.isVisible()
+                    QTest.mouseClick(page.builtin_button, Qt.LeftButton)
+                    assert not values_for(part).get(field)
+                    QTest.mouseClick(page.reset_button, Qt.LeftButton)
+                    window.set_skin_parts(saved_parts)
+                    page.load_part()
                 page._drafts.clear()
                 page._select_part('background')
                 page.preview.grab()
@@ -402,6 +423,40 @@ def check_parts(app):
             with patch.object(PartSettings, 'exec', inspect_preview):
                 controls._edit_parts()
             assert window.settings['skin_parts'] == before
+            for part in ('background', 'settings', 'layout_menu'):
+                clean = PartSettings(window, dialog)
+                clean.setAttribute(Qt.WA_ShowWithoutActivating)
+                clean.move(-10000, -10000)
+                clean._select_part(part)
+                clean.show()
+                app.processEvents()
+                assert not clean._drafts
+                with patch.object(window, 'set_skin_parts') as save:
+                    QTest.mouseClick(clean.apply_button, Qt.LeftButton)
+                    save.assert_not_called()
+                assert clean.result() == PartSettings.Accepted and clean.isHidden(), part
+                clean.deleteLater()
+            # A missing saved asset previously blocked both rendering and no-op Apply.
+            window.settings['skin_parts'] = {'buttons.pause': {'icon': 'missing-old-file.png'}}
+            broken = PartSettings(window, dialog)
+            broken.setAttribute(Qt.WA_ShowWithoutActivating)
+            broken.move(-10000, -10000)
+            for part in ('settings', 'layout_menu'):
+                broken._select_part(part)
+                assert broken.preview.interface_image and not broken.preview.interface_image.isNull()
+                broken.show()
+                app.processEvents()
+                with patch.object(window, 'set_skin_parts') as save:
+                    QTest.mouseClick(broken.apply_button, Qt.LeftButton)
+                    save.assert_not_called()
+                assert broken.isHidden() and broken.result() == PartSettings.Accepted
+            broken._import_part_asset('image', str(source))
+            broken.show()
+            QTest.mouseClick(broken.apply_button, Qt.LeftButton)
+            assert broken.isVisible(), 'Changed artwork must not be discarded just because another saved asset is invalid'
+            broken.close()
+            broken.deleteLater()
+            window.settings['skin_parts'] = before
             assert 'image' not in values_for('menus') and Path(values_for('layout_menu')['image']).is_file()
             window.set_skin_parts({})
             picker.close()
