@@ -31,7 +31,7 @@
 
 ### 软件与插件说明、设计及版本资料
 
-共 19 项。
+共 20 项。
 
 - `README.md`
 - `docs/BUG-STATUS-2026-10-02.md`
@@ -51,6 +51,7 @@
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/repository-cleanup-review.md`
 - `docs/repository-map.md`
+- `docs/room-presets-design.md`
 - `docs/skins.md`
 
 ### 构建、调试与开发工具（开发维护用途）

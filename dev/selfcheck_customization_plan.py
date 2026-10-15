@@ -25,6 +25,15 @@ def main():
     assert "不打断录制和弹幕" in content
     assert "1+5布局中的6位主播" in content
     assert "普通布局扩容仍保持新增格子为空" in content
+    assert "[直播间组合预设设计](room-presets-design.md)" in content
+    design = (ROOT / "docs/room-presets-design.md").read_text(encoding="utf-8")
+    assert "设计稿，功能待实现" in design
+    assert "现有的“布局预设”弹层" in design and "直播间组合" in design
+    for field in ("layout.ratios", "layout.danmaku_cell", "slots", "room_id", "volume", "muted", "audio_channel"):
+        assert f"`{field}`" in design, field
+    for requirement in ("实际分区比例", "空格子同样保存", "进入全屏前的原始状态",
+                        "内置布局卡片仍只管理格子排布", "录制", "旧配置", "物理格位"):
+        assert requirement in design, requirement
     skin_section = content.split("## 第二阶段：皮肤", 1)[1].split("## 第三阶段", 1)[0]
     assert "https://github.com/elysia395/dsh-wallpaper-engine" in skin_section
     assert "不连接 Wallpaper Engine" in skin_section

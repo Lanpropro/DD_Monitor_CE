@@ -9,6 +9,7 @@
 | 插件 | [插件说明](plugins.md) |
 | 外观与皮肤 | [外观设计](appearance-design.md)、[皮肤说明](skins.md) |
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](pr6-pr7-layout-testing.md) |
+| 直播间组合预设 | [交互与状态保存设计（待实现）](room-presets-design.md) |
 | 更新机制 | [在线更新](online-updates.md) |
 | 版本记录 | [0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
 | 第三方来源 | [NOTICE](NOTICE.md)、[许可证](../LICENSE) |
