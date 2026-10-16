@@ -6906,7 +6906,7 @@ class WallGrid(QWidget):
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
-        self.grid.setSpacing(4)
+        self.grid.setSpacing(8)
 
         # 一大五小保留原播放格及父窗口，边框交互只改变几何。
         self._corner_width_ratio = 2 / 3

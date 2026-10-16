@@ -20,7 +20,7 @@
 
 ## 项目简介
 
-DD监控室CE 是一款基于 Python、PySide6 和 VLC 的 Windows 多窗口直播监控工具，当前版本为 **0.3.1**。
+DD监控室CE 是一款基于 Python、PySide6 和 VLC 的 Windows 多窗口直播监控工具，当前版本为 **0.4**。
 
 它可以将多个直播间集中显示在同一个画面墙中，并提供直播状态监控、关注导入、弹幕显示、横竖屏两套布局和单路播放控制等功能。
 
@@ -114,7 +114,7 @@ DD监控室CE 是一款基于 Python、PySide6 和 VLC 的 Windows 多窗口直�
 ### 方式一：下载 exe（推荐，免装 Python）
 
 1. 到 [Releases](https://github.com/Lanpropro/DD_Monitor_CE/releases) 下载
-   `DDMonitorCE-v0.3.1-exe.zip`。
+   `DDMonitorCE-v0.4-exe.zip`。
 2. 解压到任意目录（比如 `D:\DD监控室CE`）。
 3. 双击解压出来的 **`DD监控室CE.exe`** 就能用。
 
