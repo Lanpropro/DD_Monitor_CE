@@ -243,11 +243,11 @@ class PartSettings(QDialog):
         outer = QVBoxLayout(self) if embedded else QHBoxLayout(self)
         if embedded:
             outer.setContentsMargins(0, 0, 0, 0)
-        preview_panel = QWidget(self)
-        preview_column = QVBoxLayout(preview_panel)
+            outer.setSpacing(6)
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        preview_panel = None if embedded else QWidget(self)
+        preview_column = outer if embedded else QVBoxLayout(preview_panel)
         preview_column.setContentsMargins(0, 0, 0, 0)
-        if embedded:
-            preview_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scenes = QTabBar()
         self.scenes.setStyleSheet('QTabBar::tab {background: palette(base); color: palette(text);'
             'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
@@ -259,7 +259,7 @@ class PartSettings(QDialog):
         if embedded:
             self.preview.setMinimumSize(320, 280)
             self.preview.setFixedHeight(280)
-        preview_column.addWidget(self.preview, 1)
+        preview_column.addWidget(self.preview, 0 if embedded else 1)
         self.group_labels = {}
         if not professional:
             colors = QHBoxLayout()
@@ -272,8 +272,12 @@ class PartSettings(QDialog):
         legend.setWordWrap(True)
         preview_column.addWidget(legend)
         legend.setVisible(not embedded)
-        outer.addWidget(preview_panel, 0 if embedded else 3)
-        right = QVBoxLayout()
+        if not embedded:
+            outer.addWidget(preview_panel, 3)
+        right_panel = QWidget(self) if embedded else None
+        right = QVBoxLayout(right_panel) if embedded else QVBoxLayout()
+        if embedded:
+            right.setContentsMargins(0, 0, 0, 0)
         self.page_title = QLabel('界面美化')
         self.page_title.setObjectName('SettingsTitle')
         right.addWidget(self.page_title)
@@ -283,7 +287,10 @@ class PartSettings(QDialog):
         self.introduction.setObjectName('SettingsHint')
         self.introduction.setWordWrap(True)
         right.addWidget(self.introduction)
-        outer.addLayout(right, 0 if embedded else 2)
+        if embedded:
+            outer.addWidget(right_panel)
+        else:
+            outer.addLayout(right, 2)
         content = QWidget()
         if embedded:
             right.addWidget(content)
@@ -528,6 +535,11 @@ class PartSettings(QDialog):
                            '预览已同步；点击设置页下方“保存”后生效。' if self.embedded else
                            '预览已同步；点击应用并保存后生效。')
         self._update_preview()
+        if self.embedded:
+            # Refresh the scroll content after switching between tall and short forms.
+            self.layout().invalidate()
+            self.layout().activate()
+            self.updateGeometry()
 
     def _choose(self, key):
         source, _ = QFileDialog.getOpenFileName(self, '导入分区图片', '', '图片 (*.png *.jpg *.jpeg *.webp *.bmp)')

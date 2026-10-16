@@ -437,14 +437,29 @@ def check_parts(app):
                     inline = inline_dialog.appearance_page.parts_editor
                     assert inline.parentWidget().isAncestorOf(inline) and not inline.isWindow()
                     assert inline.preview.mapTo(inline, QPoint()).y() < inline.selection_title.mapTo(inline, QPoint()).y()
-                    for part in ('background', 'settings', 'layout_menu', 'background'):
-                        inline._select_part(part)
-                        app.processEvents()
-                        bottom = inline.preview.mapTo(inline, QPoint(0, inline.preview.height())).y()
-                        assert all(label.mapTo(inline, QPoint()).y() >= bottom
-                                   for label in inline.group_labels.values()), 'Legend must remain below every scene'
+                    sizes = ((720, 645), (660, 520), (720, 645)) if action == 'save' else ((720, 645),)
+                    for width, height in sizes:
+                        inline_dialog.resize(width, height)
+                        for part in ('background', 'settings', 'layout_menu', 'background'):
+                            inline._select_part(part)
+                            app.processEvents()
+                            scroll = inline_dialog.appearance_page.scroll.verticalScrollBar()
+                            scroll.setValue(min(100, scroll.maximum()))
+                            capture = inline_dialog.grab()
+                            app.processEvents()
+                            bottom = inline.preview.mapTo(inline, QPoint(0, inline.preview.height())).y()
+                            labels = list(inline.group_labels.values())
+                            assert all(label.mapTo(inline, QPoint()).y() >= bottom for label in labels), (
+                                f'Legend overlaps {part} preview at {width}x{height}')
+                            legend_bottom = max(label.mapTo(inline, QPoint(0, label.height())).y()
+                                                for label in labels)
+                            assert inline.selection_title.mapTo(inline, QPoint()).y() >= legend_bottom
+                            if action == 'save' and (width, height) == (720, 645):
+                                name = {'background': 'preview', 'settings': 'settings',
+                                        'layout_menu': 'layout'}[part]
+                                capture.save(str(output/f'appearance-inline-{name}.png'))
+                    scroll.setValue(0)
                     if action == 'save':
-                        inline_dialog.grab().save(str(output/'appearance-inline-preview.png'))
                         inline_dialog.appearance_page.scroll.ensureWidgetVisible(inline.background_controls.choose)
                         app.processEvents()
                         assert inline_dialog.confirm_button.isVisible()
