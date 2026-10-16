@@ -114,6 +114,7 @@ class Decoder:
         self.video_size = (0, 0)
         self.last_frame_received = 0.0
         self.crop = (0.0, 0.0, 1.0, 1.0)
+        self.crop_generation = 0
         self.analysis_size = (640, 360)
         self.cancelled = threading.Event()
         self.process = None
@@ -128,9 +129,10 @@ class Decoder:
     def set_crop(self, crop) -> None:
         with self.lock:
             self.crop = tuple(crop)
-        with self.history.lock:
-            self.history.samples.clear()
-            self.history.details.clear()
+            self.crop_generation += 1
+            with self.history.lock:
+                self.history.samples.clear()
+                self.history.details.clear()
 
     def stop(self) -> None:
         self.cancelled.set()
@@ -341,18 +343,23 @@ class Decoder:
                                 next_detail += .05
                             with self.lock:
                                 crop = self.crop
+                                crop_generation = self.crop_generation
                                 width, height = self.analysis_size
                             if crop != (0, 0, 1, 1):
                                 width, height = 640, 360
                             detail = frame_sample(frame, timestamp, crop, (width, height))
-                            with self.history.lock:
-                                self.history.details.append(detail)
-                                while self.history.details and timestamp - self.history.details[0].time > self.history.seconds:
-                                    self.history.details.popleft()
-                            if pts + .0001 >= next_sample:
-                                next_sample = pts + .5
-                                sample = detail
-                        self.history.append(timestamp, pts, sample)
+                            with self.lock:
+                                if crop_generation == self.crop_generation:
+                                    with self.history.lock:
+                                        self.history.details.append(detail)
+                                        while self.history.details and timestamp - self.history.details[0].time > self.history.seconds:
+                                            self.history.details.popleft()
+                                    if pts + .0001 >= next_sample:
+                                        next_sample = pts + .5
+                                        sample = detail
+                                self.history.append(timestamp, pts, sample)
+                        else:
+                            self.history.append(timestamp, pts, sample)
                         last_frame[0] = time.monotonic()
                         self.last_frame_received = last_frame[0]
             if not self.cancelled.is_set():
