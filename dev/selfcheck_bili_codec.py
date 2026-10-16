@@ -70,6 +70,8 @@ def check_channel_name() -> None:
     # 平台插件的通道名由插件作者定，可能凑巧带 hls —— 不归 B 站这条规则管。
     for profile in ("huya-hls", "my-hls-1", "douyu", "huya"):
         assert bili.relay_required(profile) is False, profile
+    for profile in ("app-plugin-hls-hevc", "web-custom-av1", "app-hls-unknown"):
+        assert not bili.relay_required(profile) and bili.codec_from_profile(profile) == ""
 
 
 def check_codec_from_profile() -> None:
@@ -92,18 +94,24 @@ def check_app_urls() -> None:
         assert bili._app_play_urls("1001", 10000, "avc") == (["https://cdn-avc/avc.flv"], 10000)
         assert bili._app_play_urls("1001", 10000, "hevc") == (["https://cdn-hevc/hevc.m3u8"], 10000)
         assert bili._app_play_urls("1001", 10000, "av1") == (["https://cdn-av1/av1.m3u8"], 10000)
-    # 房间只有 H.264 时，HEVC / AV1 必须报错，不能把 H.264 地址交出去。
+    mismatched = _stream("http_stream", "hevc", HEVC_ACCEPT, "/hevc.flv", "https://cdn-hevc")
+    assert bili._app_codec_entry(mismatched, "avc") is None
+    legacy = _stream("http_stream", "avc", AVC_ACCEPT, "/avc.flv", "https://cdn-avc")
+    del legacy["format"][0]["codec"][0]["codec_name"]
+    entry = bili._app_codec_entry(legacy, "avc")
+    assert entry is not None and entry["base_url"] == "/avc.flv"
+    # 底层严格选编码，由 play_url 负责回退并标记实际通道。
     with patch.object(bili.requests, "get", return_value=response(app_payload(hevc=[], av1=[]))):
         try:
             bili._app_play_urls("1001", 10000, "hevc")
-        except RuntimeError as error:
+        except bili.CodecUnavailable as error:
             assert "hevc" in str(error)
         else:
             raise AssertionError("没有 HEVC 通道时必须报错")
 
 
 def check_play_url() -> None:
-    """play_url：通道名跟着编码走；HEVC / AV1 不许退回 web 接口。"""
+    """支持所选编码时保留原通道和请求头。"""
     payload = response(app_payload())
     no_web = patch.object(bili, "_web_play_urls",
                           side_effect=AssertionError("HEVC/AV1 不得退回 web 接口"))
@@ -126,17 +134,81 @@ def check_play_url() -> None:
     assert default[0] == "http://cdn-avc/avc.flv" and default[2] == "app"
     assert default[3] == bili.STREAM_APP, "FLV 通道的请求头不能变"
 
-    # 拿不到 HEVC 时明确报错，不静默给别的编码。
-    with patch.object(bili.requests, "get", return_value=response(app_payload(hevc=[]))), \
-            patch.object(bili, "_fetchable", return_value=True), \
-            patch.object(bili, "_web_play_urls",
-                         side_effect=AssertionError("不得退回 web 接口")):
+def check_codec_fallback() -> None:
+    for codec in ("hevc", "av1"):
+        with patch.object(bili.requests, "get",
+                          return_value=response(app_payload(hevc=[], av1=[]))) as get, \
+                patch.object(bili, "_fetchable", return_value=True) as fetch:
+            result = bili.play_url("1001", 10000, codec=codec)
+        assert result == ("http://cdn-avc/avc.flv", 10000, "app", bili.STREAM_APP)
+        assert [call.kwargs["params"]["codec"] for call in get.call_args_list] == [
+            bili.CODEC_PARAM[codec], 0]
+        assert fetch.call_args.args[1] == bili.STREAM_APP
+        assert not bili.relay_required(result[2])
+
+    # 同时测试空流响应，以及另一个支持 AV1 的房间不受回退影响。
+    with patch.object(bili.requests, "get", side_effect=[
+            response({"code": 0, "data": {}}), response(app_payload()),
+            response(app_payload())]) as get, \
+            patch.object(bili, "_fetchable", return_value=True):
+        missing = bili.play_url("1001", 10000, codec="av1")
+        supported = bili.play_url("1002", 10000, codec="av1")
+    assert missing[2] == "app" and supported[2] == "app-hls-av1"
+    assert [call.kwargs["params"]["codec"] for call in get.call_args_list] == [2, 0, 2]
+
+    # H.264 的 app 接口也不可用时，仍可走原有 web 备用通道与对应请求头。
+    with patch.object(bili, "_app_play_info", return_value={}), \
+            patch.object(bili, "_web_play_urls", return_value=(
+                ["https://web-a/live.flv", "https://web-b/live.flv"], 250)) as web, \
+            patch.object(bili, "_fetchable", return_value=True) as fetch:
+        result = bili.play_url("1001", 400, codec="av1", source_offset=1)
+    assert result == ("http://web-b/live.flv", 250, "web", bili.STREAM_WEB)
+    assert web.call_args.args == ("1001", 400, "avc")
+    assert fetch.call_args.args[1] == bili.STREAM_WEB
+
+    for failure in (bili.requests.Timeout("timeout"),
+                    response({"code": -400, "message": "bad request"})):
+        with patch.object(bili.requests, "get", side_effect=[failure]) as get, \
+                patch.object(bili, "_fetchable") as fetch:
+            try:
+                bili.play_url("1001", 10000, codec="av1")
+            except RuntimeError as error:
+                assert "AV1" in str(error)
+            else:
+                raise AssertionError("网络或 API 错误应保留原重连处理")
+        assert get.call_count == 1
+        fetch.assert_not_called()
+
+    with patch.object(bili.requests, "get", return_value=response(app_payload())) as get, \
+            patch.object(bili, "_fetchable", return_value=False):
         try:
-            bili.play_url("1001", 10000, codec="hevc")
+            bili.play_url("1001", 10000, codec="av1")
         except RuntimeError as error:
-            assert "HEVC" in str(error), error
+            assert "CDN" in str(error)
         else:
-            raise AssertionError("拿不到 HEVC 必须明确报错")
+            raise AssertionError("CDN 错误不能改变编码")
+    assert get.call_count == 1
+
+    with patch.object(bili, "_app_play_info", return_value={}) as app, \
+            patch.object(bili, "_web_play_urls", autospec=True,
+                         side_effect=RuntimeError("offline")) as web:
+        try:
+            bili.play_url("1001", 10000, codec="av1")
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("所有通道都不可用时应报错收尾")
+    assert app.call_count == 2 and web.call_count == 1, "回退必须有限，不循环请求"
+
+    cancelled = Mock(side_effect=[False, True])
+    with patch.object(bili, "_app_play_info", return_value={}) as app:
+        try:
+            bili.play_url("1001", 10000, codec="av1", cancelled=cancelled)
+        except bili.Cancelled:
+            pass
+        else:
+            raise AssertionError("取消后不能启动回退请求")
+    assert app.call_count == 1
 
 
 def check_quality_options() -> None:
@@ -181,6 +253,28 @@ def check_resolver() -> None:
         assert len(resolved[0]) == 5
     assert bili.StreamResolver("1001").codec == "avc", "默认必须是 avc"
     assert bili.StreamResolver("1001", codec="garbage").codec == "avc"
+
+    resolver = bili.StreamResolver("1001", 10000, codec="av1")
+    resolved = []
+    failed = []
+    resolver.resolved.connect(lambda *args: resolved.append(args))
+    resolver.failed.connect(lambda *args: failed.append(args))
+    with patch.object(bili.requests, "get",
+                      return_value=response(app_payload(hevc=[], av1=[]))), \
+            patch.object(bili, "_fetchable", return_value=True):
+        resolver.run()
+    assert not failed and len(resolved) == 1, "缺少 AV1 必须直接成功，不能触发失败重连"
+    assert resolved[0][3] == "app" and resolver.headers == bili.STREAM_APP
+    assert [option["qn"] for option in resolved[0][4]] == AVC_ACCEPT, "档位必须跟实际 H.264 走"
+    assert resolver.codec == "av1", "回退不能改写用户的首选编码"
+
+    preview = bili.StreamResolver("1001", 10000, codec="av1", preview=True)
+    with patch.object(bili.requests, "get",
+                      return_value=response(app_payload(hevc=[], av1=[]))), \
+            patch.object(bili, "_fetchable", return_value=True), \
+            patch.object(bili, "room_quality_options") as options:
+        preview.run()
+    options.assert_not_called()
 
 
 def check_player_container(application) -> None:
@@ -246,6 +340,7 @@ def check_relay_without_proxy() -> None:
     assert states == [] and not player.autoQualityRequested.called
     # _check 里 needs_restart() 是 False，走到后面的画面判断也不该崩。
     player._ensure_audio_settings = lambda: None
+    player._recover_decoder = lambda _state: False
     player.player = Mock()
     player.player.get_state.return_value = player_module.vlc.State.Opening
     player.player.video_get_size.return_value = (0, 0)
@@ -354,6 +449,7 @@ def main() -> None:
                         ("通道名 -> 编码", check_codec_from_profile),
                         ("app-room 地址", check_app_urls),
                         ("play_url", check_play_url),
+                        ("缺失编码回退及房间隔离", check_codec_fallback),
                         ("画质档位", check_quality_options),
                         ("取流线程", check_resolver)):
         check()
@@ -365,7 +461,7 @@ def main() -> None:
     check_app_wiring(application)
     print("  通过：主窗口接线（编码传到取流、写回格子/播放器、改设置重取流）")
     print("PASS: Bili codec selection (avc=FLV direct, hevc/av1=HLS remux), "
-          "per-codec tiers, no web fallback, codec-typed channels and containers")
+          "per-room H.264 fallback, actual-codec tiers, channels and containers")
 
 
 if __name__ == "__main__":

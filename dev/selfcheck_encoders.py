@@ -1,6 +1,8 @@
 """重编码编码器探测与选择：回退、GOP 差异、容器修正。"""
 import os
 import sys
+import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,14 +12,44 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm.config import DEFAULT_SETTINGS  # noqa: E402
 from ddm.encoders import (AUTO_ORDER, HARDWARE_ENCODERS, SOFTWARE_ENCODER, gop_args,
-                          probe, resolve_encoder, segment_extension,
+                          probe, resolve_encoder, resolve_encoder_async, segment_extension,
                           segment_format)  # noqa: E402
+from ddm import encoders as encoder_module
 from ddm.recording import ffmpeg_path, segment_args  # noqa: E402
 
 
 def main():
     ffmpeg = ffmpeg_path(DEFAULT_SETTINGS)
     assert ffmpeg, "本机需有 FFmpeg 才能完成编码器自检"
+
+    with patch.dict(encoder_module._probe_cache, {}, clear=True), \
+            patch.object(encoder_module, "_probe_one", side_effect=[False, True]) as check:
+        assert resolve_encoder("auto", "test-ffmpeg")[2] == "qsv"
+        assert [call.args[1] for call in check.call_args_list] == ["h264_nvenc", "h264_qsv"]
+        assert resolve_encoder("auto", "test-ffmpeg")[2] == "qsv" and check.call_count == 2
+    with patch.dict(encoder_module._probe_cache, {}, clear=True), \
+            patch.object(encoder_module, "_probe_one", return_value=True) as check:
+        assert resolve_encoder("amf", "test-ffmpeg")[2] == "amf" and check.call_count == 1
+    with tempfile.TemporaryDirectory() as temp, patch.object(encoder_module, "_probe_one", return_value=True) as check:
+        executable = Path(temp) / "ffmpeg"
+        executable.write_bytes(b"old")
+        resolve_encoder("nvenc", str(executable))
+        executable.write_bytes(b"updated-binary")
+        resolve_encoder("nvenc", str(executable))
+        assert check.call_count == 2, "同一路径的 FFmpeg 更新后不能继续使用旧探测结果"
+
+    started, release = threading.Event(), threading.Event()
+    def slow_probe(*_args):
+        started.set()
+        assert release.wait(5)
+        return SOFTWARE_ENCODER, ["-preset", "veryfast"], "cpu"
+    with patch.object(encoder_module, "resolve_encoder", side_effect=slow_probe):
+        future = resolve_encoder_async("auto", ffmpeg)
+        try:
+            assert started.wait(2) and not future.done(), "探测必须在后台执行"
+        finally:
+            release.set()
+        assert future.result(timeout=2)[2] == "cpu"
 
     assert probe("") == {family: False for family in HARDWARE_ENCODERS}, \
         "没有 FFmpeg 路径时应全判为不可用，而不是抛异常"
@@ -76,6 +108,7 @@ def main():
                                  recording_encoder="cpu"), Path("x_%05d.mp4"))
     assert cpu_args[cpu_args.index("-c:v") + 1] == SOFTWARE_ENCODER
     assert "veryfast" in cpu_args and "-sc_threshold" in cpu_args
+    assert cpu_args[cpu_args.index("-pix_fmt") + 1] == "yuv420p"
     auto_args = segment_args(dict(DEFAULT_SETTINGS, recording_codec="h264"),
                              Path("x_%05d.mp4"))
     chosen = auto_args[auto_args.index("-c:v") + 1]
@@ -92,6 +125,10 @@ def main():
     av1_ts_args = segment_args({"recording_format": "ts"}, Path("x_%05d.mp4"), "av1")
     assert av1_ts_args[av1_ts_args.index("-segment_format") + 1] == "mp4", \
         "AV1 源选 TS 时要换成 MP4 容器，否则录出读不出画面的假 TS"
+    for fmt, muxer in (("mov", "mov"), ("ts", "mpegts")):
+        args = segment_args({"recording_format": fmt, "recording_codec": "h264",
+                             "recording_encoder": "cpu"}, Path(f"x_%05d.{fmt}"), "av1")
+        assert args[args.index("-segment_format") + 1] == muxer
     print("编码器探测回退、GOP 分族与 AV1 容器修正：通过")
     print(f"本机 auto 解析为 {chosen}")
 
