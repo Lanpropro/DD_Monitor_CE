@@ -152,7 +152,8 @@ class GeneralSettingsPage(QWidget):
             "  DXVA2：更早的显卡解码接口，Direct3D 11 出问题时用。\n"
             "  软件解码：完全用 CPU，兼容性最好；显卡解不动或花屏 / 绿屏时改用它。\n"
             "显卡解码把活交给显卡，CPU 占用通常更低。哪个能用取决于显卡和驱动，\n"
-            "用不了时 VLC 会自动退回软件解码，不会放不出来。切换后正在播放的会重新取流。")
+            "解码出错或持续收到数据却不出画面时，会依次尝试其他显卡接口和 CPU；\n"
+            "每种方式只试一次，全部失败后重连直播。切换设置后正在播放的会重新取流。")
         grid.addWidget(self.decode_mode, row, 1)
         row += 1
         grid.addWidget(QLabel("B站直播编码"), row, 0)
@@ -166,7 +167,7 @@ class GeneralSettingsPage(QWidget):
             "  H.264：兼容性最好，FLV 直连播放，不额外占 CPU。\n"
             "  HEVC：同画质码率约省一半，走 HLS 通道，要先转封装。\n"
             "  AV1：码率最低，但解码要求最高，同样要先转封装。\n"
-            "只有部分主播开了 HEVC / AV1 推流；没开时自动回退 H.264。\n"
+            "只有部分主播开了 HEVC / AV1 推流；没开时该直播间自动改用 H.264。\n"
             "转封装会多占一点 CPU 和内存。切换后正在播放的直播会重新取流。")
         grid.addWidget(self.bili_codec, row, 1)
         row += 1
@@ -405,10 +406,10 @@ class RecordingSettingsPage(QWidget):
         self.encoder.setToolTip(
             "重编码时用哪个编码器。\n"
             "自动：优先显卡编码（NVENC / QSV / AMF），不可用就回退 CPU。\n"
-            "显卡编码同样码率下画质不差，CPU 占用却低一个数量级，不会和游戏抢核；\n"
+            "显卡编码通常能降低 CPU 占用；实际负载和画质取决于显卡与录制参数。\n"
             "但它要求显卡、驱动和随包的 FFmpeg 三者同时支持。\n"
-            "手动指定显卡方案时，程序会真的起一次编码进程来探测；这台机器上跑不起来\n"
-            "的方案（比如没有对应显卡）会自动回退 CPU，不会录不出来。")
+            "程序会在后台实际编码一帧来探测；方案不可用，或实际录制时硬件编码失败，\n"
+            "会回退 CPU。H.264 重编码统一使用 8-bit YUV420 输出。")
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
         self.fps = QComboBox()

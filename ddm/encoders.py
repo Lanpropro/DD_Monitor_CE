@@ -1,9 +1,7 @@
 """FFmpeg 硬件编码器探测与选择。
 
-录制重编码默认优先用显卡编码器（NVENC / QSV / AMF）：同样码率下画质不差，
-CPU 占用却低一个数量级，不会和游戏抢核。但硬件编码要求显卡、驱动和这一份
-FFmpeg 构建三者同时具备，缺一不可，所以这里**实测探测**而不是按平台猜 ——
-探测方式就是真的起一个进程编一帧，只有退出码为 0 才算可用。
+录制重编码默认优先用显卡编码器（NVENC / QSV / AMF），降低 CPU 负载。
+硬件编码要求显卡、驱动和 FFmpeg 构建同时支持，因此实际编码一帧进行探测。
 
 探测结果按 FFmpeg 可执行文件路径缓存：一次运行里每格录制都会问同一份结果，
 不缓存就会反复起探测进程。
@@ -13,6 +11,8 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+from concurrent.futures import Future
+from pathlib import Path
 
 #: 「编码方式」设置项：值 -> 界面文案。
 ENCODER_CHOICES = (
@@ -33,42 +33,49 @@ HARDWARE_ENCODERS = {
 #: 自动模式下的尝试顺序。NVENC 覆盖率最高，排在前面。
 AUTO_ORDER = ("nvenc", "qsv", "amf")
 
-#: 回退方案：libx264 是 FFmpeg 自带软件编码器，任何构建都有。
+#: 回退方案：libx264 软件编码器。
 SOFTWARE_ENCODER = "libx264"
 SOFTWARE_ARGS = ["-preset", "veryfast"]
 
 #: 探测用的输入：一帧纯色足够让编码器完成初始化。
-_PROBE_INPUT = ["-f", "lavfi", "-i", "color=c=black:s=256x144:r=30", "-t", "1"]
+_PROBE_INPUT = ["-f", "lavfi", "-i", "color=c=black:s=256x144:r=30",
+                "-frames:v", "1", "-pix_fmt", "yuv420p"]
 
-_probe_cache: dict[str, dict[str, bool]] = {}
+_probe_cache: dict[tuple, dict[str, bool]] = {}
 _probe_lock = threading.Lock()
 
 
 def _probe_one(executable: str, encoder: str) -> bool:
     """真起一次编码，退出码 0 才算这个编码器在这台机器上可用。"""
+    extra = next(args for name, args in HARDWARE_ENCODERS.values() if name == encoder)
     command = [executable, "-hide_banner", "-loglevel", "error", *_PROBE_INPUT,
-               "-c:v", encoder, "-an", "-f", "null", "-"]
+               "-c:v", encoder, *extra, "-an", "-f", "null", "-"]
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                timeout=20, creationflags=flags)
+                                timeout=20, creationflags=flags, check=False)
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
 
 
-def probe(executable: str) -> dict[str, bool]:
+def probe(executable: str, families=None) -> dict[str, bool]:
     """探测这台机器可用的硬件编码器；结果按可执行文件路径缓存。"""
     if not executable:
         return {family: False for family in HARDWARE_ENCODERS}
+    path = Path(executable).resolve()
+    try:
+        stat = path.stat()
+        key = (str(path), stat.st_size, stat.st_mtime_ns)
+    except OSError:
+        key = (str(path), 0, 0)
     with _probe_lock:
-        cached = _probe_cache.get(executable)
-        if cached is None:
-            cached = {family: _probe_one(executable, encoder)
-                      for family, (encoder, _args) in HARDWARE_ENCODERS.items()}
-            _probe_cache[executable] = cached
-        return cached
+        cached = _probe_cache.setdefault(key, {})
+        for family in families if families is not None else HARDWARE_ENCODERS:
+            if family not in cached:
+                cached[family] = _probe_one(executable, HARDWARE_ENCODERS[family][0])
+        return dict(cached)
 
 
 def resolve_encoder(preference: str, executable: str) -> tuple[str, list[str], str]:
@@ -81,12 +88,27 @@ def resolve_encoder(preference: str, executable: str) -> tuple[str, list[str], s
     if preference == "cpu":
         return SOFTWARE_ENCODER, list(SOFTWARE_ARGS), "cpu"
     families = (preference,) if preference in HARDWARE_ENCODERS else AUTO_ORDER
-    usable = probe(executable)
     for family in families:
-        if usable.get(family):
+        if probe(executable, (family,)).get(family):
             encoder, args = HARDWARE_ENCODERS[family]
             return encoder, list(args), family
     return SOFTWARE_ENCODER, list(SOFTWARE_ARGS), "cpu"
+
+
+def resolve_encoder_async(preference: str, executable: str) -> Future:
+    result = Future()
+    if preference == "cpu":
+        result.set_result(resolve_encoder(preference, executable))
+        return result
+
+    def resolve():
+        try:
+            result.set_result(resolve_encoder(preference, executable))
+        except Exception as error:  # noqa: BLE001
+            result.set_exception(error)
+
+    threading.Thread(target=resolve, name="ddm-encoder-probe", daemon=True).start()
+    return result
 
 
 def gop_args(family: str, fps: int, segment_seconds: int) -> list[str]:
