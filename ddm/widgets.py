@@ -6995,7 +6995,14 @@ class WallGrid(QWidget):
         self._defer_show = bool(stagger)
         self._pending_reveal = []
         self._stagger_first = first
+        previous = self.fullscreen_tile
         self.fullscreen_tile = tile
+        if previous is not None and previous is not tile:
+            previous.setProperty("fullscreen", False)
+            _repolish(previous)
+        if tile is not None:
+            tile.setProperty("fullscreen", True)
+            _repolish(tile)
         margin = 0 if tile else 16
         self.grid.setContentsMargins(margin, margin, margin, margin)
         self.relayout(force=True)
