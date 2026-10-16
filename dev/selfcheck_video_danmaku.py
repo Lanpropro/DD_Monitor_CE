@@ -1,12 +1,14 @@
 """离线画面弹幕回归：滚动、防追尾、显示参数、独立开关和共享连接。"""
 import os
+import math
 from pathlib import Path
 import sys
 import threading
 import time
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QPointF, QRect, QThread, Qt, Signal
+from PySide6.QtGui import QPaintEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
 
@@ -80,7 +82,8 @@ def check_motion(app):
             speed = first.speed
             for _ in range(overlay.lane_count() - 1):
                 assert overlay.add_event({"text": "其他轨道"})
-            assert not overlay.add_event({"text": "轨道满时直接丢弃"})
+            with patch.object(overlay, '_render_text', side_effect=AssertionError('Full lanes must not rasterize rejected text')):
+                assert not overlay.add_event({"text": "轨道满时直接丢弃"})
         with patch("ddm.video_danmaku.time.monotonic", return_value=101):
             overlay._tick()
         assert abs(first.x - (overlay.width() - speed)) < 0.01, "滚动必须按实际时间推进"
@@ -112,6 +115,47 @@ def check_motion(app):
         assert overlay.height() == tile.video.height() and overlay.isVisible()
         overlay.apply_settings(dict(settings, video_danmaku_area=100))
         overlay.clear()
+        assert overlay.add_event({"text": "short" * 6})
+        first = overlay.comments[0]
+        overlay.comments = [first]
+        height = overlay.lane_height()
+        dirty_height = math.ceil(first.image.height()/first.image.devicePixelRatioF())
+        first.x = 100.25
+        overlay._last_tick = 100
+        with patch('ddm.video_danmaku.time.monotonic', return_value=100.004), \
+                patch('ddm.video_danmaku.QPainter') as painter, \
+                patch.object(overlay, '_native_layered', return_value=True), \
+                patch.object(overlay, 'lane_height', wraps=overlay.lane_height) as metrics:
+            dirty = QRect(0, 0, overlay.width(), height)
+            overlay.paintEvent(QPaintEvent(dirty))
+            point = painter.return_value.drawPixmap.call_args.args[0]
+            assert isinstance(point, QPointF) and abs(point.x() - (100.25 - .004*first.speed)) < .001
+            assert metrics.call_count == 1, 'Font metrics must be computed once per paint'
+            painter.return_value.fillRect.assert_called_once_with(dirty, overlay.COLOR_KEY)
+        first.x = 100
+        overlay._last_tick = 100
+        with patch('ddm.video_danmaku.time.monotonic', return_value=100.016), patch.object(overlay, 'update') as update:
+            overlay._tick()
+            assert update.call_args.args[0] == QRect(0, 0, overlay.width(), dirty_height)
+        for rate, interval in ((60, 16), (120, 8), (144, 7), (240, 4)):
+            overlay.timer.stop()
+            with patch.object(overlay, 'screen', return_value=Mock(refreshRate=lambda: rate)):
+                overlay._start_timer()
+            assert overlay.timer.interval() == interval
+        # Hidden/fullscreen transitions retain progress instead of jumping ahead.
+        first.x = 100
+        with patch('ddm.video_danmaku.time.monotonic', return_value=200):
+            overlay.hide()
+        with patch('ddm.video_danmaku.time.monotonic', return_value=300):
+            overlay.show()
+        assert first.x == 100
+        # Expiring the last comment still invalidates its old row, then sleeps.
+        first.x = -first.image.width()/first.image.devicePixelRatioF() + 1
+        overlay._last_tick = time.monotonic() - 1
+        with patch.object(overlay, 'update') as update:
+            overlay._tick()
+            assert update.call_args.args[0].height() == dirty_height
+        assert not overlay.comments and not overlay.timer.isActive()
         assert overlay.add_event({"text": "short" * 6})
         first = overlay.comments[0]
         first.x = 100

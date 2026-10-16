@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .skins import AssetImport
 from .folder_icons import IconDropArea
@@ -243,7 +243,11 @@ class PartSettings(QDialog):
         outer = QVBoxLayout(self) if embedded else QHBoxLayout(self)
         if embedded:
             outer.setContentsMargins(0, 0, 0, 0)
-        preview_column = QVBoxLayout()
+        preview_panel = QWidget(self)
+        preview_column = QVBoxLayout(preview_panel)
+        preview_column.setContentsMargins(0, 0, 0, 0)
+        if embedded:
+            preview_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scenes = QTabBar()
         self.scenes.setStyleSheet('QTabBar::tab {background: palette(base); color: palette(text);'
             'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
@@ -268,7 +272,7 @@ class PartSettings(QDialog):
         legend.setWordWrap(True)
         preview_column.addWidget(legend)
         legend.setVisible(not embedded)
-        outer.addLayout(preview_column, 0 if embedded else 3)
+        outer.addWidget(preview_panel, 0 if embedded else 3)
         right = QVBoxLayout()
         self.page_title = QLabel('界面美化')
         self.page_title.setObjectName('SettingsTitle')

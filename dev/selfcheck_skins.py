@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated skin test'))
-from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QMimeData, QPoint, QPointF, Qt, QUrl
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QImage
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
@@ -437,6 +437,12 @@ def check_parts(app):
                     inline = inline_dialog.appearance_page.parts_editor
                     assert inline.parentWidget().isAncestorOf(inline) and not inline.isWindow()
                     assert inline.preview.mapTo(inline, QPoint()).y() < inline.selection_title.mapTo(inline, QPoint()).y()
+                    for part in ('background', 'settings', 'layout_menu', 'background'):
+                        inline._select_part(part)
+                        app.processEvents()
+                        bottom = inline.preview.mapTo(inline, QPoint(0, inline.preview.height())).y()
+                        assert all(label.mapTo(inline, QPoint()).y() >= bottom
+                                   for label in inline.group_labels.values()), 'Legend must remain below every scene'
                     if action == 'save':
                         inline_dialog.grab().save(str(output/'appearance-inline-preview.png'))
                         inline_dialog.appearance_page.scroll.ensureWidgetVisible(inline.background_controls.choose)
@@ -673,6 +679,7 @@ def main():
     app = QApplication([])
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
     check_parts(app)
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     if '--make-demo' in sys.argv:
         write_demo()
         return
@@ -902,10 +909,17 @@ def main():
             QTest.qWait(60)
             assert layer.player.playbackState() == QMediaPlayer.PausedState and layer.image == first_frame
             # Loading saved video settings starts at the same first frame.
+            old_sink = layer.sink
+            old_frame = old_sink.videoFrame()
             layer.load('')
             window.refresh_skin()
+            pending = layer.image
+            old_sink.videoFrameChanged.emit(old_frame)
+            assert layer.image is pending, 'Queued frames from an old sink must not overwrite a new source'
             wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PausedState)
-            assert layer.image == first_frame and not video_controls.video_toggle.isChecked()
+            assert layer.image == first_frame and not video_controls.video_toggle.isChecked(), (
+                layer.image.format(), first_frame.format(), layer.player.position(),
+                video_controls.video_toggle.isChecked(), layer.image.size(), first_frame.size())
             video_controls.video_toggle.setChecked(True)
             wait_for(lambda: layer.image is not None and layer.player.playbackState() == QMediaPlayer.PlayingState)
             video_controls.video_toggle.setChecked(False)

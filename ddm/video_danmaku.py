@@ -4,7 +4,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPointF, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -119,9 +119,12 @@ class VideoDanmaku(QWidget):
                 or len(self.comments) >= self.MAX_COMMENTS):
             return False
         text = " ".join(str(event.get("text") or "").split())[:300]
-        if not text or not self.lane_count():
+        lanes = self.lane_count()
+        if not text or not lanes:
             return False
         self._tick()
+        if not any(self._lane_available(lane, 0) for lane in range(lanes)):
+            return False
         color = QColor(str(event.get("color") or "#ffffff"))
         if not color.isValid():
             color = QColor("#ffffff")
@@ -129,7 +132,7 @@ class VideoDanmaku(QWidget):
         width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
-        lane = next((lane for lane in range(self.lane_count())
+        lane = next((lane for lane in range(lanes)
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
@@ -195,10 +198,17 @@ class VideoDanmaku(QWidget):
 
     def _start_timer(self) -> None:
         if not self.timer.isActive():
+            screen = self.screen()
+            rate = max(60, screen.refreshRate() if screen else 60)
+            self.timer.setInterval(max(4, min(16, round(1000 / rate))))
             self._last_tick = time.monotonic()
             self.timer.start()
 
     def _tick(self) -> None:
+        # Include rows whose last comment expires so their old pixels are erased.
+        height = self.lane_height() if self.comments else 0
+        bottom = max((comment.lane * height + math.ceil(comment.image.height() /
+                       comment.image.devicePixelRatioF()) for comment in self.comments), default=0)
         now = time.monotonic()
         elapsed = now - self._last_tick if self._last_tick else 0.0
         self._last_tick = now
@@ -207,7 +217,8 @@ class VideoDanmaku(QWidget):
         self.comments = [comment for comment in self.comments
                          if comment.x + comment.image.width() /
                          comment.image.devicePixelRatioF() > 0]
-        self.update()
+        if bottom:
+            self.update(QRect(0, 0, self.width(), min(self.height(), bottom)))
         if not self.comments:
             self.timer.stop()
 
@@ -223,11 +234,17 @@ class VideoDanmaku(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         if self._native_layered():
-            painter.fillRect(self.rect(), self.COLOR_KEY)
+            painter.fillRect(event.rect(), self.COLOR_KEY)
         else:
             painter.setOpacity(int(self.settings.get("video_danmaku_opacity") or 80) / 100)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        height = self.lane_height()
+        # Sample at paint time as queued QWidget updates may follow the timer.
+        elapsed = max(0, time.monotonic() - self._last_tick) if self.timer.isActive() and not self.paused else 0
         for comment in self.comments:
-            painter.drawPixmap(round(comment.x), comment.lane * self.lane_height(), comment.image)
+            y = comment.lane * height
+            if y < event.rect().bottom() + 1 and y + height > event.rect().top():
+                painter.drawPixmap(QPointF(comment.x - elapsed * comment.speed, y), comment.image)
 
     def _native_layered(self) -> bool:
         return (self.native_video and sys.platform == "win32"
@@ -258,6 +275,7 @@ class VideoDanmaku(QWidget):
             self.setAttribute(Qt.WA_NativeWindow, True)
             self._apply_layered()
         if self.comments and not self.paused:
+            self._last_tick = time.monotonic()
             self._tick()
             self._start_timer()
         self.raise_()

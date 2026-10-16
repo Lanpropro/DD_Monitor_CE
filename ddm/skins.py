@@ -122,6 +122,10 @@ class BackgroundLayer(QWidget):
         if self.player is not None:
             self.player.stop()
             self.player.setSource(QUrl())
+            self.player.setVideoSink(None)
+            if self.sink is not None:
+                self.sink.deleteLater()
+            self.sink = None
         self.image = None
         self.path = path
         self.video_enabled = video_enabled
@@ -139,10 +143,13 @@ class BackgroundLayer(QWidget):
                         self.player = QMediaPlayer(self)
                         self.player.setAudioOutput(None)
                         self.player.setLoops(QMediaPlayer.Infinite)
-                        self.sink = QVideoSink(self)
-                        self.player.setVideoSink(self.sink)
-                        self.sink.videoFrameChanged.connect(self._frame)
                         self.player.errorOccurred.connect(self._error)
+                    self.sink = QVideoSink(self)
+                    self.player.setVideoSink(self.sink)
+                    # A queued frame from the previous source must not become
+                    # the new source's frozen first frame.
+                    self.sink.videoFrameChanged.connect(lambda frame, source=self.sink:
+                        self._frame(frame) if source is self.sink else None)
                     self.player.setSource(QUrl.fromLocalFile(str(asset)))
                     self._visibility()
             except (OSError, ValueError) as error:
