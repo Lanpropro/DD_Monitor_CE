@@ -93,15 +93,21 @@ def main():
             assert row.review_alignment and not row.join.isHidden() and '可选' in row.join.text()
             corrected = viewer.shifts()
             assert corrected['1'] == before['1'] and corrected['3'] == before['3']
+            assert 0 <= corrected['2'] - before['2'] < .01
+            assert '平滑校正' in row.playback_status() and '目标' in row.buffer_text
             # Leaving the optional review untouched does not start repeated rematches.
-            for tick in range(60):
-                now[0] += .5
+            for tick in range(200):
+                now[0] += .1
                 for current in viewer.rows.values():
                     current.decoder.history.append(now[0] + 12, image)
                 viewer._matched(viewer.generation, {'2': Match(None, 0, '精校正尚未确认，保持已确认偏移')})
                 viewer.render()
-                assert viewer.shifts() == corrected and row.mix_gain == 1
+                current = viewer.shifts()
+                assert current['1'] == corrected['1'] and current['3'] == corrected['3'] and row.mix_gain == 1
+                assert corrected['2'] <= current['2'] <= viewer.target_shifts()['2']
+                corrected = current
                 assert row.review_alignment and '2' not in viewer.rematch_rooms
+            assert abs(viewer.target_shifts()['2'] - corrected['2']) <= .1001
             # Consume actual cached PCM while the optional review is still ignored.
             for current in viewer.rows.values():
                 current.audible.setChecked(current is row)

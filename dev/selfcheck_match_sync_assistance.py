@@ -109,6 +109,8 @@ def main():
             assert all(current.alignment_hint is None for current in viewer.rows.values())
             viewer.select_main('1')
             for key, detail in (('1', samples()), ('2', samples(16.237, .027, 2))):
+                detail = [replace(sample, signature=sum((value >= 128) << bit for bit, value in enumerate(sample.feature)))
+                          for sample in detail]
                 history = viewer.rows[key].decoder.history
                 history.origin = 100
                 history.details = deque(detail)
@@ -131,6 +133,21 @@ def main():
                 viewer.matching = False
                 viewer.analyse()
             assert collected['2'].lag is None
+            # An explicit retry uses the existing human-confirmed lag as a
+            # first candidate, but must still escape a wrong old lag globally.
+            for old_lag in (16.237, 30):
+                row.user_confirmed = True
+                row.needs_epoch_samples = False
+                viewer.alignment.lags['2'] = old_lag
+                viewer.rendered_shifts.clear()
+                with patch.object(viewer, 'analyse'):
+                    viewer.retry_alignment('2')
+                assert row.rematch_locally and row.alignment_hint is None
+                with patch.object(viewer, 'results', bridge), patch.object(module.threading, 'Thread', side_effect=inline), \
+                        patch.object(module, 'match_scenes', wraps=module.match_scenes) as search:
+                    viewer.analyse()
+                assert collected['2'].refined and abs(collected['2'].lag - 16.237) < .06, (old_lag, viewer.alignment.lags, collected)
+                assert search.called == (old_lag == 30)
             print('PASS: large verified lag accepted; established 16→33 jump held; frozen preview timestamps and both hint directions preserve main clock')
         finally:
             viewer.close()

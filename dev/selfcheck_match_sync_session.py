@@ -146,7 +146,15 @@ def main():
                     if time.monotonic() - recovered_at >= .5:
                         break
                 time.sleep(.005)
-            assert recovered_at is None and checked_late, (row.match_text, row.sync_state)
+            # A restarted file advances at the same speed as the fixed main and
+            # cannot catch up. Whether historical matching has reached its
+            # intermediate "confirmed" state is not the playback requirement.
+            # Verify the actual missing-content condition even when scene
+            # ambiguity correctly keeps the source unconfirmed (also on v1.2.6).
+            expected = row.decoder.history.origin - decoders[0].history.origin
+            target = viewer.audio.clock() + viewer.shifts()['1'] + expected
+            assert target > row.decoder.history.bounds()[1], 'The restarted fixture must actually be late'
+            assert recovered_at is None, (row.match_text, row.sync_state)
             assert row.mix_gain == 0 and viewer.shifts()['1'] == main_shift
             assert abs(viewer.alignment.lags["3"] - peer_lag) <= .08
             assert not viewer.rows["1"].paused and not viewer.sync_waiting

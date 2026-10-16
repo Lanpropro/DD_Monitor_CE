@@ -607,6 +607,7 @@ class RoomRow(QFrame):
         self.next_analysis = 0.0
         self.alignment_hint = None
         self.large_candidate = None
+        self.correction_remaining = 0.0
         self.reset_pending = False
         self.needs_epoch_samples = False
         room = next((item for item in getattr(viewer.context.window, "rooms", [])
@@ -892,6 +893,8 @@ class RoomRow(QFrame):
         if self.sync_state == "已同步":
             if self.room_id in self.viewer.independent_shifts:
                 return "独立播放（未对齐）"
+            if self.viewer.alignment.automatic and self.correction_remaining > .1001:
+                return f"平滑校正中，剩余约 {self.correction_remaining:.2f} 秒"
             return "播放正常" if self.room_id == self.viewer.alignment.reference else (
                 "已对齐" if self.viewer.alignment.automatic else "按当前偏移播放")
         return self.sync_state
@@ -1547,7 +1550,8 @@ class Viewer(QDialog):
         targets = set(self.rows) - {reference} if room_id == reference else {room_id}
         for key in targets:
             self.alignment.lags[key] = before[key] - before[reference]
-            self._queue_rematch(self.rows[key])
+            row = self.rows[key]
+            self._queue_rematch(row, local=row.user_confirmed and not row.needs_epoch_samples)
             if hint is not None:
                 self.rows[key].alignment_hint = (hint, time.monotonic() + 60)
             self.rematch_admit.add(key)
@@ -2017,15 +2021,29 @@ class Viewer(QDialog):
         self.shift_reference = self.alignment.reference
         self.relative_rates = {}
         result = dict(wanted)
+        for row in self.rows.values():
+            row.correction_remaining = 0.0
         if self.alignment.automatic:
             for key in wanted:
-                if key == self.alignment.reference or key not in previous:
+                if key == self.alignment.reference or key not in previous or key in self.independent_shifts:
                     continue
                 delta = wanted[key] - previous[key]
-                if abs(delta) <= .2:
-                    step = 0 if abs(delta) <= .1 else max(-.02 * dt, min(.02 * dt, delta))
+                row = self.rows[key]
+                tracking = (row.user_confirmed and row.match_confirmed and row.sync_state == "已同步" and not row.needs_epoch_samples
+                            and now - row.alignment_started >= 10
+                            and key not in self.rematch_rooms and row.decoder is not None)
+                buffered = False
+                if tracking and .2 < abs(delta) <= .8:
+                    clock = self.audio.clock()
+                    bounds = row.decoder.history.bounds_at(clock + previous[key])
+                    buffered = (bounds is not None and bounds[0] <= clock + min(previous[key], wanted[key])
+                                and clock + max(previous[key], wanted[key]) <= bounds[1] - .05)
+                if abs(delta) <= .2 or buffered:
+                    rate = .04 if abs(delta) > .2 else .02
+                    step = 0 if abs(delta) <= .1 else max(-rate * dt, min(rate * dt, delta))
                     result[key] = previous[key] + step
                     self.relative_rates[key] = 1 + step / dt if dt else 1
+                    row.correction_remaining = abs(wanted[key] - result[key])
         self.rendered_shifts = result
         return result
 
@@ -2452,7 +2470,8 @@ class Viewer(QDialog):
         self._sync_sidebar_marks()
         self.sync_picture()
         clock = self.audio.clock()
-        shifts = self._smooth_shifts(self.target_shifts())
+        wanted = self.target_shifts()
+        shifts = self._smooth_shifts(wanted)
         if self.alignment.automatic:
             origin = shifts.get(self.alignment.reference, 0)
             for key, row in self.rows.items():
@@ -2515,6 +2534,10 @@ class Viewer(QDialog):
                     text += "（" + cache_gap(row.decoder.history, position) + "）"
             if row.sync_state != "已同步":
                 text += " · 本路暂时静音"
+            elif self.alignment.automatic and row.correction_remaining > .1001:
+                reference = self.alignment.reference
+                text += (f" · 播放偏移：目标 {wanted[reference] - wanted[room_id]:+.2f} 秒，"
+                         f"当前 {shifts[reference] - shifts[room_id]:+.2f} 秒")
             if row.buffer_text != text:
                 row.buffer_text = text
                 row.refresh_status()
