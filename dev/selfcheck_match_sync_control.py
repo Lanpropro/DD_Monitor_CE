@@ -138,6 +138,8 @@ def main():
                     patch.object(module.threading, "Thread") as thread:
                 thread.side_effect = lambda **kwargs: type("Inline", (), {"start": lambda self: kwargs["target"]()})()
                 for _ in range(4):
+                    # Coarse-only fixtures must respect the tracking retry delay.
+                    now[0] += 2
                     viewer.analyse()
                 assert thread.call_count == 4, "Viewing comparison must keep automatic analysis active"
                 assert deliveries == [("2",), ("3",), ("2",), ("3",)]

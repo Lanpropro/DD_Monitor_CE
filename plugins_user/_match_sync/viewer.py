@@ -458,6 +458,8 @@ class RoomRow(QFrame):
         self.recheck_alignment = False
         self.rematch_locally = False
         self.user_confirmed = False
+        self.user_confirmed_lag = None
+        self.review_alignment = False
         self.awaiting_confirmation = False
         self.next_analysis = 0.0
         self.reset_pending = False
@@ -1382,6 +1384,8 @@ class Viewer(QDialog):
         if key != reference and (not ranges or max(start for start, _ in ranges) > min(end for _, end in ranges) - .25):
             self.audio.correction += before.get(reference, 0) - shifts.get(reference, 0)
         for row in self.rows.values():
+            if row.user_confirmed and (row.room_id == key or key == reference):
+                row.review_alignment = True
             row.match_text = "手动时间已锁定；勾选自动对齐可解除"
             row.refresh_status()
         self.show_comparison(key)
@@ -1862,6 +1866,7 @@ class Viewer(QDialog):
         row.picture_wait_since = None
         row.match_confirmed = False
         row.awaiting_confirmation = False
+        row.review_alignment = False
         row.reset_pending = False
         row.match_failures = 0
         row.alignment_started = time.monotonic()
@@ -2109,13 +2114,17 @@ class Viewer(QDialog):
                        and key not in self.independent_shifts
                        and fresh and not row.paused and needed > .3 and row.sync_state != "已同步")
             confirming = key != self.alignment.reference and row.awaiting_confirmation and row.match_confirmed
-            row.join.setVisible(joining or confirming)
+            reviewing = key != self.alignment.reference and row.review_alignment and row.match_confirmed
+            row.join.setVisible(joining or confirming or reviewing)
             if confirming:
                 row.join.setText("确认微调并持续同步" if not self.alignment.automatic else
                                  f"确认对齐并延后约 {needed:.1f} 秒加入" if needed > .3 else "确认对齐并加入")
                 row.join.setToolTip("先用对照画面检查偏移；确认后本路加入声音，后续短时缓冲自动复核恢复。")
             elif joining:
                 row.join.setText(f"延后约 {needed:.1f} 秒并加入")
+            elif reviewing:
+                row.join.setText("确认当前偏移（可选）" if self.alignment.automatic else "确认微调并持续同步")
+                row.join.setToolTip("当前继续播放；不点击不会撤销偏移或反复重新对齐。确认用于加强当前偏移的依据，不改变播放进度。")
         main = self.rows.get(self.alignment.reference)
         if (self.alignment.automatic and self.stable_reference_shift is None
                 and main is not None and main.sync_state == "已同步"):
@@ -2125,7 +2134,7 @@ class Viewer(QDialog):
         row = self.rows.get(room_id)
         if row is None:
             return
-        if row.awaiting_confirmation and not self.alignment.automatic:
+        if (row.awaiting_confirmation or row.review_alignment) and not self.alignment.automatic:
             before = self.shifts()
             reference = self.alignment.reference
             self.analysis_serial += 1
@@ -2146,7 +2155,25 @@ class Viewer(QDialog):
             self.rendered_shifts.clear()
             self.shift_reference = None
             self.generation += 1
-        self.admit_pending(room_id)
+        if (row.review_alignment and row.user_confirmed and row.match_confirmed
+                and not row.awaiting_confirmation and row.sync_state == "已同步"):
+            # A later human review reinforces the displayed offset, without
+            # seeking the clock or restoring the initial admission reserve.
+            shifts = self.shifts()
+            lag = shifts[room_id] - shifts[self.alignment.reference]
+            self.alignment.lags[room_id] = lag
+            self.alignment.candidates.pop(room_id, None)
+            row.user_confirmed_lag = lag
+            row.review_alignment = False
+            row.match_failures = 0
+            row.next_analysis = time.monotonic() + 2
+            self.analysis_serial += 1
+            self.matching = False
+            self.generation += 1
+            row.match_text = "用户已确认当前偏移，继续自动同步"
+            self.render()
+        else:
+            self.admit_pending(room_id)
         self.changed()
 
     def admit_pending(self, room_id, keep_main=False):
@@ -2170,6 +2197,8 @@ class Viewer(QDialog):
             return
         if not keep_main:
             row.user_confirmed = True
+            row.user_confirmed_lag = self.alignment.lags[room_id]
+            row.review_alignment = False
             row.awaiting_confirmation = False
             row.recheck_alignment = False
             self.rematch_rooms.discard(room_id)
@@ -2340,6 +2369,8 @@ class Viewer(QDialog):
                 known.pop(key, None)
         confirmed_peers = {key for key, value in self.rows.items()
                            if value.match_confirmed and value.sync_state == "已同步"}
+        tracking_rooms = {key for key, value in self.rows.items()
+                          if value.match_confirmed and key in known and key not in self.rematch_rooms}
         focused_rooms = {key for key, value in self.rows.items() if tuple(value.crop) != (0, 0, 1, 1)}
         reference_id = row.room_id
         clock, shifts = self.audio.clock(), self.shifts()
@@ -2360,18 +2391,22 @@ class Viewer(QDialog):
             results = {}
             for key, samples in others.items():
                 focused = reference_id in focused_rooms and key in focused_rooms
-                if details.get(reference_id) and details.get(key):
-                    candidate = (refine_match(Match(known[key], .9, "跟踪已确认偏移"), details[reference_id], details[key], focused=focused)
+                reference_details = details.get(reference_id, [])
+                other_details = details.get(key, [])
+                if key in tracking_rooms and has_picture:
+                    reference_details = [sample for sample in reference_details if sample.time <= positions[reference_id]]
+                if reference_details and other_details:
+                    candidate = (refine_match(Match(known[key], .9, "跟踪已确认偏移"), reference_details, other_details, focused=focused)
                                  if key in known else Match(None, 0, "首次匹配"))
                     if candidate.lag is None:
-                        candidate = match_scenes(details[reference_id][::4], details[key][::4], focused=focused)
+                        candidate = match_scenes(reference_details[::4], other_details[::4], focused=focused)
                 else:
                     candidate = match_scenes(reference, samples, focused=focused)
-                if details.get(reference_id) and details.get(key):
+                if reference_details and other_details:
                     if candidate.lag is None and not candidate.candidates and key in known:
                         candidate = Match(known[key], .9, "复核已确认偏移")
                     if not candidate.refined:
-                        candidate = refine_match(candidate, details[reference_id], details[key], focused=focused)
+                        candidate = refine_match(candidate, reference_details, other_details, focused=focused)
                     if candidate.lag is not None and key in known and has_picture:
                         shown_reference = [s for s in details[reference_id] if s.time <= positions[reference_id]]
                         shown_other = [s for s in details[key] if s.time <= positions[key]]
@@ -2382,7 +2417,10 @@ class Viewer(QDialog):
                              and peer in confirmed_peers and details.get(peer)]
                     if candidate.lag is not None and peers:
                         peer = peers[0]
-                        check = refine_match(Match(candidate.lag - known[peer], .9, "三路一致性检查"), details[peer], details[key],
+                        peer_details = details[peer]
+                        if key in tracking_rooms and has_picture:
+                            peer_details = [sample for sample in peer_details if sample.time <= positions[peer]]
+                        check = refine_match(Match(candidate.lag - known[peer], .9, "三路一致性检查"), peer_details, other_details,
                                              focused=peer in focused_rooms and key in focused_rooms)
                         if check.lag is None and key not in known:
                             candidate = Match(None, 0, "三路共同动态画面不足，继续复核已确认偏移")
@@ -2432,6 +2470,20 @@ class Viewer(QDialog):
                     row.match_text = "正在积累对齐所需缓存；主画面继续播放"
                     row.refresh_status()
                     continue
+            was_confirmed = row.match_confirmed
+            previous_lag = self.alignment.lags.get(room_id)
+            position = self.audio.clock() + self.shifts().get(room_id, 0)
+            bounds = row.decoder.history.bounds_at(position) if row.decoder is not None else None
+            buffered = bounds is not None and bounds[0] <= position <= bounds[1] - .05
+            established = was_confirmed and previous_lag is not None and room_id not in self.independent_shifts
+            inconclusive = match.lag is None or match.confidence < .65 or not match.refined
+            if established and buffered and inconclusive and "三路时间差不一致" not in match.reason:
+                self.alignment.candidates.pop(room_id, None)
+                row.match_failures = 0
+                row.next_analysis = time.monotonic() + 2
+                row.match_text = match.reason + "；沿用已确认偏移，继续缓存播放"
+                row.refresh_status()
+                continue
             applied = self.alignment.accept(room_id, match)
             if match.lag is None:
                 focused = main is not None and tuple(main.crop) != (0, 0, 1, 1) and tuple(row.crop) != (0, 0, 1, 1)
@@ -2459,7 +2511,12 @@ class Viewer(QDialog):
                             self.independent_shifts.pop(room_id)
                             self.rendered_shifts.clear()
                             self.shift_reference = None
-                        row.match_confirmed = match.playback_error is None or abs(match.playback_error) <= .2
+                        # playback_error describes the old displayed position;
+                        # it is not evidence against the correction just applied.
+                        row.match_confirmed = (was_confirmed and row.user_confirmed) or match.playback_error is None or abs(match.playback_error) <= .2
+                        if row.user_confirmed and (not was_confirmed or row.user_confirmed_lag is None
+                                                   or abs(self.alignment.lags[room_id] - row.user_confirmed_lag) > .2):
+                            row.review_alignment = True
                         if row.match_confirmed:
                             row.awaiting_confirmation = not row.user_confirmed
                             if room_id in self.rematch_admit:
