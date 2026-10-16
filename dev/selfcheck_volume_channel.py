@@ -98,8 +98,8 @@ def main() -> None:
     settle(app, 1.2)
     tile = window.wall.tiles[0]
     menu = tile.build_menu()
-    audio_menu = next((a.menu() for a in menu.actions() if a.menu() is not None
-                       and "声道" in a.text()), None)
+    audio_action = next((a for a in menu.actions() if "声道" in a.text()), None)
+    audio_menu = audio_action.menu() if audio_action is not None else None
     assert audio_menu is not None, "右键菜单里应该有「声道」子菜单"
     entries = [a.text() for a in audio_menu.actions()]
     print(f"  声道菜单: {entries}")

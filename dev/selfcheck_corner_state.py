@@ -32,6 +32,9 @@ def main():
     app.setStyleSheet(theme.qss())
     wall = WallGrid([], layout_id="corner")
     try:
+        assert wall.grid.spacing() == 8
+        wall.refresh_theme()
+        assert wall.grid.spacing() == 8, "Theme refresh must preserve initial pane spacing"
         assert wall.corner_ratios() == DEFAULT, "旧配置应继续使用默认比例"
         valid = dict(width=.6, height=.7, right=.55, bottom=[.25, .7])
         wall.restore_corner_ratios(valid)

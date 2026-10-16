@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from PySide6.QtCore import Signal
 from ddm import app as module, bili, theme
 from ddm.account_dialog import AccountPlatformDialog
-from ddm.plugins import LoginRequiredError
+from ddm.plugins import LoginRequiredError, Platform
 from dev.selfcheck_offline_badges import IdlePoller
 
 
@@ -25,11 +25,22 @@ class LoginPage(QDialog):
         self._worker = None
 
 
+class FixturePlatform(Platform):
+    kind = 'douyu'
+    label = '斗鱼'
+    account_login_url = 'https://example.invalid/'
+    account_cookie_domain = 'example.invalid'
+
+    def account_info(self, *_args):
+        return {}
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     with patch.object(module, 'StatusPoller', IdlePoller), patch.object(module, 'StatsPoller', IdlePoller):
-        window = module.MainWindow([], [], layout_id='single')
+        window = module.MainWindow([], [], layout_id='single', state={'plugins_enabled': []})
+        window.plugins.platforms['douyu'] = FixturePlatform()
         window.show()
         app.processEvents()
         tile = window.wall.tiles[0]
