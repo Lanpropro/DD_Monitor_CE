@@ -1,4 +1,4 @@
-"""Exercise the actual comparison panel with three native streams."""
+"""Exercise the actual comparison panel with four native streams."""
 import os
 import faulthandler
 from pathlib import Path
@@ -70,7 +70,7 @@ def main():
         try:
             viewer.resize(1280, 900)
             viewer.show()
-            for key in ("1", "2", "3"):
+            for key in ("1", "2", "3", "4"):
                 viewer.add_room(key, {"alias": key})
             viewer.toggle_running()
             viewer.render_timer.stop()
@@ -115,7 +115,7 @@ def main():
             viewer.show_comparison("2")
             app.processEvents()
             main_card = viewer.comparison_panel.cards["1"][2]
-            warmup([main_card, viewer.comparison_panel.cards["2"][2]])
+            warmup([card[2] for card in viewer.comparison_panel.cards.values()])
             assert main_card.image == viewer.canvas.image
             with patch.object(decoders[0], "picture_at", wraps=decoders[0].picture_at) as request:
                 viewer.render()
@@ -130,9 +130,11 @@ def main():
                 assert redraw.call_count == 0, "Unchanged main comparisons must not redraw"
             opened = measure()
             assert decoders[0].analysis_size == decoders[1].analysis_size == (640, 360)
-            assert decoders[2].analysis_size == (320, 180)
-            assert not decoders[2].pictures.active and not decoders[2].pictures.images
-            print(f"MEASURE: actual three-stream Viewer, closed {closed:.1f} fps; comparison + zoom open {opened:.1f} fps")
+            assert decoders[2].analysis_size == (640, 360)
+            assert decoders[2].pictures.active and decoders[3].pictures.active
+            assert viewer.comparison_panel.shown_rooms == ("1", "2", "3", "4")
+            assert viewer.comparison_panel.target.isHidden()
+            print(f"MEASURE: actual four-stream Viewer, closed {closed:.1f} fps; comparison + zoom open {opened:.1f} fps")
             assert opened >= 45 and opened >= closed * .8, (closed, opened)
             reactions = []
             presented = viewer.canvas.presented
@@ -145,6 +147,12 @@ def main():
             dialog.show()
             app.processEvents()
             reactions.append((time.perf_counter() - started) * 1000)
+            started = time.perf_counter()
+            dialog.confirm_button.click()
+            dialog.settings()
+            dialog.shortcuts()
+            reactions.append((time.perf_counter() - started) * 1000)
+            assert not dialog._loaded_pages
             dialog.close()
             end = time.monotonic() + .3
             while time.monotonic() < end:
@@ -153,14 +161,14 @@ def main():
                 time.sleep(.002)
             assert max(reactions) < 250, reactions
             assert viewer.canvas.presented > presented + 5 and not viewer.canvas.waiting
-            print(f'MEASURE: active three-stream theme/settings reactions {reactions} ms; playback resumed from cached originals')
+            print(f'MEASURE: active four-stream theme/settings reactions {reactions} ms; playback resumed from cached originals')
             viewer.comparison_panel.zoom.setChecked(False)
             viewer.render()
             assert not main_card.zoom_crop
             viewer.show_comparison("3")
             viewer.render()
-            assert viewer.comparison_panel.shown_rooms == ("1", "3")
-            assert not decoders[1].pictures.active and not decoders[1].pictures.images
+            assert viewer.comparison_panel.shown_rooms == ("1", "2", "3", "4")
+            assert decoders[1].pictures.active
             assert decoders[2].pictures.active and decoders[2].analysis_size == (640, 360)
             viewer.compare.setChecked(False)
             viewer.render()

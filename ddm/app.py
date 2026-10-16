@@ -746,6 +746,8 @@ class MainWindow(QMainWindow):
             self.settings['seen_update_entry_versions'] = seen
             self._mark_updates()
             config_module.save(self.current_state())
+        plugins_before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
+                          dict(self.plugins._platform_owner), set(self.plugins._removed))
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
         dialog.update_page.releaseChecked.connect(self._set_app_update)
@@ -777,7 +779,8 @@ class MainWindow(QMainWindow):
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
         self.refresh_skin()
-        self._sync_platform_rooms()
+        if (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before:
+            self._sync_platform_rooms()
         self.state["settings"] = dict(self.settings)
         self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
         self._poll_timer.setInterval(self.poll_interval_ms())

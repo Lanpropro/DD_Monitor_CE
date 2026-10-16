@@ -190,7 +190,9 @@ class AudioPump(QObject):
             return
         self.sink = QAudioSink(output, fmt, self)
         self.sink.stateChanged.connect(lambda: self._state_changed())
-        self.sink.setBufferSize(RATE * 4 * 60 // 1000)
+        # Settings construction can hold the GUI thread longer than 60ms.
+        # Keep output headroom; video still follows the device playback clock.
+        self.sink.setBufferSize(RATE * 4 * 200 // 1000)
         self.device = self.sink.start()
         if self.sink is None or self.device is None:
             self.status.emit("无法启动音频输出")
@@ -278,7 +280,8 @@ class ComparisonPanel(QFrame):
             #MatchSyncCompare QScrollArea {{ border: none; background: transparent; }}
         """)
         heading = QHBoxLayout()
-        heading.addWidget(QLabel("偏移对照 · 主画面与选中直播间"))
+        self.heading_label = QLabel()
+        heading.addWidget(self.heading_label)
         heading.addStretch()
         self.target = QComboBox()
         self.target.setMinimumWidth(150)
@@ -303,6 +306,13 @@ class ComparisonPanel(QFrame):
         layout.addLayout(heading)
         layout.addWidget(scroll, 1)
         self.hide()
+
+    def rooms_to_show(self):
+        reference, rows = self.viewer.alignment.reference, self.viewer.rows
+        others = tuple(key for key in rows if key != reference)
+        selected = self.target.currentData()
+        secondary = others if len(rows) <= 4 else ((selected,) if selected in others else others[:1])
+        return tuple(key for key in (reference, *secondary) if key in rows)
 
     def render(self, clock, shifts):
         rows = self.viewer.rows
@@ -340,8 +350,9 @@ class ComparisonPanel(QFrame):
                 self.target.addItem(label, key)
             self.target.setCurrentIndex(max(0, self.target.findData(selected)))
             self.target.blockSignals(False)
-        self.target.setVisible(len(choices) > 1)
-        shown = tuple(key for key in (reference, self.target.currentData()) if key in rows)
+        self.target.setVisible(len(rows) > 4)
+        self.heading_label.setText("偏移对照 · 全部直播间" if len(rows) <= 4 else "偏移对照 · 主画面与选中直播间")
+        shown = self.rooms_to_show()
         if shown != self.shown_rooms:
             for card, *_ in self.cards.values():
                 self.cards_layout.removeWidget(card)
@@ -2349,20 +2360,21 @@ class Viewer(QDialog):
 
     def _configure_picture_budget(self):
         reference = self.alignment.reference
-        comparison = self.comparison_panel.target.currentData() if self.compare.isChecked() else None
-        inactive = max(1, len(self.rows) - (2 if comparison else 1))
+        shown = self.comparison_panel.rooms_to_show() if self.compare.isChecked() else (reference,)
+        comparisons = max(0, len(shown) - 1)
+        inactive = max(1, len(self.rows) - len(shown))
         for key, row in self.rows.items():
-            visible = key == reference or key == comparison
+            visible = key in shown
             if row.decoder is not None and hasattr(row.decoder, "analysis_size"):
                 row.decoder.analysis_size = (640, 360) if visible else (320, 180)
             reader = getattr(row.decoder, "pictures", None)
             if reader is not None:
                 if key == reference:
-                    megabytes = 192 if comparison else 256
-                elif key == comparison:
-                    megabytes = 128
+                    megabytes = 192 if comparisons else 256
+                elif visible:
+                    megabytes = max(1, 128 // comparisons)
                 else:
-                    megabytes = max(1, (64 if comparison else 128) // inactive)
+                    megabytes = max(1, (64 if comparisons else 128) // inactive)
                 reader.configure(megabytes * 1024 * 1024, getattr(row.decoder, "fps", 30), active=visible)
 
     def analyse(self):

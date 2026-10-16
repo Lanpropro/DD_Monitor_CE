@@ -832,6 +832,12 @@ class SettingsDialog(QDialog):
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
         super().__init__(parent)
+        from .config import DEFAULT_SETTINGS
+        # Part artwork and per-tile video danmaku are saved by their own editors.
+        self._initial_settings = {key: settings.get(key, default) for key, default in DEFAULT_SETTINGS.items()
+                                  if not key.startswith('video_danmaku_')
+                                  and key not in ('skin_parts', 'danmaku_retention_version')}
+        self._initial_shortcuts = {key: shortcuts.get(key) or default for key, _label, default in SHORTCUT_ACTIONS}
         self._preview_only = preview
         self.setWindowTitle("设置")
         self.restart_requested = False
@@ -1003,16 +1009,17 @@ class SettingsDialog(QDialog):
             page.reset()
 
     def settings(self) -> dict:
-        values = self.general_page.values()
-        values.update(self.appearance_page.values())
-        values.update(self.danmaku_page.values())
-        values.update(self.recording_page.values())
+        values = dict(self._initial_settings)
+        values.update(self.general_page.values())
+        for index in (1, 2, 3):
+            if index in self._loaded_pages:
+                values.update(self._loaded_pages[index].values())
         values.update(self.update_page.values())
         values['seen_update_versions'] = dict(self.seen_versions)
         return values
 
     def shortcuts(self) -> dict:
-        return self.shortcut_page.values()
+        return self._loaded_pages[4].values() if 4 in self._loaded_pages else dict(self._initial_shortcuts)
 
     def enabled_plugins(self):
         return self.plugin_page.enabled_plugins()
