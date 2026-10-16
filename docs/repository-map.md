@@ -276,6 +276,7 @@
 - `dev/selfcheck_sidebar_avatar.py`
 - `dev/selfcheck_sidebar_collapse.py`
 - `dev/selfcheck_sidebar_performance.py`
+- `dev/selfcheck_sidebar_text_theme.py`
 - `dev/selfcheck_skins.py`
 - `dev/selfcheck_slots.py`
 - `dev/selfcheck_smart_folder_sources.py`

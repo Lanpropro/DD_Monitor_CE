@@ -2163,9 +2163,11 @@ class NavItem(QFrame):
 
         self.name_label = ElidedLabel(room.get("uname") or room.get("room_id", ""))
         self.name_label.setObjectName("NavName")
+        self.name_label.setProperty("cardMode", True)
         self.sub = ElidedLabel(room.get("title") or
                                ("直播中" if room.get("live") else "未开播"))
         self.sub.setObjectName("NavSub")
+        self.sub.setProperty("cardMode", True)
         _ignore_mouse(self.name_label)
         _allow_shrink(self.name_label)
         _ignore_mouse(self.sub)
@@ -2262,6 +2264,9 @@ class NavItem(QFrame):
             return
         self._card_mode = enabled
         self.thumb.set_card_mode(enabled)
+        for label in (self.name_label, self.sub):
+            label.setProperty("cardMode", enabled)
+            _repolish(label)
         if not self._compact:
             self.setFixedHeight(NAV_ITEM_HEIGHT if enabled else
                                 (PORTRAIT_LIST_HEIGHT if self._portrait_strip else NAV_LIST_ITEM_HEIGHT))

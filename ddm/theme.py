@@ -695,6 +695,12 @@ QSlider::handle:horizontal:hover {{
     font-size: {FONT_CAPTION}px;
     background: transparent;
 }}
+#NavName[cardMode="false"] {{
+    color: {TEXT1};
+}}
+#NavSub[cardMode="false"] {{
+    color: {TEXT2};
+}}
 #NavAvatar {{
     color: {TEXT1};
     font-size: {FONT_CONTROL}px;
