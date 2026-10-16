@@ -21,7 +21,7 @@ from ddm.widgets import AUTO_QUALITY, Avatar, DanmakuPanel, ROOM_MIME, Tile
 from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
 from ddm.dialogs import SHORTCUT_ACTIONS
-from ddm import motion, theme
+from ddm import config as config_module, motion, theme
 from .engine import Alignment, Match, RATE, SafetyBuffer, LateBuffer, match_scenes, refine_match, assisted_match, mix_pcm, resample_pcm
 from .media import Chat, Decoder, PlatformChat
 
@@ -642,7 +642,8 @@ class RoomRow(QFrame):
         self.audible.setChecked(preferences.get("audible", True))
         self.volume = QSlider(Qt.Horizontal)
         self.volume.setRange(0, 100)
-        self.volume.setValue(preferences.get("volume", 42))
+        self.volume.setValue(int(preferences.get("volume", getattr(
+            viewer.context.window, "settings", {}).get("default_volume", config_module.DEFAULT_VOLUME))))
         self.volume.setFixedWidth(72)
         self.volume_number = QLabel(str(self.volume.value()))
         self.volume_number.setFixedWidth(26)
