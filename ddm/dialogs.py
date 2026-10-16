@@ -1,5 +1,7 @@
 """对话框：设置（常规 / 快捷键）、添加直播间、从关注导入。"""
 import re
+import sys
+import time
 import zipfile
 
 from PySide6.QtCore import Qt, Signal
@@ -825,6 +827,7 @@ class AppearanceSettingsPage(QWidget):
 class SettingsDialog(QDialog):
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
+    pageCreated = Signal(int, object)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
@@ -832,12 +835,15 @@ class SettingsDialog(QDialog):
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
         super().__init__(parent)
+        self._created_at = time.perf_counter()
+        self._paint_logged = False
         from .config import DEFAULT_SETTINGS
         # Part artwork and per-tile video danmaku are saved by their own editors.
         self._initial_settings = {key: settings.get(key, default) for key, default in DEFAULT_SETTINGS.items()
                                   if not key.startswith('video_danmaku_')
                                   and key not in ('skin_parts', 'danmaku_retention_version')}
         self._initial_shortcuts = {key: shortcuts.get(key) or default for key, _label, default in SHORTCUT_ACTIONS}
+        self._plugin_manager = plugin_manager
         self._preview_only = preview
         self.setWindowTitle("设置")
         self.restart_requested = False
@@ -852,7 +858,7 @@ class SettingsDialog(QDialog):
         self.nav.setObjectName("SettingsNav")
         self.nav.setFixedWidth(180)
         self.nav.setFocusPolicy(Qt.NoFocus)
-        from .online_ui import UpdateNavDelegate, UpdateDot
+        from .online_ui import UpdateNavDelegate, AppUpdatePage
         self.nav.setItemDelegate(UpdateNavDelegate(self.nav))
         for key, label in self.PAGES:
             item = QListWidgetItem(label)
@@ -874,26 +880,18 @@ class SettingsDialog(QDialog):
             2: lambda: DanmakuSettingsPage(settings),
             3: lambda: RecordingSettingsPage(settings),
             4: lambda: ShortcutSettingsPage(shortcuts),
+            5: lambda: PluginSettingsPage(plugin_manager),
+            6: lambda: AppUpdatePage(settings),
         }
         self._loaded_pages = {}
         if preview:
             # The appearance thumbnail needs the real controls, without creating
             # update/download workers or reading an installation result.
-            self.plugin_page = QWidget()
-            self.update_page = QWidget()
-        else:
-            self.plugin_page = PluginSettingsPage(plugin_manager)
-            self.plugin_page.store_page.seen_versions = self.seen_versions
-            self._plugin_update_dot = UpdateDot()
-            from PySide6.QtWidgets import QTabBar
-            self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
-            from .online_ui import AppUpdatePage
-            self.update_page = AppUpdatePage(settings)
+            self._page_factories[5] = QWidget
+            self._page_factories[6] = QWidget
         self.stack.addWidget(self.general_page)
-        for _index in range(4):
+        for _index in range(6):
             self.stack.addWidget(QWidget())
-        self.stack.addWidget(self.plugin_page)
-        self.stack.addWidget(self.update_page)
         right.addWidget(self.stack, 1)
 
         buttons = QHBoxLayout()
@@ -917,13 +915,14 @@ class SettingsDialog(QDialog):
         self.nav.setCurrentRow(0)
         if preview:
             return
-        self.plugin_page.changed.connect(self._update_save_button)
-        self.plugin_page.store_page.busyChanged.connect(self._update_save_button)
-        self.update_page.busyChanged.connect(self._update_save_button)
-        self.plugin_page.store_page.offersChanged.connect(self._mark_plugin_updates)
-        self.update_page.releaseChecked.connect(self._mark_app_update)
-        self._mark_plugin_updates(self.plugin_page.store_page.offers)
         self._update_save_button()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._paint_logged:
+            self._paint_logged = True
+            print(f"[设置耗时] 首次绘制 {(time.perf_counter() - self._created_at) * 1000:.1f}ms",
+                  file=sys.stderr, flush=True)
 
     def _mark_update_page(self, key, active):
         for index in range(self.nav.count()):
@@ -933,6 +932,7 @@ class SettingsDialog(QDialog):
 
     def _page(self, index):
         if index not in self._loaded_pages:
+            started = time.perf_counter()
             placeholder = self.stack.widget(index)
             page = self._page_factories[index]()
             self._loaded_pages[index] = page
@@ -941,12 +941,30 @@ class SettingsDialog(QDialog):
             placeholder.deleteLater()
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
+            elif index == 5 and not self._preview_only:
+                from .online_ui import UpdateDot
+                from PySide6.QtWidgets import QTabBar
+                page.store_page.seen_versions = self.seen_versions
+                self._plugin_update_dot = UpdateDot()
+                page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
+                page.changed.connect(self._update_save_button)
+                page.store_page.busyChanged.connect(self._update_save_button)
+                page.store_page.offersChanged.connect(self._mark_plugin_updates)
+                self._mark_plugin_updates(page.store_page.offers)
+            elif index == 6 and not self._preview_only:
+                page.busyChanged.connect(self._update_save_button)
+                page.releaseChecked.connect(self._mark_app_update)
+            self.pageCreated.emit(index, page)
+            print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
+                  file=sys.stderr, flush=True)
         return self._loaded_pages[index]
 
     appearance_page = property(lambda self: self._page(1))
     danmaku_page = property(lambda self: self._page(2))
     recording_page = property(lambda self: self._page(3))
     shortcut_page = property(lambda self: self._page(4))
+    plugin_page = property(lambda self: self._page(5))
+    update_page = property(lambda self: self._page(6))
 
     def _remember_versions(self, versions):
         if any(self.seen_versions.get(key) != value for key, value in versions.items()):
@@ -954,7 +972,7 @@ class SettingsDialog(QDialog):
             self.updatesViewed.emit(dict(self.seen_versions))
 
     def _mark_app_update(self, offer):
-        if offer and self.nav.currentRow() == self.stack.indexOf(self.update_page):
+        if offer and self.nav.currentRow() == 6:
             self._remember_versions({'app': offer['version']})
         active = bool(offer and self.seen_versions.get('app') != offer['version'])
         self._mark_update_page('updates', active)
@@ -962,7 +980,7 @@ class SettingsDialog(QDialog):
     def _mark_plugin_updates(self, offers):
         from .online_ui import plugin_update_offers
         updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
-        if self.nav.currentRow() == self.stack.indexOf(self.plugin_page):
+        if self.nav.currentRow() == 5:
             self._remember_versions({offer['id']: offer['version'] for offer in updates})
         active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
         self._mark_update_page('plugins', active)
@@ -970,8 +988,10 @@ class SettingsDialog(QDialog):
         self.plugin_page.store_page.update_dots()
 
     def _update_save_button(self, *_args) -> None:
-        self.confirm_button.setText("保存并重启" if self.plugin_page.needs_restart() else "保存")
-        self.confirm_button.setEnabled(not self.plugin_page.store_page.jobs and not self.update_page.jobs)
+        plugin, update = self._loaded_pages.get(5), self._loaded_pages.get(6)
+        self.confirm_button.setText("保存并重启" if plugin is not None and plugin.needs_restart() else "保存")
+        self.confirm_button.setEnabled(not (plugin is not None and plugin.store_page.jobs)
+                                      and not (update is not None and update.jobs))
 
     def _save(self) -> None:
         appearance = self._loaded_pages.get(1)
@@ -980,15 +1000,18 @@ class SettingsDialog(QDialog):
                 self.nav.setCurrentRow(1)
                 appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
                 return
-        self.restart_requested = self.plugin_page.needs_restart()
+        plugin = self._loaded_pages.get(5)
+        self.restart_requested = plugin is not None and plugin.needs_restart()
         self.accept()
 
     def done(self, result):
         if self._preview_only:
             return super().done(result)
         self.stack.finish_transition()
-        self.plugin_page.store_page.stop()
-        self.update_page.stop()
+        if 5 in self._loaded_pages:
+            self._loaded_pages[5].store_page.stop()
+        if 6 in self._loaded_pages:
+            self._loaded_pages[6].stop()
         super().done(result)
 
     def _on_page_changed(self, index: int) -> None:
@@ -997,10 +1020,10 @@ class SettingsDialog(QDialog):
                 self._page(index)
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
-            self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
-            if index == self.stack.indexOf(self.plugin_page):
+            self.reset_button.setVisible(index not in (5, 6))
+            if index == 5 and not self._preview_only:
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
-            elif index == self.stack.indexOf(self.update_page):
+            elif index == 6 and not self._preview_only:
                 self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
@@ -1014,7 +1037,8 @@ class SettingsDialog(QDialog):
         for index in (1, 2, 3):
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
-        values.update(self.update_page.values())
+        if 6 in self._loaded_pages:
+            values.update(self._loaded_pages[6].values())
         values['seen_update_versions'] = dict(self.seen_versions)
         return values
 
@@ -1022,7 +1046,10 @@ class SettingsDialog(QDialog):
         return self._loaded_pages[4].values() if 4 in self._loaded_pages else dict(self._initial_shortcuts)
 
     def enabled_plugins(self):
-        return self.plugin_page.enabled_plugins()
+        if 5 in self._loaded_pages:
+            return self._loaded_pages[5].enabled_plugins()
+        enabled = self._plugin_manager.enabled if self._plugin_manager is not None else None
+        return None if enabled is None else set(enabled)
 
 
 def _add_folder_option(dialog, menu, folder_id, name):

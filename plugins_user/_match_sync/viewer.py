@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
 from collections import deque
 from dataclasses import replace
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QEasingCurve, QEvent, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QMetaObject, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QCursor, QDrag, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
@@ -21,11 +22,30 @@ from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
 from ddm.dialogs import SHORTCUT_ACTIONS
 from ddm import motion, theme
-from .engine import Alignment, Match, RATE, SafetyBuffer, match_scenes, refine_match, mix_pcm, resample_pcm
+from .engine import Alignment, Match, RATE, SafetyBuffer, match_scenes, refine_match, assisted_match, mix_pcm, resample_pcm
 from .media import Chat, Decoder, PlatformChat
 
 COLORS = ("#38bdf8", "#fb7185", "#a78bfa", "#4ade80", "#fbbf24", "#fb923c")
 ROW_MIME = "application/x-ddm-match-sync-row"
+
+
+def cache_gap(history, target):
+    """Describe missing target content, separately from scene-match confidence."""
+    bounds = history.bounds()
+    if bounds is None:
+        return "尚未收到播放缓存"
+    previous = getattr(history, 'previous', None)
+    previous_bounds = previous.bounds() if previous is not None else None
+    earliest = min(bounds[0], previous_bounds[0]) if previous_bounds else bounds[0]
+    latest = max(bounds[1], previous_bounds[1]) if previous_bounds else bounds[1]
+    if target < earliest:
+        return f"目标早于已保留缓存约 {earliest - target:.1f} 秒"
+    if target > latest:
+        return f"目标内容尚未收到，缺少约 {target - latest:.1f} 秒"
+    continuous = history.bounds_at(target)
+    if continuous is None or not continuous[0] <= target <= continuous[1]:
+        return "目标位置存在断流缓存缺口"
+    return ""
 
 
 def parse_room(text: str, manager=None) -> str:
@@ -151,6 +171,54 @@ class Canvas(QFrame):
         self.anchor = None
 
 
+class AudioFeed(QObject):
+    """Own the output device and its timer entirely on the audio thread."""
+    def __init__(self, pump, output, fmt):
+        super().__init__()
+        self.pump, self.output, self.fmt = pump, output, fmt
+        self.timer = None
+
+    @Slot()
+    def start(self):
+        pump = self.pump
+        pump.sink = QAudioSink(self.output, self.fmt, self)
+        pump.sink.stateChanged.connect(self.state_changed)
+        pump.sink.setBufferSize(RATE * 4 * 200 // 1000)
+        pump.device = pump.sink.start()
+        if pump.device is None:
+            pump.status.emit("无法启动音频输出")
+            self.stop()
+            return
+        self.timer = QTimer(self)
+        self.timer.setInterval(10)
+        self.timer.setTimerType(Qt.PreciseTimer)
+        self.timer.timeout.connect(self.fill)
+        self.timer.start()
+        self.fill()
+        pump.status.emit("声音已接管，结束观看后恢复原程序的静音设定")
+
+    @Slot()
+    def fill(self):
+        self.pump.fill()
+
+    @Slot()
+    def state_changed(self):
+        if self.pump.sink is not None and self.pump.sink.error().value:
+            self.pump.status.emit("音频设备出错；检查系统默认设备后停止并重新开始")
+            self.stop()
+
+    @Slot()
+    def stop(self):
+        if self.timer is not None:
+            self.timer.stop()
+        with self.pump.lock:
+            sink, self.pump.sink = self.pump.sink, None
+            self.pump.device = None
+        if sink is not None:
+            sink.stop()
+            sink.deleteLater()
+
+
 class AudioPump(QObject):
     status = Signal(str)
 
@@ -164,10 +232,16 @@ class AudioPump(QObject):
         self.media_written = 0.0
         self.clock_segments = deque()
         self.correction = 0.0
+        self.last_fill = None
+        self.lock = threading.RLock()
+        self.thread = None
+        self.feed = None
+        self.snapshot = (1.0, ())
+        self.played = 0
         self.timer = QTimer(self)
         self.timer.setInterval(10)
         self.timer.setTimerType(Qt.PreciseTimer)
-        self.timer.timeout.connect(self.fill)
+        self.timer.timeout.connect(self.update_snapshot)
         self.devices = QMediaDevices(self)
         self.device_id = None
         self.devices.audioOutputsChanged.connect(self._device_changed)
@@ -179,6 +253,7 @@ class AudioPump(QObject):
         self.media_written = 0.0
         self.clock_segments.clear()
         self.correction = 0.0
+        self.played = 0
         output = QMediaDevices.defaultAudioOutput()
         self.device_id = bytes(output.id())
         fmt = QAudioFormat()
@@ -188,36 +263,38 @@ class AudioPump(QObject):
         if output.isNull() or not output.isFormatSupported(fmt):
             self.status.emit("音频输出不可用；请检查系统默认播放设备")
             return
-        self.sink = QAudioSink(output, fmt, self)
-        self.sink.stateChanged.connect(lambda: self._state_changed())
-        # Settings construction can hold the GUI thread longer than 60ms.
-        # Keep output headroom; video still follows the device playback clock.
-        self.sink.setBufferSize(RATE * 4 * 200 // 1000)
-        self.device = self.sink.start()
-        if self.sink is None or self.device is None:
-            self.status.emit("无法启动音频输出")
-            self.stop()
-            return
+        self.update_snapshot()
+        self.thread = QThread(self)
+        self.feed = AudioFeed(self, output, fmt)
+        self.feed.moveToThread(self.thread)
+        self.thread.started.connect(self.feed.start)
+        self.thread.finished.connect(self.feed.deleteLater)
+        self.thread.start()
         self.timer.start()
-        self.status.emit("声音已接管，结束观看后恢复原程序的静音设定")
 
     def stop(self):
         self.timer.stop()
+        self.last_fill = None
+        if self.thread is not None:
+            QMetaObject.invokeMethod(self.feed, "stop", Qt.BlockingQueuedConnection)
+            self.thread.quit()
+            self.thread.wait()
+            self.thread.deleteLater()
+            self.thread = self.feed = None
         sink, self.sink = self.sink, None
         if sink is not None:
             sink.stop()
             sink.deleteLater()
         self.device = None
 
-    def _state_changed(self):
-        if self.sink is not None and self.sink.error().value:
-            self.status.emit("音频设备出错；检查系统默认设备后停止并重新开始")
-            self.stop()
-
     def clock(self):
+        with self.lock:
+            return self._clock()
+
+    def _clock(self):
         if self.sink is None:
             return time.monotonic() + self.correction
-        played = self.sink.processedUSecs() * RATE / 1_000_000
+        played = self.played if self.thread is not None else self.sink.processedUSecs() * RATE / 1_000_000
         while len(self.clock_segments) > 1 and self.clock_segments[0][1] <= played:
             self.clock_segments.popleft()
         if self.clock_segments:
@@ -225,25 +302,48 @@ class AudioPump(QObject):
             return self.anchor + media + min(max(0, played - first), end - first) / RATE * rate + self.correction
         return self.anchor + played / RATE + self.correction
 
+    def update_snapshot(self):
+        # Widgets and room collections belong to the GUI thread. The output
+        # thread receives only immutable values and thread-safe media histories.
+        shifts = self.viewer.shifts()
+        rate = self.viewer.playback_rate
+        inputs = []
+        for room_id, row in self.viewer.rows.items():
+            if (row.decoder is not None and row.audible.isChecked() and not row.paused
+                    and not self.viewer.sync_waiting and row.sync_state == "已同步"):
+                inputs.append((row.decoder.history, shifts[room_id],
+                               rate + self.viewer.relative_rates.get(room_id, 1.0) - 1.0,
+                               row.channel.currentData(), row.volume.value() * row.mix_gain))
+        self.snapshot = (rate, tuple(inputs))
+
     def fill(self):
+        if self.thread is None:
+            self.update_snapshot()
+        with self.lock:
+            self._fill()
+
+    def _fill(self):
         if self.sink is None or self.device is None:
             return
-        shifts = self.viewer.shifts()
+        now = time.perf_counter()
+        if self.last_fill is not None and now - self.last_fill > .1:
+            print(f"[二路音频] 供给间隔 {(now - self.last_fill) * 1000:.1f}ms", file=sys.stderr, flush=True)
+        self.last_fill = now
+        self.played = self.sink.processedUSecs() * RATE / 1_000_000
+        rate, sources = self.snapshot
         for _ in range(3):
+            if self.sink is None or self.device is None:
+                break
             frames = min(2048, self.sink.bytesFree() // 4)
             if frames < 240:
                 break
-            rate = self.viewer.playback_rate
             media_frames = max(1, round(frames * rate))
             clock = self.anchor + self.media_written + self.correction
             inputs = []
-            for room_id, row in self.viewer.rows.items():
-                if (row.decoder is not None and row.audible.isChecked() and not row.paused
-                        and not self.viewer.sync_waiting and row.sync_state == "已同步"):
-                    local_rate = rate + self.viewer.relative_rates.get(room_id, 1.0) - 1.0
-                    pcm = row.decoder.history.pcm_at(clock + shifts[room_id], max(1, round(frames * local_rate)))
-                    pcm = route_pcm_s16_stereo(pcm, row.channel.currentData())
-                    inputs.append((resample_pcm(pcm, frames), row.volume.value() * row.mix_gain))
+            for history, shift, local_rate, channel, volume in sources:
+                pcm = history.pcm_at(clock + shift, max(1, round(frames * local_rate)))
+                pcm = route_pcm_s16_stereo(pcm, channel)
+                inputs.append((resample_pcm(pcm, frames), volume))
             count = self.device.write(mix_pcm(inputs, frames))
             if count <= 0:
                 break
@@ -332,6 +432,11 @@ class ComparisonPanel(QFrame):
                 state.setWordWrap(True)
                 heading = QHBoxLayout()
                 heading.addWidget(name, 1)
+                assist = QPushButton("辅助自动对齐")
+                assist.setObjectName("MatchSyncAssist")
+                assist.clicked.connect(lambda _checked=False, key=room_id: self.viewer.assist_alignment(key))
+                assist.setVisible(room_id != self.viewer.alignment.reference)
+                heading.addWidget(assist)
                 layout = QVBoxLayout(card)
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.addLayout(heading)
@@ -340,6 +445,8 @@ class ComparisonPanel(QFrame):
                 card.hide()
                 self.cards[room_id] = (card, name, canvas, state)
         reference = self.viewer.alignment.reference
+        for key, (card, *_rest) in self.cards.items():
+            card.findChild(QPushButton, "MatchSyncAssist").setVisible(key != reference)
         selected = self.target.currentData()
         choices = [(key, row.label()) for key, row in rows.items() if key != reference]
         if choices != [(self.target.itemData(i), self.target.itemText(i))
@@ -498,6 +605,8 @@ class RoomRow(QFrame):
         self.review_alignment = False
         self.awaiting_confirmation = False
         self.next_analysis = 0.0
+        self.alignment_hint = None
+        self.large_candidate = None
         self.reset_pending = False
         self.needs_epoch_samples = False
         room = next((item for item in getattr(viewer.context.window, "rooms", [])
@@ -1346,6 +1455,8 @@ class Viewer(QDialog):
         self.rows_layout.activate()
 
     def _queue_rematch(self, row, local=False):
+        row.alignment_hint = None
+        row.large_candidate = None
         row.match_confirmed = False
         row.match_failures = 0
         row.alignment_started = time.monotonic()
@@ -1360,7 +1471,64 @@ class Viewer(QDialog):
             self.rematch_admit.add(row.room_id)
         row.refresh_status()
 
-    def retry_alignment(self, room_id):
+    def assist_alignment(self, room_id):
+        reference = self.alignment.reference
+        cards = self.comparison_panel.cards
+        if room_id == reference or reference not in cards or room_id not in cards:
+            return
+        frames = (self.canvas.frame, cards[room_id][2].frame)
+        if not self.running or any(frame is None for frame in frames):
+            self.notice.setText("请等待两路对照都有画面，再辅助自动对齐")
+            return
+        decoders = (self.rows[reference].decoder, self.rows[room_id].decoder)
+        origins = tuple(decoder.history.origin for decoder in decoders)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("辅助自动对齐")
+        dialog.resize(1000, 430)
+        layout = QVBoxLayout(dialog)
+        hint = QLabel("根据下方定格画面判断副路比主画面快或慢多少秒；主画面继续播放。"
+                      "请比较同一回合的计时器或共同事件，软件会在估计附近验证连续画面。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        pictures = QHBoxLayout()
+        for key, frame in zip((reference, room_id), frames):
+            column = QVBoxLayout()
+            column.addWidget(QLabel(self.rows[key].label()))
+            canvas = Canvas()
+            canvas.set_frame(frame)
+            column.addWidget(canvas)
+            pictures.addLayout(column)
+        layout.addLayout(pictures, 1)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("副路比主画面"))
+        direction = QComboBox()
+        direction.addItem("快（副路已发生主画面之后的内容）", 1)
+        direction.addItem("慢（副路还在播放主画面之前的内容）", -1)
+        controls.addWidget(direction)
+        seconds = QDoubleSpinBox()
+        seconds.setRange(0, 120)
+        seconds.setSuffix(" 秒")
+        seconds.setValue(16)
+        controls.addWidget(seconds)
+        layout.addLayout(controls)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("开始精校正")
+        buttons.button(QDialogButtonBox.Ok).setObjectName("PrimaryButton")
+        buttons.button(QDialogButtonBox.Cancel).setObjectName("IconButton")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.Accepted:
+            if (reference != self.alignment.reference or room_id not in self.rows
+                    or decoders != (self.rows[reference].decoder, self.rows[room_id].decoder)
+                    or origins != tuple(decoder.history.origin for decoder in decoders)):
+                self.notice.setText("直播间或匹配状态已变化，请重新打开辅助对齐")
+                return
+            # Positive content lead means the matching other timestamp is earlier.
+            lag = frames[1][0] - frames[0][0] - direction.currentData() * seconds.value()
+            self.retry_alignment(room_id, hint=lag)
+
+    def retry_alignment(self, room_id, hint=None):
         if not self.running or room_id not in self.rows or self.rows[room_id].decoder is None:
             self.notice.setText("请先播放直播间，再重新对齐比赛画面")
             return
@@ -1380,6 +1548,8 @@ class Viewer(QDialog):
         for key in targets:
             self.alignment.lags[key] = before[key] - before[reference]
             self._queue_rematch(self.rows[key])
+            if hint is not None:
+                self.rows[key].alignment_hint = (hint, time.monotonic() + 60)
             self.rematch_admit.add(key)
         self.generation += 1
         self.changed()
@@ -1536,6 +1706,9 @@ class Viewer(QDialog):
             row.main_button.setChecked(room_id == selected)
             row.realign.setVisible(self.automatic.isChecked() and room_id != selected)
         if selected != self.alignment.reference:
+            for current in self.rows.values():
+                current.alignment_hint = None
+                current.large_candidate = None
             saved = self.shifts() if self.alignment.manual_locked else None
             self.stable_reference_shift = self.independent_shifts.pop(selected, None)
             self.prefer_highest = True
@@ -1894,6 +2067,8 @@ class Viewer(QDialog):
         self.match_timer.start()
 
     def _start_row(self, row):
+        row.alignment_hint = None
+        row.large_candidate = None
         row.paused = False
         row.sync_state = "准备缓存"
         row.mix_gain = 0.0
@@ -1988,6 +2163,8 @@ class Viewer(QDialog):
 
     def _reset(self, row, worker):
         if self._valid(row, worker):
+            row.alignment_hint = None
+            row.large_candidate = None
             previous = getattr(row.decoder.history, 'previous', None)
             position = self.audio.clock() + self.shifts().get(row.room_id, 0)
             if previous is not None and previous.frame_at(position) is not None:
@@ -2238,9 +2415,7 @@ class Viewer(QDialog):
             self.analysis_serial += 1
             self.matching = False
         if bounds is None or not bounds[0] <= target <= bounds[1] - .05:
-            row.match_text = ("副路晚到，当前主画面进度尚无对应内容；本路静音，主画面继续播放"
-                              if bounds is not None and target > bounds[1] else
-                              "当前主画面进度对应的副路内容不在连续缓存内；本路静音等待复核")
+            row.match_text = (cache_gap(row.decoder.history, target) or "正在准备目标画面") + "；本路静音，主画面继续播放"
             row.mix_gain = 0.0
             row.refresh_status()
             self.render()
@@ -2332,9 +2507,12 @@ class Viewer(QDialog):
                 text = f"历史缓存约 {int(bounds[1] - bounds[0])} 秒"
                 position = clock + shifts[room_id]
                 ahead = max(0, bounds[1] - position) if bounds[0] <= position <= bounds[1] else 0
-                text += f"，前方可播放约 {ahead:.1f} 秒"
+                text += f"，{'同步目标' if room_id != self.alignment.reference else ''}前方可播放约 {ahead:.1f} 秒"
+                if room_id != self.alignment.reference and self.alignment.automatic and not row.match_confirmed:
+                    text += "（候选偏移，尚未验证）"
                 if position < bounds[0] or position > bounds[1] + 1:
                     text += "，当前播放偏移超出范围"
+                    text += "（" + cache_gap(row.decoder.history, position) + "）"
             if row.sync_state != "已同步":
                 text += " · 本路暂时静音"
             if row.buffer_text != text:
@@ -2405,6 +2583,14 @@ class Viewer(QDialog):
                     details[key] = (list(getattr(value.decoder.history, "details", ()))
                                     if value.decoder.history.origin is not None else [])
         known = dict(self.alignment.lags)
+        hints = {}
+        for key, value in self.rows.items():
+            if value.alignment_hint is not None:
+                lag, expires = value.alignment_hint
+                if time.monotonic() < expires:
+                    hints[key] = lag
+                else:
+                    value.alignment_hint = None
         for key in self.rematch_rooms:
             if not self.rows[key].rematch_locally:
                 known.pop(key, None)
@@ -2441,14 +2627,15 @@ class Viewer(QDialog):
                 if key in tracking_rooms and has_picture:
                     reference_details = [sample for sample in reference_details if sample.time <= positions[reference_id]]
                 if reference_details and other_details:
-                    candidate = (refine_match(Match(known[key], .9, "跟踪已确认偏移"), reference_details, other_details, focused=focused)
+                    candidate = (assisted_match(hints[key], reference_details, other_details, focused=focused)
+                                 if key in hints else refine_match(Match(known[key], .9, "跟踪已确认偏移"), reference_details, other_details, focused=focused)
                                  if key in known else Match(None, 0, "首次匹配"))
-                    if candidate.lag is None:
+                    if candidate.lag is None and key not in hints:
                         candidate = match_scenes(reference_details[::4], other_details[::4], focused=focused)
                 else:
                     candidate = match_scenes(reference, samples, focused=focused)
                 if reference_details and other_details:
-                    if candidate.lag is None and not candidate.candidates and key in known:
+                    if candidate.lag is None and not candidate.candidates and key in known and key not in hints:
                         candidate = Match(known[key], .9, "复核已确认偏移")
                     if not candidate.refined:
                         candidate = refine_match(candidate, reference_details, other_details, focused=focused)
@@ -2504,19 +2691,32 @@ class Viewer(QDialog):
                 row.refresh_status()
                 continue
             if match.lag is not None and match.confidence >= .65 and abs(match.lag) > 15:
-                previous, count = self.alignment.candidates.get(room_id, (match.lag, 0))
-                count = count + 1 if match.refined and abs(previous) > 15 and abs(previous - match.lag) <= .15 else int(match.refined)
-                self.alignment.candidates[room_id] = (match.lag, count)
-                if count < 2:
-                    row.match_text = "候选偏差超过 15 秒，尚未通过连续精校验；保持当前播放，后台复核"
+                hint = row.alignment_hint
+                assisted = hint is not None and time.monotonic() < hint[1] and abs(match.lag - hint[0]) <= 4
+                changed = (row.user_confirmed and row.user_confirmed_lag is not None and abs(match.lag - row.user_confirmed_lag) > 3
+                           and not row.needs_epoch_samples)
+                if changed and not assisted:
+                    row.match_text = "候选与已确认偏移相差较大；保留当前进度，请用辅助自动对齐复核"
                     row.next_analysis = time.monotonic() + 2
                     row.refresh_status()
                     continue
-                if not (row.needs_epoch_samples and row.user_confirmed):
-                    self._block_alignment(room_id, "偏差超过 15 秒，暂不自动对齐；各路独立播放")
+                previous, count, observed, evidence = row.large_candidate or (match.lag, 0, -float('inf'), -float('inf'))
+                now = time.monotonic()
+                if not match.refined or abs(previous - match.lag) > .15:
+                    count, observed, evidence = 0, -float('inf'), -float('inf')
+                fresh = match.evidence_end is None or match.evidence_end - evidence >= 1
+                if match.refined and fresh and (now - observed >= 2 or row.needs_epoch_samples and row.user_confirmed):
+                    count, observed = count + 1, now
+                    evidence = match.evidence_end if match.evidence_end is not None else evidence
+                row.large_candidate = (match.lag, count, observed, evidence)
+                if count < (2 if assisted or row.needs_epoch_samples and row.user_confirmed else 3):
+                    row.match_text = "大偏差候选正在连续精校验；保持当前播放，后台复核"
+                    row.next_analysis = now + 2
+                    row.refresh_status()
                     continue
-                # A verified decoder epoch change can move the timestamp offset
-                # beyond 15s. Admission still checks actual cache and main delay.
+                self.alignment.candidates[room_id] = (match.lag, count - 1)
+            else:
+                row.large_candidate = None
             main = self.rows.get(self.alignment.reference)
             if match.lag is not None and match.confidence >= .65 and main is not None and main.decoder is not None and row.decoder is not None:
                 main_bounds, other_bounds = main.decoder.history.bounds(), row.decoder.history.bounds()
@@ -2546,6 +2746,7 @@ class Viewer(QDialog):
                 continue
             applied = self.alignment.accept(room_id, match)
             if match.lag is None:
+                row.large_candidate = None
                 focused = main is not None and tuple(main.crop) != (0, 0, 1, 1) and tuple(row.crop) != (0, 0, 1, 1)
                 insufficient = any(reason in match.reason for reason in (
                     "变化不足", "正在收集", "需要连续", "共同动态画面不足", "共同比赛区域不足"))
@@ -2567,6 +2768,7 @@ class Viewer(QDialog):
                 row.match_failures = 0
                 if match.refined:
                     if applied:
+                        row.alignment_hint = None
                         if room_id in self.independent_shifts:
                             self.independent_shifts.pop(room_id)
                             self.rendered_shifts.clear()

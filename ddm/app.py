@@ -738,6 +738,7 @@ class MainWindow(QMainWindow):
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        started = time.perf_counter()
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
             seen['app'] = self._available_update['version']
@@ -750,15 +751,24 @@ class MainWindow(QMainWindow):
                           dict(self.plugins._platform_owner), set(self.plugins._removed))
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
-        dialog.update_page.releaseChecked.connect(self._set_app_update)
-        dialog.plugin_page.store_page.offersChanged.connect(self._set_plugin_updates)
+        print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
+        def page_created(index, widget):
+            if index == 5:
+                widget.store_page.offersChanged.connect(self._set_plugin_updates)
+                if self._plugin_catalog_offers:
+                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
+            elif index == 6:
+                widget.releaseChecked.connect(self._set_app_update)
+                if self._available_update:
+                    widget._release_ready(self._available_update)
+                    widget._busy(False)
+        dialog.pageCreated.connect(page_created)
         dialog.updatesViewed.connect(self._remember_updates)
         dialog.appearanceChanged.connect(self.set_appearance)
-        if self._plugin_catalog_offers:
-            dialog.plugin_page.store_page._catalog_ready(self._plugin_catalog_offers)
-        if self._available_update:
-            dialog.update_page._release_ready(self._available_update)
-            dialog.update_page._busy(False)
+        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
+                                                for offer in self._plugin_update_offers))
+        dialog._mark_update_page('updates', bool(self._available_update and
+                                                dialog.seen_versions.get('app') != self._available_update['version']))
         for index, (key, _label) in enumerate(dialog.PAGES):
             if key == page:
                 dialog.nav.setCurrentRow(index)
@@ -767,6 +777,9 @@ class MainWindow(QMainWindow):
             dialog.plugin_page.tabs.setCurrentIndex(1)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
+        saved_at = time.perf_counter()
+        appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
+                             if key.startswith('skin_') or key == 'appearance_mode'}
         decode_before = self.settings.get("decode_mode", "auto")
         self.settings.update(dialog.settings())
         if not self.settings.get("auto_update", False):
@@ -778,8 +791,13 @@ class MainWindow(QMainWindow):
         self._refresh_shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
-        self.refresh_skin()
-        if (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before:
+        plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
+        appearance_after = {key: value for key, value in self.settings.items()
+                            if key.startswith('skin_') or key == 'appearance_mode'}
+        if appearance_after != appearance_before or plugins_changed:
+            self.refresh_skin()
+        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+        if plugins_changed:
             self._sync_platform_rooms()
         self.state["settings"] = dict(self.settings)
         self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
@@ -798,8 +816,10 @@ class MainWindow(QMainWindow):
         self._sync_replay_scope()
         self.apply_danmaku_settings()
         self.apply_preview_settings()
+        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        if getattr(getattr(dialog, "update_page", None), "install_requested", False):
+        update_page = dialog._loaded_pages.get(6)
+        if getattr(update_page, "install_requested", False):
             self._update_plan = dialog.update_page.plan_path
             self.close()
         elif getattr(dialog, "restart_requested", False):

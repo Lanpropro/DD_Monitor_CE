@@ -139,7 +139,7 @@ def main():
                         contrast = (max(foreground, background)+.05)/(min(foreground, background)+.05)
                         assert contrast >= 4.5, (mode, skin, contrast)
                     assert sample(compare_canvas, video_point) == video_pixel
-            # Excessive lag never reaches Alignment.accept or moves the primary.
+            # Repeated large candidates without advancing observations preserve the current timeline.
             before=viewer.shifts()['1']
             with patch.object(viewer.alignment,'accept',wraps=viewer.alignment.accept) as accept:
                 for _ in range(2):
@@ -152,9 +152,9 @@ def main():
                 viewer.render()
             assert viewer.shifts()['1']==before and not viewer.sync_waiting
             assert viewer.rows['1'].sync_state=='已同步' and viewer.rows['1'].mix_gain==1
-            assert viewer.rows['2'].sync_state!='已同步' and viewer.rows['2'].mix_gain==0
-            assert '独立播放' in viewer.rows['2'].playback_status()
-            assert '偏差超过' in viewer.rows['2'].status.text()
+            assert viewer.rows['2'].sync_state=='已同步' and viewer.rows['2'].mix_gain==1
+            assert '2' not in viewer.independent_shifts
+            assert '连续精校验' in viewer.rows['2'].status.text()
             with ExitStack() as stack:
                 pcm_reads = [stack.enter_context(patch.object(row.decoder.history, 'pcm_at',
                     side_effect=lambda timestamp, frames: array('h', [1000, 1000] * frames).tobytes()))
@@ -163,7 +163,7 @@ def main():
                 viewer.audio.device = FakeDevice(viewer.audio.sink)
                 viewer.audio.anchor = now[0]
                 viewer.audio.fill()
-                assert pcm_reads[0].called and not pcm_reads[1].called, 'Only the aligned main stays audible when secondary matching fails'
+                assert pcm_reads[0].called and pcm_reads[1].called, 'Unverified outliers must preserve both buffered timelines'
                 assert any(viewer.audio.device.data)
                 viewer.audio.stop()
             with patch.object(module.threading,'Thread') as worker:
@@ -176,7 +176,8 @@ def main():
             assert '2' in viewer.rematch_rooms and '2' not in viewer.independent_shifts
             for _ in range(2):
                 viewer._matched(viewer.generation, {'2':Match(26,1,'fresh excessive lag',refined=True)})
-            assert '2' in viewer.independent_shifts
+            assert '2' not in viewer.independent_shifts
+            assert '连续精校验' in viewer.rows['2'].match_text
             assert viewer.shifts()['1'] == before_auto, 'Oversized auto enable must retain valid main progress'
             assert not viewer.sync_waiting
             viewer.automatic.setChecked(False)

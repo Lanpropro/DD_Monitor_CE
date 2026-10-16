@@ -87,7 +87,7 @@ def main():
             row.join.click()
             assert viewer.audio.clock() == clock and viewer.shifts() == fixed_shifts
             assert row.user_confirmed and not row.awaiting_confirmation and row.mix_gain == 0
-            assert '副路晚到' in row.match_text and '2' not in viewer.admitted_rooms
+            assert '目标内容尚未收到' in row.match_text and '2' not in viewer.admitted_rooms
             # A sustained late feed does not become playable by confirming it.
             for _ in range(5):
                 assert viewer.admit_pending('2') is False

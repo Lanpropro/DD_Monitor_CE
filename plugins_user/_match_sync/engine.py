@@ -36,6 +36,7 @@ class Match:
     refined: bool = False
     playback_error: float | None = None
     candidates: tuple[float, ...] = ()
+    evidence_end: float | None = None
 
 
 def feature_distances(a, b):
@@ -154,6 +155,12 @@ def match_scenes(reference: list[Sample], other: list[Sample], *, focused=False)
     return Match(lag, confidence, "已匹配共同比赛画面", candidates=tuple(candidates))
 
 
+def assisted_match(lag: float, reference: list[Sample], other: list[Sample], *, focused=False) -> Match:
+    """Use a human estimate to restrict, rather than bypass, scene verification."""
+    return refine_match(Match(None, 0, "人工辅助搜索", candidates=tuple(lag + step * 1.5 for step in range(-2, 3))),
+                        reference, other, focused=focused)
+
+
 def refine_match(match: Match, reference: list[Sample], other: list[Sample], *, focused=False) -> Match:
     """Refine a coarse candidate using recent ordered, normalized grayscale scenes."""
     if np is None:
@@ -245,7 +252,7 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample], *, 
             return Match(None, 0, "共同比赛区域不足；请框选比赛画面，避开局部动画")
     precise = float(np.median(b_times[indices[best, good]] - a_times[good]))
     confidence = min(1.0, int(counts[best]) / (30 if focused else 60)) * max(0, 1 - score)
-    return Match(precise, confidence, "已精校正共同比赛画面", refined=True)
+    return Match(precise, confidence, "已精校正共同比赛画面", refined=True, evidence_end=float(a_times[-1]))
 
 
 class AudioRing:

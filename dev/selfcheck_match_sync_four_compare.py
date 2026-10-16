@@ -51,11 +51,14 @@ def main():
     theme.apply('dark')
     with tempfile.TemporaryDirectory() as root:
         manager = plugins.PluginManager(plugins_dir=root)
-        dialog = SettingsDialog({'danmaku_font_size': 27}, {'mute': 'Ctrl+M'}, plugin_manager=manager)
+        with patch('ddm.dialogs.PluginSettingsPage', side_effect=AssertionError('Unopened plugin page was constructed')), \
+                patch('ddm.online_ui.AppUpdatePage', side_effect=AssertionError('Unopened update page was constructed')):
+            dialog = SettingsDialog({'danmaku_font_size': 27, 'auto_update': True}, {'mute': 'Ctrl+M'}, plugin_manager=manager)
         assert not dialog._loaded_pages
         with patch.object(dialog, '_page', side_effect=AssertionError('Save instantiated an unopened page')):
             started = time.perf_counter()
             assert dialog.settings()['danmaku_font_size'] == 27
+            assert dialog.settings()['auto_update'] is True
             assert dialog.shortcuts()['mute'] == 'Ctrl+M'
             dialog.confirm_button.click()
             elapsed = (time.perf_counter() - started) * 1000
@@ -65,6 +68,15 @@ def main():
         assert dialog.settings()['danmaku_font_size'] == 31
         assert set(dialog._loaded_pages) == {2}
         dialog.close()
+        dialog = SettingsDialog({}, {}, plugin_manager=manager)
+        pages = []
+        dialog.pageCreated.connect(lambda index, page: pages.append(index))
+        dialog.nav.setCurrentRow(5)
+        assert pages == [5] and set(dialog._loaded_pages) == {5}
+        dialog.nav.setCurrentRow(6)
+        dialog.nav.setCurrentRow(5)
+        assert pages == [5, 6] and set(dialog._loaded_pages) == {5, 6}
+        dialog.close()
         print(f'PASS: settings save preserves unopened pages and custom keys without building controls ({elapsed:.1f}ms)')
 
     with patch.object(app_module, 'StatusPoller', SilentPoller), \
@@ -72,9 +84,11 @@ def main():
         window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': False}})
     try:
         with patch.object(SettingsDialog, 'exec', return_value=SettingsDialog.Accepted), \
-                patch.object(window, '_sync_platform_rooms') as sync:
+                patch.object(window, '_sync_platform_rooms') as sync, \
+                patch.object(window, 'refresh_skin') as skin:
             assert window.open_settings()
             sync.assert_not_called()
+            skin.assert_not_called()
         with patch.object(SettingsDialog, 'exec', return_value=SettingsDialog.Accepted), \
                 patch.object(SettingsDialog, 'enabled_plugins', return_value={'test'}), \
                 patch.object(window, '_sync_platform_rooms') as sync:
@@ -155,7 +169,7 @@ def main():
             host.close()
             app.processEvents()
 
-    # Use the actual AudioPump start/fill/clock with a deterministic output device.
+    # Exercise the output owner's startup and PCM/clock with deterministic consumption.
     host = QWidget()
     host.running = True
     host.rows = {}
@@ -168,16 +182,18 @@ def main():
     output.id.return_value = b'test'
     output.isNull.return_value = False
     output.isFormatSupported.return_value = True
-    with patch.object(module.QMediaDevices, 'defaultAudioOutput', return_value=output), \
-            patch.object(module, 'QAudioSink', BufferedSink):
-        pump.start()
-        pump.timer.stop()
+    with patch.object(module, 'QAudioSink', BufferedSink):
+        pump.anchor = time.monotonic()
+        feed = module.AudioFeed(pump, output, module.QAudioFormat())
+        feed.start()
+        feed.timer.stop()
         pump.fill()
         pump.fill()
         before = pump.clock()
         pump.sink.consume(round(module.RATE * .12))
         assert abs(pump.clock() - before - .12) < .00001
         pump.fill()
+        feed.stop()
         pump.stop()
     host.close()
     print('PASS: 120ms GUI pause retains queued audio; media clock follows actual device consumption')
