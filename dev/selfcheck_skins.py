@@ -148,6 +148,8 @@ def check_parts(app):
             app.processEvents()
             assert controls.choose.isEnabled() and controls.parts_button.isEnabled()
             assert controls.parts_button.isHidden()
+            assert not any(button.isVisible() and '跟随美化包' in button.text()
+                           for button in dialog.appearance_page.findChildren(QPushButton))
             appearance = dialog.appearance_page
             embedded = appearance.parts_editor
             assert embedded.isVisible() and embedded.embedded and not embedded.isWindow()
@@ -311,6 +313,12 @@ def check_parts(app):
                             key = 'icon' if part.startswith('buttons.') else 'image'
                             assert page.asset_buttons[key].isVisible()
                             assert page.fields[key][1].isHidden()
+                            assert page.reset_button.isHidden()
+                            assert page.builtin_button.width() == page.asset_buttons[key].width()
+                            assert page.asset_buttons[key].mapTo(page, QPoint()).x() == page.selection_title.mapTo(page, QPoint()).x()
+                            assert page.builtin_button.mapTo(page, QPoint()).y() < page.status.mapTo(page, QPoint()).y()
+                            if part in ('settings', 'layout_menu'):
+                                assert page.asset_status.text().startswith('当前：')
                     for index, part in enumerate(('background', 'settings', 'layout_menu')):
                         page.scenes.setCurrentIndex((index + 1) % 3)
                         page.scenes.setCurrentIndex(index)
@@ -402,7 +410,7 @@ def check_parts(app):
                 QTest.mouseClick(page.builtin_button, Qt.LeftButton)
                 assert values_for('settings').get('background') is None, 'Restore default must skip the package wallpaper/background'
                 assert window.settings['skin_parts']['settings']['radius'] == 13
-                QTest.mouseClick(page.reset_button, Qt.LeftButton)
+                page.reset_part()
                 assert values_for('settings')['background'] == '#334455', 'Follow pack must clear the builtin marker'
                 assert not any('专业美化' in button.text() for button in page.findChildren(QPushButton))
                 assert not hasattr(page, 'open_professional'), 'Professional editor has no user entry point'
@@ -417,7 +425,7 @@ def check_parts(app):
                     assert page.builtin_button.isVisible()
                     QTest.mouseClick(page.builtin_button, Qt.LeftButton)
                     assert not values_for(part).get(field)
-                    QTest.mouseClick(page.reset_button, Qt.LeftButton)
+                    page.reset_part()
                     window.set_skin_parts(saved_parts)
                     page.load_part()
                 page._drafts.clear()
@@ -579,18 +587,45 @@ def check_parts(app):
             window.set_skin_parts({})
             assert not icon_path(tile.pause_button)
             assert int(tile.video.winId()) == handle
-            # V2 background remains individually editable without dropping the package.
-            manager.enabled.add('test_parts')
+            # Activation takes over backgrounds once; subsequent personal edits survive refresh/restart.
+            custom_parts = {'settings': {'image': managed, 'builtin': True, 'radius': 13,
+                                         'dark': {'image': managed}},
+                            'layout_menu': {'image': managed, 'builtin': True},
+                            'controls': {'background': '#abcdef'}}
+            window.set_skin_parts(custom_parts)
+            window.set_skin({'skin_background_override': True, 'skin_mask_override': True})
             plugin = manager.plugins[0]
             plugin.skin['background'] = 'icon.png'
+            plugin.skin['parts']['settings']['image'] = 'icon.png'
+            plugin.skin['parts']['layout_menu'] = {'image': 'icon.png'}
+            manager.enabled.add('test_parts')
             window.refresh_skin()
+            assert window.skin_controller.layer.path == str(root/'plugins/test_parts/icon.png')
+            assert not window.settings['skin_background_override']
+            assert not window.settings['skin_mask_override']
+            for part in ('settings', 'layout_menu'):
+                assert values_for(part)['image'] == str(root/'plugins/test_parts/icon.png')
+                assert 'builtin' not in window.settings['skin_parts'][part]
+            assert window.settings['skin_parts']['settings']['radius'] == 13
+            assert values_for('controls')['background'] == '#abcdef'
+            window.set_skin_parts(custom_parts)
+            window.set_skin({'skin_background_override': True})
+            # Recreate the controller's initial ownership state without changing persisted settings.
+            window.skin_controller.override = None
+            window.refresh_skin()
+            assert window.settings['skin_background_override']
+            assert values_for('settings')['image'] == str(root/'utils/skins'/managed)
+            assert values_for('layout_menu')['image'] == str(root/'utils/skins'/managed)
             controls.sync()
             assert controls.choose.isEnabled() and window.skin_controller.layer.path
             controls.mask_slider.setValue(60)
             assert window.skin_controller.layer.path and window.skin_controller.layer.mask == 60
             controls.reset()
             assert not window.skin_controller.layer.path
-            controls._follow_package()
+            manager.enabled.clear()
+            window.refresh_skin()
+            manager.enabled.add('test_parts')
+            window.refresh_skin()
             assert window.skin_controller.layer.path and window.skin_controller.layer.mask == 35
             manager.enabled.clear()
             window.refresh_skin()

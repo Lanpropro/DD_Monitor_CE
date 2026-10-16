@@ -10,6 +10,14 @@ from .skins import AssetImport
 from .folder_icons import IconDropArea
 
 
+def _background_name(path):
+    filename = Path(path).name if path else '默认背景'
+    prefix, separator, name = filename.partition('_')
+    if separator and len(prefix) == 32 and all(c in '0123456789abcdef' for c in prefix):
+        return name
+    return filename
+
+
 class SkinAssetDropArea(IconDropArea):
     def __init__(self, parent=None, *, video=False):
         super().__init__(parent)
@@ -61,10 +69,6 @@ class SkinSettings(QWidget):
         layout.addWidget(self.choose)
         row.addWidget(self.clear)
         layout.addLayout(row)
-        self.follow = QPushButton('跟随美化包背景')
-        self.follow.setObjectName('IconButton')
-        self.follow.clicked.connect(self._follow_package)
-        layout.addWidget(self.follow)
         mask_row = QHBoxLayout()
         mask_row.addWidget(QLabel('背景遮罩'))
         self.mask_slider = QSlider(Qt.Horizontal)
@@ -106,10 +110,6 @@ class SkinSettings(QWidget):
         override = self.controller.override if self.controller else None
         return override is not None and override.get('version', 1) == 1
 
-    def _follow_package(self):
-        self._overrides = dict.fromkeys(self._overrides, False)
-        self.changed.emit(self.values())
-
     def _edit_parts(self):
         dialog = PartSettings(self.controller.window, self)
         dialog.exec()
@@ -126,8 +126,6 @@ class SkinSettings(QWidget):
         locked = self._locked() or self.job is not None
         for widget in (self.choose, self.clear, self.mask_slider, self.video_toggle):
             widget.setEnabled(not locked)
-        self.follow.setVisible(override is not None and not self._locked())
-        self.follow.setEnabled(not locked)
         from .skins import VIDEOS
         path = self.controller.layer.path if self.controller else self.path
         self.video_toggle.setVisible(Path(path).suffix.lower() in VIDEOS)
@@ -143,15 +141,10 @@ class SkinSettings(QWidget):
             self.status.setText('正在导入背景文件…')
         elif self.controller is not None and self.controller.error:
             self.status.setText(('皮肤插件背景错误：' if override else '背景错误：') + self.controller.error)
-        elif override:
-            self.status.setText('皮肤插件「' + override['name'] + '」' +
-                ('接管，自定义选项已锁定。' if self._locked() else '已启用，个人修改优先；可恢复跟随美化包。'))
+        elif override and self._locked():
+            self.status.setText('皮肤插件「' + override['name'] + '」接管，自定义选项已锁定。')
         else:
-            filename = Path(self.path).name if self.path else '默认背景'
-            prefix, separator, name = filename.partition('_')
-            if separator and len(prefix) == 32 and all(c in '0123456789abcdef' for c in prefix):
-                filename = name
-            self.status.setText('当前：' + filename)
+            self.status.setText('当前：' + _background_name(path))
 
     def _mask_changed(self, value):
         if self._locked():
@@ -325,6 +318,11 @@ class PartSettings(QDialog):
         parameters = QVBoxLayout(self.parameter_box)
         parameters.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.parameter_box)
+        self.asset_status = QLabel()
+        self.asset_status.setObjectName('SettingsHint')
+        self.asset_status.setWordWrap(True)
+        self.asset_status.setVisible(not professional)
+        parameters.addWidget(self.asset_status)
         self.variant = QComboBox()
         for key, label in (('', '通用'), ('dark', '深色'), ('light', '浅色'),
                 ('hover', '悬停'), ('pressed', '按下'), ('checked', '选中'),
@@ -334,6 +332,9 @@ class PartSettings(QDialog):
         self.variant.setVisible(professional)
         form = QFormLayout()
         self.form = form
+        if not professional:
+            form.setContentsMargins(0, 0, 0, 0)
+            form.setHorizontalSpacing(0)
         self.fields = {}
         self.asset_buttons = {}
         for key, label in (('background', '底色'), ('foreground', '文字颜色'),
@@ -361,7 +362,8 @@ class PartSettings(QDialog):
         parameters.addLayout(form)
         self.status = QLabel('')
         self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        if professional:
+            layout.addWidget(self.status)
         row = QHBoxLayout()
         self.apply_button = QPushButton('应用并保存')
         self.apply_button.setObjectName('PrimaryButton')
@@ -380,6 +382,8 @@ class PartSettings(QDialog):
         defaults.addWidget(self.reset_button)
         defaults.addWidget(self.builtin_button)
         layout.addLayout(defaults)
+        if not professional:
+            layout.addWidget(self.status)
         for button in (self.apply_button, close):
             button.setAutoDefault(False)
             row.addWidget(button)
@@ -483,6 +487,10 @@ class PartSettings(QDialog):
         if not self.professional and self.preview.scene != 'main':
             self.preview.capture_interface(self.owner)
         self.preview.update()
+        if not self.professional and self.part.currentData() in ('settings', 'layout_menu'):
+            from .skin_parts import resolve_values
+            values = resolve_values(self.part.currentData(), self.preview.light, self.preview.personal)
+            self.asset_status.setText('当前：' + _background_name(values.get('image', '')))
         self.status.setText('整体背景选择后立即生效。' if background else
                            '预览已同步；点击设置页下方“保存”后生效。' if self.embedded else
                            '预览已同步；点击应用并保存后生效。')
@@ -504,11 +512,11 @@ class PartSettings(QDialog):
         self.selection_title.setText(self.part.currentText())
         self.background_controls.setVisible(background)
         self.parameter_box.setVisible(not background)
-        for button in (self.reset_button, self.builtin_button):
-            button.setVisible(not background)
+        self.asset_status.setVisible(not self.professional and part in ('settings', 'layout_menu'))
+        self.reset_button.setVisible(self.professional and not background)
+        self.builtin_button.setVisible(not background)
         if not self.professional:
             self.builtin_button.setText('恢复默认图标' if part.startswith('buttons.') else '恢复默认背景')
-            self.reset_button.setText('跟随美化包')
         self._loading = True
         values = self._draft_values().get(part, {})
         variant = self.variant.currentData()

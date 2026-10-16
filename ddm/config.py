@@ -27,6 +27,7 @@ DEFAULT_SETTINGS = {
     "skin_video_enabled": True,
     "skin_mask": 35,
     "skin_parts": {},
+    "skin_package_owner": "",
     "skin_background_override": False,
     "skin_mask_override": False,
     "skin_sidebar_override": False,

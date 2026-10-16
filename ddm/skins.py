@@ -1,5 +1,6 @@
 """Local image/video backgrounds, independent of live-stream players."""
 import os
+from copy import deepcopy
 import sys
 from pathlib import Path
 import time
@@ -241,6 +242,24 @@ class SkinController(QObject):
         manager = getattr(self.window, 'plugins', None)
         self.override = manager.active_skin() if manager is not None else None
         settings = self.window.settings
+        owner = self.override['owner'] if self.override else ''
+        # Persist ownership so restarting does not discard later personal edits.
+        if owner != settings.get('skin_package_owner', ''):
+            settings['skin_package_owner'] = owner
+            if self.override and self.override['version'] == 2:
+                if self.override['path']:
+                    for key in ('skin_background_override', 'skin_mask_override', 'skin_sidebar_override'):
+                        settings[key] = False
+                personal = deepcopy(settings.get('skin_parts', {}))
+                for part in ('settings', 'layout_menu'):
+                    package = self.override['parts']
+                    if part not in package and not (part == 'layout_menu' and 'menus' in package):
+                        continue
+                    values = personal.get(part, {})
+                    values.pop('builtin', None)
+                    for entry in (values, values.get('dark', {}), values.get('light', {})):
+                        entry.pop('image', None)
+                settings['skin_parts'] = personal
         from .skin_parts import configure, validate_parts
         try:
             personal = validate_parts(settings.get('skin_parts', {}), Path(config.REPO) / 'utils' / 'skins')
