@@ -5803,14 +5803,14 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
+        self.composer = DanmakuComposer(self.bottom)
+        self.composer.set_room(room.get("room_id"))
+        bottom_layout.addWidget(self.composer, 1, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
-
-        self.composer = DanmakuComposer(self)
-        self.composer.set_room(room.get("room_id"))
 
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角
         self.controls = QWidget(self)
@@ -5914,21 +5914,30 @@ class Tile(QFrame):
 
     def _layout_bottom_controls(self) -> None:
         width = self.width()
+        composing = self.composer.supported
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
         if width < 260:
             margin, spacing = 4, 2
-        layout.setContentsMargins(margin, 4, margin, 4)
+        layout.setContentsMargins(margin, 3 if composing else 4, margin, 3 if composing else 4)
         layout.setSpacing(spacing)
-        self.pause_button.setFixedWidth(26 if width < 260 else 34)
+        self.pause_button.setFixedWidth(26 if width < (420 if composing else 260) else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 44)
         self.danmaku_button.setText("弹" if compact else "弹幕")
-        self.volume_label.setVisible(width >= 280 and
+        self.volume_label.setVisible(width >= (760 if composing else 280) and
                                      (not self.recording_time.text() or width >= 480))
-        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= (900 if composing else 360)
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= 220)
+        self.volume_slider.setVisible(width >= (600 if composing else 220))
+        self.status_label.setVisible(not composing or width >= 480)
+        self.status_label.setSizePolicy(QSizePolicy.Preferred if composing else QSizePolicy.Ignored,
+                                        QSizePolicy.Preferred)
+        self.status_label.setMaximumWidth((120 if width >= 700 else 70) if composing else 16777215)
+        layout.setStretchFactor(self.status_label, 0 if composing else 1)
+        self.danmaku_settings_button.setVisible(not composing or width >= 300)
+        self.recording_button.setVisible(getattr(self, "_recording_available", True)
+                                         and (not composing or width >= 240))
         controls = [self.pause_button, self.volume_button, self.volume_label,
                     self.danmaku_button, self.danmaku_settings_button, self.recording_button, self.recording_time,
                     self.fullscreen_button]
@@ -5936,6 +5945,9 @@ class Tile(QFrame):
         fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()
                     for widget in visible)
         remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - 8
+        if composing:
+            remaining -= 78 + (min(self.status_label.sizeHint().width(), self.status_label.maximumWidth())
+                               + spacing if not self.status_label.isHidden() else 0)
         self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
         layout.activate()
 
@@ -6330,8 +6342,7 @@ class Tile(QFrame):
         width, height = self.width(), self.height()
         self._update_recording_button()
         # 隐藏控件只改变可见性，保留底栏位置，避免 VLC 重算比例使画面突然放大。
-        composer_height = self.composer.HEIGHT if self.composer.supported else 0
-        video_height = max(60, height - TILE_BAR_HEIGHT - composer_height)
+        video_height = max(60, height - TILE_BAR_HEIGHT)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
         self._round_video()
@@ -6371,8 +6382,6 @@ class Tile(QFrame):
             max(8, (video_height - self.pause_overlay.height()) // 2))
         self.pause_overlay.raise_()
         self.bottom.setGeometry(1, video_height, max(1, width - 2), TILE_BAR_HEIGHT - 1)
-        self.composer.setGeometry(1, video_height + TILE_BAR_HEIGHT,
-                                  max(1, width - 2), composer_height - 1 if composer_height else 0)
         self.video_danmaku.setGeometry(self.video.geometry())
         self.video_danmaku.setMask(self.video.mask())
         self._layout_bottom_controls()

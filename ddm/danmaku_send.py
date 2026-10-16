@@ -4,7 +4,7 @@ from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-    QScrollArea, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import bili, theme
@@ -20,6 +20,17 @@ def _start(worker):
     worker.finished.connect(lambda: _active_requests.discard(worker))
     worker.finished.connect(worker.deleteLater)
     worker.start()
+
+
+def _style_button(button):
+    button.setObjectName("TileCtrl")
+    # 与主题注入的浅色局部样式放在同一层，并保留状态选择器的优先级。
+    button.setStyleSheet(f"""
+        QPushButton#TileCtrl:disabled {{background: transparent; color: {theme.TEXT4};}}
+        QPushButton#TileCtrl:focus {{border: 1px solid {theme.ACCENT};}}
+    """)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setAutoDefault(False)
 
 
 class _Request(QThread):
@@ -94,8 +105,9 @@ class EmoticonPopup(QMenu):
         self.status.setWordWrap(True)
         header.addWidget(self.status, 1)
         self.retry_button = QPushButton("重试")
-        self.retry_button.setObjectName("IconButton")
-        self.retry_button.setCursor(Qt.PointingHandCursor)
+        _style_button(self.retry_button)
+        self.retry_button.setFixedSize(48, theme.TILE_CONTROL_HEIGHT)
+        self.retry_button.setToolTip("重新获取当前直播间的表情列表")
         self.retry_button.clicked.connect(self.retryRequested)
         self.retry_button.hide()
         header.addWidget(self.retry_button)
@@ -125,16 +137,22 @@ class EmoticonPopup(QMenu):
         self._clear_body()
         self.status.setText("正在加载表情…")
         self.status.show()
-        self.retry_button.hide()
+        self.retry_button.setText("刷新")
+        self.retry_button.setEnabled(False)
+        self.retry_button.show()
 
     def set_error(self, message):
         self.status.setText(message)
         self.status.show()
+        self.retry_button.setText("重试")
+        self.retry_button.setEnabled(True)
         self.retry_button.show()
 
     def set_packages(self, packages):
         self._clear_body()
-        self.retry_button.hide()
+        self.retry_button.setText("刷新")
+        self.retry_button.setEnabled(True)
+        self.retry_button.show()
         row, count = 0, 0
         urls = {}
         for package in packages:
@@ -175,8 +193,8 @@ class EmoticonPopup(QMenu):
                     row, column = row + 1, 0
             if column:
                 row += 1
-        self.status.setText("暂无可用表情" if not count else "")
-        self.status.setVisible(not count)
+        self.status.setText("暂无可用表情" if not count else "表情")
+        self.status.show()
         if urls:
             loader = AvatarLoader(urls, subdir="emoticons")
             loader.loaded.connect(self._image_loaded)
@@ -203,64 +221,73 @@ class EmoticonPopup(QMenu):
 
 
 class DanmakuComposer(QWidget):
-    HEIGHT = 54
+    HEIGHT = 28
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("DanmakuComposer")
         self.setCursor(Qt.ArrowCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(0)
+        self.setFixedHeight(self.HEIGHT)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(f"""
-            #DanmakuComposer {{background: {theme.CONTENT}; border: none;
-                border-bottom-left-radius: {theme.RADIUS_MD}px; border-bottom-right-radius: {theme.RADIUS_MD}px;}}
+            #DanmakuComposer {{background: transparent; border: none;}}
             #DanmakuComposer QLineEdit {{padding: 3px 6px; font-size: {theme.FONT_CONTROL}px;}}
-            #DanmakuComposer #IconButton {{padding: 0; min-height: 26px; max-height: 26px;}}
-            #DanmakuComposer #IconButton[danmakuRole="emote"] {{min-width: 26px; max-width: 26px;}}
-            #DanmakuComposer #IconButton[danmakuRole="send"] {{min-width: 42px; max-width: 42px;}}
-            #DanmakuSendFeedback {{color: {theme.TEXT2}; font-size: {theme.FONT_CAPTION}px;}}
+            #DanmakuSendFeedback {{background: {theme.ELEVATED}; color: {theme.TEXT1};
+                border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_SM}px;
+                padding: 6px 8px; font-size: {theme.FONT_CAPTION}px;}}
         """)
         self._room_id = ""
         self._generation = self._revision = 0
         self._pending = self._catalog_pending = None
         self._catalog_key = None
-        self.popup = None
         self._packages = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(1)
-        row = QHBoxLayout()
+        self.popup = None
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         self.edit = DanmakuEdit()
         self.edit.setAccessibleName("发送到当前直播间的弹幕")
         self.edit.setPlaceholderText("输入弹幕，Enter 发送")
         self.edit.setMinimumWidth(0)
+        self.edit.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.edit.setFixedHeight(28)
         self.edit.textChanged.connect(self._text_changed)
         self.edit.returnPressed.connect(self.send_text)
         row.addWidget(self.edit, 1)
         self.emote_button = QPushButton("☺")
-        self.emote_button.setProperty("danmakuRole", "emote")
         self.emote_button.setAccessibleName("选择直播间表情")
         self.emote_button.setToolTip("选择表情；大表情点击后直接发送")
         self.emote_button.setFixedSize(28, 28)
         self.emote_button.clicked.connect(self.open_emoticons)
         row.addWidget(self.emote_button)
         self.send_button = QPushButton("发送")
-        self.send_button.setProperty("danmakuRole", "send")
         self.send_button.setFixedSize(44, 28)
         self.send_button.clicked.connect(self.send_text)
         row.addWidget(self.send_button)
         for button in (self.emote_button, self.send_button):
-            button.setObjectName("IconButton")
-            button.setCursor(Qt.PointingHandCursor)
-            button.setAutoDefault(False)
-        layout.addLayout(row)
-        self.feedback = QLabel("")
+            _style_button(button)
+        self.feedback = QLabel("", self, Qt.ToolTip)
         self.feedback.setObjectName("DanmakuSendFeedback")
-        self.feedback.setFixedHeight(16)
+        self.feedback.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.feedback.setTextFormat(Qt.PlainText)
+        self.feedback.setWordWrap(True)
+        self.feedback.setMaximumWidth(380)
         self.feedback.setAccessibleName("弹幕发送状态")
-        layout.addWidget(self.feedback)
+        self.feedback.hide()
         self._update_buttons()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # 小格保留输入和表情入口，回车仍可发送，不为单独按钮挤掉输入空间。
+        self.send_button.setVisible(self.width() >= 144)
+
+    def hideEvent(self, event):
+        self.feedback.hide()
+        if self.popup:
+            self.popup.hide()
+        super().hideEvent(event)
 
     @property
     def busy(self):
@@ -278,7 +305,7 @@ class DanmakuComposer(QWidget):
             self._pending = self._catalog_pending = None
             self._packages = self._catalog_key = None
             self.edit.clear()
-            self.feedback.clear()
+            self._feedback("")
             if self.popup:
                 self.popup.hide()
         self.setVisible(self.supported)
@@ -286,6 +313,7 @@ class DanmakuComposer(QWidget):
 
     def _text_changed(self):
         self._revision += 1
+        self.feedback.hide()
         self._update_buttons()
 
     def _update_buttons(self):
@@ -322,6 +350,18 @@ class DanmakuComposer(QWidget):
         self.feedback.setText(text)
         self.feedback.setToolTip(text)
         self.feedback.setAccessibleDescription(text)
+        self.edit.setToolTip(text)
+        self.feedback.hide()
+        if text and not self.busy and self.isVisible():
+            self.feedback.adjustSize()
+            anchor = self.edit.mapToGlobal(QPoint(0, 0))
+            screen = self.screen().availableGeometry()
+            x = max(screen.left(), min(anchor.x(), screen.right() - self.feedback.width() + 1))
+            y = anchor.y() - self.feedback.height() - 4
+            if y < screen.top():
+                y = anchor.y() + self.edit.height() + 4
+            self.feedback.move(x, min(y, screen.bottom() - self.feedback.height() + 1))
+            self.feedback.show()
 
     def _finish_send(self, context):
         if context != self._pending:
@@ -329,7 +369,7 @@ class DanmakuComposer(QWidget):
         self._pending = None
         self._update_buttons()
         if context[:3] != self._context():
-            self.feedback.clear()
+            self._feedback("")
             return False
         return True
 
@@ -337,7 +377,7 @@ class DanmakuComposer(QWidget):
         if self._finish_send(context):
             if context[4] == 0 and context[3] == self._revision:
                 self.edit.clear()
-            self.feedback.clear()
+            self._feedback("")
 
     def _send_failed(self, context, error):
         if self._finish_send(context):
@@ -353,6 +393,7 @@ class DanmakuComposer(QWidget):
         self.edit.setFocus(Qt.OtherFocusReason)
 
     def open_emoticons(self, _checked=False):
+        self.feedback.hide()
         if not bili.SESSION_DATA:
             self._feedback("请先登录 B 站后选择表情")
             return
