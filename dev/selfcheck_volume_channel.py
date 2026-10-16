@@ -5,6 +5,8 @@
 import os
 import sys
 import time
+from contextlib import ExitStack
+from unittest.mock import patch
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QCursor
@@ -51,6 +53,11 @@ def main() -> None:
         pass
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    isolation = ExitStack()
+    for method in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+                   'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
+                   'load_cached_covers', 'load_cached_avatars'):
+        isolation.enter_context(patch.object(MainWindow, method))
 
     print("=== 1. 音量按钮：静音是喇叭右边一个 ×，不是划掉整只喇叭 ===")
     button = VolumeButton(size=26)
@@ -92,7 +99,8 @@ def main() -> None:
     from ddm import bili
     bili.play_url = lambda room_id, quality=250, **_kwargs: (_ for _ in ()).throw(
         RuntimeError("selfcheck：不联网"))
-    window = MainWindow([dict(r) for r in ROOMS], [dict(r) for r in ROOMS], layout_id="1x2")
+    window = MainWindow([dict(r) for r in ROOMS], [dict(r) for r in ROOMS], layout_id="1x2",
+                        state={'plugins_enabled': []})
     window.setGeometry(-8000, -8000, 1000, 620)
     window.show()
     settle(app, 1.2)
@@ -268,7 +276,7 @@ def main() -> None:
     shrunk = sidebar.account_menu()
     texts = [a.text() for a in shrunk.actions() if a.text()]
     print(f"  收起时菜单项: {texts}")
-    assert "退出登录" in texts
+    assert sidebar.account_row.uname == "测试账号"
     assert "布局预设" in texts, "收起后要点得到布局预设"
     assert "设置" in texts, "收起后要点得到设置"
 
@@ -277,7 +285,8 @@ def main() -> None:
     settle(app, 0.4)
     texts = [a.text() for a in sidebar.account_menu().actions() if a.text()]
     print(f"  展开时菜单项: {texts}")
-    assert texts == ["退出登录", "登录其他平台"], texts
+    assert texts == ["登录其他平台"], texts
+    assert sidebar.account_row.logout_button.isVisible(), "展开后的账号行保留退出入口"
 
     print("\n=== 8. 收起时布局选择器从头像位置弹出，且一定落在屏幕里 ===")
     sidebar.set_collapsed(True, animate=False)
@@ -303,6 +312,7 @@ def main() -> None:
     picker.close()
 
     window.close()
+    isolation.close()
     print("\n全部通过")
 
 
