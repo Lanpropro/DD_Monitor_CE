@@ -70,6 +70,10 @@ class FullscreenCursor(QObject):
                     and QApplication.activeModalWidget() is None
                     and not QApplication.mouseButtons()
                     and tile.video.rect().contains(tile.video.mapFromGlobal(position)))
+        composer = getattr(tile, "composer", None)
+        focused = QApplication.focusWidget()
+        if composer is not None and focused is not None and composer.isAncestorOf(focused):
+            eligible = False
         if eligible:
             for widget in (tile.controls, tile.stream_badge, tile.title_badge):
                 if widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(position)):

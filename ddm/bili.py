@@ -29,6 +29,7 @@ QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("�
 
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
+BILI_JCT = ""
 _UID_CACHE: dict = {"uid": None}
 _WBI_CACHE: dict = {"key": "", "expires": 0.0}
 _WBI_KEY_INDEX = [
@@ -38,13 +39,84 @@ _WBI_KEY_INDEX = [
 
 
 def set_sessdata(value: str) -> None:
-    global SESSION_DATA
+    global SESSION_DATA, BILI_JCT
+    if value != SESSION_DATA or not value:
+        BILI_JCT = ""
     SESSION_DATA = value or ""
     _UID_CACHE["uid"] = None          # 换了账号，UID 缓存作废
 
 
 def _cookies() -> dict:
-    return {"SESSDATA": SESSION_DATA} if SESSION_DATA else {}
+    if not SESSION_DATA:
+        return {}
+    return {"SESSDATA": SESSION_DATA, **({"bili_jct": BILI_JCT} if BILI_JCT else {})}
+
+
+def set_bili_jct(value: str) -> None:
+    global BILI_JCT
+    BILI_JCT = value or ""
+
+
+def _danmaku_result(response) -> dict:
+    response.raise_for_status()
+    if not 200 <= response.status_code < 300:
+        raise ValueError("B 站接口返回重定向或无效 HTTP 状态，请重新登录后重试")
+    result = response.json()
+    if not isinstance(result, dict) or result.get("code") != 0:
+        message = (result.get("message") or result.get("msg")) if isinstance(result, dict) else ""
+        raise ValueError(message or "B 站接口未返回成功结果")
+    return result
+
+
+def _sending_room_id(room_id: str) -> str:
+    room_id = str(room_id).strip()
+    if not room_id.isascii() or not room_id.isdigit() or int(room_id) <= 0:
+        raise ValueError("需要有效的 B 站直播间号")
+    return _resolve_room_id(room_id)
+
+
+def send_danmaku(room_id: str, message: str, *, dm_type: int = 0, cookies=None) -> dict:
+    """发送文字或独立大表情；不重试 POST，避免超时后重复发言。"""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("弹幕内容不能为空")
+    if dm_type not in (0, 1):
+        raise ValueError("不支持的弹幕类型")
+    cookies = dict(_cookies() if cookies is None else cookies)
+    if not cookies.get("SESSDATA"):
+        raise ValueError("请先登录 B 站")
+    csrf = cookies.get("bili_jct")
+    if not csrf:
+        raise ValueError("登录缺少 bili_jct，请退出 B 站账号后重新登录")
+    real_id = _sending_room_id(room_id)
+    result = _danmaku_result(requests.post(
+        "https://api.live.bilibili.com/msg/send",
+        data={"roomid": real_id, "msg": message, "dm_type": str(dm_type),
+              "rnd": str(int(time.time())), "fontsize": "25", "color": "16777215",
+              "mode": "1", "bubble": "0", "csrf": csrf, "csrf_token": csrf},
+        headers={**HEADERS, "Origin": "https://live.bilibili.com",
+                 "Referer": f"https://live.bilibili.com/{real_id}"},
+        cookies=cookies, timeout=10, allow_redirects=False))
+    # 有些拒绝（屏蔽、频率限制）仍返回 code=0，不能因此清空草稿。
+    for source in (result, result.get("data") or {}):
+        if isinstance(source, dict):
+            for key in ("message", "msg"):
+                notice = str(source.get(key) or "").strip()
+                if notice and notice != "0":
+                    raise ValueError("弹幕未发送成功" if notice == "f" else notice)
+    return result
+
+
+def get_emoticons(room_id: str, *, cookies=None) -> list[dict]:
+    """保留表情包类型、完整标识及逐项权限，交给选择器按类型处理。"""
+    real_id = _sending_room_id(room_id)
+    result = _danmaku_result(requests.get(
+        "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+        params={"platform": "pc", "room_id": real_id}, headers=HEADERS,
+        cookies=dict(_cookies() if cookies is None else cookies), timeout=10))
+    packages = (result.get("data") or {}).get("data")
+    if not isinstance(packages, list):
+        raise ValueError("表情列表格式异常，请重试")
+    return [item for item in packages if isinstance(item, dict)]
 
 
 def room_info(room_id: str) -> dict | None:

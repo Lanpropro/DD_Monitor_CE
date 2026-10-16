@@ -1,4 +1,4 @@
-"""账号密码登录：内嵌浏览器打开 B 站登录页，抓到 SESSDATA 自动关闭。
+"""账号密码登录：收齐 B 站的 SESSDATA 和 bili_jct 后自动关闭。
 
 只在用户主动选择"账号密码登录"时才导入 QtWebEngine（比较重）。
 """
@@ -43,6 +43,8 @@ class WebLoginWindow(QDialog):
         self.setWindowTitle("账号密码登录 B 站")
         self.resize(980, 640)
         self.sessdata = ""
+        self.bili_jct = ""
+        self._auth_cookies = {}
         self._closing = False
 
         layout = QVBoxLayout(self)
@@ -72,23 +74,34 @@ class WebLoginWindow(QDialog):
         self.browser.load(QUrl("https://passport.bilibili.com/login"))
 
     def _on_cookie(self, cookie) -> None:
+        if self._closing:
+            return
         try:
+            domain = cookie.domain().lstrip(".").lower()
+            if domain != "bilibili.com" and not domain.endswith(".bilibili.com"):
+                return
             name = bytes(cookie.name().data() if hasattr(cookie.name(), "data")
                          else cookie.name()).decode("utf-8", "ignore")
-            if name != "SESSDATA":
+            if name not in ("SESSDATA", "bili_jct"):
                 return
             raw = cookie.value()
             value = bytes(raw.data() if hasattr(raw, "data") else raw).decode("utf-8", "ignore")
         except Exception as error:  # noqa: BLE001
             _log(f"读取 cookie 失败: {error}")
             return
-        if not value or value == self.sessdata:
+        if not value:
             return
-        _log(f"拿到 SESSDATA（{len(value)} 字符）")
-        self.sessdata = value
-        bili.set_sessdata(value)
+        self._auth_cookies[name] = value
+        if not all(self._auth_cookies.get(key) for key in ("SESSDATA", "bili_jct")):
+            self.status.setText("正在获取完整登录状态…")
+            return
+        self.sessdata = self._auth_cookies["SESSDATA"]
+        self.bili_jct = self._auth_cookies["bili_jct"]
+        _log("已获取完整登录状态")
+        bili.set_sessdata(self.sessdata)
+        bili.set_bili_jct(self.bili_jct)
         self.status.setText("登录成功，窗口即将自动关闭…")
-        self.sessionData.emit(value)
+        self.sessionData.emit(self.sessdata)
         if not self._closing:
             self._closing = True
             QTimer.singleShot(400, self.accept)

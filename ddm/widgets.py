@@ -34,6 +34,7 @@ from .video_surface import VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
+from .danmaku_send import DanmakuComposer
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -5808,6 +5809,9 @@ class Tile(QFrame):
         bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
 
+        self.composer = DanmakuComposer(self)
+        self.composer.set_room(room.get("room_id"))
+
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角
         self.controls = QWidget(self)
         self.controls.setObjectName("TileControls")
@@ -5849,6 +5853,7 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
+        self.composer.set_room(self.room.get("room_id"))
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -5862,6 +5867,7 @@ class Tile(QFrame):
         self.set_paused(False)
         self.set_video_active(False)
         self.set_buffering(False)
+        self._layout_areas()
 
         if empty:
             self._cover_source = None
@@ -6229,6 +6235,7 @@ class Tile(QFrame):
     def set_fullscreen_controls_hidden(self, hidden: bool) -> None:
         self._fullscreen_controls_hidden = hidden
         self.bottom.setVisible(not hidden)
+        self.composer.setVisible(not hidden and self.composer.supported)
         self.set_controls_visible(not hidden)
         self._layout_areas()
 
@@ -6323,7 +6330,8 @@ class Tile(QFrame):
         width, height = self.width(), self.height()
         self._update_recording_button()
         # 隐藏控件只改变可见性，保留底栏位置，避免 VLC 重算比例使画面突然放大。
-        video_height = max(60, height - TILE_BAR_HEIGHT)
+        composer_height = self.composer.HEIGHT if self.composer.supported else 0
+        video_height = max(60, height - TILE_BAR_HEIGHT - composer_height)
         # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
         self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
         self._round_video()
@@ -6362,7 +6370,9 @@ class Tile(QFrame):
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
         self.pause_overlay.raise_()
-        self.bottom.setGeometry(1, video_height, max(1, width - 2), max(1, height - video_height - 1))
+        self.bottom.setGeometry(1, video_height, max(1, width - 2), TILE_BAR_HEIGHT - 1)
+        self.composer.setGeometry(1, video_height + TILE_BAR_HEIGHT,
+                                  max(1, width - 2), composer_height - 1 if composer_height else 0)
         self.video_danmaku.setGeometry(self.video.geometry())
         self.video_danmaku.setMask(self.video.mask())
         self._layout_bottom_controls()
