@@ -2070,7 +2070,8 @@ class Viewer(QDialog):
         arrival = getattr(main.decoder, "last_frame_received", 0)
         fresh = not arrival or now - arrival <= 3
         if clock + shifts[main.room_id] < bounds[0]:
-            if main.was_isolated and fresh and bounds[1] - bounds[0] >= reserve:
+            starting = self.alignment.automatic and self.stable_reference_shift is None
+            if (main.was_isolated or starting) and fresh and bounds[1] - bounds[0] >= reserve:
                 recovered = bounds[1] - shifts[main.room_id] - reserve
                 self.audio.correction += recovered - clock
                 self.sync_waiting = False
@@ -2330,7 +2331,8 @@ class Viewer(QDialog):
             if bounds:
                 text = f"历史缓存约 {int(bounds[1] - bounds[0])} 秒"
                 position = clock + shifts[room_id]
-                text += f"，前方可播放约 {max(0, bounds[1] - position):.1f} 秒"
+                ahead = max(0, bounds[1] - position) if bounds[0] <= position <= bounds[1] else 0
+                text += f"，前方可播放约 {ahead:.1f} 秒"
                 if position < bounds[0] or position > bounds[1] + 1:
                     text += "，当前播放偏移超出范围"
             if row.sync_state != "已同步":
