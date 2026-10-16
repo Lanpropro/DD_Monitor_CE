@@ -21,6 +21,16 @@ DEFAULT_VOLUME = 42
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 DEFAULT_SETTINGS = {
+    "appearance_mode": "dark",
+    "skin_background": "",
+    "skin_sidebar": True,
+    "skin_video_enabled": True,
+    "skin_mask": 35,
+    "skin_parts": {},
+    "skin_package_owner": "",
+    "skin_background_override": False,
+    "skin_mask_override": False,
+    "skin_sidebar_override": False,
     "auto_update": False,     # 启动时检查本体新版，悬浮提醒后由用户选择安装
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
@@ -33,7 +43,7 @@ DEFAULT_SETTINGS = {
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
-    "live_alert": True,         # 关注的主播开播时，列表上播水滴 + 「开播了」气泡
+    "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
     #: 录制功能总开关。关掉之后：
     #:   1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；
     #:   2) 正在录制的会话会**正常收尾并导出**（已经录到的部分不丢）；
@@ -192,6 +202,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     """
     room_ids = _unique(state.get("rooms", []))
     wall_slots = state.get("wall", []) or []
+    default_volume = int((state.get("settings") or {}).get("default_volume", DEFAULT_VOLUME))
 
     def placeholder(room_id: str) -> dict:
         room = {
@@ -223,7 +234,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             wall.append({
                 "room_id": "",
                 "muted": bool(slot.get("muted", True)),
-                "volume": int(slot.get("volume", DEFAULT_VOLUME)),
+                "volume": int(slot.get("volume", default_volume)),
                 "quality": int(slot.get("quality", 250)),
                 "audio_channel": int(slot.get("audio_channel", 0)),
                 "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
@@ -231,7 +242,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             continue
         room = placeholder(room_id)
         room["muted"] = bool(slot.get("muted", True))
-        room["volume"] = int(slot.get("volume", DEFAULT_VOLUME))
+        room["volume"] = int(slot.get("volume", default_volume))
         room["quality"] = int(slot.get("quality", 250))
         room["audio_channel"] = int(slot.get("audio_channel", 0))
         room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))

@@ -1,6 +1,6 @@
 """插件接口：把「不属于本体」的功能放到外面去。
 
-设计取舍：宁可少而稳，不要多而虚。现在只开放四件事，每一件都有明确的
+设计取舍：宁可少而稳，不要多而虚。现在开放五件事，每一件都有明确的
 使用场景（录像、接抖音/YouTube/Twitch、发弹幕、给格子加菜单项）：
 
 1. **事件**（``Plugin.on_event``）—— 本体在关键时刻把状态播出去，插件只读。
@@ -16,6 +16,9 @@
 
 4. **弹幕发送**（``Plugin.send_danmaku``）—— 由插件实现怎么发，
    本体只在需要时调用。各家平台差异太大，塞进本体不划算。
+
+5. **皮肤美化**（``Plugin.skin`` / 清单 ``skin``）—— 背景、分区样式及按钮图标；
+   v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/skins.md。
 
 插件放 ``plugins/<插件名>/plugin.py``，里面必须有一个名为 ``plugin`` 的
 ``Plugin`` 实例（见 ``plugins/example/plugin.py``）。插件是**受信任的代码**，
@@ -63,6 +66,11 @@ def read_manifest(folder: str, expected_id: str) -> dict | None:
     for field in ("name", "description", "version"):
         if not isinstance(data.get(field), str) or not data[field].strip():
             raise ValueError(f"plugin.json 缺少非空字符串 {field}")
+    if 'skin' in data:
+        from types import SimpleNamespace
+        from .skins import plugin_skin
+        plugin_skin(SimpleNamespace(skin=data['skin'], name=data['name'],
+            context=SimpleNamespace(name=expected_id)), folder)
     return data
 
 # ---- 事件名（字符串常量，插件里直接用字面量也行） ----
@@ -86,6 +94,10 @@ ALL_EVENTS = (
     EVENT_DANMAKU, EVENT_DANMAKU_STATUS, EVENT_ROOM_LIVE, EVENT_ROOM_OFFLINE,
     EVENT_SETTINGS,
 )
+
+
+class LoginRequiredError(RuntimeError):
+    """The platform explicitly rejected the account's login credentials."""
 
 
 @dataclass
@@ -267,6 +279,7 @@ class Plugin:
     #: 一句话说明，插件列表里展示
     description = ""
     version = ""
+    skin = None  # Optional declarative skin v1/v2; see docs/skins.md.
 
     def __init__(self) -> None:
         self.context: PluginContext | None = None
@@ -351,10 +364,14 @@ class PluginManager:
                 plugin.name = manifest["name"]
                 plugin.description = manifest["description"]
                 plugin.version = manifest["version"]
+                plugin.skin = manifest.get("skin", plugin.skin)
             context = PluginContext(self, entry)
             plugin.context = context
             try:
                 plugin.on_load(context)
+                if plugin.skin is not None:
+                    from .skins import plugin_skin
+                    plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
                 self.skipped.append((entry, f"on_load 出错：{error}"))
                 traceback.print_exc()
@@ -382,6 +399,18 @@ class PluginManager:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
+
+    def active_skin(self):
+        from .skins import plugin_skin
+        for plugin in reversed(self.plugins):
+            owner = plugin.context.name
+            if (owner not in self._removed and plugin.skin is not None
+                    and (self.enabled is None or owner in self.enabled)):
+                try:
+                    return plugin_skin(plugin, os.path.join(self.plugins_dir, owner))
+                except (OSError, ValueError) as error:
+                    print(f"[插件 {owner}] 皮肤无效：{error}", file=sys.stderr, flush=True)
+        return None
 
     def save_plugin_settings(self) -> None:
         """插件改了自己的配置项；交给本体去落盘（没接回调就只留在内存里）。"""
@@ -453,6 +482,9 @@ class PluginManager:
             self.enabled.discard(plugin_id)
         self.plugin_settings.pop(plugin_id, None)
         self.save_plugin_settings()
+        refresh = getattr(self.window, 'refresh_skin', None)
+        if callable(refresh):
+            refresh()
 
     def catalog(self) -> list[dict]:
         """设置页使用的插件目录、元数据和本次启动状态。"""

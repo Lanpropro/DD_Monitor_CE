@@ -6,7 +6,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 
 - 原项目作者：智明神君
 - 原项目地址：https://gitee.com/zhimingshenjun/DD_Monitor_latest
-- 原项目许可：GNU Lesser General Public License v2.1（见本目录 `LICENSE`，从原仓库原样保留）
+- 原项目许可：GNU Lesser General Public License v2.1（见项目根目录 `LICENSE`，从原仓库原样保留）
 
 ## 改了什么
 
@@ -35,7 +35,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 
 ## 还没做的
 
-- 原项目的热榜、录制、悬浮窗没有搬过来。
+- 原项目的热榜、悬浮窗没有搬过来；录制已由 `ddm/recording.py` 实现。
 
 ## 关于分发
 

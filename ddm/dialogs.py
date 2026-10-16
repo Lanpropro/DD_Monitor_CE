@@ -7,12 +7,13 @@ from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
+    QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
     QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import theme
+from .folder_icons import create_folder_dialog
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .player import DECODE_MODES
 
@@ -23,6 +24,7 @@ SHORTCUT_ACTIONS = [
     ("restore", "退出全屏", "Esc"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("audio_cycle", "声音轮询按键", "E"),
+    ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
 
@@ -61,7 +63,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
-        ("live_alert", "开播气泡提醒"),
+        ("live_alert", "开播提醒（顶部提示与关注栏动效）"),
     ]
 
     def __init__(self, settings: dict, parent=None):
@@ -757,15 +759,80 @@ class PluginSettingsPage(QWidget):
             name for name, check in self.checks.items() if check.isChecked()]
 
 
-class SettingsDialog(AnimatedDialog):
+class AppearanceSettingsPage(QWidget):
+    modeChanged = Signal(str)
+
+    def __init__(self, settings, parent=None, skin_controller=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(self)
+        self.scroll = scroll
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
+        layout.addLayout(_page_head("外观", ""))
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.buttons = {}
+        self.group = QButtonGroup(self)
+        for key, label in (("dark", "深色"), ("light", "浅色"), ("system", "跟随系统")):
+            button = QPushButton(label)
+            button.setObjectName("AppearanceChoice")
+            button.setCheckable(True)
+            button.setMinimumHeight(36)
+            button.setCursor(Qt.PointingHandCursor)
+            self.group.addButton(button)
+            self.buttons[key] = button
+            button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
+            row.addWidget(button)
+        layout.addLayout(row)
+        from .skin_settings import PartSettings, SkinSettings
+        self.parts_editor = None
+        if skin_controller is not None:
+            self.parts_editor = PartSettings(skin_controller.window, content, embedded=True)
+            self.skin_settings = self.parts_editor.background_controls
+            layout.addWidget(self.parts_editor)
+        else:
+            self.skin_settings = SkinSettings(settings, skin_controller, self)
+            self.skin_settings.hide()
+        layout.addStretch(1)
+        self._mode = theme.normalize_mode(settings.get("appearance_mode"))
+        self.sync(self._mode)
+        theme.signals().changed.connect(self.sync)
+
+    def sync(self, mode):
+        self._mode = mode
+        self.buttons[mode].setChecked(True)
+
+    def _choose(self, mode):
+        self.sync(mode)
+        self.modeChanged.emit(mode)
+
+    def values(self):
+        return {"appearance_mode": self._mode, **self.skin_settings.values()}
+
+    def reset(self):
+        self._choose("dark")
+
+
+class SettingsDialog(QDialog):
     updatesViewed = Signal(object)
+    appearanceChanged = Signal(str)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
-    PAGES = [("general", "常规"), ("danmaku", "弹幕"),
+    PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
              ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件"), ("updates", "软件更新")]
 
-    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None):
+    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
         super().__init__(parent)
+        self._preview_only = preview
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
@@ -793,20 +860,32 @@ class SettingsDialog(AnimatedDialog):
         self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
         self.general_page = GeneralSettingsPage(settings)
-        self.danmaku_page = DanmakuSettingsPage(settings)
-        self.recording_page = RecordingSettingsPage(settings)
-        self.shortcut_page = ShortcutSettingsPage(shortcuts)
-        self.plugin_page = PluginSettingsPage(plugin_manager)
-        self.plugin_page.store_page.seen_versions = self.seen_versions
-        self._plugin_update_dot = UpdateDot()
-        from PySide6.QtWidgets import QTabBar
-        self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
-        from .online_ui import AppUpdatePage
-        self.update_page = AppUpdatePage(settings)
+        # Build the expensive controls only when their page is first requested.
+        # Keep the public page properties so callers and settings validation
+        # still use the same controls and value normalization.
+        self._page_factories = {
+            1: lambda: AppearanceSettingsPage(settings, skin_controller=getattr(parent, 'skin_controller', None)),
+            2: lambda: DanmakuSettingsPage(settings),
+            3: lambda: RecordingSettingsPage(settings),
+            4: lambda: ShortcutSettingsPage(shortcuts),
+        }
+        self._loaded_pages = {}
+        if preview:
+            # The appearance thumbnail needs the real controls, without creating
+            # update/download workers or reading an installation result.
+            self.plugin_page = QWidget()
+            self.update_page = QWidget()
+        else:
+            self.plugin_page = PluginSettingsPage(plugin_manager)
+            self.plugin_page.store_page.seen_versions = self.seen_versions
+            self._plugin_update_dot = UpdateDot()
+            from PySide6.QtWidgets import QTabBar
+            self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
+            from .online_ui import AppUpdatePage
+            self.update_page = AppUpdatePage(settings)
         self.stack.addWidget(self.general_page)
-        self.stack.addWidget(self.danmaku_page)
-        self.stack.addWidget(self.recording_page)
-        self.stack.addWidget(self.shortcut_page)
+        for _index in range(4):
+            self.stack.addWidget(QWidget())
         self.stack.addWidget(self.plugin_page)
         self.stack.addWidget(self.update_page)
         right.addWidget(self.stack, 1)
@@ -830,6 +909,8 @@ class SettingsDialog(AnimatedDialog):
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
+        if preview:
+            return
         self.plugin_page.changed.connect(self._update_save_button)
         self.plugin_page.store_page.busyChanged.connect(self._update_save_button)
         self.update_page.busyChanged.connect(self._update_save_button)
@@ -844,13 +925,30 @@ class SettingsDialog(AnimatedDialog):
             if item.data(Qt.UserRole) == key:
                 item.setData(Qt.UserRole + 1, active)
 
+    def _page(self, index):
+        if index not in self._loaded_pages:
+            placeholder = self.stack.widget(index)
+            page = self._page_factories[index]()
+            self._loaded_pages[index] = page
+            self.stack.removeWidget(placeholder)
+            self.stack.insertWidget(index, page)
+            placeholder.deleteLater()
+            if index == 1:
+                page.modeChanged.connect(self.appearanceChanged)
+        return self._loaded_pages[index]
+
+    appearance_page = property(lambda self: self._page(1))
+    danmaku_page = property(lambda self: self._page(2))
+    recording_page = property(lambda self: self._page(3))
+    shortcut_page = property(lambda self: self._page(4))
+
     def _remember_versions(self, versions):
         if any(self.seen_versions.get(key) != value for key, value in versions.items()):
             self.seen_versions.update(versions)
             self.updatesViewed.emit(dict(self.seen_versions))
 
     def _mark_app_update(self, offer):
-        if offer and self.nav.currentRow() == 5:
+        if offer and self.nav.currentRow() == self.stack.indexOf(self.update_page):
             self._remember_versions({'app': offer['version']})
         active = bool(offer and self.seen_versions.get('app') != offer['version'])
         self._mark_update_page('updates', active)
@@ -858,7 +956,7 @@ class SettingsDialog(AnimatedDialog):
     def _mark_plugin_updates(self, offers):
         from .online_ui import plugin_update_offers
         updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
-        if self.nav.currentRow() == 4:
+        if self.nav.currentRow() == self.stack.indexOf(self.plugin_page):
             self._remember_versions({offer['id']: offer['version'] for offer in updates})
         active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
         self._mark_update_page('plugins', active)
@@ -870,10 +968,18 @@ class SettingsDialog(AnimatedDialog):
         self.confirm_button.setEnabled(not self.plugin_page.store_page.jobs and not self.update_page.jobs)
 
     def _save(self) -> None:
+        appearance = self._loaded_pages.get(1)
+        if appearance is not None and appearance.parts_editor is not None:
+            if not appearance.parts_editor.save_changes():
+                self.nav.setCurrentRow(1)
+                appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
+                return
         self.restart_requested = self.plugin_page.needs_restart()
         self.accept()
 
     def done(self, result):
+        if self._preview_only:
+            return super().done(result)
         self.stack.finish_transition()
         self.plugin_page.store_page.stop()
         self.update_page.stop()
@@ -881,12 +987,14 @@ class SettingsDialog(AnimatedDialog):
 
     def _on_page_changed(self, index: int) -> None:
         if index >= 0:
+            if index in self._page_factories:
+                self._page(index)
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
             self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
-            if index == 4:
+            if index == self.stack.indexOf(self.plugin_page):
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
-            elif index == 5:
+            elif index == self.stack.indexOf(self.update_page):
                 self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
@@ -896,6 +1004,7 @@ class SettingsDialog(AnimatedDialog):
 
     def settings(self) -> dict:
         values = self.general_page.values()
+        values.update(self.appearance_page.values())
         values.update(self.danmaku_page.values())
         values.update(self.recording_page.values())
         values.update(self.update_page.values())
@@ -909,16 +1018,35 @@ class SettingsDialog(AnimatedDialog):
         return self.plugin_page.enabled_plugins()
 
 
+def _add_folder_option(dialog, menu, folder_id, name):
+    action = menu.addAction(name)
+    action.setData(folder_id)
+    action.setCheckable(True)
+    action.setChecked(not folder_id)
+    action.triggered.connect(lambda _checked=False: dialog._select_folder(action))
+    return action
+
+
+def _create_folder_for_dialog(dialog, folder_creator):
+    folder_id, name = create_folder_dialog(dialog, folder_creator, dialog.folder_names)
+    if not folder_id:
+        return
+    dialog.folder_names.add(name)
+    action = _add_folder_option(dialog, dialog.folder_button.menu(), folder_id, name)
+    dialog._select_folder(action)
+
+
 class AddRoomDialog(AnimatedDialog):
     """输入房间号或直播间链接。"""
 
-    def __init__(self, parent=None, *, room_id_resolver=None, folders=None):
+    def __init__(self, parent=None, *, room_id_resolver=None, folders=None, folder_creator=None):
         super().__init__(parent)
         self.setWindowTitle("添加直播间")
         self.resize(400, 170)
         self.room_id = ""
         self.folder_id = ""
         self.room_id_resolver = room_id_resolver
+        self.folder_names = {folder['name'] for folder in folders or []}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -939,13 +1067,15 @@ class AddRoomDialog(AnimatedDialog):
         options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
                                        if folder.get("type", "normal") == "normal"]
         for folder_id, name in options:
-            action = folder_menu.addAction(name)
-            action.setData(folder_id)
-            action.setCheckable(True)
-            action.setChecked(not folder_id)
-            action.triggered.connect(lambda _checked=False, selected=action: self._select_folder(selected))
+            _add_folder_option(self, folder_menu, folder_id, name)
         self.folder_button.setMenu(folder_menu)
         folder_row.addWidget(self.folder_button, 1)
+        self.new_folder_button = QPushButton("新建文件夹")
+        self.new_folder_button.setObjectName("IconButton")
+        self.new_folder_button.setAutoDefault(False)
+        self.new_folder_button.setEnabled(folder_creator is not None)
+        self.new_folder_button.clicked.connect(lambda: _create_folder_for_dialog(self, folder_creator))
+        folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
         self.hint = QLabel("支持 B 站房间号")
@@ -1007,7 +1137,8 @@ class FollowImportDialog(QDialog):
 
     INDICATOR_WIDTH = 30      # 勾选方块占据的左侧宽度
 
-    def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None):
+    def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None,
+                 folder_creator=None):
         super().__init__(parent)
         self.setWindowTitle("导入关注")
         self.resize(520, 620)
@@ -1015,6 +1146,7 @@ class FollowImportDialog(QDialog):
         self.existing = {str(item) for item in existing}
         self.folder_id = ""
         self.folder_changed = False
+        self.folder_names = {folder['name'] for folder in folders or []}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -1041,13 +1173,15 @@ class FollowImportDialog(QDialog):
         options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
         for folder_id, name in options:
-            action = folder_menu.addAction(name)
-            action.setData(folder_id)
-            action.setCheckable(True)
-            action.setChecked(not folder_id)
-            action.triggered.connect(lambda _checked=False, selected=action: self._select_folder(selected))
+            _add_folder_option(self, folder_menu, folder_id, name)
         self.folder_button.setMenu(folder_menu)
         folder_row.addWidget(self.folder_button, 1)
+        self.new_folder_button = QPushButton("新建文件夹")
+        self.new_folder_button.setObjectName("IconButton")
+        self.new_folder_button.setAutoDefault(False)
+        self.new_folder_button.setEnabled(folder_creator is not None)
+        self.new_folder_button.clicked.connect(lambda: _create_folder_for_dialog(self, folder_creator))
+        folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
         hint = QLabel("取消勾选并点击导入，会从本地关注栏移除对应主播；选择文件夹会调整已勾选主播的归属。")

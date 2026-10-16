@@ -60,8 +60,14 @@ def main():
             assert stream.ddm_quality == (10000 if rate == 0 else 2000000 + rate)
     with patch.object(douyu, "room_info", return_value=plugins.RoomInfo("douyu:123", live=True)), \
             patch.object(douyu, "_request_source", return_value=dict(source,
-                rtmp_url="https://cdn.test", rate=4)):
-        assert douyu._streams(session, "douyu:123", 10000)["source"].ddm_quality == 2000004
+                rtmp_url="https://cdn.test", rate=4)), \
+            patch.object(douyu, "account_info", side_effect=RuntimeError("expired login")):
+        try:
+            douyu._streams(session, "douyu:123", 10000)
+        except RuntimeError as error:
+            assert "重新登录" in str(error)
+        else:
+            raise AssertionError("Original selection must not silently fall back to 4M")
     douyin = manager.platforms["douyin"]
     room = {"status": 2, "id_str": "internal", "stream_url": {
         "flv_pull_url": {key: f"https://cdn.test/{key}.flv" for key in ("SD2", "FULL_HD1", "SD1", "HD1")},

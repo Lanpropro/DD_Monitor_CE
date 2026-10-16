@@ -70,11 +70,71 @@ class VideoHistory(History):
         self.received_frames = 0
         self.details = deque()
         self.pending_frames = deque()
+        self.previous = None
+        self.intervals = deque()
+
+    def _track(self, timestamp):
+        if not self.intervals or timestamp - self.intervals[-1][1] > .25:
+            self.intervals.append([timestamp, timestamp])
+        else:
+            self.intervals[-1][1] = timestamp
+
+    def segment_at(self, timestamp):
+        if self.previous is not None:
+            bounds = self.previous.bounds()
+            if bounds and bounds[0] <= timestamp <= bounds[1] + .05:
+                return self.previous
+        bounds = super().bounds()
+        if bounds and bounds[0] <= timestamp <= bounds[1] + .05:
+            return self
+        return None
+
+    def bounds_at(self, timestamp):
+        segment = self.segment_at(timestamp)
+        if segment is not None and segment is not self:
+            return segment.bounds_at(timestamp)
+        with self.lock:
+            bounds = super().bounds()
+            if bounds is None:
+                return None
+            while self.intervals and self.intervals[0][1] < bounds[0]:
+                self.intervals.popleft()
+            for start, end in self.intervals:
+                if timestamp <= end + .05:
+                    return max(start, bounds[0]), min(end, bounds[1])
+            return bounds
+
+    def frame_at(self, timestamp):
+        segment = self.segment_at(timestamp)
+        if segment is not None and segment is not self:
+            return segment.frame_at(timestamp)
+        bounds = self.bounds_at(timestamp)
+        if bounds is None or not bounds[0] <= timestamp <= bounds[1] + .05:
+            return None
+        return super().frame_at(timestamp)
+
+    def pcm_at(self, timestamp, frames):
+        segment = self.segment_at(timestamp)
+        if segment is not None and segment is not self:
+            return segment.pcm_at(timestamp, frames)
+        return super().pcm_at(timestamp, frames)
+
+    def trim_bytes(self, limit):
+        with self.lock:
+            while self.packets and self.byte_size > limit:
+                self.byte_size -= len(self.packets.popleft().data)
+                while self.packets and not self.packets[0].keyframe:
+                    self.byte_size -= len(self.packets.popleft().data)
+            first = self.packets[0].time + (self.origin or 0) if self.packets else float('inf')
+            while self.frames and self.frames[0][0] < first:
+                self.frames.popleft()
 
     def set_origin(self, origin):
         with self.lock:
             self.origin = origin
             self.frames.extend((origin + pts, pts) for pts in self.pending_frames)
+            for timestamp, _pts in self.frames:
+                self._track(timestamp)
             self.pending_frames.clear()
             self.samples = deque(replace(sample, time=origin + sample.time) for sample in self.samples)
             self.details = deque(replace(sample, time=origin + sample.time) for sample in self.details)
@@ -91,6 +151,8 @@ class VideoHistory(History):
                 return
             self.packets.append(record)
             self.byte_size += len(record.data)
+            if self.previous is not None:
+                self.previous.trim_bytes(max(0, self.byte_limit - self.byte_size))
             while self.packets and (self.byte_size > self.byte_limit or
                                     record.time - self.packets[0].time > self.seconds):
                 self.byte_size -= len(self.packets.popleft().data)
@@ -113,6 +175,7 @@ class VideoHistory(History):
                     self.pending_frames.append(pts)
                 else:
                     self.frames.append((timestamp, pts))
+                    self._track(timestamp)
             self.received_frames += 1
             if sample is not None:
                 self.samples.append(sample)
@@ -121,18 +184,19 @@ class VideoHistory(History):
 
     def packet_range(self, sequence, target):
         with self.lock:
-            packets = list(self.packets)
-            if not packets or self.codec is None:
+            if not self.packets or self.codec is None:
                 return None
-            if sequence is None or sequence < packets[0].sequence:
-                starts = [i for i, packet in enumerate(packets) if packet.keyframe and packet.time <= target]
-                if not starts:
-                    return None
-                packets = packets[starts[-1]:]
-                reset = True
-            else:
-                packets = [packet for packet in packets if packet.sequence >= sequence]
-                reset = False
+            reset = sequence is None or sequence < self.packets[0].sequence
+            packets = []
+            for packet in reversed(self.packets):
+                if not reset and packet.sequence < sequence:
+                    break
+                packets.append(packet)
+                if reset and packet.keyframe and packet.time <= target:
+                    break
+            if reset and (not packets or not packets[-1].keyframe or packets[-1].time > target):
+                return None
+            packets.reverse()
             return self.codec, packets, reset
 
 
@@ -150,14 +214,45 @@ class PictureReader:
         self.requested = 0.0
         self.decode_ms = 0.0
         self.decoded = 0
+        self.byte_limit = 64 * 1024 * 1024
+        self.max_frames = 8
+        self.fps = 60.0
+        self.lead = .1
+        self.active = True
+        self.snapshot_until = 0.0
+        self.reset_requested = False
+
+    def configure(self, byte_limit, fps, lead=.35, active=True):
+        with self.lock:
+            previous_active = self.active
+            self.active = active or time.monotonic() < self.snapshot_until
+            if not self.active:
+                self.reset_requested |= previous_active
+                self.target = None
+                self.images.clear()
+            if (self.byte_limit, self.fps, self.lead, self.max_frames) == (byte_limit, max(1, fps), lead, 24):
+                return
+            self.byte_limit = byte_limit
+            self.max_frames = 24
+            self.fps = max(1, fps)
+            self.lead = lead
+            while len(self.images) > 1 and sum(image.sizeInBytes() for image in self.images.values()) > byte_limit:
+                self.images.pop(next(iter(self.images)))
 
     def get(self, history, frame, exact=False):
         with self.lock:
+            # Explicit crop dialogs may request a snapshot of a hidden source.
+            self.active = True
+            if exact:
+                self.snapshot_until = time.monotonic() + .5
             if self.history is not history:
                 self.images.clear()
                 self.history = history
             self.requested = time.monotonic()
-            if frame != self.target or frame[0] not in self.images:
+            cached_backward = frame[0] in self.images and self.target is not None and frame[0] < self.target[0]
+            if not cached_backward and (frame != self.target or frame[0] not in self.images):
+                if self.target is not None and (frame[1] < self.target[1] - .05 or frame[1] > self.target[1] + .5):
+                    self.reset_requested = True
                 self.target = frame
                 self.wake.set()
             if self.thread is None and not self.cancelled.is_set():
@@ -165,7 +260,7 @@ class PictureReader:
                 self.thread.start()
             image = self.images.get(frame[0])
             if image is None and not exact:
-                past = [key for key in self.images if frame[0] - .05 <= key <= frame[0]]
+                past = [key for key in self.images if frame[0] - .15 <= key <= frame[0]]
                 if past:
                     key = max(past)
                     return key, self.images[key]
@@ -175,7 +270,6 @@ class PictureReader:
         codec = None
         owner = None
         sequence = None
-        previous = None
         decoded_until = None
         capacity = 8
         try:
@@ -184,18 +278,24 @@ class PictureReader:
                     with self.lock:
                         if time.monotonic() - self.requested >= 1:
                             self.images.clear()
-                            codec = owner = sequence = previous = decoded_until = None
+                            codec = owner = sequence = decoded_until = None
                     continue
                 self.wake.clear()
                 if self.cancelled.is_set():
                     break
                 with self.lock:
+                    if self.reset_requested:
+                        codec = owner = sequence = decoded_until = None
+                        self.reset_requested = False
+                    if self.target is None or not self.active:
+                        codec = owner = sequence = decoded_until = None
+                        continue
                     history, (timestamp, target) = self.history, self.target
-                if owner is not history or previous is None or target < previous - .05 or target > previous + .5:
+                if owner is not history:
                     codec = sequence = decoded_until = None
                     with self.lock:
                         self.images.clear()
-                horizon = target + max(1, capacity - 2) / 60
+                horizon = target + min(self.lead, max(1, capacity * 3 // 4) / self.fps)
                 if decoded_until is not None and decoded_until >= horizon:
                     continue
                 result = history.packet_range(sequence, target)
@@ -210,12 +310,13 @@ class PictureReader:
                     # Seekable picture workers must release promptly on switch/close.
                     # Frame-thread teardown can block the GUI when two are active.
                     codec.thread_type = "SLICE"
-                owner, previous = history, target
+                owner = history
                 for packet in packets:
                     if self.cancelled.is_set():
                         break
                     with self.lock:
-                        if self.history is not history or abs(self.target[1] - target) > .25:
+                        if (not self.active or self.target is None or self.history is not history
+                                or self.reset_requested):
                             break
                     started = time.perf_counter()
                     frames = codec.decode(packet.decode_packet())
@@ -224,16 +325,18 @@ class PictureReader:
                     for frame in frames:
                         pts = float(frame.pts * frame.time_base)
                         decoded_until = pts
-                        if pts + .00001 < target:
+                        with self.lock:
+                            requested_target = self.target[1] if self.target is not None else target
+                        if pts + .00001 < max(target, requested_target - .05):
                             continue
                         image = image_from_frame(frame)
                         key = history.origin + pts
                         with self.lock:
-                            if self.history is not history or self.cancelled.is_set():
+                            if not self.active or self.history is not history or self.cancelled.is_set():
                                 break
                             self.images[key] = image
-                            capacity = max(1, min(8, 64 * 1024 * 1024 // image.sizeInBytes()))
-                            horizon = target + max(1, capacity - 2) / 60
+                            capacity = max(1, min(self.max_frames, self.byte_limit // image.sizeInBytes()))
+                            horizon = target + min(self.lead, max(1, capacity * 3 // 4) / self.fps)
                             while len(self.images) > capacity:
                                 self.images.pop(next(iter(self.images)))
                             self.decoded += 1

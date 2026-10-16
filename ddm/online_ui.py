@@ -6,7 +6,7 @@ import tempfile
 import time
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal, QVariantAnimation
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
@@ -288,7 +288,7 @@ class PluginStorePage(OnlinePage):
             heading.addWidget(button)
             body.addLayout(heading)
             body.addWidget(description)
-            hint = QLabel(note or ' ')
+            hint = QLabel(note or ' ', card)
             hint.setWordWrap(True)
             hint.setObjectName('SettingsHint')
             hint.setVisible(offer['id'] not in updates)
@@ -335,6 +335,7 @@ class AppUpdatePage(OnlinePage):
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
         self.offer = None
+        self._checked = False
         self.plan_path = ''
         self.install_requested = False
         layout = QVBoxLayout(self)
@@ -352,6 +353,7 @@ class AppUpdatePage(OnlinePage):
         layout.addWidget(self.auto)
         self.action = QPushButton('下载更新')
         self.action.setObjectName('PrimaryButton')
+        self.action.setProperty('updateAction', True)
         self.action.setEnabled(False)
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
@@ -372,8 +374,8 @@ class AppUpdatePage(OnlinePage):
         self.release_button.clicked.connect(lambda: QDesktopServices.openUrl(
             QUrl(f'https://github.com/{online.APP_REPOSITORY}/releases')))
         layout.addWidget(self.release_button, 0, Qt.AlignLeft)
-        if not getattr(sys, 'frozen', False):
-            self.status.setText('源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
+        self.status.setText('点击“检查更新”查询可下载的新版。' if getattr(sys, 'frozen', False) else
+                            '源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
         result = Path(config.REPO) / update_install.RESULT
         if result.is_file():
             try:
@@ -387,6 +389,21 @@ class AppUpdatePage(OnlinePage):
         self.check.setEnabled(not busy and not self.plan_path)
         self.action.setEnabled(not busy and bool(self.plan_path or self.offer)
                                and bool(getattr(sys, 'frozen', False)))
+        if busy:
+            text, hint = (('正在下载…', '正在下载和校验更新包，请等待完成') if self.offer else
+                          ('检查中…', '正在查询正式版本，请等待检查结果'))
+        elif self.plan_path:
+            text, hint = '重启并更新', '更新包已准备完成，点击保存设置并重启安装'
+        elif not getattr(sys, 'frozen', False):
+            text, hint = '仅 EXE 版可更新', '当前为源码运行，请通过仓库更新源码'
+        elif self.offer:
+            text, hint = '下载更新', '下载并校验新版软件，完成后再确认重启安装'
+        elif self._checked:
+            text, hint = '已是最新版本', '未发现比当前版本更新的正式版本，无需下载'
+        else:
+            text, hint = '请先检查更新', '点击“检查更新”；如果检查失败，可重试或打开发布页面手动下载'
+        self.action.setText(text)
+        self.action.setToolTip(hint)
 
     def values(self):
         return {'auto_update': self.auto.isChecked()}
@@ -394,7 +411,11 @@ class AppUpdatePage(OnlinePage):
     def show_current_notes(self):
         self.notes_title.setText('当前版本 ' + version.VERSION + ' 更新说明')
         try:
-            notes = (Path(config.REPO) / ('RELEASE-v' + version.VERSION + '.md')).read_text(encoding='utf-8-sig')
+            filename = 'RELEASE-v' + version.VERSION + '.md'
+            path = Path(config.REPO) / 'docs' / 'releases' / filename
+            if not path.is_file():
+                path = Path(config.REPO) / filename
+            notes = path.read_text(encoding='utf-8-sig')
         except OSError:
             notes = '本地未附带当前版本的更新说明，可点击“打开发布页面”查看。'
         self.notes.setMarkdown(notes)
@@ -412,6 +433,7 @@ class AppUpdatePage(OnlinePage):
         if self.jobs or self.stopping or self.plan_path:
             return
         self.offer = None
+        self._checked = False
         self.show_current_notes()
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
@@ -421,6 +443,8 @@ class AppUpdatePage(OnlinePage):
 
     def _release_ready(self, offer):
         self.offer = offer
+        self._checked = True
+        self._busy(bool(self.jobs))
         self.releaseChecked.emit(offer)
         if offer:
             self.notes_title.setText('新版 ' + offer['version'] + ' 更新说明')
@@ -531,12 +555,23 @@ class UpdateNotice(QFrame):
             self.hide()
 
     def paintEvent(self, event):
+        from .skin_parts import values_for
+        from PySide6.QtGui import QPainterPath, QPixmap
+        custom = values_for('notices')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(theme.qcolor(theme.ELEVATED))
-        painter.setPen(QColor(131, 131, 145, 80))
+        painter.setBrush(theme.qcolor(custom.get('background', theme.ELEVATED)))
+        painter.setPen(Qt.NoPen if custom.get('border_width') == 0 else
+            QPen(theme.qcolor(custom.get('border_color', 'rgba(131, 131, 145, 0.31)')),
+                 custom.get('border_width', 1)))
+        radius = custom.get('radius', theme.RADIUS_MD)
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
-                                theme.RADIUS_MD, theme.RADIUS_MD)
+                                radius, radius)
+        if custom.get('image'):
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(self.rect()), radius, radius)
+            painter.setClipPath(clip)
+            painter.drawPixmap(self.rect(), QPixmap(custom['image']))
 
     def reposition(self):
         parent = self.parentWidget()
@@ -567,12 +602,18 @@ class UpdateNotice(QFrame):
 
 
 class ResultNotice(UpdateNotice):
-    """复用悬浮提醒；操作结果全程不透明，三秒后自动收起。"""
+    """顶部主提示：宽度随内容变化，不抢焦点，按提示类型自动收起。"""
     def __init__(self, parent):
         super().__init__(parent)
         self.layout().itemAt(1).widget().hide()
         self.action.hide()
         self.title.setWordWrap(True)
+        self.title.setTextFormat(Qt.PlainText)
+        self.title.setObjectName('NoticeText')
+        self.title.setMinimumWidth(0)
+        self.layout().setContentsMargins(12, 10, 10, 10)
+        self.layout().setSpacing(0)
+        self.layout().itemAt(0).layout().setSpacing(8)
         self.timer.setInterval(3000)
         self.avatar_strip = QWidget(self)
         self.avatar_layout = QHBoxLayout(self.avatar_strip)
@@ -581,6 +622,10 @@ class ResultNotice(UpdateNotice):
         self.layout().itemAt(0).layout().insertWidget(0, self.avatar_strip)
         self._avatars = {}
         self.avatar_strip.hide()
+        self.indicator = QLabel('✓', self)
+        self.indicator.setFixedSize(20, 24)
+        self.indicator.setAlignment(Qt.AlignCenter)
+        self.layout().itemAt(0).layout().insertWidget(0, self.indicator)
 
     def _set_rooms(self, rooms):
         from .images import load_cached_avatar, load_room_avatar
@@ -600,6 +645,8 @@ class ResultNotice(UpdateNotice):
                 avatar.set_pixmap_image(pixmap)
             self.avatar_layout.addWidget(avatar)
             self._avatars[room_id] = avatar
+        count = self.avatar_layout.count()
+        self.avatar_strip.setFixedWidth(count * 28 + max(0, count - 1) * self.avatar_layout.spacing())
         self.avatar_strip.setVisible(bool(self._avatars))
 
     def set_room_avatar(self, room_id, pixmap):
@@ -612,17 +659,22 @@ class ResultNotice(UpdateNotice):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(theme.qcolor(theme.ELEVATED))
         painter.setPen(QColor(131, 131, 145, 80))
-        radius = self.height() / 2
+        radius = theme.RADIUS_LG
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                                 radius, radius)
 
-    def show_message(self, message, rooms=()):
+    def show_message(self, message, rooms=(), *, kind='info'):
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)
         self._set_rooms(rooms)
-        self.setFixedWidth(min(360, max(240, self.parentWidget().width() - 40)))
-        self.adjustSize()
+        symbol, colour = {'live': ('●', theme.PINK),
+                          'warning': ('!', '#e8b86d')}.get(kind, ('✓', theme.ACCENT))
+        self.indicator.setText(symbol)
+        self.indicator.setStyleSheet('color: ' + colour + '; font-weight: 600;')
+        self.indicator.setVisible(not bool(self._avatars))
+        self.timer.setInterval({'live': 5000, 'warning': 6000}.get(kind, 3000))
+        self._resize_to_content()
         self._progress = self._progress if self.isVisible() else 0.0
         if not motion.enabled():
             self._progress = 1.0
@@ -632,6 +684,32 @@ class ResultNotice(UpdateNotice):
         self.timer.start()
         if self._progress < 1.0:
             self._animate_to(1.0, 160)
+
+    def _resize_to_content(self):
+        self.ensurePolished()
+        heading = self.layout().itemAt(0).layout()
+        margins = self.layout().contentsMargins()
+        widgets = [heading.itemAt(index).widget() for index in range(heading.count())]
+        visible = [widget for widget in widgets if not widget.isHidden()]
+        for widget in visible:
+            widget.ensurePolished()
+        reserved = margins.left() + margins.right() + heading.spacing() * (len(visible) - 1)
+        reserved += sum(widget.minimumWidth() if widget.minimumWidth() == widget.maximumWidth()
+                        else widget.sizeHint().width()
+                        for widget in visible if widget is not self.title)
+        text_width = max((self.title.fontMetrics().horizontalAdvance(line)
+                          for line in self.title.text().splitlines()), default=0)
+        width = min(max(80, self.parentWidget().width() - 32), 480,
+                    max(120, reserved + text_width + 8))
+        self.setFixedWidth(width)
+        self.layout().invalidate()
+        self.setFixedHeight(max(48, self.layout().heightForWidth(width)))
+        self.layout().activate()
+
+    def eventFilter(self, watched, event):
+        if self.isVisible() and event.type() == QEvent.Resize:
+            self._resize_to_content()
+        return super().eventFilter(watched, event)
 
     def _motion_frame(self, value):
         self._progress = value
@@ -644,10 +722,10 @@ class ResultNotice(UpdateNotice):
                                            20 + offset)))
 
 
-def show_result(parent, message, rooms=()):
+def show_result(parent, message, rooms=(), *, kind='info'):
     if not parent.isVisible():
         return
     notice = getattr(parent, '_result_notice', None)
     if notice is None:
         notice = parent._result_notice = ResultNotice(parent)
-    notice.show_message(message, rooms)
+    notice.show_message(message, rooms, kind=kind)

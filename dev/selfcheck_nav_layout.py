@@ -4,7 +4,7 @@ import sys
 import time
 
 from PySide6.QtCore import QMimeData, QPointF, Qt
-from PySide6.QtGui import QCursor, QDropEvent
+from PySide6.QtGui import QCursor, QDropEvent, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +46,8 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
     app = QApplication(sys.argv)
+    # The offscreen Qt platform does not discover Windows Chinese fonts itself.
+    QFontDatabase.addApplicationFont("C:/Windows/Fonts/msyh.ttc")
     app.setStyleSheet(theme.qss())
 
     print("=== 0. 新增关注项立即排版，不与第一项重叠 ===")

@@ -81,18 +81,27 @@ def main():
         app.processEvents()
         target, other, *_ = window.wall.tiles
         target.room["live"] = True
+        target.set_volume(37)
+        audio_channels = []
+        target.audioChannelChanged.connect(lambda _room, value: audio_channels.append(value))
+        original_tiles = list(window.wall.tiles)
         try:
             # 真正点击全屏按钮，只升级目标格子，并走现有 qualityChanged 取流/保存接线。
             target.set_quality_options(BILI_OPTIONS)
             QTest.mouseClick(target.fullscreen_button, Qt.LeftButton)
             app.processEvents()
             assert window._fullscreen_tile is target
+            assert window.wall.tiles == original_tiles and target.volume == 37
+            assert target.audio_channel == target.volume_button.audio_channel == 0 and not audio_channels
+            slot = window.current_state()['wall'][0]
+            assert slot['volume'] == 37 and slot['audio_channel'] == 0 and slot['muted'] is True
             assert target.quality == target.room["quality"] == 25000
             assert requests == [(target, 25000)] and other.quality == 250
             assert window._save_timer.isActive()
             QTest.mouseClick(target.fullscreen_button, Qt.LeftButton)
             assert window._fullscreen_tile is None and target.quality == 25000
             assert requests == [(target, 25000)], "退出全屏不应重复取流"
+            assert target.volume == 37 and target.audio_channel == 0 and target.muted
             window._on_fullscreen(target)
             assert len(requests) == 1, "已是最高档时不能重连"
             window._exit_fullscreen()

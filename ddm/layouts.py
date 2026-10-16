@@ -4,7 +4,7 @@
 cells 的数量就是这个方案一屏能放几路；多出来的窗口按同样的列数继续往下排。
 
 竖屏方案多一个 ``"portrait": "stack"`` 标记：那些方案不按行列等分摆，而是
-「主画面按 16:9 固定 + 小画面自动网格填满剩余」，具体摆放见 WallGrid。
+「主画面默认按 16:9 + 小画面每行两路填满剩余」，拖动后可使用自定义比例，见 WallGrid。
 """
 import math
 
@@ -88,7 +88,7 @@ DANMAKU_LAYOUTS: list[dict] = [
 # 下面的 cells 仍然给出来，供缩略图和「哪一格是弹幕格」这类查询使用。
 #: 竖屏小画面一行摆几个。
 #: **缩略图和实际摆放必须用同一个数**，所以只在这里定义一处：
-#: `portrait_main_cells()` 按它画格子，`WallGrid._relayout_portrait()` 也读它。
+#: `portrait_main_cells()` 按它画格子，`resize_layout.portrait_partition()` 也读它。
 #: （以前缩略图按 2 列画、实际摆放却让 `best_columns` 自己挑 —— 竖屏那块又高又窄
 #:   的区域在它眼里「1 列画面更大」，于是缩略图显示左右、真机却是上下。）
 PORTRAIT_SMALL_COLUMNS = 2
@@ -244,8 +244,10 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
                 painter.drawRect(QRectF(x + 2, line_y, max(1.0, w - 4), 1.0))
             continue
         if spec:
-            painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
-            painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+            fill = theme.mix(theme.CONTENT, '#000000' if theme.is_light() else '#ffffff',
+                             .08 if theme.is_light() else .40)
+            painter.setBrush(theme.qcolor(fill))
+            painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.5))
         else:
             painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
             pen = QPen(theme.qcolor(theme.ACCENT), 1, Qt.DashLine)

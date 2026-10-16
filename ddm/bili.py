@@ -334,6 +334,7 @@ class StreamResolver(QThread):
         self.platform = platform
         self.preview = preview
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
+        self.login_required = False
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -373,6 +374,8 @@ class StreamResolver(QThread):
         except Cancelled:
             return                       # 作废：不发结果，也不算失败
         except Exception as error:  # noqa: BLE001
+            from .plugins import LoginRequiredError
+            self.login_required = isinstance(error, LoginRequiredError)
             if not self._cancelled:
                 self.failed.emit(self.room_id, str(error))
             return

@@ -434,6 +434,8 @@ def main() -> None:
 
     print("\n=== 5. 设置窗口（左侧类别 + 右侧内容）===")
     assert sidebar.settings_button.menu() is None, "设置不该再弹二级菜单"
+    # These legacy choices are retained in settings, no longer exposed as checks.
+    window.settings.update(auto_quality=False, sidebar_card_mode=False)
     dialog = SettingsDialog(window.settings, window.shortcuts)
     with open(os.path.join(REPO, "README.md"), encoding="utf-8") as guide:
         navigation = guide.read()
@@ -442,7 +444,7 @@ def main() -> None:
         "开发指南应指向设置文案、入口、样式和默认值的实际文件"
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
-    assert pages == ["常规", "弹幕", "录制", "快捷键", "插件", "软件更新"] and dialog.stack.currentIndex() == 0
+    assert pages == ["常规", "外观", "弹幕", "录制", "快捷键", "插件", "软件更新"] and dialog.stack.currentIndex() == 0
     assert next(label for key, label, _default in SHORTCUT_ACTIONS if key == "restore") == \
         "退出全屏"
     dialog.nav.setCurrentRow(3)
@@ -450,14 +452,18 @@ def main() -> None:
     dialog.nav.setCurrentRow(2)
     assert dialog.stack.currentIndex() == 2
     dialog.nav.setCurrentRow(1)
-    assert dialog.stack.currentIndex() == 1, "弹幕页要在中间"
+    assert dialog.stack.currentWidget() is dialog.appearance_page
+    dialog.nav.setCurrentRow(2)
+    assert dialog.stack.currentWidget() is dialog.danmaku_page
     dialog.nav.setCurrentRow(0)
 
     general = dialog.general_page
     defaults = dialog.settings()
     print(f"  读到的设置={defaults}")
     global_keys = {key for key in config_module.DEFAULT_SETTINGS if not key.startswith("video_danmaku_")}
-    assert set(defaults) == global_keys - {"danmaku_retention_version"}, \
+    # PartSettings persists artwork independently; saving the outer settings
+    # must not replace those edits with an older copy.
+    assert set(defaults) == (global_keys - {"danmaku_retention_version", "skin_parts"}) | {"seen_update_versions"}, \
         "全局设置应保留常规选项，画面弹幕观看参数由格子右下角调整"
     assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():
@@ -466,9 +472,7 @@ def main() -> None:
         assert defaults[key] == value, f"{key} 不该被设置窗口改掉：{defaults[key]!r} != {value!r}"
     assert dialog.shortcuts() == window.shortcuts
     general.poll_spin.setValue(5)
-    general._checks["auto_quality"].setChecked(False)     # noqa: SLF001
     general._checks["default_muted"].setChecked(False)    # noqa: SLF001
-    general._checks["sidebar_card_mode"].setChecked(False)  # noqa: SLF001
     general._checks["sidebar_auto_compact"].setChecked(True)  # noqa: SLF001
     general.compact_threshold_spin.setValue(12)
     general.volume_slider.setValue(30)

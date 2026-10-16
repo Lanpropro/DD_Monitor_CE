@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from ddm import theme
 from ddm.app import MainWindow
 from ddm.dialogs import AddRoomDialog
+from ddm.folder_icons import FolderIconDialog
 from ddm.follow_folders import UNCLASSIFIED
 
 
@@ -37,6 +38,17 @@ def select(dialog, folder_id):
     next(action for action in dialog.folder_button.menu().actions() if action.data() == folder_id).trigger()
     assert dialog.folder_id == folder_id
     assert sum(action.isChecked() for action in dialog.folder_button.menu().actions()) == 1
+
+
+def edit_folder(text, accepted=True):
+    def execute(editor):
+        assert editor.windowTitle() == '新建文件夹'
+        editor.name_edit.setText(text)
+        editor.select_builtin('star')
+        editor.set_color('blue')
+        editor.accept() if accepted else editor.reject()
+        return editor.result()
+    return execute
 
 
 def main():
@@ -74,7 +86,7 @@ def main():
         window = MainWindow([], [], state={"plugins_enabled": []})
     first = window.sidebar.create_folder("赛事")
     second = window.sidebar.create_folder("娱乐")
-    window.sidebar.create_folder("智能", rule={"status": "any", "platforms": []})
+    smart = window.sidebar.create_folder("智能", rule={"status": "any", "platforms": []})
     window.sidebar.toggle_folder(first)
     with patch("ddm.app.InfoResolver", InfoFixture), \
             patch.object(window.plugins, "platform_for", side_effect=lambda rid: object() if ":" in rid else None), \
@@ -96,15 +108,15 @@ def main():
         assert window.sidebar.folder_for("huya:a") == second
         assert window.sidebar.get_folder(first)["collapsed"], "添加到收起的文件夹不应更改其展开状态"
         assert "101" not in window.sidebar._folder_pending
-        # 不选择文件夹、或查询期间目标被删除时，保留默认未分类。
+        # 不选择文件夹、或查询期间目标被删除时，默认来源立即交给智能规则。
         window._add_room_id("102")
         InfoFixture.pending[-1].complete()
-        assert window.sidebar.folder_for("102") == UNCLASSIFIED
+        assert window.sidebar.folder_for("102") == smart
         gone = window.sidebar.create_folder("临时")
         window._add_room_id("103", folder_id=gone)
         window.sidebar.delete_folder(gone)
         InfoFixture.pending[-1].complete()
-        assert window.sidebar.folder_for("103") == UNCLASSIFIED
+        assert window.sidebar.folder_for("103") == smart
         # 重复添加不重复查询，也不改变已有卡片归属；失败/取消不添加卡片。
         count = len(InfoFixture.pending)
         window._add_room_id("101", folder_id=second)
@@ -119,6 +131,35 @@ def main():
         saved = window.current_state()
         assert "101" in next(folder["rooms"] for folder in saved["follow_folders"] if folder["id"] == first)
         assert "huya:a" in next(folder["rooms"] for folder in saved["follow_folders"] if folder["id"] == second)
+        # 在实际添加窗口中新建文件夹，自动选中，取消/空名/重名不改变原选择。
+        created = []
+        def create_and_add(dialog):
+            dialog.edit.setText('105')
+            assert dialog.new_folder_button.isEnabled()
+            for text, accepted in (('取消', False), ('   ', True), ('赛事', True)):
+                before = window.sidebar.folder_state()
+                with patch.object(FolderIconDialog, 'exec', edit_folder(text, accepted)), \
+                        patch('ddm.dialogs.QMessageBox.warning'):
+                    QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+                assert window.sidebar.folder_state() == before
+                assert dialog.folder_id == '' and dialog.edit.text() == '105'
+            with patch.object(FolderIconDialog, 'exec', edit_folder('  新分组  ')):
+                QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+            assert window.sidebar.get_folder(dialog.folder_id)['icon'] == {'type': 'builtin', 'name': 'star', 'color': 'blue'}
+            created.append(dialog.folder_id)
+            assert dialog.folder_button.text() == '新分组'
+            assert window.sidebar.get_folder(dialog.folder_id)['name'] == '新分组'
+            assert window.sidebar.get_folder(dialog.folder_id)['type'] == 'normal'
+            select(dialog, first)
+            select(dialog, created[0])
+            dialog.accept()
+            return dialog.result()
+        with patch.object(AddRoomDialog, 'exec', create_and_add):
+            window.open_add_room()
+        InfoFixture.pending[-1].complete()
+        assert window.sidebar.folder_for('105') == created[0]
+        assert '105' in next(folder['rooms'] for folder in window.current_state()['follow_folders']
+                             if folder['id'] == created[0])
     window.close()
     print("PASS: add-room folder button, validation, both platform paths, concurrent results, fallback and persistence")
 

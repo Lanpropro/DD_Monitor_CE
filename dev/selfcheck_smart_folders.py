@@ -73,7 +73,8 @@ def main():
     sidebar.toggle_folder(live)
     # 从真实排序按钮触发某个文件夹的动作，其他文件夹不变。
     before = ids(sidebar, live), ids(sidebar, groups.UNCLASSIFIED)
-    submenu = next(action.menu() for action in sidebar.sort_button.menu().actions() if action.text() == "手动分组")
+    sort_action = next(action for action in sidebar.sort_button.menu().actions() if action.text() == "手动分组")
+    submenu = sort_action.menu()
     next(action for action in submenu.actions() if action.text() == "开播优先").trigger()
     assert ids(sidebar, manual) == ["2", "1"]
     assert (ids(sidebar, live), ids(sidebar, groups.UNCLASSIFIED)) == before
@@ -150,19 +151,49 @@ def main():
     isolated.set_folder_sort(second, "custom")
     assert ids(isolated, second) == ["huya:a", "huya:b"]
     isolated.close()
-    # 新关注先进入未分类；实际状态刷新才开始归类，失败/无数据仍保留未分类。
+    # 平台规则无需等待状态轮询；导入后立即归类，空刷新不能把它移回未分类。
     with patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         window = MainWindow([], [], state={"plugins_enabled": [], "follow_folders": snapshot})
         new = {"room_id": "99", "uname": "新关注", "live": True, "live_known": True}
         assert window.sidebar.add_room(new)
-        assert window.sidebar.folder_for("99") == groups.UNCLASSIFIED
+        assert window.sidebar.folder_for("99") == all_platforms
         window._on_status_updated({})
-        assert window.sidebar.folder_for("99") == groups.UNCLASSIFIED
+        assert window.sidebar.folder_for("99") == all_platforms
         window._on_status_updated({"99": {"live": True, "viewers": "", "title": ""}})
         assert window.sidebar.folder_for("99") == all_platforms
         assert window.sidebar._folder_buttons[groups.UNCLASSIFIED].isHidden()
         saved = window.current_state()
         assert saved["follow_folders"] == snapshot
+        window.close()
+    # 已有按平台的智能文件夹后继续导入：移入、副本、来源过滤和未知状态。
+    with patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
+        window = MainWindow([], [], state={"plugins_enabled": []})
+        sidebar = window.sidebar
+        live = sidebar.create_folder("仅开播", rule={"status": "live", "sources": []})
+        offline = sidebar.create_folder("仅下播", rule={"status": "offline", "sources": []})
+        bili = sidebar.create_folder("哔哩哔哩", rule={"platforms": ["bilibili"], "sources": []})
+        copies = sidebar.create_folder("平台副本", rule={"platforms": ["bilibili"],
+                                                       "sources": [], "display": "copy"})
+        manual = sidebar.create_folder("手动目标")
+        batch = [{"room_id": "101", "uname": "新关注", "live": True, "live_known": True},
+                 {"room_id": "102", "uname": "未知状态", "live": False, "live_known": False},
+                 {"room_id": "huya:103", "uname": "其他平台", "live": False, "live_known": False}]
+        with patch.object(window, "load_avatars_for"), patch("ddm.online_ui.show_result"):
+            window._import_selected_follows(batch)
+            assert sidebar.folder_for("101") == bili and sidebar.folder_for("102") == bili
+            assert sidebar.folder_for("huya:103") == groups.UNCLASSIFIED
+            assert groups.smart_members(sidebar.rooms(), sidebar.folders, sidebar.get_folder(copies),
+                                        sidebar._folder_pending) == {"101", "102"}
+            window._on_status_updated({})
+            assert sidebar.folder_for("101") == bili
+            window._on_status_updated({"101": {"live": True, "viewers": "", "title": ""},
+                                       "102": {"live": False, "live_known": False,
+                                               "viewers": "", "title": ""}})
+            assert sidebar.folder_for("101") == live and sidebar.folder_for("102") == bili
+            sidebar.get_folder(bili)["rule"]["sources"] = [groups.UNCLASSIFIED]
+            window._import_selected_follows([{"room_id": "104", "uname": "指定来源"}], folder_id=manual)
+            assert sidebar.folder_for("104") == manual
+        assert not ids(sidebar, offline), "未知状态不能被归入未开播规则"
         window.close()
     print("PASS: combined smart rules, status migration, per-folder sorting, unclassified lifecycle, editor and persistence")
 

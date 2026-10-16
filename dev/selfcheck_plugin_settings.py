@@ -44,12 +44,12 @@ def main():
         assert catalog["broken"]["status"] == "加载失败"
 
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
-        assert dialog.nav.item(4).text() == "插件"
-        for index in (4, 0, 4, 1, 2, 3):
+        assert dialog.nav.item(5).text() == "插件"
+        for index in (5, 0, 5, 1, 2, 3, 4):
             dialog.nav.setCurrentRow(index)
-            assert dialog.reset_button.isHidden() == (index == 4), \
+            assert dialog.reset_button.isHidden() == (index == 5), \
                 "插件页不应显示恢复默认，其他设置页应保留"
-        dialog.nav.setCurrentRow(4)
+        dialog.nav.setCurrentRow(5)
         assert len(dialog.plugin_page.checks) == 3
         assert not hasattr(dialog.plugin_page, "restart_button")
         assert dialog.confirm_button.text() == "保存"

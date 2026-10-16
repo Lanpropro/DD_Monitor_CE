@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QBuffer, QIODevice, QMimeData, QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage  # noqa: E402
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QPushButton, QWidget  # noqa: E402
 from ddm import plugins  # noqa: E402
 from dev.build_match_sync import build  # noqa: E402
 from plugins_user._match_sync.engine import (Alignment, AudioRing, History,
@@ -182,7 +182,11 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "1.0.2"
+        assert manager.catalog()[0]["version"] == "1.2"
+        notes = (REPO / "docs/releases/PLUGIN-match-sync-v1.2.md").read_text(encoding="utf-8")
+        installed_readme = (Path(root) / "plugins/match_sync/README.md").read_text(encoding="utf-8")
+        assert notes.startswith("# 比赛二路同步 v1.2\n")
+        assert installed_readme.endswith(notes.replace("# 比赛二路同步 v1.2", "## 1.2 更新说明"))
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,
@@ -205,6 +209,7 @@ def package_and_ui_checks(app):
                 patch.object(module.AudioPump, "start", lambda self: None):
             plugin.open_viewer({"room_id": "1", "uname": "主播甲"})
             viewer = plugin.viewer
+            viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
             assert viewer.add_room("2", {"alias": "主播乙"})
             assert not viewer.add_room("2")
             viewer.toggle_running()
@@ -225,6 +230,9 @@ def package_and_ui_checks(app):
                 row.volume.setValue(100)
                 for value in range(1, 7):
                     row.decoder.history.audio.append(array("h", [value * 1000, value * 1000] * RATE).tobytes())
+            for row in viewer.rows.values():
+                row.sync_state, row.mix_gain = "已同步", 1.0
+            viewer.playback_rate = 1.0
             viewer.audio.device = FakeDevice(viewer.audio.sink)
             viewer.audio.anchor = 100
             viewer.audio.fill()
@@ -234,6 +242,7 @@ def package_and_ui_checks(app):
             viewer.audio.sink.free = 480 * 4
             viewer.audio.device.data = b""
             viewer.audio.written = 0
+            viewer.audio.media_written = 0
             viewer.audio.fill()
             routed = array("h", viewer.audio.device.data)
             assert set(routed[::2]) == {1000} and set(routed[1::2]) == {2500}
@@ -398,6 +407,8 @@ def embedded_checks(app):
     host.sidebar.setStyleSheet(theme.qss())
     host.sidebar.tool_row = QWidget(host.sidebar)
     QHBoxLayout(host.sidebar.tool_row)
+    host.sidebar.layout_button = QPushButton("布局预设")
+    host.sidebar.tool_row.layout().addWidget(host.sidebar.layout_button)
     card_a = NavItem({"room_id": "42", "uname": "关注主播"}, 0, host.sidebar)
     card_b = NavItem({"room_id": "99", "uname": "原布局主播"}, 1, host.sidebar)
     host.sidebar._items = [card_a, card_b]
@@ -424,6 +435,7 @@ def embedded_checks(app):
         host.show()
         plugin.button.trigger()
         viewer = plugin.viewer
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         app.processEvents()
         assert viewer.embedded and viewer.parentWidget() is host._content
         assert host.wall.isHidden(), "Native host video must not cover the synced picture"
@@ -481,11 +493,13 @@ def embedded_checks(app):
         assert row.offset_hint.text() == "单位：秒 · + 正数延后本路 · − 负数相对提前本路"
         assert row.offset_hint.font().pixelSize() == theme.FONT_CAPTION
         assert row.offset_hint.geometry().top() > row.delay.geometry().bottom()
-        assert abs(row.offset_hint.x() - row.control_widgets[8].x()) <= 1
-        centers = [widget.geometry().center().y() for widget in row.control_widgets]
+        assert abs(row.offset_hint.x() - row.control_widgets[10].x()) <= 1
+        assert row.status.geometry().top() == row.offset_hint.geometry().top()
+        visible_controls = [widget for widget in row.control_widgets if not widget.isHidden()]
+        centers = [widget.geometry().center().y() for widget in visible_controls]
         assert max(centers) - min(centers) <= 1, "Per-room controls must share one line"
-        assert row.control_widgets[-1].width() == 52
-        assert row.control_widgets[-1].geometry().right() >= row.width() - 9, "Controls must use the entire row width"
+        assert visible_controls[-1].width() == 52
+        assert visible_controls[-1].geometry().right() >= row.width() - 9, "Controls must use the entire row width"
         assert row.channel.width() == 100 and row.color_choice.width() == 82
         for room_id in range(44, 51):
             viewer.add_room(str(room_id), {"alias": "额外主播"})
@@ -511,8 +525,9 @@ def embedded_checks(app):
             assert rendered.pixelColor(x, y).alpha() > 180, "Top corners must match the 8px playback bar radius"
             assert rendered.pixelColor(x, rendered.height() - 1 - y).alpha() == 0, "Preserve the 12px bottom corners"
         assert rendered.pixelColor(rendered.width() // 2, rendered.height() - 10).alpha() > 180
-        assert row.control_widgets[-1].geometry().right() >= row.width() - 9
-        assert row.main_button.x() - row.alias.geometry().right() <= 7
+        assert [widget for widget in row.control_widgets if not widget.isHidden()][-1].geometry().right() >= row.width() - 9
+        assert row.main_button.x() - row.avatar.geometry().right() <= 7
+        assert row.alias.isHidden() and row.avatar.isVisible()
         assert row.volume_number.x() - row.volume.geometry().right() <= 7
         assert viewer.picture_split.widget(0) is viewer.left_pane
         assert viewer.picture_split.widget(1) is viewer.panel
@@ -529,11 +544,12 @@ def embedded_checks(app):
         viewer.minimize_settings.click()
         app.processEvents()
         assert panel.isHidden() and viewer.restore_settings.isVisible()
-        assert "border-radius:" in viewer.restore_settings.styleSheet()
+        assert viewer.restore_settings.objectName() == "TileCtrl"
+        assert viewer.restore_settings.parentWidget() is viewer.picture.bottom
         assert viewer.picture.height() > picture_height, "Collapsed settings must free picture space"
-        assert viewer.restore_settings.parentWidget() is viewer.left_pane
-        assert viewer.restore_settings.geometry().right() >= viewer.left_pane.width() - 2
-        assert viewer.restore_settings.geometry().bottom() >= viewer.left_pane.height() - 2
+        bottom = viewer.picture.bottom.layout()
+        assert bottom.indexOf(viewer.restore_settings) + 1 == bottom.indexOf(viewer.picture.danmaku_button)
+        assert viewer.restore_settings.geometry().right() < viewer.picture.danmaku_button.geometry().left()
         assert viewer.panel.geometry() == chat_geometry, "Minimizing settings must not resize chat"
         assert row.decoder is worker and viewer.running and not worker.stopped
         assert viewer.render_timer.isActive() and viewer.match_timer.isActive()

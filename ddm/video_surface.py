@@ -22,17 +22,27 @@ class VideoSurface(QFrame):
 
     def refresh_clip(self):
         self._clip_attempts = 0
+        self._clip_timer.setInterval(100)
         self._clip_timer.start()
 
     def _retry_clip(self):
         self._clip_attempts += 1
-        if (not self.isVisible() or self._clip_native_video(apply_root=False)
-                or self._clip_attempts >= 300):
+        if (not self.isVisible() or sys.platform != "win32"
+                or QApplication.platformName() != "windows" or self.mask().isEmpty()):
             self._clip_timer.stop()
+            return
+        if self._clip_native_video():
+            # VLC may reset the region or replace nested output windows later.
+            self._clip_attempts = 0
+            self._clip_timer.setInterval(500)
+        elif self._clip_attempts >= 300:
+            self._clip_timer.stop()
+        else:
+            self._clip_timer.setInterval(100)
 
     def event(self, event):
         result = super().event(event)
-        if event.type() in (QEvent.WinIdChange, QEvent.Resize, QEvent.DevicePixelRatioChange):
+        if event.type() in (QEvent.WinIdChange, QEvent.Resize, QEvent.DevicePixelRatioChange, QEvent.Show):
             timer = getattr(self, "_clip_timer", None)
             if timer is not None:
                 self.refresh_clip()
@@ -57,11 +67,13 @@ class VideoSurface(QFrame):
         user32.MapWindowPoints.argtypes = (wintypes.HWND, wintypes.HWND,
                                           ctypes.POINTER(wintypes.POINT), wintypes.UINT)
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
+        user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE)
         gdi32.CreateRoundRectRgn.argtypes = (ctypes.c_int,) * 6
         gdi32.CreateRoundRectRgn.restype = wintypes.HANDLE
         gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
         gdi32.CreateRectRgn.restype = wintypes.HANDLE
-        gdi32.CombineRgn.argtypes = (wintypes.HANDLE,) * 3 + (ctypes.c_int,)
+        gdi32.CombineRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.c_int)
+        gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
         root = int(self.winId())
         bounds = wintypes.RECT()
@@ -80,21 +92,34 @@ class VideoSurface(QFrame):
                     output_found.append(hwnd)
             origin = wintypes.POINT()
             user32.MapWindowPoints(root, hwnd, ctypes.byref(origin), 1)
-            client = wintypes.RECT()
-            if not user32.GetClientRect(hwnd, ctypes.byref(client)):
-                return True
+            # VLC can grow its output after creation without resizing this Qt
+            # surface. Windows already clips to the child's current bounds;
+            # intersecting with its initial bounds would freeze a small mask.
             region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
                 origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
-            rectangle = gdi32.CreateRectRgn(0, 0, client.right, client.bottom)
             try:
-                if region and rectangle and gdi32.CombineRgn(region, region, rectangle, 1):  # RGN_AND
-                    if user32.SetWindowRgn(hwnd, region, True):
+                if region and not getattr(self, 'rounded_bottom', True):
+                    bottom = gdi32.CreateRectRgn(origin.x,
+                        origin.y + bounds.bottom - diameter // 2,
+                        origin.x + bounds.right, origin.y + bounds.bottom)
+                    if bottom:
+                        try:
+                            gdi32.CombineRgn(region, region, bottom, 2)  # RGN_OR
+                        finally:
+                            gdi32.DeleteObject(bottom)
+                if region:
+                    current = gdi32.CreateRectRgn(0, 0, 0, 0)
+                    try:
+                        unchanged = bool(current and user32.GetWindowRgn(hwnd, current)
+                                         and gdi32.EqualRgn(current, region))
+                    finally:
+                        if current:
+                            gdi32.DeleteObject(current)
+                    if not unchanged and user32.SetWindowRgn(hwnd, region, True):
                         region = None  # Ownership transfers to Windows.
             finally:
                 if region:
                     gdi32.DeleteObject(region)
-                if rectangle:
-                    gdi32.DeleteObject(rectangle)
             return True
 
         if apply_root:

@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 import sys
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -13,7 +13,7 @@ from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QToolButton, QVBoxLayout, QWidget
-from ddm import theme
+from ddm import motion, theme
 from ddm.widgets import Sidebar
 from plugins_user._match_sync.plugin import MatchSyncPlugin
 
@@ -53,12 +53,15 @@ baseline_height = sidebar.height()
 context = Mock(window=host)
 plugin = MatchSyncPlugin()
 plugin.set_enabled = Mock()
-plugin.on_load(context)
+with patch.object(motion, 'THEME_WAVE_EASING'):
+    del motion.THEME_WAVE_EASING
+    plugin.on_load(context)
 settle()
 assert native_geometry() == baseline, (native_geometry(), baseline)
 assert native_tools() == baseline_tools
 assert sidebar.height() == baseline_height
 entry = plugin.entry
+assert entry._stretch.easingCurve().type().name == 'OutCubic', 'Released hosts must load without the new easing constant'
 assert entry.parentWidget() is sidebar._bar_row
 assert entry.size().toTuple() == (30, 30)
 assert entry.toolButtonStyle() == Qt.ToolButtonIconOnly
@@ -95,6 +98,61 @@ for _ in range(4):
     assert entry.parentWidget() is sidebar._bar_row and entry.isVisible()
     assert native_tools() == baseline_tools
     assert native_geometry() == baseline
+
+for side in ('left', 'top', 'left'):
+    sidebar.set_side(side)
+    settle()
+    old_width = entry.width()
+    with patch.object(motion, 'enabled', return_value=True):
+        entry.set_mode(True)
+    settle()
+    assert sidebar.layout_button.isHidden()
+    assert entry.parentWidget() is sidebar.tool_row and entry.toolButtonStyle() == Qt.ToolButtonTextOnly
+    assert entry.width() > old_width, 'Active match entry must occupy the freed preset space'
+    width = entry.width()
+    entry._stretch.setCurrentTime(80)
+    assert entry.width() == width, 'The stretch is painted without repeatedly relaying out the sidebar'
+    entry._stretch.setCurrentTime(160)
+    assert entry._paint_width is None
+    with patch.object(motion, 'enabled', return_value=True):
+        entry.set_mode(False)
+        assert entry._closing and sidebar.layout_button.isHidden()
+        assert entry._stretch.startValue() == width and entry._stretch.endValue() == old_width
+        entry._stretch.setCurrentTime(80)
+        halfway = entry._paint_width
+        assert old_width <= halfway < width and entry.width() == width
+        # Reopening midway reverses from the visible edge, without a jump.
+        entry.set_mode(True)
+        assert not entry._closing and entry._stretch.startValue() == halfway
+        entry._stretch.setCurrentTime(160)
+        entry.set_mode(False)
+        entry._stretch.setCurrentTime(160)
+    settle()
+    assert not entry._closing and entry._paint_width is None
+    assert not sidebar.layout_button.isHidden()
+    assert entry.width() == old_width
+    with patch.object(motion, 'enabled', return_value=True):
+        entry.set_mode(True)
+        entry._stretch.setCurrentTime(160)
+    with patch.object(motion, 'enabled', return_value=False):
+        entry.set_mode(False)
+    settle()
+    assert not sidebar.layout_button.isHidden()
+sidebar.set_side('top')
+settle()
+assert native_geometry() == baseline
+with patch.object(motion, 'enabled', return_value=True):
+    entry.set_mode(True)
+    entry._stretch.setCurrentTime(160)
+    entry.set_mode(False)
+    assert entry._closing
+    sidebar.set_side('left')
+settle()
+assert not entry._closing and not sidebar.layout_button.isHidden()
+assert entry.parentWidget() is sidebar.tool_row
+sidebar.set_side('top')
+settle()
+assert native_geometry() == baseline
 
 if "--snapshot" in sys.argv:
     output = REPO / "work" / "match-sync-portrait-entry.png"

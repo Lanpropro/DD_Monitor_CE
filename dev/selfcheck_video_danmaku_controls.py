@@ -140,7 +140,7 @@ def check_controls(app):
                 menu.actions()[-1].trigger()
                 advanced.assert_called_once_with("danmaku")
             def inspect_settings(dialog):
-                assert dialog.nav.currentRow() == 1
+                assert dialog.nav.currentRow() == 2
                 return QDialog.Rejected
             with patch("ddm.app.SettingsDialog.exec", inspect_settings):
                 assert window.open_settings("danmaku") is False

@@ -103,7 +103,8 @@ class AccountPlatformDialog(QDialog):
     def _update_platform_labels(self):
         for kind, button in self.platform_buttons.items():
             label = button.property("platformLabel")
-            logged = bool(bili.SESSION_DATA) if kind == "bilibili" else kind in self.owner._accounts
+            logged = bool(bili.SESSION_DATA) if kind == "bilibili" else (
+                kind in self.owner._accounts and not self.owner._accounts[kind].get("_login_expired"))
             button.setText(label)
             button.setProperty("loggedIn", logged)
             button.setToolTip("已登录" if logged else "")
@@ -210,7 +211,8 @@ class AccountPlatformDialog(QDialog):
             self._set_page(page)
             return
         if not self.import_follows and (bili.SESSION_DATA if kind == "bilibili"
-                                        else kind in self.owner._accounts):
+                                        else kind in self.owner._accounts and
+                                        not self.owner._accounts[kind].get("_login_expired")):
             account = self.owner._accounts.get(kind, {"uname": "B站账号"})
             page = QWidget()
             page.resize(560, 220)
@@ -392,7 +394,8 @@ class AccountPlatformDialog(QDialog):
                           pending_folder_id=pending[room.get("anchor_uid")].get("pending_folder_id", ""))
                      if room.get("anchor_uid") in pending else dict(room) for room in rooms]
         page = FollowImportDialog(rooms, existing, self.owner,
-                                  folders=self.owner.sidebar.folder_state())
+                                  folders=self.owner.sidebar.folder_state(),
+                                  folder_creator=self.owner.sidebar.create_folder)
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:

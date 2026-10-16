@@ -9,6 +9,7 @@ import time
 from collections import deque
 from dataclasses import replace
 from fractions import Fraction
+from types import SimpleNamespace
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -76,6 +77,16 @@ def run(app):
     assert bounded.frame_at(100) is None
     assert bounded.packet_range(None, 1.9)[2]
     print("PASS: compressed history stays bounded and retains only decodable complete GOPs")
+    cached_reader = video.PictureReader()
+    cached_reader.thread = object()  # Exercise cache lookup without starting a worker.
+    cached_reader.history = bounded
+    cached_reader.target = (100, 0)
+    cached_image = QImage(2, 2, QImage.Format_ARGB32)
+    cached_reader.images[100] = cached_image
+    assert cached_reader.get(bounded, (100.1, .1)) == (100, cached_image), 'Short display lag must reuse a cached past frame'
+    assert cached_reader.get(bounded, (100.1, .1), exact=True) is None, 'Exact snapshots cannot substitute another frame'
+    assert cached_reader.get(bounded, (100.2, .2)) is None, 'Do not hide a sustained display stall'
+    assert cached_reader.get(bounded, (99.9, -.1)) is None, 'Never present a future frame'
     with tempfile.TemporaryDirectory(prefix="ddm_native_video_", ignore_cleanup_errors=True) as root:
         source = Path(root) / "1440p60.mkv"
         fixture(executable, source, "2560x1440", "60", 7)
@@ -115,6 +126,18 @@ def run(app):
                 reference = next(f for i, f in enumerate(container.decode(video=0)) if i == 90)
                 expected = video.image_from_frame(reference)
             assert shown[1] == expected, "Native pixels changed during caching/playback"
+            retained = decoder.history
+            resumed = video.VideoHistory()
+            resumed.previous = retained
+            probe = media.Decoder('retained_probe')
+            probe.history = resumed
+            try:
+                assert ready(probe, frame[0])[1] == expected, 'Reconnect must retain native old-epoch pictures'
+                stamp = retained.origin + 1.2
+                assert resumed.pcm_at(stamp, 480) == retained.pcm_at(stamp, 480)
+                assert any(resumed.pcm_at(stamp, 480)), 'Reconnect must retain actual audible old PCM'
+            finally:
+                probe.stop()
             with patch.object(media.QImage, "fromData", side_effect=AssertionError("JPEG decode on GUI thread")):
                 canvas.set_frame(shown)
                 assert canvas.image == expected and canvas.frame_key == frame[0]
@@ -133,7 +156,57 @@ def run(app):
                 time.sleep(.005)
                 changed = decoder.pictures.get(other.history, other_frame, exact=True)
             assert changed is not None and changed[0] == other_frame[0]
+            decoder.pictures.snapshot_until = 0
+            decoder.pictures.configure(64 * 1024 * 1024, 60, active=False)
+            assert not decoder.pictures.active and not decoder.pictures.images
+            changed = decoder.pictures.get(other.history, other_frame, exact=True)
+            deadline = time.monotonic() + 2
+            while changed is None and time.monotonic() < deadline:
+                time.sleep(.005)
+                changed = decoder.pictures.get(other.history, other_frame, exact=True)
+            assert changed is not None, 'Reactivating the same cached timestamp must rebuild the picture decoder'
+            decoder.pictures.configure(64 * 1024 * 1024, 60, active=False)
+            assert decoder.pictures.active, 'An explicit hidden-source crop snapshot must survive periodic background suspension'
             print("PASS: byte-identical decoded source pixels; backward/forward seek, bounded prefetch, no GUI JPEG decode")
+            # A cold RGB conversion can exceed the seek threshold while playback
+            # keeps requesting successive frames. It must not restart the GOP.
+            reader = video.PictureReader()
+            reader.configure(64 * 1024 * 1024, 60)
+            original_image = video.image_from_frame
+            original_create = video.av.CodecContext.create
+            creations = []
+            cold = threading.Event()
+
+            def slow_first_image(frame):
+                if not cold.is_set():
+                    cold.set()
+                    time.sleep(.65)
+                return original_image(frame)
+
+            def create_codec(*args):
+                creations.append(args)
+                return original_create(*args)
+
+            proxy = SimpleNamespace(Packet=video.av.Packet,
+                                    CodecContext=SimpleNamespace(create=create_codec))
+            try:
+                with patch.object(video, 'av', proxy), patch.object(video, 'image_from_frame', slow_first_image):
+                    started = time.monotonic()
+                    recovered_pictures = set()
+                    while time.monotonic() - started < 1.6:
+                        target = decoder.history.origin + .7 + time.monotonic() - started
+                        frame = decoder.history.frame_at(target)
+                        picture = reader.get(decoder.history, frame)
+                        if picture is not None:
+                            assert 0 <= frame[0] - picture[0] <= .150001
+                            recovered_pictures.add(picture[0])
+                        time.sleep(.005)
+                    reader.stop()
+                assert len(creations) == 1, ('Forward playback restarted the GOP', len(creations))
+                assert len(recovered_pictures) >= 15, len(recovered_pictures)
+            finally:
+                reader.stop()
+            print('PASS: slow cold RGB conversion catches up without restarting forward playback')
             # Poll a moving playback timeline, measuring actual frame presentation.
             clock = decoder.history.origin + 1
             from dev.selfcheck_match_sync_refinement import samples

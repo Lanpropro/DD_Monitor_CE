@@ -51,9 +51,11 @@ def main():
             assert saved.rows["1"].delay.value() == 1.5, "Manual preferences were cleared during construction"
             saved.close()
         viewer = module.Viewer(context, {})
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         try:
             viewer.add_room("1", {"alias": "Main"})
             viewer.add_room("2", {"alias": "Other"})
+            viewer.rows["1"].delay.setValue(0)  # This fixture starts with an unshifted main.
             viewer.automatic.setChecked(False)
             viewer.toggle_running()
             viewer.render_timer.stop()
@@ -86,15 +88,16 @@ def main():
             assert not viewer.offset_repositioning and not viewer.sync_waiting
             assert all(row.decoder.history.frame_at(viewer.audio.clock() + viewer.shifts()[key])
                        for key, row in viewer.rows.items())
+            before_auto = viewer.shifts()["1"]
             viewer.automatic.setChecked(True)
-            assert not viewer.compare.isChecked() and not viewer.alignment.manual_locked
+            assert viewer.compare.isChecked() and not viewer.alignment.manual_locked
             assert all(row.delay.value() == 0 for row in viewer.rows.values())
-            assert viewer.shifts() == {"1": -2, "2": -2}
+            assert viewer.shifts() == {"1": before_auto, "2": before_auto}
         finally:
             viewer.close()
             host.close()
             app.processEvents()
-    print("PASS: cache-limited secondary edit keeps main advancing, common cache resumes, automatic clears manual trim/comparison")
+    print("PASS: cache-limited secondary edit keeps main advancing, common cache resumes, automatic clears manual trim and retains comparison")
 
 
 if __name__ == "__main__":

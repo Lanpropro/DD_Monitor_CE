@@ -9,8 +9,14 @@ Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻�
 
 
 import os
+import re
+import sys
+from functools import lru_cache
+from weakref import WeakKeyDictionary
 
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -105,9 +111,289 @@ AVATAR_SIZE = 32              # 关注列表里的头像尺寸（收起侧栏后
 SCROLLBAR_SIZE = 8            # 滚动条粗细（两轴同一个值；横排列表要按它留高度）
 
 
-def qss() -> str:
+_DARK = {name: globals()[name] for name in (
+    "BG", "SIDEBAR", "CONTENT", "CONTENT_HOVER", "ELEVATED", "TEXT1", "TEXT2",
+    "TEXT3", "TEXT4", "BORDER", "BORDER_STRONG", "ACCENT", "ACCENT_SOFT")}
+_LIGHT = dict(BG="#F4F6F9", SIDEBAR="#EBEEF3", CONTENT="#FFFFFF",
+    CONTENT_HOVER="#E7EFF7", ELEVATED="#FFFFFF", TEXT1="#202630", TEXT2="#4A5565",
+    TEXT3="#5E6A7D", TEXT4="#7A8596", BORDER="#D7DDE7", BORDER_STRONG="#BCC6D5",
+    ACCENT="#007BA8", ACCENT_SOFT="rgba(0, 123, 168, 0.12)")
+_mode = "dark"
+_light = False
+_styles = WeakKeyDictionary()
+_signals = None
+_skin_active = False
+_skin_sidebar = False
+
+
+def set_skin_active(active, sidebar=False):
+    global _skin_active, _skin_sidebar
+    active, sidebar = bool(active), bool(sidebar)
+    if (_skin_active, _skin_sidebar) != (active, sidebar):
+        _skin_active, _skin_sidebar = active, sidebar
+        apply(_mode)
+
+
+def _skin_style(widget):
+    if not _skin_active:
+        return ''
+    name = widget.objectName()
+    if name == 'Sidebar' and not _skin_sidebar:
+        return ''
+    if name == 'Root':
+        return '#Root {background: transparent;}'
+    if name in ('WallGrid', 'TileVideo'):
+        return (f'#{name}[appearanceLight="false"], #{name}[appearanceLight="true"] '
+                '{background: transparent;}')
+    colors = {'Sidebar': 'SIDEBAR', 'Tile': 'BG',
+              'TileBottom': 'BG', 'DanmakuPanel': 'CONTENT'}
+    if name not in colors:
+        return ''
+    opacity = .84 if name in ('Sidebar', 'Tile') else .88
+    rules = []
+    for mode, palette in (('false', _DARK), ('true', _LIGHT)):
+        color = qcolor(palette[colors[name]])
+        selector = '#' + name + f'[appearanceLight="{mode}"]'
+        if name == 'Tile':
+            selector += ', ' + selector + '[empty="true"]'
+        rules.append(f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}')
+    return ''.join(rules)
+
+
+# Stable QSS reads colours from the palette; switching no longer re-polishes
+# every widget's fonts, metrics and layout through QApplication.setStyleSheet.
+_PALETTE_ROLES = dict(zip(_DARK, (
+    'window', 'alternate-base', 'base', 'button', 'tooltip-base',
+    'window-text', 'text', 'button-text', 'tooltip-text', 'mid', 'dark',
+    'highlight', 'light')))
+_MIX_ROLES = {('ACCENT', '#ffffff', .35): 'midlight',
+    ('CONTENT', '#000000', .12): 'shadow',
+    ('ACCENT', '#ffffff', .12): 'link',
+    ('ACCENT', '#000000', .16): 'link-visited'}
+
+
+def _apply_palette(app, colors):
+    palette = QPalette()
+    roles = {name.lower().replace('_', '').replace('-', ''): role
+        for name, role in QPalette.ColorRole.__members__.items()}
+    values = {role: colors[name] for name, role in _PALETTE_ROLES.items()}
+    values.update({role: mix(colors[name], other, ratio)
+        for (name, other, ratio), role in _MIX_ROLES.items()})
+    for name, color in values.items():
+        parsed = qcolor(color)
+        if color.startswith('rgba('):
+            parsed.setAlpha(int(float(color[5:-1].split(',')[-1]) * 255))
+        palette.setColor(roles[name.replace('-', '')], parsed)
+    app.setPalette(palette.resolve(app.palette()))
+    for widget in app.allWidgets():
+        widget.setPalette(palette.resolve(widget.palette()))
+        refresh_theme_properties(widget)
+    # Clear cached palette-dependent paint rules once, without re-polishing
+    # every widget or resetting its geometry and fonts.
+    app.style().unpolish(app)
+    app.style().polish(app)
+
+
+def refresh_theme_properties(widget):
+    # The light exceptions are installed once. Change the selector property,
+    # not hundreds of local stylesheets, and invalidate only affected widgets.
+    name = widget.objectName()
+    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton', 'Sidebar',
+                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'WallGrid'):
+        return
+    if widget.property('appearanceLight') != _light:
+        widget.setProperty('appearanceLight', _light)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+
+@lru_cache(maxsize=32)
+def _conditional_light_style(style):
+    # Restrict matching to selectors so hexadecimal colour values stay intact.
+    rules = []
+    for selector, body in re.findall(r'([^{}]+)\{([^{}]*)\}', style):
+        selector = re.sub(r'#[A-Za-z]\w*', lambda match:
+            match.group() + '[appearanceLight="true"]', selector)
+        rules.append(selector + '{' + body + '}')
+    return ''.join(rules)
+
+
+def _light_style(widget):
+    name = widget.objectName()
+    if name == 'TileCtrl':
+        parent = widget.parentWidget()
+        while parent is not None and parent.objectName() != 'TileBottom':
+            parent = parent.parentWidget()
+        if parent is not None:
+            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+        return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+    return _conditional_light_style({
+        'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
+        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
+        'WallGrid': '#WallGrid {background: #E6EBF2;}',
+        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}',
+        'TileVideo': '#TileVideo {background: #FFFFFF;}',
+        'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
+        'TileBottom': '#TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;} #TileBottom QLabel {color: #4A5565;}',
+        'TilePlaceholder': '#TilePlaceholder {color: #4A5565;}',
+        'PauseOverlay': '#PauseOverlay QLabel {color: #F1F2F5;}',
+        'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
+        'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
+        'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
+        'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
+    }.get(name, ''))
+
+
+class ThemeSignals(QObject):
+    changed = Signal(str)
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._repairing_palette = False
+
+    def palette_changed(self, _palette):
+        if self._repairing_palette:
+            return
+        app = QApplication.instance()
+        colors = _LIGHT if _light else _DARK
+        expected = {QPalette.Window: colors['BG'], QPalette.Base: colors['CONTENT'],
+                    QPalette.Button: colors['CONTENT_HOVER'], QPalette.WindowText: colors['TEXT1']}
+        if all(app.palette().color(group, role) == qcolor(color)
+               for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled)
+               for role, color in expected.items()):
+            return
+        self._repairing_palette = True
+        try:
+            # Restore synchronously: deferring until the next event-loop turn
+            # allows palette-based QSS to paint one frame in the platform colour.
+            _apply_palette(app, colors)
+            print('[主题] 已拦截外部调色板重置，保持当前模式：' + _mode,
+                  file=sys.stderr, flush=True)
+        finally:
+            self._repairing_palette = False
+
+    def eventFilter(self, widget, event):
+        if event.type() == QEvent.Paint and isinstance(widget, QWidget):
+            from .skin_parts import paint_button
+            if paint_button(widget):
+                return True
+        # Newly opened settings/popups need the same exceptions as existing UI.
+        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+            refresh_theme_properties(widget)
+        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+            from .skin_parts import style_for
+            extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
+            if extra and widget not in _styles:
+                source = widget.styleSheet()
+                styled = source + '\n' + extra
+                _styles[widget] = (source, {name: globals()[name] for name in _DARK}, styled)
+                widget.setStyleSheet(styled)
+        return False
+
+
+def signals():
+    global _signals
+    if _signals is None:
+        app = QApplication.instance()
+        _signals = ThemeSignals(app)
+        app.installEventFilter(_signals)
+        app.paletteChanged.connect(_signals.palette_changed)
+        app.styleHints().colorSchemeChanged.connect(_system_changed)
+    return _signals
+
+
+def normalize_mode(value):
+    return value if value in ("dark", "light", "system") else "dark"
+
+
+def mode():
+    return _mode
+
+
+def is_light():
+    return _light
+
+
+def overlay_color(dark, light):
+    return QColor(light if _light else dark)
+
+
+def _system_changed(_scheme):
+    if _mode == "system":
+        apply("system")
+
+
+def apply(value):
+    """重绘主题，不重建控件、播放器或视频窗口。"""
+    global _mode, _light
+    app = QApplication.instance()
+    signals()
+    value = normalize_mode(value)
+    light = value == "light" or (value == "system" and
+        app.styleHints().colorScheme() == Qt.ColorScheme.Light)
+    previous = {name: globals()[name] for name in _DARK}
+    _mode = value
+    _light = light
+    palette = _LIGHT if light else _DARK
+    widgets = list(app.allWidgets())
+    # Keep the source palette of local QSS, so identical light backgrounds can
+    # return to their distinct original dark colours without lossy replacement.
+    for widget in widgets:
+        style = widget.styleSheet()
+        saved = _styles.get(widget)
+        if not saved or style != saved[2]:
+            _styles[widget] = (style, previous, style)
+    globals().update(palette)
+    _apply_palette(app, palette)
+    stable_style = qss(palette_roles=True)
+    if app.styleSheet() != stable_style:
+        app.setStyleSheet(stable_style)
+    patterns = {}
+    for widget in widgets:
+        source, colors, _last = _styles[widget]
+        key = tuple(colors.items())
+        if key not in patterns:
+            replacements = {old: palette[name] for name, old in colors.items()}
+            pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
+            patterns[key] = pattern, replacements
+        pattern, replacements = patterns[key]
+        styled = pattern.sub(lambda match: replacements[match.group()], source) if source else ''
+        from .skin_parts import style_for
+        extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
+        if extra:
+            styled += '\n' + extra
+        if styled != widget.styleSheet():
+            widget.setStyleSheet(styled)
+        _styles[widget] = (source, colors, styled)
+        refresh = getattr(widget, "refresh_theme", None)
+        if callable(refresh):
+            refresh()
+        refresh_theme_properties(widget)
+        QWidget.update(widget)
+    signals().changed.emit(value)
+
+
+def qss(palette_roles=False) -> str:
     """全局样式表。"""
-    return f"""
+    colors = {name: globals()[name] for name in _DARK}
+    if palette_roles:
+        colors = {name: f'palette({role})' for name, role in _PALETTE_ROLES.items()}
+    BG, SIDEBAR, CONTENT, CONTENT_HOVER, ELEVATED, TEXT1, TEXT2, TEXT3, TEXT4, BORDER, BORDER_STRONG, ACCENT, ACCENT_SOFT = colors.values()
+    def style_mix(name, other, ratio):
+        return (f'palette({_MIX_ROLES[name, other, ratio]})' if palette_roles
+            else mix(colors[name], other, ratio))
+    badge_bg = 'rgba(16, 20, 28, 0.78)' if _light and not palette_roles else 'rgba(131, 131, 145, 0.28)'
+    badge_text = '#F1F2F5' if _light and not palette_roles else TEXT2
+    cover_text = '#F1F2F5' if _light and not palette_roles else TEXT4
+    hint_text = '#F1F2F5' if _light and not palette_roles else TEXT2
+    style = f"""
+QPushButton#AppearanceChoice {{
+    background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
+}}
+QPushButton#AppearanceChoice:checked {{
+    background: {ACCENT_SOFT}; color: {ACCENT}; border: 1px solid {ACCENT};
+}}
 * {{
     font-family: {FONT_FAMILY};
     font-size: {FONT_CONTROL}px;
@@ -131,6 +417,10 @@ QLineEdit {{
     padding: 6px 10px;
     color: {TEXT1};
     selection-background-color: {ACCENT};
+}}
+#Search {{
+    placeholder-text-color: {TEXT3};
+    color: {TEXT1};
 }}
 QLineEdit:focus {{
     border: 1px solid {ACCENT};
@@ -243,7 +533,7 @@ QSlider::handle:horizontal {{
     background: #ffffff;
 }}
 QSlider::handle:horizontal:hover {{
-    background: {mix(ACCENT, "#ffffff", 0.35)};
+    background: {style_mix("ACCENT", "#ffffff", 0.35)};
 }}
 
 /* ---------- 设置窗口（左侧选类别，右侧改内容） ---------- */
@@ -318,6 +608,10 @@ QSlider::handle:horizontal:hover {{
 #UpdateNotice {{
     background: transparent;
     border: none;
+}}
+#NoticeText {{
+    color: {TEXT1};
+    font-weight: 500;
 }}
 #NoticeClose {{
     background: transparent;
@@ -418,8 +712,8 @@ QSlider::handle:horizontal:hover {{
     font-weight: 700;
 }}
 #BadgeOff {{
-    background: rgba(131, 131, 145, 0.28);
-    color: {TEXT2};
+    background: {badge_bg};
+    color: {badge_text};
     border-radius: {RADIUS_MD}px;
     padding: 1px 6px;
     font-size: 11px;
@@ -472,7 +766,7 @@ QSlider::handle:horizontal:hover {{
     color: {ACCENT};
 }}
 QPushButton#IconButton:pressed {{
-    background: {mix(CONTENT, "#000000", 0.12)};
+    background: {style_mix("CONTENT", "#000000", 0.12)};
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
@@ -486,10 +780,13 @@ QPushButton#IconButton:pressed {{
     font-weight: 700;
 }}
 #PrimaryButton:hover {{
-    background: {mix(ACCENT, "#ffffff", 0.12)};
+    background: {style_mix("ACCENT", "#ffffff", 0.12)};
+}}
+#PrimaryButton[updateAction="true"]:disabled {{
+    background: {CONTENT}; color: {TEXT3}; border: 1px solid {BORDER_STRONG};
 }}
 QPushButton#PrimaryButton:pressed {{
-    background: {mix(ACCENT, "#000000", 0.16)};
+    background: {style_mix("ACCENT", "#000000", 0.16)};
 }}
 #GhostButton {{
     background: transparent;
@@ -646,6 +943,12 @@ QPushButton#PrimaryButton:pressed {{
 #ShortcutEdit:focus {{
     border: 1px solid {ACCENT};
 }}
+#AccountId {{
+    color: {TEXT3}; background: transparent;
+}}
+#AccountName {{
+    color: {TEXT1}; font-size: {FONT_CONTROL}px; font-weight: 700; background: transparent;
+}}
 #AccountRow {{
     background: {CONTENT};
     border: 1px solid {BORDER};
@@ -666,16 +969,16 @@ QPushButton#PrimaryButton:pressed {{
 
 /* 布局选择弹层 */
 #LayoutPicker {{
-    background: {ELEVATED};
+    background: {BG};
     border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_LG}px;
 }}
 #LayoutCard {{
-    background: transparent;
-    border: 1px solid transparent;
+    background: {CONTENT};
+    border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_MD}px;
     padding: 6px 4px 4px 4px;
-    color: {TEXT3};
+    color: {TEXT1};
     font-size: {FONT_CAPTION}px;
 }}
 #LayoutCard:hover {{
@@ -683,16 +986,20 @@ QPushButton#PrimaryButton:pressed {{
     color: {TEXT1};
 }}
 #LayoutCard:checked {{
-    background: {ACCENT_SOFT};
-    border: 1px solid rgba(0, 161, 214, 0.45);
-    color: {ACCENT};
+    background: {CONTENT_HOVER};
+    border: 1px solid {ACCENT};
+    color: {TEXT1};
+}}
+#LayoutCard:focus {{
+    border: 1px solid {ACCENT};
+    outline: none;
 }}
 #PickerTab {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: 11px;
     padding: 3px 14px;
-    color: {TEXT3};
+    color: {TEXT2};
     font-size: {FONT_CAPTION}px;
     font-weight: 600;
 }}
@@ -701,9 +1008,35 @@ QPushButton#PrimaryButton:pressed {{
     color: {TEXT1};
 }}
 #PickerTab:checked {{
-    background: {ACCENT_SOFT};
-    border: 1px solid rgba(0, 161, 214, 0.45);
-    color: {ACCENT};
+    background: {CONTENT_HOVER};
+    border: 1px solid {ACCENT};
+    color: {TEXT1};
+}}
+#LayoutPicker #SectionLabel {{
+    color: {TEXT1}; background: {CONTENT}; border-radius: 6px; padding: 4px 8px;
+}}
+#LayoutResetButton, #PresetManageButton {{
+    background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER_STRONG};
+    border-radius: 8px; min-height: 28px; padding: 2px 10px;
+}}
+#LayoutResetButton:hover, #PresetManageButton:hover {{
+    background: {CONTENT_HOVER}; color: {TEXT1}; border-color: {ACCENT};
+}}
+#LayoutResetButton:focus, #PresetManageButton:focus {{border-color: {ACCENT}; outline: none;}}
+#RoomPresetEntry {{
+    background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
+}}
+#RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {CONTENT_HOVER};}}
+#RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
+#RoomPresetEntry QPushButton[deleteConfirm="true"] {{border-color: {ERROR};}}
+#RoomPresetEntry #LayoutCard {{
+    background: transparent; border: none; padding: 0; color: {TEXT2};
+}}
+#RoomPresetEntry #LayoutCard:hover, #RoomPresetEntry #LayoutCard:checked {{color: {TEXT1};}}
+#RoomPresetEntry #LayoutCard:focus {{border: 1px solid {ACCENT};}}
+#PresetManageButton {{min-height: 24px; padding: 0;}}
+#LayoutPicker #RoomPresetNameForm {{
+    background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
 }}
 
 /* ---------- 画面墙 ---------- */
@@ -731,7 +1064,7 @@ QPushButton#PrimaryButton:pressed {{
     font-size: {FONT_CAPTION}px;
 }}
 #TileBottom {{
-    background: rgba(10, 11, 13, 0.72);
+    background: rgba(10, 11, 13, 0.24);
     border-radius: {RADIUS_MD}px;
 }}
 #TilePlaceholder {{
@@ -867,7 +1200,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #NavThumbCover {{
     background: rgba(18, 20, 25, 0.82);
-    color: {TEXT4};
+    color: {cover_text};
     font-size: {FONT_CAPTION}px;
     border-radius: 6px;
 }}
@@ -884,7 +1217,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #NavThumbHint {{
     background: rgba(10, 11, 13, 0.66);
-    color: {TEXT2};
+    color: {hint_text};
     font-size: {FONT_CAPTION}px;
     border-radius: 6px;
 }}
@@ -1017,3 +1350,37 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
     width: 0;
 }}
 """
+    if palette_roles:
+        style += '''
+        #BadgeOff[appearanceLight="true"] {background: rgba(16, 20, 28, 0.78); color: #F1F2F5; border: 1px solid rgba(255, 255, 255, 0.16);}
+        #NavThumbCover[appearanceLight="true"], #NavThumbHint[appearanceLight="true"] {color: #F1F2F5;}
+        '''
+    if _light and not palette_roles:
+        style += '#BadgeOff {border: 1px solid rgba(255, 255, 255, 0.16);}'
+        style += """
+        #PrimaryButton {color: #FFFFFF;}
+        #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;}
+        #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;}
+        #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}
+        #WallGrid {background: #E6EBF2;}
+        #Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;}
+        #Tile:hover {border-color: #95A7BE;}
+        #Tile[focused="true"] {border-color: #00A1D6;}
+        #DanmakuPanel, #TileVideo {background: #FFFFFF;}
+        #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
+        #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
+        #TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;}
+        #TileBottom #TileCtrl {background: transparent; color: #4A5565; border: none;}
+        #TileBottom #TileCtrl:hover, #TileBottom #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
+        #TileBottom #TileCtrl:checked {background: #DDF3FB; color: #007BA8;}
+        #TileBottom QLabel {color: #4A5565;}
+        #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
+        #TilePlaceholder {color: #4A5565;}
+        #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
+        #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
+        #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}
+        #DanmakuCount[state="connected"] {color: #007BA8;}
+        #DanmakuCount[state="error"] {color: #B93665;}
+        #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
+        """
+    return style

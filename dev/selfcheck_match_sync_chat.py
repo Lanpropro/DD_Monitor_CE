@@ -17,10 +17,15 @@ from dev.selfcheck_match_sync import FakeChat, FakeDecoder, jpeg
 from plugins_user._match_sync import viewer as module
 
 
+def message_time(viewer):
+    # Messages must be due on the buffered timeline, including its initial reserve.
+    return min(viewer.audio.clock() + shift for shift in viewer.shifts().values()) - .1
+
+
 def check_sources(viewer, keys):
     viewer.panel.clear()
     viewer.picture.video_danmaku.clear()
-    with patch.object(module.time, "monotonic", return_value=95):
+    with patch.object(module.time, "monotonic", return_value=message_time(viewer)):
         for key, row in viewer.rows.items():
             row.pending.clear()
             if row.chat is not None:
@@ -75,7 +80,7 @@ def main():
                         viewer.panel.clear()
                         viewer.picture.video_danmaku.clear()
                         viewer.picture.danmaku_button.setChecked(True)
-                        with patch.object(module.time, "monotonic", return_value=95):
+                        with patch.object(module.time, "monotonic", return_value=message_time(viewer)):
                             for key in order:
                                 row = viewer.rows[key]
                                 if row.chat is not None:
@@ -92,7 +97,7 @@ def main():
                 for row in viewer.rows.values():
                     row.show_chat.setChecked(True)
                     row.pending.clear()
-                    row.pending.extend((95, {"uname": "burst", "text": "burst"}) for _ in range(210))
+                    row.pending.extend((message_time(viewer), {"uname": "burst", "text": "burst"}) for _ in range(210))
                 viewer.panel.clear()
                 viewer.render()
                 counts = {key: sum(e["uname"].startswith("【主播" + key + "】")
@@ -116,7 +121,7 @@ def main():
                     for item in viewer.rows.values():
                         item.pending.clear()
                     previous.events.message.emit({"uname": "old", "text": "obsolete"})
-                    with patch.object(module.time, "monotonic", return_value=95):
+                    with patch.object(module.time, "monotonic", return_value=message_time(viewer)):
                         row.chat.events.message.emit({"uname": "new", "text": "reconnected"})
                     viewer.render()
                     assert [e["text"] for e in viewer.panel._blocks] == ["reconnected"]

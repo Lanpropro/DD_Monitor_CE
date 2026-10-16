@@ -6,6 +6,23 @@ SORT_MODES = [("custom", "自定义顺序（拖动调整）"), ("live", "开播�
               ("offline", "未开播优先"), ("imported", "导入顺序"), ("name", "主播名称")]
 PLATFORM_NAMES = {"bilibili": "哔哩哔哩", "huya": "虎牙", "douyu": "斗鱼",
                   "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}
+ICON_NAMES = ("folder", "star", "heart", "game", "music", "video")
+ICON_COLORS = ("default", "blue", "pink", "green", "orange", "purple")
+
+
+def normalize_icon(value):
+    if not isinstance(value, dict):
+        return None
+    if value.get("type") == "builtin" and value.get("name") in ICON_NAMES and value.get("color") in ICON_COLORS:
+        return {"type": "builtin", "name": value["name"], "color": value["color"]}
+    path = value.get("path")
+    if value.get("type") == "image" and isinstance(path, str):
+        parts = path.split("/")
+        if len(parts) == 3 and parts[:2] == ["utils", "folder-icons"] and parts[2].endswith(".png"):
+            stem = parts[2][:-4]
+            if len(stem) == 32 and all(c in "0123456789abcdef" for c in stem):
+                return {"type": "image", "path": path}
+    return None
 
 
 def normalize_folders(folders, default_sort="custom"):
@@ -23,6 +40,9 @@ def normalize_folders(folders, default_sort="custom"):
         folder = {"id": fid, "name": "未分类" if fid == UNCLASSIFIED else name,
                   "type": kind, "collapsed": bool(source.get("collapsed")), "rooms": rooms,
                   "sort": mode if mode in dict(SORT_MODES) else "custom"}
+        icon = normalize_icon(source.get("icon"))
+        if icon is not None:
+            folder["icon"] = icon
         if kind == "smart":
             rule = source.get("rule") or {}
             status = rule.get("status", "any")
@@ -66,8 +86,9 @@ def smart_members(rooms, folders, folder, pending=()):
               for rid in folder["rooms"]}
     rule = folder["rule"]
     sources = rule.get("sources", [UNCLASSIFIED])
+    # 平台和来源在导入时已知，只有直播状态条件需要等待状态刷新。
     return {str(room["room_id"]) for room in rooms
-            if str(room["room_id"]) not in pending
+            if (rule.get("status", "any") == "any" or str(room["room_id"]) not in pending)
             and (not sources or manual.get(str(room["room_id"]), UNCLASSIFIED) in sources)
             and matches_rule(room, rule)}
 

@@ -1,0 +1,166 @@
+"""所有预设的实际鼠标拖动、边界、独立比例、全屏及弹幕换位；不联网。"""
+from copy import deepcopy
+from unittest.mock import patch
+
+from selfcheck_corner_resize import QApplication, QPoint, QTest, Qt, WallGrid, drag, layouts, theme, border_for
+from selfcheck_corner_drag_updates import begin, move_to, release_at
+
+
+def check(wall):
+    visible = wall.visible_tiles()
+    assert len(visible) == wall._capacity(), (wall.layout_id, len(visible))
+    panes = visible + ([wall.danmaku] if wall.has_danmaku else [])
+    rects = [pane.geometry() for pane in panes]
+    assert all(wall.rect().contains(rect) for rect in rects), (wall.layout_id, wall.size(), rects)
+    for index, first in enumerate(rects):
+        assert all(not first.intersects(second) for second in rects[index + 1:]), wall.layout_id
+    for tile in visible:
+        assert tile.width() >= 200 and tile.height() >= 150
+        assert tile.parentWidget() is wall
+    if wall.layout_id != 'corner':
+        assert len(wall._divider_rects) == len(panes) - 1, wall.layout_id
+    assert not hasattr(wall, '_preset_handles')
+    image = wall.grab().toImage()
+    for key, gap in wall._divider_rects.items():
+        assert wall.rect().contains(gap)
+        assert all(not gap.intersects(rect) for rect in rects)
+        assert image.pixelColor(gap.center()) == theme.qcolor(theme.BG), (
+            wall.layout_id, key, image.pixelColor(gap.center()).name())
+
+
+def main():
+    app = QApplication([])
+    app.setStyleSheet(theme.qss())
+    rooms = [dict(room_id=str(1000 + index), uname=f'Fixture {index}', live=False)
+             for index in range(16)]
+    wall = WallGrid(rooms, layout_id='1x1')
+    wall.setGeometry(-9000, -9000, 1800, 1500)
+    wall.show()
+    app.processEvents()
+    originals = list(wall.tiles)
+    identities = [int(tile.video.winId()) for tile in originals]
+    saved = {}
+    try:
+        for identifier in layouts.BY_ID:
+            if identifier == 'corner':
+                continue
+            wall.set_layout(identifier)
+            wall.resize(900 if layouts.is_portrait_layout(identifier) else 1800, 1500)
+            app.processEvents()
+            check(wall)
+            default_geometry = [tile.geometry() for tile in wall.visible_tiles()]
+            if layouts.is_portrait_layout(identifier):
+                assert abs(wall.tiles[0].height() - int((wall.width() - 32) * 9 / 16)) <= 1
+            for key in list(wall._preset_dividers):
+                handle, point = border_for(wall, key)
+                node, area, before = wall._preset_dividers[key]
+                direction = QPoint(1, 0) if node.axis == Qt.Horizontal else QPoint(0, 1)
+                before = list(before)
+                pane_before = handle.parentWidget().size()
+                edge = next(iter(handle.edges_at(point)))
+                drag(app, handle, direction * 24, pos=point)
+                check(wall)
+                after = wall._preset_dividers[key][2]
+                pane_after = handle.parentWidget().size()
+                change = (pane_after.width() - pane_before.width() if node.axis == Qt.Horizontal
+                          else pane_after.height() - pane_before.height())
+                assert change == (24 if edge in ('right', 'bottom') else -24), (identifier, key, change)
+                assert sum(after) == sum(before)
+                assert all(after[index] == value for index, value in enumerate(before)
+                           if index not in (key[1], key[1] + 1))
+                # 极端坐标不能越过相邻区域，双击恢复相邻默认比例。
+                handle, point = border_for(wall, key)
+                drag(app, handle, direction * 10000, pos=point)
+                check(wall)
+                handle, point = border_for(wall, key)
+                drag(app, handle, direction * -20000, pos=point)
+                check(wall)
+                handle, point = border_for(wall, key)
+                QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
+                app.processEvents()
+                check(wall)
+            saved[identifier] = deepcopy(wall.layout_ratios().get(identifier, {}))
+            geometry_before = [tile.geometry() for tile in wall.visible_tiles()]
+            target = wall.tiles[0]
+            wall.set_fullscreen_tile(target)
+            app.processEvents()
+            assert not any(border.isVisible() for border in wall._pane_borders.values())
+            wall.set_fullscreen_tile(None, stagger=True, first=target)
+            wall.resize(wall.width() + 10, wall.height() + 10)
+            app.processEvents()
+            assert all(not tile.isVisible() for tile in wall._pending_reveal)
+            wall.reveal_tiles_staggered()
+            for _ in range(100):
+                if not wall._pending_reveal:
+                    break
+                QTest.qWait(20)
+            check(wall)
+            wall.resize(wall.width() - 10, wall.height() - 10)
+            app.processEvents()
+            assert [tile.geometry() for tile in wall.visible_tiles()] == geometry_before
+            if wall.has_danmaku:
+                wall.move_danmaku_to_tile(wall.tiles[1] if wall._capacity() > 1 else wall.tiles[0])
+                app.processEvents()
+                check(wall)
+            wall.reset_layout_ratios()
+            check(wall)
+            assert not wall.layout_ratios().get(identifier)
+            if not wall.has_danmaku:
+                assert [tile.geometry() for tile in wall.visible_tiles()] == default_geometry
+            old_size = wall.size()
+            wall.resize(100, 100)
+            app.processEvents()
+            check(wall)
+            wall.resize(old_size)
+            app.processEvents()
+            print(f'PASS {identifier}: {len(wall._preset_dividers)} dividers', flush=True)
+
+        # 快速拖动只处理最新坐标，释放落实最后位置；切布局丢弃未完成事件。
+        wall.set_layout('3x3')
+        wall.resize(1800, 1500)
+        app.processEvents()
+        key = ('root', 0)
+        handle, point = border_for(wall, key)
+        original = list(wall._preset_dividers[key][2])
+        with patch.object(wall, '_relayout_preset', wraps=wall._relayout_preset) as relayout:
+            unchanged = {cell: pane.geometry() for cell, pane in wall._preset_widgets().items()}
+            origin = begin(handle, pos=point)
+            for step in range(1, 121):
+                move_to(handle, origin + QPoint(0, step))
+            assert relayout.call_count == 0
+            QTest.qWait(80)
+            assert relayout.call_count == 0
+            assert wall._border_preview.isVisible()
+            assert set(wall._border_preview.rectangles) == set(unchanged)
+            assert all(pane.geometry() == unchanged[cell]
+                       for cell, pane in wall._preset_widgets().items())
+            release_at(handle, origin + QPoint(0, 125))
+            assert relayout.call_count == 1
+            assert not wall._border_preview.isVisible()
+        assert wall._preset_dividers[key][2][0] == original[0] + 125
+        handle, point = border_for(wall, key)
+        origin = begin(handle, pos=point)
+        move_to(handle, origin + QPoint(0, 70))
+        wall.set_layout('corner')
+        QTest.qWait(80)
+        assert wall._border_pending is None and not wall._preset_dividers
+        assert not wall._border_preview.isVisible()
+        assert set(wall.tiles) == set(originals)
+        assert [int(tile.video.winId()) for tile in originals] == identities
+
+        # 重启模型读取各预设自己的比例，导出值与输入值不共享列表。
+        restored = WallGrid(rooms, layout_id='3x3', layout_ratios=saved)
+        try:
+            exported = restored.layout_ratios()
+            assert exported == {key: value for key, value in saved.items() if value}
+            exported['3x3']['root'][0] = .9
+            assert restored.layout_ratios()['3x3']['root'] == saved['3x3']['root']
+        finally:
+            restored.close()
+        print('PASS: 25 presets, all dividers, geometry/limits/fullscreen/swap/coalescing/persistence/IDs')
+    finally:
+        wall.close()
+
+
+if __name__ == '__main__':
+    main()

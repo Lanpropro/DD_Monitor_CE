@@ -56,9 +56,11 @@ def gui_checks():
                 history.samples = deque(detail[::10])
                 history.details = deque(detail)
             viewer.alignment.lags["2"] = 7.537
+            viewer.rematch_rooms.clear()  # This fixture tests local tracking of an established lag.
             with patch.object(viewer.audio, "clock", return_value=118):
                 for _ in range(3):
                     viewer.canvas.frame_key = 118 + viewer.shifts()["1"]
+                    viewer.canvas.waiting = False  # This fixture supplies an already displayed reference.
                     viewer.analyse()
                     assert viewer.matching
                     deadline = time.monotonic() + 3
@@ -68,7 +70,7 @@ def gui_checks():
                     assert not viewer.matching, "Fine worker did not deliver to the GUI"
             row = viewer.rows["2"]
             assert abs(viewer.alignment.lags["2"] - 7.237) < .06
-            assert "播放进度已复核" in row.match_text and "剩余误差" in row.match_text, row.match_text
+            assert "播放进度已复核" in row.match_text and "预计播放误差" in row.match_text, row.match_text
             viewer.canvas.frame_key -= 1
             with patch.object(viewer.audio, "clock", return_value=118):
                 viewer.analyse()
@@ -83,8 +85,9 @@ def gui_checks():
             assert viewer.alignment.lags == previous and row.match_text == status
             row.delay.setValue(.4)
             assert viewer.alignment.manual_locked and not viewer.alignment.automatic
+            locked = dict(viewer.alignment.lags)
             viewer._matched(viewer.generation, {"2": Match(30, 1, "manual", refined=True)})
-            assert viewer.alignment.lags == previous and "已锁定" in row.match_text
+            assert viewer.alignment.lags == locked and "已锁定" in row.match_text
         finally:
             viewer.close()
             host.close()

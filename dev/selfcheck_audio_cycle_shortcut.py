@@ -1,4 +1,4 @@
-"""声音轮询快捷键：循环、格子隔离、改键和播放器声道路由。"""
+"""悬停格子快捷键：弹幕、声音轮询、改键、输入保护及播放器声道路由。"""
 from contextlib import ExitStack
 import os
 from pathlib import Path
@@ -7,13 +7,136 @@ from unittest.mock import Mock, patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QPushButton, QVBoxLayout, QWidget
 from ddm.app import MainWindow
 from ddm.dialogs import SHORTCUT_ACTIONS, ShortcutSettingsPage
 from ddm.widgets import VolumeButton
+
+
+def check_hover_shortcuts(app, window):
+    first, second = window.wall.tiles[:2]
+    window.resize(1200, 760)
+    window.show()
+    window.activateWindow()
+    app.processEvents()
+    assert window.shortcuts['video_danmaku'] == 'B'
+    # 焦点留在第一格按钮，鼠标只悬停第二格；不发送鼠标点击。
+    first.pause_button.setFocus()
+    point = second.video.mapToGlobal(second.video.rect().center())
+    with patch('ddm.app.QCursor.pos', return_value=point):
+        assert window._tile_under_cursor() is second
+        before = second.danmaku_button.isChecked()
+        QTest.keyClick(first.pause_button, Qt.Key_B)
+        assert second.danmaku_button.isChecked() != before
+        assert not first.danmaku_button.isChecked()
+        QTest.keyClick(first.pause_button, Qt.Key_B)
+        assert second.danmaku_button.isChecked() == before
+        # 下拉框平时会吞掉字母键用于查找选项，窗口快捷键仍应先命中。
+        combo = QComboBox(window)
+        combo.addItems(['alpha', 'beta'])
+        combo.show()
+        combo.setFocus()
+        QTest.keyClick(combo, Qt.Key_B)
+        assert second.danmaku_button.isChecked() != before
+        assert combo.currentIndex() == 0
+        combo.hide()
+        second.danmaku_button.setChecked(before)
+        with patch.object(window, '_on_fullscreen') as fullscreen:
+            QTest.keyClick(first.pause_button, Qt.Key_F)
+            fullscreen.assert_called_once_with(second)
+        muted = second.muted
+        QTest.keyClick(first.pause_button, Qt.Key_M)
+        assert second.muted != muted
+        second.set_muted(muted)
+        window.sidebar.search.setFocus()
+        window.sidebar.search.clear()
+        QTest.keyClicks(window.sidebar.search, 'bfme')
+        assert window.sidebar.search.text() == 'bfme'
+        assert second.danmaku_button.isChecked() == before
+        assert second.muted == muted
+        dialog = QDialog(window)
+        dialog.setModal(True)
+        edit = QLineEdit(dialog)
+        QVBoxLayout(dialog).addWidget(edit)
+        dialog.show()
+        edit.setFocus()
+        app.processEvents()
+        QTest.keyClick(edit, Qt.Key_B)
+        assert edit.text() == 'b'
+        assert second.danmaku_button.isChecked() == before
+        button = QPushButton('button', dialog)
+        dialog.layout().addWidget(button)
+        button.setFocus()
+        QTest.keyClick(button, Qt.Key_B)
+        assert second.danmaku_button.isChecked() == before
+        dialog.close()
+        other = QWidget()
+        other.show()
+        other.activateWindow()
+        app.processEvents()
+        QTest.keyClick(other, Qt.Key_B)
+        assert second.danmaku_button.isChecked() == before
+        other.close()
+        window.activateWindow()
+        first.pause_button.setFocus()
+        app.processEvents()
+        page = ShortcutSettingsPage(window.shortcuts)
+        page._edits['video_danmaku'].setKeySequence(QKeySequence('R'))
+        window.shortcuts = page.values()
+        window._refresh_shortcuts()
+        QTest.keyClick(first.pause_button, Qt.Key_B)
+        assert second.danmaku_button.isChecked() == before
+        QTest.keyClick(first.pause_button, Qt.Key_R)
+        assert second.danmaku_button.isChecked() != before
+        assert window.current_state()['ui']['shortcuts']['video_danmaku'] == 'R'
+        page.reset()
+        window.shortcuts = page.values()
+        window._refresh_shortcuts()
+        second.danmaku_button.setChecked(before)
+    with patch('ddm.app.QCursor.pos', return_value=window.mapToGlobal(QPoint(-100, -100))):
+        QTest.keyClick(first.pause_button, Qt.Key_B)
+        assert second.danmaku_button.isChecked() == before
+
+
+def check_corner_empty_slots(app):
+    rooms = [dict(room_id=str(2000 + i), uname=f'corner {i}', live=True) for i in range(6)]
+    window = MainWindow(rooms, [dict(rooms[0])], layout_id='corner',
+                        state={'plugins_enabled': []})
+    window.resize(1400, 850)
+    window.show()
+    window.activateWindow()
+    app.processEvents()
+    try:
+        assert len(window.wall.tiles) == 6
+        window.sidebar.settings_button.setFocus()
+        for index, tile in enumerate(window.wall.tiles):
+            # 起初只有主画面有房间，其余五个都是空格；焦点始终留在侧栏。
+            assert bool(tile.room.get('room_id')) == (index == 0)
+            point = window.wall.mapToGlobal(tile.geometry().center())
+            with patch('ddm.app.QCursor.pos', return_value=point):
+                assert window._tile_under_cursor() is tile
+                before = [(t.muted, t.danmaku_button.isChecked()) for t in window.wall.tiles]
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
+                for i, other in enumerate(window.wall.tiles):
+                    expected = tuple(not value for value in before[i]) if i == index else before[i]
+                    assert (other.muted, other.danmaku_button.isChecked()) == expected, (index, i)
+                selected = (tile.muted, tile.danmaku_button.isChecked())
+                # 走真实拖入处理，检查空格子的预设不会在填入房间时丢失。
+                if index:
+                    window._on_room_dropped(tile, rooms[index]['room_id'])
+                    assert (tile.muted, tile.danmaku_button.isChecked()) == selected
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
+                QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
+                assert (tile.muted, tile.danmaku_button.isChecked()) == before[index]
+                saved = window.current_state()['wall'][index]
+                assert (saved['muted'], saved['video_danmaku_enabled']) == before[index]
+    finally:
+        window.close()
+        app.processEvents()
 
 
 def main():
@@ -25,15 +148,27 @@ def main():
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars'):
             stack.enter_context(patch.object(MainWindow, method))
+        check_corner_empty_slots(app)
         window = MainWindow([dict(room)], [dict(room), dict(room)], layout_id='2x2',
-                            state={'plugins_enabled': [], 'ui': {'shortcuts': {'mute': 'M'}}})
+                            state={'plugins_enabled': [], 'ui': {'shortcuts': {'mute': 'M', 'video_danmaku': 'D'}}})
         first, second = window.wall.tiles[:2]
         first_player = Mock()
         second_player = Mock()
         second_player.needs_audio_restart.return_value = False
         window.players.update({first: first_player, second: second_player})
-        cursor = stack.enter_context(patch.object(window, '_tile_under_cursor', return_value=second))
         try:
+            check_hover_shortcuts(app, window)
+            window.hide()
+            # 迁移仅发生一次，此后手动改回 D 或其他键，重启仍须保留。
+            for sequence in ('D', 'R'):
+                state = window.current_state()
+                state['ui']['shortcuts']['video_danmaku'] = sequence
+                restored = MainWindow([], [], layout_id='1x1', state=state)
+                try:
+                    assert restored.shortcuts['video_danmaku'] == sequence
+                finally:
+                    restored.close()
+            cursor = stack.enter_context(patch.object(window, '_tile_under_cursor', return_value=second))
             assert window.shortcuts['audio_cycle'] == 'E', 'old config must inherit the new default'
             assert ('audio_cycle', '声音轮询按键', 'E') in SHORTCUT_ACTIONS
             expected = [(False, 0), (False, VolumeButton.CHANNEL_LEFT),
@@ -81,7 +216,7 @@ def main():
         finally:
             window.close()
             app.processEvents()
-    print('PASS: E sound cycle, duplicate-room isolation, shortcut migration/remapping, input safety and audio restart')
+    print('PASS: hover B/F/M without clicking, combo focus, input/modal/inactive isolation, remapping, E sound cycle and audio restart')
 
 
 if __name__ == '__main__':

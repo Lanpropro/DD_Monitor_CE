@@ -78,6 +78,7 @@ def preview_checks(app):
     with patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \
             patch.object(module.AudioPump, "start", lambda self: None):
         viewer = module.Viewer(context, {})
+        viewer.alignment.buffer_seconds = 2.0  # Fixed timeline used by this legacy fixture.
         viewer.add_room("1", {"alias": "Machine", "volume": 100})
         viewer.add_room("2", {"alias": "CS-advent", "volume": 100})
         viewer.automatic.setChecked(False)
@@ -112,6 +113,9 @@ def preview_checks(app):
         viewer.audio.sink = FakeSink()
         viewer.audio.device = FakeDevice(viewer.audio.sink)
         viewer.audio.anchor = 100
+        for row in viewer.rows.values():
+            row.sync_state, row.mix_gain = "已同步", 1.0
+        viewer.playback_rate = 1.0
         viewer.audio.fill()
         assert set(array("h", viewer.audio.device.data)) == {6400}, "Mixed PCM must immediately use the adjusted shared timeline"
         late.pending.append((97, {"uname": "A", "text": "adjusted chat"}))
@@ -124,12 +128,15 @@ def preview_checks(app):
         late.delay.setValue(5)
         assert cards["2"][2].frame_key == 93
         viewer.automatic.setChecked(True)
-        assert not viewer.compare.isChecked() and all(row.delay.value() == 0 for row in viewer.rows.values())
+        assert viewer.compare.isChecked() and all(row.delay.value() == 0 for row in viewer.rows.values())
         viewer._matched(viewer.generation, {"2": Match(4.5, 1, "ok")})
         assert "2" not in viewer.alignment.lags, "A single automatic result still needs confirmation"
         viewer.alignment.lags["2"] = 4.5
         viewer.show_comparison("2")
         def crop_dialog(dialog):
+            assert any(label.text() == "自动对齐请保留完整画面；如需人工细调，可只框选计时区域。"
+                       "两路请选择相同内容，框选不会自动读取计时器数字。"
+                       for label in dialog.findChildren(module.QLabel))
             selector = dialog.findChild(module.Canvas)
             assert selector.frame_key == cards["2"][2].frame_key
             assert selector.image == cards["2"][2].image, "Crop selection must freeze the visible comparison frame"
@@ -165,7 +172,8 @@ def preview_checks(app):
             viewer.choose_crop(main)
         main.delay.setValue(0)
         viewer.compare.setChecked(False)
-        expected = late.decoder.history.frame_at(100 + viewer.shifts()["2"])
+        viewer.audio.clock = lambda: 97  # Preserved main progress requires a target inside this finite fixture.
+        expected = late.decoder.history.frame_at(viewer.audio.clock() + viewer.shifts()["2"])
         assert expected != late.decoder.history.latest()
         def hidden_dialog(dialog):
             assert dialog.findChild(module.Canvas).frame == expected, "Hidden rooms must use the shared playback position"

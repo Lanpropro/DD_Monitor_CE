@@ -34,11 +34,76 @@ class AvatarStub(QObject):
         return False
 
 
+def check_popup_alignment(app):
+    from ddm.widgets import AccountRow, Sidebar
+    sidebar = Sidebar([], auto_compact=False)
+    sidebar.resize(248, 700)
+    sidebar.set_account('主账号', platform='bilibili', uid='1')
+    sidebar.logged_accounts = [('douyu', {'uname': '测试账号', 'uid': '2'})]
+    sidebar.set_collapsed(True, animate=False)
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        menu = sidebar.account_menu()
+        menu.setAttribute(Qt.WA_ShowWithoutActivating)
+        menu.move(-10000, -10000)
+        menu.show()
+        app.processEvents()
+        labels = [action.text() for action in menu.actions() if action.text()]
+        assert labels == ['登录其他平台', '布局预设', '设置'], labels
+        rows = menu.findChildren(AccountRow)
+        assert rows and all(row.name.alignment() == Qt.AlignCenter
+                            and row.account_id.alignment() == Qt.AlignCenter for row in rows)
+        image = menu.grab().toImage()
+        scale = image.devicePixelRatio()
+        foreground = theme.qcolor(theme.TEXT1)
+        for action in menu.actions():
+            if action.text() not in ('布局预设', '设置'):
+                continue
+            menu.setActiveAction(action)
+            app.processEvents()
+            image = menu.grab().toImage()
+            rect = menu.actionGeometry(action)
+            xs = [x for y in range(round((rect.top()+6)*scale), round((rect.bottom()-6)*scale))
+                  for x in range(round((rect.left()+8)*scale), round((rect.right()-8)*scale))
+                  if max(abs(a-b) for a, b in zip(image.pixelColor(x, y).getRgb()[:3],
+                                                 foreground.getRgb()[:3])) < 35]
+            assert xs, (mode, action.text(), 'No text pixels rendered')
+            assert abs((min(xs)+max(xs))/2/scale - rect.center().x()) <= 3, (mode, action.text())
+        for label, signal in (('登录其他平台', sidebar.loginRequested), ('设置', sidebar.settingsRequested)):
+            fired = []
+            signal.connect(lambda target=fired: target.append(True))
+            action = next(action for action in menu.actions() if action.text() == label)
+            with patch.object(sidebar, 'account_menu', return_value=menu), patch.object(menu, 'exec', return_value=action):
+                sidebar._open_account_menu()
+            assert fired == [True]
+            signal.disconnect()
+        menu.close()
+    sidebar.side = 'top'
+    menu = sidebar.account_menu()
+    assert {'导入关注', '+ 添加直播间', '布局预设', '设置'} <= {a.text() for a in menu.actions()}
+    for label, signal in (('导入关注', sidebar.importFollowsClicked), ('+ 添加直播间', sidebar.addRoomClicked)):
+        fired = []
+        signal.connect(lambda target=fired: target.append(True))
+        action = next(action for action in menu.actions() if action.text() == label)
+        with patch.object(sidebar, 'account_menu', return_value=menu), patch.object(menu, 'exec', return_value=action):
+            sidebar._open_account_menu()
+        assert fired == [True]
+        signal.disconnect()
+    layout_action = next(action for action in menu.actions() if action.text() == '布局预设')
+    with patch.object(sidebar, 'account_menu', return_value=menu), \
+            patch.object(menu, 'exec', return_value=layout_action), patch.object(sidebar, 'open_layout_picker') as picker:
+        sidebar._open_account_menu()
+        picker.assert_called_once_with()
+    sidebar.close()
+    theme.apply('dark')
+
+
 def main():
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_popup_alignment(app)
     account = {"uid": "7890123", "uname": "斗鱼测试账号", "face": ""}
     provider = SimpleNamespace(kind="douyu", label="斗鱼", follow_login_url="about:blank",
         follow_cookie_domain="douyu.com", account_login_url="about:blank#standalone-login",
@@ -130,12 +195,12 @@ def main():
         assert row.platform_badge.isVisible() and not row.platform_badge.pixmap().isNull()
         assert "ID: " + account["uid"] in row.account_id._full_text
         texts = [a.text() for a in window.sidebar.account_menu().actions() if a.text()]
-        assert "退出登录" not in texts and "登录其他平台…" in texts
+        assert "退出登录" not in texts and "登录其他平台" in texts
         assert row.logout_button.isVisible()
         assert window._login_choices() == ["B站"]
         with patch.object(window, "open_login") as login:
             menu = window.sidebar.account_menu()
-            action = next(a for a in menu.actions() if a.text() == "登录其他平台…")
+            action = next(a for a in menu.actions() if a.text() == "登录其他平台")
             assert action.defaultWidget().cursor().shape() == Qt.PointingHandCursor
             assert "QPushButton:hover" in action.defaultWidget().styleSheet()
             with patch.object(window.sidebar, "account_menu", return_value=menu), \

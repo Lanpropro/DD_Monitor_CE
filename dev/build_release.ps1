@@ -73,6 +73,7 @@ if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件
 foreach ($rel in $tracked) {
     if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
     if ($rel -like "plugins_user/*") { continue }
+    if ($rel -like "utils/*") { continue }
     if ($rel -like "videos/*") { continue }
     if ($rel -like "dev/*promo*" -or $rel -like "dev/*highlight*" -or $rel -like "dev/*videotogether*" -or $rel -like "docs/*VIDEO*" -or $rel -like "docs/*PROMO*" -or $rel -like "HANDOFF-*") { continue }
     $src = Join-Path $repo ($rel -replace "/", "\")
@@ -95,12 +96,8 @@ foreach ($file in @("libvlc.dll", "libvlccore.dll")) {
 robocopy (Join-Path $repo "plugins") (Join-Path $app "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
 # 用户插件目录：直播平台扩展由独立插件仓库发布。
 New-Item -ItemType Directory -Force -Path (Join-Path $app "plugins_user") | Out-Null
-# utils 目录只要代码；配置和加密登录状态是用户数据，不带
+# utils is runtime user data; release packages start with an empty directory.
 New-Item -ItemType Directory -Force -Path (Join-Path $app "utils") | Out-Null
-foreach ($item in Get-ChildItem (Join-Path $repo "utils") -Force -ErrorAction SilentlyContinue) {
-    if ($item.Name -like "config.json*" -or $item.Name -in @("__pycache__", "accounts")) { continue }
-    Copy-Item $item.FullName (Join-Path $app "utils") -Force -Recurse
-}
 
 # ---- 3) 运行说明 ----
 $readme = @"
@@ -129,8 +126,8 @@ ffmpeg-license\             FFmpeg 的许可与来源说明
 plugins_user\               插件目录（新插件含 plugin.json 和 plugin.py）
 utils\                      配置目录（首次运行会生成 config.json）
 docs\                       文档与截图
-LICENSE / NOTICE.md         许可与第三方声明
-RELEASE-$version.md         这一版改了什么
+LICENSE / docs\NOTICE.md    许可与第三方声明
+docs\releases\RELEASE-$version.md 这一版改了什么
 
 说明
 ----
@@ -198,7 +195,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
     # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
-    foreach ($file in @("LICENSE", "NOTICE.md", "RELEASE-v$($version.TrimStart('v')).md")) {
+    foreach ($file in @("LICENSE", "docs/NOTICE.md", "docs/releases/RELEASE-v$($version.TrimStart('v')).md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }
     }
@@ -257,7 +254,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
         Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
         Write-Output "=== 压缩 exe 包 $exeZip ==="
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
-        $releaseNotes = Join-Path $repo "RELEASE-$version.md"
+        $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$version.md"
         $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
         $remoteExeName = "DDMonitorCE-$version-exe.zip"
         @{ version = $version.TrimStart('v'); asset_name = $remoteExeName;
