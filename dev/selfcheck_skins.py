@@ -16,10 +16,10 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated skin test'))
 from PySide6.QtCore import QCoreApplication, QEvent, QMimeData, QPoint, QPointF, Qt, QUrl
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QImage
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QImage, QRegion
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QToolButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QToolButton, QWidget
 from ddm import app as module, config, motion, theme
 from ddm.dialogs import SettingsDialog
 from ddm.plugins import PluginManager, read_manifest
@@ -35,6 +35,15 @@ def check_parts(app):
     from ddm.skin_settings import PartSettings
     from ddm.online_ui import ResultNotice
     from PySide6.QtWidgets import QMenu
+
+    def check_scene_background(bar):
+        backdrop = QColor('#d123a7')
+        image = QImage(bar.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(backdrop)
+        bar.render(image, QPoint(), QRegion(), QWidget.DrawChildren)
+        for point in (QPoint(0, 0), QPoint(bar.width() - 1, bar.height() - 1)):
+            assert image.pixelColor(point) == backdrop, 'Scene tab strip must expose the page background'
+
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
         root = Path(directory)
         stack.enter_context(patch.object(config, 'REPO', directory))
@@ -295,6 +304,7 @@ def check_parts(app):
                         point = page.preview.point_for(part)
                         QTest.mouseClick(page.preview, Qt.LeftButton, pos=point)
                         assert page.part.currentData() == part
+                        check_scene_background(page.scenes)
                         if part != 'background':
                             visible = {key for key, (check, _edit) in page.fields.items() if check.isVisible()}
                             assert not visible, 'Simple artwork imports have no enable checkbox'
@@ -448,6 +458,8 @@ def check_parts(app):
                             capture = inline_dialog.grab()
                             app.processEvents()
                             bottom = inline.preview.mapTo(inline, QPoint(0, inline.preview.height())).y()
+                            if action == 'save':
+                                check_scene_background(inline.scenes)
                             labels = list(inline.group_labels.values())
                             assert all(label.mapTo(inline, QPoint()).y() >= bottom for label in labels), (
                                 f'Legend overlaps {part} preview at {width}x{height}')

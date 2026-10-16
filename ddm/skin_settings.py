@@ -249,7 +249,9 @@ class PartSettings(QDialog):
         preview_column = outer if embedded else QVBoxLayout(preview_panel)
         preview_column.setContentsMargins(0, 0, 0, 0)
         self.scenes = QTabBar()
-        self.scenes.setStyleSheet('QTabBar::tab {background: palette(base); color: palette(text);'
+        self.scenes.setDrawBase(False)
+        self.scenes.setStyleSheet('QTabBar {background: transparent;}'
+            'QTabBar::tab {background: palette(base); color: palette(text);'
             'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
             'QTabBar::tab:selected {background: palette(light); border-color: palette(highlight);}')
         for text in ('主界面', '设置页面', '菜单与提示' if professional else '布局预设'):
