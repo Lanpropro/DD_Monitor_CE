@@ -22,7 +22,7 @@ from ddm.audio_output import route_pcm_s16_stereo
 from ddm.fullscreen_cursor import FullscreenCursor
 from ddm.dialogs import SHORTCUT_ACTIONS
 from ddm import motion, theme
-from .engine import Alignment, Match, RATE, SafetyBuffer, match_scenes, refine_match, assisted_match, mix_pcm, resample_pcm
+from .engine import Alignment, Match, RATE, SafetyBuffer, LateBuffer, match_scenes, refine_match, assisted_match, mix_pcm, resample_pcm
 from .media import Chat, Decoder, PlatformChat
 
 COLORS = ("#38bdf8", "#fb7185", "#a78bfa", "#4ade80", "#fbbf24", "#fb923c")
@@ -916,6 +916,7 @@ class Viewer(QDialog):
         self.alignment = Alignment()
         self.alignment.buffer_seconds = 6.0
         self.safety_buffer = SafetyBuffer()
+        self.late_buffer = LateBuffer()
         self.playback_rate = 1.0
         self.stable_reference_shift = None
         self.skin_visible = False
@@ -957,6 +958,13 @@ class Viewer(QDialog):
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
         self.compare.toggled.connect(self.set_comparison_visible)
+        self.late_notice = QLabel()
+        self.late_notice.setObjectName("MatchSyncLateNotice")
+        self.late_notice.setTextFormat(Qt.PlainText)
+        self.late_notice.setWordWrap(True)
+        self.late_notice.setMinimumWidth(0)
+        self.late_notice.setMaximumWidth(420)
+        self.late_notice.hide()
         self.input = QLineEdit()
         self.input.setPlaceholderText("房间号、平台前缀或官方直播链接")
         self.input.returnPressed.connect(self._add_input)
@@ -980,6 +988,7 @@ class Viewer(QDialog):
         self.main.hide()
         heading.addWidget(self.automatic)
         heading.addWidget(self.compare)
+        heading.addWidget(self.late_notice)
         for widget in self.add_controls:
             heading.addWidget(widget)
         heading.addStretch()
@@ -1710,6 +1719,8 @@ class Viewer(QDialog):
             row.main_button.setChecked(room_id == selected)
             row.realign.setVisible(self.automatic.isChecked() and room_id != selected)
         if selected != self.alignment.reference:
+            self.late_buffer = LateBuffer()
+            self.late_notice.hide()
             for current in self.rows.values():
                 current.alignment_hint = None
                 current.large_candidate = None
@@ -2059,6 +2070,8 @@ class Viewer(QDialog):
         self.rematch_rooms = set(self.rows) - {self.alignment.reference} if self.alignment.automatic else set()
         self.rematch_admit.clear()
         self.safety_buffer = SafetyBuffer()
+        self.late_buffer = LateBuffer()
+        self.late_notice.hide()
         if not self.alignment.manual_locked:
             self.stable_reference_shift = None
         self.last_health_update = None
@@ -2231,10 +2244,16 @@ class Viewer(QDialog):
         now = time.monotonic()
         main = self.rows.get(self.alignment.reference)
         if main is None or main.decoder is None or main.paused:
+            self.late_buffer = LateBuffer()
+            self.late_notice.hide()
+            self.playback_rate = 1.0
             self.sync_waiting = False
             return clock
         secondary_edit = self.offset_target in self.rows and self.offset_target != main.room_id
         main_bounds = main.decoder.history.bounds_at(clock + shifts[main.room_id])
+        if main_bounds is None or not main_bounds[0] <= clock + shifts[main.room_id] <= main_bounds[1]:
+            self.late_buffer = LateBuffer()
+            self.late_notice.hide()
         if (self.offset_repositioning and secondary_edit and main_bounds
                 and main_bounds[0] <= clock + shifts[main.room_id] <= main_bounds[1] - .05):
             self.offset_repositioning = False
@@ -2286,8 +2305,47 @@ class Viewer(QDialog):
         self.sync_waiting = waiting
         self.locked_clock = recovered
         self.audio.correction += recovered - clock
-        self.playback_rate = self.safety_buffer.rate(now, bounds[1] - recovered - shifts[main.room_id])
+        ahead = bounds[1] - recovered - shifts[main.room_id]
+        self._update_late_buffer(now, recovered, shifts, ahead, bounds[1] - bounds[0] - .5)
+        self.playback_rate = self.safety_buffer.rate(now, ahead, minimum=self.late_buffer.floor)
+        if self.late_buffer.building:
+            self.playback_rate = min(self.playback_rate, .98)
         return recovered
+
+    def _update_late_buffer(self, now, clock, shifts, ahead, capacity):
+        if not self.alignment.automatic:
+            self.late_buffer = LateBuffer()
+            self.late_notice.hide()
+            return
+        deficits = {}
+        main = self.rows[self.alignment.reference]
+        if not self.sync_waiting and ahead >= .05 and main.sync_state == "已同步":
+            for key, row in self.rows.items():
+                trusted = row.match_confirmed or (row.user_confirmed and row.rematch_locally and not row.needs_epoch_samples)
+                if (key == main.room_id or row.paused or row.decoder is None or not trusted
+                        or row.reset_pending or key in self.independent_shifts
+                        or key not in self.alignment.lags):
+                    continue
+                arrival = getattr(row.decoder, 'last_frame_received', 0)
+                bounds = row.decoder.history.bounds()
+                if bounds is not None and (not arrival or 0 <= now - arrival <= 3):
+                    target = clock + shifts[main.room_id] + self.alignment.lags[key]
+                    deficits[key] = target - bounds[1]
+        self.late_buffer.update(now, ahead, capacity, deficits)
+        blocked = [self.rows[key].label() for key in self.rows if key in self.late_buffer.blocked]
+        if blocked:
+            text = f"{'、'.join(blocked)}过慢，请更换主画面"
+            detail = "该路持续晚到，超出平滑建立缓冲的能力；可将较晚的一路设为主画面，或移除该路。"
+        elif self.late_buffer.building:
+            names = [self.rows[key].label() for key in self.rows if key in self.late_buffer.rooms]
+            text = f"{'、'.join(names)}持续晚到，正在平滑增加主路缓冲"
+            detail = "主画面持续播放，以最多约 2% 的轻微降速积累共同缓冲，最长尝试 2 分钟。"
+        else:
+            text, detail = "", ""
+        self.late_notice.setVisible(bool(text))
+        if self.late_notice.text() != text:
+            self.late_notice.setText(text)
+            self.late_notice.setToolTip(detail)
 
     def _update_sync_health(self, clock, shifts):
         now = time.monotonic()
@@ -2950,6 +3008,8 @@ class Viewer(QDialog):
 
     def stop(self):
         self.analysis_serial += 1
+        self.late_buffer = LateBuffer()
+        self.late_notice.hide()
         self.matching = False
         if self.fullscreen_dialog is not None:
             self.fullscreen_dialog.close()
