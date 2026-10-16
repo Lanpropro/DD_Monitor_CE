@@ -54,6 +54,9 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
     isolation = ExitStack()
+    if app.platformName() == 'offscreen':
+        isolation.enter_context(patch('PySide6.QtGui.QScreen.availableGeometry',
+                                      return_value=QRect(0, 0, 1920, 1080)))
     for method in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                    'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                    'load_cached_covers', 'load_cached_avatars'):
