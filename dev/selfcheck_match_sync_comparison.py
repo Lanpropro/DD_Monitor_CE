@@ -53,6 +53,8 @@ def crop_check(app):
 
 def main():
     app = QApplication([])
+    # Match real startup: install the global theme before building video widgets.
+    theme.apply("dark")
     crop_check(app)
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root, \
             patch.object(module, "Decoder", FakeDecoder), patch.object(module, "Chat", FakeChat), \

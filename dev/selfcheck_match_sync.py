@@ -182,11 +182,11 @@ def package_and_ui_checks(app):
         assert manager.install_zip(str(archive)) == "match_sync"
         manager.load()
         assert len(manager.plugins) == 1
-        assert manager.catalog()[0]["version"] == "1.2.1"
-        notes = (REPO / "docs/releases/PLUGIN-match-sync-v1.2.1.md").read_text(encoding="utf-8")
+        assert manager.catalog()[0]["version"] == "1.2.2"
+        notes = (REPO / "docs/releases/PLUGIN-match-sync-v1.2.2.md").read_text(encoding="utf-8")
         installed_readme = (Path(root) / "plugins/match_sync/README.md").read_text(encoding="utf-8")
-        assert notes.startswith("# 比赛二路同步 v1.2.1\n")
-        assert installed_readme.endswith(notes.replace("# 比赛二路同步 v1.2.1", "## 1.2.1 缓存播放保持与可选确认"))
+        assert notes.startswith("# 比赛二路同步 v1.2.2\n")
+        assert installed_readme.endswith(notes.replace("# 比赛二路同步 v1.2.2", "## 1.2.2 晚到副路预览与延后加入说明"))
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,

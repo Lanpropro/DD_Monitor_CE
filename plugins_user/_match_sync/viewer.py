@@ -57,6 +57,8 @@ class Canvas(QFrame):
         self.frame_key = None
         self.frame = None
         self.missing_since = None
+        self.preview_only = False
+        self.preview_shift = None
         self.transparent_background = False
         self.presented = 0
         self.repeated = 0
@@ -362,12 +364,30 @@ class ComparisonPanel(QFrame):
             canvas.crop, canvas.zoom_crop = crop, zoom
             if not row.paused:
                 if room_id == reference:
+                    canvas.preview_only = False
+                    canvas.preview_shift = None
                     if self.viewer.canvas.frame is not None:
                         canvas.set_frame(self.viewer.canvas.frame)
                     waiting = self.viewer.canvas.waiting
                 else:
-                    frame = canvas.show_at(row.decoder, clock + shifts[room_id]) if row.decoder else None
-                    waiting = canvas.playback_waiting(row.decoder, clock + shifts[room_id], frame, self.viewer.sync_waiting)
+                    target = clock + shifts[room_id]
+                    bounds = row.decoder.history.bounds_at(target) if row.decoder else None
+                    canvas.preview_only = False
+                    if (self.viewer.alignment.automatic and row.match_confirmed and row.awaiting_confirmation and bounds is not None
+                            and not bounds[0] <= target <= bounds[1] - .05):
+                        latest = row.decoder.history.latest()
+                        preview_bounds = row.decoder.history.bounds_at(latest[0]) if latest else None
+                        if preview_bounds and preview_bounds[1] - preview_bounds[0] > .1:
+                            preview = clock + canvas.preview_shift if canvas.preview_shift is not None else None
+                            if preview is None or not preview_bounds[0] <= preview <= preview_bounds[1] - .05:
+                                reserve = min(self.viewer.safety_buffer.target, preview_bounds[1] - preview_bounds[0] - .05)
+                                canvas.preview_shift = preview_bounds[1] - reserve - clock
+                            target = clock + canvas.preview_shift
+                            canvas.preview_only = True
+                    if not canvas.preview_only:
+                        canvas.preview_shift = None
+                    frame = canvas.show_at(row.decoder, target) if row.decoder else None
+                    waiting = canvas.playback_waiting(row.decoder, target, frame, self.viewer.sync_waiting)
                 repaint |= canvas.waiting != waiting
                 canvas.waiting = waiting
             row.actual_position = canvas.frame_key
@@ -381,7 +401,12 @@ class ComparisonPanel(QFrame):
                     position = "画面时间差尚未确认"
                 elif not self.viewer.alignment.automatic:
                     position = f"设置偏移 {row.delay.value() - self.viewer.rows[reference].delay.value():+.2f} 秒"
-            text = f"{position} · {'已暂停' if row.paused else '等待播放缓存' if canvas.waiting else row.playback_status()}"
+            if canvas.preview_only:
+                position = "同步目标超出当前缓存；正在独立预览，尚未与主画面对齐"
+                playback = "已暂停" if row.paused else "正在准备预览画面" if canvas.waiting else "缓存预览播放中（本路静音）"
+            else:
+                playback = "已暂停" if row.paused else "等待播放缓存" if canvas.waiting else row.playback_status()
+            text = f"{position} · {playback}"
             if state.text() != text:
                 state.setText(text)
 
@@ -463,6 +488,7 @@ class RoomRow(QFrame):
         self.awaiting_confirmation = False
         self.next_analysis = 0.0
         self.reset_pending = False
+        self.needs_epoch_samples = False
         room = next((item for item in getattr(viewer.context.window, "rooms", [])
                      if str(item.get("room_id") or "") == room_id), {})
         self.title = room.get("title") or (viewer.sources.get(room_id) or {}).get("title") or ""
@@ -1868,6 +1894,7 @@ class Viewer(QDialog):
         row.awaiting_confirmation = False
         row.review_alignment = False
         row.reset_pending = False
+        row.needs_epoch_samples = row.user_confirmed
         row.match_failures = 0
         row.alignment_started = time.monotonic()
         row.recheck_alignment = False
@@ -1956,6 +1983,7 @@ class Viewer(QDialog):
                 row.reset_pending = True
                 return
             row.reset_pending = False
+            row.needs_epoch_samples = row.user_confirmed
             row.was_isolated = True
             row.match_confirmed = False
             row.mix_gain = 0
@@ -1968,6 +1996,7 @@ class Viewer(QDialog):
                 self._queue_rematch(row)
             if row.room_id == self.alignment.reference:
                 for peer in self.rows.values():
+                    peer.needs_epoch_samples = peer.user_confirmed
                     peer.match_confirmed = False
                     peer.match_failures = 0
                     peer.alignment_started = time.monotonic()
@@ -2118,10 +2147,13 @@ class Viewer(QDialog):
             row.join.setVisible(joining or confirming or reviewing)
             if confirming:
                 row.join.setText("确认微调并持续同步" if not self.alignment.automatic else
-                                 f"确认对齐并延后约 {needed:.1f} 秒加入" if needed > .3 else "确认对齐并加入")
-                row.join.setToolTip("先用对照画面检查偏移；确认后本路加入声音，后续短时缓冲自动复核恢复。")
+                                 f"延后主画面约 {needed:.1f} 秒并加入" if needed > .3 else "确认对齐并加入")
+                row.join.setToolTip("该操作会延后主画面及已同步各路，为本路补足播放缓存后加入声音；不是仅确认现有偏移。"
+                                    if self.alignment.automatic and needed > .3 else
+                                    "先用对照画面检查偏移；确认后本路加入声音，后续短时缓冲自动复核恢复。")
             elif joining:
-                row.join.setText(f"延后约 {needed:.1f} 秒并加入")
+                row.join.setText(f"延后主画面约 {needed:.1f} 秒并加入")
+                row.join.setToolTip("该操作会延后主画面及已同步各路，为本路补足播放缓存后加入声音。")
             elif reviewing:
                 row.join.setText("确认当前偏移（可选）" if self.alignment.automatic else "确认微调并持续同步")
                 row.join.setToolTip("当前继续播放；不点击不会撤销偏移或反复重新对齐。确认用于加强当前偏移的依据，不改变播放进度。")
@@ -2188,6 +2220,12 @@ class Viewer(QDialog):
             return
         reserve = .3 if keep_main else self.safety_buffer.target
         delay = max(0, clock + shifts[room_id] - bounds[1] + reserve)
+        if row.needs_epoch_samples and clock + shifts[room_id] - delay < bounds[0]:
+            self._queue_rematch(row)
+            self.generation += 1
+            row.match_text = "候选偏移对应的内容早于副路缓存，继续重新匹配"
+            row.refresh_status()
+            return False
         if keep_main and delay > .05:
             row.match_text = "副路晚到超出当前缓存；已静音，主画面继续播放，可确认延后并加入"
             row.refresh_status()
@@ -2204,6 +2242,7 @@ class Viewer(QDialog):
             self.rematch_rooms.discard(room_id)
             self.rematch_admit.discard(room_id)
             row.rematch_locally = False
+        row.needs_epoch_samples = False
         self.stable_reference_shift = shifts[main.room_id] - delay
         self.rendered_shifts.clear()
         self.shift_reference = None
@@ -2371,6 +2410,7 @@ class Viewer(QDialog):
                            if value.match_confirmed and value.sync_state == "已同步"}
         tracking_rooms = {key for key, value in self.rows.items()
                           if value.match_confirmed and key in known and key not in self.rematch_rooms}
+        reacquiring_rooms = {key for key, value in self.rows.items() if value.needs_epoch_samples}
         focused_rooms = {key for key, value in self.rows.items() if tuple(value.crop) != (0, 0, 1, 1)}
         reference_id = row.room_id
         clock, shifts = self.audio.clock(), self.shifts()
@@ -2378,10 +2418,13 @@ class Viewer(QDialog):
         has_picture = self.canvas.frame_key is not None
         if has_picture:
             positions[reference_id] = self.canvas.frame_key
+        preview_rooms = set()
         for key in self.comparison_panel.shown_rooms if self.compare.isChecked() else ():
-            frame = self.comparison_panel.cards[key][2].frame_key
-            if frame is not None:
-                positions[key] = frame
+            canvas = self.comparison_panel.cards[key][2]
+            if canvas.preview_only:
+                preview_rooms.add(key)
+            elif canvas.frame_key is not None:
+                positions[key] = canvas.frame_key
         epoch, bridge = self.generation, self.results
         self.analysis_serial += 1
         serial = self.analysis_serial
@@ -2407,7 +2450,7 @@ class Viewer(QDialog):
                         candidate = Match(known[key], .9, "复核已确认偏移")
                     if not candidate.refined:
                         candidate = refine_match(candidate, reference_details, other_details, focused=focused)
-                    if candidate.lag is not None and key in known and has_picture:
+                    if candidate.lag is not None and key in known and has_picture and key not in preview_rooms:
                         shown_reference = [s for s in details[reference_id] if s.time <= positions[reference_id]]
                         shown_other = [s for s in details[key] if s.time <= positions[key]]
                         verified = refine_match(Match(known[key], .9, "播放进度复核"), shown_reference, shown_other, focused=focused)
@@ -2426,6 +2469,10 @@ class Viewer(QDialog):
                             candidate = Match(None, 0, "三路共同动态画面不足，继续复核已确认偏移")
                         elif check.lag is not None and abs(check.lag - (candidate.lag - known[peer])) > .2:
                             candidate = Match(None, 0, "三路时间差不一致，保持已确认偏移")
+                if (key in reacquiring_rooms and candidate.refined and reference_details and other_details
+                        and min(reference_details[-1].time - reference_details[0].time,
+                                other_details[-1].time - other_details[0].time) < 4):
+                    candidate = Match(None, 0, "恢复精校正需要连续至少 4 秒比赛画面，继续收集")
                 results[key] = candidate
             return results
 
@@ -2455,8 +2502,19 @@ class Viewer(QDialog):
                 row.refresh_status()
                 continue
             if match.lag is not None and match.confidence >= .65 and abs(match.lag) > 15:
-                self._block_alignment(room_id, "偏差超过 15 秒，暂不自动对齐；各路独立播放")
-                continue
+                previous, count = self.alignment.candidates.get(room_id, (match.lag, 0))
+                count = count + 1 if match.refined and abs(previous) > 15 and abs(previous - match.lag) <= .15 else int(match.refined)
+                self.alignment.candidates[room_id] = (match.lag, count)
+                if count < 2:
+                    row.match_text = "候选偏差超过 15 秒，尚未通过连续精校验；保持当前播放，后台复核"
+                    row.next_analysis = time.monotonic() + 2
+                    row.refresh_status()
+                    continue
+                if not (row.needs_epoch_samples and row.user_confirmed):
+                    self._block_alignment(room_id, "偏差超过 15 秒，暂不自动对齐；各路独立播放")
+                    continue
+                # A verified decoder epoch change can move the timestamp offset
+                # beyond 15s. Admission still checks actual cache and main delay.
             main = self.rows.get(self.alignment.reference)
             if match.lag is not None and match.confidence >= .65 and main is not None and main.decoder is not None and row.decoder is not None:
                 main_bounds, other_bounds = main.decoder.history.bounds(), row.decoder.history.bounds()
@@ -2527,7 +2585,7 @@ class Viewer(QDialog):
                                 self.rematch_admit.discard(room_id)
                                 row.rematch_locally = False
                             else:
-                                row.rematch_locally = True
+                                row.rematch_locally = row.match_confirmed
                                 continue
                     verified = match.playback_error is not None and abs(match.playback_error) <= .15
                     status = "播放进度已复核" if applied and verified else "已应用精校正，待复核" if applied else "正在确认精校正"

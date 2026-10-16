@@ -58,6 +58,13 @@ def main():
             peer.match_confirmed = peer.user_confirmed = True
             viewer.render()
             before = viewer.shifts()
+            for _ in range(3):
+                viewer._matched(viewer.generation, {'2': Match(26, 1, 'coarse outlier')})
+            viewer.alignment.candidates['2'] = (14.95, 5)
+            viewer._matched(viewer.generation, {'2': Match(15.05, 1, 'first over-limit result', refined=True)})
+            viewer._matched(viewer.generation, {'2': Match(26, 1, 'single fine outlier', refined=True)})
+            viewer.render()
+            assert viewer.shifts() == before and row.mix_gain == 1 and '2' not in viewer.independent_shifts
             # This previously jumps to the live edge and mutes after three failures.
             for tick in range(100):
                 now[0] += .5

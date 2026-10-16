@@ -142,7 +142,8 @@ def main():
             # Excessive lag never reaches Alignment.accept or moves the primary.
             before=viewer.shifts()['1']
             with patch.object(viewer.alignment,'accept',wraps=viewer.alignment.accept) as accept:
-                viewer._matched(viewer.generation,{'2':Match(26,1,'too far',refined=True)})
+                for _ in range(2):
+                    viewer._matched(viewer.generation,{'2':Match(26,1,'too far',refined=True)})
                 accept.assert_not_called()
             for step in (0,.25,.55,.8):
                 now[0]=120+step
@@ -173,7 +174,8 @@ def main():
             before_auto = viewer.shifts()['1']
             viewer.automatic.setChecked(True)
             assert '2' in viewer.rematch_rooms and '2' not in viewer.independent_shifts
-            viewer._matched(viewer.generation, {'2':Match(26,1,'fresh excessive lag',refined=True)})
+            for _ in range(2):
+                viewer._matched(viewer.generation, {'2':Match(26,1,'fresh excessive lag',refined=True)})
             assert '2' in viewer.independent_shifts
             assert viewer.shifts()['1'] == before_auto, 'Oversized auto enable must retain valid main progress'
             assert not viewer.sync_waiting
