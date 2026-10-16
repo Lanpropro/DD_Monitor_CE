@@ -49,6 +49,7 @@
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
 - `docs/releases/RELEASE-v0.3.1.md`
+- `docs/releases/RELEASE-v0.4.md`
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/repository-cleanup-review.md`
 - `docs/repository-map.md`
@@ -91,6 +92,7 @@
 - `dev/selfcheck_appearance_design.py`
 - `dev/selfcheck_appearance_playback.py`
 - `dev/selfcheck_audio_cycle_shortcut.py`
+- `dev/selfcheck_audio_audit.py`
 - `dev/selfcheck_audio_hotplug.py`
 - `dev/selfcheck_audio_isolation.py`
 - `dev/selfcheck_audio_owner.py`
@@ -118,6 +120,7 @@
 - `dev/selfcheck_cover_cache.py`
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
+- `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_button.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
