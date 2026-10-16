@@ -6,6 +6,7 @@ CDN 地址统一从 https 改成 http：随程序打包的 VLC 插件集里没�
 import hashlib
 import json
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -32,6 +33,8 @@ SESSION_DATA = ""
 BILI_JCT = ""
 _UID_CACHE: dict = {"uid": None}
 _WBI_CACHE: dict = {"key": "", "expires": 0.0}
+_BUVID3 = ""
+_BUVID3_LOCK = threading.Lock()
 _WBI_KEY_INDEX = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
     27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
@@ -106,13 +109,30 @@ def send_danmaku(room_id: str, message: str, *, dm_type: int = 0, cookies=None) 
     return result
 
 
+def _emoticon_buvid3() -> str:
+    """表情接口缺少设备 Cookie 时会静默省略小表情和装扮表情。"""
+    global _BUVID3
+    with _BUVID3_LOCK:
+        if not _BUVID3:
+            result = _danmaku_result(requests.get(
+                "https://api.bilibili.com/x/frontend/finger/spi", headers=HEADERS, timeout=10))
+            value = (result.get("data") or {}).get("b_3")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("获取表情所需的 buvid3 失败，请刷新后重试")
+            _BUVID3 = value.strip()
+        return _BUVID3
+
+
 def get_emoticons(room_id: str, *, cookies=None) -> list[dict]:
     """保留表情包类型、完整标识及逐项权限，交给选择器按类型处理。"""
     real_id = _sending_room_id(room_id)
+    cookies = dict(_cookies() if cookies is None else cookies)
+    if not cookies.get("buvid3"):
+        cookies["buvid3"] = _emoticon_buvid3()
     result = _danmaku_result(requests.get(
         "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
         params={"platform": "pc", "room_id": real_id}, headers=HEADERS,
-        cookies=dict(_cookies() if cookies is None else cookies), timeout=10))
+        cookies=cookies, timeout=10))
     packages = (result.get("data") or {}).get("data")
     if not isinstance(packages, list):
         raise ValueError("表情列表格式异常，请重试")
