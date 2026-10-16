@@ -111,7 +111,7 @@ def main():
                 if step < .5:
                     assert viewer.rows["2"].mix_gain == 0
             assert viewer.rows["2"].sync_state == "已同步" and viewer.rows["2"].mix_gain == 1
-            assert not viewer.rows["3"].join.isHidden()
+            assert viewer.rows["3"].join.isHidden(), "Late feed cannot offer an action that delays the main"
             before_manual = viewer.canvas.frame_key
             viewer.rows["2"].delay.setValue(.1)
             assert viewer.canvas.frame_key == before_manual and viewer.rows["3"].mix_gain == 0
@@ -121,9 +121,9 @@ def main():
             viewer.stable_reference_shift = -3
             viewer.render()
             before_join = viewer.shifts()
-            viewer.admit_pending("3")
-            assert viewer.rows["3"].sync_state == "已同步"
-            assert viewer.shifts()["1"] < before_join["1"]
+            assert viewer.admit_pending("3") is False
+            assert viewer.rows["3"].mix_gain == 0
+            assert viewer.shifts() == before_join
             viewer.admitted_rooms.clear()
             viewer._smooth_shifts({"1": -3, "2": -3, "3": -3})
             now[0] += .05

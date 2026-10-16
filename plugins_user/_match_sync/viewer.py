@@ -2138,22 +2138,13 @@ class Viewer(QDialog):
                 self.safety_buffer.observe(key, arrival, getattr(decoder, "fps", 30))
             else:
                 self.safety_buffer.arrivals.pop(key, None)
-            needed = max(0, target - bounds[1] + self.safety_buffer.target) if bounds is not None else 0
-            joining = (self.alignment.automatic and key != self.alignment.reference and known
-                       and key not in self.independent_shifts
-                       and fresh and not row.paused and needed > .3 and row.sync_state != "已同步")
             confirming = key != self.alignment.reference and row.awaiting_confirmation and row.match_confirmed
             reviewing = key != self.alignment.reference and row.review_alignment and row.match_confirmed
-            row.join.setVisible(joining or confirming or reviewing)
+            row.join.setVisible(confirming or reviewing)
             if confirming:
                 row.join.setText("确认微调并持续同步" if not self.alignment.automatic else
-                                 f"延后主画面约 {needed:.1f} 秒并加入" if needed > .3 else "确认对齐并加入")
-                row.join.setToolTip("该操作会延后主画面及已同步各路，为本路补足播放缓存后加入声音；不是仅确认现有偏移。"
-                                    if self.alignment.automatic and needed > .3 else
-                                    "先用对照画面检查偏移；确认后本路加入声音，后续短时缓冲自动复核恢复。")
-            elif joining:
-                row.join.setText(f"延后主画面约 {needed:.1f} 秒并加入")
-                row.join.setToolTip("该操作会延后主画面及已同步各路，为本路补足播放缓存后加入声音。")
+                                 "确认当前偏移" if not available else "确认对齐并加入")
+                row.join.setToolTip("仅记录偏移，不改变主画面或副路播放进度；缺少同步内容时本路继续静音等待，缓存覆盖后自动加入。")
             elif reviewing:
                 row.join.setText("确认当前偏移（可选）" if self.alignment.automatic else "确认微调并持续同步")
                 row.join.setToolTip("当前继续播放；不点击不会撤销偏移或反复重新对齐。确认用于加强当前偏移的依据，不改变播放进度。")
@@ -2208,32 +2199,22 @@ class Viewer(QDialog):
             self.admit_pending(room_id)
         self.changed()
 
-    def admit_pending(self, room_id, keep_main=False):
+    def admit_pending(self, room_id, automatic=False):
         row = self.rows.get(room_id)
         main = self.rows.get(self.alignment.reference)
         if (row is None or main is None or row.decoder is None or main.decoder is None
                 or not self.alignment.automatic or room_id not in self.alignment.lags or row.paused):
             return
         clock, shifts = self.audio.clock(), self.shifts()
-        bounds, main_bounds = row.decoder.history.bounds(), main.decoder.history.bounds()
-        if bounds is None or main_bounds is None:
-            return
-        reserve = .3 if keep_main else self.safety_buffer.target
-        delay = max(0, clock + shifts[room_id] - bounds[1] + reserve)
-        if row.needs_epoch_samples and clock + shifts[room_id] - delay < bounds[0]:
+        target = clock + shifts[room_id]
+        bounds = row.decoder.history.bounds_at(target)
+        if row.needs_epoch_samples and bounds is not None and target < bounds[0]:
             self._queue_rematch(row)
             self.generation += 1
             row.match_text = "候选偏移对应的内容早于副路缓存，继续重新匹配"
             row.refresh_status()
             return False
-        if keep_main and delay > .05:
-            row.match_text = "副路晚到超出当前缓存；已静音，主画面继续播放，可确认延后并加入"
-            row.refresh_status()
-            return False
-        if clock + shifts[main.room_id] - delay < main_bounds[0]:
-            self.notice.setText("主画面还没有足够历史缓存；请稍后再加入这一路")
-            return
-        if not keep_main:
+        if not automatic:
             row.user_confirmed = True
             row.user_confirmed_lag = self.alignment.lags[room_id]
             row.review_alignment = False
@@ -2242,10 +2223,17 @@ class Viewer(QDialog):
             self.rematch_rooms.discard(room_id)
             self.rematch_admit.discard(room_id)
             row.rematch_locally = False
+            self.analysis_serial += 1
+            self.matching = False
+        if bounds is None or not bounds[0] <= target <= bounds[1] - .05:
+            row.match_text = ("副路晚到，当前主画面进度尚无对应内容；本路静音，主画面继续播放"
+                              if bounds is not None and target > bounds[1] else
+                              "当前主画面进度对应的副路内容不在连续缓存内；本路静音等待复核")
+            row.mix_gain = 0.0
+            row.refresh_status()
+            self.render()
+            return False
         row.needs_epoch_samples = False
-        self.stable_reference_shift = shifts[main.room_id] - delay
-        self.rendered_shifts.clear()
-        self.shift_reference = None
         self.generation += 1
         self.render()
         return True
@@ -2580,7 +2568,7 @@ class Viewer(QDialog):
                             if room_id in self.rematch_admit:
                                 self.rendered_shifts.clear()
                                 self.shift_reference = None
-                            if room_id not in self.rematch_admit or self.admit_pending(room_id, keep_main=True):
+                            if room_id not in self.rematch_admit or self.admit_pending(room_id, automatic=True):
                                 self.rematch_rooms.discard(room_id)
                                 self.rematch_admit.discard(room_id)
                                 row.rematch_locally = False

@@ -149,9 +149,9 @@ def main():
             row.match_confirmed = True
             before_main = viewer.shifts()['1']
             viewer.render()
-            assert row.join.text().startswith('延后'), (row.join.text(), row.sync_state, viewer.shifts())
+            assert row.join.text() == '确认当前偏移（可选）'
             row.join.click()
-            assert viewer.shifts()['1'] < before_main and not row.review_alignment
+            assert viewer.shifts()['1'] == before_main and not row.review_alignment and row.mix_gain == 0
             # Prior human approval cannot bypass actual playback verification
             # after a decoder timebase reset and a fresh acquisition.
             viewer._queue_rematch(row)

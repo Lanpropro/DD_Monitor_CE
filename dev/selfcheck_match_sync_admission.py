@@ -1,4 +1,4 @@
-"""A late source previews real cached content; only explicit admission delays the main."""
+"""A late source previews real cached content; admission never delays the main."""
 import os
 from pathlib import Path
 import sys
@@ -50,8 +50,8 @@ def main():
             row = viewer.rows['2']
             canvas, state = viewer.comparison_panel.cards['2'][2:]
             assert row.awaiting_confirmation and row.mix_gain == 0
-            assert row.join.text().startswith('延后主画面约') and '确认对齐' not in row.join.text()
-            assert '不是仅确认' in row.join.toolTip()
+            assert row.join.text() == '确认当前偏移'
+            assert '不改变主画面' in row.join.toolTip()
             assert canvas.preview_only and not canvas.waiting
             assert '独立预览' in state.text() and '尚未与主画面对齐' in state.text()
             assert viewer.shifts()['1'] == main_shift
@@ -83,13 +83,24 @@ def main():
                 assert row.mix_gain == 0 and viewer.shifts()['1'] == main_shift
                 previous = canvas.frame_key
             assert canvas.frame_key - start >= 1.8, 'Preview must advance even while the required synchronized target is unavailable'
-            before = viewer.audio.clock() + viewer.shifts()['1']
+            clock, fixed_shifts = viewer.audio.clock(), viewer.shifts()
             row.join.click()
+            assert viewer.audio.clock() == clock and viewer.shifts() == fixed_shifts
+            assert row.user_confirmed and not row.awaiting_confirmation and row.mix_gain == 0
+            assert '副路晚到' in row.match_text and '2' not in viewer.admitted_rooms
+            # A sustained late feed does not become playable by confirming it.
+            for _ in range(5):
+                assert viewer.admit_pending('2') is False
+                assert viewer.shifts() == fixed_shifts and viewer.audio.clock() == clock
+            # New content can cover the fixed target without changing either clock.
+            for stamp in range(118 * 20, 136 * 20):
+                row.decoder.history.append(stamp / 20, image)
+            assert viewer.admit_pending('2')
+            assert viewer.audio.clock() == clock and viewer.shifts() == fixed_shifts
             now[0] += .6
             viewer.render()
             assert not canvas.preview_only and not canvas.waiting
-            assert row.user_confirmed and row.match_confirmed and row.mix_gain == 1
-            assert viewer.audio.clock() + viewer.shifts()['1'] < before - 10
+            assert row.match_confirmed and row.mix_gain == 1
             assert abs(row.actual_position - viewer.rows['1'].actual_position - 11.2) < .06
             # Later optional confirmation is a different action and must never
             # incur the initial safety-reserve delay again.
@@ -101,6 +112,16 @@ def main():
             clock, shifts = viewer.audio.clock(), viewer.shifts()
             row.join.click()
             assert viewer.audio.clock() == clock and viewer.shifts() == shifts and viewer.shifts()['1'] == main_shift
+            # Even a small valid headroom must not trigger reserve replenishment.
+            target = clock + shifts['2']
+            with patch.object(row.decoder.history, 'bounds_at', return_value=(target - 20, target + .1)):
+                assert viewer.admit_pending('2')
+                assert viewer.audio.clock() == clock and viewer.shifts() == shifts
+            # An overall history span cannot make a timestamp gap playable.
+            with patch.object(row.decoder.history, 'bounds_at', return_value=(target + 1, target + 2)):
+                assert viewer.admit_pending('2') is False
+                assert row.mix_gain == 0 and viewer.shifts() == shifts
+            row.recheck_alignment = False
             viewer._queue_rematch(row)
             row.needs_epoch_samples = True
             for key in ('1', '2'):
@@ -116,10 +137,11 @@ def main():
             # A join cannot be made valid by delaying the main if the requested
             # secondary timestamp is already older than its earliest cached frame.
             saved_frames = row.decoder.history.frames
-            row.decoder.history.frames = deque((now[0] + n, image) for n in range(10))
+            target = viewer.audio.clock() + viewer.shifts()['2']
+            row.decoder.history.frames = deque((target + 1 + n, image) for n in range(10))
             row.match_confirmed = True
             before = viewer.shifts()['1']
-            assert viewer.admit_pending('2', keep_main=True) is False
+            assert viewer.admit_pending('2', automatic=True) is False
             assert not row.match_confirmed and not row.rematch_locally and '2' in viewer.rematch_rooms
             assert viewer.shifts()['1'] == before
             row.decoder.history.frames = saved_frames
@@ -156,7 +178,7 @@ def main():
             viewer.close()
             host.close()
             app.processEvents()
-    print('PASS: advancing cached preview before late admission, truthful unsynced labels, explicit main delay and optional confirmation without seeking')
+    print('PASS: advancing cached preview before late admission, truthful unsynced labels, fixed main through late admission, cache recovery and optional confirmation without seeking')
 
 
 if __name__ == '__main__':
