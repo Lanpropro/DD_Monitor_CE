@@ -13,17 +13,17 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.3.1'
-    notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.3.1.md').read_text(encoding='utf-8')
-    assert notes.index('更新提示：') < notes.index('## 0.3.1 小版本更新') < notes.index('## 此前更新内容')
-    assert '该问题已在 0.3.1 修复' in notes
-    assert '自动重试最多三次' in notes
-    assert '## 本地待发布改动（2026-10-15）' in notes
-    assert '0.4（未发布）' in notes and '不属于已发布的 0.3.1 内容' in notes
+    assert version.VERSION == '0.4'
+    notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
+    assert notes.startswith('# DD监控室CE v0.4 更新说明')
+    for feature in ('直播间组合', '恢复默认', 'Unicode emoji', 'PCM', 'DD监控室CE.exe'):
+        assert feature in notes, feature
+    assert '0.4（未发布）' not in notes
     assert '[Milkyway-66](https://github.com/Milkyway-66)' in notes
     assert 'https://github.com/Lanpropro/DD_Monitor_CE/pull/6' in notes
     assert 'https://github.com/Lanpropro/DD_Monitor_CE/pull/7' in notes
-    assert '我们修改后的版本' in notes and '当前仅保留本地' in notes
+    assert '[Soraray](https://github.com/Soraray)' in notes
+    assert '维护者修改后的版本' in notes
 
     with tempfile.TemporaryDirectory(prefix='ddm-catalog-test-') as temporary:
         archive = Path(temporary) / 'global_live-1.2.zip'
@@ -49,6 +49,8 @@ def main():
     assert 'if ($rel -like "videos/*") { continue }' in source
     assert 'if ($rel -like "dev/*promo*"' in source
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
+    assert 'Get-ChildItem (Join-Path $repo "utils")' not in source
+    assert 'if ($rel -like "utils/*") { continue }' in source
     assert 'user_notice_accepted = $true' in source
     assert 'if ($version -eq "v0.3.1")' in source
     assert '$exeDir = Join-Path $OutDir $display' in source

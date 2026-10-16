@@ -48,7 +48,7 @@ assert f"{DISPLAY_NAME}.exe" in (exe / "运行说明.txt").read_text(encoding="u
 for folder in (source, exe):
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
-    assert not (folder / "utils" / "config.json").exists(), "发布包包含个人配置"
+    assert not (folder / "utils").exists() or not any((folder / "utils").iterdir()), "发布包包含本机运行数据或背景素材"
     assert not (folder / "logs").exists(), "发布包包含运行日志"
     assert not any((folder / "plugins_user").iterdir()), "发布包包含本地用户插件"
     assert not (folder / "utils" / "accounts").exists(), "发布包包含登录数据"

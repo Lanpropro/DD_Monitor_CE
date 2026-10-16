@@ -73,6 +73,7 @@ if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件
 foreach ($rel in $tracked) {
     if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
     if ($rel -like "plugins_user/*") { continue }
+    if ($rel -like "utils/*") { continue }
     if ($rel -like "videos/*") { continue }
     if ($rel -like "dev/*promo*" -or $rel -like "dev/*highlight*" -or $rel -like "dev/*videotogether*" -or $rel -like "docs/*VIDEO*" -or $rel -like "docs/*PROMO*" -or $rel -like "HANDOFF-*") { continue }
     $src = Join-Path $repo ($rel -replace "/", "\")
@@ -95,12 +96,8 @@ foreach ($file in @("libvlc.dll", "libvlccore.dll")) {
 robocopy (Join-Path $repo "plugins") (Join-Path $app "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
 # 用户插件目录：直播平台扩展由独立插件仓库发布。
 New-Item -ItemType Directory -Force -Path (Join-Path $app "plugins_user") | Out-Null
-# utils 目录只要代码；配置和加密登录状态是用户数据，不带
+# utils is runtime user data; release packages start with an empty directory.
 New-Item -ItemType Directory -Force -Path (Join-Path $app "utils") | Out-Null
-foreach ($item in Get-ChildItem (Join-Path $repo "utils") -Force -ErrorAction SilentlyContinue) {
-    if ($item.Name -like "config.json*" -or $item.Name -in @("__pycache__", "accounts")) { continue }
-    Copy-Item $item.FullName (Join-Path $app "utils") -Force -Recurse
-}
 
 # ---- 3) 运行说明 ----
 $readme = @"
