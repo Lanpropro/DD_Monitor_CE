@@ -5854,10 +5854,6 @@ class Tile(QFrame):
         bottom_layout.addWidget(self._composer_gap_left, 1)
         self.composer = DanmakuComposer(self.bottom)
         self.composer.set_room(room.get("room_id"))
-        self._composer_expanded = False
-        self._composer_max_width = self.COMPOSER_MAX_WIDTH
-        self._composer_anim = None
-        self.composer.edit.installEventFilter(self)
         bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self._composer_gap_right, 1)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
@@ -5908,11 +5904,6 @@ class Tile(QFrame):
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
         self.composer.set_room(self.room.get("room_id"))
-        self._composer_expanded = False                     # 换房间回到收起态
-        anim = getattr(self, "_composer_anim", None)
-        if anim is not None:
-            anim.stop()
-            self._composer_anim = None
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -5976,11 +5967,8 @@ class Tile(QFrame):
     COMPOSER_MIN_WIDTH = 72
     """输入区至少要有这么宽（表情按钮 + 几字宽的输入框），不够就不显示。"""
 
-    COMPOSER_MAX_WIDTH = 340
-    """输入框在宽格子里也限宽：1+5 的主画面不该被一整条输入框铺满。"""
-
-    COMPOSER_COLLAPSED_WIDTH = 200
-    """大格子默认收起成这么宽，点一下才展开成完整输入框。"""
+    COMPOSER_MAX_WIDTH = 520
+    """大格子的输入框可以拉得比较长，但不铺满整条底栏。"""
 
     @property
     def _composer_shown(self) -> bool:
@@ -5990,64 +5978,6 @@ class Tile(QFrame):
 
     def _sync_composer_visibility(self) -> None:
         self.composer.setVisible(self._composer_shown)
-
-    def eventFilter(self, watched, event) -> bool:
-        """输入框拿到/失去焦点时展开或收起（大格子用，带动效）。"""
-        if watched is getattr(self.composer, "edit", None):
-            if event.type() == QEvent.FocusIn:
-                self._set_composer_expanded(True)
-            elif event.type() == QEvent.FocusOut and not self.composer.edit.text().strip():
-                self._set_composer_expanded(False)
-        return super().eventFilter(watched, event)
-
-    def _set_composer_expanded(self, expanded: bool) -> None:
-        if expanded == getattr(self, "_composer_expanded", False):
-            return
-        self._composer_expanded = expanded
-        self._update_composer_placeholder()
-        if not self.composer.isVisible():
-            return
-        limit = getattr(self, "_composer_max_width", self.COMPOSER_MAX_WIDTH)
-        if limit < self.COMPOSER_COLLAPSED_WIDTH + 40:
-            return                  # 本来就放不下更长的，一直保持满宽
-        target = limit if expanded else min(self.COMPOSER_COLLAPSED_WIDTH, limit)
-        self._animate_composer_width(target)
-
-    def _update_composer_placeholder(self) -> None:
-        """收起时用短提示，展开时提示可以按 Enter 发送。"""
-        collapsed = (not getattr(self, "_composer_expanded", False)
-                     and getattr(self, "_composer_max_width", 0)
-                     >= self.COMPOSER_COLLAPSED_WIDTH + 40)
-        self.composer.edit.setPlaceholderText(
-            "发个友善的弹幕" if collapsed else "输入弹幕，Enter 发送")
-
-    def _animate_composer_width(self, target: int) -> None:
-        start = self.composer.width()
-        if start == target:
-            return
-        previous = getattr(self, "_composer_anim", None)
-        if previous is not None:
-            previous.stop()
-        anim = QVariantAnimation(self)
-        anim.setStartValue(float(start))
-        anim.setEndValue(float(target))
-        anim.setDuration(170 if target > start else 140)
-        anim.setEasingCurve(QEasingCurve.OutCubic if target > start else QEasingCurve.InCubic)
-
-        def frame(value):
-            self.composer.setFixedWidth(int(value))
-            self.composer.layout().activate()
-            self.bottom.layout().activate()
-            self._recenter_composer()
-
-        anim.valueChanged.connect(frame)
-        anim.finished.connect(self._composer_animation_finished)
-        self._composer_anim = anim
-        anim.start(QAbstractAnimation.DeleteWhenStopped)
-
-    def _composer_animation_finished(self) -> None:
-        self._composer_anim = None
-        self._layout_bottom_controls()
 
     def _recenter_composer(self) -> None:
         """按实际位置把输入区挪到底栏正中（左右空白一增一减）。"""
@@ -6098,7 +6028,10 @@ class Tile(QFrame):
         # 底栏里除了上面这些，还有音量滑条、状态文字和输入区三个位置
         slots = len(visible) + 3
         available = width - fixed - margin * 2 - spacing * (slots - 1)
-        status_reserve = min(120, max(40, self.status_label.sizeHint().width()))
+        # 状态文字固定占一小段宽度（不随文字长度变化），否则状态一刷新，
+        # 输入区会跟着左右挪一格（用户报的「鼠标移到格子边会重定位」）。
+        status_width = 96 if width >= 700 else 64
+        status_reserve = status_width
         composing = (self._composer_shown
                      and available >= self.COMPOSER_MIN_WIDTH + 18 + status_reserve + 2 * spacing)
         self.composer.setVisible(composing)
@@ -6109,27 +6042,17 @@ class Tile(QFrame):
         else:
             available += spacing         # 少一个控件，就少一段间距
         if composing:
-            # 输入框限宽：主画面最多 340px，窄画面按剩余宽度收缩；两侧空白等分，
-            # 让输入区在底栏里居中，右侧按钮仍贴着底栏右缘。
-            composer_max = max(self.COMPOSER_MIN_WIDTH,
-                               min(self.COMPOSER_MAX_WIDTH,
-                                   available - 18 - status_reserve))
-            self._composer_max_width = composer_max
-            composer_width = composer_max
-            animating = (getattr(self, "_composer_anim", None) is not None
-                         and self._composer_anim.state() == QAbstractAnimation.Running)
-            if animating:
-                composer_width = self.composer.width()     # 动画期间由动画决定宽度
-            elif (composer_max >= self.COMPOSER_COLLAPSED_WIDTH + 40
-                  and not getattr(self, "_composer_expanded", False)):
-                composer_width = self.COMPOSER_COLLAPSED_WIDTH
+            # 大格子把输入框拉长，但不超过底栏宽度的一半左右；剩下的宽度留给
+            # 两侧空白居中（滑条在 1000px 以下保持最小宽度，把空间让给居中）。
+            composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
+            composer_width = max(self.COMPOSER_MIN_WIDTH,
+                                 min(composer_cap, available - 18 - status_reserve))
             self.composer.setFixedWidth(composer_width)
             self.composer.layout().activate()
-            slider_space = available - composer_max - status_reserve
+            slider_cap = 18 if width < 1000 else min(86, 18 + (width - 1000) // 5)
+            slider_space = min(available - composer_width - status_reserve, slider_cap)
             self.status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-            # 状态文字固定占一小段宽度（不随文字长度变化），否则状态一刷新，
-            # 输入区会跟着左右挪一格（用户报的「鼠标移到格子边会重定位」）。
-            self.status_label.setFixedWidth(96 if width >= 700 else 64)
+            self.status_label.setFixedWidth(status_width)
         else:
             self.composer.setMinimumWidth(0)
             slider_space = available
@@ -6147,7 +6070,6 @@ class Tile(QFrame):
         layout.activate()
         if composing:
             self._recenter_composer()
-        self._update_composer_placeholder()
 
     def set_recording_state(self, state: str) -> None:
         self._recording_state = state

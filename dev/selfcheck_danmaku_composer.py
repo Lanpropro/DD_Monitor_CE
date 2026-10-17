@@ -280,36 +280,25 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(bili.SESSION_DATA, "test-session")
         window.close()
 
-    def test_large_tile_composer_collapses_then_expands_on_focus(self):
+    def test_large_tile_composer_uses_the_extended_width(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})
-        tile.resize(1000, 320)
+        tile.resize(1400, 360)
         tile.show()
         APP.processEvents()
         try:
             self.assertTrue(tile.composer.isVisible())
-            self.assertEqual(tile.composer.width(), tile.COMPOSER_COLLAPSED_WIDTH)
-            self.assertIn("友善", tile.composer.edit.placeholderText())
+            # 大格子直接给到上限宽度，不再点开/收起，避免收起时重排卡顿
+            self.assertEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
+            self.assertIn("Enter", tile.composer.edit.placeholderText())
             center = tile.bottom.width() // 2
             self.assertLessEqual(abs(tile.composer.x() + tile.composer.width() // 2 - center), 2)
             tile.composer.edit.setFocus()
             APP.processEvents()
-            settle(lambda: tile.composer.width() >= tile.COMPOSER_MAX_WIDTH - 1, 2)
-            self.assertIn("Enter", tile.composer.edit.placeholderText())
-            self.assertLessEqual(abs(tile.composer.x() + tile.composer.width() // 2 - center), 2)
-            # 有草稿时不回缩；空草稿失焦才收起
-            tile.composer.edit.setText("草稿")
-            tile.composer.edit.clearFocus()
-            APP.processEvents()
-            QTest.qWait(250)
             self.assertEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
-            tile.composer.edit.setText("")
-            tile.composer.edit.setFocus()
-            APP.processEvents()
-            QTest.qWait(250)
             tile.composer.edit.clearFocus()
             APP.processEvents()
-            settle(lambda: tile.composer.width() == tile.COMPOSER_COLLAPSED_WIDTH, 2)
+            self.assertEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
         finally:
             tile.close()
 
