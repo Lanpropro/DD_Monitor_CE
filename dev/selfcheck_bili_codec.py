@@ -253,6 +253,18 @@ def check_resolver() -> None:
         assert len(resolved[0]) == 5
     assert bili.StreamResolver("1001").codec == "avc", "默认必须是 avc"
     assert bili.StreamResolver("1001", codec="garbage").codec == "avc"
+    for size in (3, 4, 5):
+        platform = Mock()
+        platform.play_url.return_value = ("https://cdn.test/live", 10000, "twitch",
+                                          {"Referer": "https://test/"}, {"video_codec": "av1"})[:size]
+        platform.room_quality_options.return_value = []
+        resolver = bili.StreamResolver("twitch:fixture", platform=platform)
+        results = []
+        resolver.resolved.connect(lambda *args: results.append(args))
+        resolver.run()
+        assert len(results) == 1 and len(results[0]) == 5, "保持旧插件和信号兼容"
+        assert resolver.stream_info == ({"video_codec": "av1"} if size == 5 else {})
+        assert resolver.headers == ({"Referer": "https://test/"} if size >= 4 else {})
 
     resolver = bili.StreamResolver("1001", 10000, codec="av1")
     resolved = []
@@ -304,6 +316,13 @@ def check_player_container(application) -> None:
             assert tile_player._relay is None, "H.264 的 FLV 仍然直连"
             assert tile_player._picture_limit == player_module.TilePlayer.FROZEN_TICKS
         # 带编码后缀的通道名不能把默认请求头查找弄崩（实际头由 _play_on 传进来）。
+        for codec, container in (("av1", "matroska"), ("hevc", "matroska"), ("avc", "flv")):
+            tile_player.stream_codec = codec
+            with patch.object(stream_relay, "StreamRelay") as relay:
+                relay.return_value.url = "http://127.0.0.1:1/live"
+                tile_player.play("https://cdn.test/live.m3u8", "twitch", {})
+                assert relay.call_args.kwargs["container"] == container
+        tile_player.stream_codec = ""
         for profile in ("app-hls-hevc", "app-hls-av1", "web-hls", "app", "web", "huya"):
             headers = tile_player.PROFILE_HEADERS.get(profile, tile_player.PROFILE_HEADERS["web"])
             assert headers, profile
@@ -369,6 +388,7 @@ def check_app_wiring(application) -> None:
             super().__init__(parent)
             seen.append(kwargs)
             self.headers = {}
+            self.stream_info = {}
 
         def is_cancelled(self):
             return True              # 不真的启动线程
@@ -408,6 +428,14 @@ def check_app_wiring(application) -> None:
                                 requested_quality=10000)
             assert tile.stream_codec == "hevc" and window.players[tile].stream_codec == "hevc"
             assert tile.stream_profile == "app-hls-hevc"
+            for codec in ("av1", "hevc", "avc", "invalid"):
+                with patch.object(player_module.TilePlayer, "play"), \
+                        patch.object(MainWindow, "_sync_replay_scope"), \
+                        patch.object(window.recorder, "on_resolved"):
+                    window._play_on(tile, "https://cdn.test/live", 10000, "twitch", [],
+                                    stream_info={"video_codec": codec})
+                assert tile.stream_codec == (codec if codec != "invalid" else "")
+                assert window.players[tile].stream_codec == tile.stream_codec
             assert window.current_state() is not None
         finally:
             window.close()
@@ -429,6 +457,7 @@ def check_app_wiring(application) -> None:
                 dialog.Accepted = dialog.return_value.Accepted = int(RealSettingsDialog.Accepted)
                 dialog.return_value.exec.return_value = int(RealSettingsDialog.Accepted)
                 dialog.return_value.settings.return_value = {"bili_codec": "hevc"}
+                dialog.return_value.general_page.apply_platform_codecs.return_value = set()
                 dialog.return_value.shortcuts.return_value = {}
                 dialog.return_value.enabled_plugins.return_value = []
                 dialog.return_value.restart_requested = False
@@ -437,6 +466,29 @@ def check_app_wiring(application) -> None:
                     window.open_settings()
             assert window.settings["bili_codec"] == "hevc"
             assert restarted == [window.wall.tiles[0]], "编码改了要重新取流"
+            with patch.object(window, "start_tile", side_effect=restarted.append), \
+                    patch.object(app_module, "SettingsDialog") as dialog, \
+                    patch.object(window.plugins, "platform_for") as platform_for, \
+                    patch.object(app_module.config_module, "save"):
+                dialog.Accepted = int(RealSettingsDialog.Accepted)
+                dialog.return_value.exec.return_value = dialog.Accepted
+                dialog.return_value.settings.return_value = {"bili_codec": "hevc"}
+                dialog.return_value.general_page.apply_platform_codecs.return_value = {"twitch"}
+                dialog.return_value.shortcuts.return_value = {}
+                dialog.return_value.enabled_plugins.return_value = []
+                dialog.return_value.restart_requested = False
+                dialog.return_value.update_page.install_requested = False
+                for kind, count in (("twitch", 1), ("youtube", 0)):
+                    restarted.clear()
+                    platform_for.return_value = Mock(kind=kind)
+                    window.open_settings()
+                    assert len(restarted) == count, "只重新取流修改过偏好的平台"
+                restarted.clear()
+                dialog.return_value.exec.return_value = 0
+                dialog.return_value.general_page.apply_platform_codecs.reset_mock()
+                assert window.open_settings() is False
+                dialog.return_value.general_page.apply_platform_codecs.assert_not_called()
+                assert not restarted
         finally:
             window.close()
             application.processEvents()

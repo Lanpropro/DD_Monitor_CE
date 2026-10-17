@@ -572,6 +572,7 @@ def main() -> None:
             super().__init__(parent)
             self.room_id = room_id
             self.headers = {}
+            self.stream_info = {}
             self.source_offset = source_offset
             self.codec = codec
             self.cancelled = False

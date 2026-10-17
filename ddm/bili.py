@@ -454,6 +454,7 @@ class StreamResolver(QThread):
         self.preview = preview
         self.codec = codec if codec in CODEC_PARAM else "avc"
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
+        self.stream_info: dict = {}
         self.login_required = False
         self._cancelled = False
 
@@ -480,6 +481,7 @@ class StreamResolver(QThread):
                           else self.platform.play_url(self.room_id, self.quality))
                 url, current, profile = result[:3]
                 headers = dict(result[3]) if len(result) > 3 else {}
+                self.stream_info = dict(result[4]) if len(result) > 4 else {}
             elif self.room_id.isdigit():
                 url, current, profile, headers = play_url(
                     self.room_id, self.quality, cancelled=self.is_cancelled,

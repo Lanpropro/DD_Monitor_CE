@@ -163,6 +163,10 @@ class Platform:
     label = ""
     room_input_hint = ""  # 可选：添加直播间窗口显示的输入支持说明，由插件提供。
     playback_mode = "stream"
+    video_codec_options = ()  # 可选：(编码标识, 显示名)，由插件声明可请求的直播源编码。
+    video_codec_default = "avc"
+    video_codec_hint = ""
+
     follow_login_url = ""
     follow_cookie_domain = ""
     account_login_url = ""  # 可选：独立官方登录页面，未提供时使用关注页面。
@@ -175,6 +179,14 @@ class Platform:
     follow_accounts = None  # 可选：完整关注账号列表；待识别账号 room_id 为空，anchor_uid 非空。
     resolve_follow_account = None  # 可选：补充账号的固定房间；返回完整账号字典，不使用登录 Cookie。
     follow_browser_init_script = ""  # 可选：页面创建时安装官网列表响应监听，读取时保持页面可见。
+
+    def video_codec(self) -> str:
+        """当前直播源编码偏好；持久化由插件负责，不影响录制重编码器。"""
+        return self.video_codec_default
+
+    def set_video_codec(self, codec: str) -> None:
+        """保存编码偏好；声明多种编码的插件须实现此方法。"""
+        raise NotImplementedError
 
     def follow_rooms(self, session, cancelled) -> list[dict]:
         """可选：后台用授权会话读取关注；每页检查 cancelled，失败抛异常。"""
@@ -197,7 +209,11 @@ class Platform:
         return {}
 
     def play_url(self, room_id: str, quality: int = 250) -> tuple:
-        """取流，返回 ``(url, 实际画质, 通道名)`` 或 ``(url, 实际画质, 通道名, headers)``。"""
+        """返回 ``(url, 实际画质, 通道名[, headers[, stream_info]])``。
+
+        ``stream_info`` 可含 ``video_codec``（avc/hevc/av1），必须填写实际流编码，
+        不能填写未命中的偏好；用于播放器转封装与录制容器选择。
+        """
         raise NotImplementedError
 
     def room_quality_options(self, room_id: str) -> list[dict]:

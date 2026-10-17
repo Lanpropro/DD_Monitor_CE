@@ -71,10 +71,11 @@ class GeneralSettingsPage(QWidget):
         ("live_alert", "开播提醒（顶部提示与关注栏动效）"),
     ]
 
-    def __init__(self, settings: dict, parent=None):
+    def __init__(self, settings: dict, parent=None, *, plugin_manager=None):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
         self._checks: dict[str, QCheckBox] = {}
+        self._platform_codecs = []
         self._hidden_values = {
             "auto_quality": bool(settings.get("auto_quality", True)),
             "sidebar_card_mode": bool(settings.get("sidebar_card_mode", True)),
@@ -138,6 +139,35 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
+        grid.addWidget(QLabel("B站直播编码"), row, 0)
+        self.bili_codec = QComboBox()
+        for value, label, _param in BILI_CODECS:
+            self.bili_codec.addItem(label, value)
+        self.bili_codec.setCurrentIndex(max(0, self.bili_codec.findData(
+            settings.get("bili_codec", "avc"))))
+        self.bili_codec.setToolTip(
+            "B 站同一路直播按编码分开推流：\n"
+            "  H.264：兼容性最好，FLV 直连播放，不额外占 CPU。\n"
+            "  HEVC：同画质码率约省一半，走 HLS 通道，要先转封装。\n"
+            "  AV1：码率最低，但解码要求最高，同样要先转封装。\n"
+            "只有部分主播开了 HEVC / AV1 推流；没开时该直播间自动改用 H.264。\n"
+            "转封装会多占一点 CPU 和内存。切换后正在播放的直播会重新取流。")
+        grid.addWidget(self.bili_codec, row, 1)
+        row += 1
+        for platform in (plugin_manager.platforms.values() if plugin_manager else ()):
+            choices = getattr(platform, "video_codec_options", ())
+            if not choices:
+                continue
+            combo = QComboBox()
+            for value, label in choices:
+                combo.addItem(label, value)
+            combo.setCurrentIndex(max(0, combo.findData(platform.video_codec())))
+            combo.setEnabled(len(choices) > 1)
+            combo.setToolTip(platform.video_codec_hint)
+            grid.addWidget(QLabel(f"{platform.label}直播编码"), row, 0)
+            grid.addWidget(combo, row, 1)
+            self._platform_codecs.append((platform, combo))
+            row += 1
         grid.addWidget(QLabel("视频解码方式"), row, 0)
         self.decode_mode = QComboBox()
         for label, value in DECODE_MODES:
@@ -155,21 +185,6 @@ class GeneralSettingsPage(QWidget):
             "解码出错或持续收到数据却不出画面时，会依次尝试其他显卡接口和 CPU；\n"
             "每种方式只试一次，全部失败后重连直播。切换设置后正在播放的会重新取流。")
         grid.addWidget(self.decode_mode, row, 1)
-        row += 1
-        grid.addWidget(QLabel("B站直播编码"), row, 0)
-        self.bili_codec = QComboBox()
-        for value, label, _param in BILI_CODECS:
-            self.bili_codec.addItem(label, value)
-        self.bili_codec.setCurrentIndex(max(0, self.bili_codec.findData(
-            settings.get("bili_codec", "avc"))))
-        self.bili_codec.setToolTip(
-            "B 站同一路直播按编码分开推流：\n"
-            "  H.264：兼容性最好，FLV 直连播放，不额外占 CPU。\n"
-            "  HEVC：同画质码率约省一半，走 HLS 通道，要先转封装。\n"
-            "  AV1：码率最低，但解码要求最高，同样要先转封装。\n"
-            "只有部分主播开了 HEVC / AV1 推流；没开时该直播间自动改用 H.264。\n"
-            "转封装会多占一点 CPU 和内存。切换后正在播放的直播会重新取流。")
-        grid.addWidget(self.bili_codec, row, 1)
         row += 1
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
@@ -203,7 +218,19 @@ class GeneralSettingsPage(QWidget):
         self.decode_mode.setCurrentIndex(0)
         self.bili_codec.setCurrentIndex(max(0, self.bili_codec.findData(
             config_module.DEFAULT_SETTINGS["bili_codec"])))
+        for platform, combo in self._platform_codecs:
+            combo.setCurrentIndex(max(0, combo.findData(platform.video_codec_default)))
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
+
+    def apply_platform_codecs(self) -> set:
+        """仅在设置窗口被接受后提交插件偏好，返回需要重新取流的平台。"""
+        changed = set()
+        for platform, combo in self._platform_codecs:
+            value = combo.currentData()
+            if value != platform.video_codec():
+                platform.set_video_codec(value)
+                changed.add(platform.kind)
+        return changed
 
     def values(self) -> dict:
         result = {
@@ -444,6 +471,9 @@ class RecordingSettingsPage(QWidget):
         self.min_free = QSpinBox()
         self.min_free.setRange(256, 100000)
         self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
+        self.encoder_hint = QLabel()
+        self.encoder_hint.setObjectName("SettingsHint")
+        self.encoder_hint.setWordWrap(True)
         for row, (label, widget, unit) in enumerate((
             ("录制功能", self.recording_enabled, ""),
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
@@ -462,7 +492,13 @@ class RecordingSettingsPage(QWidget):
                 field.addWidget(QLabel(unit))
                 grid.addLayout(field, row, 1)
             else:
-                grid.addWidget(widget, row, 1)
+                if widget is self.encoder:
+                    field = QVBoxLayout()
+                    field.addWidget(widget)
+                    field.addWidget(self.encoder_hint)
+                    grid.addLayout(field, row, 1)
+                else:
+                    grid.addWidget(widget, row, 1)
         grid.addWidget(self.lock_quality, 12, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self.replay_scope.currentIndexChanged.connect(self._update_enabled)
@@ -509,6 +545,11 @@ class RecordingSettingsPage(QWidget):
         # 编码器只影响重编码；直存原始流时它没有意义，一并跟着录制总开关置灰。
         self.encoder.setEnabled(self.recording_enabled.isChecked()
                                 and self.codec.currentData() != "copy")
+        self.encoder_hint.setText(
+            "请先开启录制功能。" if not self.recording_enabled.isChecked() else
+            "原始流直存无需编码器；切换为 H.264 + AAC 重编码后可选择。"
+            if self.codec.currentData() == "copy" else
+            "自动优先使用可用的显卡编码器，不可用时回退 CPU。")
 
     def _update_enabled(self) -> None:
         """按两个总开关把不起作用的项置灰，免得用户改了以为没生效。
@@ -918,7 +959,7 @@ class SettingsDialog(QDialog):
         right.setSpacing(14)
         self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
-        self.general_page = GeneralSettingsPage(settings)
+        self.general_page = GeneralSettingsPage(settings, plugin_manager=plugin_manager)
         # Build the expensive controls only when their page is first requested.
         # Keep the public page properties so callers and settings validation
         # still use the same controls and value normalization.

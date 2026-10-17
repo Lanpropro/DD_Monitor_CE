@@ -319,7 +319,8 @@ class TilePlayer(QObject):
                 relay_options["hls_retry"] = True
             # 容器跟编码走：FLV 只装得下 H.264，HEVC / AV1 装进 matroska
             # （实测 FLV + HEVC 在 VLC 里是黑屏）。
-            relay_options["container"] = container_for_codec(codec_from_profile(profile))
+            relay_options["container"] = container_for_codec(
+                self.stream_codec or codec_from_profile(profile))
             self._relay = StreamRelay(url, headers or {}, **relay_options)
             playback_url = self._relay.url
         media = self._instance.media_new(playback_url)
