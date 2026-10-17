@@ -122,8 +122,12 @@ def check_danmaku_region(tile):
     assert overlay.mask() == tile.video.mask(), 'Danmaku and video boundaries differ'
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
     region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    video_region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
     try:
         assert user32.GetWindowRgn(int(overlay.winId()), region), 'Missing native danmaku clip'
+        assert user32.GetWindowRgn(int(tile.video.winId()), video_region), 'Missing native video clip'
+        assert gdi32.EqualRgn(region, video_region), 'Native video and danmaku contours differ'
         assert bool(gdi32.PtInRegion(region, 0, 0)) == bool(
             tile.property('fullscreen')), 'Danmaku corner does not match fullscreen state'
         scale = overlay.devicePixelRatioF()
@@ -131,6 +135,7 @@ def check_danmaku_region(tile):
                               round(overlay.height() * scale / 2))
     finally:
         gdi32.DeleteObject(region)
+        gdi32.DeleteObject(video_region)
 
 
 def overlay_sizes(tile):

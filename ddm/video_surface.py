@@ -4,6 +4,7 @@ from ctypes import wintypes
 import sys
 
 from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QApplication, QFrame
 
 
@@ -62,24 +63,29 @@ class VideoSurface(QFrame):
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         user32.EnumChildWindows.argtypes = (wintypes.HWND, callback_type, wintypes.LPARAM)
-        user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
         user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
         user32.MapWindowPoints.argtypes = (wintypes.HWND, wintypes.HWND,
                                           ctypes.POINTER(wintypes.POINT), wintypes.UINT)
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
         user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE)
-        gdi32.CreateRoundRectRgn.argtypes = (ctypes.c_int,) * 6
-        gdi32.CreateRoundRectRgn.restype = wintypes.HANDLE
         gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
         gdi32.CreateRectRgn.restype = wintypes.HANDLE
         gdi32.CombineRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.c_int)
+        gdi32.OffsetRgn.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_int)
         gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
         root = int(self.winId())
-        bounds = wintypes.RECT()
-        if not user32.GetClientRect(root, ctypes.byref(bounds)):
-            return
-        diameter = round(18 * self.devicePixelRatioF())
+        # Qt 与 VLC 使用同一份区域，避免两种圆角算法在高 DPI 下偏离。
+        scale = self.devicePixelRatioF()
+        mask = QTransform().scale(scale, scale).map(self.mask())
+        native_mask = gdi32.CreateRectRgn(0, 0, 0, 0)
+        for rect in mask:
+            part = gdi32.CreateRectRgn(rect.x(), rect.y(),
+                rect.x() + rect.width(), rect.y() + rect.height())
+            try:
+                gdi32.CombineRgn(native_mask, native_mask, part, 2)  # RGN_OR
+            finally:
+                gdi32.DeleteObject(part)
 
         output_found = []
         def clip(hwnd, _unused):
@@ -95,22 +101,10 @@ class VideoSurface(QFrame):
             # VLC can grow its output after creation without resizing this Qt
             # surface. Windows already clips to the child's current bounds;
             # intersecting with its initial bounds would freeze a small mask.
-            if getattr(self, 'square_corners', False):
-                region = gdi32.CreateRectRgn(origin.x, origin.y,
-                    origin.x + bounds.right, origin.y + bounds.bottom)
-            else:
-                region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
-                    origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
+            region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            gdi32.CombineRgn(region, native_mask, None, 5)  # RGN_COPY
+            gdi32.OffsetRgn(region, origin.x, origin.y)
             try:
-                if region and not getattr(self, 'rounded_bottom', True):
-                    bottom = gdi32.CreateRectRgn(origin.x,
-                        origin.y + bounds.bottom - diameter // 2,
-                        origin.x + bounds.right, origin.y + bounds.bottom)
-                    if bottom:
-                        try:
-                            gdi32.CombineRgn(region, region, bottom, 2)  # RGN_OR
-                        finally:
-                            gdi32.DeleteObject(bottom)
                 if region:
                     current = gdi32.CreateRectRgn(0, 0, 0, 0)
                     try:
@@ -126,7 +120,10 @@ class VideoSurface(QFrame):
                     gdi32.DeleteObject(region)
             return True
 
-        if apply_root:
-            clip(root, 0)
-        user32.EnumChildWindows(root, callback_type(clip), 0)
+        try:
+            if apply_root:
+                clip(root, 0)
+            user32.EnumChildWindows(root, callback_type(clip), 0)
+        finally:
+            gdi32.DeleteObject(native_mask)
         return bool(output_found)
