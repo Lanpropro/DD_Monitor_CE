@@ -26,6 +26,7 @@ def main():
             labels.append((grid.getItemPosition(index)[0], widget.text()))
     assert [text for _, text in sorted(labels)] == [
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
+        "全屏时自动收起底部控制条",
         "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "开播提醒（顶部提示与关注栏动效）",
         "视频解码方式", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)

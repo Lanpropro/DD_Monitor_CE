@@ -71,7 +71,7 @@ class FullscreenCursor(QObject):
                     and not QApplication.mouseButtons()
                     and tile.video.rect().contains(tile.video.mapFromGlobal(position)))
         if eligible:
-            for widget in (tile.controls, tile.stream_badge, tile.title_badge):
+            for widget in (tile.controls, tile.stream_badge, tile.title_badge, tile.bottom):
                 if widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(position)):
                     eligible = False
                     break
@@ -84,9 +84,10 @@ class FullscreenCursor(QObject):
             return
         if not self.hidden:
             self._hidden_tile = tile
-            tile.set_fullscreen_controls_hidden(True)
             QApplication.setOverrideCursor(Qt.BlankCursor)
             self.hidden = True
+        tile.set_fullscreen_controls_hidden(True, hide_bar=bool(
+            self.window.settings.get("fullscreen_auto_hide_controls", True)))
         if sys.platform == "win32" and QApplication.platformName() == "windows":
             # Qt's override alone cannot change VLC's native child cursor.
             ctypes.windll.user32.SetCursor(None)
