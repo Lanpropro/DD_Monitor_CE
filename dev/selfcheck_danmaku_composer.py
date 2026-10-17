@@ -280,6 +280,60 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(bili.SESSION_DATA, "test-session")
         window.close()
 
+    def test_large_tile_composer_collapses_then_expands_on_focus(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "101", "uname": "B站"})
+        tile.resize(1000, 320)
+        tile.show()
+        APP.processEvents()
+        try:
+            self.assertTrue(tile.composer.isVisible())
+            self.assertEqual(tile.composer.width(), tile.COMPOSER_COLLAPSED_WIDTH)
+            self.assertIn("友善", tile.composer.edit.placeholderText())
+            center = tile.bottom.width() // 2
+            self.assertLessEqual(abs(tile.composer.x() + tile.composer.width() // 2 - center), 2)
+            tile.composer.edit.setFocus()
+            APP.processEvents()
+            settle(lambda: tile.composer.width() >= tile.COMPOSER_MAX_WIDTH - 1, 2)
+            self.assertIn("Enter", tile.composer.edit.placeholderText())
+            self.assertLessEqual(abs(tile.composer.x() + tile.composer.width() // 2 - center), 2)
+            # 有草稿时不回缩；空草稿失焦才收起
+            tile.composer.edit.setText("草稿")
+            tile.composer.edit.clearFocus()
+            APP.processEvents()
+            QTest.qWait(250)
+            self.assertEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
+            tile.composer.edit.setText("")
+            tile.composer.edit.setFocus()
+            APP.processEvents()
+            QTest.qWait(250)
+            tile.composer.edit.clearFocus()
+            APP.processEvents()
+            settle(lambda: tile.composer.width() == tile.COMPOSER_COLLAPSED_WIDTH, 2)
+        finally:
+            tile.close()
+
+    def test_status_and_hover_changes_do_not_move_composer(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "101", "uname": "B站", "live": True})
+        tile.resize(1000, 320)
+        tile.show()
+        APP.processEvents()
+        try:
+            tile.set_status("已连接")
+            APP.processEvents()
+            before = tile.composer.x()
+            for status in ("连接中…", "缓冲中…", "已连接"):
+                tile.set_status(status)
+                APP.processEvents()
+                self.assertEqual(tile.composer.x(), before, "状态刷新不能把输入区挪位")
+            for visible in (False, True, False, True):
+                tile.set_controls_visible(visible)
+                APP.processEvents()
+                self.assertEqual(tile.composer.x(), before, "悬停显隐不能把输入区挪位")
+        finally:
+            tile.close()
+
     def test_room_switch_keeps_video_geometry_for_inline_composer(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})

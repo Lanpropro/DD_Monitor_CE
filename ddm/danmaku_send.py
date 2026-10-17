@@ -295,6 +295,11 @@ class DanmakuComposer(QWidget):
         self.feedback.hide()
         self._update_buttons()
 
+    def mousePressEvent(self, event):
+        # 点输入区的空白处也算点输入框：大格子收起时要靠这次点击展开。
+        self.edit.setFocus(Qt.MouseFocusReason)
+        super().mousePressEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # 小格保留输入和表情入口，回车仍可发送，不为单独按钮挤掉输入空间。
