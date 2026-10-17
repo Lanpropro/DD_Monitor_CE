@@ -5844,10 +5844,10 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
-        # 输入区不进布局：它浮在信息条中间，底栏原本按钮的尺寸和位置一点不变。
+        # 输入区占状态文字那一截：其它控件的宽度全部固定，按钮位置不受影响。
         self.composer = DanmakuComposer(self.bottom)
         self.composer.set_room(room.get("room_id"))
-        self.composer.hide()
+        bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -5971,34 +5971,6 @@ class Tile(QFrame):
     def _sync_composer_visibility(self) -> None:
         self.composer.setVisible(self._composer_shown)
 
-    def _place_composer(self) -> None:
-        """把输入区浮在底栏中间。
-
-        它不属于底栏布局：暂停、音量、滑条、弹幕开关、设置、录制、全屏这些
-        原有控件的尺寸和位置完全按「没有输入区」时排，输入区只覆盖状态文字
-        那一段空白，所以鼠标进出、切换房间时按钮不会挪位置。
-        """
-        if not self._composer_shown:
-            self.composer.hide()
-            return
-        spacing = max(2, self.bottom.layout().spacing())
-        status_text = min(self.status_label.sizeHint().width(), 140)
-        left = self.status_label.x() + (status_text + 4 if status_text > 4 else 0)
-        right = self.danmaku_button.x() - spacing
-        room = right - left
-        width = min(self.COMPOSER_MAX_WIDTH, max(300, int(self.width() * 0.45)))
-        width = min(width, room)
-        if width < self.COMPOSER_MIN_WIDTH:
-            self.composer.hide()
-            return
-        # 尽量按底栏正中摆；放不下时夹在状态文字和弹幕开关之间
-        x = (self.bottom.width() - width) // 2
-        x = max(left, min(x, right - width))
-        self.composer.setGeometry(x, 4, width, DanmakuComposer.HEIGHT)
-        self.composer.layout().activate()
-        self.composer.show()
-        self.composer.raise_()
-
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
         return (self.width(),
@@ -6047,15 +6019,31 @@ class Tile(QFrame):
         visible = [widget for widget in others if not widget.isHidden()]
         fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()
                     for widget in visible)
-        # 这段和没有输入区时完全一样：底栏原有按钮的尺寸、位置都不受输入区影响。
-        remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - 8
-        self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
-        self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.status_label.setMinimumWidth(0)
-        self.status_label.setMaximumWidth(16777215)
-        layout.setStretchFactor(self.status_label, 1)
+        # 原有控件的宽度完全按「没有输入区」时算，按钮位置因此不会变。
+        available = width - fixed - margin * 2 - spacing * (len(visible) + 1)
+        slider_width = max(18, min(86, available - 8))
+        # 插进输入区会多一段间距；剩下的中间宽度由状态文字和输入区瓜分。
+        middle = available - slider_width - spacing
+        status_min = 96 if width >= 700 else 64
+        composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
+        composing = (self._composer_shown
+                     and middle - status_min >= self.COMPOSER_MIN_WIDTH)
+        self.composer.setVisible(composing)
+        if composing:
+            composer_width = min(composer_cap, middle - status_min)
+            self.composer.setFixedWidth(composer_width)
+            self.composer.layout().activate()
+            self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+            self.status_label.setFixedWidth(middle - composer_width)
+        else:
+            self.composer.setMinimumWidth(0)
+            self.composer.setMaximumWidth(16777215)
+            self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            self.status_label.setMinimumWidth(0)
+            self.status_label.setMaximumWidth(16777215)
+        self.volume_slider.setFixedWidth(slider_width)
+        layout.setStretchFactor(self.status_label, 0 if composing else 1)
         layout.activate()
-        self._place_composer()
 
     def set_recording_state(self, state: str) -> None:
         self._recording_state = state
@@ -6209,8 +6197,8 @@ class Tile(QFrame):
         text = "缓冲中…" if getattr(self, "_buffering", False) else self._status_text
         self.status_label.setText(text or "")
         if self.composer.supported:
-            # 输入区是浮层，状态文字变长变短都要重新避开它（按钮位置不受影响）。
-            self._place_composer()
+            # 状态文字宽度会随输入区变化，文字换了要按新宽度重新省略。
+            self._layout_bottom_controls()
 
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)

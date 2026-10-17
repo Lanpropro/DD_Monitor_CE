@@ -315,8 +315,9 @@ class ComposerTests(unittest.TestCase):
             # 大格子直接给到上限宽度，不再点开/收起，避免收起时重排卡顿
             self.assertEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
             self.assertIn("Enter", tile.composer.edit.placeholderText())
-            center = tile.bottom.width() // 2
-            self.assertLessEqual(abs(tile.composer.x() + tile.composer.width() // 2 - center), 2)
+            # 输入区在底栏里，紧挨在弹幕开关左边，不压住它
+            self.assertLessEqual(tile.composer.x() + tile.composer.width(),
+                                 tile.danmaku_button.x())
             tile.composer.edit.setFocus()
             APP.processEvents()
             self.assertEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
@@ -356,7 +357,7 @@ class ComposerTests(unittest.TestCase):
         finally:
             tile.close()
 
-    def test_composer_is_overlay_and_bar_buttons_never_move(self):
+    def test_bar_buttons_never_move_when_composer_appears(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "douyu:1", "uname": "斗鱼", "live": True})
         tile.resize(1000, 320)
