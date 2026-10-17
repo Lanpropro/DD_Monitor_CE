@@ -6404,13 +6404,18 @@ class Tile(QFrame):
         「只留按钮轮廓」的机制才是治它的）。让控制条能点到靠的是
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
+        self.video.square_corners = bool(self.property("fullscreen"))
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, max(1, self.video.width()), max(1, self.video.height())),
-                            9, 9)
-        bottom = QPainterPath()
-        bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
-        path = path.united(bottom)
+        rect = QRectF(0, 0, max(1, self.video.width()), max(1, self.video.height()))
+        if self.video.square_corners:
+            path.addRect(rect)
+        else:
+            path.addRoundedRect(rect, 9, 9)
+            bottom = QPainterPath()
+            bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
+            path = path.united(bottom)
         self.video.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self.video_danmaku.setMask(self.video.mask())
 
     def _quality_button_width(self) -> int:
         """按画质文字算按钮宽度。
@@ -6995,9 +7000,11 @@ class WallGrid(QWidget):
         if previous is not None and previous is not tile:
             previous.setProperty("fullscreen", False)
             _repolish(previous)
+            previous._round_video()
         if tile is not None:
             tile.setProperty("fullscreen", True)
             _repolish(tile)
+            tile._round_video()
         margin = 0 if tile else 16
         self.grid.setContentsMargins(margin, margin, margin, margin)
         self.relayout(force=True)
