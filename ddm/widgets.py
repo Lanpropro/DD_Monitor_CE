@@ -5684,7 +5684,7 @@ class Tile(QFrame):
         self.stream_url = ""
         self.stream_profile = ""
         self.stream_headers: dict = {}
-        self.room = room
+        self.room = dict(room)
         self._cover_source = room.get("cover")
         self._status_text = ""
         self.setMinimumSize(200, 150)
@@ -5854,7 +5854,7 @@ class Tile(QFrame):
     # ---- 播放状态 ----
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
-        self.room = room or {}
+        self.room = dict(room or {})
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -5868,6 +5868,8 @@ class Tile(QFrame):
         self.set_paused(False)
         self.set_video_active(False)
         self.set_buffering(False)
+        # 开关属于当前房间；新主播默认关闭，换位则恢复该房间保存的开关。
+        self.danmaku_button.setChecked(bool(self.room.get("video_danmaku_enabled", False)))
 
         if empty:
             self._cover_source = None
@@ -5900,6 +5902,7 @@ class Tile(QFrame):
         self._layout_cover()
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
+        self.room["video_danmaku_enabled"] = bool(enabled)
         self.video_danmaku.set_enabled(enabled)
         if getattr(self, "_overlay_ready", False):
             self.raise_overlays()

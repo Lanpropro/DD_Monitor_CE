@@ -268,7 +268,8 @@ class WebSocketClientBase:
                 # 连接
                 async with self._session.ws_connect(
                     self._get_ws_url(retry_count),
-                    headers={'User-Agent': utils.USER_AGENT},  # web端的token也会签名UA
+                    # The token signs the UA; honor the same UA used by the caller's session.
+                    headers={'User-Agent': self._session.headers.get('User-Agent', utils.USER_AGENT)},
                     receive_timeout=self._heartbeat_interval + 5,
                 ) as websocket:
                     self._websocket = websocket
