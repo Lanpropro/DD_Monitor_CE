@@ -95,8 +95,12 @@ class VideoSurface(QFrame):
             # VLC can grow its output after creation without resizing this Qt
             # surface. Windows already clips to the child's current bounds;
             # intersecting with its initial bounds would freeze a small mask.
-            region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
-                origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
+            if getattr(self, 'square_corners', False):
+                region = gdi32.CreateRectRgn(origin.x, origin.y,
+                    origin.x + bounds.right, origin.y + bounds.bottom)
+            else:
+                region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
+                    origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
             try:
                 if region and not getattr(self, 'rounded_bottom', True):
                     bottom = gdi32.CreateRectRgn(origin.x,
