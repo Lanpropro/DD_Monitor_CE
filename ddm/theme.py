@@ -1112,6 +1112,49 @@ QPushButton#PrimaryButton:pressed {{
 #TileCtrl[recording="true"] {{
     color: {ERROR};
 }}
+/* B 站弹幕输入区与表情浮窗：样式走全局表，避免主题切换时逐控件重设局部样式。 */
+#DanmakuComposer {{
+    background: transparent;
+    border: none;
+}}
+#DanmakuComposer QLineEdit {{
+    padding: 3px 6px;
+    font-size: {FONT_CONTROL}px;
+}}
+#DanmakuSendFeedback {{
+    background: {ELEVATED};
+    color: {TEXT1};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: 6px 8px;
+    font-size: {FONT_CAPTION}px;
+}}
+#TileCtrl:disabled {{
+    background: transparent;
+    color: {TEXT4};
+}}
+#TileCtrl:focus {{
+    border: 1px solid {ACCENT};
+}}
+#EmoticonPopup {{
+    background: {ELEVATED};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px;
+}}
+#EmoticonButton {{
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SM}px;
+    color: {TEXT1};
+    font-size: 11px;
+    padding: 1px;
+}}
+#EmoticonButton:hover, #EmoticonButton:focus {{
+    background: {CONTENT_HOVER};
+    border-color: {ACCENT};
+}}
+#EmoticonButton:disabled {{
+    color: {TEXT3};
+}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;

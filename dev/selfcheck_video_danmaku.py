@@ -105,6 +105,7 @@ def check_motion(app):
         assert overlay.font_pixels() == 48
         assert overlay.lane_count() * overlay.lane_height() <= overlay.height() * .25
         overlay.apply_settings(dict(settings, video_danmaku_scale=True))
+        # 输入区是内嵌进底栏的，不占额外高度，格子尺寸保持原样。
         tile.resize(900, 760)
         app.processEvents()
         assert overlay.font_pixels() == 28

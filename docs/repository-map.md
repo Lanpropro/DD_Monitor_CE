@@ -26,12 +26,31 @@
 - `.gitignore`
 - `AGENTS.md`
 - `LICENSE`
+- `dev/selfcheck_match_sync_admission.py`
+- `dev/selfcheck_match_sync_assistance.py`
+- `dev/selfcheck_match_sync_audio_thread.py`
+- `dev/selfcheck_match_sync_crop_generation.py`
+- `dev/selfcheck_match_sync_four_compare.py`
+- `dev/selfcheck_match_sync_late_buffer.py`
+- `dev/selfcheck_match_sync_smoothing.py`
+- `dev/selfcheck_match_sync_startup_clock.py`
+- `dev/selfcheck_match_sync_tracking.py`
+- `dev/selfcheck_match_sync_volume.py`
+- `docs/pr10-danmaku-testing.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.1.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.2.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.3.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.4.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.5.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.6.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.7.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.8.md`
 - `publish.cmd`
 - `results/.gitignore`
 
 ### 软件与插件说明、设计及版本资料
 
-共 21 项。
+共 30 项。
 
 - `README.md`
 - `docs/BUG-STATUS-2026-10-02.md`
@@ -79,7 +98,7 @@
 
 ### 软件、插件及仓库回归测试（开发维护用途）
 
-共 226 项。
+共 238 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -123,6 +142,8 @@
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_button.py`
+- `dev/selfcheck_danmaku_composer.py`
+- `dev/selfcheck_danmaku_send.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`

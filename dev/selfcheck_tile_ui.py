@@ -133,6 +133,8 @@ def main() -> None:
     print(f"  再点击：paused={tile.paused} 按钮图标状态={tile.pause_button.paused}"
           f" 提示={tile.pause_button.toolTip()!r}")
     assert not tile.paused and fake.calls == [True, False]
+    # 暂停验证完成后移除局部替身，避免后续音频审计把它当作真实播放器。
+    window.players.pop(tile, None)
     bottom = tile.pause_button.geometry()
     print(f"  位置：x={bottom.x()} y={bottom.y()} 信息条高={tile.bottom.height()}"
           f" 是否在信息条里={tile.pause_button.parent() is tile.bottom}"

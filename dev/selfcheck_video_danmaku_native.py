@@ -39,6 +39,7 @@ def show_comment(tile, opacity):
     assert overlay.add_event({"text": "这是直播画面弹幕", "color": "#ffffff"})
     overlay.set_paused(True)
     overlay.comments[0].x = 30
+    # 输入区内嵌在底栏里，视频高度没变，轨道选择和合并前一致。
     overlay.comments[0].lane = 2
     tile.set_controls_visible(False)
     tile.raise_overlays()

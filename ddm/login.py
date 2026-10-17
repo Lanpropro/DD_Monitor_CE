@@ -67,6 +67,7 @@ class QRLogin(QThread):
         self._cancelled = False
         self._cancel_event = threading.Event()
         self.sessdata = ""
+        self.bili_jct = ""
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -114,6 +115,8 @@ class QRLogin(QThread):
                     return
                 _log(f"扫码登录成功（SESSDATA {len(sessdata)} 字符）")
                 self.sessdata = sessdata
+                self.bili_jct = (poll.cookies.get("bili_jct")
+                                 or session.cookies.get("bili_jct") or "")
                 self.succeeded.emit(sessdata)
                 return
             if code == QR_SCANNED:
@@ -227,6 +230,7 @@ class LoginWindow(QDialog):
     def _on_success(self, sessdata: str) -> None:
         self.sessdata = sessdata
         bili.set_sessdata(sessdata)
+        bili.set_bili_jct(getattr(self._thread, "bili_jct", ""))
         self.status.setText("登录成功，窗口即将关闭…")
         self.sessionData.emit(sessdata)
         self.accept()

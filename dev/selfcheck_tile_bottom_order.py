@@ -43,7 +43,12 @@ def main():
             tile.set_recording_available(False)
             app.processEvents()
             assert not tile.recording_button.isVisible()
-            assert tile.volume_button.isVisible() and tile.volume_slider.isVisible()
+            # B 站房间底栏里有弹幕输入区：窄格子先收起音量滑条给它让位，
+            # 音量按钮本身始终保留（点按静音、滚轮仍可调）。
+            assert tile.volume_button.isVisible()
+            slider_expected = not tile.composer.supported or width >= 460
+            assert tile.volume_slider.isVisible() == slider_expected, \
+                f"宽度 {width} 时音量滑条显隐应为 {slider_expected}"
             tile.set_recording_available(True)
         QTest.mouseClick(tile.recording_button, Qt.LeftButton)
         QTest.mouseClick(tile.volume_button, Qt.LeftButton)

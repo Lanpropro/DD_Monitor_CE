@@ -12,7 +12,7 @@ os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QThread, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from ddm import bili  # noqa: E402
+from ddm import bili, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 
@@ -114,15 +114,22 @@ def check_window(app):
     rooms = [{"room_id": rid, "live": True, "uname": rid, "title": "", "face": ""}
              for rid in ("1001", "1002", "douyu:123")]
     rooms[-1].update(live=False, live_known=False, platform="douyu")
-    state = {"plugins_enabled": ["domestic_live"], "settings": {"recording_enabled": False,
+    state = {"plugins_enabled": ["fixture"], "settings": {"recording_enabled": False,
              "recording_replay_enabled": False, "preview_on_hover": False}}
+    # 平台插件是本机可选安装项，测试用最小平台实现，不依赖被 Git 忽略的插件目录。
+    platform = plugins.Platform()
+    platform.kind, platform.label = "douyu", "斗鱼"
+    platform.matches = lambda rid: str(rid).startswith("douyu:")
     with patch("ddm.app.QTimer.singleShot"), patch("ddm.app.StreamResolver", Resolver), \
+            patch.object(plugins.PluginManager, "load", lambda manager: manager.register_platform("fixture", platform)), \
             patch("ddm.app.StatsPoller", Stats), \
             patch.object(bili.requests, "get", side_effect=AssertionError("Unexpected network")):
         window = MainWindow([dict(r) for r in rooms], [dict(r) for r in rooms], state=state, layout_id="1x3")
         try:
+            window.show()
+            app.processEvents()
             window.start_all()
-            assert resolved_ids == ["1001", "1002", "douyu:123"] and not stats_ids
+            assert resolved_ids == ["1001", "1002", "douyu:123"] and not stats_ids, (resolved_ids, stats_ids)
             tile = next(t for t in window.wall.tiles if t.room.get("room_id") == "douyu:123")
             original = window._resolvers[tile]
             window._on_status_updated({"douyu:123": {"live": True, "uname": "test", "title": "live", "viewers": ""}})

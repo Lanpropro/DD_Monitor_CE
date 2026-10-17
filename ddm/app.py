@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
             self._wire_tile(tile)
 
         bili.set_sessdata(self.state.get("sessdata", ""))
+        bili.set_bili_jct(self.state.get("bili_jct", ""))
         self._restore_ui()
         # 如果构造时显式指定了布局（自检/预览脚本会这么干），别被配置里的覆盖掉。
         # 记到哪个方向名下要看**布局本身**——构造时窗口还没尺寸，is_portrait() 不可靠。
@@ -901,6 +902,7 @@ class MainWindow(QMainWindow):
             "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
             "sessdata": bili.SESSION_DATA,
+            "bili_jct": bili.BILI_JCT,
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
@@ -3238,6 +3240,7 @@ class MainWindow(QMainWindow):
         if kind == "bilibili":
             bili.set_sessdata("")
             self.state["sessdata"] = ""
+            self.state["bili_jct"] = ""
             config_module.save(self.current_state())
         else:
             from .platform_login import clear_platform_login
@@ -3282,6 +3285,7 @@ class MainWindow(QMainWindow):
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
         self.state["sessdata"] = sessdata
+        self.state["bili_jct"] = bili.BILI_JCT
         config_module.save(self.current_state())
         self._render_account()
         self.refresh_account()
