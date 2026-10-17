@@ -122,7 +122,7 @@ class MainWindow(QMainWindow):
         self._room_preset_fullscreen_layout = None
         self._preset_retired_tiles = set()
         self.layout_id = layout_id
-        self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
+        self.players: dict[object, TilePlayer] = {}      # 按格子持有播放器
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -782,9 +782,7 @@ class MainWindow(QMainWindow):
         appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
                              if key.startswith('skin_') or key == 'appearance_mode'}
         decode_before = self.settings.get("decode_mode", "auto")
-        codec_before = self.settings.get("bili_codec", "avc")
         self.settings.update(dialog.settings())
-        platform_codecs_changed = dialog.general_page.apply_platform_codecs()
         if not self.settings.get("auto_update", False):
             self._startup_update_timer.stop()
             if self._update_notice is not None:
@@ -807,19 +805,11 @@ class MainWindow(QMainWindow):
         self._poll_timer.setInterval(self.poll_interval_ms())
         for player in self.players.values():
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        codec_changed = self.settings.get("bili_codec", "avc") != codec_before
-        decode_changed = self.settings.get("decode_mode", "auto") != decode_before
-        if decode_changed or codec_changed or platform_codecs_changed:
-            reason = ("直播编码设置已修改" if codec_changed or platform_codecs_changed
-                      else f"解码方式改为 {self.settings.get('decode_mode', 'auto')}")
-            print(f"[设置] {reason}，重新取流各路画面", file=sys.stderr, flush=True)
+        if self.settings.get("decode_mode", "auto") != decode_before:
+            print(f"[设置] 解码方式改为 {self.settings['decode_mode']}，重新取流各路画面",
+                  file=sys.stderr, flush=True)
             for tile in self.wall.tiles:
-                room_id = str(tile.room.get("room_id") or "")
-                platform = self.plugins.platform_for(room_id)
-                source_changed = ((codec_changed and room_id.isdigit() and platform is None)
-                                  or getattr(platform, "kind", "") in platform_codecs_changed)
-                if (room_id and tile.room.get("live")
-                        and (decode_changed or source_changed)):
+                if tile.room.get("room_id") and tile.room.get("live"):
                     self.start_tile(tile)
         config_module.save(self.current_state())
         # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
@@ -1464,15 +1454,11 @@ class MainWindow(QMainWindow):
         self._stream_attempts[tile] = source_offset + 1
         resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
                                   self, source_offset=source_offset,
-                                  platform=platform,
-                                  # 只给 B 站内置取流那条路；平台插件走 platform.play_url
-                                  codec="" if platform is not None
-                                  else str(self.settings.get("bili_codec", "avc") or "avc"))
+                                  platform=platform)
         current = lambda: self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
         resolver.resolved.connect(
             lambda _rid, url, qn, profile, options, t=tile:
             self._play_on(t, url, qn, profile, options, headers=resolver.headers,
-                          stream_info=resolver.stream_info,
                           room_id=room_id, requested_quality=quality) if current() else None)
         resolver.failed.connect(lambda rid, reason, t=tile, q=quality:
                                 self._on_resolve_failed(t, reason, requested_quality=q,
@@ -1492,8 +1478,7 @@ class MainWindow(QMainWindow):
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
-                 room_id: str = "", requested_quality: int = 0,
-                 stream_info: dict | None = None) -> None:
+                 room_id: str = "", requested_quality: int = 0) -> None:
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
@@ -1530,7 +1515,6 @@ class MainWindow(QMainWindow):
             player.pictureActivity.connect(
                 lambda p=player: self._on_picture_activity(self._tile_of_player(p)))
             player.autoQualityRequested.connect(lambda qn, p=player: self._on_auto_quality(p, qn))
-            player.decoderFallback.connect(lambda mode, p=player: self._on_decoder_fallback(p, mode))
             self.players[tile] = player
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         player.set_volume(int(tile.volume))
@@ -1539,17 +1523,12 @@ class MainWindow(QMainWindow):
         # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
         # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}
-        stream_codec = (stream_info or {}).get("video_codec", "")
-        if stream_codec not in ("avc", "hevc", "av1"):
-            stream_codec = bili.codec_from_profile(profile)
         tile.stream_url = url
         tile.stream_profile = profile
-        tile.stream_codec = stream_codec
         tile.stream_headers = dict(headers or TilePlayer.PROFILE_HEADERS.get(
             profile, TilePlayer.PROFILE_HEADERS["web"]))
         player.stream_url = tile.stream_url
         player.stream_profile = profile
-        player.stream_codec = stream_codec
         player.stream_headers = dict(tile.stream_headers)
         player.actual_quality = int(quality or 0)
         player.configure_auto_quality(str(room.get("room_id") or ""),
@@ -1580,15 +1559,6 @@ class MainWindow(QMainWindow):
                 or str(tile.room.get("room_id")) != player.auto_quality.room_id):
             return
         self.start_tile(tile, stream_quality=quality)
-
-    def _on_decoder_fallback(self, player, mode: str) -> None:
-        tile = self._tile_of_player(player)
-        if tile is None:
-            return
-        label = "CPU 软件解码" if mode == "none" else mode.upper()
-        tile.set_status(f"解码异常，正在尝试{label}…")
-        print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
-              file=sys.stderr, flush=True)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""

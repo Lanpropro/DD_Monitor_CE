@@ -1,9 +1,8 @@
 """离线自检：转封装只复制音视频、仅监听本机、结束与换流清理进程。"""
 import io
 import os
-import re
-import sys
 from pathlib import Path
+import sys
 from unittest.mock import patch
 
 import requests
@@ -42,16 +41,12 @@ def main():
             assert bad.status_code == 404 and not start.called
             good = requests.get(relay.url, timeout=2)
             assert good.content.startswith(b"FLV")
-            assert good.headers["Content-Type"] == "video/x-flv"
-            assert re.search(r"/[0-9a-f]+\.flv$", relay.url), relay.url
             command = start.call_args.args[0]
             assert command[command.index("-c") + 1] == "copy"
             assert command[command.index("-rw_timeout") + 1] == "10000000"
             assert command[command.index("-i") + 1] == "https://cdn.test/live.m3u8"
             assert "Referer: https://www.huya.com/\r\n" in command
             assert command[-1] == "pipe:1" and "-map" in command
-            assert command[command.index("-f") + 1] == "flv"
-            assert command[command.index("-flvflags") + 1] == "no_duration_filesize"
             assert start.call_args.kwargs["stderr"] is stream_relay.subprocess.DEVNULL
             assert start.call_args.kwargs["stdin"] is stream_relay.subprocess.DEVNULL
             if os.name == "nt":
@@ -69,54 +64,6 @@ def main():
         relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {})
         relay.stop()
         start.assert_not_called()
-    # 容器跟编码走：HEVC / AV1 要 matroska（FLV 只装得下 H.264，实测黑屏）。
-    for codec, container, suffix, content_type in (
-            ("hevc", "matroska", ".mkv", "video/x-matroska"),
-            ("av1", "matroska", ".mkv", "video/x-matroska"),
-            ("avc", "flv", ".flv", "video/x-flv")):
-        assert stream_relay.container_for_codec(codec) == container
-        process = Process()
-        with patch.object(stream_relay, "ffmpeg_path", return_value="mock-ffmpeg"), \
-                patch.object(stream_relay, "_adopt_process"), \
-                patch.object(stream_relay.subprocess, "Popen", return_value=process) as start:
-            relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {},
-                                            container=stream_relay.container_for_codec(codec))
-            try:
-                assert re.search(re.escape(suffix) + "$", relay.url), relay.url
-                good = requests.get(relay.url, timeout=2)
-                assert good.content.startswith(b"FLV")
-                assert good.headers["Content-Type"] == content_type
-                command = start.call_args.args[0]
-                assert command[command.index("-f") + 1] == container
-                assert command[command.index("-c") + 1] == "copy"
-                assert command[-1] == "pipe:1"
-                if container == "matroska":
-                    assert "-flvflags" not in command
-                else:
-                    assert command[command.index("-flvflags") + 1] == "no_duration_filesize"
-            finally:
-                relay.stop()
-        assert not relay._thread.is_alive()
-    # B 站 HEVC / AV1 走的是不带 HlsProxy 的转封装（proxy=None）：转封装进程一死
-    # 就必须立刻报故障，否则只能等播放器的缓冲超时（实测 4 秒以上）。
-    process = Process()
-    with patch.object(stream_relay, "ffmpeg_path", return_value="mock-ffmpeg"), \
-            patch.object(stream_relay, "_adopt_process"), \
-            patch.object(stream_relay.subprocess, "Popen", return_value=process):
-        relay = stream_relay.StreamRelay("https://cdn.test/live.m3u8", {},
-                                        container="matroska")
-        try:
-            assert relay._hls_proxy is None
-            assert not relay.needs_restart()   # 进程还没起来，不算故障
-            assert requests.get(relay.url, timeout=2).status_code == 200
-            process.returncode = 0             # 模拟 FFmpeg 遇上游 5xx 提前退出
-            assert relay.needs_restart()
-        finally:
-            relay.stop()
-        assert not relay.needs_restart()       # 主动停止不算故障
-    # 未知容器沿用原来的 FLV，不能因为拼错名字就换掉容器。
-    assert stream_relay.container_for_codec("") == "flv"
-    assert stream_relay.container_for_codec("garbage") == "flv"
     process = Process()
     with patch.object(stream_relay, "ffmpeg_path", return_value="mock-ffmpeg"), \
             patch.object(stream_relay, "_adopt_process"), \
@@ -148,8 +95,7 @@ def main():
             assert "FFmpeg" in str(error)
         else:
             raise AssertionError("缺少 FFmpeg 必须明确提示")
-    print("PASS: copy-only remux, loopback access, request headers, hidden process, "
-          "idempotent cleanup, codec-matched containers")
+    print("PASS: copy-only remux, loopback access, request headers, hidden process, idempotent cleanup")
 
 
 if __name__ == "__main__":

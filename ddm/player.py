@@ -3,7 +3,6 @@ import ctypes
 import sys
 import threading
 import time
-from typing import Any, cast
 
 import vlc
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -17,13 +16,9 @@ REFERRER = "https://live.bilibili.com/"
 APP_UA = ("Mozilla/5.0 BiliDroid/6.25.0 (bbcallen@gmail.com) os/android model/MuMu "
           "mobi_app/android build/6250300 channel/bili innerVer/6250300 osVer/6.0.1 network/2")
 
-#: 解码器选择，media 级选项；自动沿用实例默认值（``--avcodec-hw=any``，VLC 自己
-#: 挑显卡解码器，挑不到就用 CPU），其余指定 VLC 的 ``avcodec-hw`` 模块。
-#: 标签要说清「谁在解码」—— 显卡还是 CPU，别只甩 D3D11VA / DXVA2 这种接口名。
-DECODE_MODES = (("自动（优先显卡解码，不可用回退 CPU）", "auto"),
-                ("Direct3D 11 显卡解码（较新的接口）", "d3d11va"),
-                ("DXVA2 显卡解码（更早的接口）", "dxva2"),
-                ("软件解码（纯 CPU，兼容性最好）", "none"))
+#: 解码方式是 media 级选项；自动沿用实例默认值，其余强制指定 VLC 模块。
+DECODE_MODES = (("自动（推荐）", "auto"), ("Direct3D 11", "d3d11va"),
+                ("DXVA2", "dxva2"), ("软件解码", "none"))
 HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
 
 
@@ -125,7 +120,6 @@ class TilePlayer(QObject):
     stateChanged = Signal(str)   # idle / connecting / playing / error
     pictureActivity = Signal()   # 解码计数重新变化；用来取消画面静止后的重试
     autoQualityRequested = Signal(int)
-    decoderFallback = Signal(str)
 
     PICTURE_POLL_MS = 1000
     FROZEN_TICKS = 2             # 连续 2 秒无新解码画面就尝试恢复
@@ -186,8 +180,6 @@ class TilePlayer(QObject):
         #: 这一段流的取流结果（「秒切」时跟着播放器一起搬到别的格子）
         self.stream_url = ""
         self.stream_profile = "web"
-        #: 这一路流的视频编码（avc / hevc / av1），录制那边按它挑分段容器
-        self.stream_codec = ""
         self.stream_headers: dict = {}
         self.actual_quality = 0
         self.auto_quality = None
@@ -203,12 +195,6 @@ class TilePlayer(QObject):
         self._buffer_limit = 6
         self._released = False
         self._audio_ready = False         # aout 起来之后补过静音/音量没有
-        self.decode_mode = "none" if self.silent else "auto"
-        self._decode_key = None
-        self._decode_tried: set[str] = set()
-        self._play_request = None
-        self._decode_snapshot = None
-        self._decode_stall_ticks = 0
         self._watch = QTimer(self)
         self._watch.setInterval(1500)
         self._watch.timeout.connect(self._check)
@@ -256,24 +242,6 @@ class TilePlayer(QObject):
 
     def play(self, url: str, profile: str = "web", headers: dict | None = None,
              options=None) -> None:
-        options = tuple(str(option) for option in options or ())
-        requested = next((option.split("=", 1)[1] for option in options
-                          if option.startswith(":avcodec-hw=")), "auto")
-        if requested not in {value for _label, value in DECODE_MODES}:
-            requested = "auto"
-        key = (self.stream_codec or profile, requested)
-        if key != self._decode_key:
-            self._decode_key = key
-            self.decode_mode = "none" if self.silent else requested
-            self._decode_tried = {self.decode_mode}
-        self._play_request = (url, profile, dict(headers or {}), options)
-        self._play_media(url, profile, headers, self._decode_options(options))
-
-    def _decode_options(self, options):
-        return tuple(option for option in options if not option.startswith(":avcodec-hw=")) + \
-            decode_media_options(self.decode_mode)
-
-    def _play_media(self, url: str, profile: str, headers, options) -> None:
         """开始播放。
 
         ``options`` 是额外的 media 选项（例如预览用的 ``:no-audio``）：留在这里
@@ -303,24 +271,15 @@ class TilePlayer(QObject):
         playback_url = url
         platform_relay = profile in ("huya", "douyu", "douyin", "twitch", "youtube")
         overseas_hls = profile in ("twitch", "youtube")
-        # B 站的 HLS 通道（app-hls-hevc / app-hls-av1 / web-hls）VLC 打不开
-        # （Windows 上分片相对路径解析失败），同样先转封装；上游是 1 秒分片，
-        # 起播要多留缓冲，所以沿用平台那一档，不另开一档。
-        from .bili import codec_from_profile, relay_required
-        platform_relay = platform_relay or relay_required(profile)
         self._picture_limit = 20 if overseas_hls else 8 if platform_relay else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas_hls else 6
         if platform_relay:
-            from .stream_relay import StreamRelay, container_for_codec
+            from .stream_relay import StreamRelay
             relay_options = {}
             if overseas_hls:
                 from .global_danmaku import request_proxy
                 relay_options["proxy"] = request_proxy(url)
                 relay_options["hls_retry"] = True
-            # 容器跟编码走：FLV 只装得下 H.264，HEVC / AV1 装进 matroska
-            # （实测 FLV + HEVC 在 VLC 里是黑屏）。
-            relay_options["container"] = container_for_codec(
-                self.stream_codec or codec_from_profile(profile))
             self._relay = StreamRelay(url, headers or {}, **relay_options)
             playback_url = self._relay.url
         media = self._instance.media_new(playback_url)
@@ -353,8 +312,6 @@ class TilePlayer(QObject):
         self._last_time = None
         self._last_picture = None
         self._frozen_ticks = 0
-        self._decode_snapshot = None
-        self._decode_stall_ticks = 0
         self._set_state("connecting")
         self._watch.start()
         self._picture_watch.start()
@@ -372,9 +329,6 @@ class TilePlayer(QObject):
         self._media = None
         self._last_picture = None
         self._frozen_ticks = 0
-        self._play_request = None
-        self._decode_key = None
-        self._decode_tried.clear()
         self._set_state("idle")
 
     def _detach_and_stop(self) -> None:
@@ -593,60 +547,16 @@ class TilePlayer(QObject):
         displayed_pictures 就不再涨（实测暂停后两者定格），效果一样，
         但不用截图、不用写临时文件，也就没有那个崩溃面。
         """
-        stats = self._media_stats()
-        if stats is None:
-            return None
-        return (int(stats.decoded_video), int(stats.displayed_pictures))
-
-    def _media_stats(self):
-        if self._media is None:
+        media = self._media
+        if media is None:
             return None
         stats = vlc.MediaStats()
         try:
-            return stats if vlc.libvlc_media_get_stats(self._media, ctypes.byref(stats)) == 1 else None
+            if vlc.libvlc_media_get_stats(media, ctypes.byref(stats)) != 1:
+                return None
         except Exception:  # noqa: BLE001
             return None
-
-    def _recover_decoder(self, state, *, frozen=False) -> bool:
-        if (self.silent or self.paused or self._released
-                or self._play_request is None or self.decode_mode == "none"):
-            return False
-        if self._relay is not None and self._relay.needs_restart():
-            return False
-        stats = self._media_stats()
-        if stats is None:
-            return False
-        if state != cast(Any, vlc.State).Error and self.player.video_get_track_count() <= 0:
-            return False
-        snapshot = (int(stats.demux_read_bytes), int(stats.decoded_video),
-                    int(stats.displayed_pictures))
-        previous = self._decode_snapshot
-        no_picture = (snapshot[2] == 0 and self.video_widget.isVisible()
-                      and not self.video_widget.window().isMinimized())
-        blocked = (previous is not None and snapshot[0] > previous[0]
-                   and (no_picture or snapshot[1] == previous[1]
-                        or previous[2] > 0 and snapshot[2] == previous[2]))
-        if not frozen:
-            self._decode_stall_ticks = self._decode_stall_ticks + 1 if blocked else 0
-            self._decode_snapshot = snapshot
-        failed = (state == cast(Any, vlc.State).Error and snapshot[0] > 0
-                  or self._decode_stall_ticks >= 3
-                  or frozen and (blocked or self._decode_stall_ticks > 0))
-        if not failed:
-            return False
-        modes = ("d3d11va", "dxva2", "none")
-        mode = next((mode for mode in modes if mode not in self._decode_tried), None)
-        if mode is None:
-            return False
-        self.decode_mode = mode
-        self._decode_tried.add(mode)
-        url, profile, headers, options = self._play_request
-        try:
-            self._play_media(url, profile, headers, self._decode_options(options))
-        except (RuntimeError, OSError):
-            self._set_state("error")
-        self.decoderFallback.emit(mode)
-        return True
+        return (int(stats.decoded_video), int(stats.displayed_pictures))
 
     def _check_picture(self, playing: bool) -> bool:
         """画面是不是停了；返回 True 表示判定为卡住。"""
@@ -682,8 +592,6 @@ class TilePlayer(QObject):
         state = self.player.get_state()
         width, _ = self.player.video_get_size(0)
         if self._check_picture(state == vlc.State.Playing and bool(width)):
-            if self._recover_decoder(state, frozen=True):
-                return
             self._set_state("frozen")
 
     # ---- 状态 ----
@@ -701,8 +609,6 @@ class TilePlayer(QObject):
             return                          # 明确失败走已有重连，暂时缺片仍由 HLS 层恢复。
         self._ensure_audio_settings()       # aout 起来了就把静音/音量补回去
         state = self.player.get_state()
-        if self._recover_decoder(state):
-            return
         width, _ = self.player.video_get_size(0)
         current = self.player.get_time()
         advanced = self._last_time is not None and current > self._last_time

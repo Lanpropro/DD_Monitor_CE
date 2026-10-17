@@ -9,20 +9,11 @@ import shutil
 import subprocess
 import sys
 import time
-from concurrent.futures import Future
 from pathlib import Path
-from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import config
-from .encoders import (
-    gop_args,
-    resolve_encoder,
-    resolve_encoder_async,
-    segment_extension,
-    segment_format,
-)
 
 SEGMENT_SECONDS = 10
 CHECK_MS = 2000
@@ -203,49 +194,32 @@ def input_args(url: str, headers: dict) -> list[str]:
     return args + ["-i", url]
 
 
-def segment_extension_for(settings: dict, video_codec: str) -> str:
-    """按实际输出编码选择能容纳它的格式。"""
-    extension = str(settings.get("recording_format") or "mp4")
-    if extension not in ("mkv", "mov", "ts"):
-        extension = "mp4"
-    output_codec = "avc" if settings.get("recording_codec", "copy") == "h264" else video_codec
-    return segment_extension(extension, output_codec)
-
-
-def segment_args(settings: dict, pattern: Path, video_codec: str = "", *,
-                 encoder: tuple[str, list[str], str] | None = None) -> list[str]:
+def segment_args(settings: dict, pattern: Path) -> list[str]:
     args = ["-map", "0:v:0", "-map", "0:a?", "-sn", "-dn"]
     if settings.get("recording_codec", "copy") == "h264":
-        name, extra, family = encoder if encoder is not None else resolve_encoder(
-            settings.get("recording_encoder", "auto"), ffmpeg_path(settings))
         fps = max(1, int(settings.get("recording_fps", 30)))
         bitrate = max(500, int(settings.get("recording_bitrate", 6000)))
-        # GOP 参数按编码器族生成：-sc_threshold 是 x264 独有的，塞给硬件编码器
-        # 会让 FFmpeg 直接启动失败。
-        args += ["-c:v", name, *extra, "-pix_fmt", "yuv420p", "-b:v", f"{bitrate}k",
-                 "-r", str(fps), *gop_args(family, fps, SEGMENT_SECONDS),
-                 "-c:a", "aac", "-b:a", "160k"]
+        args += ["-c:v", "libx264", "-preset", "veryfast", "-b:v", f"{bitrate}k",
+                 "-r", str(fps), "-g", str(fps * SEGMENT_SECONDS),
+                 "-sc_threshold", "0", "-c:a", "aac", "-b:a", "160k"]
     else:
         args += ["-c", "copy"]
-    fmt = segment_format(segment_extension_for(settings, video_codec))
+    fmt = {"mkv": "matroska", "mov": "mov", "ts": "mpegts"}.get(
+        settings.get("recording_format"), "mp4")
     return args + ["-f", "segment", "-segment_time", str(SEGMENT_SECONDS),
                    "-reset_timestamps", "1", "-segment_format", fmt, str(pattern)]
 
 
 class _Session:
-    def __init__(self, tile, settings: dict, recording: bool, folder: Path,
-                 video_codec: str = ""):
+    def __init__(self, tile, settings: dict, recording: bool, folder: Path):
         self.tile = tile
         self.settings = dict(settings)
         self.recording = recording
         self.folder = folder
         self.name = str(tile.room.get("uname") or "直播")
         self.room_id = str(tile.room.get("room_id") or "")
-        #: 这一路流的视频编码（avc / hevc / av1），由 start() 从格子上取。分段容器
-        #: 要靠它挑（AV1 装不进 MOV）；取不到就是空串，而 segment_extension 对认不出
-        #: 的编码原样返回，所以老路径行为不变。
-        self.video_codec = video_codec
-        self.extension = segment_extension_for(settings, self.video_codec)
+        self.extension = (settings.get("recording_format") if settings.get("recording_format")
+                          in ("mkv", "mov", "ts") else "mp4")
         self.parts: list[Path] = []
         self.process: subprocess.Popen | None = None
         self.active_pattern: Path | None = None
@@ -254,10 +228,6 @@ class _Session:
         self.stopping = False
         self.next_url = ""
         self.next_headers: dict = {}
-        self.next_video_codec: str | None = None
-        self.encoder: tuple[str, list[str], str] | None = None
-        self.encoder_future: Future | None = None
-        self.log_path: Path | None = None
         self.warned = False
         self.retry_count = 0
         self.retry_at = 0.0
@@ -291,7 +261,7 @@ class RecordingManager(QObject):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.settings = settings
-        self.sessions: dict[Any, _Session] = {}
+        self.sessions: dict[object, _Session] = {}
         self.exports: list[tuple[subprocess.Popen, Path, list[Path], bool]] = []
         self._delete_after_exports: set[Path] = set()
         self.timer = QTimer(self)
@@ -345,10 +315,7 @@ class RecordingManager(QObject):
             if not self._free_enough(folder):
                 self._say("录制未开始：保存目录所在磁盘剩余空间不足")
                 return False
-            # 取不到 stream_codec 的老格子（或插件造的假格子）按空串处理：
-            # segment_extension 认不出编码就原样返回，行为跟改动前一致。
-            session = _Session(tile, self.settings, recording, folder,
-                               str(getattr(tile, "stream_codec", "") or ""))
+            session = _Session(tile, self.settings, recording, folder)
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
             self.changed.emit(tile)
@@ -360,14 +327,6 @@ class RecordingManager(QObject):
             return False
 
     def _launch(self, session: _Session, url: str, headers: dict) -> None:
-        if session.settings.get("recording_codec", "copy") == "h264" and session.encoder is None:
-            if session.encoder_future is None:
-                session.encoder_future = resolve_encoder_async(
-                    session.settings.get("recording_encoder", "auto"), ffmpeg_path(session.settings))
-            if not session.encoder_future.done():
-                return
-            session.encoder = session.encoder_future.result()
-            session.encoder_future = None
         session.chunk += 1
         parts_dir = session.folder / ".ddm-parts"
         parts_dir.mkdir(parents=True, exist_ok=True)
@@ -375,10 +334,8 @@ class RecordingManager(QObject):
         nonce = f"{time.time_ns()}_{session.chunk}"
         pattern = parts_dir / f"{safe_name(session.name)}_{nonce}_%05d.{session.extension}"
         command = [ffmpeg_path(session.settings), "-y"] + input_args(url, headers)
-        command += segment_args(session.settings, pattern, session.video_codec,
-                                encoder=session.encoder)
+        command += segment_args(session.settings, pattern)
         log_path = parts_dir / f"{safe_name(session.name)}_{nonce}.log"
-        session.log_path = log_path
         with log_path.open("wb") as log:
             session.process = subprocess.Popen(command, stdin=subprocess.PIPE,
                                                stdout=subprocess.DEVNULL, stderr=log,
@@ -441,64 +398,23 @@ class RecordingManager(QObject):
             return
         if str(tile.room.get("room_id") or "") != session.room_id:
             self.stop(tile)
-            return
-        codec = str(getattr(tile, "stream_codec", "") or "")
-        if session.process is None:
+        elif session.process is None:
             try:
-                self._change_codec(session, codec)
                 self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
                 self._say(f"{session.name} 取到新流，继续录制")
             except OSError as error:
                 self._say(f"{session.name} 续录失败：{error}")
                 self.stop(tile)
-        elif session.next_url or tile.stream_url != session.url or codec != session.video_codec:
+        elif tile.stream_url != session.url:
             session.next_url = tile.stream_url
             session.next_headers = dict(tile.stream_headers or {})
-            session.next_video_codec = codec
             self._end_process(session)
-
-    def _change_codec(self, session: _Session, codec: str) -> None:
-        if codec == session.video_codec:
-            return
-        if session.settings.get("recording_codec", "copy") == "copy":
-            parts = session.finished_parts()
-            if session.recording and parts:
-                self._export(session, parts, full=True)
-                self._say(f"{session.name} 的直播编码已改变，后续录制保存为另一个文件")
-            elif not session.recording:
-                self._discard_cache(session)
-            session.parts.clear()
-        session.video_codec = codec
-        session.extension = segment_extension_for(session.settings, codec)
-
-    def _fallback_encoder(self, session: _Session) -> bool:
-        if session.encoder is None or session.encoder[2] == "cpu" or session.log_path is None:
-            return False
-        try:
-            with session.log_path.open("rb") as log:
-                log.seek(max(0, session.log_path.stat().st_size - 65536))
-                detail = log.read().decode("utf-8", "replace").lower()
-        except OSError:
-            return False
-        failures = ("error while opening encoder", "could not open encoder",
-                    "openencodesessionex failed", "no capable devices found",
-                    "unknown encoder", "device lost", "device removed")
-        if not any(message in detail for message in failures):
-            return False
-        if "nothing was written into output file" in detail:
-            prefix = session.log_path.stem + "_"
-            session.parts = [path for path in session.parts
-                             if path.parent != session.log_path.parent or not path.name.startswith(prefix)]
-        session.encoder = resolve_encoder("cpu", ffmpeg_path(session.settings))
-        self._say(f"{session.name} 硬件编码失败，改用 CPU 继续录制")
-        return True
 
     def _poll(self) -> None:
         for tile, session in list(self.sessions.items()):
             process = session.process
             if process is None:
-                if ((session.encoder_future is not None and session.encoder_future.done())
-                        or session.retry_at and time.monotonic() >= session.retry_at):
+                if session.retry_at and time.monotonic() >= session.retry_at:
                     try:
                         self._launch(session, tile.stream_url,
                                      dict(tile.stream_headers or {}))
@@ -525,25 +441,14 @@ class RecordingManager(QObject):
             elif session.next_url:
                 url = session.next_url or session.url
                 headers = session.next_headers or dict(tile.stream_headers or {})
-                codec = session.next_video_codec
                 session.next_url = ""
                 session.next_headers = {}
-                session.next_video_codec = None
                 try:
-                    if codec is not None:
-                        self._change_codec(session, codec)
                     self._launch(session, url, headers)
                 except OSError as error:
                     self._say(f"{session.name} 续录失败：{error}")
                     self.stop(tile)
             elif exit_code:
-                if self._fallback_encoder(session):
-                    try:
-                        self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
-                    except OSError as error:
-                        self._say(f"{session.name} CPU 续录失败：{error}")
-                        self.stop(tile)
-                    continue
                 self._say(f"{session.name} 的 FFmpeg 意外退出（{exit_code}）；详见 .ddm-parts 日志")
                 if not self._free_enough(session.folder):
                     self._stop_for_space(session)
