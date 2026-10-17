@@ -7,7 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QAbstractAnimation, QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -92,6 +92,32 @@ def main():
                 assert not tile.bottom.isVisible(), 'Reduced motion must hide immediately'
                 cursor.stop()
                 assert tile.bottom.isVisible(), 'Reduced motion must restore immediately'
+            outside = tile.mapToGlobal(QPoint(tile.width() + 100, tile.height() // 2))
+            with patch('ddm.fullscreen_cursor.QCursor.pos', return_value=outside):
+                cursor.update_cursor()
+                QTest.qWait(220)
+                assert not tile.bottom.isVisible() and not tile.controls.isVisible(), 'Leaving the screen must hide both bars'
+                assert not cursor.hidden and QApplication.overrideCursor() is None, 'Other monitor cursor must stay visible'
+                cursor.update_cursor()
+                assert tile._bar_animation.state() == QAbstractAnimation.Stopped, 'Outside polling must not restart the slide'
+                window.settings['fullscreen_auto_hide_controls'] = False
+                cursor.update_cursor()
+                QTest.qWait(220)
+                assert tile.bottom.isVisible(), 'Leaving must respect the auto-hide switch'
+                window.settings['fullscreen_auto_hide_controls'] = True
+                cursor.update_cursor()
+                QTest.qWait(220)
+            cursor.update_cursor()
+            QTest.qWait(220)
+            assert tile.bottom.isVisible() and tile.controls.isVisible(), 'Returning must restore both bars'
+            cursor._last_move = 0
+            cursor.update_cursor()
+            QTest.qWait(220)
+            assert cursor.hidden
+            with patch('ddm.fullscreen_cursor.QCursor.pos', return_value=outside):
+                cursor.update_cursor()
+                assert not cursor.hidden and QApplication.overrideCursor() is None, 'Leaving from idle must release the cursor'
+            cursor.stop()
         window._fullscreen_tile = None
         window.wall.set_fullscreen_tile(None)
         assert tile._bar_progress == 0 and tile.bottom.isVisible()
@@ -106,7 +132,7 @@ def main():
         cursor.stop()
         window.close()
         app.processEvents()
-    print('PASS: corner alpha, fullscreen slide, reversal, stable video, switch, reduced motion and cleanup')
+    print('PASS: corner alpha, fullscreen slide, reversal, screen exit/return, cursor visibility, switch and cleanup')
 
 
 if __name__ == '__main__':
