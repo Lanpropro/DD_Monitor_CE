@@ -5844,10 +5844,14 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
-        # 输入区占状态文字那一截：其它控件的宽度全部固定，按钮位置不受影响。
+        # 输入区插在状态文字和弹幕开关之间；右侧那段固定空白负责把它顶到底栏正中。
         self.composer = DanmakuComposer(self.bottom)
         self.composer.set_room(room.get("room_id"))
         bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
+        self._composer_spacer = QWidget(self.bottom)
+        self._composer_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._composer_spacer.setFixedWidth(0)
+        bottom_layout.addWidget(self._composer_spacer, 0)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -5980,6 +5984,7 @@ class Tile(QFrame):
                 bool(getattr(self, "_fullscreen_controls_hidden", False)),
                 self.recording_time.text(),
                 bool(getattr(self, "_recording_available", True)),
+                self.status_label.text(),
                 theme.mode())
 
     def _layout_bottom_controls(self) -> None:
@@ -6022,27 +6027,47 @@ class Tile(QFrame):
         # 原有控件的宽度完全按「没有输入区」时算，按钮位置因此不会变。
         available = width - fixed - margin * 2 - spacing * (len(visible) + 1)
         slider_width = max(18, min(86, available - 8))
-        # 插进输入区会多一段间距；剩下的中间宽度由状态文字和输入区瓜分。
-        middle = available - slider_width - spacing
-        status_min = 96 if width >= 700 else 64
+        # 状态文字至少留够当前文案的宽度（上限 96/64），不让它被输入区省略掉
+        hint = self.status_label.sizeHint().width()
+        status_min = min(96 if width >= 700 else 64, max(32, hint))
         composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
-        composing = (self._composer_shown
-                     and middle - status_min >= self.COMPOSER_MIN_WIDTH)
+        self.volume_slider.setFixedWidth(slider_width)
+        self._composer_spacer.setFixedWidth(0)
+        layout.setStretchFactor(self.status_label, 1)
+        self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.status_label.setMinimumWidth(0)
+        self.status_label.setMaximumWidth(16777215)
+        # 先按原样排一次，拿到状态文字起点和弹幕开关起点；这两个位置只由
+        # 固定宽度的控件决定，跟输入区无关，所以不会来回跳。
+        self.composer.setVisible(self._composer_shown)
+        layout.activate()
+        composing = False
+        if self._composer_shown:
+            left = self.status_label.x()
+            right = self.danmaku_button.x()
+            leftover = right - left - 3 * spacing          # 状态 + 输入区 + 右侧空位
+            composer_width = min(composer_cap, leftover - status_min)
+            if composer_width >= self.COMPOSER_MIN_WIDTH:
+                composing = True
+                self.composer.setFixedWidth(composer_width)
+                self.composer.layout().activate()
+                # 让输入区落在底栏正中；受状态文字和右侧按钮夹住时取最近位置
+                x = (self.bottom.width() - composer_width) // 2
+                x = max(left + status_min + spacing,
+                        min(x, right - 2 * spacing - composer_width))
+                status_width = x - left - spacing
+                spacer_width = right - 2 * spacing - x - composer_width
+                self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+                self.status_label.setFixedWidth(max(status_min, status_width))
+                self._composer_spacer.setFixedWidth(max(0, spacer_width))
         self.composer.setVisible(composing)
-        if composing:
-            composer_width = min(composer_cap, middle - status_min)
-            self.composer.setFixedWidth(composer_width)
-            self.composer.layout().activate()
-            self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-            self.status_label.setFixedWidth(middle - composer_width)
-        else:
+        self._composer_spacer.setVisible(composing)
+        if not composing:
             self.composer.setMinimumWidth(0)
             self.composer.setMaximumWidth(16777215)
-            self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-            self.status_label.setMinimumWidth(0)
-            self.status_label.setMaximumWidth(16777215)
-        self.volume_slider.setFixedWidth(slider_width)
-        layout.setStretchFactor(self.status_label, 0 if composing else 1)
+            layout.setStretchFactor(self.status_label, 1)
+        else:
+            layout.setStretchFactor(self.status_label, 0)
         layout.activate()
 
     def set_recording_state(self, state: str) -> None:
