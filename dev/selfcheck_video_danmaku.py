@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import threading
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from PySide6.QtCore import QPointF, QRect, QThread, Qt, Signal
 from PySide6.QtGui import QPaintEvent
@@ -299,12 +299,15 @@ def check_cancel(app):
         lookup.assert_not_called()
     started, release = threading.Event(), threading.Event()
 
-    def lookup(room_id):
+    def lookup(room_id, **kwargs):
         started.set()
         assert release.wait(3)
         return 123, "token", [{"host": "example.invalid", "wss_port": 443}]
 
-    with patch("ddm.danmaku.bili.danmaku_conf", lookup), patch("ddm.danmaku._Client") as backend, \
+    with patch("ddm.danmaku.bili.danmaku_conf", lookup), \
+            patch("ddm.danmaku._Client._init_uid", new_callable=AsyncMock), \
+            patch("ddm.danmaku._Client._init_buvid", new_callable=AsyncMock), \
+            patch("aiohttp.ClientSession.ws_connect") as connect, \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         window = MainWindow([], [], layout_id="1x1", state={"plugins_enabled": []})
         try:
@@ -318,7 +321,7 @@ def check_cancel(app):
             assert client.wait(1000)
             app.processEvents()
             assert not window._danmaku_retired
-            backend.assert_not_called()
+            connect.assert_not_called()
         finally:
             release.set()
             window.close()

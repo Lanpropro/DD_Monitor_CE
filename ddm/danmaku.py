@@ -21,6 +21,7 @@ if config_module.REPO not in sys.path:
 
 try:
     import aiohttp
+    import yarl
     import blivedm
     from blivedm.clients import ws_base as blivedm_ws_base
     IMPORT_ERROR = ""
@@ -81,10 +82,11 @@ class DanmakuClient(QThread):
     async def _main(self, room_id: int) -> None:
         self._loop = asyncio.get_running_loop()
         cookies = http.cookies.SimpleCookie()
-        if bili.SESSION_DATA:           # 带上登录态，用户名才不会被打码
-            cookies["SESSDATA"] = bili.SESSION_DATA
-            cookies["SESSDATA"]["domain"] = "bilibili.com"
+        for name, value in bili._cookies().items():
+            cookies[name] = value
+            cookies[name]["domain"] = "bilibili.com"
         session = aiohttp.ClientSession(
+            headers=bili.HEADERS,
             timeout=aiohttp.ClientTimeout(total=None, connect=15))
         session.cookie_jar.update_cookies(cookies)
 
@@ -92,15 +94,7 @@ class DanmakuClient(QThread):
             if self._stopped.is_set():
                 return
             self.status.emit("连接中…")
-            # 官方 getDanmuInfo 被风控挡了，用 getConf 拿服务器和 token。
-            real_id, token, hosts = await asyncio.to_thread(bili.danmaku_conf, self.room_id)
-            if self._stopped.is_set():
-                return
-            if not hosts:
-                self.status.emit("拿不到弹幕服务器（网络或风控问题）")
-                return
-            client = _Client(real_id or room_id, session=session,
-                             on_status=self.status.emit, hosts=hosts, token=token)
+            client = _Client(room_id, session=session, on_status=self.status.emit)
             client.set_handler(_Handler(self.message.emit))
             self._client = client
             client.start()
@@ -113,6 +107,7 @@ class DanmakuClient(QThread):
             if client is not None:
                 await client.stop_and_close()
             await session.close()
+            self._loop = None
 
 
 if blivedm is not None:
@@ -128,7 +123,7 @@ else:                                     # 上游库缺失时的占位，保证
 
 
 class _Client(_ClientBase):
-    """服务器地址和 token 自己给（走 getConf），顺便把连接状态报给界面。"""
+    """共用持久化的浏览器身份，初始化和重连时刷新签名凭据。"""
 
     def __init__(self, room_id, *, session=None, hosts=None, token="", on_status=None):
         super().__init__(room_id, session=session)
@@ -142,20 +137,43 @@ class _Client(_ClientBase):
         self._stopping = False
 
     async def init_room(self) -> bool:
-        """服务器信息已在外面签名取得，这里补齐用户和浏览器标识。"""
+        """UID、设备 Cookie、token 和 WebSocket 来自同一个会话快照。"""
         if self._uid is None:
             try:
-                await self._init_uid()          # 有 SESSDATA 才会真的发请求
-            except Exception:                   # noqa: BLE001
-                pass
-            if self._uid is None:
-                self._uid = 0
-        if self._get_buvid() == "":
-            try:
-                await self._init_buvid()
-            except Exception:                   # noqa: BLE001
-                pass
-        return bool(self._host_server_list)
+                ready = await self._init_uid()
+            except (aiohttp.ClientError, OSError, ValueError, KeyError, TypeError) as error:
+                raise aiohttp.ClientConnectionError("Unable to initialize danmaku user") from error
+            if not ready:
+                raise aiohttp.ClientConnectionError("Unable to initialize danmaku user")
+        if not self._get_buvid():
+            await self._init_buvid()
+        cookies = {name: cookie.value for name, cookie in
+                   self._session.cookie_jar.filter_cookies(yarl.URL(blivedm.clients.web.UID_INIT_URL)).items()}
+        try:
+            real_id, token, hosts = await asyncio.to_thread(
+                bili.danmaku_conf, str(self._tmp_room_id), cookies=cookies,
+                user_agent=self._session.headers.get("User-Agent", bili.UA))
+        except (OSError, ValueError) as error:
+            raise aiohttp.ClientConnectionError("Unable to load danmaku servers") from error
+        if not hosts:
+            if self._on_status is not None:
+                self._on_status("拿不到弹幕服务器，准备重试…（网络或风控问题）")
+            raise aiohttp.ClientConnectionError("No danmaku servers available")
+        self._room_id = real_id or self._tmp_room_id
+        self._host_server_list = list(hosts)
+        self._host_server_token = token or None
+        return True
+
+    async def _init_buvid(self):
+        try:
+            value = await asyncio.to_thread(bili.ensure_buvid3)
+        except (OSError, ValueError) as error:
+            raise aiohttp.ClientConnectionError("Unable to initialize browser identity") from error
+        cookies = http.cookies.SimpleCookie()
+        cookies["buvid3"] = value
+        cookies["buvid3"]["domain"] = "bilibili.com"
+        self._session.cookie_jar.update_cookies(cookies)
+        return True
 
     async def _on_ws_connect(self):
         self._authenticated = False
@@ -195,6 +213,8 @@ class _Client(_ClientBase):
 
     async def _on_before_ws_connect(self, retry_count):
         self._authenticated = False
+        if retry_count:
+            self._need_init_room = True  # 普通断线也刷新凭据，不等到鉴权拒绝后才换 token。
         if self._on_status is not None:
             self._on_status(f"重连中…（第 {retry_count} 次）" if retry_count else "连接中…")
         await super()._on_before_ws_connect(retry_count)
