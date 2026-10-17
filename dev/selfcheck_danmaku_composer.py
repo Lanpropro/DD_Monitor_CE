@@ -165,10 +165,10 @@ class ComposerTests(unittest.TestCase):
             for mode in ("dark", "light"):
                 theme.apply(mode)
                 widths = {}
-                for width, height in ((900, 520), (480, 300), (360, 230)):
+                for width, height in ((900, 520), (600, 340), (480, 300)):
                     tile.resize(width, height)
                     APP.processEvents()
-                    # 信息条上的既有元素任何宽度都要在；输入框只会自适应收缩，
+                    # 信息条上的既有元素任何宽度都要在；输入框只浮在中间，
                     # 放不下时整块收起，绝不去挤掉状态文字和音量滑条。
                     self.assertTrue(tile.status_label.isVisible(), "信息条状态不能被输入区挤没")
                     self.assertTrue(tile.danmaku_settings_button.isVisible())
@@ -189,13 +189,17 @@ class ComposerTests(unittest.TestCase):
                     self.assertEqual(tile.composer.send_button.size().toTuple(), (52, composer_height))
                     # 宽格子里输入区限宽，别把主画面底栏整条铺满。
                     self.assertLessEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
+                    # 输入区不能压在弹幕开关上
+                    self.assertLessEqual(tile.composer.x() + tile.composer.width(),
+                                         tile.danmaku_button.x())
                     # 没有发送结果时不该有浮动提示；提示只在失败/发送中才出现。
                     self.assertFalse(tile.composer.feedback.isVisible())
                     self.assertEqual(tile.composer.feedback.text(), "")
-                self.assertTrue(widths[900] > widths[480] > 40,
-                                f"输入框应随格子宽度自适应伸缩：{widths}")
                 self.assertIn(900, widths)
-                self.assertIn(480, widths)
+                self.assertIn(600, widths)
+                self.assertNotIn(480, widths, "480px 以下输入区收起，把位置留给原有控件")
+                self.assertTrue(widths[900] > widths[600] > 40,
+                                f"输入框应随格子宽度自适应伸缩：{widths}")
             tile.set_room({"room_id": "douyu:1", "uname": "斗鱼"})
             APP.processEvents()
             self.assertFalse(tile.composer.isVisible())
@@ -331,22 +335,57 @@ class ComposerTests(unittest.TestCase):
         try:
             tile.set_status("已连接")
             APP.processEvents()
-            before = tile.composer.x()
+            names = ("pause_button", "volume_button", "volume_slider", "volume_label",
+                     "danmaku_button", "danmaku_settings_button", "recording_button",
+                     "fullscreen_button")
+
+            def snapshot():
+                return {name: getattr(tile, name).geometry().getRect() for name in names}
+
+            base = snapshot()
             for status in ("连接中…", "缓冲中…", "已连接"):
                 tile.set_status(status)
                 APP.processEvents()
-                self.assertEqual(tile.composer.x(), before, "状态刷新不能把输入区挪位")
+                self.assertEqual(snapshot(), base, "状态刷新不能挪动底栏原有控件")
+                self.assertLessEqual(tile.composer.x() + tile.composer.width(),
+                                     tile.danmaku_button.x())
             for visible in (False, True, False, True):
                 tile.set_controls_visible(visible)
                 APP.processEvents()
-                self.assertEqual(tile.composer.x(), before, "悬停显隐不能把输入区挪位")
+                self.assertEqual(snapshot(), base, "悬停显隐不能挪动底栏原有控件")
+        finally:
+            tile.close()
+
+    def test_composer_is_overlay_and_bar_buttons_never_move(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "douyu:1", "uname": "斗鱼", "live": True})
+        tile.resize(1000, 320)
+        tile.show()
+        APP.processEvents()
+        names = ("pause_button", "volume_button", "volume_slider", "volume_label",
+                 "danmaku_button", "danmaku_settings_button", "recording_button",
+                 "fullscreen_button")
+
+        def snapshot():
+            return {name: getattr(tile, name).geometry().getRect() for name in names}
+
+        try:
+            without = snapshot()                      # 没有输入区时的底栏
+            tile.set_room({"room_id": "101", "uname": "B站", "live": True})
+            APP.processEvents()
+            self.assertTrue(tile.composer.isVisible())
+            self.assertEqual(snapshot(), without, "出现输入区不能挪动任何原有按钮")
+            tile.set_room({"room_id": "douyu:1", "uname": "斗鱼"})
+            APP.processEvents()
+            self.assertFalse(tile.composer.isVisible())
+            self.assertEqual(snapshot(), without, "收起输入区后按钮仍在原位")
         finally:
             tile.close()
 
     def test_room_switch_keeps_video_geometry_for_inline_composer(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})
-        tile.resize(500, 350)
+        tile.resize(640, 360)
         tile.show()
         APP.processEvents()
         initial = (tile.video.geometry(), tile.bottom.geometry())
@@ -367,7 +406,7 @@ class ComposerTests(unittest.TestCase):
     def test_fullscreen_idle_hides_composer_without_resizing_video(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})
-        tile.resize(500, 350)
+        tile.resize(640, 360)
         tile.show()
         APP.processEvents()
         initial = tile.video.geometry()
@@ -389,11 +428,12 @@ class ComposerTests(unittest.TestCase):
         from ddm.fullscreen_cursor import FullscreenCursor
         from ddm.widgets import Tile
         window = QWidget()
+        window.settings = {}
         tile = Tile({"room_id": "101", "uname": "B站"}, window)
         window._fullscreen_tile = tile
         window.isActiveWindow = lambda: True
-        window.resize(500, 350)
-        tile.resize(500, 350)
+        window.resize(720, 420)
+        tile.resize(720, 420)
         window.show()
         tile.show()
         tile.composer.edit.setFocus()
