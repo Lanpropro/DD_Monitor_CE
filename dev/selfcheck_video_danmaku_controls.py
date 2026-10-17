@@ -160,7 +160,7 @@ def check_controls(app):
             assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
         finally:
             window.close()
-    # 最窄格子、录制时长出现时仍能看到并点击弹幕设置。
+    # 最窄格子保留输入空间，观看设置可从右键菜单打开；宽格保留齿轮。
     tile = Tile({"room_id": "1", "live": True})
     tile.show()
     try:
@@ -173,7 +173,18 @@ def check_controls(app):
                         tile.volume_label, tile.danmaku_button, tile.danmaku_settings_button,
                         tile.recording_button, tile.recording_time, tile.fullscreen_button]
             visible = [w for w in controls if w.isVisible()]
-            assert tile.danmaku_settings_button.isVisible()
+            if width >= 300:
+                assert tile.danmaku_settings_button.isVisible()
+            else:
+                menu = tile.build_menu()
+                action = next((a for a in menu.actions() if a.text() == "弹幕观看设置…"), None)
+                assert action is not None, "窄格隐藏齿轮后仍需可用的观看设置入口"
+                action.trigger()
+                app.processEvents()
+                assert tile.danmaku_settings_menu.isVisible()
+                assert tile.danmaku_settings_menu.controls["video_danmaku_size"].isEnabled()
+                tile.danmaku_settings_menu.hide()
+                menu.deleteLater()
             assert all(w.x() >= 0 and w.geometry().right() < tile.bottom.width() for w in visible), width
             assert all(a.geometry().right() < b.geometry().left() for a, b in zip(visible, visible[1:])), \
                 (width, [w.geometry() for w in visible])
