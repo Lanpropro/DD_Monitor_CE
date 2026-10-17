@@ -1,7 +1,7 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtGui import QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
     QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
@@ -9,6 +9,35 @@ from PySide6.QtWidgets import (
 
 from . import bili, theme
 from .images import AvatarLoader
+
+
+class EmoteButton(QPushButton):
+    """表情入口：和底栏的暂停/刷新图标一样自己画，不用字形（字形大小对不齐）。"""
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        color = theme.icon_color(self)
+        pen = QPen(color, 1.7)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        center = self.rect().center()
+        radius = min(self.width(), self.height()) / 2 - 4.0
+        face = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
+        painter.drawEllipse(face)
+        eye = max(1.0, radius * 0.15)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        for offset in (-radius * 0.36, radius * 0.36):
+            painter.drawEllipse(QPointF(center.x() + offset, center.y() - radius * 0.24),
+                                eye, eye)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        mouth = QRectF(center.x() - radius * 0.52, center.y() - radius * 0.12,
+                       radius * 1.04, radius * 0.9)
+        painter.drawArc(mouth, 200 * 16, 140 * 16)
 
 
 # 关闭格子/浮窗不销毁仍在执行网络请求的线程；Qt 自动断开已销毁接收者。
@@ -240,19 +269,22 @@ class DanmakuComposer(QWidget):
         self.edit.textChanged.connect(self._text_changed)
         self.edit.returnPressed.connect(self.send_text)
         row.addWidget(self.edit, 1)
-        self.emote_button = QPushButton("☺")
+        self.emote_button = EmoteButton()
         self.emote_button.setAccessibleName("选择直播间表情")
         self.emote_button.setToolTip("选择表情；大表情点击后直接发送")
         self.emote_button.setFixedSize(self.HEIGHT, self.HEIGHT)
         self.emote_button.clicked.connect(self.open_emoticons)
+        self.emote_button.setObjectName("TileCtrl")
+        self.emote_button.setCursor(Qt.PointingHandCursor)
+        self.emote_button.setAutoDefault(False)
         row.addWidget(self.emote_button)
         self.send_button = QPushButton("发送")
         self.send_button.setObjectName("PrimaryButton")
-        self.send_button.setFixedSize(46, self.HEIGHT)
+        self.send_button.setFixedSize(52, self.HEIGHT)
         self.send_button.clicked.connect(self.send_text)
+        self.send_button.setCursor(Qt.PointingHandCursor)
+        self.send_button.setAutoDefault(False)
         row.addWidget(self.send_button)
-        _style_button(self.emote_button)
-        _style_button(self.send_button, primary=True)
         self.feedback = QLabel("", self, Qt.ToolTip)
         self.feedback.setObjectName("DanmakuSendFeedback")
         self.feedback.setAttribute(Qt.WA_ShowWithoutActivating)

@@ -323,6 +323,15 @@ def is_light():
     return _light
 
 
+def icon_color(button, hover_dark: bool = True) -> QColor:
+    """手绘图标的前景色：平时浅色，悬停时按钮底变主题色，图标反过来用深色。"""
+    if button.underMouse() or button.property("hovered") is True:
+        return QColor("#04161f") if hover_dark else QColor(ACCENT)
+    if _light and button.objectName() in ("ChipButton", "BarIcon", "TileCtrl"):
+        return qcolor(TEXT2)
+    return QColor("#e7ebf0")
+
+
 def overlay_color(dark, light):
     return QColor(light if _light else dark)
 
@@ -1121,10 +1130,12 @@ QPushButton#PrimaryButton:pressed {{
     padding: 3px 6px;
     font-size: {FONT_CONTROL}px;
 }}
-/* 底栏里的发送按钮和输入框同高，不用全局按钮的 32px 最小高度。 */
+/* 底栏里的发送按钮和输入框同高，圆角按底栏按钮的高度取半，保持胶囊形。 */
 #DanmakuComposer #PrimaryButton {{
     min-height: {TILE_CONTROL_HEIGHT}px;
-    padding: 0 8px;
+    max-height: {TILE_CONTROL_HEIGHT}px;
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px;
+    padding: 0 10px;
     font-size: {FONT_CAPTION}px;
 }}
 #DanmakuSendFeedback {{

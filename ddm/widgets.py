@@ -449,12 +449,7 @@ class VolumeButton(QPushButton):
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
-    if button.underMouse() or button.property("hovered") is True:
-        return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
-    if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
-                            or button.objectName() == "TileCtrl"):
-        return theme.qcolor(theme.TEXT2)
-    return QColor("#e7ebf0")
+    return theme.icon_color(button, hover_dark)
 
 
 class SidebarToggleButton(QPushButton):
@@ -5936,9 +5931,12 @@ class Tile(QFrame):
     COMPOSER_MIN_WIDTH = 72
     """输入区至少要有这么宽（表情按钮 + 几字宽的输入框），不够就不显示。"""
 
+    COMPOSER_MAX_WIDTH = 340
+    """输入框在宽格子里也限宽：1+5 的主画面不该被一整条输入框铺满。"""
+
     @property
     def _composer_shown(self) -> bool:
-        """这一格现在该不该露出弹幕输入区；宽度够不够由布局后再兜底。"""
+        """这一格现在该不该露出弹幕输入区；宽度够不够由布局时判断。"""
         return (self.composer.supported
                 and not getattr(self, "_fullscreen_controls_hidden", False))
 
@@ -5948,57 +5946,64 @@ class Tile(QFrame):
     def _layout_bottom_controls(self) -> None:
         width = self.width()
         self._sync_composer_visibility()
-        composing = self._composer_shown
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
         if width < 260:
             margin, spacing = 4, 2
-        if composing:
-            spacing = min(spacing, 4)     # 输入区在场时把按钮间距收紧，把宽度让给输入框
+        if self._composer_shown:
+            spacing = min(spacing, 4)     # 输入区在场时把按钮间距收紧，把宽度让出来
         layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
         self.pause_button.setFixedWidth(26 if width < 260 else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 44)
         self.danmaku_button.setText("弹" if compact else "弹幕")
-        # 本地信息条的老规矩不动：状态文字、音量、录制时长都按原阈值显示。
-        # 有输入区时只把状态文字压窄（仍然可见）、隐藏「音量 xx」文字，
-        # 剩余宽度全部交给输入框自适应。
-        self.volume_label.setVisible(width >= (620 if composing else 280) and
+        # 原有底栏按钮的显隐规则一律不动：状态文字、音量数字、音量滑条、
+        # 弹幕设置、录制入口在任何宽度都按本地老规矩显示，不许被输入区挤掉。
+        self.volume_label.setVisible(width >= 280 and
                                      (not self.recording_time.text() or width >= 480))
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
         self.volume_slider.setVisible(width >= 220)
         self.status_label.setVisible(True)
-        self.status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        layout.setStretchFactor(self.status_label, 0 if composing else 1)
-        if composing:
-            # 状态文字按内容给固定宽度（上限 64/120），剩下的才归输入框，
-            # 这样「连接中…」不会被输入框挤成一个点，输入框仍然自适应。
-            self.status_label.setFixedWidth(min(self.status_label.sizeHint().width(),
-                                                120 if width >= 700 else 64))
-        else:
-            self.status_label.setMinimumWidth(0)
-            self.status_label.setMaximumWidth(16777215)
         self.danmaku_settings_button.setVisible(True)
         self.recording_button.setVisible(getattr(self, "_recording_available", True))
-        controls = [self.pause_button, self.volume_button, self.volume_label,
-                    self.danmaku_button, self.danmaku_settings_button, self.recording_button, self.recording_time,
-                    self.fullscreen_button]
-        visible = [widget for widget in controls if not widget.isHidden()]
+        others = [self.pause_button, self.volume_button, self.volume_label,
+                  self.danmaku_button, self.danmaku_settings_button,
+                  self.recording_button, self.recording_time, self.fullscreen_button]
+        visible = [widget for widget in others if not widget.isHidden()]
         fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()
                     for widget in visible)
-        remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - 8
+        # 底栏里除了上面这些，还有音量滑条、状态文字和输入区三个位置
+        slots = len(visible) + 3
+        available = width - fixed - margin * 2 - spacing * (slots - 1)
+        status_reserve = min(120, max(40, self.status_label.sizeHint().width()))
+        composing = (self._composer_shown
+                     and available >= self.COMPOSER_MIN_WIDTH + 18 + status_reserve)
+        self.composer.setVisible(composing)
+        if not composing:
+            available += spacing          # 少一个控件，就少一段间距
         if composing:
-            # 先给输入区和状态文字留位置，剩下的宽度才给音量滑条：
-            # 640px 以下滑条保持最小宽度，把空间让给输入框；更宽才逐步展开。
-            remaining = 0 if width < 640 else remaining
-        self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
+            # 输入框限宽：主画面最多 340px，窄画面按剩余宽度收缩；剩下的再给滑条，
+            # 富余宽度由状态文字吸收，右侧按钮仍贴着底栏右缘。
+            composer_width = max(self.COMPOSER_MIN_WIDTH,
+                                 min(self.COMPOSER_MAX_WIDTH,
+                                     available - 18 - status_reserve))
+            self.composer.setFixedWidth(composer_width)
+            slider_space = available - composer_width - status_reserve
+            self.status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            self.status_label.setMinimumWidth(0)
+            self.status_label.setMaximumWidth(16777215)
+        else:
+            self.composer.setMinimumWidth(0)
+            slider_space = available
+            self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            self.status_label.setMinimumWidth(0)
+            self.status_label.setMaximumWidth(16777215)
+        layout.setStretchFactor(self.status_label, 1)
+        layout.setStretchFactor(self.composer, 0)
+        self.volume_slider.setFixedWidth(max(18, min(86, slider_space)))
         layout.activate()
-        # 自适应兜底：排完还不到最小可用宽度就整块收起，别留一个点不动的输入框。
-        if composing and self.composer.width() < self.COMPOSER_MIN_WIDTH:
-            self.composer.hide()
-            layout.activate()
 
     def set_recording_state(self, state: str) -> None:
         self._recording_state = state

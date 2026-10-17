@@ -186,7 +186,9 @@ class ComposerTests(unittest.TestCase):
                     composer_height = tile.composer.HEIGHT
                     self.assertEqual(tile.composer.emote_button.size().toTuple(),
                                      (composer_height, composer_height))
-                    self.assertEqual(tile.composer.send_button.size().toTuple(), (46, composer_height))
+                    self.assertEqual(tile.composer.send_button.size().toTuple(), (52, composer_height))
+                    # 宽格子里输入区限宽，别把主画面底栏整条铺满。
+                    self.assertLessEqual(tile.composer.width(), tile.COMPOSER_MAX_WIDTH)
                     # 没有发送结果时不该有浮动提示；提示只在失败/发送中才出现。
                     self.assertFalse(tile.composer.feedback.isVisible())
                     self.assertEqual(tile.composer.feedback.text(), "")
