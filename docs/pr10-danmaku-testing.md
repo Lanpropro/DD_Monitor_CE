@@ -23,15 +23,36 @@ git apply -3 _pr10_net.diff
 - `ddm/bili.py`：`BILI_JCT` 保存 CSRF、`send_danmaku()` 发送文字/大表情、`get_emoticons()` 拉表情（自动取并缓存 `buvid3`）、`_cookies()` 带上 `bili_jct`。
 - `ddm/app.py`：启动恢复、登录写入、退出登录清空 `bili_jct`。
 - `ddm/login.py`、`ddm/web_login.py`：扫码与账号密码登录都收齐 `SESSDATA` + `bili_jct`。
-- `ddm/widgets.py`：输入区内嵌进格子底栏（开播状态和弹幕开关之间），窄格子逐级隐藏音量条/状态文字/发送按钮。
+- `ddm/widgets.py`：输入区内嵌进格子底栏（开播状态和弹幕开关之间），宽度自适应伸缩；信息条原有的状态文字、音量滑条、弹幕设置、录制入口全部保留，不再按 PR 的阈值隐藏。
+- `ddm/theme.py`：输入区、表情浮窗、发送按钮的样式并入全局 QSS（发送按钮复用本地 `PrimaryButton` 主色样式，其余沿用底栏 `TileCtrl`），主题切换不再逐控件重设局部样式。
 - `ddm/fullscreen_cursor.py`：输入框有焦点时，鼠标停在画面上也不收起控制条。
 - 新增自检 `dev/selfcheck_danmaku_send.py`、`dev/selfcheck_danmaku_composer.py`。
+
+## 与 PR 原实现的差异（按本地优先）
+
+| 项目 | PR 原实现 | 本地做法 |
+| --- | --- | --- |
+| 底栏宽度不足时 | 按固定宽度阈值隐藏状态文字、音量滑条、录制时长、设置按钮 | 这些既有入口一律保留；只隐藏「音量 xx」数字，640px 以下音量滑条保持最小宽度 |
+| 输入框 | 窄格子也显示，宽度被压到几十像素；<300px 隐藏设置按钮 | 输入框自适应伸缩；分到的宽度不足 72px 时整块收起，不给一个点不动的输入框 |
+| 控件尺寸 | 输入区高 28px、表情 28×28、发送 44×28 | 与底栏按钮同高 26px（`TILE_CONTROL_HEIGHT`），表情 26×26、发送 46×26 |
+| 按钮样式 | 控件内 `setStyleSheet` 写死主题色 | 全部走 `theme.qss` 选择器；发送按钮用本地 `#PrimaryButton`，主题切换护栏（<20 次重设）恢复通过 |
+| 提示浮层 | 依赖局部样式 | `#DanmakuSendFeedback` 全局规则 |
+
+实测底栏行为（B 站房间，深/浅色一致）：
+
+| 格子宽度 | 输入框 | 发送按钮 | 状态文字 | 音量滑条 |
+| --- | --- | --- | --- | --- |
+| 900px | 约 366px | 显示 | 显示 | 86px |
+| 640px | 约 106px | 显示 | 显示 | 86px |
+| 480px | 约 92px | 隐藏（Enter 发送） | 显示 | 18px（最小） |
+| 360px 及更窄 | 收起 | — | 显示 | 18px |
 
 ## 并入时修掉的问题（PR 自身 HEAD 是红的）
 
 1. `d9be8b8` 给 `get_emoticons()` 加了 `buvid3` 请求，但没同步 `selfcheck_danmaku_send.py`，该用例的 mock 只返回表情列表，必然失败。已改为分别 mock 设备接口与表情接口，并补「设备 Cookie 只取一次」「取不到时直接报错不继续请求」两条断言。
-2. `test_tile_composer_layout_platform_switch_and_theme` 里三处断言按「输入区单独占一行」的旧设计写的（输入框在底栏下方、提示浮层在输入框下方、200px 宽时输入框 > 40px）。在当前实现下，即使直接在 PR 基线上跑也不成立，已改成按内嵌式底栏检查：输入区属于底栏且不越界、空闲时不显示提示、窄格子只要求保留输入与表情入口。
+2. `test_tile_composer_layout_platform_switch_and_theme` 里三处断言按「输入区单独占一行」的旧设计写的（输入框在底栏下方、提示浮层在输入框下方、200px 宽时输入框 > 40px）。在当前实现下，即使直接在 PR 基线上跑也不成立，已改成按内嵌式底栏检查布局与自适应行为。
 3. `test_room_switch_reclaims_composer_space_without_resizing` 同样基于旧设计，改为验证切换房间时视频与底栏几何不变、输入区随平台显隐。
+4. `ElidedLabel` 在控件被隐藏或宽度过窄时会把文本省略成空串，导致「连接中…」读出来是 `""`。已在 `_apply_elide()` 里兜底保留原文。
 
 ## 手动测试方案
 
@@ -85,20 +106,38 @@ git apply -3 _pr10_net.diff
 ### 7. 布局与外观回归
 
 - [ ] 1+5、九分、竖屏、镜像、弹幕布局：底栏高度不变，视频区没有被输入区挤小，按钮不重叠。
-- [ ] 窗口从大拖到很窄：依次收起音量条、状态文字、发送按钮，最后只剩输入框 + 表情按钮，Enter 仍可发送。
-- [ ] 深浅色主题、背景皮肤下：输入框、☺、发送、浮窗刷新按钮的圆角/字体/悬停态和底栏其他按钮一致。
+- [ ] 窗口从大拖到窄：输入框逐级变短，发送按钮在约 540px 以下收起（Enter 仍可发送），状态文字和音量滑条始终在；拖到约 400px 以下输入区整块收起，视频和底栏不跳动。
+- [ ] 深浅色主题、背景皮肤下：输入框、☺、发送、浮窗刷新按钮的圆角/字体/悬停态和底栏其他按钮一致；发送按钮是本地主色样式，不是 PR 那套自带配色。
 - [ ] 收起关注栏、切换横竖屏、缩放窗口：输入框位置正确，不错位、不压住视频。
 
 ### 8. 已知限制（验收时确认是否可接受）
 
-- 格子宽度小于约 240px 时，输入框只剩约 30px，实际只能靠 Enter 盲打；如不可接受，可考虑在更窄时直接隐藏输入区。
+- 格子宽度约 400px 以下时不再显示输入区（分到的宽度不足 72px），状态文字和音量滑条优先保留；想窄格子也发弹幕，需要把那一格放大或全屏。
+- 640px 以下音量滑条固定为最小宽度（18px），拖动仍有效，只是不再随宽度变长。
 - 表情列表依赖 B 站 `buvid3` 设备 Cookie，接口异常时会提示刷新重试，不会静默少图。
 - 大表情发送后不写入本地弹幕记录，画面上的显示依赖 B 站回推。
 
 ## 离线自检
 
+只跑本次相关的两项：
+
 ```
-dev\run-checks.cmd          # 全量
 python dev\selfcheck_danmaku_send.py
 python dev\selfcheck_danmaku_composer.py
 ```
+
+全量自检放在后台、不弹窗跑（避免抢鼠标和窗口焦点）：
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:DDM_NO_SAVE = '1'
+$env:PYTHON_VLC_LIB_PATH = "$PWD\libvlc.dll"
+Get-ChildItem dev\selfcheck_*.py | ForEach-Object {
+    python -u $_.FullName *> "work\$($_.BaseName).log"
+    "{0}`texit={1}" -f $_.Name, $LASTEXITCODE
+}
+```
+
+需要可见桌面或外部 EXE 的几项（`selfcheck_fullscreen_cursor`、`selfcheck_video_danmaku_native`、
+`selfcheck_portrait_native`、`selfcheck_match_sync_native`、`selfcheck_match_sync_exe`、`*_live.py`）
+在离屏模式下会失败或没有意义，需要单独在可见桌面上跑。

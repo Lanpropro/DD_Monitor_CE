@@ -1121,6 +1121,12 @@ QPushButton#PrimaryButton:pressed {{
     padding: 3px 6px;
     font-size: {FONT_CONTROL}px;
 }}
+/* 底栏里的发送按钮和输入框同高，不用全局按钮的 32px 最小高度。 */
+#DanmakuComposer #PrimaryButton {{
+    min-height: {TILE_CONTROL_HEIGHT}px;
+    padding: 0 8px;
+    font-size: {FONT_CAPTION}px;
+}}
 #DanmakuSendFeedback {{
     background: {ELEVATED};
     color: {TEXT1};

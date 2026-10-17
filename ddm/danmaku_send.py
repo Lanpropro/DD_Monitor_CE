@@ -22,10 +22,10 @@ def _start(worker):
     worker.start()
 
 
-def _style_button(button):
-    button.setObjectName("TileCtrl")
-    # 样式统一由 theme.qss 的 #TileCtrl 规则提供，不在控件上重设局部样式：
-    # 主题切换时逐控件 setStyleSheet 会拖慢切换（selfcheck_theme_latency 有护栏）。
+def _style_button(button, *, primary=False):
+    # 发送按钮用本地主色按钮的样式，其余沿用底栏 TileCtrl 的透明按钮观感；
+    # 样式统一由 theme.qss 提供，不在控件上重设局部样式（主题切换护栏会统计次数）。
+    button.setObjectName("PrimaryButton" if primary else "TileCtrl")
     button.setCursor(Qt.PointingHandCursor)
     button.setAutoDefault(False)
 
@@ -211,7 +211,8 @@ class EmoticonPopup(QMenu):
 
 
 class DanmakuComposer(QWidget):
-    HEIGHT = 28
+    HEIGHT = theme.TILE_CONTROL_HEIGHT
+    """与底栏其它按钮同高，输入区嵌在同一条信息条里。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -235,22 +236,23 @@ class DanmakuComposer(QWidget):
         self.edit.setPlaceholderText("输入弹幕，Enter 发送")
         self.edit.setMinimumWidth(0)
         self.edit.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.edit.setFixedHeight(28)
+        self.edit.setFixedHeight(self.HEIGHT)
         self.edit.textChanged.connect(self._text_changed)
         self.edit.returnPressed.connect(self.send_text)
         row.addWidget(self.edit, 1)
         self.emote_button = QPushButton("☺")
         self.emote_button.setAccessibleName("选择直播间表情")
         self.emote_button.setToolTip("选择表情；大表情点击后直接发送")
-        self.emote_button.setFixedSize(28, 28)
+        self.emote_button.setFixedSize(self.HEIGHT, self.HEIGHT)
         self.emote_button.clicked.connect(self.open_emoticons)
         row.addWidget(self.emote_button)
         self.send_button = QPushButton("发送")
-        self.send_button.setFixedSize(44, 28)
+        self.send_button.setObjectName("PrimaryButton")
+        self.send_button.setFixedSize(46, self.HEIGHT)
         self.send_button.clicked.connect(self.send_text)
         row.addWidget(self.send_button)
-        for button in (self.emote_button, self.send_button):
-            _style_button(button)
+        _style_button(self.emote_button)
+        _style_button(self.send_button, primary=True)
         self.feedback = QLabel("", self, Qt.ToolTip)
         self.feedback.setObjectName("DanmakuSendFeedback")
         self.feedback.setAttribute(Qt.WA_ShowWithoutActivating)

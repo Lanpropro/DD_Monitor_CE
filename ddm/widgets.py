@@ -5936,13 +5936,13 @@ class Tile(QFrame):
         self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
         self.videoDanmakuSettingsChanged.emit(values)
 
-    COMPOSER_MIN_WIDTH = 240
-    """底栏窄于这个宽度时放不下输入框，宁可不显示也不再挤掉既有控制。"""
+    COMPOSER_MIN_WIDTH = 72
+    """输入区至少要有这么宽（表情按钮 + 几字宽的输入框），不够就不显示。"""
 
     @property
     def _composer_shown(self) -> bool:
-        """这一格现在该不该露出弹幕输入区。"""
-        return (self.composer.supported and self.width() >= self.COMPOSER_MIN_WIDTH
+        """这一格现在该不该露出弹幕输入区；宽度够不够由布局后再兜底。"""
+        return (self.composer.supported
                 and not getattr(self, "_fullscreen_controls_hidden", False))
 
     def _sync_composer_visibility(self) -> None:
@@ -5957,23 +5957,32 @@ class Tile(QFrame):
         margin, spacing = (6, 4) if compact else (10, 8)
         if width < 260:
             margin, spacing = 4, 2
-        layout.setContentsMargins(margin, 3 if composing else 4, margin, 3 if composing else 4)
+        if composing:
+            spacing = min(spacing, 4)     # 输入区在场时把按钮间距收紧，把宽度让给输入框
+        layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
-        self.pause_button.setFixedWidth(26 if width < (420 if composing else 260) else 34)
+        self.pause_button.setFixedWidth(26 if width < 260 else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 44)
         self.danmaku_button.setText("弹" if compact else "弹幕")
-        # 有输入区时先收辅助信息，但这几项是既有功能入口，下限不能抬太高：
-        # 弹幕设置按钮任何宽度都要在，录制时长在常见两列宽度也还要看得见。
-        self.volume_label.setVisible(width >= (560 if composing else 280) and
+        # 本地信息条的老规矩不动：状态文字、音量、录制时长都按原阈值显示。
+        # 有输入区时只把状态文字压窄（仍然可见）、隐藏「音量 xx」文字，
+        # 剩余宽度全部交给输入框自适应。
+        self.volume_label.setVisible(width >= (620 if composing else 280) and
                                      (not self.recording_time.text() or width >= 480))
-        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= (420 if composing else 360)
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= (460 if composing else 220))
-        self.status_label.setVisible(not composing or width >= 480)
-        self.status_label.setSizePolicy(QSizePolicy.Preferred if composing else QSizePolicy.Ignored,
-                                        QSizePolicy.Preferred)
-        self.status_label.setMaximumWidth((120 if width >= 700 else 70) if composing else 16777215)
+        self.volume_slider.setVisible(width >= 220)
+        self.status_label.setVisible(True)
+        self.status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         layout.setStretchFactor(self.status_label, 0 if composing else 1)
+        if composing:
+            # 状态文字按内容给固定宽度（上限 64/120），剩下的才归输入框，
+            # 这样「连接中…」不会被输入框挤成一个点，输入框仍然自适应。
+            self.status_label.setFixedWidth(min(self.status_label.sizeHint().width(),
+                                                120 if width >= 700 else 64))
+        else:
+            self.status_label.setMinimumWidth(0)
+            self.status_label.setMaximumWidth(16777215)
         self.danmaku_settings_button.setVisible(True)
         self.recording_button.setVisible(getattr(self, "_recording_available", True))
         controls = [self.pause_button, self.volume_button, self.volume_label,
@@ -5984,10 +5993,15 @@ class Tile(QFrame):
                     for widget in visible)
         remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - 8
         if composing:
-            remaining -= 78 + (min(self.status_label.sizeHint().width(), self.status_label.maximumWidth())
-                               + spacing if not self.status_label.isHidden() else 0)
+            # 先给输入区和状态文字留位置，剩下的宽度才给音量滑条：
+            # 640px 以下滑条保持最小宽度，把空间让给输入框；更宽才逐步展开。
+            remaining = 0 if width < 640 else remaining
         self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
         layout.activate()
+        # 自适应兜底：排完还不到最小可用宽度就整块收起，别留一个点不动的输入框。
+        if composing and self.composer.width() < self.COMPOSER_MIN_WIDTH:
+            self.composer.hide()
+            layout.activate()
 
     def set_recording_state(self, state: str) -> None:
         self._recording_state = state
@@ -6140,6 +6154,9 @@ class Tile(QFrame):
         """信息条里的状态文字：缓冲优先，其次才是当前状态。"""
         text = "缓冲中…" if getattr(self, "_buffering", False) else self._status_text
         self.status_label.setText(text or "")
+        if self.composer.supported:
+            # 状态文字按内容占固定宽度，文字变了要重排，否则输入区还按旧宽度算。
+            self._layout_bottom_controls()
 
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)

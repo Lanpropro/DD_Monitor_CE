@@ -164,25 +164,36 @@ class ComposerTests(unittest.TestCase):
         try:
             for mode in ("dark", "light"):
                 theme.apply(mode)
-                for width, height in ((900, 520), (360, 230), (200, 200)):
+                widths = {}
+                for width, height in ((900, 520), (480, 300), (360, 230)):
                     tile.resize(width, height)
                     APP.processEvents()
-                    # 窄到放不下输入区时宁可不显示，也不能挤掉既有底栏按钮。
-                    shown = width >= tile.COMPOSER_MIN_WIDTH
-                    self.assertEqual(tile.composer.isVisible(), shown)
+                    # 信息条上的既有元素任何宽度都要在；输入框只会自适应收缩，
+                    # 放不下时整块收起，绝不去挤掉状态文字和音量滑条。
+                    self.assertTrue(tile.status_label.isVisible(), "信息条状态不能被输入区挤没")
+                    self.assertTrue(tile.danmaku_settings_button.isVisible())
+                    self.assertTrue(tile.volume_button.isVisible())
                     self.assertLess(tile.video.geometry().bottom(), tile.bottom.y())
-                    if not shown:
-                        continue
-                    self.assertIs(tile.composer.parent(), tile.bottom)
                     self.assertTrue(tile.bottom.rect().contains(tile.composer.geometry()))
                     self.assertLessEqual(tile.bottom.geometry().bottom(), tile.height())
-                    self.assertGreater(tile.composer.edit.width(), 40 if width >= 360 else 0)
+                    if not tile.composer.isVisible():
+                        # 收起时不能留半个残影，输入框也拿不到焦点
+                        self.assertEqual(tile.composer.edit.width(), 0)
+                        continue
+                    widths[width] = tile.composer.edit.width()
+                    self.assertGreater(tile.composer.edit.width(), 0)
                     self.assertTrue(tile.composer.emote_button.isVisible())
-                    self.assertEqual(tile.composer.emote_button.size().toTuple(), (28, 28))
-                    self.assertEqual(tile.composer.send_button.size().toTuple(), (44, 28))
+                    composer_height = tile.composer.HEIGHT
+                    self.assertEqual(tile.composer.emote_button.size().toTuple(),
+                                     (composer_height, composer_height))
+                    self.assertEqual(tile.composer.send_button.size().toTuple(), (46, composer_height))
                     # 没有发送结果时不该有浮动提示；提示只在失败/发送中才出现。
                     self.assertFalse(tile.composer.feedback.isVisible())
                     self.assertEqual(tile.composer.feedback.text(), "")
+                self.assertTrue(widths[900] > widths[480] > 40,
+                                f"输入框应随格子宽度自适应伸缩：{widths}")
+                self.assertIn(900, widths)
+                self.assertIn(480, widths)
             tile.set_room({"room_id": "douyu:1", "uname": "斗鱼"})
             APP.processEvents()
             self.assertFalse(tile.composer.isVisible())
