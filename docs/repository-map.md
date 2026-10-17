@@ -103,6 +103,7 @@
 - `dev/selfcheck_auto_quality_switch_live.py`
 - `dev/selfcheck_avatars.py`
 - `dev/selfcheck_bili_2k_live.py`
+- `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
@@ -127,6 +128,7 @@
 - `dev/selfcheck_danmaku_menu.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_sort.py`
+- `dev/selfcheck_decoder_fallback.py`
 - `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`
 - `dev/selfcheck_douyin_account_import.py`
@@ -141,6 +143,7 @@
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
+- `dev/selfcheck_encoders.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
 - `dev/selfcheck_folder_blank_menu.py`
