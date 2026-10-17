@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import layouts, motion, mouse_hook, resize_layout, theme
@@ -7828,6 +7828,9 @@ class WallGrid(QWidget):
         if not theme._skin_active:
             painter = QPainter(self)
             painter.fillRect(event.rect(), theme.qcolor(theme.BG))
+            option = QStyleOption()
+            option.initFrom(self)
+            self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

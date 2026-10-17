@@ -79,6 +79,7 @@ def main():
                 assert logout.height() >= logout.fontMetrics().height() + 6
                 assert logout.geometry().right() < account.width()
             else:
+                assert sample(window.wall, QPoint(2, 2)) == QColor(theme.BG)
                 assert sample(tile.video, QPoint(20, tile.video.height()//2)) == QColor(theme.TILE_BG)
                 assert sample(window.sidebar.add_button, QPoint(20, window.sidebar.add_button.height()//2)) == QColor(theme.ACCENT)
             assert int(tile.video.winId()) == hwnd
