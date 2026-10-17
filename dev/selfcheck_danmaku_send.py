@@ -44,6 +44,21 @@ class SendingTests(unittest.TestCase):
         self.assertEqual(args["headers"]["Referer"], "https://live.bilibili.com/90001")
         self.assertFalse(args["allow_redirects"])
         self.assertGreater(args["timeout"], 0)
+        # 发送成功后要能被弹幕流认领一次，用来画白框/粉线
+        self.assertTrue(bili.take_self_sent("90001", "你好[doge]"))
+        self.assertFalse(bili.take_self_sent("90001", "你好[doge]"))
+
+    def test_self_sent_marker_is_claimed_once_and_respects_uid(self):
+        bili.note_self_sent("90001", "我自己")
+        self.assertTrue(bili.take_self_sent("90001", "我自己"))
+        self.assertFalse(bili.take_self_sent("90001", "我自己"), "同一条只认领一次")
+        bili.note_self_sent("90001", "同文案", "uid-1")
+        self.assertFalse(bili.take_self_sent("90001", "同文案", "uid-2"),
+                         "别人发的同文案不能认成自己那条")
+        self.assertTrue(bili.take_self_sent("90001", "同文案", "uid-1"))
+        bili.note_self_sent("90001", " 多 余 空 格 ")
+        self.assertTrue(bili.take_self_sent("12345", "多 余 空 格"),
+                        "短号/长号对不上时退回纯文案匹配")
 
     def test_large_emoticon_sends_full_identifier_as_message(self):
         with patch.object(bili.requests, "post", return_value=Mock(status_code=200, json=lambda: {"code": 0})) as post:

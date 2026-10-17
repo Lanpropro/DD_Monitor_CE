@@ -20,7 +20,8 @@ git apply -3 _pr10_net.diff
 ## 功能范围
 
 - 新增 `ddm/danmaku_send.py`：每房间独立的输入区（`DanmakuComposer`）+ 表情浮窗（`EmoticonPopup`），网络请求走 `QThread`，关格子不阻塞。发送失败、未登录这类提示走窗口顶部提示条（`MainWindow._show_notice`，3–6 秒自动消失），没有宿主窗口的自检/预览才退回输入框上方的浮动提示（4 秒自动消失）。
-- `ddm/bili.py`：`BILI_JCT` 保存 CSRF、`send_danmaku()` 发送文字/大表情、`get_emoticons()` 拉表情（自动取并缓存 `buvid3`）、`_cookies()` 带上 `bili_jct`。
+- `ddm/bili.py`：`BILI_JCT` 保存 CSRF、`send_danmaku()` 发送文字/大表情、`get_emoticons()` 拉表情（自动取并缓存 `buvid3`）、`_cookies()` 带上 `bili_jct`。发送成功后把文案记进 45 秒窗口（`note_self_sent`），弹幕流回推时 `take_self_sent()` 认领一次，用于高亮自己那条。
+- 自己发的弹幕：画面滚动弹幕里套白色圆角框（`video_danmaku` 渲染时画进图里）；弹幕布局的列表里在行首加一条粉色竖线（`theme.PINK` 的 `▍`）。
 - `ddm/app.py`：启动恢复、登录写入、退出登录清空 `bili_jct`。
 - `ddm/login.py`、`ddm/web_login.py`：扫码与账号密码登录都收齐 `SESSDATA` + `bili_jct`。
 - `ddm/widgets.py`：输入区内嵌进格子底栏（开播状态和弹幕开关之间），宽度自适应伸缩并在宽格子里限宽 340px；信息条原有的状态文字、音量数字、音量滑条、弹幕设置、录制入口在任何宽度都不隐藏。
@@ -80,6 +81,8 @@ git apply -3 _pr10_net.diff
 - [ ] Enter 发送成功：内容清空，底栏不闪、不跳。
 - [ ] 关闭输入焦点后按 Enter：不误发。
 - [ ] 发送过快（连续双击发送）：只发出一条，按钮显示「…」期间不可重复提交。
+- [ ] 发送成功后，自己那条弹幕在画面滚动弹幕里套着白色圆角框；别人的弹幕没有框。
+- [ ] 切到弹幕布局：自己那条在列表行首有一条粉色竖线；别人的没有。
 - [ ] 发送失败（如被屏蔽、频率限制、未登录）：内容保留，原因出现在窗口顶部提示条并自动消失，输入框上方不再残留常驻提示。
 - [ ] 断网发送：提示网络失败，内容保留；恢复网络后可重发。
 

@@ -4,8 +4,9 @@ import sys
 import time
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRect, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPixmap, QTextDocument
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt, QTimer, QUrl
+from PySide6.QtGui import (QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen,
+                           QPixmap, QTextDocument)
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
@@ -22,6 +23,7 @@ class _Comment:
     text: str
     color: QColor
     runs: list[tuple[str, str]]
+    self_sent: bool = False
 
 
 class VideoDanmaku(QWidget):
@@ -133,8 +135,9 @@ class VideoDanmaku(QWidget):
         color = QColor(str(event.get("color") or "#ffffff"))
         if not color.isValid():
             color = QColor("#ffffff")
+        self_sent = bool(event.get("self_sent"))
         runs = content_runs(dict(event, text=text))
-        image = self._render_content(text, color, runs)
+        image = self._render_content(text, color, runs, self_sent)
         width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
@@ -142,7 +145,8 @@ class VideoDanmaku(QWidget):
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
-        self.comments.append(_Comment(image, float(self.width()), lane, speed, text, color, runs))
+        self.comments.append(_Comment(image, float(self.width()), lane, speed, text, color,
+                                      runs, self_sent))
         for _, url in runs:
             if url:
                 self._ensure_emoticon(url)
@@ -171,9 +175,10 @@ class VideoDanmaku(QWidget):
         if any(url == image_url for comment in self.comments for _, image_url in comment.runs):
             self._resize_comments()
 
-    def _render_content(self, text, color, runs) -> QPixmap:
+    def _render_content(self, text, color, runs, self_sent: bool = False) -> QPixmap:
         if not any(url in self._images for _, url in runs if url):
-            return self._render_text(text, color)
+            return self._render_text(text, color, self_sent)
+        pad = 9 if self_sent else 4
         document = QTextDocument()
         document.setDefaultFont(self._font())
         document.setDocumentMargin(0)
@@ -185,27 +190,44 @@ class VideoDanmaku(QWidget):
         document.adjustSize()
         document.setTextWidth(-1)  # A rolling comment stays on one line.
         scale = self.devicePixelRatioF()
-        width = min(document.idealWidth(), max(128, self.width() * 2)) + 8
-        image = QPixmap(math.ceil(width * scale), math.ceil((document.size().height() + 8) * scale))
+        width = min(document.idealWidth(), max(128, self.width() * 2)) + pad * 2
+        image = QPixmap(math.ceil(width * scale),
+                        math.ceil((document.size().height() + pad * 2) * scale))
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
         painter = QPainter(image)
-        painter.translate(4, 4)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(pad, pad)
         document.drawContents(painter)
+        if self_sent:
+            painter.resetTransform()
+            self._draw_self_sent_box(painter, image)
         painter.end()
         return image
 
-    def _render_text(self, text: str, color: QColor) -> QPixmap:
+    @staticmethod
+    def _draw_self_sent_box(painter: QPainter, image: QPixmap) -> None:
+        """自己发的弹幕套一个白框，和别人的区分开。"""
+        scale = image.devicePixelRatioF()
+        width = image.width() / scale
+        height = image.height() / scale
+        pen = QPen(QColor(255, 255, 255, 225), 1.6)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(1.6, 1.6, width - 3.2, height - 3.2), 6.0, 6.0)
+
+    def _render_text(self, text: str, color: QColor, self_sent: bool = False) -> QPixmap:
         font = self._font()
         metrics = QFontMetrics(font)
         text = metrics.elidedText(text, Qt.ElideRight, max(128, self.width() * 2))
+        pad = 9 if self_sent else 4
         path = QPainterPath()
         path.addText(0, 0, font, text)
         bounds = path.boundingRect()
         left = min(0, bounds.left())
         top = min(-metrics.ascent(), bounds.top())
-        width = max(metrics.horizontalAdvance(text), bounds.right()) - left + 8
-        height = max(metrics.descent(), bounds.bottom()) - top + 8
+        width = max(metrics.horizontalAdvance(text), bounds.right()) - left + pad * 2
+        height = max(metrics.descent(), bounds.bottom()) - top + pad * 2
         # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
         scale = self.devicePixelRatioF()
         image = QPixmap(math.ceil(width * scale), math.ceil(height * scale))
@@ -216,7 +238,10 @@ class VideoDanmaku(QWidget):
         # drawText keeps Qt's font fallback and colour Unicode emoji glyphs.
         painter.setPen(color)
         painter.setFont(font)
-        painter.drawText(QPointF(4 - left, 4 - top), text)
+        painter.drawText(QPointF(pad - left, pad - top), text)
+        if self_sent:
+            painter.resetTransform()
+            self._draw_self_sent_box(painter, image)
         painter.end()
         return image
 
@@ -224,7 +249,8 @@ class VideoDanmaku(QWidget):
         for comment in self.comments:
             old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
             progress = (self._comment_width - comment.x) / max(1, old_distance)
-            comment.image = self._render_content(comment.text, comment.color, comment.runs)
+            comment.image = self._render_content(comment.text, comment.color, comment.runs,
+                                                 comment.self_sent)
             distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
             comment.x = self.width() - progress * distance
             comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100

@@ -403,6 +403,38 @@ class ComposerTests(unittest.TestCase):
         finally:
             tile.close()
 
+    def test_self_sent_danmaku_gets_white_box_and_pink_line(self):
+        from ddm.video_danmaku import VideoDanmaku
+        from ddm.widgets import DanmakuPanel
+        overlay = VideoDanmaku()
+        overlay.resize(800, 240)
+        overlay.enabled = True
+        overlay.active = True
+        overlay.apply_settings({"video_danmaku_size": 28, "video_danmaku_scale": False})
+        overlay.show()
+        APP.processEvents()
+        try:
+            self.assertTrue(overlay.add_event({"kind": "danmaku", "text": "我发的",
+                                               "self_sent": True}))
+            mine = overlay.comments[0]
+            self.assertTrue(mine.self_sent)
+            image = mine.image.toImage()
+            border = image.pixelColor(image.width() // 2, 1)
+            self.assertGreater(border.alpha(), 150, "自己发的弹幕要有白色描边")
+            self.assertGreater(min(border.red(), border.green(), border.blue()), 220)
+            overlay.add_event({"kind": "danmaku", "text": "别人的"})
+            other = overlay.comments[-1]
+            self.assertFalse(other.self_sent, "别人的弹幕不套白框")
+            other_image = other.image.toImage()
+            self.assertEqual(other_image.pixelColor(other_image.width() // 2, 1).alpha(), 0)
+        finally:
+            overlay.close()
+        panel = DanmakuPanel()
+        panel.add_event({"kind": "danmaku", "uname": "我", "text": "我发的", "self_sent": True})
+        panel.add_event({"kind": "danmaku", "uname": "他", "text": "别人的"})
+        html = panel.body.toHtml()
+        self.assertIn(theme.PINK.lstrip("#").lower(), html.lower(), "弹幕列表里用粉线标出自己那条")
+
     def test_errors_use_window_notice_instead_of_sticky_tooltip(self):
         from PySide6.QtWidgets import QWidget
         from ddm.widgets import Tile

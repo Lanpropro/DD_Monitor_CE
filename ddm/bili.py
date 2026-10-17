@@ -78,6 +78,48 @@ def _sending_room_id(room_id: str) -> str:
     return _resolve_room_id(room_id)
 
 
+# 自己刚发出的弹幕：接口成功 ≠ 弹幕流里能认出自己，记下文案和时间，
+# 回推到达时认领一次，用来在画面/弹幕列表里高亮。
+_SELF_SENT: list[dict] = []
+_SELF_SENT_LOCK = threading.Lock()
+SELF_SENT_TTL = 45.0
+
+
+def note_self_sent(room_id: str, text: str, uid: str = "") -> None:
+    key = " ".join(str(text).split())
+    if not key:
+        return
+    now = time.monotonic()
+    with _SELF_SENT_LOCK:
+        _SELF_SENT[:] = [item for item in _SELF_SENT if now - item["at"] < SELF_SENT_TTL]
+        _SELF_SENT.append({"at": now, "room": str(room_id or ""), "text": key,
+                           "uid": str(uid or "")})
+
+
+def take_self_sent(room_id: str, text: str, uid: str = "") -> bool:
+    """这条收到的弹幕是不是自己刚发的；命中一次就认领掉，避免重复高亮。"""
+    key = " ".join(str(text).split())
+    if not key:
+        return False
+    now = time.monotonic()
+    room = str(room_id or "")
+    uid = str(uid or "")
+    with _SELF_SENT_LOCK:
+        _SELF_SENT[:] = [item for item in _SELF_SENT if now - item["at"] < SELF_SENT_TTL]
+        # 短号/长号可能对不上：先按房间匹配，匹配不到再退回纯文案匹配。
+        ordered = [index for index, item in enumerate(_SELF_SENT)
+                   if item["text"] == key and room and item["room"] in ("", room)]
+        ordered += [index for index, item in enumerate(_SELF_SENT)
+                    if item["text"] == key and index not in ordered]
+        for index in ordered:
+            item = _SELF_SENT[index]
+            if uid and item["uid"] and item["uid"] != uid:
+                continue          # 同一个文案别人也发了，不是自己那条
+            del _SELF_SENT[index]
+            return True
+    return False
+
+
 def send_danmaku(room_id: str, message: str, *, dm_type: int = 0, cookies=None) -> dict:
     """发送文字或独立大表情；不重试 POST，避免超时后重复发言。"""
     if not isinstance(message, str) or not message.strip():
@@ -106,6 +148,7 @@ def send_danmaku(room_id: str, message: str, *, dm_type: int = 0, cookies=None) 
                 notice = str(source.get(key) or "").strip()
                 if notice and notice != "0":
                     raise ValueError("弹幕未发送成功" if notice == "f" else notice)
+    note_self_sent(real_id, message, str(_UID_CACHE.get("uid") or ""))
     return result
 
 

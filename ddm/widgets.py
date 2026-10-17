@@ -938,6 +938,7 @@ class DanmakuPanel(QFrame):
             "medal": event.get("medal") or {},
             "emoticon": event.get("emoticon") or "",
             "emoticons": event.get("emoticons") or {},
+            "self_sent": bool(event.get("self_sent")),
         }
         self._received += 1
         self._refresh_count()
@@ -1074,8 +1075,11 @@ class DanmakuPanel(QFrame):
         size = self._font_size()
         color = "#202630" if theme.is_light() else "#e6e9ee"
         name = (f'<span style="color:{entry["color"]}">{_escape(entry["uname"])}</span>')
+        # 自己发的弹幕在弹幕布局里用一条粉线标出来（画面里则是白框）。
+        mark = (f'<span style="color:{theme.PINK};font-weight:700">▍</span> '
+                if entry.get("self_sent") else "")
         return (f'<div style="font-size:{size}px;line-height:150%;margin:0 0 4px 0">'
-                f'{self._medal_html(entry["medal"])}{name}'
+                f'{mark}{self._medal_html(entry["medal"])}{name}'
                 f'<span style="color:{color}">：{self._body_html(entry)}</span></div>')
 
     def _body_html(self, entry: dict) -> str:

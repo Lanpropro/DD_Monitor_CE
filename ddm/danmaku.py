@@ -223,6 +223,8 @@ class _Handler(_HandlerBase):
             "kind": "danmaku",
             "uname": message.uname,
             "text": message.msg,
+            "self_sent": bili.take_self_sent(getattr(client, "room_id", ""),
+                                             message.msg, str(getattr(message, "uid", "") or "")),
             "medal": _medal_info(message),
             "emoticon": emoticon.get("url", "") if isinstance(emoticon, dict) else "",
             "emoticons": {text: item["url"] for text, item in emotes.items()
