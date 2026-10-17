@@ -493,7 +493,8 @@ def main():
         with patch.object(SettingsDialog, "__init__", track_dialog), patch.object(
                 SettingsDialog, "exec", return_value=SettingsDialog.Rejected):
             tile.recording_button.click()
-        assert [dialog.nav.currentRow() for dialog in opened_dialogs] == [2], \
+        assert len(opened_dialogs) == 1 and opened_dialogs[0].stack.currentWidget() is \
+            opened_dialogs[0].recording_page, \
             "首次录制应直接打开设置中的录制页"
         # 开启原画锁定：先请求原画，实际取到原画后才启动 FFmpeg；结束恢复原画前画质。
         window.settings.update(settings)
