@@ -43,6 +43,9 @@ def main():
                 painter.end()
                 assert any(0 < image.pixelColor(x, y).alpha() < 255
                            for y in range(24) for x in range(24)), 'Missing antialiased pixels'
+                outside_x = 23 if corner.right else 0
+                assert image.pixelColor(outside_x, 0).alpha() == 0, 'Corner backing covers skin background'
+                assert image.pixelColor(12, 12).alpha() == 0, 'Corner backing covers video interior'
                 if app.platformName() == 'windows':
                     QTest.qWait(30)
                     assert corner._alpha_uploaded, 'Corner must use per-pixel alpha in both themes'

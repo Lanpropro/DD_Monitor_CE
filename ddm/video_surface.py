@@ -29,8 +29,12 @@ class VideoCorner(BadgeSurface):
         if self.right:
             painter.translate(self.width(), 0)
             painter.scale(-1, 1)
+        # Only blend the one-pixel rim. Filling the whole inverse corner would
+        # cover the skin background outside the rounded tile with a solid block.
+        rim = 1 / self.devicePixelRatioF()
         outside = QPainterPath()
-        outside.addRect(QRectF(self.rect()))
+        outside.addRoundedRect(QRectF(-rim, -rim, 24 + rim * 2, 24 + rim * 2),
+                               9 + rim, 9 + rim)
         inside = QPainterPath()
         inside.addRoundedRect(QRectF(0, 0, 24, 24), 9, 9)
         painter.fillPath(outside.subtracted(inside),
