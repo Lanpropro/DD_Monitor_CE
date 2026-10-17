@@ -200,17 +200,18 @@ class VideoDanmaku(QWidget):
         painter.translate(pad, pad)
         document.drawContents(painter)
         if self_sent:
-            painter.resetTransform()
-            self._draw_self_sent_box(painter, image)
+            painter.translate(-pad, -pad)
+            self._draw_self_sent_box(painter, width, document.size().height() + pad * 2)
         painter.end()
         return image
 
     @staticmethod
-    def _draw_self_sent_box(painter: QPainter, image: QPixmap) -> None:
-        """自己发的弹幕套一个白框，和别人的区分开。"""
-        scale = image.devicePixelRatioF()
-        width = image.width() / scale
-        height = image.height() / scale
+    def _draw_self_sent_box(painter: QPainter, width: float, height: float) -> None:
+        """自己发的弹幕套一个白框，和别人的区分开（逻辑坐标，随 DPI 缩放）。
+
+        注意别用 resetTransform 切到设备坐标：高分屏下图片是逻辑尺寸的 1.5/2 倍，
+        框会缩到左上角、看起来像没画。
+        """
         pen = QPen(QColor(255, 255, 255, 225), 1.6)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
@@ -240,8 +241,7 @@ class VideoDanmaku(QWidget):
         painter.setFont(font)
         painter.drawText(QPointF(pad - left, pad - top), text)
         if self_sent:
-            painter.resetTransform()
-            self._draw_self_sent_box(painter, image)
+            self._draw_self_sent_box(painter, width, height)
         painter.end()
         return image
 

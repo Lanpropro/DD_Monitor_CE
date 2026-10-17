@@ -435,6 +435,32 @@ class ComposerTests(unittest.TestCase):
         html = panel.body.toHtml()
         self.assertIn(theme.PINK.lstrip("#").lower(), html.lower(), "弹幕列表里用粉线标出自己那条")
 
+    def test_self_sent_box_survives_hidpi_scaling(self):
+        from unittest.mock import patch as _patch
+        from ddm.video_danmaku import VideoDanmaku
+        overlay = VideoDanmaku()
+        overlay.resize(800, 240)
+        overlay.enabled = True
+        overlay.active = True
+        overlay.apply_settings({"video_danmaku_size": 28, "video_danmaku_scale": False})
+        overlay.show()
+        APP.processEvents()
+        try:
+            # 高分屏（150%/200% 缩放）下图片按 dpr 放大，白框必须用逻辑坐标画，
+            # 否则会缩在左上角，看起来像根本没画。
+            with _patch.object(VideoDanmaku, "devicePixelRatioF", return_value=2.0):
+                self.assertTrue(overlay.add_event({"kind": "danmaku", "text": "高分屏",
+                                                   "self_sent": True}))
+            image = overlay.comments[-1].image.toImage()
+            self.assertEqual(image.devicePixelRatio(), 2.0)
+            cx, cy = image.width() // 2, image.height() // 2
+            for x, y, side in ((cx, 3, "上"), (cx, image.height() - 3, "下"),
+                               (3, cy, "左"), (image.width() - 3, cy, "右")):
+                self.assertGreater(image.pixelColor(x, y).alpha(), 120,
+                                   f"{side}边没有白框")
+        finally:
+            overlay.close()
+
     def test_errors_use_window_notice_instead_of_sticky_tooltip(self):
         from PySide6.QtWidgets import QWidget
         from ddm.widgets import Tile
