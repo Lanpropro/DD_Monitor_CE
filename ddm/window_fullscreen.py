@@ -14,6 +14,23 @@ class _WindowPlacement(ctypes.Structure):
                 ("ptMaxPosition", wintypes.POINT), ("rcNormalPosition", wintypes.RECT)]
 
 
+def _dwm_get(hwnd, attribute):
+    value = wintypes.DWORD()
+    function = ctypes.windll.dwmapi.DwmGetWindowAttribute
+    function.argtypes = (wintypes.HWND, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD)
+    if function(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+        return value.value
+    return None  # Windows 10 does not support the Windows 11 frame attributes.
+
+
+def _dwm_set(hwnd, attribute, value):
+    if value is not None:
+        function = ctypes.windll.dwmapi.DwmSetWindowAttribute
+        function.argtypes = (wintypes.HWND, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD)
+        data = wintypes.DWORD(value)
+        function(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data))
+
+
 def orient_restore_geometry(widget, portrait: bool) -> None:
     """Keep a maximized window's restore rectangle in its current orientation."""
     user32 = ctypes.windll.user32
@@ -53,7 +70,7 @@ def orient_restore_geometry(widget, portrait: bool) -> None:
     user32.SetWindowPlacement(hwnd, ctypes.byref(placement))
 
 
-def enter(widget) -> tuple[int, int, tuple[int, int, int, int]]:
+def enter(widget) -> tuple[int, int, tuple[int, int, int, int], tuple[int | None, int | None]]:
     user32 = ctypes.windll.user32
     user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
     user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
@@ -72,15 +89,22 @@ def enter(widget) -> tuple[int, int, tuple[int, int, int, int]]:
     monitor.cbSize = ctypes.sizeof(monitor)
     user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(monitor))
     area = monitor.rcMonitor
+    frame = (_dwm_get(hwnd, 33), _dwm_get(hwnd, 34))
+    if frame[0] is not None:
+        _dwm_set(hwnd, 33, 1)  # DWMWA_WINDOW_CORNER_PREFERENCE: DONOTROUND
+    if frame[1] is not None:
+        _dwm_set(hwnd, 34, 0xFFFFFFFE)  # DWMWA_BORDER_COLOR: COLOR_NONE
     user32.SetWindowLongW(hwnd, -16, (style & ~0x00CF0000) | 0x80000000)
     user32.SetWindowPos(hwnd, None, area.left, area.top,
                         area.right - area.left, area.bottom - area.top, 0x0020 | 0x0004)
-    return hwnd, style, (original.left, original.top, original.right, original.bottom)
+    return hwnd, style, (original.left, original.top, original.right, original.bottom), frame
 
 
-def exit(widget, state: tuple[int, int, tuple[int, int, int, int]]) -> None:
+def exit(widget, state: tuple[int, int, tuple[int, int, int, int], tuple[int | None, int | None]]) -> None:
     user32 = ctypes.windll.user32
-    hwnd, style, (left, top, right, bottom) = state
+    hwnd, style, (left, top, right, bottom), frame = state
     user32.SetWindowLongW(hwnd, -16, style)
     user32.SetWindowPos(hwnd, None, left, top, right - left, bottom - top,
                         0x0020 | 0x0004)
+    _dwm_set(hwnd, 33, frame[0])
+    _dwm_set(hwnd, 34, frame[1])

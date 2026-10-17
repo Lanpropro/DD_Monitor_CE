@@ -5710,7 +5710,6 @@ class Tile(QFrame):
 
         # 画面区域：高度扣掉底部信息条，保证画面完整可见
         self.video = VideoSurface(self)
-        self.video.rounded_bottom = False
         self.video.setObjectName("TileVideo")
         self.video.setAttribute(Qt.WA_StyledBackground, True)
         self.cover = QLabel(self.video)
@@ -6329,10 +6328,12 @@ class Tile(QFrame):
         self._update_recording_button()
         # 隐藏控件只改变可见性，保留底栏位置，避免 VLC 重算比例使画面突然放大。
         video_height = max(60, height - TILE_BAR_HEIGHT)
-        # 留 1px 给圆角边框；视频是原生窗口，用窗口遮罩做圆角
-        self.video.setGeometry(1, 1, max(1, width - 2), max(1, video_height - 1))
+        # 普通格子留边框，全屏视频贴齐窗口边缘。
+        inset = 0 if self.property("fullscreen") else 1
+        self.video.setGeometry(inset, inset, max(1, width - inset * 2),
+                               max(1, video_height - inset))
         self._round_video()
-        video_right = self.video.width() + 1
+        video_right = self.video.geometry().right() + 1
         self.stream_badge.move(10, 8)
         self.stream_badge.raise_()
         self._layout_controls()
@@ -6367,7 +6368,8 @@ class Tile(QFrame):
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
         self.pause_overlay.raise_()
-        self.bottom.setGeometry(1, video_height, max(1, width - 2), max(1, height - video_height - 1))
+        self.bottom.setGeometry(inset, video_height, max(1, width - inset * 2),
+                                max(1, height - video_height - inset))
         self.video_danmaku.setGeometry(self.video.geometry())
         self.video_danmaku.setMask(self.video.mask())
         self._layout_bottom_controls()
@@ -7005,11 +7007,11 @@ class WallGrid(QWidget):
         if previous is not None and previous is not tile:
             previous.setProperty("fullscreen", False)
             _repolish(previous)
-            previous._round_video()
+            previous._layout_areas()
         if tile is not None:
             tile.setProperty("fullscreen", True)
             _repolish(tile)
-            tile._round_video()
+            tile._layout_areas()
         margin = 0 if tile else 16
         self.grid.setContentsMargins(margin, margin, margin, margin)
         self.relayout(force=True)
