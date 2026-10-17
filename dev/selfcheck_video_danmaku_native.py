@@ -39,7 +39,8 @@ def show_comment(tile, opacity):
     assert overlay.add_event({"text": "这是直播画面弹幕", "color": "#ffffff"})
     overlay.set_paused(True)
     overlay.comments[0].x = 30
-    overlay.comments[0].lane = 2
+    # 小格增加输入区后视频更矮，选择仍在显示区域内的轨道。
+    overlay.comments[0].lane = min(2, overlay.lane_count() - 1)
     tile.set_controls_visible(False)
     tile.raise_overlays()
     overlay.update()

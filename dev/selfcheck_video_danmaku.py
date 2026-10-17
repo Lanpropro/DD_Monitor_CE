@@ -105,7 +105,8 @@ def check_motion(app):
         assert overlay.font_pixels() == 48
         assert overlay.lane_count() * overlay.lane_height() <= overlay.height() * .25
         overlay.apply_settings(dict(settings, video_danmaku_scale=True))
-        tile.resize(900, 760)
+        # 留给视频约 720px，额外计入新增的 B 站弹幕输入区。
+        tile.resize(900, 760 + tile.composer.HEIGHT)
         app.processEvents()
         assert overlay.font_pixels() == 28
         tile.resize(900, 400)

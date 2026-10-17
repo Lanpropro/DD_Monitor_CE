@@ -34,6 +34,7 @@ from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
+from .danmaku_send import DanmakuComposer
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -5808,6 +5809,9 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
+        self.composer = DanmakuComposer(self.bottom)
+        self.composer.set_room(room.get("room_id"))
+        bottom_layout.addWidget(self.composer, 1, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -5855,6 +5859,7 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
+        self.composer.set_room(self.room.get("room_id"))
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -5868,6 +5873,7 @@ class Tile(QFrame):
         self.set_paused(False)
         self.set_video_active(False)
         self.set_buffering(False)
+        self._layout_areas()
 
         if empty:
             self._cover_source = None
@@ -5914,21 +5920,30 @@ class Tile(QFrame):
 
     def _layout_bottom_controls(self) -> None:
         width = self.width()
+        composing = self.composer.supported
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
         if width < 260:
             margin, spacing = 4, 2
-        layout.setContentsMargins(margin, 4, margin, 4)
+        layout.setContentsMargins(margin, 3 if composing else 4, margin, 3 if composing else 4)
         layout.setSpacing(spacing)
-        self.pause_button.setFixedWidth(26 if width < 260 else 34)
+        self.pause_button.setFixedWidth(26 if width < (420 if composing else 260) else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 44)
         self.danmaku_button.setText("弹" if compact else "弹幕")
-        self.volume_label.setVisible(width >= 280 and
+        self.volume_label.setVisible(width >= (760 if composing else 280) and
                                      (not self.recording_time.text() or width >= 480))
-        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= (900 if composing else 360)
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= 220)
+        self.volume_slider.setVisible(width >= (600 if composing else 220))
+        self.status_label.setVisible(not composing or width >= 480)
+        self.status_label.setSizePolicy(QSizePolicy.Preferred if composing else QSizePolicy.Ignored,
+                                        QSizePolicy.Preferred)
+        self.status_label.setMaximumWidth((120 if width >= 700 else 70) if composing else 16777215)
+        layout.setStretchFactor(self.status_label, 0 if composing else 1)
+        self.danmaku_settings_button.setVisible(not composing or width >= 300)
+        self.recording_button.setVisible(getattr(self, "_recording_available", True)
+                                         and (not composing or width >= 240))
         controls = [self.pause_button, self.volume_button, self.volume_label,
                     self.danmaku_button, self.danmaku_settings_button, self.recording_button, self.recording_time,
                     self.fullscreen_button]
@@ -5936,6 +5951,9 @@ class Tile(QFrame):
         fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()
                     for widget in visible)
         remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - 8
+        if composing:
+            remaining -= 78 + (min(self.status_label.sizeHint().width(), self.status_label.maximumWidth())
+                               + spacing if not self.status_label.isHidden() else 0)
         self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
         layout.activate()
 

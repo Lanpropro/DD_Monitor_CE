@@ -59,8 +59,11 @@ class FullscreenCursor(QObject):
         tile = self.window._fullscreen_tile
         position = QCursor.pos()
         now = time.monotonic()
+        composer = getattr(tile, "composer", None)
+        focused = QApplication.focusWidget()
+        editing = composer is not None and focused is not None and composer.isAncestorOf(focused)
         outside = tile is not None and not tile.rect().contains(tile.mapFromGlobal(position))
-        if (outside and QApplication.activePopupWidget() is None
+        if (outside and not editing and QApplication.activePopupWidget() is None
                 and QApplication.activeModalWidget() is None and not QApplication.mouseButtons()):
             # Hide controls after leaving this screen, but never hide the cursor
             # on the user's other monitor. Moving back restores both bars.
@@ -86,6 +89,8 @@ class FullscreenCursor(QObject):
                     and QApplication.activeModalWidget() is None
                     and not QApplication.mouseButtons()
                     and tile.video.rect().contains(tile.video.mapFromGlobal(position)))
+        if editing:
+            eligible = False
         if eligible:
             for widget in (tile.controls, tile.stream_badge, tile.title_badge, tile.bottom):
                 if widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(position)):
