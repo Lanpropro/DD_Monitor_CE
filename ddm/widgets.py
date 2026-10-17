@@ -5992,8 +5992,22 @@ class Tile(QFrame):
         self._composer_gap_right.setFixedWidth(right)
         self.bottom.layout().activate()
 
+    def _bottom_layout_signature(self):
+        """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
+        return (self.width(),
+                self.isVisible(),
+                bool(self.composer.supported),
+                bool(getattr(self, "_fullscreen_controls_hidden", False)),
+                self.recording_time.text(),
+                bool(getattr(self, "_recording_available", True)),
+                theme.mode())
+
     def _layout_bottom_controls(self) -> None:
         width = self.width()
+        signature = self._bottom_layout_signature()
+        if signature == getattr(self, "_bottom_layout_signature_value", None):
+            return
+        self._bottom_layout_signature_value = signature
         self._sync_composer_visibility()
         compact = width < 420
         layout = self.bottom.layout()
@@ -6019,6 +6033,7 @@ class Tile(QFrame):
         self.status_label.setVisible(True)
         self.danmaku_settings_button.setVisible(True)
         self.recording_button.setVisible(getattr(self, "_recording_available", True))
+        layout.activate()       # 让上面定的固定宽度立刻生效，下面算剩余宽度才准
         others = [self.pause_button, self.volume_button, self.volume_label,
                   self.danmaku_button, self.danmaku_settings_button,
                   self.recording_button, self.recording_time, self.fullscreen_button]
@@ -6055,6 +6070,7 @@ class Tile(QFrame):
             self.status_label.setFixedWidth(status_width)
         else:
             self.composer.setMinimumWidth(0)
+            self.composer.setMaximumWidth(16777215)
             slider_space = available
             self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             self.status_label.setMinimumWidth(0)
@@ -6069,6 +6085,9 @@ class Tile(QFrame):
         self.volume_slider.setFixedWidth(max(18, min(86, slider_space)))
         layout.activate()
         if composing:
+            # 外层的 activate 才真正把新宽度套到输入区上；这时再排一次它内部，
+            # 发送/表情按钮不会停在上一个宽度的位置（否则会压到旁边的按钮上）。
+            self.composer.layout().activate()
             self._recenter_composer()
 
     def set_recording_state(self, state: str) -> None:

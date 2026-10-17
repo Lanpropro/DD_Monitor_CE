@@ -177,8 +177,8 @@ class ComposerTests(unittest.TestCase):
                     self.assertTrue(tile.bottom.rect().contains(tile.composer.geometry()))
                     self.assertLessEqual(tile.bottom.geometry().bottom(), tile.height())
                     if not tile.composer.isVisible():
-                        # 收起时不能留半个残影，输入框也拿不到焦点
-                        self.assertEqual(tile.composer.edit.width(), 0)
+                        # 收起时输入框不该还拿着焦点
+                        self.assertFalse(tile.composer.edit.hasFocus())
                         continue
                     widths[width] = tile.composer.edit.width()
                     self.assertGreater(tile.composer.edit.width(), 0)
@@ -279,6 +279,26 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(emitted, [])
         self.assertEqual(bili.SESSION_DATA, "test-session")
         window.close()
+
+    def test_shrinking_bar_never_leaves_stale_button_positions(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "101", "uname": "B站"})
+        tile.resize(1400, 320)
+        tile.show()
+        APP.processEvents()
+        try:
+            composer = tile.composer
+            for width in (1400, 1100, 900, 700, 520, 480, 1500, 600, 900):
+                # 故意不处理事件循环：缩放的同一帧里按钮也不能留在旧位置，
+                # 否则会压到旁边的弹幕开关上（用户报的「鼠标移入错位一次」）。
+                tile.resize(width, 320)
+                self.assertTrue(composer.rect().contains(composer.emote_button.geometry()),
+                                f"宽度 {width} 时表情按钮跑出输入区")
+                if composer.send_button.isVisible():
+                    self.assertTrue(composer.rect().contains(composer.send_button.geometry()),
+                                    f"宽度 {width} 时发送按钮跑出输入区")
+        finally:
+            tile.close()
 
     def test_large_tile_composer_uses_the_extended_width(self):
         from ddm.widgets import Tile

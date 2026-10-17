@@ -304,6 +304,8 @@ class DanmakuComposer(QWidget):
         super().resizeEvent(event)
         # 小格保留输入和表情入口，回车仍可发送，不为单独按钮挤掉输入空间。
         self.send_button.setVisible(self.width() >= 144)
+        # 显隐会弄脏布局：立刻重排，别让发送按钮停在上一个宽度的位置。
+        self.layout().activate()
 
     def hideEvent(self, event):
         self.feedback.hide()
