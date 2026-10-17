@@ -37,9 +37,13 @@ class FullscreenCursor(QObject):
         self._show()
 
     def _show(self):
-        if self.hidden:
+        if self._hidden_tile is not None:
             self._hidden_tile.set_fullscreen_controls_hidden(False)
             self._hidden_tile = None
+        self._restore_cursor()
+
+    def _restore_cursor(self):
+        if self.hidden:
             QApplication.restoreOverrideCursor()
             self.hidden = False
             if sys.platform == "win32" and QApplication.platformName() == "windows":
@@ -55,6 +59,18 @@ class FullscreenCursor(QObject):
         tile = self.window._fullscreen_tile
         position = QCursor.pos()
         now = time.monotonic()
+        outside = tile is not None and not tile.rect().contains(tile.mapFromGlobal(position))
+        if (outside and QApplication.activePopupWidget() is None
+                and QApplication.activeModalWidget() is None and not QApplication.mouseButtons()):
+            # Hide controls after leaving this screen, but never hide the cursor
+            # on the user's other monitor. Moving back restores both bars.
+            self._restore_cursor()
+            self._hidden_tile = tile
+            tile.set_fullscreen_controls_hidden(True, hide_bar=bool(
+                self.window.settings.get("fullscreen_auto_hide_controls", True)))
+            self._position = position
+            self._last_move = now
+            return
         # Poll the global position: VLC's child HWND does not send Qt mouse moves.
         active = self.window.isActiveWindow()
         if not active and sys.platform == "win32" and QApplication.platformName() == "windows":
