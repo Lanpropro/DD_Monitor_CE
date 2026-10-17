@@ -314,7 +314,8 @@ class MainWindow(QMainWindow):
         for tile in self.wall.tiles:
             self._wire_tile(tile)
 
-        bili.set_sessdata(self.state.get("sessdata", ""))
+        bili.set_login_cookies(self.state.get("sessdata", ""), self.state.get("bili_jct", ""),
+                               self.state.get("buvid3", ""))
         self._restore_ui()
         # 如果构造时显式指定了布局（自检/预览脚本会这么干），别被配置里的覆盖掉。
         # 记到哪个方向名下要看**布局本身**——构造时窗口还没尺寸，is_portrait() 不可靠。
@@ -884,12 +885,15 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
 
     def current_state(self) -> dict:
+        cookies = bili._cookies()
         return {
             "version": config_module.STATE_VERSION,
             "room_presets": deepcopy(self.room_presets),
             "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
-            "sessdata": bili.SESSION_DATA,
+            "sessdata": cookies.get("SESSDATA", ""),
+            "bili_jct": cookies.get("bili_jct", ""),
+            "buvid3": cookies.get("buvid3", ""),
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
@@ -2009,6 +2013,8 @@ class MainWindow(QMainWindow):
             return
         self._prepare_room(room)
         other = self._tile_of(room_id)
+        if other is tile:
+            return
         if other is not None and other is not tile and self._hot_swap(other, tile):
             # 拖进来的这个直播间本来就在别的格子里：两边直接对调画面
             print(f"{room.get('uname')} ↔ 第 {self.wall.tiles.index(tile) + 1} 个格子",
@@ -2017,6 +2023,7 @@ class MainWindow(QMainWindow):
         to_start = []
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
+            room = dict(other.room)  # 包括该房间独立的弹幕开关，侧栏副本不带格子设置。
             previous = dict(tile.room) if tile.room.get("room_id") else None
             self.recorder.stop(other)
             self._stop_tile(other)
@@ -3308,7 +3315,10 @@ class MainWindow(QMainWindow):
         if kind == "bilibili":
             bili.set_sessdata("")
             self.state["sessdata"] = ""
+            self.state["bili_jct"] = ""
             config_module.save(self.current_state())
+            self.stop_danmaku()
+            self.sync_danmaku()
         else:
             from .platform_login import clear_platform_login
             try:
@@ -3577,6 +3587,9 @@ class MainWindow(QMainWindow):
         if self._closing or not room_id:
             return                         # 旧连接不能覆盖当前连接的状态
         self._danmaku_status[room_id] = text
+        if text == "已连接" and self.state.get("buvid3", "") != bili.BUVID3:
+            self.state["buvid3"] = bili.BUVID3
+            self._save_timer.start()  # 旧配置首次补齐设备身份后自动持久化。
         for tile in self.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.danmaku_button.setToolTip(

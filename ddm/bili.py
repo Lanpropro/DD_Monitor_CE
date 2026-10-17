@@ -6,6 +6,7 @@
 import hashlib
 import json
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -66,6 +67,10 @@ def codec_from_profile(profile: str) -> str:
 
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
+BILI_JCT = ""
+BUVID3 = ""
+_COOKIE_LOCK = threading.RLock()
+_BUVID3_LOCK = threading.Lock()
 _UID_CACHE: dict = {"uid": None}
 _WBI_CACHE: dict = {"key": "", "expires": 0.0}
 _WBI_KEY_INDEX = [
@@ -75,13 +80,54 @@ _WBI_KEY_INDEX = [
 
 
 def set_sessdata(value: str) -> None:
-    global SESSION_DATA
-    SESSION_DATA = value or ""
-    _UID_CACHE["uid"] = None          # 换了账号，UID 缓存作废
+    global SESSION_DATA, BILI_JCT
+    with _COOKIE_LOCK:
+        if not value or value != SESSION_DATA:
+            BILI_JCT = ""            # CSRF 属于账号，不能跟到另一个会话。
+        SESSION_DATA = value or ""
+        _UID_CACHE["uid"] = None
+
+
+def set_login_cookies(sessdata: str, bili_jct: str = "", buvid3: str | None = None) -> None:
+    """原子更新登录态；未提供设备 Cookie 时保留本机已有浏览器身份。"""
+    global BILI_JCT, BUVID3
+    with _COOKIE_LOCK:
+        set_sessdata(sessdata)
+        BILI_JCT = (bili_jct or "") if SESSION_DATA else ""
+        if buvid3 is not None:
+            BUVID3 = buvid3 if isinstance(buvid3, str) else ""
 
 
 def _cookies() -> dict:
-    return {"SESSDATA": SESSION_DATA} if SESSION_DATA else {}
+    with _COOKIE_LOCK:
+        cookies = {"buvid3": BUVID3} if BUVID3 else {}
+        if SESSION_DATA:
+            cookies["SESSDATA"] = SESSION_DATA
+            if BILI_JCT:
+                cookies["bili_jct"] = BILI_JCT
+        return cookies
+
+
+def ensure_buvid3() -> str:
+    """后台按需补齐设备身份，多直播间共用一次请求；不在此处写配置。"""
+    global BUVID3
+    with _BUVID3_LOCK:
+        cached = _cookies().get("buvid3")
+        if cached:
+            return cached
+        response = requests.get("https://api.bilibili.com/x/frontend/finger/spi",
+                                headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        value = data.get("b_3") if isinstance(data, dict) else None
+        if not isinstance(payload, dict) or payload.get("code") != 0 or not isinstance(value, str) or not value.strip():
+            raise ValueError("无法取得 B 站浏览器标识")
+        with _COOKIE_LOCK:
+            # 获取期间可能已完成登录，优先保留登录页采集的浏览器身份。
+            if not BUVID3:
+                BUVID3 = value.strip()
+            return BUVID3
 
 
 def room_info(room_id: str) -> dict | None:
@@ -201,12 +247,16 @@ def _wbi_signed_params(params: dict, key: str) -> dict:
     return {**signed, "w_rid": hashlib.md5((query + key).encode("utf-8")).hexdigest()}
 
 
-def danmaku_conf(room_id: str) -> tuple[int, str, list]:
+def danmaku_conf(room_id: str, *, cookies: dict | None = None, user_agent: str = UA) -> tuple[int, str, list]:
     """弹幕连接要用的东西：(真实房间号, token, 服务器列表)。
 
     优先使用带 WBI 签名的 getDanmuInfo；失败时再降级到老 getConf。
     """
     real_id = _resolve_room_id(room_id)
+    cookies = dict(_cookies() if cookies is None else cookies)
+    if not cookies.get("buvid3"):
+        cookies["buvid3"] = ensure_buvid3()
+    headers = {**HEADERS, "User-Agent": user_agent}
     data = {}
     key = _wbi_key()
     if key:
@@ -214,7 +264,7 @@ def danmaku_conf(room_id: str) -> tuple[int, str, list]:
             response = requests.get(
                 "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
                 params=_wbi_signed_params({"id": real_id, "type": 0}, key),
-                headers=HEADERS, cookies=_cookies(), timeout=10)
+                headers=headers, cookies=cookies, timeout=10)
             payload = response.json()
             if payload.get("code") == 0:
                 data = payload.get("data") or {}
@@ -225,7 +275,7 @@ def danmaku_conf(room_id: str) -> tuple[int, str, list]:
             response = requests.get(
                 "https://api.live.bilibili.com/room/v1/Danmu/getConf",
                 params={"room_id": real_id, "platform": "pc", "player": "web"},
-                headers=HEADERS, cookies=_cookies(), timeout=10)
+                headers=headers, cookies=cookies, timeout=10)
             data = response.json().get("data") or {}
         except Exception:  # noqa: BLE001
             return int(real_id) if str(real_id).isdigit() else 0, "", []
