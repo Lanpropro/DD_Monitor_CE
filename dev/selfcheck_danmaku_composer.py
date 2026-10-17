@@ -210,27 +210,47 @@ class ComposerTests(unittest.TestCase):
             theme.apply("dark")
             tile.close()
 
-    def test_popup_renders_packages_permissions_empty_error_and_real_selection(self):
+    def test_popup_tabs_switch_packages_and_keep_permissions(self):
         packs = [{"pkg_type": 3, "pkg_name": "小表情", "emoticons": [
             {"emoji": "[doge]", "perm": 1, "url": "https://example.com/emote.png"}]},
             {"pkg_type": 2, "pkg_name": "主播表情", "emoticons": [
-                {"emoji": "锁定", "perm": 0, "emoticon_unique": "room_101_4", "unlock_show_text": "粉丝团"}]}]
+                {"emoji": "锁定", "perm": 0, "emoticon_unique": "room_101_4",
+                 "unlock_show_text": "粉丝团"}]}]
         pixmap = QPixmap(32, 32)
         pixmap.fill(QColor("#00a1d6"))
-        with patch.object(bili, "get_emoticons", return_value=packs), patch.object(images, "load_pixmap", return_value=pixmap):
+        with patch.object(bili, "get_emoticons", return_value=packs), \
+                patch.object(images, "load_pixmap", return_value=pixmap):
             self.composer.emote_button.click()
             popup = self.composer.popup
             settle(lambda: any(b.text() == "[doge]" for b in popup.findChildren(QToolButton)))
+            tabs = [popup.tab_layout.itemAt(i).widget() for i in range(popup.tab_layout.count())
+                    if popup.tab_layout.itemAt(i).widget() is not None]
+            self.assertEqual(len(tabs), 2, "每个表情包一个分类入口")
+            self.assertEqual(tabs[0].toolTip(), "小表情")
+            self.assertEqual(tabs[1].toolTip(), "主播表情")
+            self.assertTrue(tabs[0].isChecked(), "默认选中第一个分类")
+            # 当前分类只显示自己的表情，第二个包的「锁定」还没出现
+            buttons = popup.findChildren(QToolButton)
+            self.assertTrue(any(b.text() == "[doge]" for b in buttons))
+            self.assertFalse(any(b.text() == "锁定" for b in buttons))
+            # 切到第二个分类：锁定表情出现并保持禁用
+            tabs[1].click()
+            settle(lambda: any(b.text() == "锁定" for b in popup.findChildren(QToolButton)))
             buttons = popup.findChildren(QToolButton)
             locked = next(b for b in buttons if b.text() == "锁定")
             self.assertFalse(locked.isEnabled())
             self.assertIn("粉丝团", locked.toolTip())
-            self.assertTrue(self.composer.emote_button.screen().availableGeometry().contains(popup.geometry()))
-            next(b for b in buttons if b.text() == "[doge]").click()
+            self.assertFalse(any(b.text() == "[doge]" for b in buttons))
+            self.assertIn("主播表情", popup.status.text())
+            # 切回第一个分类并选中表情
+            tabs[0].click()
+            settle(lambda: any(b.text() == "[doge]" for b in popup.findChildren(QToolButton)))
+            next(b for b in popup.findChildren(QToolButton) if b.text() == "[doge]").click()
             self.assertEqual(self.composer.edit.text(), "[doge]")
         popup.close()
         popup.set_packages([])
         self.assertIn("暂无", popup.status.text())
+        self.assertTrue(popup.tab_scroll.isHidden())
         popup.set_error("网络不可用")
         self.assertIn("网络不可用", popup.status.text())
         self.assertFalse(popup.retry_button.isHidden())

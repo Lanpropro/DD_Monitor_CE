@@ -1193,6 +1193,20 @@ QPushButton#PrimaryButton:pressed {{
 #EmoticonButton:disabled {{
     color: {TEXT3};
 }}
+#EmoticonTab {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SM}px;
+    padding: 1px;
+}}
+#EmoticonTab:hover {{
+    background: {CONTENT_HOVER};
+    border-color: {BORDER};
+}}
+#EmoticonTab:checked {{
+    background: {ACCENT_SOFT};
+    border-color: {ACCENT};
+}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;
