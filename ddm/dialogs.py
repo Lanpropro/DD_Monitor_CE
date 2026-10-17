@@ -61,6 +61,7 @@ class GeneralSettingsPage(QWidget):
     ITEMS = [
         ("default_muted", "新建格子初始静音"),
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
+        ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
         ("live_alert", "开播提醒（顶部提示与关注栏动效）"),

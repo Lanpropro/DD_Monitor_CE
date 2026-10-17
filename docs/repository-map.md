@@ -154,6 +154,8 @@
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_follow_refresh.py`
 - `dev/selfcheck_fullscreen_audio.py`
+- `dev/selfcheck_fullscreen_border.py`
+- `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
 - `dev/selfcheck_fullscreen_native_focus.py`
 - `dev/selfcheck_fullscreen_quality.py`

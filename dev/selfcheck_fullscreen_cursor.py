@@ -69,7 +69,7 @@ def main():
             video_point = tile.video.mapToGlobal(tile.video.rect().center())
             video_geometry = tile.video.geometry()
             QCursor.setPos(video_point)
-            wait(app, lambda: cursor.hidden)
+            wait(app, lambda: cursor.hidden and not tile.bottom.isVisible())
             assert QApplication.overrideCursor().shape() == Qt.BlankCursor
             assert not tile.bottom.isVisible() and not tile.controls.isVisible()
             assert not tile.composer.isVisible()

@@ -90,6 +90,7 @@ def main() -> None:
                for tile in tiles), "全屏按钮应在音量条右侧"
 
     target = tiles[1]
+    target.set_focused(True)
     target.room["live"] = True
     normal_size = window.size()
     saved_geometry = window.current_state()["geometry"]
@@ -111,6 +112,8 @@ def main() -> None:
     if app.platformName() == "windows":
         assert window.size() == app.primaryScreen().geometry().size()
     assert window.wall.fullscreen_tile is target
+    assert target.property("fullscreen") is True
+    assert target.property("focused") is True
     assert window.wall.visible_tiles() == [target]
     assert not hasattr(target, "fullscreen_danmaku")
     assert not hasattr(target, "fullscreen_danmaku_button")
@@ -128,6 +131,8 @@ def main() -> None:
         assert len(captures) >= 2
         assert window._fullscreen_cover is None or window._fullscreen_cover_timer.isActive()
     assert window._native_fullscreen_state is None
+    assert target.property("fullscreen") is False
+    assert target.property("focused") is True
     assert window.centralWidget().updatesEnabled()
     assert not window.wall._relayout_timer.isActive()
     assert int(target.video.winId()) == video_hwnd

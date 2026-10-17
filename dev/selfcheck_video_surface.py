@@ -62,10 +62,12 @@ def check_regions(tile):
             else:
                 origin = wintypes.POINT()
                 user32.MapWindowPoints(root, hwnd, ctypes.byref(origin), 1)
-                assert not gdi32.PtInRegion(region, origin.x, origin.y), 'Rounded video corner is visible'
+                if bool(gdi32.PtInRegion(region, origin.x, origin.y)) != bool(tile.property('fullscreen')):
+                    errors.append(name.value + ': video corner does not match fullscreen state')
                 bounds = wintypes.RECT()
                 user32.GetClientRect(root, ctypes.byref(bounds))
-                assert not gdi32.PtInRegion(region, origin.x + bounds.right, origin.y + bounds.bottom), 'Video leaks past parent'
+                if gdi32.PtInRegion(region, origin.x + bounds.right, origin.y + bounds.bottom):
+                    errors.append(name.value + ': video leaks past parent')
             if hwnd != root:
                 children.append(name.value)
         finally:
@@ -120,14 +122,20 @@ def check_danmaku_region(tile):
     assert overlay.mask() == tile.video.mask(), 'Danmaku and video boundaries differ'
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
     region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    video_region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
     try:
         assert user32.GetWindowRgn(int(overlay.winId()), region), 'Missing native danmaku clip'
-        assert not gdi32.PtInRegion(region, 0, 0), 'Danmaku paints over the rounded corner'
+        assert user32.GetWindowRgn(int(tile.video.winId()), video_region), 'Missing native video clip'
+        assert gdi32.EqualRgn(region, video_region), 'Native video and danmaku contours differ'
+        assert bool(gdi32.PtInRegion(region, 0, 0)) == bool(
+            tile.property('fullscreen')), 'Danmaku corner does not match fullscreen state'
         scale = overlay.devicePixelRatioF()
         assert gdi32.PtInRegion(region, round(overlay.width() * scale / 2),
                               round(overlay.height() * scale / 2))
     finally:
         gdi32.DeleteObject(region)
+        gdi32.DeleteObject(video_region)
 
 
 def overlay_sizes(tile):
@@ -168,7 +176,8 @@ def check_pixels(tile):
     for x, y in ((0, 0), (image.width() - 1, 0), (0, image.height() - 1),
                  (image.width() - 1, image.height() - 1)):
         pixel = image.pixelColor(x, y)
-        assert not (pixel.blue() > 180 and pixel.red() < 80), 'VLC paints over a rounded corner'
+        assert (pixel.blue() > 180 and pixel.red() < 80) == bool(
+            tile.property('fullscreen')), 'VLC corner does not match fullscreen state'
     return True
 
 
@@ -281,7 +290,7 @@ def main():
                     else:
                         QCursor.setPos(point)
                     try:
-                        wait(app, lambda: cursor.hidden)
+                        wait(app, lambda: cursor.hidden and not tile.bottom.isVisible())
                     except AssertionError:
                         u = ctypes.windll.user32
                         u.GetForegroundWindow.restype = wintypes.HWND
