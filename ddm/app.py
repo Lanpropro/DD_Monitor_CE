@@ -966,6 +966,8 @@ class MainWindow(QMainWindow):
         hide_ms = (time.perf_counter() - t0) * 1000
         # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
+        for tile in self.wall.tiles:
+            tile.composer.shutdown()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
@@ -998,6 +1000,9 @@ class MainWindow(QMainWindow):
         for player in players:
             player.release()
         self._wait_background()
+        # 发送/表情请求可能在关闭期间才补齐设备 Cookie，收尾后再保存它。
+        if self.state.get("buvid3", "") != bili._cookies().get("buvid3", ""):
+            config_module.save(self.current_state())
         if self._startup_update_task is not None:
             self._startup_update_task.wait()
         if self._startup_plugin_task is not None:
@@ -1011,6 +1016,8 @@ class MainWindow(QMainWindow):
 
     def _wait_background(self) -> None:
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
+        from .danmaku_send import wait_for_requests
+        wait_for_requests()
         names = ("_account_loader", "_account_avatar_loader", "_room_avatar_loader",
                  "_status_avatar_loader", "_follow_avatar_loader", "_follow_loader",
                  "_cover_cache_loader", "_avatar_cache_loader",
@@ -2754,7 +2761,18 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
+        tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
         tile._actions_wired = True
+
+    def _on_device_cookie_ready(self) -> None:
+        buvid3 = bili._cookies().get("buvid3", "")
+        if not self._closing and buvid3 and self.state.get("buvid3", "") != buvid3:
+            self.state["buvid3"] = buvid3
+            self._save_timer.start()
+
+    def _sync_composer_credentials(self) -> None:
+        for tile in self.wall.tiles:
+            tile.composer.sync_credentials()
 
     def _fill_plugin_menu(self, tile) -> None:
         """右键菜单弹出前，收集本体录制和插件操作。"""
@@ -3316,6 +3334,7 @@ class MainWindow(QMainWindow):
             bili.set_sessdata("")
             self.state["sessdata"] = ""
             self.state["bili_jct"] = ""
+            self._sync_composer_credentials()
             config_module.save(self.current_state())
             self.stop_danmaku()
             self.sync_danmaku()
@@ -3361,6 +3380,7 @@ class MainWindow(QMainWindow):
 
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
+        self._sync_composer_credentials()
         self.state["sessdata"] = sessdata
         config_module.save(self.current_state())
         self._render_account()

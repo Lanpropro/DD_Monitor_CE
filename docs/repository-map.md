@@ -99,7 +99,7 @@
 
 ### 软件、插件及仓库回归测试（开发维护用途）
 
-共 241 项。
+共 243 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -141,6 +141,7 @@
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_connection.py`
+- `dev/selfcheck_danmaku_composer.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_button.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
@@ -148,6 +149,7 @@
 - `dev/selfcheck_danmaku_menu.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`
+- `dev/selfcheck_danmaku_send.py`
 - `dev/selfcheck_danmaku_sort.py`
 - `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`

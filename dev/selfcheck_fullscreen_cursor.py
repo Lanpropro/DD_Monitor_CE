@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor
@@ -37,7 +38,9 @@ def main():
     app_module.StatusPoller = app_module.StatsPoller = SilentPoller
     app = QApplication(sys.argv)
     rooms = [{"room_id": "1000", "uname": "Cursor test", "live": False}]
-    window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x1")
+    # 启动回调不能把下方手动接入的本地测试播放器按“未开播”停止。
+    with patch.object(MainWindow, "start_all"):
+        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x1")
     window._upgrade_fullscreen_quality = lambda _tile: False
     window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
     window.isActiveWindow = lambda: True

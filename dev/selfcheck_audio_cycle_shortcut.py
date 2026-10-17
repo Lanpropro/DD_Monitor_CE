@@ -57,6 +57,13 @@ def check_hover_shortcuts(app, window):
         assert window.sidebar.search.text() == 'bfme'
         assert second.danmaku_button.isChecked() == before
         assert second.muted == muted
+        # 每格发送框也必须保护播放器单键快捷键。
+        first.composer.edit.setFocus()
+        first.composer.edit.clear()
+        QTest.keyClicks(first.composer.edit, 'bfme')
+        assert first.composer.edit.text() == 'bfme'
+        assert second.danmaku_button.isChecked() == before
+        assert second.muted == muted
         dialog = QDialog(window)
         dialog.setModal(True)
         edit = QLineEdit(dialog)
@@ -125,12 +132,15 @@ def check_corner_empty_slots(app):
                     expected = tuple(not value for value in before[i]) if i == index else before[i]
                     assert (other.muted, other.danmaku_button.isChecked()) == expected, (index, i)
                 selected = (tile.muted, tile.danmaku_button.isChecked())
-                # 走真实拖入处理，检查空格子的预设不会在填入房间时丢失。
+                # 音量属于格子；新拖入房间的弹幕开关默认关闭。
                 if index:
                     window._on_room_dropped(tile, rooms[index]['room_id'])
-                    assert (tile.muted, tile.danmaku_button.isChecked()) == selected
+                    assert (tile.muted, tile.danmaku_button.isChecked()) == (selected[0], False)
+                current = (tile.muted, tile.danmaku_button.isChecked())
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
+                assert (tile.muted, tile.danmaku_button.isChecked()) == tuple(not value for value in current)
+                tile.danmaku_button.setChecked(before[index][1])
                 assert (tile.muted, tile.danmaku_button.isChecked()) == before[index]
                 saved = window.current_state()['wall'][index]
                 assert (saved['muted'], saved['video_danmaku_enabled']) == before[index]
