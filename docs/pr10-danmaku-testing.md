@@ -19,7 +19,7 @@ git apply -3 _pr10_net.diff
 
 ## 功能范围
 
-- 新增 `ddm/danmaku_send.py`：每房间独立的输入区（`DanmakuComposer`）+ 表情浮窗（`EmoticonPopup`），网络请求走 `QThread`，关格子不阻塞。
+- 新增 `ddm/danmaku_send.py`：每房间独立的输入区（`DanmakuComposer`）+ 表情浮窗（`EmoticonPopup`），网络请求走 `QThread`，关格子不阻塞。发送失败、未登录这类提示走窗口顶部提示条（`MainWindow._show_notice`，3–6 秒自动消失），没有宿主窗口的自检/预览才退回输入框上方的浮动提示（4 秒自动消失）。
 - `ddm/bili.py`：`BILI_JCT` 保存 CSRF、`send_danmaku()` 发送文字/大表情、`get_emoticons()` 拉表情（自动取并缓存 `buvid3`）、`_cookies()` 带上 `bili_jct`。
 - `ddm/app.py`：启动恢复、登录写入、退出登录清空 `bili_jct`。
 - `ddm/login.py`、`ddm/web_login.py`：扫码与账号密码登录都收齐 `SESSDATA` + `bili_jct`。
@@ -80,7 +80,7 @@ git apply -3 _pr10_net.diff
 - [ ] Enter 发送成功：内容清空，底栏不闪、不跳。
 - [ ] 关闭输入焦点后按 Enter：不误发。
 - [ ] 发送过快（连续双击发送）：只发出一条，按钮显示「…」期间不可重复提交。
-- [ ] 发送失败（如被屏蔽、频率限制、未登录）：内容保留，输入框上方浮出原因，几秒后自动消失。
+- [ ] 发送失败（如被屏蔽、频率限制、未登录）：内容保留，原因出现在窗口顶部提示条并自动消失，输入框上方不再残留常驻提示。
 - [ ] 断网发送：提示网络失败，内容保留；恢复网络后可重发。
 
 ### 3. 键盘与中文输入法

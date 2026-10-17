@@ -403,6 +403,35 @@ class ComposerTests(unittest.TestCase):
         finally:
             tile.close()
 
+    def test_errors_use_window_notice_instead_of_sticky_tooltip(self):
+        from PySide6.QtWidgets import QWidget
+        from ddm.widgets import Tile
+        calls = []
+        window = QWidget()
+        window._show_notice = lambda message, **kwargs: calls.append((message, kwargs))
+        tile = Tile({"room_id": "101", "uname": "B站"}, window)
+        window.resize(760, 320)
+        tile.resize(760, 320)
+        window.show()
+        tile.show()
+        APP.processEvents()
+        saved = (bili.SESSION_DATA, bili.BILI_JCT)
+        try:
+            bili.set_sessdata("")
+            bili.set_bili_jct("")
+            tile.composer.edit.setText("测试")
+            tile.composer.send_text()
+            APP.processEvents()
+            self.assertTrue(calls, "失败原因要送到窗口顶部提示")
+            self.assertIn("登录", calls[-1][0])
+            self.assertEqual(calls[-1][1].get("kind"), "warning")
+            self.assertFalse(tile.composer.feedback.isVisible(),
+                             "不要再挂一个不会消失的浮动提示")
+        finally:
+            bili.set_sessdata(saved[0])
+            bili.set_bili_jct(saved[1])
+            window.close()
+
     def test_room_switch_keeps_video_geometry_for_inline_composer(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})

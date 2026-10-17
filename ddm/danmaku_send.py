@@ -1,6 +1,6 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
@@ -361,6 +361,11 @@ class DanmakuComposer(QWidget):
         self.feedback.setMaximumWidth(380)
         self.feedback.setAccessibleName("弹幕发送状态")
         self.feedback.hide()
+        # 没有主窗口可承接提示时，退回到浮动提示也要自己消失，不能一直挂着
+        self._feedback_timer = QTimer(self)
+        self._feedback_timer.setSingleShot(True)
+        self._feedback_timer.setInterval(4000)
+        self._feedback_timer.timeout.connect(self.feedback.hide)
         self._update_buttons()
 
     def mousePressEvent(self, event):
@@ -444,16 +449,36 @@ class DanmakuComposer(QWidget):
         self.feedback.setAccessibleDescription(text)
         self.edit.setToolTip(text)
         self.feedback.hide()
-        if text and not self.busy and self.isVisible():
-            self.feedback.adjustSize()
-            anchor = self.edit.mapToGlobal(QPoint(0, 0))
-            screen = self.screen().availableGeometry()
-            x = max(screen.left(), min(anchor.x(), screen.right() - self.feedback.width() + 1))
-            y = anchor.y() - self.feedback.height() - 4
-            if y < screen.top():
-                y = anchor.y() + self.edit.height() + 4
-            self.feedback.move(x, min(y, screen.bottom() - self.feedback.height() + 1))
-            self.feedback.show()
+        if not text or self.busy:
+            return
+        # 失败原因交给窗口顶部的提示条（会自动消失）；只有自检/预览这类
+        # 没有主窗口的场景才退回到输入框上方的浮动提示。
+        if self._notify_window(text):
+            return
+        if not self.isVisible():
+            return
+        self.feedback.adjustSize()
+        anchor = self.edit.mapToGlobal(QPoint(0, 0))
+        screen = self.screen().availableGeometry()
+        x = max(screen.left(), min(anchor.x(), screen.right() - self.feedback.width() + 1))
+        y = anchor.y() - self.feedback.height() - 4
+        if y < screen.top():
+            y = anchor.y() + self.edit.height() + 4
+        self.feedback.move(x, min(y, screen.bottom() - self.feedback.height() + 1))
+        self.feedback.show()
+        self._feedback_timer.start()
+
+    def _notify_window(self, message) -> bool:
+        """把提示交给主窗口的顶部提示条；找不到宿主窗口就返回 False。"""
+        window = self.window()
+        show = getattr(window, "_show_notice", None)
+        if not callable(show):
+            return False
+        try:
+            show(message, kind="warning")
+        except Exception:      # noqa: BLE001 - 顶部提示不可用时退回就地提示
+            return False
+        return True
 
     def _finish_send(self, context):
         if context != self._pending:
