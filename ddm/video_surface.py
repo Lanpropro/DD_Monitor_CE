@@ -3,9 +3,45 @@ import ctypes
 from ctypes import wintypes
 import sys
 
-from PySide6.QtCore import QEvent, QTimer, Qt
-from PySide6.QtGui import QTransform
+from PySide6.QtCore import QEvent, QRectF, QTimer, Qt
+from PySide6.QtGui import QPainter, QPainterPath, QTransform
 from PySide6.QtWidgets import QApplication, QFrame
+from . import theme
+from .badge_surface import BadgeSurface
+
+
+class VideoCorner(BadgeSurface):
+    """Small alpha-blended corners above VLC's binary native clipping region."""
+    def __init__(self, parent, *, right=False):
+        super().__init__(parent)
+        self.right = right
+        self._mask_path = QPainterPath()
+        self.setFixedSize(12, 12)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setAttribute(Qt.WA_NativeWindow)
+
+    def refresh_theme(self):
+        self.update()
+
+    def _render_badge(self, painter):
+        painter.setRenderHint(QPainter.Antialiasing)
+        if self.right:
+            painter.translate(self.width(), 0)
+            painter.scale(-1, 1)
+        outside = QPainterPath()
+        outside.addRect(QRectF(self.rect()))
+        inside = QPainterPath()
+        inside.addRoundedRect(QRectF(0, 0, 24, 24), 9, 9)
+        painter.fillPath(outside.subtracted(inside),
+                         theme.qcolor('#FFFFFF' if theme.is_light() else theme.TILE_BG))
+
+    def paintEvent(self, event):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            self._paint_layered()
+        else:
+            painter = QPainter(self)
+            self._render_badge(painter)
 
 
 class VideoSurface(QFrame):

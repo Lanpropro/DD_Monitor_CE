@@ -290,7 +290,7 @@ def main():
                     else:
                         QCursor.setPos(point)
                     try:
-                        wait(app, lambda: cursor.hidden)
+                        wait(app, lambda: cursor.hidden and not tile.bottom.isVisible())
                     except AssertionError:
                         u = ctypes.windll.user32
                         u.GetForegroundWindow.restype = wintypes.HWND

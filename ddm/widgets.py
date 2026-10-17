@@ -12,7 +12,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QLinearGradient, QMovie, QPainter, QPainterPath, QPalette, QPen, QPixmap, QPolygonF, QRegion,
+    QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
     QShortcut, QTextDocument,
 )
 from PySide6.QtWidgets import (
@@ -30,7 +30,7 @@ from .danmaku_content import content_runs, content_html
 from . import follow_folders
 from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
 from .player import TilePlayer
-from .video_surface import VideoSurface
+from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
@@ -5717,9 +5717,16 @@ class Tile(QFrame):
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.video_danmaku = VideoDanmaku(self)
+        self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
         # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
         self.bottom = QWidget(self)
+        self._bar_progress = 0.0
+        self._bar_target = 0.0
+        self._bar_animation = QVariantAnimation(self)
+        self._bar_animation.setDuration(180)
+        self._bar_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._bar_animation.valueChanged.connect(self._slide_fullscreen_bar)
         self.bottom.setObjectName("TileBottom")
         self.bottom.setAttribute(Qt.WA_StyledBackground, True)
         bottom_layout = QHBoxLayout(self.bottom)
@@ -6031,8 +6038,10 @@ class Tile(QFrame):
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
         self.video_danmaku.raise_()
+        for corner in self.video_corners:
+            corner.raise_()
         for widget in (self.controls, self.stream_badge, self.title_badge,
-                       self.time_badge, self.spinner, self.pause_overlay):
+                       self.time_badge, self.spinner, self.pause_overlay, self.bottom):
             widget.raise_()
 
     def set_video_active(self, active: bool) -> None:
@@ -6230,11 +6239,29 @@ class Tile(QFrame):
         self._layout_controls()
         self.muteToggled.emit(self.room, muted)
 
-    def set_fullscreen_controls_hidden(self, hidden: bool) -> None:
+    def set_fullscreen_controls_hidden(self, hidden: bool, *, hide_bar: bool = True) -> None:
+        target = 1.0 if hidden and hide_bar and self.property("fullscreen") else 0.0
+        if hidden == getattr(self, "_fullscreen_controls_hidden", False) and target == self._bar_target:
+            return
         self._fullscreen_controls_hidden = hidden
-        self.bottom.setVisible(not hidden)
         self.set_controls_visible(not hidden)
+        self._bar_animation.stop()
+        self._bar_target = target
+        if self.property("fullscreen") and motion.enabled():
+            self.bottom.show()
+            self._bar_animation.setStartValue(self._bar_progress)
+            self._bar_animation.setEndValue(target)
+            self._bar_animation.start()
+        else:
+            self._slide_fullscreen_bar(target)
         self._layout_areas()
+
+    def _slide_fullscreen_bar(self, progress) -> None:
+        self._bar_progress = float(progress)
+        self.bottom.move(self.bottom.x(), self.height() - TILE_BAR_HEIGHT
+                         + round(TILE_BAR_HEIGHT * self._bar_progress))
+        self.bottom.setVisible(self._bar_progress < 1.0 or self._bar_target == 0.0)
+        self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
         visible = visible and not getattr(self, "_fullscreen_controls_hidden", False)
@@ -6326,8 +6353,13 @@ class Tile(QFrame):
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
         self._update_recording_button()
-        # 隐藏控件只改变可见性，保留底栏位置，避免 VLC 重算比例使画面突然放大。
-        video_height = max(60, height - TILE_BAR_HEIGHT)
+        # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
+        fullscreen = bool(self.property("fullscreen"))
+        if not fullscreen:
+            self._bar_animation.stop()
+            self._bar_progress = self._bar_target = 0.0
+            self.bottom.show()
+        video_height = max(60, height if fullscreen else height - TILE_BAR_HEIGHT)
         # 普通格子留边框，全屏视频贴齐窗口边缘。
         inset = 0 if self.property("fullscreen") else 1
         self.video.setGeometry(inset, inset, max(1, width - inset * 2),
@@ -6368,8 +6400,10 @@ class Tile(QFrame):
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
         self.pause_overlay.raise_()
-        self.bottom.setGeometry(inset, video_height, max(1, width - inset * 2),
-                                max(1, height - video_height - inset))
+        bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * self._bar_progress)
+                 if fullscreen else video_height)
+        bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
+        self.bottom.setGeometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         self.video_danmaku.setGeometry(self.video.geometry())
         self.video_danmaku.setMask(self.video.mask())
         self._layout_bottom_controls()
@@ -6421,8 +6455,19 @@ class Tile(QFrame):
             bottom = QPainterPath()
             bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
             path = path.united(bottom)
+            # Leave one physical pixel under the alpha-blended corner edge.
+            stroke = QPainterPathStroker()
+            stroke.setWidth(2 / self.devicePixelRatioF())
+            bounds = QPainterPath()
+            bounds.addRect(rect)
+            path = path.united(stroke.createStroke(path)).intersected(bounds)
         self.video.setMask(QRegion(path.toFillPolygon().toPolygon()))
         self.video_danmaku.setMask(self.video.mask())
+        for index, corner in enumerate(self.video_corners):
+            corner.move(self.video.x() if index == 0 else
+                        self.video.geometry().right() - corner.width() + 1, self.video.y())
+            corner.setVisible(not self.video.square_corners)
+            corner.update()
 
     def _quality_button_width(self) -> int:
         """按画质文字算按钮宽度。
