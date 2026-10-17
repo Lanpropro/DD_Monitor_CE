@@ -1,7 +1,7 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
     QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
@@ -37,6 +37,32 @@ def _style_button(button):
     """)
     button.setCursor(Qt.PointingHandCursor)
     button.setAutoDefault(False)
+
+
+class EmoticonButton(QPushButton):
+    """与播放器控制同样使用矢量绘制，避免字体笑脸过小或被替换为彩色 emoji。"""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        color = theme.TEXT2 if self.isEnabled() else theme.TEXT4
+        if self.isEnabled() and (self.underMouse() or self.property("hovered") is True):
+            color = theme.ACCENT if theme.is_light() else theme.BG
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.translate(self.width() / 2, self.height() / 2)
+        pen = QPen(theme.qcolor(color), 1.7)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(QRectF(-8, -8, 16, 16))
+        smile = QPainterPath(QPointF(-3.6, 1.8))
+        smile.quadTo(0, 6, 3.6, 1.8)
+        painter.drawPath(smile)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.qcolor(color))
+        for x in (-3, 3):
+            painter.drawEllipse(QPointF(x, -2.3), .9, .9)
 
 
 class _Request(QThread):
@@ -265,7 +291,7 @@ class DanmakuComposer(QWidget):
         self.edit.textChanged.connect(self._text_changed)
         self.edit.returnPressed.connect(self.send_text)
         row.addWidget(self.edit, 1)
-        self.emote_button = QPushButton("☺")
+        self.emote_button = EmoticonButton()
         self.emote_button.setAccessibleName("选择直播间表情")
         self.emote_button.setToolTip("选择表情；大表情点击后直接发送")
         self.emote_button.setFixedSize(28, 28)

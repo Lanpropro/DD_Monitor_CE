@@ -83,6 +83,43 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(self.composer.edit.text(), "前[doge]后")
         send.assert_not_called()
 
+    def test_emoticon_icon_is_legible_without_a_font_glyph_in_both_themes(self):
+        button = self.composer.emote_button
+        original_font = button.font()
+        try:
+            tiny_font = button.font()
+            tiny_font.setPixelSize(1)
+            button.setFont(tiny_font)
+            for mode in ("dark", "light"):
+                theme.apply(mode)
+                button.clearFocus()
+                APP.processEvents()
+                image = button.grab().toImage()
+                scale = image.devicePixelRatioF()
+                ink = []
+                foreground = theme.qcolor(theme.TEXT2)
+                background = image.pixelColor(round(2*scale), round(14*scale))
+                alpha = foreground.alphaF()
+                expected = QColor(*(round(foreground.getRgb()[i]*alpha + background.getRgb()[i]*(1-alpha))
+                                    for i in range(3)))
+                for y in range(image.height()):
+                    for x in range(image.width()):
+                        pixel = image.pixelColor(x, y)
+                        if max(abs(pixel.red()-expected.red()), abs(pixel.green()-expected.green()),
+                               abs(pixel.blue()-expected.blue())) < 12:
+                            ink.append((x/scale, y/scale))
+                self.assertTrue(ink)
+                left, right = min(x for x, y in ink), max(x for x, y in ink)
+                top, bottom = min(y for x, y in ink), max(y for x, y in ink)
+                self.assertGreaterEqual(right-left, 15, "表情图标不能退化成很小的字体字符")
+                self.assertGreaterEqual(bottom-top, 15)
+                self.assertGreater(left, 2)
+                self.assertLess(right, button.width()-2)
+                self.assertEqual(button.accessibleName(), "选择直播间表情")
+        finally:
+            button.setFont(original_font)
+            theme.apply("dark")
+
     def test_large_emoticons_send_full_unique_without_touching_draft(self):
         for pkg_type in (1, 2, 5):
             with self.subTest(pkg_type=pkg_type):
