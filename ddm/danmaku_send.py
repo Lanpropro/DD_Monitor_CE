@@ -23,7 +23,7 @@ class EmoteButton(QPushButton):
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        center = self.rect().center()
+        center = QPointF(self.width() / 2.0, self.height() / 2.0)
         radius = min(self.width(), self.height()) / 2 - 4.0
         face = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
         painter.drawEllipse(face)

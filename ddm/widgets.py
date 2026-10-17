@@ -605,6 +605,28 @@ class RefreshButton(QPushButton):
             _draw_arrow_head(painter, center, radius, angle, direction)
 
 
+class DanmakuToggleButton(QPushButton):
+    """画面弹幕开关：开启时在右下角画一个勾（和 B 站播放器一样），不靠整块底色区分。"""
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self.isChecked():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor(theme.ACCENT), 1.8)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        x = self.width() - 10.5
+        y = self.height() - 8.0
+        path = QPainterPath()
+        path.moveTo(x, y)
+        path.lineTo(x + 2.6, y + 2.6)
+        path.lineTo(x + 6.0, y - 3.6)
+        painter.drawPath(path)
+
+
 def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,
                      direction: int, size: float = 3.4) -> None:
     """在圆环的指定角度处画一个顺着切线的箭头。"""
@@ -5769,13 +5791,16 @@ class Tile(QFrame):
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
         self.recording_button.clicked.connect(self.recordingRequested)
-        self.danmaku_button = QPushButton("弹幕")
-        self.danmaku_button.setObjectName("TileCtrl")
+        self.danmaku_button = DanmakuToggleButton("弹幕")
+        self.danmaku_button.setObjectName("TileToggle")
         self.danmaku_button.setCheckable(True)
         self.danmaku_button.setFixedSize(44, 26)
         self.danmaku_button.setToolTip("切换这一路的画面弹幕（默认 B）；右侧齿轮可调整观看设置")
         self.danmaku_button.toggled.connect(self._toggle_video_danmaku)
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
+        self.danmaku_button.setToolTip(
+            "关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
+            else "开启画面弹幕（默认 B）")
         self.danmaku_settings_button = QPushButton("⚙")
         self.danmaku_settings_button.setObjectName("TileCtrl")
         self.danmaku_settings_button.setFixedSize(26, 26)
@@ -5819,9 +5844,18 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
+        # 输入区两侧各留一段可伸缩空白，让它在底栏里居中（B 站播放器也是居中）。
+        self._composer_gap_left = QWidget(self.bottom)
+        self._composer_gap_right = QWidget(self.bottom)
+        for gap in (self._composer_gap_left, self._composer_gap_right):
+            gap.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            gap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            gap.setVisible(False)
+        bottom_layout.addWidget(self._composer_gap_left, 1)
         self.composer = DanmakuComposer(self.bottom)
         self.composer.set_room(room.get("room_id"))
-        bottom_layout.addWidget(self.composer, 1, Qt.AlignVCenter)
+        bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
+        bottom_layout.addWidget(self._composer_gap_right, 1)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -5916,6 +5950,8 @@ class Tile(QFrame):
         self._layout_cover()
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
+        self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if enabled
+                                       else "开启画面弹幕（默认 B）")
         self.video_danmaku.set_enabled(enabled)
         if getattr(self, "_overlay_ready", False):
             self.raise_overlays()
@@ -5956,8 +5992,10 @@ class Tile(QFrame):
         layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
         self.pause_button.setFixedWidth(26 if width < 260 else 34)
-        self.danmaku_button.setFixedWidth(26 if compact else 44)
-        self.danmaku_button.setText("弹" if compact else "弹幕")
+        # 弹幕开关只显示「弹」字图标，开关状态由右下角的勾表示（B 站播放器同款），
+        # 不再用整块底色区分开/关。
+        self.danmaku_button.setFixedWidth(26 if compact else 34)
+        self.danmaku_button.setText("弹")
         # 原有底栏按钮的显隐规则一律不动：状态文字、音量数字、音量滑条、
         # 弹幕设置、录制入口在任何宽度都按本地老规矩显示，不许被输入区挤掉。
         self.volume_label.setVisible(width >= 280 and
@@ -5979,31 +6017,52 @@ class Tile(QFrame):
         available = width - fixed - margin * 2 - spacing * (slots - 1)
         status_reserve = min(120, max(40, self.status_label.sizeHint().width()))
         composing = (self._composer_shown
-                     and available >= self.COMPOSER_MIN_WIDTH + 18 + status_reserve)
+                     and available >= self.COMPOSER_MIN_WIDTH + 18 + status_reserve + 2 * spacing)
         self.composer.setVisible(composing)
-        if not composing:
-            available += spacing          # 少一个控件，就少一段间距
+        self._composer_gap_left.setVisible(composing)
+        self._composer_gap_right.setVisible(composing)
         if composing:
-            # 输入框限宽：主画面最多 340px，窄画面按剩余宽度收缩；剩下的再给滑条，
-            # 富余宽度由状态文字吸收，右侧按钮仍贴着底栏右缘。
+            available -= spacing * 2     # 输入区两侧各多一段可伸缩空白
+        else:
+            available += spacing         # 少一个控件，就少一段间距
+        if composing:
+            # 输入框限宽：主画面最多 340px，窄画面按剩余宽度收缩；两侧空白等分，
+            # 让输入区在底栏里居中，右侧按钮仍贴着底栏右缘。
             composer_width = max(self.COMPOSER_MIN_WIDTH,
                                  min(self.COMPOSER_MAX_WIDTH,
                                      available - 18 - status_reserve))
             self.composer.setFixedWidth(composer_width)
             slider_space = available - composer_width - status_reserve
             self.status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-            self.status_label.setMinimumWidth(0)
-            self.status_label.setMaximumWidth(16777215)
+            # 状态文字按内容占宽（上限 120/64），两侧空白再按实际位置把输入区居中，
+            # 不能让它被两段空白挤成一个点。
+            self.status_label.setFixedWidth(min(self.status_label.sizeHint().width(),
+                                                120 if width >= 700 else 64))
         else:
             self.composer.setMinimumWidth(0)
             slider_space = available
             self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             self.status_label.setMinimumWidth(0)
             self.status_label.setMaximumWidth(16777215)
-        layout.setStretchFactor(self.status_label, 1)
+        layout.setStretchFactor(self.status_label, 0 if composing else 1)
         layout.setStretchFactor(self.composer, 0)
+        layout.setStretchFactor(self._composer_gap_left, 1)
+        layout.setStretchFactor(self._composer_gap_right, 1)
+        for gap in (self._composer_gap_left, self._composer_gap_right):
+            gap.setMinimumWidth(0)
+            gap.setMaximumWidth(16777215)
         self.volume_slider.setFixedWidth(max(18, min(86, slider_space)))
         layout.activate()
+        if composing:
+            # 两段空白的默认分配是按「左右两组控件」对齐的，会比底栏正中偏一点；
+            # 再按实际位置把输入区挪到底栏正中（左右空白一增一减）。
+            delta = (self.bottom.width() - self.composer.width()) // 2 - self.composer.x()
+            if abs(delta) > 1:
+                left = max(0, self._composer_gap_left.width() + delta)
+                right = max(0, self._composer_gap_right.width() - delta)
+                self._composer_gap_left.setFixedWidth(left)
+                self._composer_gap_right.setFixedWidth(right)
+                layout.activate()
 
     def set_recording_state(self, state: str) -> None:
         self._recording_state = state
