@@ -15,7 +15,7 @@ from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
     QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit,
-    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStyle, QTextEdit, QVBoxLayout, QWidget)
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStyle, QTextEdit, QToolTip, QVBoxLayout, QWidget)
 
 from ddm.widgets import AUTO_QUALITY, Avatar, DanmakuPanel, ROOM_MIME, Tile
 from ddm.fullscreen_cursor import FullscreenCursor
@@ -577,22 +577,41 @@ class SettingsPanel(QWidget):
 
 
 class CompactStatus(QLabel):
-    """One-line native icons and text; full diagnostics remain in the tooltip."""
+    """One-line native icons with a separate tooltip for each status segment."""
     def __init__(self):
         super().__init__()
         self.parts = []
+        self.hints = []
+        self.hit_regions = []
+        self.detail = ''
         self.setTextFormat(Qt.PlainText)
         self.setMinimumHeight(22)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
-    def set_status(self, parts, detail):
+    def set_status(self, parts, detail, hints=None):
         self.parts = parts
+        self.hints = hints if hints is not None else [text for _, text in parts]
+        self.hit_regions = []
+        self.detail = detail
         self.setText(' · '.join(text for _, text in parts if text))
-        self.setToolTip(detail)
         self.setAccessibleName(' · '.join(text or ('已连接' if icon == 'connected' else '已静音')
                                          for icon, text in parts))
         self.setAccessibleDescription(detail)
         self.update()
+
+    def tooltip_at(self, point):
+        return next((hint for rect, hint in self.hit_regions if rect.contains(point)), '')
+
+    def event(self, event):
+        if event.type() == QEvent.ToolTip:
+            hint = self.tooltip_at(event.pos())
+            if hint:
+                QToolTip.showText(event.globalPos(), hint, self)
+            else:
+                QToolTip.hideText()
+            event.accept()
+            return True
+        return super().event(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -602,9 +621,11 @@ class CompactStatus(QLabel):
         metrics = painter.fontMetrics()
         size, x = 16, 0
         y = (self.height() - size) // 2
-        for icon, text in self.parts:
+        self.hit_regions = []
+        for (icon, text), hint in zip(self.parts, self.hints):
             if x + size > self.width():
                 break
+            start = x
             painter.setPen(QPen(color, 1.5))
             painter.setBrush(Qt.NoBrush)
             if icon == 'connected':
@@ -633,9 +654,11 @@ class CompactStatus(QLabel):
                 shown = metrics.elidedText(text, Qt.ElideRight, max(0, self.width() - x))
                 painter.drawText(QRect(x, 0, max(0, self.width() - x), self.height()), Qt.AlignVCenter, shown)
                 x += metrics.horizontalAdvance(shown) + 12
+                self.hit_regions.append((QRect(start, 0, x - start - 12, self.height()), hint))
                 if shown != text:
                     break
             else:
+                self.hit_regions.append((QRect(start, 0, size, self.height()), hint))
                 x += 8
 
 
@@ -987,7 +1010,26 @@ class RoomRow(QFrame):
         elif ahead and (not self.viewer.alignment.automatic or self.room_id == self.viewer.alignment.reference
                         or self.match_confirmed) and self.room_id not in self.viewer.independent_shifts:
             parts.append(('buffer', f'{ahead[1]}s'))
-        self.status.set_status(parts, detail)
+        hints = []
+        for icon, label in parts:
+            if icon == 'connected' or label in ('连接异常', '重连中', '连接中'):
+                hints.append(self.video_text)
+            elif icon == 'search' or label in ('已对齐', '待确认对齐'):
+                hints.append(match_text)
+            elif icon == 'buffer' or label.startswith('缺少 '):
+                hints.append(self.buffer_text.split(' · ')[0])
+            elif icon == QStyle.SP_MediaVolumeMuted:
+                hints.append('已暂停，本路静音' if self.paused else '本路声音已关闭' if not self.audible.isChecked()
+                             else '本路音量为 0' if self.volume.value() == 0 else '本路暂时静音，等待对齐或播放缓存恢复')
+            elif label == '已暂停':
+                hints.append('本路播放已暂停')
+            elif '手动偏移' in label:
+                hints.append(match_text)
+            elif label == '主画面':
+                hints.append('主画面：' + self.playback_status())
+            else:
+                hints.append(self.playback_status() if self.decoder is not None else label)
+        self.status.set_status(parts, detail, hints)
 
     def playback_status(self):
         if self.room_id in self.viewer.independent_shifts and self.viewer.alignment.automatic:
@@ -1059,6 +1101,8 @@ class Viewer(QDialog):
         self.alignment.automatic = self.automatic.isChecked()
         self.automatic.toggled.connect(self._automatic_changed)
         self.compare = QCheckBox("对照微调")
+        self.automatic.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.compare.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         self.compare.toggled.connect(self.set_comparison_visible)
         self.late_notice = QLabel()
         self.late_notice.setObjectName("MatchSyncLateNotice")
@@ -1094,6 +1138,7 @@ class Viewer(QDialog):
         heading.addWidget(self.late_notice, 1)
         for widget in self.add_controls:
             heading.addWidget(widget)
+        heading.addStretch(0)
         heading.addWidget(self.minimize_settings)
         self.picture = Tile({})
         self.restore_settings.setParent(self.picture.bottom)
