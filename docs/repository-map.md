@@ -21,7 +21,7 @@
 
 ### 仓库管理、许可及发布入口
 
-共 5 项。
+共 24 项。
 
 - `.gitignore`
 - `AGENTS.md`
@@ -50,7 +50,7 @@
 
 ### 软件与插件说明、设计及版本资料
 
-共 30 项。
+共 23 项。
 
 - `README.md`
 - `docs/BUG-STATUS-2026-10-02.md`
@@ -64,6 +64,7 @@
 - `docs/overview2_Landscape_mode.png`
 - `docs/plugins.md`
 - `docs/pr6-pr7-layout-testing.md`
+- `docs/pr11-pr12-integration-testing.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.md`
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
@@ -99,7 +100,7 @@
 
 ### 软件、插件及仓库回归测试（开发维护用途）
 
-共 243 项。
+共 237 项。
 
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
@@ -345,6 +346,38 @@
 
 - `dev/selfcheck_website_plan.py`
 - `docs/website-plan.md`
+
+### 后续新增的开发工具与网站原型
+
+共 27 项。
+
+- `dev/benchmark_danmaku_frames.py`
+- `dev/benchmark_video_danmaku_render.py`
+- `dev/check_live_danmaku_motion.py`
+- `dev/selfcheck_danmaku_render_thread.py`
+- `dev/selfcheck_danmaku_smoothness.py`
+- `dev/selfcheck_match_sync_danmaku_settings.py`
+- `dev/selfcheck_match_sync_status.py`
+- `dev/selfcheck_video_danmaku_quick.py`
+- `website-prototype/.gitignore`
+- `website-prototype/README.md`
+- `website-prototype/app.js`
+- `website-prototype/assets/hero-main.jpg`
+- `website-prototype/assets/logo.svg`
+- `website-prototype/assets/tile-danmaku.jpg`
+- `website-prototype/assets/tile-game.jpg`
+- `website-prototype/assets/tile-portrait.jpg`
+- `website-prototype/assets/wall-danmaku.jpg`
+- `website-prototype/assets/wall-landscape.jpg`
+- `website-prototype/assets/wall-portrait.jpg`
+- `website-prototype/build_assets.py`
+- `website-prototype/capture.mjs`
+- `website-prototype/index.html`
+- `website-prototype/shots/desktop.png`
+- `website-prototype/shots/hero.png`
+- `website-prototype/shots/mobile.png`
+- `website-prototype/styles.css`
+- `website-prototype/test_prototype.py`
 
 ## 仅本机存在的其他资料
 

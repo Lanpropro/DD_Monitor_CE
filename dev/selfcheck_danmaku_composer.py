@@ -220,6 +220,24 @@ class ComposerTests(unittest.TestCase):
             theme.apply("dark")
             tile.close()
 
+    def test_room_switch_preserves_codec_reset_and_danmaku_tooltips(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "101", "uname": "First"})
+        try:
+            tile.codec_probe_note = "previous codec"
+            tile.codec_reconnect_pending = True
+            tile.danmaku_button.setChecked(True)
+            self.assertTrue(tile.room["video_danmaku_enabled"])
+            self.assertIn("关闭", tile.danmaku_button.toolTip())
+            tile.set_room({"room_id": "202", "uname": "Second"})
+            self.assertEqual(tile.codec_probe_note, "")
+            self.assertFalse(tile.codec_reconnect_pending)
+            self.assertEqual(tile.composer._room_id, "202")
+            self.assertFalse(tile.danmaku_button.isChecked())
+            self.assertIn("开启", tile.danmaku_button.toolTip())
+        finally:
+            tile.close()
+
     def test_popup_renders_packages_permissions_empty_error_and_real_selection(self):
         packs = [{"pkg_type": 3, "pkg_name": "小表情", "emoticons": [
             {"emoji": "[doge]", "perm": 1, "url": "https://example.com/emote.png"}]},
@@ -450,13 +468,14 @@ class ComposerTests(unittest.TestCase):
     def test_fullscreen_idle_hides_composer_without_resizing_video(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})
+        tile.setProperty("fullscreen", True)
         tile.resize(500, 350)
         tile.show()
         APP.processEvents()
         initial = tile.video.geometry()
         try:
             tile.set_fullscreen_controls_hidden(True)
-            APP.processEvents()
+            settle(lambda: not tile.composer.isVisible())
             self.assertFalse(tile.composer.isVisible())
             self.assertEqual(tile.video.geometry(), initial)
             tile.set_fullscreen_controls_hidden(False)
