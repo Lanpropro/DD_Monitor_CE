@@ -1,7 +1,6 @@
 """界面组件：侧栏（可收起 / 批量选择）、顶栏、画面格子、自适应网格、布局选择器。"""
 import math
 import os
-import platform
 import sys
 import time
 from uuid import uuid4
@@ -12,12 +11,12 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
+    QImage, QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
     QShortcut, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QFrame, QGraphicsEffect, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
     QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
@@ -277,31 +276,42 @@ class TimeBadge(BadgeSurface):
         painter.drawText(self.rect(), int(Qt.AlignCenter), self.text)
 
 
-class LoadingIndicator(QWidget):
+class LoadingLabel(QLabel):
+    """保留布局和字体信息，由浮层统一绘制到带 Alpha 的画布。"""
+
+    def paintEvent(self, event):
+        pass
+
+
+class LoadingIndicator(BadgeSurface):
     """缓冲动画：沿用 BewlyCat 的 loading.gif + 文案，样式与整体一致。"""
 
     def __init__(self, parent=None, text: str = "连接中…", icon: bool = True):
         super().__init__(parent)
         self.setObjectName("LoadingIndicator")
-        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self._mask_path = QPainterPath()
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12 if icon else 14, 7, 16 if icon else 14, 7)
         layout.setSpacing(8)
-        self._icon = QLabel(self) if icon else None
+        self._icon = LoadingLabel(self) if icon else None
         self._movie = None
         if self._icon is not None:
             self._movie = QMovie(os.path.join(ASSETS_DIR, "loading.gif"))
             self._icon.setFixedSize(32, 32)
             self._movie.setScaledSize(QSize(32, 32))
             self._icon.setMovie(self._movie)
+            self._movie.frameChanged.connect(self.update)
             layout.addWidget(self._icon)
-        self._text = QLabel(text)
+        self._text = LoadingLabel(text)
         self._text.setObjectName("LoadingText")
         layout.addWidget(self._text)
         self.setVisible(False)
 
     def start(self) -> None:
+        if self._movie is not None:
+            scale = self.devicePixelRatioF()
+            self._movie.setScaledSize(QSize(round(32 * scale), round(32 * scale)))
         if self._movie is not None and self._movie.isValid():
             self._movie.start()
         self.adjustSize()
@@ -318,7 +328,34 @@ class LoadingIndicator(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, self.width(), self.height()),
                             self.height() / 2, self.height() / 2)
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self._mask_path = path
+        self.clearMask()
+
+    def refresh_theme(self):
+        self.clearMask()
+        if getattr(self, '_movie', None) is not None:
+            scale = self.devicePixelRatioF()
+            self._movie.setScaledSize(QSize(round(32 * scale), round(32 * scale)))
+        self.update()
+
+    def _render_badge(self, painter):
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.setOpacity(205 / 255)
+        painter.fillPath(self._mask_path, theme.overlay_color('#1b1e24', '#F7F9FC'))
+        if self._movie is not None:
+            pixmap = self._movie.currentPixmap()
+            painter.drawPixmap(self._icon.geometry(), pixmap, pixmap.rect())
+        painter.setFont(self._text.font())
+        painter.setPen(theme.qcolor(theme.TEXT2))
+        painter.drawText(self._text.geometry(), Qt.AlignCenter, self._text.text())
+
+    def paintEvent(self, event):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            self._paint_layered()
+        else:
+            painter = QPainter(self)
+            self._render_badge(painter)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -328,22 +365,7 @@ class LoadingIndicator(QWidget):
         super().showEvent(event)
         if not self.testAttribute(Qt.WA_NativeWindow):
             self.setAttribute(Qt.WA_NativeWindow, True)
-        self._apply_layered_alpha()
-
-    def _apply_layered_alpha(self) -> None:
-        """整层半透明：Qt 的子窗口没有逐像素透明，Windows 上借分层窗口实现。"""
-        if platform.system() != "Windows":
-            return
-        try:
-            import ctypes
-
-            hwnd = int(self.winId())
-            user32 = ctypes.windll.user32
-            style = user32.GetWindowLongW(hwnd, -20)          # GWL_EXSTYLE
-            user32.SetWindowLongW(hwnd, -20, style | 0x00080000)   # WS_EX_LAYERED
-            user32.SetLayeredWindowAttributes(hwnd, 0, 205, 0x00000002)  # LWA_ALPHA
-        except Exception:  # noqa: BLE001
-            pass
+        self.update()
 
 
 class VolumeButton(QPushButton):
@@ -2130,21 +2152,39 @@ class NavThumb(QFrame):
             self.set_hint("播放失败")
 
 
+class SelectionNotchEffect(QGraphicsEffect):
+    """对整张卡片及封面做逐像素裁剪，避免整数区域遮罩的锯齿。"""
+
+    def draw(self, painter):
+        offset = QPoint()
+        image = self.sourcePixmap(Qt.LogicalCoordinates, offset, QGraphicsEffect.NoPad).toImage()
+        image = image.convertToFormat(QImage.Format_ARGB32_Premultiplied)
+        if image.isNull():
+            return
+        cut = QPainter(image)
+        cut.setRenderHint(QPainter.Antialiasing)
+        cut.setCompositionMode(QPainter.CompositionMode_DestinationOut)
+        card = self.parent()
+        cut.setPen(Qt.NoPen)
+        cut.setBrush(Qt.white)
+        cut.drawEllipse(QPointF(card.width() - 12 - offset.x(), card.height() / 2 - offset.y()), 18, 18)
+        cut.end()
+        painter.drawImage(offset, image)
+
+
 class NavSelectionCheck(QCheckBox):
     """圆形凹口里的勾选，保留标准复选框的键盘和无障碍行为。"""
 
     def paintEvent(self, event):
+        if not self.isChecked():
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER_STRONG), 1.5))
-        painter.setBrush(theme.qcolor(theme.ACCENT if self.isChecked() else theme.CONTENT))
-        painter.drawEllipse(QRectF(3, 3, 22, 22))
-        if self.isChecked():
-            pen = QPen(theme.qcolor(theme.BG), 2)
-            pen.setCapStyle(Qt.RoundCap)
-            pen.setJoinStyle(Qt.RoundJoin)
-            painter.setPen(pen)
-            painter.drawPolyline(QPolygonF([QPointF(8, 14), QPointF(12, 18), QPointF(20, 10)]))
+        pen = QPen(theme.qcolor(theme.ACCENT), 2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.drawPolyline(QPolygonF([QPointF(8, 14), QPointF(12, 18), QPointF(20, 10)]))
 
     def hitButton(self, pos):
         return self.rect().contains(pos)
@@ -2197,6 +2237,7 @@ class NavItem(QFrame):
         self.check.setObjectName("NavCheck")
         self.check.setFixedSize(28, 28)
         self.check.setAccessibleName("选择直播间")
+        self.destroyed.connect(self.check.deleteLater)
         self.check.setVisible(False)
         self.check.clicked.connect(lambda: self.checkedChanged.emit())
 
@@ -2334,11 +2375,17 @@ class NavItem(QFrame):
 
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
+        # The check lives above the cutout rather than inside the card's mask.
+        self.check.setParent(self.parentWidget() if enabled and self.parentWidget() else self)
         self.check.setVisible(enabled)
         if not enabled:
             self.check.setChecked(False)
         else:
             self.thumb.stop()
+        if enabled and self.graphicsEffect() is None:
+            self.setGraphicsEffect(SelectionNotchEffect(self))
+        elif not enabled and self.graphicsEffect() is not None:
+            self.setGraphicsEffect(None)
         self._sync_selection_mask()
         self.setCursor(Qt.PointingHandCursor)
 
@@ -2346,14 +2393,26 @@ class NavItem(QFrame):
         if not self.select_mode:
             self.clearMask()
             return
-        center = QPoint(self.width() - 14, self.height() // 2)
-        self.check.move(center - QPoint(14, 14))
+        center = QPoint(self.width() - 12, self.height() // 2)
+        offset = self.pos() if self.check.parentWidget() is not self else QPoint()
+        self.check.move(offset + center - QPoint(14, 14))
         self.check.raise_()
-        # Cut a circular notch through the card and cover, preserving the
-        # checkbox's disk as a separate island inside the notch.
-        notch = QRegion(QRect(center - QPoint(22, 22), QSize(44, 44)), QRegion.Ellipse)
-        disk = QRegion(self.check.geometry(), QRegion.Ellipse)
-        self.setMask(QRegion(self.rect()).subtracted(notch).united(disk))
+        if self.graphicsEffect() is not None:
+            self.graphicsEffect().update()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if hasattr(self, 'check'):
+            self._sync_selection_mask()
+
+    def hideEvent(self, event):
+        self.check.hide()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.check.setVisible(self.select_mode)
+        self._sync_selection_mask()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

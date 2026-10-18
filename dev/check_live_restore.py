@@ -120,6 +120,23 @@ def main():
                     raise AssertionError('Video area is black after native restore')
             assert float(player._prop('time-pos', 0) or 0) > 0
             assert pixel_checks, 'No foreground pixel checks; rerun when test window can be visible'
+            for indicator in (tile.spinner, tile.pause_overlay):
+                indicator.start()
+                tile._layout_areas()
+                settle(app, .2)
+                assert indicator._alpha_uploaded, 'Live-video loading overlay must upload per-pixel alpha'
+                assert indicator.mask().isEmpty(), 'Loading overlays must not use a binary region mask'
+                origin = indicator.mapToGlobal(QPoint())
+                hit = user32.WindowFromPoint(wintypes.POINT(
+                    round((origin.x() + indicator.width() / 2) * scale),
+                    round((origin.y() + indicator.height() / 2) * scale)))
+                if int(user32.GetAncestor(hit, 2) or 0) == int(window.winId()):
+                    shot = indicator.screen().grabWindow(0, origin.x() - 4, origin.y() - 4,
+                                                         indicator.width() + 8, indicator.height() + 8)
+                    name = 'live-loading-smooth.png' if indicator is tile.spinner else 'live-refresh-smooth.png'
+                    shot.save(str(Path(__file__).resolve().parents[1] / 'cache' / name))
+                indicator.stop()
+            print('PASS native loading overlays above public live video', flush=True)
             print('PASS live restore', room_id, quality, 'pixel_checks=', pixel_checks, flush=True)
         finally:
             window.close()

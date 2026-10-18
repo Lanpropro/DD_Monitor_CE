@@ -920,7 +920,7 @@ QPushButton#PrimaryButton:pressed {{
     border: none;
 }}
 #LoadingIndicator {{
-    background: #1b1e24;              /* 会通过窗口整体透明度变成半透明 */
+    background: transparent;         /* 圆角与半透明由逐像素浮层绘制 */
 }}
 #LoadingText {{
     color: {TEXT2};

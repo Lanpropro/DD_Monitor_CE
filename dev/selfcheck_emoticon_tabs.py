@@ -185,6 +185,96 @@ class EmoticonTabTests(unittest.TestCase):
         self.assertNotIn('bad', order.orders)
         self.assertEqual(emotes[0]['perm'], 0)
 
+    def test_drag_through_popup_window_routes_pointer_to_original_button(self):
+        pack = package('window-drag', 12)
+        for emote in pack['emoticons']:
+            emote.pop('url')
+        self.popup.set_packages([pack])
+        settle(lambda: len(self.popup._buttons) == 12)
+        APP.processEvents()
+        source, target = self.popup._buttons[0], self.popup._buttons[4]
+        origin = source.mapTo(self.popup, source.rect().center())
+        destination = target.mapTo(self.popup, target.rect().center())
+        selected = []
+        self.popup.selected.connect(lambda *args: selected.append(args))
+        handle = self.popup.windowHandle()
+        QTest.mousePress(handle, Qt.LeftButton, pos=origin)
+        for step in range(1, 11):
+            QTest.mouseMove(handle, origin + (destination - origin) * step / 10, delay=10)
+        QTest.mouseRelease(handle, Qt.LeftButton, pos=destination)
+        APP.processEvents()
+        self.assertEqual(self.popup._buttons.index(source), 4)
+        self.assertEqual(selected, [])
+        self.assertTrue(self.popup.isVisible())
+
+    def test_reopening_cached_menu_preserves_widgets_positions_and_scroll(self):
+        anchor = QToolButton()
+        anchor.move(500, 500)
+        anchor.show()
+        self.addCleanup(anchor.close)
+        self.popup.open_at(anchor)
+        pack = package('reopen', 40)
+        for emote in pack['emoticons']:
+            emote.pop('url')
+        self.popup.set_packages([pack])
+        settle(lambda: len(self.popup._buttons) == 40)
+        APP.processEvents()
+        original_body = self.popup.scroll.widget()
+        original_buttons = list(self.popup._buttons)
+        original_positions = [button.pos() for button in original_buttons]
+        self.popup.scroll.verticalScrollBar().setValue(80)
+        for _ in range(5):
+            self.popup.hide()
+            self.popup.open_at(anchor)
+            APP.processEvents()
+            self.assertIs(self.popup.scroll.widget(), original_body)
+            self.assertEqual(self.popup._buttons, original_buttons)
+            self.assertEqual([button.pos() for button in self.popup._buttons], original_positions)
+            self.assertEqual(self.popup.scroll.verticalScrollBar().value(), 80)
+
+    def test_native_category_drag_preserves_current_cells_and_global_order(self):
+        packs = [package('first', 4), package('second', 4, 2), package('third', 4, 5)]
+        for pack in packs:
+            for emote in pack['emoticons']:
+                emote.pop('url')
+        self.popup.set_packages(packs)
+        settle(lambda: len(self.popup._buttons) == 4)
+        APP.processEvents()
+        body, cells = self.popup.scroll.widget(), list(self.popup._buttons)
+        tabs = self.popup.tabs
+        self.assertTrue(tabs.isMovable())
+        origin = tabs.mapTo(self.popup, tabs.tabRect(0).center())
+        destination = tabs.mapTo(self.popup, tabs.tabRect(2).center())
+        handle = self.popup.windowHandle()
+        QTest.mousePress(handle, Qt.LeftButton, pos=origin)
+        for step in range(1, 16):
+            QTest.mouseMove(handle, origin + (destination - origin) * step / 15, delay=10)
+        QTest.mouseRelease(handle, Qt.LeftButton, pos=destination)
+        APP.processEvents()
+        expected = ['3:first', '2:second', '5:third']
+        self.assertNotEqual([tabs.tabData(i) for i in range(tabs.count())], expected)
+        current = [tabs.tabData(i) for i in range(tabs.count())]
+        self.assertEqual(emoticon_order.orders['_tabs'], current)
+        self.assertEqual([emoticon_order.package_key(p) for p in self.popup._packages], current)
+        self.assertIs(self.popup.scroll.widget(), body)
+        self.assertEqual(self.popup._buttons, cells)
+        self.assertEqual(self.popup._category, '3:first')
+        other = EmoticonPopup()
+        try:
+            other.set_packages(packs)
+            self.assertEqual([other.tabs.tabData(i) for i in range(other.tabs.count())], current)
+        finally:
+            other.deleteLater()
+
+    def test_category_order_keeps_absent_room_categories_and_cover_targets(self):
+        emoticon_order.load({'_tabs': ['3:first', '2:absent', '2:second']})
+        packs = [package('first', 0), package('second', 0, 2)]
+        packs[1]['current_cover'] = 'https://example.invalid/second-cover.png'
+        self.popup.set_packages(packs)
+        self.popup.tabs.moveTab(1, 0)
+        self.assertEqual(emoticon_order.orders['_tabs'], ['2:second', '2:absent', '3:first'])
+        self.assertEqual(self.popup._covers['https://example.invalid/second-cover.png'], [0])
+
     def test_drag_keeps_lazy_building_and_respects_system_motion_setting(self):
         pack = package('lazy-drag', 600)
         for emote in pack['emoticons']:

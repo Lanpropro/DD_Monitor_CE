@@ -27,6 +27,23 @@ class EmoticonOrder(QObject):
     def key(emote):
         return str(emote.get('emoticon_unique') or emote.get('emoji') or '')
 
+    @staticmethod
+    def package_key(package):
+        return f"{package['pkg_type']}:{package.get('pkg_id') or package.get('pkg_name') or ''}"
+
+    def arrange_packages(self, packages):
+        ranks = {key: index for index, key in enumerate(self.orders.get('_tabs', []))}
+        return sorted(packages, key=lambda package: ranks.get(self.package_key(package), len(ranks)))
+
+    def save_packages(self, packages):
+        keys = [self.package_key(package) for package in packages]
+        # Preserve categories absent from the current room in their saved slots.
+        pending = iter(keys)
+        previous = self.orders.get('_tabs', [])
+        self.orders['_tabs'] = [next(pending) if key in keys else key for key in previous]
+        self.orders['_tabs'].extend(pending)
+        self.changed.emit()
+
     def arrange(self, category, emotes):
         ranks = {key: index for index, key in enumerate(self.orders.get(category, []))}
         return sorted(emotes, key=lambda emote: ranks.get(self.key(emote), len(ranks)))
@@ -246,11 +263,13 @@ class EmoticonPopup(QMenu):
         self.tabs.setObjectName("EmoticonTabs")
         self.tabs.setAccessibleName("表情包分类")
         self.tabs.setExpanding(False)
+        self.tabs.setMovable(True)
         self.tabs.setDrawBase(False)
         self.tabs.setUsesScrollButtons(True)
         self.tabs.setElideMode(Qt.ElideRight)
         self.tabs.setIconSize(QSize(24, 24))
         self.tabs.currentChanged.connect(self._select_package)
+        self.tabs.tabMoved.connect(self._tab_moved)
         self.tabs.hide()
         layout.addWidget(self.tabs)
         self.scroll = QScrollArea()
@@ -264,6 +283,7 @@ class EmoticonPopup(QMenu):
         self._image_loader = None
         self._pending_urls = {}
         self._drag_button = None
+        self._syncing_tabs = False
         self._build_timer = QTimer(self)
         self._build_timer.setInterval(8)
         self._build_timer.timeout.connect(self._build_batch)
@@ -289,6 +309,7 @@ class EmoticonPopup(QMenu):
         self._images = {}
         self._emotes = []
         self._next_emote = 0
+        self._category = None
 
     def _pause_loading(self):
         self._build_timer.stop()
@@ -329,13 +350,15 @@ class EmoticonPopup(QMenu):
         self.retry_button.setText("刷新")
         self.retry_button.setEnabled(True)
         self.retry_button.show()
-        self._packages = [p for p in packages if p.get("pkg_type") in (1, 2, 3, 5)]
+        self._packages = emoticon_order.arrange_packages(
+            [p for p in packages if p.get("pkg_type") in (1, 2, 3, 5)])
         self.tabs.blockSignals(True)
         for package in self._packages:
             name = str(package.get("pkg_name") or "表情")
             if package["pkg_type"] == 3 and name.lower() == "emoji":
                 name = "表情"
             index = self.tabs.addTab(name)
+            self.tabs.setTabData(index, emoticon_order.package_key(package))
             self.tabs.setTabToolTip(index, name)
             self.tabs.setAccessibleTabName(index, name)
             cover = package.get("current_cover")
@@ -345,14 +368,32 @@ class EmoticonPopup(QMenu):
         self.tabs.setVisible(bool(self._packages))
         self._select_package(self.tabs.currentIndex())
 
-    def _select_package(self, index):
+    def _tab_moved(self, source, target):
+        self._packages.insert(target, self._packages.pop(source))
+        self._covers.clear()
+        for index, package in enumerate(self._packages):
+            cover = package.get('current_cover')
+            if package['pkg_type'] != 3 and isinstance(cover, str) and cover.startswith(('https://', 'http://')):
+                self._covers.setdefault(cover, []).append(index)
+        if not self._syncing_tabs:
+            emoticon_order.save_packages(self._packages)
+
+    def _select_package(self, index, force=False):
+        key = self.tabs.tabData(index) if index >= 0 else None
+        if not force and key is not None and key == self._category:
+            return
         self._clear_body()
-        if 0 <= index < len(self._packages):
-            package = self._packages[index]
+        package = next((p for p in self._packages if emoticon_order.package_key(p) == key), None)
+        if package is not None:
             self._kind = package["pkg_type"]
-            self._category = f"{self._kind}:{package.get('pkg_id') or package.get('pkg_name') or ''}"
+            self._category = key
             self._emotes = emoticon_order.arrange(self._category,
                 [e for e in package.get("emoticons") or [] if isinstance(e, dict)])
+            # Reserve the complete category height before lazy batches arrive.
+            # Otherwise QScrollArea initially squeezes rows, then expands them
+            # on reopen, making every subsequent row appear to drift downward.
+            rows = (len(self._emotes) + 4) // 5
+            self.scroll.widget().setMinimumHeight(max(0, rows * 60 - 4))
         self.status.setText("表情" if self._emotes else "暂无可用表情")
         self.status.show()
         self._resume_loading()
@@ -379,6 +420,7 @@ class EmoticonPopup(QMenu):
                               f"{text}：{emote.get('unlock_show_text') or '当前账号尚未解锁'}")
             button.clicked.connect(lambda _checked=False, k=self._kind, e=dict(emote): self._choose(k, e))
             self.grid.addWidget(button, index // 5, index % 5)
+            self.grid.setRowMinimumHeight(index // 5, 56)
             self._buttons.append(button)
             url = emote.get("url")
             if isinstance(url, str) and url.startswith(("https://", "http://")):
@@ -520,7 +562,18 @@ class EmoticonPopup(QMenu):
 
     def open_at(self, button):
         if self._packages:
-            self._select_package(self.tabs.currentIndex())
+            # Keep cached cells and the scroll position on ordinary reopen.
+            # Only reconcile changes made in another room's popup.
+            self._syncing_tabs = True
+            try:
+                for target, package in enumerate(emoticon_order.arrange_packages(self._packages)):
+                    source = self._packages.index(package)
+                    if source != target:
+                        self.tabs.moveTab(source, target)
+            finally:
+                self._syncing_tabs = False
+            if emoticon_order.arrange(self._category, self._emotes) != self._emotes:
+                self._select_package(self.tabs.currentIndex(), force=True)
         screen = button.screen().availableGeometry()
         self._holder.setFixedSize(min(340, screen.width() - 16), min(300, screen.height() - 16))
         self.adjustSize()
