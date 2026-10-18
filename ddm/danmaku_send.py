@@ -183,8 +183,8 @@ class EmoticonPopup(QMenu):
         super().__init__(parent)
         self.setObjectName("EmoticonPopup")
         self.setStyleSheet(f"""
-            #EmoticonButton {{border: 1px solid transparent; border-radius: {theme.RADIUS_SM}px;
-                color: {theme.TEXT1}; font-size: 11px; padding: 1px;}}
+            #EmoticonButton {{border: 1px solid transparent; border-radius: {theme.RADIUS_MD}px;
+                color: {theme.TEXT1}; font-size: {theme.FONT_CAPTION}px; padding: 1px;}}
             #EmoticonButton:hover, #EmoticonButton:focus {{background: {theme.CONTENT_HOVER};
                 border-color: {theme.ACCENT};}}
             #EmoticonButton:disabled {{color: {theme.TEXT3};}}
@@ -192,14 +192,16 @@ class EmoticonPopup(QMenu):
             #EmoticonTabs::tab {{color: {theme.TEXT2}; background: transparent;
                 padding: 0; margin: 2px; border: 1px solid {theme.BORDER};
                 border-radius: {theme.RADIUS_SM}px;}}
-            #EmoticonTabs::tab:selected {{color: {theme.TEXT1}; background: {theme.CONTENT_HOVER};
+            #EmoticonTabs::tab:selected {{color: {theme.ACCENT}; background: {theme.ACCENT_SOFT};
                 border-color: {theme.ACCENT};}}
+            #EmoticonStatus {{color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px;}}
         """)
         holder = QWidget(self)
         layout = QVBoxLayout(holder)
         layout.setContentsMargins(8, 8, 8, 8)
         header = QHBoxLayout()
         self.status = QLabel("正在加载表情…")
+        self.status.setObjectName("EmoticonStatus")
         self.status.setWordWrap(True)
         header.addWidget(self.status, 1)
         self.retry_button = QPushButton("重试")
@@ -421,7 +423,7 @@ class EmoticonPopup(QMenu):
 
 class DanmakuComposer(QWidget):
     deviceCookieReady = Signal()
-    HEIGHT = 28
+    HEIGHT = theme.TILE_CONTROL_HEIGHT
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -433,7 +435,8 @@ class DanmakuComposer(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             #DanmakuComposer {{background: transparent; border: none;}}
-            #DanmakuComposer QLineEdit {{padding: 3px 6px; font-size: {theme.FONT_CONTROL}px;}}
+            #DanmakuComposer QLineEdit {{padding: 2px 8px; font-size: {theme.FONT_CAPTION}px;
+                border-radius: {self.HEIGHT // 2}px; placeholder-text-color: {theme.TEXT3};}}
             #DanmakuSendFeedback {{background: {theme.ELEVATED}; color: {theme.TEXT1};
                 border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_SM}px;
                 padding: 6px 8px; font-size: {theme.FONT_CAPTION}px;}}
@@ -454,18 +457,18 @@ class DanmakuComposer(QWidget):
         self.edit.setPlaceholderText("输入弹幕，Enter 发送")
         self.edit.setMinimumWidth(0)
         self.edit.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.edit.setFixedHeight(28)
+        self.edit.setFixedHeight(self.HEIGHT)
         self.edit.textChanged.connect(self._text_changed)
         self.edit.returnPressed.connect(self.send_text)
         row.addWidget(self.edit, 1)
         self.emote_button = EmoticonButton()
         self.emote_button.setAccessibleName("选择直播间表情")
         self.emote_button.setToolTip("选择表情；大表情点击后直接发送")
-        self.emote_button.setFixedSize(28, 28)
+        self.emote_button.setFixedSize(self.HEIGHT, self.HEIGHT)
         self.emote_button.clicked.connect(self.open_emoticons)
         row.addWidget(self.emote_button)
         self.send_button = QPushButton("发送")
-        self.send_button.setFixedSize(44, 28)
+        self.send_button.setFixedSize(44, self.HEIGHT)
         self.send_button.clicked.connect(self.send_text)
         row.addWidget(self.send_button)
         for button in (self.emote_button, self.send_button):

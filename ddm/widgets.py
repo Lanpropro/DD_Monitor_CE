@@ -5973,9 +5973,9 @@ class Tile(QFrame):
         margin, spacing = (6, 4) if compact else (10, 8)
         if width < 260:
             margin, spacing = (2, 0) if composing else (4, 2)
-        layout.setContentsMargins(margin, 3 if composing else 4, margin, 3 if composing else 4)
+        layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
-        self.pause_button.setFixedWidth(26 if width < (420 if composing else 260) else 34)
+        self.pause_button.setFixedWidth(26 if width < 260 else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         self.volume_label.setVisible(width >= (760 if composing else 280) and

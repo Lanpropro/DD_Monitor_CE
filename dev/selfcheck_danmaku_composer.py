@@ -12,7 +12,7 @@ os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QPixmap, QColor
+from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QPixmap, QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QToolButton
 from ddm import bili, images, theme
@@ -207,8 +207,15 @@ class ComposerTests(unittest.TestCase):
                     self.assertTrue(tile.bottom.rect().contains(tile.composer.geometry()))
                     self.assertLess(tile.composer.geometry().bottom(), tile.height())
                     self.assertGreater(tile.composer.edit.width(), 40)
-                    self.assertEqual(tile.composer.emote_button.size().toTuple(), (28, 28))
-                    self.assertEqual(tile.composer.send_button.size().toTuple(), (44, 28))
+                    self.assertEqual(tile.composer.emote_button.size().toTuple(),
+                                     (theme.TILE_CONTROL_HEIGHT, theme.TILE_CONTROL_HEIGHT))
+                    self.assertEqual(tile.composer.send_button.size().toTuple(),
+                                     (44, theme.TILE_CONTROL_HEIGHT))
+                    self.assertEqual(tile.pause_button.width(), 26 if width < 260 else 34)
+                    for control in (tile.composer, tile.composer.edit,
+                                    tile.composer.emote_button, tile.composer.send_button):
+                        self.assertEqual(control.height(), tile.pause_button.height())
+                    self.assertEqual(tile.bottom.layout().contentsMargins().top(), 4)
                     self.assertTrue(tile.composer.feedback.isHidden())
             tile.set_room({"room_id": "douyu:1", "uname": "斗鱼"})
             APP.processEvents()
@@ -219,6 +226,32 @@ class ComposerTests(unittest.TestCase):
         finally:
             theme.apply("dark")
             tile.close()
+
+    def test_existing_composer_and_popup_follow_theme_without_losing_draft(self):
+        from ddm.danmaku_send import EmoticonPopup
+        popup = EmoticonPopup(self.composer)
+        popup.set_packages([{"pkg_type": 3, "pkg_name": "小表情", "emoticons": [
+            {"emoji": "[微笑]", "perm": 1}]}])
+        self.composer.edit.setText("保留草稿")
+        popup.show()
+        try:
+            settle(lambda: bool(popup.scroll.findChildren(QToolButton)))
+            for mode in ("dark", "light", "dark", "light"):
+                theme.apply(mode)
+                APP.processEvents()
+                self.assertEqual(self.composer.edit.text(), "保留草稿")
+                self.assertEqual(self.composer.edit.font().pixelSize(), theme.FONT_CAPTION)
+                self.assertEqual(self.composer.edit.palette().color(QPalette.PlaceholderText),
+                                 theme.qcolor(theme.TEXT3))
+                self.assertIn(f"#EmoticonStatus {{color: {theme.TEXT3};", popup.styleSheet())
+                button = popup.scroll.findChildren(QToolButton)[0]
+                self.assertEqual(button.font().pixelSize(), theme.FONT_CAPTION)
+                self.assertEqual(button.size().toTuple(), (56, 56))
+                self.assertEqual(popup.tabs.tabRect(0).size().toTuple(), (40, 40))
+                self.assertEqual(popup.retry_button.height(), theme.TILE_CONTROL_HEIGHT)
+        finally:
+            popup.close()
+            theme.apply("dark")
 
     def test_room_switch_preserves_codec_reset_and_danmaku_tooltips(self):
         from ddm.widgets import Tile
