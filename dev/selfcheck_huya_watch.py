@@ -252,7 +252,7 @@ def main():
             with patch("ddm.stream_relay.ffmpeg_path", return_value=""):
                 window._play_on(target, url, qn, profile, headers=headers)
                 assert "FFmpeg" in target.status_label.text(), "依赖缺失应在格子中提示"
-                assert window.players[target]._relay is None
+                assert window.players[target]._hls_proxy is None
             with patch("ddm.app.StatsPoller") as stats_poller:
                 window.refresh_stats()
                 stats_poller.assert_not_called()

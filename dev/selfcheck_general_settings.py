@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -9,8 +10,164 @@ os.environ["DDM_NO_SAVE"] = "1"
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtWidgets import QApplication, QLabel, QCheckBox
 from ddm import app as app_module, config
-from ddm.dialogs import GeneralSettingsPage
+from ddm.dialogs import CodecSettingsPanel, GeneralSettingsPage, SettingsDialog
 from dev.selfcheck_tile_fullscreen import SilentPoller
+
+
+def check_codecs(app):
+    expected = ("auto", "d3d11va-copy", "none", "d3d11va", "dxva2")
+    assert tuple(config.DECODE_LABELS) == expected
+    assert config.DEFAULT_SETTINGS["bili_codec"] == "avc"
+    assert config.codec_settings({})["bili_codec"] == "avc"
+    basic = CodecSettingsPanel({})
+    events = []
+    basic.changed.connect(events.append)
+    assert basic.values() == {"bili_codec": "avc", "decode_mode": "auto"}
+    assert basic.decode_mode.count() == 5
+    assert tuple(basic.decode_mode.itemData(i) for i in range(5)) == expected
+    assert not hasattr(basic, "advanced_decode") and not events
+    basic.decode_mode.setCurrentIndex(basic.decode_mode.findData("dxva2"))
+    assert basic.values()["decode_mode"] == "dxva2"
+    basic.decode_mode.setCurrentIndex(basic.decode_mode.findData("auto"))
+    assert basic.decode_mode.count() == 5 and len(events) == 2
+    for mode in expected:
+        saved = {"bili_codec": "av1", "decode_mode": mode}
+        restored = CodecSettingsPanel(config.codec_settings(saved))
+        assert restored.values() == saved
+        assert restored.decode_mode.count() == 5
+    inherited = CodecSettingsPanel({}, defaults={"bili_codec": "avc", "decode_mode": "dxva2"})
+    inherited.changed.connect(events.append)
+    assert inherited.decode_mode.count() == 6
+    assert inherited.values() == {} and "颜色" in inherited.decode_hint.text()
+    inherited.set_defaults({"bili_codec": "av1", "decode_mode": "auto"})
+    assert inherited.values() == {} and len(events) == 2
+    assert "多窗" in inherited.decode_hint.text()
+    assert config.codec_settings({"hw_decode": False})["decode_mode"] == "none"
+    assert config.codec_overrides({"bili_codec": "bad", "decode_mode": "none", "x": 1}) == {
+        "decode_mode": "none"}
+    assert config.codec_overrides(None) == {}
+    assert config.codec_overrides({"decode_mode": "d3d11va-copy"}) == {
+        "decode_mode": "d3d11va-copy"}
+    compatibility = CodecSettingsPanel({"bili_codec": "avc", "decode_mode": "d3d11va-copy"})
+    assert compatibility.values()["decode_mode"] == "d3d11va-copy"
+    compatibility_page = GeneralSettingsPage(compatibility.values())
+    assert "兼容硬解" in compatibility_page.codec_button.text()
+    panel = CodecSettingsPanel({"bili_codec": "av1", "decode_mode": "none"})
+    assert panel.values() == {"bili_codec": "av1", "decode_mode": "none"}
+    page = GeneralSettingsPage(panel.values())
+    assert "AV1" in page.codec_button.text() and "CPU" in page.codec_button.text()
+    for accepted in (False, True):
+        with patch("ddm.dialogs.CodecSettingsDialog") as mocked:
+            mocked.return_value.exec.return_value = int(accepted)
+            mocked.return_value.controls.values.return_value = {
+                "bili_codec": "hevc", "decode_mode": "d3d11va"}
+            page._edit_codecs()
+        assert page.values()["bili_codec"] == ("hevc" if accepted else "av1")
+    rooms = [{"room_id": str(1001 + i), "uname": f"测试{i}", "live": True}
+             for i in range(3)]
+    settings = {"bili_codec": "av1", "recording_enabled": False,
+                "recording_replay_enabled": False, "preview_on_hover": False,
+                "danmaku_enabled": False, "auto_quality": False}
+    with patch("ddm.app.QTimer.singleShot"), \
+            patch.object(app_module.MainWindow, "sync_danmaku"), \
+            patch.object(app_module.MainWindow, "refresh_status"), \
+            patch.object(app_module.MainWindow, "refresh_stats"), \
+            patch.object(app_module.StreamResolver, "start"):
+        window = app_module.MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x3",
+            state={"plugins_enabled": [], "settings": settings})
+        window.show()
+        app.processEvents()
+        first, other, plugin_tile = window.wall.tiles[:3]
+        plugin = SimpleNamespace(kind="huya")
+        with patch.object(window.plugins, "platform_for", side_effect=lambda rid:
+                          plugin if rid == "1003" else None):
+            try:
+                with patch.object(window, "start_tile") as restart:
+                    window._set_tile_codecs(first, {"bili_codec": "hevc", "decode_mode": "none"})
+                    restart.assert_called_once_with(first)
+                    assert other.codec_overrides == {}
+                    restart.reset_mock()
+                    window._set_tile_codecs(first, first.codec_overrides)
+                    restart.assert_not_called()
+                assert window.media_options(first) == ("hwdec=no",)
+                assert window.media_options(other) == ()
+                window.start_tile(first)
+                assert window._resolvers[first].codec == "hevc"
+                window.start_tile(other)
+                assert window._resolvers[other].codec == "av1"
+                assert "等待新流" in window._codec_status(first)
+                window._resolvers.clear()
+                with patch.object(app_module.TilePlayer, "play") as play:
+                    window._play_on(first, "http://127.0.0.1:9/test", 250, "app")
+                    assert play.call_args.kwargs["options"] == ("hwdec=no",)
+                player = window.players[first]
+                player.decode_mode = "none"
+                assert "H.264" in window._codec_status(first)
+                assert "首选 HEVC" in window._codec_status(first)
+                first.codec_overrides["decode_mode"] = "d3d11va"
+                assert "故障回退" in window._codec_status(first)
+                player.decode_mode = "auto"
+                first.codec_overrides["decode_mode"] = "auto"
+                assert "实际：等待首帧" in window._codec_status(first)
+                first.codec_overrides["decode_mode"] = "none"
+                assert any("当前窗口编解码设置" in action.text()
+                           for action in first.build_menu().actions())
+                next(action for action in first.build_menu().actions()
+                     if "当前窗口编解码设置" in action.text()).trigger()
+                dialog = window._codec_dialogs[first]
+                assert dialog.isVisible() and dialog._status_timer.isActive()
+                window._open_tile_codecs(first)
+                assert window._codec_dialogs[first] is dialog
+                window._open_tile_codecs(plugin_tile)
+                assert not window._codec_dialogs[plugin_tile].controls.bili_codec.isEnabled()
+                window._codec_dialogs[plugin_tile].close()
+                with patch.object(window, "start_tile") as restart, \
+                        patch.object(app_module, "SettingsDialog") as global_dialog:
+                    global_dialog.Accepted = int(SettingsDialog.DialogCode.Accepted)
+                    global_dialog.return_value.exec.return_value = int(SettingsDialog.DialogCode.Accepted)
+                    global_dialog.return_value.settings.return_value = {"bili_codec": "avc"}
+                    global_dialog.return_value.shortcuts.return_value = {}
+                    global_dialog.return_value.enabled_plugins.return_value = []
+                    global_dialog.return_value.restart_requested = False
+                    global_dialog.return_value.update_page.install_requested = False
+                    global_dialog.return_value._loaded_pages = {}
+                    window.open_settings()
+                    assert [call.args[0] for call in restart.call_args_list] == [other], \
+                        "全局格式变化不能重连独立设置或非 B站窗口"
+                    assert "H.264" in dialog.controls.bili_codec.itemText(0)
+                    restart.reset_mock()
+                    global_dialog.return_value.settings.return_value = {"decode_mode": "dxva2"}
+                    window.open_settings()
+                    assert [call.args[0] for call in restart.call_args_list] == [other, plugin_tile], \
+                        "全局解码变化应影响跟随的所有平台，保留独立窗口"
+                first.set_paused(True)
+                with patch.object(window, "start_tile") as restart:
+                    dialog.controls.decode_mode.setCurrentIndex(
+                        dialog.controls.decode_mode.findData("d3d11va"))
+                    restart.assert_not_called()
+                    assert first.codec_reconnect_pending
+                    assert "恢复播放" in window._codec_status(first)
+                    window._on_pause_toggled(first.room)
+                    restart.assert_called_once_with(first)
+                first.codec_reconnect_pending = False
+                with patch.object(window, "start_tile") as restart:
+                    dialog._reset_inheritance()
+                    restart.assert_called_once_with(first)
+                    assert first.codec_overrides == {}
+                window._set_tile_codecs(first, {"bili_codec": "hevc"})
+                first.set_room(dict(rooms[1]))
+                assert first.codec_overrides == {"bili_codec": "hevc"}, "换台保留单窗设置"
+                saved = window.current_state()
+                _, restored = config.build_rooms(saved)
+                assert restored[0]["codec_overrides"] == {"bili_codec": "hevc"}
+                first.set_room(None)
+                _, restored = config.build_rooms(window.current_state())
+                assert restored[0]["codec_overrides"] == {"bili_codec": "hevc"}
+                dialog.close()
+                assert not dialog._status_timer.isActive() and first not in window._codec_dialogs
+            finally:
+                window.close()
+                app.processEvents()
 
 
 def main():
@@ -28,14 +185,13 @@ def main():
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "全屏时自动收起底部控制条",
         "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "开播提醒（顶部提示与关注栏动效）",
-        "视频解码方式", "新建格子的初始音量"]
+        "编解码设置", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
-    assert "bili_codec" not in config.DEFAULT_SETTINGS and "bili_codec" not in values
-    assert "recording_encoder" not in config.DEFAULT_SETTINGS
-    assert not hasattr(page, "bili_codec"), "PR #8 撤回后不应保留直播编码设置"
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False
     assert values["freeze_watch"] is True and values["default_volume"] == 21
+    # 直播编码跟着解码方式走：两档都是「B 站这一路怎么播」的选择。
+    assert values["bili_codec"] == config.DEFAULT_SETTINGS["bili_codec"]
     page._checks["sidebar_auto_compact"].setChecked(False)
     assert not page.compact_threshold_spin.isEnabled()
     page.reset()
@@ -80,7 +236,8 @@ def main():
         assert [tile.volume for tile in window.wall.tiles] == [42, 0, 40, 40, 17, 40]
     finally:
         window.close()
-    print("PASS: general settings, startup/default volume, new-slot inheritance, saved slot volumes, boundaries and always-on freeze detection")
+    check_codecs(app)
+    print("PASS: unified codec settings, per-window overrides, general settings and default volumes")
 
 
 if __name__ == "__main__":

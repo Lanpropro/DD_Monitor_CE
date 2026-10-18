@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import layouts, motion, mouse_hook, resize_layout, theme
+from .config import codec_overrides
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -2028,15 +2029,8 @@ class NavThumb(QFrame):
 
     # ---- 预览播放 ----
     def _ensure_player(self) -> TilePlayer:
-        """预览播放器一个卡片只建一次，之后换台只 stop / play（和画面墙的格子一样）。
-
-        以前每次悬停都新建 TilePlayer、鼠标一移开就 release()：libvlc 的
-        media_player 建了又拆比 stop / play 重得多，而且建和拆都发生在主线程上，
-        卡死风险高得多 —— 用户报的「悬停预览时窗口卡死」就出在这一带。
-        """
+        """复用卡片的静音播放器，禁用音轨。"""
         if self._player is None:
-            # silent=True：预览用**自己的** libvlc 实例（dummy 音频输出），
-            # 从根上保证它出不了声 —— 用户那边一直听得到预览的声音
             self._player = TilePlayer(self.video, self, silent=True)
             self._player.freeze_watch = False        # 缩略图不用卡死检测
             self._player.stateChanged.connect(self._on_player_state)
@@ -5675,6 +5669,7 @@ class Tile(QFrame):
     audioChannelChanged = Signal(dict, int)
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
+    codecSettingsRequested = Signal()
     videoDanmakuChanged = Signal(bool)
     videoDanmakuSettingsChanged = Signal(dict)
     videoDanmakuAdvancedRequested = Signal()
@@ -5688,6 +5683,9 @@ class Tile(QFrame):
         #: 当前这一路的取流结果，插件（录像等）从这里拿
         self.stream_url = ""
         self.stream_profile = ""
+        #: 这一路流的视频编码（avc / hevc / av1）。录制要靠它挑装得下的分段容器
+        #: —— AV1 装不进 MOV，FFmpeg 会直接拒绝，所以得提前知道编码。
+        self.stream_codec = ""
         self.stream_headers: dict = {}
         self.room = room
         self._cover_source = room.get("cover")
@@ -5704,6 +5702,9 @@ class Tile(QFrame):
             if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250))
         self.volume = int(room.get("volume", 42))
         self.audio_channel = int(room.get("audio_channel", 0))
+        self.codec_overrides = codec_overrides(room.get("codec_overrides"))
+        self.codec_reconnect_pending = False
+        self.codec_probe_note = ""
         self._buffering = False
         self.actual_quality = 0
         self.quality_options: list[dict] = []
@@ -5860,6 +5861,8 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = room or {}
+        self.codec_probe_note = ""
+        self.codec_reconnect_pending = False
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -6670,11 +6673,13 @@ class Tile(QFrame):
             action.setChecked(value == self.quality)
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
 
+        menu.addAction("当前窗口编解码设置…", self.codecSettingsRequested.emit)
+
         # 声道：0 默认、3 只左、4 只右、2 反向立体声、5 杜比。
         # 只有「只左 / 只右」能把两路画面分到两只耳朵，其余是原程序的音效档。
         audio_menu = menu.addMenu("声道")
         for name, value in (("默认（跟随片源）", 0), ("只播左声道", 3),
-                            ("只播右声道", 4), ("反向立体声", 2), ("杜比音效", 5)):
+                            ("只播右声道", 4), ("反向立体声", 2), ("杜比矩阵下混（多声道源）", 5)):
             action = audio_menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(value == self.audio_channel)

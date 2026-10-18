@@ -12,7 +12,7 @@
 | `assets/`、`favicon.ico` | 软件图标、平台图标与资源 |
 | `main.py`、`requirements.txt`、`run.cmd`、`run-console.cmd` | 软件入口、依赖和启动脚本 |
 | `plugins_user/` | 插件源码、模板、本机安装副本与更新暂存；不能整体当杂项 |
-| `libvlc.dll`、`libvlccore.dll`、`plugins/` | 本机 VLC 播放运行库；这里的 plugins 是 VLC 模块，不能按宣传杂项删除 |
+| `libmpv-2.dll` | 本机播放运行库；使用 `dev/fetch_mpv.py` 下载并按来源清单校验，不进入 Git |
 
 ## 已跟踪的其他文件：逐项标注
 
@@ -36,6 +36,7 @@
 - `dev/selfcheck_match_sync_startup_clock.py`
 - `dev/selfcheck_match_sync_tracking.py`
 - `dev/selfcheck_match_sync_volume.py`
+- `dev/selfcheck_match_sync_mpv_compat.py`
 - `docs/releases/PLUGIN-match-sync-v1.2.1.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.2.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.3.md`
@@ -76,13 +77,14 @@
 
 ### 构建、调试与开发工具（开发维护用途）
 
-共 16 项。
+共 17 项。
 
 - `dev/build_brand_assets.py`
 - `dev/build_match_sync.py`
 - `dev/build_plugin_catalog.py`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
+- `dev/fetch_mpv.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_medal_size.py`
 - `dev/check_preview_live.py`
@@ -112,15 +114,14 @@
 - `dev/selfcheck_audio_cycle_shortcut.py`
 - `dev/selfcheck_audio_audit.py`
 - `dev/selfcheck_audio_hotplug.py`
-- `dev/selfcheck_audio_isolation.py`
 - `dev/selfcheck_audio_owner.py`
 - `dev/selfcheck_audio_routing.py`
-- `dev/selfcheck_audio_timing.py`
 - `dev/selfcheck_auto_quality.py`
 - `dev/selfcheck_auto_quality_live.py`
 - `dev/selfcheck_auto_quality_switch_live.py`
 - `dev/selfcheck_avatars.py`
 - `dev/selfcheck_bili_2k_live.py`
+- `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
@@ -169,6 +170,7 @@
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_follow_refresh.py`
+- `dev/selfcheck_encoders.py`
 - `dev/selfcheck_fullscreen_audio.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_fullscreen_controls.py`
@@ -232,6 +234,7 @@
 - `dev/selfcheck_match_sync_video.py`
 - `dev/selfcheck_menu_motion.py`
 - `dev/selfcheck_native_control_hit.py`
+- `dev/selfcheck_mpv.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
 - `dev/selfcheck_oauth_accounts.py`
@@ -272,7 +275,6 @@
 - `dev/selfcheck_preset_resize.py`
 - `dev/selfcheck_preset_state.py`
 - `dev/selfcheck_preview.py`
-- `dev/selfcheck_preview_audio.py`
 - `dev/selfcheck_preview_collapsed.py`
 - `dev/selfcheck_preview_popup.py`
 - `dev/selfcheck_qr_refresh.py`

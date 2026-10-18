@@ -50,7 +50,7 @@ class BadgeSurface(QWidget):
         result = super().event(event)
         if event.type() in (QEvent.WinIdChange, QEvent.DevicePixelRatioChange, QEvent.Show):
             if hasattr(self, "_mask_path"):
-                QTimer.singleShot(0, self.refresh_theme)
+                QTimer.singleShot(0, self, self.refresh_theme)
         return result
 
     def _clear_layered(self):

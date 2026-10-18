@@ -8,7 +8,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["DDM_NO_SAVE"] = "1"
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ddm import config, hls_proxy, theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
@@ -59,7 +58,7 @@ def main():
             def diagnostic_highest():
                 if time.monotonic() - reported[0] >= 10:
                     reported[0] = time.monotonic()
-                    proxy = player._relay._hls_proxy if player._relay else None
+                    proxy = player._hls_proxy if player._hls_proxy else None
                     print("TRACE:", tile._quality_text(), player.state,
                           "network", proxy.network_speed() if proxy else None,
                           "bandwidths", [item["bandwidth"] for item in tiers], flush=True)
@@ -76,10 +75,10 @@ def main():
                     previous = current
                     return advanced >= count
                 wait_for(app, progressing, 60)
-            print(f"PASS: {rid} automatic startup, actual {tile._quality_text()}, native {player.player.video_get_size(0)}", flush=True)
+            print(f"PASS: {rid} automatic startup, actual {tile._quality_text()}, native {(player._prop("width", 0), player._prop("height", 0))}", flush=True)
             wait_for(app, diagnostic_highest, 200)
             decoded_frames(60)
-            print(f"PASS: real download samples select highest tier {tile._quality_text()}, speed={player._relay._hls_proxy.network_speed()}", flush=True)
+            print(f"PASS: real download samples select highest tier {tile._quality_text()}, speed={player._hls_proxy.network_speed()}", flush=True)
             controller = player.auto_quality
             # 限速实际分片迭代，保留真实请求/清单/VLC/画质策略。
             limit[0] = max(500000, tiers[-1]["bandwidth"] * 1.4)
@@ -95,7 +94,7 @@ def main():
             assert slots[0]["quality"] == AUTO_QUALITY
             assert tile._quality_text().startswith("自动 · ")
             print("PASS: recovered network restores highest tier, native frames continue and automatic choice persists", flush=True)
-            relay = player._relay
+            relay = player._hls_proxy
         finally:
             limit[0] = 0
             window.close()

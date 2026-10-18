@@ -43,11 +43,15 @@ ROOMS = [
 class FakePlayer:
     def __init__(self):
         self.paused = False
+        self.muted = False                 # 音频巡检会拿它跟格子的静音状态对
         self.calls = []
 
     def set_paused(self, paused):
         self.paused = bool(paused)
         self.calls.append(bool(paused))
+
+    def set_muted(self, muted):
+        self.muted = bool(muted)
 
     def release(self):
         pass
@@ -219,11 +223,15 @@ def main() -> None:
     assert type(button).__name__ == "RefreshButton"
     button.click()
     settle(app, 0.2)
-    print(f"  点击后可用={button.isEnabled()} 提示={button.toolTip()!r}")
+    # 刷新中按钮仍然可点：再点一下就排队一轮（79143f1 起的行为），
+    # 忙碌状态改用 refreshing 属性和提示文案表达。
+    print(f"  点击后可用={button.isEnabled()} 忙碌={button.property('refreshing')}"
+          f" 提示={button.toolTip()!r}")
     assert button.isEnabled() and button.property("refreshing") is True
     assert "排队" in button.toolTip()
     settle(app, 1.5)
-    print(f"  刷新完成：可用={button.isEnabled()} 提示={button.toolTip()!r}")
+    print(f"  刷新完成：可用={button.isEnabled()} 忙碌={button.property('refreshing')}"
+          f" 提示={button.toolTip()!r}")
     assert button.isEnabled() and not button.property("refreshing")
 
     print("\n=== 8. 布局菜单分组 ===")

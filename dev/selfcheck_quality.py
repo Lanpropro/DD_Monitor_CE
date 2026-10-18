@@ -59,7 +59,7 @@ def main() -> None:
         player = window.players.get(tile)
         print(f"切到 {label}: 请求={tile.quality} 实际={tile.actual_quality}"
               f" 按钮={tile.quality_button.text()} 状态={player.state if player else '-'}"
-              f" 分辨率={player.player.video_get_size(0) if player else '-'}")
+              f" 分辨率={(player._prop("width", 0), player._prop("height", 0)) if player else '-'}")
 
     for p in window.players.values():
         p.release()

@@ -1,200 +1,99 @@
-"""VLC 播放封装：共享一个 libvlc 实例，每个格子一个 media_player。"""
-import ctypes
+"""每个画面独立的 libmpv 播放、音频与故障恢复。"""
+import os
 import sys
-import threading
 import time
+from pathlib import Path
+from typing import ClassVar
 
-import vlc
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .audio_output import StereoOutput, linear_to_vlc_volume, vlc_channel_for
+from .audio_output import channel_filters, linear_volume
 from .auto_quality import AutoQuality
+from .bili import APP_UA, UA, is_hls_profile
+from .config import DECODE_HWDEC as HWDEC
+from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
 
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-REFERRER = "https://live.bilibili.com/"
-APP_UA = ("Mozilla/5.0 BiliDroid/6.25.0 (bbcallen@gmail.com) os/android model/MuMu "
-          "mobi_app/android build/6250300 channel/bili innerVer/6250300 osVer/6.0.1 network/2")
+_runtime = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+_dll_directory = None
+if sys.platform == "win32" and (_runtime / "libmpv-2.dll").is_file():
+    os.environ["PATH"] = str(_runtime) + os.pathsep + os.environ.get("PATH", "")
+    _dll_directory = os.add_dll_directory(str(_runtime))
 
-#: 解码方式是 media 级选项；自动沿用实例默认值，其余强制指定 VLC 模块。
-DECODE_MODES = (("自动（推荐）", "auto"), ("Direct3D 11", "d3d11va"),
-                ("DXVA2", "dxva2"), ("软件解码", "none"))
-HW_DECODE_OFF_OPTION = ":avcodec-hw=none"
+import mpv
+
+HW_DECODE_OFF_OPTION = "hwdec=no"
+EMBEDDED_OPTIONS = {"config": False, "load_scripts": False, "osc": False, "ytdl": False,
+    "load_stats_overlay": False, "load_console": False, "load_osd_console": False,
+    "load_auto_profiles": False, "load_select": False, "load_positioning": False,
+    "load_commands": False, "load_context_menu": False}
 
 
 def decode_media_options(mode: str) -> tuple[str, ...]:
-    if mode == "auto" or mode not in {value for _label, value in DECODE_MODES}:
-        return ()
-    if mode == "none":
-        return (HW_DECODE_OFF_OPTION,)
-    return (f":avcodec-hw={mode}",)
-
-
-#: 静音时下发的音量。**绝不能下发 0**：VLC 把「音量 0」当作**实例级的静音标志**，
-#: 一个格子压到 0 会把同实例里别的格子一起带静音（实测：录制锁原画重启某一格之后，
-#: 邻居的静音就散了、而且来回翻）。1 的增益是 (1/100)³ = 1e-6，完全听不见，
-#: 但不会被当成静音标志，因此只影响自己这一路。
-SILENT_VOLUME = 1
-
-
-class PlayerPool:
-    """整个程序共用一个 libvlc 实例（比每格一个实例省内存）。
-
-    关注列表的悬停预览另用一个**结构性静音**的实例，见 ``preview_instance()``。
-    """
-
-    _instance: vlc.Instance | None = None
-    _preview: vlc.Instance | None = None
-    _lock = threading.Lock()
-
-    @classmethod
-    def instance(cls) -> vlc.Instance:
-        with cls._lock:                     # 预热线程和主线程可能同时进来
-            if cls._instance is None:
-                cls._instance = vlc.Instance(
-                    "--no-video-title-show", "--quiet",
-                    "--no-snapshot-preview", "--avcodec-hw=any")
-                _silence_libvlc(cls._instance)
-            return cls._instance
-
-    @classmethod
-    def preview_instance(cls) -> vlc.Instance:
-        """悬停预览专用的 libvlc 实例：**让预览不可能出声**。
-
-        预览在代码里本来就是 muted=True / volume=0，媒体上还带了 ``:no-audio``，
-        但用户那边（Windows 26200 + NVIDIA 616.64，音频模块 mmdevice）仍然听得到
-        声音。与其继续猜「哪一步没生效」，不如另开一个实例，从根上堵死：
-
-            --aout=adummy      音频输出走 dummy 模块，解出来的声音直接丢掉
-            --no-audio         连音频输出都不建
-            --avcodec-hw=none  也不抢显卡解码器（预览才两百来像素宽，软解足够）
-
-        顺带把预览和画面墙那一路彻底隔离：一边出问题不会牵连另一边。
-        """
-        with cls._lock:
-            if cls._preview is None:
-                cls._preview = vlc.Instance(
-                    "--no-video-title-show", "--quiet", "--no-snapshot-preview",
-                    "--aout=adummy", "--no-audio", "--avcodec-hw=none")
-                _silence_libvlc(cls._preview)
-            return cls._preview
-
-    @classmethod
-    def warm_up_async(cls, preview: bool = True) -> threading.Thread:
-        """后台先把 libvlc 建出来，别等第一次播放才建。
-
-        用户机器上的看门狗日志显示 ``libvlc_new()`` 在主线程里卡了 4.5 秒
-        （第一次运行要扫 200 多个 VLC 插件，加上杀软扫刚解压的包），
-        那一下整个界面就冻住了。放到后台线程建，启动时就把这段时间错开。
-
-        ``preview``：悬停预览的实例只在设置里开了「悬停预览」时才建，省一点内存。
-        """
-        def build() -> None:
-            cls.instance()
-            if preview:
-                cls.preview_instance()
-
-        thread = threading.Thread(target=build, name="ddm-vlc-warmup", daemon=True)
-        thread.start()
-        return thread
-
-
-def _silence_libvlc(instance: vlc.Instance) -> None:
-    """接管 libvlc 日志，别让解码器的告警往控制台刷屏。
-
-    没人接日志时，libvlc 会把 ffmpeg 的告警（比如
-    "co located POCs unavailable"）直接写到 stderr；接了就不写了。
-    """
-    def drop(_data, _level, _context):        # noqa: ANN001, ANN202
-        return None
-
-    try:
-        instance.log_set(drop, None)
-    except Exception:                         # noqa: BLE001
-        pass
+    return () if mode not in HWDEC or mode == "auto" else (f"hwdec={HWDEC[mode]}",)
 
 
 class TilePlayer(QObject):
-    """一个格子的播放器：直连 http FLV，带 Referer / UA。"""
-
-    stateChanged = Signal(str)   # idle / connecting / playing / error
-    pictureActivity = Signal()   # 解码计数重新变化；用来取消画面静止后的重试
+    stateChanged = Signal(str)
+    pictureActivity = Signal()
     autoQualityRequested = Signal(int)
+    decoderFallback = Signal(str)
 
     PICTURE_POLL_MS = 1000
-    FROZEN_TICKS = 2             # 连续 2 秒无新解码画面就尝试恢复
-
-    #: 各取流通道该带的请求头。插件解析出来的流地址要自带对应的头，
-    #: 否则 CDN 会 403（app 通道不能带 Referer，web 通道必须带）。
-    PROFILE_HEADERS = {
+    FROZEN_TICKS = 2
+    PROFILE_HEADERS: ClassVar = {
         "app": {"User-Agent": APP_UA},
-        "web": {"User-Agent": UA, "Referer": REFERRER},
+        "web": {"User-Agent": UA, "Referer": "https://live.bilibili.com/"},
     }
+    _version = "?"
 
-    @staticmethod
-    def warm_up_vlc(preview: bool = True):
-        """启动时在后台把 libvlc 建好（见 PlayerPool.warm_up_async）。"""
-        return PlayerPool.warm_up_async(preview=preview)
-
-    @staticmethod
-    def vlc_version() -> str:
-        try:
-            version = vlc.libvlc_get_version()
-        except Exception:  # noqa: BLE001
-            return "?"
-        if isinstance(version, bytes):
-            return version.decode("utf-8", "replace")
-        return str(version)
+    @classmethod
+    def backend_version(cls) -> str:
+        if cls._version == "?":
+            core = mpv.MPV(vo="null", ao="null", **EMBEDDED_OPTIONS)
+            try:
+                cls._version = str(core.mpv_version)
+            finally:
+                core.terminate()
+        return cls._version
 
     def __init__(self, video_widget, parent=None, silent: bool = False):
         super().__init__(parent)
         self.video_widget = video_widget
-        self.url = ""
-        #: 预览用：结构性静音（自己的 libvlc 实例 + dummy 音频输出），见 PlayerPool
         self.silent = bool(silent)
         self.muted = self.silent
         self.volume = 0 if self.silent else 42
         self.audio_channel = 0
         self.paused = False
         self.state = "idle"
-        self._instance = (PlayerPool.preview_instance() if self.silent
-                          else PlayerPool.instance())
-        self.player = self._instance.media_player_new()
-        self._audio_output = StereoOutput()
-        self._audio_callbacks_enabled = False
-        self._audio_play_cb = None
-        self._audio_pause_cb = None
-        self._audio_resume_cb = None
-        self._audio_flush_cb = None
-        self._audio_drain_cb = None
-        self._audio_wait_cancel = threading.Event()
-        self.player.video_set_mouse_input(False)
-        self.player.video_set_key_input(False)
-        # 这里**一个音频接口都不要碰**。aout 要等真正开始播放才建；在那之前调
-        # audio_set_volume / audio_set_mute，写进去的是**实例级的默认值**，之后
-        # 每个 player 建 aout 时都会继承它 —— 一个格子设的静音会污染到别的格子
-        # （用户报的「录制后静音的格子出声、有声的格子断续」就是这条链路）。
-        # 真正的下发统一等 aout 起来之后由 _ensure_audio_settings() 做。
-        self._bound = False
-        self._bound_hwnd = 0
-        #: 这一段流的取流结果（「秒切」时跟着播放器一起搬到别的格子）
+        self.url = ""
         self.stream_url = ""
         self.stream_profile = "web"
+        self.stream_codec = ""
         self.stream_headers: dict = {}
         self.actual_quality = 0
         self.auto_quality = None
         self._auto_options = []
-        self._stall_ticks = 0
-        self._last_time = None
+        self.freeze_watch = True
+        self._released = False
+        self._audio_ready = True
+        self._bound = False
+        self._bound_hwnd = 0
+        self._media = None
+        self._hls_proxy = None
+        self.player = None
+        self.decode_mode = "none" if self.silent else "auto"
+        self._decode_key = None
+        self._decode_tried: set[str] = set()
+        self._play_request = None
+        self._decoder_error = False
+        self._decode_snapshot = None
+        self._decode_stall_ticks = 0
         self._last_picture = None
+        self._last_time = None
         self._frozen_ticks = 0
-        self.freeze_watch = True          # 画面卡死检测（可在全局设置里关掉）
-        self._media = None                # 当前媒体：画面卡死检测要读它的解码计数
-        self._relay = None
+        self._stall_ticks = 0
         self._picture_limit = self.FROZEN_TICKS
         self._buffer_limit = 6
-        self._released = False
-        self._audio_ready = False         # aout 起来之后补过静音/音量没有
         self._watch = QTimer(self)
         self._watch.setInterval(1500)
         self._watch.timeout.connect(self._check)
@@ -203,7 +102,204 @@ class TilePlayer(QObject):
         self._picture_watch.setInterval(self.PICTURE_POLL_MS)
         self._picture_watch.timeout.connect(self._check_picture_tick)
 
-    # ---- 生命周期 ----
+    def _prop(self, name, default=None):
+        if self.player is None or self._released:
+            return default
+        try:
+            value = getattr(self.player, name.replace("-", "_"))
+            return default if value is None else value
+        except (AttributeError, RuntimeError, ValueError):
+            return default
+
+    def _set(self, name, value):
+        if self.player is not None and not self._released:
+            setattr(self.player, name.replace("-", "_"), value)
+
+    def _log(self, level, prefix, message):
+        if level in ("error", "fatal") and prefix.startswith(("vd", "ffmpeg/video")):
+            self._decoder_error = True
+
+    def bind(self) -> None:
+        if self._released:
+            return
+        hwnd = int(self.video_widget.winId())
+        if self.player is not None and hwnd != self._bound_hwnd:
+            self._destroy_core()
+        if self.player is None:
+            self.player = mpv.MPV(
+                wid=str(hwnd), vo="gpu", gpu_api="d3d11", gpu_context="d3d11",
+                force_window="immediate", hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
+                ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
+                audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
+                **EMBEDDED_OPTIONS,
+                input_default_bindings=False, input_vo_keyboard=False, input_cursor=False,
+                input_builtin_dragging=False, idle=True, keep_open=True,
+                cache=True, demuxer_max_bytes="16MiB", demuxer_max_back_bytes=0,
+                network_timeout=8, log_handler=self._log, loglevel="error",
+            )
+        self._bound_hwnd = hwnd
+        self._bound = True
+
+    def invalidate_binding(self) -> None:
+        self._bound = False
+
+    def play(self, url: str, profile: str = "web", headers: dict | None = None,
+             options=None) -> None:
+        if self._released:
+            return
+        options = tuple(str(option) for option in options or ())
+        hwdec = next((item.split("=", 1)[1] for item in options if item.startswith("hwdec=")),
+                      "auto")
+        requested = next((mode for mode, value in HWDEC.items() if value == hwdec), "auto")
+        key = (self.stream_codec or profile, requested)
+        if key != self._decode_key:
+            self._decode_key = key
+            self.decode_mode = "none" if self.silent else requested
+            self._decode_tried = {self.decode_mode}
+        self._play_request = (url, profile, dict(headers or {}), options)
+        self._play_media(url, profile, headers, options)
+
+    def _play_media(self, url, profile, headers, options) -> None:
+        self._stop_media()
+        self.bind()
+        self.url = url
+        self.paused = False
+        self._decoder_error = False
+        self._decode_snapshot = None
+        self._decode_stall_ticks = 0
+        overseas = profile in ("twitch", "youtube")
+        hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas
+        self._picture_limit = 20 if overseas else 8 if hls else self.FROZEN_TICKS
+        self._buffer_limit = 20 if overseas else 6
+        default_profile = "app" if profile.startswith("app") else "web"
+        request_headers = dict(headers) if headers else dict(self.PROFILE_HEADERS[default_profile])
+        if not any(name.lower() == "user-agent" for name in request_headers):
+            request_headers["User-Agent"] = UA
+        playback_url = url
+        if overseas:
+            from .global_danmaku import request_proxy
+            from .hls_proxy import HlsProxy
+            self._hls_proxy = HlsProxy(url, request_headers, request_proxy(url))
+            playback_url = self._hls_proxy.url
+        self._set("http-header-fields", [f"{name}: {value}" for name, value in request_headers.items()
+                                         if value and "\n" not in str(value) and "\r" not in str(value)])
+        self._set("hwdec", HWDEC[self.decode_mode])
+        self._set("pause", False)
+        self._set("aid", "no" if self.silent or "audio=no" in options else "auto")
+        self._ensure_audio_settings()
+        self._media = playback_url
+        self._start_pending_media()
+        self._last_picture = self._last_time = None
+        self._stall_ticks = self._frozen_ticks = 0
+        self._set_state("connecting")
+        self._watch.start()
+        self._picture_watch.start()
+        refresh_clip = getattr(self.video_widget, "refresh_clip", None)
+        if callable(refresh_clip):
+            refresh_clip()
+
+    def _start_pending_media(self):
+        if self.player is not None and self._media is not None and not self._released:
+            self.player.command("loadfile", self._media, "replace")
+            self._set("pause", self.paused)
+
+    def _stop_media(self):
+        if self.player is not None:
+            self.player.command("stop")
+        if self._hls_proxy is not None:
+            self._hls_proxy.stop()
+            self._hls_proxy = None
+        self._media = None
+
+    def stop(self) -> None:
+        if self._released:
+            return
+        self._watch.stop()
+        self._picture_watch.stop()
+        self._stop_media()
+        self.auto_quality = None
+        self._auto_options = []
+        self._last_picture = None
+        self._frozen_ticks = 0
+        self._play_request = self._decode_key = None
+        self._decode_tried.clear()
+        if self.silent:
+            self._destroy_core()
+        self._set_state("idle")
+
+    def _destroy_core(self):
+        if self.player is not None:
+            self.player.force_window = False
+            self.player.command("stop")
+            self.player.terminate()
+            self.player = None
+        self._bound = False
+        self._bound_hwnd = 0
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self.stop()
+        self._released = True
+        self._destroy_core()
+        self.deleteLater()
+
+    def set_muted(self, muted: bool) -> None:
+        self.muted = bool(muted) or self.silent
+        self._set("mute", self.muted)
+
+    def set_volume(self, volume: int) -> None:
+        self.volume = max(0, min(100, int(volume)))
+        self._set("volume", linear_volume(self.volume))
+
+    def set_audio_channel(self, channel: int) -> None:
+        self.audio_channel = int(channel)
+        self._set("af", ",".join(channel_filters(self.audio_channel)))
+
+    def reapply_audio_channel(self) -> None:
+        self.set_audio_channel(self.audio_channel)
+
+    def _ensure_audio_settings(self) -> None:
+        self.set_muted(self.muted)
+        self.set_volume(self.volume)
+        self.reapply_audio_channel()
+
+    def sync_audio(self, volume: int, muted: bool, channel: int) -> None:
+        if self._released or self.silent:
+            return
+        if self.volume != volume or abs(self._prop("volume", linear_volume(volume)) - linear_volume(volume)) > 0.1:
+            self.set_volume(volume)
+        if self.muted != muted or self._prop("mute", muted) != muted:
+            self.set_muted(muted)
+        if self.audio_channel != channel:
+            self.set_audio_channel(channel)
+
+    def refresh_audio_device(self) -> None:
+        if self.player is not None and not self.silent and not self._released:
+            self.player.command("ao-reload")
+
+    def set_paused(self, paused: bool) -> None:
+        self.paused = bool(paused)
+        self._set("pause", self.paused)
+        if self.auto_quality is not None:
+            self.auto_quality.stable_since = self.auto_quality.stalled_since = None
+        self._last_picture = self._last_time = None
+        self._stall_ticks = self._frozen_ticks = 0
+        if self.paused:
+            self._picture_watch.stop()
+        elif self._media is not None:
+            self._watch.start()
+            self._picture_watch.start()
+
+    @property
+    def actual_decoder(self) -> str:
+        return str(self._prop("hwdec-current", "等待首帧"))
+
+    @property
+    def actual_codec(self) -> str:
+        codec = self._prop("video-format", "")
+        return {"h264": "avc", "hevc": "hevc", "av1": "av1"}.get(codec, self.stream_codec)
+
     def configure_auto_quality(self, room_id, options):
         self._auto_options = list(options or [])
         if self.silent or not self._auto_options:
@@ -216,367 +312,61 @@ class TilePlayer(QObject):
             self.auto_quality.has_played = False
 
     def _check_auto_quality(self):
-        if self.auto_quality is None or self.paused or self._relay is None:
-            return
-        proxy = self._relay._hls_proxy
-        if proxy is None:
+        if self.auto_quality is None or self.paused or self._hls_proxy is None:
             return
         quality = self.auto_quality.choose(self._auto_options, self.actual_quality,
-            proxy.network_speed(), "buffering" if self._frozen_ticks >= 4 else self.state,
+            self._hls_proxy.network_speed(), "buffering" if self._frozen_ticks >= 4 else self.state,
             time.monotonic())
         if quality is not None:
             self.autoQualityRequested.emit(quality)
 
-    def bind(self) -> None:
-        """把播放器绑定到格子的视频区域。"""
-        hwnd = int(self.video_widget.winId())
-        if self._bound and self._bound_hwnd == hwnd:
-            return
-        self.player.set_hwnd(hwnd)
-        self._bound = True
-        self._bound_hwnd = hwnd
-
-    def invalidate_binding(self) -> None:
-        """原生窗口重排前标记绑定失效；排布完成后只重新绑定一次。"""
-        self._bound = False
-
-    def play(self, url: str, profile: str = "web", headers: dict | None = None,
-             options=None) -> None:
-        """开始播放。
-
-        ``options`` 是额外的 media 选项（例如预览用的 ``:no-audio``）：留在这里
-        而不是写死在播放器上，是因为同一路流在画面墙和预览里要的配置不一样。
-        """
-        # 一律走 PCM 回调（每格自己的 StereoOutput），**不再用 VLC 的原生音频输出**。
-        # 原因见 _enable_pcm_routing() 里的说明：共享 libvlc 实例下，只要有一个
-        # player stop 过，它之后下发的音量/静音就会落到共享 aout 上，把别的格子一起
-        # 带乱 —— 用户报的「录制后静音的格子出声、有声的格子断续」就是这条。
-        # 回调本身是 per-player 的，音量/静音由我们自己在样本上做，天然隔离。
-        # libvlc 要求回调在播放前装好，所以放在这里（play 之前）。
-        if not self.silent:                 # 预览是 --no-audio 实例，没有音频输出，别碰
-            self._enable_pcm_routing()
-        if self._media is not None:
-            # 自动刷新 / 手动重载会复用同一个 media_player。不能让仍在硬解的旧
-            # media 直接被 set_media() 覆盖：NVIDIA D3D11 解码线程可能仍持有旧的
-            # HWND / surface，用户机器上会在 nvwgf2umx.dll 中 access violation。
-            # 先完整结束旧解码会话，再重新绑定窗口后起播新 media。
-            self._detach_and_stop()
-            self._media = None
-        if not self._bound:
-            self.bind()
-        self.paused = False               # 换流后从"播放中"重新开始
-        self._audio_wait_cancel.clear()
-        self.url = url
-        self._audio_ready = False         # 新的 aout 还没建，起来之后再补静音/音量
-        playback_url = url
-        platform_relay = profile in ("huya", "douyu", "douyin", "twitch", "youtube")
-        overseas_hls = profile in ("twitch", "youtube")
-        self._picture_limit = 20 if overseas_hls else 8 if platform_relay else self.FROZEN_TICKS
-        self._buffer_limit = 20 if overseas_hls else 6
-        if platform_relay:
-            from .stream_relay import StreamRelay
-            relay_options = {}
-            if overseas_hls:
-                from .global_danmaku import request_proxy
-                relay_options["proxy"] = request_proxy(url)
-                relay_options["hls_retry"] = True
-            self._relay = StreamRelay(url, headers or {}, **relay_options)
-            playback_url = self._relay.url
-        media = self._instance.media_new(playback_url)
-        # 插件解析出来的流可以自带请求头；没给就按通道用默认的
-        request_headers = dict(headers) if headers else dict(
-            self.PROFILE_HEADERS.get(profile, self.PROFILE_HEADERS["web"]))
-        for name, value in request_headers.items():
-            if not value:
-                continue
-            if name.lower() == "user-agent":
-                media.add_option(f":http-user-agent={value}")
-            elif name.lower() == "referer":
-                media.add_option(f":http-referrer={value}")
-            else:
-                media.add_option(f":http-header={name}: {value}")
-        if not any(name.lower() == "user-agent" for name in request_headers):
-            # 后端一律要 UA，插件忘了给就补上通用的
-            media.add_option(f":http-user-agent={UA}")
-        media.add_option(":network-caching=4000" if platform_relay else ":network-caching=800")
-        for option in options or ():
-            media.add_option(str(option))
-        self._media = media
-        self.player.set_media(media)
-        self.player.play()
-        # VLC 异步创建原生输出窗口，开始播放或换流后重新裁切新窗口。
-        refresh_clip = getattr(self.video_widget, "refresh_clip", None)
-        if callable(refresh_clip):
-            refresh_clip()
-        self._stall_ticks = 0
-        self._last_time = None
-        self._last_picture = None
-        self._frozen_ticks = 0
-        self._set_state("connecting")
-        self._watch.start()
-        self._picture_watch.start()
-        # aout 比 _watch 的第一个 tick（1.5 s）起得早（实测 ~0.4 s）：补几个更早的
-        # 重试，免得静音/音量在开头那一两秒里还没生效。
-        for delay in (150, 400, 800, 1200):
-            QTimer.singleShot(delay, self._ensure_audio_settings)
-
-    def stop(self) -> None:
-        self._watch.stop()
-        self._picture_watch.stop()
-        self.auto_quality = None
-        self._auto_options = []
-        self._detach_and_stop()
-        self._media = None
-        self._last_picture = None
-        self._frozen_ticks = 0
-        self._set_state("idle")
-
-    def _detach_and_stop(self) -> None:
-        """先解除原生窗口绑定，再停止 VLC 的解码 / 渲染线程。"""
-        self._audio_wait_cancel.set()
-        try:
-            # 必须在 stop 前摘掉 HWND。用户日志里的 access violation / 7 秒卡死
-            # 正发生在 libvlc_media_player_stop；让 VLC 仍绑着马上要隐藏的原生窗口
-            # 再 stop，会和 Qt 的窗口隐藏/销毁撞在一起。
-            self.player.set_hwnd(0)
-        except Exception:  # noqa: BLE001
-            pass
-        self._bound = False             # 下次 play 重新 bind
-        self._bound_hwnd = 0
-        # aout 跟着这次 stop 一起没了，「已下发过」的标记也要清掉：否则下一轮 play
-        # **之前**那些 set_volume / set_muted 会以为还能下发 —— 那会儿 aout 还没建，
-        # 写进去的是**实例级默认值**，会把别的格子一起带乱（录制锁原画重启那一格，
-        # 就是这么把邻居的静音弄丢的）。play() 里也会再重置一次，这里是为了覆盖
-        # 「先下发、后 play」这段窗口。
-        self._audio_ready = False
-        if self._relay is not None:
-            self._relay.stop()
-            self._relay = None
-        self.player.stop()
-
-    def release(self) -> None:
-        if self._released:              # 关窗流程可能被调用两次，重复释放会让 libvlc 崩
-            return
-        self._released = True
-        self._watch.stop()
-        self._picture_watch.stop()
-        self._media = None              # 画面卡死检测别再碰这个媒体
-        try:
-            self._detach_and_stop()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            self.player.release()
-        except Exception:  # noqa: BLE001
-            pass
-        self._audio_output.close()
-
-    # ---- 音频 ----
-    @property
-    def uses_pcm_routing(self) -> bool:
-        return self._audio_callbacks_enabled
-
-    def needs_audio_restart(self, channel: int) -> bool:
-        """换声道还要不要重建播放器。
-
-        以前要：默认输出走 VLC 原生、只有「仅左/仅右」才装 callbacks，两者互斥，
-        而 libvlc 不允许在播放中换回调。现在**一律走 PCM 回调**，换声道只是改自己
-        StereoOutput 的路由，不用重建。
-        """
-        return False
-
-    def _enable_pcm_routing(self) -> None:
-        """Install callbacks before playback; default audio keeps VLC's native output."""
-        if self._audio_callbacks_enabled:
-            return
-        callbacks = vlc.CallbackDecorators
-        self._audio_play_cb = callbacks.AudioPlayCb(self._play_audio)
-        self._audio_pause_cb = callbacks.AudioPauseCb(self._pause_audio)
-        self._audio_resume_cb = callbacks.AudioResumeCb(self._resume_audio)
-        self._audio_flush_cb = callbacks.AudioFlushCb(self._flush_audio)
-        self._audio_drain_cb = callbacks.AudioDrainCb(self._drain_audio)
-        self.player.audio_set_callbacks(
-            self._audio_play_cb, self._audio_pause_cb, self._audio_resume_cb,
-            self._audio_flush_cb, self._audio_drain_cb, None,
-        )
-        self.player.audio_set_format("S16N", 48_000, 2)
-        self._audio_callbacks_enabled = True
-
-    def set_muted(self, muted: bool) -> None:
-        self.muted = muted
-        if self.silent:                     # --no-audio 实例没有音频输出，别碰
-            return
-        # 不再调 audio_set_mute：aout 没建好时它写的是实例级默认值、会把别的格子
-        # 一起带静音，而且它在个别机器上本来就不生效。静音只信音量 0。
-        self._apply_volume()
-        self._audio_output.set_enabled(self.uses_pcm_routing and not muted)
-
-    def set_volume(self, volume: int) -> None:
-        self.volume = volume
-        if self.silent:                     # --no-audio 实例没有音频输出，别碰
-            return
-        self._apply_volume()
-        self._audio_output.set_volume(volume)
-
-    def _apply_volume(self) -> None:
-        """把音量下发给这一路的 aout；静音就真的压成 0。
-
-        两条都是实测出来的：
-        ① **aout 没起来时一个字都不能发**。那会儿调 audio_set_volume / set_mute，
-           写进去的是**实例级默认值**，之后每个 player 建 aout 都会继承 —— 一个
-           格子设的静音会污染其他格子。所以要等 _ensure_audio_settings() 打开
-           ``_audio_ready`` 之后才下发。
-        ② **静音只信音量 0**。个别机器（Windows 26200 + 某些 mmdevice 音频栈）上
-           audio_set_mute 不生效 —— 用户那边连 muted=True / volume=0 都还听得到
-           声音，最后靠另建一个 ``--no-audio`` 实例才堵住。画面墙的格子没法整路
-           --no-audio（没静音的要出声），所以静音时音量直接 0、取消静音再恢复。
-           原生输出路径还要先取**立方根**抵消 VLC 内部的三次方，最终才是线性音量。
-        """
-        if not self._audio_ready or self._released:
-            return
-        try:
-            self.player.audio_set_volume(
-                SILENT_VOLUME if self.muted else linear_to_vlc_volume(self.volume))
-        except Exception:  # noqa: BLE001
-            pass
-
-    def set_audio_channel(self, channel: int) -> None:
-        """声道模式：3/4 将完整声音混为单声道后只送左/右输出。
-
-        VLC 3 的“左/右”模式只是挑选片源中的一条轨道，并会以居中的
-        单声道输出。这里让 VLC 保持立体声，再在解码回调中完成真正的
-        左右定位；其他 VLC 原生模式仍交给 VLC。
-        """
-        self.audio_channel = int(channel)
-        if self.audio_channel in (3, 4) and not self.uses_pcm_routing:
-            self._enable_pcm_routing()
-        self._audio_output.set_channel(self.audio_channel)
-        self.player.audio_set_channel(vlc_channel_for(self.audio_channel))
-
-    def reapply_audio_channel(self) -> None:
-        """播放起来之后再补一次声道设置（音频输出模块初始化会重置它）。"""
-        channel = vlc_channel_for(self.audio_channel)
-        if channel:
-            self.player.audio_set_channel(channel)
-
-    def _ensure_audio_settings(self) -> None:
-        """音频输出模块起来之后，补一次静音 / 音量（只对画面墙的格子）。
-
-        VLC 的 aout 是**真正开始播放时**才建的：在那之前设的静音、音量会被
-        这次初始化冲掉，所以起来之后再补一次。
-
-        预览（``silent``）**什么都不做**：它用的是 ``--no-audio`` 实例，根本没
-        有音频输出（aout）；再对不存在的 aout 调 set_track / set_mute /
-        set_volume，用户机器上就是一次 access violation —— logs/ddm-2026-09-20.log
-        里「[预览音频]」那行之后紧跟 Windows fatal exception。``--no-audio`` 已经
-        保证静音，这里一个音频调用都不该发。
-        """
-        if self._audio_ready or self._released:
-            return
-        if self.silent:
-            self._audio_ready = True
-            return
-        try:
-            if self.player.audio_get_track_count() <= 0:
-                return                      # aout 还没起来
-        except Exception:  # noqa: BLE001
-            return
-        self._audio_ready = True
-        try:
-            self._apply_volume()            # 音量（含静音压 0）到这一步才真正下发
-        except Exception:  # noqa: BLE001
-            pass
-        self._audio_output.set_volume(self.volume)
-        self._audio_output.set_enabled(self.uses_pcm_routing and not self.muted)
-
-    def _play_audio(self, _opaque, samples, count, pts) -> None:
-        # 回调交来的是提前解码的样本，pts 才是与视频共用的实际播放时刻。
-        # 静音时也保持时序，否则解除静音（包括格子换位）会把未来的声音提前播出。
-        delay = (pts - vlc.libvlc_clock()) / 1_000_000
-        if delay > 0 and self._audio_wait_cancel.wait(delay):
-            return
-        if self._audio_wait_cancel.is_set() or self._released:
-            return
-        self._audio_output.write(samples, count)
-
-    def _pause_audio(self, _opaque, _pts) -> None:
-        self._audio_output.pause()
-
-    def _resume_audio(self, _opaque, _pts) -> None:
-        self._audio_output.resume()
-
-    def _flush_audio(self, _opaque, _pts) -> None:
-        self._audio_output.flush()
-
-    def _drain_audio(self, _opaque) -> None:
-        self._audio_output.drain()
-
-    def set_paused(self, paused: bool) -> None:
-        """暂停 / 继续（不停取流，继续时直接接上）。"""
-        self.paused = bool(paused)
-        if self.auto_quality is not None:
-            self.auto_quality.stable_since = self.auto_quality.stalled_since = None
-        if self.paused:
-            self._audio_wait_cancel.set()
-        else:
-            self._audio_wait_cancel.clear()
-        self.player.set_pause(1 if self.paused else 0)
-        if self.paused:
-            self._picture_watch.stop()
-            self._last_picture = None
-            self._frozen_ticks = 0
-        else:
-            self._last_time = None          # 继续后重新计时，避免被误判成卡顿
-            self._stall_ticks = 0
-            self._last_picture = None
-            self._frozen_ticks = 0
-            self._watch.start()
-            self._picture_watch.start()
-
-    # ---- 画面卡死检测 ----
     def _picture_signature(self):
-        """抓一个「画面有没有在动」的指纹。
-
-        VLC 有时状态还是 Playing、时钟也在走，画面其实已经不动了，只靠时间判断
-        不出来，所以要另看一个信号。
-
-        以前是 `video_take_snapshot` 写一张 PNG 再比文件内容 —— 那是重活，而且
-        **用户机器上正好崩在它里面**：看门狗日志显示主线程卡在 _picture_signature
-        7.1 秒，同时一次 access violation（把「硬件解码」关掉改用软解也照样崩）。
-        现在改成读 VLC 自己的解码计数：画面不动时 decoded_video /
-        displayed_pictures 就不再涨（实测暂停后两者定格），效果一样，
-        但不用截图、不用写临时文件，也就没有那个崩溃面。
-        """
-        media = self._media
-        if media is None:
+        if self._media is None or not self._prop("vo-configured", False):
             return None
-        stats = vlc.MediaStats()
-        try:
-            if vlc.libvlc_media_get_stats(media, ctypes.byref(stats)) != 1:
-                return None
-        except Exception:  # noqa: BLE001
-            return None
-        return (int(stats.decoded_video), int(stats.displayed_pictures))
+        position = self._prop("time-pos")
+        return None if position is None else (position, position)
+
+    def _recover_decoder(self, *, frozen=False) -> bool:
+        if (self.silent or self.paused or self._released or self._play_request is None
+                or self.decode_mode == "none"):
+            return False
+        if self._hls_proxy is not None and self._hls_proxy.refresh_required.is_set():
+            return False
+        cache_end = (self._prop("demuxer-cache-state", {}) or {}).get("cache-end", 0) or 0
+        pts = self._prop("time-pos")
+        previous = self._decode_snapshot
+        blocked = (pts is not None and previous is not None and previous[1] is not None
+                   and cache_end > previous[0] and pts == previous[1]
+                   and not self._prop("paused-for-cache", False))
+        if not frozen:
+            self._decode_snapshot = (cache_end, pts)
+            self._decode_stall_ticks = self._decode_stall_ticks + 1 if blocked else 0
+        if (self._prop("hwdec-current") == "no" and pts is not None and pts > 0 and not blocked
+                and self._decode_stall_ticks == 0):
+            self._decoder_error = False
+        if not (self._decoder_error or self._decode_stall_ticks >= 3
+                or frozen and blocked and self._decode_stall_ticks > 0):
+            return False
+        mode = "none"
+        self.decode_mode = mode
+        self._decode_tried.add(mode)
+        url, profile, headers, options = self._play_request
+        self._play_media(url, profile, headers, options)
+        self.decoderFallback.emit(mode)
+        return True
 
     def _check_picture(self, playing: bool) -> bool:
-        """画面是不是停了；返回 True 表示判定为卡住。"""
         if not (self.freeze_watch and playing):
             self._frozen_ticks = 0
             self._last_picture = None
             return False
         signature = self._picture_signature()
-        if signature is None:
-            return False
-        if signature[1] == 0:
-            # 解码器已建好但首帧尚未显示，仍属于起播缓冲，不能触发画面静止刷新。
+        if signature is None or signature[1] == 0:
             self._last_picture = None
             self._frozen_ticks = 0
             return False
         previous = self._last_picture
-        if signature == previous:
-            self._frozen_ticks += 1
-        else:
-            self._frozen_ticks = 0
+        self._frozen_ticks = self._frozen_ticks + 1 if signature == previous else 0
         self._last_picture = signature
         if previous is not None and signature != previous:
             self.pictureActivity.emit()
@@ -585,48 +375,39 @@ class TilePlayer(QObject):
         return self._frozen_ticks >= self._picture_limit
 
     def _check_picture_tick(self) -> None:
-        """独立于缓冲检测，每秒检查一次真实画面是否仍在变化。"""
-        if self.paused:
+        if self._released or self._media is None:
+            return
+        if not self.video_widget.isVisible() or self.video_widget.window().isMinimized():
             self._check_picture(False)
             return
-        state = self.player.get_state()
-        width, _ = self.player.video_get_size(0)
-        if self._check_picture(state == vlc.State.Playing and bool(width)):
+        playing = not self.paused and not self._prop("paused-for-cache", False)
+        if self._check_picture(playing) and not self._recover_decoder(frozen=True):
             self._set_state("frozen")
 
-    # ---- 状态 ----
     def _set_state(self, state: str) -> None:
-        if state == self.state:
-            return
-        self.state = state
-        self.stateChanged.emit(state)
+        if state != self.state:
+            self.state = state
+            self.stateChanged.emit(state)
 
     def _check(self) -> None:
-        if self.paused:
-            return                          # 暂停时画面本来就不动，不能当成卡顿
-        if self._relay is not None and self._relay.needs_restart():
+        if self.paused or self._released or self._media is None:
+            return
+        if self._hls_proxy is not None and self._hls_proxy.refresh_required.is_set():
             self._set_state("error")
-            return                          # 明确失败走已有重连，暂时缺片仍由 HLS 层恢复。
-        self._ensure_audio_settings()       # aout 起来了就把静音/音量补回去
-        state = self.player.get_state()
-        width, _ = self.player.video_get_size(0)
-        current = self.player.get_time()
-        advanced = self._last_time is not None and current > self._last_time
+            return
+        if self._recover_decoder():
+            return
+        current = self._prop("time-pos")
+        advanced = current is not None and (self._last_time is None or current > self._last_time)
         self._last_time = current
-
-        signature = self._picture_signature() if self._relay is not None else None
-        awaiting_picture = self._relay is not None and (signature is None or signature[1] == 0)
-        if not awaiting_picture and state == vlc.State.Playing and width and (advanced or self._stall_ticks == 0):
+        ended = self._prop("eof-reached", False) or self._prop("idle-active", False)
+        if advanced and not ended and self._prop("vo-configured", False):
             self._stall_ticks = 0
             if self.state != "frozen":
                 self._set_state("playing")
             return
-        if state in (vlc.State.Ended, vlc.State.Error, vlc.State.Stopped):
-            self._stall_ticks += 2
-        else:
-            self._stall_ticks += 1
-        limit = 20 if awaiting_picture else self._buffer_limit   # HLS 取片与缓存需要额外时间
-        if self._stall_ticks >= limit:      # 普通流约 9 秒没有画面就判为失败
+        self._stall_ticks += 2 if ended else 1
+        if self._stall_ticks >= self._buffer_limit:
             self._set_state("error")
-        elif self._stall_ticks >= 2:    # 卡住了：显示缓冲动画，等待恢复
+        elif self._stall_ticks >= 2:
             self._set_state("buffering")

@@ -13,6 +13,12 @@ try:
 except ImportError:
     np = None
 
+try:
+    import audioop
+except ImportError:
+    audioop = None
+
+
 RATE = 48_000
 FPS = 30
 HISTORY_SECONDS = 60
@@ -363,6 +369,31 @@ class History:
         if origin is None:
             return bytes(frames * 4)
         return self.audio.read(round((timestamp - origin) * RATE), frames)
+
+
+def route_pcm_s16_stereo(data: bytes, channel: int) -> bytes:
+    """把立体声混成单声道，只放到指定的物理输出侧。"""
+    if channel not in (3, 4):
+        return data                     # 不路由就原样返回，一个字节都不用动
+    if len(data) % 4:
+        raise ValueError("stereo S16 PCM must contain complete frames")
+
+    if audioop is not None:
+        mono = audioop.tomono(data, 2, 0.5, 0.5)          # 左右各半 → 单声道
+        return audioop.tostereo(mono, 2,
+                                1.0 if channel == 3 else 0.0,
+                                1.0 if channel == 4 else 0.0)
+
+    output = bytearray(len(data))
+    source = memoryview(data).cast("h")
+    target = memoryview(output).cast("h")
+    for index in range(0, len(source), 2):
+        mono = (int(source[index]) + int(source[index + 1])) // 2
+        if channel == 3:
+            target[index] = mono
+        else:
+            target[index + 1] = mono
+    return bytes(output)
 
 
 def mix_pcm(inputs: list[tuple[bytes, int]], frames: int) -> bytes:
