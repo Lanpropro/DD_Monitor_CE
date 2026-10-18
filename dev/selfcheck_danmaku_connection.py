@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import aiohttp
 from aiohttp import web
 from ddm import bili
-from ddm.danmaku import _Client
+from ddm.danmaku import DanmakuClient, _Client
 from blivedm.clients import ws_base
 
 
@@ -188,6 +188,155 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item[0] for item in received], [bili.UA, bili.UA])
         self.assertEqual([item[1]["key"] for item in received], ["signed-1", "signed-2"])
         self.assertEqual([item[1]["buvid"] for item in received], ["fixture-browser"] * 2)
+
+
+class LifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_before_network_task_starts_closes_owned_session(self):
+        client = ws_base.WebSocketClientBase()
+        self.addAsyncCleanup(client._session.close)
+        client.start()
+        client.stop()
+        result = await asyncio.gather(client.stop_and_close(), return_exceptions=True)
+        self.assertTrue(client._session.closed, "Stopping before the first task step must close the session")
+        self.assertEqual(result, [None], "Normal stop must not escape as CancelledError")
+        self.assertFalse(client.is_running)
+
+    async def test_stop_during_setup_clears_danmaku_resources(self):
+        owner = DanmakuClient("123")
+        clients = []
+        set_handler = _Client.set_handler
+
+        def stop_before_start(client, handler):
+            set_handler(client, handler)
+            clients.append(client)
+            self.addAsyncCleanup(client._session.close)
+            # Pin the UI stop between the initial stopped-check and client.start().
+            owner.stop()
+
+        with patch.object(bili, "_cookies", return_value={}), \
+                patch.object(_Client, "set_handler", stop_before_start):
+            result = await asyncio.gather(owner._main(123), return_exceptions=True)
+        self.assertTrue(clients[0]._session.closed)
+        self.assertEqual(result, [None])
+        self.assertIsNone(owner._client)
+        self.assertIsNone(owner._loop)
+        self.assertFalse(clients[0].is_running)
+
+    async def test_cleanup_error_still_closes_session_and_clears_loop(self):
+        owner = DanmakuClient("123")
+        entered = asyncio.Event()
+        clients = []
+
+        async def network(client):
+            clients.append(client)
+            self.addAsyncCleanup(client._session.close)
+            entered.set()
+            await asyncio.Event().wait()
+
+        async def fail_close(_client):
+            raise RuntimeError("client cleanup failed")
+
+        with patch.object(bili, "_cookies", return_value={}), \
+                patch.object(_Client, "_network_coroutine", network), \
+                patch.object(_Client, "close", fail_close):
+            task = asyncio.create_task(owner._main(123))
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                owner.stop()
+                with self.assertRaisesRegex(RuntimeError, "client cleanup failed"):
+                    await task
+                self.assertTrue(clients[0]._session.closed)
+                self.assertIsNone(owner._client)
+                self.assertIsNone(owner._loop)
+            finally:
+                owner.stop()
+                await asyncio.gather(task, return_exceptions=True)
+
+    async def test_cancelling_join_keeps_network_task_running(self):
+        client = ws_base.WebSocketClientBase()
+        self.addAsyncCleanup(client._session.close)
+        entered = asyncio.Event()
+
+        async def network():
+            entered.set()
+            await asyncio.Event().wait()
+
+        with patch.object(client, "_network_coroutine", network):
+            client.start()
+            try:
+                await asyncio.wait_for(entered.wait(), 1)
+                network_task = client._network_future
+                waiter = asyncio.create_task(client.join())
+                await asyncio.sleep(0)
+                waiter.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await waiter
+                self.assertTrue(client.is_running)
+                self.assertFalse(network_task.done())
+            finally:
+                await client.stop_and_close()
+
+    async def test_established_websocket_and_heartbeat_close_without_reconnect(self):
+        connected, disconnected = asyncio.Event(), asyncio.Event()
+        clients, sockets = [], []
+        owner = DanmakuClient("123")
+
+        async def initialize(client):
+            clients.append(client)
+            self.addAsyncCleanup(client._session.close)
+            client._uid = 0
+            client._host_server_token = "fixture"
+            return True
+
+        async def subscribe(request):
+            socket = web.WebSocketResponse()
+            await socket.prepare(request)
+            sockets.append(socket)
+            await socket.receive()
+            await socket.send_bytes(ws_base.WebSocketClientBase._make_packet(
+                {"code": 0}, ws_base.Operation.AUTH_REPLY))
+            try:
+                async for _ in socket:
+                    pass
+            finally:
+                disconnected.set()
+            return socket
+
+        async def authenticated(client, header, body):
+            await parse_message(client, header, body)
+            if header.operation == ws_base.Operation.AUTH_REPLY:
+                connected.set()
+
+        server = web.Application()
+        server.router.add_get("/sub", subscribe)
+        runner = web.AppRunner(server)
+        await runner.setup()
+        self.addAsyncCleanup(runner.cleanup)
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        parse_message = _Client._parse_business_message
+        with patch.object(bili, "_cookies", return_value={}), \
+                patch.object(_Client, "init_room", initialize), \
+                patch.object(_Client, "_parse_business_message", authenticated), \
+                patch.object(_Client, "_get_ws_url", return_value=f"http://127.0.0.1:{port}/sub"):
+            task = asyncio.create_task(owner._main(123))
+            try:
+                await asyncio.wait_for(connected.wait(), 2)
+                self.assertIsNotNone(clients[0]._heartbeat_timer_handle)
+                owner.stop()
+                await asyncio.wait_for(task, 2)
+                await asyncio.wait_for(disconnected.wait(), 1)
+                self.assertTrue(clients[0]._session.closed)
+                self.assertFalse(clients[0].is_running)
+                self.assertIsNone(clients[0]._websocket)
+                self.assertIsNone(clients[0]._heartbeat_timer_handle)
+                self.assertIsNone(owner._client)
+                self.assertIsNone(owner._loop)
+                self.assertEqual(len(sockets), 1)
+            finally:
+                owner.stop()
+                await asyncio.gather(task, return_exceptions=True)
 
 
 if __name__ == "__main__":
