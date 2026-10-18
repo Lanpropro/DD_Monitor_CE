@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from unittest.mock import patch
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QCursor
@@ -38,10 +37,7 @@ def main():
     app_module.StatusPoller = app_module.StatsPoller = SilentPoller
     app = QApplication(sys.argv)
     rooms = [{"room_id": "1000", "uname": "Cursor test", "live": False}]
-    # 这里只测试本地视频；避免启动时排队的“房间未开播”任务释放下面的测试播放器。
-    with patch.object(app_module.QTimer, "singleShot"):
-        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x1",
-                            state={"plugins_enabled": []})
+    window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x1")
     window._upgrade_fullscreen_quality = lambda _tile: False
     window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
     window.isActiveWindow = lambda: True
@@ -72,7 +68,6 @@ def main():
             wait(app, lambda: cursor.hidden and not tile.bottom.isVisible())
             assert QApplication.overrideCursor().shape() == Qt.BlankCursor
             assert not tile.bottom.isVisible() and not tile.controls.isVisible()
-            assert not tile.composer.isVisible()
             assert not tile.stream_badge.isVisible() and not tile.title_badge.isVisible()
             assert not tile.time_badge.isVisible()
             assert tile.video.geometry() == video_geometry
@@ -96,7 +91,6 @@ def main():
             wait(app, lambda: not cursor.hidden)
             assert QApplication.overrideCursor() is None
             assert tile.bottom.isVisible() and tile.controls.isVisible()
-            assert tile.composer.isVisible()
             assert tile.stream_badge.isVisible() and tile.title_badge.isVisible()
             assert tile.time_badge.isVisible()
             assert tile.video.geometry() == video_geometry
@@ -110,12 +104,6 @@ def main():
             wait(app, lambda: not cursor.hidden)
             QTest.qWait(400)
             assert not cursor.hidden, "Controls must keep their cursor"
-
-            tile.composer.edit.setFocus()
-            QCursor.setPos(video_point)
-            QTest.qWait(400)
-            assert not cursor.hidden and tile.composer.isVisible(), "Typing must keep the composer visible"
-            tile.composer.edit.clearFocus()
 
             QCursor.setPos(video_point)
             wait(app, lambda: cursor.hidden)

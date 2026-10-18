@@ -6,7 +6,6 @@ CDN 地址统一从 https 改成 http：随程序打包的 VLC 插件集里没�
 import hashlib
 import json
 import sys
-import threading
 import time
 import urllib.parse
 
@@ -30,11 +29,8 @@ QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("�
 
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
-BILI_JCT = ""
 _UID_CACHE: dict = {"uid": None}
 _WBI_CACHE: dict = {"key": "", "expires": 0.0}
-_BUVID3 = ""
-_BUVID3_LOCK = threading.Lock()
 _WBI_KEY_INDEX = [
     46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
     27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
@@ -42,144 +38,13 @@ _WBI_KEY_INDEX = [
 
 
 def set_sessdata(value: str) -> None:
-    global SESSION_DATA, BILI_JCT
-    if value != SESSION_DATA or not value:
-        BILI_JCT = ""
+    global SESSION_DATA
     SESSION_DATA = value or ""
     _UID_CACHE["uid"] = None          # 换了账号，UID 缓存作废
 
 
 def _cookies() -> dict:
-    if not SESSION_DATA:
-        return {}
-    return {"SESSDATA": SESSION_DATA, **({"bili_jct": BILI_JCT} if BILI_JCT else {})}
-
-
-def set_bili_jct(value: str) -> None:
-    global BILI_JCT
-    BILI_JCT = value or ""
-
-
-def _danmaku_result(response) -> dict:
-    response.raise_for_status()
-    if not 200 <= response.status_code < 300:
-        raise ValueError("B 站接口返回重定向或无效 HTTP 状态，请重新登录后重试")
-    result = response.json()
-    if not isinstance(result, dict) or result.get("code") != 0:
-        message = (result.get("message") or result.get("msg")) if isinstance(result, dict) else ""
-        raise ValueError(message or "B 站接口未返回成功结果")
-    return result
-
-
-def _sending_room_id(room_id: str) -> str:
-    room_id = str(room_id).strip()
-    if not room_id.isascii() or not room_id.isdigit() or int(room_id) <= 0:
-        raise ValueError("需要有效的 B 站直播间号")
-    return _resolve_room_id(room_id)
-
-
-# 自己刚发出的弹幕：接口成功 ≠ 弹幕流里能认出自己，记下文案和时间，
-# 回推到达时认领一次，用来在画面/弹幕列表里高亮。
-_SELF_SENT: list[dict] = []
-_SELF_SENT_LOCK = threading.Lock()
-SELF_SENT_TTL = 45.0
-
-
-def note_self_sent(room_id: str, text: str, uid: str = "") -> None:
-    key = " ".join(str(text).split())
-    if not key:
-        return
-    now = time.monotonic()
-    with _SELF_SENT_LOCK:
-        _SELF_SENT[:] = [item for item in _SELF_SENT if now - item["at"] < SELF_SENT_TTL]
-        _SELF_SENT.append({"at": now, "room": str(room_id or ""), "text": key,
-                           "uid": str(uid or "")})
-
-
-def take_self_sent(room_id: str, text: str, uid: str = "") -> bool:
-    """这条收到的弹幕是不是自己刚发的；命中一次就认领掉，避免重复高亮。"""
-    key = " ".join(str(text).split())
-    if not key:
-        return False
-    now = time.monotonic()
-    room = str(room_id or "")
-    uid = str(uid or "")
-    with _SELF_SENT_LOCK:
-        _SELF_SENT[:] = [item for item in _SELF_SENT if now - item["at"] < SELF_SENT_TTL]
-        # 短号/长号可能对不上：先按房间匹配，匹配不到再退回纯文案匹配。
-        ordered = [index for index, item in enumerate(_SELF_SENT)
-                   if item["text"] == key and room and item["room"] in ("", room)]
-        ordered += [index for index, item in enumerate(_SELF_SENT)
-                    if item["text"] == key and index not in ordered]
-        for index in ordered:
-            item = _SELF_SENT[index]
-            if uid and item["uid"] and item["uid"] != uid:
-                continue          # 同一个文案别人也发了，不是自己那条
-            del _SELF_SENT[index]
-            return True
-    return False
-
-
-def send_danmaku(room_id: str, message: str, *, dm_type: int = 0, cookies=None) -> dict:
-    """发送文字或独立大表情；不重试 POST，避免超时后重复发言。"""
-    if not isinstance(message, str) or not message.strip():
-        raise ValueError("弹幕内容不能为空")
-    if dm_type not in (0, 1):
-        raise ValueError("不支持的弹幕类型")
-    cookies = dict(_cookies() if cookies is None else cookies)
-    if not cookies.get("SESSDATA"):
-        raise ValueError("请先登录 B 站")
-    csrf = cookies.get("bili_jct")
-    if not csrf:
-        raise ValueError("登录缺少 bili_jct，请退出 B 站账号后重新登录")
-    real_id = _sending_room_id(room_id)
-    result = _danmaku_result(requests.post(
-        "https://api.live.bilibili.com/msg/send",
-        data={"roomid": real_id, "msg": message, "dm_type": str(dm_type),
-              "rnd": str(int(time.time())), "fontsize": "25", "color": "16777215",
-              "mode": "1", "bubble": "0", "csrf": csrf, "csrf_token": csrf},
-        headers={**HEADERS, "Origin": "https://live.bilibili.com",
-                 "Referer": f"https://live.bilibili.com/{real_id}"},
-        cookies=cookies, timeout=10, allow_redirects=False))
-    # 有些拒绝（屏蔽、频率限制）仍返回 code=0，不能因此清空草稿。
-    for source in (result, result.get("data") or {}):
-        if isinstance(source, dict):
-            for key in ("message", "msg"):
-                notice = str(source.get(key) or "").strip()
-                if notice and notice != "0":
-                    raise ValueError("弹幕未发送成功" if notice == "f" else notice)
-    note_self_sent(real_id, message, str(_UID_CACHE.get("uid") or ""))
-    return result
-
-
-def _emoticon_buvid3() -> str:
-    """表情接口缺少设备 Cookie 时会静默省略小表情和装扮表情。"""
-    global _BUVID3
-    with _BUVID3_LOCK:
-        if not _BUVID3:
-            result = _danmaku_result(requests.get(
-                "https://api.bilibili.com/x/frontend/finger/spi", headers=HEADERS, timeout=10))
-            value = (result.get("data") or {}).get("b_3")
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError("获取表情所需的 buvid3 失败，请刷新后重试")
-            _BUVID3 = value.strip()
-        return _BUVID3
-
-
-def get_emoticons(room_id: str, *, cookies=None) -> list[dict]:
-    """保留表情包类型、完整标识及逐项权限，交给选择器按类型处理。"""
-    real_id = _sending_room_id(room_id)
-    cookies = dict(_cookies() if cookies is None else cookies)
-    if not cookies.get("buvid3"):
-        cookies["buvid3"] = _emoticon_buvid3()
-    result = _danmaku_result(requests.get(
-        "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
-        params={"platform": "pc", "room_id": real_id}, headers=HEADERS,
-        cookies=cookies, timeout=10))
-    packages = (result.get("data") or {}).get("data")
-    if not isinstance(packages, list):
-        raise ValueError("表情列表格式异常，请重试")
-    return [item for item in packages if isinstance(item, dict)]
+    return {"SESSDATA": SESSION_DATA} if SESSION_DATA else {}
 
 
 def room_info(room_id: str) -> dict | None:

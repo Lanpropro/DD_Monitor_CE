@@ -323,15 +323,6 @@ def is_light():
     return _light
 
 
-def icon_color(button, hover_dark: bool = True) -> QColor:
-    """手绘图标的前景色：平时浅色，悬停时按钮底变主题色，图标反过来用深色。"""
-    if button.underMouse() or button.property("hovered") is True:
-        return QColor("#04161f") if hover_dark else QColor(ACCENT)
-    if _light and button.objectName() in ("ChipButton", "BarIcon", "TileCtrl"):
-        return qcolor(TEXT2)
-    return QColor("#e7ebf0")
-
-
 def overlay_color(dark, light):
     return QColor(light if _light else dark)
 
@@ -1121,92 +1112,6 @@ QPushButton#PrimaryButton:pressed {{
 #TileCtrl[recording="true"] {{
     color: {ERROR};
 }}
-/* 画面弹幕开关：开启状态用右下角的勾表示，不靠整块底色区分（对齐 B 站播放器）。 */
-#TileToggle {{
-    background: rgba(12, 13, 16, 0.78);
-    color: {TEXT2};
-    border: none;
-    border-radius: {TILE_CONTROL_HEIGHT // 2}px;
-    font-size: {FONT_CAPTION}px;
-    font-weight: 600;
-}}
-#TileToggle:hover {{
-    background: {ACCENT};
-    color: #04161f;
-}}
-#TileToggle:checked {{
-    background: rgba(12, 13, 16, 0.78);
-    color: {TEXT2};
-}}
-#TileToggle:checked:hover {{
-    background: {ACCENT};
-    color: #04161f;
-}}
-/* B 站弹幕输入区与表情浮窗：样式走全局表，避免主题切换时逐控件重设局部样式。 */
-#DanmakuComposer {{
-    background: transparent;
-    border: none;
-}}
-#DanmakuComposer QLineEdit {{
-    padding: 3px 6px;
-    font-size: {FONT_CONTROL}px;
-}}
-/* 底栏里的发送按钮和输入框同高，圆角按底栏按钮的高度取半，保持胶囊形。 */
-#DanmakuComposer #PrimaryButton {{
-    min-height: {TILE_CONTROL_HEIGHT}px;
-    max-height: {TILE_CONTROL_HEIGHT}px;
-    border-radius: {TILE_CONTROL_HEIGHT // 2}px;
-    padding: 0 10px;
-    font-size: {FONT_CAPTION}px;
-}}
-#DanmakuSendFeedback {{
-    background: {ELEVATED};
-    color: {TEXT1};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_SM}px;
-    padding: 6px 8px;
-    font-size: {FONT_CAPTION}px;
-}}
-#TileCtrl:disabled {{
-    background: transparent;
-    color: {TEXT4};
-}}
-#TileCtrl:focus {{
-    border: 1px solid {ACCENT};
-}}
-#EmoticonPopup {{
-    background: {ELEVATED};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_SM}px;
-}}
-#EmoticonButton {{
-    border: 1px solid transparent;
-    border-radius: {RADIUS_SM}px;
-    color: {TEXT1};
-    font-size: 11px;
-    padding: 1px;
-}}
-#EmoticonButton:hover, #EmoticonButton:focus {{
-    background: {CONTENT_HOVER};
-    border-color: {ACCENT};
-}}
-#EmoticonButton:disabled {{
-    color: {TEXT3};
-}}
-#EmoticonTab {{
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: {RADIUS_SM}px;
-    padding: 1px;
-}}
-#EmoticonTab:hover {{
-    background: {CONTENT_HOVER};
-    border-color: {BORDER};
-}}
-#EmoticonTab:checked {{
-    background: {ACCENT_SOFT};
-    border-color: {ACCENT};
-}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;
@@ -1484,8 +1389,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #TileBottom #TileCtrl:checked {background: #DDF3FB; color: #007BA8;}
         #TileBottom QLabel {color: #4A5565;}
         #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
-        #TileBottom #TileToggle {background: transparent; color: #4A5565;}
-        #TileBottom #TileToggle:hover {background: #E7EFF7; color: #007BA8;}
         #TilePlaceholder {color: #4A5565;}
         #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
         #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}

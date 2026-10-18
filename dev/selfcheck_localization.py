@@ -6,7 +6,7 @@ import sys
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QContextMenuEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QMenu, QTextBrowser
@@ -104,10 +104,6 @@ def main():
 
     for widget in (adding, importing, recording, danmaku, notice, notes, combo):
         widget.close()
-        widget.deleteLater()
-    # 原生菜单的延迟销毁需要在 QApplication 仍存活时处理，避免解释器退出时竞态。
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    app.processEvents()
     print("PASS: Chinese standard menus across add/import/settings/text/combo/spin controls, actual right-click, copy/paste/undo/redo, shortcuts and read-only behavior")
 
 

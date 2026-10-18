@@ -36,7 +36,6 @@
 - `dev/selfcheck_match_sync_startup_clock.py`
 - `dev/selfcheck_match_sync_tracking.py`
 - `dev/selfcheck_match_sync_volume.py`
-- `docs/pr10-danmaku-testing.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.1.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.2.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.3.md`
@@ -141,8 +140,6 @@
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_button.py`
-- `dev/selfcheck_danmaku_composer.py`
-- `dev/selfcheck_danmaku_send.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`

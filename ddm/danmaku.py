@@ -219,19 +219,10 @@ class _Handler(_HandlerBase):
                 extra = {}
         emotes = extra.get("emots", {}) if isinstance(extra, dict) else {}
         emotes = emotes if isinstance(emotes, dict) else {}
-        uid = str(getattr(message, "uid", "") or "")
-        room_id = str(getattr(client, "room_id", "") or "")
-        # 内置小表情的回推就是「[表情名]」文本；装扮/大表情带 emoticon_unique，
-        # 两个都拿去认领，避免发了表情却认不出自己那条。
-        unique = emoticon.get("emoticon_unique") if isinstance(emoticon, dict) else ""
-        self_sent = bili.take_self_sent(room_id, message.msg, uid)
-        if not self_sent and unique:
-            self_sent = bili.take_self_sent(room_id, str(unique), uid)
         self._emit({
             "kind": "danmaku",
             "uname": message.uname,
             "text": message.msg,
-            "self_sent": self_sent,
             "medal": _medal_info(message),
             "emoticon": emoticon.get("url", "") if isinstance(emoticon, dict) else "",
             "emoticons": {text: item["url"] for text, item in emotes.items()

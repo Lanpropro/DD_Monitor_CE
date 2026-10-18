@@ -2,7 +2,6 @@
 import os
 import sys
 import time
-from unittest.mock import patch
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QCursor, QPixmap
@@ -67,10 +66,7 @@ def main() -> None:
     app.setStyleSheet(theme.qss())
     rooms = [{"room_id": str(1000 + i), "uname": f"主播{i}", "live": False}
              for i in range(6)]
-    with patch.object(app_module.QTimer, "singleShot"):
-        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner",
-                            state={"plugins_enabled": []})
-    window._upgrade_fullscreen_quality = lambda _tile: False
+    window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner")
     window.resize(1400, 900)
     window.show()
     app.processEvents()
