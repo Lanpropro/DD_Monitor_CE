@@ -8,11 +8,10 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["DDM_NO_SAVE"] = "1"
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
-import vlc  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ddm import bili, theme  # noqa: E402
-from ddm.app import MainWindow  # noqa: E402
+from ddm.app import MainWindow
+from ddm.player import TilePlayer  # noqa: E402
 
 
 def wait_for(app, predicate, seconds=40):
@@ -26,16 +25,13 @@ def wait_for(app, predicate, seconds=40):
 
 
 def stats(player):
-    result = vlc.MediaStats()
-    media = player.player.get_media()
-    if media is not None:
-        media.get_stats(result)
-    return result
+    from selfcheck_mpv import progress
+    return progress(player)
 
 
 def relay_stopped(relay):
-    assert relay._process is not None and relay._process.poll() is not None
-    assert not relay._thread.is_alive()
+    if relay is not None:
+        assert not relay._thread.is_alive()
 
 
 def main():
@@ -77,7 +73,7 @@ def main():
         window.start_tile(tile)
         wait_for(app, lambda: tile in window.players and stats(window.players[tile]).displayed_pictures > 30)
         wall_player = window.players[tile]
-        wall_relay = wall_player._relay
+        wall_relay = wall_player._hls_proxy
         wall_starts[:] = [time.monotonic()]  # 连续播放从首帧验收开始；起播时的网络重试单独处理。
         with patch.object(bili, "play_url", side_effect=AssertionError("Plugin preview called Bili")):
             for mode, width, height, card, collapsed in (
@@ -99,14 +95,14 @@ def main():
                 def current_player():
                     return hp._popup_player if popup else item.thumb._player
                 wait_for(app, lambda: current_player() is not None and
-                         current_player()._relay is not None and
                          stats(current_player()).displayed_pictures > 30)
                 player = current_player()
-                relay = player._relay
+                assert isinstance(player, TilePlayer)
+                relay = player._hls_proxy
                 target = hp._popup_video if popup else item.thumb.video
-                assert player.player.get_hwnd() == int(target.winId())
+                assert player._bound_hwnd == int(target.winId())
                 assert player.silent and player.muted and player.volume == 0
-                assert not player._audio_output.enabled and player._audio_output._stream is None
+                assert player._prop("aid") is False or player._prop("aid") == "no"
                 if popup:
                     assert hp._popup.isVisible() and window.rect().contains(hp._popup.geometry())
                     assert not item.thumb.video.isVisible()
@@ -115,13 +111,13 @@ def main():
                 while time.monotonic() < deadline:
                     before = stats(player).displayed_pictures
                     wait_for(app, lambda: stats(player).displayed_pictures > before + 10, 15)
-                    assert player._relay is relay and relay._process.poll() is None
+                    assert not player._released and player._media is not None
                     if collapsed:
                         window.sidebar.resort(animate=False)
                         assert hp._popup.isVisible(), "Status refresh must keep avatar preview"
                 result = stats(player)
                 assert stats(wall_player).displayed_pictures > wall_before + 30
-                assert len(wall_starts) == 1 and wall_player._relay is wall_relay, "Preview must not refresh wall"
+                assert len(wall_starts) == 1 and wall_player._hls_proxy is wall_relay, "Preview must not refresh wall"
                 window.raise_()
                 app.processEvents()
                 bounds = window.frameGeometry()
@@ -142,6 +138,7 @@ def main():
                 else:
                     hp.on_unhover(item.room)
                     wait_for(app, lambda: hp._item is None)
+                assert player._released or player._media is None
                 relay_stopped(relay)
                 print("PASS: wall keeps playing without refresh; leave/rotate/disable cleans up preview", flush=True)
     finally:

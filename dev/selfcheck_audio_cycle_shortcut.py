@@ -205,18 +205,19 @@ def main():
             QTest.keyClick(window.sidebar.search, Qt.Key_E)
             assert window.sidebar.search.text() == 'e'
             assert second.audio_channel == 0, 'typing into search must not trigger the shortcut'
-            # 切换到单声道需要重建音频路由时，沿用原播放器重启路径。
-            second_player.needs_audio_restart.return_value = True
-            window.start_tile.reset_mock()
-            QTest.keyClick(window, Qt.Key_E)
+            # libmpv 原地更新声道滤镜，保留现有播放器。
+            second_player.set_audio_channel.reset_mock()
+            with patch.object(window, "start_tile") as restart:
+                QTest.keyClick(window, Qt.Key_E)
+                restart.assert_not_called()
             assert second.audio_channel == VolumeButton.CHANNEL_LEFT
-            window.start_tile.assert_called_once_with(second)
-            second_player.release.assert_called_once()
+            second_player.set_audio_channel.assert_called_once_with(VolumeButton.CHANNEL_LEFT)
+            second_player.release.assert_not_called()
             first_player.release.assert_not_called()
         finally:
             window.close()
             app.processEvents()
-    print('PASS: hover B/F/M without clicking, combo focus, input/modal/inactive isolation, remapping, E sound cycle and audio restart')
+    print('PASS: hover B/F/M without clicking, combo focus, input/modal/inactive isolation, remapping and E sound cycle without playback restart')
 
 
 if __name__ == '__main__':

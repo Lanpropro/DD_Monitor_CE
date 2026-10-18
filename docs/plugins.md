@@ -158,7 +158,7 @@ class MyPlugin(api.Plugin):
 ### 格子播放与关注卡片
 
 添加时使用平台的 `normalize` 标准化输入，后台 `room_info` 构建关注卡片。
-卡片拖入画面墙或右键“加入画面墙”后，后台 `play_url` 的结果交给现有 VLC
+卡片拖入画面墙或右键“加入画面墙”后，后台 `play_url` 的结果交给 libmpv
 格子播放；请求头随流地址传给播放器。可选 `room_quality_options` 返回
 `[{"qn": 10000, "desc": "原画"}]`，未实现时沿用原有菜单。
 

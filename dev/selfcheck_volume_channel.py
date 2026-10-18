@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -109,13 +109,14 @@ def main() -> None:
     settle(app, 1.2)
     tile = window.wall.tiles[0]
     menu = tile.build_menu()
-    audio_action = next((a for a in menu.actions() if "声道" in a.text()), None)
+    actions = menu.actions()
+    audio_action = next((a for a in actions if "声道" in a.text()), None)
     audio_menu = audio_action.menu() if audio_action is not None else None
     assert audio_menu is not None, "右键菜单里应该有「声道」子菜单"
     entries = [a.text() for a in audio_menu.actions()]
     print(f"  声道菜单: {entries}")
     assert entries == ["默认（跟随片源）", "只播左声道", "只播右声道",
-                       "反向立体声", "杜比音效"], entries
+                       "反向立体声", "杜比矩阵下混（多声道源）"], entries
 
     print("\n=== 4. 切声道写回格子，并在播放中重新下发 ===")
     class StubPlayer:
@@ -137,6 +138,9 @@ def main() -> None:
         def reapply_audio_channel(self):
             self.calls.append(("reapply",))
 
+        def sync_audio(self, *_args):
+            pass
+
     stub = StubPlayer()
     window.players[tile] = stub
     tile.set_muted(True)
@@ -154,107 +158,6 @@ def main() -> None:
     assert ("set", VolumeButton.CHANNEL_LEFT) in stub.calls, "要把声道下发给播放器"
     assert ("reapply",) in stub.calls, \
         "设置之后还要再下发一次（play() 之前的设置会被音频输出模块初始化冲掉）"
-
-    print("\n=== 4b. 原生输出与左右路由之间切换要安全重启该格 ===")
-    stopped = []
-    restarted = []
-    original_stop = window._stop_tile  # noqa: SLF001
-    original_start = window.start_tile
-    window._stop_tile = lambda item: stopped.append(item)  # noqa: SLF001
-    window.start_tile = lambda item: restarted.append(item)
-    stub.restart = True
-    stub.calls.clear()
-    tile.set_audio_channel(0)
-    settle(app, 0.2)
-    print(f"  停止={len(stopped)} 重启={len(restarted)} 旧播放器调用={stub.calls}")
-    assert stopped == [tile] and restarted == [tile], \
-        "切换音频输出路径时必须重建该格播放器"
-    assert stub.calls == [], "不能在运行中的旧播放器上硬换 audio callbacks"
-    window._stop_tile = original_stop  # noqa: SLF001
-    window.start_tile = original_start
-    del window.players[tile]
-
-    print("\n=== 4c. 音频输出起来之后再补一次静音/音量（预览会出声的那个坑）===")
-    from ddm.player import SILENT_VOLUME, TilePlayer
-
-    class FakeVlc:
-        """替身播放器：只回答「音频输出起来没有」，并记录静音/音量下发。"""
-
-        def __init__(self, tracks: int = 0):
-            self.calls: list = []
-            self.tracks = tracks
-
-        def audio_get_track_count(self):
-            return self.tracks
-
-        def audio_set_mute(self, muted):
-            self.calls.append(("mute", bool(muted)))
-
-        def audio_set_volume(self, volume):
-            self.calls.append(("volume", int(volume)))
-
-        def audio_set_callbacks(self, *_args):
-            pass                    # play() 现在会装 PCM 回调，假播放器收下就行
-
-        def audio_set_format(self, *_args):
-            pass
-
-        def set_hwnd(self, _hwnd):
-            pass
-
-        def set_media(self, _media):
-            pass
-
-        def play(self):
-            pass
-
-    holder = TilePlayer(QWidget())
-    real_player = holder.player
-    fake = FakeVlc(tracks=0)
-    holder.player = fake
-    holder.set_muted(True)          # 预览：永远静音
-    holder.set_volume(0)
-    fake.calls.clear()
-    holder._audio_ready = False      # noqa: SLF001
-    holder._ensure_audio_settings()  # noqa: SLF001
-    print(f"  aout 还没起来：{fake.calls}（应该什么都不下发）")
-    assert fake.calls == [] and holder._audio_ready is False      # noqa: SLF001
-
-    fake.tracks = 2                  # 音轨出来了 = aout 建好了
-    holder._ensure_audio_settings()  # noqa: SLF001
-    print(f"  aout 起来之后：{fake.calls}")
-    assert ("volume", SILENT_VOLUME) in fake.calls, \
-        "aout 起来之后要补静音音量（静音走音量 1，不再用 audio_set_mute）"
-    assert holder._audio_ready is True                            # noqa: SLF001
-
-    fake.calls.clear()
-    holder._ensure_audio_settings()  # noqa: SLF001
-    print(f"  再补一次：{fake.calls}（每次播放只补一次，不刷调用）")
-    assert fake.calls == []
-
-    print("\n=== 4d. 静音只压音量，不许碰 audio_set_mute ===")
-    holder.set_volume(42)
-    fake.calls.clear()
-    holder.set_muted(True)
-    print(f"  静音时下发：{fake.calls}")
-    assert ("volume", SILENT_VOLUME) in fake.calls, \
-        "静音要把音量压到听不见的那一档（1）；audio_set_mute 在个别机器上不生效"
-    assert ("mute", True) not in fake.calls, \
-        ("不许再调 audio_set_mute：aout 重建之后它会落到共享 aout 上，"
-         "把别的格子一起带静音（录制锁原画重启那一格就是这么把邻居弄坏的）")
-    fake.calls.clear()
-    holder.set_muted(False)
-    print(f"  取消静音：{fake.calls}")
-    assert ("volume", 75) in fake.calls, \
-        "取消静音要把用户音量恢复回去（42 先立方根成 75 抵消 VLC 三次方）"
-
-    holder.play("https://example.invalid/x.flv")     # 重新播放要重新补
-    print(f"  play() 之后：_audio_ready={holder._audio_ready}")    # noqa: SLF001
-    assert holder._audio_ready is False                            # noqa: SLF001
-    holder._watch.stop()             # noqa: SLF001
-    holder._picture_watch.stop()     # noqa: SLF001
-    holder.player = real_player
-    holder.release()
 
     print("\n=== 5. 声道随配置保存 / 恢复 ===")
     state = {"version": 1, "rooms": ["7001"], "wall": [

@@ -55,7 +55,7 @@ def main():
         window.players[tile] = player
         player.play(video)
         try:
-            wait(app, lambda: player.player.get_time() > 0)
+            wait(app, lambda: (player._prop("time-pos", 0) * 1000) > 0)
             tile.room.update(live=True, live_start_ts=int(time.time()) - 60)
             tile.start_elapsed_timer()
             window._on_fullscreen(tile)

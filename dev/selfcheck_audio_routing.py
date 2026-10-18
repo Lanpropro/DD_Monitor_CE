@@ -1,192 +1,77 @@
-"""声道路由自检：验证完整混音只进入指定的物理输出侧。"""
-import ctypes
+"""通过实际 PCM 样本验收 libmpv 音量、静音和左右路由。"""
+import argparse
+import json
 import os
-import struct
+import shutil
+import subprocess
 import sys
 import tempfile
-import time
-import wave
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from ddm.audio_output import (
-    CHANNEL_LEFT, CHANNEL_RIGHT, StereoOutput, apply_volume_s16_stereo,
-    linear_to_vlc_volume, route_pcm_s16_stereo,
-    vlc_channel_for,
-)
-
-
-def samples(data):
-    return struct.unpack("<" + "h" * (len(data) // 2), data)
-
-
-source = struct.pack("<hhhhhh", 1000, 3000, -3000, 1000, 32767, 32767)
-assert route_pcm_s16_stereo(source, 0) == source
-assert samples(route_pcm_s16_stereo(source, CHANNEL_LEFT)) == (
-    2000, 0, -1000, 0, 32767, 0,
-)
-assert samples(route_pcm_s16_stereo(source, CHANNEL_RIGHT)) == (
-    0, 2000, 0, -1000, 0, 32767,
-)
-assert samples(apply_volume_s16_stereo(source, 50)) == (
-    500, 1500, -1500, 500, 16383, 16383,
-)
-assert apply_volume_s16_stereo(source, 100) == source
-assert samples(apply_volume_s16_stereo(source, 0)) == (0, 0, 0, 0, 0, 0)
-assert vlc_channel_for(CHANNEL_LEFT) == 1
-assert vlc_channel_for(CHANNEL_RIGHT) == 1
-assert vlc_channel_for(2) == 2
-
-# 原生路径：滑块值先立方根，抵消 VLC 内部的三次方，最终才是线性音量
-assert linear_to_vlc_volume(0) == 0
-assert linear_to_vlc_volume(100) == 100
-assert linear_to_vlc_volume(42) == 75
-assert linear_to_vlc_volume(50) == 79
-assert linear_to_vlc_volume(80) == 93
-# 往返校验：立方根值交回 VLC 三次方，应还原成「滑块值 / 100」
-for value in range(101):
-    restored = (linear_to_vlc_volume(value) / 100) ** 3
-    assert abs(restored - value / 100) < 0.02, (value, restored)
-
-try:
-    route_pcm_s16_stereo(b"\0", CHANNEL_LEFT)
-except ValueError:
-    pass
-else:
-    raise AssertionError("不完整 PCM 帧应被拒绝")
-
-
-class FakeStream:
-    def __init__(self):
-        self.active = False
-        self.writes = []
-        self.starts = 0
-        self.aborts = 0
-        self.closed = False
-
-    def start(self):
-        self.active = True
-        self.starts += 1
-
-    def write(self, data):
-        self.writes.append(bytes(data))
-
-    def stop(self):
-        self.active = False
-
-    def abort(self):
-        self.active = False
-        self.aborts += 1
-
-    def close(self):
-        self.closed = True
-
-
-created = []
-
-
-def factory():
-    stream = FakeStream()
-    created.append(stream)
-    return stream
-
-
-output = StereoOutput(factory)
-buffer = ctypes.create_string_buffer(source)
-output.write(ctypes.addressof(buffer), 3)
-assert created == [], "静音状态不应打开音频设备"
-
-output.set_channel(CHANNEL_LEFT)
-output.set_enabled(True)
-output.write(ctypes.addressof(buffer), 3)
-assert len(created) == 1 and created[0].active
-assert samples(created[0].writes[-1]) == (2000, 0, -1000, 0, 32767, 0)
-
-output.set_channel(CHANNEL_RIGHT)
-output.write(ctypes.addressof(buffer), 3)
-assert samples(created[0].writes[-1]) == (0, 2000, 0, -1000, 0, 32767)
-
-output.set_volume(50)
-output.write(ctypes.addressof(buffer), 3)
-assert samples(created[0].writes[-1]) == (0, 1000, 0, -500, 0, 16383), \
-    "PCM 路由必须和原生输出一样是线性音量（50% = 一半）"
-
-output.set_enabled(False)
-assert created[0].aborts == 1
-output.close()
-assert created[0].closed
-
-
-# 再经过一次真实 libVLC 解码，防止只测到纯函数、却接错 C 回调签名。
-class CallbackOutput:
-    def __init__(self):
-        self.channel = 0
-        self.enabled = False
-        self.counts = []
-
-    def set_channel(self, channel):
-        self.channel = channel
-
-    def set_enabled(self, enabled):
-        self.enabled = enabled
-
-    def set_volume(self, volume):
-        self.volume = volume
-
-    def write(self, _samples, count):
-        if self.enabled:
-            self.counts.append(count)
-
-    def pause(self):
-        pass
-
-    def resume(self):
-        pass
-
-    def flush(self):
-        pass
-
-    def drain(self):
-        pass
-
-    def close(self):
-        pass
-
-
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+import numpy as np
 from PySide6.QtWidgets import QApplication, QWidget
-import ddm.player as player_module
 
-original_output = player_module.StereoOutput
-callback_output = CallbackOutput()
-player_module.StereoOutput = lambda: callback_output
-audio_path = os.path.join(tempfile.gettempdir(), "ddm_audio_callback_test.wav")
-try:
-    with wave.open(audio_path, "wb") as audio:
-        audio.setparams((2, 2, 48_000, 0, "NONE", "not compressed"))
-        audio.writeframes(struct.pack("<hh", 1200, -1200) * 4_800)
-    app = QApplication.instance() or QApplication([])
-    player = player_module.TilePlayer(QWidget())
-    assert not player.uses_pcm_routing, "默认声道必须继续走 VLC 原生音频输出"
-    player.set_audio_channel(CHANNEL_LEFT)
-    assert player.uses_pcm_routing, "只有只播左/右时才启用 PCM 路由"
-    player.set_volume(40)
-    player.set_muted(False)
-    player.player.set_media(player._instance.media_new_path(audio_path))
-    player.player.play()
-    deadline = time.time() + 3
-    while not callback_output.counts and time.time() < deadline:
-        app.processEvents()
-        time.sleep(0.02)
-    assert callback_output.counts, "libVLC 没有把解码后的 PCM 送进格子输出"
-    assert callback_output.channel == CHANNEL_LEFT and callback_output.enabled
-    assert callback_output.volume == 40
-    player.release()
-finally:
-    player_module.StereoOutput = original_output
-    try:
-        os.remove(audio_path)
-    except OSError:
-        pass
+from ddm.player import EMBEDDED_OPTIONS, TilePlayer, mpv
 
-print("OK: 每格音频可将完整立体声混音独立定位到左输出或右输出")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    ffmpeg = shutil.which("ffmpeg")
+    assert ffmpeg, "FFmpeg must be on PATH for PCM verification"
+    app = QApplication([])
+    widget = QWidget()
+    records = []
+    with tempfile.TemporaryDirectory(prefix="ddm-mpv-audio-") as temporary:
+        root = Path(temporary)
+        source = root / "source.wav"
+        subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i",
+            "aevalsrc=0.1*sin(2*PI*440*t)|0.15*sin(2*PI*880*t):s=48000:d=2",
+            str(source)], check=True, capture_output=True)
+        for name, volume, muted, channel in (("stereo", 100, False, 0),
+                ("left", 100, False, 3), ("right", 100, False, 4),
+                ("reverse", 100, False, 2), ("half", 50, False, 0),
+                ("muted", 100, True, 0), ("zero", 0, False, 0),
+                ("dolby-downmix", 100, False, 5)):
+            output = root / (name + ".wav")
+            player = TilePlayer(widget)
+            player.player = mpv.MPV(vo="null", vid="no", ao="pcm", ao_pcm_file=str(output),
+                audio_format="s16", audio_samplerate=48000, audio_channels="stereo", **EMBEDDED_OPTIONS)
+            try:
+                player.set_volume(volume)
+                player.set_muted(muted)
+                player.set_audio_channel(channel)
+                with player.player.prepare_and_wait_for_event("end-file", timeout=15):
+                    player.player.play(str(source))
+            finally:
+                player.release()
+            raw = subprocess.check_output([ffmpeg, "-v", "error", "-i", str(output),
+                "-f", "f32le", "-ac", "2", "-"], timeout=10)
+            pcm = np.frombuffer(raw, dtype="<f4").reshape(-1, 2)[4800:-4800]
+            assert len(pcm) > 48000
+            rms = np.sqrt(np.mean(pcm.astype(np.float64) ** 2, axis=0))
+            if name == "stereo":
+                reference = rms
+            if name == "left":
+                assert rms[0] > 0.02 and rms[1] < 1e-6
+            if name == "right":
+                assert rms[1] > 0.02 and rms[0] < 1e-6
+            if name == "reverse":
+                assert np.max(np.abs(rms - reference[::-1])) < 0.001
+            if name == "half":
+                assert np.max(np.abs(rms / reference - 0.5)) < 0.005
+            if name in ("muted", "zero"):
+                assert max(rms) < 1e-6
+            records.append({"case": name, "rms": rms.tolist(), "pass": True})
+            print(name, "PASS", flush=True)
+    if args.output:
+        args.output.write_text(json.dumps(records, indent=2), encoding="utf-8")
+    widget.close()
+    app.processEvents()
+
+
+if __name__ == "__main__":
+    main()

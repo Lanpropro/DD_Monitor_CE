@@ -141,36 +141,17 @@ def main() -> None:
     assert [tp._check_picture(True) for _ in range(6)] == [False] * 6
     print("  关掉检测后不再判定")
 
-    from ddm import player as player_module
-    class RecoveringVlc:
-        state = player_module.vlc.State.Error
-        time = 0
-
-        def get_state(self):
-            return self.state
-
-        def video_get_size(self, _track):
-            return (1280, 720)
-
-        def get_time(self):
-            return self.time
-
-    native_player = tp.player
-    fake_player = RecoveringVlc()
-    tp.player = fake_player
-    tp._ensure_audio_settings = lambda: None
+    tp._media = "test"
     tp._stall_ticks = 5
-    tp._watch.start()
-    tp._check()
-    assert tp.state == "error" and tp._watch.isActive(), \
-        "等待重连期间必须继续检测播放是否自行恢复"
-    fake_player.state = player_module.vlc.State.Playing
-    fake_player.time = 100
-    tp._check()
-    assert tp.state == "playing", "自行恢复后应撤销错误状态"
-    tp._watch.stop()
-    tp.player = native_player
-
+    with mock.patch.object(tp, "_prop", side_effect=lambda key, default=None:
+                           {"idle-active": True}.get(key, default)):
+        tp._check()
+    assert tp.state == "error"
+    with mock.patch.object(tp, "_prop", side_effect=lambda key, default=None:
+                           {"time-pos": 10.0, "vo-configured": True}.get(key, default)):
+        tp._check()
+    assert tp.state == "playing"
+    tp._media = None
     print("  指纹来源：VLC 解码计数，不再截图（用户机器上就是崩在截图那条路上）")
     assert not hasattr(tp, "_shot_path"), "不该再往临时目录写截图"
     del tp._picture_signature            # 把上面打桩的 lambda 摘掉，看真实现
@@ -290,7 +271,9 @@ def main() -> None:
     player_b = TilePlayer(second.video, window)
     for tile, player in ((first, player_a), (second, player_b)):
         window.players[tile] = player
-        player.bind()
+        from ddm import player as player_module
+        with mock.patch.object(player_module.mpv, "MPV"):
+            player.bind()
         player.actual_quality = 400
         player.stream_url = f"https://example.invalid/{tile.room['room_id']}.flv"
         player.stream_profile = "app"
@@ -463,7 +446,7 @@ def main() -> None:
     global_keys = {key for key in config_module.DEFAULT_SETTINGS if not key.startswith("video_danmaku_")}
     # PartSettings persists artwork independently; saving the outer settings
     # must not replace those edits with an older copy.
-    assert set(defaults) == (global_keys - {"danmaku_retention_version", "skin_parts"}) | {"seen_update_versions"}, \
+    assert set(defaults) == (global_keys - {"danmaku_retention_version", "skin_parts", "skin_package_owner"}) | {"seen_update_versions"}, \
         "全局设置应保留常规选项，画面弹幕观看参数由格子右下角调整"
     assert "auto_reconnect" not in defaults and "auto_reconnect" not in general._checks
     for key, value in window.settings.items():
@@ -508,24 +491,30 @@ def main() -> None:
     window.settings.update(changed)
     window.state["settings"] = dict(window.settings)
     assert window.poll_interval_ms() == 5 * 60_000
-    from ddm.player import DECODE_MODES, PlayerPool
-    assert [general.decode_mode.itemData(i) for i in range(general.decode_mode.count())] == [
+    from ddm.dialogs import CodecSettingsPanel
+    from ddm.player import DECODE_MODES, decode_media_options
+    codecs = CodecSettingsPanel(general.values())
+    assert [codecs.decode_mode.itemData(i) for i in range(codecs.decode_mode.count())] == [
         value for _label, value in DECODE_MODES]
-    for mode, options in (("auto", ()), ("d3d11va", (":avcodec-hw=d3d11va",)),
-                          ("dxva2", (":avcodec-hw=dxva2",)),
-                          ("none", (":avcodec-hw=none",))):
+    # 选项文案要说清「谁在解码」（显卡 / CPU），不能只甩 D3D11VA / DXVA2 这种接口名：
+    # 用户看不懂接口名，也不知道选了会动到哪儿。
+    decode_labels = {value: label for label, value in DECODE_MODES}
+    for value, label in decode_labels.items():
+        assert "解码" in label or "硬解" in label, f"{value} 的文案不清楚：{label!r}"
+    assert "推荐" in decode_labels["auto"]
+    assert "显卡" in decode_labels["d3d11va"] and "显卡" in decode_labels["dxva2"]
+    assert "CPU" in decode_labels["none"], "软件解码要写明用的是 CPU"
+    print(f"  解码方式文案={list(decode_labels.values())}")
+    for _label, mode in DECODE_MODES:
         window.settings["decode_mode"] = mode
-        assert window.media_options() == options, f"{mode} 没有正确下发给 VLC"
+        assert window.media_options() == decode_media_options(mode)
     assert defaults["decode_mode"] == "auto"
     window.settings["decode_mode"] = "auto"
     legacy = MainWindow([], [], state={"settings": {"hw_decode": False}})
     assert legacy.settings["decode_mode"] == "none" and "hw_decode" not in legacy.settings, \
         "旧配置关闭硬解时应保留软件解码选择"
     legacy.close()
-    print(f"  libvlc 预热：同一个实例={PlayerPool.instance() is PlayerPool.instance()}"
-          f" 版本={TilePlayer.vlc_version()!r}")
-    assert PlayerPool.instance() is PlayerPool.instance(), "预热和正常取用必须是同一个实例"
-    assert TilePlayer.vlc_version() not in ("", "?"), "要能读出版本号，日志里好对齐"
+    assert TilePlayer.backend_version().startswith("mpv ")
     print("  画面墙的播放器不是 silent（只有预览才是）：")
     plain = TilePlayer(QWidget())
     print(f"    silent={plain.silent} muted={plain.muted} volume={plain.volume}")
@@ -554,11 +543,15 @@ def main() -> None:
         failed = Signal(str, str)
         finished = Signal()
 
-        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None):
+        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None,
+                     codec="avc", strict_codec=False):
             super().__init__(parent)
             self.room_id = room_id
             self.headers = {}
             self.source_offset = source_offset
+            self.codec = codec
+            self.strict_codec = strict_codec
+            self.codec_unavailable = False
             self.cancelled = False
 
         def start(self):
@@ -700,8 +693,13 @@ def main() -> None:
     sidebar.set_sort_mode("live", notify=False)
     visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
     with mock.patch.object(config_module, "save") as persist:
-        folder_menu = next(action.menu() for action in sidebar.sort_button.menu().actions()
-                           if action.text() == "未分类")
+        # 顶层菜单和那一项都要留住引用：PySide6 给 QAction.menu() 发的包装对象
+        # 会在中途回收，只存子菜单的话 gc 一跑就成了「C++ object already deleted」，
+        # 底层 QMenu 其实还活着。测试里要保持这整条链。
+        sort_menu = sidebar.sort_button.menu()
+        folder_action = next(action for action in sort_menu.actions()
+                             if action.text() == "未分类")
+        folder_menu = folder_action.menu()
         freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")
         freeze.trigger()

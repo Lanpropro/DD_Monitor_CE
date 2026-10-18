@@ -7,17 +7,26 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QAbstractAnimation, QPoint, Qt
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import app as app_module, theme
 from ddm.dialogs import GeneralSettingsPage
+from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
 def main():
     app = QApplication([])
+    badge = TimeBadge()
+    refreshed = []
+    badge.refresh_theme = lambda: refreshed.append(True)
+    badge.event(QEvent(QEvent.Type.Show))
+    badge.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+    assert not refreshed, 'Destroyed badges must cancel queued theme refreshes'
     app_module.StatusPoller = app_module.StatsPoller = SilentPoller
     room = {'room_id': '1000', 'uname': 'Fixture', 'live': False}
     with patch('ddm.app.QTimer.singleShot'):

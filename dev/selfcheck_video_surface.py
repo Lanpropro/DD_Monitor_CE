@@ -1,4 +1,4 @@
-"""Windows VLC 原生画面圆角、DPI 边界、重建与各平台全屏闲置回归。"""
+"""Windows libmpv 原生画面圆角、DPI 边界、重建与各平台全屏闲置回归。"""
 import argparse
 import ctypes
 from ctypes import wintypes
@@ -53,7 +53,7 @@ def check_regions(tile):
     def inspect(hwnd, _unused):
         name = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, name, len(name))
-        if hwnd != root and not name.value.startswith('VLC video'):
+        if hwnd != root and not name.value.lower().startswith('mpv'):
             return True
         region = gdi32.CreateRectRgn(0, 0, 0, 0)
         try:
@@ -76,7 +76,7 @@ def check_regions(tile):
     inspect(root, 0)
     user32.EnumChildWindows(root, callback_type(inspect), 0)
     check_regions.last = (children, errors)
-    return len(children) >= 2 and not errors
+    return len(children) >= 1 and not errors
 
 
 def check_controls(tile):
@@ -107,12 +107,12 @@ def reset_output_regions(tile):
     def clear(hwnd, _unused):
         name = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, name, len(name))
-        if name.value.startswith('VLC video'):
+        if name.value.lower().startswith('mpv'):
             assert user32.SetWindowRgn(hwnd, None, False)
             reset.append(hwnd)
         return True
     user32.EnumChildWindows(int(tile.video.winId()), callback_type(clear), 0)
-    assert reset, 'Test must reset real VLC output windows'
+    assert reset, 'Test must reset real libmpv output windows'
 
 
 def check_danmaku_region(tile):
@@ -177,7 +177,7 @@ def check_pixels(tile):
                  (image.width() - 1, image.height() - 1)):
         pixel = image.pixelColor(x, y)
         assert (pixel.blue() > 180 and pixel.red() < 80) == bool(
-            tile.property('fullscreen')), 'VLC corner does not match fullscreen state'
+            tile.property('fullscreen')), 'libmpv corner does not match fullscreen state'
     return True
 
 
@@ -210,7 +210,7 @@ def main():
             for platform in ('bilibili', 'douyu', 'huya', 'douyin', 'twitch', 'youtube'):
                 room = {'room_id': '1000' if platform == 'bilibili' else platform + ':1000',
                         'platform': platform, 'uname': 'Surface test', 'live': False}
-                with patch('ddm.app.QTimer.singleShot'):
+                with patch('ddm.app.QTimer.singleShot'), patch.object(MainWindow, '_sync_platform_rooms'):
                     window = MainWindow([room], [dict(room)], layout_id='1x1', state={'plugins_enabled': ['domestic_live', 'global_live'], 'settings': {'auto_update': False}})
                 window._upgrade_fullscreen_quality = lambda _tile: False
                 window.sync_danmaku = lambda: None
@@ -248,9 +248,9 @@ def main():
                 cursor.IDLE_SECONDS = .25
                 try:
                     try:
-                        wait(app, lambda: player.player.get_time() > 0 and check_regions(tile))
+                        wait(app, lambda: (player._prop("time-pos", 0) * 1000) > 0 and check_regions(tile))
                     except AssertionError:
-                        print('RENDER_STATE', platform, str(player.player.get_state()), player.player.get_time(), getattr(check_regions, 'last', None))
+                        print('RENDER_STATE', platform, str(player.state), (player._prop("time-pos", 0) * 1000), getattr(check_regions, 'last', None))
                         raise
                     reset_output_regions(tile)
                     wait(app, lambda: check_regions(tile))
@@ -318,7 +318,7 @@ def main():
                     window._exit_fullscreen()
                     window._clear_fullscreen_cover()
                     player.play(source, profile='web' if platform == 'bilibili' else platform)
-                    wait(app, lambda: player.player.get_time() > 0 and check_regions(tile))
+                    wait(app, lambda: (player._prop("time-pos", 0) * 1000) > 0 and check_regions(tile))
                     check_danmaku_region(tile)
                     tile.set_controls_visible(False)
                     if not args.background:
@@ -336,4 +336,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    from dev.selfcheck_mpv import mta_lifetime
+    with mta_lifetime():
+        try:
+            main()
+        finally:
+            app = QApplication.instance()
+            if app is not None:
+                app.shutdown()

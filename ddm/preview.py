@@ -22,16 +22,7 @@ PREVIEW_HEIGHT = NavThumb.HEIGHT
 #: 竖屏时向下弹出，跟卡片底边留一点缝
 PREVIEW_GAP = 6
 
-#: 预览专用的 media 选项。预览是**静音的小画面**，两样都不需要：
-#:   :no-audio        —— 干脆别建音频输出。省掉第二个 WASAPI/mmdevice 输出，
-#:                       也就没有「两个播放器抢音频设备」这种卡死的机会。
-#:   :avcodec-hw=none —— 走软解。缩略图只有两百来像素宽，软解毫无压力，
-#:                       却少了一个和画面墙那一路抢 D3D11 解码器的实例
-#:                       （用户机器上正好卡死在「预览开始播」这一步：
-#:                        Windows 26200 + NVIDIA 616.64）。
-#: 注意这只是第二道保险：预览播放器本身用的是 PlayerPool.preview_instance()
-#: ——一个专门用 --aout=adummy / --no-audio 建出来的 libvlc 实例，见 ddm/player.py。
-PREVIEW_MEDIA_OPTIONS = (":no-audio", ":avcodec-hw=none")
+PREVIEW_MEDIA_OPTIONS = ("audio=no", "hwdec=no")
 
 
 class HoverPreview(QObject):
