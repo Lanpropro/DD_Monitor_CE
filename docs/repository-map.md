@@ -165,6 +165,7 @@
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
+- `dev/selfcheck_emoticon_tabs.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
 - `dev/selfcheck_folder_blank_menu.py`
