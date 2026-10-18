@@ -450,17 +450,18 @@ class ComposerTests(unittest.TestCase):
     def test_fullscreen_idle_hides_composer_without_resizing_video(self):
         from ddm.widgets import Tile
         tile = Tile({"room_id": "101", "uname": "B站"})
+        tile.setProperty("fullscreen", True)
         tile.resize(500, 350)
         tile.show()
         APP.processEvents()
         initial = tile.video.geometry()
         try:
             tile.set_fullscreen_controls_hidden(True)
-            APP.processEvents()
+            settle(lambda: not tile.composer.isVisible())
             self.assertFalse(tile.composer.isVisible())
             self.assertEqual(tile.video.geometry(), initial)
             tile.set_fullscreen_controls_hidden(False)
-            APP.processEvents()
+            settle(lambda: tile.composer.isVisible())
             self.assertTrue(tile.composer.isVisible())
             self.assertEqual(tile.video.geometry(), initial)
         finally:
