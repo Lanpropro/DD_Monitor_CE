@@ -115,10 +115,10 @@ class SendingTests(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["cookies"]["SESSDATA"], "old")
         self.assertEqual(post.call_args.kwargs["data"]["csrf"], "old-csrf")
 
-    def test_emoticon_catalog_preserves_package_type_and_permissions(self):
+    def test_emoticon_catalog_preserves_package_type_cover_and_permissions(self):
         packages = [{"pkg_type": 3, "pkg_name": "小表情", "emoticons": [
             {"emoji": "[doge]", "perm": 1, "emoticon_unique": "emoji_1"}]},
-            {"pkg_type": 2, "pkg_name": "主播", "emoticons": [
+            {"pkg_type": 2, "pkg_name": "主播", "current_cover": "https://example.invalid/cover.png", "emoticons": [
                 {"emoji": "好", "perm": 0, "emoticon_unique": "room_90001_77"}]}]
         with patch.object(bili.requests, "get", return_value=Mock(status_code=200,
                 json=lambda: {"code": 0, "data": {"data": packages}})) as get:
