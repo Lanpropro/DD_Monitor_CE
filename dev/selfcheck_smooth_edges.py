@@ -1,19 +1,18 @@
-"""Rounded selection cutouts and native loading pills retain subpixel alpha."""
+"""Corner selection markers and native loading pills render correctly."""
 import os
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
-from ddm.widgets import LoadingIndicator, NavSelectionCheck, SelectionNotchEffect
+from ddm.widgets import LoadingIndicator, NavSelectionCheck
 
 APP = QApplication.instance() or QApplication([])
 
@@ -26,7 +25,7 @@ def canvas(width, height, scale):
 
 
 class SmoothEdges(unittest.TestCase):
-    def test_selected_card_marker_is_a_filled_ball_and_unselected_is_empty(self):
+    def test_corner_marker_has_an_empty_ring_and_fills_when_selected(self):
         marker = NavSelectionCheck()
         marker.resize(28, 28)
         try:
@@ -38,40 +37,17 @@ class SmoothEdges(unittest.TestCase):
                 selected = marker.grab().toImage()
                 scale = selected.devicePixelRatio()
                 accent = theme.qcolor(theme.ACCENT)
+                self.assertNotEqual(empty.pixelColor(round(14 * scale), round(14 * scale)), accent)
+                rim = empty.pixelColor(round(14 * scale), round(4 * scale))
+                self.assertGreater(rim.red(), 200)
                 for x, y in ((14, 14), (14, 9), (14, 18), (9, 14), (18, 14)):
                     self.assertEqual(selected.pixelColor(round(x * scale), round(y * scale)), accent)
-                for x, y in ((2, 2), (8, 8), (20, 20)):
+                for x, y in ((2, 2), (0, 0), (27, 27)):
                     self.assertEqual(selected.pixelColor(round(x * scale), round(y * scale)),
                                      empty.pixelColor(round(x * scale), round(y * scale)))
         finally:
             marker.deleteLater()
             theme.apply('dark')
-
-    def test_selection_notch_is_circular_and_has_fractional_alpha_at_each_scale(self):
-        card = QWidget()
-        card.resize(200, 100)
-        effect = SelectionNotchEffect(card)
-        try:
-            for scale in (1, 1.25, 1.75, 2):
-                with self.subTest(scale=scale):
-                    source = canvas(200, 100, scale)
-                    source.fill(Qt.red)
-                    output = canvas(200, 100, scale)
-                    with patch.object(effect, 'sourcePixmap', return_value=QPixmap.fromImage(source)):
-                        painter = QPainter(output)
-                        effect.draw(painter)
-                        painter.end()
-                    self.assertEqual(output.pixelColor(round(188 * scale), round(50 * scale)).alpha(), 0)
-                    self.assertEqual(output.pixelColor(round(167 * scale), round(50 * scale)).alpha(), 255)
-                    fringe = [output.pixelColor(x, y).alpha()
-                              for y in range(round(31 * scale), round(69 * scale))
-                              for x in range(round(169 * scale), output.width())]
-                    self.assertGreater(sum(0 < alpha < 255 for alpha in fringe), 15)
-                    # Three radial samples inside the circle must all be transparent.
-                    for x, y in ((188, 34), (172, 50), (188, 66)):
-                        self.assertEqual(output.pixelColor(round(x * scale), round(y * scale)).alpha(), 0)
-        finally:
-            card.deleteLater()
 
     def test_loading_and_refresh_pills_have_smooth_caps_in_both_themes(self):
         try:

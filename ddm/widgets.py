@@ -11,12 +11,12 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QImage, QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
+    QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
     QShortcut, QTextDocument,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QGraphicsEffect, QGridLayout, QHBoxLayout, QLabel,
+    QFrame, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
     QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
@@ -1773,6 +1773,9 @@ class NavThumb(QFrame):
         if self._overlay_widgets is None:
             return
         name, title, badge, platform = self._overlay_widgets
+        card = self.parentWidget()
+        if hasattr(card, '_layout_selection_marker'):
+            card._layout_selection_marker()
         compact = self._compact_thumb()
         parent = self.face if compact else self
         if platform.parentWidget() is not parent:
@@ -1790,6 +1793,8 @@ class NavThumb(QFrame):
         platform.move(8 if self._card_mode and not self._portrait_strip else
                       max(4, width - platform.width() - 8),
                       height - 24 if self._card_mode and not self._portrait_strip else 4)
+        if getattr(card, 'select_mode', False) and (not self._card_mode or self._portrait_strip):
+            platform.move(max(4, platform.x() - 28), platform.y())
         if self._portrait_strip:
             name.setGeometry(4, 67, max(0, width - 8), 20)
             name.setAlignment(Qt.AlignCenter)
@@ -1803,11 +1808,12 @@ class NavThumb(QFrame):
         name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_left = 48 if self._card_mode else 44
         right = 8
+        name_right = right + (28 if getattr(card, 'select_mode', False) else 0)
         name_y = 7 if self._card_mode else 3
         second_y = 29 if self._card_mode else 25
         badge_y = (height - 24) if self._card_mode else (second_y + 1)
         name.setGeometry(text_left, name_y,
-                         max(0, width - text_left - right -
+                         max(0, width - text_left - name_right -
                              (platform.width() + 6 if not self._card_mode and
                               platform.property("showPlatform") is not False else 0)), 20)
         badge.adjustSize()
@@ -2152,37 +2158,15 @@ class NavThumb(QFrame):
             self.set_hint("播放失败")
 
 
-class SelectionNotchEffect(QGraphicsEffect):
-    """对整张卡片及封面做逐像素裁剪，避免整数区域遮罩的锯齿。"""
-
-    def draw(self, painter):
-        offset = QPoint()
-        image = self.sourcePixmap(Qt.LogicalCoordinates, offset, QGraphicsEffect.NoPad).toImage()
-        image = image.convertToFormat(QImage.Format_ARGB32_Premultiplied)
-        if image.isNull():
-            return
-        cut = QPainter(image)
-        cut.setRenderHint(QPainter.Antialiasing)
-        cut.setCompositionMode(QPainter.CompositionMode_DestinationOut)
-        card = self.parent()
-        cut.setPen(Qt.NoPen)
-        cut.setBrush(Qt.white)
-        cut.drawEllipse(QPointF(card.width() - 12 - offset.x(), card.height() / 2 - offset.y()), 18, 18)
-        cut.end()
-        painter.drawImage(offset, image)
-
-
 class NavSelectionCheck(QCheckBox):
-    """圆形凹口里的选中圆球，保留复选框的键盘和无障碍行为。"""
+    """卡片右上角的选择位，保留复选框的键盘和无障碍行为。"""
 
     def paintEvent(self, event):
-        if not self.isChecked():
-            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.qcolor(theme.ACCENT))
-        painter.drawEllipse(QRectF(8, 8, 12, 12))
+        painter.setPen(QPen(QColor('#ffffff'), 1.5) if not self.isChecked() else Qt.NoPen)
+        painter.setBrush(theme.qcolor(theme.ACCENT) if self.isChecked() else QColor(12, 15, 20, 170))
+        painter.drawEllipse(QRectF(4, 4, 20, 20))
 
     def hitButton(self, pos):
         return self.rect().contains(pos)
@@ -2235,11 +2219,11 @@ class NavItem(QFrame):
         self.check.setObjectName("NavCheck")
         self.check.setFixedSize(28, 28)
         self.check.setAccessibleName("选择直播间")
-        self.destroyed.connect(self.check.deleteLater)
         self.check.setVisible(False)
         self.check.clicked.connect(lambda: self.checkedChanged.emit())
 
         self.thumb = NavThumb(self)
+        self.check.setParent(self.thumb)
         self._layout.addWidget(self.thumb, 1)
 
         # 收起关注栏时不再有文字徽标，用头像右下角的小圆点提示正在直播。
@@ -2373,49 +2357,19 @@ class NavItem(QFrame):
 
     def set_select_mode(self, enabled: bool) -> None:
         self.select_mode = enabled
-        # The check lives above the cutout rather than inside the card's mask.
-        self.check.setParent(self.parentWidget() if enabled and self.parentWidget() else self)
         self.check.setVisible(enabled)
         if not enabled:
             self.check.setChecked(False)
         else:
             self.thumb.stop()
-        if enabled and self.graphicsEffect() is None:
-            self.setGraphicsEffect(SelectionNotchEffect(self))
-        elif not enabled and self.graphicsEffect() is not None:
-            self.setGraphicsEffect(None)
-        self._sync_selection_mask()
+        self.thumb._layout_overlay()
         self.setCursor(Qt.PointingHandCursor)
 
-    def _sync_selection_mask(self):
+    def _layout_selection_marker(self):
         if not self.select_mode:
-            self.clearMask()
             return
-        center = QPoint(self.width() - 12, self.height() // 2)
-        offset = self.pos() if self.check.parentWidget() is not self else QPoint()
-        self.check.move(offset + center - QPoint(14, 14))
+        self.check.move(max(0, self.thumb.width() - self.check.width() - 2), 2)
         self.check.raise_()
-        if self.graphicsEffect() is not None:
-            self.graphicsEffect().update()
-
-    def moveEvent(self, event):
-        super().moveEvent(event)
-        if hasattr(self, 'check'):
-            self._sync_selection_mask()
-
-    def hideEvent(self, event):
-        self.check.hide()
-        super().hideEvent(event)
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.check.setVisible(self.select_mode)
-        self._sync_selection_mask()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, 'check'):
-            self._sync_selection_mask()
 
     def is_checked(self) -> bool:
         return self.check.isChecked()
@@ -5355,7 +5309,7 @@ class Sidebar(QFrame):
                 if str(item.room.get("room_id")) in self._sort_selected_ids]
 
     def _sync_sort_selection(self) -> None:
-        selected = set(self.selected_sort_ids())
+        selected = set() if self.select_mode else set(self.selected_sort_ids())
         for item in self._items:
             item.set_sort_selected(str(item.room.get("room_id")) in selected)
 

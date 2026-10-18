@@ -40,13 +40,14 @@ def main() -> None:
         assert sidebar.normal_bar.isHidden() and not sidebar.batch_bar.isHidden()
         card = sidebar.items()[0]
         assert card._layout.indexOf(card.check) == -1
-        check_center = card.check.geometry().center() - card.pos()
-        assert check_center.y() == card.height() // 2 - 1
-        assert check_center.x() == card.width() - 13
-        assert card.mask().isEmpty(), '圆弧不能退回有锯齿的整数区域遮罩'
-        assert card.graphicsEffect() is not None
+        assert card.check.parentWidget() is card.thumb
+        assert card.check.y() == 2
+        assert card.check.x() == card.thumb.width() - card.check.width() - 2
+        assert card.thumb.rect().contains(card.check.geometry())
+        assert card.mask().isEmpty() and card.graphicsEffect() is None
         QTest.mouseClick(card.check, Qt.LeftButton)
         assert card.is_checked()
+        assert not card.property('sortSelected'), '多选仅用角标标记，不增加卡片描边'
         sidebar.set_select_mode(False)
         assert not button.isChecked()
         assert not sidebar.account_row.isHidden() and not sidebar.tool_row.isHidden()
@@ -59,8 +60,16 @@ def main() -> None:
         assert sidebar.tool_row.isHidden() and sidebar.normal_bar.isHidden()
         assert not sidebar.batch_bar.isHidden()
         for card in sidebar.items():
-            assert card.mask().isEmpty() and card.graphicsEffect() is not None
-            assert card.check.geometry().center().x() - card.x() == card.width() - 13
+            assert card.mask().isEmpty() and card.graphicsEffect() is None
+            assert card.check.y() == 2 and card.thumb.rect().contains(card.check.geometry())
+    for card_mode in (False, True):
+        sidebar.set_card_mode(card_mode)
+        app.processEvents()
+        for card in sidebar.items():
+            assert card.thumb.rect().contains(card.check.geometry())
+            assert not card.name_label.geometry().intersects(card.check.geometry())
+            if not card_mode:
+                assert not card.platform_badge.geometry().intersects(card.check.geometry())
     sidebar.set_select_mode(False)
     sidebar.apply_pins(["p1", "p2"])
 
@@ -119,14 +128,14 @@ def main() -> None:
     QTest.mouseClick(item("c"), Qt.LeftButton)
     assert sidebar.selected_sort_ids() == ["a", "c"]
     assert sidebar.dragged_room_ids("a") == ["a", "c"]
-    assert item("a").property("sortSelected") and item("c").property("sortSelected")
+    assert not item("a").property("sortSelected") and not item("c").property("sortSelected")
     next(action for action in item("a")._context_menu().actions()
          if action.text() == "将选中的 2 张移到最前").trigger()
     assert order() == ["p2", "p1", "a", "c", "b", "d"]
     assert sidebar.selected_sort_ids() == ["a", "c"]
     sidebar.search.setText("A")
     assert sidebar.selected_sort_ids() == ["a"], "隐藏的勾选卡片不能被拖动"
-    assert item('c').check.isHidden(), '筛选隐藏卡片时，凹口上的勾选也必须隐藏'
+    assert not item('c').check.isVisible(), '筛选隐藏卡片时，角标也必须隐藏'
     sidebar.search.clear()
     assert sidebar.selected_sort_ids() == ["a", "c"]
     sidebar.set_select_mode(False)
@@ -135,7 +144,7 @@ def main() -> None:
     removed = item('d')
     check = removed.check
     sidebar.remove_room(removed.room)
-    assert check.isHidden()
+    assert not check.isVisible()
     app.sendPostedEvents(None, QEvent.DeferredDelete)
     app.sendPostedEvents(None, QEvent.DeferredDelete)
     from shiboken6 import isValid
