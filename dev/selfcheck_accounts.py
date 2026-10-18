@@ -235,6 +235,8 @@ def main():
             assert status_button.isEnabled()
             with patch.object(app_module.QMessageBox, "information") as notice:
                 status_button.click()
+                notice.assert_not_called()  # 菜单/鼠标回调结束后才打开模态窗口。
+                app.processEvents()
                 notice.assert_called_once_with(window, "账号登录", "当前支持登录的平台均已成功登录。")
             menu.show()
             app.processEvents()
