@@ -1,4 +1,4 @@
-"""Windows integration check for the opt-in shared Qt Quick danmaku layer."""
+"""Windows Quick integration check; use --visible for desktop pixel checks."""
 import ctypes
 from ctypes import wintypes
 import os
@@ -51,6 +51,7 @@ def brightest_text(image, tile):
 
 
 def main():
+    visible = "--visible" in sys.argv
     app = QApplication(sys.argv)
     if app.platformName() != "windows":
         print("跳过：需要 Windows 原生窗口")
@@ -68,15 +69,18 @@ def main():
                         "-pix_fmt", "yuv420p", source], check=True)
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2",
                             state={"plugins_enabled": []})
-        window.setGeometry(40, 60, 1200, 800)
+        window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)
+        window.setGeometry(40 if visible else -20000, 60 if visible else -20000, 1200, 800)
         window.show()
-        window.activateWindow()
+        if visible:
+            window.activateWindow()
         user32 = ctypes.windll.user32
         user32.SetForegroundWindow.argtypes = [wintypes.HWND]
         user32.GetForegroundWindow.restype = wintypes.HWND
         user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
         user32.GetWindowLongW.restype = wintypes.LONG
-        user32.SetForegroundWindow(int(window.winId()))
+        if visible:
+            user32.SetForegroundWindow(int(window.winId()))
         settle(app, 0.3)
         try:
             players = []
@@ -197,7 +201,7 @@ def main():
             hit = user32.WindowFromPoint(wintypes.POINT(point.x(), point.y()))
             style = user32.GetWindowLongW(int(layer.window.winId()), -20)
             assert style & 0x00000020, "Quick HWND 必须带 WS_EX_TRANSPARENT"
-            if is_foreground:
+            if visible and is_foreground:
                 high_image = capture(target)
                 shot = Path(__file__).resolve().parents[1] / "work" / "danmaku-smoothness" / "qquick-selfcheck.png"
                 high_image.save(str(shot))
@@ -216,7 +220,7 @@ def main():
                 assert high > 190, "前台窗口截图应看到弹幕"
                 assert center.blue() > 200 and center.red() < 40, "透明区域不能遮黑 libmpv 视频"
             else:
-                print("桌面截图当前捕获了其他前台窗口；无法核验 Quick 与 libmpv 的最终合成像素")
+                print("未采集桌面；本次不核验 Quick 与 libmpv 的最终桌面合成像素")
 
             x = comment.x
             settle(app, 0.12)
@@ -231,7 +235,10 @@ def main():
             assert not target.paused and not target.pause_button.paused, "暂停按钮必须恢复播放"
 
             group = overlay._quick_group
-            window._on_fullscreen(target)
+            if visible:
+                window._on_fullscreen(target)
+            else:
+                window.wall.set_fullscreen_tile(target)
             window._clear_fullscreen_cover()
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
@@ -246,7 +253,10 @@ def main():
             assert mask_image.pixelColor(round(pause_point.x() * scale),
                                          round(pause_point.y() * scale)).alpha() == 0, \
                 "Quick 遮罩必须给全屏暂停按钮留透明区域"
-            window._exit_fullscreen()
+            if visible:
+                window._exit_fullscreen()
+            else:
+                window.wall.set_fullscreen_tile(None)
             window._clear_fullscreen_cover()
             settle(app)
             assert layer.groups[group].property("rounded")

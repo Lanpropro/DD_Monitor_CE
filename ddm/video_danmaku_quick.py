@@ -1,4 +1,5 @@
 """Experimental shared Qt Quick texture layer for native video danmaku."""
+import os
 import threading
 
 from PySide6.QtCore import QUrl, Qt
@@ -110,6 +111,26 @@ Item {
     id: sprite
     property url imageSource
     property bool imageLoaded: picture.status === Image.Ready
+    property bool motionPaused: !travel.running || travel.paused
+    XAnimator {
+        id: travel
+        target: sprite
+        easing.type: Easing.Linear
+    }
+    function setMotion(startX, endX, milliseconds, paused) {
+        travel.stop();
+        sprite.x = startX;
+        travel.from = startX;
+        travel.to = endX;
+        travel.duration = Math.max(1, Math.round(milliseconds));
+        if (!paused) travel.start();
+    }
+    function setMotionPaused(paused) {
+        if (paused) {
+            if (travel.running) travel.pause();
+        } else if (travel.running) travel.resume();
+        else travel.start();
+    }
     Image {
         id: picture
         anchors.fill: parent
@@ -126,6 +147,7 @@ class QuickDanmakuLayer:
 
     def __init__(self, parent):
         self.parent = parent
+        self.render_thread_animation = os.environ.get("DDM_QTQUICK_ANIMATOR", "1") != "0"
         self.images = _CommentImages()
         self.engine = QQmlEngine(parent)
         self.engine.addImageProvider("danmaku", self.images)
@@ -247,13 +269,20 @@ class QuickDanmakuLayer:
         if identifier not in self.groups:
             return
         has_items = any(item["group"] == identifier for item in self.items.values())
-        if active and has_items:
+        was_active = identifier in self._active_groups
+        active = bool(active and has_items)
+        if active:
             self._active_groups.add(identifier)
         else:
             self._active_groups.discard(identifier)
-        self.stage.setProperty("active", bool(self._active_groups))
+        if self.render_thread_animation and active != was_active:
+            for record in self.items.values():
+                if record["group"] == identifier:
+                    record["item"].setMotionPaused(not active)
+        self.stage.setProperty("active", bool(self._active_groups) and
+                               not self.render_thread_animation)
 
-    def add(self, group_id, image, x, y, width, height):
+    def add(self, group_id, image, x, y, width, height, speed=0):
         group = self.groups.get(group_id)
         if group is None:
             return 0
@@ -271,11 +300,13 @@ class QuickDanmakuLayer:
         item.setY(y)
         item.setProperty("imageSource", QUrl(f"image://danmaku/{key}"))
         item.setParentItem(content)
-        self.items[identifier] = {"group": group_id, "item": item, "key": key}
+        self.items[identifier] = {"group": group_id, "item": item, "key": key,
+                                  "speed": speed}
         self.set_group_active(group_id, True)
+        self.move(identifier, x, y)
         return identifier
 
-    def update(self, identifier, image, x, y, width, height):
+    def update(self, identifier, image, x, y, width, height, speed=0):
         record = self.items.get(identifier)
         if record is None:
             return
@@ -290,12 +321,21 @@ class QuickDanmakuLayer:
         item.setY(y)
         item.setProperty("imageSource", QUrl(f"image://danmaku/{key}"))
         record["key"] = key
+        self.move(identifier, x, y, speed)
 
-    def move(self, identifier, x, y):
+    def move(self, identifier, x, y, speed=None):
         record = self.items.get(identifier)
         if record is not None:
-            record["item"].setX(x)
-            record["item"].setY(y)
+            item = record["item"]
+            if speed is not None:
+                record["speed"] = speed
+            item.setY(y)
+            if self.render_thread_animation and record["speed"] > 0:
+                distance = max(0, x + item.width())
+                item.setMotion(x, -item.width(), distance / record["speed"] * 1000,
+                               record["group"] not in self._active_groups)
+            else:
+                item.setX(x)
 
     def remove(self, identifier):
         record = self.items.pop(identifier, None)
@@ -305,7 +345,7 @@ class QuickDanmakuLayer:
         record["item"].setParentItem(None)
         record["item"].deleteLater()
         self.images.remove_image(record["key"])
-        self.set_group_active(record["group"], True)
+        self.set_group_active(record["group"], record["group"] in self._active_groups)
 
     def clear_group(self, identifier):
         for item_id, record in tuple(self.items.items()):

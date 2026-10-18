@@ -2,7 +2,8 @@
 import math
 import os
 import sys
-import time
+# Python 3.12 on Windows uses a 15.625ms monotonic clock; QPC preserves sub-frame motion.
+from time import perf_counter
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, QUrl
@@ -87,6 +88,8 @@ class VideoDanmaku(QWidget):
             "danmaku_font", "video_danmaku_size", "video_danmaku_speed",
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale")}
         if values != self.settings:
+            if self._quick_animated() and self.timer.isActive():
+                self._tick()
             redraw = any(values.get(key) != self.settings.get(key)
                          for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale"))
             self.settings = values
@@ -97,6 +100,10 @@ class VideoDanmaku(QWidget):
                     distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
                     comment.speed = distance / 8 * int(values.get("video_danmaku_speed") or 100) / 100
                 self._prune_lanes()
+                if self._quick_layer is not None and self._quick_group is not None:
+                    for comment in self.comments:
+                        self._quick_layer.move(comment.render_id, comment.x,
+                                               comment.lane * self.lane_height(), comment.speed)
                 self.update()
             if self.isVisible():
                 self._apply_layered()
@@ -115,6 +122,8 @@ class VideoDanmaku(QWidget):
         self._sync_visible()
 
     def set_paused(self, paused: bool) -> None:
+        if self._quick_animated() and self.timer.isActive():
+            self._tick()
         self.paused = bool(paused)
         self._set_quick_active()
         if self.paused:
@@ -186,7 +195,7 @@ class VideoDanmaku(QWidget):
             comment.render_id = self._quick_layer.add(
                 self._quick_group, image.toImage(), comment.x,
                 lane * self.lane_height(), width,
-                image.height() / image.devicePixelRatioF())
+                image.height() / image.devicePixelRatioF(), speed)
         self.comments.append(comment)
         for _, url in runs:
             if url:
@@ -266,6 +275,8 @@ class VideoDanmaku(QWidget):
         return image
 
     def _resize_comments(self) -> None:
+        if self._quick_animated() and self.timer.isActive():
+            self._tick()
         for comment in self.comments:
             old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
             progress = (self._comment_width - comment.x) / max(1, old_distance)
@@ -281,7 +292,7 @@ class VideoDanmaku(QWidget):
                     comment.render_id, comment.image.toImage(), comment.x,
                     comment.lane * self.lane_height(),
                     comment.image.width() / comment.image.devicePixelRatioF(),
-                    comment.image.height() / comment.image.devicePixelRatioF())
+                    comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
         else:
             self.update()
 
@@ -311,10 +322,15 @@ class VideoDanmaku(QWidget):
         if not self.timer.isActive():
             screen = self.screen()
             rate = max(60, screen.refreshRate() if screen else 60)
-            self.timer.setInterval(max(4, min(16, round(1000 / rate))))
-            self._last_tick = time.monotonic()
-            self._timer_resolution.acquire()
+            self.timer.setInterval(50 if self._quick_animated() else
+                                   max(4, min(16, round(1000 / rate))))
+            self._last_tick = perf_counter()
+            if not self._quick_animated():
+                self._timer_resolution.acquire()
             self.timer.start()
+
+    def _quick_animated(self) -> bool:
+        return self._quick_layer is not None and self._quick_layer.render_thread_animation
 
     def _stop_timer(self) -> None:
         self.timer.stop()
@@ -325,12 +341,13 @@ class VideoDanmaku(QWidget):
         height = self.lane_height() if self.comments else 0
         bottom = max((comment.lane * height + math.ceil(comment.image.height() /
                        comment.image.devicePixelRatioF()) for comment in self.comments), default=0)
-        now = time.monotonic()
+        now = perf_counter()
         elapsed = now - self._last_tick if self._last_tick else 0.0
         self._last_tick = now
         for comment in self.comments:
             comment.x -= elapsed * comment.speed
-            if self._quick_layer is not None and self._quick_group is not None:
+            if (self._quick_layer is not None and self._quick_group is not None
+                    and not self._quick_animated()):
                 self._quick_layer.move(comment.render_id, comment.x,
                                        comment.lane * height)
         active = []
@@ -368,7 +385,7 @@ class VideoDanmaku(QWidget):
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         height = self.lane_height()
         # Sample at paint time as queued QWidget updates may follow the timer.
-        elapsed = max(0, time.monotonic() - self._last_tick) if self.timer.isActive() and not self.paused else 0
+        elapsed = max(0, perf_counter() - self._last_tick) if self.timer.isActive() and not self.paused else 0
         for comment in self.comments:
             y = comment.lane * height
             if y < event.rect().bottom() + 1 and y + height > event.rect().top():
@@ -420,7 +437,7 @@ class VideoDanmaku(QWidget):
                 self._quick_group, comment.image.toImage(), comment.x,
                 comment.lane * self.lane_height(),
                 comment.image.width() / comment.image.devicePixelRatioF(),
-                comment.image.height() / comment.image.devicePixelRatioF())
+                comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
         self._set_quick_active()
 
     def _sync_quick_geometry(self) -> None:
@@ -491,13 +508,15 @@ class VideoDanmaku(QWidget):
                 self._quick_layer.set_group_visible(self._quick_group, True)
             self._set_quick_active()
         if self.comments and not self.paused:
-            self._last_tick = time.monotonic()
+            self._last_tick = perf_counter()
             self._tick()
             self._start_timer()
         self.raise_()
 
     def hideEvent(self, event) -> None:
         # 布局/全屏可能短暂隐藏浮层；仅停止绘制，显式关弹幕或换台才清空。
+        if self._quick_animated() and self.timer.isActive():
+            self._tick()
         self._stop_timer()
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.set_group_visible(self._quick_group, False)

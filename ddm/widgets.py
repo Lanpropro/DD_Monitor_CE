@@ -7094,6 +7094,9 @@ class WallGrid(QWidget):
                 tile._update_quick_danmaku_mask()
             if self.isVisible():
                 self._quick_danmaku_layer.show()
+            motion = ("XAnimator" if self._quick_danmaku_layer.render_thread_animation
+                      else "Python timer")
+            print(f"[弹幕] Qt Quick共享层，位置更新：{motion}", file=sys.stderr)
         except Exception as exc:
             self._quick_danmaku_layer = None
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)

@@ -76,7 +76,7 @@ def check_motion(app):
         tile.resize(900, 540)
         app.processEvents()
         assert overlay.font_pixels() == 28
-        with patch("ddm.video_danmaku.time.monotonic", return_value=100):
+        with patch("ddm.video_danmaku.perf_counter", return_value=100):
             assert overlay.add_event({"text": "短弹幕", "color": "#ff99cc"})
             first = overlay.comments[0]
             speed = first.speed
@@ -84,7 +84,7 @@ def check_motion(app):
                 assert overlay.add_event({"text": "其他轨道"})
             with patch.object(overlay, '_render_text', side_effect=AssertionError('Full lanes must not rasterize rejected text')):
                 assert not overlay.add_event({"text": "轨道满时直接丢弃"})
-        with patch("ddm.video_danmaku.time.monotonic", return_value=101):
+        with patch("ddm.video_danmaku.perf_counter", return_value=101):
             overlay._tick()
         assert abs(first.x - (overlay.width() - speed)) < 0.01, "滚动必须按实际时间推进"
         assert not overlay._lane_available(first.lane, speed * 10), "长弹幕不能追上前面的短弹幕"
@@ -92,10 +92,10 @@ def check_motion(app):
         tile.set_paused(True)
         assert not overlay.timer.isActive()
         assert not overlay.add_event({"text": "暂停时不积压消息"})
-        with patch("ddm.video_danmaku.time.monotonic", return_value=101):
+        with patch("ddm.video_danmaku.perf_counter", return_value=101):
             tile.set_paused(False)
         assert overlay.timer.isActive()
-        with patch("ddm.video_danmaku.time.monotonic", return_value=110):
+        with patch("ddm.video_danmaku.perf_counter", return_value=110):
             overlay._tick()
         assert not overlay.comments and not overlay.timer.isActive()
         overlay.apply_settings(dict(settings, video_danmaku_speed=200))
@@ -122,7 +122,7 @@ def check_motion(app):
         dirty_height = math.ceil(first.image.height()/first.image.devicePixelRatioF())
         first.x = 100.25
         overlay._last_tick = 100
-        with patch('ddm.video_danmaku.time.monotonic', return_value=100.004), \
+        with patch('ddm.video_danmaku.perf_counter', return_value=100.004), \
                 patch('ddm.video_danmaku.QPainter') as painter, \
                 patch.object(overlay, '_native_layered', return_value=True), \
                 patch.object(overlay, 'lane_height', wraps=overlay.lane_height) as metrics:
@@ -134,7 +134,7 @@ def check_motion(app):
             painter.return_value.fillRect.assert_called_once_with(dirty, overlay.COLOR_KEY)
         first.x = 100
         overlay._last_tick = 100
-        with patch('ddm.video_danmaku.time.monotonic', return_value=100.016), patch.object(overlay, 'update') as update:
+        with patch('ddm.video_danmaku.perf_counter', return_value=100.016), patch.object(overlay, 'update') as update:
             overlay._tick()
             assert update.call_args.args[0] == QRect(0, 0, overlay.width(), dirty_height)
         for rate, interval in ((60, 16), (120, 8), (144, 7), (240, 4)):
@@ -144,14 +144,14 @@ def check_motion(app):
             assert overlay.timer.interval() == interval
         # Hidden/fullscreen transitions retain progress instead of jumping ahead.
         first.x = 100
-        with patch('ddm.video_danmaku.time.monotonic', return_value=200):
+        with patch('ddm.video_danmaku.perf_counter', return_value=200):
             overlay.hide()
-        with patch('ddm.video_danmaku.time.monotonic', return_value=300):
+        with patch('ddm.video_danmaku.perf_counter', return_value=300):
             overlay.show()
         assert first.x == 100
         # Expiring the last comment still invalidates its old row, then sleeps.
         first.x = -first.image.width()/first.image.devicePixelRatioF() + 1
-        overlay._last_tick = time.monotonic() - 1
+        overlay._last_tick = time.perf_counter() - 1
         with patch.object(overlay, 'update') as update:
             overlay._tick()
             assert update.call_args.args[0].height() == dirty_height
@@ -181,7 +181,7 @@ def check_motion(app):
         overlay.apply_settings(dict(settings, video_danmaku_size=72, video_danmaku_area=25))
         assert len(overlay.comments) == 1 and overlay.comments[0] is first, "字号变大后应舍弃会重叠的后发弹幕"
         assert all(c.lane < overlay.lane_count() for c in overlay.comments)
-        with patch("ddm.video_danmaku.time.monotonic", return_value=time.monotonic() + 20):
+        with patch("ddm.video_danmaku.perf_counter", return_value=time.perf_counter() + 20):
             overlay._tick()
         assert not overlay.comments and not overlay.timer.isActive(), "缩放后的弹幕也必须按时完全退出"
         tile.danmaku_button.setChecked(False)

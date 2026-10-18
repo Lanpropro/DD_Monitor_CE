@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+import time
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPointF, Qt
@@ -42,6 +43,25 @@ def check_sampling():
                     painter.end()
                     frames.append(bytes(frame.bits()))
                 assert len(set(frames)) == 4, "四个亚像素位置不能吸附为两个整像素位置"
+    finally:
+        overlay.close()
+
+
+def check_motion_clock(app):
+    overlay = VideoDanmaku()
+    overlay.set_native_video(False)
+    overlay.resize(900, 540)
+    overlay.set_enabled(True)
+    overlay.set_active(True)
+    app.processEvents()
+    try:
+        with patch("time.monotonic", return_value=100):
+            assert overlay.add_event({"text": "Sub-frame clock precision"})
+            comment = overlay.comments[0]
+            x = comment.x
+            time.sleep(.006)
+            overlay._tick()
+            assert comment.x < x - .2, "Motion must advance even inside one monotonic tick"
     finally:
         overlay.close()
 
@@ -138,6 +158,7 @@ def check_timer_resolution(app):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     check_sampling()
+    check_motion_clock(app)
     check_icon_centers(app)
     check_timer_resolution(app)
-    print("弹幕亚像素滚动、图标居中与定时精度申请/释放：通过")
+    print("弹幕亚像素滚动、高精度时钟、图标居中与定时精度申请/释放：通过")
