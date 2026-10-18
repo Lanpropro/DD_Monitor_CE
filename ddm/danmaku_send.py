@@ -1,25 +1,24 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-    QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QScrollArea, QSizePolicy, QTabBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import bili, theme
-from .images import AvatarLoader
+from . import bili, images, theme
 
 
 # 关闭格子/浮窗不销毁仍在执行网络请求的线程；Qt 自动断开已销毁接收者。
 _active_requests: set[QThread] = set()
 
 
-def _start(worker):
+def _start(worker, priority=QThread.InheritPriority):
     _active_requests.add(worker)
     worker.finished.connect(lambda: _active_requests.discard(worker))
     worker.finished.connect(worker.deleteLater)
-    worker.start()
+    worker.start(priority)
 
 
 def wait_for_requests():
@@ -115,6 +114,28 @@ class DanmakuEdit(QLineEdit):
         super().keyPressEvent(event)
 
 
+class _EmoticonImageLoader(QThread):
+    """当前表情包串行读图；避免头像加载器的八路并发与音频回调争用。"""
+    loaded = Signal(int, str, QPixmap)
+
+    def __init__(self, generation, urls):
+        super().__init__()
+        self.generation, self.urls = generation, urls
+
+    def run(self):
+        for url in self.urls:
+            if self.isInterruptionRequested():
+                break
+            pixmap = images.load_pixmap(url, "emoticons")
+            if self.isInterruptionRequested():
+                break
+            if pixmap is not None and not pixmap.isNull():
+                # 图标按 32 逻辑像素显示，保留 2x 分辨率，避免缓存整张原图。
+                pixmap = pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.loaded.emit(self.generation, url, pixmap)
+            self.msleep(4)
+
+
 class EmoticonPopup(QMenu):
     selected = Signal(int, dict)
     retryRequested = Signal()
@@ -128,6 +149,12 @@ class EmoticonPopup(QMenu):
             #EmoticonButton:hover, #EmoticonButton:focus {{background: {theme.CONTENT_HOVER};
                 border-color: {theme.ACCENT};}}
             #EmoticonButton:disabled {{color: {theme.TEXT3};}}
+            #EmoticonTabs {{background: transparent; font-size: {theme.FONT_CAPTION}px;}}
+            #EmoticonTabs::tab {{color: {theme.TEXT2}; background: transparent;
+                padding: 5px 8px; margin-right: 3px; border: 1px solid {theme.BORDER};
+                border-radius: {theme.RADIUS_SM}px;}}
+            #EmoticonTabs::tab:selected {{color: {theme.TEXT1}; background: {theme.CONTENT_HOVER};
+                border-color: {theme.ACCENT};}}
         """)
         holder = QWidget(self)
         layout = QVBoxLayout(holder)
@@ -144,11 +171,28 @@ class EmoticonPopup(QMenu):
         self.retry_button.hide()
         header.addWidget(self.retry_button)
         layout.addLayout(header)
+        self.tabs = QTabBar()
+        self.tabs.setObjectName("EmoticonTabs")
+        self.tabs.setAccessibleName("表情包分类")
+        self.tabs.setExpanding(False)
+        self.tabs.setDrawBase(False)
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.setElideMode(Qt.ElideRight)
+        self.tabs.currentChanged.connect(self._select_package)
+        self.tabs.hide()
+        layout.addWidget(self.tabs)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QScrollArea.NoFrame)
         layout.addWidget(self.scroll, 1)
-        self._images = {}
+        self._packages = []
+        self._pixmaps = {}
+        self._generation = 0
+        self._image_loader = None
+        self._pending_urls = {}
+        self._build_timer = QTimer(self)
+        self._build_timer.setInterval(8)
+        self._build_timer.timeout.connect(self._build_batch)
         self._clear_body()
         action = QWidgetAction(self)
         action.setDefaultWidget(holder)
@@ -157,6 +201,7 @@ class EmoticonPopup(QMenu):
         self._holder.setFixedSize(340, 300)
 
     def _clear_body(self):
+        self._pause_loading()
         body = QWidget()
         self.grid = QGridLayout(body)
         self.grid.setContentsMargins(0, 0, 0, 0)
@@ -164,9 +209,29 @@ class EmoticonPopup(QMenu):
         self.grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.scroll.setWidget(body)
         self._images = {}
+        self._emotes = []
+        self._next_emote = 0
+
+    def _pause_loading(self):
+        self._build_timer.stop()
+        self._generation += 1
+        self._pending_urls.clear()
+        self._requested_urls = set()
+        if self._image_loader is not None:
+            self._image_loader.requestInterruption()
+
+    def _clear_packages(self):
+        self._clear_body()
+        self._packages = []
+        self._pixmaps.clear()
+        self.tabs.blockSignals(True)
+        while self.tabs.count():
+            self.tabs.removeTab(0)
+        self.tabs.blockSignals(False)
+        self.tabs.hide()
 
     def set_loading(self):
-        self._clear_body()
+        self._clear_packages()
         self.status.setText("正在加载表情…")
         self.status.show()
         self.retry_button.setText("刷新")
@@ -181,60 +246,99 @@ class EmoticonPopup(QMenu):
         self.retry_button.show()
 
     def set_packages(self, packages):
-        self._clear_body()
+        self._clear_packages()
         self.retry_button.setText("刷新")
         self.retry_button.setEnabled(True)
         self.retry_button.show()
-        row, count = 0, 0
-        urls = {}
-        for package in packages:
-            kind = package.get("pkg_type")
-            if kind not in (1, 2, 3, 5):
-                continue
-            label = QLabel(str(package.get("pkg_name") or "表情"))
-            label.setObjectName("AppSubtitle")
-            self.grid.addWidget(label, row, 0, 1, 5)
-            row += 1
-            column = 0
-            for emote in package.get("emoticons") or []:
-                if not isinstance(emote, dict):
-                    continue
-                text = str(emote.get("emoji") or "表情")
-                button = QToolButton()
-                button.setText(text)
-                button.setAccessibleName(text)
-                button.setObjectName("EmoticonButton")
-                button.setFixedSize(56, 56)
-                button.setIconSize(QSize(32, 32))
-                button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-                button.setCursor(Qt.PointingHandCursor)
-                available = emote.get("perm") == 1 and bool(emote.get(
-                    "emoji" if kind == 3 else "emoticon_unique"))
-                button.setEnabled(available)
-                button.setToolTip(text if available else
-                                  f"{text}：{emote.get('unlock_show_text') or '当前账号尚未解锁'}")
-                button.clicked.connect(lambda _checked=False, k=kind, e=dict(emote): self._choose(k, e))
-                self.grid.addWidget(button, row, column)
-                url = emote.get("url")
-                if isinstance(url, str) and url.startswith(("https://", "http://")):
-                    self._images.setdefault(url, []).append(button)
-                    urls[url] = url
-                count += 1
-                column += 1
-                if column == 5:
-                    row, column = row + 1, 0
-            if column:
-                row += 1
-        self.status.setText("暂无可用表情" if not count else "表情")
-        self.status.show()
-        if urls:
-            loader = AvatarLoader(urls, subdir="emoticons")
-            loader.loaded.connect(self._image_loaded)
-            _start(loader)
+        self._packages = [p for p in packages if p.get("pkg_type") in (1, 2, 3, 5)]
+        self.tabs.blockSignals(True)
+        for package in self._packages:
+            name = str(package.get("pkg_name") or "表情")
+            index = self.tabs.addTab(name)
+            self.tabs.setTabToolTip(index, name)
+        self.tabs.blockSignals(False)
+        self.tabs.setVisible(bool(self._packages))
+        self._select_package(self.tabs.currentIndex())
 
-    def _image_loaded(self, url, pixmap):
+    def _select_package(self, index):
+        self._clear_body()
+        if 0 <= index < len(self._packages):
+            package = self._packages[index]
+            self._kind = package["pkg_type"]
+            self._emotes = [e for e in package.get("emoticons") or [] if isinstance(e, dict)]
+        self.status.setText("表情" if self._emotes else "暂无可用表情")
+        self.status.show()
+        if self.isVisible() and self._emotes:
+            self._build_timer.start()
+
+    def _build_batch(self):
+        # 每批两行，长包不会一次占用 GUI 线程；未选中的包不创建按钮。
+        end = min(self._next_emote + 10, len(self._emotes))
+        for index in range(self._next_emote, end):
+            emote = self._emotes[index]
+            text = str(emote.get("emoji") or "表情")
+            button = QToolButton()
+            button.setText(text)
+            button.setAccessibleName(text)
+            button.setObjectName("EmoticonButton")
+            button.setFixedSize(56, 56)
+            button.setIconSize(QSize(32, 32))
+            button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            button.setCursor(Qt.PointingHandCursor)
+            available = emote.get("perm") == 1 and bool(emote.get(
+                "emoji" if self._kind == 3 else "emoticon_unique"))
+            button.setEnabled(available)
+            button.setToolTip(text if available else
+                              f"{text}：{emote.get('unlock_show_text') or '当前账号尚未解锁'}")
+            button.clicked.connect(lambda _checked=False, k=self._kind, e=dict(emote): self._choose(k, e))
+            self.grid.addWidget(button, index // 5, index % 5)
+            url = emote.get("url")
+            if isinstance(url, str) and url.startswith(("https://", "http://")):
+                self._images.setdefault(url, []).append(button)
+                if url in self._pixmaps:
+                    button.setIcon(QIcon(self._pixmaps[url]))
+                elif url not in self._requested_urls:
+                    self._requested_urls.add(url)
+                    self._pending_urls[url] = None
+        self._next_emote = end
+        if end == len(self._emotes):
+            self._build_timer.stop()
+        self._start_images()
+
+    def _start_images(self):
+        if not self.isVisible() or self._image_loader is not None or not self._pending_urls:
+            return
+        loader = _EmoticonImageLoader(self._generation, list(self._pending_urls))
+        self._pending_urls.clear()
+        self._image_loader = loader
+        loader.loaded.connect(self._image_loaded)
+        loader.finished.connect(self._images_finished)
+        _start(loader, QThread.LowPriority)
+
+    def _images_finished(self):
+        self._image_loader = None
+        self._start_images()
+
+    def _image_loaded(self, generation, url, pixmap):
+        if generation != self._generation:
+            return
+        self._pixmaps[url] = pixmap
         for button in self._images.get(url, []):
             button.setIcon(QIcon(pixmap))
+
+    def hideEvent(self, event):
+        self._pause_loading()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        for url in self._images:
+            if url not in self._pixmaps:
+                self._requested_urls.add(url)
+                self._pending_urls[url] = None
+        if self._next_emote < len(self._emotes):
+            self._build_timer.start()
+        self._start_images()
 
     def _choose(self, kind, emote):
         self.hide()
