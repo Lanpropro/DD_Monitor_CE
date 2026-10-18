@@ -16,28 +16,45 @@ from ddm.widgets import Tile
 def main():
     app = QApplication(sys.argv)
     tile = Tile({"room_id": "1000", "uname": "Test", "live": False})
+    tile.set_status("正在重新连接直播间…")
     events = []
     tile.recordingRequested.connect(lambda: events.append("record"))
     tile.muteToggled.connect(lambda room, muted: events.append("mute"))
     tile.volumeChanged.connect(lambda room, volume: events.append(volume))
     tile.show()
     try:
-        for width, height in ((900, 500), (360, 210), (300, 500)):
+        for width, height in ((900, 500), (360, 210), (300, 500),
+                              (220, 210), (240, 210), (259, 210), (260, 210),
+                              (359, 210), (420, 300), (479, 300),
+                              (480, 300), (599, 400), (600, 400), (759, 400), (760, 400)):
             tile.resize(width, height)
             app.processEvents()
             controls = [tile.pause_button, tile.volume_button, tile.volume_slider,
-                        tile.volume_label, tile.status_label, tile.danmaku_button,
+                        tile.volume_label, tile.status_label, tile.composer, tile.danmaku_button,
                         tile.danmaku_settings_button, tile.recording_button,
                         tile.fullscreen_button]
             visible = [widget for widget in controls if widget.isVisible()]
             assert [widget.x() for widget in visible] == sorted(widget.x() for widget in visible)
-            assert tile.danmaku_settings_button.isVisible()
+            assert tile.danmaku_settings_button.isVisible() == (width >= 300)
             assert tile.fullscreen_button.geometry().right() < tile.bottom.width()
             tile.set_recording_state("record")
             tile.set_recording_elapsed("0:00:10")
             app.processEvents()
+            assert tile.volume_slider.isVisible(), width
+            assert tile.recording_time.isVisible() == (width >= 360), width
             if tile.recording_time.isVisible():
                 assert tile.recording_button.x() < tile.recording_time.x() < tile.fullscreen_button.x()
+            for recording in (True, False):
+                tile.set_recording_available(recording)
+                app.processEvents()
+                visible = [widget for widget in controls + [tile.recording_time] if widget.isVisible()]
+                visible.sort(key=lambda widget: widget.x())
+                assert all(tile.bottom.rect().contains(widget.geometry()) for widget in visible), width
+                assert all(left.geometry().right() < right.x()
+                           for left, right in zip(visible, visible[1:])), width
+                assert tile.composer.edit.width() > 40, (width, tile.composer.edit.width())
+                assert tile.volume_slider.isVisible(), width
+            tile.set_recording_available(True)
             tile.set_recording_state("")
             tile.set_recording_elapsed("")
             tile.set_recording_available(False)

@@ -5924,21 +5924,25 @@ class Tile(QFrame):
     def _layout_bottom_controls(self) -> None:
         width = self.width()
         composing = self.composer.supported
-        compact = width < 420
+        compact = width < (480 if composing else 420)
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
-        if width < 260:
+        if composing and width < 600:
+            margin, spacing = 4, 2
+        if width < (420 if composing else 260):
             margin, spacing = (2, 0) if composing else (4, 2)
+        if composing and width < 260:
+            margin = 0
         layout.setContentsMargins(margin, 3 if composing else 4, margin, 3 if composing else 4)
         layout.setSpacing(spacing)
-        self.pause_button.setFixedWidth(26 if width < (420 if composing else 260) else 34)
+        self.pause_button.setFixedWidth(26 if width < (480 if composing else 260) else 34)
         self.danmaku_button.setFixedWidth(26 if compact else 44)
         self.danmaku_button.setText("弹" if compact else "弹幕")
         self.volume_label.setVisible(width >= (760 if composing else 280) and
                                      (not self.recording_time.text() or width >= 480))
-        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= (900 if composing else 360)
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= (600 if composing else 220))
+        self.volume_slider.setVisible(width >= 220)
         self.status_label.setVisible(not composing or width >= 480)
         self.status_label.setSizePolicy(QSizePolicy.Preferred if composing else QSizePolicy.Ignored,
                                        QSizePolicy.Preferred)
@@ -5955,6 +5959,9 @@ class Tile(QFrame):
                     for widget in visible)
         reserved = 78 if composing else 8
         if composing and not self.status_label.isHidden():
+            # 录制时长和音量条常驻时，先保证输入框可用，再给连接状态分配省略宽度。
+            status_space = width - fixed - margin * 2 - spacing * (len(visible) + 2) - reserved - 18
+            self.status_label.setMaximumWidth(max(0, min(self.status_label.maximumWidth(), status_space)))
             reserved += min(self.status_label.sizeHint().width(), self.status_label.maximumWidth()) + spacing
         remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - reserved
         self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
@@ -5993,7 +6000,7 @@ class Tile(QFrame):
         if not available:
             self._layout_bottom_controls()
             return
-        narrow = self.width() < 320
+        narrow = self.width() < (480 if self.composer.supported else 320)
         labels = ({"record": "●", "cache": "◉", "": "●"} if narrow else
                   {"record": "● REC", "cache": "◉ 缓存", "": "● 录制"})
         self.recording_button.setFixedWidth(26 if narrow else 64)
