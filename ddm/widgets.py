@@ -526,13 +526,13 @@ class PauseButton(QPushButton):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setPen(Qt.NoPen)
         painter.setBrush(_icon_color(self))
-        center = self.rect().center()
+        center = QRectF(self.rect()).center()
         if self.paused:
             # ▶ 继续
             path = QPainterPath()
-            path.moveTo(center.x() - 4, center.y() - 6)
-            path.lineTo(center.x() + 6, center.y())
-            path.lineTo(center.x() - 4, center.y() + 6)
+            path.moveTo(center.x() - 10 / 3, center.y() - 6)
+            path.lineTo(center.x() + 20 / 3, center.y())
+            path.lineTo(center.x() - 10 / 3, center.y() + 6)
             path.closeSubpath()
             painter.drawPath(path)
         else:

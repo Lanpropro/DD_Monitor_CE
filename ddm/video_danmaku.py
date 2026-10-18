@@ -28,6 +28,9 @@ class VideoDanmaku(QWidget):
     MAX_COMMENTS = 80
     GAP = 24
     COLOR_KEY = QColor(1, 2, 3)
+    # Downsampling enables fractional-pixel filtering in Qt's raster painter;
+    # same-resolution pixmaps snap to whole pixels even with SmoothPixmapTransform.
+    TEXT_SAMPLE_SCALE = 2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -184,7 +187,7 @@ class VideoDanmaku(QWidget):
         document.setHtml(f'<span style="color:{color.name()}">{body}</span>')
         document.adjustSize()
         document.setTextWidth(-1)  # A rolling comment stays on one line.
-        scale = self.devicePixelRatioF()
+        scale = self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE
         width = min(document.idealWidth(), max(128, self.width() * 2)) + 8
         image = QPixmap(math.ceil(width * scale), math.ceil((document.size().height() + 8) * scale))
         image.setDevicePixelRatio(scale)
@@ -207,7 +210,7 @@ class VideoDanmaku(QWidget):
         width = max(metrics.horizontalAdvance(text), bounds.right()) - left + 8
         height = max(metrics.descent(), bounds.bottom()) - top + 8
         # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
-        scale = self.devicePixelRatioF()
+        scale = self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE
         image = QPixmap(math.ceil(width * scale), math.ceil(height * scale))
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
