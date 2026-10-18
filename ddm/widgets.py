@@ -368,6 +368,7 @@ class VolumeButton(QPushButton):
         self.muted = False
         self.level = 42
         self.audio_channel = 0
+        self.compact_popup = False
         self._update_tooltip()
 
     def set_state(self, muted: bool, level: int, audio_channel: int = 0) -> None:
@@ -383,7 +384,8 @@ class VolumeButton(QPushButton):
             self.CHANNEL_LEFT: "　声道：左",
             self.CHANNEL_RIGHT: "　声道：右",
         }.get(self.audio_channel, "")
-        self.setToolTip(f"{state}{channel}　（点击静音，滚轮调音量，右键调声道）")
+        action = "点击展开音量" if self.compact_popup else "点击静音"
+        self.setToolTip(f"{state}{channel}　（{action}，滚轮调音量，右键调声道）")
 
     def wheelEvent(self, event) -> None:
         step = 5 if event.angleDelta().y() > 0 else -5
@@ -944,6 +946,7 @@ class DanmakuPanel(QFrame):
             "medal": event.get("medal") or {},
             "emoticon": event.get("emoticon") or "",
             "emoticons": event.get("emoticons") or {},
+            "self_sent": bool(event.get("self_sent")),
         }
         self._received += 1
         self._refresh_count()
@@ -1080,8 +1083,10 @@ class DanmakuPanel(QFrame):
         size = self._font_size()
         color = "#202630" if theme.is_light() else "#e6e9ee"
         name = (f'<span style="color:{entry["color"]}">{_escape(entry["uname"])}</span>')
+        mark = (f'<span style="color:{theme.PINK};font-weight:700">▍</span> '
+                if entry.get("self_sent") else "")
         return (f'<div style="font-size:{size}px;line-height:150%;margin:0 0 4px 0">'
-                f'{self._medal_html(entry["medal"])}{name}'
+                f'{mark}{self._medal_html(entry["medal"])}{name}'
                 f'<span style="color:{color}">：{self._body_html(entry)}</span></div>')
 
     def _body_html(self, entry: dict) -> str:
@@ -5833,7 +5838,7 @@ class Tile(QFrame):
         # 音量图标按钮 + 滑条 + 数值，都在信息条里
         self.volume_button = VolumeButton(size=26)
         self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
-        self.volume_button.clicked.connect(self._toggle_mute)
+        self.volume_button.clicked.connect(self._volume_clicked)
         self.volume_button.volumeChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_button)
         self.volume_slider = QSlider(Qt.Horizontal)
@@ -5843,6 +5848,26 @@ class Tile(QFrame):
         self.volume_slider.setToolTip("这个格子的音量（更换主播后保持不变）")
         self.volume_slider.valueChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_slider)
+        self.volume_menu = QMenu(self)
+        self.volume_menu.setObjectName("TileVolumePopup")
+        self.volume_menu.setAttribute(Qt.WA_TranslucentBackground)
+        self.volume_menu.setWindowFlag(Qt.FramelessWindowHint, True)
+        holder = QWidget(self.volume_menu)
+        volume_layout = QVBoxLayout(holder)
+        volume_layout.setContentsMargins(8, 8, 8, 8)
+        self.vertical_volume = QSlider(Qt.Vertical, holder)
+        self.vertical_volume.setRange(0, 100)
+        self.vertical_volume.setFixedSize(26, 110)
+        self.vertical_volume.setValue(self.volume)
+        self.vertical_volume.setAccessibleName("当前格子的音量")
+        self.vertical_volume.valueChanged.connect(self.set_volume)
+        volume_layout.addWidget(self.vertical_volume)
+        self.vertical_volume_label = QLabel(str(self.volume), holder)
+        self.vertical_volume_label.setAlignment(Qt.AlignCenter)
+        volume_layout.addWidget(self.vertical_volume_label)
+        volume_action = QWidgetAction(self.volume_menu)
+        volume_action.setDefaultWidget(holder)
+        self.volume_menu.addAction(volume_action)
         self.volume_label = QLabel(str(self.volume))
         self.volume_label.setObjectName("TileTitle")
         self.volume_label.setFixedWidth(24)
@@ -5851,7 +5876,11 @@ class Tile(QFrame):
         bottom_layout.addWidget(self.status_label, 1)
         self.composer = DanmakuComposer(self.bottom)
         self.composer.set_room(room.get("room_id"))
-        bottom_layout.addWidget(self.composer, 1, Qt.AlignVCenter)
+        bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
+        self._composer_spacer = QWidget(self.bottom)
+        self._composer_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._composer_spacer.setFixedWidth(0)
+        bottom_layout.addWidget(self._composer_spacer, 0)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -5965,43 +5994,121 @@ class Tile(QFrame):
         self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
         self.videoDanmakuSettingsChanged.emit(values)
 
+    COMPOSER_MIN_WIDTH = 72
+    """输入区至少要有这么宽（表情按钮 + 几字宽的输入框），不够就不显示。"""
+
+    COMPOSER_MAX_WIDTH = 520
+    """大格子的输入框可以拉得比较长，但不铺满整条底栏。"""
+
+    @property
+    def _composer_shown(self) -> bool:
+        """这一格现在该不该露出弹幕输入区；宽度够不够由布局时判断。"""
+        return self.composer.supported
+
+    def _sync_composer_visibility(self) -> None:
+        self.composer.setVisible(self._composer_shown)
+
+    def _bottom_layout_signature(self):
+        """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
+        return (self.width(),
+                self.bottom.width(),
+                self.isVisible(),
+                bool(self.composer.supported),
+                self.composer._room_id,
+                bool(getattr(self, "_fullscreen_controls_hidden", False)),
+                self.recording_time.text(),
+                bool(getattr(self, "_recording_available", True)),
+                self.status_label.text(),
+                theme.mode())
+
     def _layout_bottom_controls(self) -> None:
         width = self.width()
-        composing = self.composer.supported
+        signature = self._bottom_layout_signature()
+        if signature == getattr(self, "_bottom_layout_signature_value", None):
+            return
+        self._bottom_layout_signature_value = signature
+        self._sync_composer_visibility()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
         if width < 260:
-            margin, spacing = (2, 0) if composing else (4, 2)
+            margin, spacing = 4, 2
+        # 间距不因为输入区而变：底栏原有按钮的位置必须和没有输入区时一模一样。
         layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
         self.pause_button.setFixedWidth(26 if width < 260 else 34)
+        # 弹幕开关只显示「弹」字图标，开关状态由右下角的勾表示（B 站播放器同款），
+        # 不再用整块底色区分开/关。
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
-        self.volume_label.setVisible(width >= (760 if composing else 280) and
+        # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
+        self.volume_label.setVisible(width >= 280 and
                                      (not self.recording_time.text() or width >= 480))
-        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= (900 if composing else 360)
+        self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= (600 if composing else 220))
-        self.status_label.setVisible(not composing or width >= 480)
-        self.status_label.setSizePolicy(QSizePolicy.Preferred if composing else QSizePolicy.Ignored,
-                                       QSizePolicy.Preferred)
-        self.status_label.setMaximumWidth((120 if width >= 700 else 70) if composing else 16777215)
-        layout.setStretchFactor(self.status_label, 0 if composing else 1)
-        self.danmaku_settings_button.setVisible(not composing or width >= 300)
-        self.recording_button.setVisible(getattr(self, "_recording_available", True)
-                                         and (not composing or width >= 240))
-        controls = [self.pause_button, self.volume_button, self.volume_label,
-                    self.danmaku_button, self.danmaku_settings_button, self.recording_button, self.recording_time,
-                    self.fullscreen_button]
-        visible = [widget for widget in controls if not widget.isHidden()]
+        self.volume_slider.setVisible(width >= 600)
+        self.volume_button.compact_popup = width < 600
+        self.volume_button._update_tooltip()
+        if width >= 600:
+            self.volume_menu.hide()
+        self.status_label.setVisible(True)
+        self.danmaku_settings_button.setVisible(True)
+        self.recording_button.setVisible(getattr(self, "_recording_available", True))
+        layout.activate()       # 让上面定的固定宽度立刻生效，下面算剩余宽度才准
+        others = [self.pause_button, self.volume_button, self.volume_label,
+                  self.danmaku_button, self.danmaku_settings_button,
+                  self.recording_button, self.recording_time, self.fullscreen_button]
+        visible = [widget for widget in others if not widget.isHidden()]
         fixed = sum(widget.sizeHint().width() if widget is self.recording_time else widget.width()
                     for widget in visible)
-        reserved = 78 if composing else 8
-        if composing and not self.status_label.isHidden():
-            reserved += min(self.status_label.sizeHint().width(), self.status_label.maximumWidth()) + spacing
-        remaining = width - fixed - margin * 2 - spacing * (len(visible) + 1) - reserved
-        self.volume_slider.setFixedWidth(max(18, min(86, remaining)))
+        # 原有控件的宽度完全按「没有输入区」时算，按钮位置因此不会变。
+        available = width - fixed - margin * 2 - spacing * (len(visible) + 1)
+        slider_width = max(18, min(86, available - 8))
+        # 状态文字至少留够当前文案的宽度（上限 96/64），不让它被输入区省略掉
+        hint = self.status_label.sizeHint().width()
+        status_min = min(96 if width >= 700 else 64, max(32, hint))
+        composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
+        self.volume_slider.setFixedWidth(slider_width)
+        self._composer_spacer.setFixedWidth(0)
+        layout.setStretchFactor(self.status_label, 1)
+        self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.status_label.setMinimumWidth(0)
+        self.status_label.setMaximumWidth(16777215)
+        # 按固定控件宽度计算可用空间，避免为测量隐藏输入框而丢失输入焦点。
+        layout.activate()
+        composing = False
+        if self._composer_shown:
+            left_controls = [widget for widget in (self.pause_button, self.volume_button,
+                             self.volume_slider, self.volume_label) if not widget.isHidden()]
+            right_controls = [widget for widget in (self.danmaku_button, self.danmaku_settings_button,
+                              self.recording_button, self.recording_time, self.fullscreen_button)
+                              if not widget.isHidden()]
+            left = margin + sum(widget.width() for widget in left_controls) + spacing * len(left_controls)
+            right = (self.bottom.width() - margin - sum(widget.width() for widget in right_controls)
+                     - spacing * max(0, len(right_controls) - 1))
+            leftover = right - left - 3 * spacing          # 状态 + 输入区 + 右侧空位
+            composer_width = min(composer_cap, leftover - status_min)
+            if composer_width >= self.COMPOSER_MIN_WIDTH:
+                composing = True
+                self.composer.setFixedWidth(composer_width)
+                self.composer.layout().activate()
+                # 让输入区落在底栏正中；受状态文字和右侧按钮夹住时取最近位置
+                x = (self.bottom.width() - composer_width) // 2
+                x = max(left + status_min + spacing,
+                        min(x, right - 2 * spacing - composer_width))
+                status_width = x - left - spacing
+                spacer_width = right - 2 * spacing - x - composer_width
+                self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+                self.status_label.setFixedWidth(max(status_min, status_width))
+                self._composer_spacer.setFixedWidth(max(0, spacer_width))
+        self.composer.setVisible(composing)
+        self._composer_spacer.setVisible(composing)
+        if not composing:
+            self.composer.setMinimumWidth(0)
+            self.composer.setMaximumWidth(16777215)
+            layout.setStretchFactor(self.status_label, 1)
+        else:
+            layout.setStretchFactor(self.status_label, 0)
         layout.activate()
 
     def set_recording_state(self, state: str) -> None:
@@ -6299,6 +6406,18 @@ class Tile(QFrame):
         self.quality_button.setToolTip("选择这一路的画质")
         self._layout_controls()
         self.qualityChanged.emit(self.room, value)
+
+    def _volume_clicked(self) -> None:
+        if not self.volume_slider.isHidden():
+            self._toggle_mute()
+            return
+        self.volume_menu.ensurePolished()
+        self.volume_menu.adjustSize()
+        anchor = self.volume_button.mapToGlobal(QPoint(self.volume_button.width() // 2, 0))
+        screen = self.screen().availableGeometry()
+        x = max(screen.left(), min(anchor.x() - self.volume_menu.width() // 2,
+                                  screen.right() - self.volume_menu.width() + 1))
+        self.volume_menu.popup(QPoint(x, max(screen.top(), anchor.y() - self.volume_menu.height() - 4)))
 
     def _toggle_mute(self) -> None:
         self.set_muted(not self.muted)
@@ -6775,11 +6894,19 @@ class Tile(QFrame):
         self.volume = value
         self.room["volume"] = value
         self.volume_label.setText(str(value))
+        self.volume_button.set_state(self.muted, value, self.audio_channel)
+        self._sync_vertical_volume()
         if self.volume_slider.value() != value:
             self.volume_slider.blockSignals(True)
             self.volume_slider.setValue(value)
             self.volume_slider.blockSignals(False)
         self.volumeChanged.emit(self.room, value)
+
+    def _sync_vertical_volume(self) -> None:
+        blocked = self.vertical_volume.blockSignals(True)
+        self.vertical_volume.setValue(self.volume)
+        self.vertical_volume.blockSignals(blocked)
+        self.vertical_volume_label.setText(str(self.volume))
 
     def sync_audio_ui(self) -> None:
         """按自己的 volume / muted / audio_channel 重画音量条（不发信号）。
@@ -6788,6 +6915,7 @@ class Tile(QFrame):
         ``self.volume`` 这几个值、没重画控件 —— 用户看到的就是「音量条跟着画面
         跑过去，跟实际听到的声音对不上」。
         """
+        self._sync_vertical_volume()
         if self.volume_slider.value() != self.volume:
             self.volume_slider.blockSignals(True)
             self.volume_slider.setValue(self.volume)

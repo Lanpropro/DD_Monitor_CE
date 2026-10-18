@@ -626,6 +626,16 @@ class ResultNotice(UpdateNotice):
         self.indicator.setFixedSize(20, 24)
         self.indicator.setAlignment(Qt.AlignCenter)
         self.layout().itemAt(0).layout().insertWidget(0, self.indicator)
+        self._on_click = None
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._on_click is not None:
+            callback = self._on_click
+            self.dismiss(animate=False)
+            callback()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _set_rooms(self, rooms):
         from .images import load_cached_avatar, load_room_avatar
@@ -663,7 +673,10 @@ class ResultNotice(UpdateNotice):
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                                 radius, radius)
 
-    def show_message(self, message, rooms=(), *, kind='info'):
+    def show_message(self, message, rooms=(), *, kind='info', on_click=None):
+        self._on_click = on_click
+        self.setCursor(Qt.PointingHandCursor if on_click else Qt.ArrowCursor)
+        self.setToolTip('点击打开 B 站登录' if on_click else '')
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)
@@ -722,10 +735,10 @@ class ResultNotice(UpdateNotice):
                                            20 + offset)))
 
 
-def show_result(parent, message, rooms=(), *, kind='info'):
+def show_result(parent, message, rooms=(), *, kind='info', on_click=None):
     if not parent.isVisible():
         return
     notice = getattr(parent, '_result_notice', None)
     if notice is None:
         notice = parent._result_notice = ResultNotice(parent)
-    notice.show_message(message, rooms, kind=kind)
+    notice.show_message(message, rooms, kind=kind, on_click=on_click)

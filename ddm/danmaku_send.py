@@ -423,6 +423,7 @@ class EmoticonPopup(QMenu):
 
 class DanmakuComposer(QWidget):
     deviceCookieReady = Signal()
+    noticeRequested = Signal(str, bool)
     HEIGHT = theme.TILE_CONTROL_HEIGHT
 
     def __init__(self, parent=None):
@@ -433,14 +434,6 @@ class DanmakuComposer(QWidget):
         self.setMinimumWidth(0)
         self.setFixedHeight(self.HEIGHT)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            #DanmakuComposer {{background: transparent; border: none;}}
-            #DanmakuComposer QLineEdit {{padding: 2px 8px; font-size: {theme.FONT_CAPTION}px;
-                border-radius: {self.HEIGHT // 2}px; placeholder-text-color: {theme.TEXT3};}}
-            #DanmakuSendFeedback {{background: {theme.ELEVATED}; color: {theme.TEXT1};
-                border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_SM}px;
-                padding: 6px 8px; font-size: {theme.FONT_CAPTION}px;}}
-        """)
         self._room_id = ""
         self._closing = False
         self._generation = self._revision = 0
@@ -453,6 +446,7 @@ class DanmakuComposer(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         self.edit = DanmakuEdit()
+        self.edit.setObjectName("DanmakuInput")
         self.edit.setAccessibleName("发送到当前直播间的弹幕")
         self.edit.setPlaceholderText("输入弹幕，Enter 发送")
         self.edit.setMinimumWidth(0)
@@ -468,12 +462,14 @@ class DanmakuComposer(QWidget):
         self.emote_button.clicked.connect(self.open_emoticons)
         row.addWidget(self.emote_button)
         self.send_button = QPushButton("发送")
-        self.send_button.setFixedSize(44, self.HEIGHT)
+        self.send_button.setFixedSize(52, self.HEIGHT)
         self.send_button.clicked.connect(self.send_text)
         row.addWidget(self.send_button)
         for button in (self.emote_button, self.send_button):
             _style_button(button)
-        self.feedback = QLabel("", self, Qt.ToolTip)
+        self.send_button.setObjectName("DanmakuSendButton")
+        self.send_button.setStyleSheet("")
+        self.feedback = QLabel("", self)
         self.feedback.setObjectName("DanmakuSendFeedback")
         self.feedback.setAttribute(Qt.WA_ShowWithoutActivating)
         self.feedback.setTextFormat(Qt.PlainText)
@@ -551,7 +547,12 @@ class DanmakuComposer(QWidget):
         self._update_buttons()
 
     def _update_buttons(self):
-        self.send_button.setEnabled(bool(self.edit.text().strip()) and not self.busy)
+        has_text = bool(self.edit.text().strip())
+        self.send_button.setEnabled(has_text and not self.busy)
+        if self.send_button.property("hasText") != has_text:
+            self.send_button.setProperty("hasText", has_text)
+            self.send_button.style().unpolish(self.send_button)
+            self.send_button.style().polish(self.send_button)
         self.send_button.setText("…" if self.busy else "发送")
 
     def _context(self):
@@ -569,7 +570,7 @@ class DanmakuComposer(QWidget):
             return
         if not cookies.get("SESSDATA") or not cookies.get("bili_jct"):
             self._feedback("请先登录 B 站" if not cookies.get("SESSDATA") else
-                           "登录缺少 bili_jct，请退出 B 站账号后重新登录")
+                           "B 站登录凭证不完整，请重新登录", login_required=True)
             return
         context = (*self._context(), self._revision, dm_type)
         self._pending = context
@@ -582,22 +583,20 @@ class DanmakuComposer(QWidget):
         worker.failed.connect(self._send_failed)
         _start(worker)
 
-    def _feedback(self, text):
+    @staticmethod
+    def _needs_login(text):
+        return any(word in text.lower() for word in (
+            "未登录", "登录失效", "请先登录", "csrf", "bili_jct", "-101"))
+
+    def _feedback(self, text, *, login_required=False):
         self.feedback.setText(text)
         self.feedback.setToolTip(text)
         self.feedback.setAccessibleDescription(text)
-        self.edit.setToolTip(text)
+        self.edit.setAccessibleDescription(text)
         self.feedback.hide()
-        if text and not self.busy and self.isVisible():
-            self.feedback.adjustSize()
-            anchor = self.edit.mapToGlobal(QPoint(0, 0))
-            screen = self.screen().availableGeometry()
-            x = max(screen.left(), min(anchor.x(), screen.right() - self.feedback.width() + 1))
-            y = anchor.y() - self.feedback.height() - 4
-            if y < screen.top():
-                y = anchor.y() + self.edit.height() + 4
-            self.feedback.move(x, min(y, screen.bottom() - self.feedback.height() + 1))
-            self.feedback.show()
+        if text and not self.busy:
+            login_required = login_required or self._needs_login(text)
+            self.noticeRequested.emit(text, login_required)
 
     def _finish_send(self, context):
         if context != self._pending:
@@ -639,7 +638,7 @@ class DanmakuComposer(QWidget):
         if self._closing or not self.supported:
             return
         if not cookies.get("SESSDATA"):
-            self._feedback("请先登录 B 站后选择表情")
+            self._feedback("请先登录 B 站后选择表情", login_required=True)
             return
         if self.popup is None:
             self.popup = EmoticonPopup(self)
@@ -681,4 +680,8 @@ class DanmakuComposer(QWidget):
         if context != self._context():
             return
         self._catalog_pending = None
-        self.popup.set_error(error)
+        if self._needs_login(error):
+            self.popup.hide()
+            self._feedback(error, login_required=True)
+        else:
+            self.popup.set_error(error)

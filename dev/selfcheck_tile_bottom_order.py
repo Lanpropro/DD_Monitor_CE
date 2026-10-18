@@ -48,7 +48,7 @@ def check_restored_styles(app, tile):
 def main():
     app = QApplication(sys.argv)
     tile = Tile({"room_id": "1000", "uname": "Test", "live": False})
-    assert not hasattr(tile, "composer"), "隔离期间不应加载弹幕发送控件"
+    assert hasattr(tile, "composer"), "发送输入区应已恢复"
     events = []
     tile.recordingRequested.connect(lambda: events.append("record"))
     tile.muteToggled.connect(lambda room, muted: events.append("mute"))
@@ -77,8 +77,11 @@ def main():
             tile.set_recording_available(False)
             app.processEvents()
             assert not tile.recording_button.isVisible()
-            assert tile.volume_button.isVisible() and tile.volume_slider.isVisible()
+            assert tile.volume_button.isVisible()
+            assert tile.volume_slider.isVisible() == (width >= 600)
             tile.set_recording_available(True)
+        tile.resize(900, 500)
+        app.processEvents()
         QTest.mouseClick(tile.recording_button, Qt.LeftButton)
         QTest.mouseClick(tile.volume_button, Qt.LeftButton)
         tile.volume_slider.setValue(55)

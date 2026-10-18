@@ -243,6 +243,8 @@ class _Handler(_HandlerBase):
             "kind": "danmaku",
             "uname": message.uname,
             "text": message.msg,
+            "self_sent": bool(getattr(client, "uid", 0)) and str(client.uid) == str(
+                getattr(message, "uid", "")),
             "medal": _medal_info(message),
             "emoticon": emoticon.get("url", "") if isinstance(emoticon, dict) else "",
             "emoticons": {text: item["url"] for text, item in emotes.items()

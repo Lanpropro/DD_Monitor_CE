@@ -39,11 +39,12 @@ class FollowAccountResolver(QThread):
 
 
 class AccountPlatformDialog(QDialog):
-    def __init__(self, owner, providers, *, import_follows=False, platform_kind="bilibili"):
+    def __init__(self, owner, providers, *, import_follows=False, platform_kind="bilibili", reauthenticate=False):
         super().__init__(owner)
         self.owner = owner
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
+        self.reauthenticate = reauthenticate
         self.rooms = []
         self._account_resolver = None
         self.folder_id = ""
@@ -210,7 +211,7 @@ class AccountPlatformDialog(QDialog):
             layout.addStretch()
             self._set_page(page)
             return
-        if not self.import_follows and (bili.SESSION_DATA if kind == "bilibili"
+        if not self.import_follows and not (self.reauthenticate and kind == "bilibili") and (bili.SESSION_DATA if kind == "bilibili"
                                         else kind in self.owner._accounts and
                                         not self.owner._accounts[kind].get("_login_expired")):
             account = self.owner._accounts.get(kind, {"uname": "B站账号"})

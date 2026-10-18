@@ -122,6 +122,9 @@ def main() -> None:
     class StubPlayer:
         """不联网时格子拿不到真播放器，这里塞一个替身，只记录调用。"""
 
+        def release(self):
+            pass
+
         def __init__(self):
             self.calls: list = []
             self.restart = False

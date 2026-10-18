@@ -2762,6 +2762,7 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
         tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
+        tile.composer.noticeRequested.connect(self._danmaku_send_notice)
         tile._actions_wired = True
 
     def _on_device_cookie_ready(self) -> None:
@@ -2933,11 +2934,16 @@ class MainWindow(QMainWindow):
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
         self._show_notice(message, kind="warning" if warning else "info")
 
-    def _show_notice(self, message: str, *, rooms=(), kind="info") -> None:
+    def _danmaku_send_notice(self, message: str, login_required: bool) -> None:
+        self._show_notice(message + ("，点击此处登录" if login_required else ""),
+                          kind="warning", on_click=(
+                              lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
+
+    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None) -> None:
         if self._closing:
             return
         from .online_ui import show_result
-        show_result(self, message, rooms=rooms, kind=kind)
+        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3348,7 +3354,7 @@ class MainWindow(QMainWindow):
         self._clear_platform_account(kind)
         print("已退出登录", file=sys.stderr, flush=True)
 
-    def open_login(self, platform_kind=None) -> None:
+    def open_login(self, platform_kind=None, *, reauthenticate=False) -> None:
         follow_loader = getattr(self, "_follow_loader", None)
         if self._closing or (follow_loader is not None and self._loader_running(follow_loader)):
             return
@@ -3359,12 +3365,14 @@ class MainWindow(QMainWindow):
         providers = self._account_dialog_platforms()
         if platform_kind is None:
             platform_kind = "bilibili" if choices[0] == "B站" else providers[choices[0]].kind
-        self._open_account_dialog(providers, platform_kind=platform_kind)
+        self._open_account_dialog(providers, platform_kind=platform_kind,
+                                  reauthenticate=reauthenticate)
 
-    def _open_account_dialog(self, providers, *, import_follows=False, platform_kind="bilibili"):
+    def _open_account_dialog(self, providers, *, import_follows=False, platform_kind="bilibili",
+                             reauthenticate=False):
         from .account_dialog import AccountPlatformDialog
         dialog = AccountPlatformDialog(self, providers, import_follows=import_follows,
-                                       platform_kind=platform_kind)
+                                       platform_kind=platform_kind, reauthenticate=reauthenticate)
         try:
             result = dialog.exec()
             selected = dialog.rooms

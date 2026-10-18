@@ -206,7 +206,7 @@ def refresh_theme_properties(widget):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
-    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton', 'Sidebar',
+    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
                     'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
@@ -240,6 +240,7 @@ def _light_style(widget):
         return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
+        'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
         'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}' + TILE_FULLSCREEN_STYLE,
@@ -1156,6 +1157,37 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #TileCtrlStrip {{
     background: transparent;
+}}
+#DanmakuSendButton {{
+    background: transparent; color: {TEXT3}; border: 1px solid {BORDER};
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px; padding: 0;
+    font-size: {FONT_CAPTION}px; font-weight: 600;
+}}
+#DanmakuSendButton[hasText="true"] {{
+    background: {ACCENT}; color: #ffffff; border-color: {ACCENT};
+}}
+#DanmakuSendButton[hasText="true"]:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
+#DanmakuSendButton:disabled {{background: transparent; color: {TEXT4}; border-color: {BORDER};}}
+#DanmakuSendButton:focus {{border: 1px solid {ACCENT};}}
+#DanmakuComposer {{background: transparent; border: none;}}
+#DanmakuComposer QLineEdit {{
+    padding: 2px 8px; font-size: {FONT_CAPTION}px;
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px; placeholder-text-color: {TEXT3};
+}}
+#TileVolumePopup QSlider::groove:vertical {{
+    width: 4px; background: {BORDER_STRONG}; border-radius: 2px;
+}}
+#TileVolumePopup {{
+    background: {ELEVATED}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 4px;
+}}
+#TileVolumePopup QLabel {{
+    background: transparent; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;
+}}
+#TileVolumePopup QSlider::sub-page:vertical {{background: {BORDER_STRONG}; border-radius: 2px;}}
+#TileVolumePopup QSlider::add-page:vertical {{background: {ACCENT}; border-radius: 2px;}}
+#TileVolumePopup QSlider::handle:vertical {{
+    height: 12px; margin: 0 -4px; border-radius: 6px;
+    background: {TEXT1}; border: 1px solid {BORDER};
 }}
 
 /* 弹幕格：占画面墙里的一整格，和别的格子同一套规格 */

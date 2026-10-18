@@ -201,16 +201,17 @@ class ComposerTests(unittest.TestCase):
                 for width, height in ((900, 520), (360, 230), (200, 200)):
                     tile.resize(width, height)
                     APP.processEvents()
-                    self.assertTrue(tile.composer.isVisible())
+                    self.assertEqual(tile.composer.isVisible(), width >= 600)
                     self.assertLess(tile.video.geometry().bottom(), tile.bottom.y())
                     self.assertIs(tile.composer.parent(), tile.bottom)
-                    self.assertTrue(tile.bottom.rect().contains(tile.composer.geometry()))
-                    self.assertLess(tile.composer.geometry().bottom(), tile.height())
-                    self.assertGreater(tile.composer.edit.width(), 40)
+                    if tile.composer.isVisible():
+                        self.assertTrue(tile.bottom.rect().contains(tile.composer.geometry()))
+                        self.assertLess(tile.composer.geometry().bottom(), tile.height())
+                        self.assertGreater(tile.composer.edit.width(), 40)
                     self.assertEqual(tile.composer.emote_button.size().toTuple(),
                                      (theme.TILE_CONTROL_HEIGHT, theme.TILE_CONTROL_HEIGHT))
                     self.assertEqual(tile.composer.send_button.size().toTuple(),
-                                     (44, theme.TILE_CONTROL_HEIGHT))
+                                     (52, theme.TILE_CONTROL_HEIGHT))
                     self.assertEqual(tile.pause_button.width(), 26 if width < 260 else 34)
                     for control in (tile.composer, tile.composer.edit,
                                     tile.composer.emote_button, tile.composer.send_button):
@@ -225,6 +226,108 @@ class ComposerTests(unittest.TestCase):
             self.assertFalse(tile.composer.isVisible())
         finally:
             theme.apply("dark")
+            tile.close()
+
+    def test_send_accent_tracks_text_and_compact_volume_opens_upward(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "101", "uname": "Test"})
+        tile.resize(1280, 500)
+        tile.show()
+        APP.processEvents()
+        try:
+            composer = tile.composer
+            self.assertEqual(composer.width(), 520)
+            self.assertLessEqual(abs(composer.geometry().center().x() - tile.bottom.width() / 2), 2)
+            for text, active in (("", False), ("   ", False), ("hello", True), ("", False)):
+                composer.edit.setText(text)
+                self.assertEqual(composer.send_button.property("hasText"), active)
+                self.assertEqual(composer.send_button.isEnabled(), active)
+            for mode in ("dark", "light"):
+                theme.apply(mode)
+                composer.edit.setText("hello")
+                composer.send_button.setAttribute(Qt.WA_UnderMouse, False)
+                APP.processEvents()
+                button_image = composer.send_button.grab().toImage()
+                scale = button_image.devicePixelRatioF()
+                self.assertEqual(button_image.pixelColor(round(8 * scale), round(13 * scale)),
+                                 theme.qcolor(theme.ACCENT))
+            tile.resize(360, 240)
+            APP.processEvents()
+            self.assertTrue(tile.volume_slider.isHidden())
+            self.assertTrue(tile.danmaku_settings_button.isVisible())
+            self.assertTrue(tile.recording_button.isVisible())
+            tile._volume_clicked()
+            APP.processEvents()
+            anchor = tile.volume_button.mapToGlobal(tile.volume_button.rect().topLeft())
+            self.assertLess(tile.volume_menu.geometry().bottom(), anchor.y())
+            self.assertEqual(tile.vertical_volume.orientation(), Qt.Vertical)
+            self.assertTrue(tile.volume_menu.testAttribute(Qt.WA_TranslucentBackground))
+            self.assertLess(tile.volume_menu.grab().toImage().pixelColor(0, 0).alpha(), 30)
+            self.assertEqual(tile.vertical_volume_label.font().pixelSize(), theme.FONT_CAPTION)
+            tile.vertical_volume.setValue(73)
+            self.assertEqual(tile.volume, 73)
+            self.assertEqual(tile.volume_slider.value(), 73)
+            tile.set_volume(28)
+            self.assertEqual(tile.vertical_volume.value(), 28)
+            self.assertEqual(tile.vertical_volume_label.text(), "28")
+        finally:
+            tile.volume_menu.close()
+            tile.close()
+            theme.apply("dark")
+
+    def test_expired_emoticon_login_uses_notice_without_floating_feedback(self):
+        notices = []
+        self.composer.noticeRequested.connect(lambda text, login: notices.append((text, login)))
+        with patch.object(bili, "get_emoticons", side_effect=ValueError("账号未登录")):
+            self.composer.open_emoticons()
+            settle(lambda: bool(notices))
+        self.assertEqual(notices, [("账号未登录", True)])
+        self.assertFalse(self.composer.popup.isVisible())
+        self.assertTrue(self.composer.feedback.isHidden())
+
+    def test_own_uid_marks_message_and_white_frame_survives_resize(self):
+        from types import SimpleNamespace
+        from ddm.danmaku import _Handler
+        from ddm.widgets import Tile, DanmakuPanel
+        received = []
+        handler = _Handler(received.append)
+        message = SimpleNamespace(dm_type=0, mode_info={}, uname="Test", msg="same text", uid=42)
+        for uid, expected in ((42, True), (43, False), (0, False)):
+            handler._on_danmaku(SimpleNamespace(uid=uid), message)
+            self.assertEqual(received[-1]["self_sent"], expected)
+        tile = Tile({"room_id": "101"})
+        tile.resize(900, 400)
+        tile.show()
+        APP.processEvents()
+        overlay = tile.video_danmaku
+        panel = DanmakuPanel()
+        try:
+            for dpr in (1, 1.75, 2):
+                with patch.object(overlay, "devicePixelRatioF", return_value=dpr):
+                    image = overlay._render_text("Test", QColor("#ff0000"), True).toImage()
+                    scale = image.devicePixelRatioF()
+                    border = image.pixelColor(image.width() // 2, round(1.6 * scale))
+                    self.assertGreater(border.alpha(), 100)
+                    self.assertGreater(border.green(), 220)
+            emote = QPixmap(24, 24)
+            emote.fill(QColor("#00a1d6"))
+            overlay._images["fixture-emote"] = emote.toImage()
+            framed = overlay._render_content("[e]", QColor("#ffffff"),
+                                             [("[e]", "fixture-emote")], True).toImage()
+            self.assertGreater(framed.pixelColor(framed.width() // 2,
+                               round(1.6 * framed.devicePixelRatioF())).alpha(), 100)
+            tile.set_video_active(True)
+            tile.danmaku_button.setChecked(True)
+            self.assertTrue(overlay.add_event({"text": "own", "self_sent": True}))
+            overlay._resize_comments()
+            self.assertTrue(overlay.comments[0].self_sent)
+            panel.add_event({"uname": "Test", "text": "own", "self_sent": True})
+            self.assertTrue(panel._blocks[-1]["self_sent"])
+            self.assertIn(theme.PINK, panel._block_html(panel._blocks[-1]))
+            panel.add_event({"uname": "Other", "text": "same text"})
+            self.assertNotIn("▍", panel._block_html(panel._blocks[-1]))
+        finally:
+            panel.close()
             tile.close()
 
     def test_existing_composer_and_popup_follow_theme_without_losing_draft(self):
@@ -518,17 +621,35 @@ class ComposerTests(unittest.TestCase):
         finally:
             tile.close()
 
+    def test_fullscreen_keeps_composer_when_bar_auto_hide_is_disabled(self):
+        from ddm.widgets import Tile
+        tile = Tile({"room_id": "101"})
+        tile.setProperty("fullscreen", True)
+        tile.resize(900, 500)
+        tile.show()
+        APP.processEvents()
+        try:
+            initial = tile.video.geometry()
+            tile.set_fullscreen_controls_hidden(True, hide_bar=False)
+            APP.processEvents()
+            self.assertTrue(tile.bottom.isVisible())
+            self.assertTrue(tile.composer.isVisible())
+            self.assertEqual(tile.video.geometry(), initial)
+        finally:
+            tile.close()
+
     def test_fullscreen_keeps_input_visible_while_editing(self):
         from PySide6.QtGui import QCursor
         from PySide6.QtWidgets import QWidget
         from ddm.fullscreen_cursor import FullscreenCursor
         from ddm.widgets import Tile
         window = QWidget()
+        window.settings = {}
         tile = Tile({"room_id": "101", "uname": "B站"}, window)
         window._fullscreen_tile = tile
         window.isActiveWindow = lambda: True
-        window.resize(500, 350)
-        tile.resize(500, 350)
+        window.resize(900, 350)
+        tile.resize(900, 350)
         window.show()
         tile.show()
         tile.composer.edit.setFocus()
