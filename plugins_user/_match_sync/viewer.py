@@ -962,8 +962,9 @@ class Viewer(QDialog):
         self.late_notice.setObjectName("MatchSyncLateNotice")
         self.late_notice.setTextFormat(Qt.PlainText)
         self.late_notice.setWordWrap(True)
+        self.late_notice.setAlignment(Qt.AlignCenter)
+        self.late_notice.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.late_notice.setMinimumWidth(0)
-        self.late_notice.setMaximumWidth(420)
         self.late_notice.hide()
         self.input = QLineEdit()
         self.input.setPlaceholderText("房间号、平台前缀或官方直播链接")
@@ -988,10 +989,9 @@ class Viewer(QDialog):
         self.main.hide()
         heading.addWidget(self.automatic)
         heading.addWidget(self.compare)
-        heading.addWidget(self.late_notice)
+        heading.addWidget(self.late_notice, 1)
         for widget in self.add_controls:
             heading.addWidget(widget)
-        heading.addStretch()
         heading.addWidget(self.minimize_settings)
         self.picture = Tile({})
         self.restore_settings.setParent(self.picture.bottom)
@@ -2334,12 +2334,15 @@ class Viewer(QDialog):
         self.late_buffer.update(now, ahead, capacity, deficits)
         blocked = [self.rows[key].label() for key in self.rows if key in self.late_buffer.blocked]
         if blocked:
-            text = f"{'、'.join(blocked)}过慢，请更换主画面"
+            text = f"{'、'.join(blocked)}过慢，请将较晚的一路设为主画面以更快对齐"
             detail = "该路持续晚到，超出平滑建立缓冲的能力；可将较晚的一路设为主画面，或移除该路。"
         elif self.late_buffer.building:
             names = [self.rows[key].label() for key in self.rows if key in self.late_buffer.rooms]
-            text = f"{'、'.join(names)}持续晚到，正在平滑增加主路缓冲"
-            detail = "主画面持续播放，以最多约 2% 的轻微降速积累共同缓冲，最长尝试 2 分钟。"
+            if max((deficits[key] for key in self.late_buffer.rooms), default=0) <= .05:
+                text = f"{'、'.join(names)}已追上，正在平滑补充约 2 秒副路播放缓冲；切换较晚的一路为主画面可更快对齐"
+            else:
+                text = f"{'、'.join(names)}持续晚到，正在平滑增加主路缓冲；切换较晚的一路为主画面可更快对齐"
+            detail = "主画面持续播放，以最多约 2% 的轻微降速积累共同缓冲；追上后继续积累约 2 秒副路播放余量，最长尝试 4 分钟。"
         else:
             text, detail = "", ""
         self.late_notice.setVisible(bool(text))

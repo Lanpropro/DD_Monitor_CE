@@ -446,6 +446,9 @@ class SafetyBuffer:
 
 class LateBuffer:
     """Build limited common headroom through gentle playback, never a seek."""
+    reserve_seconds = 2.0
+    max_seconds = 240
+
     def __init__(self):
         self.floor = 0.0
         self.since = {}
@@ -466,16 +469,16 @@ class LateBuffer:
                        if key in late and late[key] >= gap - .5}
         persistent = {key: late[key] for key in late if now - self.since[key] >= 5}
         self.blocked = {key for key, gap in persistent.items()
-                        if gap + .5 > .02 * 120 or ahead + gap + .5 > capacity or key in self.failed}
+                        if gap + .5 > .02 * 120 or ahead + gap + self.reserve_seconds > capacity or key in self.failed}
         if self.building:
             self.rooms.intersection_update(deficits)
             gap = max((deficits[key] for key in self.rooms), default=0)
             growing = {key for key in self.rooms if now - self.started >= 15
                        and deficits[key] > self.initial_gaps[key] + .5}
-            exhausted = (self.floor > capacity or now - self.started >= 120 or bool(growing)
+            exhausted = (self.floor > capacity or now - self.started >= self.max_seconds or bool(growing)
                          or ahead >= self.floor - .1 and gap > .05)
             if exhausted:
-                limited = {key for key in self.rooms if ahead + deficits[key] + .5 > capacity}
+                limited = {key for key in self.rooms if ahead + deficits[key] + self.reserve_seconds > capacity}
                 self.failed.update({key: late[key] for key in (growing or limited or self.rooms) if key in late})
                 self.blocked.update(self.failed)
             if not self.rooms or exhausted or ahead >= self.floor - .1:
@@ -488,7 +491,7 @@ class LateBuffer:
         if not self.building and eligible:
             self.rooms = eligible
             self.initial_gaps = {key: persistent[key] for key in eligible}
-            self.floor = max(self.floor, ahead + max(self.initial_gaps.values()) + .5)
+            self.floor = max(self.floor, ahead + max(self.initial_gaps.values()) + self.reserve_seconds)
             self.started = now
         self.floor = max(0, min(self.floor, capacity))
         return self.building
