@@ -1,10 +1,11 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-    QScrollArea, QSizePolicy, QTabBar, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QScrollArea, QSizePolicy, QStyle, QStyleOptionTab, QStylePainter, QTabBar, QToolButton,
+    QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import bili, images, theme
@@ -144,6 +145,34 @@ class EmoticonTabs(QTabBar):
 
     def minimumTabSizeHint(self, index):
         return self.tabSizeHint(index)
+
+    def paintEvent(self, event):
+        painter = QStylePainter(self)
+        region = QRegion(self.rect())
+        for name in ("ScrollLeftButton", "ScrollRightButton"):
+            arrow = self.findChild(QToolButton, name)
+            if arrow is not None and arrow.isVisible():
+                region = region.subtracted(QRegion(arrow.geometry()))
+        painter.setClipRegion(region)
+        selected = self.currentIndex()
+        # 与原生 Tab 一样最后绘制选中项，边框、焦点及悬停仍由主题样式负责。
+        order = [index for index in range(self.count()) if index != selected]
+        if selected >= 0:
+            order.append(selected)
+        for index in order:
+            option = QStyleOptionTab()
+            self.initStyleOption(option, index)
+            icon = QIcon(option.icon)
+            option.text = option.fontMetrics.elidedText(option.text, self.elideMode(), option.rect.width() - 8)
+            option.icon = QIcon()
+            painter.drawControl(QStyle.CE_TabBarTab, option)
+            if not icon.isNull():
+                # 原生图标布局会给旁边的文字留空，纯封面需单独按方形中心绘制。
+                rect = QRect(QPoint(), self.iconSize())
+                rect.moveCenter(option.rect.center())
+                mode = QIcon.Normal if option.state & QStyle.State_Enabled else QIcon.Disabled
+                icon.paint(painter, rect, Qt.AlignCenter, mode,
+                           QIcon.On if index == selected else QIcon.Off)
 
 
 class EmoticonPopup(QMenu):

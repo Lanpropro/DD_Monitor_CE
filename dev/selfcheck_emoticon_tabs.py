@@ -149,6 +149,58 @@ class EmoticonTabTests(unittest.TestCase):
             self.assertEqual(self.popup.grid.itemAtPosition(2, 0).widget().x(), first.x(),
                              "不足一行时仍与上方网格列对齐")
 
+    def test_cover_pixels_are_centered_in_square_tabs(self):
+        marker = QColor("#fe007f")
+        packs, covers = [], {}
+        for index, (width, height) in enumerate(((48, 48), (64, 32), (32, 64))):
+            pack = package(f"封面{index}", 0, 2)
+            pack["current_cover"] = f"https://example.invalid/centered-{index}.png"
+            pixmap = QPixmap(width, height)
+            pixmap.fill(marker)
+            covers[pack["current_cover"]] = pixmap
+            packs.append(pack)
+        with patch.object(images, "load_pixmap", side_effect=lambda url, subdir: covers[url]):
+            self.popup.set_packages(packs)
+            settle(lambda: all(not self.popup.tabs.tabIcon(i).isNull() for i in range(3)))
+            for selected in (0, 2):
+                self.popup.tabs.setCurrentIndex(selected)
+                APP.processEvents()
+                for index in range(3):
+                    rendered = self.popup.tabs.grab(self.popup.tabs.tabRect(index)).toImage()
+                    points = [(x, y) for x in range(rendered.width()) for y in range(rendered.height())
+                              if rendered.pixelColor(x, y) == marker]
+                    self.assertTrue(points, "封面必须实际绘制在按钮内")
+                    xs, ys = zip(*points)
+                    with self.subTest(selected=selected, cover=index):
+                        self.assertLessEqual(abs(min(xs) + max(xs) - (rendered.width() - 1)), 2,
+                                             "封面可见像素应水平居中")
+                        self.assertLessEqual(abs(min(ys) + max(ys) - (rendered.height() - 1)), 2,
+                                             "封面可见像素应垂直居中")
+
+    def test_covers_cannot_paint_over_navigation_arrows(self):
+        marker = QColor("#fe007f")
+        self.pixmap.fill(marker)
+        packs = [package(f"分类{index}", 0, 2) for index in range(20)]
+        for pack in packs:
+            pack["current_cover"] = "https://example.invalid/overflow-cover.png"
+        with patch.object(images, "load_pixmap", return_value=self.pixmap):
+            self.popup.set_packages(packs)
+            settle(lambda: all(not self.popup.tabs.tabIcon(i).isNull() for i in range(20)))
+            for selected in (0, 19):
+                self.popup.tabs.setCurrentIndex(selected)
+                APP.processEvents()
+                rendered = self.popup.tabs.grab().toImage()
+                ratio = rendered.devicePixelRatio()
+                for name in ("ScrollLeftButton", "ScrollRightButton"):
+                    arrow = self.popup.tabs.findChild(QToolButton, name)
+                    self.assertTrue(arrow.isVisible())
+                    rect = arrow.geometry()
+                    points = [rendered.pixelColor(x, y)
+                              for x in range(round(rect.left() * ratio), round((rect.right() + 1) * ratio))
+                              for y in range(round(rect.top() * ratio), round((rect.bottom() + 1) * ratio))]
+                    with self.subTest(selected=selected, arrow=name):
+                        self.assertFalse(any(pixel == marker for pixel in points), "封面不能覆盖左右滚动箭头")
+
     def test_package_covers_replace_names_except_emoji_and_reuse_cache(self):
         packs = [package("emoji", 0), package("通用表情", 0, 1),
                  package("主播表情", 0, 2), package("装扮表情", 0, 5)]
