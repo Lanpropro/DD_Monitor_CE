@@ -1165,6 +1165,7 @@ class Viewer(QDialog):
         self.picture.pauseToggled.connect(lambda _room: self._pause_picture())
         self.picture.fullscreenRequested.connect(lambda _tile: self._fullscreen_picture())
         self.picture.recordingRequested.connect(self._record_picture)
+        self.picture.videoDanmakuAdvancedRequested.connect(self._open_danmaku_settings)
         self.fullscreen_dialog = None
         self.panel = DanmakuPanel(self)
         self.panel.roomDropped.connect(self._add_dragged)
@@ -1815,6 +1816,17 @@ class Viewer(QDialog):
         self.context.set_setting("rooms", [row.preferences() for row in self.rows.values()])
         self.context.set_setting("main_room", self.main.currentData() or "")
         self.context.set_setting("automatic", self.automatic.isChecked())
+
+    def _open_danmaku_settings(self):
+        open_settings = getattr(self.context.window, 'open_settings', None)
+        if callable(open_settings):
+            open_settings('danmaku')
+            settings = getattr(self.context.window, 'settings', {})
+            self.video_danmaku.apply_settings(settings)
+            self.picture.danmaku_settings_menu.apply_settings(settings)
+            self.panel.apply_style(settings.get('danmaku_font', ''),
+                                   int(settings.get('danmaku_font_size') or 13))
+            self.panel.set_max_blocks(int(settings.get('danmaku_max_blocks') or 3000))
 
     def _add_input(self):
         if self.add_room(self.input.text()):
