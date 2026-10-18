@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated latency test'))
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import app as module, config, motion, theme, theme_transition, widgets
@@ -51,12 +51,17 @@ def main():
                              'skin_sidebar': background == 'skin-sidebar'})
             QTest.qWait(20)
             for mode in ('light', 'dark', 'light'):
-                record = {'background': background, 'mode': mode, 'stylesheet_resets': 0}
+                record = {'background': background, 'mode': mode, 'stylesheet_resets': 0,
+                          'composer_stylesheet_resets': 0}
+                composer_widgets = {widget for tile in window.wall.tiles for widget in
+                                    (tile.composer, tile.composer.emote_button, tile.composer.send_button)}
                 geometry = [tile.video.geometry() for tile in window.wall.tiles]
                 skin_styles = {widget: widget.styleSheet() for widget in window.findChildren(QWidget)
                               if widget.objectName() in ('Sidebar', 'WallGrid', 'Tile', 'TileVideo', 'TileBottom', 'DanmakuPanel')}
                 def styled(widget, source):
                     record['stylesheet_resets'] += 1
+                    if widget in composer_widgets:
+                        record['composer_stylesheet_resets'] += 1
                     original_style(widget, source)
                 def snapshot(widget):
                     started = time.perf_counter()
@@ -76,7 +81,11 @@ def main():
                     window.set_appearance(mode)
                     record['prepare_ms'] = round((time.perf_counter()-started)*1000, 2)
                 assert window._theme_transition.overlays
+                assert record['composer_stylesheet_resets'] == 0, record
                 assert record['stylesheet_resets'] < 20, record
+                for tile in window.wall.tiles:
+                    assert tile.composer.send_button.palette().color(QPalette.Disabled, QPalette.ButtonText).name() == theme.qcolor(theme.TEXT4).name()
+                    assert tile.composer.feedback.palette().color(QPalette.WindowText).name() == theme.qcolor(theme.TEXT1).name()
                 assert all(widget.styleSheet() == source for widget, source in skin_styles.items()), 'Skin styles must remain installed across theme switches'
                 assert [tile.video.geometry() for tile in window.wall.tiles] == geometry, 'Theme switching must not resize native video windows'
                 window._theme_transition.finish()

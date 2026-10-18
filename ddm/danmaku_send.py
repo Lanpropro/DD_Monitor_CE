@@ -31,9 +31,9 @@ def wait_for_requests():
 def _style_button(button):
     button.setObjectName("TileCtrl")
     # 与主题注入的浅色局部样式放在同一层，并保留状态选择器的优先级。
-    button.setStyleSheet(f"""
-        QPushButton#TileCtrl:disabled {{background: transparent; color: {theme.TEXT4};}}
-        QPushButton#TileCtrl:focus {{border: 1px solid {theme.ACCENT};}}
+    button.setStyleSheet("""
+        QPushButton#TileCtrl:disabled {background: transparent; color: palette(tooltip-text);}
+        QPushButton#TileCtrl:focus {border: 1px solid palette(highlight);}
     """)
     button.setCursor(Qt.PointingHandCursor)
     button.setAutoDefault(False)
@@ -434,8 +434,8 @@ class DanmakuComposer(QWidget):
         self.setStyleSheet(f"""
             #DanmakuComposer {{background: transparent; border: none;}}
             #DanmakuComposer QLineEdit {{padding: 3px 6px; font-size: {theme.FONT_CONTROL}px;}}
-            #DanmakuSendFeedback {{background: {theme.ELEVATED}; color: {theme.TEXT1};
-                border: 1px solid {theme.BORDER}; border-radius: {theme.RADIUS_SM}px;
+            #DanmakuSendFeedback {{background: palette(tooltip-base); color: palette(window-text);
+                border: 1px solid palette(mid); border-radius: {theme.RADIUS_SM}px;
                 padding: 6px 8px; font-size: {theme.FONT_CAPTION}px;}}
         """)
         self._room_id = ""
