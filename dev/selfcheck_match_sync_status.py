@@ -4,11 +4,13 @@ from pathlib import Path
 import sys
 import tempfile
 from unittest.mock import patch
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('DDM_NO_SAVE', '1')
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication, QWidget, QStyle
+from PySide6.QtGui import QColor, QPixmap
 from ddm import plugins
 from dev.selfcheck_match_sync import FakeChat, FakeDecoder
 from plugins_user._match_sync import viewer as module
@@ -16,6 +18,23 @@ from plugins_user._match_sync import viewer as module
 
 def main():
     app = QApplication([])
+    # Some platform icon providers return larger pixmaps than requested.
+    # The icon must still stay in its 16 logical pixel slot at every DPI.
+    label = module.CompactStatus()
+    label.resize(80, 30)
+    baseline = label.grab().toImage()
+    oversized = QPixmap(48, 48)
+    oversized.fill(QColor('#ffffff'))
+    style = SimpleNamespace(standardIcon=lambda _: SimpleNamespace(pixmap=lambda *args: oversized.copy()))
+    label.set_status([(QStyle.SP_MediaPlay, '')], 'play')
+    with patch.object(label, 'style', return_value=style):
+        painted = label.grab().toImage()
+    ratio = label.devicePixelRatioF()
+    assert any(painted.pixel(x, y) != baseline.pixel(x, y)
+               for x in range(round(16 * ratio)) for y in range(painted.height()))
+    assert all(painted.pixel(x, y) == baseline.pixel(x, y)
+               for x in range(round(17 * ratio), painted.width()) for y in range(painted.height())), 'Icon overlaps adjacent text'
+    label.close()
     with tempfile.TemporaryDirectory() as directory, patch.object(module, 'Decoder', FakeDecoder), \
             patch.object(module, 'Chat', FakeChat), patch.object(module.AudioPump, 'start', lambda _: None):
         host = QWidget()

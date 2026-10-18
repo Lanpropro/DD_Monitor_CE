@@ -626,7 +626,7 @@ class CompactStatus(QLabel):
                 tint.setCompositionMode(QPainter.CompositionMode_SourceIn)
                 tint.fillRect(pixmap.rect(), color)
                 tint.end()
-                painter.drawPixmap(x, y, pixmap)
+                painter.drawPixmap(QRect(x, y, size, size), pixmap)
             x += size + 4
             if text:
                 painter.setPen(color)
