@@ -3571,14 +3571,20 @@ class BarIconButton(QPushButton):
         color = _icon_color(self)
         center = self.rect().center()
         if self._kind == "check":
-            pen = QPen(color, 2.0)
+            pen = QPen(color, 1.5)
             pen.setCapStyle(Qt.RoundCap)
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2, 2)
+            painter.drawLine(QPointF(center.x() - 2, center.y() - 6),
+                             QPointF(center.x() + 7, center.y() - 6))
+            painter.drawLine(QPointF(center.x() + 7, center.y() - 6),
+                             QPointF(center.x() + 7, center.y() + 3))
             path = QPainterPath()
-            path.moveTo(center.x() - 5.0, center.y() + 0.4)
-            path.lineTo(center.x() - 1.6, center.y() + 4.0)
-            path.lineTo(center.x() + 5.2, center.y() - 4.0)
+            path.moveTo(center.x() - 4.0, center.y() + 1.5)
+            path.lineTo(center.x() - 2.2, center.y() + 3.4)
+            path.lineTo(center.x() + 2.2, center.y() - 0.5)
             painter.drawPath(path)
         else:
             # 上箭头 + 下箭头 = 「排序」。两根杆子要拉开、箭头别画太宽，
@@ -3778,14 +3784,17 @@ class Sidebar(QFrame):
         self.batch_button.setCursor(Qt.PointingHandCursor)
         self.batch_button.setToolTip("多选卡片后可一起拖动、移到最前或最后，也可批量删除")
         self.batch_button.setCheckable(True)
-        self.batch_button.setFixedHeight(22)
+        self.batch_button.setAccessibleName("多选直播间")
+        self.batch_button.setObjectName("BarIcon")
+        self.batch_button.setProperty("sidebarCompact", True)
+        self.batch_button.set_icon_mode(True)
+        self.batch_button.setFixedSize(22, 22)
         self.batch_button.clicked.connect(lambda: self.set_select_mode(not self.select_mode))
         self.toggle_button = SidebarToggleButton(self)
         self.toggle_button.setToolTip("收起 / 展开房间列表")
         self.toggle_button.clicked.connect(self.toggle_collapsed)
         header.addWidget(self.logo_label, 0, Qt.AlignVCenter)
         header.addLayout(self.title_box, 1)
-        header.addWidget(self.batch_button, 0, Qt.AlignTop)
         header.addWidget(self.toggle_button, 0, Qt.AlignTop)
         layout.addWidget(self._header_row)
 
@@ -3825,6 +3834,7 @@ class Sidebar(QFrame):
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         status_box.addWidget(self.count_label, 1)
         status_box.addWidget(self.sort_button, 0, Qt.AlignRight)
+        status_box.addWidget(self.batch_button, 0, Qt.AlignRight)
         status_box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         status_box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         layout.addWidget(self.status_row)
@@ -3942,7 +3952,7 @@ class Sidebar(QFrame):
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
             self.status_row.setVisible(not self.collapsed)
-            for widget in (self.count_label, self.sort_button, self.refresh_button):
+            for widget in (self.count_label, self.sort_button, self.batch_button, self.refresh_button):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,
                 Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
@@ -4600,8 +4610,7 @@ class Sidebar(QFrame):
                                     (self.tool_row, True)):
                 widget.setVisible(visible)
             self.settings_button.setVisible(True)    # 竖屏时它收进「⋯」里了
-            # 竖屏时被摘进横栏那一行的控件要各回各家：多选回标题行、
-            # 排序/刷新回状态行，图标样式也换回文字按钮
+            # 横栏里的工具回到状态行，多选仍保留为排序旁的图标。
             self._restore_side_children()
             self.account_row.setVisible(self._account_row_should_show())
             self._restore_toggle_to_header()
@@ -4759,12 +4768,9 @@ class Sidebar(QFrame):
         return (self.batch_button, self.sort_button, self.appearance_button, self.refresh_button)
 
     def _sync_bar_icons(self) -> None:
-        """竖屏那一行把「多选 / 排序 / 刷新」压成小图标；横屏还原成文字按钮。
-
-        横屏的多选在标题行、排序/刷新在状态行，都是带文字的；横栏一行里
-        放不下三块文字，所以只留图标（悬停提示照旧说明用途）。
-        """
+        """竖屏工具统一用图标；横屏多选仍为图标，排序恢复文字。"""
         top = self.side == "top"
+        self.batch_button.setProperty("sidebarCompact", not top)
         if top:
             # 图标是自己画的（BarIconButton）：字形在雅黑下会偏左 / 偏小。
             # 按钮换成 #BarIcon 那套方形样式，ChipButton 的 10px 内边距会挤掉图标
@@ -4780,23 +4786,25 @@ class Sidebar(QFrame):
                 button.setMaximumSize(16_777_215, 16_777_215)
                 if isinstance(button, BarIconButton):
                     button.set_icon_mode(False)
-            self.batch_button.setFixedHeight(22)     # 标题行里那套矮样式
+            self.batch_button.setObjectName("BarIcon")
+            self.batch_button.set_icon_mode(True)
+            self.batch_button.setFixedSize(22, 22)
             self.refresh_button.setFixedSize(28, 22)  # RefreshButton 的原始尺寸
         self.appearance_button.setFixedSize(22, 22)
         for button in self._bar_icons():
             _repolish(button)
 
     def _restore_side_children(self) -> None:
-        """回左栏：多选回标题行、排序/刷新回状态行（顺序和 __init__ 里一致）。"""
+        """回左栏：多选图标与排序、外观、刷新一起回状态行。"""
         self._detach_from_rows(self.batch_button)
-        self.batch_button.setParent(self._header_row)
-        self._header_row.layout().addWidget(self.batch_button, 0, Qt.AlignTop)
+        self.batch_button.setParent(self.status_row)
 
         box = self.status_row.layout()
-        for widget in (self.count_label, self.sort_button, self.appearance_button, self.refresh_button):
+        for widget in (self.count_label, self.sort_button, self.batch_button, self.appearance_button, self.refresh_button):
             box.removeWidget(widget)
         box.addWidget(self.count_label, 1)
         box.addWidget(self.sort_button, 0, Qt.AlignRight)
+        box.addWidget(self.batch_button, 0, Qt.AlignRight)
         box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         self.sort_button.setParent(self.status_row)
@@ -6064,9 +6072,8 @@ class Tile(QFrame):
         # 原有控件的宽度完全按「没有输入区」时算，按钮位置因此不会变。
         available = width - fixed - margin * 2 - spacing * (len(visible) + 1)
         slider_width = max(18, min(86, available - 8))
-        # 状态文字至少留够当前文案的宽度（上限 96/64），不让它被输入区省略掉
-        hint = self.status_label.sizeHint().width()
-        status_min = min(96 if width >= 700 else 64, max(32, hint))
+        # 空白区域用于输入栏居中，不再为底栏状态提示预留文字宽度。
+        status_min = 0
         composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
         self.volume_slider.setFixedWidth(slider_width)
         self._composer_spacer.setFixedWidth(0)
@@ -6269,9 +6276,8 @@ class Tile(QFrame):
             self._layout_cover()
 
     def _sync_status_label(self) -> None:
-        """信息条里的状态文字：缓冲优先，其次才是当前状态。"""
-        text = "缓冲中…" if getattr(self, "_buffering", False) else self._status_text
-        self.status_label.setText(text or "")
+        """底栏保留空白布局区域；状态仍用于封面、加载图形及内部判断。"""
+        self.status_label.setText("")
 
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)

@@ -3,6 +3,9 @@ import hashlib
 import os
 import re
 import shutil
+import threading
+from collections import OrderedDict
+from concurrent.futures import Future
 from urllib.parse import urlsplit
 
 import requests
@@ -17,6 +20,13 @@ from . import config as config_module
 #: 升级时也会被一起删掉。
 REPO = config_module.REPO
 CACHE_DIR = os.path.join(REPO, "cache", "avatars")
+
+# Shared decoded images complement the persistent cache, including across rooms.
+_EMOTICON_IMAGES = OrderedDict()
+_EMOTICON_PENDING = {}
+_EMOTICON_LOCK = threading.Lock()
+_EMOTICON_BYTES = 0
+_EMOTICON_CACHE_LIMIT = 16 * 1024 * 1024
 
 
 def _cache_path(url: str, subdir: str = "avatars") -> str:
@@ -172,6 +182,40 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         return None
 
 
+def _load_emoticon(url: str, subdir: str) -> QPixmap | None:
+    global _EMOTICON_BYTES
+    with _EMOTICON_LOCK:
+        cached = _EMOTICON_IMAGES.get(url)
+        if cached is not None:
+            _EMOTICON_IMAGES.move_to_end(url)
+            return QPixmap.fromImage(cached)
+        pending = _EMOTICON_PENDING.get(url)
+        owner = pending is None
+        if owner:
+            pending = _EMOTICON_PENDING[url] = Future()
+    if not owner:
+        cached = pending.result()
+        return QPixmap.fromImage(cached) if cached is not None else None
+    decoded = None
+    try:
+        pixmap = _load_one(url, subdir)
+        if pixmap is not None:
+            decoded = pixmap.toImage()
+            size = decoded.sizeInBytes()
+            if size <= _EMOTICON_CACHE_LIMIT:
+                with _EMOTICON_LOCK:
+                    _EMOTICON_IMAGES[url] = decoded
+                    _EMOTICON_BYTES += size
+                    while _EMOTICON_BYTES > _EMOTICON_CACHE_LIMIT or len(_EMOTICON_IMAGES) > 256:
+                        _, evicted = _EMOTICON_IMAGES.popitem(last=False)
+                        _EMOTICON_BYTES -= evicted.sizeInBytes()
+        return pixmap
+    finally:
+        with _EMOTICON_LOCK:
+            _EMOTICON_PENDING.pop(url, None)
+            pending.set_result(decoded)
+
+
 def load_pixmap(url: str, subdir: str = "avatars",
                 cdn_size: str | None = None) -> QPixmap | None:
     """先从本地缓存读，没有就下载并缓存。封面默认走 CDN 缩放，只有几 KB。
@@ -189,7 +233,8 @@ def load_pixmap(url: str, subdir: str = "avatars",
         if candidate and candidate not in candidates:
             candidates.append(candidate)
     for candidate in candidates:
-        pixmap = _load_one(candidate, subdir)
+        pixmap = (_load_emoticon(candidate, subdir) if subdir == "emoticons"
+                  else _load_one(candidate, subdir))
         if pixmap is not None:
             return pixmap
     return None

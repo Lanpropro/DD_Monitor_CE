@@ -100,18 +100,18 @@ def main() -> None:
     print(f"  下播再开播：人数位={tile.stream_badge.viewers!r}")
     assert tile.stream_badge.viewers == "正在获取人数"
 
-    print("\n=== 2. 卡住 / 状态都写在信息条里（不会被画面盖住）===")
+    print("\n=== 2. 底栏不显示状态文字，内部状态和加载图形保持工作 ===")
     tile.set_status("连接中…")
     print(f"  连接中: 标签={tile.status_label.text()!r} 转圈={tile.spinner.isVisible()}")
-    assert tile.status_label.text() == "连接中…"
+    assert tile.status_label.text() == "" and tile._status_text == "连接中…"
     tile.set_buffering(True)
     print(f"  缓冲中: 标签={tile.status_label.text()!r} 转圈={tile.spinner.isVisible()}")
-    assert tile.status_label.text() == "缓冲中…" and tile.spinner.isVisible()
+    assert tile.status_label.text() == "" and tile._buffering and tile.spinner.isVisible()
     tile.set_buffering(False)
     assert not tile.spinner.isVisible()
     tile.set_status("断流，10 秒后重连（第 2 次）")
     print(f"  断流: 标签={tile.status_label.text()!r}")
-    assert "重连" in tile.status_label._full_text, "完整状态文案不应受当前标签宽度影响"
+    assert "重连" in tile._status_text and tile.status_label.text() == ""
     tile.set_status("")
     assert tile.status_label.text() == ""
 
@@ -180,7 +180,7 @@ def main() -> None:
     timer = window._freeze_retry_timers.get(tile)
     print(f"  刷新后仍静止：5 秒定时器={timer is not None} 状态={tile.status_label.text()!r}")
     assert timer is not None and timer.isActive()
-    assert "5 秒后再次刷新" in tile.status_label._full_text
+    assert "5 秒后再次刷新" in tile._status_text and tile.status_label.text() == ""
     window._on_picture_activity(tile)
     print(f"  画面恢复：定时器已取消={tile not in window._freeze_retry_timers}")
     assert tile not in window._freeze_retry_timers
@@ -205,7 +205,7 @@ def main() -> None:
     offline_ms = (time.perf_counter() - before) * 1000
     print(f"  下播刷新：画面 live={tile.room.get('live')} 侧栏徽标={item.badge.text()!r}"
           f" 用时={offline_ms:.1f}ms")
-    assert tile.room is item.room
+    assert tile.room is not item.room, "格子设置与侧栏房间副本应保持隔离"
     assert tile.room.get("live") is False
     assert item.badge.text() == "未开播"
     window._on_status_failed("接口不可用")
@@ -529,7 +529,7 @@ def main() -> None:
     retry_tile = window.wall.tiles[0]
     window._schedule_retry(retry_tile)                  # noqa: SLF001
     print(f"  内置自动重连：{retry_tile.status_label.text()!r}")
-    assert "秒后重连" in retry_tile.status_label._full_text
+    assert "秒后重连" in retry_tile._status_text
     assert retry_tile in window._retry_timers and window._retry_timers[retry_tile].isActive()
     window._on_player_state(retry_tile, "playing")
     assert retry_tile not in window._retry_timers, "播放恢复后不能再触发旧的重连定时器"
@@ -599,8 +599,9 @@ def main() -> None:
     replacement = {"room_id": "9998", "muted": False, "volume": 10}
     slot.set_room(replacement)
     assert slot.muted is True and slot.volume == 64
-    assert replacement["muted"] is True and replacement["volume"] == 64, \
+    assert slot.room["muted"] is True and slot.room["volume"] == 64, \
         "换主播后要沿用格子的声音状态"
+    assert replacement == {"room_id": "9998", "muted": False, "volume": 10}
     slot.deleteLater()
 
     window.apply_preview_settings()

@@ -22,6 +22,22 @@ def main() -> None:
     sidebar.setGeometry(-8000, -8000, 248, 600)
     sidebar.show()
     app.processEvents()
+    for side in ("left", "top", "left", "top", "left"):
+        sidebar.set_side(side)
+        app.processEvents()
+        button = sidebar.batch_button
+        assert button.text() == "" and button._icon_mode
+        assert button.accessibleName() == "多选直播间"
+        if side == "left":
+            assert button.parentWidget() is sidebar.status_row
+            box = sidebar.status_row.layout()
+            assert box.indexOf(button) == box.indexOf(sidebar.sort_button) + 1
+            assert sidebar._header_row.layout().indexOf(button) == -1
+            assert button.size().width() == button.size().height() == 22
+        QTest.mouseClick(button, Qt.LeftButton)
+        assert sidebar.select_mode and button.isChecked()
+        sidebar.set_select_mode(False)
+        assert not button.isChecked()
     sidebar.apply_pins(["p1", "p2"])
 
     def order() -> list[str]:

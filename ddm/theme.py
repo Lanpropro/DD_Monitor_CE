@@ -897,6 +897,7 @@ QPushButton#PrimaryButton:pressed {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
+#BarIcon[sidebarCompact="true"] {{min-width: 20px; min-height: 20px; border-radius: 11px;}}
 #BarIcon:checked {{
     background: {ACCENT_SOFT};
     border: 1px solid rgba(0, 161, 214, 0.45);

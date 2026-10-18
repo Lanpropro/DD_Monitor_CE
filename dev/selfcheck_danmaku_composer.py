@@ -238,6 +238,16 @@ class ComposerTests(unittest.TestCase):
             composer = tile.composer
             self.assertEqual(composer.width(), 520)
             self.assertLessEqual(abs(composer.geometry().center().x() - tile.bottom.width() / 2), 2)
+            geometry = composer.geometry()
+            for status in ("未开播", "缓冲中…", "断流，准备重连"):
+                tile.set_status(status)
+                self.assertEqual(tile.status_label.text(), "")
+                self.assertEqual(tile._status_text, status)
+                self.assertEqual(composer.geometry(), geometry)
+            tile.set_buffering(True)
+            self.assertTrue(tile._buffering)
+            self.assertEqual(tile.status_label.text(), "")
+            tile.set_buffering(False)
             for text, active in (("", False), ("   ", False), ("hello", True), ("", False)):
                 composer.edit.setText(text)
                 self.assertEqual(composer.send_button.property("hasText"), active)

@@ -5,13 +5,17 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
+import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import QBuffer, QIODevice, QEvent, QTimer, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QTabBar, QToolButton
@@ -39,6 +43,65 @@ def package(name, count=2, kind=3):
 
 def buttons(popup):
     return popup.scroll.findChildren(QToolButton)
+
+
+class EmoticonCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.directory = self.stack.enter_context(tempfile.TemporaryDirectory())
+        for name, value in (("REPO", self.directory), ("_EMOTICON_IMAGES", OrderedDict()),
+                            ("_EMOTICON_PENDING", {}), ("_EMOTICON_BYTES", 0)):
+            self.stack.enter_context(patch.object(images, name, value))
+        pixmap = QPixmap(16, 16)
+        pixmap.fill(QColor("#00a1d6"))
+        buffer = QBuffer()
+        buffer.open(QIODevice.WriteOnly)
+        pixmap.save(buffer, "PNG")
+        self.response = Mock(status_code=200, content=bytes(buffer.data()))
+
+    def test_shared_memory_and_disk_cache_avoid_repeated_requests_and_decode(self):
+        url = "https://example.invalid/shared.png"
+        with patch.object(images.requests, "get", return_value=self.response) as fetch, \
+                patch.object(images, "_load_one", wraps=images._load_one) as load:
+            self.assertIsNotNone(images.load_pixmap(url, "emoticons"))
+            self.assertIsNotNone(images.load_pixmap(url, "emoticons"))
+            self.assertEqual(load.call_count, 1)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertTrue(Path(images._cache_path(url, "emoticons")).is_file())
+            images._EMOTICON_IMAGES.clear()
+            images._EMOTICON_BYTES = 0
+            self.assertIsNotNone(images.load_pixmap(url, "emoticons"))
+            self.assertEqual(load.call_count, 2)
+            self.assertEqual(fetch.call_count, 1, "重启后仍应从磁盘读取")
+
+    def test_concurrent_same_image_requests_are_coalesced(self):
+        def fetch(*args, **kwargs):
+            time.sleep(.05)
+            return self.response
+        with patch.object(images.requests, "get", side_effect=fetch) as get:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                loaded = list(pool.map(lambda _: images.load_pixmap(
+                    "https://example.invalid/concurrent.png", "emoticons"), range(6)))
+        self.assertTrue(all(pixmap is not None for pixmap in loaded))
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual(images._EMOTICON_PENDING, {})
+
+    def test_failure_is_not_cached_and_lru_has_a_memory_limit(self):
+        url = "https://example.invalid/retry.png"
+        with patch.object(images.requests, "get", side_effect=[Mock(status_code=503), self.response]) as fetch:
+            self.assertIsNone(images.load_pixmap(url, "emoticons"))
+            self.assertIsNotNone(images.load_pixmap(url, "emoticons"))
+            self.assertEqual(fetch.call_count, 2)
+        images._EMOTICON_IMAGES.clear()
+        images._EMOTICON_BYTES = 0
+        with patch.object(images, "_EMOTICON_CACHE_LIMIT", 1024), \
+                patch.object(images.requests, "get", return_value=self.response) as fetch:
+            for name in ("first", "second", "first"):
+                self.assertIsNotNone(images.load_pixmap(f"https://example.invalid/{name}.png", "emoticons"))
+            self.assertLessEqual(images._EMOTICON_BYTES, 1024)
+            self.assertEqual(len(images._EMOTICON_IMAGES), 1)
+            self.assertEqual(fetch.call_count, 2)
 
 
 class EmoticonTabTests(unittest.TestCase):
