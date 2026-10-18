@@ -2173,18 +2173,16 @@ class SelectionNotchEffect(QGraphicsEffect):
 
 
 class NavSelectionCheck(QCheckBox):
-    """圆形凹口里的勾选，保留标准复选框的键盘和无障碍行为。"""
+    """圆形凹口里的选中圆球，保留复选框的键盘和无障碍行为。"""
 
     def paintEvent(self, event):
         if not self.isChecked():
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(theme.qcolor(theme.ACCENT), 2)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.drawPolyline(QPolygonF([QPointF(8, 14), QPointF(12, 18), QPointF(20, 10)]))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.qcolor(theme.ACCENT))
+        painter.drawEllipse(QRectF(8, 8, 12, 12))
 
     def hitButton(self, pos):
         return self.rect().contains(pos)

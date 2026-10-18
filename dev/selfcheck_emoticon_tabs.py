@@ -15,10 +15,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QBuffer, QIODevice, QEvent, QPointF, QTimer, Qt
-from PySide6.QtGui import QColor, QMouseEvent, QPixmap
+from PySide6.QtCore import QBuffer, QIODevice, QEvent, QPoint, QPointF, QTimer, Qt
+from PySide6.QtGui import QColor, QIcon, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QTabBar, QToolButton
+from PySide6.QtWidgets import QApplication, QTabBar, QToolButton, QWidget
 from ddm import images
 from ddm.danmaku_send import EmoticonPopup, EmoticonOrder, emoticon_order, _active_requests
 
@@ -274,6 +274,42 @@ class EmoticonTabTests(unittest.TestCase):
         self.popup.tabs.moveTab(1, 0)
         self.assertEqual(emoticon_order.orders['_tabs'], ['2:second', '2:absent', '3:first'])
         self.assertEqual(self.popup._covers['https://example.invalid/second-cover.png'], [0])
+
+    def test_dragged_category_cover_is_painted_once_without_original_slot_copy(self):
+        self.popup.set_packages([package('red', 0), package('green', 0), package('blue', 0)])
+        tabs = self.popup.tabs
+        for index, color in enumerate(('#ff0000', '#00ff00', '#0000ff')):
+            image = QPixmap(32, 32)
+            image.fill(QColor(color))
+            tabs.setTabText(index, '')
+            tabs.setTabIcon(index, QIcon(image))
+        APP.processEvents()
+
+        def red_pixels():
+            image = tabs.grab().toImage()
+            return sum(image.pixelColor(x, y).red() > 220
+                       and image.pixelColor(x, y).green() < 40
+                       and image.pixelColor(x, y).blue() < 40
+                       for y in range(image.height()) for x in range(image.width()))
+
+        baseline = red_pixels()
+        self.assertGreater(baseline, 400)
+        origin = tabs.mapTo(self.popup, tabs.tabRect(0).center())
+        handle = self.popup.windowHandle()
+        QTest.mousePress(handle, Qt.LeftButton, pos=origin)
+        try:
+            QTest.mouseMove(handle, origin + QPoint(18, 0), delay=30)
+            APP.processEvents()
+            self.assertTrue(any(isinstance(child, QWidget) and not isinstance(child, QToolButton)
+                                and child.isVisible() for child in tabs.children()),
+                            '必须检查 Qt 实际创建的拖动图像')
+            during = red_pixels()
+            self.assertGreaterEqual(during, baseline * .95, '拖动图案不能消失')
+            self.assertLessEqual(during, baseline * 1.05, '原位不能残留第二份封面图案')
+        finally:
+            QTest.mouseRelease(handle, Qt.LeftButton, pos=origin + QPoint(18, 0))
+        QTest.qWait(250)
+        self.assertEqual(red_pixels(), baseline)
 
     def test_drag_keeps_lazy_building_and_respects_system_motion_setting(self):
         pack = package('lazy-drag', 600)

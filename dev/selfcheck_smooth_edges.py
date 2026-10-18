@@ -13,7 +13,7 @@ from PySide6.QtGui import QImage, QPainter, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
-from ddm.widgets import LoadingIndicator, SelectionNotchEffect
+from ddm.widgets import LoadingIndicator, NavSelectionCheck, SelectionNotchEffect
 
 APP = QApplication.instance() or QApplication([])
 
@@ -26,6 +26,27 @@ def canvas(width, height, scale):
 
 
 class SmoothEdges(unittest.TestCase):
+    def test_selected_card_marker_is_a_filled_ball_and_unselected_is_empty(self):
+        marker = NavSelectionCheck()
+        marker.resize(28, 28)
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                marker.setChecked(False)
+                empty = marker.grab().toImage()
+                marker.setChecked(True)
+                selected = marker.grab().toImage()
+                scale = selected.devicePixelRatio()
+                accent = theme.qcolor(theme.ACCENT)
+                for x, y in ((14, 14), (14, 9), (14, 18), (9, 14), (18, 14)):
+                    self.assertEqual(selected.pixelColor(round(x * scale), round(y * scale)), accent)
+                for x, y in ((2, 2), (8, 8), (20, 20)):
+                    self.assertEqual(selected.pixelColor(round(x * scale), round(y * scale)),
+                                     empty.pixelColor(round(x * scale), round(y * scale)))
+        finally:
+            marker.deleteLater()
+            theme.apply('dark')
+
     def test_selection_notch_is_circular_and_has_fractional_alpha_at_each_scale(self):
         card = QWidget()
         card.resize(200, 100)
