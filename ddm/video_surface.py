@@ -3,9 +3,10 @@ import ctypes
 import sys
 from ctypes import wintypes
 
-from PySide6.QtCore import QEvent, QRectF, QTimer, Qt
+from PySide6.QtCore import QEvent, QRectF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QTransform
 from PySide6.QtWidgets import QApplication, QFrame
+
 from . import theme
 from .badge_surface import BadgeSurface
 
@@ -55,16 +56,32 @@ class VideoSurface(QFrame):
         self._clip_timer.setInterval(100)
         self._clip_timer.timeout.connect(self._retry_clip)
         self._clip_attempts = 0
+        self._mask_clip_state = None
+
+    def _clip_state(self):
+        return (self.mask(), self.size(), self.devicePixelRatioF(),
+                int(self.internalWinId()))
 
     def setMask(self, region):
+        state = self._clip_state()
+        if region == state[0] and state == self._mask_clip_state:
+            return
         super().setMask(region)
-        self._clip_native_video()
         self.refresh_clip()
+        self._clip_native_video()
+        self._mask_clip_state = self._clip_state()
+
+    def clearMask(self):
+        self._mask_clip_state = None
+        super().clearMask()
 
     def refresh_clip(self):
+        self._mask_clip_state = None
         self._clip_attempts = 0
-        self._clip_timer.setInterval(100)
-        self._clip_timer.start()
+        if self._clip_timer.interval() != 100:
+            self._clip_timer.setInterval(100)
+        if not self._clip_timer.isActive():
+            self._clip_timer.start()
 
     def _retry_clip(self):
         self._clip_attempts += 1
@@ -88,6 +105,8 @@ class VideoSurface(QFrame):
             timer = getattr(self, "_clip_timer", None)
             if timer is not None:
                 self.refresh_clip()
+                if event.type() != QEvent.Type.Resize:
+                    self._clip_native_video()
         return result
 
     def nativeEvent(self, event_type, message):

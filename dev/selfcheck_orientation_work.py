@@ -41,6 +41,7 @@ def main():
                     before = time.perf_counter()
                     window.resize(*size)
                     app.processEvents()
+                    QTest.qWait(220)
                     elapsed = (time.perf_counter() - before) * 1000
                     calls = layout.call_count
                 timings.append({"size": size, "ms": round(elapsed, 1), "layouts": calls})
