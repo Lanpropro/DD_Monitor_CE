@@ -610,6 +610,28 @@ class RefreshButton(QPushButton):
             _draw_arrow_head(painter, center, radius, angle, direction)
 
 
+class DanmakuToggleButton(QPushButton):
+    """画面弹幕开关：开启时在右下角画一个勾（和 B 站播放器一样），不靠整块底色区分。"""
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self.isChecked():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor(theme.ACCENT), 1.8)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        x = self.width() - 10.5
+        y = self.height() - 8.0
+        path = QPainterPath()
+        path.moveTo(x, y)
+        path.lineTo(x + 2.6, y + 2.6)
+        path.lineTo(x + 6.0, y - 3.6)
+        painter.drawPath(path)
+
+
 def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,
                      direction: int, size: float = 3.4) -> None:
     """在圆环的指定角度处画一个顺着切线的箭头。"""
@@ -1192,7 +1214,17 @@ class ElidedLabel(QLabel):
     def _apply_elide(self) -> None:
         if not self._full_text:
             return
+        # 隐藏或还没排版时宽度是 0，省略后文本会变成空串（下一条状态读出来就是 ""），
+        # 所以先保留原文，等真正有宽度再按实际宽度省略。
+        if self.width() <= 0:
+            if super().text() != self._full_text:
+                super().setText(self._full_text)
+            return
         elided = self.fontMetrics().elidedText(self._full_text, Qt.ElideRight, max(0, self.width()))
+        # 宽度比省略号还窄时 Qt 也给空串：这时文本是被裁掉而不是没有，
+        # 保留原文，别让状态读出来变成 ""。
+        if not elided:
+            elided = self._full_text
         if elided != super().text():
             super().setText(elided)
 
@@ -5764,13 +5796,15 @@ class Tile(QFrame):
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
         self.recording_button.clicked.connect(self.recordingRequested)
-        self.danmaku_button = QPushButton("弹幕")
-        self.danmaku_button.setObjectName("TileCtrl")
+        self.danmaku_button = DanmakuToggleButton("弹")
+        self.danmaku_button.setObjectName("TileToggle")
         self.danmaku_button.setCheckable(True)
-        self.danmaku_button.setFixedSize(44, 26)
+        self.danmaku_button.setFixedSize(34, 26)
         self.danmaku_button.setToolTip("切换这一路的画面弹幕（默认 B）；右侧齿轮可调整观看设置")
         self.danmaku_button.toggled.connect(self._toggle_video_danmaku)
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
+        self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
+                                       else "开启画面弹幕（默认 B）")
         self.danmaku_settings_button = QPushButton("⚙")
         self.danmaku_settings_button.setObjectName("TileCtrl")
         self.danmaku_settings_button.setFixedSize(26, 26)
@@ -5908,6 +5942,8 @@ class Tile(QFrame):
         self._layout_cover()
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
+        self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if enabled
+                                       else "开启画面弹幕（默认 B）")
         self.video_danmaku.set_enabled(enabled)
         if getattr(self, "_overlay_ready", False):
             self.raise_overlays()
@@ -5930,8 +5966,8 @@ class Tile(QFrame):
         layout.setContentsMargins(margin, 4, margin, 4)
         layout.setSpacing(spacing)
         self.pause_button.setFixedWidth(26 if width < 260 else 34)
-        self.danmaku_button.setFixedWidth(26 if compact else 44)
-        self.danmaku_button.setText("弹" if compact else "弹幕")
+        self.danmaku_button.setFixedWidth(26 if compact else 34)
+        self.danmaku_button.setText("弹")
         self.volume_label.setVisible(width >= 280 and
                                      (not self.recording_time.text() or width >= 480))
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360

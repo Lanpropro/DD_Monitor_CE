@@ -208,7 +208,7 @@ def refresh_theme_properties(widget):
     name = widget.objectName()
     if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'WallGrid'):
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
@@ -229,6 +229,8 @@ def _conditional_light_style(style):
 
 def _light_style(widget):
     name = widget.objectName()
+    if name == 'TileToggle':
+        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}')
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
@@ -1112,6 +1114,34 @@ QPushButton#PrimaryButton:pressed {{
 #TileCtrl[recording="true"] {{
     color: {ERROR};
 }}
+/* 画面弹幕开关：开启状态用右下角的勾表示，不靠整块底色区分（对齐 B 站播放器）。 */
+#TileToggle {{
+    background: rgba(12, 13, 16, 0.78);
+    color: {TEXT2};
+    border: none;
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px;
+    font-size: {FONT_CAPTION}px;
+    font-weight: 600;
+}}
+#TileToggle:hover {{
+    background: {ACCENT};
+    color: #04161f;
+}}
+#TileToggle:checked {{
+    background: rgba(12, 13, 16, 0.78);
+    color: {TEXT2};
+}}
+#TileToggle:checked:hover {{
+    background: {ACCENT};
+    color: #04161f;
+}}
+#TileCtrl:disabled {{
+    background: transparent;
+    color: {TEXT4};
+}}
+#TileCtrl:focus {{
+    border: 1px solid {ACCENT};
+}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;
@@ -1389,6 +1419,8 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #TileBottom #TileCtrl:checked {background: #DDF3FB; color: #007BA8;}
         #TileBottom QLabel {color: #4A5565;}
         #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
+        #TileBottom #TileToggle {background: transparent; color: #4A5565;}
+        #TileBottom #TileToggle:hover {background: #E7EFF7; color: #007BA8;}
         #TilePlaceholder {color: #4A5565;}
         #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
         #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
