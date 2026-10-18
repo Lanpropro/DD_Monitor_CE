@@ -317,6 +317,8 @@ def check_window(app, records):
                                             extra={"playback_mode": "stream", "live_known": True})
                     with patch.object(platform, "room_info", return_value=info), \
                             patch.object(platform, "play_url", return_value=("https://cdn.test/live.m3u8", 10000, kind, {})), \
+                            patch.object(platform, "play_url_for_codec", return_value=(
+                                "https://cdn.test/live.m3u8", 10000, kind, {}, "avc")), \
                             patch.object(platform, "danmaku_client", return_value=client):
                         def accept(dialog):
                             dialog.edit.setText(platform.room_url(rid))

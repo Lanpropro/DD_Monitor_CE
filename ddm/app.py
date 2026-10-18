@@ -1413,7 +1413,7 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile)
         if player is not None:
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        codec = "" if platform is not None else self._codec_settings(tile)["bili_codec"]
+        codec = self._codec_settings(tile)["bili_codec"]
         retained_codec = player.stream_codec if player is not None and tile.stream_url else ""
         strict_codec = platform is None and retained_codec in bili.CODEC_PARAM and codec != retained_codec
         if strict_codec:
@@ -1432,26 +1432,28 @@ class MainWindow(QMainWindow):
         resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
                                   self, source_offset=source_offset,
                                   platform=platform,
-                                  # 只给 B 站内置取流那条路；平台插件走 platform.play_url
                                   codec=codec, strict_codec=strict_codec)
 
         def current():
             return (not self._closing and tile in self.wall.tiles
                     and str(tile.room.get("room_id") or "") == room_id
                     and self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
-                    and (platform is not None or self._codec_settings(tile)["bili_codec"] == codec))
+                    and self._codec_settings(tile)["bili_codec"] == codec)
 
         def resolved(_rid, url, qn, profile, options):
             if not current() or int(tile.quality) != quality:
                 return
+            self._resolvers.pop(tile, None)
+            if tile.paused:
+                tile.codec_reconnect_pending = True
+                return
             if strict_codec:
-                if tile.paused:
-                    tile.codec_reconnect_pending = True
-                    return
                 if bili.codec_from_profile(profile) != codec:
                     self._keep_tile_codec(tile, codec, retained_codec, unavailable=True)
                     return
                 tile.codec_probe_note = ""
+            elif platform is not None:
+                tile.codec_probe_note = getattr(resolver, "codec_probe_note", "")
             elif getattr(resolver, "original_quality_note", ""):
                 tile.codec_probe_note = f"{resolver.original_quality_note}；已使用默认 H.264。"
                 tile.codec_overrides["bili_codec"] = "avc"
@@ -1460,16 +1462,20 @@ class MainWindow(QMainWindow):
                     dialog.controls.set_values(tile.codec_overrides)
                 self._save_timer.start()
             self._play_on(tile, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id, requested_quality=quality)
+                          room_id=room_id, requested_quality=quality,
+                          source_codec=(getattr(resolver, "source_codec", "")
+                                        if platform is not None else None))
 
         def failed(_rid, reason):
             if not current() or int(tile.quality) != quality:
                 return
+            self._resolvers.pop(tile, None)
             if strict_codec:
                 self._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
                                       quality_note=getattr(resolver, "original_quality_note", ""))
             else:
+                tile.codec_probe_note = f"取流失败：{reason}"
                 self._on_resolve_failed(tile, reason, requested_quality=quality,
                                         login_required=resolver.login_required)
 
@@ -1489,7 +1495,8 @@ class MainWindow(QMainWindow):
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
-                 room_id: str = "", requested_quality: int = 0) -> None:
+                 room_id: str = "", requested_quality: int = 0,
+                 source_codec: str | None = None) -> None:
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
@@ -1535,7 +1542,8 @@ class MainWindow(QMainWindow):
         # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
         # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}
-        stream_codec = bili.codec_from_profile(profile)
+        stream_codec = (source_codec if source_codec is not None else
+                        bili.codec_from_profile(profile) if self._is_bili_tile(tile) else "")
         tile.stream_url = url
         tile.stream_profile = profile
         tile.stream_codec = stream_codec
@@ -1554,6 +1562,7 @@ class MainWindow(QMainWindow):
         except (RuntimeError, OSError) as error:
             tile.set_buffering(False)
             tile.set_status(str(error))
+            tile.codec_probe_note = f"播放失败：{error}"
             return
         self.recorder.on_resolved(tile)
         if tile in self._pending_capture:
@@ -1616,6 +1625,9 @@ class MainWindow(QMainWindow):
 
     def _restart_codec_tile(self, tile) -> None:
         tile.codec_reconnect_pending = True
+        resolver = self._resolvers.pop(tile, None)
+        if resolver is not None:
+            resolver.cancel()
         if (not tile.room.get("room_id") or not tile.room.get("live")
                 or tile.paused or tile.isHidden()):
             return
@@ -1624,7 +1636,7 @@ class MainWindow(QMainWindow):
     def _tile_codecs_changed(self, tile, before: dict) -> bool:
         after = self._codec_settings(tile)
         return (before.get("decode_mode") != after["decode_mode"]
-                or self._is_bili_tile(tile) and before.get("bili_codec") != after["bili_codec"])
+                or before.get("bili_codec") != after["bili_codec"])
 
     def _set_tile_codecs(self, tile, values: dict) -> None:
         if self._closing or tile not in self.wall.tiles:
@@ -1664,7 +1676,8 @@ class MainWindow(QMainWindow):
             return "正在连接，等待新流；当前选择将在连接成功后生效。"
         player = self.players.get(tile)
         if player is None or not tile.room.get("room_id"):
-            return "当前没有播放中的流；设置将在下次播放时生效。"
+            return (getattr(tile, "codec_probe_note", "")
+                    or "当前没有播放中的流；设置将在下次播放时生效。")
         if getattr(tile, "codec_reconnect_pending", False):
             return "新设置已保存，将在恢复播放或下次连接时生效。"
         codec = names.get(player.actual_codec, "未知（平台未提供编码信息）")
@@ -1728,6 +1741,7 @@ class MainWindow(QMainWindow):
             if not already_warned:
                 self._show_notice(reason, kind="warning")
             return
+        tile.set_buffering(False)
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
@@ -2456,7 +2470,7 @@ class MainWindow(QMainWindow):
         paused = not tile.paused
         tile.set_paused(paused)
         resolver = self._resolvers.get(tile)
-        if paused and resolver is not None and getattr(resolver, "strict_codec", False):
+        if paused and resolver is not None:
             self._resolvers.pop(tile, None)
             resolver.cancel()
             tile.codec_reconnect_pending = True

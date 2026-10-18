@@ -339,11 +339,10 @@ def check_app_wiring(application) -> None:
             tile = window.wall.tiles[0]
             window.start_tile(tile)
             assert seen and seen[-1]["codec"] == "av1", "内置取流要带上设置里的编码"
-            # 平台插件那条路不能传编码（plugins.py 的接口不接受这个参数）。
             plugin = Mock(kind="huya")
             with patch.object(window.plugins, "platform_for", return_value=plugin):
                 window.start_tile(tile)
-            assert seen[-1]["codec"] == "", "平台插件那条路不传 B 站编码"
+            assert seen[-1]["codec"] == "av1", "平台插件也应接收全局偏好并由取流层映射"
 
             # 取流回来：格子和播放器都要记下这一路的编码（录像靠它挑容器）。
             with patch.object(player_module.TilePlayer, "play"), \
@@ -627,6 +626,217 @@ def check_codec_preflight(application) -> None:
             application.processEvents()
 
 
+def check_platform_codec_resolver() -> None:
+    from types import SimpleNamespace
+
+    from ddm.plugins import LoginRequiredError, StreamCodecUnavailable
+
+    success = ("http://fixture/source", 1002000, "huya", {"X-Selected": "yes"}, "avc")
+    for error, note in ((StreamCodecUnavailable("missing"), "HEVC 直播源不可用"),
+                        (RuntimeError("CDN failed"), "HEVC 取流失败")):
+        platform = SimpleNamespace(play_url_for_codec=Mock(side_effect=[error, success]),
+                                   room_quality_options=Mock(return_value=None))
+        resolver = bili.StreamResolver("huya:1", 1002000, platform=platform, codec="av1")
+        results, failures = [], []
+        resolver.resolved.connect(lambda *args, output=results: output.append(args))
+        resolver.failed.connect(lambda *args, output=failures: output.append(args))
+        resolver.run()
+        assert results and not failures and results[0][-1] == []
+        assert [call.kwargs["codec"] for call in platform.play_url_for_codec.call_args_list] == ["hevc", "avc"]
+        assert resolver.source_codec == "avc" and note in resolver.codec_probe_note
+        assert resolver.headers == success[3]
+
+    for errors, login, unavailable in (([RuntimeError("network"), StreamCodecUnavailable("missing")], False, False),
+                                       ([StreamCodecUnavailable("missing")] * 2, False, True),
+                                       ([LoginRequiredError("login expired")], True, False)):
+        platform = SimpleNamespace(play_url_for_codec=Mock(side_effect=errors),
+                                   room_quality_options=Mock(return_value=[]))
+        resolver = bili.StreamResolver("huya:1", platform=platform, codec="av1")
+        results, failures = [], []
+        resolver.resolved.connect(lambda *args, output=results: output.append(args))
+        resolver.failed.connect(lambda *args, output=failures: output.append(args))
+        resolver.run()
+        assert not results and len(failures) == 1
+        assert resolver.login_required == login and resolver.codec_unavailable == unavailable
+        assert platform.play_url_for_codec.call_count == len(errors)
+
+    for options in ([{"qn": 1002000}], "bad options"):
+        platform = SimpleNamespace(play_url_for_codec=Mock(return_value=success),
+                                   room_quality_options=Mock(return_value=options))
+        resolver = bili.StreamResolver("huya:1", platform=platform)
+        failures = []
+        resolver.failed.connect(lambda *args, output=failures: output.append(args))
+        resolver.run()
+        assert len(failures) == 1
+
+    platform = Mock()
+    platform.play_url.return_value = success[:4]
+    platform.room_quality_options.return_value = []
+    resolver = bili.StreamResolver("huya:1", platform=platform, codec="av1")
+    resolver.run()
+    platform.play_url.assert_called_once_with("huya:1", 250)
+    assert not resolver.source_codec and "旧版插件" in resolver.codec_probe_note
+
+    wrong_codec = (*success[:4], "av1")
+    platform = SimpleNamespace(play_url_for_codec=Mock(side_effect=[wrong_codec, success]),
+                               room_quality_options=Mock(return_value=[]))
+    resolver = bili.StreamResolver("huya:1", platform=platform, codec="av1")
+    resolver.run()
+    assert resolver.source_codec == "avc" and platform.play_url_for_codec.call_count == 2
+
+    def cancel_request(*args, **kwargs):
+        resolver.cancel()
+        raise RuntimeError("cancel during request")
+
+    platform.play_url_for_codec = Mock(side_effect=cancel_request)
+    resolver = bili.StreamResolver("huya:1", platform=platform, codec="av1")
+    results, failures = [], []
+    resolver.resolved.connect(lambda *args: results.append(args))
+    resolver.failed.connect(lambda *args: failures.append(args))
+    resolver.run()
+    assert not results and not failures and platform.play_url_for_codec.call_count == 1
+
+
+def check_platform_codec_wiring(application) -> None:
+    from ddm.app import MainWindow
+    from ddm.plugins import Platform, StreamCodecUnavailable
+
+    class CodecPlatform(Platform):
+        kind = "huya"
+
+        def __init__(self):
+            self.calls = []
+            self.available = {"avc", "hevc"}
+
+        def play_url_for_codec(self, room_id, quality=250, *, codec="avc"):
+            self.calls.append((room_id, quality, codec))
+            if codec not in self.available:
+                raise StreamCodecUnavailable(f"missing {codec}")
+            return f"http://fixture/{codec}", quality, self.kind, {"X-Codec": codec}, codec
+
+        def room_quality_options(self, room_id):
+            return [{"qn": 1002000, "desc": "平台高清"}]
+
+    class LegacyPlatform(Platform):
+        kind = "huya"
+
+        def play_url(self, room_id, quality=250):
+            return "http://fixture/legacy", quality, "app", {"X-Legacy": "1"}
+
+    rooms = [{"room_id": f"huya:{i}", "uname": f"平台{i}", "live": True, "quality": 1002000}
+             for i in range(2)]
+    state = {"plugins_enabled": [], "settings": {"bili_codec": "av1", "auto_quality": False,
+             "recording_enabled": False, "recording_replay_enabled": False,
+             "preview_on_hover": False, "danmaku_enabled": False}}
+    platform = CodecPlatform()
+    with patch("ddm.app.QTimer.singleShot"), patch.object(MainWindow, "sync_danmaku"), \
+            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
+            patch.object(bili.StreamResolver, "start"), patch.object(player_module.TilePlayer, "_play_media"):
+        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x2", state=state)
+        window.show()
+        application.processEvents()
+        first, other = window.wall.tiles[:2]
+
+        first.set_room(dict(rooms[0]))
+        other.set_room(dict(rooms[1]))
+
+        def complete(tile):
+            resolver = window._resolvers[tile]
+            resolver.run()
+            window._on_resolver_finished(tile, resolver)
+            assert tile not in window._resolvers
+            assert "等待新流" not in window._codec_status(tile)
+            return resolver
+
+        with patch.object(window.plugins, "platform_for", return_value=platform), \
+                patch.object(window.recorder, "on_resolved") as record, \
+                patch.object(window, "_schedule_retry"), \
+                patch.object(bili, "room_quality_options", side_effect=AssertionError("Bili quality gate")):
+            try:
+                window.start_tile(first)
+                assert window._resolvers[first].codec == "av1"
+                complete(first)
+                assert [call[2] for call in platform.calls] == ["hevc"]
+                assert first.stream_codec == window.players[first].stream_codec == "hevc"
+                assert first.stream_profile == "huya" and first.stream_headers == {"X-Codec": "hevc"}
+                assert first.quality == 1002000 and record.call_args.args == (first,)
+                assert "HEVC" in window._codec_status(first) and "AV1" in first.codec_probe_note
+                assert window.settings["bili_codec"] == "av1" and first.codec_overrides == {}
+
+                platform.calls.clear()
+                platform.available = {"avc"}
+                window.start_tile(other)
+                complete(other)
+                assert [call[2] for call in platform.calls] == ["hevc", "avc"]
+                assert other.stream_codec == "avc" and "回退 H.264" in other.codec_probe_note
+                assert first.stream_codec == "hevc"
+
+                platform.calls.clear()
+                window._set_tile_codecs(first, {"bili_codec": "avc"})
+                complete(first)
+                assert [call[2] for call in platform.calls] == ["avc"]
+                assert window.settings["bili_codec"] == "av1"
+
+                platform.available = set()
+                platform.calls.clear()
+                record.reset_mock()
+                window.start_tile(other)
+                complete(other)
+                record.assert_not_called()
+                assert [call[2] for call in platform.calls] == ["hevc", "avc"]
+                assert "取流失败" in other.codec_probe_note
+                assert not other._buffering
+
+                platform.available = {"hevc", "avc"}
+                window._set_tile_codecs(first, {"bili_codec": "hevc"})
+                stale = window._resolvers[first]
+                window._set_tile_codecs(first, {"bili_codec": "avc"})
+                assert stale.is_cancelled()
+                stale.source_codec = "hevc"
+                stale.resolved.emit("huya:0", "http://stale", 1002000, "huya", [])
+                assert first.stream_codec == "avc"
+                complete(first)
+
+                window._set_tile_codecs(first, {"bili_codec": "av1"})
+                stale = window._resolvers[first]
+                window._on_pause_toggled(first.room)
+                assert first.paused and stale.is_cancelled() and first.codec_reconnect_pending
+                stale.resolved.emit("huya:0", "http://paused", 1002000, "huya", [])
+                assert first.stream_codec == "avc"
+                window._on_pause_toggled(first.room)
+                complete(first)
+                assert not first.paused and first.stream_codec == "hevc"
+
+                window.start_tile(first)
+                with patch.object(platform, "room_quality_options", side_effect=RuntimeError("quality network failure")):
+                    complete(first)
+                assert "quality network failure" in first.codec_probe_note
+
+                window.start_tile(first)
+                with patch.object(window.players[first], "play", side_effect=RuntimeError("play failed")):
+                    complete(first)
+                assert "播放失败" in window._codec_status(first) and not first._buffering
+
+                with patch.object(window.plugins, "platform_for", return_value=LegacyPlatform()):
+                    window.start_tile(first)
+                    complete(first)
+                assert first.stream_profile == "app" and first.stream_codec == ""
+                assert window.players[first].stream_codec == ""
+                assert "旧版插件" in first.codec_probe_note
+
+                window.start_tile(first)
+                stale = window._resolvers[first]
+                first.set_room({"room_id": "huya:changed", "live": True})
+                stale.resolved.emit("huya:0", "http://old-room", 1002000, "huya", [])
+                assert not first.stream_url
+                window.close()
+                stale.failed.emit("huya:0", "closed")
+                assert not first.codec_probe_note
+            finally:
+                window.close()
+                application.processEvents()
+
+
 def main() -> None:
     application = QApplication([])
     for name, check in (("codec 参数", check_codec_param),
@@ -648,6 +858,10 @@ def main() -> None:
     print("  通过：主窗口接线（编码传到取流、写回格子/播放器、改设置重取流）")
     check_codec_preflight(application)
     print("  通过：编码切换探测、原流保留、状态回写、全局隔离及迟到结果保护")
+    check_platform_codec_wiring(application)
+    print("  通过：平台编码映射、真实编码/通道、回退、兼容、暂停取消及终态")
+    check_platform_codec_resolver()
+    print("  通过：平台网络回退、登录、错误编码、兼容 Mock、空/异常画质及取消")
     print("PASS: Bili codec selection (avc=FLV direct, hevc/av1=native HLS), "
           "per-room H.264 fallback, actual-codec tiers, channels and containers")
 

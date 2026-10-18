@@ -73,8 +73,8 @@ class CodecSettingsPanel(QWidget):
         grid.setColumnStretch(1, 1)
         self.bili_codec = QComboBox()
         self.decode_mode = QComboBox()
-        choices = (("bili_codec", "直播源格式（B站）", self.bili_codec,
-                    [(label, value) for value, label, _ in BILI_CODECS]),
+        choices = (("bili_codec", "直播源格式", self.bili_codec,
+                    self._source_choices()),
                    ("decode_mode", "本机解码方式", self.decode_mode, DECODE_MODES))
         for row, (key, title, combo, options) in enumerate(choices):
             label = QLabel(title)
@@ -88,7 +88,6 @@ class CodecSettingsPanel(QWidget):
                 combo.addItem(label, value)
             combo.setCurrentIndex(max(0, combo.findData(values.get(key, ""))))
             grid.addWidget(combo, row, 1)
-        self.bili_codec.setEnabled(bili_enabled)
         layout.addLayout(grid)
         self.decode_hint = QLabel()
         self.decode_hint.setWordWrap(True)
@@ -98,15 +97,22 @@ class CodecSettingsPanel(QWidget):
         self.decode_mode.currentIndexChanged.connect(self._update_decode_hint)
         self.hint = QLabel(
             "直播源格式决定接收的视频编码；本机解码方式决定用显卡还是 CPU 播放。\n"
-            "切换前先探测直播源；未提供所选格式、未提供原画或探测失败时，保留当前格式。\n"
+            "B站切换前先探测直播源；未提供所选格式、未提供原画或探测失败时，保留当前格式。\n"
+            "AV1 仅B站；其他平台选择 AV1 时依次尝试 HEVC、H.264；HEVC 不可用时回退 H.264。\n"
             "本机解码故障只影响当前窗口，自动回退 CPU；兼容硬解可手动选择。"
             if bili_enabled else
-            "该直播源由平台或插件提供，B站格式选项不适用；可单独调整本机解码方式。")
+            "直播源格式由平台或插件提供。AV1 仅B站；此窗口选择 AV1 时依次尝试 HEVC、H.264。\n"
+            "HEVC 不可用时回退 H.264；旧版插件使用兼容取流，实际编码以解码读数为准。\n"
+            "本机解码方式可独立调整；解码故障只影响当前窗口，自动回退 CPU。")
         self.hint.setWordWrap(True)
         self.hint.setObjectName("SettingsHint")
         layout.addWidget(self.hint)
         for combo in (self.bili_codec, self.decode_mode):
             combo.currentIndexChanged.connect(lambda _index: self.changed.emit(self.values()))
+
+    @staticmethod
+    def _source_choices():
+        return [(label, value) for value, label, _ in BILI_CODECS]
 
     def _update_decode_hint(self):
         mode = self.decode_mode.currentData()
@@ -122,7 +128,7 @@ class CodecSettingsPanel(QWidget):
     def set_defaults(self, defaults: dict) -> None:
         self._defaults = defaults
         for key, combo, options in (
-                ("bili_codec", self.bili_codec, [(label, value) for value, label, _ in BILI_CODECS]),
+                ("bili_codec", self.bili_codec, self._source_choices()),
                 ("decode_mode", self.decode_mode, DECODE_MODES)):
             label = next(label for label, value in options if value == defaults[key])
             combo.setItemText(0, f"跟随全局（{label}）")
