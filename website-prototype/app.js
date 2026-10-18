@@ -1,6 +1,5 @@
-/* DD 监控室 CE — prototype interactions
-   Kept dependency-free so the prototype can be opened as a file.
-   ?capture=1 freezes decorative motion for the review screenshot. */
+/* DD 监控室 CE — Live Stage prototype interactions
+   Dependency-free. ?capture=1 freezes decorative motion for screenshots. */
 
 (() => {
   const root = document.documentElement;
@@ -8,17 +7,14 @@
   const capture = params.has("capture");
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  if (capture) {
-    root.classList.add("capture");
-  }
+  if (capture) root.classList.add("capture");
 
-  /* ---------- layout mode preview ---------- */
+  /* ---------- layout preview ---------- */
 
   const modes = {
     split: {
       label: "横屏 · 平分布局",
-      code: "01",
-      tag: "平分 / LANDSCAPE",
+      quality: "16 路 / 原画",
       caption: "当前：横屏 · 平分布局",
       src: "assets/wall-landscape.jpg",
       alt: "DD监控室 CE 横屏平分布局截图",
@@ -26,8 +22,7 @@
     },
     hero: {
       label: "横屏 · 大带小",
-      code: "02",
-      tag: "大带小 / LANDSCAPE",
+      quality: "16 路 / 原画",
       caption: "当前：横屏 · 大带小",
       src: "assets/wall-landscape.jpg",
       alt: "DD监控室 CE 横屏大带小布局截图",
@@ -35,8 +30,7 @@
     },
     danmaku: {
       label: "横屏 · 弹幕布局",
-      code: "03",
-      tag: "弹幕 / LANDSCAPE",
+      quality: "16 路 / 弹幕",
       caption: "当前：横屏 · 弹幕布局",
       src: "assets/wall-danmaku.jpg",
       alt: "DD监控室 CE 弹幕布局截图",
@@ -44,8 +38,7 @@
     },
     portrait: {
       label: "竖屏 · 主画面铺满",
-      code: "04",
-      tag: "竖屏 / PORTRAIT",
+      quality: "竖屏 / 原画",
       caption: "当前：竖屏 · 主画面铺满",
       src: "assets/wall-portrait.jpg",
       alt: "DD监控室 CE 竖屏布局截图",
@@ -53,45 +46,43 @@
     },
   };
 
-  const modeButtons = [...document.querySelectorAll("[data-mode]")];
-  const modeRows = [...document.querySelectorAll("[data-mode-row]")];
-  const layoutImage = document.getElementById("layout-image");
-  const layoutShot = document.getElementById("layout-shot");
-  const layoutLabel = document.getElementById("layout-label");
-  const layoutCode = document.getElementById("layout-code");
-  const layoutTag = document.getElementById("layout-tag");
-  const layoutCaption = document.getElementById("layout-caption");
+  const tabs = [...document.querySelectorAll("[data-mode]")];
+  const rows = [...document.querySelectorAll("[data-mode-row]")];
+  const frame = document.getElementById("layout-frame");
+  const image = document.getElementById("layout-image");
+  const label = document.getElementById("layout-label");
+  const quality = document.getElementById("layout-quality");
+  const caption = document.getElementById("layout-caption");
 
   const selectMode = (name) => {
     const mode = modes[name];
-    if (!mode || !layoutImage) return;
+    if (!mode || !image || !frame) return;
 
-    modeButtons.forEach((button) => {
-      const active = button.dataset.mode === name;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
+    tabs.forEach((tab) => {
+      const active = tab.dataset.mode === name;
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-pressed", String(active));
     });
-    modeRows.forEach((row) => {
+    rows.forEach((row) => {
       row.classList.toggle("is-active", row.dataset.modeRow === name);
     });
 
-    layoutImage.src = mode.src;
-    layoutImage.alt = mode.alt;
-    layoutLabel.textContent = mode.label;
-    layoutCode.textContent = mode.code;
-    layoutTag.textContent = mode.tag;
-    layoutCaption.textContent = mode.caption;
-    layoutShot.classList.toggle("is-portrait", mode.portrait);
+    image.src = mode.src;
+    image.alt = mode.alt;
+    label.textContent = mode.label;
+    quality.textContent = mode.quality;
+    caption.textContent = mode.caption;
+    frame.classList.toggle("is-portrait", mode.portrait);
   };
 
-  modeButtons.forEach((button) => {
-    button.addEventListener("click", () => selectMode(button.dataset.mode));
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => selectMode(tab.dataset.mode));
   });
 
   const startMode = params.get("mode");
   if (startMode && modes[startMode]) selectMode(startMode);
 
-  /* ---------- console micro-states ---------- */
+  /* ---------- small control states ---------- */
 
   document.querySelectorAll(".route").forEach((button) => {
     button.addEventListener("click", () => {
@@ -100,7 +91,7 @@
     });
   });
 
-  document.querySelectorAll(".rec-btn").forEach((button) => {
+  document.querySelectorAll(".rec-pill").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.disabled) return;
       const active = button.classList.toggle("is-rec");
@@ -108,50 +99,55 @@
     });
   });
 
-  const saveButton = document.querySelector(".rec-save");
-  if (saveButton) {
-    saveButton.addEventListener("click", () => {
-      const original = saveButton.textContent;
-      saveButton.textContent = "已加入导出 ✓";
-      saveButton.disabled = true;
+  document.querySelectorAll(".switch").forEach((button) => {
+    button.addEventListener("click", () => {
+      const active = button.classList.toggle("is-on");
+      button.setAttribute("aria-pressed", String(active));
+    });
+  });
+
+  const save = document.querySelector(".save-clip");
+  if (save) {
+    save.addEventListener("click", () => {
+      const original = save.textContent;
+      save.textContent = "已加入导出 ✓";
+      save.disabled = true;
       window.setTimeout(() => {
-        saveButton.textContent = original;
-        saveButton.disabled = false;
+        save.textContent = original;
+        save.disabled = false;
       }, 1800);
     });
   }
 
-  /* ---------- pointer parallax on the monitor wall ---------- */
+  /* ---------- gentle pointer parallax ---------- */
 
-  const wall = document.getElementById("hero-wall");
-  const visual = document.querySelector(".hero-visual");
+  const stage = document.getElementById("hero-stage");
+  const screen = document.querySelector(".stage-card--screen");
 
-  if (wall && visual && !capture && !reduceMotion) {
-    let frame = 0;
+  if (stage && screen && !capture && !reduceMotion) {
+    let frameId = 0;
     let target = { x: 0, y: 0 };
 
     const apply = () => {
-      frame = 0;
-      wall.style.setProperty("--ry", `${(-3.2 + target.x * 2.4).toFixed(2)}deg`);
-      wall.style.setProperty("--rx", `${(1.2 - target.y * 1.8).toFixed(2)}deg`);
+      frameId = 0;
+      stage.style.setProperty("--tilt", `${(target.x * 1.6).toFixed(2)}deg`);
+      stage.style.setProperty("--shift-x", `${(target.x * 5).toFixed(2)}px`);
+      stage.style.setProperty("--shift-y", `${(target.y * 4).toFixed(2)}px`);
     };
 
-    visual.addEventListener("mousemove", (event) => {
-      if (window.innerWidth < 861) return;
-      const rect = visual.getBoundingClientRect();
+    stage.addEventListener("mousemove", (event) => {
+      if (window.innerWidth < 901) return;
+      const rect = stage.getBoundingClientRect();
       target = {
         x: (event.clientX - rect.left) / rect.width - 0.5,
         y: (event.clientY - rect.top) / rect.height - 0.5,
       };
-      if (!frame) frame = window.requestAnimationFrame(apply);
+      if (!frameId) frameId = window.requestAnimationFrame(apply);
     });
 
-    visual.addEventListener("mouseleave", () => {
+    stage.addEventListener("mouseleave", () => {
       target = { x: 0, y: 0 };
-      if (!frame) frame = window.requestAnimationFrame(apply);
+      if (!frameId) frameId = window.requestAnimationFrame(apply);
     });
   }
-
-  /* ---------- entrance state ---------- */
-  root.classList.add("is-ready");
 })();

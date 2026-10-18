@@ -4,6 +4,7 @@ Run from the repository root:
     python website-prototype/build_assets.py
 """
 
+import shutil
 from pathlib import Path
 
 from PIL import Image
@@ -38,6 +39,9 @@ def main() -> None:
     save(src1, "wall-landscape.jpg", (1920, 1080), quality=86)
     save(src2, "wall-danmaku.jpg", (1920, 1080), quality=86)
     save(srcp, "wall-portrait.jpg", (800, 1280), quality=86)
+
+    # The real product mark, used in the floating header and footer.
+    shutil.copyfile(ROOT / "assets/logo.svg", OUT / "logo.svg")
 
 
 if __name__ == "__main__":

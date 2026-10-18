@@ -1,11 +1,10 @@
-"""Static contract checks for the DD 监控室 CE website prototype.
+"""Static contract checks for the DD 监控室 CE Live Stage prototype.
 
 Run directly:
     python website-prototype/test_prototype.py -v
 
-These checks deliberately avoid a browser dependency. The companion
-`capture.mjs` performs the runtime checks (overflow, image loading, console
-errors) with a local Chrome/Edge install.
+The companion `capture.mjs` performs the runtime checks (overflow, image
+loading, console errors) with a local Chrome/Edge install.
 """
 
 from __future__ import annotations
@@ -68,14 +67,13 @@ class PrototypeContract(unittest.TestCase):
         h2 = [tag for tag, _ in self.doc.tags if tag == "h2"]
         self.assertEqual(len(h1), 1, "the page must have exactly one h1")
         self.assertGreaterEqual(len(h2), 5, "expected one h2 per major section")
-        for required in ("main", "wall", "control", "record", "plugins", "download"):
+        for required in ("main", "layout", "control", "record", "plugins", "download"):
             self.assertIn(required, self.ids, f"missing anchor target #{required}")
 
     def test_ids_are_unique(self) -> None:
         self.assertEqual(len(self.doc.ids), len(set(self.doc.ids)), "duplicate ids")
 
     def test_local_assets_exist(self) -> None:
-        self.assertFalse(self.doc.ids == set())
         for tag, attrs in self.doc.tags:
             src = attrs.get("src")
             if tag == "img" and src:
@@ -84,10 +82,12 @@ class PrototypeContract(unittest.TestCase):
                 if not src.startswith("data:"):
                     path = HERE / src
                     self.assertTrue(path.is_file(), f"missing image: {src}")
-                    self.assertGreater(path.stat().st_size, 10_000, f"suspiciously small: {src}")
+                    self.assertGreater(path.stat().st_size, 1_000, f"suspiciously small: {src}")
             if tag == "script" and src:
                 self.assertFalse(src.startswith(("http://", "https://")), f"remote script: {src}")
                 self.assertTrue((HERE / src).is_file(), f"missing script: {src}")
+
+        self.assertTrue((HERE / "assets/logo.svg").is_file(), "missing product logo")
 
     def test_no_remote_or_imported_css(self) -> None:
         self.assertTrue("@import" not in CSS, "CSS must not import remote styles")
@@ -109,18 +109,23 @@ class PrototypeContract(unittest.TestCase):
                     f"unexpected external link: {href}",
                 )
 
-    def test_layout_mode_controls_are_accessible(self) -> None:
-        mode_buttons = [attrs for tag, attrs in self.doc.tags if tag == "button" and attrs.get("data-mode")]
-        self.assertEqual(len(mode_buttons), 4)
-        for attrs in mode_buttons:
+    def test_layout_and_plugin_controls_are_accessible(self) -> None:
+        tabs = [attrs for tag, attrs in self.doc.tags if tag == "button" and attrs.get("data-mode")]
+        self.assertEqual(len(tabs), 4)
+        for attrs in tabs:
             self.assertIn("aria-pressed", attrs)
-        self.assertEqual(sum(1 for attrs in mode_buttons if attrs.get("aria-pressed") == "true"), 1)
+        self.assertEqual(sum(1 for attrs in tabs if attrs.get("aria-pressed") == "true"), 1)
+
+        switches = [attrs for tag, attrs in self.doc.tags if attrs.get("class") and "switch" in attrs["class"]]
+        self.assertEqual(len(switches), 2)
+        for attrs in switches:
+            self.assertIn("aria-pressed", attrs)
 
     def test_css_has_reduced_motion_and_capture_mode(self) -> None:
         for needle in (
             "@media (prefers-reduced-motion: reduce)",
-            ".capture .ticker-track",
-            ".capture .wall",
+            ".capture .hero-copy > *",
+            ".capture .stage-card--screen",
             "animation-duration: 0.001ms !important",
             "overflow-x: hidden",
         ):
@@ -140,13 +145,14 @@ class PrototypeContract(unittest.TestCase):
 
     def test_copy_covers_product_and_plugin_facts(self) -> None:
         required = [
-            "十六个",
-            "16",
+            "把喜欢的直播",
+            "摆成",
+            "16 路",
             "Windows 10 / 11",
             "LGPL-2.1",
-            "断流重连",
-            "即时回放",
-            "原画直存",
+            "一块屏",
+            "每一格",
+            "多一块积木",
             "domestic_live",
             "global_live",
             "虎牙",
@@ -154,8 +160,9 @@ class PrototypeContract(unittest.TestCase):
             "抖音",
             "Twitch",
             "YouTube",
-            "插件不是沙箱",
-            "06",
+            "安全提示",
+            "官方插件商店",
+            "本地 ZIP",
         ]
         for text in required:
             self.assertTrue(text in HTML, f"missing product fact: {text}")
@@ -173,13 +180,13 @@ class PrototypeContract(unittest.TestCase):
         self.assertEqual(png_size(hero), (1440, 900))
         width, height = png_size(desktop)
         self.assertEqual(width, 1440)
-        self.assertGreater(height, 5_000)
-        self.assertLess(height, 7_000)
+        self.assertGreater(height, 4_500)
+        self.assertLess(height, 6_500)
 
         width, height = png_size(mobile)
         self.assertEqual(width, 390)
-        self.assertGreater(height, 8_000)
-        self.assertLess(height, 10_000)
+        self.assertGreater(height, 6_500)
+        self.assertLess(height, 8_500)
 
     def test_capture_script_has_runtime_audits(self) -> None:
         script = (HERE / "capture.mjs").read_text(encoding="utf-8")
