@@ -1,11 +1,12 @@
 """轻量画面弹幕：有界轨道、匀速滚动，原生视频窗口上的鼠标穿透浮层。"""
 import math
+import os
 import sys
 import time
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRect, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPixmap, QTextDocument
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPixmap, QTextDocument
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
@@ -41,6 +42,7 @@ class _Comment:
     text: str
     color: QColor
     runs: list[tuple[str, str]]
+    render_id: int = 0
 
 
 class VideoDanmaku(QWidget):
@@ -70,6 +72,12 @@ class VideoDanmaku(QWidget):
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
         self._timer_resolution = _TimerResolution()
+        self._quick_requested = (os.environ.get("DDM_QTQUICK_DANMAKU") == "1"
+                                 and self._native_layered())
+        self._quick_layer = None
+        self._quick_group = None
+        self._quick_rounded = True
+        self._quick_mask_signature = None
         self.timer.destroyed.connect(self._timer_resolution.release)
         self._last_tick = 0.0
         self.hide()
@@ -108,6 +116,7 @@ class VideoDanmaku(QWidget):
 
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)
+        self._set_quick_active()
         if self.paused:
             self._stop_timer()
         elif self.comments and self.isVisible():
@@ -166,7 +175,19 @@ class VideoDanmaku(QWidget):
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
-        self.comments.append(_Comment(image, float(self.width()), lane, speed, text, color, runs))
+        if self._quick_requested and self._quick_layer is None:
+            tile = self.parentWidget()
+            wall = tile.parentWidget() if tile is not None else None
+            ensure_layer = getattr(wall, "ensure_quick_danmaku_layer", None)
+            if ensure_layer is not None:
+                self.attach_quick_layer(ensure_layer())
+        comment = _Comment(image, float(self.width()), lane, speed, text, color, runs)
+        if self._quick_layer is not None and self._quick_group is not None:
+            comment.render_id = self._quick_layer.add(
+                self._quick_group, image.toImage(), comment.x,
+                lane * self.lane_height(), width,
+                image.height() / image.devicePixelRatioF())
+        self.comments.append(comment)
         for _, url in runs:
             if url:
                 self._ensure_emoticon(url)
@@ -254,7 +275,15 @@ class VideoDanmaku(QWidget):
             comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
         self._comment_width = self.width()
         self._prune_lanes()
-        self.update()
+        if self._quick_layer is not None and self._quick_group is not None:
+            for comment in self.comments:
+                self._quick_layer.update(
+                    comment.render_id, comment.image.toImage(), comment.x,
+                    comment.lane * self.lane_height(),
+                    comment.image.width() / comment.image.devicePixelRatioF(),
+                    comment.image.height() / comment.image.devicePixelRatioF())
+        else:
+            self.update()
 
     def _prune_lanes(self) -> None:
         comments, self.comments = self.comments, []
@@ -262,6 +291,8 @@ class VideoDanmaku(QWidget):
             if (comment.lane < self.lane_count() and
                     self._lane_available(comment.lane, comment.speed, comment.x)):
                 self.comments.append(comment)
+            elif self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.remove(comment.render_id)
 
     def _lane_available(self, lane: int, speed: float, x: float | None = None) -> bool:
         for comment in self.comments:
@@ -299,10 +330,18 @@ class VideoDanmaku(QWidget):
         self._last_tick = now
         for comment in self.comments:
             comment.x -= elapsed * comment.speed
-        self.comments = [comment for comment in self.comments
-                         if comment.x + comment.image.width() /
-                         comment.image.devicePixelRatioF() > 0]
-        if bottom:
+            if self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.move(comment.render_id, comment.x,
+                                       comment.lane * height)
+        active = []
+        for comment in self.comments:
+            if comment.x + comment.image.width() / comment.image.devicePixelRatioF() > 0:
+                active.append(comment)
+            elif self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.remove(comment.render_id)
+        self.comments = active
+        self._set_quick_active()
+        if bottom and self._quick_layer is None:
             self.update(QRect(0, 0, self.width(), min(self.height(), bottom)))
         if not self.comments:
             self._stop_timer()
@@ -310,6 +349,8 @@ class VideoDanmaku(QWidget):
     def clear(self) -> None:
         self._stop_timer()
         self.comments.clear()
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.clear_group(self._quick_group)
         self._last_tick = 0.0
         if self.isVisible():
             self.repaint()
@@ -322,6 +363,8 @@ class VideoDanmaku(QWidget):
             painter.fillRect(event.rect(), self.COLOR_KEY)
         else:
             painter.setOpacity(int(self.settings.get("video_danmaku_opacity") or 80) / 100)
+        if self._quick_layer is not None and self._quick_group is not None:
+            return
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         height = self.lane_height()
         # Sample at paint time as queued QWidget updates may follow the timer.
@@ -352,6 +395,90 @@ class VideoDanmaku(QWidget):
         key = self.COLOR_KEY.red() | self.COLOR_KEY.green() << 8 | self.COLOR_KEY.blue() << 16
         alpha = round(int(self.settings.get("video_danmaku_opacity") or 80) * 255 / 100)
         user32.SetLayeredWindowAttributes(hwnd, key, alpha, 0x00000001 | 0x00000002)
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.set_group_opacity(
+                self._quick_group, int(self.settings.get("video_danmaku_opacity") or 80))
+
+    def attach_quick_layer(self, layer) -> None:
+        if not self._quick_requested or layer is None:
+            return
+        if self._quick_layer is layer and self._quick_group is not None:
+            self._sync_quick_geometry()
+            return
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.remove_group(self._quick_group)
+        self._quick_layer = layer
+        tile = self.parentWidget()
+        self._quick_rounded = not bool(tile.property("fullscreen"))
+        self._quick_group = layer.create_group(
+            0, 0, self.width(), self.height(),
+            int(self.settings.get("video_danmaku_opacity") or 80),
+            rounded=self._quick_rounded)
+        self._sync_quick_geometry()
+        for comment in self.comments:
+            comment.render_id = layer.add(
+                self._quick_group, comment.image.toImage(), comment.x,
+                comment.lane * self.lane_height(),
+                comment.image.width() / comment.image.devicePixelRatioF(),
+                comment.image.height() / comment.image.devicePixelRatioF())
+        self._set_quick_active()
+
+    def _sync_quick_geometry(self) -> None:
+        if self._quick_layer is None or self._quick_group is None:
+            return
+        point = self.mapTo(self._quick_layer.parent, QPoint())
+        self._quick_layer.set_group_geometry(
+            self._quick_group, point.x(), point.y(), self.width(), self.height())
+
+    def set_quick_rounded(self, rounded: bool) -> None:
+        rounded = bool(rounded)
+        if self._quick_rounded == rounded:
+            return
+        self._quick_rounded = rounded
+        self._quick_mask_signature = None
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.set_group_rounded(self._quick_group, rounded)
+
+    def update_quick_mask(self, widgets) -> None:
+        if self._quick_layer is None or self._quick_group is None:
+            return
+        holes = []
+        for widget in widgets:
+            if widget.isVisible():
+                origin = widget.pos() - self.pos()
+                rect = QRect(origin, widget.size()).intersected(self.rect())
+                if not rect.isEmpty():
+                    holes.append(rect)
+        signature = (self.width(), self.height(), self.devicePixelRatioF(),
+                     self._quick_rounded,
+                     tuple((rect.x(), rect.y(), rect.width(), rect.height()) for rect in holes))
+        if signature == self._quick_mask_signature:
+            return
+        self._quick_mask_signature = signature
+
+        scale = self.devicePixelRatioF()
+        image = QImage(math.ceil(self.width() * scale), math.ceil(self.height() * scale),
+                       QImage.Format_ARGB32_Premultiplied)
+        image.setDevicePixelRatio(scale)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        region = self.mask()
+        if region.isEmpty():
+            region = self.rect()
+        painter.setClipRegion(region)
+        painter.fillRect(self.rect(), Qt.white)
+        painter.setClipping(False)
+        painter.setCompositionMode(QPainter.CompositionMode_Clear)
+        for rect in holes:
+            painter.fillRect(rect, Qt.transparent)
+        painter.end()
+        self._quick_layer.set_group_mask(self._quick_group, image)
+
+    def _set_quick_active(self) -> None:
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.set_group_active(
+                self._quick_group,
+                bool(self.comments) and not self.paused and self.isVisible())
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -359,6 +486,10 @@ class VideoDanmaku(QWidget):
             self.setAttribute(Qt.WA_OpaquePaintEvent, True)
             self.setAttribute(Qt.WA_NativeWindow, True)
             self._apply_layered()
+            self._sync_quick_geometry()
+            if self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.set_group_visible(self._quick_group, True)
+            self._set_quick_active()
         if self.comments and not self.paused:
             self._last_tick = time.monotonic()
             self._tick()
@@ -368,8 +499,16 @@ class VideoDanmaku(QWidget):
     def hideEvent(self, event) -> None:
         # 布局/全屏可能短暂隐藏浮层；仅停止绘制，显式关弹幕或换台才清空。
         self._stop_timer()
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.set_group_visible(self._quick_group, False)
+        self._set_quick_active()
         super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:
         self._resize_comments()
+        self._sync_quick_geometry()
         super().resizeEvent(event)
+
+    def moveEvent(self, event) -> None:
+        self._sync_quick_geometry()
+        super().moveEvent(event)

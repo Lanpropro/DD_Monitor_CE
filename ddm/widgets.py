@@ -6082,6 +6082,16 @@ class Tile(QFrame):
         for widget in (self.controls, self.stream_badge, self.title_badge,
                        self.time_badge, self.spinner, self.pause_overlay, self.bottom):
             widget.raise_()
+        self._update_quick_danmaku_mask()
+        wall = self.parentWidget()
+        quick_layer = getattr(wall, "_quick_danmaku_layer", None)
+        if quick_layer is not None:
+            quick_layer.raise_()
+
+    def _update_quick_danmaku_mask(self) -> None:
+        self.video_danmaku.update_quick_mask((
+            self.controls, self.stream_badge, self.title_badge, self.time_badge,
+            self.spinner, self.pause_overlay, self.bottom, *self.video_corners))
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -6144,6 +6154,7 @@ class Tile(QFrame):
             self.pause_overlay.raise_()
         else:
             self.pause_overlay.stop()
+        self._update_quick_danmaku_mask()
         self._layout_controls()
 
     def set_live(self, live: bool, viewers: str = "") -> None:
@@ -6485,6 +6496,7 @@ class Tile(QFrame):
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
         self.video.square_corners = bool(self.property("fullscreen"))
+        self.video_danmaku.set_quick_rounded(not self.video.square_corners)
         path = QPainterPath()
         rect = QRectF(0, 0, max(1, self.video.width()), max(1, self.video.height()))
         if self.video.square_corners:
@@ -6507,6 +6519,7 @@ class Tile(QFrame):
                         self.video.geometry().right() - corner.width() + 1, self.video.y())
             corner.setVisible(not self.video.square_corners)
             corner.update()
+        self._update_quick_danmaku_mask()
 
     def _quality_button_width(self) -> int:
         """按画质文字算按钮宽度。
@@ -6985,6 +6998,13 @@ class WallGrid(QWidget):
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self._quick_danmaku_layer = None
+        self._quick_danmaku_attempted = False
+        self._quick_danmaku_requested = (
+            os.environ.get("DDM_QTQUICK_DANMAKU") == "1" and sys.platform == "win32"
+            and QApplication.platformName() == "windows")
+        if self._quick_danmaku_requested:
+            self.setAttribute(Qt.WA_NativeWindow, True)
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
@@ -7059,6 +7079,25 @@ class WallGrid(QWidget):
         # Finish theme-driven geometry before snapshot overlays start watching
         # video surfaces; a delayed Resize would cancel the reveal immediately.
         self.grid.activate()
+
+    def ensure_quick_danmaku_layer(self):
+        if self._quick_danmaku_layer is not None or not self._quick_danmaku_requested:
+            return self._quick_danmaku_layer
+        if self._quick_danmaku_attempted:
+            return None
+        self._quick_danmaku_attempted = True
+        try:
+            from .video_danmaku_quick import QuickDanmakuLayer
+            self._quick_danmaku_layer = QuickDanmakuLayer(self)
+            for tile in self.tiles:
+                tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
+                tile._update_quick_danmaku_mask()
+            if self.isVisible():
+                self._quick_danmaku_layer.show()
+        except Exception as exc:
+            self._quick_danmaku_layer = None
+            print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
+        return self._quick_danmaku_layer
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
@@ -7145,6 +7184,8 @@ class WallGrid(QWidget):
         # 竖屏布局是手动 setGeometry，不经过 QGridLayout 的 addWidget；
         # 先挂到画面墙，新增空格才不会在 setVisible() 时变成顶层悬浮窗。
         tile = Tile(room, self)
+        if self._quick_danmaku_layer is not None:
+            tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
         tile.clicked.connect(self.tileClicked.emit)
         tile.roomDropped.connect(lambda rid, t=tile: self.roomDropped.emit(t, rid))
         tile.tileDropped.connect(lambda rid, t=tile: self.tileSwapped.emit(rid, t))
@@ -7159,6 +7200,12 @@ class WallGrid(QWidget):
                                    self._border_drag is not None and self._border_drag["border"] is border):
             self._cancel_border_drag()
         self.grid.removeWidget(tile)
+        if self._quick_danmaku_layer is not None:
+            group = tile.video_danmaku._quick_group
+            if group is not None:
+                self._quick_danmaku_layer.remove_group(group)
+                tile.video_danmaku._quick_group = None
+                tile.video_danmaku._quick_layer = None
         tile.hide()                     # 先隐藏，否则 setParent(None) 会让它变成独立窗口
         tile.setParent(None)
         tile.deleteLater()
@@ -7776,8 +7823,15 @@ class WallGrid(QWidget):
             painter = QPainter(self)
             painter.fillRect(event.rect(), theme.qcolor(theme.BG))
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._quick_danmaku_layer is not None:
+            self._quick_danmaku_layer.show()
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self._quick_danmaku_layer is not None:
+            self._quick_danmaku_layer.resize()
         self._cancel_border_drag()
         if self._sidebar_animating:
             return
