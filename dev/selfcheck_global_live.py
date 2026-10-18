@@ -334,9 +334,16 @@ def check_window(app, records):
                         mime.setData(ROOM_MIME, rid.encode())
                         drop = QDropEvent(QPointF(20, 20), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
                         before = len(played)
+                        same_room = str(target.room.get("room_id")) == rid
                         target.dropEvent(drop)
-                        settle(app, lambda: len(played) > before)
-                        assert drop.isAccepted() and played[-1] == (target, kind)
+                        if same_room:
+                            app.processEvents()
+                            assert len(played) == before, "重复拖入同房间不能重启取流"
+                            assert window._danmaku is client and not client.stopped
+                        else:
+                            settle(app, lambda: len(played) > before)
+                            assert played[-1] == (target, kind)
+                        assert drop.isAccepted() and target.room["room_id"] == rid
                         window.sync_danmaku()
                         window.settings["danmaku_block_words"] = ["广告"]
                         client.message.emit({"kind": "danmaku", "uname": "User", "text": "直播聊天"})

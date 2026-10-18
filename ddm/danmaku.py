@@ -81,32 +81,32 @@ class DanmakuClient(QThread):
 
     async def _main(self, room_id: int) -> None:
         self._loop = asyncio.get_running_loop()
-        cookies = http.cookies.SimpleCookie()
-        for name, value in bili._cookies().items():
-            cookies[name] = value
-            cookies[name]["domain"] = "bilibili.com"
-        session = aiohttp.ClientSession(
-            headers=bili.HEADERS,
-            timeout=aiohttp.ClientTimeout(total=None, connect=15))
-        session.cookie_jar.update_cookies(cookies)
-
         try:
-            if self._stopped.is_set():
-                return
-            self.status.emit("连接中…")
-            client = _Client(room_id, session=session, on_status=self.status.emit)
-            client.set_handler(_Handler(self.message.emit))
-            self._client = client
-            client.start()
-            if self._stopped.is_set():
-                client.stop()
-            await client.join()
+            cookies = http.cookies.SimpleCookie()
+            for name, value in bili._cookies().items():
+                cookies[name] = value
+                cookies[name]["domain"] = "bilibili.com"
+            async with aiohttp.ClientSession(
+                    headers=bili.HEADERS,
+                    timeout=aiohttp.ClientTimeout(total=None, connect=15)) as session:
+                session.cookie_jar.update_cookies(cookies)
+                try:
+                    if self._stopped.is_set():
+                        return
+                    self.status.emit("连接中…")
+                    client = _Client(room_id, session=session, on_status=self.status.emit)
+                    client.set_handler(_Handler(self.message.emit))
+                    self._client = client
+                    client.start()
+                    if self._stopped.is_set():
+                        client.stop()
+                    await client.join()
+                finally:
+                    client = self._client
+                    self._client = None
+                    if client is not None:
+                        await client.stop_and_close()
         finally:
-            client = self._client
-            self._client = None
-            if client is not None:
-                await client.stop_and_close()
-            await session.close()
             self._loop = None
 
 
