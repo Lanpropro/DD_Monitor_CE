@@ -13,6 +13,25 @@ from .danmaku_content import content_runs, content_html
 from .images import AvatarLoader
 
 
+class _TimerResolution:
+    """Keep the Windows multimedia timer request paired with active scrolling."""
+
+    def __init__(self):
+        self._winmm = None
+
+    def acquire(self):
+        if self._winmm is None and sys.platform == "win32" and QApplication.platformName() == "windows":
+            import ctypes
+            winmm = ctypes.windll.winmm
+            if winmm.timeBeginPeriod(1) == 0:
+                self._winmm = winmm
+
+    def release(self):
+        if self._winmm is not None:
+            self._winmm.timeEndPeriod(1)
+            self._winmm = None
+
+
 @dataclass
 class _Comment:
     image: QPixmap
@@ -50,6 +69,8 @@ class VideoDanmaku(QWidget):
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
+        self._timer_resolution = _TimerResolution()
+        self.timer.destroyed.connect(self._timer_resolution.release)
         self._last_tick = 0.0
         self.hide()
 
@@ -88,7 +109,7 @@ class VideoDanmaku(QWidget):
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)
         if self.paused:
-            self.timer.stop()
+            self._stop_timer()
         elif self.comments and self.isVisible():
             self._start_timer()
 
@@ -261,7 +282,12 @@ class VideoDanmaku(QWidget):
             rate = max(60, screen.refreshRate() if screen else 60)
             self.timer.setInterval(max(4, min(16, round(1000 / rate))))
             self._last_tick = time.monotonic()
+            self._timer_resolution.acquire()
             self.timer.start()
+
+    def _stop_timer(self) -> None:
+        self.timer.stop()
+        self._timer_resolution.release()
 
     def _tick(self) -> None:
         # Include rows whose last comment expires so their old pixels are erased.
@@ -279,10 +305,10 @@ class VideoDanmaku(QWidget):
         if bottom:
             self.update(QRect(0, 0, self.width(), min(self.height(), bottom)))
         if not self.comments:
-            self.timer.stop()
+            self._stop_timer()
 
     def clear(self) -> None:
-        self.timer.stop()
+        self._stop_timer()
         self.comments.clear()
         self._last_tick = 0.0
         if self.isVisible():
@@ -341,7 +367,7 @@ class VideoDanmaku(QWidget):
 
     def hideEvent(self, event) -> None:
         # 布局/全屏可能短暂隐藏浮层；仅停止绘制，显式关弹幕或换台才清空。
-        self.timer.stop()
+        self._stop_timer()
         super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:

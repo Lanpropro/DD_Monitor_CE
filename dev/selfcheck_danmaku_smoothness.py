@@ -2,16 +2,16 @@
 import os
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPointF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
-from ddm.video_danmaku import VideoDanmaku
+from ddm.video_danmaku import VideoDanmaku, _TimerResolution
 from ddm.widgets import PauseButton
 
 
@@ -73,8 +73,71 @@ def check_icon_centers(app):
         button.close()
 
 
+def check_timer_resolution(app):
+    import ctypes
+    if sys.platform != "win32":
+        resolution = _TimerResolution()
+        resolution.acquire()
+        assert resolution._winmm is None
+        return
+    winmm = Mock()
+    winmm.timeBeginPeriod.return_value = 0
+    with patch("ctypes.windll.winmm", winmm), \
+            patch.object(QApplication, "platformName", return_value="windows"):
+        resolution = _TimerResolution()
+        resolution.acquire()
+        resolution.acquire()
+        winmm.timeBeginPeriod.assert_called_once_with(1)
+        resolution.release()
+        resolution.release()
+        winmm.timeEndPeriod.assert_called_once_with(1)
+        winmm.reset_mock()
+        overlay = VideoDanmaku()
+        overlay.set_native_video(False)
+        overlay.resize(900, 540)
+        overlay.set_enabled(True)
+        overlay.set_active(True)
+        app.processEvents()
+        try:
+            assert overlay.add_event({"text": "计时精度生命周期"})
+            assert overlay._timer_resolution._winmm is winmm
+            overlay.set_paused(True)
+            assert overlay._timer_resolution._winmm is None
+            overlay.set_paused(False)
+            assert overlay._timer_resolution._winmm is winmm
+            overlay.hide()
+            assert overlay._timer_resolution._winmm is None
+            overlay.show()
+            assert overlay._timer_resolution._winmm is winmm
+            overlay.comments[0].x = -10000
+            overlay._tick()
+            assert not overlay.comments and overlay._timer_resolution._winmm is None
+            assert overlay.add_event({"text": "清空后释放"})
+            overlay.clear()
+            assert overlay._timer_resolution._winmm is None
+            assert overlay.add_event({"text": "销毁后释放"})
+            overlay.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            assert winmm.timeBeginPeriod.call_count == winmm.timeEndPeriod.call_count == 5
+        finally:
+            if overlay._timer_resolution._winmm is not None:
+                overlay.close()
+        winmm.timeBeginPeriod.return_value = 1
+        winmm.reset_mock()
+        resolution.acquire()
+        assert resolution._winmm is None
+        resolution.release()
+        winmm.timeEndPeriod.assert_not_called()
+        winmm.timeBeginPeriod.return_value = 0
+        with patch.object(QApplication, "platformName", return_value="offscreen"):
+            winmm.reset_mock()
+            resolution.acquire()
+            winmm.timeBeginPeriod.assert_not_called()
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     check_sampling()
     check_icon_centers(app)
-    print("弹幕文字/表情亚像素滚动与暂停/继续图标居中：通过")
+    check_timer_resolution(app)
+    print("弹幕亚像素滚动、图标居中与定时精度申请/释放：通过")
