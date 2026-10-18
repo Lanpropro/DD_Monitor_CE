@@ -36,8 +36,32 @@ def main() -> None:
             assert button.size().width() == button.size().height() == 22
         QTest.mouseClick(button, Qt.LeftButton)
         assert sidebar.select_mode and button.isChecked()
+        assert sidebar.account_row.isHidden() and sidebar.tool_row.isHidden()
+        assert sidebar.normal_bar.isHidden() and not sidebar.batch_bar.isHidden()
+        card = sidebar.items()[0]
+        assert card._layout.indexOf(card.check) == -1
+        assert card.check.geometry().center().y() == card.height() // 2 - 1
+        assert card.check.geometry().right() == card.width() - 1
+        assert not card.mask().isEmpty()
+        assert not card.mask().contains(QPoint(card.width() - 32, card.height() // 2))
+        assert card.mask().contains(card.check.geometry().center())
+        QTest.mouseClick(card.check, Qt.LeftButton)
+        assert card.is_checked()
         sidebar.set_select_mode(False)
         assert not button.isChecked()
+        assert not sidebar.account_row.isHidden() and not sidebar.tool_row.isHidden()
+        assert card.mask().isEmpty() and card.check.isHidden() and not card.is_checked()
+    sidebar.set_select_mode(True)
+    for side in ('top', 'left', 'top', 'left'):
+        sidebar.set_side(side)
+        app.processEvents()
+        assert sidebar.select_mode and sidebar.account_row.isHidden()
+        assert sidebar.tool_row.isHidden() and sidebar.normal_bar.isHidden()
+        assert not sidebar.batch_bar.isHidden()
+        for card in sidebar.items():
+            assert not card.mask().isEmpty()
+            assert card.check.geometry().right() == card.width() - 1
+    sidebar.set_select_mode(False)
     sidebar.apply_pins(["p1", "p2"])
 
     def order() -> list[str]:

@@ -2130,6 +2130,26 @@ class NavThumb(QFrame):
             self.set_hint("播放失败")
 
 
+class NavSelectionCheck(QCheckBox):
+    """圆形凹口里的勾选，保留标准复选框的键盘和无障碍行为。"""
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER_STRONG), 1.5))
+        painter.setBrush(theme.qcolor(theme.ACCENT if self.isChecked() else theme.CONTENT))
+        painter.drawEllipse(QRectF(3, 3, 22, 22))
+        if self.isChecked():
+            pen = QPen(theme.qcolor(theme.BG), 2)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.drawPolyline(QPolygonF([QPointF(8, 14), QPointF(12, 18), QPointF(20, 10)]))
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
+
+
 class NavItem(QFrame):
     """侧栏里的一个直播间条目。"""
 
@@ -2173,11 +2193,12 @@ class NavItem(QFrame):
         self._layout.setContentsMargins(8, 6, 10, 6)
         self._layout.setSpacing(10)
 
-        self.check = QCheckBox(self)
+        self.check = NavSelectionCheck(self)
         self.check.setObjectName("NavCheck")
+        self.check.setFixedSize(28, 28)
+        self.check.setAccessibleName("选择直播间")
         self.check.setVisible(False)
         self.check.clicked.connect(lambda: self.checkedChanged.emit())
-        self._layout.addWidget(self.check)
 
         self.thumb = NavThumb(self)
         self._layout.addWidget(self.thumb, 1)
@@ -2316,7 +2337,28 @@ class NavItem(QFrame):
         self.check.setVisible(enabled)
         if not enabled:
             self.check.setChecked(False)
+        else:
+            self.thumb.stop()
+        self._sync_selection_mask()
         self.setCursor(Qt.PointingHandCursor)
+
+    def _sync_selection_mask(self):
+        if not self.select_mode:
+            self.clearMask()
+            return
+        center = QPoint(self.width() - 14, self.height() // 2)
+        self.check.move(center - QPoint(14, 14))
+        self.check.raise_()
+        # Cut a circular notch through the card and cover, preserving the
+        # checkbox's disk as a separate island inside the notch.
+        notch = QRegion(QRect(center - QPoint(22, 22), QSize(44, 44)), QRegion.Ellipse)
+        disk = QRegion(self.check.geometry(), QRegion.Ellipse)
+        self.setMask(QRegion(self.rect()).subtracted(notch).united(disk))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'check'):
+            self._sync_selection_mask()
 
     def is_checked(self) -> bool:
         return self.check.isChecked()
@@ -3949,6 +3991,7 @@ class Sidebar(QFrame):
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
+        self._sync_selection_controls()
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
             self.status_row.setVisible(not self.collapsed)
@@ -4924,7 +4967,14 @@ class Sidebar(QFrame):
         用户 2026-09-18：**没登录也要露**（显示「登录」，点了弹扫码登录）；
         登录后横屏在侧栏底部、竖屏在横栏右侧那一块 / 收起态头像排旁边。
         """
-        return True
+        return not self.select_mode
+
+    def _sync_selection_controls(self):
+        self.account_row.setVisible(self._account_row_should_show())
+        self.tool_row.setVisible(not self.select_mode and not self.collapsed)
+        self.normal_bar.setVisible(not self.select_mode and not self.collapsed and self.side != 'top')
+        if self.select_mode and self.side == 'top':
+            self._bar_right.hide()
 
     def _sync_account_row_shape(self) -> None:
         """账号条的形状跟着「横屏/竖屏 + 收起/展开」走。
@@ -5226,6 +5276,7 @@ class Sidebar(QFrame):
             self._sync_top_mode()
         for item in self._items:
             item.set_select_mode(enabled and not self.collapsed)
+        self._sync_selection_controls()
         self._update_batch_label()
 
     def _update_batch_label(self) -> None:

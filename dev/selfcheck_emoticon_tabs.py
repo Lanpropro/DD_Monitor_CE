@@ -15,12 +15,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QBuffer, QIODevice, QEvent, QTimer, Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtCore import QBuffer, QIODevice, QEvent, QPointF, QTimer, Qt
+from PySide6.QtGui import QColor, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QTabBar, QToolButton
 from ddm import images
-from ddm.danmaku_send import EmoticonPopup, _active_requests
+from ddm.danmaku_send import EmoticonPopup, EmoticonOrder, emoticon_order, _active_requests
 
 APP = QApplication.instance() or QApplication([])
 
@@ -106,6 +106,7 @@ class EmoticonCacheTests(unittest.TestCase):
 
 class EmoticonTabTests(unittest.TestCase):
     def setUp(self):
+        emoticon_order.load({})
         self.popup = EmoticonPopup()
         self.popup.show()
         APP.processEvents()
@@ -129,6 +130,81 @@ class EmoticonTabTests(unittest.TestCase):
         with self.lock:
             self.calls.append((url, subdir))
         return self.pixmap
+
+    def test_drag_reorders_without_sending_and_shares_persistent_category_order(self):
+        packs = [package('drag', 8), package('other', 2, 2)]
+        for pack in packs:
+            for emote in pack['emoticons']:
+                emote.pop('url')
+        self.popup.set_packages(packs)
+        settle(lambda: len(self.popup._buttons) == 8)
+        APP.processEvents()
+        selected = []
+        self.popup.selected.connect(lambda *args: selected.append(args))
+        source = self.popup._buttons[0]
+        target = self.popup._buttons[3]
+        destination = target.mapToGlobal(target.rect().center())
+        QTest.mousePress(source, Qt.LeftButton, pos=source.rect().center())
+        event = QMouseEvent(QEvent.MouseMove, QPointF(source.mapFromGlobal(destination)),
+                            QPointF(destination), Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        APP.sendEvent(source, event)
+        self.assertIs(self.popup._drag_button, source)
+        self.assertEqual(self.popup._buttons.index(source), 3)
+        self.assertTrue(self.popup._animations, '让位应沿用关注栏的位置动效')
+        QTest.mouseRelease(source, Qt.LeftButton, pos=source.rect().center())
+        self.assertEqual(selected, [], '拖动释放不能发送表情')
+        self.assertTrue(self.popup.isVisible())
+        QTest.qWait(180)
+        for index, button in enumerate(self.popup._buttons):
+            self.assertEqual(button.geometry().center(), self.popup.grid.cellRect(index // 5, index % 5).center())
+        expected = ['drag_1', 'drag_2', 'drag_3', 'drag_0', 'drag_4', 'drag_5', 'drag_6', 'drag_7']
+        self.assertEqual(emoticon_order.orders['3:drag'], expected)
+        # The API objects must retain their original order/permission metadata.
+        self.assertEqual(packs[0]['emoticons'][0]['emoticon_unique'], 'drag_0')
+        import json
+        restored = EmoticonOrder()
+        restored.load(json.loads(json.dumps(emoticon_order.orders)))
+        self.assertEqual([restored.key(e) for e in restored.arrange('3:drag', packs[0]['emoticons'])], expected)
+        self.assertEqual([restored.key(e) for e in restored.arrange('2:other', packs[1]['emoticons'])], ['other_0', 'other_1'])
+        self.popup.tabs.setCurrentIndex(1)
+        self.popup.tabs.setCurrentIndex(0)
+        settle(lambda: len(self.popup._buttons) == 8)
+        self.assertEqual([e['emoticon_unique'] for e in self.popup._emotes], expected)
+        second = EmoticonPopup()
+        try:
+            second.set_packages(packs)
+            self.assertEqual([e['emoticon_unique'] for e in second._emotes], expected)
+        finally:
+            second.deleteLater()
+
+    def test_order_handles_new_missing_and_invalid_saved_entries(self):
+        order = EmoticonOrder()
+        order.load({'pack': ['b', 'missing', 'b', 'a'], 'bad': [1]})
+        emotes = [{'emoji': name, 'perm': 0} for name in ('a', 'new', 'b')]
+        self.assertEqual([e['emoji'] for e in order.arrange('pack', emotes)], ['b', 'a', 'new'])
+        self.assertNotIn('bad', order.orders)
+        self.assertEqual(emotes[0]['perm'], 0)
+
+    def test_drag_keeps_lazy_building_and_respects_system_motion_setting(self):
+        pack = package('lazy-drag', 600)
+        for emote in pack['emoticons']:
+            emote.pop('url')
+        self.popup.set_packages([pack])
+        self.popup._build_timer.stop()
+        self.popup._build_batch()
+        APP.processEvents()
+        source, target = self.popup._buttons[0], self.popup._buttons[4]
+        point = target.mapToGlobal(target.rect().center())
+        QTest.mousePress(source, Qt.LeftButton, pos=source.rect().center())
+        with patch('ddm.danmaku_send.motion.enabled', return_value=False):
+            APP.sendEvent(source, QMouseEvent(QEvent.MouseMove, QPointF(source.mapFromGlobal(point)),
+                          QPointF(point), Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+            self.assertEqual(len(self.popup._buttons), 10)
+            self.assertFalse(self.popup._animations)
+            QTest.mouseRelease(source, Qt.LeftButton, pos=source.rect().center())
+        self.popup._build_batch()
+        self.assertEqual(len({e['emoticon_unique'] for e in self.popup._emotes}), 600)
+        self.assertEqual(self.popup._buttons[10].text(), '[lazy-drag-10]')
 
     def test_only_selected_package_is_built_and_downloaded(self):
         with patch.object(images, "load_pixmap", side_effect=self.load):

@@ -31,6 +31,21 @@ def settle(predicate, seconds=3):
 
 
 class ComposerTests(unittest.TestCase):
+    def test_emoticon_launcher_color_only_tracks_open_menu(self):
+        with patch.object(bili, 'get_emoticons', return_value=[]):
+            button = self.composer.emote_button
+            self.assertEqual(button.focusPolicy(), Qt.NoFocus)
+            button.setProperty('hovered', False)
+            closed = button.grab().toImage()
+            button.setProperty('hovered', True)
+            self.assertEqual(button.grab().toImage(), closed)
+            self.composer.open_emoticons()
+            self.assertTrue(button.property('menuOpen'))
+            self.assertNotEqual(button.grab().toImage(), closed)
+            self.composer.popup.hide()
+            self.assertFalse(button.property('menuOpen'))
+            self.assertEqual(button.grab().toImage(), closed)
+
     def setUp(self):
         self.assertIsNotNone(importlib.util.find_spec("ddm.danmaku_send"), "缺少独立的弹幕输入控件")
         from ddm.danmaku_send import DanmakuComposer
@@ -525,6 +540,30 @@ class ComposerTests(unittest.TestCase):
                 self.assertIn("登录", composer.feedback.text())
             finally:
                 window.close()
+
+    def test_global_emoticon_order_is_loaded_and_saved_in_app_state(self):
+        from contextlib import ExitStack
+        from ddm.app import MainWindow
+        from ddm import config
+        from ddm.danmaku_send import emoticon_order
+        with ExitStack() as stack:
+            for name in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account'):
+                stack.enter_context(patch.object(MainWindow, name))
+            save = stack.enter_context(patch.object(config, 'save'))
+            window = MainWindow([], [], layout_id='1x1', state={
+                'plugins_enabled': [], 'emoticon_order': {'3:emoji': ['b', 'a']}})
+            try:
+                self.assertEqual(emoticon_order.orders, {'3:emoji': ['b', 'a']})
+                emoticon_order.save('3:emoji', [{'emoji': 'a'}, {'emoji': 'b'}])
+                self.assertTrue(window._save_timer.isActive())
+                window._save_timer.timeout.emit()
+                snapshot = save.call_args.args[0]['emoticon_order']
+                self.assertEqual(snapshot, {'3:emoji': ['a', 'b']})
+                emoticon_order.save('3:emoji', [{'emoji': 'b'}])
+                self.assertEqual(snapshot, {'3:emoji': ['a', 'b']}, '保存快照不能被后续拖动改写')
+            finally:
+                window.close()
+                emoticon_order.load({})
 
     def test_app_close_waits_for_inflight_send_before_destroying_threads(self):
         from contextlib import ExitStack

@@ -1,14 +1,42 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
+    QApplication, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
     QScrollArea, QSizePolicy, QStyle, QStyleOptionTab, QStylePainter, QTabBar, QToolButton,
     QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import bili, images, theme
+from . import bili, images, motion, theme
+
+
+class EmoticonOrder(QObject):
+    changed = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.orders = {}
+
+    def load(self, orders):
+        self.orders = {key: list(dict.fromkeys(value)) for key, value in orders.items()
+                       if isinstance(key, str) and isinstance(value, list)
+                       and all(isinstance(item, str) for item in value)} if isinstance(orders, dict) else {}
+
+    @staticmethod
+    def key(emote):
+        return str(emote.get('emoticon_unique') or emote.get('emoji') or '')
+
+    def arrange(self, category, emotes):
+        ranks = {key: index for index, key in enumerate(self.orders.get(category, []))}
+        return sorted(emotes, key=lambda emote: ranks.get(self.key(emote), len(ranks)))
+
+    def save(self, category, emotes):
+        self.orders[category] = [self.key(emote) for emote in emotes]
+        self.changed.emit()
+
+
+emoticon_order = EmoticonOrder()
 
 
 # 关闭格子/浮窗不销毁仍在执行网络请求的线程；Qt 自动断开已销毁接收者。
@@ -42,11 +70,14 @@ def _style_button(button):
 class EmoticonButton(QPushButton):
     """与播放器控制同样使用矢量绘制，避免字体笑脸过小或被替换为彩色 emoji。"""
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.NoFocus)
+
     def paintEvent(self, event):
-        super().paintEvent(event)
         color = theme.TEXT2 if self.isEnabled() else theme.TEXT4
-        if self.isEnabled() and (self.underMouse() or self.property("hovered") is True):
-            color = theme.ACCENT if theme.is_light() else theme.BG
+        if self.isEnabled() and self.property("menuOpen"):
+            color = theme.ACCENT
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.translate(self.width() / 2, self.height() / 2)
@@ -185,8 +216,7 @@ class EmoticonPopup(QMenu):
         self.setStyleSheet(f"""
             #EmoticonButton {{border: 1px solid transparent; border-radius: {theme.RADIUS_MD}px;
                 color: {theme.TEXT1}; font-size: {theme.FONT_CAPTION}px; padding: 1px;}}
-            #EmoticonButton:hover, #EmoticonButton:focus {{background: {theme.CONTENT_HOVER};
-                border-color: {theme.ACCENT};}}
+            #EmoticonButton:hover {{background: {theme.CONTENT_HOVER};}}
             #EmoticonButton:disabled {{color: {theme.TEXT3};}}
             #EmoticonTabs {{background: transparent; font-size: {theme.FONT_CAPTION}px;}}
             #EmoticonTabs::tab {{color: {theme.TEXT2}; background: transparent;
@@ -233,6 +263,7 @@ class EmoticonPopup(QMenu):
         self._generation = 0
         self._image_loader = None
         self._pending_urls = {}
+        self._drag_button = None
         self._build_timer = QTimer(self)
         self._build_timer.setInterval(8)
         self._build_timer.timeout.connect(self._build_batch)
@@ -244,6 +275,10 @@ class EmoticonPopup(QMenu):
         self._holder.setFixedSize(340, 300)
 
     def _clear_body(self):
+        self._drag_button = None
+        self._drag_origin = None
+        self._buttons = []
+        self._animations = {}
         self._pause_loading()
         body = QWidget()
         self.grid = QGridLayout(body)
@@ -315,7 +350,9 @@ class EmoticonPopup(QMenu):
         if 0 <= index < len(self._packages):
             package = self._packages[index]
             self._kind = package["pkg_type"]
-            self._emotes = [e for e in package.get("emoticons") or [] if isinstance(e, dict)]
+            self._category = f"{self._kind}:{package.get('pkg_id') or package.get('pkg_name') or ''}"
+            self._emotes = emoticon_order.arrange(self._category,
+                [e for e in package.get("emoticons") or [] if isinstance(e, dict)])
         self.status.setText("表情" if self._emotes else "暂无可用表情")
         self.status.show()
         self._resume_loading()
@@ -334,6 +371,7 @@ class EmoticonPopup(QMenu):
             button.setIconSize(QSize(32, 32))
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             button.setCursor(Qt.PointingHandCursor)
+            button.installEventFilter(self)
             available = emote.get("perm") == 1 and bool(emote.get(
                 "emoji" if self._kind == 3 else "emoticon_unique"))
             button.setEnabled(available)
@@ -341,6 +379,7 @@ class EmoticonPopup(QMenu):
                               f"{text}：{emote.get('unlock_show_text') or '当前账号尚未解锁'}")
             button.clicked.connect(lambda _checked=False, k=self._kind, e=dict(emote): self._choose(k, e))
             self.grid.addWidget(button, index // 5, index % 5)
+            self._buttons.append(button)
             url = emote.get("url")
             if isinstance(url, str) and url.startswith(("https://", "http://")):
                 self._images.setdefault(url, []).append(button)
@@ -353,6 +392,71 @@ class EmoticonPopup(QMenu):
         if end == len(self._emotes):
             self._build_timer.stop()
         self._start_images()
+
+    def _arrange_buttons(self, animate=True):
+        positions = {button: button.pos() for button in self._buttons}
+        for button in self._buttons:
+            animation = self._animations.pop(button, None)
+            if animation is not None:
+                animation.stop()
+                animation.deleteLater()
+            self.grid.removeWidget(button)
+        for index, button in enumerate(self._buttons):
+            self.grid.addWidget(button, index // 5, index % 5)
+        self.grid.activate()
+        for button in self._buttons:
+            target = button.pos()
+            if button is self._drag_button:
+                button.move(positions[button])
+            elif animate and motion.enabled() and target != positions[button]:
+                animation = QPropertyAnimation(button, b'pos', button)
+                animation.setDuration(150)
+                animation.setEasingCurve(QEasingCurve.OutCubic)
+                animation.setStartValue(positions[button])
+                animation.setEndValue(target)
+                self._animations[button] = animation
+                animation.start()
+
+    def eventFilter(self, button, event):
+        if button not in self._buttons:
+            return super().eventFilter(button, event)
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self._drag_origin = event.globalPosition().toPoint()
+            self._drag_offset = event.position().toPoint()
+        elif event.type() == QEvent.MouseMove and event.buttons() & Qt.LeftButton and self._drag_origin is not None:
+            point = event.globalPosition().toPoint()
+            if self._drag_button is None:
+                if (point - self._drag_origin).manhattanLength() < QApplication.startDragDistance():
+                    return False
+                self._drag_button = button
+                button.setDown(False)
+                button.raise_()
+            body = self.scroll.widget()
+            local = body.mapFromGlobal(point)
+            button.move(local - self._drag_offset)
+            viewport = self.scroll.viewport()
+            y = viewport.mapFromGlobal(point).y()
+            bar = self.scroll.verticalScrollBar()
+            if y < 24 or y > viewport.height() - 24:
+                bar.setValue(bar.value() + (-18 if y < 24 else 18))
+            targets = [(self.grid.cellRect(i // 5, i % 5).center() - local).manhattanLength()
+                       for i in range(len(self._buttons))]
+            target = min(range(len(targets)), key=targets.__getitem__)
+            source = self._buttons.index(button)
+            if source != target:
+                self._buttons.insert(target, self._buttons.pop(source))
+                self._emotes.insert(target, self._emotes.pop(source))
+                self._arrange_buttons()
+            return True
+        elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            self._drag_origin = None
+            if self._drag_button is not None:
+                self._drag_button = None
+                button.setDown(False)
+                self._arrange_buttons()
+                emoticon_order.save(self._category, self._emotes)
+                return True
+        return super().eventFilter(button, event)
 
     def _start_images(self):
         if not self.isVisible() or self._image_loader is not None or not self._pending_urls:
@@ -386,6 +490,11 @@ class EmoticonPopup(QMenu):
             button.setIcon(QIcon(pixmap))
 
     def hideEvent(self, event):
+        if self._drag_button is not None:
+            self._drag_button = None
+            self._arrange_buttons(False)
+            emoticon_order.save(self._category, self._emotes)
+        self._drag_origin = None
         self._pause_loading()
         super().hideEvent(event)
 
@@ -410,6 +519,8 @@ class EmoticonPopup(QMenu):
         self.selected.emit(kind, emote)
 
     def open_at(self, button):
+        if self._packages:
+            self._select_package(self.tabs.currentIndex())
         screen = button.screen().availableGeometry()
         self._holder.setFixedSize(min(340, screen.width() - 16), min(300, screen.height() - 16))
         self.adjustSize()
@@ -644,6 +755,8 @@ class DanmakuComposer(QWidget):
             self.popup = EmoticonPopup(self)
             self.popup.selected.connect(self._choose_cached_emoticon)
             self.popup.retryRequested.connect(self._reload_emoticons)
+            self.popup.aboutToShow.connect(lambda: self._set_emoticon_open(True))
+            self.popup.aboutToHide.connect(lambda: self._set_emoticon_open(False))
         self.popup.open_at(self.emote_button)
         context = self._context()
         if self._catalog_key == context and self._packages is not None:
@@ -657,6 +770,10 @@ class DanmakuComposer(QWidget):
         worker.completed.connect(self._emoticons_loaded)
         worker.failed.connect(self._emoticons_failed)
         _start(worker)
+
+    def _set_emoticon_open(self, opened):
+        self.emote_button.setProperty('menuOpen', opened)
+        self.emote_button.update()
 
     def _choose_cached_emoticon(self, kind, emote):
         # 菜单打开后可能退出/切换账号，旧的权限结果不能沿用。

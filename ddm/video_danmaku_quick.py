@@ -2,7 +2,7 @@
 import os
 import threading
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, QUrl, Qt
 from PySide6.QtGui import QImage, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
@@ -142,11 +142,16 @@ Item {
 }'''
 
 
-class QuickDanmakuLayer:
+class QuickDanmakuLayer(QObject):
     """One transparent, refresh-synchronized window shared by a playback wall."""
 
     def __init__(self, parent):
+        super().__init__(parent)
         self.parent = parent
+        self._surface_reset = QTimer(self)
+        self._surface_reset.setSingleShot(True)
+        self._surface_reset.timeout.connect(self._restore_surface)
+        parent.window().installEventFilter(self)
         self.render_thread_animation = os.environ.get("DDM_QTQUICK_ANIMATOR", "1") != "0"
         self.images = _CommentImages()
         self.engine = QQmlEngine(parent)
@@ -199,6 +204,25 @@ class QuickDanmakuLayer:
         user32.SetWindowLongW(hwnd, -20, style | 0x00080000 | 0x00000020)
         user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x00000002)
 
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.WindowStateChange:
+            if (event.oldState() ^ watched.windowState()) & Qt.WindowMaximized:
+                # Keep the opaque surface out of the way during the native
+                # transition, then rebuild after resize/composition settles.
+                self.window.hide()
+                self._surface_reset.start(100)
+        return False
+
+    def _restore_surface(self):
+        if not self.parent.isVisible():
+            return
+        # The child D3D swap chain can become opaque after native maximize /
+        # restore. Recreate only its native surface; retain QML items and motion.
+        self.window.hide()
+        self.window.destroy()
+        self._set_layered()
+        self.show()
+
     def show(self):
         self.resize()
         self.window.show()
@@ -208,6 +232,8 @@ class QuickDanmakuLayer:
         self.window.setGeometry(0, 0, self.parent.width(), self.parent.height())
         self.stage.setWidth(self.parent.width())
         self.stage.setHeight(self.parent.height())
+        if self._surface_reset.isActive():
+            self._surface_reset.start(100)
 
     def raise_(self):
         if self.window.isVisible():
