@@ -136,6 +136,16 @@ class _EmoticonImageLoader(QThread):
             self.msleep(4)
 
 
+class EmoticonTabs(QTabBar):
+    """包名和封面共用固定方形位置，异步换图时不重排分类。"""
+
+    def tabSizeHint(self, index):
+        return QSize(40, 40)
+
+    def minimumTabSizeHint(self, index):
+        return self.tabSizeHint(index)
+
+
 class EmoticonPopup(QMenu):
     selected = Signal(int, dict)
     retryRequested = Signal()
@@ -151,8 +161,8 @@ class EmoticonPopup(QMenu):
             #EmoticonButton:disabled {{color: {theme.TEXT3};}}
             #EmoticonTabs {{background: transparent; font-size: {theme.FONT_CAPTION}px;}}
             #EmoticonTabs::tab {{color: {theme.TEXT2}; background: transparent;
-                padding: 5px 8px; margin-right: 3px; border: 1px solid {theme.BORDER};
-                border-radius: {theme.RADIUS_SM}px; min-height: 24px;}}
+                padding: 0; margin: 2px; border: 1px solid {theme.BORDER};
+                border-radius: {theme.RADIUS_SM}px;}}
             #EmoticonTabs::tab:selected {{color: {theme.TEXT1}; background: {theme.CONTENT_HOVER};
                 border-color: {theme.ACCENT};}}
         """)
@@ -171,13 +181,13 @@ class EmoticonPopup(QMenu):
         self.retry_button.hide()
         header.addWidget(self.retry_button)
         layout.addLayout(header)
-        self.tabs = QTabBar()
+        self.tabs = EmoticonTabs()
         self.tabs.setObjectName("EmoticonTabs")
         self.tabs.setAccessibleName("表情包分类")
         self.tabs.setExpanding(False)
         self.tabs.setDrawBase(False)
         self.tabs.setUsesScrollButtons(True)
-        self.tabs.setElideMode(Qt.ElideNone)
+        self.tabs.setElideMode(Qt.ElideRight)
         self.tabs.setIconSize(QSize(24, 24))
         self.tabs.currentChanged.connect(self._select_package)
         self.tabs.hide()
@@ -208,7 +218,7 @@ class EmoticonPopup(QMenu):
         self.grid = QGridLayout(body)
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setSpacing(4)
-        self.grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.grid.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         self.scroll.setWidget(body)
         self._images = {}
         self._emotes = []
@@ -257,6 +267,8 @@ class EmoticonPopup(QMenu):
         self.tabs.blockSignals(True)
         for package in self._packages:
             name = str(package.get("pkg_name") or "表情")
+            if package["pkg_type"] == 3 and name.lower() == "emoji":
+                name = "表情"
             index = self.tabs.addTab(name)
             self.tabs.setTabToolTip(index, name)
             self.tabs.setAccessibleTabName(index, name)

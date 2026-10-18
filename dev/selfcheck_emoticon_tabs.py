@@ -104,6 +104,51 @@ class EmoticonTabTests(unittest.TestCase):
         self.assertTrue(any(0 < count < 600 for count in observed), "构建期间必须让事件循环继续运行")
         self.assertTrue(all("大表情包" in b.text() for b in buttons(self.popup)))
 
+    def test_package_tabs_are_equal_squares_before_and_after_cover_load(self):
+        packs = [package("emoji", 0), package("主播表情", 0, 2),
+                 package("一个名字很长的装扮表情包", 0, 5)]
+        for pack in packs[1:]:
+            pack["current_cover"] = f"https://example.invalid/{pack['pkg_name']}.png"
+
+        def load(url, subdir):
+            self.release.wait(2)
+            return self.pixmap
+
+        def sizes():
+            APP.processEvents()
+            return [(self.popup.tabs.tabRect(i).width(), self.popup.tabs.tabRect(i).height())
+                    for i in range(self.popup.tabs.count())]
+
+        with patch.object(images, "load_pixmap", side_effect=load):
+            self.popup.set_packages(packs)
+            before = sizes()
+            self.assertEqual(len(set(before)), 1, "包名长度不应改变分类按钮的尺寸")
+            self.assertTrue(all(width == height for width, height in before), "分类入口应是方形")
+            self.assertEqual(self.popup.tabs.tabText(0), "表情")
+            self.release.set()
+            settle(lambda: not _active_requests)
+            self.assertFalse(self.popup.tabs.tabIcon(1).isNull())
+            self.assertEqual(sizes(), before, "封面逐张加载时不能改变按钮尺寸")
+
+    def test_emoticon_grid_is_centered_as_a_block(self):
+        pack = package("emoji", 12)
+        for emote in pack["emoticons"]:
+            emote.pop("url")
+        self.popup.set_packages([pack])
+        settle(lambda: len(buttons(self.popup)) == 12)
+        for width in (340, 380):
+            self.popup._holder.setFixedWidth(width)
+            APP.processEvents()
+            body = self.popup.scroll.widget()
+            first = self.popup.grid.itemAtPosition(0, 0).widget().geometry()
+            last = self.popup.grid.itemAtPosition(0, 4).widget().geometry()
+            left_gap = first.left()
+            right_gap = body.width() - last.right() - 1
+            self.assertLessEqual(abs(left_gap - right_gap), 1, "整个五列网格应水平居中")
+            self.assertGreater(left_gap, 0)
+            self.assertEqual(self.popup.grid.itemAtPosition(2, 0).widget().x(), first.x(),
+                             "不足一行时仍与上方网格列对齐")
+
     def test_package_covers_replace_names_except_emoji_and_reuse_cache(self):
         packs = [package("emoji", 0), package("通用表情", 0, 1),
                  package("主播表情", 0, 2), package("装扮表情", 0, 5)]
@@ -117,11 +162,11 @@ class EmoticonTabTests(unittest.TestCase):
         with patch.object(images, "load_pixmap", side_effect=load):
             self.popup.set_packages(packs)
             self.assertEqual([self.popup.tabs.tabText(i) for i in range(4)],
-                             ["emoji", "通用表情", "主播表情", "装扮表情"], "先显示完整包名，再逐张替换封面")
+                             ["表情", "通用表情", "主播表情", "装扮表情"], "先显示包名，再逐张替换封面")
             self.assertTrue(all(self.popup.tabs.tabIcon(i).isNull() for i in range(4)))
             self.release.set()
             settle(lambda: not _active_requests)
-            self.assertEqual(self.popup.tabs.tabText(0), "emoji")
+            self.assertEqual(self.popup.tabs.tabText(0), "表情")
             self.assertTrue(self.popup.tabs.tabIcon(0).isNull())
             for index, name in ((1, "通用表情"), (2, "主播表情"), (3, "装扮表情")):
                 self.assertFalse(self.popup.tabs.tabIcon(index).isNull(), "未选中的表情包也需要封面导航")
