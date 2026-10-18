@@ -154,7 +154,7 @@ def main():
             assert viewer.rows['1'].sync_state=='已同步' and viewer.rows['1'].mix_gain==1
             assert viewer.rows['2'].sync_state=='已同步' and viewer.rows['2'].mix_gain==1
             assert '2' not in viewer.independent_shifts
-            assert '连续精校验' in viewer.rows['2'].status.text()
+            assert '连续精校验' in viewer.rows['2'].status.toolTip()
             with ExitStack() as stack:
                 pcm_reads = [stack.enter_context(patch.object(row.decoder.history, 'pcm_at',
                     side_effect=lambda timestamp, frames: array('h', [1000, 1000] * frames).tobytes()))
@@ -185,7 +185,7 @@ def main():
             viewer.automatic.setChecked(True)
             viewer.rows['2'].alignment_started = now[0] - 11
             viewer._matched(viewer.generation, {'2':Match(None,0,'共同动态画面不足')})
-            assert '2' in viewer.independent_shifts and '无法确认' in viewer.rows['2'].status.text()
+            assert '2' in viewer.independent_shifts and '无法确认' in viewer.rows['2'].status.toolTip()
             # Hover controls survive closing the first main, and still operate on the second.
             viewer.picture.set_controls_visible(True)
             viewer.picture.close_button.click()

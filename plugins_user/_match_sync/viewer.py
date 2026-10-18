@@ -15,7 +15,7 @@ from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QMediaDevices
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QDoubleSpinBox, QFrame,
     QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLayout, QLineEdit,
-    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QTextEdit, QVBoxLayout, QWidget)
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSplitter, QStyle, QTextEdit, QVBoxLayout, QWidget)
 
 from ddm.widgets import AUTO_QUALITY, Avatar, DanmakuPanel, ROOM_MIME, Tile
 from ddm.fullscreen_cursor import FullscreenCursor
@@ -576,6 +576,69 @@ class SettingsPanel(QWidget):
         painter.fillPath(path, tint)
 
 
+class CompactStatus(QLabel):
+    """One-line native icons and text; full diagnostics remain in the tooltip."""
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.setTextFormat(Qt.PlainText)
+        self.setMinimumHeight(22)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def set_status(self, parts, detail):
+        self.parts = parts
+        self.setText(' · '.join(text for _, text in parts if text))
+        self.setToolTip(detail)
+        self.setAccessibleName(' · '.join(text or ('已连接' if icon == 'connected' else '已静音')
+                                         for icon, text in parts))
+        self.setAccessibleDescription(detail)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setFont(self.font())
+        color = self.palette().windowText().color()
+        metrics = painter.fontMetrics()
+        size, x = 16, 0
+        y = (self.height() - size) // 2
+        for icon, text in self.parts:
+            if x + size > self.width():
+                break
+            painter.setPen(QPen(color, 1.5))
+            painter.setBrush(Qt.NoBrush)
+            if icon == 'connected':
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor('#4ade80'))
+                painter.drawEllipse(QRectF(x + 4, y + 4, 8, 8))
+            elif icon == 'search':
+                painter.drawEllipse(QRectF(x + 2, y + 2, 8, 8))
+                painter.drawLine(x + 9, y + 9, x + 14, y + 14)
+            elif icon == 'buffer':
+                painter.drawRoundedRect(QRectF(x + 1, y + 2, 14, 12), 1, 1)
+                for offset in (5, 8, 11):
+                    painter.drawLine(x + 4, y + offset, x + 12, y + offset)
+            else:
+                ratio = self.devicePixelRatioF()
+                pixmap = self.style().standardIcon(icon).pixmap(round(size * ratio), round(size * ratio))
+                pixmap.setDevicePixelRatio(ratio)
+                tint = QPainter(pixmap)
+                tint.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                tint.fillRect(pixmap.rect(), color)
+                tint.end()
+                painter.drawPixmap(x, y, pixmap)
+            x += size + 4
+            if text:
+                painter.setPen(color)
+                shown = metrics.elidedText(text, Qt.ElideRight, max(0, self.width() - x))
+                painter.drawText(QRect(x, 0, max(0, self.width() - x), self.height()), Qt.AlignVCenter, shown)
+                x += metrics.horizontalAdvance(shown) + 12
+                if shown != text:
+                    break
+            else:
+                x += 8
+
+
 class RoomRow(QFrame):
     def __init__(self, viewer, room_id, preferences, color):
         super().__init__(viewer)
@@ -718,11 +781,7 @@ class RoomRow(QFrame):
             controls.addWidget(widget, 0, column)
             column += 1
         self.control_columns = columns
-        self.status = QLabel()
-        self.status.setWordWrap(True)
-        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.status.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.status.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.status = CompactStatus()
         self.offset_hint = QLabel("单位：秒 · + 正数延后本路 · − 负数相对提前本路")
         self.offset_hint.setObjectName("MatchSyncOffsetHint")
         self.offset_hint.setWordWrap(True)
@@ -745,7 +804,9 @@ class RoomRow(QFrame):
         self.delay.setToolTip("单位秒；+ 延后本路，− 相对提前本路（必要时延后其他路）。画面、声音和弹幕一起移动。")
         self.delay.valueChanged.connect(viewer._delay_changed)
         self.volume.valueChanged.connect(viewer.changed)
+        self.volume.valueChanged.connect(self.refresh_status)
         self.audible.toggled.connect(viewer.changed)
+        self.audible.toggled.connect(self.refresh_status)
         self.show_chat.toggled.connect(self._chat_toggle)
         self.alias.textChanged.connect(viewer.changed)
         self.alias.textChanged.connect(self.refresh_avatar)
@@ -885,7 +946,48 @@ class RoomRow(QFrame):
         elif self.room_id == self.viewer.alignment.reference:
             match_text = "主画面基准"
         text = f"{self.video_text} · {match_text} · {self.chat_text}"
-        self.status.setText(text + f" · {self.playback_status()}" + (f" · {self.buffer_text}" if self.buffer_text else ""))
+        detail = text + f" · {self.playback_status()}" + (f" · {self.buffer_text}" if self.buffer_text else "")
+        parts = []
+        if '失败' in self.video_text or '缺少' in self.video_text or '找不到' in self.video_text:
+            parts.append((QStyle.SP_MessageBoxWarning, '连接异常'))
+        elif '超时' in self.video_text or '重新' in self.video_text:
+            parts.append((QStyle.SP_BrowserReload, '重连中'))
+        elif '已连接' in self.video_text:
+            parts.append(('connected', ''))
+        elif self.decoder is not None:
+            parts.append((QStyle.SP_BrowserReload, '连接中'))
+        if self.paused:
+            parts.append((QStyle.SP_MediaPause, '已暂停'))
+        elif self.decoder is None:
+            parts.append((QStyle.SP_MediaStop, '已停止' if self.sync_state == '已停止' else '未开始'))
+        elif not self.viewer.alignment.automatic:
+            parts.append((QStyle.SP_MediaPlay, '手动偏移' if self.sync_state == '已同步' else '手动偏移 · 等待缓存'))
+        elif self.room_id in self.viewer.independent_shifts and self.viewer.alignment.automatic:
+            parts.extend([('search', '搜索中'), (QStyle.SP_MediaPlay, '独立播放')])
+        elif self.awaiting_confirmation:
+            parts.append((QStyle.SP_MessageBoxInformation, '待确认对齐'))
+        elif self.sync_state == '已同步':
+            if self.room_id == self.viewer.alignment.reference:
+                parts.append((QStyle.SP_MediaPlay, '主画面'))
+            elif self.correction_remaining > .1001:
+                parts.append((QStyle.SP_BrowserReload, '平滑校正中'))
+            else:
+                parts.append((QStyle.SP_DialogApplyButton, '已对齐'))
+        elif self.sync_state == '等待对齐':
+            parts.append(('search', '搜索中'))
+        else:
+            parts.append((QStyle.SP_BrowserReload, '等待缓存'))
+        if self.decoder is not None and (self.paused or not self.audible.isChecked()
+                or self.volume.value() == 0 or self.sync_state != '已同步' or self.mix_gain == 0):
+            parts.append((QStyle.SP_MediaVolumeMuted, ''))
+        missing = re.search(r'缺少约 ([\d.]+) 秒', self.buffer_text)
+        ahead = re.search(r'前方可播放约 ([\d.]+) 秒', self.buffer_text)
+        if missing and self.room_id not in self.viewer.independent_shifts:
+            parts.append((QStyle.SP_MessageBoxWarning, f'缺少 {missing[1]}s'))
+        elif ahead and (not self.viewer.alignment.automatic or self.room_id == self.viewer.alignment.reference
+                        or self.match_confirmed) and self.room_id not in self.viewer.independent_shifts:
+            parts.append(('buffer', f'{ahead[1]}s'))
+        self.status.set_status(parts, detail)
 
     def playback_status(self):
         if self.room_id in self.viewer.independent_shifts and self.viewer.alignment.automatic:

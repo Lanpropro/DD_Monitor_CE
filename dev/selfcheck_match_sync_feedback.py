@@ -110,14 +110,14 @@ def main():
             assert '手动偏移' in viewer.rows['2'].status.text()
             viewer.rows['2'].sync_state = '已同步'
             viewer.rows['2'].refresh_status()
-            assert '自动对齐已关闭' in viewer.rows['2'].status.text()
+            assert '自动对齐已关闭' in viewer.rows['2'].status.toolTip()
             assert viewer.rows['2'].playback_status() == '按当前偏移播放'
             viewer.alignment.lags.clear()
             viewer.render()
             viewer.comparison_panel.render(viewer.audio.clock(), viewer.shifts())
             assert '设置偏移' in viewer.comparison_panel.cards['2'][3].text()
             assert '自动对齐已关闭' in viewer.notice.text()
-            assert '历史缓存约' in viewer.rows['2'].status.text()
+            assert '历史缓存约' in viewer.rows['2'].status.toolTip()
             # Only automatic alignment and comparison remain in the heading.
             viewer.show()
             app.processEvents()
