@@ -154,8 +154,8 @@ class GeneralSettingsPage(QWidget):
         self.volume_label = QLabel(str(self.volume_slider.value()))
         self.volume_label.setObjectName("NavSub")
         self.volume_label.setFixedWidth(28)
-        self.volume_slider.valueChanged.connect(
-            lambda value: self.volume_label.setText(str(value)))
+        # 直接连接接收控件，避免回调持有父页面并在退出时触发析构重入。
+        self.volume_slider.valueChanged.connect(self.volume_label.setNum)
         volume_box.addWidget(self.volume_slider)
         volume_box.addWidget(self.volume_label)
         volume_box.addStretch(1)

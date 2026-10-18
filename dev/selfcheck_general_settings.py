@@ -1,7 +1,9 @@
 """后台检查常规设置顺序、隐藏选项保留和固定开启的卡死检测。"""
+import gc
 import os
 from pathlib import Path
 import sys
+import weakref
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -13,8 +15,27 @@ from ddm.dialogs import GeneralSettingsPage
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
+def check_volume_page_lifetime():
+    """The volume signal must not retain its parent page until cyclic GC."""
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        page = GeneralSettingsPage({"default_volume": 21})
+        for volume in (0, 17, 100):
+            page.volume_slider.setValue(volume)
+            assert page.volume_label.text() == str(volume)
+            assert page.values()["default_volume"] == volume
+        page_ref = weakref.ref(page)
+        del page
+        assert page_ref() is None, "Volume callback retains the settings page during Qt shutdown"
+    finally:
+        if gc_was_enabled:
+            gc.enable()
+
+
 def main():
     app = QApplication([])
+    check_volume_page_lifetime()
     page = GeneralSettingsPage({"auto_quality": False, "sidebar_card_mode": False,
                                 "freeze_watch": False, "default_volume": 21})
     grid = page.layout().itemAt(1).layout()
