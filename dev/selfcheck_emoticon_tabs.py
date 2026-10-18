@@ -104,6 +104,119 @@ class EmoticonTabTests(unittest.TestCase):
         self.assertTrue(any(0 < count < 600 for count in observed), "构建期间必须让事件循环继续运行")
         self.assertTrue(all("大表情包" in b.text() for b in buttons(self.popup)))
 
+    def test_package_covers_replace_names_except_emoji_and_reuse_cache(self):
+        packs = [package("emoji", 0), package("通用表情", 0, 1),
+                 package("主播表情", 0, 2), package("装扮表情", 0, 5)]
+        for index, pack in enumerate(packs):
+            pack["current_cover"] = f"https://example.invalid/cover-{index}.png"
+
+        def load(url, subdir):
+            self.release.wait(2)
+            return self.load(url, subdir)
+
+        with patch.object(images, "load_pixmap", side_effect=load):
+            self.popup.set_packages(packs)
+            self.assertEqual([self.popup.tabs.tabText(i) for i in range(4)],
+                             ["emoji", "通用表情", "主播表情", "装扮表情"], "先显示完整包名，再逐张替换封面")
+            self.assertTrue(all(self.popup.tabs.tabIcon(i).isNull() for i in range(4)))
+            self.release.set()
+            settle(lambda: not _active_requests)
+            self.assertEqual(self.popup.tabs.tabText(0), "emoji")
+            self.assertTrue(self.popup.tabs.tabIcon(0).isNull())
+            for index, name in ((1, "通用表情"), (2, "主播表情"), (3, "装扮表情")):
+                self.assertFalse(self.popup.tabs.tabIcon(index).isNull(), "未选中的表情包也需要封面导航")
+                self.assertEqual(self.popup.tabs.tabText(index), "")
+                self.assertEqual(self.popup.tabs.tabToolTip(index), name)
+                self.assertEqual(self.popup.tabs.accessibleTabName(index), name)
+            self.assertEqual({url for url, _ in self.calls}, {
+                "https://example.invalid/cover-1.png", "https://example.invalid/cover-2.png",
+                "https://example.invalid/cover-3.png"})
+            self.popup.tabs.setCurrentIndex(3)
+            self.popup.tabs.setCurrentIndex(0)
+            self.popup.hide()
+            self.popup.show()
+            APP.processEvents()
+            self.assertEqual(len(self.calls), 3, "切包和重开菜单应复用封面")
+
+    def test_missing_invalid_and_failed_cover_keep_readable_names(self):
+        packs = [package(name, 0, 2) for name in ("缺失", "非法", "失败")]
+        packs[1]["current_cover"] = {"url": "https://example.invalid/not-a-string.png"}
+        packs[2]["current_cover"] = "https://example.invalid/failed-cover.png"
+        with patch.object(images, "load_pixmap", return_value=None):
+            self.popup.set_packages(packs)
+            settle(lambda: not _active_requests)
+            self.assertEqual([self.popup.tabs.tabText(i) for i in range(3)], ["缺失", "非法", "失败"])
+            self.assertTrue(all(self.popup.tabs.tabIcon(i).isNull() for i in range(3)))
+
+    def test_shared_cover_is_downloaded_once_and_does_not_load_package_contents(self):
+        first, second = package("第一包", 2, 2), package("第二包", 2, 5)
+        for pack in (first, second):
+            pack["current_cover"] = "https://example.invalid/shared-cover.png"
+        with patch.object(images, "load_pixmap", side_effect=self.load):
+            self.popup.set_packages([package("emoji", 0), first, second])
+            settle(lambda: not _active_requests)
+            self.assertTrue(all(not self.popup.tabs.tabIcon(i).isNull() for i in (1, 2)))
+            self.assertEqual(buttons(self.popup), [])
+            self.assertEqual(self.calls, [("https://example.invalid/shared-cover.png", "emoticons")])
+
+    def test_hidden_catalog_defers_cover_download_until_reopen(self):
+        pack = package("后台目录", 0, 2)
+        pack["current_cover"] = "https://example.invalid/hidden-cover.png"
+        with patch.object(images, "load_pixmap", side_effect=self.load):
+            self.popup.hide()
+            self.popup.set_packages([pack])
+            QTest.qWait(30)
+            self.assertEqual(self.calls, [])
+            self.popup.show()
+            settle(lambda: not self.popup.tabs.tabIcon(0).isNull())
+            self.assertEqual(self.popup.tabs.tabText(0), "")
+
+    def test_refresh_cannot_apply_old_cover_to_a_new_catalog(self):
+        first = package("旧目录", 0, 2)
+        second = package("新目录", 0, 2)
+        for pack in (first, second):
+            pack["current_cover"] = "https://example.invalid/reused-cover.png"
+
+        def load(url, subdir):
+            self.calls.append((url, subdir))
+            if len(self.calls) == 1:
+                self.release.wait(2)
+                return self.pixmap
+            return None
+
+        with patch.object(images, "load_pixmap", side_effect=load):
+            self.popup.set_packages([first])
+            settle(lambda: bool(self.calls))
+            self.popup.set_loading()
+            self.popup.set_packages([second])
+            self.release.set()
+            settle(lambda: not _active_requests)
+            self.assertEqual(len(self.calls), 2)
+            self.assertTrue(self.popup.tabs.tabIcon(0).isNull())
+            self.assertEqual(self.popup.tabs.tabText(0), "新目录")
+            self.assertEqual(self.popup.tabs.tabToolTip(0), "新目录")
+
+    def test_current_icons_load_before_slow_unselected_package_covers(self):
+        first = package("emoji", 1)
+        second, third = package("第二包", 0, 2), package("第三包", 0, 5)
+        for index, pack in enumerate((second, third)):
+            pack["current_cover"] = f"https://example.invalid/slow-cover-{index}.png"
+
+        def load(url, subdir):
+            self.calls.append((url, subdir))
+            if "slow-cover" in url:
+                self.release.wait(2)
+            return self.pixmap
+
+        with patch.object(images, "load_pixmap", side_effect=load):
+            self.popup.set_packages([first, second, third])
+            settle(lambda: bool(self.calls))
+            self.assertEqual(self.calls[0][0], "https://example.invalid/emoji-0.png",
+                             "未选中包的封面不能挡住当前包的图片")
+            settle(lambda: len(buttons(self.popup)) == 1 and not buttons(self.popup)[0].icon().isNull())
+            self.release.set()
+            settle(lambda: not _active_requests)
+
     def test_tab_change_cancels_old_downloads_without_parallel_workers(self):
         active = peak = 0
 

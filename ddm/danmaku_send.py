@@ -152,7 +152,7 @@ class EmoticonPopup(QMenu):
             #EmoticonTabs {{background: transparent; font-size: {theme.FONT_CAPTION}px;}}
             #EmoticonTabs::tab {{color: {theme.TEXT2}; background: transparent;
                 padding: 5px 8px; margin-right: 3px; border: 1px solid {theme.BORDER};
-                border-radius: {theme.RADIUS_SM}px;}}
+                border-radius: {theme.RADIUS_SM}px; min-height: 24px;}}
             #EmoticonTabs::tab:selected {{color: {theme.TEXT1}; background: {theme.CONTENT_HOVER};
                 border-color: {theme.ACCENT};}}
         """)
@@ -177,7 +177,8 @@ class EmoticonPopup(QMenu):
         self.tabs.setExpanding(False)
         self.tabs.setDrawBase(False)
         self.tabs.setUsesScrollButtons(True)
-        self.tabs.setElideMode(Qt.ElideRight)
+        self.tabs.setElideMode(Qt.ElideNone)
+        self.tabs.setIconSize(QSize(24, 24))
         self.tabs.currentChanged.connect(self._select_package)
         self.tabs.hide()
         layout.addWidget(self.tabs)
@@ -186,6 +187,7 @@ class EmoticonPopup(QMenu):
         self.scroll.setFrameShape(QScrollArea.NoFrame)
         layout.addWidget(self.scroll, 1)
         self._packages = []
+        self._covers = {}
         self._pixmaps = {}
         self._generation = 0
         self._image_loader = None
@@ -223,6 +225,7 @@ class EmoticonPopup(QMenu):
     def _clear_packages(self):
         self._clear_body()
         self._packages = []
+        self._covers.clear()
         self._pixmaps.clear()
         self.tabs.blockSignals(True)
         while self.tabs.count():
@@ -256,6 +259,10 @@ class EmoticonPopup(QMenu):
             name = str(package.get("pkg_name") or "表情")
             index = self.tabs.addTab(name)
             self.tabs.setTabToolTip(index, name)
+            self.tabs.setAccessibleTabName(index, name)
+            cover = package.get("current_cover")
+            if package["pkg_type"] != 3 and isinstance(cover, str) and cover.startswith(("https://", "http://")):
+                self._covers.setdefault(cover, []).append(index)
         self.tabs.blockSignals(False)
         self.tabs.setVisible(bool(self._packages))
         self._select_package(self.tabs.currentIndex())
@@ -268,8 +275,7 @@ class EmoticonPopup(QMenu):
             self._emotes = [e for e in package.get("emoticons") or [] if isinstance(e, dict)]
         self.status.setText("表情" if self._emotes else "暂无可用表情")
         self.status.show()
-        if self.isVisible() and self._emotes:
-            self._build_timer.start()
+        self._resume_loading()
 
     def _build_batch(self):
         # 每批两行，长包不会一次占用 GUI 线程；未选中的包不创建按钮。
@@ -308,8 +314,14 @@ class EmoticonPopup(QMenu):
     def _start_images(self):
         if not self.isVisible() or self._image_loader is not None or not self._pending_urls:
             return
-        loader = _EmoticonImageLoader(self._generation, list(self._pending_urls))
-        self._pending_urls.clear()
+        urls = [url for url in self._pending_urls if url in self._images]
+        if not urls:
+            if self._next_emote < len(self._emotes):
+                return  # 等下一批当前包按钮提供 URL，不让导航封面抢在前面。
+            urls = list(self._pending_urls)[:1]
+        for url in urls:
+            del self._pending_urls[url]
+        loader = _EmoticonImageLoader(self._generation, urls)
         self._image_loader = loader
         loader.loaded.connect(self._image_loaded)
         loader.finished.connect(self._images_finished)
@@ -323,6 +335,10 @@ class EmoticonPopup(QMenu):
         if generation != self._generation:
             return
         self._pixmaps[url] = pixmap
+        for index in self._covers.get(url, []):
+            self.tabs.setTabIcon(index, QIcon(pixmap))
+            # 加载成功才移除文字，缺图或失败仍有可读的包名作为回退。
+            self.tabs.setTabText(index, "")
         for button in self._images.get(url, []):
             button.setIcon(QIcon(pixmap))
 
@@ -332,8 +348,14 @@ class EmoticonPopup(QMenu):
 
     def showEvent(self, event):
         super().showEvent(event)
-        for url in self._images:
-            if url not in self._pixmaps:
+        self._resume_loading()
+
+    def _resume_loading(self):
+        if not self.isVisible():
+            return
+        # 分类封面只加载少量导航图片，包内表情仍仅按当前 Tab 构建。
+        for url in (*self._covers, *self._images):
+            if url not in self._pixmaps and url not in self._requested_urls:
                 self._requested_urls.add(url)
                 self._pending_urls[url] = None
         if self._next_emote < len(self._emotes):
