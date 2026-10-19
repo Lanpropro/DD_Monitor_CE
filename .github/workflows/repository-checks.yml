@@ -23,7 +23,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Check repository policy and required files
-        run: python -m unittest dev.selfcheck_repository_files dev.selfcheck_project_workflow
+        run: python dev/run_checks.py --suite repository
+      - name: Show failed check logs
+        if: failure()
+        shell: pwsh
+        run: Get-ChildItem work/checks -Recurse -Filter *.log | ForEach-Object { Write-Output $_.Name; Get-Content -LiteralPath $_.FullName }
       - name: Compile application sources
         run: python -m compileall -q ddm blivedm main.py
       - name: Check diff formatting

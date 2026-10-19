@@ -409,13 +409,15 @@ B、M 也可用于空格子；静音状态属于格子，拖入直播间后保�
 
 ## 开发指南
 
-安装依赖后，可以通过以下入口逐个运行 `dev/selfcheck_*.py` 自检：
+默认运行基础仓库检查；安装开发依赖后，可选择对应功能套件：
 
 ```powershell
 dev\run-checks.cmd
+dev\run-checks.cmd --list
+dev\run-checks.cmd --suite offline
 ```
 
-其中部分脚本需要网络、真实直播流或 Windows 原生窗口环境。也可按改动范围运行对应脚本；请检查各脚本结果，批量入口显示「全部跑完」不代表所有检查通过。
+入口逐项记录结果，失败或超时返回非零退出码。Windows 原生窗口与真实直播检查需显式选择；完整分类、单项命令和日志说明见[验证指南](docs/development/testing.md)与[开发目录](dev/README.md)。
 
 要打发布包（exe 便携版 + 源码包 + 两个 zip，输出到 `results\`）：
 

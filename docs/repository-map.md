@@ -16,43 +16,19 @@
 
 ## 已跟踪的其他文件：逐项标注
 
-### 根目录协作文件
-
-- `.gitignore`
-- `AGENTS.md`
-- `CONTRIBUTING.md`
-- `LICENSE`
-- `README.md`
-- `publish.cmd`
-
-### GitHub 自动检查
+### GitHub 协作与检查
 
 - `.github/PULL_REQUEST_TEMPLATE.md`
 - `.github/workflows/repository-checks.yml`
 
-### 开发与验证脚本
+### 专项检查脚本
 
-- `dev/benchmark_danmaku_frames.py`
-- `dev/benchmark_video_danmaku_render.py`
-- `dev/build_brand_assets.py`
-- `dev/build_match_sync.py`
-- `dev/build_plugin_catalog.py`
-- `dev/build_release.ps1`
-- `dev/build_windows_version.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_live_danmaku_motion.py`
 - `dev/check_live_restore.py`
 - `dev/check_medal_size.py`
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
-- `dev/fetch_mpv.py`
-- `dev/probe_danmaku_live.py`
-- `dev/pyi_rth_pyside6_paths.py`
-- `dev/repro_d3d_quality.py`
-- `dev/repro_tile_lifecycle.py`
-- `dev/restart-client.ps1`
-- `dev/run-checks.cmd`
-- `dev/screens.py`
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
@@ -79,6 +55,7 @@
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
 - `dev/selfcheck_button_focus.py`
+- `dev/selfcheck_check_runner.py`
 - `dev/selfcheck_close_release.py`
 - `dev/selfcheck_completion_motion.py`
 - `dev/selfcheck_control_dpi.py`
@@ -257,8 +234,6 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
-- `dev/selfcheck_resize_surface.py`
-- `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_remove_follow_position.py`
@@ -266,6 +241,8 @@
 - `dev/selfcheck_repository_files.py`
 - `dev/selfcheck_repository_map.py`
 - `dev/selfcheck_resize_preview_cleanup.py`
+- `dev/selfcheck_resize_surface.py`
+- `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_room_status.py`
@@ -307,26 +284,69 @@
 - `dev/selfcheck_video_surface.py`
 - `dev/selfcheck_video_surface_growth.py`
 - `dev/selfcheck_volume_channel.py`
-- `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_website_plan.py`
+- `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
 
-### 项目文档
+### 其他已跟踪文件
 
-- `docs/BUG-STATUS-2026-10-02.md`
-- `docs/NOTICE.md`
-- `docs/README.md`
-- `docs/appearance-design.md`
-- `docs/customization-plan.md`
-- `docs/online-updates.md`
-- `docs/overview1_Landscape_mode.png`
-- `docs/overview1_Portrait_Mode.png`
-- `docs/overview2_Landscape_mode.png`
-- `docs/plugins.md`
-- `docs/pr11-pr12-integration-testing.md`
-- `docs/pr6-pr7-layout-testing.md`
+- `results/.gitignore`
+
+### 历史记录
+
+- `docs/archive/BUG-STATUS-2026-10-02.md`
+- `docs/archive/README.md`
+- `docs/archive/pr11-pr12-integration-testing.md`
+- `docs/archive/pr6-pr7-layout-testing.md`
+- `docs/archive/repository-cleanup-review.md`
+- `docs/archive/repository-integration-20261019.md`
+
+### 开发指南
+
+- `docs/development/testing.md`
+
+### 性能基准
+
+- `dev/benchmarks/README.md`
+- `dev/benchmarks/benchmark_danmaku_frames.py`
+- `dev/benchmarks/benchmark_video_danmaku_render.py`
+
+### 构建、维护与复现工具
+
+- `dev/build_match_sync.py`
+- `dev/build_release.ps1`
+- `dev/build_windows_version.py`
+- `dev/fetch_mpv.py`
+- `dev/probe_danmaku_live.py`
+- `dev/pyi_rth_pyside6_paths.py`
+- `dev/repro_d3d_quality.py`
+- `dev/repro_tile_lifecycle.py`
+- `dev/restart-client.ps1`
+- `dev/screens.py`
+
+### 根目录协作文件
+
+- `.gitignore`
+- `.gitattributes`
+- `AGENTS.md`
+- `CONTRIBUTING.md`
+- `LICENSE`
+- `README.md`
+- `publish.cmd`
+
+### 检查入口与分类
+
+- `dev/README.md`
+- `dev/checks/README.md`
+- `dev/checks/bootstrap.py`
+- `dev/checks/suites.json`
+- `dev/run-checks.cmd`
+- `dev/run_checks.py`
+
+### 版本说明
+
 - `docs/releases/PLUGIN-match-sync-v1.2.1.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.2.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.3.md`
@@ -341,15 +361,8 @@
 - `docs/releases/RELEASE-v0.3.1.md`
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
-- `docs/repository-cleanup-review.md`
-- `docs/repository-integration-20261019.md`
-- `docs/repository-map.md`
-- `docs/resize-performance.md`
-- `docs/room-presets-design.md`
-- `docs/skins.md`
-- `docs/website-plan.md`
 
-### 网站原型
+### 独立网站原型
 
 - `website-prototype/.gitignore`
 - `website-prototype/README.md`
@@ -371,9 +384,28 @@
 - `website-prototype/styles.css`
 - `website-prototype/test_prototype.py`
 
-### Other tracked files
+### 资源与发布辅助工具
 
-- `results/.gitignore`
+- `dev/tools/README.md`
+- `dev/tools/build_brand_assets.py`
+- `dev/tools/build_plugin_catalog.py`
+
+### 项目文档与截图
+
+- `docs/NOTICE.md`
+- `docs/README.md`
+- `docs/appearance-design.md`
+- `docs/customization-plan.md`
+- `docs/online-updates.md`
+- `docs/overview1_Landscape_mode.png`
+- `docs/overview1_Portrait_Mode.png`
+- `docs/overview2_Landscape_mode.png`
+- `docs/plugins.md`
+- `docs/repository-map.md`
+- `docs/resize-performance.md`
+- `docs/room-presets-design.md`
+- `docs/skins.md`
+- `docs/website-plan.md`
 
 ## 仅本机存在的其他资料
 
@@ -413,5 +445,5 @@
 
 严格属于其他任务的内容包括独立网站资料、宣传片工程、参考素材和宣传过程工具；
 测试、构建、软件文档和开发原型属于软件维护资料，已单独标出。
-本轮文档移动与四项删除见 [整理审查](repository-cleanup-review.md)，软件和打包读取路径已相应调整。
+本轮文档移动与四项删除见 [整理审查](archive/repository-cleanup-review.md)，软件和打包读取路径已相应调整。
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。

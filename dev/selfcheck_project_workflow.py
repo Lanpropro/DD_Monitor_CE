@@ -34,7 +34,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertNotIn('secrets.', source)
         for action in re.findall(r'uses:\s*(\S+)', source):
             self.assertRegex(action, r'^[\w/-]+@[0-9a-f]{40}$')
-        self.assertIn('dev.selfcheck_repository_files dev.selfcheck_project_workflow', source)
+        self.assertIn('python dev/run_checks.py --suite repository', source)
         self.assertIn('python -m compileall -q ddm blivedm main.py', source)
 
 

@@ -34,4 +34,4 @@
 
 主目录继续在 main 开发，合并后应与 origin/main 指向同一提交。新功能或修复使用 `function/<名称>`；维护者的小改动可直接在 main 提交，Draft PR 可选。已合入的临时功能分支可删除；仍被旧发布工作区使用的分支保留。
 
-恢复资料保存在本地标签、发布标签及 `work/repository-backup-20261019/` 的 bundle 中。日常操作见[贡献指南](../CONTRIBUTING.md)。
+恢复资料保存在本地标签、发布标签及 `work/repository-backup-20261019/` 的 bundle 中。日常操作见[贡献指南](../../CONTRIBUTING.md)。
