@@ -63,7 +63,8 @@ if ($running.Count -gt 0) {
 $exe = if ($Console) { $venvPython } else { $venvPythonw }
 if (-not (Test-Path $exe)) { throw "找不到解释器 $exe" }
 
-$env:PYTHON_VLC_LIB_PATH = Join-Path $repo 'libvlc.dll'
+$env:DDM_QTQUICK_DANMAKU = '1'
+$env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
 if ($Console) {
@@ -72,7 +73,7 @@ if ($Console) {
     exit $LASTEXITCODE
 }
 
-$proc = Start-Process -FilePath $exe -ArgumentList @($main) -WorkingDirectory $repo -PassThru
+$proc = Start-Process -FilePath $exe -ArgumentList @($main) -WorkingDirectory $repo -WindowStyle Hidden -PassThru
 Write-Host ("已启动：PID {0}（{1}）" -f $proc.Id, (Split-Path -Leaf $exe))
 
 if (-not $NoWait) {

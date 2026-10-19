@@ -9,10 +9,16 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ["DDM_NO_SAVE"] = "1"
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QRegion
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QPainterPath, QRegion
 from PySide6.QtWidgets import QApplication
 from ddm.video_surface import VideoSurface
+
+
+def rounded_mask(surface):
+    path = QPainterPath()
+    path.addRoundedRect(QRectF(surface.rect()), 9, 9)
+    surface.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
 
 def main():
@@ -25,7 +31,7 @@ def main():
     surface.move(-10000, -10000)
     surface.show()
     app.processEvents()
-    surface.setMask(QRegion(surface.rect()))
+    rounded_mask(surface)
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
     user32.CreateWindowExW.argtypes = (wintypes.DWORD, wintypes.LPCWSTR,
         wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_int, ctypes.c_int,
@@ -50,7 +56,7 @@ def main():
 
     def class_name(hwnd, buffer, length):
         if hwnd == child:
-            buffer.value = "VLC video output"
+            buffer.value = "mpv"
             return len(buffer.value)
         return original_name(hwnd, buffer, length)
 
@@ -66,7 +72,7 @@ def main():
         with patch.object(user32, "GetClassNameW", side_effect=class_name):
             surface.refresh_clip()
             surface._retry_clip()
-            # VLC expands asynchronously after output creation, without Qt resizing.
+            # libmpv expands asynchronously after output creation, without Qt resizing.
             assert user32.SetWindowPos(child, None, 0, 0, width, height, 0x0014)
             assert contains(width * 3 // 4, height * 3 // 4), "Initial clip truncates grown output"
             assert not contains(0, 0), "Rounded corner must remain clipped"
@@ -97,7 +103,7 @@ def main():
             # Parent layout resize still updates the output boundary.
             surface.resize(600, 400)
             app.processEvents()
-            surface.setMask(QRegion(surface.rect()))
+            rounded_mask(surface)
             surface._retry_clip()
             user32.GetClientRect(root, ctypes.byref(bounds))
             assert contains(bounds.right // 2, bounds.bottom // 2)

@@ -9,7 +9,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["DDM_NO_SAVE"] = "1"
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ddm import config, theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
@@ -46,15 +45,15 @@ def main():
             if qn == -1:
                 continue  # 自动模式由 selfcheck_auto_quality 单独验收
             if tile.quality != qn:
-                previous = window.players[tile]._relay
+                previous = window.players[tile].actual_quality
                 tile.set_quality(qn)
-                wait_for(app, lambda: tile not in window._resolvers and window.players[tile]._relay is not previous
+                wait_for(app, lambda: tile not in window._resolvers and window.players[tile].actual_quality != previous
                          and stats(window.players[tile]).displayed_pictures > 30)
                 relay_stopped(previous)
             player = window.players[tile]
             before = stats(player).displayed_pictures
             wait_for(app, lambda: stats(player).displayed_pictures > before + 60, 15)
-            width, height = player.player.video_get_size(0)
+            width, height = (player._prop("width", 0), player._prop("height", 0))
             assert width > 0 and height > 0 and tile.quality == tile.actual_quality
             actual = next(item for item in options if item["qn"] == tile.actual_quality)
             resolution = re.search(r"\b(\d+)x(\d+)\b", actual["desc"])
@@ -70,7 +69,7 @@ def main():
             print(f"PASS: {room_id} request {option['desc']} => actual {actual['desc']}, "
                   f"{width}x{height}, native qn={tile.actual_quality}, "
                   "continuous frames, exact menu, saved choice, no Bili auto override", flush=True)
-        relay = window.players[tile]._relay
+        relay = window.players[tile]._hls_proxy
     finally:
         window.close()
         app.processEvents()

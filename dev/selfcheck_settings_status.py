@@ -100,18 +100,18 @@ def main() -> None:
     print(f"  下播再开播：人数位={tile.stream_badge.viewers!r}")
     assert tile.stream_badge.viewers == "正在获取人数"
 
-    print("\n=== 2. 卡住 / 状态都写在信息条里（不会被画面盖住）===")
+    print("\n=== 2. 底栏不显示状态文字，内部状态和加载图形保持工作 ===")
     tile.set_status("连接中…")
     print(f"  连接中: 标签={tile.status_label.text()!r} 转圈={tile.spinner.isVisible()}")
-    assert tile.status_label.text() == "连接中…"
+    assert tile.status_label.text() == "" and tile._status_text == "连接中…"
     tile.set_buffering(True)
     print(f"  缓冲中: 标签={tile.status_label.text()!r} 转圈={tile.spinner.isVisible()}")
-    assert tile.status_label.text() == "缓冲中…" and tile.spinner.isVisible()
+    assert tile.status_label.text() == "" and tile._buffering and tile.spinner.isVisible()
     tile.set_buffering(False)
     assert not tile.spinner.isVisible()
     tile.set_status("断流，10 秒后重连（第 2 次）")
     print(f"  断流: 标签={tile.status_label.text()!r}")
-    assert "重连" in tile.status_label._full_text, "完整状态文案不应受当前标签宽度影响"
+    assert "重连" in tile._status_text and tile.status_label.text() == ""
     tile.set_status("")
     assert tile.status_label.text() == ""
 
@@ -141,36 +141,17 @@ def main() -> None:
     assert [tp._check_picture(True) for _ in range(6)] == [False] * 6
     print("  关掉检测后不再判定")
 
-    from ddm import player as player_module
-    class RecoveringVlc:
-        state = player_module.vlc.State.Error
-        time = 0
-
-        def get_state(self):
-            return self.state
-
-        def video_get_size(self, _track):
-            return (1280, 720)
-
-        def get_time(self):
-            return self.time
-
-    native_player = tp.player
-    fake_player = RecoveringVlc()
-    tp.player = fake_player
-    tp._ensure_audio_settings = lambda: None
+    tp._media = "test"
     tp._stall_ticks = 5
-    tp._watch.start()
-    tp._check()
-    assert tp.state == "error" and tp._watch.isActive(), \
-        "等待重连期间必须继续检测播放是否自行恢复"
-    fake_player.state = player_module.vlc.State.Playing
-    fake_player.time = 100
-    tp._check()
-    assert tp.state == "playing", "自行恢复后应撤销错误状态"
-    tp._watch.stop()
-    tp.player = native_player
-
+    with mock.patch.object(tp, "_prop", side_effect=lambda key, default=None:
+                           {"idle-active": True}.get(key, default)):
+        tp._check()
+    assert tp.state == "error"
+    with mock.patch.object(tp, "_prop", side_effect=lambda key, default=None:
+                           {"time-pos": 10.0, "vo-configured": True}.get(key, default)):
+        tp._check()
+    assert tp.state == "playing"
+    tp._media = None
     print("  指纹来源：VLC 解码计数，不再截图（用户机器上就是崩在截图那条路上）")
     assert not hasattr(tp, "_shot_path"), "不该再往临时目录写截图"
     del tp._picture_signature            # 把上面打桩的 lambda 摘掉，看真实现
@@ -199,7 +180,7 @@ def main() -> None:
     timer = window._freeze_retry_timers.get(tile)
     print(f"  刷新后仍静止：5 秒定时器={timer is not None} 状态={tile.status_label.text()!r}")
     assert timer is not None and timer.isActive()
-    assert "5 秒后再次刷新" in tile.status_label._full_text
+    assert "5 秒后再次刷新" in tile._status_text and tile.status_label.text() == ""
     window._on_picture_activity(tile)
     print(f"  画面恢复：定时器已取消={tile not in window._freeze_retry_timers}")
     assert tile not in window._freeze_retry_timers
@@ -224,7 +205,7 @@ def main() -> None:
     offline_ms = (time.perf_counter() - before) * 1000
     print(f"  下播刷新：画面 live={tile.room.get('live')} 侧栏徽标={item.badge.text()!r}"
           f" 用时={offline_ms:.1f}ms")
-    assert tile.room is item.room
+    assert tile.room is not item.room, "格子设置与侧栏房间副本应保持隔离"
     assert tile.room.get("live") is False
     assert item.badge.text() == "未开播"
     window._on_status_failed("接口不可用")
@@ -290,7 +271,9 @@ def main() -> None:
     player_b = TilePlayer(second.video, window)
     for tile, player in ((first, player_a), (second, player_b)):
         window.players[tile] = player
-        player.bind()
+        from ddm import player as player_module
+        with mock.patch.object(player_module.mpv, "MPV"):
+            player.bind()
         player.actual_quality = 400
         player.stream_url = f"https://example.invalid/{tile.room['room_id']}.flv"
         player.stream_profile = "app"
@@ -508,24 +491,30 @@ def main() -> None:
     window.settings.update(changed)
     window.state["settings"] = dict(window.settings)
     assert window.poll_interval_ms() == 5 * 60_000
-    from ddm.player import DECODE_MODES, PlayerPool
-    assert [general.decode_mode.itemData(i) for i in range(general.decode_mode.count())] == [
+    from ddm.dialogs import CodecSettingsPanel
+    from ddm.player import DECODE_MODES, decode_media_options
+    codecs = CodecSettingsPanel(general.values())
+    assert [codecs.decode_mode.itemData(i) for i in range(codecs.decode_mode.count())] == [
         value for _label, value in DECODE_MODES]
-    for mode, options in (("auto", ()), ("d3d11va", (":avcodec-hw=d3d11va",)),
-                          ("dxva2", (":avcodec-hw=dxva2",)),
-                          ("none", (":avcodec-hw=none",))):
+    # 选项文案要说清「谁在解码」（显卡 / CPU），不能只甩 D3D11VA / DXVA2 这种接口名：
+    # 用户看不懂接口名，也不知道选了会动到哪儿。
+    decode_labels = {value: label for label, value in DECODE_MODES}
+    for value, label in decode_labels.items():
+        assert "解码" in label or "硬解" in label, f"{value} 的文案不清楚：{label!r}"
+    assert "推荐" in decode_labels["auto"]
+    assert "显卡" in decode_labels["d3d11va"] and "显卡" in decode_labels["dxva2"]
+    assert "CPU" in decode_labels["none"], "软件解码要写明用的是 CPU"
+    print(f"  解码方式文案={list(decode_labels.values())}")
+    for _label, mode in DECODE_MODES:
         window.settings["decode_mode"] = mode
-        assert window.media_options() == options, f"{mode} 没有正确下发给 VLC"
+        assert window.media_options() == decode_media_options(mode)
     assert defaults["decode_mode"] == "auto"
     window.settings["decode_mode"] = "auto"
     legacy = MainWindow([], [], state={"settings": {"hw_decode": False}})
     assert legacy.settings["decode_mode"] == "none" and "hw_decode" not in legacy.settings, \
         "旧配置关闭硬解时应保留软件解码选择"
     legacy.close()
-    print(f"  libvlc 预热：同一个实例={PlayerPool.instance() is PlayerPool.instance()}"
-          f" 版本={TilePlayer.vlc_version()!r}")
-    assert PlayerPool.instance() is PlayerPool.instance(), "预热和正常取用必须是同一个实例"
-    assert TilePlayer.vlc_version() not in ("", "?"), "要能读出版本号，日志里好对齐"
+    assert TilePlayer.backend_version().startswith("mpv ")
     print("  画面墙的播放器不是 silent（只有预览才是）：")
     plain = TilePlayer(QWidget())
     print(f"    silent={plain.silent} muted={plain.muted} volume={plain.volume}")
@@ -540,7 +529,7 @@ def main() -> None:
     retry_tile = window.wall.tiles[0]
     window._schedule_retry(retry_tile)                  # noqa: SLF001
     print(f"  内置自动重连：{retry_tile.status_label.text()!r}")
-    assert "秒后重连" in retry_tile.status_label._full_text
+    assert "秒后重连" in retry_tile._status_text
     assert retry_tile in window._retry_timers and window._retry_timers[retry_tile].isActive()
     window._on_player_state(retry_tile, "playing")
     assert retry_tile not in window._retry_timers, "播放恢复后不能再触发旧的重连定时器"
@@ -554,11 +543,15 @@ def main() -> None:
         failed = Signal(str, str)
         finished = Signal()
 
-        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None):
+        def __init__(self, room_id, quality, parent=None, *, source_offset=0, platform=None,
+                     codec="avc", strict_codec=False):
             super().__init__(parent)
             self.room_id = room_id
             self.headers = {}
             self.source_offset = source_offset
+            self.codec = codec
+            self.strict_codec = strict_codec
+            self.codec_unavailable = False
             self.cancelled = False
 
         def start(self):
@@ -606,8 +599,9 @@ def main() -> None:
     replacement = {"room_id": "9998", "muted": False, "volume": 10}
     slot.set_room(replacement)
     assert slot.muted is True and slot.volume == 64
-    assert replacement["muted"] is True and replacement["volume"] == 64, \
+    assert slot.room["muted"] is True and slot.room["volume"] == 64, \
         "换主播后要沿用格子的声音状态"
+    assert replacement == {"room_id": "9998", "muted": False, "volume": 10}
     slot.deleteLater()
 
     window.apply_preview_settings()
@@ -700,8 +694,13 @@ def main() -> None:
     sidebar.set_sort_mode("live", notify=False)
     visible_order = [str(item.room["room_id"]) for item in sidebar.items()]
     with mock.patch.object(config_module, "save") as persist:
-        folder_menu = next(action.menu() for action in sidebar.sort_button.menu().actions()
-                           if action.text() == "未分类")
+        # 顶层菜单和那一项都要留住引用：PySide6 给 QAction.menu() 发的包装对象
+        # 会在中途回收，只存子菜单的话 gc 一跑就成了「C++ object already deleted」，
+        # 底层 QMenu 其实还活着。测试里要保持这整条链。
+        sort_menu = sidebar.sort_button.menu()
+        folder_action = next(action for action in sort_menu.actions()
+                             if action.text() == "未分类")
+        folder_menu = folder_action.menu()
         freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")
         freeze.trigger()

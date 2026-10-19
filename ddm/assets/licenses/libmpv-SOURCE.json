@@ -1,0 +1,11 @@
+{
+  "asset": "mpv-dev-x86_64-20261017-git-dde0671072.7z",
+  "sha256": "d6638b2b40561e6071627f39ad60a38e15721dc87a49f244b897911ea2edfd9f",
+  "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261017/mpv-dev-x86_64-20261017-git-dde0671072.7z",
+  "version": "mpv v0.41.0-1200-gdde067107",
+  "dll_sha256": "3c7dedc13718d9c3f38d41f9f2a1aed01810850982020f34f03b67a13b0659e8",
+  "source": "https://github.com/mpv-player/mpv/tree/dde0671072",
+  "builder": "https://github.com/shinchiro/mpv-winbuild-cmake/tree/20261017",
+  "wrapper": "python-mpv 1.0.8",
+  "wrapper_source": "https://github.com/jaseg/python-mpv/tree/v1.0.8"
+}

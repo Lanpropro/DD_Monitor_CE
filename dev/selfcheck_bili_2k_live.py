@@ -75,7 +75,7 @@ def main():
                 while time.monotonic() < deadline:
                     app.processEvents()
                     signature = player._picture_signature()
-                    if player.player.video_get_size(0) == expected and signature and signature[1] > 5:
+                    if (player._prop("width", 0), player._prop("height", 0)) == expected and signature and signature[1] > 5:
                         break
                     QTest.qWait(50)
                 else:
@@ -86,7 +86,7 @@ def main():
                     app.processEvents()
                     QTest.qWait(50)
                 finish = player._picture_signature()
-                stage["vlc_size"] = player.player.video_get_size(0)
+                stage["vlc_size"] = (player._prop("width", 0), player._prop("height", 0))
                 stage["decoded_delta"] = finish[0] - start[0]
                 stage["displayed_delta"] = finish[1] - start[1]
                 stage["observed_seconds"] = seconds

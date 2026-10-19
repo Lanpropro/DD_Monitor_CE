@@ -1,4 +1,4 @@
-"""Windows VLC 原生画面圆角、DPI 边界、重建与各平台全屏闲置回归。"""
+"""Windows libmpv 原生画面圆角、DPI 边界、重建与各平台全屏闲置回归。"""
 import argparse
 import ctypes
 from ctypes import wintypes
@@ -53,7 +53,7 @@ def check_regions(tile):
     def inspect(hwnd, _unused):
         name = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, name, len(name))
-        if hwnd != root and not name.value.startswith('VLC video'):
+        if hwnd != root and not name.value.lower().startswith('mpv'):
             return True
         region = gdi32.CreateRectRgn(0, 0, 0, 0)
         try:
@@ -62,10 +62,12 @@ def check_regions(tile):
             else:
                 origin = wintypes.POINT()
                 user32.MapWindowPoints(root, hwnd, ctypes.byref(origin), 1)
-                assert not gdi32.PtInRegion(region, origin.x, origin.y), 'Rounded video corner is visible'
+                if bool(gdi32.PtInRegion(region, origin.x, origin.y)) != bool(tile.property('fullscreen')):
+                    errors.append(name.value + ': video corner does not match fullscreen state')
                 bounds = wintypes.RECT()
                 user32.GetClientRect(root, ctypes.byref(bounds))
-                assert not gdi32.PtInRegion(region, origin.x + bounds.right, origin.y + bounds.bottom), 'Video leaks past parent'
+                if gdi32.PtInRegion(region, origin.x + bounds.right, origin.y + bounds.bottom):
+                    errors.append(name.value + ': video leaks past parent')
             if hwnd != root:
                 children.append(name.value)
         finally:
@@ -74,7 +76,7 @@ def check_regions(tile):
     inspect(root, 0)
     user32.EnumChildWindows(root, callback_type(inspect), 0)
     check_regions.last = (children, errors)
-    return len(children) >= 2 and not errors
+    return len(children) >= 1 and not errors
 
 
 def check_controls(tile):
@@ -105,12 +107,12 @@ def reset_output_regions(tile):
     def clear(hwnd, _unused):
         name = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, name, len(name))
-        if name.value.startswith('VLC video'):
+        if name.value.lower().startswith('mpv'):
             assert user32.SetWindowRgn(hwnd, None, False)
             reset.append(hwnd)
         return True
     user32.EnumChildWindows(int(tile.video.winId()), callback_type(clear), 0)
-    assert reset, 'Test must reset real VLC output windows'
+    assert reset, 'Test must reset real libmpv output windows'
 
 
 def check_danmaku_region(tile):
@@ -120,14 +122,20 @@ def check_danmaku_region(tile):
     assert overlay.mask() == tile.video.mask(), 'Danmaku and video boundaries differ'
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
     region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    video_region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
     try:
         assert user32.GetWindowRgn(int(overlay.winId()), region), 'Missing native danmaku clip'
-        assert not gdi32.PtInRegion(region, 0, 0), 'Danmaku paints over the rounded corner'
+        assert user32.GetWindowRgn(int(tile.video.winId()), video_region), 'Missing native video clip'
+        assert gdi32.EqualRgn(region, video_region), 'Native video and danmaku contours differ'
+        assert bool(gdi32.PtInRegion(region, 0, 0)) == bool(
+            tile.property('fullscreen')), 'Danmaku corner does not match fullscreen state'
         scale = overlay.devicePixelRatioF()
         assert gdi32.PtInRegion(region, round(overlay.width() * scale / 2),
                               round(overlay.height() * scale / 2))
     finally:
         gdi32.DeleteObject(region)
+        gdi32.DeleteObject(video_region)
 
 
 def overlay_sizes(tile):
@@ -168,7 +176,8 @@ def check_pixels(tile):
     for x, y in ((0, 0), (image.width() - 1, 0), (0, image.height() - 1),
                  (image.width() - 1, image.height() - 1)):
         pixel = image.pixelColor(x, y)
-        assert not (pixel.blue() > 180 and pixel.red() < 80), 'VLC paints over a rounded corner'
+        assert (pixel.blue() > 180 and pixel.red() < 80) == bool(
+            tile.property('fullscreen')), 'libmpv corner does not match fullscreen state'
     return True
 
 
@@ -201,7 +210,7 @@ def main():
             for platform in ('bilibili', 'douyu', 'huya', 'douyin', 'twitch', 'youtube'):
                 room = {'room_id': '1000' if platform == 'bilibili' else platform + ':1000',
                         'platform': platform, 'uname': 'Surface test', 'live': False}
-                with patch('ddm.app.QTimer.singleShot'):
+                with patch('ddm.app.QTimer.singleShot'), patch.object(MainWindow, '_sync_platform_rooms'):
                     window = MainWindow([room], [dict(room)], layout_id='1x1', state={'plugins_enabled': ['domestic_live', 'global_live'], 'settings': {'auto_update': False}})
                 window._upgrade_fullscreen_quality = lambda _tile: False
                 window.sync_danmaku = lambda: None
@@ -239,9 +248,9 @@ def main():
                 cursor.IDLE_SECONDS = .25
                 try:
                     try:
-                        wait(app, lambda: player.player.get_time() > 0 and check_regions(tile))
+                        wait(app, lambda: (player._prop("time-pos", 0) * 1000) > 0 and check_regions(tile))
                     except AssertionError:
-                        print('RENDER_STATE', platform, str(player.player.get_state()), player.player.get_time(), getattr(check_regions, 'last', None))
+                        print('RENDER_STATE', platform, str(player.state), (player._prop("time-pos", 0) * 1000), getattr(check_regions, 'last', None))
                         raise
                     reset_output_regions(tile)
                     wait(app, lambda: check_regions(tile))
@@ -281,7 +290,7 @@ def main():
                     else:
                         QCursor.setPos(point)
                     try:
-                        wait(app, lambda: cursor.hidden)
+                        wait(app, lambda: cursor.hidden and not tile.bottom.isVisible())
                     except AssertionError:
                         u = ctypes.windll.user32
                         u.GetForegroundWindow.restype = wintypes.HWND
@@ -309,7 +318,7 @@ def main():
                     window._exit_fullscreen()
                     window._clear_fullscreen_cover()
                     player.play(source, profile='web' if platform == 'bilibili' else platform)
-                    wait(app, lambda: player.player.get_time() > 0 and check_regions(tile))
+                    wait(app, lambda: (player._prop("time-pos", 0) * 1000) > 0 and check_regions(tile))
                     check_danmaku_region(tile)
                     tile.set_controls_visible(False)
                     if not args.background:
@@ -327,4 +336,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    from dev.selfcheck_mpv import mta_lifetime
+    with mta_lifetime():
+        try:
+            main()
+        finally:
+            app = QApplication.instance()
+            if app is not None:
+                app.shutdown()

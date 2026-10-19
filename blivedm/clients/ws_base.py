@@ -189,7 +189,15 @@ class WebSocketClientBase:
             logger.warning('room=%s client is stopped, cannot join()', self.room_id)
             return
 
-        await asyncio.shield(self._network_future)
+        future = self._network_future
+        # 等待者取消不能影响网络任务；任务首次执行前被停止也属于正常退出。
+        await asyncio.wait((future,))
+        if future.cancelled():
+            # 此时协程内的 finally 可能从未运行，需要补清运行状态。
+            if self._network_future is future:
+                self._network_future = None
+        else:
+            future.result()
 
     async def close(self):
         """
@@ -268,7 +276,8 @@ class WebSocketClientBase:
                 # 连接
                 async with self._session.ws_connect(
                     self._get_ws_url(retry_count),
-                    headers={'User-Agent': utils.USER_AGENT},  # web端的token也会签名UA
+                    # The token signs the UA; honor the same UA used by the caller's session.
+                    headers={'User-Agent': self._session.headers.get('User-Agent', utils.USER_AGENT)},
                     receive_timeout=self._heartbeat_interval + 5,
                 ) as websocket:
                     self._websocket = websocket

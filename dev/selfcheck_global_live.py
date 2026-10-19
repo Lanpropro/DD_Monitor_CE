@@ -317,6 +317,8 @@ def check_window(app, records):
                                             extra={"playback_mode": "stream", "live_known": True})
                     with patch.object(platform, "room_info", return_value=info), \
                             patch.object(platform, "play_url", return_value=("https://cdn.test/live.m3u8", 10000, kind, {})), \
+                            patch.object(platform, "play_url_for_codec", return_value=(
+                                "https://cdn.test/live.m3u8", 10000, kind, {}, "avc")), \
                             patch.object(platform, "danmaku_client", return_value=client):
                         def accept(dialog):
                             dialog.edit.setText(platform.room_url(rid))
@@ -334,9 +336,16 @@ def check_window(app, records):
                         mime.setData(ROOM_MIME, rid.encode())
                         drop = QDropEvent(QPointF(20, 20), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
                         before = len(played)
+                        same_room = str(target.room.get("room_id")) == rid
                         target.dropEvent(drop)
-                        settle(app, lambda: len(played) > before)
-                        assert drop.isAccepted() and played[-1] == (target, kind)
+                        if same_room:
+                            app.processEvents()
+                            assert len(played) == before, "重复拖入同房间不能重启取流"
+                            assert window._danmaku is client and not client.stopped
+                        else:
+                            settle(app, lambda: len(played) > before)
+                            assert played[-1] == (target, kind)
+                        assert drop.isAccepted() and target.room["room_id"] == rid
                         window.sync_danmaku()
                         window.settings["danmaku_block_words"] = ["广告"]
                         client.message.emit({"kind": "danmaku", "uname": "User", "text": "直播聊天"})
@@ -347,7 +356,7 @@ def check_window(app, records):
                 assert all(not item.platform_badge.isHidden() for item in window.sidebar.items())
                 window.show()
                 window.resize(520, 900)
-                app.processEvents()
+                settle(app, lambda: window.sidebar.side == "top")
                 assert window.sidebar.side == "top"
                 window.sidebar.apply_pins([ROOMS[1]])
                 saved = window.current_state()

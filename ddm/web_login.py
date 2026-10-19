@@ -44,6 +44,10 @@ class WebLoginWindow(QDialog):
         self.resize(980, 640)
         self.sessdata = ""
         self._closing = False
+        self._cookies = {}
+        self._login_timer = QTimer(self)
+        self._login_timer.setSingleShot(True)
+        self._login_timer.timeout.connect(self._finish_login)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -72,23 +76,43 @@ class WebLoginWindow(QDialog):
         self.browser.load(QUrl("https://passport.bilibili.com/login"))
 
     def _on_cookie(self, cookie) -> None:
+        if self._closing:
+            return
         try:
+            domain = cookie.domain().lstrip(".").lower()
+            if domain != "bilibili.com" and not domain.endswith(".bilibili.com"):
+                return
             name = bytes(cookie.name().data() if hasattr(cookie.name(), "data")
                          else cookie.name()).decode("utf-8", "ignore")
-            if name != "SESSDATA":
+            if name not in ("SESSDATA", "bili_jct", "buvid3"):
                 return
             raw = cookie.value()
             value = bytes(raw.data() if hasattr(raw, "data") else raw).decode("utf-8", "ignore")
         except Exception as error:  # noqa: BLE001
             _log(f"读取 cookie 失败: {error}")
             return
-        if not value or value == self.sessdata:
+        if not value:
             return
-        _log(f"拿到 SESSDATA（{len(value)} 字符）")
-        self.sessdata = value
-        bili.set_sessdata(value)
+        self._cookies[name] = value
+        # Cookie 到达顺序不固定，等登录态和 CSRF 齐全，再给设备 Cookie 留出时间。
+        if self._cookies.get("SESSDATA") and self._cookies.get("bili_jct"):
+            self._login_timer.start(300)
+
+    def _finish_login(self) -> None:
+        if self._closing or not self._cookies.get("SESSDATA") or not self._cookies.get("bili_jct"):
+            return
+        self.sessdata = self._cookies["SESSDATA"]
+        bili.set_login_cookies(self.sessdata, self._cookies["bili_jct"], self._cookies.get("buvid3"))
+        self._closing = True
         self.status.setText("登录成功，窗口即将自动关闭…")
-        self.sessionData.emit(value)
-        if not self._closing:
-            self._closing = True
-            QTimer.singleShot(400, self.accept)
+        self.sessionData.emit(self.sessdata)
+        self.accept()
+
+    def done(self, result: int) -> None:
+        self._closing = True
+        self._login_timer.stop()
+        try:
+            self._store.cookieAdded.disconnect(self._on_cookie)
+        except RuntimeError:
+            pass
+        super().done(result)

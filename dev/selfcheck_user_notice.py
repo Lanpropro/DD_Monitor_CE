@@ -94,8 +94,7 @@ def main():
             patch.object(app, "exec", return_value=0), \
             patch.object(app_module.os, "_exit", side_effect=SystemExit(0)), \
             patch.object(app_module, "MainWindow") as window, \
-            patch.object(app_module.TilePlayer, "vlc_version", return_value="test"), \
-            patch.object(app_module.TilePlayer, "warm_up_vlc") as warm:
+            patch.object(app_module.TilePlayer, "backend_version", return_value="test"):
         window.return_value._update_plan = ""
         window.return_value._restart_requested = False
         try:
@@ -106,7 +105,6 @@ def main():
             raise AssertionError("main must complete its normal event loop and shutdown")
         window.assert_called_once()
         window.return_value.showMaximized.assert_called_once()
-        warm.assert_called_once()
         save.assert_called_once_with(unconfirmed)
         assert unconfirmed["user_notice_accepted"] is True
     print("PASS: notice content, confirmation persistence, repeated launch and normal startup after dismissal")

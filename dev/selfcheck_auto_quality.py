@@ -72,7 +72,7 @@ def check_window(app):
                     assert tile._quality_choices()[0][1] == AUTO_QUALITY
                     assert "自动画质" in tile.quality_button.toolTip()
                     controller = player.auto_quality
-                    player._relay = Mock(_hls_proxy=Mock(network_speed=Mock(return_value=(12000000, 6))))
+                    player._hls_proxy = Mock(network_speed=Mock(return_value=(12000000, 6)))
                     player.state = "playing"
                     controller.last_switch = 0
                     controller.stable_since = 0
@@ -106,12 +106,12 @@ def check_window(app):
                     # 播放中切自动/锁定当前档只更新策略，不能中断媒体或重取最低档。
                     player._media = Mock()
                     player.state = "playing"
-                    media, relay = player._media, player._relay
+                    media, relay = player._media, player._hls_proxy
                     calls = get.call_count
                     tile.set_quality(AUTO_QUALITY)
                     assert tile.actual_quality == 5000001 and player.auto_quality is not None
                     assert get.call_count == calls and tile not in window._resolvers
-                    assert player._media is media and player._relay is relay
+                    assert player._media is media and player._hls_proxy is relay
                     assert tile._quality_text() == "自动 · 720p"
                     tile.set_paused(True)
                     player.set_paused(True)

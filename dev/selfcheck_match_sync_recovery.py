@@ -53,7 +53,7 @@ def main():
             assert 1 <= row.join.x() - row.realign.geometry().right() <= 7, 'Confirmation must sit directly to the right of retry'
             for width in (2400, 1600):
                 viewer.resize(width, 900)
-                viewer.rows['3'].join.setText('确认对齐并延后约 59.9 秒加入')
+                viewer.rows['3'].join.setText('确认当前偏移（可选）')
                 viewer.rows['3'].join.show()
                 row.status.setText('较长的同步状态和缓存提示，不能改变控件的列位置。' * 8)
                 app.processEvents()
@@ -94,13 +94,20 @@ def main():
             assert ('2',) in deliveries and ('3',) in deliveries
             assert row.match_confirmed and '2' not in viewer.independent_shifts
             assert row.user_confirmed and not row.awaiting_confirmation, 'Recovery must reuse the human approval'
+            # Receive enough content to cover the fixed playback position.
+            for item in viewer.rows.values():
+                for stamp in range(123 * 20, int((now[0] + 2) * 20)):
+                    item.decoder.history.append(stamp / 20, image)
+                item.decoder.last_frame_received = now[0]
             row.recheck_alignment = True
+            fixed_clock, fixed_shifts = viewer.audio.clock(), viewer.shifts()
             assert viewer.admit_pending('2')
             assert row.match_confirmed and not row.recheck_alignment and '2' not in viewer.rematch_rooms, \
                 'An explicit confirmed rejoin must not immediately invalidate the recovered alignment'
             position = viewer.audio.clock() + viewer.shifts()['2']
-            assert row.decoder.history.bounds_at(position)[1] - position >= viewer.safety_buffer.target - .001, \
-                'Explicit late admission must restore the safety reserve, not a 300ms underrun loop'
+            assert row.decoder.history.bounds_at(position)[1] - position >= .05
+            assert viewer.audio.clock() == fixed_clock and viewer.shifts() == fixed_shifts, \
+                'Confirmation cannot replenish the reserve by moving the main'
 
             # A new global result needs affirmative agreement with a healthy
             # third feed. An inconclusive peer check is not positive evidence.

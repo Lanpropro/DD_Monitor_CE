@@ -67,6 +67,14 @@ def asset(name: str) -> str:
 
 
 BASE = "#2a2d32"
+TILE_FULLSCREEN_STYLE = '''
+#Tile[fullscreen="true"],
+#Tile[fullscreen="true"]:hover,
+#Tile[fullscreen="true"][focused="true"] {
+    border: none;
+    border-radius: 0px;
+}
+'''
 
 BG = mix(BASE, "#000000", 0.20)
 SIDEBAR = mix(BASE, "#000000", 0.30)
@@ -198,9 +206,9 @@ def refresh_theme_properties(widget):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
-    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'PrimaryButton', 'Sidebar',
+    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'WallGrid'):
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
@@ -221,6 +229,8 @@ def _conditional_light_style(style):
 
 def _light_style(widget):
     name = widget.objectName()
+    if name == 'TileToggle':
+        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}')
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
@@ -230,9 +240,10 @@ def _light_style(widget):
         return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
+        'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
-        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}',
+        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}' + TILE_FULLSCREEN_STYLE,
         'TileVideo': '#TileVideo {background: #FFFFFF;}',
         'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
         'TileBottom': '#TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;} #TileBottom QLabel {color: #4A5565;}',
@@ -695,6 +706,12 @@ QSlider::handle:horizontal:hover {{
     font-size: {FONT_CAPTION}px;
     background: transparent;
 }}
+#NavName[cardMode="false"] {{
+    color: {TEXT1};
+}}
+#NavSub[cardMode="false"] {{
+    color: {TEXT2};
+}}
 #NavAvatar {{
     color: {TEXT1};
     font-size: {FONT_CONTROL}px;
@@ -880,6 +897,7 @@ QPushButton#PrimaryButton:pressed {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
+#BarIcon[sidebarCompact="true"] {{min-width: 20px; min-height: 20px; border-radius: 11px;}}
 #BarIcon:checked {{
     background: {ACCENT_SOFT};
     border: 1px solid rgba(0, 161, 214, 0.45);
@@ -902,7 +920,7 @@ QPushButton#PrimaryButton:pressed {{
     border: none;
 }}
 #LoadingIndicator {{
-    background: #1b1e24;              /* 会通过窗口整体透明度变成半透明 */
+    background: transparent;         /* 圆角与半透明由逐像素浮层绘制 */
 }}
 #LoadingText {{
     color: {TEXT2};
@@ -1098,6 +1116,34 @@ QPushButton#PrimaryButton:pressed {{
 #TileCtrl[recording="true"] {{
     color: {ERROR};
 }}
+/* 画面弹幕开关：开启状态用右下角的勾表示，不靠整块底色区分（对齐 B 站播放器）。 */
+#TileToggle {{
+    background: rgba(12, 13, 16, 0.78);
+    color: {TEXT2};
+    border: none;
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px;
+    font-size: {FONT_CAPTION}px;
+    font-weight: 600;
+}}
+#TileToggle:hover {{
+    background: {ACCENT};
+    color: #04161f;
+}}
+#TileToggle:checked {{
+    background: rgba(12, 13, 16, 0.78);
+    color: {TEXT2};
+}}
+#TileToggle:checked:hover {{
+    background: {ACCENT};
+    color: #04161f;
+}}
+#TileCtrl:disabled {{
+    background: transparent;
+    color: {TEXT4};
+}}
+#TileCtrl:focus {{
+    border: 1px solid {ACCENT};
+}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;
@@ -1112,6 +1158,37 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #TileCtrlStrip {{
     background: transparent;
+}}
+#DanmakuSendButton {{
+    background: transparent; color: {TEXT3}; border: 1px solid {BORDER};
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px; padding: 0;
+    font-size: {FONT_CAPTION}px; font-weight: 600;
+}}
+#DanmakuSendButton[hasText="true"] {{
+    background: {ACCENT}; color: #ffffff; border-color: {ACCENT};
+}}
+#DanmakuSendButton[hasText="true"]:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
+#DanmakuSendButton:disabled {{background: transparent; color: {TEXT4}; border-color: {BORDER};}}
+#DanmakuSendButton:focus {{border: 1px solid {ACCENT};}}
+#DanmakuComposer {{background: transparent; border: none;}}
+#DanmakuComposer QLineEdit {{
+    padding: 2px 8px; font-size: {FONT_CAPTION}px;
+    border-radius: {TILE_CONTROL_HEIGHT // 2}px; placeholder-text-color: {TEXT3};
+}}
+#TileVolumePopup QSlider::groove:vertical {{
+    width: 4px; background: {BORDER_STRONG}; border-radius: 2px;
+}}
+#TileVolumePopup {{
+    background: {ELEVATED}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 4px;
+}}
+#TileVolumePopup QLabel {{
+    background: transparent; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;
+}}
+#TileVolumePopup QSlider::sub-page:vertical {{background: {BORDER_STRONG}; border-radius: 2px;}}
+#TileVolumePopup QSlider::add-page:vertical {{background: {ACCENT}; border-radius: 2px;}}
+#TileVolumePopup QSlider::handle:vertical {{
+    height: 12px; margin: 0 -4px; border-radius: 6px;
+    background: {TEXT1}; border: 1px solid {BORDER};
 }}
 
 /* 弹幕格：占画面墙里的一整格，和别的格子同一套规格 */
@@ -1375,6 +1452,8 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #TileBottom #TileCtrl:checked {background: #DDF3FB; color: #007BA8;}
         #TileBottom QLabel {color: #4A5565;}
         #TileBottom #TileCtrl[recording="true"] {color: #E5484D;}
+        #TileBottom #TileToggle {background: transparent; color: #4A5565;}
+        #TileBottom #TileToggle:hover {background: #E7EFF7; color: #007BA8;}
         #TilePlaceholder {color: #4A5565;}
         #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
         #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
@@ -1383,4 +1462,4 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuCount[state="error"] {color: #B93665;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
-    return style
+    return style + TILE_FULLSCREEN_STYLE

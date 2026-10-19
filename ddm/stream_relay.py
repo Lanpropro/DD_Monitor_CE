@@ -8,16 +8,35 @@ import uuid
 from .recording import _adopt_process, ffmpeg_path
 
 
+#: 转封装容器 -> (ffmpeg 输出参数, 路由后缀, Content-Type)。
+#: **容器必须跟编码走**：FLV 只装得下 H.264，HEVC / AV1 要装 matroska；
+#: 实测 FLV + HEVC 在 VLC 里是黑屏。
+CONTAINERS = {
+    "flv": (["-f", "flv", "-flvflags", "no_duration_filesize"], ".flv", "video/x-flv"),
+    "matroska": (["-f", "matroska"], ".mkv", "video/x-matroska"),
+}
+
+#: 视频编码 -> 装得下它的容器。
+CONTAINER_BY_CODEC = {"avc": "flv", "hevc": "matroska", "av1": "matroska"}
+
+
+def container_for_codec(codec: str) -> str:
+    """这个编码的转封装该用哪个容器（默认 FLV，保持原先的行为）。"""
+    return CONTAINER_BY_CODEC.get(str(codec or "").lower(), "flv")
+
+
 class StreamRelay:
-    def __init__(self, source: str, headers: dict, *, proxy=None, hls_retry=False):
+    def __init__(self, source: str, headers: dict, *, proxy=None, hls_retry=False,
+                 container: str = "flv"):
         executable = ffmpeg_path()
         if not executable:
             raise RuntimeError("直播播放需要 FFmpeg，请检查程序目录中的 ffmpeg.exe")
+        format_options, suffix, content_type = CONTAINERS.get(container, CONTAINERS["flv"])
         self._lock = threading.Lock()
         self._stopped = False
         self._process = None
         self._hls_proxy = None
-        route = "/" + uuid.uuid4().hex + ".flv"
+        route = "/" + uuid.uuid4().hex + suffix
         relay = self
         # 海外本机 HLS 会重试分片；FFmpeg 要等到重试完成，避免提前断流。
         command = [executable, "-nostdin", "-hide_banner", "-loglevel", "error",
@@ -36,7 +55,7 @@ class StreamRelay:
         if headers:
             command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in headers.items())]
         command += ["-i", source, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-                    "-f", "flv", "-flvflags", "no_duration_filesize", "-flush_packets", "1", "pipe:1"]
+                    *format_options, "-flush_packets", "1", "pipe:1"]
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
@@ -58,7 +77,7 @@ class StreamRelay:
                     _adopt_process(process)
                 try:
                     self.send_response(200)
-                    self.send_header("Content-Type", "video/x-flv")
+                    self.send_header("Content-Type", content_type)
                     self.send_header("Connection", "close")
                     self.end_headers()
                     while not relay._stopped:
@@ -86,10 +105,15 @@ class StreamRelay:
     def needs_restart(self):
         """海外地址失效或转封装已退出时，不再等待播放器的缓冲超时。"""
         with self._lock:
-            if self._stopped or self._hls_proxy is None:
+            if self._stopped:
                 return False
             process = self._process
-        return self._hls_proxy.refresh_required.is_set() or process is not None and process.poll() is not None
+            proxy = self._hls_proxy
+        # 转封装进程死了就立刻报故障，别等缓冲超时：B 站 HEVC / AV1 这条走的是
+        # 不带 HlsProxy 的转封装（proxy=None），上游偶发 5xx 会让 FFmpeg 直接退出。
+        if process is not None and process.poll() is not None:
+            return True
+        return proxy is not None and proxy.refresh_required.is_set()
 
     def stop(self):
         with self._lock:

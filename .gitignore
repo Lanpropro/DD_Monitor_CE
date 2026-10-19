@@ -20,7 +20,7 @@ results/*
 .venv/
 venv/
 
-# VLC 运行库（体积大，从原仓库或 VLC 安装目录取，见 README）
+# 播放运行库不进 Git；plugins/ 继续忽略旧版 VLC 遗留模块。
 *.dll
 plugins/
 
@@ -34,6 +34,9 @@ plugins_user/_danmaku_log/
 /plugins_user/domestic_live/
 /plugins_user/huya_watch/
 /utils/accounts/
+/utils/
+/plugins_user/.updates/
+/plugins_user/match_sync/
 
 # 宣传片参考素材：别人的视频，只用来对风格，不进版本库
 Video_reference/
@@ -70,5 +73,8 @@ idea.txt
 /dev/*videotogether*
 /dev/test_video_*.py
 /dev/mock_portrait2.py
+/dev/mock_portrait.py
+/dev/portrait_mock.html
+/console.log*
 /docs/portrait-current.png
 /docs/portrait-mock.png

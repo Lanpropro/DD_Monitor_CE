@@ -9,7 +9,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["DDM_NO_SAVE"] = "1"
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
 from PySide6.QtCore import QTimer, Qt, qInstallMessageHandler  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMenu  # noqa: E402
@@ -45,7 +44,7 @@ def main():
         wait_for(app, lambda: tile in window.players and window.players[tile].state == "playing"
                  and stats(window.players[tile]).displayed_pictures > 30, 70)
         player = window.players[tile]
-        print("PASS: manual playback", player.player.video_get_size(0), flush=True)
+        print("PASS: manual playback", (player._prop("width", 0), player._prop("height", 0)), flush=True)
 
         def choose(qn):
             def select():
@@ -59,20 +58,20 @@ def main():
             QTest.mouseClick(tile.quality_button, Qt.LeftButton)
 
         for index in range(4):
-            media, relay = player._media, player._relay
+            media, relay = player._media, player._hls_proxy
             before = stats(player).displayed_pictures
             choose(AUTO_QUALITY)
             if "--expect-fixed" in sys.argv:
-                assert player._media is media and player._relay is relay
+                assert player._media is media and player._hls_proxy is relay
                 assert tile.actual_quality == player.actual_quality
             wait_for(app, lambda: tile not in window._resolvers and stats(player).displayed_pictures > 60, 70)
             print("PASS: automatic menu switch", index, tile._quality_text(), flush=True)
             if "--expect-fixed" in sys.argv:
                 wait_for(app, lambda: stats(player).displayed_pictures > before + 60, 15)
-                assert player._media is media and player._relay is relay
+                assert player._media is media and player._hls_proxy is relay
             choose(player.actual_quality)
             if "--expect-fixed" in sys.argv:
-                assert player._media is media and player._relay is relay
+                assert player._media is media and player._hls_proxy is relay
             wait_for(app, lambda: tile not in window._resolvers and stats(player).displayed_pictures > 60, 70)
             assert player.auto_quality is None
             print("PASS: current tier manual switch", index, flush=True)
@@ -81,7 +80,7 @@ def main():
             # 策略启用后仍要能换档：只替换网络测量，保留真实取流和 VLC 解码。
             player.auto_quality.last_switch = 0
             player.auto_quality.has_played = True
-            with patch.object(player._relay._hls_proxy, "network_speed", return_value=(1, 6)):
+            with patch.object(player._hls_proxy, "network_speed", return_value=(1, 6)):
                 player._check_auto_quality()
             wait_for(app, lambda: tile.actual_quality != 10000 and tile not in window._resolvers
                      and player.state == "playing" and stats(player).displayed_pictures > 60, 70)
@@ -89,7 +88,7 @@ def main():
             print("PASS: automatic downshift after in-place enable", tile._quality_text(), flush=True)
             player.auto_quality.last_switch = 0
             player.auto_quality.stable_since = time.monotonic() - 40
-            with patch.object(player._relay._hls_proxy, "network_speed", return_value=(100000000, 6)):
+            with patch.object(player._hls_proxy, "network_speed", return_value=(100000000, 6)):
                 player._check_auto_quality()
             wait_for(app, lambda: tile.actual_quality == 10000 and tile not in window._resolvers
                      and player.state == "playing" and stats(player).displayed_pictures > 60, 70)
@@ -98,7 +97,7 @@ def main():
         saved = window.current_state()
         _, slots = config.build_rooms(saved)
         assert slots[0]["quality"] == AUTO_QUALITY
-        relay = player._relay
+        relay = player._hls_proxy
     finally:
         window.close()
         app.processEvents()

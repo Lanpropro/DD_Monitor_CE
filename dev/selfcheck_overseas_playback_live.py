@@ -11,10 +11,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "windows" if sys.platform == "win32" else "offscreen")
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
 logging.disable(logging.CRITICAL)
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
-import vlc  # noqa: E402
 from ddm.global_danmaku import request_proxy  # noqa: E402
 from ddm import hls_proxy  # noqa: E402
 from ddm.auto_quality import AUTO_QUALITY  # noqa: E402
@@ -55,15 +53,12 @@ def main():
     tile.stateChanged.connect(states.append)
 
     def frames():
-        stats = vlc.MediaStats()
-        if tile._media is not None:
-            tile._media.get_stats(stats)
-        return stats.decoded_video
+        return int(tile._prop("time-pos", 0) * tile._prop("container-fps", 30))
 
     try:
         if not args.match_only:
             url, qn, profile, headers = platform.play_url(rid, quality)
-            tile.play(url, profile, headers, options=(":avcodec-hw=none",))
+            tile.play(url, profile, headers, options=("hwdec=no",))
             started = time.monotonic()
             wait(app, lambda: frames() >= 30, 40)
             first = time.monotonic() - started
@@ -72,16 +67,16 @@ def main():
             wait(app, lambda: time.monotonic() >= deadline, args.seconds + 1)
             assert frames() > previous + args.seconds * 5, "Decoded frames must continue advancing"
             assert "error" not in states[state_index:] and "frozen" not in states[state_index:], states[state_index:]
-            speed, samples = tile._relay._hls_proxy.network_speed()
+            speed, samples = tile._hls_proxy.network_speed()
             assert speed > 0 and samples > 0
-            print(f"PASS: real {profile} VLC decoding, quality={qn}, first frames={first:.2f}s, "
+            print(f"PASS: real {profile} libmpv decoding, quality={qn}, first frames={first:.2f}s, "
                   f"continued={args.seconds}s, decoded={frames()}, samples={samples}, effective={speed / 1e6:.2f}Mbps", flush=True)
     finally:
-        relay = tile._relay
+        relay = tile._hls_proxy
         tile.release()
         video.close()
         if relay is not None:
-            assert not relay._thread.is_alive() and not relay._hls_proxy._thread.is_alive()
+            assert not relay._thread.is_alive()
     # 独立解析，二路不能依赖格子仍然持有的临时地址或消费会话。
     decoder = Decoder(rid, {"quality": quality}, platform)
     states, resets = [], []

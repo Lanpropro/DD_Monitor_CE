@@ -24,7 +24,7 @@ def main():
         window.show()
         app.processEvents()
         media = Path("logs/control-edge-test.mp4").resolve()
-        assert media.is_file(), "Local VLC test video is required"
+        assert media.is_file(), "Local player test video is required"
         players = {}
         for tile in window.wall.tiles[:6]:
             player = TilePlayer(tile.video, window)
@@ -41,6 +41,7 @@ def main():
                     before = time.perf_counter()
                     window.resize(*size)
                     app.processEvents()
+                    QTest.qWait(220)
                     elapsed = (time.perf_counter() - before) * 1000
                     calls = layout.call_count
                 timings.append({"size": size, "ms": round(elapsed, 1), "layouts": calls})
@@ -55,7 +56,7 @@ def main():
             assert all(player._picture_signature()[1] > 0 for player in players.values())
         finally:
             window.close()
-        print("PASS: one final orientation layout, native HWNDs and six real VLC players preserved")
+        print("PASS: one final orientation layout, native HWNDs and six real libmpv players preserved")
 
 
 if __name__ == "__main__":

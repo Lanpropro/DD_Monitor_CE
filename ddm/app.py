@@ -32,13 +32,13 @@ from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
-from .audio_output import linear_to_vlc_volume, refresh_output_devices
 from .danmaku import DanmakuClient
+from .danmaku_send import emoticon_order
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
 from .dialogs import (
-    SHORTCUT_ACTIONS, AddRoomDialog, SettingsDialog,
+    SHORTCUT_ACTIONS, AddRoomDialog, CodecSettingsDialog, SettingsDialog,
 )
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
@@ -55,6 +55,9 @@ MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
 #: 窗口「宽 / 高」小于这个值就按竖屏处理（含接近方形）
 PORTRAIT_MAX_RATIO = 0.9
+PORTRAIT_ENTER_RATIO = PORTRAIT_MAX_RATIO
+PORTRAIT_EXIT_RATIO = 1.0
+RESIZE_SETTLE_MS = 150
 RETRY_BASE_SECONDS = 5           # 断流后的重连间隔（指数退避）
 RETRY_MAX_SECONDS = 60
 FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
@@ -122,7 +125,7 @@ class MainWindow(QMainWindow):
         self._room_preset_fullscreen_layout = None
         self._preset_retired_tiles = set()
         self.layout_id = layout_id
-        self.players: dict[object, TilePlayer] = {}      # 按格子持有播放器
+        self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -130,6 +133,14 @@ class MainWindow(QMainWindow):
         #: 正在关窗。取流线程的 resolved 是队列连接，关窗之后还会再投递一次；
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
         self._closing = False
+        self._interactive_resize = False
+        self._resize_dirty = False
+        self._resize_on_show = False
+        self._settling_resize = False
+        self._resize_idle_timer = QTimer(self)
+        self._resize_idle_timer.setSingleShot(True)
+        self._resize_idle_timer.setInterval(RESIZE_SETTLE_MS)
+        self._resize_idle_timer.timeout.connect(self._finish_interactive_resize)
         self._restart_requested = False
         self._update_plan = ""
         self._available_update = None
@@ -150,6 +161,7 @@ class MainWindow(QMainWindow):
         self._refresh_queued = False
         self._stats_poller = None
         self._retry_count: dict[object, int] = {}
+        self._codec_dialogs: dict[Tile, CodecSettingsDialog] = {}
         self._retry_timers: dict[object, QTimer] = {}
         self._freeze_refreshed: set[object] = set()
         self._freeze_retry_timers: dict[object, QTimer] = {}
@@ -174,6 +186,7 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        emoticon_order.load(self.state.get('emoticon_order'))
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
         if not isinstance(self.settings.get('skin_background'), str):
             self.settings['skin_background'] = ''
@@ -283,6 +296,7 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
+        emoticon_order.changed.connect(self._save_timer.start)
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
         self.wall.layoutRatiosChanged.connect(self._save_timer.start)
         # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
@@ -314,7 +328,8 @@ class MainWindow(QMainWindow):
         for tile in self.wall.tiles:
             self._wire_tile(tile)
 
-        bili.set_sessdata(self.state.get("sessdata", ""))
+        bili.set_login_cookies(self.state.get("sessdata", ""), self.state.get("bili_jct", ""),
+                               self.state.get("buvid3", ""))
         self._restore_ui()
         # 如果构造时显式指定了布局（自检/预览脚本会这么干），别被配置里的覆盖掉。
         # 记到哪个方向名下要看**布局本身**——构造时窗口还没尺寸，is_portrait() 不可靠。
@@ -588,7 +603,7 @@ class MainWindow(QMainWindow):
         """
         layout = self._root_layout
         # 只改变同一个根布局的排列方向。侧栏和画面墙始终挂在 root 下，
-        # VLC 正在使用的原生视频 HWND 就不会因换父窗口而被 Qt 销毁。
+        # 播放器 正在使用的原生视频 HWND 就不会因换父窗口而被 Qt 销毁。
         layout.setDirection(
             QBoxLayout.TopToBottom if orientation == "portrait"
             else QBoxLayout.LeftToRight
@@ -637,11 +652,11 @@ class MainWindow(QMainWindow):
             return False
         return layouts.is_portrait_layout(layout_id) == bool(portrait)
 
-    def _apply_orientation(self) -> None:
+    def _apply_orientation(self, orientation: str | None = None) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         if self._applying_room_preset:
             return
-        orientation = "portrait" if self.is_portrait() else "landscape"
+        orientation = orientation or ("portrait" if self.is_portrait() else "landscape")
         # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
         # 否则 first 永远是 False，第一次也会走「对映」那条路。
         first = not self.orientation
@@ -706,19 +721,88 @@ class MainWindow(QMainWindow):
               file=sys.stderr, flush=True)
 
     def resizeEvent(self, event) -> None:
+        if (getattr(self, "_interactive_resize", False)
+                and hasattr(self, "wall") and event.size() != event.oldSize()):
+            self.wall.set_interactive_resize(True)
         super().resizeEvent(event)
-        if self._fullscreen_tile is not None:
+        if (getattr(self, "_fullscreen_tile", None) is not None
+                or not hasattr(self, "orientation") or self._closing
+                or self._settling_resize or event.size() == event.oldSize()):
             return
-        # 只有方向真的翻转时才动手，避免每次拖窗口都重排
-        if getattr(self, "orientation", "") != ("portrait" if self.is_portrait()
-                                                else "landscape"):
-            self._apply_orientation()
-        self._sync_restore_geometry()
+        self._resize_dirty = True
+        if not self._interactive_resize:
+            self._resize_idle_timer.start()
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            from ctypes import wintypes
+
+            msg = wintypes.MSG.from_address(int(message))
+            if msg.message == 0x0231:  # WM_ENTERSIZEMOVE
+                self._begin_interactive_resize()
+            elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
+                self._finish_interactive_resize()
+        return super().nativeEvent(event_type, message)
+
+    def _begin_interactive_resize(self) -> None:
+        if (not hasattr(self, "wall") or self._closing
+                or self._fullscreen_tile is not None or self._interactive_resize):
+            return
+        self._resize_idle_timer.stop()
+        self._interactive_resize = True
+
+    def _finish_interactive_resize(self) -> None:
+        if not hasattr(self, "wall") or self._settling_resize:
+            return
+        self._resize_idle_timer.stop()
+        self._interactive_resize = False
+        if self._closing or self._fullscreen_tile is not None or not self._resize_dirty:
+            return
+        self._settling_resize = True
+        try:
+            orientation = self._resize_orientation()
+            if orientation != self.orientation:
+                self._apply_orientation(orientation)
+            self.wall.finish_resize()
+            self._sync_restore_geometry()
+        finally:
+            self._resize_dirty = False
+            self._settling_resize = False
+            self._resize_idle_timer.stop()
+
+    def _resize_orientation(self) -> str:
+        ratio = self.width() / max(1, self.height())
+        if ratio <= PORTRAIT_ENTER_RATIO:
+            return "portrait"
+        if ratio >= PORTRAIT_EXIT_RATIO:
+            return "landscape"
+        return self.orientation
+
+    def hideEvent(self, event) -> None:
+        self._resize_on_show = self._resize_on_show or self._resize_dirty
+        self._cancel_interactive_resize()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._resize_on_show and not self._closing:
+            self._resize_on_show = False
+            self._resize_dirty = True
+            self._resize_idle_timer.start()
+
+    def _cancel_interactive_resize(self) -> None:
+        timer = getattr(self, "_resize_idle_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._interactive_resize = False
+        self._resize_dirty = False
+        if hasattr(self, "wall"):
+            self.wall.set_interactive_resize(False)
 
     def _sync_restore_geometry(self) -> None:
         if (self.isMaximized() and sys.platform == "win32"
                 and QApplication.platformName() == "windows"):
-            window_fullscreen.orient_restore_geometry(self, self.is_portrait())
+            window_fullscreen.orient_restore_geometry(self, self.orientation == "portrait")
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:
@@ -738,6 +822,7 @@ class MainWindow(QMainWindow):
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        started = time.perf_counter()
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
             seen['app'] = self._available_update['version']
@@ -746,17 +831,28 @@ class MainWindow(QMainWindow):
             self.settings['seen_update_entry_versions'] = seen
             self._mark_updates()
             config_module.save(self.current_state())
+        plugins_before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
+                          dict(self.plugins._platform_owner), set(self.plugins._removed))
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
-        dialog.update_page.releaseChecked.connect(self._set_app_update)
-        dialog.plugin_page.store_page.offersChanged.connect(self._set_plugin_updates)
+        print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
+        def page_created(index, widget):
+            if index == 5:
+                widget.store_page.offersChanged.connect(self._set_plugin_updates)
+                if self._plugin_catalog_offers:
+                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
+            elif index == 6:
+                widget.releaseChecked.connect(self._set_app_update)
+                if self._available_update:
+                    widget._release_ready(self._available_update)
+                    widget._busy(False)
+        dialog.pageCreated.connect(page_created)
         dialog.updatesViewed.connect(self._remember_updates)
         dialog.appearanceChanged.connect(self.set_appearance)
-        if self._plugin_catalog_offers:
-            dialog.plugin_page.store_page._catalog_ready(self._plugin_catalog_offers)
-        if self._available_update:
-            dialog.update_page._release_ready(self._available_update)
-            dialog.update_page._busy(False)
+        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
+                                                for offer in self._plugin_update_offers))
+        dialog._mark_update_page('updates', bool(self._available_update and
+                                                dialog.seen_versions.get('app') != self._available_update['version']))
         for index, (key, _label) in enumerate(dialog.PAGES):
             if key == page:
                 dialog.nav.setCurrentRow(index)
@@ -765,8 +861,13 @@ class MainWindow(QMainWindow):
             dialog.plugin_page.tabs.setCurrentIndex(1)
         if dialog.exec() != SettingsDialog.Accepted:
             return False
-        decode_before = self.settings.get("decode_mode", "auto")
+        saved_at = time.perf_counter()
+        appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
+                             if key.startswith('skin_') or key == 'appearance_mode'}
+        codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
         self.settings.update(dialog.settings())
+        for codec_dialog in self._codec_dialogs.values():
+            codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
         if not self.settings.get("auto_update", False):
             self._startup_update_timer.stop()
             if self._update_notice is not None:
@@ -776,27 +877,32 @@ class MainWindow(QMainWindow):
         self._refresh_shortcuts()
         enabled_plugins = dialog.enabled_plugins()
         self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
-        self.refresh_skin()
-        self._sync_platform_rooms()
+        plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
+        appearance_after = {key: value for key, value in self.settings.items()
+                            if key.startswith('skin_') or key == 'appearance_mode'}
+        if appearance_after != appearance_before or plugins_changed:
+            self.refresh_skin()
+        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+        if plugins_changed:
+            self._sync_platform_rooms()
         self.state["settings"] = dict(self.settings)
         self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
         self._poll_timer.setInterval(self.poll_interval_ms())
         for player in self.players.values():
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        if self.settings.get("decode_mode", "auto") != decode_before:
-            print(f"[设置] 解码方式改为 {self.settings['decode_mode']}，重新取流各路画面",
-                  file=sys.stderr, flush=True)
-            for tile in self.wall.tiles:
-                if tile.room.get("room_id") and tile.room.get("live"):
-                    self.start_tile(tile)
+        for tile in self.wall.tiles:
+            if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
+                self._restart_codec_tile(tile)
         config_module.save(self.current_state())
         # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
         self._sync_recording_switch()
         self._sync_replay_scope()
         self.apply_danmaku_settings()
         self.apply_preview_settings()
+        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        if getattr(getattr(dialog, "update_page", None), "install_requested", False):
+        update_page = dialog._loaded_pages.get(6)
+        if getattr(update_page, "install_requested", False):
             self._update_plan = dialog.update_page.plan_path
             self.close()
         elif getattr(dialog, "restart_requested", False):
@@ -862,12 +968,15 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
 
     def current_state(self) -> dict:
+        cookies = bili._cookies()
         return {
             "version": config_module.STATE_VERSION,
             "room_presets": deepcopy(self.room_presets),
             "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
-            "sessdata": bili.SESSION_DATA,
+            "sessdata": cookies.get("SESSDATA", ""),
+            "bili_jct": cookies.get("bili_jct", ""),
+            "buvid3": cookies.get("buvid3", ""),
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
@@ -883,6 +992,7 @@ class MainWindow(QMainWindow):
                     "volume": int(tile.volume),
                     "quality": int(tile.quality),
                     "audio_channel": int(tile.audio_channel),
+                    "codec_overrides": dict(tile.codec_overrides),
                     "video_danmaku_enabled": tile.danmaku_button.isChecked(),
                 }
                 for tile in self.wall.tiles
@@ -903,6 +1013,7 @@ class MainWindow(QMainWindow):
             "custom_order": list(self.sidebar.custom_order),
             "follow_folders": self.sidebar.folder_state(),
             "settings": dict(self.settings),
+            "emoticon_order": deepcopy(emoticon_order.orders),
             "geometry": str((self._fullscreen_saved_geometry or self.saveGeometry()).toBase64(),
                             "ASCII"),
             # 插件自己的配置项，以及「启用了哪些插件」（None = 全启用）
@@ -918,18 +1029,18 @@ class MainWindow(QMainWindow):
         if device_id == self._default_audio_output_id:
             return
         try:
-            refresh_output_devices([player._audio_output for player in self.players.values()])
+            for player in self.players.values():
+                player.refresh_audio_device()
         except Exception as exc:  # noqa: BLE001 - device notifications must not stop Qt
             print(f"[音频输出] 刷新设备失败：{exc}", file=sys.stderr, flush=True)
             return
         self._default_audio_output_id = device_id
 
     def closeEvent(self, event) -> None:
-        # 【关闭提速】最开头先把窗口藏起来：release() 要逐格调用 stop()/
-        # set_hwnd(0)/release()（每格都是主线程上的阻塞 libvlc 调用，上百毫秒
-        # 量级），不先藏起来，用户就会眼睁睁看着画面一格一格被拆掉。先 hide()
-        # 把窗口连同所有格子的原生画面瞬间藏掉，后面的收尾用户完全看不见。
+        # 先隐藏界面，再逐路终止播放并等待后台任务收尾。
         t0 = time.perf_counter()
+        for dialog in list(self._codec_dialogs.values()):
+            dialog.close()
         self._clear_fullscreen_cover()
         self._fullscreen_cursor.stop()
         self.hide()
@@ -937,12 +1048,10 @@ class MainWindow(QMainWindow):
             window_fullscreen.exit(self, self._native_fullscreen_state)
             self._native_fullscreen_state = None
         hide_ms = (time.perf_counter() - t0) * 1000
-        # 关窗前先把「正在关闭」钉住，并**清空**播放器表：release() 只是把
-        # libvlc 实例还回去，self.players 里还留着它的话，取流线程排队中的
-        # resolved 会在关窗后再投递一次，_play_on 就从表里拿到已经释放的实例
-        # —— logs/ddm-2026-09-18.log 里那次 access violation（_play_on →
-        # set_volume → libvlc_audio_set_volume，写 0x24）就是这么来的。
+        # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
+        for tile in self.wall.tiles:
+            tile.composer.shutdown()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
@@ -975,6 +1084,9 @@ class MainWindow(QMainWindow):
         for player in players:
             player.release()
         self._wait_background()
+        # 发送/表情请求可能在关闭期间才补齐设备 Cookie，收尾后再保存它。
+        if self.state.get("buvid3", "") != bili._cookies().get("buvid3", ""):
+            config_module.save(self.current_state())
         if self._startup_update_task is not None:
             self._startup_update_task.wait()
         if self._startup_plugin_task is not None:
@@ -988,6 +1100,8 @@ class MainWindow(QMainWindow):
 
     def _wait_background(self) -> None:
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
+        from .danmaku_send import wait_for_requests
+        wait_for_requests()
         names = ("_account_loader", "_account_avatar_loader", "_room_avatar_loader",
                  "_status_avatar_loader", "_follow_avatar_loader", "_follow_loader",
                  "_cover_cache_loader", "_avatar_cache_loader",
@@ -1070,7 +1184,11 @@ class MainWindow(QMainWindow):
                     player.reapply_audio_channel()
 
     def _on_layout_changed(self, layout_id: str) -> None:
-        if layout_id == self.wall.layout_id:
+        self._cancel_interactive_resize()
+        want_portrait = layouts.is_portrait_layout(layout_id)
+        reshape = (want_portrait != (self.orientation == "portrait")
+                   or want_portrait != (self._resize_orientation() == "portrait"))
+        if layout_id == self.wall.layout_id and not reshape:
             self.wall.reset_layout_ratios()
             return
         self._prioritize_live_tiles(layout_id)
@@ -1078,8 +1196,7 @@ class MainWindow(QMainWindow):
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
-        want_portrait = layouts.is_portrait_layout(layout_id)
-        if want_portrait != (self.orientation == "portrait"):
+        if reshape:
             print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
                   f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
                   file=sys.stderr, flush=True)
@@ -1090,6 +1207,9 @@ class MainWindow(QMainWindow):
             # resize 时必须按目标预设计算最小尺寸，避免旧的密集网格挡住转方向。
             self.wall.set_layout(layout_id, relayout=False)
             self._reshape_window(want_portrait)
+            self._resize_idle_timer.stop()
+            self._resize_dirty = False
+            self._apply_orientation("portrait" if want_portrait else "landscape")
             if previous_orientation:
                 self._layout_by_orientation[previous_orientation] = previous_layout
         self.wall.set_layout(layout_id)
@@ -1180,6 +1300,7 @@ class MainWindow(QMainWindow):
                 self._active_room_preset_id = preset_id
                 self._save_timer.start()
             return True
+        self._cancel_interactive_resize()
         slots = snapshot["slots"]
         available = list(self.wall.tiles)
         assigned = []
@@ -1271,14 +1392,9 @@ class MainWindow(QMainWindow):
                     tile.blockSignals(blocked)
                 player = self.players.get(tile)
                 if player is not None:
-                    if player.needs_audio_restart(slot["audio_channel"]):
-                        self._stop_tile(tile)
-                        starting.append(tile)
-                    else:
-                        player.set_volume(tile.volume)
-                        player.set_audio_channel(tile.audio_channel)
-                        player.reapply_audio_channel()
-                        player.set_muted(tile.muted)
+                    player.set_volume(tile.volume)
+                    player.set_audio_channel(tile.audio_channel)
+                    player.set_muted(tile.muted)
             self.wall.relayout(force=True)
             self.sidebar.set_layout_name(identifier)
             for tile in starting:
@@ -1401,6 +1517,7 @@ class MainWindow(QMainWindow):
         room_id = str(room.get("room_id") or "")
         if not room_id:
             return
+        tile.codec_reconnect_pending = False
         platform = self.plugins.platform_for(room_id)
         if platform is not None and platform.kind in OVERSEAS_PLATFORMS and tile.quality == 250:
             tile.quality = tile.room["quality"] = AUTO_QUALITY
@@ -1421,24 +1538,74 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile)
         if player is not None:
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        tile.set_paused(False)        # 重新取流就恢复播放状态
-        tile.set_status("连接中…")
+        codec = self._codec_settings(tile)["bili_codec"]
+        retained_codec = player.stream_codec if player is not None and tile.stream_url else ""
+        strict_codec = platform is None and retained_codec in bili.CODEC_PARAM and codec != retained_codec
+        if strict_codec:
+            names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
+            tile.codec_probe_note = f"正在探测 {names[codec]}；当前继续使用 {names[retained_codec]}。"
+            if player is not None and player.paused and not tile.paused:
+                player.set_paused(False)
+        else:
+            tile.codec_probe_note = ""
+            tile.set_paused(False)        # 重新取流就恢复播放状态
+            tile.set_status("连接中…")
         # 以格子上的画质为准（信号带过来的字典是副本，不能当数据源）
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = self._stream_attempts.get(tile, 0)
         self._stream_attempts[tile] = source_offset + 1
         resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
                                   self, source_offset=source_offset,
-                                  platform=platform)
-        current = lambda: self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
-        resolver.resolved.connect(
-            lambda _rid, url, qn, profile, options, t=tile:
-            self._play_on(t, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id, requested_quality=quality) if current() else None)
-        resolver.failed.connect(lambda rid, reason, t=tile, q=quality:
-                                self._on_resolve_failed(t, reason, requested_quality=q,
-                                                        login_required=resolver.login_required)
-                                if current() else None)
+                                  platform=platform,
+                                  codec=codec, strict_codec=strict_codec)
+
+        def current():
+            return (not self._closing and tile in self.wall.tiles
+                    and str(tile.room.get("room_id") or "") == room_id
+                    and self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
+                    and self._codec_settings(tile)["bili_codec"] == codec)
+
+        def resolved(_rid, url, qn, profile, options):
+            if not current() or int(tile.quality) != quality:
+                return
+            self._resolvers.pop(tile, None)
+            if tile.paused:
+                tile.codec_reconnect_pending = True
+                return
+            if strict_codec:
+                if bili.codec_from_profile(profile) != codec:
+                    self._keep_tile_codec(tile, codec, retained_codec, unavailable=True)
+                    return
+                tile.codec_probe_note = ""
+            elif platform is not None:
+                tile.codec_probe_note = getattr(resolver, "codec_probe_note", "")
+            elif getattr(resolver, "original_quality_note", ""):
+                tile.codec_probe_note = f"{resolver.original_quality_note}；已使用默认 H.264。"
+                tile.codec_overrides["bili_codec"] = "avc"
+                dialog = self._codec_dialogs.get(tile)
+                if dialog is not None:
+                    dialog.controls.set_values(tile.codec_overrides)
+                self._save_timer.start()
+            self._play_on(tile, url, qn, profile, options, headers=resolver.headers,
+                          room_id=room_id, requested_quality=quality,
+                          source_codec=(getattr(resolver, "source_codec", "")
+                                        if platform is not None else None))
+
+        def failed(_rid, reason):
+            if not current() or int(tile.quality) != quality:
+                return
+            self._resolvers.pop(tile, None)
+            if strict_codec:
+                self._keep_tile_codec(tile, codec, retained_codec,
+                                      unavailable=resolver.codec_unavailable,
+                                      quality_note=getattr(resolver, "original_quality_note", ""))
+            else:
+                tile.codec_probe_note = f"取流失败：{reason}"
+                self._on_resolve_failed(tile, reason, requested_quality=quality,
+                                        login_required=resolver.login_required)
+
+        resolver.resolved.connect(resolved)
+        resolver.failed.connect(failed)
         resolver.finished.connect(lambda t=tile, r=resolver: self._on_resolver_finished(t, r))
         resolver.finished.connect(resolver.deleteLater)
         self._resolvers_running.add(resolver)
@@ -1453,7 +1620,8 @@ class MainWindow(QMainWindow):
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
-                 room_id: str = "", requested_quality: int = 0) -> None:
+                 room_id: str = "", requested_quality: int = 0,
+                 source_codec: str | None = None) -> None:
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
@@ -1490,6 +1658,7 @@ class MainWindow(QMainWindow):
             player.pictureActivity.connect(
                 lambda p=player: self._on_picture_activity(self._tile_of_player(p)))
             player.autoQualityRequested.connect(lambda qn, p=player: self._on_auto_quality(p, qn))
+            player.decoderFallback.connect(lambda mode, p=player: self._on_decoder_fallback(p, mode))
             self.players[tile] = player
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
         player.set_volume(int(tile.volume))
@@ -1498,22 +1667,27 @@ class MainWindow(QMainWindow):
         # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
         # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}
+        stream_codec = (source_codec if source_codec is not None else
+                        bili.codec_from_profile(profile) if self._is_bili_tile(tile) else "")
         tile.stream_url = url
         tile.stream_profile = profile
+        tile.stream_codec = stream_codec
         tile.stream_headers = dict(headers or TilePlayer.PROFILE_HEADERS.get(
             profile, TilePlayer.PROFILE_HEADERS["web"]))
         player.stream_url = tile.stream_url
         player.stream_profile = profile
+        player.stream_codec = stream_codec
         player.stream_headers = dict(tile.stream_headers)
         player.actual_quality = int(quality or 0)
         player.configure_auto_quality(str(room.get("room_id") or ""),
             options if tile.quality == AUTO_QUALITY and profile in OVERSEAS_PLATFORMS else [])
         try:
             player.play(url, profile, tile.stream_headers,
-                        options=self.media_options())
+                        options=self.media_options(tile))
         except (RuntimeError, OSError) as error:
             tile.set_buffering(False)
             tile.set_status(str(error))
+            tile.codec_probe_note = f"播放失败：{error}"
             return
         self.recorder.on_resolved(tile)
         if tile in self._pending_capture:
@@ -1535,6 +1709,15 @@ class MainWindow(QMainWindow):
             return
         self.start_tile(tile, stream_quality=quality)
 
+    def _on_decoder_fallback(self, player, mode: str) -> None:
+        tile = self._tile_of_player(player)
+        if tile is None:
+            return
+        label = config_module.DECODE_LABELS.get(mode, mode)
+        tile.set_status(f"解码异常，正在尝试{label}…")
+        print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
+              file=sys.stderr, flush=True)
+
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
         room = tile.room or {}
@@ -1553,9 +1736,107 @@ class MainWindow(QMainWindow):
             tile=tile,
         )
 
-    def media_options(self) -> tuple[str, ...]:
-        """按设置给每一路画面墙媒体选择 VLC 解码方式。"""
-        return player_module.decode_media_options(self.settings.get("decode_mode", "auto"))
+    def media_options(self, tile=None) -> tuple[str, ...]:
+        """按设置给每一路画面墙媒体选择 播放器 解码方式。"""
+        return player_module.decode_media_options(self._codec_settings(tile)["decode_mode"])
+
+    def _codec_settings(self, tile=None) -> dict:
+        return config_module.codec_settings(self.settings,
+            getattr(tile, "codec_overrides", None))
+
+    def _is_bili_tile(self, tile) -> bool:
+        room_id = str(tile.room.get("room_id") or "")
+        return room_id.isdigit() and self.plugins.platform_for(room_id) is None
+
+    def _restart_codec_tile(self, tile) -> None:
+        tile.codec_reconnect_pending = True
+        resolver = self._resolvers.pop(tile, None)
+        if resolver is not None:
+            resolver.cancel()
+        if (not tile.room.get("room_id") or not tile.room.get("live")
+                or tile.paused or tile.isHidden()):
+            return
+        self.start_tile(tile)
+
+    def _tile_codecs_changed(self, tile, before: dict) -> bool:
+        after = self._codec_settings(tile)
+        return (before.get("decode_mode") != after["decode_mode"]
+                or before.get("bili_codec") != after["bili_codec"])
+
+    def _set_tile_codecs(self, tile, values: dict) -> None:
+        if self._closing or tile not in self.wall.tiles:
+            return
+        before = self._codec_settings(tile)
+        tile.codec_overrides = config_module.codec_overrides(values)
+        if self._tile_codecs_changed(tile, before):
+            self._restart_codec_tile(tile)
+        self._save_timer.start()
+
+    def _keep_tile_codec(self, tile, requested: str, retained: str, *, unavailable: bool,
+                         quality_note: str = "") -> None:
+        names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
+        reason = "直播源未提供" if unavailable else "未能验证直播源格式"
+        detail = quality_note or f"{reason} {names[requested]}"
+        tile.codec_probe_note = f"{detail}，未切换；继续使用 {names[retained]}。"
+        tile.codec_overrides["bili_codec"] = retained
+        dialog = self._codec_dialogs.get(tile)
+        if dialog is not None:
+            dialog.controls.set_values(tile.codec_overrides)
+        self._save_timer.start()
+        player = self.players.get(tile)
+        if (player is not None and player._decode_key is not None
+                and player._decode_key[1] != self._codec_settings(tile)["decode_mode"]):
+            try:
+                player.play(player.stream_url, player.stream_profile, player.stream_headers,
+                            options=self.media_options(tile))
+            except (RuntimeError, OSError):
+                tile.codec_probe_note += " 新的本机解码方式未能应用。"
+
+    def _codec_status(self, tile) -> str:
+        if self._closing or tile not in self.wall.tiles:
+            return "该窗口已关闭。"
+        requested = self._codec_settings(tile)
+        names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
+        if tile in self._resolvers and not getattr(self._resolvers[tile], "strict_codec", False):
+            return "正在连接，等待新流；当前选择将在连接成功后生效。"
+        player = self.players.get(tile)
+        if player is None or not tile.room.get("room_id"):
+            return (getattr(tile, "codec_probe_note", "")
+                    or "当前没有播放中的流；设置将在下次播放时生效。")
+        if getattr(tile, "codec_reconnect_pending", False):
+            return "新设置已保存，将在恢复播放或下次连接时生效。"
+        codec = names.get(player.actual_codec, "未知（平台未提供编码信息）")
+        if (self._is_bili_tile(tile) and player.stream_codec
+                and player.stream_codec != requested["bili_codec"]):
+            codec += f"（首选 {names[requested['bili_codec']]}，当前未切换）"
+        mode = player.decode_mode
+        labels = {value: label for label, value in player_module.DECODE_MODES}
+        actual = player.actual_decoder
+        decoder = "软件解码（CPU）" if actual == "no" else actual
+        decoder = f"{labels.get(mode, mode)}；实际：{decoder}"
+        if mode != requested["decode_mode"] or actual == "no" and mode != "none":
+            decoder += "（故障回退）"
+        note = getattr(tile, "codec_probe_note", "")
+        return f"实际直播源：{codec}\n当前解码方式：{decoder}" + (f"\n{note}" if note else "") + (
+            "\n已暂停；新设置将在恢复播放时生效。" if tile.paused else "")
+
+    def _open_tile_codecs(self, tile) -> None:
+        if self._closing or tile not in self.wall.tiles:
+            return
+        existing = self._codec_dialogs.get(tile)
+        if existing is not None:
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        dialog = CodecSettingsDialog(tile.codec_overrides, self,
+            defaults=config_module.codec_settings(self.settings),
+            bili_enabled=self._is_bili_tile(tile), status=lambda: self._codec_status(tile))
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.controls.changed.connect(lambda values: self._set_tile_codecs(tile, values))
+        dialog.finished.connect(lambda _result: self._codec_dialogs.pop(tile, None))
+        self._codec_dialogs[tile] = dialog
+        dialog.show()
 
     def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0,
                            *, login_required=False) -> None:
@@ -1585,6 +1866,7 @@ class MainWindow(QMainWindow):
             if not already_warned:
                 self._show_notice(reason, kind="warning")
             return
+        tile.set_buffering(False)
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
@@ -1707,6 +1989,9 @@ class MainWindow(QMainWindow):
             self.start_tile(tile)
 
     def _stop_tile(self, tile) -> None:
+        dialog = self._codec_dialogs.get(tile)
+        if dialog is not None:
+            dialog.close()
         self._replay_suppressed.pop(tile, None)
         timer = self._retry_timers.pop(tile, None)
         if timer is not None:
@@ -1840,6 +2125,8 @@ class MainWindow(QMainWindow):
             return
         self._prepare_room(room)
         other = self._tile_of(room_id)
+        if other is tile:
+            return
         if other is not None and other is not tile and self._hot_swap(other, tile):
             # 拖进来的这个直播间本来就在别的格子里：两边直接对调画面
             print(f"{room.get('uname')} ↔ 第 {self.wall.tiles.index(tile) + 1} 个格子",
@@ -1848,6 +2135,7 @@ class MainWindow(QMainWindow):
         to_start = []
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
+            room = dict(other.room)  # 包括该房间独立的弹幕开关，侧栏副本不带格子设置。
             previous = dict(tile.room) if tile.room.get("room_id") else None
             self.recorder.stop(other)
             self._stop_tile(other)
@@ -1896,7 +2184,7 @@ class MainWindow(QMainWindow):
 
         为什么不搬播放器：实测（work/probe_sethwnd.py、work/repro_canvas_swap2.py）
         正在播的时候 `set_hwnd` 到别的窗口，画面不会乖乖跟过去 —— 旧窗口留着最后一帧、
-        新窗口里只铺一小块；改用「关掉视频轨重建」能让画面动，但 VLC 会另外冒一个
+        新窗口里只铺一小块；改用「关掉视频轨重建」能让画面动，但 播放器 会另外冒一个
         独立的播放窗（用户看到的「悬浮窗」，还会把另一格弄黑）。
         格子换位置就没这些事：画面、控制条、原生窗口一起搬，媒体一直在播，
         连 set_hwnd 都不用碰。
@@ -2156,14 +2444,6 @@ class MainWindow(QMainWindow):
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
-            if player.needs_audio_restart(value):
-                # libVLC 要求 audio callbacks 在播放前设置；默认输出与左右路由
-                # 之间切换时重建这一格，不能在运行中的播放器上硬换回调。
-                self._stop_tile(tile)
-                if tile.room.get("live"):
-                    self.start_tile(tile)
-                self._save_timer.start()
-                return
             player.set_audio_channel(value)
             # 播放中的这一路要等音频输出模块起来后再补一次，否则会被初始化冲掉
             player.reapply_audio_channel()
@@ -2297,66 +2577,18 @@ class MainWindow(QMainWindow):
                 cached += 1
 
     def _audit_audio(self) -> None:
-        """按格子设置巡检实际音频输出，避免把 VLC 静音标志当作静音效果。
-
-        PCM 路由检查独立输出的 enabled / volume；原生输出检查实际音量。
-        set_muted() 不设置 VLC 静音标志，因此不能用 audio_get_mute() 比较。
-        """
+        """保持每格的独立音量、静音和声道。"""
         for tile in self.wall.tiles:
             player = self.players.get(tile)
-            if player is None or not tile.room.get("room_id"):
-                continue
-            if getattr(player, "silent", False) or getattr(player, "_released", False):
-                continue
-            if not getattr(player, "_audio_ready", True):
-                continue                           # 等播放入口完成音频初始化
-            name = tile.room.get("uname") or tile.room.get("room_id")
-            muted = bool(tile.muted)
-            if bool(player.muted) != muted:
-                print(f"[音频] {name} 静音走散：格子={muted} "
-                      f"播放器={bool(player.muted)} → 按格子重新下发",
-                      file=sys.stderr, flush=True)
-                player.set_muted(muted)
-                continue
-            if getattr(player, "uses_pcm_routing", False):
-                output = player._audio_output
-                if bool(output.enabled) != (not muted):
-                    print(f"[音频] {name} 音频输出开关走散 → 按格子重新下发",
-                          file=sys.stderr, flush=True)
-                    player.set_muted(muted)
-                if int(output.volume) != int(tile.volume):
-                    print(f"[音频] {name} 音量走散：格子={tile.volume} "
-                          f"输出={output.volume} → 按格子重新下发",
-                          file=sys.stderr, flush=True)
-                    player.set_volume(int(tile.volume))
-                continue                           # VLC 音量不控制 PCM 回调样本
-            vlc = getattr(player, "player", None)
-            if vlc is None:
-                continue
-            try:
-                actual_volume = int(vlc.audio_get_volume())
-            except Exception:                      # noqa: BLE001
-                continue
-            if actual_volume < 0:
-                continue
-            if muted:
-                if actual_volume > player_module.SILENT_VOLUME:
-                    print(f"[音频] {name} 静音音量走散：播放器={actual_volume} "
-                          "→ 按格子重新下发",
-                          file=sys.stderr, flush=True)
-                    player.set_muted(True)
-                continue
-            expected = linear_to_vlc_volume(int(tile.volume))
-            if abs(actual_volume - expected) > 1:
-                print(f"[音频] {name} 音量走散：格子={tile.volume}（应为 {expected}）"
-                      f" 播放器={actual_volume} → 按格子重新下发",
-                      file=sys.stderr, flush=True)
-                player.set_volume(int(tile.volume))
+            if player is not None and tile.room.get("room_id"):
+                player.sync_audio(int(tile.volume), bool(tile.muted), int(tile.audio_channel))
 
     def _on_reload(self, room: dict) -> None:
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
         if tile is not None:
             self._clear_freeze_recovery(tile)
+            if self._is_bili_tile(tile) and tile.codec_probe_note:
+                tile.codec_probe_note = ""
             self.start_tile(tile)
 
     def _on_pause_toggled(self, room: dict) -> None:
@@ -2365,6 +2597,15 @@ class MainWindow(QMainWindow):
             return
         paused = not tile.paused
         tile.set_paused(paused)
+        resolver = self._resolvers.get(tile)
+        if paused and resolver is not None:
+            self._resolvers.pop(tile, None)
+            resolver.cancel()
+            tile.codec_reconnect_pending = True
+            tile.codec_probe_note = "探测已暂停；恢复播放时重新探测，当前流保持暂停。"
+        if not paused and getattr(tile, "codec_reconnect_pending", False):
+            self.start_tile(tile)
+            return
         player = self.players.get(tile)
         if player is not None:
             player.set_paused(paused)
@@ -2389,7 +2630,7 @@ class MainWindow(QMainWindow):
     FULLSCREEN_COVER_HOLD_MS = 120
     #: 遮盖图淡出的时长。以前是到点直接关：画面「静止一会儿然后突然一跳」，
     #: 4K 上那一下就接近三百毫秒，看起来就是卡住。改成淡走，期间下面的画面
-    #: （格子的 VLC 一直没停）逐渐透出来，视觉上是一次过渡而不是一次跳变。
+    #: （格子的 播放器 一直没停）逐渐透出来，视觉上是一次过渡而不是一次跳变。
     FULLSCREEN_COVER_FADE_MS = 160
 
     def _hold_fullscreen_frame(self) -> None:
@@ -2461,7 +2702,7 @@ class MainWindow(QMainWindow):
                                 switched: float, done: float) -> None:
         """打一行分段耗时。
 
-        4K 上这套切换本来就贵（抓屏、窗口样式、9 个格子的 VLC 窗口重配），
+        4K 上这套切换本来就贵（抓屏、窗口样式、9 个格子的 播放器 窗口重配），
         有这几个数，下次再觉得卡就知道该动哪一段，而不是从头猜。
         """
         print(f"[全屏] {action} {(done - started) * 1000:.0f} ms"
@@ -2498,6 +2739,7 @@ class MainWindow(QMainWindow):
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
+        self._cancel_interactive_resize()
         if self._fullscreen_tile is None and self.wall.layout_id in layouts.BY_ID:
             self._room_preset_fullscreen_layout = deepcopy(self.room_preset_snapshot()["layout"])
         if self._fullscreen_tile is tile:
@@ -2570,9 +2812,8 @@ class MainWindow(QMainWindow):
         if stagger:
             self.wall.reveal_tiles_staggered()
         laid_out = time.perf_counter()
-        if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
-            self._apply_orientation()
-        self._sync_restore_geometry()
+        self._resize_dirty = True
+        self._resize_idle_timer.start()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self._refresh_meta()
         self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
@@ -2605,6 +2846,7 @@ class MainWindow(QMainWindow):
             button.setProperty('skinPart', 'buttons.' + key)
             button.setProperty('skinIconOnly', key in ('pause', 'volume', 'danmaku_settings', 'fullscreen'))
         tile.qualityChanged.connect(self._on_quality_changed)
+        tile.codecSettingsRequested.connect(lambda t=tile: self._open_tile_codecs(t))
         tile.muteToggled.connect(self._on_mute_changed)
         tile.volumeChanged.connect(self._on_volume_changed)
         tile.audioChannelChanged.connect(self._on_audio_changed)
@@ -2624,7 +2866,19 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
+        tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
+        tile.composer.noticeRequested.connect(self._danmaku_send_notice)
         tile._actions_wired = True
+
+    def _on_device_cookie_ready(self) -> None:
+        buvid3 = bili._cookies().get("buvid3", "")
+        if not self._closing and buvid3 and self.state.get("buvid3", "") != buvid3:
+            self.state["buvid3"] = buvid3
+            self._save_timer.start()
+
+    def _sync_composer_credentials(self) -> None:
+        for tile in self.wall.tiles:
+            tile.composer.sync_credentials()
 
     def _fill_plugin_menu(self, tile) -> None:
         """右键菜单弹出前，收集本体录制和插件操作。"""
@@ -2785,11 +3039,16 @@ class MainWindow(QMainWindow):
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
         self._show_notice(message, kind="warning" if warning else "info")
 
-    def _show_notice(self, message: str, *, rooms=(), kind="info") -> None:
+    def _danmaku_send_notice(self, message: str, login_required: bool) -> None:
+        self._show_notice(message + ("，点击此处登录" if login_required else ""),
+                          kind="warning", on_click=(
+                              lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
+
+    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None) -> None:
         if self._closing:
             return
         from .online_ui import show_result
-        show_result(self, message, rooms=rooms, kind=kind)
+        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3185,7 +3444,11 @@ class MainWindow(QMainWindow):
         if kind == "bilibili":
             bili.set_sessdata("")
             self.state["sessdata"] = ""
+            self.state["bili_jct"] = ""
+            self._sync_composer_credentials()
             config_module.save(self.current_state())
+            self.stop_danmaku()
+            self.sync_danmaku()
         else:
             from .platform_login import clear_platform_login
             try:
@@ -3196,7 +3459,7 @@ class MainWindow(QMainWindow):
         self._clear_platform_account(kind)
         print("已退出登录", file=sys.stderr, flush=True)
 
-    def open_login(self, platform_kind=None) -> None:
+    def open_login(self, platform_kind=None, *, reauthenticate=False) -> None:
         follow_loader = getattr(self, "_follow_loader", None)
         if self._closing or (follow_loader is not None and self._loader_running(follow_loader)):
             return
@@ -3207,12 +3470,14 @@ class MainWindow(QMainWindow):
         providers = self._account_dialog_platforms()
         if platform_kind is None:
             platform_kind = "bilibili" if choices[0] == "B站" else providers[choices[0]].kind
-        self._open_account_dialog(providers, platform_kind=platform_kind)
+        self._open_account_dialog(providers, platform_kind=platform_kind,
+                                  reauthenticate=reauthenticate)
 
-    def _open_account_dialog(self, providers, *, import_follows=False, platform_kind="bilibili"):
+    def _open_account_dialog(self, providers, *, import_follows=False, platform_kind="bilibili",
+                             reauthenticate=False):
         from .account_dialog import AccountPlatformDialog
         dialog = AccountPlatformDialog(self, providers, import_follows=import_follows,
-                                       platform_kind=platform_kind)
+                                       platform_kind=platform_kind, reauthenticate=reauthenticate)
         try:
             result = dialog.exec()
             selected = dialog.rooms
@@ -3228,6 +3493,7 @@ class MainWindow(QMainWindow):
 
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
+        self._sync_composer_credentials()
         self.state["sessdata"] = sessdata
         config_module.save(self.current_state())
         self._render_account()
@@ -3454,6 +3720,9 @@ class MainWindow(QMainWindow):
         if self._closing or not room_id:
             return                         # 旧连接不能覆盖当前连接的状态
         self._danmaku_status[room_id] = text
+        if text == "已连接" and self.state.get("buvid3", "") != bili.BUVID3:
+            self.state["buvid3"] = bili.BUVID3
+            self._save_timer.start()  # 旧配置首次补齐设备身份后自动持久化。
         for tile in self.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.danmaku_button.setToolTip(
@@ -3481,7 +3750,7 @@ class MainWindow(QMainWindow):
     def _tile_under_cursor(self):
         """鼠标现在压在哪一格的画面上（没有就 None）。
 
-        **不能用 QApplication.widgetAt**：格子的画面区是 VLC 的原生窗口，不是 Qt
+        **不能用 QApplication.widgetAt**：格子的画面区是 播放器 的原生窗口，不是 Qt
         控件；鼠标停在画面上时 widgetAt 拿不到那一格（顶多给回主窗口），
         于是 F（全屏）/ M / Alt+M 全都按不动 —— 用户报的「切换画布完全失效」
         就是这个。改成拿光标全局坐标和每个格子的矩形比，跟画面是不是原生窗口无关。
@@ -3621,17 +3890,13 @@ def main(argv: list[str] | None = None) -> int:
     if _hits:
         print(f"[覆盖层] 检测到可能 hook 画面的工具：{_hits}",
               file=sys.stderr, flush=True)
-    # libvlc 放到后台线程去建：第一次运行要扫 200 多个 VLC 插件，用户机器上
-    # 这一步在主线程里卡了 4.5 秒（看门狗日志），界面就跟着冻住。悬停预览
-    # 关掉时第二个实例不用建，省一点内存。
-    TilePlayer.warm_up_vlc(preview=bool(settings.get("preview_on_hover", True)))
     sidebar, wall = config_module.build_rooms(state) if state else ([], [])
     t_rooms = time.perf_counter()
     print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
           + ("" if state else "（全新配置）"))
     decode_mode = settings.get("decode_mode") or (
         "auto" if settings.get("hw_decode", True) else "none")
-    print(f"[VLC] libvlc {TilePlayer.vlc_version()} 解码方式={decode_mode}",
+    print(f"[播放器] libmpv {TilePlayer.backend_version()} 解码方式={decode_mode}",
           file=sys.stderr, flush=True)
 
     window = MainWindow(sidebar, wall,
@@ -3664,7 +3929,7 @@ def main(argv: list[str] | None = None) -> int:
             QMessageBox.critical(None, "更新未执行", "无法启动更新助手，原程序已保留，请稍后重新下载更新。")
     elif window._restart_requested and not _launch_restart():
         QMessageBox.critical(None, "重启失败", "无法重新启动软件，请手动打开程序。设置已保存。")
-    # 关窗时可能还有网络线程在收尾，Qt / VLC 的析构顺序会偶发崩在退出瞬间，
+    # 关窗时可能还有网络线程在收尾，Qt / 播放器 的析构顺序会偶发崩在退出瞬间，
     # 配置在 closeEvent 里已经存好了，这里直接退出进程最稳。
     try:
         sys.stdout.flush()

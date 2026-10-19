@@ -14,7 +14,7 @@ from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[2]
 SVG_PATH = REPO / "assets" / "logo.svg"
 PNG_PATH = REPO / "assets" / "logo.png"
 ASSET_ICO_PATH = REPO / "assets" / "favicon.ico"

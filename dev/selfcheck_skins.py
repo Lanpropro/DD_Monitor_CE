@@ -740,7 +740,8 @@ def wait_for(predicate):
 def main():
     app = QApplication([])
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
-    check_parts(app)
+    if '--playback-only' not in sys.argv:
+        check_parts(app)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     if '--make-demo' in sys.argv:
         write_demo()
@@ -825,8 +826,8 @@ def main():
             window.players[tile] = live
             live.play(str(live_video))
             tile.set_video_active(True)
-            wait_for(lambda: live.player.get_time() > 0)
-            live_time = live.player.get_time()
+            wait_for(lambda: live._prop("time-pos", 0) > 0)
+            live_time = live._prop("time-pos", 0)
             with patch('PySide6.QtCore.QTimer.singleShot'), patch('ddm.online.load_plugin_cache', return_value=None):
                 dialog = SettingsDialog(window.settings, window.shortcuts, window)
             dialog.nav.setCurrentRow(1)
@@ -917,7 +918,7 @@ def main():
             assert window.settings['skin_sidebar'] and 'rgba(' not in window.sidebar.styleSheet()
             window.set_skin({'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True})
             dialog.reject()
-            # Exercise the new slots while the real VLC player is running.
+            # Exercise the new slots while the real libmpv player is running.
             audio = (tile.muted, tile.volume, tile.audio_channel)
             with patch.object(window, 'start_tile') as restart, patch.object(window.recorder, 'stop') as stop:
                 for color in ('#345678', '#456789'):
@@ -1002,7 +1003,7 @@ def main():
             wait_for(lambda: layer.player.playbackState() == QMediaPlayer.PlayingState)
             QTest.qWait(1400)
             assert layer.player.playbackState() == QMediaPlayer.PlayingState, 'Background must loop'
-            assert live.player.get_time() > live_time and live.player.is_playing(), 'Skin changes must leave live playback running'
+            assert live._prop("time-pos", 0) > live_time and not live._prop("pause", False), 'Skin changes must leave live playback running'
             assert window.players[tile] is live and int(tile.video.winId()) == hwnd
             window.hide()
             QTest.qWait(30)
@@ -1040,4 +1041,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    from dev.selfcheck_mpv import mta_lifetime
+    with mta_lifetime():
+        try:
+            main()
+        finally:
+            app = QApplication.instance()
+            if app is not None:
+                app.shutdown()

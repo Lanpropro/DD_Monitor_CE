@@ -13,6 +13,12 @@ try:
 except ImportError:
     np = None
 
+try:
+    import audioop
+except ImportError:
+    audioop = None
+
+
 RATE = 48_000
 FPS = 30
 HISTORY_SECONDS = 60
@@ -36,6 +42,7 @@ class Match:
     refined: bool = False
     playback_error: float | None = None
     candidates: tuple[float, ...] = ()
+    evidence_end: float | None = None
 
 
 def feature_distances(a, b):
@@ -154,6 +161,12 @@ def match_scenes(reference: list[Sample], other: list[Sample], *, focused=False)
     return Match(lag, confidence, "已匹配共同比赛画面", candidates=tuple(candidates))
 
 
+def assisted_match(lag: float, reference: list[Sample], other: list[Sample], *, focused=False) -> Match:
+    """Use a human estimate to restrict, rather than bypass, scene verification."""
+    return refine_match(Match(None, 0, "人工辅助搜索", candidates=tuple(lag + step * 1.5 for step in range(-2, 3))),
+                        reference, other, focused=focused)
+
+
 def refine_match(match: Match, reference: list[Sample], other: list[Sample], *, focused=False) -> Match:
     """Refine a coarse candidate using recent ordered, normalized grayscale scenes."""
     if np is None:
@@ -245,7 +258,7 @@ def refine_match(match: Match, reference: list[Sample], other: list[Sample], *, 
             return Match(None, 0, "共同比赛区域不足；请框选比赛画面，避开局部动画")
     precise = float(np.median(b_times[indices[best, good]] - a_times[good]))
     confidence = min(1.0, int(counts[best]) / (30 if focused else 60)) * max(0, 1 - score)
-    return Match(precise, confidence, "已精校正共同比赛画面", refined=True)
+    return Match(precise, confidence, "已精校正共同比赛画面", refined=True, evidence_end=float(a_times[-1]))
 
 
 class AudioRing:
@@ -358,6 +371,31 @@ class History:
         return self.audio.read(round((timestamp - origin) * RATE), frames)
 
 
+def route_pcm_s16_stereo(data: bytes, channel: int) -> bytes:
+    """把立体声混成单声道，只放到指定的物理输出侧。"""
+    if channel not in (3, 4):
+        return data                     # 不路由就原样返回，一个字节都不用动
+    if len(data) % 4:
+        raise ValueError("stereo S16 PCM must contain complete frames")
+
+    if audioop is not None:
+        mono = audioop.tomono(data, 2, 0.5, 0.5)          # 左右各半 → 单声道
+        return audioop.tostereo(mono, 2,
+                                1.0 if channel == 3 else 0.0,
+                                1.0 if channel == 4 else 0.0)
+
+    output = bytearray(len(data))
+    source = memoryview(data).cast("h")
+    target = memoryview(output).cast("h")
+    for index in range(0, len(source), 2):
+        mono = (int(source[index]) + int(source[index + 1])) // 2
+        if channel == 3:
+            target[index] = mono
+        else:
+            target[index + 1] = mono
+    return bytes(output)
+
+
 def mix_pcm(inputs: list[tuple[bytes, int]], frames: int) -> bytes:
     """Linear per-room volumes, shared headroom, and a single final clamp."""
     enabled = [(pcm, max(0, min(100, volume)) / 100)
@@ -395,15 +433,68 @@ class SafetyBuffer:
             if previous is not None:
                 self.gaps.append(max(0.0, arrival - previous - 1 / max(1, fps)))
 
-    def rate(self, now, available):
+    def rate(self, now, available, minimum=0.0):
         dt = max(0, min(1, now - self.last_change)) if self.last_change is not None else 0
         self.last_change = now
         if len(self.gaps) >= 30:
             ordered = sorted(self.gaps)
             desired = max(4.0, min(8.0, 4.0 + 2 * ordered[int((len(ordered) - 1) * .95)]))
             self.target = desired if desired > self.target else max(desired, self.target - .02 * dt)
-        error = available - self.target
+        error = available - max(self.target, minimum)
         return 1.0 if abs(error) <= .1 else max(.98, min(1.01, 1 + error * .01))
+
+
+class LateBuffer:
+    """Build limited common headroom through gentle playback, never a seek."""
+    reserve_seconds = 2.0
+    max_seconds = 240
+
+    def __init__(self):
+        self.floor = 0.0
+        self.since = {}
+        self.failed = {}
+        self.blocked = set()
+        self.rooms = set()
+        self.started = None
+        self.initial_gaps = {}
+
+    @property
+    def building(self):
+        return self.started is not None
+
+    def update(self, now, ahead, capacity, deficits):
+        late = {key: gap for key, gap in deficits.items() if gap > .05}
+        self.since = {key: self.since.get(key, now) for key in late}
+        self.failed = {key: gap for key, gap in self.failed.items()
+                       if key in late and late[key] >= gap - .5}
+        persistent = {key: late[key] for key in late if now - self.since[key] >= 5}
+        self.blocked = {key for key, gap in persistent.items()
+                        if gap + .5 > .02 * 120 or ahead + gap + self.reserve_seconds > capacity or key in self.failed}
+        if self.building:
+            self.rooms.intersection_update(deficits)
+            gap = max((deficits[key] for key in self.rooms), default=0)
+            growing = {key for key in self.rooms if now - self.started >= 15
+                       and deficits[key] > self.initial_gaps[key] + .5}
+            exhausted = (self.floor > capacity or now - self.started >= self.max_seconds or bool(growing)
+                         or ahead >= self.floor - .1 and gap > .05)
+            if exhausted:
+                limited = {key for key in self.rooms if ahead + deficits[key] + self.reserve_seconds > capacity}
+                self.failed.update({key: late[key] for key in (growing or limited or self.rooms) if key in late})
+                self.blocked.update(self.failed)
+            if not self.rooms or exhausted or ahead >= self.floor - .1:
+                # Preserve acquired headroom; do not speed back towards the
+                # former live edge when a slow feed is finally admitted.
+                self.floor = max(0, min(self.floor, ahead))
+                self.started = None
+                self.rooms.clear()
+        eligible = set(persistent) - self.blocked
+        if not self.building and eligible:
+            self.rooms = eligible
+            self.initial_gaps = {key: persistent[key] for key in eligible}
+            self.floor = max(self.floor, ahead + max(self.initial_gaps.values()) + self.reserve_seconds)
+            self.started = now
+        self.floor = max(0, min(self.floor, capacity))
+        return self.building
 
 
 def resample_pcm(pcm, frames):

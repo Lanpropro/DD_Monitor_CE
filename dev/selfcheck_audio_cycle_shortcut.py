@@ -57,6 +57,13 @@ def check_hover_shortcuts(app, window):
         assert window.sidebar.search.text() == 'bfme'
         assert second.danmaku_button.isChecked() == before
         assert second.muted == muted
+        # 每格发送框也必须保护播放器单键快捷键。
+        first.composer.edit.setFocus()
+        first.composer.edit.clear()
+        QTest.keyClicks(first.composer.edit, 'bfme')
+        assert first.composer.edit.text() == 'bfme'
+        assert second.danmaku_button.isChecked() == before
+        assert second.muted == muted
         dialog = QDialog(window)
         dialog.setModal(True)
         edit = QLineEdit(dialog)
@@ -125,12 +132,15 @@ def check_corner_empty_slots(app):
                     expected = tuple(not value for value in before[i]) if i == index else before[i]
                     assert (other.muted, other.danmaku_button.isChecked()) == expected, (index, i)
                 selected = (tile.muted, tile.danmaku_button.isChecked())
-                # 走真实拖入处理，检查空格子的预设不会在填入房间时丢失。
+                # 音量属于格子；新拖入房间的弹幕开关默认关闭。
                 if index:
                     window._on_room_dropped(tile, rooms[index]['room_id'])
-                    assert (tile.muted, tile.danmaku_button.isChecked()) == selected
+                    assert (tile.muted, tile.danmaku_button.isChecked()) == (selected[0], False)
+                current = (tile.muted, tile.danmaku_button.isChecked())
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
+                assert (tile.muted, tile.danmaku_button.isChecked()) == tuple(not value for value in current)
+                tile.danmaku_button.setChecked(before[index][1])
                 assert (tile.muted, tile.danmaku_button.isChecked()) == before[index]
                 saved = window.current_state()['wall'][index]
                 assert (saved['muted'], saved['video_danmaku_enabled']) == before[index]
@@ -205,18 +215,19 @@ def main():
             QTest.keyClick(window.sidebar.search, Qt.Key_E)
             assert window.sidebar.search.text() == 'e'
             assert second.audio_channel == 0, 'typing into search must not trigger the shortcut'
-            # 切换到单声道需要重建音频路由时，沿用原播放器重启路径。
-            second_player.needs_audio_restart.return_value = True
-            window.start_tile.reset_mock()
-            QTest.keyClick(window, Qt.Key_E)
+            # libmpv 原地更新声道滤镜，保留现有播放器。
+            second_player.set_audio_channel.reset_mock()
+            with patch.object(window, "start_tile") as restart:
+                QTest.keyClick(window, Qt.Key_E)
+                restart.assert_not_called()
             assert second.audio_channel == VolumeButton.CHANNEL_LEFT
-            window.start_tile.assert_called_once_with(second)
-            second_player.release.assert_called_once()
+            second_player.set_audio_channel.assert_called_once_with(VolumeButton.CHANNEL_LEFT)
+            second_player.release.assert_not_called()
             first_player.release.assert_not_called()
         finally:
             window.close()
             app.processEvents()
-    print('PASS: hover B/F/M without clicking, combo focus, input/modal/inactive isolation, remapping, E sound cycle and audio restart')
+    print('PASS: hover B/F/M without clicking, combo focus, input/modal/inactive isolation, remapping and E sound cycle without playback restart')
 
 
 if __name__ == '__main__':

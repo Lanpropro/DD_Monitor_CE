@@ -31,6 +31,16 @@ def _log(message: str) -> None:
     print(f"[登录] {message}", file=sys.stderr, flush=True)
 
 
+def _login_cookie(name: str, *jars) -> str:
+    """优先本次响应，处理同名多作用域 Cookie，只接收 B 站根域凭证。"""
+    for jar in jars:
+        matches = [cookie for cookie in jar if cookie.name == name and cookie.value
+                   and cookie.domain.lstrip(".").lower() == "bilibili.com" and cookie.path == "/"]
+        if matches:
+            return str(matches[-1].value)
+    return ""
+
+
 def make_qr_pixmap(text: str, size: int = 260) -> QPixmap:
     """把二维码内容画成图片（qrcode 只生成矩阵，图片自己画）。"""
     code = qrcode.QRCode(border=2, box_size=1)
@@ -67,6 +77,8 @@ class QRLogin(QThread):
         self._cancelled = False
         self._cancel_event = threading.Event()
         self.sessdata = ""
+        self.bili_jct = ""
+        self.buvid3 = ""
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -75,6 +87,8 @@ class QRLogin(QThread):
     def run(self) -> None:
         session = requests.Session()
         session.headers.update(bili.HEADERS)
+        if bili.BUVID3:
+            session.cookies.set("buvid3", bili.BUVID3, domain=".bilibili.com")
         try:
             response = session.get(GENERATE_URL, timeout=10)
             data = response.json().get("data") or {}
@@ -107,13 +121,14 @@ class QRLogin(QThread):
                 return
 
             if code == QR_SUCCESS:
-                sessdata = (poll.cookies.get("SESSDATA")
-                            or session.cookies.get("SESSDATA") or "")
+                sessdata = _login_cookie("SESSDATA", poll.cookies, session.cookies)
                 if not sessdata:
                     self.failed.emit("登录成功但没拿到 SESSDATA")
                     return
                 _log(f"扫码登录成功（SESSDATA {len(sessdata)} 字符）")
                 self.sessdata = sessdata
+                self.bili_jct = _login_cookie("bili_jct", poll.cookies, session.cookies)
+                self.buvid3 = _login_cookie("buvid3", poll.cookies, session.cookies)
                 self.succeeded.emit(sessdata)
                 return
             if code == QR_SCANNED:
@@ -226,7 +241,8 @@ class LoginWindow(QDialog):
 
     def _on_success(self, sessdata: str) -> None:
         self.sessdata = sessdata
-        bili.set_sessdata(sessdata)
+        bili.set_login_cookies(sessdata, getattr(self._thread, "bili_jct", ""),
+                               getattr(self._thread, "buvid3", "") or None)
         self.status.setText("登录成功，窗口即将关闭…")
         self.sessionData.emit(sessdata)
         self.accept()

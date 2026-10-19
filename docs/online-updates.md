@@ -13,7 +13,7 @@
 每个插件 `plugin.json` 建议声明 `min_app_version`，例如 `"0.3"`。生成目录时提供本次仍受支持的所有插件安装包，目录是完整列表，不仅包含本次改动的插件。
 
 ```powershell
-python dev/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domestic_live-1.1.zip global_live-1.1.zip
+python dev/tools/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domestic_live-1.1.zip global_live-1.1.zip
 ```
 
 将生成的目录和对应 ZIP 一起上传到同一正式 Release。工具只读取已有 ZIP，不执行插件代码或生成新 ZIP。每次升级使用新版本和新的附件 URL，不覆盖旧版本附件。
@@ -26,7 +26,7 @@ python dev/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domes
 
 正式发布时上传 **EXE ZIP 和 app-update.json**，并使用与本体版本一致的新 tag，例如 `v0.3`、`v0.3.1`。将该 Release 标记为最新正式版本。程序优先从最新 Release 的固定附件 URL 获取更新清单，兼容 GitHub Release API；草稿和预发布版本不会通过 API 推送。
 
-软件更新先后台下载、验证版本及协议、检查路径和空间，再解压至系统临时目录。用户点击「重启并更新」才保存设置并正常收尾录制、播放器和插件。旧进程退出后，暂存的新程序以 `--apply-update` 启动助手，不初始化 Qt/VLC，等待旧 PID 退出、备份并替换程序文件，然后启动新版。助手启动失败时保留原程序；替换失败时恢复已替换的文件，并在更新页显示结果。
+软件更新先后台下载、验证版本及协议、检查路径和空间，再解压至系统临时目录。用户点击「重启并更新」才保存设置并正常收尾录制、播放器和插件。旧进程退出后，暂存的新程序以 `--apply-update` 启动助手，不初始化 Qt/libmpv，等待旧 PID 退出、备份并替换程序文件，然后启动新版。助手启动失败时保留原程序；替换失败时恢复已替换的文件，并在更新页显示结果。
 
 「自动更新」是保存到设置的开关，默认关闭。开启后启动软件时在后台检查本体新版；有新版才显示上方居中的悬浮提示，不抢焦点、不使用模态弹窗，十秒未点击自动消失。点击「查看更新」跳转到软件更新页，显示检测到的新版说明，由用户选择下载及重启安装；提醒本身不会下载或安装。
 

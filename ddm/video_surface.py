@@ -1,10 +1,52 @@
-"""Keep VLC's native rendering children inside the Qt video mask on Windows."""
+"""Keep libmpv's native rendering children inside the Qt video mask on Windows."""
 import ctypes
-from ctypes import wintypes
 import sys
+from ctypes import wintypes
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import QEvent, QRectF, Qt, QTimer
+from PySide6.QtGui import QPainter, QPainterPath, QTransform
 from PySide6.QtWidgets import QApplication, QFrame
+
+from . import theme
+from .badge_surface import BadgeSurface
+
+
+class VideoCorner(BadgeSurface):
+    """Small alpha-blended corners above libmpv's binary native clipping region."""
+    def __init__(self, parent, *, right=False):
+        super().__init__(parent)
+        self.right = right
+        self._mask_path = QPainterPath()
+        self.setFixedSize(12, 12)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setAttribute(Qt.WA_NativeWindow)
+
+    def refresh_theme(self):
+        self.update()
+
+    def _render_badge(self, painter):
+        painter.setRenderHint(QPainter.Antialiasing)
+        if self.right:
+            painter.translate(self.width(), 0)
+            painter.scale(-1, 1)
+        # Only blend the one-pixel rim. Filling the whole inverse corner would
+        # cover the skin background outside the rounded tile with a solid block.
+        rim = 1 / self.devicePixelRatioF()
+        outside = QPainterPath()
+        outside.addRoundedRect(QRectF(-rim, -rim, 24 + rim * 2, 24 + rim * 2),
+                               9 + rim, 9 + rim)
+        inside = QPainterPath()
+        inside.addRoundedRect(QRectF(0, 0, 24, 24), 9, 9)
+        painter.fillPath(outside.subtracted(inside),
+                         theme.qcolor('#FFFFFF' if theme.is_light() else theme.TILE_BG))
+
+    def paintEvent(self, event):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            self._paint_layered()
+        else:
+            painter = QPainter(self)
+            self._render_badge(painter)
 
 
 class VideoSurface(QFrame):
@@ -14,16 +56,32 @@ class VideoSurface(QFrame):
         self._clip_timer.setInterval(100)
         self._clip_timer.timeout.connect(self._retry_clip)
         self._clip_attempts = 0
+        self._mask_clip_state = None
+
+    def _clip_state(self):
+        return (self.mask(), self.size(), self.devicePixelRatioF(),
+                int(self.internalWinId()))
 
     def setMask(self, region):
+        state = self._clip_state()
+        if region == state[0] and state == self._mask_clip_state:
+            return
         super().setMask(region)
-        self._clip_native_video()
         self.refresh_clip()
+        self._clip_native_video()
+        self._mask_clip_state = self._clip_state()
+
+    def clearMask(self):
+        self._mask_clip_state = None
+        super().clearMask()
 
     def refresh_clip(self):
+        self._mask_clip_state = None
         self._clip_attempts = 0
-        self._clip_timer.setInterval(100)
-        self._clip_timer.start()
+        if self._clip_timer.interval() != 100:
+            self._clip_timer.setInterval(100)
+        if not self._clip_timer.isActive():
+            self._clip_timer.start()
 
     def _retry_clip(self):
         self._clip_attempts += 1
@@ -32,7 +90,7 @@ class VideoSurface(QFrame):
             self._clip_timer.stop()
             return
         if self._clip_native_video():
-            # VLC may reset the region or replace nested output windows later.
+            # libmpv may reset the region or replace nested output windows later.
             self._clip_attempts = 0
             self._clip_timer.setInterval(500)
         elif self._clip_attempts >= 300:
@@ -42,71 +100,73 @@ class VideoSurface(QFrame):
 
     def event(self, event):
         result = super().event(event)
-        if event.type() in (QEvent.WinIdChange, QEvent.Resize, QEvent.DevicePixelRatioChange, QEvent.Show):
+        if event.type() in (QEvent.Type.WinIdChange, QEvent.Type.Resize,
+                            QEvent.Type.DevicePixelRatioChange, QEvent.Type.Show):
             timer = getattr(self, "_clip_timer", None)
             if timer is not None:
                 self.refresh_clip()
+                if event.type() != QEvent.Type.Resize:
+                    self._clip_native_video()
         return result
 
     def nativeEvent(self, event_type, message):
         if sys.platform == "win32":
             msg = wintypes.MSG.from_address(int(message))
             if msg.message == 0x0210 and msg.wParam & 0xffff == 1:  # WM_PARENTNOTIFY / WM_CREATE
-                self.refresh_clip()  # VLC creates/replaces its output after binding.
+                self.refresh_clip()  # libmpv creates/replaces its output after binding.
         return super().nativeEvent(event_type, message)
 
     def _clip_native_video(self, *, apply_root=True):
         if (sys.platform != "win32" or QApplication.platformName() != "windows"
-                or not self.testAttribute(Qt.WA_NativeWindow) or self.mask().isEmpty()):
+                or not self.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) or self.mask().isEmpty()):
             return True
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         user32.EnumChildWindows.argtypes = (wintypes.HWND, callback_type, wintypes.LPARAM)
-        user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+        user32.EnableWindow.argtypes = (wintypes.HWND, wintypes.BOOL)
         user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
         user32.MapWindowPoints.argtypes = (wintypes.HWND, wintypes.HWND,
                                           ctypes.POINTER(wintypes.POINT), wintypes.UINT)
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
         user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE)
-        gdi32.CreateRoundRectRgn.argtypes = (ctypes.c_int,) * 6
-        gdi32.CreateRoundRectRgn.restype = wintypes.HANDLE
         gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
         gdi32.CreateRectRgn.restype = wintypes.HANDLE
         gdi32.CombineRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.c_int)
+        gdi32.OffsetRgn.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_int)
         gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
         root = int(self.winId())
-        bounds = wintypes.RECT()
-        if not user32.GetClientRect(root, ctypes.byref(bounds)):
-            return
-        diameter = round(18 * self.devicePixelRatioF())
+        # Qt 与 libmpv 使用同一份区域，避免两种圆角算法在高 DPI 下偏离。
+        scale = self.devicePixelRatioF()
+        mask = QTransform().scale(scale, scale).map(self.mask())
+        native_mask = gdi32.CreateRectRgn(0, 0, 0, 0)
+        for rect in mask:
+            part = gdi32.CreateRectRgn(rect.x(), rect.y(),
+                rect.x() + rect.width(), rect.y() + rect.height())
+            try:
+                gdi32.CombineRgn(native_mask, native_mask, part, 2)  # RGN_OR
+            finally:
+                gdi32.DeleteObject(part)
 
         output_found = []
         def clip(hwnd, _unused):
             if hwnd != root:
                 name = ctypes.create_unicode_buffer(256)
                 user32.GetClassNameW(hwnd, name, len(name))
-                if not name.value.startswith("VLC video"):
+                if not name.value.lower().startswith("mpv"):
                     return True
-                if name.value.startswith("VLC video output"):
+                if name.value.lower().startswith("mpv"):
                     output_found.append(hwnd)
+                    user32.EnableWindow(hwnd, False)
             origin = wintypes.POINT()
             user32.MapWindowPoints(root, hwnd, ctypes.byref(origin), 1)
-            # VLC can grow its output after creation without resizing this Qt
+            # libmpv can grow its output after creation without resizing this Qt
             # surface. Windows already clips to the child's current bounds;
             # intersecting with its initial bounds would freeze a small mask.
-            region = gdi32.CreateRoundRectRgn(origin.x, origin.y,
-                origin.x + bounds.right, origin.y + bounds.bottom, diameter, diameter)
+            region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            gdi32.CombineRgn(region, native_mask, None, 5)  # RGN_COPY
+            gdi32.OffsetRgn(region, origin.x, origin.y)
             try:
-                if region and not getattr(self, 'rounded_bottom', True):
-                    bottom = gdi32.CreateRectRgn(origin.x,
-                        origin.y + bounds.bottom - diameter // 2,
-                        origin.x + bounds.right, origin.y + bounds.bottom)
-                    if bottom:
-                        try:
-                            gdi32.CombineRgn(region, region, bottom, 2)  # RGN_OR
-                        finally:
-                            gdi32.DeleteObject(bottom)
                 if region:
                     current = gdi32.CreateRectRgn(0, 0, 0, 0)
                     try:
@@ -122,7 +182,10 @@ class VideoSurface(QFrame):
                     gdi32.DeleteObject(region)
             return True
 
-        if apply_root:
-            clip(root, 0)
-        user32.EnumChildWindows(root, callback_type(clip), 0)
+        try:
+            if apply_root:
+                clip(root, 0)
+            user32.EnumChildWindows(root, callback_type(clip), 0)
+        finally:
+            gdi32.DeleteObject(native_mask)
         return bool(output_found)

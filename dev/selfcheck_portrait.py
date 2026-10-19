@@ -551,10 +551,10 @@ def part_orientation_roundtrip(app) -> None:
             assert sidebar.scroll.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff, \
                 f"{tag}: 左栏不该留横滚条"
             # 竖屏借走的三个按钮要各回各家、文字样式也要还原（别把横屏搞坏）
-            assert sidebar.batch_button.text() == "多选", f"{tag}: 多选要还原成文字按钮"
+            assert sidebar.batch_button.text() == "", f"{tag}: 多选应保持图标按钮"
             assert sidebar.sort_button.text() == "排序", f"{tag}: 排序要还原成文字按钮"
-            assert sidebar.batch_button.parentWidget() is sidebar._header_row, \
-                f"{tag}: 多选要回标题行"
+            assert sidebar.batch_button.parentWidget() is sidebar.status_row, \
+                f"{tag}: 多选要回排序旁的状态行"
             assert sidebar.sort_button.parentWidget() is sidebar.status_row, \
                 f"{tag}: 排序要回状态行"
             assert sidebar.refresh_button.parentWidget() is sidebar.status_row, \

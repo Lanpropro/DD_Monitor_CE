@@ -5,7 +5,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import Future
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
@@ -17,8 +19,12 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.config import DEFAULT_SETTINGS  # noqa: E402
 from ddm.dialogs import SettingsDialog  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.encoders import HARDWARE_ENCODERS, SOFTWARE_ENCODER, resolve_encoder
 from ddm.recording import (RecordingManager, ffmpeg_path, input_args, output_path,
-                           safe_name, segment_args)  # noqa: E402
+                           safe_name, segment_args, _Session)  # noqa: E402
+
+#: 硬件编码器名字集合；断言不能写死 libx264 —— 本机可能真的用上显卡。
+ENCODER_NAMES = {encoder for encoder, _args in HARDWARE_ENCODERS.values()} | {SOFTWARE_ENCODER}
 
 
 class FakeTile:
@@ -26,10 +32,55 @@ class FakeTile:
         self.room = {"uname": name, "room_id": room_id, "live": True}
         self.stream_url = url
         self.stream_headers = {}
+        self.stream_codec = ""
         self.visible = True
 
     def isVisible(self):
         return self.visible
+
+
+class FakeProcess:
+    """假装还在跑的 FFmpeg：轮询时 poll() 返回 None（进程未退出）。"""
+
+    def poll(self):
+        return None
+
+
+def ffprobe_path(ffmpeg: str) -> str:
+    """优先用 PATH 上的 ffprobe，没有就找与 ffmpeg 同目录的那一份。"""
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    sibling = Path(ffmpeg).with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
+    return str(sibling) if sibling.is_file() else ""
+
+
+def _run_text(command: list[str]) -> subprocess.CompletedProcess:
+    # FFmpeg 的横幅里会出现中文路径，默认按 GBK 解会炸掉读取线程。
+    return subprocess.run(command, check=True, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+
+
+def assert_h264(probe_path: str, path: Path, note: str, ffmpeg: str) -> None:
+    """确认输出就是 h264，并且整条流能完整解一遍。"""
+    if probe_path:
+        result = _run_text([probe_path, "-v", "error", "-show_entries",
+                            "stream=codec_name,codec_type", "-of", "csv=p=0", str(path)])
+        streams = [line.split(",") for line in result.stdout.strip().splitlines()]
+        assert any(codec == "h264" and kind == "video" for codec, kind in streams), \
+            f"{note} 的视频流不是 h264：{result.stdout}"
+        assert any(kind == "audio" for _codec, kind in streams), f"{note} 丢了音轨"
+    else:
+        # 没有 ffprobe 时用 ffmpeg 自己看编码名（发布包只带 ffmpeg.exe）。
+        # 只给 `-i` 不给输出参数时 ffmpeg 打完信息会以 1 退出，属正常。
+        info = subprocess.run([ffmpeg, "-hide_banner", "-i", str(path)],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", check=False)
+        assert "Video: h264" in info.stderr, \
+            f"{note} 的视频流不是 h264：{info.stderr[-400:]}"
+        assert "Audio:" in info.stderr, f"{note} 丢了音轨"
+    subprocess.run([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def until(app, condition, seconds=10):
@@ -42,6 +93,34 @@ def until(app, condition, seconds=10):
     return False
 
 
+def check_codec_switch_queue():
+    switched = FakeTile("换编码", "91010", "x")
+    switched.stream_codec = "avc"
+    settings = dict(DEFAULT_SETTINGS, recording_format="mov")
+    manager = RecordingManager(settings)
+    session = _Session(switched, settings, True, Path.cwd(), "avc")
+    session.process = cast(subprocess.Popen, FakeProcess())
+    session.url = switched.stream_url
+    manager.sessions[switched] = session
+    try:
+        with patch.object(manager, "_end_process") as end:
+            switched.stream_codec = "av1"
+            manager.on_resolved(switched)
+            assert end.called and session.next_video_codec == "av1"
+            assert session.video_codec == "avc" and session.extension == "mov"
+            switched.stream_codec = "avc"
+            manager.on_resolved(switched)
+            assert session.next_video_codec == "avc", "快速切回原编码时必须覆盖待启动的流"
+            switched.stream_codec = "av1"
+            manager.on_resolved(switched)
+        session.close_chunk()
+        with patch.object(manager, "_launch"):
+            manager.on_resolved(switched)
+        assert session.video_codec == "av1" and session.extension == "mp4"
+    finally:
+        manager.timer.stop()
+
+
 def main():
     app = QApplication(sys.argv)
     assert safe_name('A:/\\*?<>|"B').startswith("A_")
@@ -51,8 +130,34 @@ def main():
         "-headers", "User-Agent: A\r\nReferer: B\r\n", "-i", "x"][-3:]
     assert "-c" in segment_args(DEFAULT_SETTINGS, Path("x_%05d.mp4"))
     assert "6000k" in segment_args({"recording_codec": "h264"}, Path("x_%05d.mp4"))
+    # 重编码会真的探测硬件编码器（本机 NVENC 可用），所以只断言「是 h264 系的
+    # 某个编码器」，写死 libx264 在显卡机器上必挂。
+    transcoded = segment_args({"recording_codec": "h264"}, Path("x_%05d.mp4"))
+    assert transcoded[transcoded.index("-c:v") + 1] in ENCODER_NAMES, transcoded
+    cpu_only = segment_args({"recording_codec": "h264", "recording_encoder": "cpu"},
+                            Path("x_%05d.mp4"))
+    assert cpu_only[cpu_only.index("-c:v") + 1] == SOFTWARE_ENCODER
     assert "mov" in segment_args({"recording_format": "mov"}, Path("x_%05d.mov"))
     assert "mpegts" in segment_args({"recording_format": "ts"}, Path("x_%05d.ts"))
+    # AV1 源选 MOV 时容器要换成 MP4，否则 FFmpeg 直接拒绝启动。
+    av1_args = segment_args({"recording_format": "mov"}, Path("x_%05d.mp4"), "av1")
+    assert av1_args[av1_args.index("-segment_format") + 1] == "mp4"
+
+    # 会话的扩展名跟着这一路流的编码走（MOV + AV1 -> mp4）。
+    av1_tile = FakeTile("AV1 源", "70007", "x")
+    av1_tile.stream_codec = "av1"
+    mov = dict(DEFAULT_SETTINGS, recording_format="mov")
+    assert _Session(av1_tile, mov, True, Path.cwd(), av1_tile.stream_codec).extension == "mp4"
+    assert _Session(av1_tile, mov, True, Path.cwd(), "av1").extension == "mp4"
+    assert _Session(av1_tile, dict(mov, recording_codec="h264"), True, Path.cwd(),
+                    "av1").extension == "mov"
+    assert _Session(FakeTile("HEVC 源", "80008", "x"), mov, True, Path.cwd(),
+                    "hevc").extension == "mov"
+    assert _Session(av1_tile, dict(DEFAULT_SETTINGS), True, Path.cwd(), "av1").extension == "mp4"
+    # 老格子取不到 stream_codec，扩展名按设置原样走。
+    assert _Session(FakeTile("未知源", "90009", "x"), mov, True, Path.cwd()).extension == "mov"
+
+    check_codec_switch_queue()
 
     dialog = SettingsDialog(DEFAULT_SETTINGS, {})
     assert dialog.recording_page.values()["recording_format"] == "mp4"
@@ -81,7 +186,7 @@ def main():
     dialog.recording_page.reset()
     assert dialog.recording_page.fps.isEnabled()
     assert dialog.recording_page.codec.currentData() == "copy"
-    dialog.nav.setCurrentRow(2)
+    dialog.nav.setCurrentRow(dialog.stack.indexOf(dialog.recording_page))
     dialog.show()
     app.processEvents()
     assert dialog.recording_page.min_free.geometry().bottom() <= dialog.recording_page.height(), \
@@ -108,6 +213,22 @@ def main():
         settings = dict(DEFAULT_SETTINGS, recording_dir=str(root / "out"),
                         recording_min_free_mb=256)
         manager = RecordingManager(settings)
+        for recording in (True, False):
+            boundary_tile = FakeTile("切换保护", "99000", "x")
+            boundary = _Session(boundary_tile, settings, recording, root, "avc")
+            part = root / f"old-{recording}.mp4"
+            part.write_bytes(b"keep-on-failure")
+            boundary.parts = [part]
+            with patch.object(manager, "_export", return_value=False):
+                manager._change_codec(boundary, "av1")
+            assert not boundary.parts and boundary.video_codec == "av1"
+            assert part.exists() == recording, "导出失败保留原始录像；纯缓存切换后清理"
+        encoded = _Session(boundary_tile, dict(settings, recording_codec="h264",
+                                               recording_format="mov"), True, root, "avc")
+        encoded.parts = [root / "old-True.mp4"]
+        with patch.object(manager, "_export") as export:
+            manager._change_codec(encoded, "av1")
+            assert not export.called and encoded.parts and encoded.extension == "mov"
         first = FakeTile("主播甲", "10001", str(source))
         second = FakeTile("主播乙", "20002", str(source))
         assert manager.start(first, recording=True)
@@ -156,6 +277,119 @@ def main():
                                          "stream=codec_type", "-of", "csv=p=0", str(files[0])],
                                         check=True, capture_output=True, text=True)
                 assert "video" in result.stdout and "audio" in result.stdout
+        # 真跑一次硬件编码：auto 选中显卡时把那一族钉死在设置里再录一遍，
+        # 确认这段命令在本机起得来、出来的确实还是 h264。
+        auto_encoder, _auto_extra, auto_family = resolve_encoder("auto", ffmpeg)
+        if auto_family == "cpu":
+            print(f"本机 auto 解析为 {auto_encoder}（没有可用的硬件编码器），"
+                  "跳过硬件编码录制自检")
+        else:
+            hardware = FakeTile(f"硬件_{auto_family}", f"27{auto_family}", str(source))
+            manager.settings = dict(settings, recording_format="mp4", recording_codec="h264",
+                                    recording_encoder=auto_family)
+            assert manager.start(hardware, recording=True)
+            assert until(app, lambda: hardware not in manager.sessions and
+                         not manager.exports, 30), f"{auto_family} 硬件录制没收尾"
+            hardware_files = list((root / "out").glob(f"硬件_{auto_family}*.mp4"))
+            assert len(hardware_files) == 1, f"{auto_family} 硬件录制没出文件"
+            assert hardware_files[0].stat().st_size > 500
+            assert_h264(ffprobe_path(ffmpeg), hardware_files[0],
+                        f"{auto_family} 硬件录制", ffmpeg)
+            print(f"本机 auto 解析为 {auto_encoder}，硬件编码录制自检通过")
+
+        # AV1 源 + MOV：FFmpeg 的 MOV 复用器明确拒绝 AV1（"av1 only supported in
+        # MP4 and AVIF"），所以扩展名要换成 mp4，否则这一路直接启动即失败。
+        av1_source = root / "source-av1.mp4"
+        made_av1 = subprocess.run(
+            [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+             "-f", "lavfi", "-i", "color=c=red:s=160x90:r=10",
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+             "-t", "2", "-c:v", "libsvtav1", "-preset", "12", "-c:a", "aac",
+             str(av1_source)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if made_av1.returncode:
+            print("这份 FFmpeg 编不出 AV1，跳过 AV1 选 MOV 的容器修正自检")
+        else:
+            for codec in ("copy", "h264"):
+                av1_tile = FakeTile(f"AV1_{codec}", f"28{codec}", str(av1_source))
+                av1_tile.stream_codec = "av1"
+                manager.settings = dict(settings, recording_format="mov",
+                                        recording_codec=codec)
+                assert manager.start(av1_tile, recording=True)
+                assert until(app, lambda target=av1_tile: target not in manager.sessions and
+                             not manager.exports, 30), f"AV1 {codec} 录制没收尾"
+                ext = "mp4" if codec == "copy" else "mov"
+                av1_files = list((root / "out").glob(f"AV1_{codec}*.{ext}"))
+                assert len(av1_files) == 1 and av1_files[0].stat().st_size > 500, \
+                    f"AV1 {codec} 录制格式不正确"
+            print("AV1 直存换 MP4、重编码保留 MOV：通过")
+
+            avc_source = root / "source-avc.mp4"
+            _run_text([ffmpeg, "-y", "-v", "error", "-i", str(source),
+                       "-c:v", "libx264", "-c:a", "copy", str(avc_source)])
+            switch = FakeTile("混合编码", "29000", str(avc_source))
+            switch.stream_codec = "avc"
+            manager.settings = dict(settings, recording_format="mov", recording_codec="copy",
+                                    recording_replay_enabled=False)
+            assert manager.start(switch, recording=True)
+            for codec, path in (("av1", av1_source), ("avc", avc_source)):
+                process = manager.sessions[switch].process
+                assert process is not None
+                process.wait(timeout=15)
+                switch.stream_codec, switch.stream_url = codec, str(path)
+                manager.on_resolved(switch)
+                manager._poll()
+            assert until(app, lambda: switch not in manager.sessions and not manager.exports, 20)
+            outputs = sorted((root / "out").glob("混合编码*.*"))
+            outputs = [path for path in outputs if path.suffix in (".mov", ".mp4")]
+            assert len(outputs) == 3, outputs
+            total_frames = 0
+            for path in outputs:
+                decoded = _run_text([ffmpeg, "-v", "error", "-i", str(path),
+                                     "-progress", "pipe:1", "-f", "null", "-"])
+                frames = [int(line.split("=")[1]) for line in decoded.stdout.splitlines()
+                          if line.startswith("frame=")]
+                assert frames[-1] == 20 and not decoded.stderr, (path, decoded.stderr)
+                total_frames += frames[-1]
+            assert total_frames == 60, "换编码必须分别保存全部画面，不能静默丢帧"
+
+        pending = Future()
+        queued = FakeTile("后台探测", "29100", str(source))
+        manager.settings = dict(settings, recording_codec="h264")
+        with patch("ddm.recording.resolve_encoder_async", return_value=pending):
+            assert manager.start(queued, recording=True)
+            assert manager.sessions[queued].process is None
+            manager.stop(queued)
+            pending.set_result(("libx264", ["-preset", "veryfast"], "cpu"))
+            manager._poll()
+        assert queued not in manager.sessions, "停止等待中的会话后不能在后台启动录制"
+
+        failed = Future()
+        failed.set_result(("h264_nvenc", ["-gpu", "999"], "nvenc"))
+        fallback = FakeTile("运行时回退", "29200", str(source))
+        with patch("ddm.recording.resolve_encoder_async", return_value=failed):
+            assert manager.start(fallback, recording=True)
+        fallback_session = manager.sessions[fallback]
+        assert until(app, lambda: fallback not in manager.sessions and not manager.exports, 20)
+        assert fallback_session.encoder is not None and fallback_session.encoder[2] == "cpu", \
+            "硬件初始化失败后必须回退 CPU"
+        assert_h264(ffprobe_path(ffmpeg), next((root / "out").glob("运行时回退*.mp4")),
+                    "CPU 回退", ffmpeg)
+
+        ten_bit = root / "source-ten-bit.mkv"
+        _run_text([ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i",
+                   "color=s=256x144:r=10,format=yuv420p10le", "-f", "lavfi", "-i",
+                   "sine=frequency=440:sample_rate=44100", "-t", "2", "-c:v", "ffv1",
+                   "-c:a", "aac", str(ten_bit)])
+        ten = FakeTile("十位输入", "29300", str(ten_bit))
+        ten.stream_codec = "hevc"
+        assert manager.start(ten, recording=True)
+        assert until(app, lambda: ten not in manager.sessions and not manager.exports, 20)
+        ten_output = next((root / "out").glob("十位输入*.mp4"))
+        assert_h264(ffprobe_path(ffmpeg), ten_output, "10-bit 输入", ffmpeg)
+        if probe:
+            pixel = _run_text([probe, "-v", "error", "-select_streams", "v:0",
+                               "-show_entries", "stream=pix_fmt", "-of", "csv=p=0", str(ten_output)])
+            assert pixel.stdout.strip() == "yuv420p", pixel.stdout
         manager.settings = settings
 
         # 缓存模式不生成完整文件；结束时只删它自己创建的临时分段。
@@ -260,7 +494,7 @@ def main():
         with patch.object(SettingsDialog, "__init__", track_dialog), patch.object(
                 SettingsDialog, "exec", return_value=SettingsDialog.Rejected):
             tile.recording_button.click()
-        assert [dialog.nav.currentRow() for dialog in opened_dialogs] == [2], \
+        assert [dialog.nav.currentItem().text() for dialog in opened_dialogs] == ["录制"], \
             "首次录制应直接打开设置中的录制页"
         # 开启原画锁定：先请求原画，实际取到原画后才启动 FFmpeg；结束恢复原画前画质。
         window.settings.update(settings)

@@ -26,7 +26,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.widgets import PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH  # noqa: E402
+from ddm.widgets import NAV_ITEM_GAP, PORTRAIT_LIST_HEIGHT, PORTRAIT_LIST_WIDTH  # noqa: E402
 
 ROOMS = [
     {"room_id": "9101", "uname": "小明的直播间", "title": "今晚打游戏",
@@ -135,8 +135,10 @@ def main() -> None:
         shown = sidebar.visible_items()
         print(f"  第一张 y={shown[0].y()}；内容高 {box.minimumHeight()}，"
               f"一张 {box.slot_height()}px（共 {len(shown)} 张可见）")
-        assert shown[0].y() == 0, f"可见的第一张该顶在最上面，实际 y={shown[0].y()}"
-        assert box.minimumHeight() <= len(shown) * box.slot_height() + 1, \
+        header = sidebar._folder_buttons[sidebar.folder_for(shown[0].room["room_id"])]
+        first_y = header.geometry().bottom() + 1 + NAV_ITEM_GAP
+        assert shown[0].y() == first_y, "首张可见卡片应紧接当前文件夹标题"
+        assert box.minimumHeight() <= first_y + len(shown) * box.slot_height() + 1, \
             f"内容高度该只算可见的那 {len(shown)} 张，实际 {box.minimumHeight()}"
 
         print("\n=== 8. 过滤中收到状态刷新：过滤仍然生效，新标题也能搜到 ===")

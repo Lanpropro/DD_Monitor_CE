@@ -133,7 +133,7 @@ def main():
                 tile.set_video_active(True)
                 tile.danmaku_button.setChecked(True)
             settle(app, 2)
-            assert all(player.player.get_time() > 0 for player in window.players.values())
+            assert all((player._prop("time-pos", 0) * 1000) > 0 for player in window.players.values())
             target = window.wall.tiles[0]
             check_top_overlays(window, target, app)
             for tile in window.wall.tiles:
