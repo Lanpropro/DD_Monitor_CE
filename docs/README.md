@@ -1,11 +1,12 @@
 # 项目说明文档
 
-项目说明集中在本目录；根目录仅保留仓库入口 README、许可证 LICENSE、Agent 规则 AGENTS.md 和当前本机交接入口 PROJECT_STATE.md。
+项目说明集中在本目录；根目录保留仓库入口 README、贡献指南 CONTRIBUTING.md、许可证 LICENSE、Agent 规则 AGENTS.md 和当前本机交接入口 PROJECT_STATE.md。
 插件及资源子目录的 README 是就近说明，继续随对应组件存放。
 
 | 分类 | 入口 |
 | --- | --- |
 | 使用说明 | [项目 README](../README.md) |
+| 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
 | 插件 | [插件说明](plugins.md) |
 | 外观与皮肤 | [外观设计](appearance-design.md)、[皮肤说明](skins.md) |
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](pr6-pr7-layout-testing.md) |
