@@ -1,4 +1,4 @@
-"""悬停预览：鼠标在关注列表的已开播直播间上停 1 秒，缩略图里直接放静音画面。
+"""悬停预览：鼠标在关注列表的已开播直播间上停 0.5 秒，缩略图里直接放静音画面。
 
 画面就播在该条目的缩略图（NavThumb）里，不再另开小窗；鼠标移开立刻收掉并释放播放器，
 不会一直占带宽和 CPU。
@@ -28,7 +28,7 @@ PREVIEW_MEDIA_OPTIONS = ("audio=no", "hwdec=no")
 class HoverPreview(QObject):
     """管悬停计时，并把预览发到对应条目的缩略图上。"""
 
-    DELAY_MS = 1000         # 停够 1 秒才播
+    DELAY_MS = 500          # 停够 0.5 秒才播
     GRACE_MS = 120          # 移开后的宽限（手抖一下不立刻收）
 
     def __init__(self, sidebar, parent=None, *, platform_resolver=None):
