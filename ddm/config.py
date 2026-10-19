@@ -62,6 +62,7 @@ DEFAULT_SETTINGS = {
     "recording_encoder": "auto",
     "recording_bitrate": 6000,    # kbps
     "recording_fps": 30,
+    "recording_segment_minutes": 60,  # 自动保存为独立文件的时长（分钟）
     "recording_replay_minutes": 3,
     #: 即时回放（右键「保存最近 N 分钟」）总开关。关掉之后：
     #:   1) 不给任何格子开缓存，已经在跑的纯缓存会话也会被停掉；
