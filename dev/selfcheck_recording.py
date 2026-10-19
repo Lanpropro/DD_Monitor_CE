@@ -258,6 +258,8 @@ def main():
 
         # 用户时长到达时单独封装一个文件并继续；最近回放应跨越自动分段边界。
         split = FakeTile("自动分段", "21001", str(source))
+        split_notices = []
+        manager.noticeWithRoom.connect(lambda message, room: split_notices.append((message, room)))
         manager.settings = dict(settings, recording_segment_minutes=1,
                                 recording_replay_minutes=1)
         with patch("ddm.recording.SEGMENT_SECONDS", 1), patch(
@@ -281,6 +283,10 @@ def main():
         replay_files = sorted((root / "out" / "replays").glob("自动分段*.mp4"))
         assert len(split_files) == 2, split_files
         assert len(replay_files) == 1, replay_files
+        rotation_notices = [room for message, room in split_notices
+                            if '正在保存分段' in message or '分段已保存' in message]
+        assert len(rotation_notices) == 2 and all(
+            room.get('room_id') == '21001' for room in rotation_notices)
         for path in split_files + replay_files:
             assert path.stat().st_size > 500, path
             _run_text([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"])

@@ -533,7 +533,7 @@ class RecordingManager(QObject):
                         if (not session.rotating and session.output_started_at and
                                 now - session.output_started_at >= minutes * 60):
                             session.rotating = True
-                            self._say(f"{session.name} 已录制 {minutes} 分钟，正在保存分段")
+                            self._say(f"{session.name} 已录制 {minutes} 分钟，正在保存分段", session.room)
                             self._end_process(session)
                     elif not session.stopping:
                         # 纯缓存的会话要**边录边裁**。以前只在 ffmpeg 退出后才裁一次，
@@ -568,9 +568,9 @@ class RecordingManager(QObject):
                     if codec is not None:
                         self._change_codec(session, codec)
                     self._launch(session, url, headers)
-                    self._say(f"{session.name} 分段已保存，继续录制")
+                    self._say(f"{session.name} 分段已保存，继续录制", session.room)
                 except OSError as error:
-                    self._say(f"{session.name} 续录失败：{error}")
+                    self._say(f"{session.name} 续录失败：{error}", session.room)
                     self.stop(tile)
             elif session.next_url:
                 url = session.next_url or session.url
