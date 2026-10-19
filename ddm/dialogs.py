@@ -542,6 +542,9 @@ class RecordingSettingsPage(QWidget):
         self.fps = QComboBox()
         for fps in (24, 25, 30, 50, 60):
             self.fps.addItem(str(fps), fps)
+        self.segment_minutes = QSpinBox()
+        self.segment_minutes.setRange(1, 1440)
+        self.segment_minutes.setToolTip("达到设定时长后保存当前文件，并继续录制下一个文件。")
         self.replay_minutes = QSpinBox()
         self.replay_minutes.setRange(1, 60)
         self.replay_enabled = QCheckBox("启用「保存最近 N 分钟」")
@@ -576,6 +579,7 @@ class RecordingSettingsPage(QWidget):
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
             ("编码器", self.encoder, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
+            ("自动分段时长", self.segment_minutes, "分钟"),
             ("即时回放", self.replay_enabled, ""),
             ("即时回放范围", self.replay_scope, ""),
             ("缓存格子数上限", self.replay_max, ""),
@@ -590,7 +594,7 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 12, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 13, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self.replay_scope.currentIndexChanged.connect(self._update_enabled)
         self.replay_enabled.toggled.connect(self._update_enabled)
@@ -615,6 +619,7 @@ class RecordingSettingsPage(QWidget):
         self.bitrate.setValue(int(settings.get("recording_bitrate", 6000)))
         fps_index = self.fps.findData(int(settings.get("recording_fps", 30)))
         self.fps.setCurrentIndex(fps_index if fps_index >= 0 else self.fps.findData(30))
+        self.segment_minutes.setValue(int(settings.get("recording_segment_minutes", 60)))
         self.replay_minutes.setValue(int(settings.get("recording_replay_minutes", 3)))
         scope = self.replay_scope.findData(
             str(settings.get("recording_replay_scope", "recorded")))
@@ -645,7 +650,8 @@ class RecordingSettingsPage(QWidget):
         """
         recording = self.recording_enabled.isChecked()
         for widget in (self.directory, self.browse, self.format, self.codec,
-                       self.bitrate, self.fps, self.min_free, self.lock_quality):
+                       self.bitrate, self.fps, self.segment_minutes, self.min_free,
+                       self.lock_quality):
             widget.setEnabled(recording)
         self._update_codec()
         replay = self.replay_enabled.isChecked()
@@ -674,6 +680,7 @@ class RecordingSettingsPage(QWidget):
             "recording_encoder": self.encoder.currentData(),
             "recording_bitrate": self.bitrate.value(),
             "recording_fps": self.fps.currentData(),
+            "recording_segment_minutes": self.segment_minutes.value(),
             "recording_replay_minutes": self.replay_minutes.value(),
             "recording_replay_scope": self.replay_scope.currentData(),
             "recording_replay_enabled": self.replay_enabled.isChecked(),

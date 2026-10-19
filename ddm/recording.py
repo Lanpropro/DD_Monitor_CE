@@ -247,6 +247,7 @@ class _Session:
         self.video_codec = video_codec
         self.extension = segment_extension_for(settings, self.video_codec)
         self.parts: list[Path] = []
+        self.replay_parts: list[Path] = []
         self.process: subprocess.Popen | None = None
         self.active_pattern: Path | None = None
         self.url = ""
@@ -262,6 +263,8 @@ class _Session:
         self.retry_count = 0
         self.retry_at = 0.0
         self.started_at = 0.0
+        self.output_started_at = 0.0
+        self.rotating = False
         self.pruned_at = 0.0        # 上次裁分段的时间；纯缓存会话用（见 _prune_cache）
 
     def finished_parts(self) -> list[Path]:
@@ -326,8 +329,10 @@ class RecordingManager(QObject):
             if self.sessions[tile].stopping:
                 self._say("上一段正在结束，请稍后再开始")
                 return False
-            if recording:
-                self.sessions[tile].recording = True
+            session = self.sessions[tile]
+            if recording and not session.recording:
+                session.recording = True
+                session.output_started_at = time.monotonic()
                 self.changed.emit(tile)
             return True
         if not str(self.settings.get("recording_dir") or "").strip():
@@ -388,6 +393,8 @@ class RecordingManager(QObject):
         session.url = url
         session.retry_at = 0.0
         session.started_at = time.monotonic()
+        if session.recording and not session.output_started_at:
+            session.output_started_at = session.started_at
 
     @staticmethod
     def _end_process(session: _Session) -> None:
@@ -420,7 +427,7 @@ class RecordingManager(QObject):
             # 设置里关了即时回放总开关就不存那一份（完整录制照常导出）；
             # 这里读 manager 的 settings（与 app 同一个 dict），开关是实时的。
             if save_replay and bool(self.settings.get("recording_replay_enabled", True)):
-                self._export_replay(session, parts)
+                self._export_replay(session, session.replay_parts + parts)
             self._export(session, parts, full=True)
         else:
             self._discard_cache(session)
@@ -468,6 +475,9 @@ class RecordingManager(QObject):
             elif not session.recording:
                 self._discard_cache(session)
             session.parts.clear()
+            session.replay_parts.clear()
+            session.output_started_at = 0.0
+            self._cleanup_parts()
         session.video_codec = codec
         session.extension = segment_extension_for(session.settings, codec)
 
@@ -508,20 +518,56 @@ class RecordingManager(QObject):
                         self.stop(tile)
                 continue
             if process.poll() is None:
-                if time.monotonic() - session.started_at > 30:
+                now = time.monotonic()
+                if now - session.started_at > 30:
                     session.retry_count = 0
                 if not session.stopping:
                     self._check_space(session)
-                    # 纯缓存的会话要**边录边裁**。以前只在 ffmpeg 退出后才裁一次，
-                    # 而直播一开几小时进程根本不退，分段就一路堆 —— 用户实测
-                    # 单格堆到 223 段、整个目录 4.3 GB 才被发现。
-                    if not session.recording:
+                    if not session.stopping and session.recording:
+                        minutes = max(1, int(
+                            session.settings.get("recording_segment_minutes", 60)))
+                        if (not session.rotating and session.output_started_at and
+                                now - session.output_started_at >= minutes * 60):
+                            session.rotating = True
+                            self._say(f"{session.name} 已录制 {minutes} 分钟，正在保存分段")
+                            self._end_process(session)
+                    elif not session.stopping:
+                        # 纯缓存的会话要**边录边裁**。以前只在 ffmpeg 退出后才裁一次，
+                        # 而直播一开几小时进程根本不退，分段就一路堆 —— 用户实测
+                        # 单格堆到 223 段、整个目录 4.3 GB 才被发现。
                         self._prune_cache(session)
                 continue
             exit_code = process.returncode
             session.close_chunk()
             if session.stopping:
                 self._finalize(session)
+            elif session.rotating:
+                parts = list(session.parts)
+                if parts:
+                    self._export(session, parts, full=True)
+                    if bool(self.settings.get("recording_replay_enabled", True)):
+                        session.replay_parts.extend(parts)
+                        self._prune_recording_replay(session)
+                    else:
+                        session.replay_parts.clear()
+                session.parts.clear()
+                session.rotating = False
+                session.output_started_at = 0.0
+                url = session.next_url or tile.stream_url or session.url
+                headers = (session.next_headers if session.next_url
+                           else dict(tile.stream_headers or {}))
+                codec = session.next_video_codec
+                session.next_url = ""
+                session.next_headers = {}
+                session.next_video_codec = None
+                try:
+                    if codec is not None:
+                        self._change_codec(session, codec)
+                    self._launch(session, url, headers)
+                    self._say(f"{session.name} 分段已保存，继续录制")
+                except OSError as error:
+                    self._say(f"{session.name} 续录失败：{error}")
+                    self.stop(tile)
             elif session.next_url:
                 url = session.next_url or session.url
                 headers = session.next_headers or dict(tile.stream_headers or {})
@@ -573,6 +619,8 @@ class RecordingManager(QObject):
     def _cleanup_parts(self) -> None:
         protected = {part for _process, _result, parts, _full in self.exports
                      for part in parts}
+        protected.update(part for session in self.sessions.values()
+                         for part in session.replay_parts)
         for part in self._delete_after_exports - protected:
             part.unlink(missing_ok=True)
             self._delete_after_exports.discard(part)
@@ -616,6 +664,12 @@ class RecordingManager(QObject):
         self._delete_after_exports.update(session.finished_parts())
         self._cleanup_parts()
 
+    def _prune_recording_replay(self, session: _Session) -> None:
+        keep = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
+                         * 60 / SEGMENT_SECONDS) + 2
+        session.replay_parts = session.replay_parts[-keep:]
+        self._cleanup_parts()
+
     def save_replay(self, tile) -> bool:
         if not bool(self.settings.get("recording_replay_enabled", True)):
             self._say("即时回放已在「设置 → 录制」里关闭")
@@ -626,7 +680,7 @@ class RecordingManager(QObject):
             return False
         count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
                           * 60 / SEGMENT_SECONDS)
-        parts = session.finished_parts()[-count:]
+        parts = (session.replay_parts + session.finished_parts())[-count:]
         if not parts:
             self._say("缓存还没有完成一个分段，请稍后再保存")
             return False
