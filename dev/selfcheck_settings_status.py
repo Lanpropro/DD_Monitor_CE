@@ -427,7 +427,7 @@ def main() -> None:
         "开发指南应指向设置文案、入口、样式和默认值的实际文件"
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
-    assert pages == ["常规", "外观", "弹幕", "录制", "快捷键", "插件", "软件更新"] and dialog.stack.currentIndex() == 0
+    assert pages == ["常规", "外观", "弹幕", "录制", "快捷键", "插件", "软件更新", "通知"] and dialog.stack.currentIndex() == 0
     assert next(label for key, label, _default in SHORTCUT_ACTIONS if key == "restore") == \
         "退出全屏"
     dialog.nav.setCurrentRow(3)

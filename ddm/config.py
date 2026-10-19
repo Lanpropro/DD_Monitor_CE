@@ -49,6 +49,11 @@ DEFAULT_SETTINGS = {
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
+    "notice_persist_updates": True,
+    "notice_persist_pinned_live": True,
+    "notice_persist_live": False,
+    "notice_persist_warning": False,
+    "notice_persist_info": False,
     #: 录制功能总开关。关掉之后：
     #:   1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；
     #:   2) 正在录制的会话会**正常收尾并导出**（已经录到的部分不丢）；

@@ -505,7 +505,8 @@ class MainWindow(QMainWindow):
             self._update_notice = UpdateNotice(self)
             self._update_notice.activated.connect(lambda: self.open_settings(
                 "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')})
+        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')},
+            persistent=self.settings.get('notice_persist_updates', True))
         parts = []
         if app_offer:
             parts.append('软件有新版 v' + app_offer['version'])
@@ -2414,10 +2415,15 @@ class MainWindow(QMainWindow):
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
-            names = "、".join(str(room.get("uname") or room["room_id"]) for room in rooms[:2])
-            message = (names + " 开播了" if len(rooms) <= 2
-                       else f"{names} 等 {len(rooms)} 位主播开播了")
-            self._show_notice(message, rooms=rooms, kind="live")
+            groups = [[room for room in rooms if (str(room['room_id']) in self.sidebar.pinned) == pinned]
+                      for pinned in (True, False)]
+            for group in groups:
+                if not group:
+                    continue
+                names = "、".join(str(room.get("uname") or room["room_id"]) for room in group[:2])
+                message = (names + " 开播了" if len(group) <= 2
+                           else f"{names} 等 {len(group)} 位主播开播了")
+                self._show_notice(message, rooms=group, kind="live")
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")
@@ -3048,7 +3054,15 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         from .online_ui import show_result
-        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click)
+        pinned_live = kind == 'live' and any(
+            str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
+        category = 'pinned_live' if pinned_live else kind
+        persistent = self.settings.get('notice_persist_' + category, pinned_live)
+        if on_click is None and rooms:
+            url = self._room_browser_url(rooms[0])
+            if url:
+                on_click = lambda target=url: self._open_room_browser(target)
+        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click, persistent=persistent)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3423,9 +3437,9 @@ class MainWindow(QMainWindow):
             return False
 
     def _on_room_avatar(self, room_id: str, pixmap) -> None:
-        notice = getattr(self, "_result_notice", None)
-        if notice is not None:
-            notice.set_room_avatar(room_id, pixmap)
+        for notice in getattr(self, '_notices', []):
+            if hasattr(notice, 'set_room_avatar'):
+                notice.set_room_avatar(room_id, pixmap)
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_face(pixmap)

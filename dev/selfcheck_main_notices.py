@@ -15,14 +15,76 @@ runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
-from ddm.online_ui import show_result
+from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_notification_settings_defaults_save_and_reset(self):
+        from ddm.dialogs import SettingsDialog
+        from ddm.config import DEFAULT_SETTINGS
+        dialog = SettingsDialog(DEFAULT_SETTINGS, {}, preview=True)
+        self.addCleanup(dialog.close)
+        page = dialog._page(7)
+        self.assertTrue(page.values()['notice_persist_updates'])
+        self.assertTrue(page.values()['notice_persist_pinned_live'])
+        self.assertFalse(page.values()['notice_persist_live'])
+        page._checks['notice_persist_warning'].setChecked(True)
+        page._checks['live_alert'].setChecked(False)
+        self.assertTrue(dialog.settings()['notice_persist_warning'])
+        self.assertFalse(dialog.settings()['live_alert'])
+        page.reset()
+        self.assertFalse(page.values()['notice_persist_warning'])
+        self.assertTrue(page.values()['live_alert'])
+
+    def test_notifications_stack_reflow_close_and_jump_independently(self):
+        owner = QWidget()
+        owner.resize(1000, 700)
+        owner.show()
+        self.addCleanup(owner.close)
+        activated = Mock()
+        update = UpdateNotice(owner)
+        update.activated.connect(activated)
+        update.show_offer({'version': 'test'}, persistent=True)
+        show_result(owner, '持续提示', persistent=True, on_click=activated)
+        first = owner._result_notice
+        show_result(owner, '普通提示')
+        second = owner._result_notice
+        self.app.processEvents()
+        self.assertEqual(len(owner._notices), 3)
+        self.assertFalse(update.timer.isActive())
+        self.assertFalse(first.timer.isActive())
+        self.assertTrue(second.timer.isActive())
+        self.assertGreater(first.y(), update.y() + update.height())
+        self.assertGreater(second.y(), first.y() + first.height())
+        before = second.y()
+        first.findChild(QPushButton, 'NoticeClose').click()
+        self.assertLess(second.y(), before)
+        activated.assert_not_called()
+        self.assertTrue(second.isVisible())
+        QTest.mouseClick(update.title, Qt.LeftButton)
+        activated.assert_called_once()
+        self.assertEqual(len(owner._notices), 1)
+
+    def test_pinned_live_policy_and_room_navigation(self):
+        window = self.window([{'room_id': '1001', 'uname': '主播甲', 'live': False},
+                              {'room_id': '1002', 'uname': '主播乙', 'live': False}])
+        window.sidebar.apply_pins(['1001'])
+        with patch.object(window, '_open_room_browser') as browser:
+            window._show_notice('甲开播了', rooms=[{'room_id': '1001'}], kind='live')
+            notice = window._result_notice
+            self.assertFalse(notice.timer.isActive())
+            QTest.mouseClick(notice.title, Qt.LeftButton)
+            browser.assert_called_once_with('https://live.bilibili.com/1001')
+        window._show_notice('乙开播了', rooms=[{'room_id': '1002'}], kind='live')
+        self.assertTrue(window._result_notice.timer.isActive())
+        window.settings['notice_persist_warning'] = True
+        window._show_notice('警告', kind='warning')
+        self.assertFalse(window._result_notice.timer.isActive())
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -107,6 +169,7 @@ class MainNoticesTests(unittest.TestCase):
                 login.assert_called_once_with('bilibili', reauthenticate=True)
                 send.assert_not_called()
                 window._show_notice('普通提示')
+                notice = window._result_notice
                 QTest.mouseClick(notice.title, Qt.LeftButton)
                 self.assertEqual(login.call_count, 1)
 
@@ -136,6 +199,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertLess(short_width, 200)
         self.assertEqual(notice.height(), 48)
         show_result(owner, '主播甲 开播了', rooms=[{'room_id': 'test', 'uname': '主播甲'}], kind='live')
+        notice = owner._result_notice
         self.assertGreater(notice.width(), short_width)
         self.assertEqual(notice.timer.interval(), 5000)
         self.assertEqual(len(notice._avatars), 1)
@@ -144,10 +208,12 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(notice.height(), 48)
         show_result(owner, '主播甲、主播乙 等 4 位主播开播了',
                     rooms=[{'room_id': str(index), 'uname': '主播'} for index in range(3)], kind='live')
+        notice = owner._result_notice
         self.app.processEvents()
         self.assertGreaterEqual(notice.title.width(), notice.title.fontMetrics().horizontalAdvance(notice.title.text()))
         self.assertLessEqual(notice.title.heightForWidth(notice.title.width()), notice.title.fontMetrics().height() + 2)
         show_result(owner, '请先选择录制保存目录，再开始录制。' * 8, kind='warning')
+        notice = owner._result_notice
         self.app.processEvents()
         self.assertLessEqual(notice.width(), 480)
         self.assertGreater(notice.height(), 48)
