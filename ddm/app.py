@@ -836,80 +836,83 @@ class MainWindow(QMainWindow):
                           dict(self.plugins._platform_owner), set(self.plugins._removed))
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
-        print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        def page_created(index, widget):
-            if index == 5:
-                widget.store_page.offersChanged.connect(self._set_plugin_updates)
-                if self._plugin_catalog_offers:
-                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
-            elif index == 6:
-                widget.releaseChecked.connect(self._set_app_update)
-                if self._available_update:
-                    widget._release_ready(self._available_update)
-                    widget._busy(False)
-        dialog.pageCreated.connect(page_created)
-        dialog.updatesViewed.connect(self._remember_updates)
-        dialog.appearanceChanged.connect(self.set_appearance)
-        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
-                                                for offer in self._plugin_update_offers))
-        dialog._mark_update_page('updates', bool(self._available_update and
-                                                dialog.seen_versions.get('app') != self._available_update['version']))
-        for index, (key, _label) in enumerate(dialog.PAGES):
-            if key == page:
-                dialog.nav.setCurrentRow(index)
-                break
-        if page == "plugins":
-            dialog.plugin_page.tabs.setCurrentIndex(1)
-        if dialog.exec() != SettingsDialog.Accepted:
-            return False
-        saved_at = time.perf_counter()
-        appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
-                             if key.startswith('skin_') or key == 'appearance_mode'}
-        codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
-        self.settings.update(dialog.settings())
-        for codec_dialog in self._codec_dialogs.values():
-            codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
-        if not self.settings.get("auto_update", False):
-            self._startup_update_timer.stop()
-            if self._update_notice is not None:
-                self._update_notice.dismiss()
-        self._sync_fullscreen_audio()
-        self.shortcuts = dialog.shortcuts()
-        self._refresh_shortcuts()
-        enabled_plugins = dialog.enabled_plugins()
-        self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
-        plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
-        appearance_after = {key: value for key, value in self.settings.items()
-                            if key.startswith('skin_') or key == 'appearance_mode'}
-        if appearance_after != appearance_before or plugins_changed:
-            self.refresh_skin()
-        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        if plugins_changed:
-            self._sync_platform_rooms()
-        self.state["settings"] = dict(self.settings)
-        self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
-        self._poll_timer.setInterval(self.poll_interval_ms())
-        for player in self.players.values():
-            player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        for tile in self.wall.tiles:
-            if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
-                self._restart_codec_tile(tile)
-        config_module.save(self.current_state())
-        # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
-        self._sync_recording_switch()
-        self._sync_replay_scope()
-        self.apply_danmaku_settings()
-        self.apply_preview_settings()
-        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        update_page = dialog._loaded_pages.get(6)
-        if getattr(update_page, "install_requested", False):
-            self._update_plan = dialog.update_page.plan_path
-            self.close()
-        elif getattr(dialog, "restart_requested", False):
-            self._restart_requested = True
-            self.close()
-        return True
+        try:
+            print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            def page_created(index, widget):
+                if index == 5:
+                    widget.store_page.offersChanged.connect(self._set_plugin_updates)
+                    if self._plugin_catalog_offers:
+                        widget.store_page._catalog_ready(self._plugin_catalog_offers)
+                elif index == 6:
+                    widget.releaseChecked.connect(self._set_app_update)
+                    if self._available_update:
+                        widget._release_ready(self._available_update)
+                        widget._busy(False)
+            dialog.pageCreated.connect(page_created)
+            dialog.updatesViewed.connect(self._remember_updates)
+            dialog.appearanceChanged.connect(self.set_appearance)
+            dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
+                                                    for offer in self._plugin_update_offers))
+            dialog._mark_update_page('updates', bool(self._available_update and
+                                                    dialog.seen_versions.get('app') != self._available_update['version']))
+            for index, (key, _label) in enumerate(dialog.PAGES):
+                if key == page:
+                    dialog.nav.setCurrentRow(index)
+                    break
+            if page == "plugins":
+                dialog.plugin_page.tabs.setCurrentIndex(1)
+            if dialog.exec() != SettingsDialog.Accepted:
+                return False
+            saved_at = time.perf_counter()
+            appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
+                                 if key.startswith('skin_') or key == 'appearance_mode'}
+            codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
+            self.settings.update(dialog.settings())
+            for codec_dialog in self._codec_dialogs.values():
+                codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
+            if not self.settings.get("auto_update", False):
+                self._startup_update_timer.stop()
+                if self._update_notice is not None:
+                    self._update_notice.dismiss()
+            self._sync_fullscreen_audio()
+            self.shortcuts = dialog.shortcuts()
+            self._refresh_shortcuts()
+            enabled_plugins = dialog.enabled_plugins()
+            self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
+            plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
+            appearance_after = {key: value for key, value in self.settings.items()
+                                if key.startswith('skin_') or key == 'appearance_mode'}
+            if appearance_after != appearance_before or plugins_changed:
+                self.refresh_skin()
+            print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            if plugins_changed:
+                self._sync_platform_rooms()
+            self.state["settings"] = dict(self.settings)
+            self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
+            self._poll_timer.setInterval(self.poll_interval_ms())
+            for player in self.players.values():
+                player.freeze_watch = bool(self.settings.get("freeze_watch", True))
+            for tile in self.wall.tiles:
+                if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
+                    self._restart_codec_tile(tile)
+            config_module.save(self.current_state())
+            # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
+            self._sync_recording_switch()
+            self._sync_replay_scope()
+            self.apply_danmaku_settings()
+            self.apply_preview_settings()
+            print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
+            update_page = dialog._loaded_pages.get(6)
+            if getattr(update_page, "install_requested", False):
+                self._update_plan = dialog.update_page.plan_path
+                self.close()
+            elif getattr(dialog, "restart_requested", False):
+                self._restart_requested = True
+                self.close()
+            return True
+        finally:
+            dialog.deleteLater()
 
     def refresh_skin(self):
         self.skin_controller.refresh()
