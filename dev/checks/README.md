@@ -99,6 +99,7 @@
 | [selfcheck_smart_folder_sources](../selfcheck_smart_folder_sources.py) | 单项执行前核对 |
 | [selfcheck_smart_folders](../selfcheck_smart_folders.py) | 单项执行前核对 |
 | [selfcheck_sort_manager](../selfcheck_sort_manager.py) | `offline` |
+| [selfcheck_frequent_sort](../selfcheck_frequent_sort.py) | `offline`、`smoke`；主动观看计分、快照刷新、文件夹与持久化 |
 | [selfcheck_tile_bottom_order](../selfcheck_tile_bottom_order.py) | `offline` |
 | [selfcheck_tile_overlay](../selfcheck_tile_overlay.py) | 单项执行前核对 |
 | [selfcheck_tile_ui](../selfcheck_tile_ui.py) | 单项执行前核对 |

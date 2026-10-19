@@ -259,6 +259,7 @@
 - `dev/selfcheck_smart_folders.py`
 - `dev/selfcheck_smooth_edges.py`
 - `dev/selfcheck_sort_manager.py`
+- `dev/selfcheck_frequent_sort.py`
 - `dev/selfcheck_startup.py`
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
