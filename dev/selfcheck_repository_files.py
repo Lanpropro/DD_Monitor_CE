@@ -13,10 +13,13 @@ LOCAL_ONLY = (
     "dev/preview_*.py", "dev/watch_layout_preview.py", "dev/run-preview.cmd", "dev/make_shots.py",
     "dev/thumb_sheet.py", "dev/mock_portrait2.py",
     "docs/portrait-bar.png", "docs/portrait-current.png", "docs/portrait-mock.png",
+    "dev/mock_portrait.py", "dev/portrait_mock.html", "console.log*",
+    "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
     "LICENSE", "docs/NOTICE.md", "favicon.ico", "assets/logo.png",
+    "CONTRIBUTING.md", ".github/PULL_REQUEST_TEMPLATE.md", ".github/workflows/repository-checks.yml",
     "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py",
     "dev/build_release.ps1", "dev/build_windows_version.py",
     "dev/pyi_rth_pyside6_paths.py", "dev/selfcheck_video_danmaku.py",
