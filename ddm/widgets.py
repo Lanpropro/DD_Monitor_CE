@@ -2102,6 +2102,11 @@ class NavThumb(QFrame):
             self._player.stateChanged.connect(self._on_player_state)
         return self._player
 
+    def prepare_preview(self) -> None:
+        """在取流期间准备播放器，封面继续显示。"""
+        if self._card_mode and not self._compact_thumb():
+            self._ensure_player().bind()
+
     def play(self, url: str, profile: str = "web", options=None, *, headers=None) -> None:
         """在这个缩略图里放预览（静音、低画质）。
 
