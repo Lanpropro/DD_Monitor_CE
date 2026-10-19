@@ -90,6 +90,13 @@ class CheckRunnerTests(unittest.TestCase):
             self.assertIn('native:', output.getvalue())
             run.assert_not_called()
 
+    def test_entrypoint_outputs_utf8_with_a_legacy_console_encoding(self):
+        env = dict(os.environ, PYTHONIOENCODING='cp1252')
+        result = subprocess.run([sys.executable, str(runner.ROOT / 'dev/run_checks.py'), '--list'],
+                                env=env, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('仓库规范', result.stdout.decode('utf-8'))
+
     def test_explicit_live_arguments_are_forwarded(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(runner, 'ROOT', Path(temp)), \
                 patch.object(runner.sys, 'platform', 'win32'), \
