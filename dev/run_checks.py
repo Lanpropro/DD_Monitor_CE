@@ -14,14 +14,18 @@ BOOTSTRAP = ROOT / 'dev/checks/bootstrap.py'
 
 def load_suites():
     suites = json.loads(CATALOG.read_text(encoding='utf-8'))
-    seen = set()
+    seen = {}
     for name, suite in suites.items():
         if suite['mode'] not in ('repository', 'offline', 'native', 'live'):
             raise ValueError(f'Unknown check mode: {name}')
+        if len(suite['scripts']) != len(set(suite['scripts'])):
+            raise ValueError(f'Duplicate check in suite: {name}')
         for script in suite['scripts']:
-            if Path(script).name != script or script in seen or not (ROOT / 'dev' / (script + '.py')).is_file():
+            if (Path(script).name != script or
+                    (script in seen and seen[script] != suite['mode']) or
+                    not (ROOT / 'dev' / (script + '.py')).is_file()):
                 raise ValueError(f'Invalid or duplicate check: {script}')
-            seen.add(script)
+            seen[script] = suite['mode']
     return suites
 
 
