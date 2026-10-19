@@ -497,11 +497,12 @@ class EmoticonTabTests(unittest.TestCase):
             self.popup.set_packages(packs)
             self.assertEqual([self.popup.tabs.tabText(i) for i in range(4)],
                              ["表情", "通用表情", "主播表情", "装扮表情"], "先显示包名，再逐张替换封面")
-            self.assertTrue(all(self.popup.tabs.tabIcon(i).isNull() for i in range(4)))
+            self.assertFalse(self.popup.tabs.tabIcon(0).isNull(), '普通表情立即显示本地图标')
+            self.assertTrue(all(self.popup.tabs.tabIcon(i).isNull() for i in range(1, 4)))
             self.release.set()
             settle(lambda: not _active_requests)
             self.assertEqual(self.popup.tabs.tabText(0), "表情")
-            self.assertTrue(self.popup.tabs.tabIcon(0).isNull())
+            self.assertFalse(self.popup.tabs.tabIcon(0).isNull())
             for index, name in ((1, "通用表情"), (2, "主播表情"), (3, "装扮表情")):
                 self.assertFalse(self.popup.tabs.tabIcon(index).isNull(), "未选中的表情包也需要封面导航")
                 self.assertEqual(self.popup.tabs.tabText(index), "")

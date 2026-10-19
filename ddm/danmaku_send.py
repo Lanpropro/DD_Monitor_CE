@@ -218,6 +218,29 @@ class _EmoticonImageLoader(QThread):
             self.msleep(4)
 
 
+def _emoji_category_icon():
+    pixmap = QPixmap(48, 48)
+    pixmap.setDevicePixelRatio(2)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.translate(12, 12)
+    pen = QPen(theme.qcolor(theme.TEXT2), 1.7)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawEllipse(QRectF(-8, -8, 16, 16))
+    smile = QPainterPath(QPointF(-3.6, 1.8))
+    smile.quadTo(0, 6, 3.6, 1.8)
+    painter.drawPath(smile)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(theme.qcolor(theme.TEXT2))
+    for x in (-3, 3):
+        painter.drawEllipse(QPointF(x, -2.3), .9, .9)
+    painter.end()
+    return QIcon(pixmap)
+
+
 class _CenteredTabStyle(QProxyStyle):
     def drawControl(self, element, option, painter, widget=None):
         if element == QStyle.CE_TabBarTab and isinstance(option, QStyleOptionTab):
@@ -391,6 +414,8 @@ class EmoticonPopup(QMenu):
             if package["pkg_type"] == 3 and name.lower() == "emoji":
                 name = "表情"
             index = self.tabs.addTab(name)
+            if package['pkg_type'] == 3:
+                self.tabs.setTabIcon(index, _emoji_category_icon())
             self.tabs.setTabData(index, emoticon_order.package_key(package))
             self.tabs.setTabToolTip(index, name)
             self.tabs.setAccessibleTabName(index, name)
