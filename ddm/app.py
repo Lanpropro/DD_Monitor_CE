@@ -203,7 +203,7 @@ class MainWindow(QMainWindow):
         self.settings.pop("recording_backup_dir", None)
         self.settings.pop("recording_ffmpeg", None)
         self.recorder = RecordingManager(self.settings, self)
-        self.recorder.notice.connect(self._record_notice)
+        self.recorder.noticeWithRoom.connect(self._record_notice)
         self.recorder.changed.connect(self._record_state_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
         self._pending_capture: dict[object, bool] = {}
@@ -505,7 +505,8 @@ class MainWindow(QMainWindow):
             self._update_notice = UpdateNotice(self)
             self._update_notice.activated.connect(lambda: self.open_settings(
                 "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')})
+        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')},
+            persistent=self.settings.get('notice_persist_updates', True))
         parts = []
         if app_offer:
             parts.append('软件有新版 v' + app_offer['version'])
@@ -1850,7 +1851,7 @@ class MainWindow(QMainWindow):
             return
         if tile in self._pending_capture:
             self._pending_capture.pop(tile)
-            self._record_notice(f"原画取流失败，录制未开始：{reason}")
+            self._record_notice(f"原画取流失败，录制未开始：{reason}", tile.room)
             self._restore_capture_quality(tile)
             if not login_required:
                 return
@@ -2414,10 +2415,15 @@ class MainWindow(QMainWindow):
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
-            names = "、".join(str(room.get("uname") or room["room_id"]) for room in rooms[:2])
-            message = (names + " 开播了" if len(rooms) <= 2
-                       else f"{names} 等 {len(rooms)} 位主播开播了")
-            self._show_notice(message, rooms=rooms, kind="live")
+            groups = [[room for room in rooms if (str(room['room_id']) in self.sidebar.pinned) == pinned]
+                      for pinned in (True, False)]
+            for group in groups:
+                if not group:
+                    continue
+                names = "、".join(str(room.get("uname") or room["room_id"]) for room in group[:2])
+                message = (names + " 开播了" if len(group) <= 2
+                           else f"{names} 等 {len(group)} 位主播开播了")
+                self._show_notice(message, rooms=group, kind="live")
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")
@@ -2867,7 +2873,8 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
         tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
-        tile.composer.noticeRequested.connect(self._danmaku_send_notice)
+        tile.composer.noticeRequested.connect(
+            lambda message, login, t=tile: self._danmaku_send_notice(message, login, room=t.room))
         tile._actions_wired = True
 
     def _on_device_cookie_ready(self) -> None:
@@ -2935,7 +2942,7 @@ class MainWindow(QMainWindow):
 
     def _start_capture(self, tile, *, recording: bool) -> None:
         if recording and not self._recording_enabled():
-            self._record_notice("录制功能已在「设置 → 录制」里关闭")
+            self._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
             return
         if tile in self._pending_capture:
             return
@@ -2943,7 +2950,7 @@ class MainWindow(QMainWindow):
             if not self.open_settings("recording"):
                 return
             if not str(self.settings.get("recording_dir") or "").strip():
-                self._record_notice("请先选择录制保存目录")
+                self._record_notice("请先选择录制保存目录", tile.room)
                 return
         if not self.settings.get("recording_lock_quality", True):
             self.recorder.start(tile, recording=recording)
@@ -2973,7 +2980,7 @@ class MainWindow(QMainWindow):
     def _finish_pending_capture(self, tile) -> None:
         recording = self._pending_capture.pop(tile)
         if tile.actual_quality != 10000:
-            self._record_notice("直播源未提供原画，录制未开始")
+            self._record_notice("直播源未提供原画，录制未开始", tile.room)
             self._restore_capture_quality(tile)
         elif not self.recorder.start(tile, recording=recording):
             self._restore_capture_quality(tile)
@@ -3033,22 +3040,30 @@ class MainWindow(QMainWindow):
                 f"{hours:d}:{minutes:02d}:{secs:02d}" if hours
                 else f"{minutes:02d}:{secs:02d}")
 
-    def _record_notice(self, message: str) -> None:
+    def _record_notice(self, message: str, room=None) -> None:
         if self._closing:
             return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
-        self._show_notice(message, kind="warning" if warning else "info")
+        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
 
-    def _danmaku_send_notice(self, message: str, login_required: bool) -> None:
+    def _danmaku_send_notice(self, message: str, login_required: bool, *, room=None) -> None:
         self._show_notice(message + ("，点击此处登录" if login_required else ""),
-                          kind="warning", on_click=(
+                          rooms=[room] if room else (), kind="warning", on_click=(
                               lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None) -> None:
         if self._closing:
             return
         from .online_ui import show_result
-        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click)
+        pinned_live = kind == 'live' and any(
+            str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
+        category = 'pinned_live' if pinned_live else kind
+        persistent = self.settings.get('notice_persist_' + category, pinned_live)
+        if on_click is None and rooms:
+            url = self._room_browser_url(rooms[0])
+            if url:
+                on_click = lambda target=url: self._open_room_browser(target)
+        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click, persistent=persistent)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3423,9 +3438,9 @@ class MainWindow(QMainWindow):
             return False
 
     def _on_room_avatar(self, room_id: str, pixmap) -> None:
-        notice = getattr(self, "_result_notice", None)
-        if notice is not None:
-            notice.set_room_avatar(room_id, pixmap)
+        for notice in getattr(self, '_notices', []):
+            if hasattr(notice, 'set_room_avatar'):
+                notice.set_room_avatar(room_id, pixmap)
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_face(pixmap)
