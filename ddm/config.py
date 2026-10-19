@@ -88,7 +88,7 @@ DEFAULT_SETTINGS = {
     "recording_replay_max_tiles": 3,
     "recording_min_free_mb": 2048,
     "recording_lock_quality": True,  # 录制期间锁定原画，结束后恢复画质
-    "danmaku_font": "",       # 弹幕字体（空 = 跟主题默认字体）
+    "danmaku_font": "",       # 弹幕字体（空 = 内置思源黑体）
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
     "danmaku_retention_version": 1,  # 旧版默认 300 条的一次性升级标记

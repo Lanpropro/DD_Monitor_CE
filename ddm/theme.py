@@ -15,7 +15,7 @@ from functools import lru_cache
 from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
 
@@ -100,6 +100,16 @@ BORDER_STRONG = "rgba(255, 255, 255, 0.12)"
 
 FONT_DEFAULT = "Microsoft YaHei UI"
 FONT_FAMILY = f'"{FONT_DEFAULT}", "Microsoft YaHei", "Segoe UI", sans-serif'
+FONT_DANMAKU = "Source Han Sans SC"
+
+
+@lru_cache(maxsize=1)
+def danmaku_font_family() -> str:
+    """仅向当前应用注册内置弹幕字体，不依赖系统安装。"""
+    font_id = QFontDatabase.addApplicationFont(asset("fonts/SourceHanSansSC-Regular.otf"))
+    if font_id < 0:
+        raise RuntimeError("Cannot load bundled Source Han Sans SC font")
+    return FONT_DANMAKU
 
 FONT_CAPTION = 12
 FONT_CONTROL = 13

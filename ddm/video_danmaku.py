@@ -152,7 +152,7 @@ class VideoDanmaku(QWidget):
         return QFontMetrics(self._font()).height() + 8
 
     def _font(self) -> QFont:
-        font = QFont(str(self.settings.get("danmaku_font") or theme.FONT_DEFAULT))
+        font = QFont(str(self.settings.get("danmaku_font") or theme.danmaku_font_family()))
         font.setPixelSize(self.font_pixels())
         font.setWeight(QFont.Medium)
         return font
