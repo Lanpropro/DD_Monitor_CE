@@ -14,7 +14,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.video_danmaku import VideoDanmaku, _TimerResolution
 

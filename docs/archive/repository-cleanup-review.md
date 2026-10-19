@@ -10,16 +10,16 @@
 - 根目录历史 HANDOFF-*.md 与 idea.txt 移到 `docs/local/`，继续只在本机保留。
 - 根目录 README、LICENSE、AGENTS.md、PROJECT_STATE.md 是仓库和交接入口，保留原位。插件/资源内 README 保持就近存放。
 - 软件源码读取新文档路径，仍兼容 EXE 同级版本说明；打包继续将 NOTICE 和当前版本说明复制到 EXE 同级。
-- [统一文档入口](README.md)列出分类和导航。
+- [统一文档入口](../README.md)列出分类和导航。
 
 ## 已移除的四个文件
 
 | 文件 | 判断依据 | 保留的相关检查 |
 | --- | --- | --- |
-| dev/selfcheck_appearance_prototype.py | 定义独立 IconPrototype，并临时覆盖样式展示旧原型，不检查正式 FolderIconDialog；正式功能已实现且用户确认完成 | [文件夹图标](../dev/selfcheck_folder_icons.py)、[浅色细节](../dev/selfcheck_light_refinements.py) |
-| dev/selfcheck_final2.py | 早期顶栏/音量/画质外观打印脚本，无自动失败断言；现有正式控件检查更明确 | [格子界面](../dev/selfcheck_tile_ui.py)、[物理控件](../dev/selfcheck_control_physical_edges.py) |
-| dev/selfcheck_quality2.py | 早期画质请求打印脚本，无自动失败断言，且使用 config.load() 读取本机配置；不适合作为自动回归 | [B站画质](../dev/selfcheck_bili_quality.py)、[自动画质](../dev/selfcheck_auto_quality.py)、[画质切换](../dev/selfcheck_auto_quality_switch_live.py) |
-| dev/selfcheck_login2.py | 早期真实登录窗口/截图诊断，无自动失败断言，会等待真实网络二维码；与离线回归混用容易误报成功 | [二维码刷新](../dev/selfcheck_qr_refresh.py)、[二维码响应](../dev/selfcheck_qr_responsiveness.py) |
+| dev/selfcheck_appearance_prototype.py | 定义独立 IconPrototype，并临时覆盖样式展示旧原型，不检查正式 FolderIconDialog；正式功能已实现且用户确认完成 | [文件夹图标](../../dev/selfcheck_folder_icons.py)、[浅色细节](../../dev/selfcheck_light_refinements.py) |
+| dev/selfcheck_final2.py | 早期顶栏/音量/画质外观打印脚本，无自动失败断言；现有正式控件检查更明确 | [格子界面](../../dev/selfcheck_tile_ui.py)、[物理控件](../../dev/selfcheck_control_physical_edges.py) |
+| dev/selfcheck_quality2.py | 早期画质请求打印脚本，无自动失败断言，且使用 config.load() 读取本机配置；不适合作为自动回归 | [B站画质](../../dev/selfcheck_bili_quality.py)、[自动画质](../../dev/selfcheck_auto_quality.py)、[画质切换](../../dev/selfcheck_auto_quality_switch_live.py) |
+| dev/selfcheck_login2.py | 早期真实登录窗口/截图诊断，无自动失败断言，会等待真实网络二维码；与离线回归混用容易误报成功 | [二维码刷新](../../dev/selfcheck_qr_refresh.py)、[二维码响应](../../dev/selfcheck_qr_responsiveness.py) |
 
 上述“相关检查”覆盖现有功能行为，并不宣称与每个历史打印/截图一一等价。
 删除前已检索跟踪源码，未发现其作为其他脚本的导入依赖；原型文档引用同步修正。

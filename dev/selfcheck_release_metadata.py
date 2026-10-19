@@ -8,7 +8,7 @@ from unittest.mock import patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from build_plugin_catalog import build
+from dev.tools.build_plugin_catalog import build
 from ddm import online, version
 
 

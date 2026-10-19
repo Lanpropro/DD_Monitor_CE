@@ -52,12 +52,14 @@ git commit -m "fix(sidebar): correct selection marker position"
 基础仓库检查仅依赖 Python 和 Git，不联网、不读取个人配置：
 
 ```powershell
-python -m unittest dev.selfcheck_repository_files dev.selfcheck_project_workflow
+python dev/run_checks.py --suite repository
 python -m compileall -q ddm blivedm main.py
 git diff --check
 ```
 
 GitHub Actions 执行以上基础检查。这些检查不能替代功能、原生播放和真实直播验收。
+
+使用 `python dev/run_checks.py --list` 查看已审查的测试套件。完整命令、依赖与全部专项脚本的分类入口见[验证指南](docs/development/testing.md)。新增测试同步更新分类索引；确认隔离条件后再纳入批量套件。
 
 涉及界面、账号或播放的专项检查应使用独立测试数据，通常设置：
 

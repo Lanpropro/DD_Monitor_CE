@@ -13,7 +13,7 @@
 每个插件 `plugin.json` 建议声明 `min_app_version`，例如 `"0.3"`。生成目录时提供本次仍受支持的所有插件安装包，目录是完整列表，不仅包含本次改动的插件。
 
 ```powershell
-python dev/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domestic_live-1.1.zip global_live-1.1.zip
+python dev/tools/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domestic_live-1.1.zip global_live-1.1.zip
 ```
 
 将生成的目录和对应 ZIP 一起上传到同一正式 Release。工具只读取已有 ZIP，不执行插件代码或生成新 ZIP。每次升级使用新版本和新的附件 URL，不覆盖旧版本附件。
