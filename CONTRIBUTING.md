@@ -27,7 +27,7 @@ git worktree list
 - 一项独立功能或修复使用 `function/<名称>`，如 `function/emoticon-tabs`。
 - 功能、修复和外部贡献通过 PR 提交到 `develop`。未完成时可使用 Draft；准备好审查后使用普通 PR。
 - 准备发布时，验证完整的 `develop`，再通过 PR 合入 `main`；已有面向 `main` 的 PR 先检查依赖与差异，再决定是否调整目标。
-- 现有 PR 模板暂保留旧的 `main` 目标说明，创建日常 PR 时手动将 GitHub 的 base 选为 `develop`，以本指南为准。
+- PR 模板区分日常贡献与发布；创建时核对 GitHub 的 base，日常贡献选择 `develop`，发布选择 `main`。
 - 多项任务同时进行时，使用独立 worktree 和分支；不要让测试目录与日常开发目录互相覆盖。
 - 合并后的功能分支可在确认不再被 worktree 使用后删除；备份和未合并成果先保留。
 
