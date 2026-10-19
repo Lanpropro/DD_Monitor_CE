@@ -47,6 +47,7 @@ from .player import TilePlayer
 from .preview import HoverPreview
 from .recording import RecordingManager
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
+from .watch_history import WatchHistory
 
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
 AUDIO_AUDIT_MS = 2_000
@@ -320,6 +321,11 @@ class MainWindow(QMainWindow):
         self._record_clock = QTimer(self)
         self._record_clock.setInterval(1000)
         self._record_clock.timeout.connect(self._tick_record_clock)
+        self._watch_history_last_tick = time.monotonic()
+        self._watch_history_timer = QTimer(self)
+        self._watch_history_timer.setInterval(1000)
+        self._watch_history_timer.timeout.connect(self._tick_watch_history)
+        self._watch_history_timer.start()
         self._record_clock.start()
         self.wall.tileClicked.connect(self._on_tile_clicked)
         self.wall.roomDropped.connect(self._on_room_dropped)
@@ -569,6 +575,7 @@ class MainWindow(QMainWindow):
 
     # ---- 界面状态 ----
     def _restore_ui(self) -> None:
+        self.sidebar.watch_history = WatchHistory(self.state.get("watch_history"))
         geometry = self.state.get("geometry")
         if geometry:
             try:
@@ -1016,6 +1023,7 @@ class MainWindow(QMainWindow):
             "import_order": list(self.sidebar.import_order),
             "custom_order": list(self.sidebar.custom_order),
             "follow_folders": self.sidebar.folder_state(),
+            "watch_history": self.sidebar.watch_history.state(),
             "settings": dict(self.settings),
             "emoticon_order": deepcopy(emoticon_order.orders),
             "geometry": str((self._fullscreen_saved_geometry or self.saveGeometry()).toBase64(),
@@ -1054,6 +1062,7 @@ class MainWindow(QMainWindow):
         hide_ms = (time.perf_counter() - t0) * 1000
         # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
+        self._watch_history_timer.stop()
         for tile in self.wall.tiles:
             tile.composer.shutdown()
         self._startup_update_timer.stop()
@@ -1472,6 +1481,25 @@ class MainWindow(QMainWindow):
 
     def _on_order_changed(self) -> None:
         config_module.save(self.current_state())
+
+    def _tick_watch_history(self):
+        now = time.monotonic()
+        elapsed = now - self._watch_history_last_tick
+        self._watch_history_last_tick = now
+        history = self.sidebar.watch_history
+        if self._closing or not history.enabled:
+            return
+        present = {str(tile.room.get("room_id")) for tile in self.wall.tiles
+                   if tile.room.get("room_id")}
+        active = set()
+        if self.isVisible() and not self.isMinimized():
+            for tile in self.wall.visible_tiles():
+                player = self.players.get(tile)
+                if (tile.isVisible() and not tile.paused and player is not None
+                        and player.state == "playing" and not player.paused):
+                    active.add(str(tile.room.get("room_id")))
+        if history.sample(present, active, elapsed):
+            self._save_timer.start()
 
     # ---- 播放 ----
     def start_all(self) -> None:
@@ -2127,6 +2155,7 @@ class MainWindow(QMainWindow):
         if not room:
             print(f"拖入的直播间 {room_id} 查询失败")
             return
+        self.sidebar.watch_history.select(str(room_id))
         self._prepare_room(room)
         other = self._tile_of(room_id)
         if other is tile:
@@ -2325,6 +2354,7 @@ class MainWindow(QMainWindow):
 
     def refresh_follow(self) -> None:
         """侧栏的「刷新」：立刻拉一次直播状态，并把还没显示的头像补上。"""
+        self.sidebar.refresh_frequent_order()
         self.sidebar.set_refreshing(True)
         self.refresh_status(force=True)
         self.load_room_avatars()
@@ -2437,6 +2467,7 @@ class MainWindow(QMainWindow):
     def _on_tile_clicked(self, room: dict) -> None:
         # 信号带过来的字典是副本，用房间号比较（不能比较对象身份）
         room_id = str(room.get("room_id") or "")
+        self.sidebar.watch_history.select(room_id)
         for tile in self.wall.tiles:
             tile.set_focused(bool(room_id) and str(tile.room.get("room_id") or "") == room_id)
         self.sidebar.select_room(room)
@@ -3139,6 +3170,7 @@ class MainWindow(QMainWindow):
     def add_to_wall(self, room: dict, *, empty_only=False) -> None:
         self._prepare_room(room)
         room_id = str(room.get("room_id"))
+        self.sidebar.watch_history.select(room_id)
         if self._tile_of(room_id) is not None:
             print(f"{room.get('uname')} 已经在画面墙上")
             return

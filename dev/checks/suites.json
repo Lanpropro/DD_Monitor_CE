@@ -21,7 +21,8 @@
       "selfcheck_main_notices",
       "selfcheck_layout_16",
       "selfcheck_danmaku_send",
-      "selfcheck_plugin_contract"
+      "selfcheck_plugin_contract",
+      "selfcheck_frequent_sort"
     ]
   },
   "offline": {
@@ -38,6 +39,7 @@
       "selfcheck_bili_codec",
       "selfcheck_tile_bottom_order",
       "selfcheck_sort_manager",
+      "selfcheck_frequent_sort",
       "selfcheck_theme_latency",
       "selfcheck_brand_assets",
       "selfcheck_release_metadata",

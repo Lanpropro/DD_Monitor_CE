@@ -43,12 +43,12 @@ class CheckRunnerTests(unittest.TestCase):
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                         self.assertNotEqual(ast.unparse(node.func), 'os._exit', script)
 
-    def test_smoke_covers_five_areas_with_offline_isolation(self):
+    def test_smoke_covers_core_areas_with_offline_isolation(self):
         suite = runner.load_suites()['smoke']
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
             'selfcheck_general_settings', 'selfcheck_main_notices', 'selfcheck_layout_16',
-            'selfcheck_danmaku_send', 'selfcheck_plugin_contract'])
+            'selfcheck_danmaku_send', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
                      'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
