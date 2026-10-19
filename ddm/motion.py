@@ -172,14 +172,22 @@ class SlidingTabs(QTabWidget):
 
 
 class PageRevealEffect(QGraphicsOpacityEffect):
-    """只移动绘制内容，不改变设置页布局或控件的最终位置。"""
+    """切页时只合成一张快照，避免每帧重新绘制整页控件。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.reset_snapshot()
+
+    def reset_snapshot(self):
+        self._snapshot = None
+        self._offset = QPoint()
+
     def draw(self, painter):
-        offset = QPoint()
-        pixmap = self.sourcePixmap(Qt.LogicalCoordinates, offset)
+        if self._snapshot is None:
+            self._snapshot = self.sourcePixmap(Qt.LogicalCoordinates, self._offset)
         painter.save()
         painter.setOpacity(self.opacity())
-        shift = round(24 * (1 - self.opacity()) / 0.75)
-        painter.drawPixmap(offset + QPoint(shift, 0), pixmap)
+        shift = 24 * (1 - self.opacity()) / 0.75
+        painter.drawPixmap(QPointF(self._offset) + QPointF(shift, 0), self._snapshot)
         painter.restore()
 
 
@@ -188,7 +196,7 @@ class SettingsStack(QStackedWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._fade = QVariantAnimation(self)
-        self._fade.setDuration(260)
+        self._fade.setDuration(200)
         self._fade.setEasingCurve(QEasingCurve.OutCubic)
         self._fade.valueChanged.connect(self._set_opacity)
         self._fade.finished.connect(self.finish_transition)
@@ -215,6 +223,8 @@ class SettingsStack(QStackedWidget):
             self._effect = PageRevealEffect(self)
             self._effect.setOpacity(0.25)
             self.setGraphicsEffect(self._effect)
+        else:
+            self._effect.reset_snapshot()
         start = self._effect.opacity()
         self._fade.setCurrentTime(0)
         self._fade.setStartValue(start)
@@ -224,3 +234,7 @@ class SettingsStack(QStackedWidget):
     def hideEvent(self, event):
         self.finish_transition()
         super().hideEvent(event)
+
+    def resizeEvent(self, event):
+        self.finish_transition()
+        super().resizeEvent(event)

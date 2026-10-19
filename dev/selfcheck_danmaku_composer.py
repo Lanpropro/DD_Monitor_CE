@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -15,7 +16,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QPixmap, QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QToolButton
-from ddm import bili, images, theme
+from ddm import bili, config, images, theme
 
 APP = QApplication.instance() or QApplication([])
 
@@ -47,6 +48,11 @@ class ComposerTests(unittest.TestCase):
             self.assertEqual(button.grab().toImage(), closed)
 
     def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        cache_root = patch.object(config, 'REPO', directory.name)
+        cache_root.start()
+        self.addCleanup(cache_root.stop)
         self.assertIsNotNone(importlib.util.find_spec("ddm.danmaku_send"), "缺少独立的弹幕输入控件")
         from ddm.danmaku_send import DanmakuComposer
         self.saved = (bili.SESSION_DATA, bili.BILI_JCT, bili.BUVID3)
@@ -80,6 +86,40 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(other.edit.text(), "房间二的草稿")
         self.assertEqual(send.call_args.args, ("101", "房间一"))
         other.close()
+
+    def test_catalog_survives_new_tile_and_restart_and_refresh_replaces_it(self):
+        from ddm.danmaku_send import DanmakuComposer, _catalog_path
+        packs = [{'pkg_type': 3, 'pkg_name': '表情', 'emoticons': []}]
+        with patch.object(bili, 'get_emoticons', return_value=packs) as fetch:
+            self.composer.open_emoticons()
+            settle(lambda: self.composer._packages is not None)
+            self.composer.popup.hide()
+            for _ in range(2):
+                other = DanmakuComposer()
+                other.set_room('101')
+                try:
+                    other.open_emoticons()
+                    self.assertEqual(other._packages, packs)
+                    self.assertEqual(fetch.call_count, 1)
+                finally:
+                    other.shutdown()
+                    other.close()
+            self.assertNotIn('test-session', _catalog_path('101', self.composer._auth).read_text())
+            self.composer._reload_emoticons()
+            settle(lambda: self.composer._catalog_pending is None)
+            self.assertEqual(fetch.call_count, 2)
+
+    def test_catalog_isolated_by_account_and_corrupt_cache_is_refetched(self):
+        from ddm.danmaku_send import _catalog_path, _save_catalog, _load_catalog
+        packs = [{'pkg_type': 3, 'pkg_name': '表情', 'emoticons': []}]
+        _save_catalog('101', self.composer._auth, packs)
+        self.assertIsNone(_load_catalog('101', ('other-account', 'other-csrf')))
+        self.assertIsNone(_load_catalog('202', self.composer._auth))
+        _catalog_path('101', self.composer._auth).write_text('{broken', encoding='utf-8')
+        with patch.object(bili, 'get_emoticons', return_value=packs) as fetch:
+            self.composer.open_emoticons()
+            settle(lambda: self.composer._packages is not None)
+            fetch.assert_called_once()
 
     def test_failure_retains_draft_and_shows_reason(self):
         self.composer.edit.setText("保留我")

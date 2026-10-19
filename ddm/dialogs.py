@@ -208,7 +208,6 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
-        ("live_alert", "开播提醒（顶部提示与关注栏动效）"),
     ]
 
     def __init__(self, settings: dict, parent=None):
@@ -344,6 +343,42 @@ class GeneralSettingsPage(QWidget):
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())
         return result
+
+
+class NotificationSettingsPage(QWidget):
+    ITEMS = [
+        ('live_alert', '启用开播提醒（顶部提示与关注栏动效）'),
+        ('notice_persist_updates', '软件和插件更新'),
+        ('notice_persist_pinned_live', '置顶主播开播'),
+        ('notice_persist_live', '其他主播开播'),
+        ('notice_persist_warning', '警告和失败提示'),
+        ('notice_persist_info', '普通操作结果'),
+    ]
+
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        from .config import DEFAULT_SETTINGS
+        self.setObjectName('SettingsPage')
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(_page_head('通知', '多条通知向下排列；有跳转目标时点击通知可打开，右侧 × 可单独关闭。'))
+        self._checks = {}
+        for index, (key, label) in enumerate(self.ITEMS):
+            if index == 1:
+                layout.addWidget(QLabel('持续显示至手动关闭：'))
+            box = QCheckBox(label)
+            box.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
+            self._checks[key] = box
+            layout.addWidget(box)
+        layout.addStretch(1)
+
+    def reset(self):
+        from .config import DEFAULT_SETTINGS
+        for key, box in self._checks.items():
+            box.setChecked(DEFAULT_SETTINGS[key])
+
+    def values(self):
+        return {key: box.isChecked() for key, box in self._checks.items()}
 
 
 class ShortcutSettingsPage(QWidget):
@@ -500,7 +535,15 @@ class RecordingSettingsPage(QWidget):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        self.scroll.setWidget(content)
+        outer.addWidget(self.scroll)
+        layout = QVBoxLayout(content)
         layout.addLayout(_page_head("录制与即时回放", "每个格子独立录制直播流；画面墙控件和弹幕不会进入文件。"))
         grid = QGridLayout()
         layout.addLayout(grid)
@@ -1012,7 +1055,8 @@ class SettingsDialog(QDialog):
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
-             ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件"), ("updates", "软件更新")]
+             ("recording", "录制"), ("shortcuts", "快捷键"), ("plugins", "插件"), ("updates", "软件更新"),
+             ("notifications", "通知")]
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
         super().__init__(parent)
@@ -1063,6 +1107,7 @@ class SettingsDialog(QDialog):
             4: lambda: ShortcutSettingsPage(shortcuts),
             5: lambda: PluginSettingsPage(plugin_manager),
             6: lambda: AppUpdatePage(settings),
+            7: lambda: NotificationSettingsPage(settings),
         }
         self._loaded_pages = {}
         if preview:
@@ -1071,7 +1116,7 @@ class SettingsDialog(QDialog):
             self._page_factories[5] = QWidget
             self._page_factories[6] = QWidget
         self.stack.addWidget(self.general_page)
-        for _index in range(6):
+        for _index in range(len(self.PAGES) - 1):
             self.stack.addWidget(QWidget())
         right.addWidget(self.stack, 1)
 
@@ -1215,7 +1260,7 @@ class SettingsDialog(QDialog):
     def settings(self) -> dict:
         values = dict(self._initial_settings)
         values.update(self.general_page.values())
-        for index in (1, 2, 3):
+        for index in (1, 2, 3, 7):
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
         if 6 in self._loaded_pages:

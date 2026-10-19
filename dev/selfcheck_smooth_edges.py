@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ['DDM_NO_SAVE'] = '1'
@@ -13,6 +14,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
 from ddm.widgets import LoadingIndicator, NavSelectionCheck
+from ddm.video_surface import VideoCorner
 
 APP = QApplication.instance() or QApplication([])
 
@@ -25,6 +27,32 @@ def canvas(width, height, scale):
 
 
 class SmoothEdges(unittest.TestCase):
+    def test_static_native_corner_reuses_upload_until_theme_or_size_changes(self):
+        if APP.platformName() != 'windows':
+            self.skipTest('Windows native alpha upload')
+        owner = QWidget()
+        owner.move(-8000, -8000)
+        corner = VideoCorner(owner)
+        owner.show()
+        corner.show()
+        APP.processEvents()
+        try:
+            corner.grab()
+            self.assertTrue(corner._alpha_uploaded)
+            with patch.object(corner, '_render_badge', wraps=corner._render_badge) as render:
+                for _ in range(20):
+                    corner.grab()
+                render.assert_not_called()
+                corner.setFixedSize(14, 14)
+                corner.grab()
+                self.assertEqual(render.call_count, 1)
+                theme.apply('light')
+                corner.grab()
+                self.assertEqual(render.call_count, 2)
+        finally:
+            owner.close()
+            theme.apply('dark')
+
     def test_corner_marker_has_an_empty_ring_and_fills_when_selected(self):
         marker = NavSelectionCheck()
         marker.resize(28, 28)

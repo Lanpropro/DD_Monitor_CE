@@ -99,6 +99,12 @@ def load_cached_avatar(url: str) -> QPixmap | None:
     return pixmap if not pixmap.isNull() else None
 
 
+def load_cached_emoticon(url: str) -> QPixmap | None:
+    """分类封面直接读取本地缓存，避免每次打开时由文字变成图标。"""
+    pixmap = QPixmap(_cache_path(url, "emoticons"))
+    return pixmap if not pixmap.isNull() else None
+
+
 def load_room_avatar(room_id: str) -> QPixmap | None:
     """读「这个房间上次那张头像」；没有就 None。
 

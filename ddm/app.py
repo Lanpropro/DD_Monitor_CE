@@ -203,7 +203,7 @@ class MainWindow(QMainWindow):
         self.settings.pop("recording_backup_dir", None)
         self.settings.pop("recording_ffmpeg", None)
         self.recorder = RecordingManager(self.settings, self)
-        self.recorder.notice.connect(self._record_notice)
+        self.recorder.noticeWithRoom.connect(self._record_notice)
         self.recorder.changed.connect(self._record_state_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
         self._pending_capture: dict[object, bool] = {}
@@ -505,7 +505,8 @@ class MainWindow(QMainWindow):
             self._update_notice = UpdateNotice(self)
             self._update_notice.activated.connect(lambda: self.open_settings(
                 "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')})
+        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')},
+            persistent=self.settings.get('notice_persist_updates', True))
         parts = []
         if app_offer:
             parts.append('软件有新版 v' + app_offer['version'])
@@ -835,80 +836,83 @@ class MainWindow(QMainWindow):
                           dict(self.plugins._platform_owner), set(self.plugins._removed))
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
-        print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        def page_created(index, widget):
-            if index == 5:
-                widget.store_page.offersChanged.connect(self._set_plugin_updates)
-                if self._plugin_catalog_offers:
-                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
-            elif index == 6:
-                widget.releaseChecked.connect(self._set_app_update)
-                if self._available_update:
-                    widget._release_ready(self._available_update)
-                    widget._busy(False)
-        dialog.pageCreated.connect(page_created)
-        dialog.updatesViewed.connect(self._remember_updates)
-        dialog.appearanceChanged.connect(self.set_appearance)
-        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
-                                                for offer in self._plugin_update_offers))
-        dialog._mark_update_page('updates', bool(self._available_update and
-                                                dialog.seen_versions.get('app') != self._available_update['version']))
-        for index, (key, _label) in enumerate(dialog.PAGES):
-            if key == page:
-                dialog.nav.setCurrentRow(index)
-                break
-        if page == "plugins":
-            dialog.plugin_page.tabs.setCurrentIndex(1)
-        if dialog.exec() != SettingsDialog.Accepted:
-            return False
-        saved_at = time.perf_counter()
-        appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
-                             if key.startswith('skin_') or key == 'appearance_mode'}
-        codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
-        self.settings.update(dialog.settings())
-        for codec_dialog in self._codec_dialogs.values():
-            codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
-        if not self.settings.get("auto_update", False):
-            self._startup_update_timer.stop()
-            if self._update_notice is not None:
-                self._update_notice.dismiss()
-        self._sync_fullscreen_audio()
-        self.shortcuts = dialog.shortcuts()
-        self._refresh_shortcuts()
-        enabled_plugins = dialog.enabled_plugins()
-        self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
-        plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
-        appearance_after = {key: value for key, value in self.settings.items()
-                            if key.startswith('skin_') or key == 'appearance_mode'}
-        if appearance_after != appearance_before or plugins_changed:
-            self.refresh_skin()
-        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        if plugins_changed:
-            self._sync_platform_rooms()
-        self.state["settings"] = dict(self.settings)
-        self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
-        self._poll_timer.setInterval(self.poll_interval_ms())
-        for player in self.players.values():
-            player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        for tile in self.wall.tiles:
-            if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
-                self._restart_codec_tile(tile)
-        config_module.save(self.current_state())
-        # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
-        self._sync_recording_switch()
-        self._sync_replay_scope()
-        self.apply_danmaku_settings()
-        self.apply_preview_settings()
-        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        update_page = dialog._loaded_pages.get(6)
-        if getattr(update_page, "install_requested", False):
-            self._update_plan = dialog.update_page.plan_path
-            self.close()
-        elif getattr(dialog, "restart_requested", False):
-            self._restart_requested = True
-            self.close()
-        return True
+        try:
+            print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            def page_created(index, widget):
+                if index == 5:
+                    widget.store_page.offersChanged.connect(self._set_plugin_updates)
+                    if self._plugin_catalog_offers:
+                        widget.store_page._catalog_ready(self._plugin_catalog_offers)
+                elif index == 6:
+                    widget.releaseChecked.connect(self._set_app_update)
+                    if self._available_update:
+                        widget._release_ready(self._available_update)
+                        widget._busy(False)
+            dialog.pageCreated.connect(page_created)
+            dialog.updatesViewed.connect(self._remember_updates)
+            dialog.appearanceChanged.connect(self.set_appearance)
+            dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
+                                                    for offer in self._plugin_update_offers))
+            dialog._mark_update_page('updates', bool(self._available_update and
+                                                    dialog.seen_versions.get('app') != self._available_update['version']))
+            for index, (key, _label) in enumerate(dialog.PAGES):
+                if key == page:
+                    dialog.nav.setCurrentRow(index)
+                    break
+            if page == "plugins":
+                dialog.plugin_page.tabs.setCurrentIndex(1)
+            if dialog.exec() != SettingsDialog.Accepted:
+                return False
+            saved_at = time.perf_counter()
+            appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
+                                 if key.startswith('skin_') or key == 'appearance_mode'}
+            codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
+            self.settings.update(dialog.settings())
+            for codec_dialog in self._codec_dialogs.values():
+                codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
+            if not self.settings.get("auto_update", False):
+                self._startup_update_timer.stop()
+                if self._update_notice is not None:
+                    self._update_notice.dismiss()
+            self._sync_fullscreen_audio()
+            self.shortcuts = dialog.shortcuts()
+            self._refresh_shortcuts()
+            enabled_plugins = dialog.enabled_plugins()
+            self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
+            plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
+            appearance_after = {key: value for key, value in self.settings.items()
+                                if key.startswith('skin_') or key == 'appearance_mode'}
+            if appearance_after != appearance_before or plugins_changed:
+                self.refresh_skin()
+            print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            if plugins_changed:
+                self._sync_platform_rooms()
+            self.state["settings"] = dict(self.settings)
+            self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
+            self._poll_timer.setInterval(self.poll_interval_ms())
+            for player in self.players.values():
+                player.freeze_watch = bool(self.settings.get("freeze_watch", True))
+            for tile in self.wall.tiles:
+                if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
+                    self._restart_codec_tile(tile)
+            config_module.save(self.current_state())
+            # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
+            self._sync_recording_switch()
+            self._sync_replay_scope()
+            self.apply_danmaku_settings()
+            self.apply_preview_settings()
+            print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
+            update_page = dialog._loaded_pages.get(6)
+            if getattr(update_page, "install_requested", False):
+                self._update_plan = dialog.update_page.plan_path
+                self.close()
+            elif getattr(dialog, "restart_requested", False):
+                self._restart_requested = True
+                self.close()
+            return True
+        finally:
+            dialog.deleteLater()
 
     def refresh_skin(self):
         self.skin_controller.refresh()
@@ -1850,7 +1854,7 @@ class MainWindow(QMainWindow):
             return
         if tile in self._pending_capture:
             self._pending_capture.pop(tile)
-            self._record_notice(f"原画取流失败，录制未开始：{reason}")
+            self._record_notice(f"原画取流失败，录制未开始：{reason}", tile.room)
             self._restore_capture_quality(tile)
             if not login_required:
                 return
@@ -2414,10 +2418,15 @@ class MainWindow(QMainWindow):
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
-            names = "、".join(str(room.get("uname") or room["room_id"]) for room in rooms[:2])
-            message = (names + " 开播了" if len(rooms) <= 2
-                       else f"{names} 等 {len(rooms)} 位主播开播了")
-            self._show_notice(message, rooms=rooms, kind="live")
+            groups = [[room for room in rooms if (str(room['room_id']) in self.sidebar.pinned) == pinned]
+                      for pinned in (True, False)]
+            for group in groups:
+                if not group:
+                    continue
+                names = "、".join(str(room.get("uname") or room["room_id"]) for room in group[:2])
+                message = (names + " 开播了" if len(group) <= 2
+                           else f"{names} 等 {len(group)} 位主播开播了")
+                self._show_notice(message, rooms=group, kind="live")
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")
@@ -2867,7 +2876,8 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
         tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
-        tile.composer.noticeRequested.connect(self._danmaku_send_notice)
+        tile.composer.noticeRequested.connect(
+            lambda message, login, t=tile: self._danmaku_send_notice(message, login, room=t.room))
         tile._actions_wired = True
 
     def _on_device_cookie_ready(self) -> None:
@@ -2935,7 +2945,7 @@ class MainWindow(QMainWindow):
 
     def _start_capture(self, tile, *, recording: bool) -> None:
         if recording and not self._recording_enabled():
-            self._record_notice("录制功能已在「设置 → 录制」里关闭")
+            self._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
             return
         if tile in self._pending_capture:
             return
@@ -2943,7 +2953,7 @@ class MainWindow(QMainWindow):
             if not self.open_settings("recording"):
                 return
             if not str(self.settings.get("recording_dir") or "").strip():
-                self._record_notice("请先选择录制保存目录")
+                self._record_notice("请先选择录制保存目录", tile.room)
                 return
         if not self.settings.get("recording_lock_quality", True):
             self.recorder.start(tile, recording=recording)
@@ -2973,7 +2983,7 @@ class MainWindow(QMainWindow):
     def _finish_pending_capture(self, tile) -> None:
         recording = self._pending_capture.pop(tile)
         if tile.actual_quality != 10000:
-            self._record_notice("直播源未提供原画，录制未开始")
+            self._record_notice("直播源未提供原画，录制未开始", tile.room)
             self._restore_capture_quality(tile)
         elif not self.recorder.start(tile, recording=recording):
             self._restore_capture_quality(tile)
@@ -3033,22 +3043,42 @@ class MainWindow(QMainWindow):
                 f"{hours:d}:{minutes:02d}:{secs:02d}" if hours
                 else f"{minutes:02d}:{secs:02d}")
 
-    def _record_notice(self, message: str) -> None:
+    def _record_notice(self, message: str, room=None) -> None:
         if self._closing:
             return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
-        self._show_notice(message, kind="warning" if warning else "info")
+        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
 
-    def _danmaku_send_notice(self, message: str, login_required: bool) -> None:
+    def _danmaku_send_notice(self, message: str, login_required: bool, *, room=None) -> None:
         self._show_notice(message + ("，点击此处登录" if login_required else ""),
-                          kind="warning", on_click=(
+                          rooms=[room] if room else (), kind="warning", on_click=(
                               lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None) -> None:
         if self._closing:
             return
         from .online_ui import show_result
-        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click)
+        pinned_live = kind == 'live' and any(
+            str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
+        category = 'pinned_live' if pinned_live else kind
+        persistent = self.settings.get('notice_persist_' + category, pinned_live)
+        if on_click is None and rooms:
+            if kind == 'live':
+                on_click = lambda targets=tuple(dict(room) for room in rooms): self._place_live_notice_rooms(targets)
+            else:
+                url = self._room_browser_url(rooms[0])
+                if url:
+                    on_click = lambda target=url: self._open_room_browser(target)
+        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click, persistent=persistent)
+
+    def _place_live_notice_rooms(self, rooms):
+        for room in rooms:
+            room_id = str(room.get('room_id') or '')
+            if not room_id or self._tile_of(room_id) is not None:
+                continue
+            current = next((item.room for item in self.sidebar._items
+                            if str(item.room.get('room_id')) == room_id), room)
+            self.add_to_wall(dict(current), empty_only=True)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3106,13 +3136,14 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
         self._save_timer.start()
 
-    def add_to_wall(self, room: dict) -> None:
+    def add_to_wall(self, room: dict, *, empty_only=False) -> None:
         self._prepare_room(room)
         room_id = str(room.get("room_id"))
         if self._tile_of(room_id) is not None:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
-        empty = next((tile for tile in self.wall.tiles if not tile.room.get("room_id")), None)
+        candidates = self.wall.visible_tiles() if empty_only else self.wall.tiles
+        empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
         if empty is not None:                      # 优先填空位
             self.recorder.stop(empty)
             self._stop_tile(empty)
@@ -3122,6 +3153,8 @@ class MainWindow(QMainWindow):
             self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
                               room=dict(empty.room or {}))
             self._refresh_meta()
+            return
+        if empty_only:
             return
         if len(self.wall.tiles) >= MAX_TILES:
             print(f"画面墙已满（{MAX_TILES} 路）")
@@ -3423,9 +3456,9 @@ class MainWindow(QMainWindow):
             return False
 
     def _on_room_avatar(self, room_id: str, pixmap) -> None:
-        notice = getattr(self, "_result_notice", None)
-        if notice is not None:
-            notice.set_room_avatar(room_id, pixmap)
+        for notice in getattr(self, '_notices', []):
+            if hasattr(notice, 'set_room_avatar'):
+                notice.set_room_avatar(room_id, pixmap)
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_face(pixmap)

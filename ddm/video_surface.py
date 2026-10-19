@@ -25,6 +25,9 @@ class VideoCorner(BadgeSurface):
     def refresh_theme(self):
         self.update()
 
+    def _layered_render_key(self):
+        return self.right, theme.is_light()
+
     def _render_badge(self, painter):
         painter.setRenderHint(QPainter.Antialiasing)
         if self.right:
