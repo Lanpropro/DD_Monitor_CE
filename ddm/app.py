@@ -3060,10 +3060,22 @@ class MainWindow(QMainWindow):
         category = 'pinned_live' if pinned_live else kind
         persistent = self.settings.get('notice_persist_' + category, pinned_live)
         if on_click is None and rooms:
-            url = self._room_browser_url(rooms[0])
-            if url:
-                on_click = lambda target=url: self._open_room_browser(target)
+            if kind == 'live':
+                on_click = lambda targets=tuple(dict(room) for room in rooms): self._place_live_notice_rooms(targets)
+            else:
+                url = self._room_browser_url(rooms[0])
+                if url:
+                    on_click = lambda target=url: self._open_room_browser(target)
         show_result(self, message, rooms=rooms, kind=kind, on_click=on_click, persistent=persistent)
+
+    def _place_live_notice_rooms(self, rooms):
+        for room in rooms:
+            room_id = str(room.get('room_id') or '')
+            if not room_id or self._tile_of(room_id) is not None:
+                continue
+            current = next((item.room for item in self.sidebar._items
+                            if str(item.room.get('room_id')) == room_id), room)
+            self.add_to_wall(dict(current), empty_only=True)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
@@ -3121,13 +3133,14 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
         self._save_timer.start()
 
-    def add_to_wall(self, room: dict) -> None:
+    def add_to_wall(self, room: dict, *, empty_only=False) -> None:
         self._prepare_room(room)
         room_id = str(room.get("room_id"))
         if self._tile_of(room_id) is not None:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
-        empty = next((tile for tile in self.wall.tiles if not tile.room.get("room_id")), None)
+        candidates = self.wall.visible_tiles() if empty_only else self.wall.tiles
+        empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
         if empty is not None:                      # 优先填空位
             self.recorder.stop(empty)
             self._stop_tile(empty)
@@ -3137,6 +3150,8 @@ class MainWindow(QMainWindow):
             self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
                               room=dict(empty.room or {}))
             self._refresh_meta()
+            return
+        if empty_only:
             return
         if len(self.wall.tiles) >= MAX_TILES:
             print(f"画面墙已满（{MAX_TILES} 路）")

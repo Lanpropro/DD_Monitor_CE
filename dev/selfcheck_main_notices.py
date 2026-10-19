@@ -90,17 +90,35 @@ class MainNoticesTests(unittest.TestCase):
         window = self.window([{'room_id': '1001', 'uname': '主播甲', 'live': False},
                               {'room_id': '1002', 'uname': '主播乙', 'live': False}])
         window.sidebar.apply_pins(['1001'])
+        for tile in window.wall.tiles:
+            tile.set_room(None)
+        window.start_tile.reset_mock()
         with patch.object(window, '_open_room_browser') as browser:
             window._show_notice('甲开播了', rooms=[{'room_id': '1001'}], kind='live')
             notice = window._result_notice
             self.assertFalse(notice.timer.isActive())
             QTest.mouseClick(notice.title, Qt.LeftButton)
-            browser.assert_called_once_with('https://live.bilibili.com/1001')
+            browser.assert_not_called()
+            self.assertIsNotNone(window._tile_of('1001'))
+            window.start_tile.assert_called_once()
         window._show_notice('乙开播了', rooms=[{'room_id': '1002'}], kind='live')
         self.assertTrue(window._result_notice.timer.isActive())
         window.settings['notice_persist_warning'] = True
         window._show_notice('警告', kind='warning')
         self.assertFalse(window._result_notice.timer.isActive())
+
+    def test_live_notice_dismisses_without_expanding_or_replacing_full_wall(self):
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
+        original = [dict(tile.room) for tile in window.wall.tiles]
+        with patch.object(window.wall, 'add_room') as add, \
+                patch.object(window, '_open_room_browser') as browser:
+            window._show_notice('新主播开播了', rooms=[{'room_id': '999'}], kind='live')
+            notice = window._result_notice
+            QTest.mouseClick(notice.title, Qt.LeftButton)
+            self.assertFalse(notice.isVisible())
+            self.assertEqual([tile.room for tile in window.wall.tiles], original)
+            add.assert_not_called()
+            browser.assert_not_called()
 
     @classmethod
     def setUpClass(cls):
