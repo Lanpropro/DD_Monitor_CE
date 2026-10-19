@@ -1,5 +1,8 @@
 """B 站逐房间弹幕输入与表情选择；网络请求在后台执行。"""
 import requests
+import hashlib
+import json
+from pathlib import Path
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
@@ -8,7 +11,37 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import bili, images, motion, theme
+from . import bili, config, images, motion, theme
+
+
+def _catalog_path(room_id, identity):
+    key = hashlib.sha256(json.dumps([room_id, identity]).encode('utf-8')).hexdigest()
+    return Path(config.REPO) / 'cache' / 'emoticon_catalogs' / (key + '.json')
+
+
+def _load_catalog(room_id, identity):
+    try:
+        packages = json.loads(_catalog_path(room_id, identity).read_text(encoding='utf-8'))
+        if isinstance(packages, list) and all(isinstance(p, dict)
+                and p.get('pkg_type') in (1, 2, 3, 5)
+                and isinstance(p.get('emoticons'), list)
+                and all(isinstance(e, dict) for e in p['emoticons']) for p in packages):
+            return packages
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _save_catalog(room_id, identity, packages):
+    path = _catalog_path(room_id, identity)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix('.tmp')
+        supported = [p for p in packages if p.get('pkg_type') in (1, 2, 3, 5)]
+        temporary.write_text(json.dumps(supported, ensure_ascii=False), encoding='utf-8')
+        temporary.replace(path)
+    except OSError:
+        pass
 
 
 class EmoticonOrder(QObject):
@@ -364,6 +397,11 @@ class EmoticonPopup(QMenu):
             cover = package.get("current_cover")
             if package["pkg_type"] != 3 and isinstance(cover, str) and cover.startswith(("https://", "http://")):
                 self._covers.setdefault(cover, []).append(index)
+                pixmap = images.load_cached_emoticon(cover)
+                if pixmap is not None:
+                    self._pixmaps[cover] = pixmap
+                    self.tabs.setTabIcon(index, QIcon(pixmap))
+                    self.tabs.setTabText(index, "")
         self.tabs.blockSignals(False)
         self.tabs.setVisible(bool(self._packages))
         self._select_package(self.tabs.currentIndex())
@@ -816,6 +854,11 @@ class DanmakuComposer(QWidget):
             return
         if self._catalog_pending == context:
             return
+        cached = _load_catalog(self._room_id, self._auth)
+        if cached is not None:
+            self._catalog_key, self._packages = context, cached
+            self.popup.set_packages(cached)
+            return
         self.popup.set_loading()
         self._catalog_pending = context
         room_id = self._room_id
@@ -834,6 +877,10 @@ class DanmakuComposer(QWidget):
             self.choose_emoticon(kind, emote)
 
     def _reload_emoticons(self):
+        try:
+            _catalog_path(self._room_id, self._auth).unlink(missing_ok=True)
+        except OSError:
+            pass
         self._catalog_key = None
         self.open_emoticons()
 
@@ -843,6 +890,7 @@ class DanmakuComposer(QWidget):
             return
         self._catalog_pending = None
         self._catalog_key, self._packages = context, packages
+        _save_catalog(self._room_id, self._auth, packages)
         self.popup.set_packages(packages)
 
     def _emoticons_failed(self, context, error):

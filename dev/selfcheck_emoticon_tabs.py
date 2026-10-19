@@ -46,6 +46,23 @@ def buttons(popup):
 
 
 class EmoticonCacheTests(unittest.TestCase):
+    def test_cached_category_icon_is_present_before_popup_is_shown(self):
+        popup = EmoticonPopup()
+        try:
+            url = 'https://example.invalid/category.png'
+            path = Path(images._cache_path(url, 'emoticons'))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pixmap = QPixmap(24, 24)
+            pixmap.fill(QColor('#00a1d6'))
+            self.assertTrue(pixmap.save(str(path), 'PNG'))
+            pack = package('cached', 0, 2)
+            pack['current_cover'] = url
+            popup.set_packages([pack])
+            self.assertFalse(popup.tabs.tabIcon(0).isNull())
+            self.assertEqual(popup.tabs.tabText(0), '')
+        finally:
+            popup.deleteLater()
+
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
