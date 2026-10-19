@@ -27,6 +27,9 @@ EMBEDDED_OPTIONS = {"config": False, "load_scripts": False, "osc": False, "ytdl"
     "load_auto_profiles": False, "load_select": False, "load_positioning": False,
     "load_commands": False, "load_context_menu": False}
 
+# 静音预览缩短流信息探测，缓存策略仍沿用普通播放器。
+PREVIEW_STARTUP_OPTIONS = {"demuxer_lavf_analyzeduration": 0.1}
+
 
 def decode_media_options(mode: str) -> tuple[str, ...]:
     return () if mode not in HWDEC or mode == "auto" else (f"hwdec={HWDEC[mode]}",)
@@ -132,6 +135,7 @@ class TilePlayer(QObject):
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
                 audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
                 **EMBEDDED_OPTIONS,
+                **(PREVIEW_STARTUP_OPTIONS if self.silent else {}),
                 input_default_bindings=False, input_vo_keyboard=False, input_cursor=False,
                 input_builtin_dragging=False, idle=True, keep_open=True,
                 cache=True, demuxer_max_bytes="16MiB", demuxer_max_back_bytes=0,

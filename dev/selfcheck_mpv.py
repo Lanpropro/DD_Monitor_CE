@@ -97,7 +97,15 @@ def unit(app):
     preview = TilePlayer(widget, silent=True)
     preview.set_muted(False)
     assert preview.muted and preview.decode_mode == "none"
+    preview.bind()
+    assert abs(preview._prop("demuxer-lavf-analyzeduration") - 0.1) < 0.001
+    assert preview._prop("cache-pause") is True
     preview.release()
+    normal = TilePlayer(widget)
+    normal.bind()
+    assert normal._prop("demuxer-lavf-analyzeduration") != 0.1
+    assert normal._prop("cache-pause") is True, "普通观看应保留缓存暂停策略"
+    normal.release()
     other.release()
     assert linear_volume(0) == 0 and linear_volume(100) == 100
     assert all(mode in HWDEC for mode in ("auto", "d3d11va", "d3d11va-copy", "dxva2", "none"))
