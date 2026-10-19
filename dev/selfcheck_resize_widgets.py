@@ -319,6 +319,13 @@ def main():
         if QApplication.platformName() == 'windows':
             border.repaint()
             assert border._alpha_uploaded, '原生指示条应上传逐像素透明图像'
+            with patch.object(border, '_render_badge', wraps=border._render_badge) as render:
+                for _ in range(20):
+                    border.repaint()
+                assert not render.called, '背景重绘不能重复上传未改变的边框'
+                border.set_highlights([])
+                border.repaint()
+                assert render.call_count == 1, '高亮变化必须上传新图像'
         check_masks(app, wall)
         check_decoration_pass(wall)
         check_covers(app, wall)

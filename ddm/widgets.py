@@ -7236,6 +7236,9 @@ class WallPaneBorder(BadgeSurface):
     def refresh_theme(self):
         self.update()
 
+    def _layered_render_key(self):
+        return tuple(rect.getRect() for rect in self.highlights)
+
     def _render_badge(self, painter):
         painter.setRenderHint(QPainter.Antialiasing)
         # Windows 透明像素会穿透鼠标；极低 alpha 保留未高亮边缘的拖动命中。
