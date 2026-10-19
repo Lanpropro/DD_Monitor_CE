@@ -216,6 +216,7 @@
 - `dev/selfcheck_plugin_update_notes.py`
 - `dev/selfcheck_plugin_windows_lock.py`
 - `dev/selfcheck_plugins.py`
+- `dev/selfcheck_plugin_contract.py`
 - `dev/selfcheck_poller_lifecycle.py`
 - `dev/selfcheck_portrait.py`
 - `dev/selfcheck_portrait_compact.py`
@@ -309,6 +310,7 @@
 - `docs/development/testing.md`
 - `docs/development/workspace-maintenance.md`
 - `docs/development/v0.4.1-backlog.md`
+- `docs/development/ui-integration-20261019.md`
 
 ### 性能基准
 

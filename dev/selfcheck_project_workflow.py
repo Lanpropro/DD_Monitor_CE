@@ -37,10 +37,16 @@ class ProjectWorkflowTests(unittest.TestCase):
             self.assertIn(text, source)
         index = (ROOT / 'docs/README.md').read_text(encoding='utf-8')
         self.assertIn('development/v0.4.1-backlog.md', index)
+        rows = [line for line in source.splitlines() if line.startswith('| V041-')]
+        for row in rows[:4]:
+            self.assertIn('用户已确认', row)
+        self.assertIn('待明确', rows[4])
 
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
-        self.assertIn('`main`', source)
+        self.assertIn('目标分支为 `develop`', source)
+        self.assertIn('由 `develop` 创建面向 `main` 的发布 PR', source)
+        self.assertNotIn('目标分支为 `main`', source)
         self.assertGreaterEqual(source.count('- [ ]'), 4)
         self.assertIn('PR', source)
 

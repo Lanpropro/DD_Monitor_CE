@@ -27,7 +27,7 @@ git worktree list
 - 一项独立功能或修复使用 `function/<名称>`，如 `function/emoticon-tabs`。
 - 功能、修复和外部贡献通过 PR 提交到 `develop`。未完成时可使用 Draft；准备好审查后使用普通 PR。
 - 准备发布时，验证完整的 `develop`，再通过 PR 合入 `main`；已有面向 `main` 的 PR 先检查依赖与差异，再决定是否调整目标。
-- 现有 PR 模板暂保留旧的 `main` 目标说明，创建日常 PR 时手动将 GitHub 的 base 选为 `develop`，以本指南为准。
+- PR 模板区分日常贡献与发布；创建时核对 GitHub 的 base，日常贡献选择 `develop`，发布选择 `main`。
 - 多项任务同时进行时，使用独立 worktree 和分支；不要让测试目录与日常开发目录互相覆盖。
 - 合并后的功能分支可在确认不再被 worktree 使用后删除；备份和未合并成果先保留。
 
@@ -81,7 +81,7 @@ python -m compileall -q ddm blivedm main.py
 git diff --check
 ```
 
-GitHub Actions 执行以上基础检查。这些检查不能替代功能、原生播放和真实直播验收。
+GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 120` 的五项离屏功能检查。smoke 使用开发依赖和 libmpv；CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。这些检查不能替代原生播放和真实直播验收。
 
 使用 `python dev/run_checks.py --list` 查看已审查的测试套件。完整命令、依赖与全部专项脚本的分类入口见[验证指南](docs/development/testing.md)。新增测试同步更新分类索引；确认隔离条件后再纳入批量套件。
 
@@ -96,10 +96,28 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 真实直播、音频听感、高 DPI 和跨屏检查单独列出；未执行或未通过的项目明确说明。
 测试不向公开直播间自动发送消息，不使用真实 Cookie 作为测试数据。
 
+### 改动区域 → 必跑测试
+
+所有改动先运行 `repository` 套件、源码编译和 `git diff --check`。下表为在此基础上的最低要求；跨区域改动取并集。CI 自动运行 repository 和 smoke，其他专项由贡献者执行并在 PR 记录结果。
+
+| 改动区域 | 必跑功能检查 | 额外验收条件 |
+| --- | --- | --- |
+| 设置、设置保存与默认值 | `python dev/run_checks.py --script selfcheck_general_settings` | 修改具体页面时补充该页专项；检查打开、切换、保存、取消与重置 |
+| 通知、开播提醒、快捷键入口 | `python dev/run_checks.py --script selfcheck_main_notices` | 手动检查点击、关闭、遮挡及连续通知 |
+| 布局、格子数量与状态恢复 | `python dev/run_checks.py --script selfcheck_layout_16`；`python dev/run_checks.py --script selfcheck_layout_growth_empty` | 拖拽、全屏或方向相关改动还需 `--suite native` 及实际播放验收 |
+| 弹幕发送、凭据快照与协议 | `python dev/run_checks.py --script selfcheck_danmaku_send`；连接改动另跑 `--script selfcheck_danmaku_connection` | 使用替身或本机服务，不向真实直播间发送测试消息 |
+| 弹幕绘制、浮层和控件 | `python dev/run_checks.py --script selfcheck_video_danmaku`；`python dev/run_checks.py --script selfcheck_video_danmaku_controls` | Quick 渲染或透明窗口改动另跑 native 套件并检查高 DPI |
+| 插件接口、事件和装载 | `python dev/run_checks.py --script selfcheck_plugin_contract` | 安装／更新／启用交互需按插件主题索引选择专项，使用临时插件目录 |
+| 播放器、解码与原生窗口 | `python dev/run_checks.py --suite native` | 实际播放、音频听感及跨屏检查，必要时显式运行 live 单项 |
+| 录制、回放与退出收尾 | `python dev/selfcheck_recording.py`；`python dev/selfcheck_recording_shutdown.py` | 需 FFmpeg；隔离输出，核对生成文件、分段、回放和停止行为 |
+| CI、测试入口和工作流文档 | `python dev/selfcheck_check_runner.py`；`python dev/selfcheck_project_workflow.py` | 修改 smoke 选项或依赖时运行完整 smoke，并确认远端 CI |
+
+未登记的专项先核对[分类索引](dev/checks/README.md)，确认不会读取真实账号配置、加载安装中的插件或产生外部写入后再执行。测试结果写明命令、退出码和未覆盖范围，不能以 smoke 通过代替改动区域的专项验收。
+
 ## 本机资料与发布
 
 - `utils/`、缓存、账号、皮肤、安装中的插件和插件更新备份只保留在本机，不进入源码提交。
-- 插件源码在独立插件仓库维护；本机安装副本被忽略不代表其改动已经备份或提交。
+- 插件归属见[源码、模板与安装副本边界](docs/plugins.md#源码模板与安装副本的边界)：`plugins_user/_match_sync` 和 `_template_platform` 在本仓库跟踪；国内／海外平台插件在独立插件仓库维护。`plugins_user/match_sync` 等本机安装副本被忽略不代表其改动已经备份或提交。修改应落实到所属源码、验证并提交，再重新打包安装。
 - `work/` 保存临时 worktree、构建文件和本机备份；这些内容不进入发布包。
 - 打包前检查 `git status`、提交与版本号，按确定的 commit 构建；正式发布给该 commit 打版本标签。
 - 发布说明记录源码 SHA、依赖或插件版本及验收范围。不要将开发目录里遗留的 EXE 当作最新构建。

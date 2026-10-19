@@ -15,6 +15,8 @@ LOCAL_ONLY = (
     "docs/portrait-bar.png", "docs/portrait-current.png", "docs/portrait-mock.png",
     "dev/mock_portrait.py", "dev/portrait_mock.html", "console.log*",
     "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
+    "plugins_user/domestic_live/*", "plugins_user/global_live/*",
+    "plugins_user/huya_watch/*", "plugins_user/_danmaku_log/*",
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
@@ -53,6 +55,22 @@ class RepositoryFilesTests(unittest.TestCase):
         for path in REQUIRED:
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file(), path)
+
+    def test_plugin_source_roots_and_documented_install_boundaries(self):
+        tracked = subprocess.check_output(
+            ['git', 'ls-files', 'plugins_user'], cwd=ROOT, text=True).splitlines()
+        self.assertEqual({Path(path).parts[1] for path in tracked},
+                         {'_match_sync', '_template_platform'})
+        doc = (ROOT / 'docs/plugins.md').read_text(encoding='utf-8')
+        for path in ('plugins_user/_match_sync/', 'plugins_user/_template_platform/',
+                     'plugins_user/match_sync/', 'plugins_user/.updates/',
+                     'plugins_user/domestic_live/'):
+            self.assertIn(path, doc)
+        self.assertIn('python dev/build_match_sync.py', doc)
+        self.assertIn('DD_Monitor_Plugins', doc)
+        build = (ROOT / 'dev/build_release.ps1').read_text(encoding='utf-8')
+        self.assertIn('if ($rel -like "plugins_user/*") { continue }', build)
+        self.assertIn('Join-Path $exeDir "plugins_user"', build)
 
 
 if __name__ == "__main__":
