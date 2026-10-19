@@ -20,8 +20,9 @@
 5. **皮肤美化**（``Plugin.skin`` / 清单 ``skin``）—— 背景、分区样式及按钮图标；
    v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/skins.md。
 
-插件放 ``plugins/<插件名>/plugin.py``，里面必须有一个名为 ``plugin`` 的
-``Plugin`` 实例（见 ``plugins/example/plugin.py``）。插件是**受信任的代码**，
+运行时插件放 ``plugins_user/<插件ID>/plugin.py``，里面必须有一个名为 ``plugin`` 的
+``Plugin`` 实例；开发模板见 ``plugins_user/_template_platform/plugin.py``，源码与安装副本边界见
+``docs/plugins.md``。插件是**受信任的代码**，
 它在主进程里跑，能拿到窗口对象，能力和本体代码等价——只装自己看过源码的插件。
 
 插件里的异常不会拖垮本体：事件回调、平台回调、菜单回调都被包住并打印到 stderr，
