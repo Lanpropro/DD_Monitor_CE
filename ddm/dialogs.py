@@ -447,11 +447,11 @@ class DanmakuSettingsPage(QWidget):
         grid.setColumnStretch(1, 1)
 
         grid.addWidget(QLabel("字体"), 0, 0)
+        default_font = theme.danmaku_font_family()
         self.font_box = QFontComboBox()
         self.font_box.setFixedWidth(220)
         current = str(settings.get("danmaku_font") or "")
-        if current:
-            self.font_box.setCurrentFont(QFont(current))
+        self.font_box.setCurrentFont(QFont(current or default_font))
         grid.addWidget(self.font_box, 0, 1, Qt.AlignLeft)
 
         grid.addWidget(QLabel("弹幕格字号"), 1, 0)
@@ -511,15 +511,15 @@ class DanmakuSettingsPage(QWidget):
     def reset(self) -> None:
         from . import config as config_module
 
-        self.font_box.setCurrentIndex(0)
+        self.font_box.setCurrentFont(QFont(theme.danmaku_font_family()))
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
         family = self.font_box.currentFont().family()
-        if family == theme.FONT_DEFAULT:
-            family = ""                     # 跟主题走，别把默认字体名写进配置
+        if family == theme.danmaku_font_family():
+            family = ""                     # 空值使用内置默认弹幕字体
         words = [line.strip() for line in self.block_edit.toPlainText().splitlines()]
         return {
             "danmaku_font": family,
