@@ -7109,6 +7109,7 @@ class WallPaneBorder(QWidget):
 
     BAND = 3
     CORNER = 18
+    RADIUS = 10
 
     def __init__(self, pane, wall):
         super().__init__(pane)
@@ -7130,6 +7131,14 @@ class WallPaneBorder(QWidget):
         region = QRegion()
         for edge in targets:
             region |= QRegion(self._edge_rect(edge))
+        outer, inner = QPainterPath(), QPainterPath()
+        outer.addRoundedRect(QRectF(self.rect()), self.RADIUS, self.RADIUS)
+        inner.addRoundedRect(QRectF(self.rect()).adjusted(
+            self.BAND, self.BAND, -self.BAND, -self.BAND),
+            self.RADIUS - self.BAND, self.RADIUS - self.BAND)
+        outline = QRegion(outer.toFillPolygon().toPolygon()).subtracted(
+            QRegion(inner.toFillPolygon().toPolygon()))
+        region &= outline
         if region.isEmpty():
             self.hide()
             return
@@ -7139,10 +7148,10 @@ class WallPaneBorder(QWidget):
 
     def _edge_rect(self, edge):
         width, height = self.width(), self.height()
-        return {"left": QRect(0, 0, self.BAND, height),
-                "right": QRect(width - self.BAND, 0, self.BAND, height),
-                "top": QRect(0, 0, width, self.BAND),
-                "bottom": QRect(0, height - self.BAND, width, self.BAND)}[edge]
+        return {"left": QRect(0, 0, self.RADIUS, height),
+                "right": QRect(width - self.RADIUS, 0, self.RADIUS, height),
+                "top": QRect(0, 0, width, self.RADIUS),
+                "bottom": QRect(0, height - self.RADIUS, width, self.RADIUS)}[edge]
 
     def edges_at(self, point):
         horizontal = "left" if point.x() < self.CORNER else (
@@ -7209,6 +7218,7 @@ class WallPaneBorder(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        painter.setClipRegion(self.mask())
         for rect in self.highlights:
             painter.fillRect(rect, QColor("#38bdf8"))
 
