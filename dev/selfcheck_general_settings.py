@@ -43,6 +43,9 @@ def check_codecs(app):
     events = []
     basic.changed.connect(events.append)
     assert basic.values() == {"bili_codec": "avc", "decode_mode": "auto"}
+    assert basic.bili_codec.accessibleName() == "直播源格式"
+    assert "AV1（仅B站）" in basic.bili_codec.itemText(basic.bili_codec.findData("av1"))
+    assert any(label.text() == "直播源格式" for label in basic.findChildren(QLabel))
     assert basic.decode_mode.count() == 5
     assert tuple(basic.decode_mode.itemData(i) for i in range(5)) == expected
     assert not hasattr(basic, "advanced_decode") and not events
@@ -139,7 +142,9 @@ def check_codecs(app):
                 window._open_tile_codecs(first)
                 assert window._codec_dialogs[first] is dialog
                 window._open_tile_codecs(plugin_tile)
-                assert not window._codec_dialogs[plugin_tile].controls.bili_codec.isEnabled()
+                plugin_controls = window._codec_dialogs[plugin_tile].controls
+                assert plugin_controls.bili_codec.isEnabled()
+                assert "HEVC、H.264" in plugin_controls.hint.text()
                 window._codec_dialogs[plugin_tile].close()
                 with patch.object(window, "start_tile") as restart, \
                         patch.object(app_module, "SettingsDialog") as global_dialog:
@@ -152,9 +157,14 @@ def check_codecs(app):
                     global_dialog.return_value.update_page.install_requested = False
                     global_dialog.return_value._loaded_pages = {}
                     window.open_settings()
-                    assert [call.args[0] for call in restart.call_args_list] == [other], \
-                        "全局格式变化不能重连独立设置或非 B站窗口"
+                    assert [call.args[0] for call in restart.call_args_list] == [other, plugin_tile], \
+                        "全局格式变化应重连所有跟随窗口，保留独立设置"
                     assert "H.264" in dialog.controls.bili_codec.itemText(0)
+                    restart.reset_mock()
+                    global_dialog.return_value.settings.return_value = {"bili_codec": "av1"}
+                    window.open_settings()
+                    assert [call.args[0] for call in restart.call_args_list] == [other, plugin_tile]
+                    assert "AV1（仅B站）" in dialog.controls.bili_codec.itemText(0)
                     restart.reset_mock()
                     global_dialog.return_value.settings.return_value = {"decode_mode": "dxva2"}
                     window.open_settings()

@@ -100,6 +100,10 @@ class LoginRequiredError(RuntimeError):
     """The platform explicitly rejected the account's login credentials."""
 
 
+class StreamCodecUnavailable(RuntimeError):
+    """The platform did not offer a stream with the requested video codec."""
+
+
 @dataclass
 class StreamSource:
     """一路直播流的「取流结果」：录像类插件靠它直接拉流。
@@ -199,6 +203,19 @@ class Platform:
     def play_url(self, room_id: str, quality: int = 250) -> tuple:
         """取流，返回 ``(url, 实际画质, 通道名)`` 或 ``(url, 实际画质, 通道名, headers)``。"""
         raise NotImplementedError
+
+    def play_url_for_codec(self, room_id: str, quality: int = 250,
+                           *, codec: str = "avc") -> tuple:
+        """Strict selection: (url, quality, channel, headers, actual_codec).
+
+        Implementations must identify the requested codec from source metadata;
+        missing formats raise StreamCodecUnavailable, other errors propagate.
+        The legacy adapter leaves actual_codec empty because it is unverified.
+        """
+        if codec != "avc":
+            raise StreamCodecUnavailable("旧版平台插件不支持选择 HEVC 直播源")
+        result = self.play_url(room_id, quality)
+        return (*result[:3], dict(result[3]) if len(result) > 3 else {}, "")
 
     def room_quality_options(self, room_id: str) -> list[dict]:
         """本平台档位 ``{qn, desc, label?}``；qn 是保存标识，label 是按钮短名称。"""

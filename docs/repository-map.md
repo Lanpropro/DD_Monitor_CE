@@ -257,6 +257,8 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
+- `dev/selfcheck_resize_surface.py`
+- `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_remove_follow_position.py`
@@ -305,6 +307,7 @@
 - `dev/selfcheck_video_surface.py`
 - `dev/selfcheck_video_surface_growth.py`
 - `dev/selfcheck_volume_channel.py`
+- `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_website_plan.py`
@@ -340,6 +343,7 @@
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/repository-cleanup-review.md`
 - `docs/repository-map.md`
+- `docs/resize-performance.md`
 - `docs/room-presets-design.md`
 - `docs/skins.md`
 - `docs/website-plan.md`

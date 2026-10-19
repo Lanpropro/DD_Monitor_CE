@@ -4,6 +4,7 @@
 保留接口提供的 HTTP/HTTPS 地址，探测与播放使用相同请求头。
 """
 import hashlib
+import inspect
 import json
 import sys
 import threading
@@ -33,7 +34,7 @@ QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("�
 BILI_CODECS = (
     ("avc", "H.264 / AVC（默认，兼容性最好）", 0),
     ("hevc", "HEVC / H.265（同画质省约一半码率）", 1),
-    ("av1", "AV1（码率最低，解码要求最高）", 2),
+    ("av1", "AV1（仅B站）", 2),
 )
 
 #: 设置值 -> 接口 codec 参数。
@@ -570,6 +571,8 @@ class StreamResolver(QThread):
         self.codec = codec if codec in CODEC_PARAM else "avc"
         self.strict_codec = strict_codec
         self.codec_unavailable = False
+        self.source_codec = ""
+        self.codec_probe_note = ""
         self.original_quality_note = ""
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self.login_required = False
@@ -589,15 +592,81 @@ class StreamResolver(QThread):
     def is_cancelled(self) -> bool:
         return self._cancelled
 
+    def _platform_play_url(self) -> tuple:
+        from .plugins import LoginRequiredError, Platform, StreamCodecUnavailable
+
+        platform = self.platform
+        if platform is None:
+            raise ValueError("未指定取流平台")
+        # Static lookup avoids treating dynamically fabricated mock attributes as hooks.
+        hook = (getattr(platform, "play_url_for_codec", None)
+                if inspect.getattr_static(platform, "play_url_for_codec", None) is not None
+                else None)
+        legacy = (not callable(hook)
+                  or getattr(hook, "__func__", None) is Platform.play_url_for_codec)
+        candidates = ("avc",) if self.codec == "avc" else ("hevc", "avc")
+        prefix = "AV1 仅 B 站；" if self.codec == "av1" else ""
+        fallback_note = ""
+        retrieval_error = None
+        for codec in candidates:
+            if self._cancelled:
+                raise Cancelled()
+            try:
+                if callable(hook):
+                    result = hook(self.room_id, self.quality, codec=codec)
+                    if not isinstance(result, (tuple, list)) or len(result) != 5:
+                        raise ValueError("平台编码接口必须返回五项取流结果")
+                    actual_codec = result[4]
+                    if actual_codec != codec and not (legacy and actual_codec == ""):
+                        raise StreamCodecUnavailable(f"平台未提供已验证的 {codec.upper()} 直播源")
+                else:
+                    if codec != "avc":
+                        raise StreamCodecUnavailable("旧版平台插件不支持选择 HEVC 直播源")
+                    result = platform.play_url(self.room_id, self.quality)
+                    actual_codec = ""
+                if not isinstance(result, (tuple, list)):
+                    raise TypeError("平台取流结果必须为元组或列表")
+                url, current, profile = result[:3]
+                if not isinstance(url, str) or not url.strip():
+                    raise ValueError("平台未返回有效直播地址")
+                headers = dict(result[3]) if len(result) > 3 else {}
+            except (Cancelled, LoginRequiredError):
+                raise
+            except Exception as error:
+                if not isinstance(error, StreamCodecUnavailable):
+                    retrieval_error = error
+                if codec == candidates[-1]:
+                    if retrieval_error is not None:
+                        raise retrieval_error
+                    raise
+                fallback_note = ("HEVC 直播源不可用，已回退 H.264"
+                                 if isinstance(error, StreamCodecUnavailable)
+                                 else "HEVC 取流失败，已回退 H.264")
+                continue
+            self.source_codec = actual_codec
+            if legacy:
+                self.codec_probe_note = prefix + "旧版插件使用兼容取流，实际编码以解码读数为准"
+            elif fallback_note:
+                self.codec_probe_note = prefix + fallback_note
+            elif prefix:
+                self.codec_probe_note = prefix + "本房间使用 HEVC"
+            return url, current, profile, headers
+        raise StreamCodecUnavailable("平台未提供可用的直播源格式")
+
     def run(self) -> None:
         if self._cancelled:
             return
         try:
             if self.platform is not None:
                 result = (self.platform.preview_url(self.room_id) if self.preview
-                          else self.platform.play_url(self.room_id, self.quality))
+                          else self._platform_play_url())
                 url, current, profile = result[:3]
                 headers = dict(result[3]) if len(result) > 3 else {}
+                current = int(current)
+                if (not isinstance(url, str) or not url.strip()
+                        or not -(2 ** 31) <= current < 2 ** 31
+                        or not isinstance(profile, str)):
+                    raise ValueError("平台取流结果无效")
             elif self.room_id.isdigit():
                 url, current, profile, headers = play_url(
                     self.room_id, self.quality, cancelled=self.is_cancelled,
@@ -627,6 +696,13 @@ class StreamResolver(QThread):
                 if self._cancelled:
                     return
                 options = room_quality_options(self.room_id, "avc")
+            options = options or []
+            if not isinstance(options, list):
+                raise TypeError("平台画质档位必须为列表")
+            if options:
+                print(f"[画质档位] {self.room_id}: "
+                      + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
+                      file=sys.stderr, flush=True)
         except Cancelled:
             return                       # 作废：不发结果，也不算失败
         except CodecUnavailable as error:
@@ -635,18 +711,17 @@ class StreamResolver(QThread):
                 self.failed.emit(self.room_id, str(error))
             return
         except Exception as error:  # noqa: BLE001
-            from .plugins import LoginRequiredError
+            from .plugins import LoginRequiredError, StreamCodecUnavailable
             self.login_required = isinstance(error, LoginRequiredError)
+            self.codec_unavailable = isinstance(error, StreamCodecUnavailable)
             if not self._cancelled:
                 self.failed.emit(self.room_id, str(error))
             return
         if self._cancelled:
             return
         self.headers = headers
-        if options:
-            print(f"[画质档位] {self.room_id}: "
-                  + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
-                  file=sys.stderr, flush=True)
+        if self.platform is None:
+            self.source_codec = codec_from_profile(profile)
         self.resolved.emit(self.room_id, url, current, profile, options)
 
 

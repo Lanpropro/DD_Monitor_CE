@@ -55,6 +55,9 @@ MAX_TILES = 16
 POLL_INTERVAL_MS = 60_000        # 关注列表状态轮询：1 分钟
 #: 窗口「宽 / 高」小于这个值就按竖屏处理（含接近方形）
 PORTRAIT_MAX_RATIO = 0.9
+PORTRAIT_ENTER_RATIO = PORTRAIT_MAX_RATIO
+PORTRAIT_EXIT_RATIO = 1.0
+RESIZE_SETTLE_MS = 150
 RETRY_BASE_SECONDS = 5           # 断流后的重连间隔（指数退避）
 RETRY_MAX_SECONDS = 60
 FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
@@ -130,6 +133,14 @@ class MainWindow(QMainWindow):
         #: 正在关窗。取流线程的 resolved 是队列连接，关窗之后还会再投递一次；
         #: 那时候播放器已经 release 了，谁再碰它就是野指针（见 closeEvent）
         self._closing = False
+        self._interactive_resize = False
+        self._resize_dirty = False
+        self._resize_on_show = False
+        self._settling_resize = False
+        self._resize_idle_timer = QTimer(self)
+        self._resize_idle_timer.setSingleShot(True)
+        self._resize_idle_timer.setInterval(RESIZE_SETTLE_MS)
+        self._resize_idle_timer.timeout.connect(self._finish_interactive_resize)
         self._restart_requested = False
         self._update_plan = ""
         self._available_update = None
@@ -641,11 +652,11 @@ class MainWindow(QMainWindow):
             return False
         return layouts.is_portrait_layout(layout_id) == bool(portrait)
 
-    def _apply_orientation(self) -> None:
+    def _apply_orientation(self, orientation: str | None = None) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         if self._applying_room_preset:
             return
-        orientation = "portrait" if self.is_portrait() else "landscape"
+        orientation = orientation or ("portrait" if self.is_portrait() else "landscape")
         # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
         # 否则 first 永远是 False，第一次也会走「对映」那条路。
         first = not self.orientation
@@ -710,19 +721,88 @@ class MainWindow(QMainWindow):
               file=sys.stderr, flush=True)
 
     def resizeEvent(self, event) -> None:
+        if (getattr(self, "_interactive_resize", False)
+                and hasattr(self, "wall") and event.size() != event.oldSize()):
+            self.wall.set_interactive_resize(True)
         super().resizeEvent(event)
-        if self._fullscreen_tile is not None:
+        if (getattr(self, "_fullscreen_tile", None) is not None
+                or not hasattr(self, "orientation") or self._closing
+                or self._settling_resize or event.size() == event.oldSize()):
             return
-        # 只有方向真的翻转时才动手，避免每次拖窗口都重排
-        if getattr(self, "orientation", "") != ("portrait" if self.is_portrait()
-                                                else "landscape"):
-            self._apply_orientation()
-        self._sync_restore_geometry()
+        self._resize_dirty = True
+        if not self._interactive_resize:
+            self._resize_idle_timer.start()
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            from ctypes import wintypes
+
+            msg = wintypes.MSG.from_address(int(message))
+            if msg.message == 0x0231:  # WM_ENTERSIZEMOVE
+                self._begin_interactive_resize()
+            elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
+                self._finish_interactive_resize()
+        return super().nativeEvent(event_type, message)
+
+    def _begin_interactive_resize(self) -> None:
+        if (not hasattr(self, "wall") or self._closing
+                or self._fullscreen_tile is not None or self._interactive_resize):
+            return
+        self._resize_idle_timer.stop()
+        self._interactive_resize = True
+
+    def _finish_interactive_resize(self) -> None:
+        if not hasattr(self, "wall") or self._settling_resize:
+            return
+        self._resize_idle_timer.stop()
+        self._interactive_resize = False
+        if self._closing or self._fullscreen_tile is not None or not self._resize_dirty:
+            return
+        self._settling_resize = True
+        try:
+            orientation = self._resize_orientation()
+            if orientation != self.orientation:
+                self._apply_orientation(orientation)
+            self.wall.finish_resize()
+            self._sync_restore_geometry()
+        finally:
+            self._resize_dirty = False
+            self._settling_resize = False
+            self._resize_idle_timer.stop()
+
+    def _resize_orientation(self) -> str:
+        ratio = self.width() / max(1, self.height())
+        if ratio <= PORTRAIT_ENTER_RATIO:
+            return "portrait"
+        if ratio >= PORTRAIT_EXIT_RATIO:
+            return "landscape"
+        return self.orientation
+
+    def hideEvent(self, event) -> None:
+        self._resize_on_show = self._resize_on_show or self._resize_dirty
+        self._cancel_interactive_resize()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._resize_on_show and not self._closing:
+            self._resize_on_show = False
+            self._resize_dirty = True
+            self._resize_idle_timer.start()
+
+    def _cancel_interactive_resize(self) -> None:
+        timer = getattr(self, "_resize_idle_timer", None)
+        if timer is not None:
+            timer.stop()
+        self._interactive_resize = False
+        self._resize_dirty = False
+        if hasattr(self, "wall"):
+            self.wall.set_interactive_resize(False)
 
     def _sync_restore_geometry(self) -> None:
         if (self.isMaximized() and sys.platform == "win32"
                 and QApplication.platformName() == "windows"):
-            window_fullscreen.orient_restore_geometry(self, self.is_portrait())
+            window_fullscreen.orient_restore_geometry(self, self.orientation == "portrait")
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:
@@ -1104,7 +1184,11 @@ class MainWindow(QMainWindow):
                     player.reapply_audio_channel()
 
     def _on_layout_changed(self, layout_id: str) -> None:
-        if layout_id == self.wall.layout_id:
+        self._cancel_interactive_resize()
+        want_portrait = layouts.is_portrait_layout(layout_id)
+        reshape = (want_portrait != (self.orientation == "portrait")
+                   or want_portrait != (self._resize_orientation() == "portrait"))
+        if layout_id == self.wall.layout_id and not reshape:
             self.wall.reset_layout_ratios()
             return
         self._prioritize_live_tiles(layout_id)
@@ -1112,8 +1196,7 @@ class MainWindow(QMainWindow):
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
-        want_portrait = layouts.is_portrait_layout(layout_id)
-        if want_portrait != (self.orientation == "portrait"):
+        if reshape:
             print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
                   f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
                   file=sys.stderr, flush=True)
@@ -1124,6 +1207,9 @@ class MainWindow(QMainWindow):
             # resize 时必须按目标预设计算最小尺寸，避免旧的密集网格挡住转方向。
             self.wall.set_layout(layout_id, relayout=False)
             self._reshape_window(want_portrait)
+            self._resize_idle_timer.stop()
+            self._resize_dirty = False
+            self._apply_orientation("portrait" if want_portrait else "landscape")
             if previous_orientation:
                 self._layout_by_orientation[previous_orientation] = previous_layout
         self.wall.set_layout(layout_id)
@@ -1214,6 +1300,7 @@ class MainWindow(QMainWindow):
                 self._active_room_preset_id = preset_id
                 self._save_timer.start()
             return True
+        self._cancel_interactive_resize()
         slots = snapshot["slots"]
         available = list(self.wall.tiles)
         assigned = []
@@ -1451,7 +1538,7 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile)
         if player is not None:
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        codec = "" if platform is not None else self._codec_settings(tile)["bili_codec"]
+        codec = self._codec_settings(tile)["bili_codec"]
         retained_codec = player.stream_codec if player is not None and tile.stream_url else ""
         strict_codec = platform is None and retained_codec in bili.CODEC_PARAM and codec != retained_codec
         if strict_codec:
@@ -1470,26 +1557,28 @@ class MainWindow(QMainWindow):
         resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
                                   self, source_offset=source_offset,
                                   platform=platform,
-                                  # 只给 B 站内置取流那条路；平台插件走 platform.play_url
                                   codec=codec, strict_codec=strict_codec)
 
         def current():
             return (not self._closing and tile in self.wall.tiles
                     and str(tile.room.get("room_id") or "") == room_id
                     and self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
-                    and (platform is not None or self._codec_settings(tile)["bili_codec"] == codec))
+                    and self._codec_settings(tile)["bili_codec"] == codec)
 
         def resolved(_rid, url, qn, profile, options):
             if not current() or int(tile.quality) != quality:
                 return
+            self._resolvers.pop(tile, None)
+            if tile.paused:
+                tile.codec_reconnect_pending = True
+                return
             if strict_codec:
-                if tile.paused:
-                    tile.codec_reconnect_pending = True
-                    return
                 if bili.codec_from_profile(profile) != codec:
                     self._keep_tile_codec(tile, codec, retained_codec, unavailable=True)
                     return
                 tile.codec_probe_note = ""
+            elif platform is not None:
+                tile.codec_probe_note = getattr(resolver, "codec_probe_note", "")
             elif getattr(resolver, "original_quality_note", ""):
                 tile.codec_probe_note = f"{resolver.original_quality_note}；已使用默认 H.264。"
                 tile.codec_overrides["bili_codec"] = "avc"
@@ -1498,16 +1587,20 @@ class MainWindow(QMainWindow):
                     dialog.controls.set_values(tile.codec_overrides)
                 self._save_timer.start()
             self._play_on(tile, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id, requested_quality=quality)
+                          room_id=room_id, requested_quality=quality,
+                          source_codec=(getattr(resolver, "source_codec", "")
+                                        if platform is not None else None))
 
         def failed(_rid, reason):
             if not current() or int(tile.quality) != quality:
                 return
+            self._resolvers.pop(tile, None)
             if strict_codec:
                 self._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
                                       quality_note=getattr(resolver, "original_quality_note", ""))
             else:
+                tile.codec_probe_note = f"取流失败：{reason}"
                 self._on_resolve_failed(tile, reason, requested_quality=quality,
                                         login_required=resolver.login_required)
 
@@ -1527,7 +1620,8 @@ class MainWindow(QMainWindow):
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
-                 room_id: str = "", requested_quality: int = 0) -> None:
+                 room_id: str = "", requested_quality: int = 0,
+                 source_codec: str | None = None) -> None:
         if self._closing:
             # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
             return
@@ -1573,7 +1667,8 @@ class MainWindow(QMainWindow):
         # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
         # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}
-        stream_codec = bili.codec_from_profile(profile)
+        stream_codec = (source_codec if source_codec is not None else
+                        bili.codec_from_profile(profile) if self._is_bili_tile(tile) else "")
         tile.stream_url = url
         tile.stream_profile = profile
         tile.stream_codec = stream_codec
@@ -1592,6 +1687,7 @@ class MainWindow(QMainWindow):
         except (RuntimeError, OSError) as error:
             tile.set_buffering(False)
             tile.set_status(str(error))
+            tile.codec_probe_note = f"播放失败：{error}"
             return
         self.recorder.on_resolved(tile)
         if tile in self._pending_capture:
@@ -1654,6 +1750,9 @@ class MainWindow(QMainWindow):
 
     def _restart_codec_tile(self, tile) -> None:
         tile.codec_reconnect_pending = True
+        resolver = self._resolvers.pop(tile, None)
+        if resolver is not None:
+            resolver.cancel()
         if (not tile.room.get("room_id") or not tile.room.get("live")
                 or tile.paused or tile.isHidden()):
             return
@@ -1662,7 +1761,7 @@ class MainWindow(QMainWindow):
     def _tile_codecs_changed(self, tile, before: dict) -> bool:
         after = self._codec_settings(tile)
         return (before.get("decode_mode") != after["decode_mode"]
-                or self._is_bili_tile(tile) and before.get("bili_codec") != after["bili_codec"])
+                or before.get("bili_codec") != after["bili_codec"])
 
     def _set_tile_codecs(self, tile, values: dict) -> None:
         if self._closing or tile not in self.wall.tiles:
@@ -1702,7 +1801,8 @@ class MainWindow(QMainWindow):
             return "正在连接，等待新流；当前选择将在连接成功后生效。"
         player = self.players.get(tile)
         if player is None or not tile.room.get("room_id"):
-            return "当前没有播放中的流；设置将在下次播放时生效。"
+            return (getattr(tile, "codec_probe_note", "")
+                    or "当前没有播放中的流；设置将在下次播放时生效。")
         if getattr(tile, "codec_reconnect_pending", False):
             return "新设置已保存，将在恢复播放或下次连接时生效。"
         codec = names.get(player.actual_codec, "未知（平台未提供编码信息）")
@@ -1766,6 +1866,7 @@ class MainWindow(QMainWindow):
             if not already_warned:
                 self._show_notice(reason, kind="warning")
             return
+        tile.set_buffering(False)
         tile.set_status("连接失败")
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
@@ -2497,7 +2598,7 @@ class MainWindow(QMainWindow):
         paused = not tile.paused
         tile.set_paused(paused)
         resolver = self._resolvers.get(tile)
-        if paused and resolver is not None and getattr(resolver, "strict_codec", False):
+        if paused and resolver is not None:
             self._resolvers.pop(tile, None)
             resolver.cancel()
             tile.codec_reconnect_pending = True
@@ -2638,6 +2739,7 @@ class MainWindow(QMainWindow):
     def _on_fullscreen(self, tile: Tile) -> None:
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
+        self._cancel_interactive_resize()
         if self._fullscreen_tile is None and self.wall.layout_id in layouts.BY_ID:
             self._room_preset_fullscreen_layout = deepcopy(self.room_preset_snapshot()["layout"])
         if self._fullscreen_tile is tile:
@@ -2710,9 +2812,8 @@ class MainWindow(QMainWindow):
         if stagger:
             self.wall.reveal_tiles_staggered()
         laid_out = time.perf_counter()
-        if self.orientation != ("portrait" if self.is_portrait() else "landscape"):
-            self._apply_orientation()
-        self._sync_restore_geometry()
+        self._resize_dirty = True
+        self._resize_idle_timer.start()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self._refresh_meta()
         self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)

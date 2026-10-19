@@ -162,6 +162,18 @@ class MyPlugin(api.Plugin):
 格子播放；请求头随流地址传给播放器。可选 `room_quality_options` 返回
 `[{"qn": 10000, "desc": "原画"}]`，未实现时沿用原有菜单。
 
+需要按来源编码选流的平台可实现可选方法
+`play_url_for_codec(room_id, quality=250, *, codec="avc")`，返回
+`(url, actual_quality, platform_profile, headers, actual_codec)`。
+非 B 站只会收到 `hevc` 或 `avc`，不会收到 `av1`；全局/单窗 AV1 偏好
+在本体取流阶段转换为 HEVC → H.264，H.264 偏好只请求 H.264。
+实现必须依据接口编码字段或 HLS CODECS 验证来源，不能仅修改 URL 或容器来宣称编码。
+没有目标格式时抛 `api.StreamCodecUnavailable`；网络与登录异常保留原含义。
+登录明确失效时停止编码轮换；HEVC 取流失败可尝试 H.264，全部失败仍回报取流错误。
+平台通道名继续返回原 `kind`，请求头和画质属于实际选中的来源。
+旧版 `play_url(room_id, quality)` 无需改签名；兼容路径不猜测实际编码，
+播放后通过解码器读数展示格式。预览仍走 `preview_url`。
+
 平台实现 `rooms_status` 供后台刷新，返回以带平台前缀的房间号为键的字典，
 字段与 `RoomInfo.as_dict()` 一致。网络失败不能返回伪造的下播状态。
 平台请求必须有超时；本体分别处理平台与 B 站房间，不会把前缀房间号传给
