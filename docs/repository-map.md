@@ -342,6 +342,7 @@
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/repository-cleanup-review.md`
+- `docs/repository-integration-20261019.md`
 - `docs/repository-map.md`
 - `docs/resize-performance.md`
 - `docs/room-presets-design.md`

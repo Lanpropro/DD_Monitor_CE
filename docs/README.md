@@ -7,6 +7,7 @@
 | --- | --- |
 | 使用说明 | [项目 README](../README.md) |
 | 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
+| 本次整合 | [2026-10-19 仓库与 PR 整合记录](repository-integration-20261019.md) |
 | 插件 | [插件说明](plugins.md) |
 | 外观与皮肤 | [外观设计](appearance-design.md)、[皮肤说明](skins.md) |
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](pr6-pr7-layout-testing.md) |
