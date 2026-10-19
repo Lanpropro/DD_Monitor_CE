@@ -32,6 +32,7 @@
 | [selfcheck_theme_palette](../selfcheck_theme_palette.py) | 单项执行前核对 |
 | [selfcheck_theme_wave](../selfcheck_theme_wave.py) | 单项执行前核对 |
 | [selfcheck_ui_motion](../selfcheck_ui_motion.py) | 单项执行前核对 |
+| [selfcheck_settings_transition](../selfcheck_settings_transition.py) | 单项执行；设置动画快照、打断与录制页滚动，使用合成数据 |
 
 ## 仓库、启动与文档
 

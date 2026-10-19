@@ -274,6 +274,7 @@
 - `dev/selfcheck_tile_ui.py`
 - `dev/selfcheck_ui3.py`
 - `dev/selfcheck_ui_motion.py`
+- `dev/selfcheck_settings_transition.py`
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_user_notice.py`
