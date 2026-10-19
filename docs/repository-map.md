@@ -1,6 +1,6 @@
 # 仓库文件分类清单
 
-盘点日期：2026-10-14。用户已确认深浅色功能完成；首轮完成分类盘点；本轮按用户要求集中说明并删除四个过时脚本，详见 repository-cleanup-review.md。
+盘点日期：2026-10-19。用户已确认深浅色功能完成；首轮完成分类盘点；本轮按用户要求集中说明并删除四个过时脚本，详见 repository-cleanup-review.md。
 以下按当前工作区与 Git 索引盘点，不代表远端仓库状态；未读取真实配置、账号数据或媒体内容。
 
 ## 软件本体与插件功能范围
@@ -16,80 +16,36 @@
 
 ## 已跟踪的其他文件：逐项标注
 
-这些文件不属于运行时代码，但多数服务于软件和插件的开发、测试及交付。
-“非运行时文件”不等于“无关文件”或“可以删除”。路径以项目根目录为基准。
-
-### 仓库管理、许可及发布入口
-
-共 24 项。
+### 根目录协作文件
 
 - `.gitignore`
 - `AGENTS.md`
+- `CONTRIBUTING.md`
 - `LICENSE`
-- `dev/selfcheck_match_sync_admission.py`
-- `dev/selfcheck_match_sync_assistance.py`
-- `dev/selfcheck_match_sync_audio_thread.py`
-- `dev/selfcheck_match_sync_crop_generation.py`
-- `dev/selfcheck_match_sync_four_compare.py`
-- `dev/selfcheck_match_sync_late_buffer.py`
-- `dev/selfcheck_match_sync_smoothing.py`
-- `dev/selfcheck_match_sync_startup_clock.py`
-- `dev/selfcheck_match_sync_tracking.py`
-- `dev/selfcheck_match_sync_volume.py`
-- `dev/selfcheck_match_sync_mpv_compat.py`
-- `docs/releases/PLUGIN-match-sync-v1.2.1.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.2.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.3.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.4.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.5.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.6.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.7.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.8.md`
-- `publish.cmd`
-- `results/.gitignore`
-
-### 软件与插件说明、设计及版本资料
-
-共 23 项。
-
 - `README.md`
-- `docs/BUG-STATUS-2026-10-02.md`
-- `docs/NOTICE.md`
-- `docs/README.md`
-- `docs/appearance-design.md`
-- `docs/customization-plan.md`
-- `docs/online-updates.md`
-- `docs/overview1_Landscape_mode.png`
-- `docs/overview1_Portrait_Mode.png`
-- `docs/overview2_Landscape_mode.png`
-- `docs/plugins.md`
-- `docs/pr6-pr7-layout-testing.md`
-- `docs/pr11-pr12-integration-testing.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.md`
-- `docs/releases/RELEASE-v0.1.md`
-- `docs/releases/RELEASE-v0.2.md`
-- `docs/releases/RELEASE-v0.3.1.md`
-- `docs/releases/RELEASE-v0.4.md`
-- `docs/releases/RELEASE-v0.3.md`
-- `docs/repository-cleanup-review.md`
-- `docs/repository-map.md`
-- `docs/room-presets-design.md`
-- `docs/skins.md`
+- `publish.cmd`
 
-### 构建、调试与开发工具（开发维护用途）
+### GitHub 自动检查
 
-共 17 项。
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `.github/workflows/repository-checks.yml`
 
+### 开发与验证脚本
+
+- `dev/benchmark_danmaku_frames.py`
+- `dev/benchmark_video_danmaku_render.py`
 - `dev/build_brand_assets.py`
 - `dev/build_match_sync.py`
 - `dev/build_plugin_catalog.py`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
-- `dev/fetch_mpv.py`
 - `dev/check_emoticon_live.py`
+- `dev/check_live_danmaku_motion.py`
+- `dev/check_live_restore.py`
 - `dev/check_medal_size.py`
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
+- `dev/fetch_mpv.py`
 - `dev/probe_danmaku_live.py`
 - `dev/pyi_rth_pyside6_paths.py`
 - `dev/repro_d3d_quality.py`
@@ -97,11 +53,6 @@
 - `dev/restart-client.ps1`
 - `dev/run-checks.cmd`
 - `dev/screens.py`
-
-### 软件、插件及仓库回归测试（开发维护用途）
-
-共 237 项。
-
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
@@ -112,8 +63,8 @@
 - `dev/selfcheck_appearance.py`
 - `dev/selfcheck_appearance_design.py`
 - `dev/selfcheck_appearance_playback.py`
-- `dev/selfcheck_audio_cycle_shortcut.py`
 - `dev/selfcheck_audio_audit.py`
+- `dev/selfcheck_audio_cycle_shortcut.py`
 - `dev/selfcheck_audio_hotplug.py`
 - `dev/selfcheck_audio_owner.py`
 - `dev/selfcheck_audio_routing.py`
@@ -123,8 +74,8 @@
 - `dev/selfcheck_avatars.py`
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
-- `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_bili_cookies.py`
+- `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
 - `dev/selfcheck_button_focus.py`
@@ -141,16 +92,18 @@
 - `dev/selfcheck_cover_cache.py`
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
-- `dev/selfcheck_danmaku_connection.py`
-- `dev/selfcheck_danmaku_composer.py`
-- `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_button.py`
+- `dev/selfcheck_danmaku_composer.py`
+- `dev/selfcheck_danmaku_connection.py`
+- `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`
+- `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`
 - `dev/selfcheck_danmaku_send.py`
+- `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
 - `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`
@@ -167,6 +120,7 @@
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
 - `dev/selfcheck_emoticon_tabs.py`
+- `dev/selfcheck_encoders.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
 - `dev/selfcheck_folder_blank_menu.py`
@@ -177,7 +131,6 @@
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_follow_refresh.py`
-- `dev/selfcheck_encoders.py`
 - `dev/selfcheck_fullscreen_audio.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_fullscreen_controls.py`
@@ -205,24 +158,32 @@
 - `dev/selfcheck_localization.py`
 - `dev/selfcheck_main_notices.py`
 - `dev/selfcheck_match_sync.py`
+- `dev/selfcheck_match_sync_admission.py`
 - `dev/selfcheck_match_sync_alignment.py`
 - `dev/selfcheck_match_sync_appearance.py`
+- `dev/selfcheck_match_sync_assistance.py`
+- `dev/selfcheck_match_sync_audio_thread.py`
 - `dev/selfcheck_match_sync_chat.py`
 - `dev/selfcheck_match_sync_comparison.py`
 - `dev/selfcheck_match_sync_control.py`
+- `dev/selfcheck_match_sync_crop_generation.py`
 - `dev/selfcheck_match_sync_crop_style.py`
+- `dev/selfcheck_match_sync_danmaku_settings.py`
 - `dev/selfcheck_match_sync_douyu_picture.py`
 - `dev/selfcheck_match_sync_empty.py`
 - `dev/selfcheck_match_sync_entry.py`
 - `dev/selfcheck_match_sync_exe.py`
 - `dev/selfcheck_match_sync_feedback.py`
+- `dev/selfcheck_match_sync_four_compare.py`
 - `dev/selfcheck_match_sync_fullscreen_cursor.py`
 - `dev/selfcheck_match_sync_health.py`
 - `dev/selfcheck_match_sync_host_release.py`
+- `dev/selfcheck_match_sync_late_buffer.py`
 - `dev/selfcheck_match_sync_live.py`
 - `dev/selfcheck_match_sync_lock.py`
 - `dev/selfcheck_match_sync_main_quality.py`
 - `dev/selfcheck_match_sync_media.py`
+- `dev/selfcheck_match_sync_mpv_compat.py`
 - `dev/selfcheck_match_sync_multistream.py`
 - `dev/selfcheck_match_sync_native.py`
 - `dev/selfcheck_match_sync_offsets.py`
@@ -235,13 +196,18 @@
 - `dev/selfcheck_match_sync_retry_rows.py`
 - `dev/selfcheck_match_sync_session.py`
 - `dev/selfcheck_match_sync_shortcuts.py`
+- `dev/selfcheck_match_sync_smoothing.py`
+- `dev/selfcheck_match_sync_startup_clock.py`
+- `dev/selfcheck_match_sync_status.py`
 - `dev/selfcheck_match_sync_timer.py`
+- `dev/selfcheck_match_sync_tracking.py`
 - `dev/selfcheck_match_sync_two_stream.py`
 - `dev/selfcheck_match_sync_ui.py`
 - `dev/selfcheck_match_sync_video.py`
+- `dev/selfcheck_match_sync_volume.py`
 - `dev/selfcheck_menu_motion.py`
-- `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_mpv.py`
+- `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
 - `dev/selfcheck_oauth_accounts.py`
@@ -284,6 +250,7 @@
 - `dev/selfcheck_preview.py`
 - `dev/selfcheck_preview_collapsed.py`
 - `dev/selfcheck_preview_popup.py`
+- `dev/selfcheck_project_workflow.py`
 - `dev/selfcheck_qr_refresh.py`
 - `dev/selfcheck_qr_responsiveness.py`
 - `dev/selfcheck_qt_log.py`
@@ -310,6 +277,7 @@
 - `dev/selfcheck_slots.py`
 - `dev/selfcheck_smart_folder_sources.py`
 - `dev/selfcheck_smart_folders.py`
+- `dev/selfcheck_smooth_edges.py`
 - `dev/selfcheck_sort_manager.py`
 - `dev/selfcheck_startup.py`
 - `dev/selfcheck_startup_danmaku.py`
@@ -333,32 +301,51 @@
 - `dev/selfcheck_video_danmaku.py`
 - `dev/selfcheck_video_danmaku_controls.py`
 - `dev/selfcheck_video_danmaku_native.py`
+- `dev/selfcheck_video_danmaku_quick.py`
 - `dev/selfcheck_video_surface.py`
 - `dev/selfcheck_video_surface_growth.py`
 - `dev/selfcheck_volume_channel.py`
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
+- `dev/selfcheck_website_plan.py`
 - `dev/selfcheck_windows_version.py`
 
-### 独立网站资料（与软件、插件运行无关）
+### 项目文档
 
-共 2 项。
-
-- `dev/selfcheck_website_plan.py`
+- `docs/BUG-STATUS-2026-10-02.md`
+- `docs/NOTICE.md`
+- `docs/README.md`
+- `docs/appearance-design.md`
+- `docs/customization-plan.md`
+- `docs/online-updates.md`
+- `docs/overview1_Landscape_mode.png`
+- `docs/overview1_Portrait_Mode.png`
+- `docs/overview2_Landscape_mode.png`
+- `docs/plugins.md`
+- `docs/pr11-pr12-integration-testing.md`
+- `docs/pr6-pr7-layout-testing.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.1.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.2.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.3.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.4.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.5.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.6.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.7.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.8.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.md`
+- `docs/releases/RELEASE-v0.1.md`
+- `docs/releases/RELEASE-v0.2.md`
+- `docs/releases/RELEASE-v0.3.1.md`
+- `docs/releases/RELEASE-v0.3.md`
+- `docs/releases/RELEASE-v0.4.md`
+- `docs/repository-cleanup-review.md`
+- `docs/repository-map.md`
+- `docs/room-presets-design.md`
+- `docs/skins.md`
 - `docs/website-plan.md`
 
-### 后续新增的开发工具与网站原型
+### 网站原型
 
-共 27 项。
-
-- `dev/benchmark_danmaku_frames.py`
-- `dev/benchmark_video_danmaku_render.py`
-- `dev/check_live_danmaku_motion.py`
-- `dev/selfcheck_danmaku_render_thread.py`
-- `dev/selfcheck_danmaku_smoothness.py`
-- `dev/selfcheck_match_sync_danmaku_settings.py`
-- `dev/selfcheck_match_sync_status.py`
-- `dev/selfcheck_video_danmaku_quick.py`
 - `website-prototype/.gitignore`
 - `website-prototype/README.md`
 - `website-prototype/app.js`
@@ -378,6 +365,10 @@
 - `website-prototype/shots/mobile.png`
 - `website-prototype/styles.css`
 - `website-prototype/test_prototype.py`
+
+### Other tracked files
+
+- `results/.gitignore`
 
 ## 仅本机存在的其他资料
 
