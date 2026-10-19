@@ -28,6 +28,16 @@ class ProjectWorkflowTests(unittest.TestCase):
                      'git pull --ff-only origin develop'):
             self.assertIn(text, source)
 
+    def test_v041_backlog_keeps_requested_work_and_open_decisions(self):
+        source = (ROOT / 'docs/development/v0.4.1-backlog.md').read_text(encoding='utf-8')
+        for number in range(1, 6):
+            self.assertIn(f'V041-{number:02}', source)
+        for text in ('0.4.1（未发布）', '卡顿', '录制自动断点', '悬停预览',
+                     '主动点击才关闭', '排序逻辑', '待明确', '1000ms'):
+            self.assertIn(text, source)
+        index = (ROOT / 'docs/README.md').read_text(encoding='utf-8')
+        self.assertIn('development/v0.4.1-backlog.md', index)
+
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
         self.assertIn('`main`', source)
