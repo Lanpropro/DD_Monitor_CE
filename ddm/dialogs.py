@@ -1,8 +1,10 @@
 """对话框：设置（常规 / 快捷键）、添加直播间、从关注导入。"""
 import re
+import sys
+import time
 import zipfile
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QIcon, QPalette, QPixmap
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
@@ -14,8 +16,10 @@ from PySide6.QtWidgets import (
 
 from . import theme
 from .folder_icons import create_folder_dialog
+from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
-from .player import DECODE_MODES
+from .bili import BILI_CODECS
+from .encoders import ENCODER_CHOICES
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
@@ -55,6 +59,146 @@ def _step_button(text: str, tooltip: str, slot) -> QPushButton:
     return button
 
 
+class CodecSettingsPanel(QWidget):
+    changed = Signal(dict)
+
+    def __init__(self, values: dict, parent=None, *, defaults=None, bili_enabled=True):
+        super().__init__(parent)
+        self._inherit = defaults is not None
+        self._defaults = defaults
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        grid.setColumnStretch(1, 1)
+        self.bili_codec = QComboBox()
+        self.decode_mode = QComboBox()
+        choices = (("bili_codec", "直播源格式", self.bili_codec,
+                    self._source_choices()),
+                   ("decode_mode", "本机解码方式", self.decode_mode, DECODE_MODES))
+        for row, (key, title, combo, options) in enumerate(choices):
+            label = QLabel(title)
+            label.setBuddy(combo)
+            combo.setAccessibleName(title)
+            grid.addWidget(label, row, 0)
+            if defaults is not None:
+                name = next((label for label, value in options if value == defaults[key]), "")
+                combo.addItem(f"跟随全局（{name}）", "")
+            for label, value in options:
+                combo.addItem(label, value)
+            combo.setCurrentIndex(max(0, combo.findData(values.get(key, ""))))
+            grid.addWidget(combo, row, 1)
+        layout.addLayout(grid)
+        self.decode_hint = QLabel()
+        self.decode_hint.setWordWrap(True)
+        self.decode_hint.setObjectName("SettingsHint")
+        layout.addWidget(self.decode_hint)
+        self._update_decode_hint()
+        self.decode_mode.currentIndexChanged.connect(self._update_decode_hint)
+        self.hint = QLabel(
+            "直播源格式决定接收的视频编码；本机解码方式决定用显卡还是 CPU 播放。\n"
+            "B站切换前先探测直播源；未提供所选格式、未提供原画或探测失败时，保留当前格式。\n"
+            "AV1 仅B站；其他平台选择 AV1 时依次尝试 HEVC、H.264；HEVC 不可用时回退 H.264。\n"
+            "本机解码故障只影响当前窗口，自动回退 CPU；兼容硬解可手动选择。"
+            if bili_enabled else
+            "直播源格式由平台或插件提供。AV1 仅B站；此窗口选择 AV1 时依次尝试 HEVC、H.264。\n"
+            "HEVC 不可用时回退 H.264；旧版插件使用兼容取流，实际编码以解码读数为准。\n"
+            "本机解码方式可独立调整；解码故障只影响当前窗口，自动回退 CPU。")
+        self.hint.setWordWrap(True)
+        self.hint.setObjectName("SettingsHint")
+        layout.addWidget(self.hint)
+        for combo in (self.bili_codec, self.decode_mode):
+            combo.currentIndexChanged.connect(lambda _index: self.changed.emit(self.values()))
+
+    @staticmethod
+    def _source_choices():
+        return [(label, value) for value, label, _ in BILI_CODECS]
+
+    def _update_decode_hint(self):
+        mode = self.decode_mode.currentData()
+        if not mode and self._defaults is not None:
+            mode = self._defaults["decode_mode"]
+        self.decode_hint.setText(DECODE_HINTS.get(mode, ""))
+
+    def values(self) -> dict:
+        return {key: combo.currentData() for key, combo in
+                (("bili_codec", self.bili_codec), ("decode_mode", self.decode_mode))
+                if not self._inherit or combo.currentData()}
+
+    def set_defaults(self, defaults: dict) -> None:
+        self._defaults = defaults
+        for key, combo, options in (
+                ("bili_codec", self.bili_codec, self._source_choices()),
+                ("decode_mode", self.decode_mode, DECODE_MODES)):
+            label = next(label for label, value in options if value == defaults[key])
+            combo.setItemText(0, f"跟随全局（{label}）")
+        self._update_decode_hint()
+
+    def set_values(self, values: dict) -> None:
+        for key, combo in (("bili_codec", self.bili_codec), ("decode_mode", self.decode_mode)):
+            blocked = combo.blockSignals(True)
+            combo.setCurrentIndex(max(0, combo.findData(values.get(key, ""))))
+            combo.blockSignals(blocked)
+        self._update_decode_hint()
+
+
+class CodecSettingsDialog(AnimatedDialog):
+    def __init__(self, values: dict, parent=None, *, defaults=None, bili_enabled=True,
+                 status=None):
+        super().__init__(parent)
+        self.setWindowTitle("当前窗口编解码设置" if defaults is not None else "编解码设置")
+        self.setMinimumWidth(560)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+        layout.addLayout(_page_head(self.windowTitle(),
+            "修改后立即应用到此窗口，关闭后保留；切换时会重新连接直播。"
+            if defaults is not None else "作为所有窗口的默认值，在外层设置中保存后生效。"))
+        self.controls = CodecSettingsPanel(values, self, defaults=defaults,
+                                            bili_enabled=bili_enabled)
+        layout.addWidget(self.controls)
+        if status is not None:
+            self.status_label = QLabel()
+            self.status_label.setWordWrap(True)
+            self.status_label.setTextFormat(Qt.TextFormat.PlainText)
+            self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            layout.addWidget(self.status_label)
+            self._status_timer = QTimer(self)
+            self._status_timer.setInterval(500)
+            self._status_timer.timeout.connect(lambda: self.status_label.setText(status()))
+            self.finished.connect(self._status_timer.stop)
+            self.status_label.setText(status())
+            self._status_timer.start()
+        buttons = QHBoxLayout()
+        if defaults is not None:
+            reset = QPushButton("恢复跟随全局")
+            reset.setObjectName("IconButton")
+            reset.clicked.connect(self._reset_inheritance)
+            buttons.addWidget(reset)
+        else:
+            cancel = QPushButton("取消")
+            cancel.setObjectName("IconButton")
+            cancel.clicked.connect(self.reject)
+            buttons.addWidget(cancel)
+        buttons.addStretch()
+        close = QPushButton("关闭" if defaults is not None else "确定")
+        close.setObjectName("PrimaryButton")
+        close.setDefault(True)
+        close.clicked.connect(self.accept)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+
+    def _reset_inheritance(self):
+        for combo in (self.controls.bili_codec, self.controls.decode_mode):
+            combo.blockSignals(True)
+            combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+        self.controls.changed.emit(self.controls.values())
+        self.controls._update_decode_hint()
+
+
 class GeneralSettingsPage(QWidget):
     """常规：关注列表、直播预览、解码与新格子初始声音。"""
 
@@ -80,7 +224,7 @@ class GeneralSettingsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("常规", "这些设置对所有直播间生效，单路的画质/音量仍在各个格子里调"))
+        layout.addLayout(_page_head("常规", "这里设置全局默认；单窗画质、声音和编解码可在窗口右键菜单中调整"))
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
@@ -134,15 +278,14 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
-        grid.addWidget(QLabel("视频解码方式"), row, 0)
-        self.decode_mode = QComboBox()
-        for label, value in DECODE_MODES:
-            self.decode_mode.addItem(label, value)
-        mode = settings.get("decode_mode") or (
-            "auto" if settings.get("hw_decode", True) else "none")
-        self.decode_mode.setCurrentIndex(max(0, self.decode_mode.findData(mode)))
-        self.decode_mode.setToolTip("自动优先使用可用的硬件解码；软件解码占用更多 CPU。切换后正在播放的直播会重新取流。")
-        grid.addWidget(self.decode_mode, row, 1)
+        grid.addWidget(QLabel("编解码设置"), row, 0)
+        self._codec_values = codec_settings(settings)
+        self.codec_button = QPushButton()
+        self.codec_button.setObjectName("IconButton")
+        self.codec_button.setAccessibleName("编解码设置")
+        self.codec_button.clicked.connect(self._edit_codecs)
+        self._update_codec_summary()
+        grid.addWidget(self.codec_button, row, 1)
         row += 1
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
@@ -154,14 +297,27 @@ class GeneralSettingsPage(QWidget):
         self.volume_label = QLabel(str(self.volume_slider.value()))
         self.volume_label.setObjectName("NavSub")
         self.volume_label.setFixedWidth(28)
-        self.volume_slider.valueChanged.connect(
-            lambda value: self.volume_label.setText(str(value)))
+        # 直接连接接收控件，避免回调持有父页面并在退出时触发析构重入。
+        self.volume_slider.valueChanged.connect(self.volume_label.setNum)
         volume_box.addWidget(self.volume_slider)
         volume_box.addWidget(self.volume_label)
         volume_box.addStretch(1)
         grid.addLayout(volume_box, row, 1)
         layout.addLayout(grid)
         layout.addStretch(1)
+
+    def _update_codec_summary(self):
+        codec = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}.get(
+            self._codec_values["bili_codec"], "H.264")
+        mode = DECODE_LABELS[self._codec_values["decode_mode"]]
+        self.codec_button.setText(f"{codec} · {mode}　设置…")
+
+    def _edit_codecs(self):
+        dialog = CodecSettingsDialog(self.values(), self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._codec_values = dialog.controls.values()
+            self._update_codec_summary()
+        dialog.deleteLater()
 
     def reset(self) -> None:
         from . import config as config_module
@@ -173,7 +329,8 @@ class GeneralSettingsPage(QWidget):
             self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
-        self.decode_mode.setCurrentIndex(0)
+        self._codec_values = codec_settings(config_module.DEFAULT_SETTINGS)
+        self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
     def values(self) -> dict:
@@ -182,7 +339,7 @@ class GeneralSettingsPage(QWidget):
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
-            "decode_mode": self.decode_mode.currentData(),
+            **self._codec_values,
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())
@@ -370,6 +527,16 @@ class RecordingSettingsPage(QWidget):
         self.codec = QComboBox()
         self.codec.addItem("直接保存原始流（画质不变、负载低）", "copy")
         self.codec.addItem("H.264 + AAC 重编码", "h264")
+        self.encoder = QComboBox()
+        for value, label in ENCODER_CHOICES:
+            self.encoder.addItem(label, value)
+        self.encoder.setToolTip(
+            "重编码时用哪个编码器。\n"
+            "自动：优先显卡编码（NVENC / QSV / AMF），不可用就回退 CPU。\n"
+            "显卡编码通常能降低 CPU 占用；实际负载和画质取决于显卡与录制参数。\n"
+            "但它要求显卡、驱动和随包的 FFmpeg 三者同时支持。\n"
+            "程序会在后台实际编码一帧来探测；方案不可用，或实际录制时硬件编码失败，\n"
+            "会回退 CPU。H.264 重编码统一使用 8-bit YUV420 输出。")
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
         self.fps = QComboBox()
@@ -407,6 +574,7 @@ class RecordingSettingsPage(QWidget):
         for row, (label, widget, unit) in enumerate((
             ("录制功能", self.recording_enabled, ""),
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
+            ("编码器", self.encoder, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
             ("即时回放", self.replay_enabled, ""),
             ("即时回放范围", self.replay_scope, ""),
@@ -422,7 +590,7 @@ class RecordingSettingsPage(QWidget):
                 grid.addLayout(field, row, 1)
             else:
                 grid.addWidget(widget, row, 1)
-        grid.addWidget(self.lock_quality, 11, 0, 1, 2)
+        grid.addWidget(self.lock_quality, 12, 0, 1, 2)
         self.codec.currentIndexChanged.connect(self._update_codec)
         self.replay_scope.currentIndexChanged.connect(self._update_enabled)
         self.replay_enabled.toggled.connect(self._update_enabled)
@@ -442,6 +610,8 @@ class RecordingSettingsPage(QWidget):
         self.directory.setText(str(settings.get("recording_dir") or ""))
         self.format.setCurrentIndex(max(0, self.format.findData(settings.get("recording_format", "mp4"))))
         self.codec.setCurrentIndex(max(0, self.codec.findData(settings.get("recording_codec", "copy"))))
+        self.encoder.setCurrentIndex(max(0, self.encoder.findData(
+            settings.get("recording_encoder", "auto"))))
         self.bitrate.setValue(int(settings.get("recording_bitrate", 6000)))
         fps_index = self.fps.findData(int(settings.get("recording_fps", 30)))
         self.fps.setCurrentIndex(fps_index if fps_index >= 0 else self.fps.findData(30))
@@ -463,6 +633,9 @@ class RecordingSettingsPage(QWidget):
                 "当前使用 H.264 重编码，码率和帧率均会生效")
         self.bitrate.setToolTip(hint)
         self.fps.setToolTip(hint)
+        # 编码器只影响重编码；直存原始流时它没有意义，一并跟着录制总开关置灰。
+        self.encoder.setEnabled(self.recording_enabled.isChecked()
+                                and self.codec.currentData() != "copy")
 
     def _update_enabled(self) -> None:
         """按两个总开关把不起作用的项置灰，免得用户改了以为没生效。
@@ -474,6 +647,7 @@ class RecordingSettingsPage(QWidget):
         for widget in (self.directory, self.browse, self.format, self.codec,
                        self.bitrate, self.fps, self.min_free, self.lock_quality):
             widget.setEnabled(recording)
+        self._update_codec()
         replay = self.replay_enabled.isChecked()
         self.replay_scope.setEnabled(replay)
         self.replay_minutes.setEnabled(replay)
@@ -497,6 +671,7 @@ class RecordingSettingsPage(QWidget):
             "recording_dir": self.directory.text().strip(),
             "recording_format": self.format.currentData(),
             "recording_codec": self.codec.currentData(),
+            "recording_encoder": self.encoder.currentData(),
             "recording_bitrate": self.bitrate.value(),
             "recording_fps": self.fps.currentData(),
             "recording_replay_minutes": self.replay_minutes.value(),
@@ -826,6 +1001,7 @@ class AppearanceSettingsPage(QWidget):
 class SettingsDialog(QDialog):
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
+    pageCreated = Signal(int, object)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
@@ -833,6 +1009,15 @@ class SettingsDialog(QDialog):
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
         super().__init__(parent)
+        self._created_at = time.perf_counter()
+        self._paint_logged = False
+        from .config import DEFAULT_SETTINGS
+        # Part artwork and per-tile video danmaku are saved by their own editors.
+        self._initial_settings = {key: settings.get(key, default) for key, default in DEFAULT_SETTINGS.items()
+                                  if not key.startswith('video_danmaku_')
+                                  and key not in ('skin_parts', 'danmaku_retention_version')}
+        self._initial_shortcuts = {key: shortcuts.get(key) or default for key, _label, default in SHORTCUT_ACTIONS}
+        self._plugin_manager = plugin_manager
         self._preview_only = preview
         self.setWindowTitle("设置")
         self.restart_requested = False
@@ -847,7 +1032,7 @@ class SettingsDialog(QDialog):
         self.nav.setObjectName("SettingsNav")
         self.nav.setFixedWidth(180)
         self.nav.setFocusPolicy(Qt.NoFocus)
-        from .online_ui import UpdateNavDelegate, UpdateDot
+        from .online_ui import UpdateNavDelegate, AppUpdatePage
         self.nav.setItemDelegate(UpdateNavDelegate(self.nav))
         for key, label in self.PAGES:
             item = QListWidgetItem(label)
@@ -869,26 +1054,18 @@ class SettingsDialog(QDialog):
             2: lambda: DanmakuSettingsPage(settings),
             3: lambda: RecordingSettingsPage(settings),
             4: lambda: ShortcutSettingsPage(shortcuts),
+            5: lambda: PluginSettingsPage(plugin_manager),
+            6: lambda: AppUpdatePage(settings),
         }
         self._loaded_pages = {}
         if preview:
             # The appearance thumbnail needs the real controls, without creating
             # update/download workers or reading an installation result.
-            self.plugin_page = QWidget()
-            self.update_page = QWidget()
-        else:
-            self.plugin_page = PluginSettingsPage(plugin_manager)
-            self.plugin_page.store_page.seen_versions = self.seen_versions
-            self._plugin_update_dot = UpdateDot()
-            from PySide6.QtWidgets import QTabBar
-            self.plugin_page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
-            from .online_ui import AppUpdatePage
-            self.update_page = AppUpdatePage(settings)
+            self._page_factories[5] = QWidget
+            self._page_factories[6] = QWidget
         self.stack.addWidget(self.general_page)
-        for _index in range(4):
+        for _index in range(6):
             self.stack.addWidget(QWidget())
-        self.stack.addWidget(self.plugin_page)
-        self.stack.addWidget(self.update_page)
         right.addWidget(self.stack, 1)
 
         buttons = QHBoxLayout()
@@ -912,13 +1089,14 @@ class SettingsDialog(QDialog):
         self.nav.setCurrentRow(0)
         if preview:
             return
-        self.plugin_page.changed.connect(self._update_save_button)
-        self.plugin_page.store_page.busyChanged.connect(self._update_save_button)
-        self.update_page.busyChanged.connect(self._update_save_button)
-        self.plugin_page.store_page.offersChanged.connect(self._mark_plugin_updates)
-        self.update_page.releaseChecked.connect(self._mark_app_update)
-        self._mark_plugin_updates(self.plugin_page.store_page.offers)
         self._update_save_button()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._paint_logged:
+            self._paint_logged = True
+            print(f"[设置耗时] 首次绘制 {(time.perf_counter() - self._created_at) * 1000:.1f}ms",
+                  file=sys.stderr, flush=True)
 
     def _mark_update_page(self, key, active):
         for index in range(self.nav.count()):
@@ -928,6 +1106,7 @@ class SettingsDialog(QDialog):
 
     def _page(self, index):
         if index not in self._loaded_pages:
+            started = time.perf_counter()
             placeholder = self.stack.widget(index)
             page = self._page_factories[index]()
             self._loaded_pages[index] = page
@@ -936,12 +1115,30 @@ class SettingsDialog(QDialog):
             placeholder.deleteLater()
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
+            elif index == 5 and not self._preview_only:
+                from .online_ui import UpdateDot
+                from PySide6.QtWidgets import QTabBar
+                page.store_page.seen_versions = self.seen_versions
+                self._plugin_update_dot = UpdateDot()
+                page.tabs.tabBar().setTabButton(1, QTabBar.RightSide, self._plugin_update_dot)
+                page.changed.connect(self._update_save_button)
+                page.store_page.busyChanged.connect(self._update_save_button)
+                page.store_page.offersChanged.connect(self._mark_plugin_updates)
+                self._mark_plugin_updates(page.store_page.offers)
+            elif index == 6 and not self._preview_only:
+                page.busyChanged.connect(self._update_save_button)
+                page.releaseChecked.connect(self._mark_app_update)
+            self.pageCreated.emit(index, page)
+            print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
+                  file=sys.stderr, flush=True)
         return self._loaded_pages[index]
 
     appearance_page = property(lambda self: self._page(1))
     danmaku_page = property(lambda self: self._page(2))
     recording_page = property(lambda self: self._page(3))
     shortcut_page = property(lambda self: self._page(4))
+    plugin_page = property(lambda self: self._page(5))
+    update_page = property(lambda self: self._page(6))
 
     def _remember_versions(self, versions):
         if any(self.seen_versions.get(key) != value for key, value in versions.items()):
@@ -949,7 +1146,7 @@ class SettingsDialog(QDialog):
             self.updatesViewed.emit(dict(self.seen_versions))
 
     def _mark_app_update(self, offer):
-        if offer and self.nav.currentRow() == self.stack.indexOf(self.update_page):
+        if offer and self.nav.currentRow() == 6:
             self._remember_versions({'app': offer['version']})
         active = bool(offer and self.seen_versions.get('app') != offer['version'])
         self._mark_update_page('updates', active)
@@ -957,7 +1154,7 @@ class SettingsDialog(QDialog):
     def _mark_plugin_updates(self, offers):
         from .online_ui import plugin_update_offers
         updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
-        if self.nav.currentRow() == self.stack.indexOf(self.plugin_page):
+        if self.nav.currentRow() == 5:
             self._remember_versions({offer['id']: offer['version'] for offer in updates})
         active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
         self._mark_update_page('plugins', active)
@@ -965,8 +1162,10 @@ class SettingsDialog(QDialog):
         self.plugin_page.store_page.update_dots()
 
     def _update_save_button(self, *_args) -> None:
-        self.confirm_button.setText("保存并重启" if self.plugin_page.needs_restart() else "保存")
-        self.confirm_button.setEnabled(not self.plugin_page.store_page.jobs and not self.update_page.jobs)
+        plugin, update = self._loaded_pages.get(5), self._loaded_pages.get(6)
+        self.confirm_button.setText("保存并重启" if plugin is not None and plugin.needs_restart() else "保存")
+        self.confirm_button.setEnabled(not (plugin is not None and plugin.store_page.jobs)
+                                      and not (update is not None and update.jobs))
 
     def _save(self) -> None:
         appearance = self._loaded_pages.get(1)
@@ -975,15 +1174,18 @@ class SettingsDialog(QDialog):
                 self.nav.setCurrentRow(1)
                 appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
                 return
-        self.restart_requested = self.plugin_page.needs_restart()
+        plugin = self._loaded_pages.get(5)
+        self.restart_requested = plugin is not None and plugin.needs_restart()
         self.accept()
 
     def done(self, result):
         if self._preview_only:
             return super().done(result)
         self.stack.finish_transition()
-        self.plugin_page.store_page.stop()
-        self.update_page.stop()
+        if 5 in self._loaded_pages:
+            self._loaded_pages[5].store_page.stop()
+        if 6 in self._loaded_pages:
+            self._loaded_pages[6].stop()
         super().done(result)
 
     def _on_page_changed(self, index: int) -> None:
@@ -992,10 +1194,10 @@ class SettingsDialog(QDialog):
                 self._page(index)
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
-            self.reset_button.setVisible(self.stack.currentWidget() not in (self.plugin_page, self.update_page))
-            if index == self.stack.indexOf(self.plugin_page):
+            self.reset_button.setVisible(index not in (5, 6))
+            if index == 5 and not self._preview_only:
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
-            elif index == self.stack.indexOf(self.update_page):
+            elif index == 6 and not self._preview_only:
                 self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
@@ -1004,19 +1206,24 @@ class SettingsDialog(QDialog):
             page.reset()
 
     def settings(self) -> dict:
-        values = self.general_page.values()
-        values.update(self.appearance_page.values())
-        values.update(self.danmaku_page.values())
-        values.update(self.recording_page.values())
-        values.update(self.update_page.values())
+        values = dict(self._initial_settings)
+        values.update(self.general_page.values())
+        for index in (1, 2, 3):
+            if index in self._loaded_pages:
+                values.update(self._loaded_pages[index].values())
+        if 6 in self._loaded_pages:
+            values.update(self._loaded_pages[6].values())
         values['seen_update_versions'] = dict(self.seen_versions)
         return values
 
     def shortcuts(self) -> dict:
-        return self.shortcut_page.values()
+        return self._loaded_pages[4].values() if 4 in self._loaded_pages else dict(self._initial_shortcuts)
 
     def enabled_plugins(self):
-        return self.plugin_page.enabled_plugins()
+        if 5 in self._loaded_pages:
+            return self._loaded_pages[5].enabled_plugins()
+        enabled = self._plugin_manager.enabled if self._plugin_manager is not None else None
+        return None if enabled is None else set(enabled)
 
 
 def _add_folder_option(dialog, menu, folder_id, name):

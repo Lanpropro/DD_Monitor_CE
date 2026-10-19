@@ -1,4 +1,4 @@
-"""Native VLC playback survives appearance changes, with alpha badges above it."""
+"""Native libmpv playback survives appearance changes, with alpha badges above it."""
 import os
 from pathlib import Path
 import platform
@@ -54,15 +54,15 @@ def main():
                 tile.set_video_active(True)
                 tile.set_controls_visible(True)
             deadline = time.monotonic()+10
-            while time.monotonic() < deadline and not all(p.player.get_time() > 0 for p in window.players.values()):
+            while time.monotonic() < deadline and not all(p._prop("time-pos", 0) > 0 for p in window.players.values()):
                 QTest.qWait(30)
-            assert all(p.player.get_time() > 0 for p in window.players.values()), 'VLC did not start'
+            assert all(p._prop("time-pos", 0) > 0 for p in window.players.values()), 'libmpv did not start'
             if visible:
                 from dev.selfcheck_video_surface import check_pixels, wait
                 wait(app, lambda: all(check_pixels(tile) for tile in window.wall.tiles))
             players = dict(window.players)
             handles = [int(t.video.winId()) for t in window.wall.tiles]
-            before = [p.player.get_time() for p in players.values()]
+            before = [p._prop("time-pos", 0) for p in players.values()]
             recorder = window.recorder
             with patch.object(recorder, 'stop') as stop, patch.object(window, 'start_tile') as start:
                 for mode in ('light', 'dark', 'light', 'dark'):
@@ -98,12 +98,19 @@ def main():
                         assert all(not getattr(t.stream_badge, '_layered_hwnd', None) for t in window.wall.tiles)
                 start.assert_not_called()
                 stop.assert_not_called()
-            assert all(p.player.get_time() > earlier for p, earlier in zip(players.values(), before)), 'Playback clock reset or stopped'
-            print('PASS: two native VLC outputs continue; stable players/HWNDs; no resolver restart/recording stop; alpha uploads and dark restoration')
+            assert all(p._prop("time-pos", 0) > earlier for p, earlier in zip(players.values(), before)), 'Playback clock reset or stopped'
+            print('PASS: two native libmpv outputs continue; stable players/HWNDs; no resolver restart/recording stop; alpha uploads and dark restoration')
         finally:
             window.close()
             app.processEvents()
 
 
 if __name__ == '__main__':
-    main()
+    from dev.selfcheck_mpv import mta_lifetime
+    with mta_lifetime():
+        try:
+            main()
+        finally:
+            app = QApplication.instance()
+            if app is not None:
+                app.shutdown()

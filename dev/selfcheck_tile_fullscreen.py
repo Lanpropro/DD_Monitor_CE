@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+from unittest.mock import patch
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QCursor, QPixmap
@@ -66,7 +67,10 @@ def main() -> None:
     app.setStyleSheet(theme.qss())
     rooms = [{"room_id": str(1000 + i), "uname": f"主播{i}", "live": False}
              for i in range(6)]
-    window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner")
+    # 此测试只验证全屏布局，不启动真实直播取流或自动提升画质。
+    with patch.object(MainWindow, "start_all"):
+        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner")
+    window._upgrade_fullscreen_quality = lambda _tile: False
     window.resize(1400, 900)
     window.show()
     app.processEvents()

@@ -236,7 +236,9 @@ def main():
                             if key not in ("playback_mode", "live_known", "anchor_uid")},
                             extra={key: records[kind][key] for key in ("playback_mode", "live_known", "anchor_uid")
                                    if key in records[kind]})), \
-                            patch.object(platform, "play_url", return_value=("https://cdn.test/live.flv", 10000, kind, headers)):
+                            patch.object(platform, "play_url", return_value=("https://cdn.test/live.flv", 10000, kind, headers)), \
+                            patch.object(platform, "play_url_for_codec", return_value=(
+                                "https://cdn.test/live.flv", 10000, kind, headers, "avc")):
                         def accept(dialog):
                             dialog.edit.setText(category_url if kind == "douyin" else platform.room_url(kind + ":123"))
                             dialog.accept()

@@ -1,9 +1,7 @@
 # 运行这个程序需要的包
 PySide6
-python-vlc
+python-mpv==1.0.8
 requests
-# 每个播放格子的独立左右声道路由（PortAudio）
-sounddevice
 qrcode
 # B 站及国内直播平台的弹幕 websocket 客户端
 aiohttp>=3.12

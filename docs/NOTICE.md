@@ -17,7 +17,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 - **取流**：直连 http FLV 不落盘，App 通道优先、失败回退 web 通道；断流按指数退避自动重连。
 - **弹幕**：画面墙里可以放一整格弹幕，跟着主画面那一路走（换台/切布局自动跟随），
   用 `blivedm` 收弹幕、礼物、上舰、醒目留言。
-- 播放仍使用 python-vlc，`libvlc.dll` / `libvlccore.dll` / `plugins/` 取自原仓库随包运行库。
+- 播放、音频和悬停预览已迁移到 python-mpv / libmpv，不再依赖 VLC。
 
 界面配色与尺度参考了 [BewlyCat](https://github.com/keleus/BewlyCat) 的设计令牌（基色、圆角、胶囊控件、字号层级）。
 
@@ -25,7 +25,12 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 
 - `blivedm/`：B 站直播弹幕协议库，上游 https://github.com/xfgryujk/blivedm 。
   这份是从原仓库带过来的，**仓库里没有附带它的许可文件**；如果以后要对外分发，需要补上上游的许可。
-- VLC（libvlc/plugins）：随包运行库，未放进本仓库，见 README。
+- libmpv：随包提供 shinchiro 的 Windows x64 构建；固定版本、下载地址、DLL 和
+  压缩包校验值见 `ddm/assets/licenses/libmpv-SOURCE.json`。构建包含 GPL 组件；
+  mpv 的版权说明及 GPL/LGPL 文本随包保留于 `mpv-license/`（源码中位于
+  `ddm/assets/licenses/mpv-*`），具体构建及依赖来源见该来源清单。
+- python-mpv 1.0.8：GPLv2+ 或 LGPLv2.1+，许可文本见
+  `ddm/assets/licenses/python-mpv-LICENSE.*.txt`。
 - 国内直播弹幕（`ddm/live_danmaku.py`）：协议字段及抖音 signature 算法参考
   [biliup](https://github.com/biliup/biliup/tree/master/crates/danmaku/src/protocols)，
   改写部分的 MIT 许可见 `ddm/assets/licenses/biliup-MIT.txt`。

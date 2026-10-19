@@ -89,6 +89,7 @@ def main():
                 viewer.rows['2'].realign.click()
                 kick.assert_called_once()
             assert viewer.rematch_rooms=={'2'} and not viewer.rows['2'].match_confirmed
+            assert viewer.rows['2'].rematch_locally, 'Explicit retry first verifies the human-confirmed offset; failed refinement still falls back to global search'
             assert viewer.rows['3'].match_confirmed and viewer.alignment.lags['3']==1.2
             assert viewer.shifts()['1']==before['1'] and viewer.shifts()['3']==before['3']
             deliveries=[]

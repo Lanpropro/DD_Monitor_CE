@@ -57,36 +57,72 @@ class MainNoticesTests(unittest.TestCase):
         window._on_poller_finished(poller)
         self.assertTrue(window._startup_status_complete)
 
-    def test_d_targets_one_tile_remaps_and_preserves_typing(self):
+    def test_b_targets_one_tile_remaps_and_preserves_typing(self):
         window = self.window([{'room_id': '1001'}, {'room_id': '1001'}])
         first, second = window.wall.tiles[:2]
         cursor = self.stack.enter_context(patch.object(window, '_tile_under_cursor', return_value=second))
-        self.assertEqual(window.shortcuts['video_danmaku'], 'D')
-        QTest.keyClick(window, Qt.Key_D)
+        self.assertEqual(window.shortcuts['video_danmaku'], 'B')
+        QTest.keyClick(window, Qt.Key_B)
         self.assertTrue(second.danmaku_button.isChecked())
         self.assertFalse(first.danmaku_button.isChecked())
         self.assertTrue(window.current_state()['wall'][1]['video_danmaku_enabled'])
-        QTest.keyClick(window, Qt.Key_D)
+        QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(second.danmaku_button.isChecked())
         page = ShortcutSettingsPage(window.shortcuts)
         page._edits['video_danmaku'].setKeySequence(QKeySequence('R'))
         window.shortcuts = page.values()
-        QTest.keyClick(window, Qt.Key_D)
+        QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(second.danmaku_button.isChecked())
         QTest.keyClick(window, Qt.Key_R)
         self.assertTrue(second.danmaku_button.isChecked())
         page.reset()
         window.shortcuts = page.values()
-        self.assertEqual(window.shortcuts['video_danmaku'], 'D')
+        self.assertEqual(window.shortcuts['video_danmaku'], 'B')
         window.sidebar.search.clear()
-        QTest.keyClick(window.sidebar.search, Qt.Key_D)
-        self.assertEqual(window.sidebar.search.text(), 'd')
+        QTest.keyClick(window.sidebar.search, Qt.Key_B)
+        self.assertEqual(window.sidebar.search.text(), 'b')
         self.assertTrue(second.danmaku_button.isChecked())
         for target in (None, window.wall.tiles[2]):
             cursor.return_value = target
-            QTest.keyClick(window, Qt.Key_D)
+            QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(first.danmaku_button.isChecked())
         window.sync_danmaku.assert_called()
+
+    def test_send_auth_notice_opens_login_and_normal_notice_clears_action(self):
+        from ddm import bili
+        window = self.window([{'room_id': '1001'}])
+        composer = window.wall.tiles[0].composer
+        for session in ('', 'existing-session'):
+            with patch.object(bili, 'SESSION_DATA', session), patch.object(bili, 'BILI_JCT', ''), \
+                    patch.object(window, 'open_login') as login, patch.object(bili, 'send_danmaku') as send:
+                composer.edit.setText('test')
+                composer.send_text()
+                self.app.processEvents()
+                notice = window._result_notice
+                self.assertIn('登录', notice.title.text())
+                self.assertTrue(composer.feedback.isHidden())
+                self.assertFalse(composer.feedback.isWindow())
+                self.assertEqual(composer.edit.toolTip(), '')
+                QTest.mouseClick(notice.title, Qt.LeftButton)
+                login.assert_called_once_with('bilibili', reauthenticate=True)
+                send.assert_not_called()
+                window._show_notice('普通提示')
+                QTest.mouseClick(notice.title, Qt.LeftButton)
+                self.assertEqual(login.call_count, 1)
+
+    def test_reauthentication_opens_login_without_discarding_existing_cookies(self):
+        from ddm import bili
+        from ddm.account_dialog import AccountPlatformDialog
+        from ddm.login import LoginWindow
+        window = self.window([])
+        with patch.object(bili, 'SESSION_DATA', 'existing-session'), \
+                patch.object(LoginWindow, 'start_login'):
+            dialog = AccountPlatformDialog(window, {}, reauthenticate=True)
+            try:
+                self.assertIsInstance(dialog.page, LoginWindow)
+                self.assertEqual(bili.SESSION_DATA, 'existing-session')
+            finally:
+                dialog.reject()
 
     def test_notice_width_wrap_and_warning_feedback(self):
         owner = QWidget()

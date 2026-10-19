@@ -73,12 +73,15 @@ def main():
                 assert window.sidebar.search.palette().color(QPalette.PlaceholderText) == QColor('#5E6A7D')
                 assert all(tile.video.mask().contains(QPoint(x, tile.video.height()-1))
                     for x in (0, tile.video.width()//2, tile.video.width()-1)), 'Video bottom edge must join the footer without a hole'
+                tile.pause_button.setAttribute(Qt.WA_UnderMouse, False)
+                tile.pause_button.setProperty('hovered', False)
                 assert _icon_color(tile.pause_button) == theme.qcolor(theme.TEXT2)
                 logout = account.logout_button
                 assert logout.width() >= logout.fontMetrics().horizontalAdvance(logout.text()) + 16
                 assert logout.height() >= logout.fontMetrics().height() + 6
                 assert logout.geometry().right() < account.width()
             else:
+                assert sample(window.wall, QPoint(2, 2)) == QColor(theme.BG)
                 assert sample(tile.video, QPoint(20, tile.video.height()//2)) == QColor(theme.TILE_BG)
                 assert sample(window.sidebar.add_button, QPoint(20, window.sidebar.add_button.height()//2)) == QColor(theme.ACCENT)
             assert int(tile.video.winId()) == hwnd

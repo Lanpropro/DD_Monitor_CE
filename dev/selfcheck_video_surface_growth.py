@@ -56,7 +56,7 @@ def main():
 
     def class_name(hwnd, buffer, length):
         if hwnd == child:
-            buffer.value = "VLC video output"
+            buffer.value = "mpv"
             return len(buffer.value)
         return original_name(hwnd, buffer, length)
 
@@ -72,7 +72,7 @@ def main():
         with patch.object(user32, "GetClassNameW", side_effect=class_name):
             surface.refresh_clip()
             surface._retry_clip()
-            # VLC expands asynchronously after output creation, without Qt resizing.
+            # libmpv expands asynchronously after output creation, without Qt resizing.
             assert user32.SetWindowPos(child, None, 0, 0, width, height, 0x0014)
             assert contains(width * 3 // 4, height * 3 // 4), "Initial clip truncates grown output"
             assert not contains(0, 0), "Rounded corner must remain clipped"

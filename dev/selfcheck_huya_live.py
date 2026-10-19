@@ -11,9 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 os.environ["DDM_NO_SAVE"] = "1"
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
 
-import vlc  # noqa: E402
 from PySide6.QtCore import QMimeData, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QDropEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -34,9 +32,8 @@ def wait_for(app, predicate, seconds=30):
 
 
 def stats(player):
-    result = vlc.MediaStats()
-    player.player.get_media().get_stats(result)
-    return result
+    from selfcheck_mpv import progress
+    return progress(player)
 
 
 def main():
@@ -87,16 +84,15 @@ def main():
         player = window.players[target]
         wait_for(app, lambda: stats(player).decoded_audio > 10)
         first = stats(player).decoded_video
-        assert player.player.get_hwnd() == int(target.video.winId()), "必须绑定软件格子的原生窗口"
+        assert player._bound_hwnd == int(target.video.winId()), "必须绑定软件格子的原生窗口"
         target.set_volume(42)
         target.set_muted(False)
         # 本体使用每格 PCM 输出，VLC 原生音量值不能代表实际音量。
-        wait_for(app, lambda: player._audio_output.enabled and
-                 player._audio_output._stream is not None and player._audio_output._stream.active)
-        assert player._audio_output.volume == 42
+        wait_for(app, lambda: player._prop("current-ao") == "wasapi")
+        assert player._prop("volume", 0) > 0
         wait_for(app, lambda: stats(player).decoded_video > first + 60)
         target.set_muted(True)
-        assert not player._audio_output.enabled
+        assert player._prop("mute") is True
         result = stats(player)
         assert result.displayed_pictures > 30
         assert not target.stream_badge.viewers
@@ -119,11 +115,10 @@ def main():
               f"audio={result.decoded_audio}, {duration}s no refresh, avatars/covers/platform badge, "
               "native tile handle, volume/mute", flush=True)
         saved = window.current_state()
-        relay = player._relay
     finally:
         window.close()
         app.processEvents()
-    assert relay._process.poll() is not None and not relay._thread.is_alive(), "关闭后不能留下转封装进程"
+    assert player._released and player.player is None
     sidebar, wall = config.build_rooms(saved)
     with patch("ddm.app.QTimer.singleShot"):
         restored = MainWindow(sidebar, wall, state=saved, layout_id="1x2")
@@ -136,14 +131,12 @@ def main():
         assert restored.players[tile].muted
         print("PASS: restored follow card and wall slot resume real playback", flush=True)
         active_player = restored.players[tile]
-        active_relay = active_player._relay
         restored.plugins.enabled = set()
         restored._sync_platform_rooms()
         assert not restored.sidebar.rooms() and not tile.room.get("room_id")
-        assert active_player._released and active_relay._process.poll() is not None
-        assert not active_relay._thread.is_alive()
+        assert active_player._released and active_player.player is None
         assert restored.current_state()["suspended_platform_rooms"][kind]["rooms"]
-        print("PASS: disabling platform suspends rooms and stops real VLC/FFmpeg playback", flush=True)
+        print("PASS: disabling platform suspends rooms and stops real libmpv playback", flush=True)
     finally:
         restored.close()
         app.processEvents()

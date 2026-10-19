@@ -71,7 +71,7 @@ New-Item -ItemType Directory -Force -Path $app | Out-Null
 $tracked = & git -C $repo ls-files
 if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件列表（$repo 是 git 仓库吗？）" }
 foreach ($rel in $tracked) {
-    if ($rel -like "plugins/*") { continue }                  # VLC 运行库单独处理
+    if ($rel -like "plugins/*") { continue }                  # libmpv 运行库单独处理
     if ($rel -like "plugins_user/*") { continue }
     if ($rel -like "utils/*") { continue }
     if ($rel -like "videos/*") { continue }
@@ -87,13 +87,16 @@ New-Item -ItemType Directory -Force -Path (Join-Path $app "ffmpeg-license") | Ou
 Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $app "ffmpeg-license\LICENSE") -Force
 Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $app "ffmpeg-license\README.txt") -Force
 
-# ---- 2) VLC 运行库（.gitignore 里不含它，得手动带上）----
-foreach ($file in @("libvlc.dll", "libvlccore.dll")) {
+# ---- 2) libmpv 运行库（.gitignore 里不含它，得手动带上）----
+$mpvSource = Get-Content -LiteralPath (Join-Path $repo "ddm\assets\licenses\libmpv-SOURCE.json") -Raw | ConvertFrom-Json
+if ((Get-FileHash -LiteralPath (Join-Path $repo "libmpv-2.dll") -Algorithm SHA256).Hash.ToLower() -ne $mpvSource.dll_sha256) {
+    throw "libmpv DLL 与固定来源的校验值不符，打包中止"
+}
+foreach ($file in @("libmpv-2.dll")) {
     $src = Join-Path $repo $file
-    if (-not (Test-Path $src)) { throw "缺少 $file（VLC 运行库），打包中止" }
+    if (-not (Test-Path $src)) { throw "缺少 $file（libmpv 运行库），打包中止" }
     Copy-Item $src $app -Force
 }
-robocopy (Join-Path $repo "plugins") (Join-Path $app "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
 # 用户插件目录：直播平台扩展由独立插件仓库发布。
 New-Item -ItemType Directory -Force -Path (Join-Path $app "plugins_user") | Out-Null
 # utils is runtime user data; release packages start with an empty directory.
@@ -119,8 +122,7 @@ main.py                     入口
 ddm\                        程序本体
 blivedm\                    弹幕库（B 站直播弹幕，随包提供）
 dev\                        自检脚本与预览工具（改代码时用，运行程序不需要）
-plugins\                    VLC 插件（必需，别删）
-libvlc.dll / libvlccore.dll VLC 播放内核（必需，别删）
+libmpv-2.dll                libmpv 播放内核（必需，别删）
 ffmpeg.exe                  录制与即时回放所用的 FFmpeg（自动发现，无需设置路径）
 ffmpeg-license\             FFmpeg 的许可与来源说明
 plugins_user\               插件目录（新插件含 plugin.json 和 plugin.py）
@@ -169,6 +171,8 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         --collect-all streamlink `
         --collect-all av `
         --hidden-import numpy `
+        --hidden-import mpv `
+        --copy-metadata python-mpv `
         --hidden-import ddm.live_danmaku `
         --hidden-import ddm.global_danmaku `
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
@@ -180,16 +184,18 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
     }
     @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
-    # VLC 运行库要放 **_internal**（main.py 按 _MEIPASS 找 libvlc.dll，
-    # 而 onedir 的 _MEIPASS 就是 _internal）；插件也必须和 dll 挨着
+    # libmpv 与冻结后的 Python 模块放在同一个运行库目录。
     $internal = Join-Path $exeDir "_internal"
     Copy-Item -LiteralPath $FFmpegExe -Destination (Join-Path $exeDir "ffmpeg.exe") -Force
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "ffmpeg-license") | Out-Null
     Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $exeDir "ffmpeg-license\LICENSE") -Force
     Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $exeDir "ffmpeg-license\README.txt") -Force
-    Copy-Item (Join-Path $repo "libvlc.dll") $internal -Force
-    Copy-Item (Join-Path $repo "libvlccore.dll") $internal -Force
-    robocopy (Join-Path $repo "plugins") (Join-Path $internal "plugins") /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    Copy-Item (Join-Path $repo "libmpv-2.dll") $internal -Force
+    $mpvLicenseDir = Join-Path $exeDir "mpv-license"
+    New-Item -ItemType Directory -Force -Path $mpvLicenseDir | Out-Null
+    Get-ChildItem (Join-Path $repo "ddm\assets\licenses") -File |
+        Where-Object { $_.Name -match '^(mpv-|python-mpv-|libmpv-)' } |
+        Copy-Item -Destination $mpvLicenseDir -Force
     # 运行时侧栏会从 exe 同级 assets\logo.png 读取品牌图；favicon 也供 Qt 设置窗口图标。
     robocopy (Join-Path $repo "assets") (Join-Path $exeDir "assets") /E /NFL /NDL /NJH /NJS /NP | Out-Null
     # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
@@ -207,7 +213,7 @@ DD 监控室 $version（exe 便携版）
 配置 / 缓存 / 日志都在这个目录下（utils\config.json、cache\、logs\），
 plugins_user\ 里是插件，可在设置页装载 ZIP 包，
 整个目录拷到别的 Windows 10/11 64 位机器就能用。
-_internal\ 里的东西（含 libvlc.dll 和 plugins\）是运行库，别删。
+_internal\ 里的东西（含 libmpv-2.dll）是运行库，别删。
 ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可与来源说明。
 "@
     Set-Content -Path (Join-Path $exeDir "运行说明.txt") -Value $exeReadme -Encoding UTF8

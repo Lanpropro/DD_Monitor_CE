@@ -1,7 +1,6 @@
 """本机 HTTP 代理验收：并发连接复用、故障分类、播放器重连和停止清理。"""
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import os
 from pathlib import Path
 import sys
 import threading
@@ -14,8 +13,7 @@ import requests
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(REPO / "libvlc.dll"))
-from ddm import hls_proxy, player, stream_relay  # noqa: E402
+from ddm import hls_proxy, player  # noqa: E402
 
 
 def main():
@@ -112,11 +110,9 @@ def main():
                     if refresh:
                         assert requests.get(relay.url, timeout=3).status_code == 503
                         assert requests_seen.count("http://cdn.invalid" + path) == 1
-                        remux = SimpleNamespace(_lock=threading.Lock(), _stopped=False,
-                            _process=None, _hls_proxy=relay)
-                        remux.needs_restart = lambda: stream_relay.StreamRelay.needs_restart(remux)
                         states = []
-                        tile = SimpleNamespace(paused=False, _relay=remux, _set_state=states.append)
+                        tile = SimpleNamespace(paused=False, _released=False, _media="test",
+                            _hls_proxy=relay, _set_state=states.append)
                         player.TilePlayer._check(tile)
                         assert states == ["error"], "Expired URL must enter the existing re-resolve path immediately"
                         tile.paused = True

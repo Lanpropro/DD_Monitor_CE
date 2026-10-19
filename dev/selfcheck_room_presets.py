@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QMenu, QToolButton
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
+from ddm.player import TilePlayer
 from ddm.room_presets_ui import thumbnail
 from selfcheck_corner_resize import border_for, drag
 
@@ -91,8 +92,7 @@ def main():
             players = {}
             for tile in window.wall.tiles:
                 if tile.room.get('room_id'):
-                    player = Mock()
-                    player.needs_audio_restart.return_value = False
+                    player = Mock(spec=TilePlayer)
                     players[str(tile.room['room_id'])] = player
                     window.players[tile] = player
             handles = {str(tile.room['room_id']): int(tile.video.winId()) for tile in window.wall.tiles

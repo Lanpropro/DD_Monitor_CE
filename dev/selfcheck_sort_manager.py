@@ -2,7 +2,7 @@
 import os
 import sys
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -22,6 +22,55 @@ def main() -> None:
     sidebar.setGeometry(-8000, -8000, 248, 600)
     sidebar.show()
     app.processEvents()
+    for side in ("left", "top", "left", "top", "left"):
+        sidebar.set_side(side)
+        app.processEvents()
+        button = sidebar.batch_button
+        assert button.text() == "" and button._icon_mode
+        assert button.accessibleName() == "多选直播间"
+        if side == "left":
+            assert button.parentWidget() is sidebar.status_row
+            box = sidebar.status_row.layout()
+            assert box.indexOf(button) == box.indexOf(sidebar.sort_button) + 1
+            assert sidebar._header_row.layout().indexOf(button) == -1
+            assert button.size().width() == button.size().height() == 22
+        QTest.mouseClick(button, Qt.LeftButton)
+        assert sidebar.select_mode and button.isChecked()
+        assert sidebar.account_row.isHidden() and sidebar.tool_row.isHidden()
+        assert sidebar.normal_bar.isHidden() and not sidebar.batch_bar.isHidden()
+        card = sidebar.items()[0]
+        assert card._layout.indexOf(card.check) == -1
+        assert card.check.parentWidget() is card.thumb
+        assert card.check.y() == 2
+        assert card.check.x() == card.thumb.width() - card.check.width() - 2
+        assert card.thumb.rect().contains(card.check.geometry())
+        assert card.mask().isEmpty() and card.graphicsEffect() is None
+        QTest.mouseClick(card.check, Qt.LeftButton)
+        assert card.is_checked()
+        assert not card.property('sortSelected'), '多选仅用角标标记，不增加卡片描边'
+        sidebar.set_select_mode(False)
+        assert not button.isChecked()
+        assert not sidebar.account_row.isHidden() and not sidebar.tool_row.isHidden()
+        assert card.mask().isEmpty() and card.check.isHidden() and not card.is_checked()
+    sidebar.set_select_mode(True)
+    for side in ('top', 'left', 'top', 'left'):
+        sidebar.set_side(side)
+        app.processEvents()
+        assert sidebar.select_mode and sidebar.account_row.isHidden()
+        assert sidebar.tool_row.isHidden() and sidebar.normal_bar.isHidden()
+        assert not sidebar.batch_bar.isHidden()
+        for card in sidebar.items():
+            assert card.mask().isEmpty() and card.graphicsEffect() is None
+            assert card.check.y() == 2 and card.thumb.rect().contains(card.check.geometry())
+    for card_mode in (False, True):
+        sidebar.set_card_mode(card_mode)
+        app.processEvents()
+        for card in sidebar.items():
+            assert card.thumb.rect().contains(card.check.geometry())
+            assert not card.name_label.geometry().intersects(card.check.geometry())
+            if not card_mode:
+                assert not card.platform_badge.geometry().intersects(card.check.geometry())
+    sidebar.set_select_mode(False)
     sidebar.apply_pins(["p1", "p2"])
 
     def order() -> list[str]:
@@ -79,17 +128,27 @@ def main() -> None:
     QTest.mouseClick(item("c"), Qt.LeftButton)
     assert sidebar.selected_sort_ids() == ["a", "c"]
     assert sidebar.dragged_room_ids("a") == ["a", "c"]
-    assert item("a").property("sortSelected") and item("c").property("sortSelected")
+    assert not item("a").property("sortSelected") and not item("c").property("sortSelected")
     next(action for action in item("a")._context_menu().actions()
          if action.text() == "将选中的 2 张移到最前").trigger()
     assert order() == ["p2", "p1", "a", "c", "b", "d"]
     assert sidebar.selected_sort_ids() == ["a", "c"]
     sidebar.search.setText("A")
     assert sidebar.selected_sort_ids() == ["a"], "隐藏的勾选卡片不能被拖动"
+    assert not item('c').check.isVisible(), '筛选隐藏卡片时，角标也必须隐藏'
     sidebar.search.clear()
     assert sidebar.selected_sort_ids() == ["a", "c"]
     sidebar.set_select_mode(False)
     assert sidebar.selected_sort_ids() == []
+    sidebar.set_select_mode(True)
+    removed = item('d')
+    check = removed.check
+    sidebar.remove_room(removed.room)
+    assert not check.isVisible()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    from shiboken6 import isValid
+    assert not isValid(check), '删除卡片不能遗留独立勾选控件'
     sidebar.close()
     print("关注卡片多选、整组拖动、右键移动与置顶边界通过")
 

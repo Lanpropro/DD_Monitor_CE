@@ -35,7 +35,11 @@ DEFAULT_SETTINGS = {
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）
-    "decode_mode": "auto",    # VLC 自动 / D3D11 / DXVA2 / 软件解码
+    #: 选项定义见 DECODE_MODES；默认自动，兼容已有配置。
+    "decode_mode": "auto",
+    #: B 站直播流的编码方式。H.264 兼容性最好（默认）；HEVC 同画质码率约省一半；
+    #: AV1 使用 HLS 通道，由 libmpv 原生播放。
+    "bili_codec": "avc",
     "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
@@ -54,6 +58,8 @@ DEFAULT_SETTINGS = {
     "recording_dir": "",         # 首次录制前必须由用户选择
     "recording_format": "mp4",
     "recording_codec": "copy",    # 不重编码；选 h264 时才使用码率/帧率
+    #: 重编码时用哪个编码器：auto 优先显卡、不可用回退 CPU；也可以手动指定。
+    "recording_encoder": "auto",
     "recording_bitrate": 6000,    # kbps
     "recording_fps": 30,
     "recording_replay_minutes": 3,
@@ -94,6 +100,40 @@ DEFAULT_SETTINGS = {
 }
 
 STATE_VERSION = 1
+
+
+DECODE_MODES = (
+    ("自动解码（推荐）", "auto"),
+    ("兼容硬解（回传内存）", "d3d11va-copy"),
+    ("软件解码（CPU）", "none"),
+    ("D3D11VA 显卡解码", "d3d11va"),
+    ("DXVA2 显卡解码（旧设备）", "dxva2"),
+)
+DECODE_LABELS = {value: label for label, value in DECODE_MODES}
+DECODE_HWDEC = {value: "no" if value == "none" else value for _, value in DECODE_MODES}
+DECODE_HINTS = {
+    "auto": "优先使用可用的显卡解码方式；不可用或解码异常时回退 CPU。多窗观看推荐使用。",
+    "d3d11va-copy": "显卡解码后回传系统内存再显示，可排查黑屏或画面互操作问题；CPU、内存与传输开销较高。",
+    "none": "由 CPU 解码，显卡仍负责画面显示；适合硬解异常或显卡不支持该编码时使用。",
+    "d3d11va": "手动指定 Windows D3D11VA 硬解；解码异常时回退 CPU。通常优先使用自动。",
+    "dxva2": "旧设备的手动兼容选项；部分驱动可能出现颜色异常，正常播放优先使用自动。",
+}
+CODEC_SETTING_VALUES = {"bili_codec": ("avc", "hevc", "av1"),
+                        "decode_mode": tuple(DECODE_LABELS)}
+
+
+def codec_overrides(values) -> dict:
+    if not isinstance(values, dict):
+        return {}
+    return {key: values[key] for key, choices in CODEC_SETTING_VALUES.items()
+            if values.get(key) in choices}
+
+
+def codec_settings(settings: dict, overrides=None) -> dict:
+    values = {key: DEFAULT_SETTINGS[key] for key in CODEC_SETTING_VALUES}
+    if "decode_mode" not in settings and settings.get("hw_decode") is False:
+        values["decode_mode"] = "none"
+    return {**values, **codec_overrides(settings), **codec_overrides(overrides)}
 
 
 def _read_json(path: str) -> dict:
@@ -239,6 +279,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
                 "quality": int(slot.get("quality", 250)),
                 "audio_channel": int(slot.get("audio_channel", 0)),
                 "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
+                "codec_overrides": codec_overrides(slot.get("codec_overrides")),
             })
             continue
         room = placeholder(room_id)
@@ -247,5 +288,6 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
         room["quality"] = int(slot.get("quality", 250))
         room["audio_channel"] = int(slot.get("audio_channel", 0))
         room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))
+        room["codec_overrides"] = codec_overrides(slot.get("codec_overrides"))
         wall.append(room)
     return sidebar, wall

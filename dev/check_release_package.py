@@ -46,6 +46,9 @@ assert not (exe / f"{name}-exe.exe").exists(), "旧版 exe 文件名仍在包内
 assert f"{DISPLAY_NAME}.exe" in (exe / "运行说明.txt").read_text(encoding="utf-8-sig"), \
     "运行说明中的 exe 文件名不正确"
 for folder in (source, exe):
+    runtime = folder / "_internal" if folder == exe else folder
+    assert (runtime / "libmpv-2.dll").is_file(), "libmpv 缺失"
+    assert not list(folder.rglob("libvlc*.dll")), "发布包仍包含 VLC 运行库"
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
     assert not (folder / "utils").exists() or not any((folder / "utils").iterdir()), "发布包包含本机运行数据或背景素材"

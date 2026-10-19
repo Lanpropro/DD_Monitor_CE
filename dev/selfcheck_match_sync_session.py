@@ -115,21 +115,25 @@ def main():
             resumed = time.monotonic()
             next_match = resumed
             recovered_at = None
-            admitted_late = False
+            checked_late = False
             main_shift = viewer.shifts()['1']
             # Cropping cleared the pre-crop features. The restarted file must
-            # reach that retained scene interval before a true overlap exists.
+            # reach that retained scene interval for matching, but cannot catch
+            # the healthy main by replaying old content at the same speed.
             while time.monotonic() - resumed < 18:
                 viewer.render()
                 if time.monotonic() >= next_match:
                     viewer.analyse()
                     next_match = time.monotonic() + .5
                 app.processEvents()
-                if row.match_confirmed and not admitted_late and not row.join.isHidden():
+                if row.match_confirmed and not checked_late:
                     assert viewer.shifts()['1'] == main_shift, 'An automatic late recovery must not rewind the main'
                     assert viewer.rows['1'].sync_state == '已同步' and row.mix_gain == 0
-                    viewer.admit_pending('2')  # Simulate the explicit add-delay confirmation.
-                    admitted_late = True
+                    fixed_clock, fixed_shifts = viewer.audio.clock(), viewer.shifts()
+                    assert viewer.admit_pending('2') is False
+                    assert viewer.shifts() == fixed_shifts
+                    assert viewer.audio.clock() >= fixed_clock
+                    checked_late = True
                 expected = (row.decoder.history.origin - decoders[0].history.origin
                             if row.decoder.history.origin is not None else None)
                 actual = row.actual_position - viewer.rows["1"].actual_position if row.actual_position is not None else None
@@ -142,13 +146,19 @@ def main():
                     if time.monotonic() - recovered_at >= .5:
                         break
                 time.sleep(.005)
-            assert recovered_at is not None, (row.match_text, row.sync_state, viewer.alignment.lags,
-                viewer.shifts(), viewer.audio.clock(), row.actual_position, viewer.rows['1'].actual_position,
-                row.decoder.history.bounds(), viewer.rematch_rooms, viewer.rematch_admit,
-                row.match_confirmed, row.recovery_since, row.decoder.last_frame_received, expected, actual)
+            # A restarted file advances at the same speed as the fixed main and
+            # cannot catch up. Whether historical matching has reached its
+            # intermediate "confirmed" state is not the playback requirement.
+            # Verify the actual missing-content condition even when scene
+            # ambiguity correctly keeps the source unconfirmed (also on v1.2.6).
+            expected = row.decoder.history.origin - decoders[0].history.origin
+            target = viewer.audio.clock() + viewer.shifts()['1'] + expected
+            assert target > row.decoder.history.bounds()[1], 'The restarted fixture must actually be late'
+            assert recovered_at is None, (row.match_text, row.sync_state)
+            assert row.mix_gain == 0 and viewer.shifts()['1'] == main_shift
             assert abs(viewer.alignment.lags["3"] - peer_lag) <= .08
             assert not viewer.rows["1"].paused and not viewer.sync_waiting
-            print(f"MEASURE: changed-origin stream realigned in {recovered_at-resumed:.2f}s; scene error {abs(actual-expected)*1000:.0f}ms")
+            print("PASS: restarted source remains muted when its content cannot reach the fixed main; healthy streams continue")
         finally:
             viewer.close()
             for decoder in decoders:

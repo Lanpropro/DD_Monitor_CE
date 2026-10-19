@@ -12,26 +12,40 @@
 | `assets/`、`favicon.ico` | 软件图标、平台图标与资源 |
 | `main.py`、`requirements.txt`、`run.cmd`、`run-console.cmd` | 软件入口、依赖和启动脚本 |
 | `plugins_user/` | 插件源码、模板、本机安装副本与更新暂存；不能整体当杂项 |
-| `libvlc.dll`、`libvlccore.dll`、`plugins/` | 本机 VLC 播放运行库；这里的 plugins 是 VLC 模块，不能按宣传杂项删除 |
+| `libmpv-2.dll` | 本机播放运行库；使用 `dev/fetch_mpv.py` 下载并按来源清单校验，不进入 Git |
 
 ## 已跟踪的其他文件：逐项标注
 
-- `.github/PULL_REQUEST_TEMPLATE.md`
-- `.github/workflows/repository-checks.yml`
+### 根目录协作文件
+
 - `.gitignore`
 - `AGENTS.md`
 - `CONTRIBUTING.md`
 - `LICENSE`
 - `README.md`
+- `publish.cmd`
+
+### GitHub 自动检查
+
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `.github/workflows/repository-checks.yml`
+
+### 开发与验证脚本
+
+- `dev/benchmark_danmaku_frames.py`
+- `dev/benchmark_video_danmaku_render.py`
 - `dev/build_brand_assets.py`
 - `dev/build_match_sync.py`
 - `dev/build_plugin_catalog.py`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/check_emoticon_live.py`
+- `dev/check_live_danmaku_motion.py`
+- `dev/check_live_restore.py`
 - `dev/check_medal_size.py`
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
+- `dev/fetch_mpv.py`
 - `dev/probe_danmaku_live.py`
 - `dev/pyi_rth_pyside6_paths.py`
 - `dev/repro_d3d_quality.py`
@@ -52,15 +66,15 @@
 - `dev/selfcheck_audio_audit.py`
 - `dev/selfcheck_audio_cycle_shortcut.py`
 - `dev/selfcheck_audio_hotplug.py`
-- `dev/selfcheck_audio_isolation.py`
 - `dev/selfcheck_audio_owner.py`
 - `dev/selfcheck_audio_routing.py`
-- `dev/selfcheck_audio_timing.py`
 - `dev/selfcheck_auto_quality.py`
 - `dev/selfcheck_auto_quality_live.py`
 - `dev/selfcheck_auto_quality_switch_live.py`
 - `dev/selfcheck_avatars.py`
 - `dev/selfcheck_bili_2k_live.py`
+- `dev/selfcheck_bili_codec.py`
+- `dev/selfcheck_bili_cookies.py`
 - `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
@@ -79,11 +93,17 @@
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_button.py`
+- `dev/selfcheck_danmaku_composer.py`
+- `dev/selfcheck_danmaku_connection.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`
+- `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
+- `dev/selfcheck_danmaku_room_switches.py`
+- `dev/selfcheck_danmaku_send.py`
+- `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
 - `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`
@@ -99,6 +119,8 @@
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
+- `dev/selfcheck_emoticon_tabs.py`
+- `dev/selfcheck_encoders.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
 - `dev/selfcheck_folder_blank_menu.py`
@@ -136,24 +158,32 @@
 - `dev/selfcheck_localization.py`
 - `dev/selfcheck_main_notices.py`
 - `dev/selfcheck_match_sync.py`
+- `dev/selfcheck_match_sync_admission.py`
 - `dev/selfcheck_match_sync_alignment.py`
 - `dev/selfcheck_match_sync_appearance.py`
+- `dev/selfcheck_match_sync_assistance.py`
+- `dev/selfcheck_match_sync_audio_thread.py`
 - `dev/selfcheck_match_sync_chat.py`
 - `dev/selfcheck_match_sync_comparison.py`
 - `dev/selfcheck_match_sync_control.py`
+- `dev/selfcheck_match_sync_crop_generation.py`
 - `dev/selfcheck_match_sync_crop_style.py`
+- `dev/selfcheck_match_sync_danmaku_settings.py`
 - `dev/selfcheck_match_sync_douyu_picture.py`
 - `dev/selfcheck_match_sync_empty.py`
 - `dev/selfcheck_match_sync_entry.py`
 - `dev/selfcheck_match_sync_exe.py`
 - `dev/selfcheck_match_sync_feedback.py`
+- `dev/selfcheck_match_sync_four_compare.py`
 - `dev/selfcheck_match_sync_fullscreen_cursor.py`
 - `dev/selfcheck_match_sync_health.py`
 - `dev/selfcheck_match_sync_host_release.py`
+- `dev/selfcheck_match_sync_late_buffer.py`
 - `dev/selfcheck_match_sync_live.py`
 - `dev/selfcheck_match_sync_lock.py`
 - `dev/selfcheck_match_sync_main_quality.py`
 - `dev/selfcheck_match_sync_media.py`
+- `dev/selfcheck_match_sync_mpv_compat.py`
 - `dev/selfcheck_match_sync_multistream.py`
 - `dev/selfcheck_match_sync_native.py`
 - `dev/selfcheck_match_sync_offsets.py`
@@ -166,11 +196,17 @@
 - `dev/selfcheck_match_sync_retry_rows.py`
 - `dev/selfcheck_match_sync_session.py`
 - `dev/selfcheck_match_sync_shortcuts.py`
+- `dev/selfcheck_match_sync_smoothing.py`
+- `dev/selfcheck_match_sync_startup_clock.py`
+- `dev/selfcheck_match_sync_status.py`
 - `dev/selfcheck_match_sync_timer.py`
+- `dev/selfcheck_match_sync_tracking.py`
 - `dev/selfcheck_match_sync_two_stream.py`
 - `dev/selfcheck_match_sync_ui.py`
 - `dev/selfcheck_match_sync_video.py`
+- `dev/selfcheck_match_sync_volume.py`
 - `dev/selfcheck_menu_motion.py`
+- `dev/selfcheck_mpv.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
@@ -212,7 +248,6 @@
 - `dev/selfcheck_preset_resize.py`
 - `dev/selfcheck_preset_state.py`
 - `dev/selfcheck_preview.py`
-- `dev/selfcheck_preview_audio.py`
 - `dev/selfcheck_preview_collapsed.py`
 - `dev/selfcheck_preview_popup.py`
 - `dev/selfcheck_project_workflow.py`
@@ -222,6 +257,8 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
+- `dev/selfcheck_resize_surface.py`
+- `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_remove_follow_position.py`
@@ -237,10 +274,12 @@
 - `dev/selfcheck_sidebar_avatar.py`
 - `dev/selfcheck_sidebar_collapse.py`
 - `dev/selfcheck_sidebar_performance.py`
+- `dev/selfcheck_sidebar_text_theme.py`
 - `dev/selfcheck_skins.py`
 - `dev/selfcheck_slots.py`
 - `dev/selfcheck_smart_folder_sources.py`
 - `dev/selfcheck_smart_folders.py`
+- `dev/selfcheck_smooth_edges.py`
 - `dev/selfcheck_sort_manager.py`
 - `dev/selfcheck_startup.py`
 - `dev/selfcheck_startup_danmaku.py`
@@ -264,13 +303,18 @@
 - `dev/selfcheck_video_danmaku.py`
 - `dev/selfcheck_video_danmaku_controls.py`
 - `dev/selfcheck_video_danmaku_native.py`
+- `dev/selfcheck_video_danmaku_quick.py`
 - `dev/selfcheck_video_surface.py`
 - `dev/selfcheck_video_surface_growth.py`
 - `dev/selfcheck_volume_channel.py`
+- `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_website_plan.py`
 - `dev/selfcheck_windows_version.py`
+
+### 项目文档
+
 - `docs/BUG-STATUS-2026-10-02.md`
 - `docs/NOTICE.md`
 - `docs/README.md`
@@ -281,7 +325,16 @@
 - `docs/overview1_Portrait_Mode.png`
 - `docs/overview2_Landscape_mode.png`
 - `docs/plugins.md`
+- `docs/pr11-pr12-integration-testing.md`
 - `docs/pr6-pr7-layout-testing.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.1.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.2.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.3.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.4.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.5.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.6.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.7.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.8.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.md`
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
@@ -289,11 +342,37 @@
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/repository-cleanup-review.md`
+- `docs/repository-integration-20261019.md`
 - `docs/repository-map.md`
+- `docs/resize-performance.md`
 - `docs/room-presets-design.md`
 - `docs/skins.md`
 - `docs/website-plan.md`
-- `publish.cmd`
+
+### 网站原型
+
+- `website-prototype/.gitignore`
+- `website-prototype/README.md`
+- `website-prototype/app.js`
+- `website-prototype/assets/hero-main.jpg`
+- `website-prototype/assets/logo.svg`
+- `website-prototype/assets/tile-danmaku.jpg`
+- `website-prototype/assets/tile-game.jpg`
+- `website-prototype/assets/tile-portrait.jpg`
+- `website-prototype/assets/wall-danmaku.jpg`
+- `website-prototype/assets/wall-landscape.jpg`
+- `website-prototype/assets/wall-portrait.jpg`
+- `website-prototype/build_assets.py`
+- `website-prototype/capture.mjs`
+- `website-prototype/index.html`
+- `website-prototype/shots/desktop.png`
+- `website-prototype/shots/hero.png`
+- `website-prototype/shots/mobile.png`
+- `website-prototype/styles.css`
+- `website-prototype/test_prototype.py`
+
+### Other tracked files
+
 - `results/.gitignore`
 
 ## 仅本机存在的其他资料

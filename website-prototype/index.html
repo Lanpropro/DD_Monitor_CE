@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DD监控室 CE · 把喜欢的直播，摆成你的样子</title>
+  <meta name="description" content="DD监控室 CE 是一款免费开源的多窗口直播监控工具。16 路同屏，横竖屏布局随你摆；弹幕、音量、画质、录制逐路掌控，并通过插件接入虎牙、斗鱼、抖音、Twitch 和 YouTube。">
+  <meta name="theme-color" content="#070c16">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="DD监控室 CE · 把喜欢的直播，摆成你的样子">
+  <meta property="og:description" content="一块屏幕，16 路直播。横竖屏布局、弹幕、逐路控制与录制，Windows 免费开源。">
+  <meta property="og:image" content="assets/wall-landscape.jpg">
+  <link rel="icon" href="assets/logo.svg">
+  <script>if (new URLSearchParams(location.search).has("capture")) document.documentElement.classList.add("capture");</script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-head">
+    <div class="nav-shell">
+      <a class="brand" href="#top" aria-label="DD监控室 CE 首页">
+        <img class="brand-logo" src="assets/logo.svg" alt="" width="40" height="40">
+        <span class="brand-text">
+          <b>DD监控室 <em>CE</em></b>
+          <small>多窗口直播监控</small>
+        </span>
+      </a>
+
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#layout">布局</a>
+        <a href="#control">控制</a>
+        <a href="#record">录制</a>
+        <a href="#plugins">插件</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a class="nav-github" href="https://github.com/Lanpropro/DD_Monitor_CE" target="_blank" rel="noopener noreferrer">GitHub <span>↗</span></a>
+        <a class="btn btn--small" href="#download">下载 v0.4 <span class="btn-icon">↓</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-bg" aria-hidden="true">
+        <span class="blob blob--cyan"></span>
+        <span class="blob blob--pink"></span>
+        <span class="blob blob--violet"></span>
+        <span class="hero-stars"></span>
+      </div>
+
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">
+            <span class="live-dot"></span>
+            多窗口直播监控
+            <span class="eyebrow-sep">/</span>
+            WINDOWS
+            <span class="eyebrow-version">v0.4</span>
+          </div>
+
+          <h1>
+            <span class="line">把喜欢的直播，</span>
+            <span class="line">摆成<span class="accent">你的样子</span><span class="period">。</span></span>
+          </h1>
+
+          <p class="lede">
+            DD监控室 CE 把 <strong>16 路直播</strong>放进同一块屏幕。
+            横屏、竖屏、弹幕布局随你摆；音量、画质、录制，每一格都能单独调。
+          </p>
+
+          <div class="hero-actions">
+            <a class="btn btn--primary" href="#download">下载 v0.4 <span class="btn-icon">↓</span></a>
+            <a class="btn btn--glass" href="#layout">先看看功能 <span class="btn-icon">→</span></a>
+          </div>
+
+          <div class="hero-meta">
+            <span>Windows 10 / 11</span><i></i>
+            <span>免费开源</span><i></i>
+            <span>便携版免安装</span>
+          </div>
+
+          <div class="hero-stats">
+            <div class="stat"><b>16</b><span>路同屏</span></div>
+            <div class="stat"><b>06</b><span>平台接入</span></div>
+            <div class="stat"><b>0<em>元</em></b><span>免费使用</span></div>
+          </div>
+        </div>
+
+        <div class="hero-stage" id="hero-stage">
+          <span class="stage-glow stage-glow--cyan" aria-hidden="true"></span>
+          <span class="stage-glow stage-glow--pink" aria-hidden="true"></span>
+
+          <div class="stage-card stage-card--portrait" aria-hidden="true">
+            <img src="assets/tile-portrait.jpg" alt="">
+            <span class="stage-card-tag">竖屏直播</span>
+          </div>
+
+          <div class="stage-card stage-card--screen">
+            <div class="stage-bar" aria-hidden="true">
+              <span class="traffic"><i></i><i></i><i></i></span>
+              <span class="stage-bar-title">DD监控室 CE</span>
+              <span class="stage-bar-meta">16 路画面墙 · 20:41</span>
+            </div>
+            <img src="assets/wall-landscape.jpg" alt="DD监控室 CE 的多窗口直播画面墙截图">
+          </div>
+
+          <div class="stage-card stage-card--chat">
+            <div class="mini-chat-head"><span><i></i>弹幕</span><em>已连接 · 163</em></div>
+            <div class="mini-chat-lines">
+              <p><b class="tag tag--amber">盐文字18</b><span>语言受难者</span>：藤本树一点压力不带吃的</p>
+              <p><b class="tag tag--violet">盐文字10</b><span class="violet">Beyondlogic</span>：其实就是画不下去摆烂了</p>
+              <p><b class="tag tag--blue">盐文字27</b><span>路冥</span>：第一季完结后藤本树就封笔了……</p>
+            </div>
+            <div class="mini-chat-foot">B 键开关弹幕</div>
+          </div>
+
+          <span class="float-pill float-pill--live"><i></i>16 路同屏</span>
+          <span class="float-pill float-pill--layout">布局随窗口走</span>
+          <span class="float-pill float-pill--drag">拖动排序 <span>↕</span></span>
+          <span class="stage-cursor" aria-hidden="true">↖</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="platforms" aria-label="支持平台">
+      <div class="container platform-bar">
+        <span class="platform-label"><i></i>支持平台</span>
+        <div class="platform-chips">
+          <span class="platform-chip is-core"><i class="dot dot--pink"></i>哔哩哔哩<em>本体</em></span>
+          <span class="platform-chip"><i class="dot dot--amber"></i>虎牙<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--coral"></i>斗鱼<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--rose"></i>抖音<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--violet"></i>Twitch<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--red"></i>YouTube<em>插件</em></span>
+        </div>
+        <span class="platform-note">B 站本体支持，其余平台由插件接入</span>
+      </div>
+    </section>
+
+    <section class="section" id="layout">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-title">
+            <div class="eyebrow">01 / 布局</div>
+            <h2>一块屏，<br>想怎么摆就怎么摆。</h2>
+          </div>
+          <p class="section-desc">
+            横屏平分、大带小、弹幕布局，还有整套竖屏预设。把窗口拖成竖的，
+            画面墙会自己换成最合适的那一套；边框也能直接拖，比例会记住。
+          </p>
+        </div>
+
+        <div class="layout-grid">
+          <div class="layout-panel">
+            <div class="layout-toolbar">
+              <div class="layout-tabs" role="group" aria-label="布局预览切换">
+                <button class="layout-tab" type="button" data-mode="split" aria-pressed="false">平分布局</button>
+                <button class="layout-tab is-active" type="button" data-mode="hero" aria-pressed="true">大带小</button>
+                <button class="layout-tab" type="button" data-mode="danmaku" aria-pressed="false">弹幕布局</button>
+                <button class="layout-tab" type="button" data-mode="portrait" aria-pressed="false">竖屏预设</button>
+              </div>
+              <span class="layout-hint">窗口拖成竖屏，自动切换</span>
+            </div>
+
+            <div class="layout-frame" id="layout-frame">
+              <img id="layout-image" src="assets/wall-landscape.jpg" alt="DD监控室 CE 横屏大带小布局截图">
+              <span class="frame-label" id="layout-label">横屏 · 大带小</span>
+              <span class="frame-quality" id="layout-quality">16 路 / 原画</span>
+              <span class="drag-line" aria-hidden="true"></span>
+              <span class="drag-handle" aria-hidden="true">↔</span>
+              <span class="drag-label" aria-hidden="true">拖动边框</span>
+              <span class="frame-cursor" aria-hidden="true"></span>
+            </div>
+
+            <div class="layout-caption">
+              <span id="layout-caption">当前：横屏 · 大带小</span>
+              <span>比例自动保存 · 双击边框复位</span>
+            </div>
+          </div>
+
+          <aside class="layout-side">
+            <div class="portrait-preview">
+              <div class="portrait-head"><span>竖屏预设</span><em>12:34</em></div>
+              <img src="assets/wall-portrait.jpg" alt="DD监控室 CE 竖屏布局截图">
+              <div class="portrait-foot">主画面铺满宽度，小画面自动下排</div>
+            </div>
+
+            <ul class="layout-list">
+              <li data-mode-row="split">
+                <span class="mini-grid mini-grid--split"><i></i><i></i><i></i><i></i></span>
+                <div><b>平分布局</b><small>均分画面，一眼看全</small></div>
+              </li>
+              <li class="is-active" data-mode-row="hero">
+                <span class="mini-grid mini-grid--hero"><i></i><i></i><i></i></span>
+                <div><b>大带小</b><small>主画面 + 副画面</small></div>
+              </li>
+              <li data-mode-row="danmaku">
+                <span class="mini-grid mini-grid--danmaku"><i></i><i></i></span>
+                <div><b>弹幕布局</b><small>画面与弹幕并排</small></div>
+              </li>
+              <li data-mode-row="portrait">
+                <span class="mini-grid mini-grid--portrait"><i></i><i></i></span>
+                <div><b>竖屏预设</b><small>主画面铺满，小画面下排</small></div>
+              </li>
+            </ul>
+          </aside>
+        </div>
+
+        <div class="feature-pills">
+          <span><i class="pill-dot pill-dot--cyan"></i>拖窗口换方向，自动切布局</span>
+          <span><i class="pill-dot pill-dot--pink"></i>边框比例独立保存</span>
+          <span><i class="pill-dot pill-dot--lime"></i>直播间组合一键切换</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--control" id="control">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-title">
+            <div class="eyebrow">02 / 控制</div>
+            <h2>每一格，<br>都有自己的遥控器。</h2>
+          </div>
+          <p class="section-desc">
+            音量、静音、画质、左右声道，每一格单独调。断流会自己重连，
+            画面卡住会被发现；不需要一格格点开，状态会自己浮上来。
+          </p>
+        </div>
+
+        <div class="control-grid">
+          <div class="control-main">
+            <div class="control-head">
+              <span class="control-live"><i></i>正在播放 <b>4</b> 路</span>
+              <span class="control-note">音量 / 声道 / 录制</span>
+            </div>
+
+            <div class="channel-list">
+              <div class="channel-row is-rec">
+                <div class="ch-thumb"><img src="assets/hero-main.jpg" alt=""></div>
+                <div class="ch-info"><b>盐Sho</b><small>安定下午之主播你好温柔</small></div>
+                <div class="ch-vol">
+                  <span class="slider" style="--v:70%"><i></i></span>
+                  <em>70</em>
+                </div>
+                <div class="ch-routes" aria-label="左右声道">
+                  <button class="route is-on" type="button">L</button>
+                  <button class="route" type="button">R</button>
+                </div>
+                <button class="rec-pill is-rec" type="button"><i></i>录制</button>
+              </div>
+
+              <div class="channel-row">
+                <div class="ch-thumb"><img src="assets/tile-portrait.jpg" alt=""></div>
+                <div class="ch-info"><b>星音sumi</b><small>虚弱直播</small></div>
+                <div class="ch-vol">
+                  <span class="slider" style="--v:40%"><i></i></span>
+                  <em>40</em>
+                </div>
+                <div class="ch-routes" aria-label="左右声道">
+                  <button class="route" type="button">L</button>
+                  <button class="route is-on" type="button">R</button>
+                </div>
+                <button class="rec-pill" type="button"><i></i>录制</button>
+              </div>
+
+              <div class="channel-row">
+                <div class="ch-thumb"><img src="assets/tile-game.jpg" alt=""></div>
+                <div class="ch-info"><b>傲慢的小肉包</b><small>一起来玩伊莫吧！</small></div>
+                <div class="ch-vol">
+                  <span class="slider" style="--v:42%"><i></i></span>
+                  <em>42</em>
+                </div>
+                <div class="ch-routes" aria-label="左右声道">
+                  <button class="route is-on" type="button">L</button>
+                  <button class="route is-on" type="button">R</button>
+                </div>
+                <button class="rec-pill" type="button"><i></i>录制</button>
+              </div>
+
+              <div class="channel-row is-offline">
+                <div class="ch-thumb"><img src="assets/wall-portrait.jpg" alt=""></div>
+                <div class="ch-info"><b>灰深渊Hazel</b><small>未开播 · 等待中</small></div>
+                <div class="ch-vol">
+                  <span class="slider" style="--v:0%"><i></i></span>
+                  <em>--</em>
+                </div>
+                <div class="ch-routes" aria-label="左右声道">
+                  <button class="route" type="button" disabled>L</button>
+                  <button class="route" type="button" disabled>R</button>
+                </div>
+                <button class="rec-pill" type="button" disabled><i></i>离线</button>
+              </div>
+            </div>
+
+            <div class="control-foot">
+              <span class="mini-chip"><i class="mini-chip-dot mini-chip-dot--lime"></i>自动重连已开启</span>
+              <span class="mini-chip">画质跟随直播源</span>
+              <span class="master">MASTER <b>64</b></span>
+            </div>
+          </div>
+
+          <div class="control-side">
+            <article class="feature-card feature-card--cyan">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 1-2.3-5.6"/><path d="M20 4v7h-7"/></svg>
+              </span>
+              <h3>断流重连</h3>
+              <p>网络抖一下，画面自己回来。卡死也能被发现。</p>
+            </article>
+
+            <article class="feature-card feature-card--pink">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+              </span>
+              <h3>开播提醒</h3>
+              <p>关注的主播上线，第一时间知道。</p>
+            </article>
+
+            <article class="feature-card feature-card--lime">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              </span>
+              <h3>智能文件夹</h3>
+              <p>按平台、开播状态自动整理，不用手动翻。</p>
+            </article>
+
+            <article class="feature-card feature-card--amber">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 17h6M17 14v6"/></svg>
+              </span>
+              <h3>B 站登录</h3>
+              <p>扫码登录，一键导入关注列表。</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="control-extra">
+          <span>还有</span>
+          <i>逐路画质</i>
+          <i>悬停预览</i>
+          <i>自动更新</i>
+          <i>深浅色切换</i>
+          <i>声道 L / R</i>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="record">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-title">
+            <div class="eyebrow">03 / 录制</div>
+            <h2>错过一点，<br>也能倒回来。</h2>
+          </div>
+          <p class="section-desc">
+            每一路都能独立录制，也可以随时留下最近几分钟的即时回放。
+            原画直存、GPU 编码可选；关掉软件，后台 FFmpeg 一起收尾。
+          </p>
+        </div>
+
+        <div class="record-card">
+          <div class="record-copy">
+            <span class="record-badge"><i></i>RECORD / REPLAY</span>
+            <p>
+              默认 MP4 原画直存，不重编码；需要时再切 H.264 和显卡编码。
+              即时回放跟着录制自动开，右键就能保存最近一段。
+            </p>
+
+            <div class="record-points">
+              <div><b>每格独立</b><span>不混流，互不影响</span></div>
+              <div><b>原画直存</b><span>画质不二次损失</span></div>
+              <div><b>即时回放</b><span>最近数分钟随时保存</span></div>
+              <div><b>干净收尾</b><span>后台进程一起结束</span></div>
+            </div>
+
+            <span class="record-note">关闭软件不会留下还在偷偷录制的进程</span>
+          </div>
+
+          <div class="timeline-card" aria-label="录制与即时回放时间线示意">
+            <div class="timeline-head">
+              <span class="rec-live"><i></i>REC</span>
+              <span class="rec-time">00:42:17</span>
+              <span class="rec-room">CH 01 / 盐Sho</span>
+              <span class="rec-format">H.264 · 1080P60</span>
+            </div>
+
+            <div class="timeline-body">
+              <div class="ruler" aria-hidden="true">
+                <span>-30:00</span><i></i><span>-20:00</span><i></i><span>-10:00</span><i></i><span>NOW</span>
+              </div>
+              <div class="tracks">
+                <div class="track-row">
+                  <span>CH 01</span>
+                  <div class="track"><i class="past"></i><i class="recorded" style="--rec:64%"></i><i class="cache" style="--rec:64%;--cache:21%"></i><i class="mark" style="left:18%"></i><i class="mark" style="left:37%"></i><i class="mark" style="left:52%"></i></div>
+                  <em>REC</em>
+                </div>
+                <div class="track-row">
+                  <span>CH 02</span>
+                  <div class="track"><i class="past"></i><i class="recorded" style="--rec:41%"></i><i class="cache" style="--rec:41%;--cache:17%"></i><i class="mark" style="left:23%"></i></div>
+                  <em>REC</em>
+                </div>
+                <div class="track-row">
+                  <span>CH 03</span>
+                  <div class="track"><i class="past"></i><i class="recorded" style="--rec:77%"></i><i class="cache" style="--rec:77%;--cache:9%"></i><i class="mark" style="left:31%"></i><i class="mark" style="left:58%"></i></div>
+                  <em>REC</em>
+                </div>
+                <div class="track-row">
+                  <span>CH 04</span>
+                  <div class="track"><i class="past"></i></div>
+                  <em class="is-idle">IDLE</em>
+                </div>
+              </div>
+            </div>
+
+            <div class="timeline-foot">
+              <span>即时回放 / 最近 <b>5 MIN</b> · 3 路缓存</span>
+              <button class="save-clip" type="button">保存片段 ↓</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plugins-section" id="plugins">
+      <div class="plugin-shell">
+        <div class="section-head plugin-head">
+          <div class="section-title">
+            <div class="eyebrow">04 / 插件</div>
+            <h2>多一个平台，<br>多一块积木。</h2>
+          </div>
+          <p class="section-desc">
+            本体支持 B 站。虎牙、斗鱼、抖音、Twitch、YouTube 由插件接入；
+            官方插件商店或本地 ZIP，装完重启就能用。
+          </p>
+        </div>
+
+        <div class="plugin-grid">
+          <article class="plugin-card plugin-card--domestic">
+            <div class="plugin-card-head">
+              <span class="plugin-icon plugin-icon--domestic" aria-hidden="true">CN</span>
+              <div class="plugin-meta">
+                <span>domestic_live</span>
+                <em>v1.0</em>
+              </div>
+              <button class="switch is-on" type="button" aria-pressed="true" aria-label="启用国内直播平台插件"><i></i></button>
+            </div>
+            <h3>国内直播平台</h3>
+            <p>虎牙、斗鱼、抖音的取流、关注卡片与平台画质档位。</p>
+            <div class="plugin-tags">
+              <span><i class="dot dot--amber"></i>虎牙</span>
+              <span><i class="dot dot--coral"></i>斗鱼</span>
+              <span><i class="dot dot--rose"></i>抖音</span>
+            </div>
+          </article>
+
+          <article class="plugin-card">
+            <div class="plugin-card-head">
+              <span class="plugin-icon plugin-icon--global" aria-hidden="true">GL</span>
+              <div class="plugin-meta">
+                <span>global_live</span>
+                <em>v1.0</em>
+              </div>
+              <button class="switch is-on" type="button" aria-pressed="true" aria-label="启用海外直播平台插件"><i></i></button>
+            </div>
+            <h3>海外直播平台</h3>
+            <p>Twitch 与 YouTube 的取流、关注卡片与平台画质档位。</p>
+            <div class="plugin-tags">
+              <span><i class="dot dot--violet"></i>Twitch</span>
+              <span><i class="dot dot--red"></i>YouTube</span>
+            </div>
+          </article>
+
+          <article class="plugin-card plugin-card--build">
+            <span class="build-plus" aria-hidden="true">+</span>
+            <div class="build-copy">
+              <h3>你的插件</h3>
+              <p>一个 <code>plugin.json</code> + <code>plugin.py</code> 就能长出来。接入新平台、加一格右键菜单，或者把录制逻辑接出去。</p>
+            </div>
+            <div class="build-side">
+              <span>官方插件商店 / 本地 ZIP / 独立更新</span>
+              <a class="inline-link" href="https://github.com/Lanpropro/DD_Monitor_Plugins" target="_blank" rel="noopener noreferrer">查看接口 <span>↗</span></a>
+            </div>
+          </article>
+        </div>
+
+        <div class="plugin-platforms">
+          <span class="plugin-platforms-label">平台接入</span>
+          <span class="platform-chip is-core"><i class="dot dot--pink"></i>哔哩哔哩<em>本体</em></span>
+          <span class="platform-chip"><i class="dot dot--amber"></i>虎牙<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--coral"></i>斗鱼<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--rose"></i>抖音<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--violet"></i>Twitch<em>插件</em></span>
+          <span class="platform-chip"><i class="dot dot--red"></i>YouTube<em>插件</em></span>
+        </div>
+
+        <div class="plugin-steps">
+          <div class="plugin-step"><span>01</span><div><b>下载 ZIP</b><p>插件商店在线装，或从 Releases 下载单包。</p></div></div>
+          <div class="plugin-step"><span>02</span><div><b>拖进插件页</b><p>本地 ZIP 直接拖入，也支持自解压 EXE 的归档内容。</p></div></div>
+          <div class="plugin-step"><span>03</span><div><b>保存并重启</b><p>启用选择在下次启动生效，插件版本独立于本体。</p></div></div>
+        </div>
+
+        <p class="plugin-security">
+          <span>安全提示</span>
+          插件是普通 Python 代码，与本体同进程运行。只安装你信任的插件。
+        </p>
+      </div>
+    </section>
+
+    <section class="download" id="download">
+      <div class="container">
+        <div class="download-card">
+          <span class="download-ghost" aria-hidden="true">16</span>
+          <span class="download-blob download-blob--cyan" aria-hidden="true"></span>
+          <span class="download-blob download-blob--pink" aria-hidden="true"></span>
+
+          <div class="download-copy">
+            <div class="eyebrow">05 / 下载</div>
+            <h2>把画面墙，<br>摆到你的<span class="accent">桌面上</span>。</h2>
+            <p>
+              免费、开源、便携。解压即用，配置、缓存和插件都留在同一个目录里，
+              换台 Windows 机器也能直接带走。
+            </p>
+            <div class="download-actions">
+              <a class="btn btn--primary btn--large" href="https://github.com/Lanpropro/DD_Monitor_CE/releases" target="_blank" rel="noopener noreferrer">下载 v0.4 <span class="btn-icon">↗</span></a>
+              <a class="btn btn--glass" href="https://github.com/Lanpropro/DD_Monitor_CE" target="_blank" rel="noopener noreferrer">GitHub 仓库 <span class="btn-icon">↗</span></a>
+            </div>
+            <span class="download-note">官方下载认准 GitHub Releases · 无付费解锁</span>
+          </div>
+
+          <div class="spec-card">
+            <div class="spec-head"><span>SYSTEM / SPEC</span><em>READY</em></div>
+            <div class="spec-row"><span>系统</span><b>Windows 10 / 11 · 64-bit</b></div>
+            <div class="spec-row"><span>当前版本</span><b>v0.4 <em>/ STABLE</em></b></div>
+            <div class="spec-row"><span>形态</span><b>EXE 便携版 / 源码运行</b></div>
+            <div class="spec-row"><span>播放内核</span><b>libmpv · 多路同时播放</b></div>
+            <div class="spec-row"><span>插件</span><b>官方商店 / 本地 ZIP</b></div>
+            <div class="spec-row"><span>许可</span><b>LGPL-2.1 · 免费开源</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <div class="container foot-grid">
+      <div class="foot-brand">
+        <img src="assets/logo.svg" alt="" width="40" height="40">
+        <div>
+          <b>DD监控室 CE · 0.4</b>
+          <p>免费、开源的多窗口直播监控工具。<br>基于原作者「执明神君」的 DD监控室 二次开发。</p>
+        </div>
+      </div>
+
+      <nav class="foot-links" aria-label="页脚链接">
+        <a href="https://github.com/Lanpropro/DD_Monitor_CE" target="_blank" rel="noopener noreferrer">软件仓库 ↗</a>
+        <a href="https://github.com/Lanpropro/DD_Monitor_CE/releases" target="_blank" rel="noopener noreferrer">下载 Releases ↗</a>
+        <a href="https://github.com/Lanpropro/DD_Monitor_Plugins" target="_blank" rel="noopener noreferrer">插件仓库 ↗</a>
+        <a href="https://github.com/Lanpropro/DD_Monitor_CE/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">许可证 ↗</a>
+      </nav>
+
+      <div class="foot-meta">
+        <b>DD MONITOR CE / SHOWCASE</b><br>
+        WINDOWS 10 / 11 · LIBMPV · PYSIDE6<br>
+        <span class="proto">PROTOTYPE 02 · LIVE STAGE</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

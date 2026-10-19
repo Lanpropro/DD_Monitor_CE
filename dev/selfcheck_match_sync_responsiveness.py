@@ -71,7 +71,7 @@ def main():
             viewer.rows["2"].delay.setValue(-5)
             assert viewer.canvas.frame_key == before
             assert not viewer.rows["1"].paused and not viewer.sync_waiting
-            assert viewer.offset_repositioning
+            assert not viewer.offset_repositioning, "A secondary edit must not reposition the healthy main"
             now[0] = 121
             for row in viewer.rows.values():
                 row.decoder.history.append(121, image)
@@ -84,7 +84,13 @@ def main():
                 for stamp in range(122, 127):
                     row.decoder.history.append(stamp, image)
                 row.decoder.last_frame_received = now[0]
+            # The secondary must receive its requested content; the main cannot
+            # rewind to make a future secondary timestamp playable.
+            for stamp in range(127, 133):
+                viewer.rows["2"].decoder.history.append(stamp, image)
+            fixed_main = viewer.shifts()["1"]
             viewer.render()
+            assert viewer.shifts()["1"] == fixed_main
             assert not viewer.offset_repositioning and not viewer.sync_waiting
             assert all(row.decoder.history.frame_at(viewer.audio.clock() + viewer.shifts()[key])
                        for key, row in viewer.rows.items())

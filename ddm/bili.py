@@ -1,11 +1,13 @@
 """B 站直播接口：房间信息与播放地址。
 
 取流优先走 app-room，失败时退回 web 端 playUrl，并尝试同通道备用 CDN。
-CDN 地址统一从 https 改成 http：随程序打包的 VLC 插件集里没有 TLS 插件。
+保留接口提供的 HTTP/HTTPS 地址，探测与播放使用相同请求头。
 """
 import hashlib
+import inspect
 import json
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -27,8 +29,49 @@ STREAM_WEB = {"User-Agent": UA, "Referer": "https://live.bilibili.com/"}
 # 这里先把档位留着，等接入登录后再启用。
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 
+#: 直播流编码方式：设置值 -> (界面文案, app-room 接口的 codec 参数)。
+#: H.264 优先 FLV，HEVC / AV1 使用可稳定解析的 fMP4 HLS 通道。
+BILI_CODECS = (
+    ("avc", "H.264 / AVC（默认，兼容性最好）", 0),
+    ("hevc", "HEVC / H.265（同画质省约一半码率）", 1),
+    ("av1", "AV1（仅B站）", 2),
+)
+
+#: 设置值 -> 接口 codec 参数。
+CODEC_PARAM = {value: param for value, _label, param in BILI_CODECS}
+
+HLS_ONLY_CODECS = ("hevc", "av1")
+
+#: 通道名保留容器及实际编码信息，供播放状态和录像使用。
+HLS_SUFFIX = "-hls"
+BILI_PROFILES = {"app": ("avc", False), "web": ("avc", False),
+                 "app-hls": ("", True), "web-hls": ("", True)}
+BILI_PROFILES.update({f"{source}-hls-{codec}": (codec, True)
+                      for source in ("app", "web") for codec in CODEC_PARAM})
+
+
+def is_hls_profile(profile: str) -> bool:
+    """只匹配已约定的 B 站通道；插件通道由播放器的平台分支处理。"""
+    return BILI_PROFILES.get(str(profile or "").lower(), ("", False))[1]
+
+
+def codec_from_profile(profile: str) -> str:
+    """通道名 -> 这一路流的视频编码（avc / hevc / av1）。
+
+    取流结果只带通道名（``resolved`` 信号的参数个数被很多地方依赖，不能再加一个
+    编码），编码就从名字里读：``app`` / ``web`` 是 FLV 直连，只有 H.264；
+    ``app-hls-hevc`` / ``app-hls-av1`` 这类 HLS 通道把编码写在名字里。名字里
+    查不到编码（没写编码的 HLS 通道、平台插件的 huya / twitch…）返回空串，
+    表示「不知道编码，按原来的容器走」。
+    """
+    return BILI_PROFILES.get(str(profile or "").lower(), ("", False))[0]
+
 # 登录后的 SESSDATA，带上它才能解锁原画、拉取关注列表
 SESSION_DATA = ""
+BILI_JCT = ""
+BUVID3 = ""
+_COOKIE_LOCK = threading.RLock()
+_BUVID3_LOCK = threading.Lock()
 _UID_CACHE: dict = {"uid": None}
 _WBI_CACHE: dict = {"key": "", "expires": 0.0}
 _WBI_KEY_INDEX = [
@@ -38,13 +81,126 @@ _WBI_KEY_INDEX = [
 
 
 def set_sessdata(value: str) -> None:
-    global SESSION_DATA
-    SESSION_DATA = value or ""
-    _UID_CACHE["uid"] = None          # 换了账号，UID 缓存作废
+    global SESSION_DATA, BILI_JCT
+    with _COOKIE_LOCK:
+        if not value or value != SESSION_DATA:
+            BILI_JCT = ""            # CSRF 属于账号，不能跟到另一个会话。
+        SESSION_DATA = value or ""
+        _UID_CACHE["uid"] = None
+
+
+def set_login_cookies(sessdata: str, bili_jct: str = "", buvid3: str | None = None) -> None:
+    """原子更新登录态；未提供设备 Cookie 时保留本机已有浏览器身份。"""
+    global BILI_JCT, BUVID3
+    with _COOKIE_LOCK:
+        set_sessdata(sessdata)
+        BILI_JCT = (bili_jct or "") if SESSION_DATA else ""
+        if buvid3 is not None:
+            BUVID3 = buvid3 if isinstance(buvid3, str) else ""
 
 
 def _cookies() -> dict:
-    return {"SESSDATA": SESSION_DATA} if SESSION_DATA else {}
+    with _COOKIE_LOCK:
+        cookies = {"buvid3": BUVID3} if BUVID3 else {}
+        if SESSION_DATA:
+            cookies["SESSDATA"] = SESSION_DATA
+            if BILI_JCT:
+                cookies["bili_jct"] = BILI_JCT
+        return cookies
+
+
+def ensure_buvid3() -> str:
+    """后台按需补齐设备身份，多直播间共用一次请求；不在此处写配置。"""
+    global BUVID3
+    with _BUVID3_LOCK:
+        cached = _cookies().get("buvid3")
+        if cached:
+            return cached
+        response = requests.get("https://api.bilibili.com/x/frontend/finger/spi",
+                                headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        value = data.get("b_3") if isinstance(data, dict) else None
+        if not isinstance(payload, dict) or payload.get("code") != 0 or not isinstance(value, str) or not value.strip():
+            raise ValueError("无法取得 B 站浏览器标识")
+        with _COOKIE_LOCK:
+            # 获取期间可能已完成登录，优先保留登录页采集的浏览器身份。
+            if not BUVID3:
+                BUVID3 = value.strip()
+            return BUVID3
+
+
+def _danmaku_result(response) -> dict:
+    response.raise_for_status()
+    if not 200 <= response.status_code < 300:
+        raise ValueError("B 站接口未接受请求")
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("code") != 0:
+        reason = (payload.get("message") or payload.get("msg")) if isinstance(payload, dict) else None
+        raise ValueError(str(reason or "B 站接口返回异常"))
+    return payload
+
+
+def _sending_room_id(room_id: str) -> str:
+    room_id = str(room_id or "").strip()
+    if not room_id.isascii() or not room_id.isdigit() or not room_id.strip("0"):
+        raise ValueError("仅支持有效的 B 站直播间")
+    return _resolve_room_id(room_id)
+
+
+def send_danmaku(room_id: str, message: str, *, dm_type: int = 0,
+                 cookies: dict | None = None) -> dict:
+    """发送文字或完整大表情标识；POST 不自动重试，避免超时后重复发送。"""
+    if not isinstance(message, str) or not message.strip() or dm_type not in (0, 1):
+        raise ValueError("弹幕内容或类型无效")
+    snapshot = dict(_cookies() if cookies is None else cookies)
+    if not snapshot.get("SESSDATA"):
+        raise ValueError("请先登录 B 站")
+    if not snapshot.get("bili_jct"):
+        raise ValueError("登录缺少 bili_jct，请退出 B 站账号后重新登录")
+    real_id = _sending_room_id(room_id)
+    if not snapshot.get("buvid3"):
+        snapshot["buvid3"] = ensure_buvid3()
+    csrf = snapshot["bili_jct"]
+    response = requests.post(
+        "https://api.live.bilibili.com/msg/send",
+        data={"roomid": real_id, "msg": message, "dm_type": str(dm_type),
+              "rnd": str(int(time.time())), "fontsize": "25", "color": "16777215",
+              "mode": "1", "bubble": "0", "csrf": csrf, "csrf_token": csrf},
+        headers={**HEADERS, "Origin": "https://live.bilibili.com",
+                 "Referer": f"https://live.bilibili.com/{real_id}"},
+        cookies=snapshot, timeout=10, allow_redirects=False)
+    payload = _danmaku_result(response)
+    # 有些拒绝仍返回 code=0（包括 message="f"），不能据此清空草稿。
+    data = payload.get("data")
+    for section in (payload, data if isinstance(data, dict) else {}):
+        for key in ("message", "msg"):
+            reason = section.get(key)
+            if reason not in (None, "", "0", 0):
+                raise ValueError("发送未成功，请稍后重试" if reason == "f" else str(reason))
+    return payload
+
+
+def get_emoticons(room_id: str, *, cookies: dict | None = None) -> list[dict]:
+    """保留服务端表情类型、完整标识和解锁权限；设备身份复用接收弹幕的缓存。"""
+    snapshot = dict(_cookies() if cookies is None else cookies)
+    real_id = _sending_room_id(room_id)
+    if not snapshot.get("buvid3"):
+        snapshot["buvid3"] = ensure_buvid3()
+    response = requests.get(
+        "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
+        params={"platform": "pc", "room_id": real_id},
+        headers=HEADERS, cookies=snapshot, timeout=10)
+    data = _danmaku_result(response).get("data")
+    packages = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(packages, list) or any(not isinstance(p, dict) for p in packages):
+        raise ValueError("表情列表格式异常，请重试")
+    for package in packages:
+        emotes = package.get("emoticons")
+        if emotes is not None and (not isinstance(emotes, list) or any(not isinstance(e, dict) for e in emotes)):
+            raise ValueError("表情列表格式异常，请重试")
+    return packages
 
 
 def room_info(room_id: str) -> dict | None:
@@ -164,12 +320,16 @@ def _wbi_signed_params(params: dict, key: str) -> dict:
     return {**signed, "w_rid": hashlib.md5((query + key).encode("utf-8")).hexdigest()}
 
 
-def danmaku_conf(room_id: str) -> tuple[int, str, list]:
+def danmaku_conf(room_id: str, *, cookies: dict | None = None, user_agent: str = UA) -> tuple[int, str, list]:
     """弹幕连接要用的东西：(真实房间号, token, 服务器列表)。
 
     优先使用带 WBI 签名的 getDanmuInfo；失败时再降级到老 getConf。
     """
     real_id = _resolve_room_id(room_id)
+    cookies = dict(_cookies() if cookies is None else cookies)
+    if not cookies.get("buvid3"):
+        cookies["buvid3"] = ensure_buvid3()
+    headers = {**HEADERS, "User-Agent": user_agent}
     data = {}
     key = _wbi_key()
     if key:
@@ -177,7 +337,7 @@ def danmaku_conf(room_id: str) -> tuple[int, str, list]:
             response = requests.get(
                 "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
                 params=_wbi_signed_params({"id": real_id, "type": 0}, key),
-                headers=HEADERS, cookies=_cookies(), timeout=10)
+                headers=headers, cookies=cookies, timeout=10)
             payload = response.json()
             if payload.get("code") == 0:
                 data = payload.get("data") or {}
@@ -188,7 +348,7 @@ def danmaku_conf(room_id: str) -> tuple[int, str, list]:
             response = requests.get(
                 "https://api.live.bilibili.com/room/v1/Danmu/getConf",
                 params={"room_id": real_id, "platform": "pc", "player": "web"},
-                headers=HEADERS, cookies=_cookies(), timeout=10)
+                headers=headers, cookies=cookies, timeout=10)
             data = response.json().get("data") or {}
         except Exception:  # noqa: BLE001
             return int(real_id) if str(real_id).isdigit() else 0, "", []
@@ -217,8 +377,40 @@ def _fetchable(url: str, headers: dict) -> bool:
         return False
 
 
-def _web_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
-    """web 端接口：未登录固定 720P，登录后按 qn 给。"""
+def _app_protocol(codec: str) -> str:
+    """这种编码在 app-room 接口里该挑哪条通道。
+
+    H.264 是 ``http_stream``（FLV）；HEVC / AV1 只有
+    ``http_hls``（fMP4 分片），由 libmpv 原生播放。
+    """
+    return "http_hls" if codec in HLS_ONLY_CODECS else "http_stream"
+
+
+def _app_codec_entry(stream: dict, codec: str) -> dict | None:
+    """从一条 stream 里挑出 ``codec`` 对应的那条 codec 条目。
+
+    同一条通道可能同时列出几种编码；接口没给 ``codec_name`` 时（老响应）沿用
+    第一条，H.264 的老行为不变。明确给的是别的编码时返回 None：宁可报错，也
+    不能把 H.264 的地址当成 HEVC / AV1 交出去。
+    """
+    entries = [entry for fmt in stream.get("format") or []
+               for entry in fmt.get("codec") or []]
+    if not entries:
+        return None
+    for entry in entries:
+        if entry.get("codec_name") == codec:
+            return entry
+    if codec != "avc":
+        return None                   # HEVC / AV1 认不到同名条目就报错，不将就
+    return next((entry for entry in entries if not entry.get("codec_name")), None)
+
+
+def _web_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list[str], int]:
+    """web 端接口：未登录固定 720P，登录后按 qn 给。
+
+    ``codec`` 只为和 app-room 那边的签名对齐：这个老接口**只有 H.264**，
+    HEVC / AV1 不会走到这里（见 :func:`play_url`）。
+    """
     response = requests.get(
         "https://api.live.bilibili.com/room/v1/Room/playUrl",
         params={"cid": room_id, "platform": "web", "qn": quality},
@@ -233,11 +425,12 @@ def _web_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
     return list(dict.fromkeys(urls)), current
 
 
-def _app_play_info(room_id: str, quality: int) -> dict:
+def _app_play_info(room_id: str, quality: int, codec: str = "avc") -> dict:
     """app-room 的取流信息，包含实际可用档位和流地址。"""
     params = {
         "appkey": "iVGUTjsxvpLeuDCf", "build": 6250300, "c_locale": "zh_CN",
-        "channel": "bili", "codec": 0, "device": "android", "device_name": "MuMu",
+        "channel": "bili", "codec": CODEC_PARAM.get(codec, 0),
+        "device": "android", "device_name": "MuMu",
         "dolby": 1, "format": "0,2", "free_type": 0, "http": 1, "mask": 0,
         "mobi_app": "android", "network": "wifi", "no_playurl": 0, "only_audio": 0,
         "only_video": 0, "platform": "android", "play_type": 0, "protocol": "0,1",
@@ -249,21 +442,43 @@ def _app_play_info(room_id: str, quality: int) -> dict:
         "https://api.live.bilibili.com/xlive/app-room/v2/index/getRoomPlayInfo",
         params=params, headers=HEADERS, cookies=_cookies(), timeout=10)
     data = response.json()
+    if data.get("code", 0) != 0:
+        raise RuntimeError(f"接口返回 code={data.get('code')} {data.get('message')}")
     return ((data.get("data") or {}).get("playurl_info") or {}).get("playurl") or {}
 
 
-def _app_play_urls(room_id: str, quality: int) -> tuple[list[str], int]:
-    """app-room 接口：尊重 qn（登录后能拿到原画）。"""
-    streams = _app_play_info(room_id, quality).get("stream", [])
+def _app_profile(codec: str) -> str:
+    """这种编码走 app-room 时对应的通道名。
+
+    后缀记录 HLS 容器及实际编码，播放器直接交给 libmpv。
+    """
+    return f"app{HLS_SUFFIX}-{codec}" if codec in HLS_ONLY_CODECS else "app"
+
+
+class CodecUnavailable(RuntimeError):
+    pass
+
+
+def _app_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list[str], int]:
+    """app-room 接口：尊重 qn（登录后能拿到原画）。
+
+    H.264 取 FLV 通道（给播放器直连）；HEVC / AV1 只有 HLS 通道，取回来要
+    由 libmpv 直接读取分片（见 :func:`_app_profile`）。
+    """
+    protocol = _app_protocol(codec)
+    streams = _app_play_info(room_id, quality, codec).get("stream") or []
     for stream in streams:
-        if stream.get("protocol_name") != "http_stream":
+        if stream.get("protocol_name") != protocol:
             continue
-        codec = stream["format"][0]["codec"][0]
-        urls = [info["host"] + codec["base_url"] + info["extra"]
-                for info in codec.get("url_info") or []]
+        entry = _app_codec_entry(stream, codec)
+        if entry is None:
+            continue
+        urls = [info["host"] + entry["base_url"] + info["extra"]
+                for info in entry.get("url_info") or []]
         if urls:
-            return list(dict.fromkeys(urls)), int(codec.get("current_qn") or 0)
-    raise RuntimeError("app-room 接口没有返回 FLV 地址")
+            return list(dict.fromkeys(urls)), int(entry.get("current_qn") or 0)
+    error = CodecUnavailable if codec in HLS_ONLY_CODECS else RuntimeError
+    raise error(f"app-room 接口没有返回 {protocol} 地址（{codec}）")
 
 
 class Cancelled(Exception):
@@ -274,15 +489,20 @@ class Cancelled(Exception):
 
 
 def play_url(room_id: str, quality: int = 250,
-             cancelled=None, source_offset: int = 0) -> tuple[str, int, str, dict]:
-    """取可播放的 http FLV 地址，附带接口实际给到的画质。
+             cancelled=None, source_offset: int = 0,
+             codec: str = "avc", allow_codec_fallback: bool = True) -> tuple[str, int, str, dict]:
+    """取可播放的 http 流地址，附带接口实际给到的画质。
 
     优先用尊重画质的 app-room 接口（App UA、不带 Referer 拉流）；
-    失败时退回 web 端接口（Chrome UA + Referer）。VLC 插件集没有 TLS，
-    所以统一把 https 换成 http。
+    失败时退回 web 端接口（Chrome UA + Referer）。保留 CDN 的 URL 协议。
 
     返回 ``(地址, 实际画质, 通道名, 请求头)``。请求头必须一起带走：插件要
     拿这个地址去录像，头不对 CDN 直接 403。
+
+    ``codec`` 是要哪种编码（``avc`` / ``hevc`` / ``av1``）。HEVC / AV1 只有
+    HLS 通道。接口未提供所选编码时，仅该房间回退 H.264，并返回实际编码对应
+    的通道与请求头。网络或 CDN 错误仍由原有重连逻辑处理。
+    切换前探测使用 allow_codec_fallback=False，缺少目标格式时抛 CodecUnavailable。
 
     ``cancelled`` 是个可选回调，返回 True 表示这次取流已经没人要了：每换一条
     通道、每次探测地址之前都会问一次，问到 True 就抛 Cancelled 早点收工，
@@ -291,13 +511,24 @@ def play_url(room_id: str, quality: int = 250,
     def _cancelled() -> bool:
         return bool(cancelled is not None and cancelled())
 
+    sources = [(_app_play_urls, _app_profile(codec), STREAM_APP)]
+    if codec not in HLS_ONLY_CODECS:
+        sources.append((_web_play_urls, "web", STREAM_WEB))
     errors = []
-    for source, profile, headers in ((_app_play_urls, "app", STREAM_APP),
-                                     (_web_play_urls, "web", STREAM_WEB)):
+    for source, profile, headers in sources:
         if _cancelled():
             raise Cancelled()
         try:
-            urls, current = source(room_id, quality)
+            urls, current = source(room_id, quality, codec)
+        except CodecUnavailable:
+            if _cancelled():
+                raise Cancelled()
+            if not allow_codec_fallback:
+                raise
+            print(f"[取流] {room_id} 未提供 {codec.upper()}，改用 H.264",
+                  file=sys.stderr, flush=True)
+            return play_url(room_id, quality, cancelled=cancelled,
+                            source_offset=source_offset, codec="avc")
         except Exception as error:  # noqa: BLE001
             errors.append(f"{source.__name__}: {error}")
             continue
@@ -308,15 +539,18 @@ def play_url(room_id: str, quality: int = 250,
         for url in urls[offset:] + urls[:offset]:
             if _cancelled():
                 raise Cancelled()
-            http_url = url.replace("https://", "http://", 1)
-            if _fetchable(http_url, headers):
+            playback_url = url
+            if _fetchable(playback_url, headers):
                 if _cancelled():           # 探测期间被作废：别把这个地址交出去
                     raise Cancelled()
                 print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
                       file=sys.stderr, flush=True)
-                return http_url, current, profile, dict(headers)
+                return playback_url, current, profile, dict(headers)
         errors.append(f"{source.__name__}: 地址不可用（CDN 拒绝）")
-    raise RuntimeError("；".join(errors) or "取流失败")
+    detail = "；".join(errors) or "取流失败"
+    if codec in HLS_ONLY_CODECS:
+        detail = f"{codec.upper()} 流取不到（{detail}）"
+    raise RuntimeError(detail)
 
 
 class StreamResolver(QThread):
@@ -326,13 +560,20 @@ class StreamResolver(QThread):
     failed = Signal(str, str)       # room_id, 原因
 
     def __init__(self, room_id: str, quality: int = 250, parent=None,
-                 *, source_offset: int = 0, platform=None, preview: bool = False):
+                 *, source_offset: int = 0, platform=None, preview: bool = False,
+                 codec: str = "avc", strict_codec: bool = False):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.quality = quality
         self.source_offset = source_offset
         self.platform = platform
         self.preview = preview
+        self.codec = codec if codec in CODEC_PARAM else "avc"
+        self.strict_codec = strict_codec
+        self.codec_unavailable = False
+        self.source_codec = ""
+        self.codec_probe_note = ""
+        self.original_quality_note = ""
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self.login_required = False
         self._cancelled = False
@@ -351,41 +592,136 @@ class StreamResolver(QThread):
     def is_cancelled(self) -> bool:
         return self._cancelled
 
+    def _platform_play_url(self) -> tuple:
+        from .plugins import LoginRequiredError, Platform, StreamCodecUnavailable
+
+        platform = self.platform
+        if platform is None:
+            raise ValueError("未指定取流平台")
+        # Static lookup avoids treating dynamically fabricated mock attributes as hooks.
+        hook = (getattr(platform, "play_url_for_codec", None)
+                if inspect.getattr_static(platform, "play_url_for_codec", None) is not None
+                else None)
+        legacy = (not callable(hook)
+                  or getattr(hook, "__func__", None) is Platform.play_url_for_codec)
+        candidates = ("avc",) if self.codec == "avc" else ("hevc", "avc")
+        prefix = "AV1 仅 B 站；" if self.codec == "av1" else ""
+        fallback_note = ""
+        retrieval_error = None
+        for codec in candidates:
+            if self._cancelled:
+                raise Cancelled()
+            try:
+                if callable(hook):
+                    result = hook(self.room_id, self.quality, codec=codec)
+                    if not isinstance(result, (tuple, list)) or len(result) != 5:
+                        raise ValueError("平台编码接口必须返回五项取流结果")
+                    actual_codec = result[4]
+                    if actual_codec != codec and not (legacy and actual_codec == ""):
+                        raise StreamCodecUnavailable(f"平台未提供已验证的 {codec.upper()} 直播源")
+                else:
+                    if codec != "avc":
+                        raise StreamCodecUnavailable("旧版平台插件不支持选择 HEVC 直播源")
+                    result = platform.play_url(self.room_id, self.quality)
+                    actual_codec = ""
+                if not isinstance(result, (tuple, list)):
+                    raise TypeError("平台取流结果必须为元组或列表")
+                url, current, profile = result[:3]
+                if not isinstance(url, str) or not url.strip():
+                    raise ValueError("平台未返回有效直播地址")
+                headers = dict(result[3]) if len(result) > 3 else {}
+            except (Cancelled, LoginRequiredError):
+                raise
+            except Exception as error:
+                if not isinstance(error, StreamCodecUnavailable):
+                    retrieval_error = error
+                if codec == candidates[-1]:
+                    if retrieval_error is not None:
+                        raise retrieval_error
+                    raise
+                fallback_note = ("HEVC 直播源不可用，已回退 H.264"
+                                 if isinstance(error, StreamCodecUnavailable)
+                                 else "HEVC 取流失败，已回退 H.264")
+                continue
+            self.source_codec = actual_codec
+            if legacy:
+                self.codec_probe_note = prefix + "旧版插件使用兼容取流，实际编码以解码读数为准"
+            elif fallback_note:
+                self.codec_probe_note = prefix + fallback_note
+            elif prefix:
+                self.codec_probe_note = prefix + "本房间使用 HEVC"
+            return url, current, profile, headers
+        raise StreamCodecUnavailable("平台未提供可用的直播源格式")
+
     def run(self) -> None:
         if self._cancelled:
             return
         try:
             if self.platform is not None:
                 result = (self.platform.preview_url(self.room_id) if self.preview
-                          else self.platform.play_url(self.room_id, self.quality))
+                          else self._platform_play_url())
                 url, current, profile = result[:3]
                 headers = dict(result[3]) if len(result) > 3 else {}
+                current = int(current)
+                if (not isinstance(url, str) or not url.strip()
+                        or not -(2 ** 31) <= current < 2 ** 31
+                        or not isinstance(profile, str)):
+                    raise ValueError("平台取流结果无效")
             elif self.room_id.isdigit():
                 url, current, profile, headers = play_url(
                     self.room_id, self.quality, cancelled=self.is_cancelled,
-                    source_offset=self.source_offset)
+                    source_offset=self.source_offset, codec=self.codec,
+                    allow_codec_fallback=not self.strict_codec)
             else:
                 raise ValueError("请启用对应的平台插件并重启")
             if self._cancelled:
                 return
             options = ([] if self.preview else
                        self.platform.room_quality_options(self.room_id) if self.platform
-                       else room_quality_options(self.room_id))
+                       else room_quality_options(self.room_id,
+                                                 codec_from_profile(profile) or self.codec))
+            if (self.platform is None and not self.preview
+                    and (self.strict_codec or codec_from_profile(profile) in HLS_ONLY_CODECS)
+                    and not any(int(option["qn"]) == 10000 for option in options)):
+                name = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}[self.codec]
+                self.original_quality_note = (f"{name} 未提供原画" if options
+                                              else f"未能验证 {name} 的原画档位")
+                if self.strict_codec:
+                    raise RuntimeError(self.original_quality_note)
+                if self._cancelled:
+                    return
+                url, current, profile, headers = play_url(
+                    self.room_id, self.quality, cancelled=self.is_cancelled,
+                    source_offset=self.source_offset, codec="avc")
+                if self._cancelled:
+                    return
+                options = room_quality_options(self.room_id, "avc")
+            options = options or []
+            if not isinstance(options, list):
+                raise TypeError("平台画质档位必须为列表")
+            if options:
+                print(f"[画质档位] {self.room_id}: "
+                      + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
+                      file=sys.stderr, flush=True)
         except Cancelled:
             return                       # 作废：不发结果，也不算失败
+        except CodecUnavailable as error:
+            self.codec_unavailable = True
+            if not self._cancelled:
+                self.failed.emit(self.room_id, str(error))
+            return
         except Exception as error:  # noqa: BLE001
-            from .plugins import LoginRequiredError
+            from .plugins import LoginRequiredError, StreamCodecUnavailable
             self.login_required = isinstance(error, LoginRequiredError)
+            self.codec_unavailable = isinstance(error, StreamCodecUnavailable)
             if not self._cancelled:
                 self.failed.emit(self.room_id, str(error))
             return
         if self._cancelled:
             return
         self.headers = headers
-        if options:
-            print(f"[画质档位] {self.room_id}: "
-                  + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
-                  file=sys.stderr, flush=True)
+        if self.platform is None:
+            self.source_codec = codec_from_profile(profile)
         self.resolved.emit(self.room_id, url, current, profile, options)
 
 
@@ -685,16 +1021,25 @@ def room_stats(room_id: str) -> dict | None:
     }
 
 
-def room_quality_options(room_id: str) -> list[dict]:
-    """优先使用实际 FLV 流的档位，旧 web 接口会漏掉2K等新画质。"""
+def room_quality_options(room_id: str, codec: str = "avc") -> list[dict]:
+    """优先使用实际流的档位，旧 web 接口会漏掉2K等新画质。
+
+    必须跟取流用同一个 ``codec``：同一直播间各编码的可用档位不一样（实测 AV1
+    只有 ``[10000, 400]``，按 H.264 的档位列出来就会出现点了 720P 取不到流）。
+    所以挑的是与 ``_app_play_urls`` 同一条通道同一个编码的 ``accept_qn``；
+    HEVC / AV1 取不到就返回空表 —— web 端那个老接口只有 H.264，把它的档位
+    当成 HEVC / AV1 的，用户同样会点到一个取不到的档。
+    """
     try:
-        play = _app_play_info(room_id, 10000)
+        play = _app_play_info(room_id, 10000, codec)
         for stream in play.get("stream") or []:
-            if stream.get("protocol_name") != "http_stream":
+            if stream.get("protocol_name") != _app_protocol(codec):
                 continue
             # 与 _app_play_urls 选取同一条流，避免列出其他编码/协议的档位。
-            codec = stream["format"][0]["codec"][0]
-            accepted = set(codec.get("accept_qn") or [])
+            entry = _app_codec_entry(stream, codec)
+            if entry is None:
+                continue
+            accepted = set(entry.get("accept_qn") or [])
             standard = {value for _, value in QUALITY_CHOICES}
             result = []
             for item in play.get("g_qn_desc") or []:
@@ -715,6 +1060,8 @@ def room_quality_options(room_id: str) -> list[dict]:
             break
     except Exception:  # noqa: BLE001
         pass
+    if codec in HLS_ONLY_CODECS:
+        return []               # 老 web 接口只有 H.264，不能拿来当这两档的档位
     try:
         response = requests.get(
             "https://api.live.bilibili.com/room/v1/Room/playUrl",
