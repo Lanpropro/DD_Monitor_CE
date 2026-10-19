@@ -203,7 +203,7 @@ class MainWindow(QMainWindow):
         self.settings.pop("recording_backup_dir", None)
         self.settings.pop("recording_ffmpeg", None)
         self.recorder = RecordingManager(self.settings, self)
-        self.recorder.notice.connect(self._record_notice)
+        self.recorder.noticeWithRoom.connect(self._record_notice)
         self.recorder.changed.connect(self._record_state_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
         self._pending_capture: dict[object, bool] = {}
@@ -1851,7 +1851,7 @@ class MainWindow(QMainWindow):
             return
         if tile in self._pending_capture:
             self._pending_capture.pop(tile)
-            self._record_notice(f"原画取流失败，录制未开始：{reason}")
+            self._record_notice(f"原画取流失败，录制未开始：{reason}", tile.room)
             self._restore_capture_quality(tile)
             if not login_required:
                 return
@@ -2873,7 +2873,8 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
         tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
-        tile.composer.noticeRequested.connect(self._danmaku_send_notice)
+        tile.composer.noticeRequested.connect(
+            lambda message, login, t=tile: self._danmaku_send_notice(message, login, room=t.room))
         tile._actions_wired = True
 
     def _on_device_cookie_ready(self) -> None:
@@ -2941,7 +2942,7 @@ class MainWindow(QMainWindow):
 
     def _start_capture(self, tile, *, recording: bool) -> None:
         if recording and not self._recording_enabled():
-            self._record_notice("录制功能已在「设置 → 录制」里关闭")
+            self._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
             return
         if tile in self._pending_capture:
             return
@@ -2949,7 +2950,7 @@ class MainWindow(QMainWindow):
             if not self.open_settings("recording"):
                 return
             if not str(self.settings.get("recording_dir") or "").strip():
-                self._record_notice("请先选择录制保存目录")
+                self._record_notice("请先选择录制保存目录", tile.room)
                 return
         if not self.settings.get("recording_lock_quality", True):
             self.recorder.start(tile, recording=recording)
@@ -2979,7 +2980,7 @@ class MainWindow(QMainWindow):
     def _finish_pending_capture(self, tile) -> None:
         recording = self._pending_capture.pop(tile)
         if tile.actual_quality != 10000:
-            self._record_notice("直播源未提供原画，录制未开始")
+            self._record_notice("直播源未提供原画，录制未开始", tile.room)
             self._restore_capture_quality(tile)
         elif not self.recorder.start(tile, recording=recording):
             self._restore_capture_quality(tile)
@@ -3039,15 +3040,15 @@ class MainWindow(QMainWindow):
                 f"{hours:d}:{minutes:02d}:{secs:02d}" if hours
                 else f"{minutes:02d}:{secs:02d}")
 
-    def _record_notice(self, message: str) -> None:
+    def _record_notice(self, message: str, room=None) -> None:
         if self._closing:
             return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
-        self._show_notice(message, kind="warning" if warning else "info")
+        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
 
-    def _danmaku_send_notice(self, message: str, login_required: bool) -> None:
+    def _danmaku_send_notice(self, message: str, login_required: bool, *, room=None) -> None:
         self._show_notice(message + ("，点击此处登录" if login_required else ""),
-                          kind="warning", on_click=(
+                          rooms=[room] if room else (), kind="warning", on_click=(
                               lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None) -> None:

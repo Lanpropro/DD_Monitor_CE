@@ -13,7 +13,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 from ddm import motion, theme
@@ -23,6 +23,23 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_recording_and_send_notices_include_room_and_update_all_avatars(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        window = self.window([room])
+        window.recorder._say('主播甲 开始录制', room)
+        recording = window._result_notice
+        self.assertIn('1001', recording._avatars)
+        window.wall.tiles[0].composer.noticeRequested.emit('发送失败', False)
+        sending = window._result_notice
+        self.assertIn('1001', sending._avatars)
+        with patch.object(recording, 'set_room_avatar') as first, \
+                patch.object(sending, 'set_room_avatar') as second:
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(QColor('#00a1d6'))
+            window._on_room_avatar('1001', pixmap)
+            first.assert_called_once_with('1001', pixmap)
+            second.assert_called_once_with('1001', pixmap)
+
     def test_notification_settings_defaults_save_and_reset(self):
         from ddm.dialogs import SettingsDialog
         from ddm.config import DEFAULT_SETTINGS
