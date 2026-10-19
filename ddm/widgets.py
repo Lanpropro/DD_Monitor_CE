@@ -6301,6 +6301,9 @@ class Tile(QFrame):
         quick_layer = getattr(wall, "_quick_danmaku_layer", None)
         if quick_layer is not None:
             quick_layer.raise_()
+        border = getattr(wall, '_pane_borders', {}).get(self)
+        if border is not None and border.isVisible():
+            border.raise_()
 
     def _update_quick_danmaku_mask(self) -> None:
         self.video_danmaku.update_quick_mask((
@@ -7104,7 +7107,7 @@ def best_columns(count: int, width: int, height: int, gap: int = 8, aspect: floa
     return best
 
 
-class WallPaneBorder(QWidget):
+class WallPaneBorder(BadgeSurface):
     """A masked native border keeps resize hits above VLC without covering its centre."""
 
     BAND = 3
@@ -7117,7 +7120,10 @@ class WallPaneBorder(QWidget):
         self.targets = {}
         self.hover_edges = {}
         self.highlights = []
+        self._outline_path = QPainterPath()
+        self._mask_path = QPainterPath()
         self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.ClickFocus)
         self.setToolTip("拖动边框调整大小；拖动角落等比例缩放；双击恢复相邻区域比例")
@@ -7132,12 +7138,17 @@ class WallPaneBorder(QWidget):
         for edge in targets:
             region |= QRegion(self._edge_rect(edge))
         outer, inner = QPainterPath(), QPainterPath()
-        outer.addRoundedRect(QRectF(self.rect()), self.RADIUS, self.RADIUS)
+        outer.addRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
+                             self.RADIUS - .5, self.RADIUS - .5)
         inner.addRoundedRect(QRectF(self.rect()).adjusted(
-            self.BAND, self.BAND, -self.BAND, -self.BAND),
-            self.RADIUS - self.BAND, self.RADIUS - self.BAND)
-        outline = QRegion(outer.toFillPolygon().toPolygon()).subtracted(
-            QRegion(inner.toFillPolygon().toPolygon()))
+            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5),
+            self.RADIUS - self.BAND - .5, self.RADIUS - self.BAND - .5)
+        self._outline_path = outer.subtracted(inner)
+        # 原生遮罩只负责命中；向外留出抗锯齿像素，由逐像素透明绘制轮廓。
+        stroker = QPainterPathStroker()
+        stroker.setWidth(2)
+        outline = QRegion(self._outline_path.united(stroker.createStroke(
+            self._outline_path)).toFillPolygon().toPolygon())
         region &= outline
         if region.isEmpty():
             self.hide()
@@ -7178,7 +7189,6 @@ class WallPaneBorder(QWidget):
             else:
                 cursor = Qt.SizeHorCursor if horizontal else Qt.SizeVerCursor
             self.setCursor(cursor)
-            self.update()
         event.accept()
 
     def mousePressEvent(self, event):
@@ -7217,10 +7227,24 @@ class WallPaneBorder(QWidget):
             super().keyPressEvent(event)
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setClipRegion(self.mask())
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            self._paint_layered()
+        else:
+            painter = QPainter(self)
+            self._render_badge(painter)
+
+    def refresh_theme(self):
+        self.update()
+
+    def _render_badge(self, painter):
+        painter.setRenderHint(QPainter.Antialiasing)
+        # Windows 透明像素会穿透鼠标；极低 alpha 保留未高亮边缘的拖动命中。
+        painter.fillPath(self._outline_path, QColor(56, 189, 248, 1))
+        selected = QRegion()
         for rect in self.highlights:
-            painter.fillRect(rect, QColor("#38bdf8"))
+            selected |= QRegion(rect)
+        painter.setClipRegion(selected)
+        painter.fillPath(self._outline_path, QColor('#38bdf8'))
 
 
 class WallResizePreview(QWidget):
