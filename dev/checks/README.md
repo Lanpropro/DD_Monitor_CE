@@ -12,11 +12,11 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_appearance](../selfcheck_appearance.py) | 单项执行前核对 |
-| [selfcheck_appearance_design](../selfcheck_appearance_design.py) | 单项执行前核对 |
+| [selfcheck_appearance_design](../selfcheck_appearance_design.py) | `repository` |
 | [selfcheck_appearance_playback](../selfcheck_appearance_playback.py) | 单项执行前核对 |
 | [selfcheck_brand_assets](../selfcheck_brand_assets.py) | `offline` |
-| [selfcheck_button_feedback](../selfcheck_button_feedback.py) | 单项执行前核对 |
-| [selfcheck_button_focus](../selfcheck_button_focus.py) | 单项执行前核对 |
+| [selfcheck_button_feedback](../selfcheck_button_feedback.py) | `offline` |
+| [selfcheck_button_focus](../selfcheck_button_focus.py) | `offline` |
 | [selfcheck_completion_motion](../selfcheck_completion_motion.py) | 单项执行前核对 |
 | [selfcheck_control_dpi](../selfcheck_control_dpi.py) | 单项执行前核对 |
 | [selfcheck_control_edges](../selfcheck_control_edges.py) | 单项执行前核对 |
@@ -24,7 +24,7 @@
 | [selfcheck_light_refinements](../selfcheck_light_refinements.py) | 单项执行前核对 |
 | [selfcheck_menu_motion](../selfcheck_menu_motion.py) | 单项执行前核对 |
 | [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | 单项执行前核对 |
-| [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | 单项执行前核对 |
+| [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | `offline` |
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |
 | [selfcheck_theme_latency](../selfcheck_theme_latency.py) | `offline` |
@@ -38,11 +38,11 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_check_runner](../selfcheck_check_runner.py) | `repository` |
-| [selfcheck_customization_plan](../selfcheck_customization_plan.py) | 单项执行前核对 |
+| [selfcheck_customization_plan](../selfcheck_customization_plan.py) | `repository` |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
 | [selfcheck_qt_log](../selfcheck_qt_log.py) | 单项执行前核对 |
-| [selfcheck_readme](../selfcheck_readme.py) | 单项执行前核对 |
+| [selfcheck_readme](../selfcheck_readme.py) | `repository` |
 | [selfcheck_repository_files](../selfcheck_repository_files.py) | `repository` |
 | [selfcheck_repository_map](../selfcheck_repository_map.py) | `repository` |
 | [selfcheck_startup](../selfcheck_startup.py) | 单项执行前核对 |
@@ -50,7 +50,7 @@
 | [selfcheck_startup_requests](../selfcheck_startup_requests.py) | 单项执行前核对 |
 | [selfcheck_startup_wmi](../selfcheck_startup_wmi.py) | 单项执行前核对 |
 | [selfcheck_watchdog](../selfcheck_watchdog.py) | 单项执行前核对 |
-| [selfcheck_website_plan](../selfcheck_website_plan.py) | 单项执行前核对 |
+| [selfcheck_website_plan](../selfcheck_website_plan.py) | `repository` |
 
 ## 侧栏、控件与其他交互
 
@@ -68,9 +68,9 @@
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | 单项执行前核对 |
 | [selfcheck_duplicate_tile_controls](../selfcheck_duplicate_tile_controls.py) | 单项执行前核对 |
 | [selfcheck_encoders](../selfcheck_encoders.py) | 单项执行前核对 |
-| [selfcheck_folder_blank_menu](../selfcheck_folder_blank_menu.py) | 单项执行前核对 |
+| [selfcheck_folder_blank_menu](../selfcheck_folder_blank_menu.py) | `offline` |
 | [selfcheck_folder_card_drag](../selfcheck_folder_card_drag.py) | 单项执行前核对 |
-| [selfcheck_folder_card_size](../selfcheck_folder_card_size.py) | 单项执行前核对 |
+| [selfcheck_folder_card_size](../selfcheck_folder_card_size.py) | `offline` |
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline` |
@@ -78,7 +78,7 @@
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
 | [selfcheck_localization](../selfcheck_localization.py) | 单项执行前核对 |
-| [selfcheck_main_notices](../selfcheck_main_notices.py) | 单项执行前核对 |
+| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline` |
 | [selfcheck_offline_badges](../selfcheck_offline_badges.py) | 单项执行前核对 |
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
 | [selfcheck_overseas_playback_live](../selfcheck_overseas_playback_live.py) | 单项执行前核对 |
@@ -113,13 +113,13 @@
 | [selfcheck_feedback_layout](../selfcheck_feedback_layout.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_audio](../selfcheck_fullscreen_audio.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
-| [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | 单项执行前核对 |
+| [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline` |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | 单项执行前核对 |
-| [selfcheck_layout_16](../selfcheck_layout_16.py) | 单项执行前核对 |
-| [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | 单项执行前核对 |
+| [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline` |
+| [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
 | [selfcheck_layout_none](../selfcheck_layout_none.py) | 单项执行前核对 |
 | [selfcheck_layout_playback](../selfcheck_layout_playback.py) | 单项执行前核对 |
@@ -136,7 +136,7 @@
 | [selfcheck_resize_preview_cleanup](../selfcheck_resize_preview_cleanup.py) | 单项执行前核对 |
 | [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native` |
 | [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
-| [selfcheck_room_presets](../selfcheck_room_presets.py) | 单项执行前核对 |
+| [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
@@ -165,8 +165,8 @@
 | [selfcheck_emoticon_tabs](../selfcheck_emoticon_tabs.py) | `offline` |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
-| [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | 单项执行前核对 |
-| [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | 单项执行前核对 |
+| [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline` |
+| [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline` |
 | [selfcheck_video_danmaku_native](../selfcheck_video_danmaku_native.py) | 单项执行前核对 |
 | [selfcheck_video_danmaku_quick](../selfcheck_video_danmaku_quick.py) | `native` |
 
@@ -221,7 +221,7 @@
 | [selfcheck_recording](../selfcheck_recording.py) | 单项执行前核对 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | 单项执行前核对 |
 | [selfcheck_replay_scope](../selfcheck_replay_scope.py) | 单项执行前核对 |
-| [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | 单项执行前核对 |
+| [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | `offline` |
 | [selfcheck_stream_relay](../selfcheck_stream_relay.py) | 单项执行前核对 |
 | [selfcheck_video_surface](../selfcheck_video_surface.py) | 单项执行前核对 |
 | [selfcheck_video_surface_growth](../selfcheck_video_surface_growth.py) | 单项执行前核对 |
@@ -291,10 +291,10 @@
 | [selfcheck_huya_watch](../selfcheck_huya_watch.py) | 单项执行前核对 |
 | [selfcheck_live_platforms](../selfcheck_live_platforms.py) | 单项执行前核对 |
 | [selfcheck_platform_login_expiry](../selfcheck_platform_login_expiry.py) | 单项执行前核对 |
-| [selfcheck_platform_logo_background](../selfcheck_platform_logo_background.py) | 单项执行前核对 |
-| [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | 单项执行前核对 |
+| [selfcheck_platform_logo_background](../selfcheck_platform_logo_background.py) | `offline` |
+| [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | `offline` |
 | [selfcheck_platform_storage](../selfcheck_platform_storage.py) | 单项执行前核对 |
-| [selfcheck_room_status](../selfcheck_room_status.py) | 单项执行前核对 |
+| [selfcheck_room_status](../selfcheck_room_status.py) | `offline` |
 
 ## 账号、登录与关注导入
 
@@ -310,7 +310,7 @@
 | [selfcheck_douyin_follow_resolution](../selfcheck_douyin_follow_resolution.py) | 单项执行前核对 |
 | [selfcheck_douyin_profile_add](../selfcheck_douyin_profile_add.py) | 单项执行前核对 |
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
-| [selfcheck_follow_folders](../selfcheck_follow_folders.py) | 单项执行前核对 |
+| [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 单项执行前核对 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |

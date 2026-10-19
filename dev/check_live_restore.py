@@ -27,6 +27,15 @@ def settle(app, seconds):
         time.sleep(.01)
 
 
+def video_nonblack(tile):
+    point = tile.video.mapToGlobal(QPoint())
+    image = tile.screen().grabWindow(0, point.x(), point.y(),
+                                     tile.video.width(), tile.video.height()).toImage()
+    colors = [image.pixelColor(x, y) for y in range(image.height() // 3, image.height() * 2 // 3, 8)
+              for x in range(image.width() // 3, image.width() * 2 // 3, 8)]
+    return sum(max(c.red(), c.green(), c.blue()) > 24 for c in colors) / len(colors)
+
+
 def main():
     assert not bili.SESSION_DATA
     room_id = sys.argv[1] if len(sys.argv) > 1 else '1883358196'
@@ -57,10 +66,17 @@ def main():
             deadline = time.perf_counter() + 40
             while time.perf_counter() < deadline:
                 settle(app, .1)
-                if window.wall._quick_danmaku_layer and float(player._prop('time-pos', 0) or 0) > 0:
+                layer = window.wall._quick_danmaku_layer
+                if layer and layer.items and float(player._prop('time-pos', 0) or 0) > 0:
                     break
             layer = window.wall._quick_danmaku_layer
             assert layer and layer.items, 'Real live danmaku required'
+            deadline = time.perf_counter() + 5
+            while time.perf_counter() < deadline and video_nonblack(tile) < .05:
+                settle(app, .1)
+            baseline = video_nonblack(tile)
+            print(json.dumps(dict(baseline_nonblack=round(baseline, 3))), flush=True)
+            assert baseline >= .05, 'Video area is black before maximize/restore; live source or display prerequisite failed'
             results = []
             pixel_checks = 0
             for cycle in range(3):
@@ -103,11 +119,7 @@ def main():
                 if not exposed:
                     print(json.dumps(dict(cycle=cycle, pixels='skipped: test window obscured')), flush=True)
                     continue
-                image = tile.screen().grabWindow(0, point.x(), point.y(),
-                                                 tile.video.width(), tile.video.height()).toImage()
-                colors = [image.pixelColor(x, y) for y in range(image.height() // 3, image.height() * 2 // 3, 8)
-                          for x in range(image.width() // 3, image.width() * 2 // 3, 8)]
-                nonblack = sum(max(c.red(), c.green(), c.blue()) > 24 for c in colors) / len(colors)
+                nonblack = video_nonblack(tile)
                 results.append(dict(cycle=cycle, nonblack=round(nonblack, 3),
                                     ex_style=hex(ctypes.windll.user32.GetWindowLongW(int(layer.window.winId()), -20))))
                 print(json.dumps(results[-1]), flush=True)

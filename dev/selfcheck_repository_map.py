@@ -32,6 +32,7 @@ class RepositoryMapTests(unittest.TestCase):
         for name in ("docs/README.md", "docs/archive/repository-cleanup-review.md", "README.md",
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
+                     "docs/development/workspace-maintenance.md",
                      "docs/archive/pr11-pr12-integration-testing.md",
                      "docs/archive/repository-integration-20261019.md",
                      "docs/archive/README.md", "dev/benchmarks/README.md",

@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev import run_checks as runner
+from dev.checks import bootstrap
 
 
 class CheckRunnerTests(unittest.TestCase):
@@ -23,7 +24,9 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(set(suites), {'repository', 'offline', 'native', 'live'})
         self.assertEqual(suites['repository']['scripts'], [
             'selfcheck_repository_files', 'selfcheck_project_workflow',
-            'selfcheck_repository_map', 'selfcheck_check_runner'])
+            'selfcheck_repository_map', 'selfcheck_check_runner',
+            'selfcheck_readme', 'selfcheck_appearance_design',
+            'selfcheck_customization_plan', 'selfcheck_website_plan'])
         for name in suites['repository']['scripts']:
             source = (runner.ROOT / 'dev' / (name + '.py')).read_text(encoding='utf-8')
             for node in ast.walk(ast.parse(source)):
@@ -31,6 +34,49 @@ class CheckRunnerTests(unittest.TestCase):
                     self.assertTrue(all(not item.name.startswith('PySide6') for item in node.names))
                 elif isinstance(node, ast.ImportFrom):
                     self.assertFalse((node.module or '').startswith('PySide6'))
+
+    def test_registered_checks_do_not_force_successful_process_exit(self):
+        for suite in runner.load_suites().values():
+            for script in suite['scripts']:
+                tree = ast.parse((runner.ROOT / 'dev' / (script + '.py')).read_text(encoding='utf-8-sig'))
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                        self.assertNotEqual(ast.unparse(node.func), 'os._exit', script)
+
+    def test_offline_network_guard_allows_only_loopback(self):
+        denied = []
+        for host in ('localhost', '127.0.0.1', '::1'):
+            bootstrap.require_local_network('socket.getaddrinfo', (host,), denied)
+            bootstrap.require_local_network('socket.connect', (None, (host, 80)), denied)
+        self.assertFalse(denied)
+        for event, arguments in (('socket.getaddrinfo', ('example.invalid',)),
+                                  ('socket.gethostbyname', ('example.invalid',)),
+                                  ('socket.gethostbyaddr', ('203.0.113.1',)),
+                                  ('socket.getnameinfo', (('203.0.113.1', 80),)),
+                                  ('socket.connect', (None, ('203.0.113.1', 80))),
+                                  ('socket.sendto', (None, ('203.0.113.1', 80))),
+                                  ('socket.sendmsg', (None, ('203.0.113.1', 80)))):
+            with self.assertRaises(RuntimeError):
+                bootstrap.require_local_network(event, arguments, denied)
+        self.assertEqual(len(denied), 7)
+
+    def test_caught_external_network_attempt_still_fails_offline_process(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'dev').mkdir()
+            (root / 'dev/fixture.py').write_text(
+                "import socket\ntry:\n    socket.getaddrinfo('example.invalid', 80)\nexcept RuntimeError:\n    pass\n",
+                encoding='utf-8')
+            with patch.object(runner, 'ROOT', root):
+                result = runner.run_script('fixture', 'offline', [], root, 10)
+            self.assertNotEqual(result['exit_code'], 0)
+            self.assertIn('external network access', Path(result['log']).read_text(encoding='utf-8'))
+
+    def test_development_restart_matches_current_launcher(self):
+        source = (runner.ROOT / 'dev/restart-client.ps1').read_text(encoding='utf-8-sig')
+        self.assertNotIn('PYTHON_VLC_LIB_PATH', source)
+        self.assertIn("$env:DDM_QTQUICK_DANMAKU = '1'", source)
+        self.assertIn('-WindowStyle Hidden', source)
 
     def test_bootstrap_preserves_arguments_imports_and_failure_code(self):
         with tempfile.TemporaryDirectory(prefix='ddm check runner ') as temp:

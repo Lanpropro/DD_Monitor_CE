@@ -32,3 +32,5 @@ python dev/run_checks.py --suite repository
 ```
 
 分类与适用条件见[验证指南](../docs/development/testing.md)。
+
+本机目录与旧运行库的恢复方法见[工作区维护](../docs/development/workspace-maintenance.md)。

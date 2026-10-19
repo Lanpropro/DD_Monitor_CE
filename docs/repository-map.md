@@ -306,6 +306,7 @@
 ### 开发指南
 
 - `docs/development/testing.md`
+- `docs/development/workspace-maintenance.md`
 
 ### 性能基准
 
