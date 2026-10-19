@@ -1,7 +1,9 @@
 """后台检查常规设置顺序、隐藏选项保留和固定开启的卡死检测。"""
+import gc
 import os
 from pathlib import Path
 import sys
+import weakref
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -12,6 +14,24 @@ from PySide6.QtWidgets import QApplication, QLabel, QCheckBox
 from ddm import app as app_module, config
 from ddm.dialogs import CodecSettingsPanel, GeneralSettingsPage, SettingsDialog
 from dev.selfcheck_tile_fullscreen import SilentPoller
+
+
+def check_volume_page_lifetime():
+    """The volume signal must not retain its parent page until cyclic GC."""
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        page = GeneralSettingsPage({"default_volume": 21})
+        for volume in (0, 17, 100):
+            page.volume_slider.setValue(volume)
+            assert page.volume_label.text() == str(volume)
+            assert page.values()["default_volume"] == volume
+        page_ref = weakref.ref(page)
+        del page
+        assert page_ref() is None, "Volume callback retains the settings page"
+    finally:
+        if gc_was_enabled:
+            gc.enable()
 
 
 def check_codecs(app):
@@ -236,6 +256,7 @@ def main():
         assert [tile.volume for tile in window.wall.tiles] == [42, 0, 40, 40, 17, 40]
     finally:
         window.close()
+    check_volume_page_lifetime()
     check_codecs(app)
     print("PASS: unified codec settings, per-window overrides, general settings and default volumes")
 
