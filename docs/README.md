@@ -8,6 +8,7 @@
 | 使用说明 | [项目 README](../README.md) |
 | 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
 | 开发验证 | [测试套件与执行条件](development/testing.md)、[开发工具导航](../dev/README.md)、[全部专项检查](../dev/checks/README.md) |
+| 本机工作区 | [目录归属、旧运行库归档与检查纳入标准](development/workspace-maintenance.md) |
 | 本次整合 | [2026-10-19 仓库与 PR 整合记录](archive/repository-integration-20261019.md) |
 | 插件 | [插件说明](plugins.md) |
 | 外观与皮肤 | [外观设计](appearance-design.md)、[皮肤说明](skins.md) |

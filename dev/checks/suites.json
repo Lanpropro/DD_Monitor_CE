@@ -6,7 +6,11 @@
       "selfcheck_repository_files",
       "selfcheck_project_workflow",
       "selfcheck_repository_map",
-      "selfcheck_check_runner"
+      "selfcheck_check_runner",
+      "selfcheck_readme",
+      "selfcheck_appearance_design",
+      "selfcheck_customization_plan",
+      "selfcheck_website_plan"
     ]
   },
   "offline": {
@@ -25,7 +29,24 @@
       "selfcheck_sort_manager",
       "selfcheck_theme_latency",
       "selfcheck_brand_assets",
-      "selfcheck_release_metadata"
+      "selfcheck_release_metadata",
+      "selfcheck_button_feedback",
+      "selfcheck_button_focus",
+      "selfcheck_folder_blank_menu",
+      "selfcheck_folder_card_size",
+      "selfcheck_follow_folders",
+      "selfcheck_main_notices",
+      "selfcheck_fullscreen_controls",
+      "selfcheck_layout_16",
+      "selfcheck_layout_growth_empty",
+      "selfcheck_platform_logo_background",
+      "selfcheck_platform_offline_tiles",
+      "selfcheck_room_status",
+      "selfcheck_room_presets",
+      "selfcheck_sidebar_text_theme",
+      "selfcheck_video_danmaku_controls",
+      "selfcheck_video_danmaku",
+      "selfcheck_stream_recovery"
     ]
   },
   "native": {

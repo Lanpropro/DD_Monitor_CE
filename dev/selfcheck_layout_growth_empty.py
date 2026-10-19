@@ -2,12 +2,14 @@
 import os
 from pathlib import Path
 import sys
+import time
 from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
 from ddm import config
 from ddm.app import MainWindow
 
@@ -37,6 +39,10 @@ def main():
                 if layout == "resize":
                     window._layout_by_orientation["portrait"] = "portrait_main2"
                     window.resize(500, 1000)
+                    deadline = time.monotonic() + 2
+                    while window.orientation != "portrait" and time.monotonic() < deadline:
+                        QTest.qWait(20)
+                    assert window.orientation == "portrait", "等待缩放收尾后应进入竖屏布局"
                 else:
                     window._on_layout_changed(layout)
                 app.processEvents()
