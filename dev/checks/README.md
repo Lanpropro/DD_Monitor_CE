@@ -61,6 +61,7 @@
 | [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | 单项执行前核对 |
 | [selfcheck_avatars](../selfcheck_avatars.py) | 单项执行前核对 |
 | [selfcheck_bili_2k_live](../selfcheck_bili_2k_live.py) | 单项执行前核对 |
+| [selfcheck_bili_plugin_boundary](../selfcheck_bili_plugin_boundary.py) | `offline` |
 | [selfcheck_bili_cookies](../selfcheck_bili_cookies.py) | `offline` |
 | [selfcheck_cover_cache](../selfcheck_cover_cache.py) | 单项执行前核对 |
 | [selfcheck_delete](../selfcheck_delete.py) | 单项执行前核对 |
@@ -150,7 +151,6 @@
 | [check_medal_size](../check_medal_size.py) | 单项执行前核对 |
 | [selfcheck_danmaku](../selfcheck_danmaku.py) | 单项执行前核对 |
 | [selfcheck_danmaku_button](../selfcheck_danmaku_button.py) | 单项执行前核对 |
-| [selfcheck_danmaku_composer](../selfcheck_danmaku_composer.py) | `offline` |
 | [selfcheck_danmaku_connection](../selfcheck_danmaku_connection.py) | `offline` |
 | [selfcheck_danmaku_emoji](../selfcheck_danmaku_emoji.py) | 单项执行前核对 |
 | [selfcheck_danmaku_limit_migration](../selfcheck_danmaku_limit_migration.py) | 单项执行前核对 |
@@ -159,10 +159,8 @@
 | [selfcheck_danmaku_render_thread](../selfcheck_danmaku_render_thread.py) | `native` |
 | [selfcheck_danmaku_retention](../selfcheck_danmaku_retention.py) | 单项执行前核对 |
 | [selfcheck_danmaku_room_switches](../selfcheck_danmaku_room_switches.py) | `offline` |
-| [selfcheck_danmaku_send](../selfcheck_danmaku_send.py) | `offline` |
 | [selfcheck_danmaku_smoothness](../selfcheck_danmaku_smoothness.py) | 单项执行前核对 |
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
-| [selfcheck_emoticon_tabs](../selfcheck_emoticon_tabs.py) | `offline` |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline` |

@@ -88,27 +88,6 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(first.danmaku_button.isChecked())
         window.sync_danmaku.assert_called()
 
-    def test_send_auth_notice_opens_login_and_normal_notice_clears_action(self):
-        from ddm import bili
-        window = self.window([{'room_id': '1001'}])
-        composer = window.wall.tiles[0].composer
-        for session in ('', 'existing-session'):
-            with patch.object(bili, 'SESSION_DATA', session), patch.object(bili, 'BILI_JCT', ''), \
-                    patch.object(window, 'open_login') as login, patch.object(bili, 'send_danmaku') as send:
-                composer.edit.setText('test')
-                composer.send_text()
-                self.app.processEvents()
-                notice = window._result_notice
-                self.assertIn('登录', notice.title.text())
-                self.assertTrue(composer.feedback.isHidden())
-                self.assertFalse(composer.feedback.isWindow())
-                self.assertEqual(composer.edit.toolTip(), '')
-                QTest.mouseClick(notice.title, Qt.LeftButton)
-                login.assert_called_once_with('bilibili', reauthenticate=True)
-                send.assert_not_called()
-                window._show_notice('普通提示')
-                QTest.mouseClick(notice.title, Qt.LeftButton)
-                self.assertEqual(login.call_count, 1)
 
     def test_reauthentication_opens_login_without_discarding_existing_cookies(self):
         from ddm import bili

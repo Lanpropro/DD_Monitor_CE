@@ -82,7 +82,6 @@ class FullscreenCursor(QObject):
             foreground = user32.GetForegroundWindow()
             active = bool(foreground and user32.GetAncestor(foreground, 2) == int(self.window.winId()))
         eligible = (tile is not None and active
-                    and not tile.composer.edit.hasFocus()
                     and QApplication.activePopupWidget() is None
                     and QApplication.activeModalWidget() is None
                     and not QApplication.mouseButtons()
