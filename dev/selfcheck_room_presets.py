@@ -54,7 +54,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='ddm-combinations-') as temporary, ExitStack() as stack:
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'state.json')))
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account', 'sync_danmaku',
-                       'load_avatars_for', 'load_room_avatars', 'load_cached_covers', 'load_cached_avatars'):
+                       'load_avatars_for', 'load_room_avatars', 'load_cached_covers', 'load_cached_avatars',
+                       '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, method))
         window = MainWindow(deepcopy(fixture), deepcopy(fixture), layout_id='corner',
                             state={'plugins_enabled': [], 'settings': {'auto_update': False,
