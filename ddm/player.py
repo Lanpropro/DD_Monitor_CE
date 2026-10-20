@@ -138,6 +138,8 @@ class TilePlayer(QObject):
                 **(PREVIEW_STARTUP_OPTIONS if self.silent else {}),
                 input_default_bindings=False, input_vo_keyboard=False, input_cursor=False,
                 input_builtin_dragging=False, idle=True, keep_open=True,
+                # Close WASAPI on mpv's core thread, not during GUI-thread termination.
+                gapless_audio=False,
                 cache=True, demuxer_max_bytes="16MiB", demuxer_max_back_bytes=0,
                 network_timeout=8, log_handler=self._log, loglevel="error",
             )
