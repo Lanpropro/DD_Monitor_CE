@@ -518,7 +518,7 @@ class UpdateNotice(QFrame):
         self._motion.finished.connect(self._motion_finished)
         parent.installEventFilter(self)
 
-    def show_offer(self, offer):
+    def show_offer(self, offer, *, persistent=False):
         was_visible = self.isVisible()
         self._motion.stop()
         self._leaving = False
@@ -532,7 +532,9 @@ class UpdateNotice(QFrame):
         self.reposition()
         self.show()
         self.raise_()
-        self.timer.start()
+        self.timer.stop()
+        if not persistent:
+            self.timer.start()
         if self._progress < 1.0:
             self._animate_to(1.0, 240)
 
@@ -576,7 +578,44 @@ class UpdateNotice(QFrame):
     def reposition(self):
         parent = self.parentWidget()
         offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2), 20 + offset)))
+        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2), self._stack_y() + offset)))
+
+    def _stack_y(self):
+        y = 20
+        for notice in getattr(self.parentWidget(), '_notices', []):
+            if notice is self:
+                break
+            if notice.isVisible():
+                y += notice.height() + 8
+        return y
+
+    def _reflow(self):
+        for notice in getattr(self.parentWidget(), '_notices', []):
+            notice.reposition()
+
+    def showEvent(self, event):
+        parent = self.parentWidget()
+        if not hasattr(parent, '_notices'):
+            parent._notices = []
+        if self not in parent._notices:
+            parent._notices.append(self)
+        super().showEvent(event)
+        self._reflow()
+
+    def hideEvent(self, event):
+        self.timer.stop()
+        notices = getattr(self.parentWidget(), '_notices', [])
+        if self in notices:
+            notices.remove(self)
+        super().hideEvent(event)
+        self._reflow()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._open()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def eventFilter(self, watched, event):
         if self.isVisible():
@@ -635,7 +674,13 @@ class ResultNotice(UpdateNotice):
             callback()
             event.accept()
             return
-        super().mouseReleaseEvent(event)
+        QFrame.mouseReleaseEvent(self, event)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if getattr(self.parentWidget(), '_result_notice', None) is self:
+            self.parentWidget()._result_notice = None
+        self.deleteLater()
 
     def _set_rooms(self, rooms):
         from .images import load_cached_avatar, load_room_avatar
@@ -673,10 +718,10 @@ class ResultNotice(UpdateNotice):
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                                 radius, radius)
 
-    def show_message(self, message, rooms=(), *, kind='info', on_click=None):
+    def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False):
         self._on_click = on_click
         self.setCursor(Qt.PointingHandCursor if on_click else Qt.ArrowCursor)
-        self.setToolTip('点击打开 B 站登录' if on_click else '')
+        self.setToolTip('点击跳转' if on_click else '')
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)
@@ -694,7 +739,9 @@ class ResultNotice(UpdateNotice):
         self.reposition()
         self.show()
         self.raise_()
-        self.timer.start()
+        self.timer.stop()
+        if not persistent:
+            self.timer.start()
         if self._progress < 1.0:
             self._animate_to(1.0, 160)
 
@@ -718,6 +765,7 @@ class ResultNotice(UpdateNotice):
         self.layout().invalidate()
         self.setFixedHeight(max(48, self.layout().heightForWidth(width)))
         self.layout().activate()
+        self._reflow()
 
     def eventFilter(self, watched, event):
         if self.isVisible() and event.type() == QEvent.Resize:
@@ -732,13 +780,11 @@ class ResultNotice(UpdateNotice):
         parent = self.parentWidget()
         offset = round(-12 * (1 - self._progress)) if motion.enabled() else 0
         self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2),
-                                           20 + offset)))
+                                           self._stack_y() + offset)))
 
 
-def show_result(parent, message, rooms=(), *, kind='info', on_click=None):
+def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False):
     if not parent.isVisible():
         return
-    notice = getattr(parent, '_result_notice', None)
-    if notice is None:
-        notice = parent._result_notice = ResultNotice(parent)
-    notice.show_message(message, rooms, kind=kind, on_click=on_click)
+    notice = parent._result_notice = ResultNotice(parent)
+    notice.show_message(message, rooms, kind=kind, on_click=on_click, persistent=persistent)

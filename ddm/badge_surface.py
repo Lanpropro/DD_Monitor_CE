@@ -54,6 +54,7 @@ class BadgeSurface(QWidget):
         return result
 
     def _clear_layered(self):
+        self._last_alpha_state = None
         hwnd = getattr(self, "_layered_hwnd", None)
         if hwnd and sys.platform == "win32":
             user32 = ctypes.windll.user32
@@ -63,12 +64,19 @@ class BadgeSurface(QWidget):
             user32.SetWindowLongW(hwnd, -20, style & ~0x00080000)
             self._layered_hwnd = None
 
+    def _layered_render_key(self):
+        return None
+
     def _paint_layered(self):
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
         hwnd = int(self.winId())
         user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
         bounds = wintypes.RECT()
         if not user32.GetClientRect(hwnd, ctypes.byref(bounds)) or not bounds.right or not bounds.bottom:
+            return
+        key = self._layered_render_key()
+        state = (hwnd, bounds.right, bounds.bottom, self.devicePixelRatioF(), key)
+        if key is not None and state == getattr(self, '_last_alpha_state', None):
             return
         image = QImage(bounds.right, bounds.bottom, QImage.Format_ARGB32_Premultiplied)
         image.setDevicePixelRatio(self.devicePixelRatioF())
@@ -125,6 +133,8 @@ class BadgeSurface(QWidget):
                 self._alpha_uploaded = bool(user32.UpdateLayeredWindow(hwnd, screen, None,
                     ctypes.byref(size), memory, ctypes.byref(origin), 0, ctypes.byref(blend), 2))
                 self._layered_hwnd = hwnd
+                if self._alpha_uploaded:
+                    self._last_alpha_state = state
             finally:
                 gdi32.SelectObject(memory, previous)
         finally:

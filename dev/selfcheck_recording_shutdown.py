@@ -53,6 +53,8 @@ def main():
             settings = dict(DEFAULT_SETTINGS, recording_dir=str(folder),
                             recording_replay_enabled=True, recording_min_free_mb=256)
             manager = RecordingManager(settings)
+            notices = []
+            manager.noticeWithRoom.connect(lambda message, room: notices.append((message, room)))
             record = FakeTile("完整录制", "1", str(source))
             cache = FakeTile("纯缓存", "2", str(source))
             try:
@@ -74,9 +76,13 @@ def main():
                     assert manager.save_replay(record)
                     assert any(not full for _p, _r, _parts, full in manager.exports)
                 # 不再处理事件：验证关闭时会等待刚刚主动发起的导出完成。
+                record.room = {'room_id': 'replacement', 'uname': '后来放入的主播'}
                 manager.shutdown()
                 assert not manager.sessions and not manager.exports
                 verify_outputs(folder, saved=saved)
+                completed = [room for message, room in notices
+                             if message.startswith('已保存录制') and '完整录制' in message]
+                assert completed and completed[0]['room_id'] == '1', "导出应保留原主播头像上下文"
             finally:
                 manager.shutdown()
 

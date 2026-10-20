@@ -229,6 +229,8 @@ def main() -> None:
     settle(app, 0.3)
     print(f"  停 0.3 秒：画面可见={live_item.thumb.video.isVisible()}（应该还没有）")
     assert not live_item.thumb.video.isVisible()
+    assert FakeResolver.started and FakeResolver.started[-1][0] == "1001", \
+        "取流应在 0.5 秒显示门槛前开始"
     assert wait_for(lambda: live_item.thumb.video.isVisible()), "停够 0.5 秒应该开始播"
     player = live_item.thumb._player                       # noqa: SLF001
     print(f"  停 0.5 秒后：画面可见=True 播放器={player is not None}"
@@ -367,6 +369,10 @@ def main() -> None:
     slow_resolver = preview._resolver                    # noqa: SLF001
     print(f"  取流中：running={slow_resolver.isRunning()}")
     assert slow_resolver.isRunning()
+    assert live_item.thumb._player is not None  # noqa: SLF001
+    assert live_item.thumb._player.player is not None  # noqa: SLF001
+    assert live_item.thumb.cover.isVisible(), "取流时应保留封面"
+    assert not live_item.thumb.video.isVisible(), "取流时不能露出黑色视频区"
     hover(live_item, False)
     assert wait_for(lambda: preview._resolver is None, timeout=3.0), \
         "移开之后应该把这次取流交出去（等它自己结束）"
