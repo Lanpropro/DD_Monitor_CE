@@ -131,6 +131,17 @@ def ensure_buvid3() -> str:
             return BUVID3
 
 
+def remember_buvid3(value: str) -> str:
+    """Fill a missing device identity without replacing a later login's value."""
+    global BUVID3
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError('设备 Cookie 不能为空')
+    with _COOKIE_LOCK:
+        if not BUVID3:
+            BUVID3 = value.strip()
+        return BUVID3
+
+
 def room_info(room_id: str) -> dict | None:
     """房间基础信息（直播状态、标题、主播、封面）。"""
     room_id = _resolve_room_id(room_id)

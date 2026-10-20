@@ -6000,6 +6000,9 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = dict(room or {})
+        controls = getattr(self, '_plugin_controls', None)
+        if controls is not None:
+            controls.set_room(self.room)
         self.codec_probe_note = ""
         self.codec_reconnect_pending = False
         self.video_danmaku.clear()
@@ -6065,10 +6068,17 @@ class Tile(QFrame):
         self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
         self.videoDanmakuSettingsChanged.emit(values)
 
+    def plugin_interaction_active(self) -> bool:
+        controls = getattr(self, '_plugin_controls', None)
+        return controls.interaction_active() if controls is not None else False
+
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
         return (self.width(),
                 self.bottom.width(),
+                tuple((e.owner, e.key, e.control.widget.isHidden(),
+                       e.control.minimum_width, e.control.preferred_width)
+                      for e in getattr(getattr(self, '_plugin_controls', None), 'entries', ())),
                 self.isVisible(),
                 bool(getattr(self, "_fullscreen_controls_hidden", False)),
                 self.recording_time.text(),
@@ -6123,6 +6133,28 @@ class Tile(QFrame):
         self.status_label.setMinimumWidth(0)
         self.status_label.setMaximumWidth(16777215)
         layout.setStretchFactor(self.status_label, 1)
+        extensions = getattr(self, '_plugin_controls', None)
+        if extensions is not None and not extensions._disposed:
+            # Existing player actions determine the free interval; extensions
+            # share one centered, bounded region without moving those actions.
+            extensions.spacer.setFixedWidth(0)
+            layout.activate()
+            left_controls = [w for w in (self.pause_button, self.volume_button,
+                self.volume_slider, self.volume_label) if not w.isHidden()]
+            right_controls = [w for w in (self.danmaku_button, self.danmaku_settings_button,
+                self.recording_button, self.recording_time, self.fullscreen_button) if not w.isHidden()]
+            left = margin + sum(w.width() for w in left_controls) + spacing * len(left_controls)
+            right = (self.bottom.width() - margin - sum(w.width() for w in right_controls)
+                     - spacing * max(0, len(right_controls) - 1))
+            cap = min(520, max(300, int(width * 0.45)))
+            fitted = extensions.allocate(min(cap, max(0, right - left - 3 * spacing)))
+            if fitted:
+                x = max(left + spacing, min((self.bottom.width() - fitted) // 2,
+                                            right - 2 * spacing - fitted))
+                self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+                self.status_label.setFixedWidth(max(0, x - left - spacing))
+                layout.setStretchFactor(self.status_label, 0)
+                extensions.spacer.setFixedWidth(max(0, right - 2 * spacing - x - fitted))
         layout.activate()
 
     def set_recording_state(self, state: str) -> None:
@@ -7435,6 +7467,9 @@ class WallGrid(QWidget):
         return tile
 
     def _drop_tile(self, tile: Tile) -> None:
+        controls = getattr(tile, '_plugin_controls', None)
+        if controls is not None:
+            controls.shutdown()
         border = self._pane_borders.pop(tile, None)
         if border is not None and (self._hover_border is border or
                                    self._border_drag is not None and self._border_drag["border"] is border):

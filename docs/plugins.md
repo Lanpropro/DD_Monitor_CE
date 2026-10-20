@@ -189,7 +189,8 @@ B 站取流、在线人数或弹幕接口。当前跨平台悬停预览和弹幕
 
 ## 三、发弹幕
 
-弹幕接收与显示属于本体功能。发弹幕接口留给之后能完整实现认证和发送的插件：
+弹幕接收与显示属于本体功能。以下旧式发送器接口继续兼容；独立的 `bili_live` 插件通过
+本文后面的格子控件扩展和登录快照接口提供行内发送、表情及礼物界面：
 
 ```python
 class MySender(api.DanmakuSender):
@@ -234,3 +235,55 @@ context.set_setting("token", "abc")     # 写，并通知本体落盘
   插件起的线程要在这里停掉，否则 Qt 退出时会崩。
 - **插件不是沙箱**：它拿到的是真实窗口对象和进程权限。这是刻意的取舍 ——
   录像、抓别的平台这类事本来就需要完整的网络和文件访问。
+
+## 格子内控件扩展
+
+插件可调用 `context.register_tile_control("controls", factory, priority=100)`。
+`factory(TileControlContext)` 返回 `ddm.plugins.TileControl`；其中 `parent` 是本体管理的
+容器，`room` 是房间副本，`invalidate_layout()` 请求重新分配底栏空间。
+`TileControl(widget, minimum_width=90, preferred_width=240)` 可覆盖
+`set_room(room)`、`interaction_active()` 和 `shutdown()`。每个格子（包括初始空格子）
+只构造一次；每次房间赋值均通知。插件自行隐藏不支持房间的 widget，本体独立隐藏宽度
+不足的容器。优先级高的先分配，优先级相同时保持注册顺序。
+不支持的房间无需重新注册，移除格子或卸载时 `shutdown()` 只调用一次。
+注册在 `on_load` 成功之后生效；不要修改格子私有布局或包裹本体方法。
+
+## 登录快照与交互状态
+
+`context.credentials(platform)` 返回 `CredentialSnapshot(platform, generation, values)`，
+未注册的平台返回 `None`。`values` 为独立只读映射，快照 repr 不输出密钥。
+`account.changed` 事件只包含 `platform`、`generation`；读取新快照获取当前凭据。
+本体目前为 `bilibili` 提供 `SESSDATA`、`bili_jct`、`buvid3`，继续使用本体登录入口。
+工作线程使用事先捕获的副本，不得在线程中访问这些 GUI 接口。
+
+发现设备标识后，可在 GUI 线程调用
+`context.update_credentials("bilibili", {"buvid3": value}, expected_generation=generation)`。
+旧账号代次返回 `False`；未知字段或不支持的更新抛出 `ValueError`。
+本体仅在设备 Cookie 为空时接收并持久化，保留后来登录取得的设备身份。
+此更新不推进账号代次；`account.credentials_updated` 仅包含平台、代次与字段名列表。
+禁止把凭据写入插件设置或日志。
+
+控件的 `interaction_active()` 可为编辑焦点、输入法组合、打开的弹窗返回 `True`，
+本体据此保持全屏控件可见（包括指针离开格子时）。隐藏或禁用的控件不参与查询。
+
+
+## bili_live 配套安装
+
+`function/plugin-tile-extensions` 提供上述接口；配套插件源码在
+[DD_Monitor_Plugins](https://github.com/Lanpropro/DD_Monitor_Plugins) 的本地
+`codex/bili-live` 分支。使用插件管理器安装 `dist/bili_live-1.0.zip`，按现有流程保存并重启。
+继续在本体账号界面登录 B 站，各数字房间格子自动显示输入、表情、礼物和发送控件。
+禁用/移除插件同样在重启后生效；登录持久化、播放和接收弹幕仍由本体负责。
+插件在装载前检查必要公开接口，旧版本本体会报告兼容性要求。
+
+该 ZIP 当前是本地产物，网站没有对应下载条目。
+
+### 控件居中与宽度预算
+
+格子把全部可用控件放进一个居中的扩展区域，按优先级、注册顺序分配宽度。
+该区域最多为 `min(520, max(300, int(tile_width * 0.45)))` 逻辑像素；
+空间不足时收窄并限制在现有播放器按钮之间，低优先级控件的最小宽度放不下时隐藏。
+200 像素等窄格优先保留音量、录制及全屏入口；插件不能依赖其控件始终可见。
+`preferred_width` 是多控件分配时的偏好，单个控件可以扩展到区域上限。
+控件自行改变可用性、可见性或宽度声明后，调用 `invalidate_layout()`。
+本体不保存发送草稿、不获取互动表情或发送礼物；这些能力由插件实现。
