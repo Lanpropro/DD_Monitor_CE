@@ -229,6 +229,20 @@ def main():
             assert abs(layer.groups[overlay._quick_group].opacity() - .2) < .001
             overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=100))
 
+            for width in (1, 6):
+                overlay.apply_settings(dict(overlay.settings, video_danmaku_outline=True,
+                                            video_danmaku_outline_width=width))
+                settle(app)
+                assert all(record["item"].property("imageLoaded")
+                           for record in layer.items.values())
+                image = comment.image.toImage()
+                assert any(image.pixelColor(x, y).alpha() > 220 and
+                           max(image.pixelColor(x, y).red(), image.pixelColor(x, y).green(),
+                               image.pixelColor(x, y).blue()) < 15
+                           for y in range(image.height()) for x in range(image.width())), \
+                    "开启描边后 Quick 贴图必须含有黑色边缘"
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_outline=False))
+
             user32.WindowFromPoint.argtypes = [wintypes.POINT]
             user32.WindowFromPoint.restype = wintypes.HWND
             point = target.video.mapToGlobal(target.video.rect().center())

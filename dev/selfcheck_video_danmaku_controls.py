@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from ddm import config, theme
@@ -38,6 +38,44 @@ def check_text_style(overlay):
     print("PASS: bright white/colored text retains its color without a black outline or shadow")
 
 
+def check_outline(overlay):
+    emote = QPixmap(24, 24)
+    emote.fill(QColor("#28d17c"))
+    url = "https://example.invalid/outline-emote.png"
+    overlay._images[url] = emote.toImage()
+    for runs in ([("描边 gyp", "")], [("描边 gyp", ""), ("[emoji]", url)]):
+        counts = []
+        for width in (1, 2, 6):
+            overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False,
+                                        video_danmaku_outline=True,
+                                        video_danmaku_outline_width=width))
+            image = overlay._render_content("描边 gyp", QColor("#ff77bb"), runs).toImage()
+            pixels = [image.pixelColor(x, y) for y in range(image.height())
+                      for x in range(image.width())]
+            counts.append(sum(p.alpha() > 200 and max(p.red(), p.green(), p.blue()) < 15
+                              for p in pixels))
+            assert any(p.alpha() > 220 and p.red() > 200 and p.blue() > 150 for p in pixels)
+            if len(runs) > 1:
+                assert any(p.alpha() > 220 and p.green() > 180 and p.red() < 70 for p in pixels)
+            assert all(image.pixelColor(x, y).alpha() == 0
+                       for x in range(image.width()) for y in (0, image.height() - 1))
+            assert all(image.pixelColor(x, y).alpha() == 0
+                       for y in range(image.height()) for x in (0, image.width() - 1))
+        assert 0 < counts[0] < counts[1] < counts[2], counts
+    emote.fill(QColor(40, 209, 124, 128))
+    overlay._images[url] = emote.toImage()
+    image = overlay._render_content("描边", QColor("#ff77bb"),
+                                    [("描边", ""), ("[emoji]", url)]).toImage()
+    greens = [image.pixelColor(x, y) for y in range(image.height())
+              for x in range(image.width())
+              if image.pixelColor(x, y).green() > 180 and image.pixelColor(x, y).red() < 70]
+    alphas = sorted(pixel.alpha() for pixel in greens)
+    assert alphas and 125 <= alphas[len(alphas) // 2] <= 130, \
+        "描边不能让半透明表情被重复绘制而加深"
+    overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False))
+    print("PASS: adjustable black outlines preserve text/emote colors and glyph padding")
+
+
 def check_text(app):
     tile = Tile({"room_id": "1", "live": True})
     tile.resize(900, 540)
@@ -48,6 +86,7 @@ def check_text(app):
     tile.danmaku_button.setChecked(True)
     try:
         check_text_style(overlay)
+        check_outline(overlay)
         for size in (12, 28, 48, 64):
             overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=size,
                                         video_danmaku_scale=False))
@@ -128,6 +167,22 @@ def check_controls(app):
             QTest.mouseClick(menu.scale, Qt.LeftButton, pos=QPoint(8, menu.scale.height() // 2))
             assert window.settings["video_danmaku_scale"] is False
             assert second.video_danmaku.settings["video_danmaku_scale"] is False
+            assert not menu.outline.isChecked()
+            assert not menu.controls["video_danmaku_outline_width"].isEnabled()
+            image_key = comment.image.cacheKey()
+            QTest.mouseClick(menu.outline, Qt.LeftButton, pos=QPoint(8, menu.outline.height() // 2))
+            assert window.settings["video_danmaku_outline"] is True
+            assert second.danmaku_settings_menu.outline.isChecked()
+            assert menu.controls["video_danmaku_outline_width"].isEnabled()
+            assert comment.image.cacheKey() != image_key
+            for width in (1, 6, 2):
+                menu.controls["video_danmaku_outline_width"].setValue(width)
+                assert window.settings["video_danmaku_outline_width"] == width
+                assert second.video_danmaku.settings["video_danmaku_outline_width"] == width
+                assert window.current_state()["settings"]["video_danmaku_outline_width"] == width
+            QTest.mouseClick(menu.outline, Qt.LeftButton, pos=QPoint(8, menu.outline.height() // 2))
+            assert not window.settings["video_danmaku_outline"]
+            assert not second.danmaku_settings_menu.outline.isChecked()
             assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
             assert window._save_timer.isActive()
             assert window.current_state()["settings"]["video_danmaku_opacity"] == 45
