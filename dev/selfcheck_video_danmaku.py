@@ -1,6 +1,8 @@
 """离线画面弹幕回归：滚动、防追尾、显示参数、独立开关和共享连接。"""
 import os
 import math
+import hashlib
+import json
 from pathlib import Path
 import sys
 import threading
@@ -8,7 +10,7 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 
 from PySide6.QtCore import QPointF, QRect, QThread, Qt, Signal
-from PySide6.QtGui import QPaintEvent
+from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
 
@@ -18,8 +20,57 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm import config, theme
 from ddm.app import MainWindow
 from ddm.danmaku import DanmakuClient
-from ddm.dialogs import SettingsDialog
-from ddm.widgets import Tile
+from ddm.dialogs import DanmakuSettingsPage, SettingsDialog
+from ddm.video_danmaku import VideoDanmaku
+from ddm.widgets import DanmakuPanel, Tile
+
+
+def check_fonts(app):
+    assets = Path(theme.ASSETS_DIR)
+    source = json.loads((assets / "licenses/source-han-sans-SOURCE.json").read_text(encoding="utf-8"))
+    assert hashlib.sha256((assets / source["file"]).read_bytes()).hexdigest() == source["sha256"]
+    license_text = (assets / "licenses/source-han-sans-LICENSE.txt").read_text(encoding="utf-8")
+    assert "SIL OPEN FONT LICENSE Version 1.1" in license_text
+    assert "Adobe" in license_text
+    with patch.object(QFontDatabase, "addApplicationFont", wraps=QFontDatabase.addApplicationFont) as register:
+        family = theme.danmaku_font_family()
+        assert theme.danmaku_font_family() == family == "Source Han Sans SC"
+        assert register.call_count == 1, "内置字体只注册一次"
+    font = QFont(family)
+    assert QFontInfo(font).family() == family, "必须使用真实字体，不能回退系统字体"
+    raw = QRawFont.fromFont(font)
+    assert all(raw.supportsCharacter(ord(char)) for char in "弹幕测试简體中文ABC123")
+    assert theme.FONT_DEFAULT == "Microsoft YaHei UI", "不修改界面默认字体"
+
+    for settings in ({}, dict(config.DEFAULT_SETTINGS)):
+        page = DanmakuSettingsPage(settings)
+        assert page.font_box.currentFont().family() == family
+        assert page.values()["danmaku_font"] == ""
+        page.close()
+    panel = DanmakuPanel()
+    overlay = VideoDanmaku()
+    page = DanmakuSettingsPage({"danmaku_font": theme.FONT_DEFAULT})
+    try:
+        assert panel._font_family == family
+        assert panel.body.font().family() == family
+        for selection in ("", theme.FONT_DEFAULT):
+            panel.apply_style(selection, 18)
+            overlay.apply_settings({"danmaku_font": selection, "video_danmaku_size": 32,
+                                    "video_danmaku_scale": False})
+            expected = selection or family
+            assert panel._font_family == expected
+            assert panel.body.font().family() == expected
+            assert overlay._font().family() == expected
+            assert overlay._font().pixelSize() == 32
+            assert not overlay._render_text("思源黑体弹幕 ABC 123", theme.qcolor(theme.TEXT1)).isNull()
+        assert page.values()["danmaku_font"] == theme.FONT_DEFAULT, "保留已有自定义字体"
+        page.reset()
+        assert page.font_box.currentFont().family() == family
+        assert page.values()["danmaku_font"] == ""
+    finally:
+        page.close()
+        overlay.close()
+        panel.close()
 
 
 class Client(QThread):
@@ -330,6 +381,7 @@ def check_cancel(app):
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    check_fonts(app)
     check_motion(app)
     check_routing(app)
     check_settings(app)

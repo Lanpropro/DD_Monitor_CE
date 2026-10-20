@@ -807,7 +807,7 @@ class DanmakuPanel(QFrame):
         self._emoticon_loaders: list = []
         self._has_content = False
         self._base_size = self.BASE_FONT_SIZE
-        self._font_family = theme.FONT_DEFAULT
+        self._font_family = theme.danmaku_font_family()
         self.max_blocks = self.MAX_BLOCKS
         self._follow_tail = True
         self._scroll_dragging = False
@@ -876,6 +876,7 @@ class DanmakuPanel(QFrame):
         self.font_value.setFixedWidth(22)
         bar_box.addWidget(self.font_value)
         layout.addWidget(self.bar)
+        self.apply_style()
         self.set_placeholder("把直播间放到主画面，这里就会显示它的弹幕")
 
     # ---- 拖动 ----
@@ -1064,7 +1065,7 @@ class DanmakuPanel(QFrame):
 
     def apply_style(self, font_family: str = "", font_size: int = BASE_FONT_SIZE) -> None:
         """设置里的字体和字号（字号也能在底部滑块上实时拖）。"""
-        self._font_family = font_family or theme.FONT_DEFAULT
+        self._font_family = font_family or theme.danmaku_font_family()
         self._base_size = max(self.MIN_FONT_SIZE,
                               min(self.MAX_FONT_SIZE, int(font_size or self.BASE_FONT_SIZE)))
         font = QFont(self._font_family)
