@@ -46,6 +46,8 @@ class ComposerTests(unittest.TestCase):
             self.composer.popup.hide()
             self.assertFalse(button.property('menuOpen'))
             self.assertEqual(button.grab().toImage(), closed)
+            # Keep the API stub alive until the catalog worker has finished.
+            settle(lambda: self.composer._catalog_pending is None)
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
