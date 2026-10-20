@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -193,11 +193,51 @@ def check_controls(app):
     print("PASS: real popup/keyboard/checkbox, shared settings/save, advanced link, fullscreen continuity and narrow controls")
 
 
+def check_overlay_mask(app):
+    tile = Tile({"room_id": "1", "uname": "Mask regression", "live": True})
+    tile.resize(900, 540)
+    tile.show()
+    app.processEvents()
+    overlay = tile.video_danmaku
+    layer = MagicMock()
+    overlay._quick_layer, overlay._quick_group = layer, 1
+    overlay._quick_mask_signature = None
+    try:
+        tile.set_controls_visible(True)
+        image = layer.set_group_mask.call_args.args[1]
+        origin = tile.controls.pos() - overlay.pos()
+        button_point = origin + tile.reload_button.geometry().center()
+        scale = image.devicePixelRatioF()
+        alpha = lambda image, point: image.pixelColor(round(point.x() * scale),
+                                                     round(point.y() * scale)).alpha()
+        assert alpha(image, button_point) == 0
+        # Hiding controls does not change the cached video geometry.
+        tile.set_controls_visible(False)
+        hidden = layer.set_group_mask.call_args.args[1]
+        assert alpha(hidden, button_point) == 255, ("收起悬浮条后必须恢复弹幕遮罩",
+            button_point, overlay.size(), tile.controls.isVisible(),
+            overlay._quick_mask_signature, alpha(hidden, button_point))
+        for _ in range(3):
+            tile.set_controls_visible(True)
+            image = layer.set_group_mask.call_args.args[1]
+            gap = origin + QPoint(tile.quality_button.geometry().right() + 2,
+                                  tile.reload_button.geometry().center().y())
+            assert not tile.controls.mask().contains(gap - origin)
+            assert alpha(image, gap) == 255, "按钮之间的透明间隙不能裁掉弹幕"
+            tile.set_controls_visible(False)
+            assert alpha(layer.set_group_mask.call_args.args[1], button_point) == 255
+    finally:
+        overlay._quick_layer, overlay._quick_group = None, None
+        tile.close()
+    print("PASS: hover mask restores after hide and preserves transparent control gaps")
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     check_text(app)
     check_controls(app)
+    check_overlay_mask(app)
 
 
 if __name__ == "__main__":

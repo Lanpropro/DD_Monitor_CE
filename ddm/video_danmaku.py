@@ -7,7 +7,7 @@ from time import perf_counter
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QTextDocument
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextDocument
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
@@ -480,16 +480,17 @@ class VideoDanmaku(QWidget):
     def update_quick_mask(self, widgets) -> None:
         if self._quick_layer is None or self._quick_group is None:
             return
-        holes = []
+        holes = QRegion()
         for widget in widgets:
             if widget.isVisible():
                 origin = widget.pos() - self.pos()
-                rect = QRect(origin, widget.size()).intersected(self.rect())
-                if not rect.isEmpty():
-                    holes.append(rect)
+                region = widget.mask()
+                if region.isEmpty():
+                    region = QRegion(widget.rect())
+                holes |= region.translated(origin).intersected(QRegion(self.rect()))
         signature = (self.width(), self.height(), self.devicePixelRatioF(),
                      self._quick_rounded,
-                     tuple((rect.x(), rect.y(), rect.width(), rect.height()) for rect in holes))
+                     holes, self.mask())
         if signature == self._quick_mask_signature:
             return
         self._quick_mask_signature = signature
@@ -502,13 +503,9 @@ class VideoDanmaku(QWidget):
         painter = QPainter(image)
         region = self.mask()
         if region.isEmpty():
-            region = self.rect()
-        painter.setClipRegion(region)
+            region = QRegion(self.rect())
+        painter.setClipRegion(region.subtracted(holes))
         painter.fillRect(self.rect(), Qt.white)
-        painter.setClipping(False)
-        painter.setCompositionMode(QPainter.CompositionMode_Clear)
-        for rect in holes:
-            painter.fillRect(rect, Qt.transparent)
         painter.end()
         self._quick_layer.set_group_mask(self._quick_group, image)
 
