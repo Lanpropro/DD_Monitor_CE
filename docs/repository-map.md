@@ -284,6 +284,7 @@
 - `dev/selfcheck_video_surface.py`
 - `dev/selfcheck_video_surface_growth.py`
 - `dev/selfcheck_volume_channel.py`
+- `dev/selfcheck_volume_popup.py`
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_website_plan.py`

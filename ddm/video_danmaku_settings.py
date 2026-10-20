@@ -1,17 +1,18 @@
 """画面格右下角的弹幕观看设置，拖动时实时生效。"""
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QMenu, QSlider, QWidget, QWidgetAction
 
 from . import theme
 from .config import DEFAULT_SETTINGS
+from .anchored_popup import AnchoredPopupMixin
 
 
-class VideoDanmakuSettings(QMenu):
+class VideoDanmakuSettings(AnchoredPopupMixin, QMenu):
     settingsChanged = Signal(dict)
     advancedRequested = Signal()
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, align_right=True)
         self.setObjectName("VideoDanmakuSettings")
         self.setStyleSheet(f"""
             QSlider::sub-page:horizontal {{ background: {theme.PINK}; }}
@@ -55,7 +56,11 @@ class VideoDanmakuSettings(QMenu):
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
         self.addSeparator()
-        self.addAction("更多弹幕设置", self.advancedRequested.emit)
+        self.addAction("更多弹幕设置", self._open_advanced)
+
+    def _open_advanced(self):
+        self.hide()
+        self.advancedRequested.emit()
 
     def _change_value(self, key: str, value: int, suffix: str) -> None:
         self.labels[key].setText(f"{value}{suffix}")
@@ -75,12 +80,4 @@ class VideoDanmakuSettings(QMenu):
 
     def open_at(self, button, settings: dict) -> None:
         self.apply_settings(settings)
-        self.ensurePolished()
-        self.adjustSize()
-        anchor = button.mapToGlobal(QPoint(button.width(), 0))
-        screen = button.screen().availableGeometry()
-        x = max(screen.left(), min(anchor.x() - self.width(), screen.right() - self.width() + 1))
-        y = anchor.y() - self.height() - 6
-        if y < screen.top():
-            y = button.mapToGlobal(button.rect().bottomLeft()).y() + 6
-        self.popup(QPoint(x, min(y, screen.bottom() - self.height() + 1)))
+        super().open_at(button)

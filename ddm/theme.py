@@ -1179,7 +1179,7 @@ QPushButton#PrimaryButton:pressed {{
     width: 4px; background: {BORDER_STRONG}; border-radius: 2px;
 }}
 #TileVolumePopup {{
-    background: {ELEVATED}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 4px;
+    background: transparent; border: none; padding: 0;
 }}
 #TileVolumePopup QLabel {{
     background: transparent; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;

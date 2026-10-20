@@ -30,6 +30,18 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+音量控件回归 `selfcheck_volume_popup` 已纳入 `offline`；原生 HWND 跟随和焦点保留用同一脚本单独验证：
+
+```powershell
+$env:DDM_NO_SAVE = '1'
+$env:DDM_CHECK_MODE = 'offline'
+$env:QT_QPA_PLATFORM = 'windows'
+python dev/checks/bootstrap.py dev/selfcheck_volume_popup.py
+```
+
+该检查覆盖音量和弹幕设置，创建测试窗口、模拟原生位置消息，不加载账号或播放器。
+离屏运行会跳过四项原生检查；Windows 检查包括弹幕设置的右边框对齐和打开后的键盘导航。
+
 - 日志与 `summary.json` 写入忽略目录 `work/checks/<时间>/`。
 - 所有选中项目完成后，任一失败或超时均返回退出码 `1`；参数错误返回 `2`，全部通过返回 `0`。
 - 单项默认超时 300 秒，可用 `--timeout` 调整。遇到失败先查看对应日志，不以“执行结束”判断通过。

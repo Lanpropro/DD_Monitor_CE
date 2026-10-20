@@ -226,6 +226,7 @@
 | [selfcheck_video_surface](../selfcheck_video_surface.py) | 单项执行前核对 |
 | [selfcheck_video_surface_growth](../selfcheck_video_surface_growth.py) | 单项执行前核对 |
 | [selfcheck_volume_channel](../selfcheck_volume_channel.py) | 单项执行前核对 |
+| [selfcheck_volume_popup](../selfcheck_volume_popup.py) | `offline` |
 
 ## 比赛二路插件
 

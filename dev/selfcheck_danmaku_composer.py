@@ -216,7 +216,7 @@ class ComposerTests(unittest.TestCase):
                 for width, height in ((900, 520), (360, 230), (200, 200)):
                     tile.resize(width, height)
                     APP.processEvents()
-                    self.assertEqual(tile.composer.isVisible(), width >= 600)
+                    self.assertEqual(tile.composer.isVisible(), width >= 360)
                     self.assertLess(tile.video.geometry().bottom(), tile.bottom.y())
                     self.assertIs(tile.composer.parent(), tile.bottom)
                     if tile.composer.isVisible():
@@ -281,8 +281,13 @@ class ComposerTests(unittest.TestCase):
             self.assertTrue(tile.volume_slider.isHidden())
             self.assertTrue(tile.danmaku_settings_button.isVisible())
             self.assertTrue(tile.recording_button.isVisible())
-            tile._volume_clicked()
+            from PySide6.QtGui import QEnterEvent
+            from PySide6.QtCore import QPointF
+            position = tile.volume_button.rect().center()
+            QApplication.sendEvent(tile.volume_button, QEnterEvent(
+                QPointF(position), QPointF(), QPointF(tile.volume_button.mapToGlobal(position))))
             APP.processEvents()
+            self.assertTrue(tile.volume_menu.isVisible())
             anchor = tile.volume_button.mapToGlobal(tile.volume_button.rect().topLeft())
             self.assertLess(tile.volume_menu.geometry().bottom(), anchor.y())
             self.assertEqual(tile.vertical_volume.orientation(), Qt.Vertical)
