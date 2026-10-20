@@ -3759,6 +3759,8 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def _handle_shortcut(self, pressed: str) -> bool:
+        if any(tile.plugin_interaction_active() for tile in self.wall.tiles if tile.isVisible()):
+            return False
         shortcuts = self.shortcuts
         if pressed and pressed == shortcuts.get("focus"):
             if self._fullscreen_tile is not None:

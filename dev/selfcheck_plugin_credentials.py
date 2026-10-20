@@ -1,4 +1,5 @@
 """Detached generic credentials, conditional device publication and account events."""
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import sys
@@ -10,9 +11,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('DDM_NO_SAVE', '1')
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtTest import QTest
 from ddm import bili, plugins as api
 from ddm.fullscreen_cursor import FullscreenCursor
 from ddm.widgets import Tile
@@ -122,6 +124,62 @@ class CredentialTests(unittest.TestCase):
 
 
 class InteractionTests(unittest.TestCase):
+    def test_active_interaction_protects_shortcuts_on_another_tile(self):
+        from ddm.app import MainWindow
+        with ExitStack() as stack:
+            for method in ('refresh_status', 'refresh_stats', 'refresh_account',
+                           'sync_danmaku', 'stop_danmaku', 'load_room_avatars', '_check_startup_update'):
+                stack.enter_context(patch.object(MainWindow, method))
+            stack.enter_context(patch('ddm.app.QTimer.singleShot'))
+            window = MainWindow([], [{'room_id': '12'}, {'room_id': '13'}], layout_id='2x2',
+                state={'plugins_enabled': [], 'settings': {'auto_update': False}})
+            controls = []
+            class ActiveControl(api.TileControl):
+                active = False
+                def set_room(self, room):
+                    self.widget.show()
+                def interaction_active(self):
+                    return self.active
+            def factory(ctx):
+                control = ActiveControl(QLineEdit(ctx.parent), minimum_width=90)
+                controls.append(control)
+                return control
+            try:
+                window.resize(1900, 1000)
+                window.show()
+                window.activateWindow()
+                window.plugins.register_tile_control('generic', 'active', factory)
+                APP.processEvents()
+                target = window.wall.tiles[1]
+                before = target.danmaku_button.isChecked()
+                stack.enter_context(patch.object(window, '_tile_under_cursor', return_value=target))
+                control = controls[0]
+                self.assertTrue(control.widget.isVisible())
+                control.active = True
+                QTest.keyClick(window, Qt.Key_B)
+                self.assertEqual(target.danmaku_button.isChecked(), before)
+                with patch.object(window, '_on_fullscreen') as fullscreen:
+                    QTest.keyClick(window, Qt.Key_F)
+                    fullscreen.assert_not_called()
+                muted = target.muted
+                QTest.keyClick(window, Qt.Key_M)
+                self.assertEqual(target.muted, muted)
+                control.widget.setFocus()
+                QTest.keyClick(control.widget, Qt.Key_B)
+                self.assertEqual(control.widget.text(), 'b')
+                self.assertEqual(target.danmaku_button.isChecked(), before)
+                control.active = False
+                window.sidebar.settings_button.setFocus()
+                QTest.keyClick(window, Qt.Key_B)
+                self.assertNotEqual(target.danmaku_button.isChecked(), before)
+                control.active = True
+                control.widget.setEnabled(False)
+                QTest.keyClick(window, Qt.Key_B)
+                self.assertEqual(target.danmaku_button.isChecked(), before)
+            finally:
+                window.close()
+                APP.processEvents()
+
     def test_focus_keeps_fullscreen_controls_over_video_and_outside(self):
         window = QWidget()
         tile = Tile({'room_id': '12'}, window)
