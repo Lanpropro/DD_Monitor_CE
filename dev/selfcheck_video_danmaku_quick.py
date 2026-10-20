@@ -230,8 +230,7 @@ def main():
             overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=100))
 
             for width in (1, 6):
-                overlay.apply_settings(dict(overlay.settings, video_danmaku_outline=True,
-                                            video_danmaku_outline_width=width))
+                overlay.apply_settings(dict(overlay.settings, video_danmaku_outline_width=width))
                 settle(app)
                 assert all(record["item"].property("imageLoaded")
                            for record in layer.items.values())
@@ -241,7 +240,7 @@ def main():
                                image.pixelColor(x, y).blue()) < 15
                            for y in range(image.height()) for x in range(image.width())), \
                     "开启描边后 Quick 贴图必须含有黑色边缘"
-            overlay.apply_settings(dict(overlay.settings, video_danmaku_outline=False))
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_outline_width=0))
 
             user32.WindowFromPoint.argtypes = [wintypes.POINT]
             user32.WindowFromPoint.restype = wintypes.HWND

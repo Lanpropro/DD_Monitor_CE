@@ -88,13 +88,13 @@ class VideoDanmaku(QWidget):
         values = {key: settings.get(key) for key in (
             "danmaku_font", "video_danmaku_size", "video_danmaku_speed",
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale",
-            "video_danmaku_outline", "video_danmaku_outline_width")}
+            "video_danmaku_outline_width")}
         if values != self.settings:
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
             redraw = any(values.get(key) != self.settings.get(key)
                          for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale",
-                                     "video_danmaku_outline", "video_danmaku_outline_width"))
+                                     "video_danmaku_outline_width"))
             self.settings = values
             if redraw:
                 self._resize_comments()
@@ -154,9 +154,7 @@ class VideoDanmaku(QWidget):
         return QFontMetrics(self._font()).height() + 8 + math.ceil(self.outline_width() * 2)
 
     def outline_width(self) -> float:
-        if not self.settings.get("video_danmaku_outline", False):
-            return 0.0
-        width = max(1, min(6, int(self.settings.get("video_danmaku_outline_width") or 2)))
+        width = max(0, min(6, int(self.settings.get("video_danmaku_outline_width") or 0)))
         if self.settings.get("video_danmaku_scale", True):
             width *= self.font_pixels() / int(self.settings.get("video_danmaku_size") or 28)
         return float(width)

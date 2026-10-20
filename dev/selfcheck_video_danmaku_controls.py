@@ -47,7 +47,6 @@ def check_outline(overlay):
         counts = []
         for width in (1, 2, 6):
             overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False,
-                                        video_danmaku_outline=True,
                                         video_danmaku_outline_width=width))
             image = overlay._render_content("描边 gyp", QColor("#ff77bb"), runs).toImage()
             pixels = [image.pixelColor(x, y) for y in range(image.height())
@@ -167,22 +166,20 @@ def check_controls(app):
             QTest.mouseClick(menu.scale, Qt.LeftButton, pos=QPoint(8, menu.scale.height() // 2))
             assert window.settings["video_danmaku_scale"] is False
             assert second.video_danmaku.settings["video_danmaku_scale"] is False
-            assert not menu.outline.isChecked()
-            assert not menu.controls["video_danmaku_outline_width"].isEnabled()
+            width_slider = menu.controls["video_danmaku_outline_width"]
+            assert width_slider.minimum() == 0 and width_slider.isEnabled()
+            assert width_slider.value() == 0
+            assert not hasattr(menu, "outline"), "描边只保留从零开始的宽度滑条"
             image_key = comment.image.cacheKey()
-            QTest.mouseClick(menu.outline, Qt.LeftButton, pos=QPoint(8, menu.outline.height() // 2))
-            assert window.settings["video_danmaku_outline"] is True
-            assert second.danmaku_settings_menu.outline.isChecked()
-            assert menu.controls["video_danmaku_outline_width"].isEnabled()
-            assert comment.image.cacheKey() != image_key
-            for width in (1, 6, 2):
-                menu.controls["video_danmaku_outline_width"].setValue(width)
+            for width in (1, 6, 2, 0):
+                width_slider.setValue(width)
                 assert window.settings["video_danmaku_outline_width"] == width
                 assert second.video_danmaku.settings["video_danmaku_outline_width"] == width
                 assert window.current_state()["settings"]["video_danmaku_outline_width"] == width
-            QTest.mouseClick(menu.outline, Qt.LeftButton, pos=QPoint(8, menu.outline.height() // 2))
-            assert not window.settings["video_danmaku_outline"]
-            assert not second.danmaku_settings_menu.outline.isChecked()
+                assert second.danmaku_settings_menu.controls["video_danmaku_outline_width"].value() == width
+                assert bool(overlay.outline_width()) == bool(width)
+            assert comment.image.cacheKey() != image_key
+            assert "video_danmaku_outline" not in window.current_state()["settings"]
             assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
             assert window._save_timer.isActive()
             assert window.current_state()["settings"]["video_danmaku_opacity"] == 45
@@ -287,12 +284,33 @@ def check_overlay_mask(app):
     print("PASS: hover mask restores after hide and preserves transparent control gaps")
 
 
+def check_outline_migration(app):
+    cases = [({}, 0), ({"video_danmaku_outline_width": 0}, 0),
+             ({"video_danmaku_outline_width": 4}, 4),
+             ({"video_danmaku_outline": False, "video_danmaku_outline_width": 4}, 0),
+             ({"video_danmaku_outline": True, "video_danmaku_outline_width": 3}, 3),
+             ({"video_danmaku_outline": True}, 2)]
+    with patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
+            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
+        for settings, expected in cases:
+            window = MainWindow([], [], state={"plugins_enabled": [], "settings": settings})
+            try:
+                saved = window.current_state()["settings"]
+                assert saved["video_danmaku_outline_width"] == expected, (settings, saved)
+                assert "video_danmaku_outline" not in saved
+            finally:
+                window.close()
+                app.processEvents()
+    print("PASS: outline settings migrate the legacy toggle and preserve zero on reload")
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     check_text(app)
     check_controls(app)
     check_overlay_mask(app)
+    check_outline_migration(app)
 
 
 if __name__ == "__main__":
