@@ -402,6 +402,7 @@
 - `docs/NOTICE.md`
 - `docs/README.md`
 - `docs/appearance-design.md`
+- `docs/bug-cases.md`
 - `docs/customization-plan.md`
 - `docs/online-updates.md`
 - `docs/overview1_Landscape_mode.png`
