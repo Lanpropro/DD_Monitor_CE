@@ -327,6 +327,7 @@ def check_cancel(app):
             window.close()
 
 
+@patch.object(MainWindow, '_check_startup_plugins', new=lambda self: None)
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())

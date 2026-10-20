@@ -21,6 +21,7 @@ from ddm.skins import import_asset
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
+@patch.object(module.MainWindow, '_check_startup_plugins', new=lambda self: None)
 def main():
     app = QApplication([])
     module.StatusPoller = module.StatsPoller = SilentPoller

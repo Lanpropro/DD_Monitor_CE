@@ -14,6 +14,7 @@ from ddm import config
 from ddm.app import MainWindow
 
 
+@patch.object(MainWindow, '_check_startup_plugins', new=lambda self: None)
 def main():
     app = QApplication([])
     rooms = [{"room_id": str(1000 + i), "uname": str(i), "live": True,
