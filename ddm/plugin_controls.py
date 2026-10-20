@@ -43,8 +43,9 @@ class _Entry:
 
 
 class TileControls:
-    def __init__(self, tile):
+    def __init__(self, tile, *, on_shutdown=None):
         self._tile = weakref.ref(tile)
+        self._on_shutdown = on_shutdown
         self.entries = []
         self._disposed = False
         self.widget = QWidget(tile.bottom)
@@ -185,6 +186,11 @@ class TileControls:
         if self._disposed:
             return
         self._disposed = True
+        tile = self._tile()
+        callback, self._on_shutdown = self._on_shutdown, None
+        if callback is not None and tile is not None:
+            # Qt deletion can precede collection of a retained Python wrapper.
+            callback(tile)
         self.remove_owner()
         for widget in (self.widget, self.spacer):
             try:
@@ -193,7 +199,6 @@ class TileControls:
                 widget.deleteLater()
             except RuntimeError:
                 pass
-        tile = self._tile()
         if tile is not None:
             try:
                 tile._bottom_layout_signature_value = None

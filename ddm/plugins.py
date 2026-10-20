@@ -475,7 +475,7 @@ class PluginManager:
         self._tiles.add(tile)
         controls = getattr(tile, '_plugin_controls', None)
         if controls is None or controls._disposed:
-            controls = tile._plugin_controls = TileControls(tile)
+            controls = tile._plugin_controls = TileControls(tile, on_shutdown=self._tiles.discard)
             tile.destroyed.connect(controls.shutdown)
         for (owner, key), (factory, priority, order) in self._tile_providers.items():
             if self._loading_owner != owner:

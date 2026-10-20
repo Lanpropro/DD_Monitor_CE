@@ -4,14 +4,15 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import shiboken6
 
 os.environ.setdefault('DDM_NO_SAVE', '1')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 from ddm import plugins as api
-from ddm.widgets import Tile
+from ddm.widgets import Tile, WallGrid
 
 APP = QApplication.instance() or QApplication([])
 
@@ -104,6 +105,36 @@ class ControlsTests(unittest.TestCase):
         self.manager.detach_tile(tile)
         self.manager.unload()
         self.assertEqual(self.controls[0].stops, 1)
+
+    def test_dropped_wall_tile_does_not_break_later_registration(self):
+        self.register()
+        wall = WallGrid([], layout_id='1x1')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        dropped = wall.tiles[0]
+        self.manager.attach_tile(dropped)
+        old_control = self.controls[0]
+        wall._drop_tile(dropped)
+        APP.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertFalse(shiboken6.isValid(dropped))
+        live = self.tile({'room_id': '13'})
+        self.register('next')
+        self.assertNotIn(dropped, self.manager._tiles)
+        self.assertEqual([entry.owner for entry in live._plugin_controls.entries], ['demo', 'next'])
+        self.assertEqual(old_control.stops, 1)
+
+    def test_destroyed_tile_unregisters_with_a_retained_python_wrapper(self):
+        self.register()
+        tile = self.tile({'room_id': '12'})
+        self.tiles.remove(tile)
+        control = self.controls[0]
+        tile.close()
+        tile.deleteLater()
+        APP.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertFalse(shiboken6.isValid(tile))
+        self.register('next')
+        self.assertNotIn(tile, self.manager._tiles)
+        self.assertEqual(control.stops, 1)
 
     def test_no_extension_layout_is_preserved(self):
         tile = self.tile({'room_id': '12'})
