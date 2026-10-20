@@ -94,6 +94,7 @@
 - `dev/selfcheck_douyin_ui_follows.py`
 - `dev/selfcheck_download_retry.py`
 - `dev/selfcheck_drag_scroll.py`
+- `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
 - `dev/selfcheck_emoticon_tabs.py`
