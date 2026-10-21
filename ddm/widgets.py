@@ -5908,19 +5908,19 @@ class Tile(QFrame):
         self.volume_button = VolumeButton(size=26)
         self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.volume_button.clicked.connect(self._volume_clicked)
-        self.volume_button.volumeChanged.connect(self.set_volume)
+        self.volume_button.volumeChanged.connect(self._adjust_volume)
         bottom_layout.addWidget(self.volume_button)
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setFixedWidth(86)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(self.volume)
         self.volume_slider.setToolTip("这个格子的音量（更换主播后保持不变）")
-        self.volume_slider.valueChanged.connect(self.set_volume)
+        self.volume_slider.valueChanged.connect(self._adjust_volume)
         bottom_layout.addWidget(self.volume_slider)
         self.volume_menu = VolumePopup(self.volume_button)
         self.vertical_volume = self.volume_menu.slider
         self.vertical_volume.setValue(self.volume)
-        self.vertical_volume.valueChanged.connect(self.set_volume)
+        self.vertical_volume.valueChanged.connect(self._adjust_volume)
         self.vertical_volume_label = self.volume_menu.label
         self.vertical_volume_label.setText(str(self.volume))
         self.volume_label = QLabel(str(self.volume))
@@ -6922,7 +6922,7 @@ class Tile(QFrame):
         slider.setValue(self.volume)
         slider.setFixedWidth(170)
         slider.valueChanged.connect(lambda value: (
-            volume_label.setText(f"音量 {value}"), self.set_volume(value)))
+            volume_label.setText(f"音量 {value}"), self._adjust_volume(value)))
         holder_layout.addWidget(slider)
         wrapper = QWidgetAction(menu)
         wrapper.setDefaultWidget(holder)
@@ -6962,6 +6962,12 @@ class Tile(QFrame):
         menu.addSeparator()
         menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room))
         return menu
+
+    def _adjust_volume(self, value: int) -> None:
+        """用户调整音量后解除静音；先下发音量，避免短暂播出旧音量。"""
+        self.set_volume(value)
+        if self.muted:
+            self.set_muted(False)
 
     def set_volume(self, value: int) -> None:
         value = max(0, min(100, int(value)))
