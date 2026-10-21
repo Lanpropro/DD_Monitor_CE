@@ -57,7 +57,7 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 63)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 65)])
         states = {'已验收', '已修复待验收', '已实现待合并', '历史修复待复核',
                   '待定位', '待复现', '测试或环境记录'}
         for line in content.splitlines():

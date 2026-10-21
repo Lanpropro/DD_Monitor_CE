@@ -258,7 +258,10 @@ class ComposerTests(unittest.TestCase):
                 for width, height in ((900, 520), (360, 230), (200, 200)):
                     tile.resize(width, height)
                     APP.processEvents()
-                    self.assertEqual(tile.composer.isVisible(), width >= 600)
+                    if width >= 600:
+                        self.assertTrue(tile.composer.isVisible())
+                    elif width < 280:
+                        self.assertFalse(tile.composer.isVisible())
                     self.assertLess(tile.video.geometry().bottom(), tile.bottom.y())
                     self.assertIs(tile.composer.parent(), tile.bottom)
                     if tile.composer.isVisible():
@@ -321,13 +324,19 @@ class ComposerTests(unittest.TestCase):
             tile.resize(360, 240)
             APP.processEvents()
             self.assertTrue(tile.volume_slider.isHidden())
+            self.assertTrue(tile.volume_label.isHidden())
             self.assertTrue(tile.danmaku_settings_button.isVisible())
             self.assertTrue(tile.recording_button.isVisible())
+            tile.set_volume(100)
             tile._volume_clicked()
             APP.processEvents()
             anchor = tile.volume_button.mapToGlobal(tile.volume_button.rect().topLeft())
             self.assertLess(tile.volume_menu.geometry().bottom(), anchor.y())
             self.assertEqual(tile.vertical_volume.orientation(), Qt.Vertical)
+            self.assertLessEqual(tile.volume_menu.width(), 50)
+            self.assertLessEqual(tile.volume_menu.height(), 128)
+            self.assertLessEqual(tile.vertical_volume_label.fontMetrics().horizontalAdvance("100"),
+                                 tile.vertical_volume_label.width())
             self.assertTrue(tile.volume_menu.testAttribute(Qt.WA_TranslucentBackground))
             self.assertLess(tile.volume_menu.grab().toImage().pixelColor(0, 0).alpha(), 30)
             self.assertEqual(tile.vertical_volume_label.font().pixelSize(), theme.FONT_CAPTION)
@@ -337,6 +346,13 @@ class ComposerTests(unittest.TestCase):
             tile.set_volume(28)
             self.assertEqual(tile.vertical_volume.value(), 28)
             self.assertEqual(tile.vertical_volume_label.text(), "28")
+            for width in (280, 420, 599, 600, 720):
+                tile.resize(width, 300)
+                APP.processEvents()
+                self.assertEqual(tile.volume_label.isHidden(), tile.volume_slider.isHidden())
+                self.assertEqual(tile.volume_label.isHidden(), width < 600)
+            self.assertFalse(tile.volume_menu.isVisible())
+            self.assertEqual(tile.volume, 28)
         finally:
             tile.volume_menu.close()
             tile.close()

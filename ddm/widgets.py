@@ -5935,10 +5935,11 @@ class Tile(QFrame):
         self.volume_menu.setWindowFlag(Qt.FramelessWindowHint, True)
         holder = QWidget(self.volume_menu)
         volume_layout = QVBoxLayout(holder)
-        volume_layout.setContentsMargins(8, 8, 8, 8)
+        volume_layout.setContentsMargins(4, 6, 4, 4)
+        volume_layout.setSpacing(2)
         self.vertical_volume = QSlider(Qt.Vertical, holder)
         self.vertical_volume.setRange(0, 100)
-        self.vertical_volume.setFixedSize(26, 110)
+        self.vertical_volume.setFixedSize(20, 88)
         self.vertical_volume.setValue(self.volume)
         self.vertical_volume.setAccessibleName("当前格子的音量")
         self.vertical_volume.valueChanged.connect(self.set_volume)
@@ -6128,8 +6129,7 @@ class Tile(QFrame):
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
-        self.volume_label.setVisible(width >= 280 and
-                                     (not self.recording_time.text() or width >= 480))
+        self.volume_label.setVisible(width >= 600)
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
         self.volume_slider.setVisible(width >= 600)
