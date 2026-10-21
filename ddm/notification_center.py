@@ -320,6 +320,11 @@ class NotificationButton(QPushButton):
 
 def remember_result(parent, message, *, kind='info', on_click=None, file_path=None):
     sidebar = getattr(parent, 'sidebar', None)
+    while sidebar is None and parent.parentWidget() is not None:
+        parent = parent.parentWidget()
+        sidebar = getattr(parent, 'sidebar', None)
+    if getattr(parent, '_closing', False):
+        return
     if sidebar is None or not hasattr(sidebar, 'notification_button'):
         return
     if file_path:

@@ -72,6 +72,17 @@ class NotificationTests(unittest.TestCase):
         self.center.add('收起后抵达')
         self.assertEqual(self.button._unread, 1)
 
+    def test_child_dialog_notifications_reach_the_same_session(self):
+        dialog = QWidget(self.owner, Qt.Dialog)
+        dialog.show()
+        self.addCleanup(dialog.close)
+        show_result(dialog, '插件安装完成')
+        self.assertEqual([entry.message for entry in self.center.entries], ['插件安装完成'])
+        dialog._result_notice.dismiss(animate=False)
+        self.owner._closing = True
+        show_result(dialog, '退出时的子窗口消息')
+        self.assertEqual(len(self.center.entries), 1)
+
     def test_memory_only_and_no_limit_or_widgets_while_closed(self):
         for number in range(120):
             self.center.add(str(number))
