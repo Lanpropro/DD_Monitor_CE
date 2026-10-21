@@ -32,6 +32,7 @@ class MainNoticesTests(unittest.TestCase):
         notice = ResultNotice(owner)
         notice.title.setWordWrap(False)
         notice.show_message('已保存录制：example.mp4', on_click=Mock())
+        self.assertEqual(notice.text_column.layout().geometry().width(), notice.text_column.width())
         self.app.processEvents()
         self.assertGreaterEqual(notice.category.height(), notice.category.fontMetrics().height())
         self.assertGreaterEqual(notice.title.height(), notice.title.fontMetrics().height())

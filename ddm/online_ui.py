@@ -606,6 +606,7 @@ class UpdateNotice(QFrame):
             height = self.layout().totalSizeHint().height()
         self.setFixedHeight(max(76, height))
         self.layout().activate()
+        self.text_column.layout().activate()
         self._reflow()
 
     def reposition(self):
