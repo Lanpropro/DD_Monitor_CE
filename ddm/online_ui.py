@@ -489,19 +489,41 @@ class UpdateNotice(QFrame):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('UpdateNotice')
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        heading = QHBoxLayout()
+        layout.setContentsMargins(16, 14, 12, 14)
+        layout.setSpacing(12)
+        self.heading = QHBoxLayout()
+        self.heading.setSpacing(10)
+        self.indicator = QLabel('↑', self)
+        self.indicator.setFixedSize(28, 28)
+        self.indicator.setAlignment(Qt.AlignCenter)
+        self.indicator.setObjectName('NoticeIcon')
+        self.heading.addWidget(self.indicator, 0, Qt.AlignTop)
+        self.text_column = QWidget(self)
+        self.text_column.setMinimumWidth(0)
+        content = QVBoxLayout(self.text_column)
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(4)
+        self.category = QLabel('版本更新')
+        self.category.setObjectName('NoticeHeading')
+        content.addWidget(self.category)
         self.title = QLabel('')
-        self.title.setObjectName('PluginName')
-        heading.addWidget(self.title, 1)
+        self.title.setObjectName('NoticeText')
+        self.title.setTextFormat(Qt.PlainText)
+        self.title.setWordWrap(True)
+        self.title.setMinimumWidth(0)
+        content.addWidget(self.title)
+        self.description = QLabel('查看更新说明，选择是否安装。')
+        self.description.setObjectName('NoticeDescription')
+        self.description.setWordWrap(True)
+        content.addWidget(self.description)
+        self.heading.addWidget(self.text_column, 1)
         close = QPushButton('×')
         close.setObjectName('NoticeClose')
         close.setFixedSize(24, 24)
         close.setToolTip('关闭提示')
         close.clicked.connect(lambda: self.dismiss())
-        heading.addWidget(close)
-        layout.addLayout(heading)
-        layout.addWidget(QLabel('点击查看更新说明并选择安装'))
+        self.heading.addWidget(close, 0, Qt.AlignTop)
+        layout.addLayout(self.heading)
         self.action = QPushButton('查看更新')
         self.action.setObjectName('PrimaryButton')
         self.action.clicked.connect(self._open)
@@ -523,8 +545,7 @@ class UpdateNotice(QFrame):
         self._motion.stop()
         self._leaving = False
         self.title.setText('发现新版本 v' + offer['version'])
-        self.setFixedWidth(min(360, max(240, self.parentWidget().width() - 40)))
-        self.adjustSize()
+        self._resize_to_content()
         self._progress = self._progress if was_visible else 0.0
         if not motion.enabled():
             self._progress = 1.0
@@ -566,7 +587,7 @@ class UpdateNotice(QFrame):
         painter.setPen(Qt.NoPen if custom.get('border_width') == 0 else
             QPen(theme.qcolor(custom.get('border_color', 'rgba(131, 131, 145, 0.31)')),
                  custom.get('border_width', 1)))
-        radius = custom.get('radius', theme.RADIUS_MD)
+        radius = custom.get('radius', theme.RADIUS_LG)
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                                 radius, radius)
         if custom.get('image'):
@@ -574,6 +595,15 @@ class UpdateNotice(QFrame):
             clip.addRoundedRect(QRectF(self.rect()), radius, radius)
             painter.setClipPath(clip)
             painter.drawPixmap(self.rect(), QPixmap(custom['image']))
+
+    def _resize_to_content(self):
+        self.ensurePolished()
+        width = min(420, max(80, self.parentWidget().width() - 32))
+        self.setFixedWidth(width)
+        self.layout().invalidate()
+        self.setFixedHeight(max(76, self.layout().totalHeightForWidth(width)))
+        self.layout().activate()
+        self._reflow()
 
     def reposition(self):
         parent = self.parentWidget()
@@ -619,6 +649,8 @@ class UpdateNotice(QFrame):
 
     def eventFilter(self, watched, event):
         if self.isVisible():
+            if event.type() == QEvent.Resize:
+                self._resize_to_content()
             if event.type() in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
                 self.reposition()
             elif event.type() == QEvent.Hide:
@@ -641,37 +673,30 @@ class UpdateNotice(QFrame):
 
 
 class ResultNotice(UpdateNotice):
-    """顶部主提示：宽度随内容变化，不抢焦点，按提示类型自动收起。"""
+    """顶部通知卡片：不抢焦点，按提示类型自动收起。"""
     def __init__(self, parent):
         super().__init__(parent)
-        self.layout().itemAt(1).widget().hide()
+        self.description.hide()
         self.action.hide()
-        self.title.setWordWrap(True)
-        self.title.setTextFormat(Qt.PlainText)
-        self.title.setObjectName('NoticeText')
-        self.title.setMinimumWidth(0)
-        self.layout().setContentsMargins(12, 10, 10, 10)
-        self.layout().setSpacing(0)
-        self.layout().itemAt(0).layout().setSpacing(8)
         self.timer.setInterval(3000)
         self.avatar_strip = QWidget(self)
         self.avatar_layout = QHBoxLayout(self.avatar_strip)
         self.avatar_layout.setContentsMargins(0, 0, 0, 0)
         self.avatar_layout.setSpacing(4)
-        self.layout().itemAt(0).layout().insertWidget(0, self.avatar_strip)
+        self.heading.insertWidget(0, self.avatar_strip, 0, Qt.AlignTop)
         self._avatars = {}
         self.avatar_strip.hide()
-        self.indicator = QLabel('✓', self)
-        self.indicator.setFixedSize(20, 24)
-        self.indicator.setAlignment(Qt.AlignCenter)
-        self.layout().itemAt(0).layout().insertWidget(0, self.indicator)
         self._on_click = None
 
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._on_click is not None:
+    def _open(self):
+        if self._on_click is not None:
             callback = self._on_click
             self.dismiss(animate=False)
             callback()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._on_click is not None:
+            self._open()
             event.accept()
             return
         QFrame.mouseReleaseEvent(self, event)
@@ -709,15 +734,6 @@ class ResultNotice(UpdateNotice):
         if avatar is not None:
             avatar.set_pixmap_image(pixmap)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(theme.qcolor(theme.ELEVATED))
-        painter.setPen(QColor(131, 131, 145, 80))
-        radius = theme.RADIUS_LG
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
-                                radius, radius)
-
     def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False):
         self._on_click = on_click
         self.setCursor(Qt.PointingHandCursor if on_click else Qt.ArrowCursor)
@@ -725,9 +741,13 @@ class ResultNotice(UpdateNotice):
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)
+        self.category.setText({'live': '开播提醒', 'warning': '需要留意'}.get(kind, '操作提示'))
+        self.action.setVisible(on_click is not None)
+        self.action.setText('放入画面墙' if kind == 'live' else
+                            ('前往登录' if '登录' in message else '查看详情'))
         self._set_rooms(rooms)
         symbol, colour = {'live': ('●', theme.PINK),
-                          'warning': ('!', '#e8b86d')}.get(kind, ('✓', theme.ACCENT))
+                          'warning': ('!', '#e8b86d')}.get(kind, ('i', theme.ACCENT))
         self.indicator.setText(symbol)
         self.indicator.setStyleSheet('color: ' + colour + '; font-weight: 600;')
         self.indicator.setVisible(not bool(self._avatars))
@@ -744,33 +764,6 @@ class ResultNotice(UpdateNotice):
             self.timer.start()
         if self._progress < 1.0:
             self._animate_to(1.0, 160)
-
-    def _resize_to_content(self):
-        self.ensurePolished()
-        heading = self.layout().itemAt(0).layout()
-        margins = self.layout().contentsMargins()
-        widgets = [heading.itemAt(index).widget() for index in range(heading.count())]
-        visible = [widget for widget in widgets if not widget.isHidden()]
-        for widget in visible:
-            widget.ensurePolished()
-        reserved = margins.left() + margins.right() + heading.spacing() * (len(visible) - 1)
-        reserved += sum(widget.minimumWidth() if widget.minimumWidth() == widget.maximumWidth()
-                        else widget.sizeHint().width()
-                        for widget in visible if widget is not self.title)
-        text_width = max((self.title.fontMetrics().horizontalAdvance(line)
-                          for line in self.title.text().splitlines()), default=0)
-        width = min(max(80, self.parentWidget().width() - 32), 480,
-                    max(120, reserved + text_width + 8))
-        self.setFixedWidth(width)
-        self.layout().invalidate()
-        self.setFixedHeight(max(48, self.layout().heightForWidth(width)))
-        self.layout().activate()
-        self._reflow()
-
-    def eventFilter(self, watched, event):
-        if self.isVisible() and event.type() == QEvent.Resize:
-            self._resize_to_content()
-        return super().eventFilter(watched, event)
 
     def _motion_frame(self, value):
         self._progress = value
