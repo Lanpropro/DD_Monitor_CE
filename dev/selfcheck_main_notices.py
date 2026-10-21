@@ -303,6 +303,12 @@ class MainNoticesTests(unittest.TestCase):
                 self.assertEqual(rendered.pixelColor(4, card.height() // 2).name(),
                                  theme.qcolor(theme.ELEVATED).name())
                 self.assertEqual(rendered.pixelColor(0, 0).alpha(), 0)
+                scale = rendered.devicePixelRatio()
+                x, y = card.action.x(), card.action.y()
+                corner = rendered.pixelColor(round(x * scale), round(y * scale))
+                self.assertEqual(corner.name(), theme.qcolor(theme.ELEVATED).name())
+                self.assertNotEqual(corner, rendered.pixelColor(
+                    round((x + card.action.width() // 2) * scale), round((y + 1) * scale)))
             for width in (240, 800):
                 owner.resize(width, 700)
                 self.app.processEvents()

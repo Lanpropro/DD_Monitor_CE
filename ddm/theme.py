@@ -651,7 +651,7 @@ QSlider::handle:horizontal:hover {{
 #UpdateNotice #PrimaryButton {{
     padding: 5px 14px;
     min-height: 22px;
-    border-radius: {RADIUS_SM}px;
+    border-radius: {RADIUS_MD}px;
 }}
 #NoticeClose {{
     background: transparent;
