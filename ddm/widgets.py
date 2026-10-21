@@ -5622,16 +5622,6 @@ class Sidebar(QFrame):
         menu.addSeparator()
         menu.addAction("新建文件夹…").triggered.connect(lambda: self.prompt_folder())
         menu.addAction("新建智能文件夹…").triggered.connect(lambda: self.prompt_smart_folder())
-        menu.addSeparator()
-        clear = menu.addAction("清除常看记录…")
-        clear.setEnabled(bool(self.watch_history.records))
-        clear.triggered.connect(self._clear_watch_history)
-
-    def _clear_watch_history(self):
-        if QMessageBox.question(self, "清除常看记录", "清除本机常看记录？清除后需重新积累，"
-                "排序将在下次手动刷新或重启后更新。") == QMessageBox.Yes:
-            self.watch_history.clear()
-            self.foldersChanged.emit()
 
     def _sync_watch_history_mode(self, *, refresh=False):
         current = {folder["id"] for folder in self.folders if folder["sort"] == "frequent"}

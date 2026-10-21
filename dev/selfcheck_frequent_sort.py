@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox
+from PySide6.QtWidgets import QApplication, QMenu
 from ddm import app as app_module, config, follow_folders
 from ddm.watch_history import WatchHistory
 from ddm.widgets import Sidebar, SmartFolderDialog
@@ -148,18 +148,17 @@ class SidebarTests(unittest.TestCase):
         self.assertEqual([item.room['room_id'] for item in copies], ['3', '1', '2', '4'])
         self.assertEqual(self.sidebar.get_folder(follow_folders.UNCLASSIFIED)['sort'], 'custom')
 
-    def test_clear_cancel_and_delayed_ranking_reset(self):
+    def test_context_menus_do_not_offer_history_erasure(self):
         self.sidebar.set_sort_mode('frequent')
-        before = self.order()
-        with patch('ddm.widgets.QMessageBox.question', return_value=QMessageBox.No):
-            self.sidebar._clear_watch_history()
-        self.assertTrue(self.sidebar.watch_history.records)
-        with patch('ddm.widgets.QMessageBox.question', return_value=QMessageBox.Yes):
-            self.sidebar._clear_watch_history()
-        self.assertFalse(self.sidebar.watch_history.records)
-        self.assertEqual(self.order(), before)
-        self.sidebar.refresh_frequent_order()
-        self.assertEqual(self.order(), ['1', '2', '3', '4'])
+        before = dict(self.sidebar.watch_history.records)
+        order = self.order()
+        self.assertFalse(hasattr(self.sidebar, '_clear_watch_history'))
+        for folder in self.sidebar.folders:
+            menu = self.sidebar._folder_buttons[folder['id']]._context_menu()
+            self.assertFalse(any('清除常看' in action.text() for action in menu.actions()))
+            menu.deleteLater()
+        self.assertEqual(self.sidebar.watch_history.records, before)
+        self.assertEqual(self.order(), order)
 
     def test_manual_reordering_disables_collection_when_no_folder_uses_it(self):
         self.sidebar.set_sort_mode('frequent')
