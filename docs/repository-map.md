@@ -257,6 +257,7 @@
 - `dev/selfcheck_sidebar_performance.py`
 - `dev/selfcheck_sidebar_text_theme.py`
 - `dev/selfcheck_skins.py`
+- `dev/selfcheck_skin_video_probe.py`
 - `dev/selfcheck_slots.py`
 - `dev/selfcheck_smart_folder_sources.py`
 - `dev/selfcheck_smart_folders.py`
@@ -311,6 +312,7 @@
 ### 开发指南
 
 - `docs/development/testing.md`
+- `docs/development/video-background-probe.md`
 - `docs/development/workspace-maintenance.md`
 - `docs/development/v0.4.1-backlog.md`
 - `docs/development/ui-integration-20261019.md`

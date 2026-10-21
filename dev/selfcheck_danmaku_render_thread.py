@@ -59,6 +59,8 @@ def settle(app, seconds):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("animator", "timer"), default="animator")
+    parser.add_argument("--quick-widget", action="store_true",
+                        help="Diagnose the process-wide QQuickWidget render-loop tradeoff")
     args = parser.parse_args()
     os.environ["DDM_QTQUICK_DANMAKU"] = "1"
     os.environ["DDM_QTQUICK_ANIMATOR"] = "0" if args.backend == "timer" else "1"
@@ -66,6 +68,19 @@ def main():
     if app.platformName() != "windows":
         print("SKIP: Windows native scene graph required")
         return
+    quick_widget = None
+    if args.quick_widget:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtQml import QQmlComponent
+        from PySide6.QtQuickWidgets import QQuickWidget
+        quick_widget = QQuickWidget()
+        component = QQmlComponent(quick_widget.engine())
+        component.setData(b'import QtQuick; Rectangle { width: 32; height: 32; color: "red" }',
+                          QUrl('qrc:/RenderLoopProbe.qml'))
+        quick_widget.setContent(QUrl('qrc:/RenderLoopProbe.qml'), component, component.create())
+        quick_widget.setGeometry(-20000, -20000, 32, 32)
+        quick_widget.show()
+        settle(app, .1)
     kernel32 = ctypes.windll.kernel32
     kernel32.GetCurrentProcess.restype = ctypes.c_void_p
     kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint]
@@ -114,14 +129,14 @@ def main():
         after = stalled_samples[-1][1] if stalled_samples else before
         distance = before - after
         unique = len({round(frame[1], 2) for frame in stalled_samples})
-        if args.backend == "animator":
+        if args.backend == "animator" and not args.quick_widget:
             assert unique >= 3 and distance > 20, (unique, distance)
             assert all(frame[2] != ui_thread for frame in stalled_samples)
             assert overlay.timer.interval() == 50
             with patch.object(layer, "move", wraps=layer.move) as move:
                 settle(app, .15)
                 assert move.call_count == 0, "Housekeeping must not drive visual positions"
-        else:
+        elif args.backend == "timer":
             assert distance < 2, "Timer baseline should reproduce the blocked motion"
 
         overlay.set_paused(True)
@@ -154,6 +169,7 @@ def main():
         settle(app, .2)
         assert not samples, "Empty scene must stop continuously rendering"
         print(json.dumps({"backend": args.backend, "blocked_gui_ms": round(blocked * 1000),
+                          "quick_widget": args.quick_widget,
                           "render_frames_during_block": len(stalled_samples),
                           "unique_scene_positions": unique,
                           "distance_during_block_px": round(distance, 2),
@@ -164,6 +180,8 @@ def main():
         layer.window.hide()
         overlay.clear()
         parent.close()
+        if quick_widget is not None:
+            quick_widget.close()
         app.processEvents()
 
 
