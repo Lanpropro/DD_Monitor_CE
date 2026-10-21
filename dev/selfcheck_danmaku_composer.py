@@ -12,8 +12,8 @@ from unittest.mock import patch
 os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QPixmap, QColor, QPalette
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QEnterEvent, QInputMethodEvent, QKeyEvent, QPixmap, QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QToolButton
 from ddm import bili, config, images, theme
@@ -328,7 +328,7 @@ class ComposerTests(unittest.TestCase):
             self.assertTrue(tile.danmaku_settings_button.isVisible())
             self.assertTrue(tile.recording_button.isVisible())
             tile.set_volume(100)
-            tile._volume_clicked()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
             APP.processEvents()
             anchor = tile.volume_button.mapToGlobal(tile.volume_button.rect().topLeft())
             self.assertLess(tile.volume_menu.geometry().bottom(), anchor.y())
@@ -357,6 +357,71 @@ class ComposerTests(unittest.TestCase):
             tile.volume_menu.close()
             tile.close()
             theme.apply("dark")
+
+    def test_compact_volume_hover_does_not_replace_mute_or_steal_focus(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': '101', 'muted': True})
+        tile.resize(360, 240)
+        tile.show()
+        APP.processEvents()
+        changes = []
+        tile.muteToggled.connect(lambda room, muted: changes.append(muted))
+        try:
+            tile.composer.edit.setFocus()
+            APP.processEvents()
+            focus = APP.focusWidget()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(tile.volume_menu.isVisible())
+            self.assertIsNone(APP.activePopupWidget())
+            self.assertIs(APP.focusWidget(), focus)
+            self.assertTrue(tile.muted)
+            self.assertIn('悬停', tile.volume_button.toolTip())
+            QTest.mouseClick(tile.volume_button, Qt.LeftButton)
+            self.assertFalse(tile.muted)
+            QTest.mouseClick(tile.volume_button, Qt.LeftButton)
+            self.assertTrue(tile.muted)
+            self.assertEqual(changes, [False, True])
+            APP.sendEvent(tile.volume_button, QEvent(QEvent.Leave))
+            APP.sendEvent(tile.volume_menu, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            QTest.qWait(180)
+            self.assertTrue(tile.volume_menu.isVisible())
+            outside = tile.mapToGlobal(tile.rect().topRight())
+            with patch('ddm.widgets.QCursor.pos', return_value=outside):
+                tile.vertical_volume.setSliderDown(True)
+                tile._hide_volume_popup_if_outside()
+                self.assertTrue(tile.volume_menu.isVisible())
+                tile.vertical_volume.setSliderDown(False)
+                QTest.qWait(180)
+                self.assertFalse(tile.volume_menu.isVisible())
+        finally:
+            tile.close()
+
+    def test_hover_volume_popup_closes_with_its_controls_and_owner(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': '101'})
+        tile.resize(360, 240)
+        tile.show()
+        APP.processEvents()
+        try:
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(tile.volume_menu.isVisible())
+            tile.bottom.hide()
+            self.assertFalse(tile.volume_menu.isVisible())
+            tile.bottom.show()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(tile.volume_menu.isVisible())
+            tile.hide()
+            self.assertFalse(tile.volume_menu.isVisible())
+            tile.show()
+            tile.resize(720, 300)
+            APP.processEvents()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertFalse(tile.volume_menu.isVisible())
+            tile.set_muted(True)
+            QTest.mouseClick(tile.volume_button, Qt.LeftButton)
+            self.assertFalse(tile.muted)
+        finally:
+            tile.close()
 
     def test_expired_emoticon_login_uses_notice_without_floating_feedback(self):
         notices = []
