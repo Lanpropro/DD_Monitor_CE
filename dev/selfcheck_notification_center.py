@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from ddm import motion, theme
@@ -194,6 +194,46 @@ class NotificationTests(unittest.TestCase):
             self.assertFalse(button.isVisible())
             sidebar.set_collapsed(False, animate=False)
             self.assertTrue(button.isVisible())
+
+    def test_card_style_scrollbar_and_four_corners_follow_theme(self):
+        self.addCleanup(theme.apply, theme.mode())
+        sidebar = Sidebar([{'room_id': '1'}])
+        sidebar.ensurePolished()
+        self.addCleanup(sidebar.close)
+        self.app.processEvents()
+        for index in range(15):
+            self.center.add('主播开播了 ' + str(index), kind='live', callback=Mock(),
+                            action='放入画面墙', rooms=[{'room_id': '1', 'uname': '主播'}])
+        self.open()
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            self.app.processEvents()
+            bar = self.center.scroll.verticalScrollBar()
+            self.assertTrue(bar.isVisible())
+            self.assertGreater(bar.maximum(), 0)
+            self.assertEqual(bar.sizeHint().width(), sidebar.scroll.verticalScrollBar().sizeHint().width())
+            self.assertEqual(bar.width(), theme.SCROLLBAR_SIZE)
+            for width in (300, 900):
+                self.owner.resize(width, 800)
+                self.app.processEvents()
+                panel = self.center.grab().toImage()
+                for point in (QPoint(0, 0), QPoint(self.center.width() - 1, 0),
+                              QPoint(0, self.center.height() - 1), self.center.rect().bottomRight()):
+                    self.assertFalse(self.center.mask().contains(point))
+                    scale = panel.devicePixelRatio()
+                    self.assertEqual(panel.pixelColor(round(point.x() * scale),
+                                                       round(point.y() * scale)).alpha(), 0)
+            row = self.center.rows[self.center.entries[-1]]
+            self.assertIn('1', row.avatars)
+            self.assertEqual(row.category.objectName(), 'NoticeHeading')
+            self.assertEqual(row.message.objectName(), 'NoticeText')
+            self.assertEqual(row.action.objectName(), 'PrimaryButton')
+            self.assertEqual(row.remove_button.y(), 14 + row.frameWidth())
+            self.assertGreater(row.action.y(), row.message.geometry().bottom())
+            rendered = row.grab().toImage()
+            scale = rendered.devicePixelRatio()
+            self.assertEqual(rendered.pixelColor(round(row.action.x() * scale),
+                round(row.action.y() * scale)).name(), theme.qcolor(theme.ELEVATED).name())
 
 
 if __name__ == '__main__':

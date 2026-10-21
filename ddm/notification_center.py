@@ -32,6 +32,7 @@ class NoticeEntry:
     callback: object = None
     action: str = '查看详情'
     unread: bool = True
+    rooms: tuple = ()
 
 
 class NoticeRow(QFrame):
@@ -42,30 +43,70 @@ class NoticeRow(QFrame):
         self.entry = entry
         self.setObjectName('HistoryNotice')
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(16, 14, 12, 14)
+        layout.setSpacing(12)
         header = QHBoxLayout()
-        category = {'live': '开播提醒', 'warning': '需要留意', 'update': '更新提醒'}.get(entry.kind, '操作提示')
-        label = QLabel(category + ' · ' + entry.time)
-        label.setObjectName('NoticeDescription')
-        header.addWidget(label, 1)
+        header.setSpacing(10)
+        self.avatars = {}
+        if entry.rooms:
+            from .images import load_cached_avatar, load_room_avatar
+            from .widgets import Avatar
+            strip = QWidget(self)
+            avatars = QHBoxLayout(strip)
+            avatars.setContentsMargins(0, 0, 0, 0)
+            avatars.setSpacing(4)
+            for index, room in enumerate(entry.rooms[:3]):
+                room_id = str(room.get('room_id', ''))
+                avatar = Avatar(str(room.get('uname') or '?'), index, size=28)
+                pixmap = load_cached_avatar(room.get('face')) if room.get('face') else None
+                if pixmap is None:
+                    pixmap = load_room_avatar(room_id)
+                if pixmap is not None:
+                    avatar.set_pixmap_image(pixmap)
+                avatars.addWidget(avatar)
+                self.avatars[room_id] = avatar
+            header.addWidget(strip, 0, Qt.AlignTop)
+        else:
+            symbol, color = {'live': ('●', theme.PINK), 'warning': ('!', '#e8b86d'),
+                             'update': ('↑', theme.ACCENT)}.get(entry.kind, ('i', theme.ACCENT))
+            icon = QLabel(symbol)
+            icon.setObjectName('NoticeIcon')
+            icon.setFixedSize(28, 28)
+            icon.setAlignment(Qt.AlignCenter)
+            icon.setStyleSheet('color: ' + color + ';')
+            header.addWidget(icon, 0, Qt.AlignTop)
+        content = QVBoxLayout()
+        content.setSpacing(4)
+        category = {'live': '开播提醒', 'warning': '需要留意', 'update': '版本更新'}.get(entry.kind, '操作提示')
+        self.category = QLabel(category)
+        self.category.setObjectName('NoticeHeading')
+        content.addWidget(self.category)
+        self.message = QLabel(entry.message)
+        self.message.setObjectName('NoticeText')
+        self.message.setTextFormat(Qt.PlainText)
+        self.message.setWordWrap(True)
+        self.message.setMinimumWidth(0)
+        self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        content.addWidget(self.message)
+        header.addLayout(content, 1)
         self.remove_button = QPushButton('×')
         self.remove_button.setObjectName('NoticeClose')
         self.remove_button.setFixedSize(24, 24)
         self.remove_button.setToolTip('删除这条通知')
         self.remove_button.clicked.connect(self.remove)
-        header.addWidget(self.remove_button)
+        header.addWidget(self.remove_button, 0, Qt.AlignTop)
         layout.addLayout(header)
-        self.message = QLabel(entry.message)
-        self.message.setTextFormat(Qt.PlainText)
-        self.message.setWordWrap(True)
-        self.message.setMinimumWidth(0)
-        self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.message)
+        footer = QHBoxLayout()
+        timestamp = QLabel(entry.time)
+        timestamp.setObjectName('NoticeDescription')
+        footer.addWidget(timestamp)
+        footer.addStretch()
         if entry.callback is not None:
             self.action = QPushButton(entry.action)
-            self.action.setObjectName('IconButton')
+            self.action.setObjectName('PrimaryButton')
             self.action.clicked.connect(self.activate)
-            layout.addWidget(self.action, 0, Qt.AlignRight)
+            footer.addWidget(self.action)
+        layout.addLayout(footer)
         self._paper = None
         self._progress = 0.0
         self.animation = QVariantAnimation(self)
@@ -130,9 +171,10 @@ class NotificationCenter(QFrame):
     changed = Signal()
 
     def __init__(self, button):
-        super().__init__(button, Qt.Popup | Qt.FramelessWindowHint)
+        super().__init__(button, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setObjectName('NotificationCenter')
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
         self.button = button
         self.entries = []
         self._seen_keys = set()
@@ -160,6 +202,8 @@ class NotificationCenter(QFrame):
         self.empty.setObjectName('NoticeDescription')
         layout.addWidget(self.empty)
         self.scroll = QScrollArea()
+        self.scroll.setObjectName('NotificationScroll')
+        self.scroll.viewport().setObjectName('NotificationViewport')
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -173,13 +217,13 @@ class NotificationCenter(QFrame):
         layout.addWidget(self.scroll, 1)
         self._sync()
 
-    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None):
+    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=()):
         if key is not None:
             if key in self._seen_keys:
                 return
             self._seen_keys.add(key)
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
-                            callback, action, not self.isVisible())
+                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]))
         self.entries.append(entry)
         if self.isVisible():
             self._add_row(entry)
@@ -263,6 +307,13 @@ class NotificationCenter(QFrame):
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12, 12)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), 12, 12)
+        from PySide6.QtGui import QRegion
+        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             self.hide()
@@ -318,7 +369,7 @@ class NotificationButton(QPushButton):
             painter.drawEllipse(QPointF(6, -6), 3, 3)
 
 
-def remember_result(parent, message, *, kind='info', on_click=None, file_path=None):
+def remember_result(parent, message, *, kind='info', on_click=None, file_path=None, rooms=()):
     sidebar = getattr(parent, 'sidebar', None)
     while sidebar is None and parent.parentWidget() is not None:
         parent = parent.parentWidget()
@@ -334,4 +385,4 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
     else:
         callback = on_click
         action = '放入画面墙' if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
-    sidebar.notification_button.center.add(message, kind=kind, callback=callback, action=action)
+    sidebar.notification_button.center.add(message, kind=kind, callback=callback, action=action, rooms=rooms)

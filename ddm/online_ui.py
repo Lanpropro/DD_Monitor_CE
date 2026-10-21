@@ -787,7 +787,7 @@ def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persis
     from .notification_center import remember_result
     if getattr(parent, '_closing', False):
         return
-    remember_result(parent, message, kind=kind, on_click=on_click)
+    remember_result(parent, message, kind=kind, on_click=on_click, rooms=rooms)
     if not parent.isVisible():
         return
     notice = parent._result_notice = ResultNotice(parent)
