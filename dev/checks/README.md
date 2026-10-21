@@ -19,7 +19,6 @@
 | --- | --- |
 | [selfcheck_appearance](../selfcheck_appearance.py) | 单项执行前核对 |
 | [selfcheck_titlebar](../selfcheck_titlebar.py) | `offline`；可用 Windows 后端单独验证原生 DWM/窗口句柄 |
-| [selfcheck_skin_video](../selfcheck_skin_video.py) | `offline`；真实副本格式检查需要本机 FFmpeg/ffprobe，其他用例使用替身 |
 | [selfcheck_appearance_design](../selfcheck_appearance_design.py) | `repository` |
 | [selfcheck_appearance_playback](../selfcheck_appearance_playback.py) | 单项执行前核对 |
 | [selfcheck_brand_assets](../selfcheck_brand_assets.py) | `offline` |

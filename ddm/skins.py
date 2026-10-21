@@ -110,7 +110,6 @@ class _FrameImage(QRunnable):
 
 class BackgroundLayer(QWidget):
     failed = Signal(str)
-    statusChanged = Signal()
     frameReady = Signal()
     _converted = Signal(int, QImage)
 
@@ -129,10 +128,6 @@ class BackgroundLayer(QWidget):
         self._frame_pool.setMaxThreadCount(1)
         self._converted.connect(self._frame_converted)
         self.player = None
-        self._proxy_job = None
-        self._proxy_jobs = set()
-        self.preparing = False
-        self.warning = ''
         self.error = ''
         root.installEventFilter(self)
         window.installEventFilter(self)
@@ -145,8 +140,6 @@ class BackgroundLayer(QWidget):
         if path == self.path and video_enabled == self.video_enabled:
             return
         self._generation += 1
-        self.cancel_preparation()
-        self.warning = ''
         if self.player is not None:
             self.player.stop()
             self.player.setSource(QUrl())
@@ -167,72 +160,25 @@ class BackgroundLayer(QWidget):
                     reader.setAutoTransform(True)
                     self.image = reader.read()
                 else:
-                    if video_enabled:
-                        self._prepare_video(asset)
-                    else:
-                        self._play_video(asset)
+                    if self.player is None:
+                        self.player = QMediaPlayer(self)
+                        self.player.setAudioOutput(None)
+                        self.player.setLoops(QMediaPlayer.Infinite)
+                        self.player.errorOccurred.connect(self._error)
+                    self.sink = QVideoSink(self)
+                    self.player.setVideoSink(self.sink)
+                    # A queued frame from the previous source must not become
+                    # the new source's frozen first frame.
+                    self.sink.videoFrameChanged.connect(lambda frame, source=self.sink:
+                        self._frame(frame) if source is self.sink else None)
+                    self.player.setSource(QUrl.fromLocalFile(str(asset)))
+                    self._visibility()
             except (OSError, ValueError) as error:
                 self.error = str(error)
                 self.failed.emit(self.error)
         self.setVisible(bool(path))
         self.lower()
         self.update()
-
-    def cancel_preparation(self):
-        if self._proxy_job is not None:
-            self._proxy_job.requestInterruption()
-            self._proxy_job = None
-        self.preparing = False
-
-    def _prepare_video(self, asset):
-        from .skin_video import proxy_path, VideoProxy
-        cached = proxy_path(asset)
-        if cached.is_file() and cached.stat().st_size > 0:
-            self._play_video(cached)
-            return
-        job = VideoProxy(str(asset), self)
-        self._proxy_job = job
-        self._proxy_jobs.add(job)
-        self.preparing = True
-        job.ready.connect(lambda path, job=job: self._proxy_ready(job, path))
-        job.failed.connect(lambda message, job=job: self._proxy_failed(job, message))
-        job.finished.connect(lambda job=job: self._proxy_finished(job))
-        self.statusChanged.emit()
-        job.start()
-
-    def _proxy_ready(self, job, path):
-        if job is not self._proxy_job:
-            return
-        self.preparing = False
-        self._play_video(path)
-        self.statusChanged.emit()
-
-    def _proxy_failed(self, job, message):
-        if job is not self._proxy_job:
-            return
-        self.preparing = False
-        self.warning = message
-        self._play_video(self.path)
-        self.statusChanged.emit()
-
-    def _proxy_finished(self, job):
-        self._proxy_jobs.discard(job)
-        if job is self._proxy_job:
-            self._proxy_job = None
-        job.deleteLater()
-
-    def _play_video(self, path):
-        if self.player is None:
-            self.player = QMediaPlayer(self)
-            self.player.setAudioOutput(None)
-            self.player.setLoops(QMediaPlayer.Infinite)
-            self.player.errorOccurred.connect(self._error)
-        self.sink = QVideoSink(self)
-        self.player.setVideoSink(self.sink)
-        self.sink.videoFrameChanged.connect(lambda frame, source=self.sink:
-            self._frame(frame) if source is self.sink else None)
-        self.player.setSource(QUrl.fromLocalFile(str(path)))
-        self._visibility()
 
     def _frame(self, frame):
         now = time.monotonic()
@@ -308,7 +254,6 @@ class SkinController(QObject):
         super().__init__(window)
         self.window = window
         self.layer = BackgroundLayer(window.centralWidget(), window)
-        self.layer.statusChanged.connect(self.changed)
         self.override = None
         self.error = ''
         self.layer.failed.connect(self._failed)
@@ -380,10 +325,6 @@ class SkinController(QObject):
 
     def stop(self):
         self.layer._generation += 1
-        self.layer.cancel_preparation()
-        for job in tuple(self.layer._proxy_jobs):
-            job.requestInterruption()
-            job.wait()
         if self.layer.player is not None:
             self.layer.player.stop()
             self.layer.player.setSource(QUrl())

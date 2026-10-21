@@ -139,12 +139,8 @@ class SkinSettings(QWidget):
         self.mask_label.setText(str(value) + '%')
         if self.job is not None:
             self.status.setText('正在导入背景文件…')
-        elif self.controller is not None and self.controller.layer.preparing:
-            self.status.setText('正在生成 1080p / 15fps 背景副本，原视频保持不变…')
         elif self.controller is not None and self.controller.error:
             self.status.setText(('皮肤插件背景错误：' if override else '背景错误：') + self.controller.error)
-        elif self.controller is not None and self.controller.layer.warning:
-            self.status.setText(self.controller.layer.warning)
         elif override and self._locked():
             self.status.setText('皮肤插件「' + override['name'] + '」接管，自定义选项已锁定。')
         else:

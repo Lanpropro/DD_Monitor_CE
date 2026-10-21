@@ -38,7 +38,6 @@
 - `dev/selfcheck_alt_tab_orientation.py`
 - `dev/selfcheck_appearance.py`
 - `dev/selfcheck_titlebar.py`
-- `dev/selfcheck_skin_video.py`
 - `dev/selfcheck_appearance_design.py`
 - `dev/selfcheck_appearance_playback.py`
 - `dev/selfcheck_audio_audit.py`

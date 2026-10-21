@@ -863,7 +863,7 @@ def main():
             assert 'rgba(' in window.sidebar.styleSheet(), 'Background must cover the sidebar by default'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
-                '-i', 'color=c=blue:size=320x180:rate=15', '-t', '120', '-c:v', 'libx264',
+                '-i', 'color=c=blue:size=320x180:rate=15', '-t', '20', '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p', str(live_video)], check=True)
             tile = window.wall.tiles[0]
             live = TilePlayer(tile.video, window, silent=True)
