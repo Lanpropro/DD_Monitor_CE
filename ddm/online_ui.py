@@ -488,6 +488,7 @@ class UpdateNotice(QFrame):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('UpdateNotice')
+        self._history_entries = set()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         heading = QHBoxLayout()
@@ -498,7 +499,7 @@ class UpdateNotice(QFrame):
         close.setObjectName('NoticeClose')
         close.setFixedSize(24, 24)
         close.setToolTip('关闭提示')
-        close.clicked.connect(lambda: self.dismiss())
+        close.clicked.connect(lambda: self.dismiss(handled=True))
         heading.addWidget(close)
         layout.addLayout(heading)
         layout.addWidget(QLabel('点击查看更新说明并选择安装'))
@@ -636,7 +637,15 @@ class UpdateNotice(QFrame):
                 self.dismiss(animate=False)
         return False
 
-    def dismiss(self, animate=True):
+    def track_history(self, record):
+        if record is not None and record[1] is not None:
+            self._history_entries.add(record)
+
+    def dismiss(self, animate=True, *, handled=False):
+        if handled:
+            for center, entry in self._history_entries:
+                center._remove(entry)
+            self._history_entries.clear()
         self.timer.stop()
         if (animate and self.isVisible() and self.parentWidget().isVisible()
                 and not getattr(self.parentWidget(), '_closing', False) and motion.enabled()):
@@ -647,7 +656,7 @@ class UpdateNotice(QFrame):
             self.hide()
 
     def _open(self):
-        self.dismiss(animate=False)
+        self.dismiss(animate=False, handled=True)
         self.activated.emit()
 
 
@@ -679,10 +688,11 @@ class ResultNotice(UpdateNotice):
         self._on_click = None
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._on_click is not None:
+        if event.button() == Qt.LeftButton:
             callback = self._on_click
-            self.dismiss(animate=False)
-            callback()
+            self.dismiss(animate=False, handled=True)
+            if callback is not None:
+                callback()
             event.accept()
             return
         QFrame.mouseReleaseEvent(self, event)
@@ -797,8 +807,9 @@ def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persis
     from .notification_center import remember_result
     if getattr(parent, '_closing', False):
         return
-    remember_result(parent, message, kind=kind, on_click=on_click, rooms=rooms)
+    record = remember_result(parent, message, kind=kind, on_click=on_click, rooms=rooms)
     if not parent.isVisible():
         return
     notice = parent._result_notice = ResultNotice(parent)
+    notice.track_history(record)
     notice.show_message(message, rooms, kind=kind, on_click=on_click, persistent=persistent)

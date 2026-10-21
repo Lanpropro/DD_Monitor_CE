@@ -33,6 +33,7 @@ class NoticeEntry:
     action: str = '查看详情'
     unread: bool = True
     rooms: tuple = ()
+    key: object = None
 
 
 class NoticeRow(QFrame):
@@ -231,15 +232,17 @@ class NotificationCenter(QFrame):
     def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=()):
         if key is not None:
             if key in self._seen_keys:
-                return
-            self._seen_keys.add(key)
+                return next((entry for entry in self.entries if entry.key == key), None)
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
-                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]))
+                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key)
         self.entries.append(entry)
+        if key is not None:
+            self._seen_keys.add(key)
         if self.isVisible():
             self._add_row(entry)
             self.scroll.verticalScrollBar().setValue(0)
         self._sync()
+        return entry
 
     def _add_row(self, entry):
         row = NoticeRow(entry, self.scroll.widget())
@@ -396,4 +399,6 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
     else:
         callback = on_click
         action = '放入画面墙' if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
-    sidebar.notification_button.center.add(message, kind=kind, callback=callback, action=action, rooms=rooms)
+    center = sidebar.notification_button.center
+    entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms)
+    return center, entry

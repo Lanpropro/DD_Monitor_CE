@@ -10,15 +10,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 from ddm import motion, theme
 from ddm.config import DEFAULT_SETTINGS
 from ddm.dialogs import NotificationSettingsPage, SettingsDialog
 from ddm.notification_center import NotificationButton, remember_result
-from ddm.online_ui import show_result
+from ddm.online_ui import show_result, UpdateNotice
 from ddm.widgets import Sidebar
 
 
@@ -46,7 +46,12 @@ class NotificationTests(unittest.TestCase):
         self.center = self.button.center
         self.owner.show()
         self.app.processEvents()
-        self.addCleanup(self.owner.close)
+        self.addCleanup(self.dispose, self.owner)
+
+    def dispose(self, widget):
+        widget.close()
+        widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def open(self):
         self.button.click()
@@ -55,7 +60,7 @@ class NotificationTests(unittest.TestCase):
 
     def test_settings_navigation_places_notifications_before_shortcuts(self):
         dialog = SettingsDialog({}, {}, preview=True)
-        self.addCleanup(dialog.close)
+        self.addCleanup(self.dispose, dialog)
         keys = [dialog.nav.item(i).data(Qt.UserRole) for i in range(dialog.nav.count())]
         self.assertEqual(keys, ['general', 'appearance', 'danmaku', 'recording',
                                 'notifications', 'shortcuts', 'plugins', 'updates'])
@@ -77,7 +82,7 @@ class NotificationTests(unittest.TestCase):
 
     def test_notification_switches_support_keyboard_click_and_explicit_states(self):
         page = NotificationSettingsPage({})
-        self.addCleanup(page.close)
+        self.addCleanup(self.dispose, page)
         page.resize(500, 650)
         page.show()
         self.app.processEvents()
@@ -99,7 +104,7 @@ class NotificationTests(unittest.TestCase):
         previous = theme.mode()
         self.addCleanup(theme.apply, previous)
         dialog = SettingsDialog({}, {}, preview=True)
-        self.addCleanup(dialog.close)
+        self.addCleanup(self.dispose, dialog)
         dialog.nav.setCurrentRow(4)
         dialog.show()
         page = dialog.notification_page
@@ -131,6 +136,50 @@ class NotificationTests(unittest.TestCase):
         self.owner._closing = True
         show_result(self.owner, '退出时不再写入')
         self.assertEqual(len(self.center.entries), 2)
+
+    def test_outside_close_removes_only_its_own_record(self):
+        callback = Mock()
+        show_result(self.owner, '重复文字', on_click=callback, persistent=True)
+        first = self.owner._result_notice
+        show_result(self.owner, '重复文字', persistent=True)
+        second_entry = self.center.entries[-1]
+        first.findChild(QPushButton, 'NoticeClose').click()
+        self.assertEqual(self.center.entries, [second_entry])
+        self.assertEqual(self.button._unread, 1)
+        callback.assert_not_called()
+
+    def test_outside_body_click_marks_handled_with_or_without_action(self):
+        for callback in (None, Mock()):
+            show_result(self.owner, '外侧通知', on_click=callback, persistent=True)
+            notice = self.owner._result_notice
+            QTest.mouseClick(notice, Qt.LeftButton, pos=QPoint(8, 8))
+            self.assertFalse(self.center.entries)
+            self.assertEqual(self.button._unread, 0)
+            if callback is not None:
+                callback.assert_called_once()
+
+    def test_timeout_preserves_record_and_handling_after_clear_is_safe(self):
+        show_result(self.owner, '未处理通知')
+        self.owner._result_notice.timer.timeout.emit()
+        self.assertEqual(len(self.center.entries), 1)
+        show_result(self.owner, '清空后的旧浮窗', persistent=True)
+        notice = self.owner._result_notice
+        self.center.clear()
+        self.center.add('清空后新通知')
+        notice.findChild(QPushButton, 'NoticeClose').click()
+        self.assertEqual([entry.message for entry in self.center.entries], ['清空后新通知'])
+
+    def test_outside_update_action_removes_deduplicated_records_without_readding(self):
+        notice = UpdateNotice(self.owner)
+        self.addCleanup(self.dispose, notice)
+        entry = self.center.add('版本更新', key=('update', 'test'))
+        self.assertIs(self.center.add('版本更新', key=('update', 'test')), entry)
+        notice.track_history((self.center, entry))
+        notice.show_offer({'version': 'test'}, persistent=True)
+        notice.action.click()
+        self.assertFalse(self.center.entries)
+        self.center.add('版本更新', key=('update', 'test'))
+        self.assertFalse(self.center.entries)
 
     def test_unread_indicator_open_read_and_new_while_open(self):
         self.assertEqual(self.center.title.text(), '通知')
