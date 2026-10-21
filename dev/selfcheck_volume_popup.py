@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QEnterEvent, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QPushButton, QSlider, QVBoxLayout, QWidget
 
 from ddm import theme
 from ddm.widgets import Tile, VolumeButton
@@ -372,7 +372,7 @@ class VolumePopupTests(unittest.TestCase):
         self.wait_pointer(self.pointer)
         self.assertFalse(popup.isVisible())
 
-    def test_wheel_preserves_mute_and_syncs_all_controls(self):
+    def test_wheel_unmutes_and_syncs_all_controls(self):
         button = self.tile.volume_button
         self.tile.set_muted(True)
         wheel = QWheelEvent(QPointF(button.rect().center()), QPointF(self.pointer), QPoint(),
@@ -380,13 +380,60 @@ class VolumePopupTests(unittest.TestCase):
         QApplication.sendEvent(button, wheel)
         self.assertEqual(self.tile.volume, 47)
         self.assertEqual(self.tile.vertical_volume.value(), 47)
-        self.assertTrue(self.tile.muted)
-        self.assertTrue(button.muted, 'wheel must not make the icon disagree with actual mute')
+        self.assertFalse(self.tile.muted)
+        self.assertFalse(self.tile.room['muted'])
+        self.assertFalse(button.muted, 'wheel adjustment must update the mute icon')
         self.tile.set_volume(0)
         self.tile.set_muted(False)
         zero = button.grab().toImage()
         self.tile.set_muted(True)
         self.assertEqual(button.grab().toImage(), zero, 'zero volume also displays the speaker cross')
+
+    def test_each_volume_slider_unmutes_and_notifies_after_setting_volume(self):
+        menu = self.tile.build_menu()
+        self.addCleanup(menu.deleteLater)
+        menu_slider = menu.findChild(QSlider)
+        self.assertIsNotNone(menu_slider)
+        events = []
+        self.tile.volumeChanged.connect(lambda room, level: events.append(('volume', level)))
+        self.tile.muteToggled.connect(lambda room, muted: events.append(('mute', muted)))
+        for name, slider in (('inline', self.tile.volume_slider),
+                             ('popup', self.tile.vertical_volume), ('menu', menu_slider)):
+            for level in (0, 73):
+                with self.subTest(control=name, level=level):
+                    self.tile.set_volume(42)
+                    slider.blockSignals(True)
+                    slider.setValue(42)
+                    slider.blockSignals(False)
+                    self.tile.set_muted(True)
+                    events.clear()
+                    slider.setValue(level)
+                    self.assertFalse(self.tile.muted, 'manual volume changes must unmute')
+                    self.assertFalse(self.tile.room['muted'])
+                    self.assertFalse(self.tile.volume_button.muted)
+                    self.assertEqual(self.tile.room['volume'], level)
+                    self.assertEqual(self.tile.volume_slider.value(), level)
+                    self.assertEqual(self.tile.vertical_volume.value(), level)
+                    self.assertEqual(self.tile.volume_label.text(), str(level))
+                    self.assertEqual(self.tile.vertical_volume_label.text(), str(level))
+                    self.assertEqual(events, [('volume', level), ('mute', False)])
+                    events.clear()
+                    slider.setValue(level + 1)
+                    self.assertEqual(events, [('volume', level + 1)],
+                                     'already unmuted tiles must not emit another mute change')
+
+    def test_restoring_volume_and_refreshing_controls_preserve_mute(self):
+        self.tile.set_muted(True)
+        changes = []
+        self.tile.muteToggled.connect(lambda room, muted: changes.append(muted))
+        self.tile.set_volume(17)
+        self.tile.sync_audio_ui()
+        self.assertTrue(self.tile.muted)
+        self.assertTrue(self.tile.room['muted'])
+        self.assertTrue(self.tile.volume_button.muted)
+        self.assertEqual((self.tile.volume_slider.value(), self.tile.vertical_volume.value()),
+                         (17, 17))
+        self.assertEqual(changes, [])
 
     def test_icon_displays_three_distinct_volume_bands_in_compact_width(self):
         button = self.tile.volume_button

@@ -40,6 +40,7 @@ class ComposerTests(unittest.TestCase):
             button.setProperty('hovered', True)
             self.assertEqual(button.grab().toImage(), closed)
             self.composer.open_emoticons()
+            settle(lambda: self.composer.popup.retry_button.isEnabled())
             self.assertTrue(button.property('menuOpen'))
             self.assertNotEqual(button.grab().toImage(), closed)
             self.composer.popup.hide()
