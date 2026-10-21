@@ -474,6 +474,15 @@ class VolumeButton(QPushButton):
 
 
 
+class VolumePopup(QFrame):
+    def paintEvent(self, event) -> None:
+        # Paint the styled background explicitly for this translucent tool window.
+        option = QStyleOption()
+        option.initFrom(self)
+        painter = QPainter(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
+
+
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
     if button.underMouse() or button.property("hovered") is True:
@@ -5931,9 +5940,10 @@ class Tile(QFrame):
         self.volume_slider.setToolTip("这个格子的音量（更换主播后保持不变）")
         self.volume_slider.valueChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_slider)
-        self.volume_menu = QFrame(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self.volume_menu = VolumePopup(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.volume_menu.setObjectName("TileVolumePopup")
         self.volume_menu.setAttribute(Qt.WA_TranslucentBackground)
+        self.volume_menu.setAttribute(Qt.WA_StyledBackground)
         self.volume_menu.setAttribute(Qt.WA_ShowWithoutActivating)
         volume_layout = QVBoxLayout(self.volume_menu)
         volume_layout.setContentsMargins(4, 6, 4, 4)
