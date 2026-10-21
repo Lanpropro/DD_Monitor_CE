@@ -23,6 +23,21 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_single_line_notice_keeps_heading_message_and_action_visible(self):
+        owner = QWidget()
+        owner.resize(1000, 700)
+        owner.show()
+        self.addCleanup(owner.close)
+        from ddm.online_ui import ResultNotice
+        notice = ResultNotice(owner)
+        notice.title.setWordWrap(False)
+        notice.show_message('已保存录制：example.mp4', on_click=Mock())
+        self.app.processEvents()
+        self.assertGreaterEqual(notice.category.height(), notice.category.fontMetrics().height())
+        self.assertGreaterEqual(notice.title.height(), notice.title.fontMetrics().height())
+        self.assertGreater(notice.action.y(), notice.text_column.geometry().bottom())
+        self.assertGreaterEqual(notice.height(), notice.layout().totalSizeHint().height())
+
     def test_recording_and_send_notices_include_room_and_update_all_avatars(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])

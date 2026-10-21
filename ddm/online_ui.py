@@ -601,7 +601,10 @@ class UpdateNotice(QFrame):
         width = min(420, max(80, self.parentWidget().width() - 32))
         self.setFixedWidth(width)
         self.layout().invalidate()
-        self.setFixedHeight(max(76, self.layout().totalHeightForWidth(width)))
+        height = self.layout().totalHeightForWidth(width)
+        if height < 0:
+            height = self.layout().totalSizeHint().height()
+        self.setFixedHeight(max(76, height))
         self.layout().activate()
         self._reflow()
 
