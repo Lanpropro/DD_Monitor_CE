@@ -341,7 +341,8 @@ class ComposerTests(unittest.TestCase):
             self.assertLess(tile.volume_menu.grab().toImage().pixelColor(0, 0).alpha(), 30)
             popup_image = tile.volume_menu.grab().toImage()
             scale = popup_image.devicePixelRatioF()
-            self.assertGreater(popup_image.pixelColor(round(6 * scale), round(20 * scale)).alpha(), 240)
+            self.assertGreater(popup_image.pixelColor(round(6 * scale), round(20 * scale)).alpha(), 200)
+            self.assertLess(popup_image.pixelColor(round(6 * scale), round(20 * scale)).alpha(), 240)
             self.assertEqual(tile.vertical_volume_label.font().pixelSize(), theme.FONT_CAPTION)
             tile.vertical_volume.setValue(73)
             self.assertEqual(tile.volume, 73)
@@ -360,6 +361,31 @@ class ComposerTests(unittest.TestCase):
             tile.volume_menu.close()
             tile.close()
             theme.apply("dark")
+
+    def test_volume_popup_translucency_tracks_theme_without_fading_controls(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': '101'})
+        tile.resize(360, 240)
+        tile.show()
+        APP.processEvents()
+        colors = []
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+                APP.processEvents()
+                image = tile.volume_menu.grab().toImage()
+                scale = image.devicePixelRatioF()
+                color = image.pixelColor(round(6 * scale), round(20 * scale))
+                self.assertGreater(color.alpha(), 200)
+                self.assertLess(color.alpha(), 240)
+                self.assertLess(image.pixelColor(0, 0).alpha(), 30)
+                self.assertEqual(tile.volume_menu.windowOpacity(), 1.0)
+                colors.append(color)
+            self.assertGreater(colors[1].lightness(), colors[0].lightness())
+        finally:
+            tile.close()
+            theme.apply('dark')
 
     def test_compact_volume_hover_does_not_replace_mute_or_steal_focus(self):
         from ddm.widgets import Tile
