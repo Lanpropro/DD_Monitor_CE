@@ -580,4 +580,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with patch.object(MainWindow, 'refresh_status'), \
+            patch.object(MainWindow, '_check_startup_update'), \
+            patch.object(MainWindow, '_check_startup_plugins'):
+        main()
