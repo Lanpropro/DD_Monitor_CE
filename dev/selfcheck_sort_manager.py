@@ -22,6 +22,25 @@ def main() -> None:
     sidebar.setGeometry(-8000, -8000, 248, 600)
     sidebar.show()
     app.processEvents()
+    assert not hasattr(sidebar, 'sort_button')
+    for width in (248, 280, 360):
+        sidebar.resize(width, 600)
+        sidebar.count_label.setText('关注中 · 101')
+        app.processEvents()
+        label = sidebar.count_label
+        assert label.width() >= label.fontMetrics().horizontalAdvance(label.text())
+        for button in (sidebar.batch_button, sidebar.appearance_button, sidebar.refresh_button):
+            assert not label.geometry().intersects(button.geometry())
+    sidebar.resize(248, 600)
+    for folder in sidebar.folders:
+        menu = sidebar._folder_buttons[folder['id']]._context_menu()
+        sort_action = next(action for action in menu.actions() if action.text() == '排序')
+        actions = sort_action.menu().actions()
+        assert [action.text() for action in actions if action.isCheckable()] == [
+            text for _mode, text in sidebar.SORT_MODES]
+        assert sum(action.isChecked() for action in actions) == 1
+        assert any(action.text() == '固定当前显示顺序' for action in actions)
+        menu.deleteLater()
     for side in ("left", "top", "left", "top", "left"):
         sidebar.set_side(side)
         app.processEvents()
@@ -31,7 +50,7 @@ def main() -> None:
         if side == "left":
             assert button.parentWidget() is sidebar.status_row
             box = sidebar.status_row.layout()
-            assert box.indexOf(button) == box.indexOf(sidebar.sort_button) + 1
+            assert box.indexOf(button) == box.indexOf(sidebar.count_label) + 1
             assert sidebar._header_row.layout().indexOf(button) == -1
             assert button.size().width() == button.size().height() == 22
         QTest.mouseClick(button, Qt.LeftButton)
@@ -120,7 +139,7 @@ def main() -> None:
     sidebar.search.setText("P")
     assert sidebar.selected_sort_ids() == []
     assert not any(action.text() == "管理排序…"
-                   for action in sidebar.sort_button.menu().actions())
+                   for action in sidebar._folder_buttons[sidebar.folders[0]["id"]]._context_menu().actions())
 
     sidebar.search.clear()
     sidebar.set_select_mode(True)
