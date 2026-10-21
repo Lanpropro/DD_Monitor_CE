@@ -27,6 +27,7 @@
       "selfcheck_bili_codec",
       "selfcheck_tile_bottom_order",
       "selfcheck_volume_popup",
+      "selfcheck_room_audio",
       "selfcheck_sort_manager",
       "selfcheck_theme_latency",
       "selfcheck_brand_assets",

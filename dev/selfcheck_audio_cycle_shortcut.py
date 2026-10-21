@@ -131,16 +131,16 @@ def check_corner_empty_slots(app):
                 for i, other in enumerate(window.wall.tiles):
                     expected = tuple(not value for value in before[i]) if i == index else before[i]
                     assert (other.muted, other.danmaku_button.isChecked()) == expected, (index, i)
-                selected = (tile.muted, tile.danmaku_button.isChecked())
-                # 音量属于格子；新拖入房间的弹幕开关默认关闭。
+                # 新加入的房间使用默认声音，弹幕开关默认关闭。
                 if index:
                     window._on_room_dropped(tile, rooms[index]['room_id'])
-                    assert (tile.muted, tile.danmaku_button.isChecked()) == (selected[0], False)
+                    assert (tile.muted, tile.danmaku_button.isChecked()) == (window.settings["default_muted"], False)
                 current = (tile.muted, tile.danmaku_button.isChecked())
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
                 assert (tile.muted, tile.danmaku_button.isChecked()) == tuple(not value for value in current)
                 tile.danmaku_button.setChecked(before[index][1])
+                tile.set_muted(before[index][0])
                 assert (tile.muted, tile.danmaku_button.isChecked()) == before[index]
                 saved = window.current_state()['wall'][index]
                 assert (saved['muted'], saved['video_danmaku_enabled']) == before[index]
@@ -156,7 +156,7 @@ def main():
     with ExitStack() as stack:
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars'):
+                       'load_cached_covers', 'load_cached_avatars', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, method))
         check_corner_empty_slots(app)
         window = MainWindow([dict(room)], [dict(room), dict(room)], layout_id='2x2',

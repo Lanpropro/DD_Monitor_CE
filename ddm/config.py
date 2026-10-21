@@ -1,6 +1,6 @@
 """配置读写。
 
-状态（关注了哪些房间、画面墙上有哪些、每格的静音/音量/画质、界面状态）
+状态（关注了哪些房间、画面墙上有哪些、直播间的静音/音量、每格的画质、界面状态）
 写在仓库的 utils/config.json。新用户第一次打开时是空的，房间靠自己添加。
 """
 import io
@@ -40,7 +40,7 @@ DEFAULT_SETTINGS = {
     #: B 站直播流的编码方式。H.264 兼容性最好（默认）；HEVC 同画质码率约省一半；
     #: AV1 使用 HLS 通道，由 libmpv 原生播放。
     "bili_codec": "avc",
-    "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
+    "default_muted": True,    # 首次加入的直播间默认静音；已有直播间恢复自己的状态
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
@@ -262,6 +262,8 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             for key in ("uname", "title", "platform", "playback_mode"):
                 if isinstance(saved.get(key), str):
                     room[key] = saved[key]
+        audio = (state.get("room_audio") or {}).get(room_id, {})
+        room.update({key: audio[key] for key in ("volume", "muted") if key in audio})
         if room.get("platform") == "huya":
             room["playback_mode"] = "stream"     # 迁移旧版虎牙网页卡片
         return room
@@ -271,7 +273,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     for slot in wall_slots:
         room_id = str(slot.get("room_id") or "")
         if not room_id:
-            # 空格子也保留格子设置；之后拖入主播时音量应沿用这个位置的值。
+            # 空格子的控制值仍保留；加入直播间时恢复该房间自己的声音。
             wall.append({
                 "room_id": "",
                 "muted": bool(slot.get("muted", True)),

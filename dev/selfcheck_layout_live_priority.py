@@ -1,6 +1,7 @@
-"""缩小布局时优先保留开播格子，并保持每个位置的声音设置。"""
+"""缩小布局时优先保留开播格子，并保持直播间的音量和静音。"""
 import os
 import sys
+from unittest.mock import patch
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication
@@ -51,8 +52,9 @@ def main() -> None:
     app = QApplication(sys.argv)
     rooms = [{"room_id": str(1000 + index), "uname": str(index), "live": False}
              for index in range(6)]
-    window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner",
-                        state={"settings": {"auto_quality": False}})
+    with patch("ddm.app.QTimer.singleShot"):
+        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner",
+                            state={"plugins_enabled": [], "settings": {"auto_quality": False, "auto_update": False}})
     window.resize(1400, 900)
     window.show()
     app.processEvents()
@@ -72,9 +74,9 @@ def main() -> None:
     app.processEvents()
     assert window.wall.visible_tiles() == [original[0], original[3], original[2]]
     assert window.wall.tiles[3] is original[1]
-    assert (original[3].volume, original[3].muted, original[3].audio_channel) == (20, True, 2)
-    assert (original[1].volume, original[1].muted, original[1].audio_channel) == (40, False, 1)
-    assert (player.volume, player.muted, player.channel) == (20, True, 2)
+    assert (original[3].volume, original[3].muted, original[3].audio_channel) == (40, False, 2)
+    assert (original[1].volume, original[1].muted, original[1].audio_channel) == (20, True, 1)
+    assert (player.volume, player.muted, player.channel) == (40, False, 2)
     assert window.players[original[3]] is player
 
     window._on_layout_changed("corner")
@@ -102,7 +104,7 @@ def main() -> None:
                 for tile in order] == before_audio, "重新选择当前布局改变了位置音频设置"
         assert window.players[original[3]] is player
     window.close()
-    print("缩小布局优先显示开播格子、声音设置留在原位置：通过")
+    print("缩小布局优先显示开播格子、音量和静音随直播间移动：通过")
 
 
 if __name__ == "__main__":

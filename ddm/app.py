@@ -119,6 +119,13 @@ class MainWindow(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
         self.rooms = rooms
         self.state = state or {}
+        self._room_audio = deepcopy(self.state.get("room_audio") or {})
+        # 旧配置只在 wall 中记录声音；首次载入按直播间承接这些值。
+        for room in wall_rooms or []:
+            rid = str(room.get("room_id") or "")
+            if rid:
+                self._room_audio.setdefault(rid, {}).update(
+                    {key: room[key] for key in ("volume", "muted") if key in room})
         self.room_presets = room_presets.collection(self.state.get("room_presets"))
         self._active_room_preset_id = (self.state.get("ui") or {}).get("room_preset_id", "")
         self._applying_room_preset = False
@@ -968,10 +975,13 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
 
     def current_state(self) -> dict:
+        for tile in self.wall.tiles:
+            self._remember_room_audio(tile)
         cookies = bili._cookies()
         return {
             "version": config_module.STATE_VERSION,
             "room_presets": deepcopy(self.room_presets),
+            "room_audio": deepcopy(self._room_audio),
             "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
             "sessdata": cookies.get("SESSDATA", ""),
@@ -988,7 +998,7 @@ class MainWindow(QMainWindow):
                 {
                     "room_id": str(tile.room.get("room_id") or ""),
                     "muted": self._fullscreen_audio_saved.get(tile, bool(tile.muted)),
-                    # 音量属于格子；即使格子为空也要保存，重启后继续沿用。
+                    # 与 room_audio 一起保存，兼容旧版按墙面槽位恢复的配置。
                     "volume": int(tile.volume),
                     "quality": int(tile.quality),
                     "audio_channel": int(tile.audio_channel),
@@ -1167,9 +1177,7 @@ class MainWindow(QMainWindow):
         for visible_index, hidden_index in zip(vacant, waiting):
             visible, hidden = tiles[visible_index], tiles[hidden_index]
             tiles[visible_index], tiles[hidden_index] = hidden, visible
-            # 音量、静音和声道属于位置；画面随格子移动，声音设置留在原位置。
-            visible.volume, hidden.volume = hidden.volume, visible.volume
-            visible.muted, hidden.muted = hidden.muted, visible.muted
+            # 音量和静音随直播间移动；声道仍留在原位置。
             visible.audio_channel, hidden.audio_channel = hidden.audio_channel, visible.audio_channel
             for tile in (visible, hidden):
                 tile.room["volume"] = tile.volume
@@ -1989,6 +1997,7 @@ class MainWindow(QMainWindow):
             self.start_tile(tile)
 
     def _stop_tile(self, tile) -> None:
+        self._remember_room_audio(tile)
         dialog = self._codec_dialogs.get(tile)
         if dialog is not None:
             dialog.close()
@@ -2099,8 +2108,17 @@ class MainWindow(QMainWindow):
         sender = self.sender()
         return sender if isinstance(sender, Tile) else None
 
+    def _remember_room_audio(self, tile) -> None:
+        if tile is not None and (rid := str(tile.room.get("room_id") or "")):
+            self._room_audio[rid] = {
+                "volume": int(tile.volume),
+                "muted": self._fullscreen_audio_saved.get(tile, bool(tile.muted)),
+            }
+
     def _prepare_room(self, room: dict) -> dict:
-        """给新建格子补初始声音；已有格子的静音和音量由 Tile 保留。"""
+        """恢复直播间声音；首次出现的房间使用默认值。"""
+        saved_audio = self._room_audio.get(str(room.get("room_id") or ""), {})
+        room.update({key: saved_audio[key] for key in ("volume", "muted") if key in saved_audio})
         if "muted" not in room:
             room["muted"] = bool(self.settings.get("default_muted", True))
         if "volume" not in room:
@@ -2204,10 +2222,7 @@ class MainWindow(QMainWindow):
             return False
         # 1) 两个格子换位置（房间里的一切跟着格子走：画质、取流结果、计时都还在）
         tiles[first_index], tiles[second_index] = tiles[second_index], tiles[first_index]
-        # 2) 音量 / 静音 / 声道属于**格子（位置）**，不跟着主播走：
-        #    两个格子的这几项设置对调，再把它们下发给自己那个（没挪窝的）播放器
-        source.volume, target.volume = target.volume, source.volume
-        source.muted, target.muted = target.muted, source.muted
+        # 2) 音量和静音与房间、播放器一起移动；只有声道沿用位置设置。
         source.audio_channel, target.audio_channel = \
             target.audio_channel, source.audio_channel
         for tile in (source, target):
@@ -2435,10 +2450,11 @@ class MainWindow(QMainWindow):
     # ---- 单个格子的操作 ----
     def _on_volume_changed(self, room: dict, value: int) -> None:
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
+        self._remember_room_audio(tile)
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_volume(value)
-        self._save_timer.start()       # 滑块停下 700ms 后保存每个格子的音量
+        self._save_timer.start()       # 滑块停下 700ms 后保存每个直播间的音量
 
     def _on_audio_changed(self, room: dict, value: int) -> None:
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
@@ -2484,10 +2500,11 @@ class MainWindow(QMainWindow):
 
     def _on_mute_changed(self, room: dict, muted: bool) -> None:
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
+        self._remember_room_audio(tile)
         player = self.players.get(tile) if tile is not None else None
         if player is not None:
             player.set_muted(muted)
-        self._save_timer.start()       # 静音也是格子状态，和音量一起记住
+        self._save_timer.start()       # 静音与音量一起按直播间记住
 
     def _replay_scope(self) -> str:
         """即时回放的适用范围：``recorded``（只跟录制走）或 ``all``（所有格子）。"""

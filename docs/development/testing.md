@@ -55,3 +55,7 @@ python dev/checks/bootstrap.py dev/selfcheck_volume_popup.py
 性能测量见[性能工具](../../dev/benchmarks/README.md)，资源生成见[辅助工具](../../dev/tools/README.md)。发布构建入口继续使用 `dev/build_release.ps1`。
 
 PR 测试和整理过程的历史记录位于 [archive/](../archive/README.md)，版本说明位于 [releases/](../releases/RELEASE-v0.4.md)。
+
+## 直播间音量与静音
+
+`python dev/run_checks.py --script selfcheck_room_audio` 使用合成直播间和播放器替身，覆盖换台、普通拖拽互换、播放中热交换、缩小布局补位、移出后重新加入及重启恢复。音量和静音按直播间保存在 `room_audio`，兼容旧版 `wall` 配置；首次加入使用默认声音，声道仍按位置保留。全屏独占声音的临时静音不覆盖保存值。

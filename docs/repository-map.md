@@ -244,6 +244,7 @@
 - `dev/selfcheck_resize_surface.py`
 - `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_resolve_retry.py`
+- `dev/selfcheck_room_audio.py`
 - `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_search.py`
