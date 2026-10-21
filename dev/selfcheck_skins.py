@@ -41,7 +41,7 @@ def check_frame_conversion(app):
     layer.player = SimpleNamespace(source=lambda: QUrl('file:///fixture.mp4'))
     entered, release = threading.Event(), threading.Event()
     threads = []
-    image = QImage(32, 32, QImage.Format_RGB32)
+    image = QImage(3840, 2160, QImage.Format_RGB32)
     image.fill(QColor('#426cdb'))
     def convert():
         threads.append(threading.get_ident())
@@ -66,10 +66,30 @@ def check_frame_conversion(app):
         layer._frame_pool.waitForDone()
         app.processEvents()
         assert layer.image == image
+        assert (layer.image.width(), layer.image.height()) == (3840, 2160), 'Background frames must retain source resolution'
     finally:
         release.set()
         layer._frame_pool.waitForDone()
         layer.player = None
+        root.close()
+
+
+def check_original_video_source():
+    from ddm.skins import BackgroundLayer
+    root = QWidget()
+    layer = BackgroundLayer(root, root)
+    try:
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('ddm.skins.QMediaPlayer') as player, \
+                patch('subprocess.Popen', side_effect=AssertionError('Background loading must not transcode')):
+            source = Path(directory) / 'original-4k.mp4'
+            source.write_bytes(b'fixture; decoding is replaced')
+            layer.load(str(source))
+            assert layer.path == str(source)
+            assert Path(player.return_value.setSource.call_args.args[0].toLocalFile()) == source
+            layer.load('')
+            assert not list(Path(directory).glob('cache/skin-video/*'))
+    finally:
         root.close()
 
 
@@ -784,6 +804,7 @@ def main():
     app = QApplication([])
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
     check_frame_conversion(app)
+    check_original_video_source()
     if '--playback-only' not in sys.argv:
         check_parts(app)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
