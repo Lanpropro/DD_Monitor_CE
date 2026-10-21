@@ -216,6 +216,13 @@ class NotificationTests(unittest.TestCase):
             for width in (300, 900):
                 self.owner.resize(width, 800)
                 self.app.processEvents()
+                self.assertGreater(bar.maximum(), 0)
+                for item in self.center.rows.values():
+                    self.assertGreaterEqual(item.height(), item.layout().totalHeightForWidth(item.width()))
+                    self.assertGreaterEqual(item.message.height(), item.message.heightForWidth(item.message.width()))
+                rows = sorted(self.center.rows.values(), key=lambda item: item.y())
+                for first, second in zip(rows, rows[1:]):
+                    self.assertLess(first.geometry().bottom(), second.y())
                 panel = self.center.grab().toImage()
                 for point in (QPoint(0, 0), QPoint(self.center.width() - 1, 0),
                               QPoint(0, self.center.height() - 1), self.center.rect().bottomRight()):

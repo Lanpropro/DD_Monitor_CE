@@ -8,7 +8,7 @@ import sys
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QUrl, QVariantAnimation, Signal
 from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QTransform
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
-                               QScrollArea, QVBoxLayout, QWidget)
+                               QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from . import motion, theme
 
@@ -42,6 +42,7 @@ class NoticeRow(QFrame):
         super().__init__(parent)
         self.entry = entry
         self.setObjectName('HistoryNotice')
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
@@ -116,10 +117,18 @@ class NoticeRow(QFrame):
         self.animation.setEndValue(1.0)
         self.animation.valueChanged.connect(self._frame)
         self.animation.finished.connect(self.finish_removal)
+        self.ensurePolished()
+        self.setMinimumHeight(layout.totalHeightForWidth(max(80, parent.width())))
 
     def activate(self):
         self.window().hide()
         self.entry.callback()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._paper is None:
+            self.setMinimumHeight(self.layout().totalHeightForWidth(self.width()))
+            self.layout().activate()
 
     def remove(self):
         if self._paper is not None:
@@ -206,11 +215,13 @@ class NotificationCenter(QFrame):
         self.scroll.viewport().setObjectName('NotificationViewport')
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidgetResizable(True)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         content = QWidget()
         content.setObjectName('NotificationList')
         self.list_layout = QVBoxLayout(content)
         self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSizeConstraint(QLayout.SetMinimumSize)
         self.list_layout.setSpacing(8)
         self.list_layout.addStretch()
         self.scroll.setWidget(content)
