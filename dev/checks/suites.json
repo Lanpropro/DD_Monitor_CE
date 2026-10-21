@@ -51,6 +51,7 @@
       "selfcheck_main_notices",
       "selfcheck_fullscreen_controls",
       "selfcheck_titlebar",
+      "selfcheck_skin_video",
       "selfcheck_layout_16",
       "selfcheck_layout_growth_empty",
       "selfcheck_platform_logo_background",
