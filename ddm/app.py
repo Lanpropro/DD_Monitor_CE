@@ -843,11 +843,12 @@ class MainWindow(QMainWindow):
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
             def page_created(index, widget):
-                if index == 5:
+                key = dialog.PAGES[index][0]
+                if key == 'plugins':
                     widget.store_page.offersChanged.connect(self._set_plugin_updates)
                     if self._plugin_catalog_offers:
                         widget.store_page._catalog_ready(self._plugin_catalog_offers)
-                elif index == 6:
+                elif key == 'updates':
                     widget.releaseChecked.connect(self._set_app_update)
                     if self._available_update:
                         widget._release_ready(self._available_update)
@@ -907,7 +908,7 @@ class MainWindow(QMainWindow):
             self.apply_preview_settings()
             print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
             print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-            update_page = dialog._loaded_pages.get(6)
+            update_page = dialog._loaded_pages.get(SettingsDialog.PAGE_INDEX['updates'])
             if getattr(update_page, "install_requested", False):
                 self._update_plan = dialog.update_page.plan_path
                 self.close()

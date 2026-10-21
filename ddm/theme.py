@@ -591,6 +591,25 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#NotificationSettingsGroup {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
+#NotificationSettingsHeading {{
+    color: {TEXT2};
+    font-weight: 600;
+}}
+#NotificationSettingsState {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+    padding: 3px 6px;
+    background: {BG};
+    border-radius: 6px;
+}}
+#NotificationSettingsDivider {{
+    background: {BORDER};
+}}
 #PluginCard {{
     background: transparent;
     border: 1px solid {BORDER};

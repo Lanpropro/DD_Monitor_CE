@@ -11,9 +11,12 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from ddm import motion, theme
+from ddm.config import DEFAULT_SETTINGS
+from ddm.dialogs import NotificationSettingsPage, SettingsDialog
 from ddm.notification_center import NotificationButton, remember_result
 from ddm.online_ui import show_result
 from ddm.widgets import Sidebar
@@ -23,6 +26,10 @@ class NotificationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        if cls.app.platformName() == 'offscreen':
+            font = Path('C:/Windows/Fonts/msyh.ttc')
+            if font.is_file():
+                QFontDatabase.addApplicationFont(str(font))
         cls.app.setStyleSheet(theme.qss())
 
     def setUp(self):
@@ -45,6 +52,73 @@ class NotificationTests(unittest.TestCase):
         self.button.click()
         self.app.processEvents()
         self.assertTrue(self.center.isVisible())
+
+    def test_settings_navigation_places_notifications_before_shortcuts(self):
+        dialog = SettingsDialog({}, {}, preview=True)
+        self.addCleanup(dialog.close)
+        keys = [dialog.nav.item(i).data(Qt.UserRole) for i in range(dialog.nav.count())]
+        self.assertEqual(keys, ['general', 'appearance', 'danmaku', 'recording',
+                                'notifications', 'shortcuts', 'plugins', 'updates'])
+        self.assertFalse(dialog._loaded_pages)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
+        self.assertIs(dialog.stack.currentWidget(), dialog.notification_page)
+        dialog.notification_page._checks['live_alert'].setChecked(False)
+        dialog.notification_page._checks['notice_persist_warning'].setChecked(True)
+        self.assertFalse(dialog.settings()['live_alert'])
+        self.assertTrue(dialog.settings()['notice_persist_warning'])
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['shortcuts'])
+        self.assertIs(dialog.stack.currentWidget(), dialog.shortcut_page)
+        self.assertEqual(dialog.shortcuts(), dialog.shortcut_page.values())
+        self.assertEqual(set(dialog._loaded_pages), {4, 5})
+        dialog.nav.setCurrentRow(4)
+        dialog._reset_current()
+        self.assertEqual(dialog.notification_page.values(), {
+            key: DEFAULT_SETTINGS[key] for key, _label in NotificationSettingsPage.ITEMS})
+
+    def test_notification_switches_support_keyboard_click_and_explicit_states(self):
+        page = NotificationSettingsPage({})
+        self.addCleanup(page.close)
+        page.resize(500, 650)
+        page.show()
+        self.app.processEvents()
+        for key, box in page._checks.items():
+            before = box.isChecked()
+            box.setFocus()
+            QTest.keyClick(box, Qt.Key_Space)
+            self.assertEqual(box.isChecked(), not before)
+            expected = ('已启用' if box.isChecked() else '已关闭') if key == 'live_alert' else (
+                '手动关闭' if box.isChecked() else '自动收起')
+            self.assertEqual(page._states[key].text(), expected)
+            QTest.mouseClick(box, Qt.LeftButton, pos=QPoint(box.width()-2, box.height()//2))
+            self.assertEqual(box.isChecked(), before)
+            self.assertTrue(box.accessibleName())
+            self.assertTrue(box.accessibleDescription())
+            self.assertEqual(box.focusPolicy(), Qt.StrongFocus)
+
+    def test_notification_settings_cards_fit_themes_and_small_dialog(self):
+        previous = theme.mode()
+        self.addCleanup(theme.apply, previous)
+        dialog = SettingsDialog({}, {}, preview=True)
+        self.addCleanup(dialog.close)
+        dialog.nav.setCurrentRow(4)
+        dialog.show()
+        page = dialog.notification_page
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            for size in ((720, 500), (900, 650)):
+                dialog.resize(*size)
+                self.app.processEvents()
+                self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                for key, box in page._checks.items():
+                    state = page._states[key]
+                    self.assertLess(state.mapTo(page, QPoint(state.width(), 0)).x(),
+                                    box.mapTo(page, QPoint()).x()+1)
+                    self.assertGreaterEqual(state.height(), state.fontMetrics().height())
+                last = page._checks['notice_persist_info']
+                page.scroll.ensureWidgetVisible(last)
+                self.app.processEvents()
+                rect = page.scroll.viewport().rect()
+                self.assertTrue(rect.contains(last.mapTo(page.scroll.viewport(), last.rect().center())))
 
     def test_all_results_survive_toast_dismissal_and_hidden_owner(self):
         show_result(self.owner, '<b>原样文本</b>', kind='warning')

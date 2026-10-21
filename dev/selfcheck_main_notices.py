@@ -79,7 +79,7 @@ class MainNoticesTests(unittest.TestCase):
         from ddm.config import DEFAULT_SETTINGS
         dialog = SettingsDialog(DEFAULT_SETTINGS, {}, preview=True)
         self.addCleanup(dialog.close)
-        page = dialog._page(7)
+        page = dialog.notification_page
         self.assertTrue(page.values()['notice_persist_updates'])
         self.assertTrue(page.values()['notice_persist_pinned_live'])
         self.assertFalse(page.values()['notice_persist_live'])
