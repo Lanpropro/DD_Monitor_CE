@@ -17,11 +17,17 @@ from ddm import app as app_module, bili
 from ddm.account_dialog import AccountPlatformDialog
 
 
+@patch.object(app_module.MainWindow, "_check_startup_plugins", new=lambda self: None)
 def main():
+    QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     with patch.object(app_module.QTimer, "singleShot"):
-        owner = app_module.MainWindow([], [], state={"plugins_enabled": []})
+        owner = app_module.MainWindow([], [], state={
+            "plugins_enabled": [], "settings": {"auto_update": False}})
+    # 不运行宿主轮询；浏览器只加载 about:blank，身份由替身提供。
+    owner._poll_timer.stop()
+    owner._stats_timer.stop()
     owner.plugins.platforms["douyu"] = SimpleNamespace(
         kind="douyu", label="斗鱼", follow_login_url="about:blank",
         follow_cookie_domain="douyu.com", account_login_url="about:blank",
