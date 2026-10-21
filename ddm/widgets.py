@@ -33,7 +33,6 @@ from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
-from .danmaku_send import DanmakuComposer
 from .video_danmaku_settings import VideoDanmakuSettings
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
@@ -5949,13 +5948,6 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
-        self.composer = DanmakuComposer(self.bottom)
-        self.composer.set_room(room.get("room_id"))
-        bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
-        self._composer_spacer = QWidget(self.bottom)
-        self._composer_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._composer_spacer.setFixedWidth(0)
-        bottom_layout.addWidget(self._composer_spacer, 0)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -6008,9 +6000,11 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = dict(room or {})
+        controls = getattr(self, '_plugin_controls', None)
+        if controls is not None:
+            controls.set_room(self.room)
         self.codec_probe_note = ""
         self.codec_reconnect_pending = False
-        self.composer.set_room(self.room.get("room_id"))
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -6074,27 +6068,18 @@ class Tile(QFrame):
         self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
         self.videoDanmakuSettingsChanged.emit(values)
 
-    COMPOSER_MIN_WIDTH = 72
-    """输入区至少要有这么宽（表情按钮 + 几字宽的输入框），不够就不显示。"""
-
-    COMPOSER_MAX_WIDTH = 520
-    """大格子的输入框可以拉得比较长，但不铺满整条底栏。"""
-
-    @property
-    def _composer_shown(self) -> bool:
-        """这一格现在该不该露出弹幕输入区；宽度够不够由布局时判断。"""
-        return self.composer.supported
-
-    def _sync_composer_visibility(self) -> None:
-        self.composer.setVisible(self._composer_shown)
+    def plugin_interaction_active(self) -> bool:
+        controls = getattr(self, '_plugin_controls', None)
+        return controls.interaction_active() if controls is not None else False
 
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
         return (self.width(),
                 self.bottom.width(),
+                tuple((e.owner, e.key, e.control.widget.isHidden(),
+                       e.control.minimum_width, e.control.preferred_width)
+                      for e in getattr(getattr(self, '_plugin_controls', None), 'entries', ())),
                 self.isVisible(),
-                bool(self.composer.supported),
-                self.composer._room_id,
                 bool(getattr(self, "_fullscreen_controls_hidden", False)),
                 self.recording_time.text(),
                 bool(getattr(self, "_recording_available", True)),
@@ -6107,7 +6092,6 @@ class Tile(QFrame):
         if signature == getattr(self, "_bottom_layout_signature_value", None):
             return
         self._bottom_layout_signature_value = signature
-        self._sync_composer_visibility()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
@@ -6144,50 +6128,33 @@ class Tile(QFrame):
         # 原有控件的宽度完全按「没有输入区」时算，按钮位置因此不会变。
         available = width - fixed - margin * 2 - spacing * (len(visible) + 1)
         slider_width = max(18, min(86, available - 8))
-        # 空白区域用于输入栏居中，不再为底栏状态提示预留文字宽度。
-        status_min = 0
-        composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
         self.volume_slider.setFixedWidth(slider_width)
-        self._composer_spacer.setFixedWidth(0)
-        layout.setStretchFactor(self.status_label, 1)
         self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.status_label.setMinimumWidth(0)
         self.status_label.setMaximumWidth(16777215)
-        # 按固定控件宽度计算可用空间，避免为测量隐藏输入框而丢失输入焦点。
-        layout.activate()
-        composing = False
-        if self._composer_shown:
-            left_controls = [widget for widget in (self.pause_button, self.volume_button,
-                             self.volume_slider, self.volume_label) if not widget.isHidden()]
-            right_controls = [widget for widget in (self.danmaku_button, self.danmaku_settings_button,
-                              self.recording_button, self.recording_time, self.fullscreen_button)
-                              if not widget.isHidden()]
-            left = margin + sum(widget.width() for widget in left_controls) + spacing * len(left_controls)
-            right = (self.bottom.width() - margin - sum(widget.width() for widget in right_controls)
+        layout.setStretchFactor(self.status_label, 1)
+        extensions = getattr(self, '_plugin_controls', None)
+        if extensions is not None and not extensions._disposed:
+            # Existing player actions determine the free interval; extensions
+            # share one centered, bounded region without moving those actions.
+            extensions.spacer.setFixedWidth(0)
+            layout.activate()
+            left_controls = [w for w in (self.pause_button, self.volume_button,
+                self.volume_slider, self.volume_label) if not w.isHidden()]
+            right_controls = [w for w in (self.danmaku_button, self.danmaku_settings_button,
+                self.recording_button, self.recording_time, self.fullscreen_button) if not w.isHidden()]
+            left = margin + sum(w.width() for w in left_controls) + spacing * len(left_controls)
+            right = (self.bottom.width() - margin - sum(w.width() for w in right_controls)
                      - spacing * max(0, len(right_controls) - 1))
-            leftover = right - left - 3 * spacing          # 状态 + 输入区 + 右侧空位
-            composer_width = min(composer_cap, leftover - status_min)
-            if composer_width >= self.COMPOSER_MIN_WIDTH:
-                composing = True
-                self.composer.setFixedWidth(composer_width)
-                self.composer.layout().activate()
-                # 让输入区落在底栏正中；受状态文字和右侧按钮夹住时取最近位置
-                x = (self.bottom.width() - composer_width) // 2
-                x = max(left + status_min + spacing,
-                        min(x, right - 2 * spacing - composer_width))
-                status_width = x - left - spacing
-                spacer_width = right - 2 * spacing - x - composer_width
+            cap = min(520, max(300, int(width * 0.45)))
+            fitted = extensions.allocate(min(cap, max(0, right - left - 3 * spacing)))
+            if fitted:
+                x = max(left + spacing, min((self.bottom.width() - fitted) // 2,
+                                            right - 2 * spacing - fitted))
                 self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-                self.status_label.setFixedWidth(max(status_min, status_width))
-                self._composer_spacer.setFixedWidth(max(0, spacer_width))
-        self.composer.setVisible(composing)
-        self._composer_spacer.setVisible(composing)
-        if not composing:
-            self.composer.setMinimumWidth(0)
-            self.composer.setMaximumWidth(16777215)
-            layout.setStretchFactor(self.status_label, 1)
-        else:
-            layout.setStretchFactor(self.status_label, 0)
+                self.status_label.setFixedWidth(max(0, x - left - spacing))
+                layout.setStretchFactor(self.status_label, 0)
+                extensions.spacer.setFixedWidth(max(0, right - 2 * spacing - x - fitted))
         layout.activate()
 
     def set_recording_state(self, state: str) -> None:
@@ -7500,6 +7467,9 @@ class WallGrid(QWidget):
         return tile
 
     def _drop_tile(self, tile: Tile) -> None:
+        controls = getattr(tile, '_plugin_controls', None)
+        if controls is not None:
+            controls.shutdown()
         border = self._pane_borders.pop(tile, None)
         if border is not None and (self._hover_border is border or
                                    self._border_drag is not None and self._border_drag["border"] is border):

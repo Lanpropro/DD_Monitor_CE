@@ -51,17 +51,12 @@ def main():
                              'skin_sidebar': background == 'skin-sidebar'})
             QTest.qWait(20)
             for mode in ('light', 'dark', 'light'):
-                record = {'background': background, 'mode': mode, 'stylesheet_resets': 0,
-                          'composer_stylesheet_resets': 0}
-                composer_widgets = {widget for tile in window.wall.tiles for widget in
-                                    (tile.composer, tile.composer.emote_button, tile.composer.send_button)}
+                record = {'background': background, 'mode': mode, 'stylesheet_resets': 0}
                 geometry = [tile.video.geometry() for tile in window.wall.tiles]
                 skin_styles = {widget: widget.styleSheet() for widget in window.findChildren(QWidget)
                               if widget.objectName() in ('Sidebar', 'WallGrid', 'Tile', 'TileVideo', 'TileBottom', 'DanmakuPanel')}
                 def styled(widget, source):
                     record['stylesheet_resets'] += 1
-                    if widget in composer_widgets:
-                        record['composer_stylesheet_resets'] += 1
                     original_style(widget, source)
                 def snapshot(widget):
                     started = time.perf_counter()
@@ -81,15 +76,7 @@ def main():
                     window.set_appearance(mode)
                     record['prepare_ms'] = round((time.perf_counter()-started)*1000, 2)
                 assert window._theme_transition.overlays
-                assert record['composer_stylesheet_resets'] == 0, record
                 assert record['stylesheet_resets'] < 20, record
-                for tile in window.wall.tiles:
-                    button = tile.composer.send_button
-                    # 本地发送按钮使用全局状态样式；QPalette.ButtonText 不代表
-                    # QSS :disabled 的实际绘制颜色，直接检查其稳定的调色板规则。
-                    assert button.objectName() == 'DanmakuSendButton' and not button.styleSheet()
-                    assert '#DanmakuSendButton:disabled {background: transparent; color: palette(tooltip-text);' in app.styleSheet()
-                    assert not tile.composer.feedback.isVisible(), '发送状态应使用顶部提示条'
                 assert all(widget.styleSheet() == source for widget, source in skin_styles.items()), 'Skin styles must remain installed across theme switches'
                 assert [tile.video.geometry() for tile in window.wall.tiles] == geometry, 'Theme switching must not resize native video windows'
                 window._theme_transition.finish()
