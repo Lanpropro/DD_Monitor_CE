@@ -59,6 +59,7 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(len(self.center.entries), 2)
 
     def test_unread_indicator_open_read_and_new_while_open(self):
+        self.assertEqual(self.center.title.text(), '通知')
         self.center.add('新通知')
         self.assertEqual(self.button._unread, 1)
         self.assertIn('1 条未读', self.button.accessibleName())

@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
@@ -23,6 +23,26 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_toasts_anchor_on_the_left_and_stack_down(self):
+        window = self.window([])
+        window.resize(1200, 800)
+        update = UpdateNotice(window)
+        update.show_offer({'version': 'test'}, persistent=True)
+        show_result(window, '左侧通知', persistent=True)
+        result = window._result_notice
+        for side in ('left', 'top', 'left'):
+            window.sidebar.set_side(side)
+            for collapsed in (False, True):
+                window.sidebar.set_collapsed(collapsed, animate=False)
+                self.app.processEvents()
+                for card in (update, result):
+                    expected = 16
+                    if side == 'left' and window.sidebar.isVisible():
+                        expected = window.sidebar.mapTo(window, QPoint(window.sidebar.width(), 0)).x() + 12
+                    expected = max(0, min(expected, window.width() - card.width() - 16))
+                    self.assertEqual(card.x(), window.mapToGlobal(QPoint(expected, 0)).x())
+                self.assertGreater(result.y(), update.geometry().bottom())
+
     def test_notice_history_collects_results_and_update_once(self):
         window = self.window([{'room_id': '1001', 'uname': '主播甲'}])
         center = window.sidebar.notification_button.center

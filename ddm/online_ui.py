@@ -517,6 +517,9 @@ class UpdateNotice(QFrame):
         self._motion.valueChanged.connect(self._motion_frame)
         self._motion.finished.connect(self._motion_finished)
         parent.installEventFilter(self)
+        sidebar = getattr(parent, 'sidebar', None)
+        if isinstance(sidebar, QWidget):
+            sidebar.installEventFilter(self)
 
     def show_offer(self, offer, *, persistent=False):
         was_visible = self.isVisible()
@@ -578,7 +581,15 @@ class UpdateNotice(QFrame):
     def reposition(self):
         parent = self.parentWidget()
         offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2), self._stack_y() + offset)))
+        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
+
+    def _left_x(self):
+        parent = self.parentWidget()
+        left = 16
+        sidebar = getattr(parent, 'sidebar', None)
+        if isinstance(sidebar, QWidget) and sidebar.side == 'left' and sidebar.isVisible():
+            left = sidebar.mapTo(parent, QPoint(sidebar.width(), 0)).x() + 12
+        return max(0, min(left, parent.width() - self.width() - 16))
 
     def _stack_y(self):
         y = 20
@@ -618,6 +629,10 @@ class UpdateNotice(QFrame):
             super().mouseReleaseEvent(event)
 
     def eventFilter(self, watched, event):
+        if watched is not self.parentWidget():
+            if self.isVisible() and event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide):
+                self.reposition()
+            return False
         if self.isVisible():
             if event.type() in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
                 self.reposition()
@@ -779,8 +794,7 @@ class ResultNotice(UpdateNotice):
     def reposition(self):
         parent = self.parentWidget()
         offset = round(-12 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2),
-                                           self._stack_y() + offset)))
+        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False):

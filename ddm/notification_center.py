@@ -192,7 +192,7 @@ class NotificationCenter(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         heading = QHBoxLayout()
-        title = QLabel('通知 · 本次启动')
+        title = self.title = QLabel('通知')
         title.setObjectName('PluginName')
         heading.addWidget(title, 1)
         self.clear_button = QPushButton('清空')
