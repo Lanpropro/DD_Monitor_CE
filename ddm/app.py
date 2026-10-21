@@ -513,6 +513,10 @@ class MainWindow(QMainWindow):
         if plugin_offers:
             parts.append(f'{len(plugin_offers)} 个插件可更新')
         self._update_notice.title.setText(' · '.join(parts))
+        self.sidebar.notification_button.center.add(' · '.join(parts), kind='update',
+            callback=lambda: self.open_settings('updates' if self._unread_app_update() else 'plugins'),
+            action='查看更新', key=('update', (app_offer or {}).get('version', ''),
+                tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
 
     def _startup_update_failed(self, payload) -> None:
         if not self._closing:

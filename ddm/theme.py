@@ -630,6 +630,15 @@ QSlider::handle:horizontal:hover {{
     background: transparent;
     border: none;
 }}
+#NotificationCenter, #NotificationCenter QScrollArea, #NotificationList {{
+    background: transparent;
+    border: none;
+}}
+#HistoryNotice {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
 #NoticeText {{
     color: {TEXT1};
     font-weight: 500;

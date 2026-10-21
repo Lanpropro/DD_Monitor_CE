@@ -23,6 +23,22 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_notice_history_collects_results_and_update_once(self):
+        window = self.window([{'room_id': '1001', 'uname': '主播甲'}])
+        center = window.sidebar.notification_button.center
+        window._show_notice('主播甲开播了', rooms=[{'room_id': '1001'}], kind='live')
+        window._record_notice('录制已完成')
+        self.assertEqual([entry.message for entry in center.entries], ['主播甲开播了', '录制已完成'])
+        with patch.object(window, '_unread_app_update', return_value={'version': '0.5'}), \
+                patch.object(window, '_unread_plugin_updates', return_value=[]), \
+                patch.object(window, 'open_settings') as settings:
+            window._show_update_notice()
+            window._show_update_notice()
+            self.assertEqual(len(center.entries), 3)
+            self.assertEqual(center.entries[-1].message, '软件有新版 v0.5')
+            center.entries[-1].callback()
+            settings.assert_called_once_with('updates')
+
     def test_recording_and_send_notices_include_room_and_update_all_avatars(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
