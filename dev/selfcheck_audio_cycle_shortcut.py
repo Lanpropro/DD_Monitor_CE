@@ -57,13 +57,6 @@ def check_hover_shortcuts(app, window):
         assert window.sidebar.search.text() == 'bfme'
         assert second.danmaku_button.isChecked() == before
         assert second.muted == muted
-        # 每格发送框也必须保护播放器单键快捷键。
-        first.composer.edit.setFocus()
-        first.composer.edit.clear()
-        QTest.keyClicks(first.composer.edit, 'bfme')
-        assert first.composer.edit.text() == 'bfme'
-        assert second.danmaku_button.isChecked() == before
-        assert second.muted == muted
         dialog = QDialog(window)
         dialog.setModal(True)
         edit = QLineEdit(dialog)

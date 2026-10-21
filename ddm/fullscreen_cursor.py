@@ -59,6 +59,13 @@ class FullscreenCursor(QObject):
         tile = self.window._fullscreen_tile
         position = QCursor.pos()
         now = time.monotonic()
+        if tile is not None and getattr(tile, 'plugin_interaction_active', lambda: False)():
+            self._position = position
+            self._last_move = now
+            self._show()
+            tile.set_fullscreen_controls_hidden(False)
+            tile.set_controls_visible(True)
+            return
         outside = tile is not None and not tile.rect().contains(tile.mapFromGlobal(position))
         if (outside and QApplication.activePopupWidget() is None
                 and QApplication.activeModalWidget() is None and not QApplication.mouseButtons()):
@@ -82,7 +89,6 @@ class FullscreenCursor(QObject):
             foreground = user32.GetForegroundWindow()
             active = bool(foreground and user32.GetAncestor(foreground, 2) == int(self.window.winId()))
         eligible = (tile is not None and active
-                    and not tile.composer.edit.hasFocus()
                     and QApplication.activePopupWidget() is None
                     and QApplication.activeModalWidget() is None
                     and not QApplication.mouseButtons()
