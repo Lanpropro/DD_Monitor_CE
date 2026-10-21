@@ -37,8 +37,6 @@ class MainNoticesTests(unittest.TestCase):
                 self.app.processEvents()
                 for card in (update, result):
                     expected = 16
-                    if side == 'left' and window.sidebar.isVisible():
-                        expected = window.sidebar.mapTo(window, QPoint(window.sidebar.width(), 0)).x() + 12
                     expected = max(0, min(expected, window.width() - card.width() - 16))
                     self.assertEqual(card.x(), window.mapToGlobal(QPoint(expected, 0)).x())
                 self.assertGreater(result.y(), update.geometry().bottom())

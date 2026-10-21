@@ -585,11 +585,7 @@ class UpdateNotice(QFrame):
 
     def _left_x(self):
         parent = self.parentWidget()
-        left = 16
-        sidebar = getattr(parent, 'sidebar', None)
-        if isinstance(sidebar, QWidget) and sidebar.side == 'left' and sidebar.isVisible():
-            left = sidebar.mapTo(parent, QPoint(sidebar.width(), 0)).x() + 12
-        return max(0, min(left, parent.width() - self.width() - 16))
+        return max(0, min(16, parent.width() - self.width() - 16))
 
     def _stack_y(self):
         y = 20
