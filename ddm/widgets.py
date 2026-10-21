@@ -4118,7 +4118,9 @@ class Sidebar(QFrame):
                 QPushButton:pressed {{ background: {theme.ACCENT_SOFT}; }}""")
             def activate(_checked=False):
                 menu.close()
-                self.loginRequested.emit()
+                # 等 QMenu.exec 和当前鼠标回调退出，再构造模态登录窗口。
+                # 否则窗口/浏览器初始化会重入尚未收尾的原生弹出菜单。
+                QTimer.singleShot(0, self, self.loginRequested.emit)
             button.clicked.connect(activate)
             action.setDefaultWidget(button)
             menu.addAction(action)
