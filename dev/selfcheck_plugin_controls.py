@@ -148,12 +148,16 @@ class ControlsTests(unittest.TestCase):
         self.register('low', priority=0)
         self.register('high', priority=100)
         tile = self.tile({'room_id': '12'})
-        tile.resize(480, 260)
+        tile.resize(400, 260)
         APP.processEvents()
         entries = tile._plugin_controls.entries
         self.assertEqual(entries[0].owner, 'high')
         self.assertFalse(entries[0].wrapper.isHidden())
         self.assertTrue(entries[1].wrapper.isHidden())
+        # The compact volume icon frees enough room for both minima at 480px.
+        tile.resize(480, 260)
+        APP.processEvents()
+        self.assertTrue(all(e.wrapper.isVisible() and e.wrapper.width() >= 90 for e in entries))
         tile.resize(900, 400)
         APP.processEvents()
         self.assertTrue(all(not e.wrapper.isHidden() for e in entries))
@@ -163,22 +167,25 @@ class ControlsTests(unittest.TestCase):
         APP.processEvents()
         self.assertTrue(all(e.control.widget.isHidden() for e in entries))
 
-    def test_compact_controls_fit_200_360_900(self):
+    def test_compact_controls_fit_200_320_360_900(self):
         self.register()
         tile = self.tile({'room_id': '12'})
-        for width in (200, 360, 900, 1600):
+        for width in (200, 320, 360, 900, 1600):
             tile.resize(width, 260)
             APP.processEvents()
             control = self.controls[0].widget
-            self.assertEqual(control.parentWidget().isVisible(), width >= 900)
-            if width >= 900:
+            self.assertEqual(control.parentWidget().isVisible(), width >= 360)
+            if width >= 360:
                 self.assertGreaterEqual(control.width(), 90)
             self.assertTrue(tile.volume_button.isVisible())
             self.assertTrue(tile.fullscreen_button.isVisible())
             self.assertLess(tile.fullscreen_button.geometry().right(), width)
             self.assertTrue(tile.recording_button.isVisible())
             if control.parentWidget().isVisible():
-                self.assertTrue(tile.bottom.rect().contains(tile._plugin_controls.widget.geometry()))
+                region = tile._plugin_controls.widget.geometry()
+                self.assertTrue(tile.bottom.rect().contains(region))
+                self.assertGreater(region.left(), tile.volume_button.geometry().right())
+                self.assertLess(region.right(), tile.danmaku_button.x())
 
     def test_single_control_is_centered_bounded_and_stable_on_hover(self):
         self.register()

@@ -34,6 +34,7 @@ from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
+from .volume_popup import VolumePopup
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -368,10 +369,10 @@ class LoadingIndicator(BadgeSurface):
 
 
 class VolumeButton(QPushButton):
-    """音量按钮：细线喇叭 + 声道标记，静音时喇叭右边打一个 ×。
+    """紧凑音量按钮：喇叭 + 三级音量条，静音或零音量显示 ×。
 
     点击切换静音，滚轮调音量；声道（原始 / 仅左 / 仅右）由右键菜单切换，
-    这里只用 L / R 标出当前在听哪一路。
+    当前声道保留在提示中。
     """
 
     volumeChanged = Signal(int)
@@ -383,8 +384,7 @@ class VolumeButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("BiliVolumeButton")
         self._size = size
-        # 喇叭 + 右边的 L / R 两个标记：比纯图标按钮宽一点，字才不会贴边
-        self.setFixedSize(size + (8 if size >= 30 else 14), size)
+        self.setFixedSize(size, size)
         self.setCursor(Qt.PointingHandCursor)
         self.muted = False
         self.level = 42
@@ -405,24 +405,27 @@ class VolumeButton(QPushButton):
             self.CHANNEL_LEFT: "　声道：左",
             self.CHANNEL_RIGHT: "　声道：右",
         }.get(self.audio_channel, "")
-        action = "点击展开音量" if self.compact_popup else "点击静音"
+        action = "点击取消静音" if self.muted else "点击静音"
+        if self.compact_popup:
+            action += "，悬停调音量"
         self.setToolTip(f"{state}{channel}　（{action}，滚轮调音量，右键调声道）")
 
     def wheelEvent(self, event) -> None:
         step = 5 if event.angleDelta().y() > 0 else -5
         self.level = max(0, min(100, self.level + step))
-        self.muted = self.level == 0
         self._update_tooltip()
         self.update()
         self.volumeChanged.emit(self.level)
+        event.accept()
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)          # 背景由样式表画
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1) if theme.is_light()
-                 else QColor("#9499a0" if self.muted else "#f1f2f3"))
+        silent = self.muted or self.level == 0
+        color = (theme.qcolor(theme.TEXT3 if silent else theme.TEXT1) if theme.is_light()
+                 else QColor("#9499a0" if silent else "#f1f2f3"))
         if self.underMouse():
             color = QColor(theme.ACCENT)
         pen = QPen(color, 1.7)
@@ -430,8 +433,8 @@ class VolumeButton(QPushButton):
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        center = self.rect().center()
-        left = center.x() - 8
+        center = QRectF(self.rect()).center()
+        left = center.x() - 10
         top = center.y() - 6
         path = QPainterPath()
         path.moveTo(left, top + 4)
@@ -442,32 +445,22 @@ class VolumeButton(QPushButton):
         path.lineTo(left, top + 8)
         path.closeSubpath()
         painter.drawPath(path)
-        if self.muted:
+        if silent:
             # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
             cross = center.y() - 3.5
-            right = center.x() + 8.5
-            painter.drawLine(right, cross, right + 7, cross + 7)
-            painter.drawLine(right + 7, cross, right, cross + 7)
+            right = center.x() + 2
+            painter.drawLine(QPointF(right, cross), QPointF(right + 6, cross + 6))
+            painter.drawLine(QPointF(right + 6, cross), QPointF(right, cross + 6))
         else:
-            self._paint_channel(painter, top, left)
-
-    def _paint_channel(self, painter: QPainter, top: float, left: float) -> None:
-        """在喇叭右边标出当前声道：L / R，选中的那一路更亮。"""
-        font = QFont(theme.FONT_DEFAULT)
-        font.setPixelSize(8)
-        font.setBold(True)
-        painter.setFont(font)
-        for label, x, selected in (
-            ("L", left + 10.0, self.audio_channel == self.CHANNEL_LEFT),
-            ("R", left + 15.5, self.audio_channel == self.CHANNEL_RIGHT),
-        ):
-            if selected:
-                colour = QColor(theme.ACCENT)
-            else:
-                colour = QColor("#9499a0" if self.muted else "#6d737d")
-                colour.setAlpha(150)
-            painter.setPen(colour)
-            painter.drawText(QRectF(x, top + 2, 7, 9), int(Qt.AlignCenter), label)
+            bars = 1 if self.level <= 33 else 2 if self.level <= 66 else 3
+            painter.setPen(Qt.NoPen)
+            for index, height in enumerate((4, 8, 12)):
+                lit = QColor(color)
+                if index >= bars:
+                    lit.setAlpha(55)
+                painter.setBrush(lit)
+                painter.drawRoundedRect(QRectF(center.x() + 1 + index * 3,
+                                               center.y() - height / 2, 2, height), 1, 1)
 
 
 
@@ -5922,29 +5915,16 @@ class Tile(QFrame):
         self.volume_slider.setToolTip("这个格子的音量（更换主播后保持不变）")
         self.volume_slider.valueChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_slider)
-        self.volume_menu = QMenu(self)
-        self.volume_menu.setObjectName("TileVolumePopup")
-        self.volume_menu.setAttribute(Qt.WA_TranslucentBackground)
-        self.volume_menu.setWindowFlag(Qt.FramelessWindowHint, True)
-        holder = QWidget(self.volume_menu)
-        volume_layout = QVBoxLayout(holder)
-        volume_layout.setContentsMargins(8, 8, 8, 8)
-        self.vertical_volume = QSlider(Qt.Vertical, holder)
-        self.vertical_volume.setRange(0, 100)
-        self.vertical_volume.setFixedSize(26, 110)
+        self.volume_menu = VolumePopup(self.volume_button)
+        self.vertical_volume = self.volume_menu.slider
         self.vertical_volume.setValue(self.volume)
-        self.vertical_volume.setAccessibleName("当前格子的音量")
         self.vertical_volume.valueChanged.connect(self.set_volume)
-        volume_layout.addWidget(self.vertical_volume)
-        self.vertical_volume_label = QLabel(str(self.volume), holder)
-        self.vertical_volume_label.setAlignment(Qt.AlignCenter)
-        volume_layout.addWidget(self.vertical_volume_label)
-        volume_action = QWidgetAction(self.volume_menu)
-        volume_action.setDefaultWidget(holder)
-        self.volume_menu.addAction(volume_action)
+        self.vertical_volume_label = self.volume_menu.label
+        self.vertical_volume_label.setText(str(self.volume))
         self.volume_label = QLabel(str(self.volume))
         self.volume_label.setObjectName("TileTitle")
         self.volume_label.setFixedWidth(24)
+        self.volume_label.setAlignment(Qt.AlignCenter)
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
@@ -6106,8 +6086,7 @@ class Tile(QFrame):
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
-        self.volume_label.setVisible(width >= 280 and
-                                     (not self.recording_time.text() or width >= 480))
+        self.volume_label.setVisible(width >= 600)
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
         self.volume_slider.setVisible(width >= 600)
@@ -6457,16 +6436,7 @@ class Tile(QFrame):
         self.qualityChanged.emit(self.room, value)
 
     def _volume_clicked(self) -> None:
-        if not self.volume_slider.isHidden():
-            self._toggle_mute()
-            return
-        self.volume_menu.ensurePolished()
-        self.volume_menu.adjustSize()
-        anchor = self.volume_button.mapToGlobal(QPoint(self.volume_button.width() // 2, 0))
-        screen = self.screen().availableGeometry()
-        x = max(screen.left(), min(anchor.x() - self.volume_menu.width() // 2,
-                                  screen.right() - self.volume_menu.width() + 1))
-        self.volume_menu.popup(QPoint(x, max(screen.top(), anchor.y() - self.volume_menu.height() - 4)))
+        self._toggle_mute()
 
     def _toggle_mute(self) -> None:
         self.set_muted(not self.muted)

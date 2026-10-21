@@ -113,7 +113,7 @@ def check_controls(app):
             QTest.mouseClick(first.danmaku_settings_button, Qt.LeftButton)
             app.processEvents()
             menu = first.danmaku_settings_menu
-            assert menu.isVisible() and QApplication.activePopupWidget() is menu
+            assert menu.isVisible() and QApplication.activePopupWidget() is None
             assert menu.geometry().bottom() < first.danmaku_settings_button.mapToGlobal(QPoint()).y()
             slider = menu.controls["video_danmaku_size"]
             slider.setFocus()

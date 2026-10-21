@@ -19,7 +19,7 @@
 
 ```powershell
 python dev/run_checks.py --list
-python dev/run_checks.py --script selfcheck_emoticon_tabs
+python dev/run_checks.py --script selfcheck_plugin_controls
 python dev/run_checks.py --script check_live_restore -- 6
 python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backend animator
 ```
@@ -29,6 +29,18 @@ python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backen
 Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入口使用当前 Python 的解释器执行子进程，设置 `DDM_NO_SAVE=1`；离屏与原生图形后端按分类选择。每个脚本的退出码和异常保留在日志中；Windows 引导保持 MTA 资源至 Qt 清理结束。
 
 ## 结果与新增检查
+
+音量控件回归 `selfcheck_volume_popup` 已纳入 `offline`；原生 HWND 跟随和焦点保留用同一脚本单独验证：
+
+```powershell
+$env:DDM_NO_SAVE = '1'
+$env:DDM_CHECK_MODE = 'offline'
+$env:QT_QPA_PLATFORM = 'windows'
+python dev/checks/bootstrap.py dev/selfcheck_volume_popup.py
+```
+
+该检查覆盖音量和弹幕设置，创建测试窗口、模拟原生位置消息，不加载账号或播放器。
+离屏运行会跳过四项原生检查；Windows 检查包括弹幕设置的右边框对齐和打开后的键盘导航。
 
 - 日志与 `summary.json` 写入忽略目录 `work/checks/<时间>/`。
 - 所有选中项目完成后，任一失败或超时均返回退出码 `1`；参数错误返回 `2`，全部通过返回 `0`。

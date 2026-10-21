@@ -200,6 +200,7 @@ def check_codecs(app):
                 app.processEvents()
 
 
+@patch.object(app_module.MainWindow, '_check_startup_plugins', new=lambda self: None)
 def main():
     app = QApplication([])
     page = GeneralSettingsPage({"auto_quality": False, "sidebar_card_mode": False,

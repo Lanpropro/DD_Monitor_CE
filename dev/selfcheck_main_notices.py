@@ -33,7 +33,8 @@ class MainNoticesTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader'):
+                       'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
+                       '_check_startup_plugins'):
             self.stack.enter_context(patch.object(MainWindow, method))
         self.stack.enter_context(patch.object(motion, 'enabled', return_value=False))
         self.stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))

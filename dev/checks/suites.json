@@ -26,6 +26,7 @@
       "selfcheck_general_settings",
       "selfcheck_bili_codec",
       "selfcheck_tile_bottom_order",
+      "selfcheck_volume_popup",
       "selfcheck_sort_manager",
       "selfcheck_theme_latency",
       "selfcheck_brand_assets",
