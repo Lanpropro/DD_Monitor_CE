@@ -3018,8 +3018,7 @@ class FollowFolderButton(QToolButton):
         elif folder["type"] == "normal":
             menu.addAction("重命名文件夹…").triggered.connect(
                 self.begin_rename)
-        if folder["type"] != "unclassified":
-            menu.addAction("修改图标…").triggered.connect(self._edit_icon)
+        menu.addAction("修改图标…").triggered.connect(self._edit_icon)
         index = self.sidebar.folders.index(folder)
         up = menu.addAction("文件夹上移")
         up.setEnabled(index > 0)
@@ -3037,7 +3036,8 @@ class FollowFolderButton(QToolButton):
         dialog = FolderIconDialog(folder, self, existing_names=(
             item['name'] for item in self.sidebar.folders if item['id'] != self.folder_id))
         if dialog.exec() == QDialog.Accepted:
-            folder['name'] = dialog.result_name
+            if folder['type'] != 'unclassified':
+                folder['name'] = dialog.result_name
             if dialog.result_icon is None:
                 folder.pop('icon', None)
             else:
