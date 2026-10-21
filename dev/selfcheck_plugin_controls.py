@@ -75,6 +75,23 @@ class ControlsTests(unittest.TestCase):
             self.assertEqual(self.controls[0].ctx.room.get('room_id'), (room or {}).get('room_id'))
         self.assertEqual(len(self.controls), 1)
 
+    def test_room_change_notifies_plugins_after_restoring_room_audio(self):
+        tile = self.tile({'room_id': '12', 'volume': 17, 'muted': True})
+        snapshots = []
+
+        class Observer(api.TileControl):
+            def __init__(self, context):
+                super().__init__(QLineEdit(context.parent))
+
+            def set_room(self, room):
+                snapshots.append((room.get('room_id'), tile.volume, tile.muted))
+
+        self.manager.register_tile_control('observer', 'audio', Observer)
+        tile.set_room({'room_id': '13', 'volume': 0, 'muted': False})
+        self.assertEqual(snapshots[-1], ('13', 0, False))
+        self.assertEqual((tile.volume_slider.value(), tile.vertical_volume.value()), (0, 0))
+        self.assertFalse(tile.volume_button.muted)
+
     def test_failed_load_rolls_back_controls(self):
         self.tile({'room_id': '12'})
         with tempfile.TemporaryDirectory() as root:

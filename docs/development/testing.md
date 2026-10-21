@@ -63,3 +63,7 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 ```
 
 此原生检查使用真实 `QMenu.exec`、鼠标点击和平台登录窗口，在展开与收起侧栏各重复打开、取消两次；断言登录入口在菜单和鼠标回调返回后才执行。只使用合成账号与 `about:blank` 页面，禁用宿主轮询、启动更新和插件检查，不读取真实账号。外部进程超时也覆盖原生事件循环卡死。
+
+## 直播间音量与静音
+
+`python dev/run_checks.py --script selfcheck_room_audio` 使用合成直播间和播放器替身，覆盖换台、普通拖拽互换、播放中热交换、缩小布局补位、移出后重新加入及重启恢复。音量和静音按直播间保存在 `room_audio`，兼容旧版 `wall` 配置；首次加入使用默认声音，声道仍按位置保留。全屏独占声音的临时静音不覆盖保存值。

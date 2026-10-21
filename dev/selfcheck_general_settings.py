@@ -249,8 +249,9 @@ def main():
             assert [tile.volume for tile in window.wall.tiles] == [17, 23, 23, 23]
             assert all(tile.volume_slider.value() == tile.volume
                        and tile.volume_label.text() == str(tile.volume) for tile in window.wall.tiles)
-            window.wall.tiles[1].set_room({'room_id': '1', 'uname': 'Fixture'})
-            assert window.wall.tiles[1].volume == 23, 'Replacing a room must preserve slot volume'
+            window.wall.tiles[1].set_volume(91)
+            window.wall.tiles[1].set_room(window._prepare_room({'room_id': '1', 'uname': 'Fixture'}))
+            assert window.wall.tiles[1].volume == 23, 'A new room must use defaults, not the previous volume'
             saved = window.current_state()
             _, wall = config.build_rooms(saved)
             assert [room['volume'] for room in wall] == [17, 23, 23, 23]

@@ -5914,7 +5914,7 @@ class Tile(QFrame):
         self.volume_slider.setFixedWidth(86)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(self.volume)
-        self.volume_slider.setToolTip("这个格子的音量（更换主播后保持不变）")
+        self.volume_slider.setToolTip("这个直播间的音量（移动到其他位置后保持）")
         self.volume_slider.valueChanged.connect(self._adjust_volume)
         bottom_layout.addWidget(self.volume_slider)
         self.volume_menu = VolumePopup(self.volume_button)
@@ -5980,8 +5980,11 @@ class Tile(QFrame):
 
     # ---- 播放状态 ----
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
-        """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
+        """换房间时恢复该直播间的音量和静音，声道仍沿用当前位置。"""
         self.room = dict(room or {})
+        if self.room.get("room_id"):
+            self.volume = max(0, min(100, int(self.room.get("volume", 42))))
+            self.muted = bool(self.room.get("muted", True))
         controls = getattr(self, '_plugin_controls', None)
         if controls is not None:
             controls.set_room(self.room)
@@ -6021,15 +6024,11 @@ class Tile(QFrame):
         self._refresh_badge()
         self.quality = int(self.room.get("quality", AUTO_QUALITY
             if str(self.room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250))
-        # 声道和音量 / 静音一样属于**格子**，不跟着房间走：换台不该把用户调好的
+        # 声道继续属于格子位置；音量和静音随直播间恢复。换台不该把用户调好的
         # 「只播左 / 只播右」丢掉。房间自带的那份只在第一次上墙时用（_prepare_room）。
         self.room["audio_channel"] = self.audio_channel
         self.quality_button.setText(self._quality_text())
-        self.volume_slider.blockSignals(True)
-        self.volume_slider.setValue(self.volume)
-        self.volume_slider.blockSignals(False)
-        self.volume_label.setText(str(self.volume))
-        self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
+        self.sync_audio_ui()
         self.set_status("" if self.room.get("live") else "未开播")
         self.stop_elapsed_timer()
         self._layout_cover()
@@ -6991,9 +6990,8 @@ class Tile(QFrame):
     def sync_audio_ui(self) -> None:
         """按自己的 volume / muted / audio_channel 重画音量条（不发信号）。
 
-        「秒切」把音量 / 静音 / 声道在对调的两个格子之间换了位，但只改了
-        ``self.volume`` 这几个值、没重画控件 —— 用户看到的就是「音量条跟着画面
-        跑过去，跟实际听到的声音对不上」。
+        换房间或声道调整后，按已恢复的直播间声音刷新全部控件，
+        避免刷新滑块触发用户调音量的自动解除静音逻辑。
         """
         self._sync_vertical_volume()
         if self.volume_slider.value() != self.volume:
