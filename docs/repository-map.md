@@ -37,6 +37,7 @@
 - `dev/selfcheck_add_room_hints.py`
 - `dev/selfcheck_alt_tab_orientation.py`
 - `dev/selfcheck_appearance.py`
+- `dev/selfcheck_titlebar.py`
 - `dev/selfcheck_appearance_design.py`
 - `dev/selfcheck_appearance_playback.py`
 - `dev/selfcheck_audio_audit.py`
