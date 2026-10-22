@@ -186,7 +186,7 @@ class DanmakuEdit(QLineEdit):
         super().inputMethodEvent(event)
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and self._composing:
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and (self._composing or event.isAutoRepeat()):
             event.accept()
             return
         if event.key() == Qt.Key_Escape:
