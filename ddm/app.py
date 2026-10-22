@@ -559,6 +559,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "观看直播", "无法打开默认浏览器，请检查系统浏览器设置。")
 
     def _normalize_room_input(self, text: str) -> str | None:
+        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
+        text = extract_room_input(text)
         platform = self.plugins.platform_for(text)
         if platform is not None:
             profile = getattr(platform, "profile_sec_uid", None)
@@ -573,6 +575,10 @@ class MainWindow(QMainWindow):
                     raise ValueError("主页读取已取消，可重新粘贴主页链接重试")
                 return room_id
             return platform.normalize(text)
+        if room_id := bili_room_id(text):
+            return room_id
+        if is_bili_short_url(text):
+            return text  # Expand the short link in InfoResolver's background thread.
         # 未装载的平台输入不能被旧的数字提取误当作 B 站房间。
         if ":" in text and urlsplit(text).hostname != "live.bilibili.com":
             raise ValueError("未识别平台，请启用对应的平台插件并重启")
@@ -3112,11 +3118,13 @@ class MainWindow(QMainWindow):
         self._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
 
     def _add_room_id(self, room_id: str, *, folder_id: str = "") -> None:
+        from .room_input import is_bili_short_url
+        short_link = is_bili_short_url(room_id)
         if any(str(room.get("room_id")) == room_id for room in self.sidebar.rooms()):
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = self.plugins.platform_for(room_id)
-        if ":" in room_id:
+        if ":" in room_id and not short_link:
             if platform is None:
                 QMessageBox.warning(self, "添加直播间", "请启用对应的平台插件并重启")
                 return
@@ -3134,8 +3142,15 @@ class MainWindow(QMainWindow):
         print(f"正在查询房间 {room_id} ...")
         resolver = InfoResolver(room_id, self)
         resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id))
-        resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
+        if short_link:
+            resolver.failed.connect(lambda _rid: QMessageBox.warning(
+                self, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
+                if not self._closing else None)
+        else:
+            resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
+        resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
         resolver.finished.connect(resolver.deleteLater)
+        self._platform_info_running.add(resolver)
         resolver.start()
 
     def _on_room_added(self, room: dict, *, folder_id: str = "") -> None:

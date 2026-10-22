@@ -35,6 +35,7 @@
 - `dev/selfcheck_accounts.py`
 - `dev/selfcheck_add_room_folder.py`
 - `dev/selfcheck_add_room_hints.py`
+- `dev/selfcheck_mobile_share.py`
 - `dev/selfcheck_alt_tab_orientation.py`
 - `dev/selfcheck_appearance.py`
 - `dev/selfcheck_appearance_design.py`
