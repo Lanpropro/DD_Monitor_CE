@@ -2,7 +2,7 @@
 import os
 import threading
 
-from PySide6.QtCore import QEvent, QObject, QTimer, QUrl, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, QUrl, Qt
 from PySide6.QtGui import QImage, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
@@ -160,14 +160,23 @@ class QuickDanmakuLayer(QObject):
         self.group_component = self._component(_GROUP_QML, "VideoDanmakuGroup.qml")
         self.comment_component = self._component(_COMMENT_QML, "VideoDanmaku.qml")
 
-        self.window = QQuickWindow(parent.windowHandle())
+        # An owned top-level swap chain avoids opaque child-window composition
+        # after Windows moves the playback wall between monitors.
+        self.window = QQuickWindow()
+        self.window.setTransientParent(parent.window().windowHandle())
+        parent.destroyed.connect(self.window.deleteLater)
+        self._empty_hide = QTimer(self)
+        self._empty_hide.setSingleShot(True)
+        self._empty_hide.timeout.connect(self.window.hide)
         surface_format = QSurfaceFormat()
         surface_format.setAlphaBufferSize(8)
         self.window.setFormat(surface_format)
-        self.window.setFlags(Qt.WindowType.SubWindow | Qt.WindowType.FramelessWindowHint |
-                             Qt.WindowType.WindowTransparentForInput)
+        self.window.setFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
+                             Qt.WindowType.WindowTransparentForInput |
+                             Qt.WindowType.WindowDoesNotAcceptFocus)
         self.window.setColor(Qt.GlobalColor.transparent)
-        self.window.setGeometry(0, 0, parent.width(), parent.height())
+        self.window.setGeometry(parent.mapToGlobal(QPoint()).x(), parent.mapToGlobal(QPoint()).y(),
+                                parent.width(), parent.height())
         self.stage = self.stage_component.create()
         if self.stage is None:
             raise RuntimeError(self.stage_component.errorString())
@@ -183,6 +192,8 @@ class QuickDanmakuLayer(QObject):
         self._active_groups = set()
         self._set_layered()
         parent.window().installEventFilter(self)
+        if parent is not parent.window():
+            parent.installEventFilter(self)
         parent.window().windowHandle().screenChanged.connect(self.reset_surface)
 
     def _component(self, source, name):
@@ -207,12 +218,19 @@ class QuickDanmakuLayer(QObject):
         user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x00000002)
 
     def eventFilter(self, watched, event):
-        if event.type() in (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange):
+        kind = event.type()
+        if kind in (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange):
             self.reset_surface()
-        elif event.type() == QEvent.WindowStateChange:
+        elif kind == QEvent.WindowStateChange:
             changed = event.oldState() ^ watched.windowState()
-            if changed & (Qt.WindowMaximized | Qt.WindowFullScreen):
+            if changed & (Qt.WindowMaximized | Qt.WindowFullScreen | Qt.WindowMinimized):
                 self.reset_surface()
+        elif kind in (QEvent.Hide, QEvent.Close):
+            self.window.hide()
+        elif kind in (QEvent.Move, QEvent.Resize):
+            self.resize()
+        elif kind == QEvent.Show:
+            self.show()
         return False
 
     def reset_surface(self, _screen=None):
@@ -224,23 +242,33 @@ class QuickDanmakuLayer(QObject):
     def _restore_surface(self):
         if not self.parent.isVisible() or self.parent.window().isMinimized():
             return
-        # Recreate only the child surface; retain QML items, motion and video HWNDs.
+        # Recreate only the overlay surface; retain QML items, motion and video HWNDs.
         self.window.hide()
         self.window.destroy()
+        self.resize()
         self._set_layered()
         self._surface_dirty = False
         self.show()
 
     def show(self):
+        self._empty_hide.stop()
         self.resize()
+        has_items = any(self.groups[record["group"]].isVisible()
+                        for record in self.items.values())
+        if (not has_items or not self.parent.isVisible()
+                or self.parent.window().isMinimized()):
+            self.window.hide()
+            return
         if self._surface_dirty:
             self._surface_reset.start(100)
             return
-        self.window.show()
-        self.window.raise_()
+        if not self.window.isVisible():
+            self.window.show()
+            self.window.raise_()
 
     def resize(self):
-        self.window.setGeometry(0, 0, self.parent.width(), self.parent.height())
+        point = self.parent.mapToGlobal(QPoint())
+        self.window.setGeometry(point.x(), point.y(), self.parent.width(), self.parent.height())
         self.stage.setWidth(self.parent.width())
         self.stage.setHeight(self.parent.height())
         if self._surface_reset.isActive():
@@ -278,6 +306,7 @@ class QuickDanmakuLayer(QObject):
         group = self.groups.get(identifier)
         if group is not None:
             group.setVisible(bool(visible))
+            self.show()
 
     def set_group_opacity(self, identifier, opacity):
         group = self.groups.get(identifier)
@@ -341,6 +370,7 @@ class QuickDanmakuLayer(QObject):
                                   "speed": speed}
         self.set_group_active(group_id, True)
         self.move(identifier, x, y)
+        self.show()
         return identifier
 
     def update(self, identifier, image, x, y, width, height, speed=0):
@@ -383,6 +413,9 @@ class QuickDanmakuLayer(QObject):
         record["item"].deleteLater()
         self.images.remove_image(record["key"])
         self.set_group_active(record["group"], record["group"] in self._active_groups)
+        if not self.items:
+            # Let the render thread finish a Python frame callback before hiding.
+            self._empty_hide.start(0)
 
     def clear_group(self, identifier):
         for item_id, record in tuple(self.items.items()):

@@ -10,7 +10,7 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 from types import MethodType, SimpleNamespace
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QThread, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
@@ -31,11 +31,13 @@ def check_quick_surface_recovery(app):
 
     parent = Mock()
     parent.width.return_value, parent.height.return_value = 800, 450
+    parent.mapToGlobal.return_value = QPoint(120, 80)
     parent.isVisible.return_value = True
     parent.window.return_value.isMinimized.return_value = False
     layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(),
-                            _surface_reset=QTimer(), _surface_dirty=False,
-                            _set_layered=Mock())
+                            _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
+                            _set_layered=Mock(), items={1: {"group": 1}}, groups={1: Mock()})
+    layer.window.isVisible.return_value = False
     layer._surface_reset.setSingleShot(True)
     for name in ('reset_surface', 'resize', 'show', '_restore_surface'):
         setattr(layer, name, MethodType(getattr(QuickDanmakuLayer, name), layer))
@@ -84,6 +86,28 @@ def check_quick_surface_recovery(app):
     layer.window.reset_mock()
     assert not QuickDanmakuLayer.eventFilter(layer, parent, QEvent(QEvent.Move))
     assert not layer._surface_reset.isActive(), 'Ordinary moves must not recreate surfaces'
+    layer.window.setGeometry.assert_called_with(120, 80, 800, 450)
+    layer.window.reset_mock()
+    layer.items.clear()
+    layer.show()
+    layer.window.hide.assert_called_once()
+    layer.window.show.assert_not_called()
+    layer.items[1] = {"group": 1, "item": Mock(), "key": "1"}
+    layer.groups[1].isVisible.return_value = False
+    layer.show()
+    layer.window.show.assert_not_called()
+    layer.groups[1].isVisible.return_value = True
+    layer.show()
+    layer.window.show.assert_called_once()
+    layer.window.reset_mock()
+    layer.items.clear()
+    layer._active_groups = set()
+    layer.images = Mock()
+    layer.set_group_active = Mock()
+    layer.items[1] = {"group": 1, "item": Mock(), "key": "1"}
+    QuickDanmakuLayer.remove(layer, 1)
+    layer._empty_hide.start.assert_called_once_with(0)
+    assert not layer.items, 'Deleting the last tile must not leave an opaque shared window'
 
 
 def check_fonts(app):

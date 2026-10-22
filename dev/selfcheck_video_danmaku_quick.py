@@ -34,7 +34,7 @@ def settle(app, seconds=0.15):
 
 
 def capture(tile):
-    point = tile.video.mapToGlobal(QPoint())
+    point = tile.video.mapToGlobal(QPoint()) - tile.screen().geometry().topLeft()
     return tile.screen().grabWindow(0, point.x(), point.y(),
                                     tile.video.width(), tile.video.height()).toImage()
 
@@ -53,20 +53,36 @@ def brightest_text(image, tile):
 
 def check_screen_surfaces(app, window, layer, players):
     target = window.wall.tiles[0]
-    handles = [int(tile.video.winId()) for tile in window.wall.tiles]
+    handles = {tile: int(tile.video.winId()) for tile in window.wall.tiles}
     main_handle = int(window.winId())
     groups = dict(layer.groups)
-    items = dict(layer.items)
+    items = {key: record for key, record in layer.items.items()
+             if record["group"] == target.video_danmaku._quick_group}
     before = [float(player._prop("time-pos", 0) or 0) for player in players]
     target.quality = AUTO_QUALITY  # Keep the synthetic video source in fullscreen.
     screens = app.screens()
     for screen in screens + screens[:1]:
         area = screen.availableGeometry()
+        window._begin_interactive_resize()
+        window.showNormal()
         window.setGeometry(area.x() + 30, area.y() + 30,
                            min(1100, area.width() - 60), min(700, area.height() - 60))
+        window._finish_interactive_resize()
         window.activateWindow()
         settle(app, .5)
         assert window.screen() is screen, "Test window must reach the selected monitor"
+        window.showMaximized()
+        settle(app, .6)
+        assert not layer._surface_dirty
+        assert layer.window.parent() is None
+        assert layer.window.position() == window.wall.mapToGlobal(QPoint())
+        assert layer.window.size() == window.wall.size()
+        desktop = capture(target)
+        pixel = desktop.pixelColor(desktop.width() * 3 // 4, desktop.height() // 2)
+        assert pixel.blue() > 180 and pixel.red() < 50, ("Maximized video hidden", screen.name(), pixel.name())
+        print("maximized desktop video:", screen.name(), pixel.name())
+        window.showNormal()
+        settle(app, .4)
         for fullscreen in (True, False):
             if fullscreen:
                 window._on_fullscreen(target)
@@ -78,10 +94,14 @@ def check_screen_surfaces(app, window, layer, players):
             settle(app, .6)
             assert not layer._surface_dirty and not layer._surface_reset.isActive()
             assert int(window.winId()) == main_handle
-            assert [int(tile.video.winId()) for tile in window.wall.tiles] == handles
-            assert layer.groups == groups and layer.items == items
+            assert all(tile in window.wall.tiles and int(tile.video.winId()) == handle
+                       for tile, handle in handles.items())
+            assert all(layer.groups.get(key) is group for key, group in groups.items())
+            assert all(layer.items.get(key) is record for key, record in items.items()), \
+                "Visible tile must retain its comment objects; hidden tiles may clear theirs"
             # Fullscreen changes mask geometry; every group must retain its source.
-            assert all(group.property("maskLoaded") for group in layer.groups.values())
+            assert all(layer.groups[record["group"]].property("maskLoaded")
+                       for record in layer.items.values())
             assert all(record["item"].property("imageLoaded") for record in layer.items.values())
             image = layer.window.grabWindow()
             assert not image.isNull(), "Restored Quick surface must render"
@@ -89,12 +109,14 @@ def check_screen_surfaces(app, window, layer, players):
             assert pixel.alpha() == 0, "Empty Quick surface must remain transparent"
             if int(ctypes.windll.user32.GetForegroundWindow()) == main_handle:
                 desktop = capture(target)
-                pixel = desktop.pixelColor(desktop.width() * 3 // 4, desktop.height() * 3 // 4)
+                pixel = desktop.pixelColor(desktop.width() * 3 // 4, desktop.height() // 2)
                 assert pixel.blue() > 180 and pixel.red() < 50, \
                     "Cross-screen fullscreen must show blue video underneath danmaku"
                 print("desktop video visible:", screen.name(), fullscreen, pixel.name())
             print("surface recovered:", screen.name(), "DPR", screen.devicePixelRatio(),
                   "fullscreen", fullscreen, "alpha", image.hasAlphaChannel())
+        window.showMaximized()
+        settle(app, .4)
     assert all(float(player._prop("time-pos", 0) or 0) > old
                for player, old in zip(players, before)), "All local players must continue"
     print("Cross-screen/fullscreen surface, alpha, textures and stable video HWNDs: PASS")
@@ -119,6 +141,8 @@ def main():
                         "-pix_fmt", "yuv420p", source], check=True)
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2",
                             state={"plugins_enabled": []})
+        if "--surface-only" in sys.argv:
+            window.setWindowFlag(Qt.WindowStaysOnTopHint)
         window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)
         window.setGeometry(40 if visible else -20000, 60 if visible else -20000, 1200, 800)
         window.show()
@@ -182,6 +206,11 @@ def main():
             if "--surface-only" in sys.argv:
                 check_screen_surfaces(app, window, layer, players)
                 return
+            assert layer.window.parent() is None, "Quick overlay must not use a native child swap chain"
+            assert layer.window.transientParent() is window.windowHandle()
+            assert layer.window.flags() & Qt.WindowDoesNotAcceptFocus
+            assert not user32.GetWindowLongW(int(layer.window.winId()), -16) & 0x40000000, \
+                "Cross-monitor danmaku must not use WS_CHILD"
             frames = []
             layer.window.frameSwapped.connect(lambda: frames.append(time.perf_counter_ns()))
             for tile in window.wall.tiles:
@@ -370,6 +399,13 @@ def main():
             assert not late_frames, ("清空后的场景必须停止持续刷新；"
                                      f"总帧={len(frames)}，末帧延迟="
                                      f"{(frames[-1] - idle_start) / 1e6 if frames else None}ms")
+            assert not layer.window.isVisible(), "Clearing all comments must hide the shared window"
+            assert overlay.add_event({"text": "resume after empty scene"})
+            settle(app, .15)
+            assert layer.window.isVisible(), "A new comment must restore the overlay"
+            overlay.clear()
+            settle(app, .1)
+            assert not layer.window.isVisible()
             print("共享 Quick 窗口、D3D11、4 格纹理、不透明度状态、鼠标穿透样式、暂停/恢复、全屏圆角状态及空闲停刷：通过")
         finally:
             window.close()
