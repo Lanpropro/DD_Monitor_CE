@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import runpy
 import sys
+import tempfile
 from unittest.mock import Mock, patch
 import unittest
 
@@ -13,9 +14,9 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QPixmap, QColor
+from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -23,6 +24,76 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_recording_file_notices_shorten_paths_and_reflow_on_resize(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        window = self.window([room])
+        filename = '主播甲_' + '很长的录像文件名_' * 18 + '20261020_120000_part002.mp4'
+        path = str(Path(tempfile.gettempdir()) / ('深层目录' * 25) / filename)
+        for prefix in ('已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放'):
+            window.recorder._say(prefix + '：' + path, room)
+            notice = window._result_notice
+            self.assertEqual(notice._file_path, path)
+            self.assertIn('1001', notice._avatars)
+            self.assertNotIn(str(Path(path).parent), notice.title.text())
+            self.assertIn('…', notice.title.text())
+            self.assertTrue(notice.title.text().endswith('.mp4'))
+            self.assertIn(path, notice.toolTip())
+            self.assertFalse(notice.title.wordWrap())
+            self.assertEqual(notice.height(), 48)
+            for width in (320, 1000):
+                window.resize(width, 700)
+                self.app.processEvents()
+                self.assertLessEqual(notice.width(), min(480, window.width() - 32))
+                self.assertEqual(notice.height(), 48)
+                self.assertLessEqual(notice.title.fontMetrics().horizontalAdvance(notice.title.text()),
+                                     notice.title.width())
+            notice.dismiss(animate=False)
+        window.recorder._say('已保存录制：' + str(Path(tempfile.gettempdir()) / 'short.mp4'), room)
+        self.assertEqual(window._result_notice.title.text(), '已保存录制：short.mp4')
+        window.recorder._say('导出失败；原始分段仍保留在 .ddm-parts：错误目录', room)
+        self.assertEqual(window._result_notice._file_path, '')
+        self.assertIn('错误目录', window._result_notice.title.text())
+
+    def test_recording_file_click_and_context_copy_use_full_path(self):
+        window = self.window([{'room_id': '1001', 'uname': '主播甲'}])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / '中文 name, & test.mp4'
+            path.touch()
+            window.recorder._say('已保存录制：' + str(path), {'room_id': '1001'})
+            notice = window._result_notice
+            with patch('ddm.online_ui.subprocess.Popen') as reveal, \
+                    patch('ddm.online_ui.sys.platform', 'win32'), \
+                    patch.object(window, '_open_room_browser') as browser:
+                QTest.mouseClick(notice.title, Qt.LeftButton)
+                reveal.assert_called_once_with(['explorer.exe', '/select,', str(path)])
+                browser.assert_not_called()
+                self.assertFalse(notice.isVisible())
+            window.recorder._say('已保存录制：' + str(path), {'room_id': '1001'})
+            notice = window._result_notice
+            original_clipboard = self.app.clipboard().text()
+            self.addCleanup(self.app.clipboard().setText, original_clipboard)
+            def select_copy(menu, point):
+                actions = menu.actions()
+                self.assertEqual([action.text() for action in actions], ['打开文件位置', '复制完整路径'])
+                actions[1].trigger()
+            menu = QMenu(notice)
+            with patch('ddm.online_ui.QMenu', return_value=menu), \
+                    patch.object(menu, 'exec', side_effect=lambda point: select_copy(menu, point)) as context:
+                point = notice.rect().center()
+                event = QContextMenuEvent(QContextMenuEvent.Mouse, point, notice.mapToGlobal(point))
+                self.assertTrue(notice.isEnabled())
+                self.assertEqual(notice.contextMenuPolicy(), Qt.DefaultContextMenu)
+                self.assertEqual(notice._file_path, str(path))
+                self.app.sendEvent(notice, event)
+                context.assert_called_once()
+            self.assertEqual(self.app.clipboard().text(), str(path))
+            self.assertTrue(notice.isVisible())
+            self.assertTrue(notice.timer.isActive())
+            path.unlink()
+            with patch('ddm.online_ui.QDesktopServices.openUrl', return_value=True) as folder:
+                notice._open_file_location()
+                self.assertEqual(Path(folder.call_args.args[0].toLocalFile()), path.parent)
+
     def test_recording_and_send_notices_include_room_and_update_all_avatars(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
