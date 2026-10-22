@@ -1458,6 +1458,13 @@ class AddRoomDialog(AnimatedDialog):
 
     def accept(self) -> None:
         text = self.edit.text().strip()
+        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
+        try:
+            text = extract_room_input(text)
+        except ValueError as error:
+            self.hint.setText(str(error))
+            self.hint.setStyleSheet(f"color: {theme.ERROR}")
+            return
         if self.room_id_resolver is not None:
             try:
                 room_id = self.room_id_resolver(text)
@@ -1469,10 +1476,9 @@ class AddRoomDialog(AnimatedDialog):
                 self.room_id = room_id
                 super().accept()
                 return
-        # 优先从直播间链接里取房间号（链接后面常带一堆参数，不能取最后一个数字）
-        match = re.search(r"live\.bilibili\.com/(?:blanc/)?(\d+)", text)
-        room_id = match.group(1) if match else ""
-        if not room_id:
+        # Short links are expanded later by the existing background info query.
+        room_id = text if is_bili_short_url(text) else bili_room_id(text)
+        if not room_id and '://' not in text:
             digits = re.findall(r"\d+", text)
             room_id = digits[0] if len(digits) == 1 else ""
         if not room_id:
