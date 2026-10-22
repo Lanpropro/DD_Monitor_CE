@@ -8,7 +8,9 @@
 
 可在 Windows“已安装的应用”、开始菜单，或安装目录的 `DDMonitorUninstall.exe` 启动卸载。后者是约 128KB 的本机入口，只定位并启动 `.ddm-uninstall` 内唯一的卸载 EXE，随后退出；真正卸载仍由 Inno 的逐文件记录管理，不重命名或移动原记录。目录内卸载 EXE 缺失或不唯一时提示使用 Windows 设置，避免猜测。开始菜单快捷方式仍遵循已有同名文件不接管的规则。修复安装不主动删除旧版已安装的说明文件，它们仍由原卸载记录管理。
 
-交互卸载提供默认不勾选的“同时清除本机登录账号和软件设置”。仅清理 `utils/config.json`、其 `.bak` 备份，以及内置平台 AccountStore 的明确账号文件（`.bin` / `.tmp`）：bilibili、douyin、douyu、huya、youtube、twitch、douyin_follows、youtube_oauth_client、twitch_oauth_client。包括配置内的关注、布局和插件设置，不删除插件文件。第三方插件自行保存的凭据不在此白名单内，仍保留。录制、用户插件、皮肤、日志、缓存及其他文件始终保留；不递归清空 `utils` 或账号目录。静默卸载始终保留个人信息。已知清理路径包含链接时跳过整个个人信息清理并提示，删除失败也提示保留。清理前需退出应用，避免在退出时重新保存配置。
+交互卸载提供默认不勾选的“同时清除可识别的个人信息（账号和设置）”。仅清理 `utils/config.json`、其 `.bak` 备份，以及内置平台 AccountStore 的明确账号文件（`.bin` / `.tmp`）：bilibili、douyin、douyu、huya、youtube、twitch、douyin_follows、youtube_oauth_client、twitch_oauth_client。包括配置内的关注、布局和插件设置，不删除插件文件。第三方插件自行保存的凭据不在此白名单内，仍保留。
+
+用户自行放入的文件可能位于任何目录；无法确认归属的文件一律保留。现有插件、皮肤、日志和缓存没有逐文件来源记录，因此即使名称看起来像软件生成的文件，也不自动删除。不按扩展名、名称模式、JSON 内容或目录位置猜测归属。录制始终保留；不递归清空 `utils`、账号或其他数据目录，卸载后目录可能仍有内容。静默卸载始终保留个人信息。已知清理路径包含链接时跳过整个个人信息清理并提示，删除失败也提示保留。清理前需退出应用，避免在退出时重新保存配置。
 
 ## 安装与卸载的边界
 
@@ -27,8 +29,11 @@
 ```powershell
 python dev/build_setup.py --payload "<已验证的便携目录>" --out-dir "<产物目录>" --iscc "<Inno Setup 的 ISCC.exe>"
 python dev/selfcheck_setup.py
+python dev/check_setup_data_cleanup.py --iscc "<Inno Setup 的 ISCC.exe>"
 python dev/check_setup_install.py --setup "<产物目录>\DDMonitorSetup.exe" --payload "<已验证的便携目录>" --update-zip "<同版本 EXE ZIP>"
 ```
+
+`check_setup_data_cleanup.py` 在原生入口构建完成后单项执行，不加入通用批量套件。它使用独立 AppId 和微型合成安装，不接管真实安装；测试脚本仅在生成的临时脚本内注入“已勾选”状态，以覆盖实际删除分支。验证默认保留、主动清理、路径链接保护，以及安装根目录、账号、插件、皮肤、日志、缓存和程序内部目录中 14 项额外文件的保留。即使额外文件的名称看起来像日志或缓存也必须保留。
 
 最后一项仅限 Windows，使用项目 `work/` 下的临时目录、合成配置及临时插件。它真实运行安装器和卸载器；若当前账号已有该安装器的卸载登记会直接拒绝，避免接管已有安装。检查包括非空目录拒绝、修复安装、冻结程序启动与分享链接代码、更新清理范围、目录链接保护，以及卸载后的个人文件和相邻目录保留。不读取真实账号、不启动真实直播、不关闭用户的软件。
 

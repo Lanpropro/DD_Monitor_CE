@@ -120,8 +120,8 @@ Name: "chinesesimp"; MessagesFile: "{ROOT / 'dev/installer/ChineseSimplified.isl
 
 [Messages]
 WelcomeLabel1=欢迎安装 {DISPLAY_NAME}
-WelcomeLabel2=安装程序将安装 {DISPLAY_NAME} {VERSION}。%n%n卸载默认保留个人数据，可主动选择清除账号和设置。录制、用户插件、皮肤及其他文件继续保留。
-ConfirmUninstall=确定卸载 %1？%n%n将按所选范围卸载。未选择清除个人信息时，账号和设置会保留；录制、用户插件、皮肤及其他文件始终保留。
+WelcomeLabel2=安装程序将安装 {DISPLAY_NAME} {VERSION}。%n%n卸载默认保留个人数据，可主动清除可识别的个人信息。录制和未登记来源的文件始终保留。
+ConfirmUninstall=确定卸载 %1？%n%n将按所选范围卸载。未勾选清理时保留个人数据；录制和未登记来源的文件始终保留，不会整目录清空。
 
 [Tasks]
 Name: desktopicon; Description: "创建桌面快捷方式"; Flags: unchecked
@@ -229,15 +229,15 @@ begin
     Choice := TNewCheckBox.Create(Form);
     Choice.Parent := Form;
     Choice.SetBounds(ScaleX(20), ScaleY(25), ScaleX(430), ScaleY(35));
-    Choice.Caption := '同时清除本机登录账号和软件设置';
+    Choice.Caption := '同时清除可识别的个人信息（账号和设置）';
     Choice.Checked := False;
     Description := TNewStaticText.Create(Form);
     Description.Parent := Form;
     Description.SetBounds(ScaleX(20), ScaleY(78), ScaleX(430), ScaleY(115));
     Description.AutoSize := False;
     Description.WordWrap := True;
-    Description.Caption := '默认保留，便于以后重新安装。勾选后清除内置平台的登录凭据、关注房间、布局和设置及其备份。' + #13#10 + #13#10 +
-      '录制、用户插件、皮肤、日志、缓存和其他文件继续保留。清理前请先退出软件。';
+    Description.Caption := '默认保留。勾选后清除内置平台的登录凭据、关注房间、布局和设置及其备份。' + #13#10 + #13#10 +
+      '录制和未登记来源的文件始终保留。现有插件、皮肤、日志和缓存没有逐文件来源记录，因此保留，安装目录可能仍有内容。清理前请退出软件。';
     ProceedButton := TNewButton.Create(Form);
     ProceedButton.Parent := Form;
     ProceedButton.SetBounds(ScaleX(260), ScaleY(215), ScaleX(90), ScaleY(30));

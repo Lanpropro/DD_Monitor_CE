@@ -30,6 +30,7 @@
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
 - `dev/check_setup_install.py`
+- `dev/check_setup_data_cleanup.py`
 - `dev/selfcheck_setup.py`
 - `dev/build_setup.py`
 - `dev/installer/ChineseSimplified.isl`

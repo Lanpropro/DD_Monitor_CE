@@ -94,6 +94,8 @@ class SetupTests(unittest.TestCase):
         self.assertIn('RemovePersonalData := Choice.Checked', source)
         self.assertIn('(Step = usUninstall) and RemovePersonalData', source)
         self.assertIn('if not PersonalPathsSafe then CleanupFailed := True', source)
+        self.assertIn('未登记来源的文件始终保留', source)
+        self.assertIn('没有逐文件来源记录，因此保留', source)
         for name in PERSONAL_FILES:
             self.assertTrue(name.startswith('utils/'))
             self.assertNotIn('*', name)
