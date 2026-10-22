@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -128,7 +129,7 @@ def check(setup, payload, update_zip):
             '.ddm-uninstall/user-added.txt': b'user uninstall directory file',
             'plugins_user/setup_probe/plugin.py': PROBE.encode('utf-8'),
             'plugins_user/setup_probe/plugin.json': json.dumps({'id': 'setup_probe',
-                'name': 'Setup check', 'version': '1.0'}).encode()}
+                'name': 'Setup check', 'description': 'Isolated install check', 'version': '1.0'}).encode()}
         for name, value in data.items():
             path = install / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +161,8 @@ def check(setup, payload, update_zip):
             if process.poll() is None:
                 process.kill()  # Only this isolated probe process.
             process.wait(timeout=10)
+            for log in (install / 'logs').glob('ddm-*.log'):
+                shutil.copy2(log, logs / ('frozen-' + log.name))
 
         obsolete = install / '_internal/obsolete-setup-test.dll'
         obsolete.write_bytes(b'registered old runtime')
