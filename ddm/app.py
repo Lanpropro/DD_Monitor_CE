@@ -186,6 +186,11 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        if "video_danmaku_outline" in saved_settings:
+            self.settings["video_danmaku_outline_width"] = (
+                saved_settings.get("video_danmaku_outline_width", 2)
+                if saved_settings["video_danmaku_outline"] else 0)
+            self.settings.pop("video_danmaku_outline", None)
         emoticon_order.load(self.state.get('emoticon_order'))
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
         if not isinstance(self.settings.get('skin_background'), str):

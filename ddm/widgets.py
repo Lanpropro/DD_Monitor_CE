@@ -6754,6 +6754,7 @@ class Tile(QFrame):
                square_corners,
                int(self.video.winId()) if self.video.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) else 0)
         if key == self._video_mask_key and not self.video.mask().isEmpty():
+            self._update_quick_danmaku_mask()
             return
         self._video_mask_key = key
         path = QPainterPath()
