@@ -19,7 +19,7 @@
 | 窗口缩放性能 | [交互、模块分工与验收](resize-performance.md) |
 | 直播间组合预设 | [首版试用、设计与验收清单](room-presets-design.md) |
 | 更新机制 | [在线更新](online-updates.md) |
-| 版本记录 | [0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
+| 版本记录 | [0.5](releases/RELEASE-v0.5.md)、[0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
 | 第三方来源 | [NOTICE](NOTICE.md)、[许可证](../LICENSE) |
 | 规划 | [自定义规划](customization-plan.md)、[独立网站历史规划](website-plan.md) |
 | 历史反馈 | [2026-10-02 问题记录](archive/BUG-STATUS-2026-10-02.md)，含当时未确认事项，不等于当前状态 |

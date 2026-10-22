@@ -20,7 +20,7 @@
 
 ## 项目简介
 
-DD监控室CE 是一款基于 Python、PySide6 和 libmpv 的 Windows 多窗口直播监控工具，当前版本为 **0.4**。
+DD监控室CE 是一款基于 Python、PySide6 和 libmpv 的 Windows 多窗口直播监控工具，当前版本为 **0.5**。
 
 开发版已整合 libmpv 播放与编解码设置。开发中的比赛二路 1.2.8 在插件内部维护 PCM 声道路由，
 保留原有同步与缓冲功能，无需用配套测试版 1.2.1 覆盖。开发版已接入弹幕发送与表情选择，相关改动尚未随新版本正式发布。
@@ -125,7 +125,7 @@ AV1，TS 会把它写成无法正常识别的视频流；重编码成 H.264 时�
 ### 方式一：下载 exe（推荐，免装 Python）
 
 1. 到 [Releases](https://github.com/Lanpropro/DD_Monitor_CE/releases) 下载
-   `DDMonitorCE-v0.4-exe.zip`。
+   `DDMonitorCE-v0.5-exe.zip`。
 2. 解压到任意目录（比如 `D:\DD监控室CE`）。
 3. 双击解压出来的 **`DD监控室CE.exe`** 就能用。
 
