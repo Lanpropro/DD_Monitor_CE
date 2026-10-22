@@ -48,6 +48,7 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
             'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
+            'selfcheck_player_lifetime',
             'selfcheck_main_notices', 'selfcheck_layout_16',
             'selfcheck_danmaku_send', 'selfcheck_plugin_contract'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')

@@ -185,6 +185,8 @@
 - `dev/selfcheck_match_sync_volume.py`
 - `dev/selfcheck_menu_motion.py`
 - `dev/selfcheck_mpv.py`
+- `dev/selfcheck_mpv_com_lifetime.py`
+- `dev/selfcheck_player_lifetime.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
@@ -401,6 +403,7 @@
 - `docs/NOTICE.md`
 - `docs/README.md`
 - `docs/appearance-design.md`
+- `docs/bug-cases.md`
 - `docs/customization-plan.md`
 - `docs/online-updates.md`
 - `docs/overview1_Landscape_mode.png`

@@ -7,6 +7,7 @@
 | --- | --- |
 | 使用说明 | [项目 README](../README.md) |
 | 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
+| Bug 案例库 | [按模块归纳的故障、根因、验证与验收记录](bug-cases.md) |
 | 开发验证 | [测试套件与执行条件](development/testing.md)、[开发工具导航](../dev/README.md)、[全部专项检查](../dev/checks/README.md) |
 | 本机工作区 | [目录归属、旧运行库归档与检查纳入标准](development/workspace-maintenance.md) |
 | 0.4.1 待办 | [待修改内容、未决要求与验收范围](development/v0.4.1-backlog.md) |

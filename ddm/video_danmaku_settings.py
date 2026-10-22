@@ -28,7 +28,8 @@ class VideoDanmakuSettings(QMenu):
                 ("video_danmaku_area", "显示区域", 10, 100, "%"),
                 ("video_danmaku_opacity", "不透明度", 10, 100, "%"),
                 ("video_danmaku_size", "字体大小", 12, 64, " px"),
-                ("video_danmaku_speed", "弹幕速度", 50, 200, "%"))):
+                ("video_danmaku_speed", "弹幕速度", 50, 200, "%"),
+                ("video_danmaku_outline_width", "描边宽度", 0, 6, " px"))):
             grid.addWidget(QLabel(label), row, 0)
             slider = QSlider(Qt.Horizontal, holder)
             slider.setRange(low, high)
@@ -45,12 +46,13 @@ class VideoDanmakuSettings(QMenu):
         self.controls["video_danmaku_area"].setToolTip("从画面顶部起占用的高度")
         self.controls["video_danmaku_size"].setToolTip("随屏幕缩放开启时，以 720 像素高的画面为基准")
         self.controls["video_danmaku_speed"].setToolTip("100% 为适中，约 8 秒穿过画面")
+        self.controls["video_danmaku_outline_width"].setToolTip("黑色描边宽度，0 为关闭；随弹幕字体缩放")
         self.scale = QCheckBox("弹幕随屏幕缩放", holder)
         self.scale.toggled.connect(lambda checked: self.settingsChanged.emit({"video_danmaku_scale": checked}))
-        grid.addWidget(self.scale, 4, 0, 1, 3)
+        grid.addWidget(self.scale, 5, 0, 1, 3)
         hint = QLabel("观看设置应用于所有格子")
         hint.setObjectName("SettingsHint")
-        grid.addWidget(hint, 5, 0, 1, 3)
+        grid.addWidget(hint, 6, 0, 1, 3)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
@@ -67,7 +69,7 @@ class VideoDanmakuSettings(QMenu):
             slider.blockSignals(True)
             slider.setValue(value)
             slider.blockSignals(False)
-            suffix = " px" if key == "video_danmaku_size" else "%"
+            suffix = " px" if key in ("video_danmaku_size", "video_danmaku_outline_width") else "%"
             self.labels[key].setText(f"{slider.value()}{suffix}")
         self.scale.blockSignals(True)
         self.scale.setChecked(bool(settings.get("video_danmaku_scale", True)))
