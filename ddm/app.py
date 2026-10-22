@@ -3830,6 +3830,10 @@ class MainWindow(QMainWindow):
             tile = self._tile_under_cursor()
             if tile is not None:
                 tile.danmaku_button.toggle()
+        elif pressed and pressed == shortcuts.get("close_tile"):
+            tile = self._tile_under_cursor()
+            if tile is not None and tile.room.get("room_id"):
+                tile.closeRequested.emit(tile.room)
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
         elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:

@@ -256,6 +256,58 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(first.danmaku_button.isChecked())
         window.sync_danmaku.assert_called()
 
+    def test_delete_closes_only_hovered_tile_and_keeps_empty_slot(self):
+        window = self.window([{'room_id': '1001'}, {'room_id': '1001'}])
+        first, second = window.wall.tiles[:2]
+        original_tiles = list(window.wall.tiles)
+        with patch.object(window, '_tile_under_cursor', return_value=second), \
+                patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop:
+            self.assertEqual(window.shortcuts['close_tile'], 'Del')
+            QTest.keyClick(window, Qt.Key_Delete)
+            self.assertEqual(first.room['room_id'], '1001')
+            self.assertFalse(second.room.get('room_id'))
+            self.assertEqual(window.wall.tiles, original_tiles)
+            stop.assert_called_once_with(second)
+            self.assertFalse(window.current_state()['wall'][1].get('room_id'))
+            QTest.keyClick(window, Qt.Key_Delete)
+            self.assertEqual(stop.call_count, 1)
+        with patch.object(window, '_tile_under_cursor', return_value=None), \
+                patch.object(window, '_clear_tile_room') as clear:
+            QTest.keyClick(window, Qt.Key_Delete)
+            clear.assert_not_called()
+
+    def test_delete_preserves_search_and_composer_editing(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        with patch.object(window, '_tile_under_cursor', return_value=tile), \
+                patch.object(window, '_clear_tile_room') as clear:
+            for edit in (window.sidebar.search, tile.composer.edit):
+                edit.setText('abc')
+                edit.setCursorPosition(0)
+                edit.setFocus()
+                self.app.processEvents()
+                QTest.keyClick(edit, Qt.Key_Delete)
+                self.assertEqual(edit.text(), 'bc')
+                clear.assert_not_called()
+                edit.clear()
+
+    def test_close_shortcut_can_be_remapped_saved_and_reset(self):
+        window = self.window([{'room_id': '1001'}])
+        page = ShortcutSettingsPage(window.shortcuts)
+        self.addCleanup(page.close)
+        page._edits['close_tile'].setKeySequence(QKeySequence('Ctrl+K'))
+        window.shortcuts = page.values()
+        window._refresh_shortcuts()
+        tile = window.wall.tiles[0]
+        with patch.object(window, '_tile_under_cursor', return_value=tile):
+            QTest.keyClick(window, Qt.Key_Delete)
+            self.assertEqual(tile.room['room_id'], '1001')
+            QTest.keyClick(window, Qt.Key_K, Qt.ControlModifier)
+            self.assertFalse(tile.room.get('room_id'))
+        self.assertEqual(window.current_state()['ui']['shortcuts']['close_tile'], 'Ctrl+K')
+        page.reset()
+        self.assertEqual(page.values()['close_tile'], 'Del')
+
     def test_send_auth_notice_opens_login_and_normal_notice_clears_action(self):
         from ddm import bili
         window = self.window([{'room_id': '1001'}])
