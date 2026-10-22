@@ -32,7 +32,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         source = (ROOT / 'docs/development/v0.4.1-backlog.md').read_text(encoding='utf-8')
         for number in range(1, 6):
             self.assertIn(f'V041-{number:02}', source)
-        for text in ('0.4.1（未发布）', '卡顿', '录制自动断点', '悬停预览',
+        for text in ('**0.5**', '**0.5.1**', 'PR #24、#33、#34、#39', '卡顿', '录制自动断点', '悬停预览',
                      '主动点击才关闭', '排序逻辑', '待明确', '1000ms'):
             self.assertIn(text, source)
         index = (ROOT / 'docs/README.md').read_text(encoding='utf-8')
