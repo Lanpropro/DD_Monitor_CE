@@ -2482,6 +2482,10 @@ class NavItem(QFrame):
             return
         if (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
+        host = self.drop_host
+        if host is None or self._drag_started:
+            return
+        self._press_pos = None
         drag = QDrag(self)
         mime = QMimeData()
         room_id = str(self.room.get("room_id"))
@@ -2489,31 +2493,27 @@ class NavItem(QFrame):
         mime.setData(NAV_MIME, room_id.encode("utf-8"))      # 落在列表里：排序
         mime.setText(room_id)
         drag.setMimeData(mime)
-        drag_ids = self.drop_host.dragged_room_ids(room_id)
+        drag_ids = host.dragged_room_ids(room_id)
         self._drag_started = True
-        pixmap, hotspot = motion.lifted_drag(
-            self._drag_pixmap(len(drag_ids)),
-            QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
-        drag.setPixmap(pixmap)
-        drag.setHotSpot(hotspot)
-        # 抓起来的一瞬间就把自己那一格空出来
-        self.drop_host.show_drop_indicator(room_id, self._index_in_host())
-        # 拖动期间把滚轮借过来：DnD 里 Qt 收不到滚轮，只能靠低级鼠标钩子
-        host = self.drop_host
-        if host is not None:
-            host.begin_drag_scroll()
+        completed = False
         try:
+            pixmap, hotspot = motion.lifted_drag(
+                self._drag_pixmap(len(drag_ids)),
+                QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(hotspot)
+            host.show_drop_indicator(room_id, self._index_in_host())
+            host.begin_drag_scroll()
             drag.exec(Qt.CopyAction | Qt.MoveAction)
+            if self.drop_host is host and not QApplication.mouseButtons() & Qt.LeftButton:
+                # 保留松手后的落点结算；取消或异常则在 finally 中恢复占位。
+                host.finish_drag(room_id, QCursor.pos())
+                completed = True
         finally:
-            if host is not None:
-                host.end_drag_scroll()
-        if self.drop_host is None:
-            return
-        if QApplication.mouseButtons() & Qt.LeftButton:
-            self.drop_host.end_drag()        # 按了 Esc 取消：恢复原样
-        else:
-            # 松手：不管落点事件有没有被别的控件吃掉，都按鼠标位置结算一次
-            self.drop_host.finish_drag(room_id, QCursor.pos())
+            host.end_drag_scroll()
+            if not completed:
+                host.end_drag()
+            drag.deleteLater()
 
     def _index_in_host(self) -> int:
         if self.drop_host is None:
@@ -5483,15 +5483,19 @@ class Sidebar(QFrame):
         装不上就静默降级 —— 拖动本身和「贴边自动滚」都照常。
         """
         if self._wheel_hook is not None:
-            return
+            self.end_drag_scroll()
+            if self._wheel_hook is not None:
+                return
         hook = mouse_hook.WheelHook(self._scroll_from_wheel)
-        hook.start()
-        self._wheel_hook = hook
+        if hook.start():
+            self._wheel_hook = hook
 
     def end_drag_scroll(self) -> None:
-        hook, self._wheel_hook = self._wheel_hook, None
+        hook = self._wheel_hook
         if hook is not None:
             hook.stop()
+            if not hook.active:
+                self._wheel_hook = None
 
     def _scroll_from_wheel(self, delta: int) -> None:
         """钩子回调（主线程）：一格滚轮滚 WHEEL_PIXELS 像素。"""
