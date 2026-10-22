@@ -18,6 +18,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_appearance](../selfcheck_appearance.py) | 单项执行前核对 |
+| [selfcheck_titlebar](../selfcheck_titlebar.py) | `offline`；可用 Windows 后端单独验证原生 DWM/窗口句柄 |
 | [selfcheck_appearance_design](../selfcheck_appearance_design.py) | `repository` |
 | [selfcheck_appearance_playback](../selfcheck_appearance_playback.py) | 单项执行前核对 |
 | [selfcheck_brand_assets](../selfcheck_brand_assets.py) | `offline` |
@@ -32,6 +33,7 @@
 | [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | 单项执行前核对 |
 | [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | `offline` |
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
+| [selfcheck_skin_video_probe](../selfcheck_skin_video_probe.py) | 单项原生 A/B 原型；生成临时 4K 视频，不读取账号或插件；分别用 `--backend raster` 与 `--backend quick` 在独立进程执行，非正式软件集成验收 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |
 | [selfcheck_theme_latency](../selfcheck_theme_latency.py) | `offline` |
 | [selfcheck_theme_native_reveal](../selfcheck_theme_native_reveal.py) | 单项执行前核对 |
