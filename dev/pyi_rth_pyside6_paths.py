@@ -13,6 +13,10 @@ DLL 搜索路径。
 import os
 import sys
 
+if getattr(sys, "frozen", False):
+    # Match run.cmd, including the verified cross-screen composition fix.
+    os.environ.setdefault("DDM_QTQUICK_DANMAKU", "1")
+
 _bases = []
 _exe_dir = os.path.dirname(os.path.abspath(sys.executable))
 for _candidate in (getattr(sys, "_MEIPASS", None), _exe_dir,

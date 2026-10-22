@@ -69,6 +69,18 @@ def main():
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { $_.Message }; exit 1 }"],
         capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+    # The EXE must use the same default rendering path as the accepted run.cmd.
+    import os
+    import runpy
+    hook = Path(__file__).resolve().parents[1] / 'dev/pyi_rth_pyside6_paths.py'
+    for explicit, expected in ((None, '1'), ('0', '0'), ('1', '1')):
+        with patch.dict(os.environ, {'DDM_PYI_DEBUG': '0'}), \
+                patch.object(sys, 'frozen', True, create=True):
+            os.environ.pop('DDM_QTQUICK_DANMAKU', None)
+            if explicit is not None:
+                os.environ['DDM_QTQUICK_DANMAKU'] = explicit
+            runpy.run_path(str(hook))
+            assert os.environ['DDM_QTQUICK_DANMAKU'] == expected
     print('PASS: plugin catalog generation, compatibility, current version and parsed release update metadata')
 
 

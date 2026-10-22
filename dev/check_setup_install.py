@@ -21,8 +21,10 @@ import json
 from ddm.plugins import Plugin
 class Probe(Plugin):
     def on_load(self, context):
+        import os
         from PySide6.QtCore import qVersion
         from ddm import room_input
+        assert os.environ.get('DDM_QTQUICK_DANMAKU') == '1'
         class Response:
             status_code = 302
             headers = {'Location': 'https://live.bilibili.com/47867?from=123'}
