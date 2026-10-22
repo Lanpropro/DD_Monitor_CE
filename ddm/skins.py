@@ -6,8 +6,8 @@ from pathlib import Path
 import time
 import uuid
 
-from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QImageReader, QPainter
+from PySide6.QtCore import QEvent, QObject, QRunnable, QRectF, Qt, QThread, QThreadPool, QUrl, Signal
+from PySide6.QtGui import QImage, QImageReader, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
 
@@ -95,9 +95,23 @@ def plugin_skin(plugin, folder):
             'owner': plugin.context.name, 'name': plugin.name, 'version': version, 'parts': parts}
 
 
+class _FrameImage(QRunnable):
+    def __init__(self, frame, generation, completed):
+        super().__init__()
+        self.frame, self.generation, self.completed = frame, generation, completed
+
+    def run(self):
+        image = self.frame.toImage()
+        try:
+            self.completed.emit(self.generation, image)
+        except RuntimeError:
+            pass  # 关闭窗口后，已销毁的接收者不再接收转换结果。
+
+
 class BackgroundLayer(QWidget):
     failed = Signal(str)
     frameReady = Signal()
+    _converted = Signal(int, QImage)
 
     def __init__(self, root, window):
         super().__init__(root)
@@ -108,6 +122,11 @@ class BackgroundLayer(QWidget):
         self.video_enabled = True
         self.path = ''
         self._last_frame = 0
+        self._generation = 0
+        self._frame_pending = False
+        self._frame_pool = QThreadPool(self)
+        self._frame_pool.setMaxThreadCount(1)
+        self._converted.connect(self._frame_converted)
         self.player = None
         self.error = ''
         root.installEventFilter(self)
@@ -120,6 +139,7 @@ class BackgroundLayer(QWidget):
     def load(self, path, *, video_enabled=True):
         if path == self.path and video_enabled == self.video_enabled:
             return
+        self._generation += 1
         if self.player is not None:
             self.player.stop()
             self.player.setSource(QUrl())
@@ -167,10 +187,20 @@ class BackgroundLayer(QWidget):
                 or (self.mask == 100 and self.video_enabled)
                 or (not self.video_enabled and self.image is not None)
                 or not self._window.isVisible() or self._window.isMinimized()
+                or self._frame_pending
                 or self.error or not frame.isValid() or now - self._last_frame < 1 / 30):
             return
         self._last_frame = now
-        image = frame.toImage()
+        self._frame_pending = True
+        self._frame_pool.start(_FrameImage(frame, self._generation, self._converted))
+
+    def _frame_converted(self, generation, image):
+        self._frame_pending = False
+        if (generation != self._generation or self.error or self.player is None
+                or self.player.source().isEmpty()
+                or not self._window.isVisible() or self._window.isMinimized()
+                or (self.video_enabled and self.mask == 100)):
+            return
         if not image.isNull():
             self.image = image
             if not self.video_enabled:
@@ -228,7 +258,7 @@ class SkinController(QObject):
         self.error = ''
         self.layer.failed.connect(self._failed)
         sidebar = window.sidebar
-        for attribute, key in (('sort_button', 'sort'), ('refresh_button', 'refresh'),
+        for attribute, key in (('refresh_button', 'refresh'),
                 ('appearance_button', 'appearance'), ('toggle_button', 'sidebar_toggle'),
                 ('settings_button', 'settings'), ('layout_button', 'layout'),
                 ('import_button', 'import'), ('add_button', 'add')):
@@ -294,9 +324,11 @@ class SkinController(QObject):
         self.changed.emit()
 
     def stop(self):
+        self.layer._generation += 1
         if self.layer.player is not None:
             self.layer.player.stop()
             self.layer.player.setSource(QUrl())
+        self.layer._frame_pool.waitForDone()
         for job in self.window.findChildren(AssetImport):
             job.requestInterruption()
             job.wait()

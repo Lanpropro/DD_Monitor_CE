@@ -427,7 +427,7 @@ def main() -> None:
         "开发指南应指向设置文案、入口、样式和默认值的实际文件"
     pages = [dialog.nav.item(i).text() for i in range(dialog.nav.count())]
     print(f"  左侧类别={pages} 当前页={dialog.stack.currentIndex()}")
-    assert pages == ["常规", "外观", "弹幕", "录制", "快捷键", "插件", "软件更新"] and dialog.stack.currentIndex() == 0
+    assert pages == ["常规", "外观", "弹幕", "录制", "通知", "快捷键", "插件", "软件更新"] and dialog.stack.currentIndex() == 0
     assert next(label for key, label, _default in SHORTCUT_ACTIONS if key == "restore") == \
         "退出全屏"
     dialog.nav.setCurrentRow(3)
@@ -697,9 +697,9 @@ def main() -> None:
         # 顶层菜单和那一项都要留住引用：PySide6 给 QAction.menu() 发的包装对象
         # 会在中途回收，只存子菜单的话 gc 一跑就成了「C++ object already deleted」，
         # 底层 QMenu 其实还活着。测试里要保持这整条链。
-        sort_menu = sidebar.sort_button.menu()
+        sort_menu = sidebar._folder_buttons["__unclassified__"]._context_menu()
         folder_action = next(action for action in sort_menu.actions()
-                             if action.text() == "未分类")
+                             if action.text() == "排序")
         folder_menu = folder_action.menu()
         freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")

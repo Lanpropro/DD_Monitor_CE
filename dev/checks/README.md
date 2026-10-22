@@ -7,6 +7,12 @@
 
 新增检查应更新此索引；仓库检查会核对它与 Git 索引一致。
 
+## 当前回归与历史诊断
+
+- 当前回归：`repository`、`smoke`、`offline`、`native`、`live` 中明确登记的脚本；其中 smoke 复用离屏回归并增加临时插件接口检查，每个 PR 自动运行。
+- 待复核／历史诊断：下表标记“单项执行前核对”的脚本。这个标记表示尚未批准批量执行，不代表已废弃；再次使用前核对当前断言和隔离条件，通过后再纳入套件。
+- 文件继续保留现有位置；分类依据套件元数据和本索引，不通过移动脚本改变导入路径。
+
 ## 主题、资源与动效
 
 | 脚本 | 执行分类 |
@@ -32,6 +38,7 @@
 | [selfcheck_theme_palette](../selfcheck_theme_palette.py) | 单项执行前核对 |
 | [selfcheck_theme_wave](../selfcheck_theme_wave.py) | 单项执行前核对 |
 | [selfcheck_ui_motion](../selfcheck_ui_motion.py) | 单项执行前核对 |
+| [selfcheck_settings_transition](../selfcheck_settings_transition.py) | 单项执行；设置动画快照、打断与录制页滚动，使用合成数据 |
 
 ## 仓库、启动与文档
 
@@ -66,6 +73,7 @@
 | [selfcheck_delete](../selfcheck_delete.py) | 单项执行前核对 |
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | 单项执行前核对 |
+| [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke` |
 | [selfcheck_duplicate_tile_controls](../selfcheck_duplicate_tile_controls.py) | 单项执行前核对 |
 | [selfcheck_encoders](../selfcheck_encoders.py) | 单项执行前核对 |
 | [selfcheck_folder_blank_menu](../selfcheck_folder_blank_menu.py) | `offline` |
@@ -73,12 +81,13 @@
 | [selfcheck_folder_card_size](../selfcheck_folder_card_size.py) | `offline` |
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
-| [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline` |
+| [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | 单项执行前核对 |
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
 | [selfcheck_localization](../selfcheck_localization.py) | 单项执行前核对 |
-| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline` |
+| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke` |
+| [selfcheck_notification_center](../selfcheck_notification_center.py) | `smoke`、`offline` |
 | [selfcheck_offline_badges](../selfcheck_offline_badges.py) | 单项执行前核对 |
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
 | [selfcheck_overseas_playback_live](../selfcheck_overseas_playback_live.py) | 单项执行前核对 |
@@ -118,7 +127,7 @@
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | 单项执行前核对 |
-| [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline` |
+| [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
 | [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
 | [selfcheck_layout_none](../selfcheck_layout_none.py) | 单项执行前核对 |
@@ -159,7 +168,7 @@
 | [selfcheck_danmaku_render_thread](../selfcheck_danmaku_render_thread.py) | `native` |
 | [selfcheck_danmaku_retention](../selfcheck_danmaku_retention.py) | 单项执行前核对 |
 | [selfcheck_danmaku_room_switches](../selfcheck_danmaku_room_switches.py) | `offline` |
-| [selfcheck_danmaku_send](../selfcheck_danmaku_send.py) | `offline` |
+| [selfcheck_danmaku_send](../selfcheck_danmaku_send.py) | `offline`、`smoke` |
 | [selfcheck_danmaku_smoothness](../selfcheck_danmaku_smoothness.py) | 单项执行前核对 |
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
 | [selfcheck_emoticon_tabs](../selfcheck_emoticon_tabs.py) | `offline` |
@@ -188,6 +197,7 @@
 | [selfcheck_plugin_update_notes](../selfcheck_plugin_update_notes.py) | 单项执行前核对 |
 | [selfcheck_plugin_windows_lock](../selfcheck_plugin_windows_lock.py) | 单项执行前核对 |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
+| [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行前核对 |
 | [selfcheck_update_notifications](../selfcheck_update_notifications.py) | 单项执行前核对 |
@@ -202,6 +212,8 @@
 | [selfcheck_audio_cycle_shortcut](../selfcheck_audio_cycle_shortcut.py) | 单项执行前核对 |
 | [selfcheck_audio_hotplug](../selfcheck_audio_hotplug.py) | 单项执行前核对 |
 | [selfcheck_audio_owner](../selfcheck_audio_owner.py) | 单项执行前核对 |
+| [selfcheck_player_lifetime](../selfcheck_player_lifetime.py) | `offline` / `smoke`；构造、重绑与释放参数，不调用原生音频 |
+| [selfcheck_mpv_com_lifetime](../selfcheck_mpv_com_lifetime.py) | `native`；Windows 本地静音 WAV、真实 WASAPI，反复终止/释放及预览清理，检查 COM apartment 不变；不执行 OLE 拖动 |
 | [selfcheck_audio_routing](../selfcheck_audio_routing.py) | 单项执行前核对 |
 | [selfcheck_auto_quality](../selfcheck_auto_quality.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_live](../selfcheck_auto_quality_live.py) | 单项执行前核对 |

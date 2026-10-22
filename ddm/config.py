@@ -47,8 +47,13 @@ DEFAULT_SETTINGS = {
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
-    "preview_on_hover": True,   # 鼠标停在关注列表的直播上 1 秒，缩略图里播静音预览
+    "preview_on_hover": True,   # 鼠标停在关注列表的直播上 0.5 秒，缩略图里播静音预览
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
+    "notice_persist_updates": True,
+    "notice_persist_pinned_live": True,
+    "notice_persist_live": False,
+    "notice_persist_warning": False,
+    "notice_persist_info": False,
     #: 录制功能总开关。关掉之后：
     #:   1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；
     #:   2) 正在录制的会话会**正常收尾并导出**（已经录到的部分不丢）；
@@ -62,6 +67,7 @@ DEFAULT_SETTINGS = {
     "recording_encoder": "auto",
     "recording_bitrate": 6000,    # kbps
     "recording_fps": 30,
+    "recording_segment_minutes": 60,  # 自动保存为独立文件的时长（分钟）
     "recording_replay_minutes": 3,
     #: 即时回放（右键「保存最近 N 分钟」）总开关。关掉之后：
     #:   1) 不给任何格子开缓存，已经在跑的纯缓存会话也会被停掉；
@@ -87,7 +93,7 @@ DEFAULT_SETTINGS = {
     "recording_replay_max_tiles": 3,
     "recording_min_free_mb": 2048,
     "recording_lock_quality": True,  # 录制期间锁定原画，结束后恢复画质
-    "danmaku_font": "",       # 弹幕字体（空 = 跟主题默认字体）
+    "danmaku_font": "",       # 弹幕字体（空 = 内置思源黑体）
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
     "danmaku_retention_version": 1,  # 旧版默认 300 条的一次性升级标记
@@ -97,6 +103,7 @@ DEFAULT_SETTINGS = {
     "video_danmaku_opacity": 80,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
+    "video_danmaku_outline_width": 0,
 }
 
 STATE_VERSION = 1

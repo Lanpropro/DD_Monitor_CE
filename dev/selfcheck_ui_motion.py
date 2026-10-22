@@ -96,7 +96,7 @@ def main():
         QTest.mouseClick(nav.viewport(), Qt.LeftButton, pos=nav.visualItemRect(nav.item(1)).center())
         assert settings.stack.currentIndex() == 1
         assert settings.stack._fade.state() == QAbstractAnimation.Running
-        assert settings.stack._effect.opacity() == 0.25 and settings.stack._fade.duration() == 260
+        assert settings.stack._effect.opacity() == 0.25 and settings.stack._fade.duration() == 200
         settings.stack._fade.setCurrentTime(80)
         opacity = settings.stack._effect.opacity()
         assert 0.25 < opacity < 1

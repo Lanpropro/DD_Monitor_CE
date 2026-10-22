@@ -4,7 +4,8 @@ from itertools import pairwise
 from time import monotonic
 from unittest.mock import patch
 
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QWidget
 from selfcheck_corner_resize import QApplication, QEvent, QTest, WallGrid, theme
 
@@ -296,6 +297,35 @@ def main():
     try:
         for identifier in ('3x3', 'corner'):
             check_throttle(app, wall, identifier)
+        tile = wall.tiles[0]
+        border = wall._pane_borders[tile]
+        border.set_highlights([border._edge_rect(edge) for edge in border.targets])
+        tile.raise_overlays()
+        app.processEvents()
+        point = QPoint(tile.width() - 2, tile.bottom.geometry().center().y())
+        assert tile.childAt(point) is border, '底栏不能盖住拖动边缘'
+        for scale in (1, 1.5, 2):
+            image = QImage(round(border.width() * scale), round(border.height() * scale),
+                           QImage.Format_ARGB32_Premultiplied)
+            image.setDevicePixelRatio(scale)
+            image.fill(Qt.transparent)
+            painter = QPainter(image)
+            border._render_badge(painter)
+            painter.end()
+            corner = [image.pixelColor(x, y).alpha()
+                      for x in range(image.width() - round(14 * scale), image.width())
+                      for y in range(round(14 * scale))]
+            assert any(1 < alpha < 255 for alpha in corner), '圆角应包含抗锯齿透明像素'
+        if QApplication.platformName() == 'windows':
+            border.repaint()
+            assert border._alpha_uploaded, '原生指示条应上传逐像素透明图像'
+            with patch.object(border, '_render_badge', wraps=border._render_badge) as render:
+                for _ in range(20):
+                    border.repaint()
+                assert not render.called, '背景重绘不能重复上传未改变的边框'
+                border.set_highlights([])
+                border.repaint()
+                assert render.call_count == 1, '高亮变化必须上传新图像'
         check_masks(app, wall)
         check_decoration_pass(wall)
         check_covers(app, wall)

@@ -71,9 +71,10 @@ def main():
     sidebar.set_select_mode(False)
     entries["huya:a"].set_live(False)
     sidebar.toggle_folder(live)
-    # 从真实排序按钮触发某个文件夹的动作，其他文件夹不变。
+    # 从真实文件夹右键菜单触发排序动作，其他文件夹不变。
     before = ids(sidebar, live), ids(sidebar, groups.UNCLASSIFIED)
-    sort_action = next(action for action in sidebar.sort_button.menu().actions() if action.text() == "手动分组")
+    folder_menu = sidebar._folder_buttons[manual]._context_menu()
+    sort_action = next(action for action in folder_menu.actions() if action.text() == "排序")
     submenu = sort_action.menu()
     next(action for action in submenu.actions() if action.text() == "开播优先").trigger()
     assert ids(sidebar, manual) == ["2", "1"]

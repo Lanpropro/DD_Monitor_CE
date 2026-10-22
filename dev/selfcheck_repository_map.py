@@ -29,10 +29,11 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertEqual(len(listed), len(set(listed)), "Duplicate inventory path")
 
     def test_document_index_links_resolve(self):
-        for name in ("docs/README.md", "docs/archive/repository-cleanup-review.md", "README.md",
+        for name in ("docs/README.md", "docs/bug-cases.md", "docs/archive/repository-cleanup-review.md", "README.md",
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",
+                     "docs/development/v0.4.1-backlog.md",
                      "docs/archive/pr11-pr12-integration-testing.md",
                      "docs/archive/repository-integration-20261019.md",
                      "docs/archive/README.md", "dev/benchmarks/README.md",
@@ -51,6 +52,27 @@ class RepositoryMapTests(unittest.TestCase):
                             ["git", "check-ignore", "--", str(destination)], cwd=ROOT,
                             capture_output=True)
                         self.assertEqual(ignored.returncode, 0, target)
+
+    def test_bug_case_catalog_keeps_unique_ids_and_explicit_states(self):
+        content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
+        cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
+        ids = [first or second for first, second in cases]
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 67)])
+        cross_screen = next(line for line in content.splitlines() if line.startswith('| BUG-066 |'))
+        self.assertEqual(cross_screen.split('|')[3].strip(), '已验收')
+        for feature in ('画面黑屏', '只有弹幕', '关注栏完好', '基本确认修复'):
+            self.assertIn(feature, cross_screen)
+        states = {'已验收', '已修复待验收', '已实现待合并', '历史修复待复核',
+                  '待定位', '待复现', '测试或环境记录'}
+        for line in content.splitlines():
+            if re.match(r'^\| BUG-\d{3} \|', line):
+                self.assertIn(line.split('|')[3].strip(), states)
+        for text in ('gapless_audio=False', 'CoUninitialize', 'Windhawk', '单路播放',
+                     '0x80010012', '0xC0000005', 'PR30', '重启', '各 30 轮'):
+            self.assertIn(text, content)
+        for private in ('C:\\Users\\Lan', 'F:\\CodexAppManager', 'SESSDATA=', 'bili_jct='):
+            self.assertNotIn(private, content)
+        self.assertIn('(bug-cases.md)', (ROOT / 'docs/README.md').read_text(encoding='utf-8'))
 
     def test_current_notes_source_and_portable_layouts(self):
         # Exercise the real UI method with label doubles; no QApplication,

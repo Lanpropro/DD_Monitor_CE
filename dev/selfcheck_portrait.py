@@ -552,11 +552,9 @@ def part_orientation_roundtrip(app) -> None:
                 f"{tag}: 左栏不该留横滚条"
             # 竖屏借走的三个按钮要各回各家、文字样式也要还原（别把横屏搞坏）
             assert sidebar.batch_button.text() == "", f"{tag}: 多选应保持图标按钮"
-            assert sidebar.sort_button.text() == "排序", f"{tag}: 排序要还原成文字按钮"
+            assert not hasattr(sidebar, "sort_button"), "排序入口已移入文件夹右键菜单"
             assert sidebar.batch_button.parentWidget() is sidebar.status_row, \
                 f"{tag}: 多选要回排序旁的状态行"
-            assert sidebar.sort_button.parentWidget() is sidebar.status_row, \
-                f"{tag}: 排序要回状态行"
             assert sidebar.refresh_button.parentWidget() is sidebar.status_row, \
                 f"{tag}: 刷新要回状态行"
             assert sidebar.settings_button.isVisible(), f"{tag}: 设置按钮要回来"
@@ -794,7 +792,7 @@ def part_strip_interaction(app) -> None:
 
     print("\n=== 12b. 横栏两行：图标在第一行，卡片右边单独一块放账号/布局预设/设置 ===")
     account = sidebar.account_row
-    icons = [sidebar.batch_button, sidebar.sort_button, sidebar.refresh_button]
+    icons = [sidebar.batch_button, sidebar.appearance_button, sidebar.refresh_button]
     block = sidebar._bar_right
     stacked = [account, sidebar.tool_row]
     print(f"  第一行：图标 x={[w.x() for w in icons]} 搜索框右边缘="
@@ -831,13 +829,13 @@ def part_strip_interaction(app) -> None:
     assert sidebar.search.width() > 800, \
         f"紧凑 Logo 应给搜索框留出足够宽度，实际 {sidebar.search.width()}"
     print(f"  图标文字：多选={sidebar.batch_button.text()!r} "
-          f"排序={sidebar.sort_button.text()!r} 尺寸="
+          f"尺寸="
           f"{sidebar.batch_button.width()}x{sidebar.batch_button.height()}")
-    assert sidebar.batch_button.text() != "多选" and sidebar.sort_button.text() != "排序", \
+    assert sidebar.batch_button.text() != "多选", \
         "横栏里这三个是图标按钮，不是文字按钮"
     # 三个图标要正（自绘的那两个 + 手绘圆环的刷新）：墨迹包围盒的中心得和按钮中心重合。
     # 这条能抓到两类问题：字形/图案本身偏，以及「排序」带菜单时 Qt 多画的那个下拉小三角
-    for name, button in (("多选", sidebar.batch_button), ("排序", sidebar.sort_button),
+    for name, button in (("多选", sidebar.batch_button), ("外观", sidebar.appearance_button),
                          ("刷新", sidebar.refresh_button)):
         image = button.grab().toImage()
         scale = image.width() / max(1, button.width())

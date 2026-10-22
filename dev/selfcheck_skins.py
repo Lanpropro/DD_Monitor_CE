@@ -30,6 +30,49 @@ from ddm.skin_settings import PartSettings, SkinSettings, SkinAssetDropArea
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
+def check_frame_conversion(app):
+    import threading
+    from types import SimpleNamespace
+    from ddm.skins import BackgroundLayer
+    root = QWidget()
+    root.show()
+    layer = BackgroundLayer(root, root)
+    layer.path = 'fixture.mp4'
+    layer.player = SimpleNamespace(source=lambda: QUrl('file:///fixture.mp4'))
+    entered, release = threading.Event(), threading.Event()
+    threads = []
+    image = QImage(32, 32, QImage.Format_RGB32)
+    image.fill(QColor('#426cdb'))
+    def convert():
+        threads.append(threading.get_ident())
+        entered.set()
+        release.wait(2)
+        return image
+    frame = SimpleNamespace(isValid=lambda: True, toImage=convert)
+    try:
+        layer._frame(frame)
+        assert entered.wait(1) and layer._frame_pending
+        for _ in range(50):
+            layer._last_frame = 0
+            layer._frame(frame)
+        assert len(threads) == 1 and threads[0] != threading.get_ident(), '转换必须在后台且不能堆积任务'
+        layer._generation += 1
+        release.set()
+        layer._frame_pool.waitForDone()
+        app.processEvents()
+        assert layer.image is None and not layer._frame_pending, '过期转换结果不能覆盖新源'
+        layer._last_frame = 0
+        layer._frame(frame)
+        layer._frame_pool.waitForDone()
+        app.processEvents()
+        assert layer.image == image
+    finally:
+        release.set()
+        layer._frame_pool.waitForDone()
+        layer.player = None
+        root.close()
+
+
 def check_parts(app):
     from ddm.skin_parts import validate_parts, values_for, part_for, icon_path
     from ddm.skin_settings import PartSettings
@@ -740,6 +783,7 @@ def wait_for(predicate):
 def main():
     app = QApplication([])
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
+    check_frame_conversion(app)
     if '--playback-only' not in sys.argv:
         check_parts(app)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

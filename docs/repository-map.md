@@ -94,6 +94,7 @@
 - `dev/selfcheck_douyin_ui_follows.py`
 - `dev/selfcheck_download_retry.py`
 - `dev/selfcheck_drag_scroll.py`
+- `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
 - `dev/selfcheck_emoticon_tabs.py`
@@ -134,6 +135,7 @@
 - `dev/selfcheck_live_platforms.py`
 - `dev/selfcheck_localization.py`
 - `dev/selfcheck_main_notices.py`
+- `dev/selfcheck_notification_center.py`
 - `dev/selfcheck_match_sync.py`
 - `dev/selfcheck_match_sync_admission.py`
 - `dev/selfcheck_match_sync_alignment.py`
@@ -184,6 +186,8 @@
 - `dev/selfcheck_match_sync_volume.py`
 - `dev/selfcheck_menu_motion.py`
 - `dev/selfcheck_mpv.py`
+- `dev/selfcheck_mpv_com_lifetime.py`
+- `dev/selfcheck_player_lifetime.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
@@ -216,6 +220,7 @@
 - `dev/selfcheck_plugin_update_notes.py`
 - `dev/selfcheck_plugin_windows_lock.py`
 - `dev/selfcheck_plugins.py`
+- `dev/selfcheck_plugin_contract.py`
 - `dev/selfcheck_poller_lifecycle.py`
 - `dev/selfcheck_portrait.py`
 - `dev/selfcheck_portrait_compact.py`
@@ -274,6 +279,7 @@
 - `dev/selfcheck_tile_ui.py`
 - `dev/selfcheck_ui3.py`
 - `dev/selfcheck_ui_motion.py`
+- `dev/selfcheck_settings_transition.py`
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_user_notice.py`
@@ -307,6 +313,8 @@
 
 - `docs/development/testing.md`
 - `docs/development/workspace-maintenance.md`
+- `docs/development/v0.4.1-backlog.md`
+- `docs/development/ui-integration-20261019.md`
 
 ### 性能基准
 
@@ -362,6 +370,7 @@
 - `docs/releases/RELEASE-v0.3.1.md`
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
+- `docs/releases/RELEASE-v0.5.md`
 
 ### 独立网站原型
 
@@ -396,6 +405,7 @@
 - `docs/NOTICE.md`
 - `docs/README.md`
 - `docs/appearance-design.md`
+- `docs/bug-cases.md`
 - `docs/customization-plan.md`
 - `docs/online-updates.md`
 - `docs/overview1_Landscape_mode.png`
