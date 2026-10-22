@@ -24,6 +24,21 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_single_line_notice_keeps_heading_message_and_action_visible(self):
+        owner = QWidget()
+        owner.resize(1000, 700)
+        owner.show()
+        self.addCleanup(owner.close)
+        from ddm.online_ui import ResultNotice
+        notice = ResultNotice(owner)
+        notice.title.setWordWrap(False)
+        notice.show_message('已保存录制：example.mp4', on_click=Mock())
+        self.assertEqual(notice.text_column.layout().geometry().width(), notice.text_column.width())
+        self.app.processEvents()
+        self.assertGreaterEqual(notice.category.height(), notice.category.fontMetrics().height())
+        self.assertGreaterEqual(notice.title.height(), notice.title.fontMetrics().height())
+        self.assertGreater(notice.action.y(), notice.text_column.geometry().bottom())
+        self.assertGreaterEqual(notice.height(), notice.layout().totalSizeHint().height())
     def test_recording_file_notices_shorten_paths_and_reflow_on_resize(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
@@ -39,12 +54,15 @@ class MainNoticesTests(unittest.TestCase):
             self.assertTrue(notice.title.text().endswith('.mp4'))
             self.assertIn(path, notice.toolTip())
             self.assertFalse(notice.title.wordWrap())
-            self.assertEqual(notice.height(), 48)
+            self.assertGreaterEqual(notice.category.height(), notice.category.fontMetrics().height())
+            self.assertGreaterEqual(notice.title.height(), notice.title.fontMetrics().height())
+            self.assertEqual(notice.action.text(), '打开文件位置')
+            self.assertGreaterEqual(notice.height(), 76)
             for width in (320, 1000):
                 window.resize(width, 700)
                 self.app.processEvents()
                 self.assertLessEqual(notice.width(), min(480, window.width() - 32))
-                self.assertEqual(notice.height(), 48)
+                self.assertGreaterEqual(notice.height(), 76)
                 self.assertLessEqual(notice.title.fontMetrics().horizontalAdvance(notice.title.text()),
                                      notice.title.width())
             notice.dismiss(animate=False)
@@ -354,22 +372,22 @@ class MainNoticesTests(unittest.TestCase):
         notice = owner._result_notice
         self.app.processEvents()
         short_width = notice.width()
-        self.assertLess(short_width, 200)
-        self.assertEqual(notice.height(), 48)
+        self.assertEqual(short_width, 420)
+        self.assertGreaterEqual(notice.height(), 76)
         show_result(owner, '主播甲 开播了', rooms=[{'room_id': 'test', 'uname': '主播甲'}], kind='live')
         notice = owner._result_notice
-        self.assertGreater(notice.width(), short_width)
+        self.assertEqual(notice.width(), short_width)
         self.assertEqual(notice.timer.interval(), 5000)
         self.assertEqual(len(notice._avatars), 1)
         self.app.processEvents()
         self.assertGreaterEqual(notice.title.width(), notice.title.fontMetrics().horizontalAdvance(notice.title.text()))
-        self.assertEqual(notice.height(), 48)
+        self.assertGreaterEqual(notice.height(), 76)
         show_result(owner, '主播甲、主播乙 等 4 位主播开播了',
                     rooms=[{'room_id': str(index), 'uname': '主播'} for index in range(3)], kind='live')
         notice = owner._result_notice
         self.app.processEvents()
-        self.assertGreaterEqual(notice.title.width(), notice.title.fontMetrics().horizontalAdvance(notice.title.text()))
-        self.assertLessEqual(notice.title.heightForWidth(notice.title.width()), notice.title.fontMetrics().height() + 2)
+        self.assertGreaterEqual(notice.title.height(),
+                                notice.title.heightForWidth(notice.title.width()))
         show_result(owner, '请先选择录制保存目录，再开始录制。' * 8, kind='warning')
         notice = owner._result_notice
         self.app.processEvents()
@@ -383,6 +401,66 @@ class MainNoticesTests(unittest.TestCase):
         owner.hide()
         self.assertFalse(notice.isVisible())
         self.assertFalse(notice.timer.isActive())
+
+    def test_card_actions_and_close_do_not_duplicate_navigation(self):
+        owner = QWidget()
+        owner.resize(1000, 700)
+        owner.show()
+        self.addCleanup(owner.close)
+        for kind, text, label in (('live', '主播开播了', '放入画面墙'),
+                                  ('warning', '请重新登录', '前往登录'),
+                                  ('info', '操作完成', '查看详情')):
+            callback = Mock()
+            show_result(owner, text, kind=kind, on_click=callback, persistent=True)
+            notice = owner._result_notice
+            self.app.processEvents()
+            self.assertTrue(notice.action.isVisible())
+            self.assertEqual(notice.action.text(), label)
+            self.assertGreater(notice.action.y(), notice.text_column.geometry().bottom())
+            self.assertGreater(notice.action.x(), notice.width() // 2)
+            self.assertEqual(notice.findChild(QPushButton, 'NoticeClose').y(), 14)
+            QTest.mouseClick(notice.action, Qt.LeftButton)
+            callback.assert_called_once_with()
+            self.assertFalse(notice.isVisible())
+        show_result(owner, '普通提示')
+        self.assertTrue(owner._result_notice.action.isHidden())
+        self.assertEqual(owner._result_notice.category.text(), '操作提示')
+
+    def test_cards_follow_theme_and_resize_without_clipping(self):
+        owner = QWidget()
+        owner.resize(1000, 700)
+        owner.show()
+        self.addCleanup(owner.close)
+        self.addCleanup(theme.apply, theme._mode)
+        update = UpdateNotice(owner)
+        update.show_offer({'version': '0.5'}, persistent=True)
+        show_result(owner, '需要检查的说明。' * 12, kind='warning', on_click=Mock())
+        notice = owner._result_notice
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            self.app.processEvents()
+            for card in (update, notice):
+                rendered = card.grab().toImage()
+                self.assertEqual(rendered.pixelColor(4, card.height() // 2).name(),
+                                 theme.qcolor(theme.ELEVATED).name())
+                self.assertEqual(rendered.pixelColor(0, 0).alpha(), 0)
+                scale = rendered.devicePixelRatio()
+                x, y = card.action.x(), card.action.y()
+                corner = rendered.pixelColor(round(x * scale), round(y * scale))
+                self.assertEqual(corner.name(), theme.qcolor(theme.ELEVATED).name())
+                self.assertNotEqual(corner, rendered.pixelColor(
+                    round((x + card.action.width() // 2) * scale), round((y + 1) * scale)))
+            for width in (240, 800):
+                owner.resize(width, 700)
+                self.app.processEvents()
+                for card in (update, notice):
+                    self.assertLessEqual(card.width(), width - 32)
+                    self.assertEqual(card.x(), owner.mapToGlobal(owner.rect().topLeft()).x()
+                                     + (width - card.width()) // 2)
+                    self.assertGreaterEqual(card.title.height(),
+                                            card.title.heightForWidth(card.title.width()))
+                    self.assertLess(card.action.geometry().bottom(), card.height())
+                self.assertGreater(notice.y(), update.geometry().bottom())
 
     def test_startup_all_platform_batches_and_shared_room_are_silent(self):
         rooms = [{'room_id': '1001', 'live': False, 'live_known': False},

@@ -633,8 +633,27 @@ QSlider::handle:horizontal:hover {{
     border: none;
 }}
 #NoticeText {{
+    color: {TEXT2};
+    font-weight: 400;
+}}
+#NoticeHeading {{
     color: {TEXT1};
-    font-weight: 500;
+    font-weight: 600;
+}}
+#NoticeDescription {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+}}
+#NoticeIcon {{
+    color: {ACCENT};
+    background: {ACCENT_SOFT};
+    border-radius: {RADIUS_MD}px;
+    font-weight: 600;
+}}
+#UpdateNotice #PrimaryButton {{
+    padding: 5px 14px;
+    min-height: 22px;
+    border-radius: {RADIUS_MD}px;
 }}
 #NoticeClose {{
     background: transparent;
