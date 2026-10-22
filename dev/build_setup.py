@@ -14,6 +14,7 @@ APP_ID = 'DDMonitorCE'
 PROGRAM_DIRS = {'_internal', 'assets', 'ffmpeg-license', 'mpv-license'}
 PROGRAM_FILES = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', 'ddm-build.json', 'LICENSE',
                  'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt'}
+PORTABLE_ONLY = {f'RELEASE-v{VERSION}.md', '运行说明.txt'}
 
 
 def quote(value):
@@ -39,7 +40,7 @@ def payload_files(payload):
         relative_path(rel)
         if rel.split('/')[0] not in PROGRAM_DIRS and rel not in PROGRAM_FILES:
             raise ValueError(f'Not a release program path: {rel}')
-        if path.is_file():
+        if path.is_file() and rel not in PORTABLE_ONLY:
             files.append(rel)
     required = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', '_internal/libmpv-2.dll'}
     if not required.issubset(files):
@@ -86,7 +87,14 @@ UninstallDisplayIcon={{app}}\\{DISPLAY_NAME}.exe
 UninstallFilesDir={{app}}\\.ddm-uninstall
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
-WizardStyle=modern
+WizardStyle=modern dark includetitlebar hidebevels
+WizardBackColor=#202225
+WizardImageFile={ROOT / 'dev/installer/wizard.png'}
+WizardSmallImageFile={ROOT / 'assets/logo.png'}
+WizardImageBackColor=#202225
+WizardSmallImageBackColor=#202225
+DisableWelcomePage=no
+WizardSizePercent=110
 Compression=lzma2/normal
 SolidCompression=yes
 CloseApplications=no
@@ -110,6 +118,8 @@ Name: desktopicon; Description: "创建桌面快捷方式"; Flags: unchecked
 [Icons]
 Name: "{{autoprograms}}\\DDMonitorCE\\{DISPLAY_NAME}"; Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Check: CanCreateShortcut('{{autoprograms}}\\DDMonitorCE\\{DISPLAY_NAME}.lnk')
 Name: "{{autodesktop}}\\{DISPLAY_NAME}"; Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Tasks: desktopicon; Check: CanCreateShortcut('{{autodesktop}}\\{DISPLAY_NAME}.lnk')
+Name: "{{app}}\\卸载 {DISPLAY_NAME}"; Filename: "{{uninstallexe}}"; Check: CanCreateShortcut('{{app}}\\卸载 {DISPLAY_NAME}.lnk')
+Name: "{{autoprograms}}\\DDMonitorCE\\卸载 {DISPLAY_NAME}"; Filename: "{{uninstallexe}}"; Check: CanCreateShortcut('{{autoprograms}}\\DDMonitorCE\\卸载 {DISPLAY_NAME}.lnk')
 
 [Run]
 Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Description: "启动 {DISPLAY_NAME}"; Flags: nowait postinstall skipifsilent unchecked

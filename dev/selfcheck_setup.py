@@ -57,6 +57,26 @@ class SetupTests(unittest.TestCase):
                 if not any(parent.iterdir()):
                     parent.rmdir()
 
+    def test_portable_notes_are_not_installed(self):
+        for name in (f'RELEASE-v{VERSION}.md', '运行说明.txt'):
+            (self.payload / name).write_text('portable instructions', encoding='utf-8')
+        self.assertEqual(set(payload_files(self.payload)), set(self.files))
+        script = write_script(self.payload, self.root / 'build', self.root / 'out')
+        source = script.read_text(encoding='utf-8-sig')
+        self.assertNotIn('RELEASE-v', source)
+        self.assertNotIn('运行说明.txt', source)
+        self.assertIn('ddm-build.json', source)
+
+    def test_branded_wizard_and_discoverable_uninstall(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        self.assertIn('WizardStyle=modern dark', source)
+        self.assertIn('WizardBackColor=#202225', source)
+        self.assertIn('DisableWelcomePage=no', source)
+        self.assertIn('WizardImageFile=', source)
+        self.assertIn('WizardSmallImageFile=', source)
+        self.assertIn(f'Name: "{{app}}\\卸载 {DISPLAY_NAME}"; Filename: "{{uninstallexe}}"; Check:', source)
+        self.assertIn(f'Name: "{{autoprograms}}\\DDMonitorCE\\卸载 {DISPLAY_NAME}"', source)
+
     def test_payload_directory_links_are_rejected(self):
         with patch.object(Path, 'is_junction', lambda p: p.name == 'assets'):
             with self.assertRaisesRegex(ValueError, 'Linked payload'):
