@@ -7504,6 +7504,8 @@ class WallGrid(QWidget):
         self._pending_reveal = []
         self._stagger_first = first
         previous = self.fullscreen_tile
+        if previous is not tile and self._quick_danmaku_layer is not None:
+            self._quick_danmaku_layer.reset_surface()
         self.fullscreen_tile = tile
         if previous is not None and previous is not tile:
             previous.setProperty("fullscreen", False)

@@ -57,7 +57,11 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 66)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 67)])
+        cross_screen = next(line for line in content.splitlines() if line.startswith('| BUG-066 |'))
+        self.assertEqual(cross_screen.split('|')[3].strip(), '已验收')
+        for feature in ('画面黑屏', '只有弹幕', '关注栏完好', '基本确认修复'):
+            self.assertIn(feature, cross_screen)
         states = {'已验收', '已修复待验收', '已实现待合并', '历史修复待复核',
                   '待定位', '待复现', '测试或环境记录'}
         for line in content.splitlines():

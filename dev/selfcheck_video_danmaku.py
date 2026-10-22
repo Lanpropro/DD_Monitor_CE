@@ -8,9 +8,10 @@ import sys
 import threading
 import time
 from unittest.mock import AsyncMock, Mock, patch
+from types import MethodType, SimpleNamespace
 
-from PySide6.QtCore import QPointF, QRect, QThread, Qt, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
+from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
 
@@ -23,6 +24,90 @@ from ddm.danmaku import DanmakuClient
 from ddm.dialogs import DanmakuSettingsPage, SettingsDialog
 from ddm.video_danmaku import VideoDanmaku
 from ddm.widgets import DanmakuPanel, Tile
+
+
+def check_quick_surface_recovery(app):
+    from ddm.video_danmaku_quick import QuickDanmakuLayer
+
+    parent = Mock()
+    parent.width.return_value, parent.height.return_value = 800, 450
+    parent.mapToGlobal.return_value = QPoint(120, 80)
+    parent.isVisible.return_value = True
+    parent.window.return_value.isMinimized.return_value = False
+    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(),
+                            _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
+                            _set_layered=Mock(), items={1: {"group": 1}}, groups={1: Mock()})
+    layer.window.isVisible.return_value = False
+    layer._surface_reset.setSingleShot(True)
+    for name in ('reset_surface', 'resize', 'show', '_restore_surface'):
+        setattr(layer, name, MethodType(getattr(QuickDanmakuLayer, name), layer))
+    layer._surface_reset.timeout.connect(layer._restore_surface)
+    for kind in (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange):
+        layer.window.reset_mock()
+        layer._set_layered.reset_mock()
+        assert not QuickDanmakuLayer.eventFilter(layer, parent, QEvent(kind))
+        assert layer._surface_reset.isActive(), 'Screen/DPI transition must rebuild transparency'
+        layer.window.hide.assert_called_once()
+        layer.show()
+        layer.window.show.assert_not_called()
+        # Repeated transition notifications must coalesce into one rebuild.
+        QuickDanmakuLayer.eventFilter(layer, parent, QEvent(kind))
+        QTest.qWait(160)
+        layer.window.destroy.assert_called_once()
+        layer._set_layered.assert_called_once()
+        layer.window.show.assert_called_once()
+        assert not layer._surface_dirty and not layer._surface_reset.isActive()
+    for state in (Qt.WindowMaximized, Qt.WindowFullScreen):
+        parent.windowState.return_value = state
+        QuickDanmakuLayer.eventFilter(layer, parent, QWindowStateChangeEvent(Qt.WindowNoState))
+        assert layer._surface_reset.isActive()
+        QTest.qWait(160)
+    layer.window.reset_mock()
+    parent.isVisible.return_value = False
+    layer.reset_surface()
+    QTest.qWait(160)
+    assert layer._surface_dirty
+    layer.window.destroy.assert_not_called()
+    parent.isVisible.return_value = True
+    layer.show()
+    layer.window.show.assert_not_called()
+    QTest.qWait(160)
+    layer.window.destroy.assert_called_once()
+    assert not layer._surface_dirty
+    layer.window.reset_mock()
+    parent.window.return_value.isMinimized.return_value = True
+    layer.reset_surface()
+    QTest.qWait(160)
+    layer.window.destroy.assert_not_called()
+    parent.window.return_value.isMinimized.return_value = False
+    layer.show()
+    QTest.qWait(160)
+    layer.window.destroy.assert_called_once()
+    layer.window.reset_mock()
+    assert not QuickDanmakuLayer.eventFilter(layer, parent, QEvent(QEvent.Move))
+    assert not layer._surface_reset.isActive(), 'Ordinary moves must not recreate surfaces'
+    layer.window.setGeometry.assert_called_with(120, 80, 800, 450)
+    layer.window.reset_mock()
+    layer.items.clear()
+    layer.show()
+    layer.window.hide.assert_called_once()
+    layer.window.show.assert_not_called()
+    layer.items[1] = {"group": 1, "item": Mock(), "key": "1"}
+    layer.groups[1].isVisible.return_value = False
+    layer.show()
+    layer.window.show.assert_not_called()
+    layer.groups[1].isVisible.return_value = True
+    layer.show()
+    layer.window.show.assert_called_once()
+    layer.window.reset_mock()
+    layer.items.clear()
+    layer._active_groups = set()
+    layer.images = Mock()
+    layer.set_group_active = Mock()
+    layer.items[1] = {"group": 1, "item": Mock(), "key": "1"}
+    QuickDanmakuLayer.remove(layer, 1)
+    layer._empty_hide.start.assert_called_once_with(0)
+    assert not layer.items, 'Deleting the last tile must not leave an opaque shared window'
 
 
 def check_fonts(app):
@@ -292,6 +377,14 @@ def check_routing(app):
                     [True, False, True, False]
             finally:
                 reopened.close()
+            quick = Mock()
+            with patch.object(window.wall, '_quick_danmaku_layer', quick):
+                window.wall.set_fullscreen_tile(first)
+                quick.reset_surface.assert_called_once()
+                window.wall.set_fullscreen_tile(first)
+                quick.reset_surface.assert_called_once()
+                window.wall.set_fullscreen_tile(None)
+                assert quick.reset_surface.call_count == 2, 'Native fullscreen must restore transparency both ways'
             window._on_fullscreen(first)
             window._clear_fullscreen_cover()
             assert first.video_danmaku.isVisible()
@@ -381,6 +474,7 @@ def check_cancel(app):
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    check_quick_surface_recovery(app)
     check_fonts(app)
     check_motion(app)
     check_routing(app)
