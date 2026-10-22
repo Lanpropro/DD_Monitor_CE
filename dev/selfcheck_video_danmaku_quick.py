@@ -14,7 +14,7 @@ os.environ["DDM_QTQUICK_DANMAKU"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QCursor, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -169,6 +169,40 @@ def main():
                                          round(control_point.y() * scale)).alpha() == 0, \
                 "Quick 遮罩必须给视频控制浮层留透明区域"
 
+            # Read the Quick framebuffer, without sampling or activating the desktop.
+            overlay = target.video_danmaku
+            comment = overlay.comments[0]
+            comment.x = max(0, control_origin.x() - 40)
+            comment.lane = 0
+            layer.move(comment.render_id, comment.x, 0)
+            target.set_controls_visible(False)
+            settle(app)
+            group = layer.groups[overlay._quick_group]
+            frame = layer.window.grabWindow()
+            assert not frame.isNull(), "必须能读取 Quick 渲染帧"
+            frame_scale = frame.devicePixelRatioF()
+            area = QRect(round((group.x() + comment.x) * frame_scale),
+                         round(group.y() * frame_scale),
+                         round((overlay.width() - comment.x) * frame_scale),
+                         round(overlay.lane_height() * frame_scale))
+            baseline = frame.copy(area)
+            assert any(baseline.pixelColor(x, y).alpha() > 100
+                       for y in range(baseline.height()) for x in range(baseline.width()))
+            image_key, render_id = comment.image.cacheKey(), comment.render_id
+            for _ in range(3):
+                target.set_controls_visible(True)
+                settle(app)
+                assert layer.window.grabWindow().copy(area) != baseline, \
+                    "显示按钮时应只遮住按钮位置的弹幕"
+                target.set_controls_visible(False)
+                settle(app)
+                assert layer.window.grabWindow().copy(area) == baseline, \
+                    "收起悬浮条后原有弹幕必须完整恢复，不能保留截断"
+                assert comment.image.cacheKey() == image_key and comment.render_id == render_id
+            comment.x, comment.lane = 36, 2
+            layer.move(comment.render_id, comment.x, comment.lane * overlay.lane_height())
+            print("Quick framebuffer: hover occlusion restores the same comment texture after repeated hide/show")
+
             overlay = target.video_danmaku
             comment = overlay.comments[0]
             colors = [comment.image.toImage().pixelColor(x, y)
@@ -194,6 +228,19 @@ def main():
             overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=20))
             assert abs(layer.groups[overlay._quick_group].opacity() - .2) < .001
             overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=100))
+
+            for width in (1, 6):
+                overlay.apply_settings(dict(overlay.settings, video_danmaku_outline_width=width))
+                settle(app)
+                assert all(record["item"].property("imageLoaded")
+                           for record in layer.items.values())
+                image = comment.image.toImage()
+                assert any(image.pixelColor(x, y).alpha() > 220 and
+                           max(image.pixelColor(x, y).red(), image.pixelColor(x, y).green(),
+                               image.pixelColor(x, y).blue()) < 15
+                           for y in range(image.height()) for x in range(image.width())), \
+                    "开启描边后 Quick 贴图必须含有黑色边缘"
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_outline_width=0))
 
             user32.WindowFromPoint.argtypes = [wintypes.POINT]
             user32.WindowFromPoint.restype = wintypes.HWND

@@ -12,8 +12,8 @@ from unittest.mock import patch
 os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QPixmap, QColor, QPalette
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QEnterEvent, QInputMethodEvent, QKeyEvent, QPixmap, QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QToolButton
 from ddm import bili, config, images, theme
@@ -258,7 +258,10 @@ class ComposerTests(unittest.TestCase):
                 for width, height in ((900, 520), (360, 230), (200, 200)):
                     tile.resize(width, height)
                     APP.processEvents()
-                    self.assertEqual(tile.composer.isVisible(), width >= 600)
+                    if width >= 600:
+                        self.assertTrue(tile.composer.isVisible())
+                    elif width < 280:
+                        self.assertFalse(tile.composer.isVisible())
                     self.assertLess(tile.video.geometry().bottom(), tile.bottom.y())
                     self.assertIs(tile.composer.parent(), tile.bottom)
                     if tile.composer.isVisible():
@@ -321,15 +324,25 @@ class ComposerTests(unittest.TestCase):
             tile.resize(360, 240)
             APP.processEvents()
             self.assertTrue(tile.volume_slider.isHidden())
+            self.assertTrue(tile.volume_label.isHidden())
             self.assertTrue(tile.danmaku_settings_button.isVisible())
             self.assertTrue(tile.recording_button.isVisible())
-            tile._volume_clicked()
+            tile.set_volume(100)
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
             APP.processEvents()
             anchor = tile.volume_button.mapToGlobal(tile.volume_button.rect().topLeft())
             self.assertLess(tile.volume_menu.geometry().bottom(), anchor.y())
             self.assertEqual(tile.vertical_volume.orientation(), Qt.Vertical)
+            self.assertLessEqual(tile.volume_menu.width(), 50)
+            self.assertLessEqual(tile.volume_menu.height(), 128)
+            self.assertLessEqual(tile.vertical_volume_label.fontMetrics().horizontalAdvance("100"),
+                                 tile.vertical_volume_label.width())
             self.assertTrue(tile.volume_menu.testAttribute(Qt.WA_TranslucentBackground))
             self.assertLess(tile.volume_menu.grab().toImage().pixelColor(0, 0).alpha(), 30)
+            popup_image = tile.volume_menu.grab().toImage()
+            scale = popup_image.devicePixelRatioF()
+            self.assertGreater(popup_image.pixelColor(round(6 * scale), round(20 * scale)).alpha(), 200)
+            self.assertLess(popup_image.pixelColor(round(6 * scale), round(20 * scale)).alpha(), 240)
             self.assertEqual(tile.vertical_volume_label.font().pixelSize(), theme.FONT_CAPTION)
             tile.vertical_volume.setValue(73)
             self.assertEqual(tile.volume, 73)
@@ -337,10 +350,107 @@ class ComposerTests(unittest.TestCase):
             tile.set_volume(28)
             self.assertEqual(tile.vertical_volume.value(), 28)
             self.assertEqual(tile.vertical_volume_label.text(), "28")
+            for width in (280, 420, 599, 600, 720):
+                tile.resize(width, 300)
+                APP.processEvents()
+                self.assertEqual(tile.volume_label.isHidden(), tile.volume_slider.isHidden())
+                self.assertEqual(tile.volume_label.isHidden(), width < 600)
+            self.assertFalse(tile.volume_menu.isVisible())
+            self.assertEqual(tile.volume, 28)
         finally:
             tile.volume_menu.close()
             tile.close()
             theme.apply("dark")
+
+    def test_volume_popup_translucency_tracks_theme_without_fading_controls(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': '101'})
+        tile.resize(360, 240)
+        tile.show()
+        APP.processEvents()
+        colors = []
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+                APP.processEvents()
+                image = tile.volume_menu.grab().toImage()
+                scale = image.devicePixelRatioF()
+                color = image.pixelColor(round(6 * scale), round(20 * scale))
+                self.assertGreater(color.alpha(), 200)
+                self.assertLess(color.alpha(), 240)
+                self.assertLess(image.pixelColor(0, 0).alpha(), 30)
+                self.assertEqual(tile.volume_menu.windowOpacity(), 1.0)
+                colors.append(color)
+            self.assertGreater(colors[1].lightness(), colors[0].lightness())
+        finally:
+            tile.close()
+            theme.apply('dark')
+
+    def test_compact_volume_hover_does_not_replace_mute_or_steal_focus(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': '101', 'muted': True})
+        tile.resize(360, 240)
+        tile.show()
+        APP.processEvents()
+        changes = []
+        tile.muteToggled.connect(lambda room, muted: changes.append(muted))
+        try:
+            tile.composer.edit.setFocus()
+            APP.processEvents()
+            focus = APP.focusWidget()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(tile.volume_menu.isVisible())
+            self.assertIsNone(APP.activePopupWidget())
+            self.assertIs(APP.focusWidget(), focus)
+            self.assertTrue(tile.muted)
+            self.assertIn('悬停', tile.volume_button.toolTip())
+            QTest.mouseClick(tile.volume_button, Qt.LeftButton)
+            self.assertFalse(tile.muted)
+            QTest.mouseClick(tile.volume_button, Qt.LeftButton)
+            self.assertTrue(tile.muted)
+            self.assertEqual(changes, [False, True])
+            APP.sendEvent(tile.volume_button, QEvent(QEvent.Leave))
+            APP.sendEvent(tile.volume_menu, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            QTest.qWait(180)
+            self.assertTrue(tile.volume_menu.isVisible())
+            outside = tile.mapToGlobal(tile.rect().topRight())
+            with patch('ddm.widgets.QCursor.pos', return_value=outside):
+                tile.vertical_volume.setSliderDown(True)
+                tile._hide_volume_popup_if_outside()
+                self.assertTrue(tile.volume_menu.isVisible())
+                tile.vertical_volume.setSliderDown(False)
+                QTest.qWait(180)
+                self.assertFalse(tile.volume_menu.isVisible())
+        finally:
+            tile.close()
+
+    def test_hover_volume_popup_closes_with_its_controls_and_owner(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': '101'})
+        tile.resize(360, 240)
+        tile.show()
+        APP.processEvents()
+        try:
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(tile.volume_menu.isVisible())
+            tile.bottom.hide()
+            self.assertFalse(tile.volume_menu.isVisible())
+            tile.bottom.show()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(tile.volume_menu.isVisible())
+            tile.hide()
+            self.assertFalse(tile.volume_menu.isVisible())
+            tile.show()
+            tile.resize(720, 300)
+            APP.processEvents()
+            APP.sendEvent(tile.volume_button, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertFalse(tile.volume_menu.isVisible())
+            tile.set_muted(True)
+            QTest.mouseClick(tile.volume_button, Qt.LeftButton)
+            self.assertFalse(tile.muted)
+        finally:
+            tile.close()
 
     def test_expired_emoticon_login_uses_notice_without_floating_feedback(self):
         notices = []

@@ -1,6 +1,7 @@
 """插件商店和软件更新页面；联网、下载和解压都在工作线程执行。"""
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -8,7 +9,7 @@ import time
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
 from . import config, motion, online, plugin_updates, theme, update_install, version
 
@@ -691,6 +692,35 @@ class ResultNotice(UpdateNotice):
         self._avatars = {}
         self.avatar_strip.hide()
         self._on_click = None
+        self._file_path = ''
+        self._file_message = ''
+
+    def _open_file_location(self):
+        path = Path(self._file_path)
+        if sys.platform == 'win32' and path.is_file():
+            try:
+                subprocess.Popen(['explorer.exe', '/select,', str(path)])
+                return
+            except OSError:
+                pass
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+    def contextMenuEvent(self, event):
+        if not self._file_path:
+            return super().contextMenuEvent(event)
+        menu = QMenu(self)
+        menu.addAction('打开文件位置', self._open_file_location)
+        menu.addAction('复制完整路径', lambda _checked=False, path=self._file_path:
+                       QApplication.clipboard().setText(path))
+        active = self.timer.isActive()
+        self.timer.stop()
+        try:
+            menu.exec(event.globalPos())
+        finally:
+            menu.deleteLater()
+            if active and self.isVisible():
+                self.timer.start()
+        event.accept()
 
     def _open(self):
         if self._on_click is not None:
@@ -738,17 +768,23 @@ class ResultNotice(UpdateNotice):
         if avatar is not None:
             avatar.set_pixmap_image(pixmap)
 
-    def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False):
-        self._on_click = on_click
-        self.setCursor(Qt.PointingHandCursor if on_click else Qt.ArrowCursor)
-        self.setToolTip('点击跳转' if on_click else '')
+    def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False, file_path=None):
+        self._file_path = str(file_path or '')
+        self._file_message = message + Path(self._file_path).name if self._file_path else message
+        self._on_click = self._open_file_location if self._file_path else on_click
+        self.setCursor(Qt.PointingHandCursor if self._on_click else Qt.ArrowCursor)
+        self.setToolTip(self._file_path + '\n点击打开文件位置；右键复制完整路径' if self._file_path
+                        else ('点击跳转' if on_click else ''))
         self._motion.stop()
         self._leaving = False
-        self.title.setText(message)
-        self.category.setText({'live': '开播提醒', 'warning': '需要留意'}.get(kind, '操作提示'))
-        self.action.setVisible(on_click is not None)
-        self.action.setText('放入画面墙' if kind == 'live' else
-                            ('前往登录' if '登录' in message else '查看详情'))
+        self.title.setWordWrap(not bool(self._file_path))
+        self.title.setText(self._file_message)
+        self.category.setText('录制文件' if self._file_path else
+                              {'live': '开播提醒', 'warning': '需要留意'}.get(kind, '操作提示'))
+        self.action.setVisible(self._on_click is not None)
+        self.action.setText('打开文件位置' if self._file_path else
+                            ('放入画面墙' if kind == 'live' else
+                             ('前往登录' if '登录' in message else '查看详情')))
         self._set_rooms(rooms)
         symbol, colour = {'live': ('●', theme.PINK),
                           'warning': ('!', '#e8b86d')}.get(kind, ('i', theme.ACCENT))
@@ -769,6 +805,13 @@ class ResultNotice(UpdateNotice):
         if self._progress < 1.0:
             self._animate_to(1.0, 160)
 
+    def _resize_to_content(self):
+        super()._resize_to_content()
+        if self._file_path:
+            self.title.setText(self.title.fontMetrics().elidedText(
+                self._file_message, Qt.ElideMiddle, self.title.width()))
+            super()._resize_to_content()
+
     def _motion_frame(self, value):
         self._progress = value
         self.reposition()
@@ -780,8 +823,9 @@ class ResultNotice(UpdateNotice):
                                            self._stack_y() + offset)))
 
 
-def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False):
+def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False, file_path=None):
     if not parent.isVisible():
         return
     notice = parent._result_notice = ResultNotice(parent)
-    notice.show_message(message, rooms, kind=kind, on_click=on_click, persistent=persistent)
+    notice.show_message(message, rooms, kind=kind, on_click=on_click,
+                        persistent=persistent, file_path=file_path)

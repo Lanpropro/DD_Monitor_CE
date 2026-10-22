@@ -103,6 +103,7 @@ DEFAULT_SETTINGS = {
     "video_danmaku_opacity": 80,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
+    "video_danmaku_outline_width": 0,
 }
 
 STATE_VERSION = 1
