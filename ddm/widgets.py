@@ -406,7 +406,9 @@ class VolumeButton(QPushButton):
             self.CHANNEL_LEFT: "　声道：左",
             self.CHANNEL_RIGHT: "　声道：右",
         }.get(self.audio_channel, "")
-        action = "点击展开音量" if self.compact_popup else "点击静音"
+        action = "点击取消静音" if self.muted else "点击静音"
+        if self.compact_popup:
+            action += "，悬停展开音量"
         self.setToolTip(f"{state}{channel}　（{action}，滚轮调音量，右键调声道）")
 
     def wheelEvent(self, event) -> None:
@@ -470,6 +472,15 @@ class VolumeButton(QPushButton):
             painter.setPen(colour)
             painter.drawText(QRectF(x, top + 2, 7, 9), int(Qt.AlignCenter), label)
 
+
+
+class VolumePopup(QFrame):
+    def paintEvent(self, event) -> None:
+        # Paint the styled background explicitly for this translucent tool window.
+        option = QStyleOption()
+        option.initFrom(self)
+        painter = QPainter(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
 
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
@@ -2471,6 +2482,10 @@ class NavItem(QFrame):
             return
         if (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
+        host = self.drop_host
+        if host is None or self._drag_started:
+            return
+        self._press_pos = None
         drag = QDrag(self)
         mime = QMimeData()
         room_id = str(self.room.get("room_id"))
@@ -2478,31 +2493,27 @@ class NavItem(QFrame):
         mime.setData(NAV_MIME, room_id.encode("utf-8"))      # 落在列表里：排序
         mime.setText(room_id)
         drag.setMimeData(mime)
-        drag_ids = self.drop_host.dragged_room_ids(room_id)
+        drag_ids = host.dragged_room_ids(room_id)
         self._drag_started = True
-        pixmap, hotspot = motion.lifted_drag(
-            self._drag_pixmap(len(drag_ids)),
-            QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
-        drag.setPixmap(pixmap)
-        drag.setHotSpot(hotspot)
-        # 抓起来的一瞬间就把自己那一格空出来
-        self.drop_host.show_drop_indicator(room_id, self._index_in_host())
-        # 拖动期间把滚轮借过来：DnD 里 Qt 收不到滚轮，只能靠低级鼠标钩子
-        host = self.drop_host
-        if host is not None:
-            host.begin_drag_scroll()
+        completed = False
         try:
+            pixmap, hotspot = motion.lifted_drag(
+                self._drag_pixmap(len(drag_ids)),
+                QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(hotspot)
+            host.show_drop_indicator(room_id, self._index_in_host())
+            host.begin_drag_scroll()
             drag.exec(Qt.CopyAction | Qt.MoveAction)
+            if self.drop_host is host and not QApplication.mouseButtons() & Qt.LeftButton:
+                # 保留松手后的落点结算；取消或异常则在 finally 中恢复占位。
+                host.finish_drag(room_id, QCursor.pos())
+                completed = True
         finally:
-            if host is not None:
-                host.end_drag_scroll()
-        if self.drop_host is None:
-            return
-        if QApplication.mouseButtons() & Qt.LeftButton:
-            self.drop_host.end_drag()        # 按了 Esc 取消：恢复原样
-        else:
-            # 松手：不管落点事件有没有被别的控件吃掉，都按鼠标位置结算一次
-            self.drop_host.finish_drag(room_id, QCursor.pos())
+            host.end_drag_scroll()
+            if not completed:
+                host.end_drag()
+            drag.deleteLater()
 
     def _index_in_host(self) -> int:
         if self.drop_host is None:
@@ -5473,15 +5484,19 @@ class Sidebar(QFrame):
         装不上就静默降级 —— 拖动本身和「贴边自动滚」都照常。
         """
         if self._wheel_hook is not None:
-            return
+            self.end_drag_scroll()
+            if self._wheel_hook is not None:
+                return
         hook = mouse_hook.WheelHook(self._scroll_from_wheel)
-        hook.start()
-        self._wheel_hook = hook
+        if hook.start():
+            self._wheel_hook = hook
 
     def end_drag_scroll(self) -> None:
-        hook, self._wheel_hook = self._wheel_hook, None
+        hook = self._wheel_hook
         if hook is not None:
             hook.stop()
+            if not hook.active:
+                self._wheel_hook = None
 
     def _scroll_from_wheel(self, delta: int) -> None:
         """钩子回调（主线程）：一格滚轮滚 WHEEL_PIXELS 像素。"""
@@ -5909,26 +5924,29 @@ class Tile(QFrame):
         self.volume_slider.setToolTip("这个格子的音量（更换主播后保持不变）")
         self.volume_slider.valueChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_slider)
-        self.volume_menu = QMenu(self)
+        self.volume_menu = VolumePopup(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.volume_menu.setObjectName("TileVolumePopup")
         self.volume_menu.setAttribute(Qt.WA_TranslucentBackground)
-        self.volume_menu.setWindowFlag(Qt.FramelessWindowHint, True)
-        holder = QWidget(self.volume_menu)
-        volume_layout = QVBoxLayout(holder)
-        volume_layout.setContentsMargins(8, 8, 8, 8)
-        self.vertical_volume = QSlider(Qt.Vertical, holder)
+        self.volume_menu.setAttribute(Qt.WA_StyledBackground)
+        self.volume_menu.setAttribute(Qt.WA_ShowWithoutActivating)
+        volume_layout = QVBoxLayout(self.volume_menu)
+        volume_layout.setContentsMargins(4, 6, 4, 4)
+        volume_layout.setSpacing(2)
+        self.vertical_volume = QSlider(Qt.Vertical, self.volume_menu)
+        self.vertical_volume.setFocusPolicy(Qt.NoFocus)
         self.vertical_volume.setRange(0, 100)
-        self.vertical_volume.setFixedSize(26, 110)
+        self.vertical_volume.setFixedSize(20, 88)
         self.vertical_volume.setValue(self.volume)
         self.vertical_volume.setAccessibleName("当前格子的音量")
         self.vertical_volume.valueChanged.connect(self.set_volume)
         volume_layout.addWidget(self.vertical_volume)
-        self.vertical_volume_label = QLabel(str(self.volume), holder)
+        self.vertical_volume_label = QLabel(str(self.volume), self.volume_menu)
         self.vertical_volume_label.setAlignment(Qt.AlignCenter)
         volume_layout.addWidget(self.vertical_volume_label)
-        volume_action = QWidgetAction(self.volume_menu)
-        volume_action.setDefaultWidget(holder)
-        self.volume_menu.addAction(volume_action)
+        self._volume_hide_timer = QTimer(self)
+        self._volume_hide_timer.setSingleShot(True)
+        self._volume_hide_timer.setInterval(140)
+        self._volume_hide_timer.timeout.connect(self._hide_volume_popup_if_outside)
         self.volume_label = QLabel(str(self.volume))
         self.volume_label.setObjectName("TileTitle")
         self.volume_label.setFixedWidth(24)
@@ -5986,6 +6004,8 @@ class Tile(QFrame):
         self._mask_refresh_timer.timeout.connect(self._refresh_overlay_masks)
         self.video.installEventFilter(self)
         self.controls.installEventFilter(self)
+        self.volume_button.installEventFilter(self)
+        self.volume_menu.installEventFilter(self)
         self.set_recording_state("")
         if not room.get("room_id"):
             self.set_room(None)          # 空格子：显示"拖入直播间"
@@ -6108,8 +6128,7 @@ class Tile(QFrame):
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
-        self.volume_label.setVisible(width >= 280 and
-                                     (not self.recording_time.text() or width >= 480))
+        self.volume_label.setVisible(width >= 600)
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
         self.volume_slider.setVisible(width >= 600)
@@ -6479,16 +6498,31 @@ class Tile(QFrame):
         self.qualityChanged.emit(self.room, value)
 
     def _volume_clicked(self) -> None:
-        if not self.volume_slider.isHidden():
-            self._toggle_mute()
+        self._toggle_mute()
+
+    def _show_volume_popup(self) -> None:
+        if not self.volume_button.isVisible() or not self.volume_slider.isHidden():
             return
+        self._volume_hide_timer.stop()
         self.volume_menu.ensurePolished()
         self.volume_menu.adjustSize()
         anchor = self.volume_button.mapToGlobal(QPoint(self.volume_button.width() // 2, 0))
         screen = self.screen().availableGeometry()
         x = max(screen.left(), min(anchor.x() - self.volume_menu.width() // 2,
                                   screen.right() - self.volume_menu.width() + 1))
-        self.volume_menu.popup(QPoint(x, max(screen.top(), anchor.y() - self.volume_menu.height() - 4)))
+        self.volume_menu.move(x, max(screen.top(), anchor.y() - self.volume_menu.height() - 4))
+        self.volume_menu.show()
+        self.volume_menu.raise_()
+
+    def _hide_volume_popup_if_outside(self) -> None:
+        if self.vertical_volume.isSliderDown():
+            self._volume_hide_timer.start()
+            return
+        point = QCursor.pos()
+        if any(widget.rect().contains(widget.mapFromGlobal(point))
+               for widget in (self.volume_button, self.volume_menu)):
+            return
+        self.volume_menu.hide()
 
     def _toggle_mute(self) -> None:
         self.set_muted(not self.muted)
@@ -6734,6 +6768,7 @@ class Tile(QFrame):
                square_corners,
                int(self.video.winId()) if self.video.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) else 0)
         if key == self._video_mask_key and not self.video.mask().isEmpty():
+            self._update_quick_danmaku_mask()
             return
         self._video_mask_key = key
         path = QPainterPath()
@@ -6800,6 +6835,18 @@ class Tile(QFrame):
         return result
 
     def eventFilter(self, watched, event) -> bool:
+        if watched in (self.volume_button, self.volume_menu):
+            if event.type() == QEvent.Enter:
+                self._volume_hide_timer.stop()
+                if watched is self.volume_button:
+                    self._show_volume_popup()
+            elif event.type() == QEvent.Leave and self.volume_menu.isVisible():
+                # Allow crossing the small gap between the button and its popup.
+                self._volume_hide_timer.start()
+            elif event.type() == QEvent.Hide:
+                self._volume_hide_timer.stop()
+                if watched is self.volume_button:
+                    self.volume_menu.hide()
         if event.type() in (QEvent.Type.WinIdChange, QEvent.Type.DevicePixelRatioChange):
             if watched is self.video:
                 self._video_mask_key = None
@@ -6811,6 +6858,8 @@ class Tile(QFrame):
 
     def hideEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._volume_hide_timer.stop()
+        self.volume_menu.hide()
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:

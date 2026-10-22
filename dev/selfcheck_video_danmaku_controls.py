@@ -2,12 +2,12 @@
 import os
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from ddm import config, theme
@@ -38,6 +38,43 @@ def check_text_style(overlay):
     print("PASS: bright white/colored text retains its color without a black outline or shadow")
 
 
+def check_outline(overlay):
+    emote = QPixmap(24, 24)
+    emote.fill(QColor("#28d17c"))
+    url = "https://example.invalid/outline-emote.png"
+    overlay._images[url] = emote.toImage()
+    for runs in ([("描边 gyp", "")], [("描边 gyp", ""), ("[emoji]", url)]):
+        counts = []
+        for width in (1, 2, 6):
+            overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False,
+                                        video_danmaku_outline_width=width))
+            image = overlay._render_content("描边 gyp", QColor("#ff77bb"), runs).toImage()
+            pixels = [image.pixelColor(x, y) for y in range(image.height())
+                      for x in range(image.width())]
+            counts.append(sum(p.alpha() > 200 and max(p.red(), p.green(), p.blue()) < 15
+                              for p in pixels))
+            assert any(p.alpha() > 220 and p.red() > 200 and p.blue() > 150 for p in pixels)
+            if len(runs) > 1:
+                assert any(p.alpha() > 220 and p.green() > 180 and p.red() < 70 for p in pixels)
+            assert all(image.pixelColor(x, y).alpha() == 0
+                       for x in range(image.width()) for y in (0, image.height() - 1))
+            assert all(image.pixelColor(x, y).alpha() == 0
+                       for y in range(image.height()) for x in (0, image.width() - 1))
+        assert 0 < counts[0] < counts[1] < counts[2], counts
+    emote.fill(QColor(40, 209, 124, 128))
+    overlay._images[url] = emote.toImage()
+    image = overlay._render_content("描边", QColor("#ff77bb"),
+                                    [("描边", ""), ("[emoji]", url)]).toImage()
+    greens = [image.pixelColor(x, y) for y in range(image.height())
+              for x in range(image.width())
+              if image.pixelColor(x, y).green() > 180 and image.pixelColor(x, y).red() < 70]
+    alphas = sorted(pixel.alpha() for pixel in greens)
+    assert alphas and 125 <= alphas[len(alphas) // 2] <= 130, \
+        "描边不能让半透明表情被重复绘制而加深"
+    overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False))
+    print("PASS: adjustable black outlines preserve text/emote colors and glyph padding")
+
+
 def check_text(app):
     tile = Tile({"room_id": "1", "live": True})
     tile.resize(900, 540)
@@ -48,6 +85,7 @@ def check_text(app):
     tile.danmaku_button.setChecked(True)
     try:
         check_text_style(overlay)
+        check_outline(overlay)
         for size in (12, 28, 48, 64):
             overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=size,
                                         video_danmaku_scale=False))
@@ -128,6 +166,20 @@ def check_controls(app):
             QTest.mouseClick(menu.scale, Qt.LeftButton, pos=QPoint(8, menu.scale.height() // 2))
             assert window.settings["video_danmaku_scale"] is False
             assert second.video_danmaku.settings["video_danmaku_scale"] is False
+            width_slider = menu.controls["video_danmaku_outline_width"]
+            assert width_slider.minimum() == 0 and width_slider.isEnabled()
+            assert width_slider.value() == 0
+            assert not hasattr(menu, "outline"), "描边只保留从零开始的宽度滑条"
+            image_key = comment.image.cacheKey()
+            for width in (1, 6, 2, 0):
+                width_slider.setValue(width)
+                assert window.settings["video_danmaku_outline_width"] == width
+                assert second.video_danmaku.settings["video_danmaku_outline_width"] == width
+                assert window.current_state()["settings"]["video_danmaku_outline_width"] == width
+                assert second.danmaku_settings_menu.controls["video_danmaku_outline_width"].value() == width
+                assert bool(overlay.outline_width()) == bool(width)
+            assert comment.image.cacheKey() != image_key
+            assert "video_danmaku_outline" not in window.current_state()["settings"]
             assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
             assert window._save_timer.isActive()
             assert window.current_state()["settings"]["video_danmaku_opacity"] == 45
@@ -193,11 +245,72 @@ def check_controls(app):
     print("PASS: real popup/keyboard/checkbox, shared settings/save, advanced link, fullscreen continuity and narrow controls")
 
 
+def check_overlay_mask(app):
+    tile = Tile({"room_id": "1", "uname": "Mask regression", "live": True})
+    tile.resize(900, 540)
+    tile.show()
+    app.processEvents()
+    overlay = tile.video_danmaku
+    layer = MagicMock()
+    overlay._quick_layer, overlay._quick_group = layer, 1
+    overlay._quick_mask_signature = None
+    try:
+        tile.set_controls_visible(True)
+        image = layer.set_group_mask.call_args.args[1]
+        origin = tile.controls.pos() - overlay.pos()
+        button_point = origin + tile.reload_button.geometry().center()
+        scale = image.devicePixelRatioF()
+        alpha = lambda image, point: image.pixelColor(round(point.x() * scale),
+                                                     round(point.y() * scale)).alpha()
+        assert alpha(image, button_point) == 0
+        # Hiding controls does not change the cached video geometry.
+        tile.set_controls_visible(False)
+        hidden = layer.set_group_mask.call_args.args[1]
+        assert alpha(hidden, button_point) == 255, ("收起悬浮条后必须恢复弹幕遮罩",
+            button_point, overlay.size(), tile.controls.isVisible(),
+            overlay._quick_mask_signature, alpha(hidden, button_point))
+        for _ in range(3):
+            tile.set_controls_visible(True)
+            image = layer.set_group_mask.call_args.args[1]
+            gap = origin + QPoint(tile.quality_button.geometry().right() + 2,
+                                  tile.reload_button.geometry().center().y())
+            assert not tile.controls.mask().contains(gap - origin)
+            assert alpha(image, gap) == 255, "按钮之间的透明间隙不能裁掉弹幕"
+            tile.set_controls_visible(False)
+            assert alpha(layer.set_group_mask.call_args.args[1], button_point) == 255
+    finally:
+        overlay._quick_layer, overlay._quick_group = None, None
+        tile.close()
+    print("PASS: hover mask restores after hide and preserves transparent control gaps")
+
+
+def check_outline_migration(app):
+    cases = [({}, 0), ({"video_danmaku_outline_width": 0}, 0),
+             ({"video_danmaku_outline_width": 4}, 4),
+             ({"video_danmaku_outline": False, "video_danmaku_outline_width": 4}, 0),
+             ({"video_danmaku_outline": True, "video_danmaku_outline_width": 3}, 3),
+             ({"video_danmaku_outline": True}, 2)]
+    with patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
+            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
+        for settings, expected in cases:
+            window = MainWindow([], [], state={"plugins_enabled": [], "settings": settings})
+            try:
+                saved = window.current_state()["settings"]
+                assert saved["video_danmaku_outline_width"] == expected, (settings, saved)
+                assert "video_danmaku_outline" not in saved
+            finally:
+                window.close()
+                app.processEvents()
+    print("PASS: outline settings migrate the legacy toggle and preserve zero on reload")
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     check_text(app)
     check_controls(app)
+    check_overlay_mask(app)
+    check_outline_migration(app)
 
 
 if __name__ == "__main__":

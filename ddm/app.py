@@ -186,6 +186,11 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        if "video_danmaku_outline" in saved_settings:
+            self.settings["video_danmaku_outline_width"] = (
+                saved_settings.get("video_danmaku_outline_width", 2)
+                if saved_settings["video_danmaku_outline"] else 0)
+            self.settings.pop("video_danmaku_outline", None)
         emoticon_order.load(self.state.get('emoticon_order'))
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
         if not isinstance(self.settings.get('skin_background'), str):
@@ -3053,6 +3058,11 @@ class MainWindow(QMainWindow):
     def _record_notice(self, message: str, room=None) -> None:
         if self._closing:
             return
+        prefix, separator, path = message.partition('：')
+        if separator and path and prefix in (
+                '已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放'):
+            self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path)
+            return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
         self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
 
@@ -3061,7 +3071,7 @@ class MainWindow(QMainWindow):
                           rooms=[room] if room else (), kind="warning", on_click=(
                               lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
 
-    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None) -> None:
+    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None) -> None:
         if self._closing:
             return
         from .online_ui import show_result
@@ -3069,14 +3079,15 @@ class MainWindow(QMainWindow):
             str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
         category = 'pinned_live' if pinned_live else kind
         persistent = self.settings.get('notice_persist_' + category, pinned_live)
-        if on_click is None and rooms:
+        if on_click is None and rooms and not file_path:
             if kind == 'live':
                 on_click = lambda targets=tuple(dict(room) for room in rooms): self._place_live_notice_rooms(targets)
             else:
                 url = self._room_browser_url(rooms[0])
                 if url:
                     on_click = lambda target=url: self._open_room_browser(target)
-        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click, persistent=persistent)
+        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click,
+                    persistent=persistent, file_path=file_path)
 
     def _place_live_notice_rooms(self, rooms):
         for room in rooms:
@@ -3826,6 +3837,10 @@ class MainWindow(QMainWindow):
             tile = self._tile_under_cursor()
             if tile is not None:
                 tile.danmaku_button.toggle()
+        elif pressed and pressed == shortcuts.get("close_tile"):
+            tile = self._tile_under_cursor()
+            if tile is not None and tile.room.get("room_id"):
+                tile.closeRequested.emit(tile.room)
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
         elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:

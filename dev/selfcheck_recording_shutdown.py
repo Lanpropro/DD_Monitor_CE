@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
@@ -26,6 +27,9 @@ def verify_outputs(folder, *, saved):
     replays = list((folder / "replays").glob("*.mp4"))
     assert len(replays) == int(saved), f"退出不应额外保存即时回放：{replays}"
     assert all(path.stat().st_size > 500 for path in replays)
+    assert not list(folder.glob('*.concat.txt')) and not list(folder.glob('*.ffmpeg.log'))
+    assert not list((folder / 'replays').glob('*.concat.txt'))
+    assert not list((folder / 'replays').glob('*.ffmpeg.log'))
     assert not list((folder / ".ddm-parts").glob("*.mp4")), "已导出的分段及缓存应清理"
     probe = shutil.which("ffprobe")
     if probe:
@@ -38,6 +42,26 @@ def verify_outputs(folder, *, saved):
 
 def main():
     app = QApplication(sys.argv)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        manager = RecordingManager(dict(DEFAULT_SETTINGS))
+        for full in (True, False):
+            for code in (0, 1):
+                result = root / ('recording' if full else 'replay') / f'test-{code}.mp4'
+                result.parent.mkdir(exist_ok=True)
+                result.write_bytes(b'completed video')
+                part = root / 'part.ts'
+                part.write_bytes(b'original segment')
+                for suffix in ('.concat.txt', '.ffmpeg.log'):
+                    result.with_suffix(suffix).write_text('diagnostic', encoding='utf-8')
+                process = SimpleNamespace(returncode=code, poll=lambda value=code: value)
+                manager.exports.append((process, result, [part], full))
+                manager._poll()
+                assert result.exists()
+                for suffix in ('.concat.txt', '.ffmpeg.log'):
+                    assert result.with_suffix(suffix).exists() == bool(code)
+                assert part.exists() == (not full or bool(code))
+        manager.shutdown()
     ffmpeg = ffmpeg_path(DEFAULT_SETTINGS)
     assert ffmpeg, "本机需有 FFmpeg"
     with tempfile.TemporaryDirectory(prefix="ddm-shutdown-check-") as temp:

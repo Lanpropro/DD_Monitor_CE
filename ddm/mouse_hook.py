@@ -20,6 +20,9 @@ HC_ACTION = 0
 #: 滚轮一格；高精度滚轮/触控板的 delta 是它的整数倍（可能带小数）
 WHEEL_DELTA = 120
 
+# Windows still owns these callbacks if an unhook fails, even if the UI closes.
+_pending_hooks = set()
+
 
 def _load():
     """把 user32 的签名填好；非 Windows 或失败返回 None。"""
@@ -63,6 +66,8 @@ class WheelHook:
         self._on_wheel = on_wheel
         self._hook = None
         self._callback = None
+        self._listening = False
+        self._in_callback = 0
         self._struct = None          # MSLLHOOKSTRUCT 类型；自检要拿它造样本
 
     @property
@@ -71,7 +76,7 @@ class WheelHook:
 
     def start(self) -> bool:
         if self._hook is not None:
-            return True
+            return self._listening
         loaded = _load()
         if loaded is None or self._on_wheel is None:
             return False
@@ -79,9 +84,21 @@ class WheelHook:
         self._struct = mouse_hook_struct
 
         def _proc(code, wparam, lparam):            # noqa: ANN001, ANN202
-            self._dispatch(code, wparam, lparam)
-            # 只读不吃：一定放行，免得影响别的程序
-            return user32.CallNextHookEx(None, code, wparam, lparam)
+            self._in_callback += 1
+            try:
+                try:
+                    if self._listening:
+                        self._dispatch(code, wparam, lparam)
+                except Exception:                  # noqa: BLE001
+                    pass
+                return user32.CallNextHookEx(None, code, wparam, lparam)
+            finally:
+                self._in_callback -= 1
+                if not self._in_callback and self._hook is None:
+                    # WH_MOUSE_LL runs on the installing GUI thread. Release
+                    # its ctypes trampoline only after returning to Windows.
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, self._release_callback)
 
         try:
             callback = proc(_proc)
@@ -92,6 +109,7 @@ class WheelHook:
             return False
         self._callback = callback        # 必须留引用：被 GC 掉钩子就失效了
         self._hook = handle
+        self._listening = True
         return True
 
     def _dispatch(self, code, wparam, lparam) -> int:
@@ -115,14 +133,22 @@ class WheelHook:
         return delta
 
     def stop(self) -> None:
-        handle, self._hook = self._hook, None
-        self._callback = None
-        if not handle:
+        self._listening = False
+        if self._hook is None:
             return
+        _pending_hooks.add(self)
         loaded = _load()
         if loaded is None:
             return
         try:
-            loaded[0].UnhookWindowsHookEx(handle)
+            if not loaded[0].UnhookWindowsHookEx(self._hook):
+                return
         except Exception:  # noqa: BLE001
-            pass
+            return
+        self._hook = None
+        _pending_hooks.discard(self)
+        self._release_callback()
+
+    def _release_callback(self) -> None:
+        if self._hook is None and not self._in_callback:
+            self._callback = None

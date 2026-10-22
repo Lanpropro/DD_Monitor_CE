@@ -613,7 +613,8 @@ class RecordingManager(QObject):
             room = self._export_rooms.pop(result, {})
             if process.returncode == 0 and result.exists():
                 self._say(f"已保存{'录制' if full else '即时回放'}：{result}", room)
-                result.with_suffix(".concat.txt").unlink(missing_ok=True)
+                for suffix in (".concat.txt", ".ffmpeg.log"):
+                    result.with_suffix(suffix).unlink(missing_ok=True)
                 if full:
                     self._delete_after_exports.update(parts)
             else:
