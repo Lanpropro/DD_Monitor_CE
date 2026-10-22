@@ -119,7 +119,7 @@ def main():
                 assert button.size() == QSize(22, 22), (side, collapsed, button.size(), button.minimumSize(), button.maximumSize())
                 if side == 'left' and not collapsed:
                     row = window.sidebar.status_row.layout()
-                    assert row.indexOf(window.sidebar.sort_button) < row.indexOf(button) < row.indexOf(window.sidebar.refresh_button)
+                    assert row.indexOf(window.sidebar.batch_button) < row.indexOf(button) < row.indexOf(window.sidebar.refresh_button)
                     assert not button.geometry().intersects(window.sidebar.refresh_button.geometry())
         window.set_appearance('dark')
     window.close()

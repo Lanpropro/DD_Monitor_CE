@@ -258,7 +258,7 @@ class SkinController(QObject):
         self.error = ''
         self.layer.failed.connect(self._failed)
         sidebar = window.sidebar
-        for attribute, key in (('sort_button', 'sort'), ('refresh_button', 'refresh'),
+        for attribute, key in (('refresh_button', 'refresh'),
                 ('appearance_button', 'appearance'), ('toggle_button', 'sidebar_toggle'),
                 ('settings_button', 'settings'), ('layout_button', 'layout'),
                 ('import_button', 'import'), ('add_button', 'add')):

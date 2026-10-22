@@ -3892,18 +3892,13 @@ class Sidebar(QFrame):
         status_box.setSpacing(6)
         self.count_label = QLabel(f"关注中 · {len(rooms)}")
         self.count_label.setObjectName("SectionLabel")
-        self.sort_button = BarIconButton("排序", "sort")
-        self.sort_button.setObjectName("ChipButton")
-        self.sort_button.setCursor(Qt.PointingHandCursor)
-        self.sort_button.setToolTip("分别设置各文件夹的排序；Ctrl / Shift 点击卡片可直接多选")
-        self.sort_button.setMenu(self._build_sort_menu())
+        self.count_label.setToolTip("右键文件夹标题可设置该文件夹的排序")
         self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
         self.appearance_button = AppearanceButton(self)
         self.appearance_button.clicked.connect(lambda: self.appearanceChanged.emit(
             "dark" if theme.is_light() else "light"))
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         status_box.addWidget(self.count_label, 1)
-        status_box.addWidget(self.sort_button, 0, Qt.AlignRight)
         status_box.addWidget(self.batch_button, 0, Qt.AlignRight)
         status_box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         status_box.addWidget(self.refresh_button, 0, Qt.AlignRight)
@@ -4000,7 +3995,7 @@ class Sidebar(QFrame):
         layout.addWidget(self.normal_bar)
 
         # 竖屏横栏那一行（见 _adopt_bar_row）：左边搜索框/头像排，右边一块
-        # 「账号头像 / 布局预设 / 设置」，中间夹着「多选 / 排序 / 刷新」三个小图标。
+        # 「账号头像 / 布局预设 / 设置」，中间夹着「多选 / 外观 / 刷新」三个小图标。
         # 横屏要拆回竖排，所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
         self._column_order = [self._head_scroll, self._header_row, self.search,
                               self.status_row, self.scroll, self.batch_bar,
@@ -4023,7 +4018,7 @@ class Sidebar(QFrame):
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
             self.status_row.setVisible(not self.collapsed)
-            for widget in (self.count_label, self.sort_button, self.batch_button, self.refresh_button):
+            for widget in (self.count_label, self.batch_button, self.refresh_button):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,
                 Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
@@ -4681,7 +4676,7 @@ class Sidebar(QFrame):
                                     (self.tool_row, True)):
                 widget.setVisible(visible)
             self.settings_button.setVisible(True)    # 竖屏时它收进「⋯」里了
-            # 横栏里的工具回到状态行，多选仍保留为排序旁的图标。
+            # 横栏里的工具回到状态行，多选仍保留为状态行的图标。
             self._restore_side_children()
             self.account_row.setVisible(self._account_row_should_show())
             self._restore_toggle_to_header()
@@ -4729,7 +4724,7 @@ class Sidebar(QFrame):
     def _ensure_bar_row(self) -> None:
         """建出横栏的两行容器（只建一次）。
 
-        第一行：logo + 搜索框（收起时换成头像排）+ 多选/排序/刷新小图标 + 展开键。
+        第一行：logo + 搜索框（收起时换成头像排）+ 多选/外观/刷新小图标 + 展开键。
         第二行：横向卡片条 + 右侧单独一块（账号 / 布局预设 / 设置 竖排）。
         右侧那一块只占第二行，不侵占第一行的地方（用户要求）；高度就是卡片条
         那一行的高度，三个按钮 + 两条分割线把它正好分完。
@@ -4768,7 +4763,7 @@ class Sidebar(QFrame):
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
-        return [self.search, self._head_scroll, self.batch_button, self.sort_button,
+        return [self.search, self._head_scroll, self.batch_button,
                 self.appearance_button, self.refresh_button, self.account_row, self.tool_row,
                 self.batch_bar, self.toggle_button]
 
@@ -4836,10 +4831,10 @@ class Sidebar(QFrame):
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
-        return (self.batch_button, self.sort_button, self.appearance_button, self.refresh_button)
+        return (self.batch_button, self.appearance_button, self.refresh_button)
 
     def _sync_bar_icons(self) -> None:
-        """竖屏工具统一用图标；横屏多选仍为图标，排序恢复文字。"""
+        """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
         top = self.side == "top"
         self.batch_button.setProperty("sidebarCompact", not top)
         if top:
@@ -4866,19 +4861,17 @@ class Sidebar(QFrame):
             _repolish(button)
 
     def _restore_side_children(self) -> None:
-        """回左栏：多选图标与排序、外观、刷新一起回状态行。"""
+        """回左栏：多选图标与外观、刷新一起回状态行。"""
         self._detach_from_rows(self.batch_button)
         self.batch_button.setParent(self.status_row)
 
         box = self.status_row.layout()
-        for widget in (self.count_label, self.sort_button, self.batch_button, self.appearance_button, self.refresh_button):
+        for widget in (self.count_label, self.batch_button, self.appearance_button, self.refresh_button):
             box.removeWidget(widget)
         box.addWidget(self.count_label, 1)
-        box.addWidget(self.sort_button, 0, Qt.AlignRight)
         box.addWidget(self.batch_button, 0, Qt.AlignRight)
         box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         box.addWidget(self.refresh_button, 0, Qt.AlignRight)
-        self.sort_button.setParent(self.status_row)
         self.appearance_button.setParent(self.status_row)
         self.refresh_button.setParent(self.status_row)
         self._sync_bar_icons()
@@ -4887,7 +4880,7 @@ class Sidebar(QFrame):
         """竖屏：把横栏排成两行。
 
         第一行：logo（圆点 + 「DD监控室CE」）+ 搜索框（收起时换成头排）
-        + 多选/排序/刷新三个小图标 + 展开键。
+        + 多选/外观/刷新三个小图标 + 展开键。
         第二行：横向卡片条 + 右侧单独一块，那块里「账号 / 布局预设 / 设置」竖排、
         中间两条 1px 分割线 —— 三个按钮 + 两条线正好把卡片条那一行的高度分完，
         不占第一行的地方（用户要求：加起来和左侧展开关注栏同高，别占用别处）。
@@ -4896,7 +4889,7 @@ class Sidebar(QFrame):
         if not self._bar_in_use:
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
-                           self.batch_bar, self.batch_button, self.sort_button,
+                           self.batch_bar, self.batch_button,
                            self.appearance_button, self.refresh_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
@@ -5048,7 +5041,7 @@ class Sidebar(QFrame):
     def _sync_top_mode(self) -> None:
         """按 side + collapsed 决定顶部横栏露哪些控件。
 
-        横栏是**一行**：左边搜索框（收起时换成头像排），中间「多选 / 排序 / 刷新」
+        横栏是**一行**：左边搜索框（收起时换成头像排），中间「多选 / 外观 / 刷新」
         三个小图标，右边一块是账号头像 + 布局预设 + 设置 + 展开/收起键；
         下面只剩横向卡片条。头像排在收起时露出来（它就是关注列表）。
         """
@@ -5599,7 +5592,6 @@ class Sidebar(QFrame):
                 self._remember_folder_order(folder["id"])
                 folder["sort"] = "custom"
         self.sort_mode = self.get_folder(follow_folders.UNCLASSIFIED)["sort"]
-        self._sync_sort_menu()
         self.list_box.relayout(animate=True)
         self.refresh_strip()
         if self.pinned != pinned_before:
@@ -5616,20 +5608,6 @@ class Sidebar(QFrame):
         self.resort(animate=False)
 
     # ---- 排序 ----
-    def _build_sort_menu(self) -> QMenu:
-        menu = QMenu(self)
-        self._populate_sort_menu(menu)
-        menu.aboutToShow.connect(lambda: self._populate_sort_menu(menu))
-        return menu
-
-    def _populate_sort_menu(self, menu) -> None:
-        menu.clear()
-        for folder in self.folders:
-            self.add_folder_sort_menu(menu.addMenu(folder["name"]), folder)
-        menu.addSeparator()
-        menu.addAction("新建文件夹…").triggered.connect(lambda: self.prompt_folder())
-        menu.addAction("新建智能文件夹…").triggered.connect(lambda: self.prompt_smart_folder())
-
     def add_folder_sort_menu(self, menu, folder) -> None:
         group = QActionGroup(menu)
         group.setExclusive(True)
@@ -5654,11 +5632,6 @@ class Sidebar(QFrame):
                    if self.folder_for(str(item.room.get("room_id"))) == folder_id]
         ordered = iter(current)
         self.custom_order = [next(ordered) if rid in current else rid for rid in self.custom_order]
-
-    def _sync_sort_menu(self) -> None:
-        menu = self.sort_button.menu() if hasattr(self, "sort_button") else None
-        if menu is not None:
-            self._populate_sort_menu(menu)
 
     def set_folder_sort(self, folder_id: str, mode: str, notify=True) -> None:
         folder = self.get_folder(folder_id)
@@ -5726,7 +5699,6 @@ class Sidebar(QFrame):
         # 先按搜索词重算谁该藏起来，再摆位置 —— 顺序反了会留下「藏起来的还占位」
         self._apply_filter_marks()
         self.list_box.relayout(animate=animate, duration=duration, revealing=revealing)
-        self._sync_sort_menu()
         self._sync_count()             # 过滤时这里写成「露出来几路 / 一共几路」
         # 顺手把顶部横栏那一排头像也刷新：竖屏下它就是关注列表
         self.refresh_strip()

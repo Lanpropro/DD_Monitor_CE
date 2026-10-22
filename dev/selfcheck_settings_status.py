@@ -697,9 +697,9 @@ def main() -> None:
         # 顶层菜单和那一项都要留住引用：PySide6 给 QAction.menu() 发的包装对象
         # 会在中途回收，只存子菜单的话 gc 一跑就成了「C++ object already deleted」，
         # 底层 QMenu 其实还活着。测试里要保持这整条链。
-        sort_menu = sidebar.sort_button.menu()
+        sort_menu = sidebar._folder_buttons["__unclassified__"]._context_menu()
         folder_action = next(action for action in sort_menu.actions()
-                             if action.text() == "未分类")
+                             if action.text() == "排序")
         folder_menu = folder_action.menu()
         freeze = next(action for action in folder_menu.actions()
                       if action.text() == "固定当前显示顺序")
