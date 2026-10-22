@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dev.build_setup import payload_files, write_script
+from dev.build_setup import PERSONAL_FILES, payload_files, write_script
 from ddm.update_install import MANIFEST
 from ddm.version import DISPLAY_NAME, VERSION
 
@@ -74,13 +74,36 @@ class SetupTests(unittest.TestCase):
         self.assertIn('DisableWelcomePage=no', source)
         self.assertIn('WizardImageFile=', source)
         self.assertIn('WizardSmallImageFile=', source)
-        self.assertIn(f'Name: "{{app}}\\卸载 {DISPLAY_NAME}"; Filename: "{{uninstallexe}}"; Check:', source)
+        self.assertIn('DestName: "DDMonitorUninstall.exe"', source)
+        self.assertNotIn(f'Name: "{{app}}\\卸载 {DISPLAY_NAME}"', source)
         self.assertIn(f'Name: "{{autoprograms}}\\DDMonitorCE\\卸载 {DISPLAY_NAME}"', source)
+        self.assertIn('DirBrowseButton.OnClick := @BrowseInstallFolder', source)
+        self.assertIn('--pick-folder', source)
+        self.assertIn('LoadStringsFromFile(Output, Lines)', source)
 
     def test_payload_directory_links_are_rejected(self):
         with patch.object(Path, 'is_junction', lambda p: p.name == 'assets'):
             with self.assertRaisesRegex(ValueError, 'Linked payload'):
                 payload_files(self.payload)
+
+    def test_personal_cleanup_is_opt_in_and_uses_exact_known_paths(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        self.assertIn('RemovePersonalData := False;', source)
+        self.assertIn('Choice.Checked := False;', source)
+        self.assertIn('if UninstallSilent then Exit;', source)
+        self.assertIn('RemovePersonalData := Choice.Checked', source)
+        self.assertIn('(Step = usUninstall) and RemovePersonalData', source)
+        self.assertIn('if not PersonalPathsSafe then CleanupFailed := True', source)
+        for name in PERSONAL_FILES:
+            self.assertTrue(name.startswith('utils/'))
+            self.assertNotIn('*', name)
+            self.assertNotIn('..', name)
+            self.assertIn("RemovePersonalFile('" + name.replace('/', '\\') + "');", source)
+        self.assertIn('utils/config.json.bak', PERSONAL_FILES)
+        self.assertIn('utils/accounts/youtube_oauth_client.bin', PERSONAL_FILES)
+        self.assertNotIn('utils/accounts/custom.bin', PERSONAL_FILES)
+        for directory in ('recordings/', 'plugins_user/', 'logs/', 'cache/', 'utils/skins/'):
+            self.assertFalse(any(name.startswith(directory) for name in PERSONAL_FILES))
 
     def test_version_and_required_runtimes_are_verified(self):
         (self.payload / '_internal/libmpv-2.dll').unlink()
@@ -104,8 +127,9 @@ class SetupTests(unittest.TestCase):
                        'recursesubdirs', 'Source: "*', 'restartreplace'):
             self.assertNotIn(unsafe, source)
         entries = source.split('[Files]', 1)[1].split('[Icons]', 1)[0].strip().splitlines()
-        self.assertEqual(len(entries), len(self.files) + 2)
-        self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries))
+        self.assertEqual(len(entries), len(self.files) + 4)
+        self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries[:-1]))
+        self.assertIn('Flags: dontcopy', entries[-1])
 
 
 if __name__ == '__main__':

@@ -34,6 +34,8 @@
 - `dev/build_setup.py`
 - `dev/installer/ChineseSimplified.isl`
 - `dev/installer/ChineseSimplified-LICENSE.txt`
+- `dev/installer/wizard.png`
+- `dev/installer/helper.cpp`
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`

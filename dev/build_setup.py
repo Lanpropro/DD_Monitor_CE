@@ -15,6 +15,12 @@ PROGRAM_DIRS = {'_internal', 'assets', 'ffmpeg-license', 'mpv-license'}
 PROGRAM_FILES = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', 'ddm-build.json', 'LICENSE',
                  'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt'}
 PORTABLE_ONLY = {f'RELEASE-v{VERSION}.md', '运行说明.txt'}
+# Only files written by config.py / AccountStore for the bundled platforms.
+PERSONAL_FILES = ['utils/config.json', 'utils/config.json.bak'] + [
+    f'utils/accounts/{kind}.{suffix}'
+    for kind in ('bilibili', 'douyin', 'douyu', 'huya', 'youtube', 'twitch',
+                 'douyin_follows', 'youtube_oauth_client', 'twitch_oauth_client')
+    for suffix in ('bin', 'tmp')]
 
 
 def quote(value):
@@ -65,10 +71,18 @@ def write_script(payload, work, output):
     entries.append(f'Source: {quote(inventory)}; DestDir: "{{app}}"; Flags: ignoreversion')
     entries.append(f'Source: {quote(ROOT / "dev/installer/ChineseSimplified-LICENSE.txt")}; '
                    'DestDir: "{app}\\setup-license"; Flags: ignoreversion')
+    helper = ROOT / 'work/setup-native/DDMonitorInstallerHelper.exe'
+    entries.append(f'Source: {quote(helper)}; DestDir: "{{app}}"; '
+                   'DestName: "DDMonitorUninstall.exe"; Flags: ignoreversion')
+    entries.append(f'Source: {quote(helper)}; Flags: dontcopy')
     directories.add('\\setup-license')
     guards = '\n'.join('  if not SafePath(ExpandConstant(' +
                        "'{app}" + directory.replace("'", "''") + "')) then Exit;"
                        for directory in sorted(directories))
+    cleanup_guards = '\n'.join("  if not SafePath(ExpandConstant('{app}\\" +
+                               name.replace('/', '\\') + "')) then Exit;" for name in PERSONAL_FILES)
+    cleanup_files = '\n'.join("  RemovePersonalFile('" + name.replace('/', '\\') + "');"
+                              for name in PERSONAL_FILES)
     script = f'''[Setup]
 AppId={APP_ID}
 AppName={DISPLAY_NAME}
@@ -106,8 +120,8 @@ Name: "chinesesimp"; MessagesFile: "{ROOT / 'dev/installer/ChineseSimplified.isl
 
 [Messages]
 WelcomeLabel1=欢迎安装 {DISPLAY_NAME}
-WelcomeLabel2=安装程序将安装 {DISPLAY_NAME} {VERSION}。%n%n卸载只移除安装程序登记的文件和快捷方式；保留账号、配置、插件、录制和其他个人文件。
-ConfirmUninstall=确定卸载 %1？%n%n只移除安装程序登记的文件和快捷方式，保留账号、配置、插件、录制和其他个人文件。
+WelcomeLabel2=安装程序将安装 {DISPLAY_NAME} {VERSION}。%n%n卸载默认保留个人数据，可主动选择清除账号和设置。录制、用户插件、皮肤及其他文件继续保留。
+ConfirmUninstall=确定卸载 %1？%n%n将按所选范围卸载。未选择清除个人信息时，账号和设置会保留；录制、用户插件、皮肤及其他文件始终保留。
 
 [Tasks]
 Name: desktopicon; Description: "创建桌面快捷方式"; Flags: unchecked
@@ -118,13 +132,46 @@ Name: desktopicon; Description: "创建桌面快捷方式"; Flags: unchecked
 [Icons]
 Name: "{{autoprograms}}\\DDMonitorCE\\{DISPLAY_NAME}"; Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Check: CanCreateShortcut('{{autoprograms}}\\DDMonitorCE\\{DISPLAY_NAME}.lnk')
 Name: "{{autodesktop}}\\{DISPLAY_NAME}"; Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Tasks: desktopicon; Check: CanCreateShortcut('{{autodesktop}}\\{DISPLAY_NAME}.lnk')
-Name: "{{app}}\\卸载 {DISPLAY_NAME}"; Filename: "{{uninstallexe}}"; Check: CanCreateShortcut('{{app}}\\卸载 {DISPLAY_NAME}.lnk')
 Name: "{{autoprograms}}\\DDMonitorCE\\卸载 {DISPLAY_NAME}"; Filename: "{{uninstallexe}}"; Check: CanCreateShortcut('{{autoprograms}}\\DDMonitorCE\\卸载 {DISPLAY_NAME}.lnk')
 
 [Run]
 Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Description: "启动 {DISPLAY_NAME}"; Flags: nowait postinstall skipifsilent unchecked
 
 [Code]
+var
+  RemovePersonalData, CleanupFailed: Boolean;
+
+procedure BrowseInstallFolder(Sender: TObject);
+var
+  Selected, Output, Initial: String;
+  Lines: TArrayOfString;
+  ResultCode: Integer;
+begin
+  ResultCode := 2;
+  ExtractTemporaryFile('DDMonitorInstallerHelper.exe');
+  Output := ExpandConstant('{{tmp}}\\selected-folder.txt');
+  Initial := WizardForm.DirEdit.Text;
+  while (not DirExists(Initial)) and (ExtractFileDir(Initial) <> Initial) do
+    Initial := ExtractFileDir(Initial);
+  if Exec(ExpandConstant('{{tmp}}\\DDMonitorInstallerHelper.exe'),
+      '--pick-folder "' + Initial + '" "' + Output + '" ' + IntToStr(WizardForm.Handle),
+      '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then begin
+    if LoadStringsFromFile(Output, Lines) and (GetArrayLength(Lines) = 1) then begin
+      Selected := Trim(Lines[0]);
+      if CompareText(ExtractFileName(RemoveBackslashUnlessRoot(Selected)), 'DDMonitorCE') <> 0 then
+        Selected := AddBackslash(Selected) + 'DDMonitorCE';
+      WizardForm.DirEdit.Text := Selected;
+    end;
+  end else if ResultCode <> 1 then
+    MsgBox('无法打开系统文件夹选择器，请直接在安装目录输入框填写路径。', mbError, MB_OK);
+  DeleteFile(Output);
+end;
+
+procedure InitializeWizard;
+begin
+  WizardForm.DirBrowseButton.OnClick := @BrowseInstallFolder;
+end;
+
 function GetFileAttributes(Name: String): LongWord;
   external 'GetFileAttributesW@kernel32.dll stdcall';
 
@@ -155,6 +202,86 @@ begin
 {guards}
   if not SafePath(ExpandConstant('{{app}}\\.ddm-uninstall')) then Exit;
   Result := True;
+end;
+
+function PersonalPathsSafe: Boolean;
+begin
+  Result := False;
+{cleanup_guards}
+  Result := True;
+end;
+
+function ChooseUninstallOptions: Boolean;
+var
+  Form: TSetupForm;
+  Choice: TNewCheckBox;
+  Description: TNewStaticText;
+  ProceedButton, CancelButton: TNewButton;
+begin
+  RemovePersonalData := False;
+  Result := True;
+  if UninstallSilent then Exit;
+  Form := CreateCustomForm(ScaleX(470), ScaleY(265), False, False);
+  try
+    Form.Caption := '卸载 {DISPLAY_NAME}';
+    Form.Position := poScreenCenter;
+    Form.BorderStyle := bsDialog;
+    Choice := TNewCheckBox.Create(Form);
+    Choice.Parent := Form;
+    Choice.SetBounds(ScaleX(20), ScaleY(25), ScaleX(430), ScaleY(35));
+    Choice.Caption := '同时清除本机登录账号和软件设置';
+    Choice.Checked := False;
+    Description := TNewStaticText.Create(Form);
+    Description.Parent := Form;
+    Description.SetBounds(ScaleX(20), ScaleY(78), ScaleX(430), ScaleY(115));
+    Description.AutoSize := False;
+    Description.WordWrap := True;
+    Description.Caption := '默认保留，便于以后重新安装。勾选后清除内置平台的登录凭据、关注房间、布局和设置及其备份。' + #13#10 + #13#10 +
+      '录制、用户插件、皮肤、日志、缓存和其他文件继续保留。清理前请先退出软件。';
+    ProceedButton := TNewButton.Create(Form);
+    ProceedButton.Parent := Form;
+    ProceedButton.SetBounds(ScaleX(260), ScaleY(215), ScaleX(90), ScaleY(30));
+    ProceedButton.Caption := '继续卸载';
+    ProceedButton.ModalResult := mrOk;
+    ProceedButton.Default := True;
+    CancelButton := TNewButton.Create(Form);
+    CancelButton.Parent := Form;
+    CancelButton.SetBounds(ScaleX(360), ScaleY(215), ScaleX(90), ScaleY(30));
+    CancelButton.Caption := '取消';
+    CancelButton.ModalResult := mrCancel;
+    CancelButton.Cancel := True;
+    Result := Form.ShowModal = mrOk;
+    if Result then RemovePersonalData := Choice.Checked;
+  finally
+    Form.Free;
+  end;
+end;
+
+procedure RemovePersonalFile(RelativeName: String);
+var
+  Name: String;
+begin
+  Name := ExpandConstant('{{app}}\\') + RelativeName;
+  if not SafePath(Name) then begin
+    CleanupFailed := True;
+    Exit;
+  end;
+  if FileExists(Name) and not DeleteFile(Name) then CleanupFailed := True;
+end;
+
+procedure CurUninstallStepChanged(Step: TUninstallStep);
+begin
+  if (Step = usUninstall) and RemovePersonalData then begin
+    if not PersonalPathsSafe then CleanupFailed := True
+    else begin
+{cleanup_files}
+      RemoveDir(ExpandConstant('{{app}}\\utils\\accounts'));
+      RemoveDir(ExpandConstant('{{app}}\\utils'));
+    end;
+  end;
+  if (Step = usPostUninstall) and CleanupFailed then
+    SuppressibleMsgBox('部分个人信息无法清理，或路径包含链接。为保护其他文件，已保留这些内容。请检查原安装目录。',
+      mbError, MB_OK, IDOK);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -195,6 +322,7 @@ begin
   if not Result then
     SuppressibleMsgBox('程序目录被改成了链接。为保护其他位置的文件，卸载已停止，请先恢复普通目录。',
       mbError, MB_OK, IDOK);
+  if Result then Result := ChooseUninstallOptions;
 end;
 '''
     target = work / 'DDMonitorSetup.iss'
@@ -210,6 +338,13 @@ def main():
     args = parser.parse_args()
     output = args.out_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    native = ROOT / 'work/setup-native'
+    native.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['cl', '/nologo', '/O1', '/MT', '/EHsc', '/utf-8',
+                    '/DUNICODE', '/D_UNICODE', str(ROOT / 'dev/installer/helper.cpp'),
+                    '/Fe:' + str(native / 'DDMonitorInstallerHelper.exe'),
+                    '/Fo:' + str(native / 'helper.obj'), '/link', '/SUBSYSTEM:WINDOWS',
+                    'ole32.lib', 'shell32.lib', 'uuid.lib', 'user32.lib'], check=True)
     script = write_script(args.payload, ROOT / 'work/setup-build', output)
     subprocess.run([str(args.iscc.resolve()), str(script)], check=True)
     print(output / 'DDMonitorSetup.exe')
