@@ -217,7 +217,7 @@ def refresh_theme_properties(widget):
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
     if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
-                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
+                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
                     'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
     if widget.property('appearanceLight') != _light:
@@ -408,6 +408,8 @@ def qss(palette_roles=False) -> str:
     badge_text = '#F1F2F5' if _light and not palette_roles else TEXT2
     cover_text = '#F1F2F5' if _light and not palette_roles else TEXT4
     hint_text = '#F1F2F5' if _light and not palette_roles else TEXT2
+    volume_dark = qcolor(_DARK['BG'])
+    volume_light = qcolor(_LIGHT['BG'])
     style = f"""
 QPushButton#AppearanceChoice {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
@@ -1189,7 +1191,11 @@ QPushButton#PrimaryButton:pressed {{
     width: 4px; background: {BORDER_STRONG}; border-radius: 2px;
 }}
 #TileVolumePopup {{
-    background: {ELEVATED}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 4px;
+    background: rgba({volume_dark.red()}, {volume_dark.green()}, {volume_dark.blue()}, 0.84);
+    border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 2px;
+}}
+#TileVolumePopup[appearanceLight="true"] {{
+    background: rgba({volume_light.red()}, {volume_light.green()}, {volume_light.blue()}, 0.84);
 }}
 #TileVolumePopup QLabel {{
     background: transparent; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;
