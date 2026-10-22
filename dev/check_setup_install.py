@@ -1,5 +1,6 @@
 """Windows-only, isolated real Setup/update/uninstall check using synthetic data."""
 import argparse
+from contextlib import ExitStack
 from datetime import datetime
 import hashlib
 import json
@@ -68,6 +69,20 @@ def fingerprint(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def cleanup_registration(install, log):
+    """On a failed check, uninstall only the instance created in this sandbox."""
+    import winreg
+    if not registered():
+        return
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+            rf'Software\Microsoft\Windows\CurrentVersion\Uninstall\{APP_ID}_is1',
+            0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+        location = winreg.QueryValueEx(key, 'InstallLocation')[0]
+    uninstaller = install / '.ddm-uninstall/unins000.exe'
+    if Path(location).resolve() == install.resolve() and uninstaller.is_file():
+        run_installer(uninstaller, [], log)
+
+
 def check(setup, payload, update_zip):
     if sys.platform != 'win32':
         raise RuntimeError('This check requires Windows')
@@ -78,7 +93,7 @@ def check(setup, payload, update_zip):
     work.mkdir(exist_ok=True)
     logs = work / ('setup-check-' + datetime.now().strftime('%Y%m%d-%H%M%S'))
     logs.mkdir()
-    with tempfile.TemporaryDirectory(prefix='setup-sandbox-', dir=work) as temporary:
+    with tempfile.TemporaryDirectory(prefix='setup-sandbox-', dir=work) as temporary, ExitStack() as cleanup:
         sandbox = Path(temporary).resolve()
         assert sandbox.is_relative_to(work.resolve())
         install = sandbox / '中文 空格安装目录'
@@ -93,6 +108,7 @@ def check(setup, payload, update_zip):
         assert result != 0 and (bad / 'personal.txt').read_bytes() == b'not owned by setup'
         assert not (bad / f'{DISPLAY_NAME}.exe').exists() and not registered()
         result = run_installer(setup, ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], logs / 'install.log')
+        cleanup.callback(cleanup_registration, install, logs / 'cleanup-on-failure.log')
         assert result == 0 and registered(), 'Setup did not install successfully'
         for name in files:
             assert fingerprint(install / name) == fingerprint(payload / name), name
@@ -124,8 +140,10 @@ def check(setup, payload, update_zip):
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 0
+        probe_env = dict(os.environ, DDM_NO_SAVE='1', QT_QPA_PLATFORM='offscreen')
+        probe_env.pop('DDM_QTQUICK_DANMAKU', None)  # Test the fresh-install default.
         process = subprocess.Popen([str(install / f'{DISPLAY_NAME}.exe')], cwd=install,
-            startupinfo=startup, env=dict(os.environ, DDM_NO_SAVE='1', QT_QPA_PLATFORM='offscreen'))
+            startupinfo=startup, env=probe_env)
         try:
             deadline = time.monotonic() + 30
             marker = install / 'plugins_user/setup_probe/passed.json'
