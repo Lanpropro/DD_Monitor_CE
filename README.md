@@ -124,6 +124,8 @@ AV1，TS 会把它写成无法正常识别的视频流；重编码成 H.264 时�
 
 ### 方式一：下载 exe（推荐，免装 Python）
 
+新用户也可使用 `DDMonitorSetup.exe` 安装，默认安装到当前用户目录，支持创建快捷方式和卸载。卸载保留个人配置、账号、插件、录制及额外文件，详见[安装与卸载范围](docs/development/windows-installer.md)。
+
 1. 到 [Releases](https://github.com/Lanpropro/DD_Monitor_CE/releases) 下载
    `DDMonitorCE-v0.5-exe.zip`。
 2. 解压到任意目录（比如 `D:\DD监控室CE`）。

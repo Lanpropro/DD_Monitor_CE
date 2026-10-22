@@ -45,3 +45,5 @@ python dev/tools/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json
 0.3.1 作为固定程序名的过渡版本，额外提供 `DD监控室CE-v0.3.1.exe`，供旧 0.3 更新器识别；该入口启动后转交给 `DD监控室CE.exe`。之后的发布包只提供固定名称主程序，版本信息仍在更新清单和 Windows 文件属性中保留。
 
 EXE 包内程序目录及日常启动文件固定为 `DD监控室CE/DD监控室CE.exe`，在线更新保留原安装目录，避免按路径设置的白名单因版本号变化而失效。手动更新请解压覆盖原目录。
+
+新用户安装包为 `DDMonitorSetup.exe`，安装时建立初始程序文件清单。安装、卸载边界和验证见 [Windows 安装包](development/windows-installer.md)。卸载保留个人数据与未登记文件，不以递归删除清空安装目录。
