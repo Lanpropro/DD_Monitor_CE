@@ -87,6 +87,7 @@
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
 | [selfcheck_localization](../selfcheck_localization.py) | 单项执行前核对 |
 | [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke` |
+| [selfcheck_notification_center](../selfcheck_notification_center.py) | `smoke`、`offline` |
 | [selfcheck_offline_badges](../selfcheck_offline_badges.py) | 单项执行前核对 |
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
 | [selfcheck_overseas_playback_live](../selfcheck_overseas_playback_live.py) | 单项执行前核对 |

@@ -135,6 +135,7 @@
 - `dev/selfcheck_live_platforms.py`
 - `dev/selfcheck_localization.py`
 - `dev/selfcheck_main_notices.py`
+- `dev/selfcheck_notification_center.py`
 - `dev/selfcheck_match_sync.py`
 - `dev/selfcheck_match_sync_admission.py`
 - `dev/selfcheck_match_sync_alignment.py`

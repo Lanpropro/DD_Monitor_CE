@@ -3029,8 +3029,7 @@ class FollowFolderButton(QToolButton):
         elif folder["type"] == "normal":
             menu.addAction("重命名文件夹…").triggered.connect(
                 self.begin_rename)
-        if folder["type"] != "unclassified":
-            menu.addAction("修改图标…").triggered.connect(self._edit_icon)
+        menu.addAction("修改图标…").triggered.connect(self._edit_icon)
         index = self.sidebar.folders.index(folder)
         up = menu.addAction("文件夹上移")
         up.setEnabled(index > 0)
@@ -3048,7 +3047,8 @@ class FollowFolderButton(QToolButton):
         dialog = FolderIconDialog(folder, self, existing_names=(
             item['name'] for item in self.sidebar.folders if item['id'] != self.folder_id))
         if dialog.exec() == QDialog.Accepted:
-            folder['name'] = dialog.result_name
+            if folder['type'] != 'unclassified':
+                folder['name'] = dialog.result_name
             if dialog.result_icon is None:
                 folder.pop('icon', None)
             else:
@@ -3889,10 +3889,12 @@ class Sidebar(QFrame):
         self.status_row = QWidget(self)
         status_box = QHBoxLayout(self.status_row)
         status_box.setContentsMargins(0, 0, 0, 0)
-        status_box.setSpacing(6)
+        status_box.setSpacing(4)
         self.count_label = QLabel(f"关注中 · {len(rooms)}")
         self.count_label.setObjectName("SectionLabel")
         self.count_label.setToolTip("右键文件夹标题可设置该文件夹的排序")
+        from .notification_center import NotificationButton
+        self.notification_button = NotificationButton(self)
         self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
         self.appearance_button = AppearanceButton(self)
         self.appearance_button.clicked.connect(lambda: self.appearanceChanged.emit(
@@ -3900,6 +3902,7 @@ class Sidebar(QFrame):
         self.refresh_button.clicked.connect(self.refreshRequested.emit)
         status_box.addWidget(self.count_label, 1)
         status_box.addWidget(self.batch_button, 0, Qt.AlignRight)
+        status_box.addWidget(self.notification_button, 0, Qt.AlignRight)
         status_box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         status_box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         layout.addWidget(self.status_row)
@@ -4018,7 +4021,7 @@ class Sidebar(QFrame):
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
             self.status_row.setVisible(not self.collapsed)
-            for widget in (self.count_label, self.batch_button, self.refresh_button):
+            for widget in (self.count_label, self.batch_button, self.notification_button, self.refresh_button):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,
                 Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
@@ -4763,7 +4766,7 @@ class Sidebar(QFrame):
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
-        return [self.search, self._head_scroll, self.batch_button,
+        return [self.search, self._head_scroll, self.batch_button, self.notification_button,
                 self.appearance_button, self.refresh_button, self.account_row, self.tool_row,
                 self.batch_bar, self.toggle_button]
 
@@ -4831,12 +4834,13 @@ class Sidebar(QFrame):
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
-        return (self.batch_button, self.appearance_button, self.refresh_button)
+        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button)
 
     def _sync_bar_icons(self) -> None:
         """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
         top = self.side == "top"
         self.batch_button.setProperty("sidebarCompact", not top)
+        self.notification_button.setProperty("sidebarCompact", not top)
         if top:
             # 图标是自己画的（BarIconButton）：字形在雅黑下会偏左 / 偏小。
             # 按钮换成 #BarIcon 那套方形样式，ChipButton 的 10px 内边距会挤掉图标
@@ -4856,6 +4860,9 @@ class Sidebar(QFrame):
             self.batch_button.set_icon_mode(True)
             self.batch_button.setFixedSize(22, 22)
             self.refresh_button.setFixedSize(28, 22)  # RefreshButton 的原始尺寸
+        if not top:
+            self.notification_button.setObjectName("BarIcon")
+            self.notification_button.setFixedSize(22, 22)
         self.appearance_button.setFixedSize(22, 22)
         for button in self._bar_icons():
             _repolish(button)
@@ -4866,10 +4873,11 @@ class Sidebar(QFrame):
         self.batch_button.setParent(self.status_row)
 
         box = self.status_row.layout()
-        for widget in (self.count_label, self.batch_button, self.appearance_button, self.refresh_button):
+        for widget in (self.count_label, self.batch_button, self.notification_button, self.appearance_button, self.refresh_button):
             box.removeWidget(widget)
         box.addWidget(self.count_label, 1)
         box.addWidget(self.batch_button, 0, Qt.AlignRight)
+        box.addWidget(self.notification_button, 0, Qt.AlignRight)
         box.addWidget(self.appearance_button, 0, Qt.AlignRight)
         box.addWidget(self.refresh_button, 0, Qt.AlignRight)
         self.appearance_button.setParent(self.status_row)
@@ -4889,7 +4897,7 @@ class Sidebar(QFrame):
         if not self._bar_in_use:
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
-                           self.batch_bar, self.batch_button,
+                           self.batch_bar, self.batch_button, self.notification_button,
                            self.appearance_button, self.refresh_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)

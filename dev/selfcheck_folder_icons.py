@@ -68,7 +68,7 @@ def main():
         theme.apply('dark')
         changes = []
         sidebar.foldersChanged.connect(lambda: changes.append(True))
-        for fid in (normal, smart):
+        for fid in (normal, smart, '__unclassified__'):
             folder = sidebar.get_folder(fid)
             original_name = folder['name']
             button = sidebar._folder_buttons[fid]
@@ -94,7 +94,8 @@ def main():
             with patch.object(FolderIconDialog, 'exec', save):
                 action.trigger()
             assert folder['icon'] == {'type': 'builtin', 'name': 'heart', 'color': 'pink'}
-            assert folder['name'] == original_name + ' renamed'
+            assert folder['name'] == (original_name if fid == '__unclassified__'
+                                      else original_name + ' renamed')
             assert folder['name'] in button.toolTip()
             assert changes and button.iconSize().width() == 18
             assert normalize_folders(sidebar.folder_state()) == sidebar.folder_state()

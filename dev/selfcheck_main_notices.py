@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget
@@ -24,6 +24,40 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_toasts_anchor_on_the_left_and_stack_down(self):
+        window = self.window([])
+        window.resize(1200, 800)
+        update = UpdateNotice(window)
+        update.show_offer({'version': 'test'}, persistent=True)
+        show_result(window, '左侧通知', persistent=True)
+        result = window._result_notice
+        for side in ('left', 'top', 'left'):
+            window.sidebar.set_side(side)
+            for collapsed in (False, True):
+                window.sidebar.set_collapsed(collapsed, animate=False)
+                self.app.processEvents()
+                for card in (update, result):
+                    expected = 16
+                    expected = max(0, min(expected, window.width() - card.width() - 16))
+                    self.assertEqual(card.x(), window.mapToGlobal(QPoint(expected, 0)).x())
+                self.assertGreater(result.y(), update.geometry().bottom())
+
+    def test_notice_history_collects_results_and_update_once(self):
+        window = self.window([{'room_id': '1001', 'uname': '主播甲'}])
+        center = window.sidebar.notification_button.center
+        window._show_notice('主播甲开播了', rooms=[{'room_id': '1001'}], kind='live')
+        window._record_notice('录制已完成')
+        self.assertEqual([entry.message for entry in center.entries], ['主播甲开播了', '录制已完成'])
+        with patch.object(window, '_unread_app_update', return_value={'version': '0.5'}), \
+                patch.object(window, '_unread_plugin_updates', return_value=[]), \
+                patch.object(window, 'open_settings') as settings:
+            window._show_update_notice()
+            window._show_update_notice()
+            self.assertEqual(len(center.entries), 3)
+            self.assertEqual(center.entries[-1].message, '软件有新版 v0.5')
+            center.entries[-1].callback()
+            settings.assert_called_once_with('updates')
+
     def test_single_line_notice_keeps_heading_message_and_action_visible(self):
         owner = QWidget()
         owner.resize(1000, 700)
@@ -48,6 +82,11 @@ class MainNoticesTests(unittest.TestCase):
             window.recorder._say(prefix + '：' + path, room)
             notice = window._result_notice
             self.assertEqual(notice._file_path, path)
+            entry = window.sidebar.notification_button.center.entries[-1]
+            self.assertIn(path, entry.message)
+            with patch('ddm.notification_center.reveal_file') as reveal:
+                entry.callback()
+                reveal.assert_called_once_with(path)
             self.assertIn('1001', notice._avatars)
             self.assertNotIn(str(Path(path).parent), notice.title.text())
             self.assertIn('…', notice.title.text())
@@ -134,7 +173,7 @@ class MainNoticesTests(unittest.TestCase):
         from ddm.config import DEFAULT_SETTINGS
         dialog = SettingsDialog(DEFAULT_SETTINGS, {}, preview=True)
         self.addCleanup(dialog.close)
-        page = dialog._page(7)
+        page = dialog.notification_page
         self.assertTrue(page.values()['notice_persist_updates'])
         self.assertTrue(page.values()['notice_persist_pinned_live'])
         self.assertFalse(page.values()['notice_persist_live'])
@@ -456,7 +495,7 @@ class MainNoticesTests(unittest.TestCase):
                 for card in (update, notice):
                     self.assertLessEqual(card.width(), width - 32)
                     self.assertEqual(card.x(), owner.mapToGlobal(owner.rect().topLeft()).x()
-                                     + (width - card.width()) // 2)
+                                     + 16)
                     self.assertGreaterEqual(card.title.height(),
                                             card.title.heightForWidth(card.title.width()))
                     self.assertLess(card.action.geometry().bottom(), card.height())

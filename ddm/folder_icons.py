@@ -179,6 +179,7 @@ class FolderIconDialog(QDialog):
         labels = QVBoxLayout()
         labels.setSpacing(3)
         self.name_edit = QLineEdit(folder['name'])
+        self.name_edit.setReadOnly(folder['type'] == 'unclassified')
         self.name_edit.setObjectName('IconFolderName')
         self.name_edit.setAccessibleName('文件夹名称')
         self.name_edit.setPlaceholderText('输入文件夹名称')

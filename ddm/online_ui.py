@@ -489,6 +489,7 @@ class UpdateNotice(QFrame):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('UpdateNotice')
+        self._history_entries = set()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
@@ -522,7 +523,7 @@ class UpdateNotice(QFrame):
         close.setObjectName('NoticeClose')
         close.setFixedSize(24, 24)
         close.setToolTip('关闭提示')
-        close.clicked.connect(lambda: self.dismiss())
+        close.clicked.connect(lambda: self.dismiss(handled=True))
         self.heading.addWidget(close, 0, Qt.AlignTop)
         layout.addLayout(self.heading)
         self.action = QPushButton('查看更新')
@@ -540,6 +541,9 @@ class UpdateNotice(QFrame):
         self._motion.valueChanged.connect(self._motion_frame)
         self._motion.finished.connect(self._motion_finished)
         parent.installEventFilter(self)
+        sidebar = getattr(parent, 'sidebar', None)
+        if isinstance(sidebar, QWidget):
+            sidebar.installEventFilter(self)
 
     def show_offer(self, offer, *, persistent=False):
         was_visible = self.isVisible()
@@ -613,7 +617,11 @@ class UpdateNotice(QFrame):
     def reposition(self):
         parent = self.parentWidget()
         offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2), self._stack_y() + offset)))
+        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
+
+    def _left_x(self):
+        parent = self.parentWidget()
+        return max(0, min(16, parent.width() - self.width() - 16))
 
     def _stack_y(self):
         y = 20
@@ -653,6 +661,10 @@ class UpdateNotice(QFrame):
             super().mouseReleaseEvent(event)
 
     def eventFilter(self, watched, event):
+        if watched is not self.parentWidget():
+            if self.isVisible() and event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide):
+                self.reposition()
+            return False
         if self.isVisible():
             if event.type() == QEvent.Resize:
                 self._resize_to_content()
@@ -662,7 +674,15 @@ class UpdateNotice(QFrame):
                 self.dismiss(animate=False)
         return False
 
-    def dismiss(self, animate=True):
+    def track_history(self, record):
+        if record is not None and record[1] is not None:
+            self._history_entries.add(record)
+
+    def dismiss(self, animate=True, *, handled=False):
+        if handled:
+            for center, entry in self._history_entries:
+                center._remove(entry)
+            self._history_entries.clear()
         self.timer.stop()
         if (animate and self.isVisible() and self.parentWidget().isVisible()
                 and not getattr(self.parentWidget(), '_closing', False) and motion.enabled()):
@@ -673,7 +693,7 @@ class UpdateNotice(QFrame):
             self.hide()
 
     def _open(self):
-        self.dismiss(animate=False)
+        self.dismiss(animate=False, handled=True)
         self.activated.emit()
 
 
@@ -723,13 +743,13 @@ class ResultNotice(UpdateNotice):
         event.accept()
 
     def _open(self):
-        if self._on_click is not None:
-            callback = self._on_click
-            self.dismiss(animate=False)
+        callback = self._on_click
+        self.dismiss(animate=False, handled=True)
+        if callback is not None:
             callback()
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._on_click is not None:
+        if event.button() == Qt.LeftButton:
             self._open()
             event.accept()
             return
@@ -819,13 +839,17 @@ class ResultNotice(UpdateNotice):
     def reposition(self):
         parent = self.parentWidget()
         offset = round(-12 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(max(0, (parent.width() - self.width()) // 2),
-                                           self._stack_y() + offset)))
+        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False, file_path=None):
+    from .notification_center import remember_result
+    if getattr(parent, '_closing', False):
+        return
+    record = remember_result(parent, message, kind=kind, on_click=on_click, file_path=file_path, rooms=rooms)
     if not parent.isVisible():
         return
     notice = parent._result_notice = ResultNotice(parent)
+    notice.track_history(record)
     notice.show_message(message, rooms, kind=kind, on_click=on_click,
                         persistent=persistent, file_path=file_path)

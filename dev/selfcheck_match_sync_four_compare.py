@@ -71,11 +71,11 @@ def main():
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         pages = []
         dialog.pageCreated.connect(lambda index, page: pages.append(index))
-        dialog.nav.setCurrentRow(5)
-        assert pages == [5] and set(dialog._loaded_pages) == {5}
-        dialog.nav.setCurrentRow(6)
-        dialog.nav.setCurrentRow(5)
-        assert pages == [5, 6] and set(dialog._loaded_pages) == {5, 6}
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
+        assert pages == [6] and set(dialog._loaded_pages) == {6}
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['updates'])
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
+        assert pages == [6, 7] and set(dialog._loaded_pages) == {6, 7}
         dialog.close()
         print(f'PASS: settings save preserves unopened pages and custom keys without building controls ({elapsed:.1f}ms)')
 

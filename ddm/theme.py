@@ -593,6 +593,25 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#NotificationSettingsGroup {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
+#NotificationSettingsHeading {{
+    color: {TEXT2};
+    font-weight: 600;
+}}
+#NotificationSettingsState {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+    padding: 3px 6px;
+    background: {BG};
+    border-radius: 6px;
+}}
+#NotificationSettingsDivider {{
+    background: {BORDER};
+}}
 #PluginCard {{
     background: transparent;
     border: 1px solid {BORDER};
@@ -631,6 +650,24 @@ QSlider::handle:horizontal:hover {{
 #UpdateNotice {{
     background: transparent;
     border: none;
+}}
+#NotificationCenter, #NotificationScroll, #NotificationViewport, #NotificationList {{
+    background: transparent;
+    border: none;
+}}
+#HistoryNotice {{
+    background: {ELEVATED};
+    border: 1px solid rgba(131, 131, 145, 0.31);
+    border-radius: {RADIUS_LG}px;
+}}
+#HistoryNotice #NoticeHeading {{color: {TEXT1}; font-weight: 600;}}
+#HistoryNotice #NoticeText {{color: {TEXT2}; font-weight: 400;}}
+#HistoryNotice #NoticeDescription {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
+#HistoryNotice #NoticeIcon {{
+    color: {ACCENT}; background: {ACCENT_SOFT}; border-radius: {RADIUS_MD}px; font-weight: 600;
+}}
+#HistoryNotice #PrimaryButton {{
+    padding: 5px 14px; min-height: 22px; border-radius: {RADIUS_MD}px;
 }}
 #NoticeText {{
     color: {TEXT2};
@@ -1422,21 +1459,23 @@ QScrollArea, QScrollArea > QWidget > QWidget {{
     background: transparent;
     border: none;
 }}
-QScrollBar:vertical {{
+QScrollBar:vertical, #NotificationCenter QScrollBar:vertical {{
     background: transparent;
     width: {SCROLLBAR_SIZE}px;
     margin: 2px 0;
 }}
-QScrollBar::handle:vertical {{
+QScrollBar::handle:vertical, #NotificationCenter QScrollBar::handle:vertical {{
     background: rgba(131, 131, 145, 0.35);
     border-radius: 4px;
     min-height: 32px;
 }}
-QScrollBar::handle:vertical:hover {{
+QScrollBar::handle:vertical:hover, #NotificationCenter QScrollBar::handle:vertical:hover {{
     background: rgba(131, 131, 145, 0.55);
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+#NotificationCenter QScrollBar::add-line:vertical, #NotificationCenter QScrollBar::sub-line:vertical,
+#NotificationCenter QScrollBar::add-page:vertical, #NotificationCenter QScrollBar::sub-page:vertical {{
     background: none;
     height: 0;
 }}
