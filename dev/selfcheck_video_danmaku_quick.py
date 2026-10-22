@@ -1,4 +1,4 @@
-"""Windows Quick integration check; use --visible for desktop pixel checks."""
+"""Windows Quick checks; --surface-only covers monitors/fullscreen in a visible test window."""
 import ctypes
 from ctypes import wintypes
 import os
@@ -19,6 +19,7 @@ from PySide6.QtGui import QColor, QCursor, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from ddm import config, theme
+from ddm.auto_quality import AUTO_QUALITY
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
@@ -50,8 +51,57 @@ def brightest_text(image, tile):
                for x in range(left, min(image.width(), left + width)))
 
 
+def check_screen_surfaces(app, window, layer, players):
+    target = window.wall.tiles[0]
+    handles = [int(tile.video.winId()) for tile in window.wall.tiles]
+    main_handle = int(window.winId())
+    groups = dict(layer.groups)
+    items = dict(layer.items)
+    before = [float(player._prop("time-pos", 0) or 0) for player in players]
+    target.quality = AUTO_QUALITY  # Keep the synthetic video source in fullscreen.
+    screens = app.screens()
+    for screen in screens + screens[:1]:
+        area = screen.availableGeometry()
+        window.setGeometry(area.x() + 30, area.y() + 30,
+                           min(1100, area.width() - 60), min(700, area.height() - 60))
+        window.activateWindow()
+        settle(app, .5)
+        assert window.screen() is screen, "Test window must reach the selected monitor"
+        for fullscreen in (True, False):
+            if fullscreen:
+                window._on_fullscreen(target)
+            else:
+                window._exit_fullscreen()
+            window._clear_fullscreen_cover()
+            target.set_controls_visible(True)
+            target._controls_hide_timer.stop()
+            settle(app, .6)
+            assert not layer._surface_dirty and not layer._surface_reset.isActive()
+            assert int(window.winId()) == main_handle
+            assert [int(tile.video.winId()) for tile in window.wall.tiles] == handles
+            assert layer.groups == groups and layer.items == items
+            # Fullscreen changes mask geometry; every group must retain its source.
+            assert all(group.property("maskLoaded") for group in layer.groups.values())
+            assert all(record["item"].property("imageLoaded") for record in layer.items.values())
+            image = layer.window.grabWindow()
+            assert not image.isNull(), "Restored Quick surface must render"
+            pixel = image.pixelColor(image.width() * 3 // 4, image.height() * 3 // 4)
+            assert pixel.alpha() == 0, "Empty Quick surface must remain transparent"
+            if int(ctypes.windll.user32.GetForegroundWindow()) == main_handle:
+                desktop = capture(target)
+                pixel = desktop.pixelColor(desktop.width() * 3 // 4, desktop.height() * 3 // 4)
+                assert pixel.blue() > 180 and pixel.red() < 50, \
+                    "Cross-screen fullscreen must show blue video underneath danmaku"
+                print("desktop video visible:", screen.name(), fullscreen, pixel.name())
+            print("surface recovered:", screen.name(), "DPR", screen.devicePixelRatio(),
+                  "fullscreen", fullscreen, "alpha", image.hasAlphaChannel())
+    assert all(float(player._prop("time-pos", 0) or 0) > old
+               for player, old in zip(players, before)), "All local players must continue"
+    print("Cross-screen/fullscreen surface, alpha, textures and stable video HWNDs: PASS")
+
+
 def main():
-    visible = "--visible" in sys.argv
+    visible = "--visible" in sys.argv or "--surface-only" in sys.argv
     app = QApplication(sys.argv)
     if app.platformName() != "windows":
         print("跳过：需要 Windows 原生窗口")
@@ -129,6 +179,9 @@ def main():
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
             assert all(layer.groups[tile.video_danmaku._quick_group].property("maskImage").scheme() == "image"
                        for tile in window.wall.tiles), "共享组必须获得控件/圆角遮罩纹理"
+            if "--surface-only" in sys.argv:
+                check_screen_surfaces(app, window, layer, players)
+                return
             frames = []
             layer.window.frameSwapped.connect(lambda: frames.append(time.perf_counter_ns()))
             for tile in window.wall.tiles:

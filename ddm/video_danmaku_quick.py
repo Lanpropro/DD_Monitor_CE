@@ -151,7 +151,7 @@ class QuickDanmakuLayer(QObject):
         self._surface_reset = QTimer(self)
         self._surface_reset.setSingleShot(True)
         self._surface_reset.timeout.connect(self._restore_surface)
-        parent.window().installEventFilter(self)
+        self._surface_dirty = False
         self.render_thread_animation = os.environ.get("DDM_QTQUICK_ANIMATOR", "1") != "0"
         self.images = _CommentImages()
         self.engine = QQmlEngine(parent)
@@ -182,6 +182,8 @@ class QuickDanmakuLayer(QObject):
         self.group_masks = {}
         self._active_groups = set()
         self._set_layered()
+        parent.window().installEventFilter(self)
+        parent.window().windowHandle().screenChanged.connect(self.reset_surface)
 
     def _component(self, source, name):
         component = QQmlComponent(self.engine)
@@ -205,26 +207,35 @@ class QuickDanmakuLayer(QObject):
         user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x00000002)
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.WindowStateChange:
-            if (event.oldState() ^ watched.windowState()) & Qt.WindowMaximized:
-                # Keep the opaque surface out of the way during the native
-                # transition, then rebuild after resize/composition settles.
-                self.window.hide()
-                self._surface_reset.start(100)
+        if event.type() in (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange):
+            self.reset_surface()
+        elif event.type() == QEvent.WindowStateChange:
+            changed = event.oldState() ^ watched.windowState()
+            if changed & (Qt.WindowMaximized | Qt.WindowFullScreen):
+                self.reset_surface()
         return False
 
+    def reset_surface(self, _screen=None):
+        # Hide the old swap chain until screen/DPI/fullscreen changes settle.
+        self._surface_dirty = True
+        self.window.hide()
+        self._surface_reset.start(100)
+
     def _restore_surface(self):
-        if not self.parent.isVisible():
+        if not self.parent.isVisible() or self.parent.window().isMinimized():
             return
-        # The child D3D swap chain can become opaque after native maximize /
-        # restore. Recreate only its native surface; retain QML items and motion.
+        # Recreate only the child surface; retain QML items, motion and video HWNDs.
         self.window.hide()
         self.window.destroy()
         self._set_layered()
+        self._surface_dirty = False
         self.show()
 
     def show(self):
         self.resize()
+        if self._surface_dirty:
+            self._surface_reset.start(100)
+            return
         self.window.show()
         self.window.raise_()
 
