@@ -64,6 +64,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_add_room_folder](../selfcheck_add_room_folder.py) | 单项执行前核对 |
+| [selfcheck_mobile_share](../selfcheck_mobile_share.py) | `offline`；手机中文分享、短链接跳转及后台查询，无账号和外网 |
 | [selfcheck_add_room_hints](../selfcheck_add_room_hints.py) | 单项执行前核对 |
 | [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | 单项执行前核对 |
 | [selfcheck_avatars](../selfcheck_avatars.py) | 单项执行前核对 |
@@ -183,6 +184,8 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
+| [selfcheck_setup](../selfcheck_setup.py) | `offline`；安装输入白名单、初始清单及卸载脚本边界，不运行安装器 |
+| [check_setup_install](../check_setup_install.py) | 单项 Windows 后台隔离安装、修复、更新与卸载；需明确传入包路径，已有安装时拒绝执行 |
 | [check_release_package](../check_release_package.py) | 单项执行前核对 |
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |
 | [selfcheck_download_retry](../selfcheck_download_retry.py) | 单项执行前核对 |
