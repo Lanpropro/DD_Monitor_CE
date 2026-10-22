@@ -64,7 +64,8 @@
       "selfcheck_video_danmaku_controls",
       "selfcheck_video_danmaku",
       "selfcheck_stream_recovery",
-      "selfcheck_mobile_share"
+      "selfcheck_mobile_share",
+      "selfcheck_setup"
     ]
   },
   "native": {

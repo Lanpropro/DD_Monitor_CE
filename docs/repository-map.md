@@ -29,6 +29,11 @@
 - `dev/check_medal_size.py`
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
+- `dev/check_setup_install.py`
+- `dev/selfcheck_setup.py`
+- `dev/build_setup.py`
+- `dev/installer/ChineseSimplified.isl`
+- `dev/installer/ChineseSimplified-LICENSE.txt`
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
@@ -313,6 +318,7 @@
 ### 开发指南
 
 - `docs/development/testing.md`
+- `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
 - `docs/development/v0.4.1-backlog.md`
 - `docs/development/ui-integration-20261019.md`
