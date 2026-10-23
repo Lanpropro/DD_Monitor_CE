@@ -27,7 +27,10 @@ def main():
                            (['global_live'], ('Twitch', 'YouTube')),
                            (['domestic_live', 'global_live'], ('虎牙', '斗鱼', '抖音', 'Twitch', 'YouTube'))):
         with patch('ddm.app.QTimer.singleShot'):
-            window = MainWindow([], [], state={'plugins_enabled': enabled})
+            window = MainWindow([], [], state={'plugins_enabled': []})
+        # Exercise the loaded-platform contract without local plugin installations.
+        window.plugins.platforms = {name: SimpleNamespace(room_input_hint=f'支持 {name} 链接')
+                                    for name in names}
         captured = []
         def inspect(dialog):
             captured.append(dialog.hint.text())

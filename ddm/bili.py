@@ -742,7 +742,9 @@ class InfoResolver(QThread):
                 result = self.platform.room_info(self.room_id)
                 info = result.as_dict() if result is not None else None
             else:
-                info = room_info(self.room_id) if self.room_id.isdigit() else None
+                from .room_input import is_bili_short_url, resolve_bili_share
+                room_id = resolve_bili_share(self.room_id) if is_bili_short_url(self.room_id) else self.room_id
+                info = room_info(room_id) if room_id.isdigit() else None
         except Exception:  # noqa: BLE001
             info = None
         if info is None:

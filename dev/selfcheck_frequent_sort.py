@@ -160,6 +160,22 @@ class SidebarTests(unittest.TestCase):
         self.assertEqual(self.sidebar.watch_history.records, before)
         self.assertEqual(self.order(), order)
 
+    def test_frequent_sort_uses_folder_context_menu_without_legacy_sort_button(self):
+        self.assertFalse(hasattr(self.sidebar, 'sort_button'))
+        folder = self.sidebar.get_folder(follow_folders.UNCLASSIFIED)
+        menu = self.sidebar._folder_buttons[folder['id']]._context_menu()
+        self.addCleanup(menu.deleteLater)
+        sort_action = next(action for action in menu.actions() if action.text() == '排序')
+        option = next(action for action in sort_action.menu().actions() if action.text() == '常看优先')
+        option.trigger()
+        self.assertEqual(folder['sort'], 'frequent')
+        self.assertTrue(self.sidebar.watch_history.enabled)
+        self.assertEqual(self.order(), ['2', '1', '3', '4'])
+        self.sidebar.reorder_items(['4'], 0)
+        self.assertEqual(folder['sort'], 'custom')
+        self.assertFalse(self.sidebar.watch_history.enabled)
+        self.assertFalse(hasattr(self.sidebar, 'sort_button'))
+
     def test_manual_reordering_disables_collection_when_no_folder_uses_it(self):
         self.sidebar.set_sort_mode('frequent')
         self.sidebar.reorder_items(['4'], 0)

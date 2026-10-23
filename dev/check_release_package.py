@@ -91,8 +91,8 @@ if args.old_zip:
         config.parent.mkdir(exist_ok=True)
         config.write_text(json.dumps({"version": 2, "rooms": [], "wall": [],
                                       "ui": {"layout_landscape": "3x2"},
-                                      "settings": {"decode_mode": "d3d11va"},
-                                      "plugins_enabled": None}), encoding="utf-8")
+                                      "settings": {"decode_mode": "d3d11va", "auto_update": False},
+                                      "plugins_enabled": None, "user_notice_accepted": True}), encoding="utf-8")
         custom = installed / "plugins_user" / "upgrade_probe"
         custom.mkdir(parents=True)
         (custom / "plugin.json").write_text(json.dumps({"id": "upgrade_probe",
@@ -122,7 +122,7 @@ if args.old_zip:
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 0
         process = subprocess.Popen([str(updated_exe)], cwd=installed, startupinfo=startup,
-                                   env=dict(os.environ, DDM_NO_SAVE="1"))
+                                   env=dict(os.environ, DDM_NO_SAVE="1", QT_QPA_PLATFORM="offscreen"))
         try:
             deadline = time.monotonic() + 25
             ready = False
