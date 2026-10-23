@@ -5421,11 +5421,21 @@ class Sidebar(QFrame):
         return item
 
     def add_room(self, room: dict) -> bool:
-        room_id = str(room.get("room_id"))
-        if any(str(item.room.get("room_id")) == room_id for item in self._items):
-            return False
-        self._folder_pending.add(room_id)
-        self._append_item(room)
+        return bool(self.add_rooms([room]))
+
+    def add_rooms(self, rooms: list[dict]) -> list[dict]:
+        known = {str(item.room.get("room_id")) for item in self._items}
+        added = []
+        for room in rooms:
+            room_id = str(room.get("room_id"))
+            if room_id in known:
+                continue
+            known.add(room_id)
+            self._folder_pending.add(room_id)
+            self._append_item(room)
+            added.append(room)
+        if not added:
+            return []
         self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
                                 self.compact_threshold)
         # 新控件初始坐标是 (0, 0)，必须立即排版，否则会压在第一项上，
@@ -5435,9 +5445,9 @@ class Sidebar(QFrame):
         self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
         self.refresh_strip()
         if self.isVisible() and motion.enabled():
-            self._entering_room_ids.add(room_id)
+            self._entering_room_ids.update(str(room["room_id"]) for room in added)
             self._card_entry_timer.start(0)
-        return True
+        return added
 
     def _reveal_added_rooms(self) -> None:
         """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
