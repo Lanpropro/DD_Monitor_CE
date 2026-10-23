@@ -34,7 +34,6 @@ from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
 from .danmaku import DanmakuClient
-from .danmaku_send import emoticon_order
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
@@ -193,7 +192,6 @@ class MainWindow(QMainWindow):
                 saved_settings.get("video_danmaku_outline_width", 2)
                 if saved_settings["video_danmaku_outline"] else 0)
             self.settings.pop("video_danmaku_outline", None)
-        emoticon_order.load(self.state.get('emoticon_order'))
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
         if not isinstance(self.settings.get('skin_background'), str):
             self.settings['skin_background'] = ''
@@ -303,7 +301,6 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
-        emoticon_order.changed.connect(self._save_timer.start)
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
         self.wall.layoutRatiosChanged.connect(self._save_timer.start)
         # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
@@ -367,7 +364,12 @@ class MainWindow(QMainWindow):
         self.plugins.plugin_settings = self.state.setdefault("plugins", {})
         self.plugins._save_settings = lambda: config_module.save(self.current_state())
         plugin_api.set_manager(self.plugins)
+        self.plugins.register_credentials('bilibili', bili._cookies,
+            update=self._update_bilibili_credentials,
+            identity_keys=('SESSDATA', 'bili_jct'), writable_fields=('buvid3',))
         self.plugins.load()
+        for tile in self.wall.tiles:
+            self.plugins.attach_tile(tile)
         self.refresh_skin()
         self._restore_platform_accounts()
         self._sync_platform_rooms()
@@ -1044,7 +1046,7 @@ class MainWindow(QMainWindow):
             "follow_folders": self.sidebar.folder_state(),
             "watch_history": self.sidebar.watch_history.state(),
             "settings": dict(self.settings),
-            "emoticon_order": deepcopy(emoticon_order.orders),
+            "emoticon_order": deepcopy(self.state.get("emoticon_order", {})),
             "geometry": str((self._fullscreen_saved_geometry or self.saveGeometry()).toBase64(),
                             "ASCII"),
             # 插件自己的配置项，以及「启用了哪些插件」（None = 全启用）
@@ -1082,8 +1084,6 @@ class MainWindow(QMainWindow):
         # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
         self._watch_history_timer.stop()
-        for tile in self.wall.tiles:
-            tile.composer.shutdown()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
@@ -1116,7 +1116,7 @@ class MainWindow(QMainWindow):
         for player in players:
             player.release()
         self._wait_background()
-        # 发送/表情请求可能在关闭期间才补齐设备 Cookie，收尾后再保存它。
+        # 接收线程可能在关闭期间补齐设备 Cookie，收尾后再保存它。
         if self.state.get("buvid3", "") != bili._cookies().get("buvid3", ""):
             config_module.save(self.current_state())
         if self._startup_update_task is not None:
@@ -1132,8 +1132,6 @@ class MainWindow(QMainWindow):
 
     def _wait_background(self) -> None:
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
-        from .danmaku_send import wait_for_requests
-        wait_for_requests()
         names = ("_account_loader", "_account_avatar_loader", "_room_avatar_loader",
                  "_status_avatar_loader", "_follow_avatar_loader", "_follow_loader",
                  "_cover_cache_loader", "_avatar_cache_loader",
@@ -2895,6 +2893,8 @@ class MainWindow(QMainWindow):
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
     def _wire_tile(self, tile) -> None:
+        if hasattr(self, 'plugins'):
+            self.plugins.attach_tile(tile)
         # 格子创建时接线一次；之后填入或替换房间不再重复连接。
         if getattr(tile, "_actions_wired", False):
             return
@@ -2925,20 +2925,8 @@ class MainWindow(QMainWindow):
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
-        tile.composer.deviceCookieReady.connect(self._on_device_cookie_ready)
-        tile.composer.noticeRequested.connect(
-            lambda message, login, t=tile: self._danmaku_send_notice(message, login, room=t.room))
         tile._actions_wired = True
 
-    def _on_device_cookie_ready(self) -> None:
-        buvid3 = bili._cookies().get("buvid3", "")
-        if not self._closing and buvid3 and self.state.get("buvid3", "") != buvid3:
-            self.state["buvid3"] = buvid3
-            self._save_timer.start()
-
-    def _sync_composer_credentials(self) -> None:
-        for tile in self.wall.tiles:
-            tile.composer.sync_credentials()
 
     def _fill_plugin_menu(self, tile) -> None:
         """右键菜单弹出前，收集本体录制和插件操作。"""
@@ -3103,11 +3091,6 @@ class MainWindow(QMainWindow):
             return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
         self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
-
-    def _danmaku_send_notice(self, message: str, login_required: bool, *, room=None) -> None:
-        self._show_notice(message + ("，点击此处登录" if login_required else ""),
-                          rooms=[room] if room else (), kind="warning", on_click=(
-                              lambda: self.open_login("bilibili", reauthenticate=True)) if login_required else None)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None) -> None:
         if self._closing:
@@ -3544,7 +3527,7 @@ class MainWindow(QMainWindow):
             bili.set_sessdata("")
             self.state["sessdata"] = ""
             self.state["bili_jct"] = ""
-            self._sync_composer_credentials()
+            self.plugins.notify_credentials('bilibili')
             config_module.save(self.current_state())
             self.stop_danmaku()
             self.sync_danmaku()
@@ -3590,10 +3573,15 @@ class MainWindow(QMainWindow):
             self._import_selected_follows(selected, folder_id=folder_id,
                                           removed_ids=removed_ids, move_existing=move_existing, pending_count=pending_count)
 
+    def _update_bilibili_credentials(self, changes: dict) -> None:
+        if 'buvid3' in changes:
+            self.state['buvid3'] = bili.remember_buvid3(changes['buvid3'])
+            config_module.save(self.current_state())
+
     def _on_login(self, sessdata: str) -> None:
         bili.set_sessdata(sessdata)
-        self._sync_composer_credentials()
         self.state["sessdata"] = sessdata
+        self.plugins.notify_credentials('bilibili')
         config_module.save(self.current_state())
         self._render_account()
         self.refresh_account()
@@ -3891,6 +3879,8 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def _handle_shortcut(self, pressed: str) -> bool:
+        if any(tile.plugin_interaction_active() for tile in self.wall.tiles if tile.isVisible()):
+            return False
         shortcuts = self.shortcuts
         if pressed and pressed == shortcuts.get("focus"):
             if self._fullscreen_tile is not None:

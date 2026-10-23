@@ -50,7 +50,7 @@ class CheckRunnerTests(unittest.TestCase):
             'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
             'selfcheck_player_lifetime',
             'selfcheck_main_notices', 'selfcheck_notification_center', 'selfcheck_layout_16',
-            'selfcheck_danmaku_send', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort'])
+            'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
                      'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
@@ -60,8 +60,8 @@ class CheckRunnerTests(unittest.TestCase):
     def test_shared_scripts_require_the_same_isolation_mode(self):
         with tempfile.TemporaryDirectory() as temp:
             catalog = Path(temp) / 'suites.json'
-            suites = {'a': {'mode': 'offline', 'scripts': ['selfcheck_danmaku_send']},
-                      'b': {'mode': 'offline', 'scripts': ['selfcheck_danmaku_send']}}
+            suites = {'a': {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary']},
+                      'b': {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary']}}
             with patch.object(runner, 'CATALOG', catalog):
                 catalog.write_text(json.dumps(suites), encoding='utf-8')
                 self.assertEqual(len(runner.load_suites()), 2)
@@ -69,7 +69,7 @@ class CheckRunnerTests(unittest.TestCase):
                 catalog.write_text(json.dumps(suites), encoding='utf-8')
                 with self.assertRaises(ValueError):
                     runner.load_suites()
-                suites['b'] = {'mode': 'offline', 'scripts': ['selfcheck_danmaku_send'] * 2}
+                suites['b'] = {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary'] * 2}
                 catalog.write_text(json.dumps(suites), encoding='utf-8')
                 with self.assertRaises(ValueError):
                     runner.load_suites()
