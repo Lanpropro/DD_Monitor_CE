@@ -2,10 +2,19 @@
 import os
 import threading
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, QUrl, Qt
-from PySide6.QtGui import QImage, QSurfaceFormat
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QTimer, QUrl, Qt
+from PySide6.QtGui import QImage, QRegion, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
+from PySide6.QtWidgets import QApplication, QWidget
+
+
+def _owned_by(widget, owner):
+    while widget is not None:
+        if widget is owner:
+            return True
+        widget = widget.parentWidget()
+    return False
 
 
 class _CommentImages(QQuickImageProvider):
@@ -191,9 +200,10 @@ class QuickDanmakuLayer(QObject):
         self.group_masks = {}
         self._active_groups = set()
         self._set_layered()
-        parent.window().installEventFilter(self)
-        if parent is not parent.window():
-            parent.installEventFilter(self)
+        self._occlusion_timer = QTimer(self)
+        self._occlusion_timer.setSingleShot(True)
+        self._occlusion_timer.timeout.connect(self.show)
+        QApplication.instance().installEventFilter(self)
         parent.window().windowHandle().screenChanged.connect(self.reset_surface)
 
     def _component(self, source, name):
@@ -219,6 +229,12 @@ class QuickDanmakuLayer(QObject):
 
     def eventFilter(self, watched, event):
         kind = event.type()
+        if watched is not self.parent and watched is not self.parent.window():
+            if (isinstance(watched, QWidget) and watched.isWindow()
+                    and _owned_by(watched, self.parent.window())
+                    and kind in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.Close)):
+                self._occlusion_timer.start(0)
+            return False
         if kind in (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange):
             self.reset_surface()
         elif kind == QEvent.WindowStateChange:
@@ -229,6 +245,7 @@ class QuickDanmakuLayer(QObject):
             self.window.hide()
         elif kind in (QEvent.Move, QEvent.Resize):
             self.resize()
+            self._occlusion_timer.start(0)
         elif kind == QEvent.Show:
             self.show()
         return False
@@ -262,9 +279,26 @@ class QuickDanmakuLayer(QObject):
         if self._surface_dirty:
             self._surface_reset.start(100)
             return
+        if not self._update_occlusion():
+            self.window.hide()
+            return
         if not self.window.isVisible():
             self.window.show()
             self.window.raise_()
+
+    def _update_occlusion(self):
+        # Owned native windows can be raised above sibling dialogs and notices.
+        # Clip their regions out so comments cannot paint over application UI.
+        origin = self.parent.mapToGlobal(QPoint())
+        region = QRegion(self.parent.rect())
+        owner = self.parent.window()
+        for widget in QApplication.topLevelWidgets():
+            if widget is owner or not widget.isVisible() or not _owned_by(widget, owner):
+                continue
+            geometry = widget.frameGeometry()
+            region -= QRegion(QRect(geometry.topLeft() - origin, geometry.size()))
+        self.window.setMask(region)
+        return not region.isEmpty()
 
     def resize(self):
         point = self.parent.mapToGlobal(QPoint())

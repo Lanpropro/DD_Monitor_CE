@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QCursor, QPixmap
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from ddm import config, theme
 from ddm.auto_quality import AUTO_QUALITY
@@ -122,6 +122,33 @@ def check_screen_surfaces(app, window, layer, players):
     print("Cross-screen/fullscreen surface, alpha, textures and stable video HWNDs: PASS")
 
 
+def check_native_occlusion(app, owner, layer):
+    foreground = int(ctypes.windll.user32.GetForegroundWindow())
+    origin = layer.parent.mapToGlobal(QPoint())
+    dialog = QDialog(owner)
+    notice = QWidget(owner, Qt.Tool | Qt.WindowDoesNotAcceptFocus)
+    try:
+        for widget in (dialog, notice):
+            widget.setAttribute(Qt.WA_ShowWithoutActivating)
+            widget.setGeometry(origin.x() + 40, origin.y() + 40, 200, 120)
+            widget.show()
+            settle(app)
+            point = widget.mapToGlobal(widget.rect().center()) - origin
+            assert not layer.window.mask().contains(point), 'Native overlay covers application UI'
+            widget.move(origin.x() + 350, origin.y() + 200)
+            settle(app)
+            assert layer.window.mask().contains(point), 'Moving UI must restore old danmaku area'
+            moved = widget.mapToGlobal(widget.rect().center()) - origin
+            assert not layer.window.mask().contains(moved)
+            widget.hide()
+            settle(app)
+            assert layer.window.mask().contains(moved), 'Closing UI must restore danmaku'
+        assert int(ctypes.windll.user32.GetForegroundWindow()) == foreground, 'Background check stole focus'
+    finally:
+        dialog.close()
+        notice.close()
+
+
 def main():
     visible = "--visible" in sys.argv or "--surface-only" in sys.argv
     app = QApplication(sys.argv)
@@ -209,6 +236,7 @@ def main():
             assert layer.window.parent() is None, "Quick overlay must not use a native child swap chain"
             assert layer.window.transientParent() is window.windowHandle()
             assert layer.window.flags() & Qt.WindowDoesNotAcceptFocus
+            check_native_occlusion(app, window, layer)
             assert not user32.GetWindowLongW(int(layer.window.winId()), -16) & 0x40000000, \
                 "Cross-monitor danmaku must not use WS_CHILD"
             frames = []
