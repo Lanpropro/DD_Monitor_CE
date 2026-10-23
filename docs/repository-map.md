@@ -322,6 +322,7 @@
 
 ### 开发指南
 
+- `docs/development/bili-live-acceptance.md`
 - `docs/development/testing.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
