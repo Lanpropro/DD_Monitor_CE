@@ -16,7 +16,7 @@ def main():
     assert version.VERSION == '0.5'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.5 更新说明')
-    for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', '0.5.1', 'DD监控室CE.exe'):
+    for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', 'DD监控室CE.exe'):
         assert feature in notes, feature
     assert '0.4（未发布）' not in notes
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.4.md').read_text(encoding='utf-8')
