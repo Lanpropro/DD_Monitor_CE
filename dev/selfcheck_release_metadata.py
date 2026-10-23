@@ -18,6 +18,11 @@ def main():
     assert notes.startswith('# DD监控室CE v0.5 更新说明')
     for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', 'DD监控室CE.exe'):
         assert feature in notes, feature
+    for feature in ('正式版本 v0.4 到 v0.5', '播放内核从 VLC 更换为 libmpv',
+                    '全局和单窗口编解码设置', 'NVIDIA NVENC', '弹幕绘制增加 Qt Quick',
+                    '合并连续窗口尺寸更新', '独立 WASAPI 音频输出', '切换 B 站编码前后台探测',
+                    'AV1 直存选择 MOV／TS', '全屏残留选中边框', '恢复布局后背景透明异常'):
+        assert feature in notes, feature
     assert '0.4（未发布）' not in notes
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.4.md').read_text(encoding='utf-8')
     assert '[Milkyway-66](https://github.com/Milkyway-66)' in notes
