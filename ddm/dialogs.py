@@ -210,6 +210,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
+        ("sidebar_platform_logos", "显示关注栏平台 Logo"),
     ]
 
     def __init__(self, settings: dict, parent=None):

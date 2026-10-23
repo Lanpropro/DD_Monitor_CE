@@ -5779,8 +5779,9 @@ class Sidebar(QFrame):
                      if ":" in str(item.room.get("room_id", "")) else "bilibili"
                      for item in self._items}
         for item in self._items:
-            item.platform_badge.setProperty("showPlatform", len(platforms) > 1)
-            item.platform_badge.setVisible(len(platforms) > 1 and not item.thumb.video.isVisible())
+            show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
+            item.platform_badge.setProperty("showPlatform", show)
+            item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
             item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
