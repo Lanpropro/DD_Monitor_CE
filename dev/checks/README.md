@@ -318,6 +318,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_account_dialog](../selfcheck_account_dialog.py) | 单项执行前核对 |
+| [selfcheck_account_login_reopen](../selfcheck_account_login_reopen.py) | `native` |
 | [selfcheck_account_recovery](../selfcheck_account_recovery.py) | 单项执行前核对 |
 | [selfcheck_account_render](../selfcheck_account_render.py) | 单项执行前核对 |
 | [selfcheck_accounts](../selfcheck_accounts.py) | 单项执行前核对 |

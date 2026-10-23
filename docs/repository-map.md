@@ -38,6 +38,7 @@
 - `dev/installer/wizard.png`
 - `dev/installer/helper.cpp`
 - `dev/selfcheck_account_dialog.py`
+- `dev/selfcheck_account_login_reopen.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
 - `dev/selfcheck_accounts.py`

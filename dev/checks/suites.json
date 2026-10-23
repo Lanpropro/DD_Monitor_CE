@@ -74,6 +74,7 @@
     "mode": "native",
     "description": "Windows 原生窗口与播放器；可能显示窗口或操作光标，需 libmpv",
     "scripts": [
+      "selfcheck_account_login_reopen",
       "selfcheck_mpv",
       "selfcheck_mpv_com_lifetime",
       "selfcheck_resize_surface",
