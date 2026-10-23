@@ -16,7 +16,8 @@ from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimati
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QStackedWidget,
+    QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+    QPlainTextEdit, QStackedWidget, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
@@ -3832,18 +3833,36 @@ class MainWindow(QMainWindow):
 
     # ---- 快捷键 ----
     def _refresh_shortcuts(self) -> None:
+        if not hasattr(self, "_shortcut_focus_connected"):
+            application = QApplication.instance()
+            assert isinstance(application, QApplication)
+            application.focusChanged.connect(self._sync_input_shortcuts)
+            self._shortcut_focus_connected = True
         for shortcut in getattr(self, "_window_shortcuts", []):
             shortcut.setEnabled(False)
             shortcut.deleteLater()
         self._window_shortcuts = []
-        for sequence in dict.fromkeys(self.shortcuts.values()):
+        sequences = list(self.shortcuts.values())
+        if self.shortcuts.get("danmaku_input") == "Return":
+            sequences.append("Enter")
+        for sequence in dict.fromkeys(sequences):
             if not sequence:
                 continue
             shortcut = QShortcut(QKeySequence(sequence), self)
             shortcut.setContext(Qt.WindowShortcut)
             shortcut.setAutoRepeat(False)
+            shortcut.setProperty("danmakuInput", sequence in (
+                self.shortcuts.get("danmaku_input"),
+                "Enter" if self.shortcuts.get("danmaku_input") == "Return" else ""))
             shortcut.activated.connect(lambda key=sequence: self._handle_shortcut(key))
             self._window_shortcuts.append(shortcut)
+        self._sync_input_shortcuts()
+
+    def _sync_input_shortcuts(self, *_args) -> None:
+        editing = isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
+        for shortcut in self._window_shortcuts:
+            if shortcut.property("danmakuInput"):
+                shortcut.setEnabled(not editing)
 
     def _tile_under_cursor(self):
         """鼠标现在压在哪一格的画面上（没有就 None）。
@@ -3864,6 +3883,10 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event) -> None:
         pressed = QKeySequence(event.keyCombination()).toString()
+        if pressed == self.shortcuts.get("danmaku_input") or (
+                pressed == "Enter" and self.shortcuts.get("danmaku_input") == "Return"):
+            super().keyPressEvent(event)
+            return
         if not self._handle_shortcut(pressed):
             super().keyPressEvent(event)
 
@@ -3888,6 +3911,17 @@ class MainWindow(QMainWindow):
             tile = self._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
                 tile.closeRequested.emit(tile.room)
+        elif pressed and (pressed == shortcuts.get("danmaku_input") or (
+                pressed == "Enter" and shortcuts.get("danmaku_input") == "Return")):
+            tile = self._tile_under_cursor()
+            if tile is not None and tile.room.get("room_id"):
+                if tile is self._fullscreen_tile:
+                    hidden = tile._bar_target > 0.0 or tile.bottom.isHidden()
+                    self._fullscreen_cursor.start()
+                    tile.set_fullscreen_controls_hidden(False)
+                    if hidden:
+                        return True
+                tile.focus_danmaku_input()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
         elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:

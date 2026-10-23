@@ -6639,10 +6639,17 @@ class Tile(QFrame):
         self._set_control_hover(hovered)
 
     def _hide_controls_if_outside(self) -> None:
+        if self.composer.edit.hasFocus():
+            return
         local = self.mapFromGlobal(QCursor.pos())
         if self.rect().contains(local):
             return
         self.set_controls_visible(False)
+
+    def focus_danmaku_input(self) -> None:
+        if not self.composer.isVisible() or not self.composer.edit.isEnabled():
+            return
+        self.composer.edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
