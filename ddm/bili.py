@@ -682,7 +682,7 @@ class StreamResolver(QThread):
                                                  codec_from_profile(profile) or self.codec))
             if (self.platform is None and not self.preview
                     and (self.strict_codec or codec_from_profile(profile) in HLS_ONLY_CODECS)
-                    and not any(int(option["qn"]) == 10000 for option in options)):
+                    and not any(int(option["qn"]) >= 10000 for option in options)):
                 name = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}[self.codec]
                 self.original_quality_note = (f"{name} 未提供原画" if options
                                               else f"未能验证 {name} 的原画档位")
