@@ -262,6 +262,7 @@
 | [selfcheck_match_sync_empty](../selfcheck_match_sync_empty.py) | 单项执行前核对 |
 | [selfcheck_match_sync_entry](../selfcheck_match_sync_entry.py) | 单项执行前核对 |
 | [selfcheck_match_sync_exe](../selfcheck_match_sync_exe.py) | 单项执行前核对 |
+| [selfcheck_match_sync_release](../selfcheck_match_sync_release.py) | 单项执行；复制指定发布包运行库到临时目录，用实际 EXE 对比旧插件失败与替换 ZIP 的加载、声道路由和本地视频/PCM，不读取原配置 |
 | [selfcheck_match_sync_feedback](../selfcheck_match_sync_feedback.py) | 单项执行前核对 |
 | [selfcheck_match_sync_four_compare](../selfcheck_match_sync_four_compare.py) | 单项执行前核对 |
 | [selfcheck_match_sync_fullscreen_cursor](../selfcheck_match_sync_fullscreen_cursor.py) | 单项执行前核对 |
