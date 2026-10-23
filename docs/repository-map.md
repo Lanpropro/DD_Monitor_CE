@@ -162,6 +162,7 @@
 - `dev/selfcheck_match_sync_empty.py`
 - `dev/selfcheck_match_sync_entry.py`
 - `dev/selfcheck_match_sync_exe.py`
+- `dev/selfcheck_match_sync_release.py`
 - `dev/selfcheck_match_sync_feedback.py`
 - `dev/selfcheck_match_sync_four_compare.py`
 - `dev/selfcheck_match_sync_fullscreen_cursor.py`
