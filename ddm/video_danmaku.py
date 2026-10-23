@@ -80,6 +80,9 @@ class VideoDanmaku(QWidget):
         self._quick_group = None
         self._quick_rounded = True
         self._quick_mask_signature = None
+        self._quick_geometry_timer = QTimer(self)
+        self._quick_geometry_timer.setSingleShot(True)
+        self._quick_geometry_timer.timeout.connect(self._sync_quick_geometry)
         self.timer.destroyed.connect(self._timer_resolution.release)
         self._last_tick = 0.0
         self.hide()
@@ -499,6 +502,12 @@ class VideoDanmaku(QWidget):
                 comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
         self._set_quick_active()
 
+    def schedule_quick_geometry(self) -> None:
+        # QWidget move/resize events run before its native child windows settle.
+        # Coalesce updates after that move, rather than submitting Quick geometry inside it.
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_geometry_timer.start(0)
+
     def _sync_quick_geometry(self) -> None:
         if self._quick_layer is None or self._quick_group is None:
             return
@@ -581,9 +590,9 @@ class VideoDanmaku(QWidget):
 
     def resizeEvent(self, event) -> None:
         self._resize_comments()
-        self._sync_quick_geometry()
+        self.schedule_quick_geometry()
         super().resizeEvent(event)
 
     def moveEvent(self, event) -> None:
-        self._sync_quick_geometry()
+        self.schedule_quick_geometry()
         super().moveEvent(event)

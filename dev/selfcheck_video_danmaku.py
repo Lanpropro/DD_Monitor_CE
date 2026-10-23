@@ -55,6 +55,8 @@ def check_quick_group_swap_layout(app, layout_id, room_count):
         # 秒切移动整个格子，等大格子内部浮层的相对坐标不会产生 Move/Resize。
         wall.tiles[0], wall.tiles[1] = second, first
         wall.relayout(force=True)
+        time.sleep(0.12)  # A stalled GUI must not submit new Quick positions ahead of native moves.
+        assert geometries == original, 'GUI事件循环恢复前，不应提前提交共享弹幕的新坐标'
         app.processEvents()
         assert first.video_danmaku.geometry() == local_rect
         assert first.x() != original[0][0] - local_rect.x()
