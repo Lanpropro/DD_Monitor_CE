@@ -6353,7 +6353,7 @@ class Tile(QFrame):
     def _update_quick_danmaku_mask(self) -> None:
         self.video_danmaku.update_quick_mask((
             self.controls, self.stream_badge, self.title_badge, self.time_badge,
-            self.spinner, self.pause_overlay, self.bottom, *self.video_corners))
+            self.spinner, self.pause_overlay, self.bottom))
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
