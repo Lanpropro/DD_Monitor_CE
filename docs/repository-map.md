@@ -30,10 +30,13 @@
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
 - `dev/check_setup_install.py`
+- `dev/check_setup_data_cleanup.py`
 - `dev/selfcheck_setup.py`
 - `dev/build_setup.py`
 - `dev/installer/ChineseSimplified.isl`
 - `dev/installer/ChineseSimplified-LICENSE.txt`
+- `dev/installer/wizard.png`
+- `dev/installer/helper.cpp`
 - `dev/selfcheck_account_dialog.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
