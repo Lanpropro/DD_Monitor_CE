@@ -27,9 +27,14 @@ from ddm.widgets import DanmakuPanel, Tile, WallGrid
 
 
 def check_quick_group_follows_tile_move(app):
-    wall = WallGrid([dict(room_id=str(i), uname=str(i), live=True) for i in (1, 2)],
-                    layout_id='2x2')
-    wall.resize(1000, 700)
+    for layout_id, room_count in (('2x2', 2), ('3x3', 6)):
+        check_quick_group_swap_layout(app, layout_id, room_count)
+
+
+def check_quick_group_swap_layout(app, layout_id, room_count):
+    wall = WallGrid([dict(room_id=str(i + 1), uname=str(i + 1), live=True)
+                     for i in range(room_count)], layout_id=layout_id)
+    wall.resize(*( (1000, 700) if layout_id == '2x2' else (1002, 702)))
     wall.show()
     app.processEvents()
     layer = Mock()
@@ -38,8 +43,10 @@ def check_quick_group_follows_tile_move(app):
     layer.set_group_geometry.side_effect = lambda group, *rect: geometries.update({group: rect})
     wall._quick_danmaku_layer = layer
     first, second = wall.tiles[:2]
+    occupied = wall.tiles[:room_count]
     try:
-        for index, tile in enumerate((first, second)):
+        for index, tile in enumerate(occupied):
+            tile.danmaku_button.setChecked(True)
             overlay = tile.video_danmaku
             overlay._quick_layer, overlay._quick_group = layer, index
             overlay._sync_quick_geometry()
@@ -51,13 +58,21 @@ def check_quick_group_follows_tile_move(app):
         app.processEvents()
         assert first.video_danmaku.geometry() == local_rect
         assert first.x() != original[0][0] - local_rect.x()
-        for index, tile in enumerate((first, second)):
+        for index, tile in enumerate(occupied):
             overlay = tile.video_danmaku
             point = overlay.mapTo(wall, QPoint())
             assert geometries[index] == (point.x(), point.y(), overlay.width(), overlay.height()), \
                 '交换等大格子后，共享弹幕组必须跟随格子的墙内坐标'
+        # Replacing an empty slot with an occupied tile must move all six groups too.
+        wall.tiles[0], wall.tiles[-1] = wall.tiles[-1], wall.tiles[0]
+        wall.relayout(force=True)
+        app.processEvents()
+        for index, tile in enumerate(occupied):
+            overlay = tile.video_danmaku
+            point = overlay.mapTo(wall, QPoint())
+            assert geometries[index] == (point.x(), point.y(), overlay.width(), overlay.height())
     finally:
-        for tile in (first, second):
+        for tile in occupied:
             tile.video_danmaku._quick_layer = tile.video_danmaku._quick_group = None
         wall._quick_danmaku_layer = None
         wall.close()
