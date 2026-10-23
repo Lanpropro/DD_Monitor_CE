@@ -122,6 +122,43 @@ def check_screen_surfaces(app, window, layer, players):
     print("Cross-screen/fullscreen surface, alpha, textures and stable video HWNDs: PASS")
 
 
+def check_native_swap_submission(app, owner, layer):
+    tiles = list(owner.wall.tiles)
+    by_group = {tile.video_danmaku._quick_group: tile for tile in tiles}
+    handles = {tile: int(tile.video.winId()) for tile in tiles}
+    submitted = []
+    original = layer.set_group_geometry
+    user32 = ctypes.windll.user32
+    user32.MapWindowPoints.argtypes = [wintypes.HWND, wintypes.HWND,
+                                      ctypes.POINTER(wintypes.POINT), wintypes.UINT]
+
+    def submit(identifier, x, y, width, height):
+        tile = by_group[identifier]
+        native = wintypes.POINT()
+        user32.MapWindowPoints(handles[tile], int(owner.wall.winId()), ctypes.byref(native), 1)
+        scale = owner.wall.devicePixelRatioF()
+        assert abs(native.x - x * scale) <= 1 and abs(native.y - y * scale) <= 1, \
+            'Quick geometry must match the already-moved native video HWND'
+        original(identifier, x, y, width, height)
+        submitted.append(identifier)
+
+    try:
+        with patch.object(layer, 'set_group_geometry', side_effect=submit):
+            owner.wall.tiles[0], owner.wall.tiles[1] = tiles[1], tiles[0]
+            owner.wall.relayout(force=True)
+            time.sleep(0.12)
+            assert not submitted, 'A stalled GUI must not submit Quick positions inside native moves'
+            settle(app)
+            assert {tiles[0].video_danmaku._quick_group,
+                    tiles[1].video_danmaku._quick_group} <= set(submitted)
+    finally:
+        owner.wall.tiles[:] = tiles
+        owner.wall.relayout(force=True)
+        settle(app)
+    assert all(int(tile.video.winId()) == handle for tile, handle in handles.items())
+    print('Native video HWND geometry before coalesced Quick swap submission: PASS')
+
+
 def main():
     visible = "--visible" in sys.argv or "--surface-only" in sys.argv
     app = QApplication(sys.argv)
@@ -201,6 +238,7 @@ def main():
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
+            check_native_swap_submission(app, window, layer)
             assert all(layer.groups[tile.video_danmaku._quick_group].property("maskImage").scheme() == "image"
                        for tile in window.wall.tiles), "共享组必须获得控件/圆角遮罩纹理"
             if "--surface-only" in sys.argv:
