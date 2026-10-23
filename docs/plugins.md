@@ -267,6 +267,31 @@ context.set_setting("token", "abc")     # 写，并通知本体落盘
 本体据此保持全屏控件可见（包括指针离开格子时），并暂缓播放器快捷键，
 即使指针位于其他格子。隐藏或禁用的控件不参与查询。
 
+## 通知与登录入口
+
+`context.notify(message, *, rooms=(), kind="info", on_click=None) -> bool`
+将通知排入 GUI 线程，沿用主窗口上方的通知栏。`kind` 支持 `info`、`warning`、`live`；
+`rooms` 是房间字典序列，调用时复制，用于展示头像。需要让用户识别失败房间时，
+插件应同时把捕获的房间名和房间号写入 `message`，不依赖后来已切换的格子状态。
+`on_click` 是可选无参函数，点击会先关闭通知再执行它；异常由本体隔离。
+
+`context.request_login(platform, *, reauthenticate=False) -> bool`
+通过本体已有的登录界面登录指定平台，`reauthenticate=True` 直接进入重新验证流程。
+调用总是排入 GUI 队列，因此可安全地在通知点击动作中调用，不会让模态登录窗口
+嵌入通知的鼠标回调。网络错误、余额不足或权限不足不应自动要求重新登录；
+仅当接口明确拒绝凭据或账号尚未登录时提供该动作。
+
+```python
+context.notify("【示例主播（房间 120）】发送失败：登录失效，点击重新登录",
+               rooms=({"room_id": "120", "uname": "示例主播"},), kind="warning",
+               on_click=lambda: context.request_login("bilibili", reauthenticate=True))
+```
+
+这两个接口允许工作线程调用，返回 `True` 表示已接受排队，不保证窗口稍后仍可显示。
+没有窗口或相应能力时返回 `False`；插件装载失败、管理器卸载、主窗口关闭或 Qt 对象
+销毁后，待处理调用和保留的点击动作均失效。插件仍须自行检查请求的账号、房间和
+控件生命周期，过滤已经过期的后台结果；无需访问本体私有通知字段或登录字段。
+
 
 ## bili_live 配套安装
 

@@ -676,7 +676,7 @@ class ResultNotice(UpdateNotice):
     def show_message(self, message, rooms=(), *, kind='info', on_click=None):
         self._on_click = on_click
         self.setCursor(Qt.PointingHandCursor if on_click else Qt.ArrowCursor)
-        self.setToolTip('点击打开 B 站登录' if on_click else '')
+        self.setToolTip('点击执行通知操作' if on_click else '')
         self._motion.stop()
         self._leaving = False
         self.title.setText(message)

@@ -187,6 +187,7 @@
 | [selfcheck_plugin_windows_lock](../selfcheck_plugin_windows_lock.py) | 单项执行前核对 |
 | [selfcheck_plugin_controls](../selfcheck_plugin_controls.py) | `offline` |
 | [selfcheck_plugin_credentials](../selfcheck_plugin_credentials.py) | `offline` |
+| [selfcheck_plugin_notices](../selfcheck_plugin_notices.py) | `offline` |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行前核对 |

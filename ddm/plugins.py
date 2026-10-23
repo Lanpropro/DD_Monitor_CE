@@ -257,6 +257,8 @@ class PluginContext:
     def __init__(self, manager: "PluginManager", name: str):
         self._manager = manager
         self.name = name
+        self._active = not manager._unloaded
+        manager._contexts.add(self)
 
     # ---- 注册 ----
     def register_platform(self, platform: Platform) -> None:
@@ -273,6 +275,16 @@ class PluginContext:
 
     def update_credentials(self, platform, changes, *, expected_generation) -> bool:
         return self._manager.update_credentials(platform, changes, expected_generation=expected_generation)
+
+    def notify(self, message, *, rooms=(), kind='info', on_click=None) -> bool:
+        """Queue a main-window notice; False means this owner/window is unavailable."""
+        bridge = self._manager._notices
+        return bridge.notify(self, message, rooms=rooms, kind=kind, on_click=on_click) if bridge else False
+
+    def request_login(self, platform, *, reauthenticate=False) -> bool:
+        """Open the host login flow on the GUI thread after the current callback."""
+        bridge = self._manager._notices
+        return bridge.request_login(self, platform, reauthenticate=reauthenticate) if bridge else False
 
     # ---- 取用 ----
     @property
@@ -357,6 +369,14 @@ class PluginManager:
         self._loading_owner = None
         self._provider_order = 0
         self._credentials = CredentialStore(self.emit)
+        self._contexts = weakref.WeakSet()
+        self._unloaded = False
+        self._notices = None
+        if window is not None:
+            from PySide6.QtCore import QObject
+            if isinstance(window, QObject):
+                from .plugin_notices import PluginNotices
+                self._notices = PluginNotices(window)
 
     def register_credentials(self, platform, read, **options):
         self._credentials.register(platform, read, **options)
@@ -422,6 +442,7 @@ class PluginManager:
                     from .skins import plugin_skin
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
+                context._active = False
                 self._remove_tile_owner(entry)
                 try:
                     plugin.on_unload()
@@ -452,6 +473,9 @@ class PluginManager:
         return plugin if isinstance(plugin, Plugin) else None
 
     def unload(self) -> None:
+        self._unloaded = True
+        for context in tuple(self._contexts):
+            context._active = False
         for tile in tuple(self._tiles):
             self.detach_tile(tile)
         self._tile_providers.clear()
