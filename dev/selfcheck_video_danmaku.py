@@ -23,7 +23,44 @@ from ddm.app import MainWindow
 from ddm.danmaku import DanmakuClient
 from ddm.dialogs import DanmakuSettingsPage, SettingsDialog
 from ddm.video_danmaku import VideoDanmaku
-from ddm.widgets import DanmakuPanel, Tile
+from ddm.widgets import DanmakuPanel, Tile, WallGrid
+
+
+def check_quick_group_follows_tile_move(app):
+    wall = WallGrid([dict(room_id=str(i), uname=str(i), live=True) for i in (1, 2)],
+                    layout_id='2x2')
+    wall.resize(1000, 700)
+    wall.show()
+    app.processEvents()
+    layer = Mock()
+    layer.parent = wall
+    geometries = {}
+    layer.set_group_geometry.side_effect = lambda group, *rect: geometries.update({group: rect})
+    wall._quick_danmaku_layer = layer
+    first, second = wall.tiles[:2]
+    try:
+        for index, tile in enumerate((first, second)):
+            overlay = tile.video_danmaku
+            overlay._quick_layer, overlay._quick_group = layer, index
+            overlay._sync_quick_geometry()
+        local_rect = first.video_danmaku.geometry()
+        original = dict(geometries)
+        # 秒切移动整个格子，等大格子内部浮层的相对坐标不会产生 Move/Resize。
+        wall.tiles[0], wall.tiles[1] = second, first
+        wall.relayout(force=True)
+        app.processEvents()
+        assert first.video_danmaku.geometry() == local_rect
+        assert first.x() != original[0][0] - local_rect.x()
+        for index, tile in enumerate((first, second)):
+            overlay = tile.video_danmaku
+            point = overlay.mapTo(wall, QPoint())
+            assert geometries[index] == (point.x(), point.y(), overlay.width(), overlay.height()), \
+                '交换等大格子后，共享弹幕组必须跟随格子的墙内坐标'
+    finally:
+        for tile in (first, second):
+            tile.video_danmaku._quick_layer = tile.video_danmaku._quick_group = None
+        wall._quick_danmaku_layer = None
+        wall.close()
 
 
 def check_quick_surface_recovery(app):
@@ -476,6 +513,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_quick_group_follows_tile_move(app)
     check_motion(app)
     check_routing(app)
     check_settings(app)

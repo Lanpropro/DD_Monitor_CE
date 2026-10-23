@@ -6678,6 +6678,11 @@ class Tile(QFrame):
         super().resizeEvent(event)
         self._layout_areas()
 
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
+        self.video_danmaku._sync_quick_geometry()
+
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
