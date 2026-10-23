@@ -42,6 +42,11 @@ class BiliPluginBoundaryTests(unittest.TestCase):
         self.assertEqual(saved, orders)
         self.assertIsNot(saved, orders)
 
+    def test_acceptance_preserves_original_titlebar_theme_hook(self):
+        with patch('ddm.window_fullscreen.sync_titlebar') as sync:
+            self.window.refresh_theme()
+        sync.assert_called_once_with(self.window)
+
     def test_no_builtin_sending_capability_or_editor(self):
         self.assertIsNone(importlib.util.find_spec('ddm.danmaku_send'))
         self.assertFalse(callable(getattr(bili, 'send_danmaku', None)))

@@ -1,6 +1,12 @@
 """Windows 无过渡全屏：保持主窗口和 VLC 子窗口的 HWND 不变。"""
 import ctypes
 from ctypes import wintypes
+import sys
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+
+from . import theme
 
 
 class _MonitorInfo(ctypes.Structure):
@@ -28,7 +34,24 @@ def _dwm_set(hwnd, attribute, value):
         function = ctypes.windll.dwmapi.DwmSetWindowAttribute
         function.argtypes = (wintypes.HWND, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD)
         data = wintypes.DWORD(value)
-        function(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data))
+        return function(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data))
+
+
+def sync_titlebar(widget) -> None:
+    """Blend the native caption into the app without changing its HWND or styles."""
+    if (sys.platform != "win32" or QApplication.platformName() != "windows"
+            or not widget.testAttribute(Qt.WA_WState_Created)
+            or getattr(widget, "_fullscreen_tile", None) is not None):
+        return
+    hwnd = int(widget.winId())
+    background = theme.qcolor(theme.BG)
+    text = theme.qcolor(theme.TEXT1)
+    colorref = lambda color: color.red() | color.green() << 8 | color.blue() << 16
+    # Unsupported DWM attributes are ignored by older Windows versions.
+    _dwm_set(hwnd, 20, int(not theme.is_light()))  # Immersive dark mode / buttons.
+    _dwm_set(hwnd, 35, colorref(background))      # DWMWA_CAPTION_COLOR.
+    _dwm_set(hwnd, 36, colorref(text))            # DWMWA_TEXT_COLOR.
+    _dwm_set(hwnd, 34, colorref(background))      # DWMWA_BORDER_COLOR.
 
 
 def orient_restore_geometry(widget, portrait: bool) -> None:

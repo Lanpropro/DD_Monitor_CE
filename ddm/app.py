@@ -813,10 +813,14 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self.refresh_theme()
         if self._resize_on_show and not self._closing:
             self._resize_on_show = False
             self._resize_dirty = True
             self._resize_idle_timer.start()
+
+    def refresh_theme(self) -> None:
+        window_fullscreen.sync_titlebar(self)
 
     def _cancel_interactive_resize(self) -> None:
         timer = getattr(self, "_resize_idle_timer", None)
@@ -2855,6 +2859,7 @@ class MainWindow(QMainWindow):
                 self.showNormal()
             switched = time.perf_counter()
             self._fullscreen_tile = None
+            self.refresh_theme()
             self._sync_fullscreen_audio()
             self._fullscreen_saved_geometry = None
             self.sidebar.show()

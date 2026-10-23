@@ -7,7 +7,7 @@
 | 项目 | 原本体 | 当前插件验收版 |
 | --- | --- | --- |
 | 文本与草稿 | 按房间保留本次运行草稿 | 按房间保留本次运行草稿；成功清空对应草稿，失败保留 |
-| Enter | develop PR44 支持悬停格子聚焦、全屏两步唤出 | 通过通用控件接口保留；中文选词、自动重复按键不发送 |
+| Enter | 原测试目录尚未含 PR44；当前 develop 已支持悬停格子聚焦、全屏两步唤出 | 通过通用控件接口保留；中文选词、自动重复按键不发送 |
 | 小表情 / 大表情 | 小表情插入，大表情点击直接发送 | 同样区分；大表情点击会真实发送 |
 | 分类及表情排序 | 拖动排序，保存在本体配置 | 无此拖动排序功能；旧排序数据保留，不迁入插件，等待用户选择 |
 | 表情目录缓存 | 按房间和账号持久缓存，重新打开可先展示 | 内存缓存当前上下文；重启后重新请求；图片有磁盘缓存 |
@@ -36,3 +36,5 @@
 composer 曾在 Qt 样式更新时出现原生 access violation；诊断日志位于主仓 work/bili-live-compat-followup。测试 teardown 原先只 close 未销毁窗口，现 shutdown 并 deleteLater，断言已销毁后再恢复替身账号；修正后完整序列连续三轮通过。原生 Windows 运行是否存在同源问题仍待人工验收，不把重跑成功作为绝对根因证明。后台不会运行会抢焦点的 native/native_follow 套件。
 
 详细证据在主仓 work/bili-live-compat-checks、work/bili-live-compat-followup、work/bili-composer-diagnosis、work/bili-composer-cleanup-checks、work/bili-live-runtime-checks。初次失败日志保留。
+
+本机验收分支另保留原目录的主题标题栏效果；原目录改动前的代码由 archive/bili-live-before-20261023 和 function/manual-integration 保留。安装前本机配置备份在 work/bili-live-acceptance-backup，不上传。
