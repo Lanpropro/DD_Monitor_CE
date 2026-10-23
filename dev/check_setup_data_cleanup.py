@@ -1,5 +1,6 @@
 """Exercise generated personal-data cleanup in a disposable miniature install."""
 import argparse
+import ctypes
 import os
 from pathlib import Path
 import subprocess
@@ -16,6 +17,11 @@ alias = 'DDMonitorCE_DataCleanupCheck'
 
 
 def check(iscc):
+    extract = ctypes.windll.shell32.ExtractIconExW
+    extract.argtypes = [ctypes.c_wchar_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+    extract.restype = ctypes.c_uint
+    assert extract(str(root / 'work/setup-native/DDMonitorInstallerHelper.exe'), -1, None, None, 0) > 0
+    print('PASS: native uninstall entry contains an icon resource', flush=True)
     with patch.object(check_setup_install, 'APP_ID', alias):
         assert not check_setup_install.registered()
         work = root / 'work/setup-data-cleanup-check'
@@ -28,7 +34,7 @@ def check(iscc):
             case.mkdir(exist_ok=True)
             with patch.object(build_setup, 'APP_ID', alias):
                 script = build_setup.write_script(payload, case / 'build', case)
-            source = script.read_text(encoding='utf-8-sig').replace('Compression=lzma2/normal', 'Compression=none')
+            source = script.read_text(encoding='utf-8-sig').replace('Compression=lzma2/fast', 'Compression=none')
             if clean:
                 source = source.replace('if UninstallSilent then Exit;',
                     'if UninstallSilent then begin RemovePersonalData := True; Exit; end;')

@@ -14,7 +14,7 @@ APP_ID = 'DDMonitorCE'
 PROGRAM_DIRS = {'_internal', 'assets', 'ffmpeg-license', 'mpv-license'}
 PROGRAM_FILES = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', 'ddm-build.json', 'LICENSE',
                  'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt'}
-PORTABLE_ONLY = {f'RELEASE-v{VERSION}.md', '运行说明.txt'}
+PORTABLE_ONLY = {'运行说明.txt'}
 # Only files written by config.py / AccountStore for the bundled platforms.
 PERSONAL_FILES = ['utils/config.json', 'utils/config.json.bak'] + [
     f'utils/accounts/{kind}.{suffix}'
@@ -61,20 +61,22 @@ def write_script(payload, work, output):
     # Only Setup receives this initial inventory; the update ZIP forbids this path.
     inventory = work / MANIFEST
     inventory.write_text(json.dumps(files, ensure_ascii=False), encoding='utf-8')
-    entries = []
+    helper = ROOT / 'work/setup-native/DDMonitorInstallerHelper.exe'
+    # Keep the pre-install tool before the large payload, in its own solid block.
+    entries = [f'Source: {quote(helper)}; Flags: dontcopy']
     directories = {''}
-    for name in files:
+    for index, name in enumerate(files):
         parent = Path(name).parent
         suffix = '' if str(parent) == '.' else '\\' + str(parent).replace('/', '\\')
         directories.add(suffix)
-        entries.append(f'Source: {quote(payload / name)}; DestDir: "{{app}}{suffix}"; Flags: ignoreversion')
+        flags = 'ignoreversion solidbreak' if index == 0 else 'ignoreversion'
+        entries.append(f'Source: {quote(payload / name)}; DestDir: "{{app}}{suffix}"; Flags: {flags}')
+    # Install this early-stored file before the payload to avoid a second seek.
+    entries.insert(1, f'Source: {quote(helper)}; DestDir: "{{app}}"; '
+                   'DestName: "DDMonitorUninstall.exe"; Flags: ignoreversion')
     entries.append(f'Source: {quote(inventory)}; DestDir: "{{app}}"; Flags: ignoreversion')
     entries.append(f'Source: {quote(ROOT / "dev/installer/ChineseSimplified-LICENSE.txt")}; '
                    'DestDir: "{app}\\setup-license"; Flags: ignoreversion')
-    helper = ROOT / 'work/setup-native/DDMonitorInstallerHelper.exe'
-    entries.append(f'Source: {quote(helper)}; DestDir: "{{app}}"; '
-                   'DestName: "DDMonitorUninstall.exe"; Flags: ignoreversion')
-    entries.append(f'Source: {quote(helper)}; Flags: dontcopy')
     directories.add('\\setup-license')
     guards = '\n'.join('  if not SafePath(ExpandConstant(' +
                        "'{app}" + directory.replace("'", "''") + "')) then Exit;"
@@ -109,11 +111,11 @@ WizardImageBackColor=#202225
 WizardSmallImageBackColor=#202225
 DisableWelcomePage=no
 WizardSizePercent=110
-Compression=lzma2/normal
+Compression=lzma2/fast
 SolidCompression=yes
 CloseApplications=no
 RestartApplications=no
-SetupLogging=yes
+SetupLogging=no
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "{ROOT / 'dev/installer/ChineseSimplified.isl'}"
@@ -148,7 +150,6 @@ var
   ResultCode: Integer;
 begin
   ResultCode := 2;
-  ExtractTemporaryFile('DDMonitorInstallerHelper.exe');
   Output := ExpandConstant('{{tmp}}\\selected-folder.txt');
   Initial := WizardForm.DirEdit.Text;
   while (not DirExists(Initial)) and (ExtractFileDir(Initial) <> Initial) do
@@ -169,6 +170,7 @@ end;
 
 procedure InitializeWizard;
 begin
+  ExtractTemporaryFile('DDMonitorInstallerHelper.exe');
   WizardForm.DirBrowseButton.OnClick := @BrowseInstallFolder;
 end;
 
@@ -221,32 +223,32 @@ begin
   RemovePersonalData := False;
   Result := True;
   if UninstallSilent then Exit;
-  Form := CreateCustomForm(ScaleX(470), ScaleY(265), False, False);
+  Form := CreateCustomForm(470, 245, True, True);
   try
     Form.Caption := '卸载 {DISPLAY_NAME}';
     Form.Position := poScreenCenter;
     Form.BorderStyle := bsDialog;
     Choice := TNewCheckBox.Create(Form);
     Choice.Parent := Form;
-    Choice.SetBounds(ScaleX(20), ScaleY(25), ScaleX(430), ScaleY(35));
+    Choice.SetBounds(ScaleX(20), ScaleY(18), ScaleX(430), ScaleY(30));
     Choice.Caption := '同时清除可识别的个人信息（账号和设置）';
     Choice.Checked := False;
     Description := TNewStaticText.Create(Form);
     Description.Parent := Form;
-    Description.SetBounds(ScaleX(20), ScaleY(78), ScaleX(430), ScaleY(115));
+    Description.SetBounds(ScaleX(20), ScaleY(62), ScaleX(430), ScaleY(125));
     Description.AutoSize := False;
     Description.WordWrap := True;
     Description.Caption := '默认保留。勾选后清除内置平台的登录凭据、关注房间、布局和设置及其备份。' + #13#10 + #13#10 +
       '录制和未登记来源的文件始终保留。现有插件、皮肤、日志和缓存没有逐文件来源记录，因此保留，安装目录可能仍有内容。清理前请退出软件。';
     ProceedButton := TNewButton.Create(Form);
     ProceedButton.Parent := Form;
-    ProceedButton.SetBounds(ScaleX(260), ScaleY(215), ScaleX(90), ScaleY(30));
+    ProceedButton.SetBounds(ScaleX(260), ScaleY(200), ScaleX(90), ScaleY(28));
     ProceedButton.Caption := '继续卸载';
     ProceedButton.ModalResult := mrOk;
     ProceedButton.Default := True;
     CancelButton := TNewButton.Create(Form);
     CancelButton.Parent := Form;
-    CancelButton.SetBounds(ScaleX(360), ScaleY(215), ScaleX(90), ScaleY(30));
+    CancelButton.SetBounds(ScaleX(360), ScaleY(200), ScaleX(90), ScaleY(28));
     CancelButton.Caption := '取消';
     CancelButton.ModalResult := mrCancel;
     CancelButton.Cancel := True;
@@ -340,10 +342,14 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     native = ROOT / 'work/setup-native'
     native.mkdir(parents=True, exist_ok=True)
+    resource = native / 'helper.rc'
+    resource.write_text('1 ICON "' + (ROOT / 'favicon.ico').as_posix() + '"\n', encoding='utf-8')
+    subprocess.run(['rc', '/nologo', '/fo', str(native / 'helper.res'), str(resource)], check=True)
     subprocess.run(['cl', '/nologo', '/O1', '/MT', '/EHsc', '/utf-8',
                     '/DUNICODE', '/D_UNICODE', str(ROOT / 'dev/installer/helper.cpp'),
                     '/Fe:' + str(native / 'DDMonitorInstallerHelper.exe'),
                     '/Fo:' + str(native / 'helper.obj'), '/link', '/SUBSYSTEM:WINDOWS',
+                    str(native / 'helper.res'),
                     'ole32.lib', 'shell32.lib', 'uuid.lib', 'user32.lib'], check=True)
     script = write_script(args.payload, ROOT / 'work/setup-build', output)
     subprocess.run([str(args.iscc.resolve()), str(script)], check=True)

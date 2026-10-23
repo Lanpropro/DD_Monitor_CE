@@ -57,13 +57,13 @@ class SetupTests(unittest.TestCase):
                 if not any(parent.iterdir()):
                     parent.rmdir()
 
-    def test_portable_notes_are_not_installed(self):
+    def test_current_release_notes_remain_available_to_the_app(self):
         for name in (f'RELEASE-v{VERSION}.md', '运行说明.txt'):
             (self.payload / name).write_text('portable instructions', encoding='utf-8')
-        self.assertEqual(set(payload_files(self.payload)), set(self.files))
+        self.assertEqual(set(payload_files(self.payload)), set(self.files) | {f'RELEASE-v{VERSION}.md'})
         script = write_script(self.payload, self.root / 'build', self.root / 'out')
         source = script.read_text(encoding='utf-8-sig')
-        self.assertNotIn('RELEASE-v', source)
+        self.assertIn(f'RELEASE-v{VERSION}.md', source)
         self.assertNotIn('运行说明.txt', source)
         self.assertIn('ddm-build.json', source)
 
@@ -130,8 +130,20 @@ class SetupTests(unittest.TestCase):
             self.assertNotIn(unsafe, source)
         entries = source.split('[Files]', 1)[1].split('[Icons]', 1)[0].strip().splitlines()
         self.assertEqual(len(entries), len(self.files) + 4)
-        self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries[:-1]))
-        self.assertIn('Flags: dontcopy', entries[-1])
+        self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries[1:]))
+        self.assertIn('Flags: dontcopy', entries[0])
+        self.assertIn('solidbreak', entries[2])
+        self.assertIn('DDMonitorInstallerHelper.exe', entries[0])
+        self.assertIn('DDMonitorUninstall.exe', entries[1])
+
+    def test_picker_is_extracted_before_browse_and_dialog_is_not_scaled_twice(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        browse = source.split('procedure BrowseInstallFolder', 1)[1].split('procedure InitializeWizard', 1)[0]
+        self.assertNotIn('ExtractTemporaryFile', browse)
+        self.assertIn("ExtractTemporaryFile('DDMonitorInstallerHelper.exe')", source.split('procedure InitializeWizard', 1)[1])
+        self.assertIn('CreateCustomForm(470, 245, True, True)', source)
+        self.assertIn('Compression=lzma2/fast', source)
+        self.assertIn('SetupLogging=no', source)
 
 
 if __name__ == '__main__':
