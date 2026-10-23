@@ -28,6 +28,7 @@ from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
 from .danmaku_content import content_runs, content_html
 from . import follow_folders
+from .watch_history import SORT_TIP, WatchHistory
 from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
@@ -2703,6 +2704,8 @@ class SmartFolderDialog(QDialog):
         self.sort_combo = QComboBox()
         for mode, label in sidebar.SORT_MODES:
             self.sort_combo.addItem(label, mode)
+            if mode == "frequent":
+                self.sort_combo.setItemData(self.sort_combo.count() - 1, SORT_TIP, Qt.ToolTipRole)
         self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(folder.get("sort", "custom"))))
         form.addRow("文件夹名称", self.name_edit)
         sources = rule.get("sources", [follow_folders.UNCLASSIFIED] if folder else [])
@@ -3792,6 +3795,9 @@ class Sidebar(QFrame):
         self.sort_mode = "custom"
         self.import_order: list[str] = []      # 导入/添加的先后顺序，用于「导入顺序」排序
         self.custom_order: list[str] = []      # 拖动排出来的顺序，切换排序方式也不丢
+        self.watch_history = WatchHistory()
+        self._frequent_scores = {}
+        self._frequent_folders = set()
         self.folders: list[dict] = follow_folders.normalize_folders([])
         self._folder_assignments: dict[str, str] = {}
         self._smart_cards: dict[tuple[str, str], SmartFolderCard] = {}
@@ -4489,6 +4495,7 @@ class Sidebar(QFrame):
             self.create_folder(**data)
 
     def _refresh_folders(self, notify: bool = True, *, animate=False) -> None:
+        self._sync_watch_history_mode()
         revealing = {item for item in self._items if item.filtered_out} if animate else ()
         ids = {folder["id"] for folder in self.folders}
         self._folders_folded_by_drag.intersection_update(ids)
@@ -4531,8 +4538,14 @@ class Sidebar(QFrame):
                            and self.matches(item, self.filter_text.split(), folder["id"])]
                 order = self.import_order if folder["sort"] == "imported" else self.custom_order
                 positions = {rid: i for i, rid in enumerate(order)}
+                pin_positions = {rid: i for i, rid in enumerate(self.pinned)}
                 def copy_key(item):
                     index = positions.get(str(item.room["room_id"]), len(positions))
+                    if folder["sort"] == "frequent":
+                        rid = str(item.room["room_id"])
+                        return ((False, pin_positions.get(rid, index), 0, 0) if item.is_pinned else
+                                (True, not bool(item.room.get("live")),
+                                 -self._frequent_scores.get(rid, 0), index))
                     value = (str(item.room.get("uname") or "").casefold() if folder["sort"] == "name"
                              else bool(item.room.get("live")) != (folder["sort"] == "live")
                              if folder["sort"] in ("live", "offline") else index)
@@ -5600,6 +5613,7 @@ class Sidebar(QFrame):
                 self._remember_folder_order(folder["id"])
                 folder["sort"] = "custom"
         self.sort_mode = self.get_folder(follow_folders.UNCLASSIFIED)["sort"]
+        self._sync_watch_history_mode()
         self.list_box.relayout(animate=True)
         self.refresh_strip()
         if self.pinned != pinned_before:
@@ -5616,13 +5630,27 @@ class Sidebar(QFrame):
         self.resort(animate=False)
 
     # ---- 排序 ----
+    def _sync_watch_history_mode(self, *, refresh=False):
+        current = {folder["id"] for folder in self.folders if folder["sort"] == "frequent"}
+        self.watch_history.set_enabled(bool(current))
+        if refresh or current - self._frequent_folders:
+            self._frequent_scores = self.watch_history.scores()
+        self._frequent_folders = current
+
+    def refresh_frequent_order(self):
+        self._frequent_scores = self.watch_history.scores()
+        self.resort(animate=False)
+
     def add_folder_sort_menu(self, menu, folder) -> None:
+        menu.setToolTipsVisible(True)
         group = QActionGroup(menu)
         group.setExclusive(True)
         for mode, label in self.SORT_MODES:
             action = menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(mode == folder["sort"])
+            if mode == "frequent":
+                action.setToolTip(SORT_TIP)
             action.triggered.connect(lambda _checked=False, value=mode, fid=folder["id"]:
                                      self.set_folder_sort(fid, value))
             group.addAction(action)
@@ -5646,6 +5674,7 @@ class Sidebar(QFrame):
         if folder is None:
             return
         folder["sort"] = mode if mode in dict(self.SORT_MODES) else "custom"
+        self._sync_watch_history_mode(refresh=mode == "frequent")
         self.resort(animate=False)
         if notify:
             self.foldersChanged.emit()
@@ -5696,6 +5725,9 @@ class Sidebar(QFrame):
             position = {rid: index for index, rid in enumerate(order)}
             def key(item):
                 index = position.get(str(item.room.get("room_id")), len(position))
+                if folder["sort"] == "frequent":
+                    return (not bool(item.room.get("live")),
+                            -self._frequent_scores.get(str(item.room.get("room_id")), 0), index)
                 if folder["sort"] in ("live", "offline"):
                     return (bool(item.room.get("live")) != (folder["sort"] == "live"), index)
                 if folder["sort"] == "name":
