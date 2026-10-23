@@ -337,6 +337,7 @@
 - `docs/development/match-sync-ocr-evaluation.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.9.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.10.md`
+- `docs/releases/PLUGIN-match-sync-v1.3.md`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/fetch_mpv.py`
