@@ -98,6 +98,7 @@ def check_popup_alignment(app):
     theme.apply('dark')
 
 
+@patch.object(app_module.MainWindow, "_check_startup_plugins", new=lambda self: None)
 def main():
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication([])
@@ -110,7 +111,10 @@ def main():
         account_info=lambda _s, _c: account,
         follow_rooms=Mock(return_value=[]))
     with patch.object(app_module.QTimer, "singleShot"):
-        window = MainWindow([], [], state={"plugins_enabled": []})
+        window = MainWindow([], [], state={
+            "plugins_enabled": [], "settings": {"auto_update": False}})
+    window._poll_timer.stop()
+    window._stats_timer.stop()
     window.plugins.platforms["douyu"] = provider
     window.show()
     app.processEvents()
@@ -126,7 +130,7 @@ def main():
             login.assert_called_once()
             assert login.call_args.args[0]["斗鱼"] is provider
             assert "Twitch" not in login.call_args.args[0]
-            assert login.call_args.kwargs == {"platform_kind": "bilibili"}
+            assert login.call_args.kwargs == {"platform_kind": "bilibili", "reauthenticate": False}
         with patch.object(window, "_follow_loader", Mock(isRunning=Mock(return_value=True)), create=True), \
                 patch.object(window, "_open_account_dialog") as login:
             window.open_login()
@@ -135,7 +139,7 @@ def main():
             window.open_login("bilibili")
             login.assert_called_once()
             assert login.call_args.args[0]["斗鱼"] is provider
-            assert login.call_args.kwargs == {"platform_kind": "bilibili"}
+            assert login.call_args.kwargs == {"platform_kind": "bilibili", "reauthenticate": False}
 
         # 登录只查询身份，不分页读取关注；真实浏览器使用空白页。
         dialog = PlatformFollowDialog(provider, window, login_only=True)
@@ -235,6 +239,8 @@ def main():
             assert status_button.isEnabled()
             with patch.object(app_module.QMessageBox, "information") as notice:
                 status_button.click()
+                notice.assert_not_called()  # 菜单/鼠标回调结束后才打开模态窗口。
+                app.processEvents()
                 notice.assert_called_once_with(window, "账号登录", "当前支持登录的平台均已成功登录。")
             menu.show()
             app.processEvents()

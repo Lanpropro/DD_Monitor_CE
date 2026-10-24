@@ -60,7 +60,8 @@ class FullscreenCursor(QObject):
         position = QCursor.pos()
         now = time.monotonic()
         outside = tile is not None and not tile.rect().contains(tile.mapFromGlobal(position))
-        if (outside and QApplication.activePopupWidget() is None
+        if (outside and tile is not None and not tile.composer.edit.hasFocus()
+                and QApplication.activePopupWidget() is None
                 and QApplication.activeModalWidget() is None and not QApplication.mouseButtons()):
             # Hide controls after leaving this screen, but never hide the cursor
             # on the user's other monitor. Moving back restores both bars.

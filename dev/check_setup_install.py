@@ -26,6 +26,18 @@ class Probe(Plugin):
         import os
         from PySide6.QtCore import qVersion
         from ddm import room_input
+        from ddm import config
+        from ddm.online_ui import AppUpdatePage
+        class Text:
+            def setText(self, value): pass
+            def setMarkdown(self, value): self.value = value
+        class Notes:
+            notes_title = Text()
+            notes = Text()
+        page = Notes()
+        expected_notes = (Path(config.REPO) / 'RELEASE-v0.5.md').read_text(encoding='utf-8-sig')
+        AppUpdatePage.show_current_notes(page)
+        assert page.notes.value == expected_notes
         assert os.environ.get('DDM_QTQUICK_DANMAKU') == '1'
         class Response:
             status_code = 302
@@ -40,7 +52,7 @@ class Probe(Plugin):
             assert room_input.resolve_bili_share(room_input.extract_room_input(share)) == '47867'
         finally:
             room_input.requests.get = original
-        Path(__file__).with_name('passed.json').write_text(json.dumps({'mobile_share': True, 'qt': qVersion()}))
+        Path(__file__).with_name('passed.json').write_text(json.dumps({'mobile_share': True, 'local_notes': True, 'qt': qVersion()}))
 plugin = Probe()
 '''
 
