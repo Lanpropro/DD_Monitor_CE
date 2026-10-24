@@ -41,6 +41,13 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 工具与历史记录
 
+原生 D3D11 弹幕先用 `powershell -File dev/build_native_danmaku.ps1` 构建与执行 CTest，
+再运行 `offline` 和 `native` 套件。扩展必须匹配当前 Python ABI，不能混用 cp312/cp313。
+构建依赖固定在 `requirements-dev.txt`；本机已验证 cp313-win_amd64。CI 的 cp313 构建与
+确定性引擎检查不替代真实桌面的透明像素、四路视频、输入命中或 60/120Hz 显示验收。
+图片、桥接和显示统计检查使用隔离数据；`selfcheck_d3d11_danmaku` 生成临时本地视频，需 FFmpeg。
+完整接口和限制见 [native/README](../../native/README.md)。
+
 性能测量见[性能工具](../../dev/benchmarks/README.md)，资源生成见[辅助工具](../../dev/tools/README.md)。发布构建入口继续使用 `dev/build_release.ps1`。
 
 PR 测试和整理过程的历史记录位于 [archive/](../archive/README.md)，版本说明位于 [releases/](../releases/RELEASE-v0.4.md)。

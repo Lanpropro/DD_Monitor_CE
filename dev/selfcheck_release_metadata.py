@@ -58,6 +58,8 @@ def main():
     assert 'Get-ChildItem (Join-Path $repo "utils")' not in source
     assert 'if ($rel -like "utils/*") { continue }' in source
     assert 'user_notice_accepted = $true' in source
+    checker = (Path(__file__).resolve().parents[1] / 'dev/check_release_package.py').read_text(encoding='utf-8')
+    assert '"user_notice_accepted": True' in checker
     assert 'if ($version -eq "v0.3.1")' in source
     assert '$exeDir = Join-Path $OutDir $display' in source
     assert '--onedir --name $display' in source

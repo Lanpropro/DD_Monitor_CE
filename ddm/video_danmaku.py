@@ -74,6 +74,13 @@ class VideoDanmaku(QWidget):
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
         self._timer_resolution = _TimerResolution()
+        from .native_danmaku import native_available
+        self._native_requested = native_available()
+        if self._native_requested:
+            self.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        self._native_adapter = None
+        self._native_view_id = 0
+        self._native_mask_widgets = ()
         self._quick_requested = (os.environ.get("DDM_QTQUICK_DANMAKU") == "1"
                                  and self._native_layered())
         self._quick_layer = None
@@ -90,6 +97,10 @@ class VideoDanmaku(QWidget):
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale",
             "video_danmaku_outline_width")}
         if values != self.settings:
+            if self._native_adapter is not None:
+                self.settings = values
+                self._native_adapter.schedule_scene()
+                return
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
             redraw = any(values.get(key) != self.settings.get(key)
@@ -115,6 +126,17 @@ class VideoDanmaku(QWidget):
         self.enabled = bool(enabled)
         self._sync_visible()
 
+    def use_raster_fallback(self) -> None:
+        visible = self.isVisible()
+        self._native_adapter = None
+        self._native_view_id = 0
+        self._native_requested = False
+        self.hide()
+        self.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
+        if visible:
+            self.show()
+        self.update()
+
     def set_native_video(self, native: bool) -> None:
         """Select the backing surface before the overlay is first shown."""
         self.native_video = bool(native)
@@ -125,6 +147,10 @@ class VideoDanmaku(QWidget):
         self._sync_visible()
 
     def set_paused(self, paused: bool) -> None:
+        if self._native_adapter is not None:
+            self.paused = bool(paused)
+            self._native_adapter.schedule_scene()
+            return
         if self._quick_animated() and self.timer.isActive():
             self._tick()
         self.paused = bool(paused)
@@ -141,6 +167,9 @@ class VideoDanmaku(QWidget):
             # its last rendered comments cached until the next asynchronous paint.
             self.clear()
         self.setVisible(visible)
+        if self._native_adapter is not None:
+            self._native_adapter.schedule_scene()
+            return
         if visible and self.comments and not self.paused:
             self._start_timer()
 
@@ -170,6 +199,21 @@ class VideoDanmaku(QWidget):
         return max(0, int(self.height() * area / 100) // self.lane_height())
 
     def add_event(self, event: dict) -> bool:
+        if self._native_requested:
+            if (not self.enabled or not self.active or self.paused or not self.isVisible()
+                    or (event.get("kind") or "danmaku") != "danmaku"):
+                return False
+            if self._native_adapter is None:
+                tile = self.parentWidget()
+                wall = tile.parentWidget() if tile is not None else None
+                ensure = getattr(wall, "ensure_native_danmaku_layer", None)
+                layer = ensure() if ensure is not None else None
+                if layer is not None:
+                    layer.attach(self)
+                else:
+                    self.use_raster_fallback()
+            if self._native_adapter is not None:
+                return self._native_adapter.add_event(self, event)
         if (not self.enabled or not self.active or self.paused or not self.isVisible()
                 or (event.get("kind") or "danmaku") != "danmaku"
                 or len(self.comments) >= self.MAX_COMMENTS):
@@ -378,6 +422,8 @@ class VideoDanmaku(QWidget):
         return True
 
     def _start_timer(self) -> None:
+        if self._native_requested:
+            return
         if not self.timer.isActive():
             screen = self.screen()
             rate = max(60, screen.refreshRate() if screen else 60)
@@ -423,6 +469,8 @@ class VideoDanmaku(QWidget):
             self._stop_timer()
 
     def clear(self) -> None:
+        if self._native_adapter is not None:
+            self._native_adapter.clear(self)
         self._stop_timer()
         self.comments.clear()
         if self._quick_layer is not None and self._quick_group is not None:
@@ -434,6 +482,8 @@ class VideoDanmaku(QWidget):
             self.update()
 
     def paintEvent(self, event) -> None:
+        if self._native_requested:
+            return
         painter = QPainter(self)
         if self._native_layered():
             painter.fillRect(event.rect(), self.COLOR_KEY)
@@ -451,7 +501,7 @@ class VideoDanmaku(QWidget):
                 painter.drawPixmap(QPointF(comment.x - elapsed * comment.speed, y), comment.image)
 
     def _native_layered(self) -> bool:
-        return (self.native_video and sys.platform == "win32"
+        return (self.native_video and not self._native_requested and sys.platform == "win32"
                 and QApplication.platformName() == "windows")
 
     def _apply_layered(self) -> None:
@@ -516,6 +566,9 @@ class VideoDanmaku(QWidget):
             self._quick_layer.set_group_rounded(self._quick_group, rounded)
 
     def update_quick_mask(self, widgets) -> None:
+        self._native_mask_widgets = tuple(widgets)
+        if self._native_adapter is not None:
+            self._native_adapter.schedule_scene()
         if self._quick_layer is None or self._quick_group is None:
             return
         holes = QRegion()
@@ -577,13 +630,21 @@ class VideoDanmaku(QWidget):
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.set_group_visible(self._quick_group, False)
         self._set_quick_active()
+        if self._native_adapter is not None:
+            self._native_adapter.schedule_scene()
         super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:
+        if self._native_adapter is not None:
+            self._native_adapter.schedule_scene()
+            super().resizeEvent(event)
+            return
         self._resize_comments()
         self._sync_quick_geometry()
         super().resizeEvent(event)
 
     def moveEvent(self, event) -> None:
+        if self._native_adapter is not None:
+            self._native_adapter.schedule_scene()
         self._sync_quick_geometry()
         super().moveEvent(event)

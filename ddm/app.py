@@ -1068,6 +1068,10 @@ class MainWindow(QMainWindow):
         self._default_audio_output_id = device_id
 
     def closeEvent(self, event) -> None:
+        if not self.wall.request_danmaku_close():
+            event.ignore()
+            QTimer.singleShot(25, self.close)
+            return
         # 先隐藏界面，再逐路终止播放并等待后台任务收尾。
         t0 = time.perf_counter()
         for dialog in list(self._codec_dialogs.values()):

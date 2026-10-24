@@ -7,6 +7,7 @@
       "selfcheck_project_workflow",
       "selfcheck_repository_map",
       "selfcheck_check_runner",
+      "selfcheck_native_build",
       "selfcheck_readme",
       "selfcheck_appearance_design",
       "selfcheck_customization_plan",
@@ -65,6 +66,9 @@
       "selfcheck_sidebar_text_theme",
       "selfcheck_video_danmaku_controls",
       "selfcheck_video_danmaku",
+      "selfcheck_danmaku_raster",
+      "selfcheck_danmaku_present_analysis",
+      "selfcheck_native_danmaku_bridge",
       "selfcheck_stream_recovery",
       "selfcheck_mobile_share",
       "selfcheck_setup"
@@ -82,7 +86,9 @@
       "selfcheck_window_resize",
       "selfcheck_video_danmaku_quick",
       "selfcheck_danmaku_render_thread",
-      "selfcheck_smooth_edges"
+      "selfcheck_smooth_edges",
+      "selfcheck_native_danmaku_binding",
+      "selfcheck_d3d11_danmaku"
     ]
   },
   "live": {

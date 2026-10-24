@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 import requests
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage, QPixmap
 
 from . import bili
 from . import config as config_module
@@ -152,13 +152,13 @@ def remember_room_cover(room_id: str, url: str, subdir: str = "covers") -> None:
         pass
 
 
-def _load_one(url: str, subdir: str) -> QPixmap | None:
-    """单个 URL 的「读缓存，没有就下载并缓存」。"""
+def _load_one(url: str, subdir: str) -> QImage | None:
+    """只创建 QImage，可在线程中读取缓存或下载解码。"""
     path = _cache_path(url, subdir)
     if os.path.isfile(path):
-        pixmap = QPixmap(path)
-        if not pixmap.isNull():
-            return pixmap
+        image = QImage(path)
+        if not image.isNull():
+            return image
     try:
         headers = dict(bili.HEADERS)
         host = urlsplit(url).hostname or ""
@@ -177,36 +177,36 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200 or not response.content:
             return None
-        pixmap = QPixmap()
-        if not pixmap.loadFromData(response.content) or pixmap.isNull():
+        image = QImage()
+        if not image.loadFromData(response.content) or image.isNull():
             return None                    # 解不开就别写缓存，省得下次读到一个坏文件
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as handle:
             handle.write(response.content)
-        return pixmap
+        return image
     except Exception:  # noqa: BLE001
         return None
 
 
-def _load_emoticon(url: str, subdir: str) -> QPixmap | None:
+def _load_emoticon(url: str, subdir: str) -> QImage | None:
     global _EMOTICON_BYTES
     with _EMOTICON_LOCK:
         cached = _EMOTICON_IMAGES.get(url)
         if cached is not None:
             _EMOTICON_IMAGES.move_to_end(url)
-            return QPixmap.fromImage(cached)
+            return QImage(cached)
         pending = _EMOTICON_PENDING.get(url)
         owner = pending is None
         if owner:
             pending = _EMOTICON_PENDING[url] = Future()
     if not owner:
         cached = pending.result()
-        return QPixmap.fromImage(cached) if cached is not None else None
+        return QImage(cached) if cached is not None else None
     decoded = None
     try:
-        pixmap = _load_one(url, subdir)
-        if pixmap is not None:
-            decoded = pixmap.toImage()
+        image = _load_one(url, subdir)
+        if image is not None:
+            decoded = QImage(image)
             size = decoded.sizeInBytes()
             if size <= _EMOTICON_CACHE_LIMIT:
                 with _EMOTICON_LOCK:
@@ -215,15 +215,15 @@ def _load_emoticon(url: str, subdir: str) -> QPixmap | None:
                     while _EMOTICON_BYTES > _EMOTICON_CACHE_LIMIT or len(_EMOTICON_IMAGES) > 256:
                         _, evicted = _EMOTICON_IMAGES.popitem(last=False)
                         _EMOTICON_BYTES -= evicted.sizeInBytes()
-        return pixmap
+        return image
     finally:
         with _EMOTICON_LOCK:
             _EMOTICON_PENDING.pop(url, None)
             pending.set_result(decoded)
 
 
-def load_pixmap(url: str, subdir: str = "avatars",
-                cdn_size: str | None = None) -> QPixmap | None:
+def load_image(url: str, subdir: str = "avatars",
+                cdn_size: str | None = None) -> QImage | None:
     """先从本地缓存读，没有就下载并缓存。封面默认走 CDN 缩放，只有几 KB。
 
     ``subdir="covers"`` 自动套 :data:`CDN_SIZE`；显式传 ``cdn_size=""`` 可关掉。
@@ -239,11 +239,17 @@ def load_pixmap(url: str, subdir: str = "avatars",
         if candidate and candidate not in candidates:
             candidates.append(candidate)
     for candidate in candidates:
-        pixmap = (_load_emoticon(candidate, subdir) if subdir == "emoticons"
+        image = (_load_emoticon(candidate, subdir) if subdir == "emoticons"
                   else _load_one(candidate, subdir))
-        if pixmap is not None:
-            return pixmap
+        if image is not None:
+            return image
     return None
+
+
+def load_pixmap(url: str, subdir: str = "avatars",
+                cdn_size: str | None = None) -> QPixmap | None:
+    image = load_image(url, subdir, cdn_size)
+    return QPixmap.fromImage(image) if image is not None else None
 
 
 class CachedCoverLoader(QThread):

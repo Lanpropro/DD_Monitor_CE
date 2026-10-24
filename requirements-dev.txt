@@ -1,0 +1,5 @@
+-r requirements.txt
+pybind11==3.0.1
+cmake==4.4.4
+ruff==0.14.2
+pyright==1.1.407

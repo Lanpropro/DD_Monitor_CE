@@ -16,6 +16,31 @@
 
 ## 已跟踪的其他文件：逐项标注
 
+### D3D11 弹幕实现与验证
+
+- `native/CMakeLists.txt`
+- `native/README.md`
+- `native/src/contract.h`
+- `native/src/bindings.cpp`
+- `native/src/engine.h`
+- `native/src/engine.cpp`
+- `native/src/host.h`
+- `native/src/host.cpp`
+- `native/src/renderer.h`
+- `native/src/renderer.cpp`
+- `native/tests/engine_tests.cpp`
+- `native/tests/renderer_tests.cpp`
+- `requirements-dev.txt`
+- `dev/build_native_danmaku.ps1`
+- `dev/benchmarks/analyze_danmaku_present.py`
+- `dev/benchmarks/collect_danmaku_etw.ps1`
+- `dev/selfcheck_native_build.py`
+- `dev/selfcheck_danmaku_raster.py`
+- `dev/selfcheck_danmaku_present_analysis.py`
+- `dev/selfcheck_native_danmaku_bridge.py`
+- `dev/selfcheck_native_danmaku_binding.py`
+- `dev/selfcheck_d3d11_danmaku.py`
+
 ### GitHub 协作与检查
 
 - `.github/PULL_REQUEST_TEMPLATE.md`

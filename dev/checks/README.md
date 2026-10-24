@@ -45,6 +45,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_check_runner](../selfcheck_check_runner.py) | `repository` |
+| [selfcheck_native_build](../selfcheck_native_build.py) | `repository` |
 | [selfcheck_customization_plan](../selfcheck_customization_plan.py) | `repository` |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
@@ -153,6 +154,16 @@
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
 
 ## 弹幕与表情
+
+| 脚本 | 执行分类 |
+| --- | --- |
+| [selfcheck_danmaku_raster](../selfcheck_danmaku_raster.py) | `offline` |
+| [selfcheck_danmaku_present_analysis](../selfcheck_danmaku_present_analysis.py) | `offline` |
+| [selfcheck_native_danmaku_bridge](../selfcheck_native_danmaku_bridge.py) | `offline` |
+| [selfcheck_native_danmaku_binding](../selfcheck_native_danmaku_binding.py) | `native` |
+| [selfcheck_d3d11_danmaku](../selfcheck_d3d11_danmaku.py) | `native` |
+
+原生 D3D11 检查需已构建匹配 Python ABI 的扩展，四路集成还需本地 FFmpeg。
 
 | 脚本 | 执行分类 |
 | --- | --- |
