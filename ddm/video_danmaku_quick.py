@@ -157,6 +157,7 @@ class QuickDanmakuLayer(QObject):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        self._disposed = False
         self._surface_reset = QTimer(self)
         self._surface_reset.setSingleShot(True)
         self._surface_reset.timeout.connect(self._restore_surface)
@@ -203,6 +204,7 @@ class QuickDanmakuLayer(QObject):
         self._occlusion_timer = QTimer(self)
         self._occlusion_timer.setSingleShot(True)
         self._occlusion_timer.timeout.connect(self.show)
+        parent.destroyed.connect(self._detach_event_filter)
         QApplication.instance().installEventFilter(self)
         parent.window().windowHandle().screenChanged.connect(self.reset_surface)
 
@@ -227,7 +229,15 @@ class QuickDanmakuLayer(QObject):
         user32.SetWindowLongW(hwnd, -20, style | 0x00080000 | 0x00000020)
         user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x00000002)
 
+    def _detach_event_filter(self):
+        self._disposed = True
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+
     def eventFilter(self, watched, event):
+        if self._disposed:
+            return False
         kind = event.type()
         if watched is not self.parent and watched is not self.parent.window():
             if (isinstance(watched, QWidget) and watched.isWindow()
