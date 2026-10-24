@@ -25,13 +25,19 @@ def main():
                         ('重庆主播', 'chongqing'), ('重庆主播', 'cqzb'),
                         ('莉蔻Liko', 'likouliko'), ('莉蔻Liko', 'lkliko'),
                         ('呂小明', 'lvxiaoming'), ('呂小明', 'lxm'),
+                        ('大东彦', 'ddy'), ('大东彦', 'DADONGYAN'),
+                        ('大橙橙橙子', 'dcccz'), ('大橙橙橙子', 'dcz'),
                         ('Alice', 'ALICE'), ('小明', '小明')]:
         assert matches_text(text, query), (text, query)
     assert not matches_text('小明', 'xiaohong')
+    assert not matches_text('大东彦', 'ydd'), 'Initials must retain their order'
+    assert not matches_text('主播111号', 'zb1h'), 'Do not collapse digits in abbreviations'
     assert not matches_text('Alice', 'al ice'), 'Keep the original English substring rule'
     rooms = [dict(room_id='9101', uname='小明', title='深夜音乐', live=True),
              dict(room_id='9102', uname='重庆主播', title='小明', live=False),
-             dict(room_id='9103', uname='Alice', title='Morning Coffee', live=True)]
+             dict(room_id='9103', uname='Alice', title='Morning Coffee', live=True),
+             dict(room_id='9104', uname='大橙橙橙子', title='', live=True),
+             dict(room_id='9105', uname='大东彦', title='', live=True)]
     with patch('ddm.app.QTimer.singleShot'):
         window = MainWindow([], [], state={'plugins_enabled': []})
     dialog = FollowImportDialog(rooms, {'9101'})
@@ -47,14 +53,17 @@ def main():
             dialog.search_edit.setText(query)
             return {dialog.list.item(i).data(Qt.UserRole)['room_id'] for i in range(dialog.list.count())
                     if not dialog.list.item(i).isHidden()}
-        for query, ids in [('xiaoming', {'9101', '9102'}), ('xm', {'9101', '9102'}),
+        for query, ids in [('xiaoming', {'9101'}), ('xm', {'9101'}),
                            ('xiaoming 9101', {'9101'}), ('yinyuequ', {'9101'}),
                            ('yyq', {'9101'}), ('ALICE', {'9103'}),
-                           ('Morning', {'9103'}), ('9102', {'9102'})]:
+                           ('Morning', set()), ('shenyeyinyue', set()),
+                           ('深夜音乐', set()), ('9102', {'9102'}),
+                           ('dcz', {'9104'}), ('dcccz', {'9104'}), ('ddy', {'9105'})]:
             assert sidebar(query) == ids, query
         for query, ids in [('xiaoming', {'9101'}), ('XM', {'9101'}),
                            ('xiao ming', {'9101'}), ('chongqing', {'9102'}),
                            ('cqzb', {'9102'}), ('Alice', {'9103'}),
+                           ('dcz', {'9104'}), ('dcccz', {'9104'}), ('DDY', {'9105'}),
                            ('shenyeyinyue', set()), ('9101', set())]:
             assert imported(query) == ids, query
         imported('cqzb')

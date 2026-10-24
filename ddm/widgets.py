@@ -4284,12 +4284,12 @@ class Sidebar(QFrame):
                 item.check.setChecked(False)
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
-        """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
+        """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
         if not words:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "title")).lower()
+                            for key in ("uname", "room_id")).lower()
         folder_id = folder_id or self.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in self.folders
                                 if folder["id"] == folder_id), "")
