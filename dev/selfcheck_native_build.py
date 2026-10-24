@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,13 @@ def main() -> None:
         print("SKIP: Windows PowerShell build checks require Windows")
         return
     repo = Path(__file__).resolve().parents[1]
+    cmake_version = next(
+        line.split("==", 1)[1]
+        for line in (repo / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
+        if line.startswith("cmake==")
+    )
+    if tuple(map(int, re.match(r"(\d+)\.(\d+)", cmake_version).groups())) < (4, 2):
+        raise RuntimeError("CMake 4.2 or newer is required for the Visual Studio 2026 generator")
     with tempfile.TemporaryDirectory(prefix="ddm-build-path-check-") as temporary:
         scratch = Path(temporary)
         module = scratch / "DD监控室CE" / "_internal" / "ddm" / "_native_danmaku.cp313-win_amd64.pyd"
