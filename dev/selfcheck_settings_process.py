@@ -1,6 +1,7 @@
 """独立设置进程回归；合成配置、离屏窗口，不启动用户客户端。"""
 import os
 from contextlib import ExitStack
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -27,6 +28,9 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            if action == 'focus':
+                self.general_page.volume_slider.setValue(17)
+                return
             if action == 'busy':
                 print(settings_process.PREFIX + '{"kind":"busy"}', flush=True)
                 until = time.perf_counter() + 0.6
@@ -49,6 +53,18 @@ def child(action):
                 self.confirm_button.click()
 
     dialogs.SettingsDialog = AutomatedDialog
+    if action == 'focus':
+        activate = settings_process._activate_dialog
+
+        def observed_activate(dialog):
+            activate(dialog)
+            import ctypes
+            ctypes.windll.user32.GetForegroundWindow.restype = ctypes.c_void_p
+            QTimer.singleShot(30, lambda: print(settings_process.PREFIX + json.dumps({
+                'kind': 'activated', 'hwnd': int(dialog.winId()),
+                'foreground': ctypes.windll.user32.GetForegroundWindow(),
+                'volume': dialog.general_page.volume_slider.value()}), flush=True))
+        settings_process._activate_dialog = observed_activate
     return settings_process.run_worker()
 
 
@@ -72,16 +88,19 @@ def check_worker(app, action):
     client.hostPage.connect(pages.append)
     client.failed.connect(failures.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
-    with patch.object(settings_process, 'worker_command', return_value=command):
+    with patch.object(settings_process, 'worker_command', return_value=command), \
+            patch.object(settings_process, '_allow_foreground') as grant:
         try:
             client.warm()
             wait(app, lambda: client.ready)
             pid = messages[0]['pid']
+            assert client.worker_pid == pid and not grant.called, 'Prewarming must not take focus'
             process_pid = client.process.processId()
             assert pid != os.getpid()
             initial = dict(config.DEFAULT_SETTINGS, default_volume=42)
             client.open(initial, {})
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
+            assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
@@ -106,6 +125,86 @@ def check_worker(app, action):
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
             timer.stop()
     assert not failures
+
+
+def check_native_focus(app):
+    """Use real Windows foreground handles, not Qt's requested active state."""
+    import ctypes
+    from ctypes import wintypes
+    from PySide6.QtWidgets import QWidget
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+    user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.IsIconic.argtypes = (wintypes.HWND,)
+    user32.PostMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+    user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, wintypes.UINT)
+    user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+    user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+    user32.WindowFromPoint.restype = wintypes.HWND
+    window = QWidget()
+    window.setWindowTitle('Settings foreground regression (synthetic)')
+    window.resize(760, 520)
+    client = settings_process.SettingsProcess(window)
+    messages = []
+    client.received.connect(messages.append)
+    command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'focus'])
+
+    def foreground_host():
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        user32.SetForegroundWindow(int(window.winId()))
+        # Give the synthetic host an actual click/last-input event. A Qt-only
+        # synthetic click does not acquire Windows foreground permission.
+        hwnd = int(window.winId())
+        cursor, rect = wintypes.POINT(), wintypes.RECT()
+        user32.GetCursorPos(ctypes.byref(cursor))
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        point = wintypes.POINT((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
+        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x13)  # Test fixture only: TOPMOST, no activate/move/resize.
+        try:
+            assert user32.WindowFromPoint(point) == hwnd, 'Only click the empty test fixture'
+            user32.SetCursorPos(point.x, point.y)
+            user32.mouse_event(0x2, 0, 0, 0, 0)
+            user32.mouse_event(0x4, 0, 0, 0, 0)
+            wait(app, lambda: user32.GetForegroundWindow() == hwnd, timeout=3)
+        finally:
+            user32.SetCursorPos(cursor.x, cursor.y)
+            user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x13)  # NOTOPMOST
+
+    def click():
+        messages.clear()
+        client.open(config.DEFAULT_SETTINGS, {})
+        wait(app, lambda: any(m['kind'] == 'activated' for m in messages))
+        message = next(m for m in messages if m['kind'] == 'activated')
+        hwnd = message['hwnd']
+        print('Native focus observation:', message, 'current:', user32.GetForegroundWindow(), flush=True)
+        wait(app, lambda: user32.GetForegroundWindow() == hwnd, timeout=3)
+        assert not user32.IsIconic(hwnd)
+        return hwnd, message['volume']
+
+    with patch.object(settings_process, 'worker_command', return_value=command):
+        try:
+            foreground_host()
+            hwnd, _ = click()  # Cold start: PID is only known after the handshake.
+            wait(app, lambda: user32.GetForegroundWindow() == hwnd)
+            foreground_host()  # Cover the already open settings window.
+            assert click() == (hwnd, 17), 'Refocusing must preserve unsaved edits'
+            user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+            wait(app, lambda: bool(user32.IsIconic(hwnd)))
+            foreground_host()
+            assert click() == (hwnd, 17), 'A minimized editor must restore, not be recreated'
+            user32.PostMessageW(hwnd, 0x10, 0, 0)  # WM_CLOSE -> cancel
+            wait(app, lambda: not client.visible)
+            foreground_host()
+            click()  # Reopen in the already warm worker.
+        finally:
+            client.stop()
+            wait(app, lambda: client.process.state() == QProcess.NotRunning)
+            window.close()
+    print('PASS: Windows foreground HWND on cold open, covered refocus, minimized restore and warm reopen')
 
 
 def check_failure(app):
@@ -226,6 +325,9 @@ def main():
         return child(sys.argv[2])
     app = QApplication.instance() or QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    if sys.argv[1:] == ['--native-focus']:
+        check_native_focus(app)
+        return 0
     for action in ('save', 'cancel', 'page-Save', 'page-Discard', 'page-Cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)

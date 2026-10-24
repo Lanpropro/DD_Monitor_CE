@@ -10,6 +10,28 @@ PREFIX = 'DDM_SETTINGS:'
 HOST_PAGES = {1: 'appearance', 6: 'plugins', 7: 'updates'}
 
 
+def _allow_foreground(pid):
+    if sys.platform == 'win32' and pid:
+        import ctypes
+        # A prewarmed process did not receive the user's click. The foreground
+        # host must grant permission to the real worker, not the venv launcher.
+        return ctypes.windll.user32.AllowSetForegroundWindow(ctypes.c_ulong(pid))
+
+
+def _activate_dialog(dialog):
+    from PySide6.QtWidgets import QApplication
+    if dialog.isMinimized():
+        dialog.showNormal()
+    else:
+        dialog.show()
+    target = QApplication.activeModalWidget() or dialog
+    target.raise_()
+    target.activateWindow()
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(int(target.winId())))
+
+
 def worker_command():
     args = ['--settings-worker']
     if not getattr(sys, 'frozen', False):
@@ -33,6 +55,7 @@ class SettingsProcess(QObject):
         self.buffer = b''
         self.ready = self.visible = self.closing = False
         self.pending = None
+        self.worker_pid = None
         self.start_timer = QTimer(self)
         self.start_timer.setSingleShot(True)
         self.start_timer.timeout.connect(self.process.kill)
@@ -57,6 +80,7 @@ class SettingsProcess(QObject):
         if self.closing:
             return
         if self.visible:
+            _allow_foreground(self.worker_pid)
             self._send({'kind': 'focus'})
             return
         if self.pending is not None:
@@ -75,6 +99,7 @@ class SettingsProcess(QObject):
 
     def _open_pending(self):
         if self.pending is not None:
+            _allow_foreground(self.worker_pid)
             self._send(self.pending)
             self.pending = None
             self.visible = True
@@ -90,6 +115,7 @@ class SettingsProcess(QObject):
             kind = message.get('kind')
             if kind == 'ready':
                 self.start_timer.stop()
+                self.worker_pid = message['pid']
                 self.ready = True
                 if not self.closing:
                     self._open_pending()
@@ -118,6 +144,7 @@ class SettingsProcess(QObject):
         self.ready = self.visible = False
         self.pending = None
         self.buffer = b''
+        self.worker_pid = None
         if was_open and not self.closing:
             self.failed.emit(self.process.errorString())
 
@@ -198,17 +225,14 @@ def run_worker():
             if kind == 'quit':
                 app.quit()
             elif kind == 'focus' and self.dialog is not None:
-                self.dialog.raise_()
-                self.dialog.activateWindow()
+                _activate_dialog(self.dialog)
             elif kind == 'open' and self.dialog is None:
                 mode = theme.normalize_mode(message['settings'].get('appearance_mode'))
                 theme.apply(mode)
                 dialog = RemoteDialog(message)
                 self.dialog = dialog
                 dialog.finished.connect(self.finished)
-                dialog.show()
-                dialog.raise_()
-                dialog.activateWindow()
+                _activate_dialog(dialog)
 
         def finished(self, accepted):
             dialog, self.dialog = self.dialog, None
