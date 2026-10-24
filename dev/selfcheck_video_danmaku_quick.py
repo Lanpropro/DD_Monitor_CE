@@ -129,6 +129,7 @@ def check_native_occlusion(app, owner, layer):
     notice = QWidget(owner, Qt.Tool | Qt.WindowDoesNotAcceptFocus)
     try:
         for widget in (dialog, notice):
+            widget.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
             widget.setAttribute(Qt.WA_ShowWithoutActivating)
             widget.setGeometry(origin.x() + 40, origin.y() + 40, 200, 120)
             widget.show()
