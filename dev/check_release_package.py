@@ -148,6 +148,7 @@ if args.old_zip:
         config = installed / "utils" / "config.json"
         config.parent.mkdir(exist_ok=True)
         config.write_text(json.dumps({"version": 2, "rooms": [], "wall": [],
+                                      "user_notice_accepted": True,
                                       "ui": {"layout_landscape": "3x2"},
                                       "settings": {"decode_mode": "d3d11va"},
                                       "plugins_enabled": None}), encoding="utf-8")
