@@ -369,7 +369,8 @@ class HoverPreview(QObject):
         self._popup.hide()
         if self._popup_player is not None and self._popup_playing:
             self._popup_playing = False
-            self._popup_player.stop()
+            # One shared popup can reuse one idle core; per-card players still release theirs.
+            self._popup_player.stop(keep_core=True)
         if item is None:
             return
         try:

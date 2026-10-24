@@ -31,7 +31,7 @@ class FakePlayer:
     def play(self, *_args, **_kwargs):
         FakePlayer.plays += 1
 
-    def stop(self):
+    def stop(self, *, keep_core=False):
         pass
 
     def release(self):

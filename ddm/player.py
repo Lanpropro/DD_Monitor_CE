@@ -217,7 +217,7 @@ class TilePlayer(QObject):
             self._hls_proxy = None
         self._media = None
 
-    def stop(self) -> None:
+    def stop(self, *, keep_core: bool = False) -> None:
         if self._released:
             return
         self._watch.stop()
@@ -229,7 +229,7 @@ class TilePlayer(QObject):
         self._frozen_ticks = 0
         self._play_request = self._decode_key = None
         self._decode_tried.clear()
-        if self.silent:
+        if self.silent and not keep_core:
             self._destroy_core()
         self._set_state("idle")
 

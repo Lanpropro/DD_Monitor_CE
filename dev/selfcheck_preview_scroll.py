@@ -141,6 +141,7 @@ def main():
             settle(app, .22)
             check(not preview._popup.isVisible(), 'Missing Leave left an active popup stuck')
             check(prepared.stop.call_count == 1, 'A playing popup must still be stopped')
+            prepared.stop.assert_called_once_with(keep_core=True)
             preview.cancel()
             sidebar.scroll.verticalScrollBar().setValue(0)
             pointer[0] = sidebar.items()[1].mapToGlobal(sidebar.items()[1].rect().center())

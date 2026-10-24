@@ -39,7 +39,7 @@ class FakePlayer:
     def play(self, *_args, **_kwargs):
         pass
 
-    def stop(self):
+    def stop(self, *, keep_core=False):
         pass
 
     def release(self):
