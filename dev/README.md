@@ -56,3 +56,8 @@ python dev/check_settings_process_playback.py --help
 
 前者验证保存、取消、窗口切换、失败重试、退出与 GUI 隔离；后者用本地双路合成媒体对照画面间隔、音频欠供和时钟年龄。
 合成媒体及 Qt 定时器测试不能替代真实直播与打包 EXE 的人工验收。
+
+Windows 每次打开或再次点击设置时，宿主向握手返回的实际工作进程 PID 授予前台权限；预热本身不激活窗口。
+已有窗口最小化时先恢复，再请求系统前台，保持未保存的编辑；不设置永久置顶。
+原生前台检查可使用 `QT_QPA_PLATFORM=windows` 运行 `dev/selfcheck_settings_process.py --native-focus`。
+该项会显示合成窗口并临时移动和恢复光标，只点击核对过句柄的空白测试窗口；普通后台回归不运行此项。

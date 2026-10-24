@@ -84,7 +84,7 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
-| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；独立设置进程保存、取消、窗口切换、退出与主线程隔离，合成配置 |
+| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；进程保存、取消、退出、主线程隔离与前台授权；`--native-focus` 需 windows 平台，会显示空白测试窗口、临时移动并恢复光标，检查系统前台 HWND |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | 单项执行前核对 |
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
