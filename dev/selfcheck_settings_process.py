@@ -13,12 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtCore import QProcess, QTimer, qVersion
 from PySide6.QtWidgets import QApplication, QMessageBox
 from ddm import config, settings_process
 
 
 def child(action):
+    expected_qt = os.environ.get('DDM_SETTINGS_TEST_QT')
+    assert expected_qt is None or qVersion() == expected_qt, 'Worker must use the host Qt runtime'
     from ddm import dialogs
     original = dialogs.SettingsDialog
 
@@ -37,6 +39,9 @@ def child(action):
                 while time.perf_counter() < until:
                     pass  # Deliberately hold this process's GUI thread and GIL.
             self.general_page.volume_slider.setValue(17)
+            self.general_page._checks['preview_on_hover'].setChecked(False)
+            if 'sidebar_platform_logos' in self.general_page._checks:
+                self.general_page._checks['sidebar_platform_logos'].setChecked(False)
             if action.startswith('page'):
                 choice = action.split('-')[1]
                 with patch.object(QMessageBox, 'question', return_value=getattr(QMessageBox, choice)):
@@ -314,6 +319,10 @@ def check_host_application(app):
             assert window.settings['skin_mask'] == 29
             assert window.shortcuts['fullscreen'] == 'Ctrl+F10'
             assert window.current_state()['settings']['default_volume'] == 17
+            assert window.settings['preview_on_hover'] is False and not window.hover_preview.enabled
+            if 'sidebar_platform_logos' in window.settings:
+                assert window.settings['sidebar_platform_logos'] is False
+                assert window.sidebar.show_platform_logos is False
             assert not Path(config.CONFIG_PATH).exists(), 'NO_SAVE must protect test state'
         finally:
             window.close()
@@ -324,6 +333,7 @@ def main():
     if sys.argv[1:2] == ['--worker-check']:
         return child(sys.argv[2])
     app = QApplication.instance() or QApplication([])
+    os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
     if sys.argv[1:] == ['--native-focus']:
         check_native_focus(app)

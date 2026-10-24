@@ -35,11 +35,12 @@ def main():
     plugins_user._settings_benchmark = package
     from plugins_user._settings_benchmark import viewer as module
     from PySide6.QtCore import QEventLoop, QProcess, QTimer, Qt, qVersion
+    os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     from PySide6.QtWidgets import QApplication
     from ddm import app as host, config, plugins, recording, settings_process
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
-    report = {'qt': qVersion(), 'plugin': str(args.plugin_root), 'phases': {}}
+    report = {'qt': qVersion(), 'plugin': str(args.plugin_root), 'output_volume': 0, 'phases': {}}
     phase = ['warmup']
     data = {}
     previous = {}
@@ -125,6 +126,7 @@ def main():
             for key, source in zip(('1', '2'), args.fixtures):
                 viewer.sources[key] = {'url': str(source)}
                 viewer.add_room(key, {'alias': key})
+                viewer.rows[key].volume.setValue(0)  # Keep synthetic background checks inaudible.
                 viewer.rows[key].show_chat.setChecked(False)
             viewer.prefer_highest = False
             viewer.toggle_running()
