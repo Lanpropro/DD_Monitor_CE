@@ -73,12 +73,17 @@ def main():
         class Dialog:
             Accepted = QDialog.Accepted
             PAGES = ()
+            PAGE_INDEX = {'updates': 0}
 
             def __init__(self, *args, **kwargs):
                 self.update_page = Mock(install_requested=False)
                 self.plugin_page = Mock()
                 self.updatesViewed = Mock()
                 self.appearanceChanged = Mock()
+                self.pageCreated = Mock()
+                self.seen_versions = {}
+                self._mark_update_page = Mock()
+                self._loaded_pages = {}
 
             def exec(self):
                 return self.Accepted
@@ -91,6 +96,9 @@ def main():
 
             def enabled_plugins(self):
                 return []
+
+            def deleteLater(self):
+                pass
 
         with patch.object(app_module, "SettingsDialog", Dialog):
             assert window.open_settings()
