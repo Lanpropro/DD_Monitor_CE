@@ -3923,6 +3923,10 @@ class Sidebar(QFrame):
         self.scroll = scroll
         holder = RoomListBox(self)
         self.list_box = holder
+        self._pointer_hover_item = None
+        self._hover_sync_timer = QTimer(self)
+        self._hover_sync_timer.setInterval(30)
+        self._hover_sync_timer.timeout.connect(self._sync_pointer_hover)
         self._wheel_hook: mouse_hook.WheelHook | None = None
         for room in rooms:
             self._append_item(room)
@@ -3930,6 +3934,7 @@ class Sidebar(QFrame):
         scroll.setWidget(holder)
         for bar in (scroll.verticalScrollBar(), scroll.horizontalScrollBar()):
             bar.valueChanged.connect(lambda _value: QTimer.singleShot(0, self._refresh_visible_covers))
+            bar.valueChanged.connect(self._sync_pointer_hover)
         layout.addWidget(scroll, 1)
 
         # 底部：批量操作条 / 正常操作
@@ -5271,7 +5276,47 @@ class Sidebar(QFrame):
             if item.thumb._cover_dirty and not item.thumb.visibleRegion().isEmpty():
                 item.thumb.refresh_cover()
 
+    def _set_pointer_hover(self, item) -> None:
+        previous = self._pointer_hover_item
+        self._pointer_hover_item = item
+        if previous is not None and previous is not item:
+            try:
+                previous._hover_leave_timer.stop()
+                if previous.property("hovered"):
+                    previous._set_hovered(False)
+                    previous.unhovered.emit(previous.room)
+            except RuntimeError:  # The previous row may have been removed.
+                pass
+        if item is not None:
+            item._hover_leave_timer.stop()
+            if not item.property("hovered"):
+                item._set_hovered(True)
+                item.hovered.emit(item.room)
+
+    def _sync_pointer_hover(self) -> None:
+        # Native child windows can omit Enter as well as Leave. Hit-test once
+        # for the whole visible list, including rows without a live preview.
+        item = None
+        viewport = self.scroll.viewport()
+        if (self.isVisible() and viewport.isVisible()
+                and not QApplication.activePopupWidget() and not QApplication.activeModalWidget()):
+            pointer = QCursor.pos()
+            if viewport.rect().contains(viewport.mapFromGlobal(pointer)):
+                child = self.list_box.childAt(self.list_box.mapFromGlobal(pointer))
+                while child is not None and child is not self.list_box:
+                    if isinstance(child, NavItem):
+                        item = child
+                        break
+                    child = child.parentWidget()
+        self._set_pointer_hover(item)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._hover_sync_timer.start()
+
     def hideEvent(self, event) -> None:
+        self._hover_sync_timer.stop()
+        self._set_pointer_hover(None)
         if self._collapse_animating:
             self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
         super().hideEvent(event)

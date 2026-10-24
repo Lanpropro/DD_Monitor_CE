@@ -78,6 +78,42 @@ def main():
         settle(app)
         try:
             item = sidebar.items()[1]
+            # Only the mocked cursor moves: no Enter/MouseMove is delivered.
+            item._set_hovered(False)
+            plain_color = item.grab().toImage().pixelColor(item.width() // 2, 2)
+            pointer[0] = item.mapToGlobal(item.rect().center())
+            settle(app, .1)
+            check(item.property('hovered') is True, 'Missing Enter left the row without hover highlight')
+            hover_color = item.grab().toImage().pixelColor(item.width() // 2, 2)
+            check(hover_color != plain_color, 'Recovered hover must change the painted card background')
+            pointer[0] = host.mapToGlobal(QPoint(700, 500))
+            settle(app, .1)
+            check(item.property('hovered') is False, 'Missing Leave left the row highlighted')
+            offline = sidebar.items()[2]
+            offline.room['live'] = False
+            pointer[0] = offline.mapToGlobal(offline.rect().center())
+            settle(app, .1)
+            check(offline.property('hovered') is True, 'Offline rows need highlight without a preview')
+            pointer[0] = host.mapToGlobal(QPoint(700, 500))
+            settle(app, .1)
+            offline.room['live'] = True
+            preview.cancel()
+            preview.enabled = False
+            pointer[0] = item.name_label.mapToGlobal(item.name_label.rect().center())
+            settle(app, .1)
+            check(item.property('hovered') is True, 'Disabled previews must not disable row highlighting')
+            hovered = []
+            item.hovered.connect(lambda room: hovered.append(room['room_id']))
+            settle(app, .12)
+            check(not hovered, 'Stable cursor must not repeatedly restart hover previews')
+            probe_start = time.perf_counter()
+            for _ in range(1000):
+                sidebar._sync_pointer_hover()
+            elapsed_ms = (time.perf_counter()-probe_start) * 1000
+            hit_test_mean_ms = elapsed_ms / 1000
+            pointer[0] = host.mapToGlobal(QPoint(700, 500))
+            settle(app, .1)
+            preview.enabled = True
             pointer[0] = item.mapToGlobal(item.rect().center())
             preview.on_hover(item.room)
             preview._begin_resolve()
@@ -145,9 +181,12 @@ def main():
             print(json.dumps({'qt': qVersion(), 'hover_toggle_max_ms': round(max(times), 3),
                               'hover_toggle_mean_ms': round(sum(times)/len(times), 3),
                               'wheel_changes': wheel_count,
+                              'pointer_hit_test_mean_ms': round(hit_test_mean_ms, 4),
                               'failures': errors}, ensure_ascii=False), flush=True)
         finally:
             preview.stop()
+            host.hide()
+            check(not sidebar._hover_sync_timer.isActive(), 'Hidden sidebar must stop pointer polling')
             host.close()
     assert not errors, errors
 
