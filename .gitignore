@@ -22,6 +22,8 @@ venv/
 
 # 播放运行库不进 Git；plugins/ 继续忽略旧版 VLC 遗留模块。
 *.dll
+*.pyd
+/ffmpeg.exe
 plugins/
 
 # 插件：用户插件放 plugins_user/
