@@ -9,14 +9,11 @@
 #   DD监控室-v<版本>\       源码便携包（要 Python；-SourceOnly 时只出这个）
 #   DD监控室-v<版本>.zip    源码包的压缩包
 #
-# exe 用 PyInstaller 冻结，但走**单独的依赖目录** `work\deps`（PySide6 6.9）：
-#   主环境是 PySide6 6.11，冻出来的 exe 一 import QtCore 就报
-#   「DLL load failed while importing QtCore」（文件不缺、路径也对，失败点在
-#   Qt6Core.dll 自身加载）；6.9 的老布局没这个问题，程序在 6.9 下自查全过。
-#   `work\deps` 缺了脚本会提示你怎么装（pip 要写系统临时目录，得在普通命令行跑）。
+# 原生模块与 PyInstaller 使用同一 Python ABI；冻结 Qt 固定为已验证的 6.9.3。
 param(
     [string]$OutDir = "",
     [string]$FFmpegExe = "",
+    [string]$Python = "",
     [switch]$SkipZip,
     [switch]$SourceOnly
 )
@@ -24,11 +21,34 @@ param(
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"
 $repo = Split-Path -Parent $PSScriptRoot
-$py = Join-Path $repo ".venv\Scripts\python.exe"
-if (-not (Test-Path $py)) {
-    $py = "F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\python.exe"
+$py = if ($Python) { $Python } else { Join-Path $repo ".venv\Scripts\python.exe" }
+if (-not (Test-Path -LiteralPath $py)) { throw "没找到 Python 解释器；请指定 -Python" }
+$py = (Resolve-Path -LiteralPath $py).Path
+
+function Assert-BuildChild([string]$Path, [string]$Root) {
+    $target = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $parent = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    if (-not $target.StartsWith($parent + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "构建路径越界：$target（根目录 $parent）"
+    }
+    if ((Test-Path -LiteralPath $parent) -and
+        ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw "拒绝使用目录链接作为构建根目录：$parent"
+    }
+    $cursor = $target
+    while ($cursor -ne $parent) {
+        if (Test-Path -LiteralPath $cursor) {
+            if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "拒绝清理包含目录链接的构建路径：$cursor"
+            }
+        }
+        $cursor = Split-Path -Parent $cursor
+    }
 }
-if (-not (Test-Path $py)) { throw "没找到 Python 解释器（.venv 或 DD_Monitor-venv）" }
+function Remove-BuildPath([string]$Path, [string]$Root) {
+    Assert-BuildChild $Path $Root
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
+}
 
 if (-not $OutDir) { $OutDir = Join-Path $repo "results" }
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
@@ -62,13 +82,13 @@ if (-not (Test-Path $ffmpegLicense) -or -not (Test-Path $ffmpegReadme)) {
 }
 
 if ((Split-Path $app -Parent) -ne $OutDir) { throw "源码包路径越界：$app" }
-Remove-Item -LiteralPath $app -Recurse -Force -ErrorAction SilentlyContinue
+Remove-BuildPath $app $OutDir
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 
 # ---- 1) 源码：**只打包 git 跟踪的文件** ----
 # 不是简单拷目录：未跟踪的草稿/私有残留（比如 dev/mock_portrait.py 这种本地
 # 试做文件）不能进发布包 —— 用户要求上传/发布前不能带他自己的测试数据。
-$tracked = & git -C $repo ls-files
+$tracked = & git -c core.quotepath=false -C $repo ls-files
 if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件列表（$repo 是 git 仓库吗？）" }
 foreach ($rel in $tracked) {
     if ($rel -like "plugins/*") { continue }                  # libmpv 运行库单独处理
@@ -78,6 +98,8 @@ foreach ($rel in $tracked) {
     if ($rel -like "dev/*promo*" -or $rel -like "dev/*highlight*" -or $rel -like "dev/*videotogether*" -or $rel -like "docs/*VIDEO*" -or $rel -like "docs/*PROMO*" -or $rel -like "HANDOFF-*") { continue }
     $src = Join-Path $repo ($rel -replace "/", "\")
     $dst = Join-Path $app ($rel -replace "/", "\")
+    Assert-BuildChild $src $repo
+    Assert-BuildChild $dst $app
     $dir = Split-Path $dst -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     Copy-Item $src $dst -Force
@@ -88,7 +110,7 @@ Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $app "ffmpeg-licen
 Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $app "ffmpeg-license\README.txt") -Force
 
 # ---- 2) libmpv 运行库（.gitignore 里不含它，得手动带上）----
-$mpvSource = Get-Content -LiteralPath (Join-Path $repo "ddm\assets\licenses\libmpv-SOURCE.json") -Raw | ConvertFrom-Json
+$mpvSource = Get-Content -LiteralPath (Join-Path $repo "ddm\assets\licenses\libmpv-SOURCE.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath (Join-Path $repo "libmpv-2.dll") -Algorithm SHA256).Hash.ToLower() -ne $mpvSource.dll_sha256) {
     throw "libmpv DLL 与固定来源的校验值不符，打包中止"
 }
@@ -135,39 +157,74 @@ docs\releases\RELEASE-$version.md 这一版改了什么
 ----
 - 用的是 B 站的公开接口，需要联网。
 - 删掉 utils\config.json 等于恢复出厂设置（关注列表、布局、音量都会重置）。
+- 原生 D3D11 后端从源码构建：安装 requirements-dev.txt 和 MSVC/Windows SDK，
+  运行 powershell -File dev\build_native_danmaku.ps1；详见 native\README.md。
 "@
 Set-Content -Path (Join-Path $app "运行说明.txt") -Value $readme -Encoding UTF8
+foreach ($required in @("native\CMakeLists.txt", "native\src\host.cpp", "native\src\renderer.cpp",
+                        "native\src\engine.cpp", "dev\build_native_danmaku.ps1", "ddm\native_danmaku.py")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $app $required))) {
+        throw "源码包缺少 $required；请先 git add 对应源码（不需要 commit）"
+    }
+}
+@'
+import hashlib,json,pathlib,subprocess,sys
+repo,package=map(pathlib.Path,sys.argv[1:3])
+manifest={str(p.relative_to(package)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest()
+          for p in sorted(package.rglob('*')) if p.is_file() and p.suffix not in {'.dll','.exe'}}
+git=lambda *args:subprocess.check_output(['git','-C',str(repo),*args])
+report={'base_commit':'a5554729cf4a3a2ca9ee1fb713bd8703bb79168c',
+        'source_commit':git('rev-parse','HEAD').decode().strip(),
+        'source_dirty':bool(git('status','--porcelain').strip()),
+        'tracked_patch_sha256':hashlib.sha256(git('diff','HEAD','--binary')).hexdigest(),
+        'source_manifest':manifest,
+        'source_tree_sha256':hashlib.sha256(json.dumps(manifest,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+(package/'source-build.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
+'@ | & $py - $repo $app
+if ($LASTEXITCODE -ne 0) { throw "源码构建元数据生成失败" }
 
 # ---- 4) exe 便携版（默认做；Q:\-SourceOnly 可跳过）----
 if (-not $SourceOnly) {
+    $freezeSource = Join-Path $repo "work\freeze-source"
+    $freezeBuild = Join-Path $repo "work\native-freeze-snapshot-build"
+    Remove-BuildPath $freezeSource (Join-Path $repo "work")
+    Copy-Item -LiteralPath $app -Destination $freezeSource -Recurse
+    & (Join-Path $repo "dev\build_native_danmaku.ps1") -Python $py -BuildDir $freezeBuild -InstallPrefix $freezeSource -SourceRoot $freezeSource
+    if ($LASTEXITCODE -ne 0) { throw "原生模块构建验证失败" }
+    $nativeBuild = Get-Content -LiteralPath (Join-Path $freezeBuild "native-build.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     $deps = Join-Path $repo "work\deps"
     if (-not (Test-Path (Join-Path $deps "PySide6"))) {
-        throw @"
-缺少 $deps（PySide6 6.9，冻结专用）。
-先在**普通命令行**里执行一次（沙箱里 pip 写不了系统临时目录）：
-    $py -m pip install --target "$deps" "PySide6==6.9.*"
-为什么要单独装一份：主环境是 PySide6 6.11，冻出来的 exe 一 import QtCore 就报
-「DLL load failed while importing QtCore」（文件不缺、路径也对，失败点在
-Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9 下自查全过。
-"@
+        if ($nativeBuild.qt_version -ne "6.9.3") { throw "当前解释器必须安装已验证的 PySide6==6.9.3" }
+        $sitePackages = (& $py -c "import pathlib,PySide6; print(pathlib.Path(PySide6.__file__).parent.parent)").Trim()
+        if ($LASTEXITCODE -ne 0) { throw "无法定位 PySide6" }
+        New-Item -ItemType Directory -Force -Path $deps | Out-Null
+        Get-ChildItem -LiteralPath $sitePackages -Directory |
+            Where-Object { $_.Name -match '^(PySide6|shiboken6)([-_.]|$)' } |
+            Copy-Item -Destination $deps -Recurse -Force
     }
-    Write-Output "=== 冻 exe（PySide6 6.9）==="
+    Write-Output "=== 冻 exe（PySide6 6.9.3）==="
     $exeDir = Join-Path $OutDir $display
     $build = Join-Path $repo "work\exebuild"
     if ((Split-Path $exeDir -Parent) -ne $OutDir -or
         (Split-Path $build -Parent) -ne (Join-Path $repo "work")) { throw "构建目录路径越界" }
-    Remove-Item -LiteralPath $exeDir -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $build -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-BuildPath $exeDir $OutDir
+    Remove-BuildPath $build (Join-Path $repo "work")
     New-Item -ItemType Directory -Force -Path $build | Out-Null
     $versionInfo = Join-Path $build "windows-version.txt"
     & $py (Join-Path $repo "dev\build_windows_version.py") $versionInfo
     if ($LASTEXITCODE -ne 0) { throw "Windows EXE 版本信息生成失败" }
     $env:PYTHONPATH = $deps
+    $frozenQt = (& $py -c "import PySide6; print(PySide6.__version__)").Trim()
+    if ($LASTEXITCODE -ne 0 -or $frozenQt -ne $nativeBuild.qt_version -or $frozenQt -ne "6.9.3") {
+        throw "冻结 Qt 必须与验证环境相同（6.9.3），当前 $frozenQt"
+    }
+    Push-Location -LiteralPath $freezeSource
+    try {
     & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name $display `
-        --icon (Join-Path $repo "favicon.ico") `
+        --icon (Join-Path $freezeSource "favicon.ico") `
         --version-file $versionInfo `
         --distpath $OutDir --workpath $build --specpath $build `
-        --runtime-hook (Join-Path $repo "dev\pyi_rth_pyside6_paths.py") `
+        --runtime-hook (Join-Path $freezeSource "dev\pyi_rth_pyside6_paths.py") `
         --collect-all streamlink `
         --collect-all av `
         --hidden-import numpy `
@@ -175,15 +232,22 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         --copy-metadata python-mpv `
         --hidden-import ddm.live_danmaku `
         --hidden-import ddm.global_danmaku `
-        --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
-        (Join-Path $repo "main.py")
-    if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
+        --hidden-import ddm.native_danmaku `
+        --hidden-import ddm.danmaku_raster `
+        --hidden-import ddm._native_danmaku `
+        --paths $freezeSource `
+        --add-binary ($nativeBuild.module_path + ";ddm") `
+        --add-data ((Join-Path $freezeSource "ddm\assets") + ";ddm\assets") `
+        (Join-Path $freezeSource "main.py")
+        $freezeExit = $LASTEXITCODE
+    } finally { Pop-Location }
+    if ($freezeExit -ne 0) { throw "PyInstaller 失败（exit $freezeExit）" }
     # 主程序名固定；带版本号的兼容入口供旧0.3更新器识别，启动后转到主程序。
     if ($version -eq "v0.3.1") {
         Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
     }
-    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
+    $buildMetadata = @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64'; native = $nativeBuild }
+    $buildMetadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     # libmpv 与冻结后的 Python 模块放在同一个运行库目录。
     $internal = Join-Path $exeDir "_internal"
     Copy-Item -LiteralPath $FFmpegExe -Destination (Join-Path $exeDir "ffmpeg.exe") -Force
@@ -218,11 +282,55 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
 "@
     Set-Content -Path (Join-Path $exeDir "运行说明.txt") -Value $exeReadme -Encoding UTF8
 
+    $probeRoot = Join-Path $repo ("work\native-package-probe-" + [Guid]::NewGuid().ToString("N"))
+    Assert-BuildChild $probeRoot (Join-Path $repo "work")
+    New-Item -ItemType Directory -Force -Path $probeRoot | Out-Null
+    $oldProbeFailure = $env:DDM_NATIVE_PROBE_FORCE_FAILURE
+    $oldNativeSelection = $env:DDM_NATIVE_DANMAKU
+    $oldQuickSelection = $env:DDM_QTQUICK_DANMAKU
+    try {
+        $env:DDM_NATIVE_DANMAKU = "1"
+        $env:DDM_QTQUICK_DANMAKU = "0"
+        foreach ($mode in @("native", "fallback")) {
+            $probeOutput = Join-Path $probeRoot "$mode.json"
+            $env:DDM_NATIVE_PROBE_FORCE_FAILURE = if ($mode -eq "fallback") { "1" } else { "0" }
+            $probe = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir `
+                -ArgumentList @("--native-danmaku-probe", ('"' + $probeOutput + '"')) -WindowStyle Hidden -PassThru
+            if (-not $probe.WaitForExit(30000)) {
+                Stop-Process -Id $probe.Id -Force
+                $probe.WaitForExit()
+                throw "冻结 $mode probe 超时（仅终止本脚本创建的进程）"
+            }
+            if ($probe.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $probeOutput)) { throw "冻结 $mode probe 失败：$($probe.ExitCode)" }
+            $probeResult = Get-Content -LiteralPath $probeOutput -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (-not $probeResult.ok -or -not $probeResult.reaped -or $probeResult.state -ne "Stopped") {
+                throw "冻结 $mode probe 未完整关闭：$(Get-Content -LiteralPath $probeOutput -Raw -Encoding UTF8)"
+            }
+            if ($mode -eq "native") {
+                if ($probeResult.backend -ne "d3d11" -or -not $probeResult.attached -or $probeResult.frames -lt 1 -or
+                    $probeResult.python_tag -ne $nativeBuild.python_tag -or $probeResult.qt_version -ne $nativeBuild.qt_version) {
+                    throw "冻结原生模块没有真实启用或 ABI/Qt 不匹配"
+                }
+                Assert-BuildChild $probeResult.module_path $internal
+                if ((Get-FileHash -LiteralPath $probeResult.module_path -Algorithm SHA256).Hash.ToLower() -ne $nativeBuild.module_sha256) {
+                    throw "冻结包加载了不同的原生模块"
+                }
+            } elseif ($probeResult.backend -ne "qpainter" -or -not $probeResult.fallback) { throw "原生启动失败未回退 QPainter" }
+            $buildMetadata["${mode}_probe"] = $probeResult
+        }
+    } finally {
+        $env:DDM_NATIVE_PROBE_FORCE_FAILURE = $oldProbeFailure
+        $env:DDM_NATIVE_DANMAKU = $oldNativeSelection
+        $env:DDM_QTQUICK_DANMAKU = $oldQuickSelection
+        Remove-BuildPath $probeRoot (Join-Path $repo "work")
+    }
+    $buildMetadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
+
     # 实跑验证：**看日志**，不看「进程还活着」——出错时 windowed 进程会弹框僵住，
     # 看起来也像活着，只有日志才说明真的进了 main()。
     Write-Output "=== 实跑 20 秒验证（看有没有写出启动日志）==="
     $logDir = Join-Path $exeDir "logs"
-    Remove-Item $logDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-BuildPath $logDir $exeDir
     # 仅自检跳过首次须知，避免等待用户确认；配置不进入发布包。
     $testConfig = Join-Path $exeDir "utils\config.json"
     if (Test-Path -LiteralPath $testConfig) { throw "自检目录意外包含已有用户配置" }
@@ -251,13 +359,13 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     }
     Write-Output "  exe 启动验证通过 ✓ -> $exeDir"
     # 验证时写出来的 logs / cache / 插件的运行目录不留在发布包里
-    Remove-Item (Join-Path $exeDir "logs"), (Join-Path $exeDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Join-Path $exeDir "utils") -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item (Join-Path $exeDir "plugins_user\_danmaku_log") -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($runtimePath in @("logs", "cache", "utils", "plugins_user\_danmaku_log")) {
+        Remove-BuildPath (Join-Path $exeDir $runtimePath) $exeDir
+    }
     # 再压一个 zip：用户要的就是「下载一个 zip、解压直接双击 exe 用」
     if (-not $SkipZip) {
         $exeZip = Join-Path $OutDir "$name-exe.zip"
-        Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
+        Remove-BuildPath $exeZip $OutDir
         Write-Output "=== 压缩 exe 包 $exeZip ==="
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
         $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$version.md"
@@ -278,7 +386,7 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
 
 if (-not $SkipZip) {
     $zip = Join-Path $OutDir "$name.zip"
-    Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    Remove-BuildPath $zip $OutDir
     Write-Output "=== 压缩 $zip ==="
     Compress-Archive -Path $app -DestinationPath $zip -CompressionLevel Optimal
 }

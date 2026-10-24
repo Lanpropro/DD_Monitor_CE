@@ -25,6 +25,7 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(suites['repository']['scripts'], [
             'selfcheck_repository_files', 'selfcheck_project_workflow',
             'selfcheck_repository_map', 'selfcheck_check_runner',
+            'selfcheck_native_build',
             'selfcheck_readme', 'selfcheck_appearance_design',
             'selfcheck_customization_plan', 'selfcheck_website_plan'])
         for name in suites['repository']['scripts']:
