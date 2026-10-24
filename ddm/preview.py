@@ -57,6 +57,7 @@ class HoverPreview(QObject):
         self._size_popup(CAROUSEL_WIDTH)
         self._popup.hide()
         self._popup_player: TilePlayer | None = None
+        self._popup_playing = False
         sidebar.scroll.horizontalScrollBar().valueChanged.connect(self._update_popup_position)
         # 横屏的列表是竖着滚的，不接上这一条，滚动时预览会停在原地
         sidebar.scroll.verticalScrollBar().valueChanged.connect(self._update_popup_position)
@@ -75,6 +76,9 @@ class HoverPreview(QObject):
         self._grace.setSingleShot(True)
         self._grace.setInterval(self.GRACE_MS)
         self._grace.timeout.connect(self._stop_now)
+        self._hover_watch = QTimer(self)
+        self._hover_watch.setInterval(50)
+        self._hover_watch.timeout.connect(self._check_hover)
 
     # ---- 悬停事件 ----
     def on_hover(self, room: dict) -> None:
@@ -88,6 +92,7 @@ class HoverPreview(QObject):
                 return                          # 原生视频窗口引起重复进入时继续播放，不重新取流
             self._stop_now()                    # 换到别人身上了：旧预览立刻收掉
         self._room = room
+        self._hover_watch.start()
         self._delay.start()
         self._resolve_delay.start()
 
@@ -104,6 +109,10 @@ class HoverPreview(QObject):
 
     # ---- 起播 / 收掉 ----
     def _show_now(self) -> None:
+        item = self._item or self._item_of(self._room)
+        if item is None or not self._cursor_on_item(item):
+            self.cancel()
+            return
         self._ready_to_show = True
         item = self._item
         if item is not None:
@@ -133,8 +142,12 @@ class HoverPreview(QObject):
         item = self._item_of(room)
         if item is None:
             return
+        if not self._cursor_on_item(item):
+            self.cancel()
+            return
         self._stop_now()                        # 顺带把编号推进一格
         self._item = item
+        self._hover_watch.start()
         print(f"[预览] {room.get('uname')} → 缩略图", file=sys.stderr, flush=True)
         generation = self._generation
         kwargs = {"platform": platform, "preview": True} if platform is not None else {}
@@ -177,6 +190,9 @@ class HoverPreview(QObject):
         if self._item_of(item.room) is not item:
             self._stop_now()
             return
+        if not self._cursor_on_item(item):
+            self.cancel()
+            return
         try:
             anchor = self._anchor_of(item)
             if anchor is None or not anchor.isVisible():
@@ -197,6 +213,7 @@ class HoverPreview(QObject):
                 if not self._popup.testAttribute(Qt.WA_NativeWindow):
                     self._popup.setAttribute(Qt.WA_NativeWindow, True)
                 self._popup.raise_()
+                self._popup_playing = True
                 self._popup_player.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
             else:
                 item.thumb.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
@@ -266,10 +283,33 @@ class HoverPreview(QObject):
         """
         try:
             anchor = self._anchor_of(item)
+            viewport = (self.sidebar._head_scroll.viewport()
+                        if self.sidebar.side == "top" and self.sidebar.collapsed
+                        else self.sidebar.scroll.viewport())
+            pointer = QCursor.pos()
             return (anchor is not None and anchor.isVisible()
-                    and anchor.rect().contains(anchor.mapFromGlobal(QCursor.pos())))
+                    and viewport.isVisible()
+                    and viewport.rect().contains(viewport.mapFromGlobal(pointer))
+                    and anchor.rect().contains(anchor.mapFromGlobal(pointer)))
         except RuntimeError:                    # 条目已经被删掉
             return False
+
+    def _check_hover(self) -> None:
+        # Native video children may swallow Leave. Verify pending and playing previews.
+        if self._item is None and not self._hover_watch.isActive():
+            return
+        item = self._item or self._item_of(self._room)
+        if item is not None and self._cursor_on_item(item):
+            self._grace.stop()
+            item._set_hovered(True)
+            return
+        if item is not None:
+            item._set_hovered(False)
+        if self._ready_to_show:
+            if not self._grace.isActive():
+                self._grace.start()
+        else:
+            self.cancel()
 
     def _update_popup_position(self) -> None:
         """列表滚动时浮层跟着挪；卡片被滚出指针底下就收掉。
@@ -278,11 +318,12 @@ class HoverPreview(QObject):
         软件上下边缘贴着 —— 因为 `_place_popup()` 末尾那句 clamp 会把已经跑到视口
         外的条目硬夹回边界。指针底下已经不是这张卡片了，这里该收掉。
         """
+        self._check_hover()
         item = self._item
         if item is None or not self._popup.isVisible():
             return
         if not self._cursor_on_item(item):
-            self._stop_now()
+            self.cancel()
             return
         self._place_popup(item)
 
@@ -312,6 +353,7 @@ class HoverPreview(QObject):
         （QThread.terminate）会带走线程本地存储和锁，主线程之后可能整个卡死。
         """
         self._generation += 1                   # 之前那次的结果从此一律作废
+        self._hover_watch.stop()
         self._ready_to_show = False
         self._pending_result = None
         self._pending_failure = None
@@ -325,7 +367,8 @@ class HoverPreview(QObject):
         item = self._item
         self._item = None
         self._popup.hide()
-        if self._popup_player is not None:
+        if self._popup_player is not None and self._popup_playing:
+            self._popup_playing = False
             self._popup_player.stop()
         if item is None:
             return

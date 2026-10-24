@@ -2561,6 +2561,7 @@ class NavItem(QFrame):
             return
         self.setProperty("hovered", hovered)
         _repolish(self)
+        self.update()
 
     def _clear_hover_if_outside(self) -> None:
         if self.rect().contains(self.mapFromGlobal(QCursor.pos())):
