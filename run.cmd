@@ -4,6 +4,7 @@ set "PYTHONIOENCODING=utf-8"
 set "PYTHONUTF8=1"
 rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 run-console.cmd
 setlocal
+set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
 set "PROJ=%~dp0"
 

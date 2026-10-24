@@ -38,7 +38,8 @@ python dev/run_checks.py --suite repository
 
 ## 独立设置进程原型
 
-源码启动前设置 `$env:DDM_SETTINGS_PROCESS='1'`，再执行 `python main.py`。
+开发版的 `run.cmd` 和 `run-console.cmd` 已启用独立设置进程，使用本目录原有配置与插件直接测试。
+直接执行 `python main.py` 时，需先设置 `$env:DDM_SETTINGS_PROCESS='1'`。
 程序启动一秒后异步预热一个设置进程，点击关注栏设置时发送配置快照；保存只将变化的字段交回主程序，取消不应用。
 不设该环境变量时沿用原入口。源码运行需要开发依赖与 libmpv；现有旧 EXE 不支持新增的 `--settings-worker`，需另行构建才能验证打包行为。
 
