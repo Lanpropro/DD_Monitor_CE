@@ -391,7 +391,7 @@ def run_case(app, count, identifier, baseline, native, result):
     window._audio_audit_timer.stop()
     window._audio_device_timer.stop()
     for tile in window.wall.visible_tiles():
-        window.players[tile] = MagicMock(name=f"player_{tile.room['room_id']}")
+            window.players[tile] = MagicMock(name=f"player_{tile.room.get('room_id', 'empty')}")
     events = Events(window)
     window.installEventFilter(events)
     window.wall.installEventFilter(events)

@@ -7357,6 +7357,8 @@ class WallGrid(QWidget):
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self._native_danmaku_layer = None
+        self._native_danmaku_attempted = False
         self._quick_danmaku_layer = None
         self._quick_danmaku_attempted = False
         self._quick_danmaku_requested = (
@@ -7469,6 +7471,42 @@ class WallGrid(QWidget):
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
         return self._quick_danmaku_layer
 
+    def ensure_native_danmaku_layer(self):
+        if self._native_danmaku_layer is not None:
+            return None if self._native_danmaku_layer._closing else self._native_danmaku_layer
+        if self._native_danmaku_attempted:
+            return None
+        self._native_danmaku_attempted = True
+        try:
+            from .native_danmaku import NativeDanmakuLayer
+            self._native_danmaku_layer = NativeDanmakuLayer(self)
+            layer = self._native_danmaku_layer
+            layer.stopped.connect(lambda: self._native_danmaku_stopped(layer))
+            for tile in self.tiles:
+                self._native_danmaku_layer.attach(tile.video_danmaku)
+                tile._update_quick_danmaku_mask()
+            print("[弹幕] 共享原生 D3D11 后端", file=sys.stderr)
+        except Exception as exc:
+            print(f"[弹幕] D3D11 初始化失败，使用 QPainter：{exc}", file=sys.stderr)
+            if self._native_danmaku_layer is not None:
+                self._native_danmaku_layer._failed = True
+                self._native_danmaku_layer.request_close()
+            for tile in self.tiles:
+                tile.video_danmaku.use_raster_fallback()
+            return None
+        return self._native_danmaku_layer
+
+    def _native_danmaku_stopped(self, layer) -> None:
+        if layer._failed and self._native_danmaku_layer is layer:
+            self._native_danmaku_layer = None
+
+    def request_danmaku_close(self) -> bool:
+        layer = self._native_danmaku_layer
+        if layer is None:
+            return True
+        layer.request_close()
+        return layer.close_ready()
+
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
@@ -7562,6 +7600,8 @@ class WallGrid(QWidget):
         # 竖屏布局是手动 setGeometry，不经过 QGridLayout 的 addWidget；
         # 先挂到画面墙，新增空格才不会在 setVisible() 时变成顶层悬浮窗。
         tile = Tile(room, self)
+        if self._native_danmaku_layer is not None:
+            self._native_danmaku_layer.attach(tile.video_danmaku)
         if self._quick_danmaku_layer is not None:
             tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
         tile.clicked.connect(self.tileClicked.emit)
@@ -7574,6 +7614,8 @@ class WallGrid(QWidget):
         return tile
 
     def _drop_tile(self, tile: Tile) -> None:
+        if self._native_danmaku_layer is not None:
+            self._native_danmaku_layer.remove(tile.video_danmaku)
         border = self._pane_borders.pop(tile, None)
         if border is not None and (self._hover_border is border or
                                    self._border_drag is not None and self._border_drag["border"] is border):
@@ -8252,6 +8294,10 @@ class WallGrid(QWidget):
             self._flush_resize()
 
     def closeEvent(self, event) -> None:
+        if not self.request_danmaku_close():
+            event.ignore()
+            QTimer.singleShot(25, self.close)
+            return
         self.set_interactive_resize(False)
         self._relayout_timer.stop()
         self._cancel_border_drag()

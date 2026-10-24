@@ -34,6 +34,10 @@ if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--apply-upd
     from ddm.update_install import run_helper
     raise SystemExit(run_helper(sys.argv[2]))
 
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--native-danmaku-probe":
+    from ddm.native_danmaku import run_probe
+    raise SystemExit(run_probe(sys.argv[2]))
+
 PROJ = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PROJ)                       # 配置、日志、头像缓存都按这个目录算
 if PROJ not in sys.path:
