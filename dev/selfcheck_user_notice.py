@@ -110,6 +110,9 @@ def main():
         window.return_value.showMaximized.assert_called_once()
         save.assert_called_once_with(unconfirmed)
         assert unconfirmed["user_notice_accepted"] is True
+        notice_log = (Path(log_dir) / diagnostics.LOG_NAME).read_text(encoding="utf-8")
+        assert "event=user_notice_shown" in notice_log, notice_log
+        assert "event=user_notice_dismissed" in notice_log, notice_log
     diagnostics.close()
     shutil.rmtree(log_dir, ignore_errors=True)
     print("PASS: notice content, confirmation persistence, repeated launch and normal startup after dismissal")
