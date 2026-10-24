@@ -6,6 +6,10 @@ import sys
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("settings")
+
 PREFIX = 'DDM_SETTINGS:'
 HOST_PAGES = {1: 'appearance', 6: 'plugins', 7: 'updates'}
 
@@ -131,7 +135,7 @@ class SettingsProcess(QObject):
     def _stderr(self):
         text = bytes(self.process.readAllStandardError()).decode('utf-8', errors='replace')
         if text:
-            print('[独立设置] ' + text.rstrip(), file=sys.stderr, flush=True)
+            logger.warning("event=settings_worker_stderr output=%s", text.rstrip())
 
     def _error(self, error):
         if error == QProcess.FailedToStart:
@@ -172,7 +176,8 @@ def run_worker():
     app.setQuitOnLastWindowClosed(False)
 
     def send(message):
-        print(PREFIX + json.dumps(message), flush=True)
+        line = PREFIX + json.dumps(message)
+        print(line, flush=True)  # protocol output; indexed exemption in logging self-check
 
     class RemoteDialog(SettingsDialog):
         def __init__(self, snapshot):

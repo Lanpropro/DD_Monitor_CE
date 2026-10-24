@@ -50,6 +50,8 @@ from .recording import RecordingManager, ffmpeg_path
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 
+logger = diagnostics.get_logger("app")
+
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
 AUDIO_AUDIT_MS = 2_000
 
@@ -337,9 +339,9 @@ class MainWindow(QMainWindow):
                 if callable(getattr(platform, "restore_follow_rooms", None)):
                     platform.restore_follow_rooms([room])
         self.sidebar.browser_url_resolver = self._room_browser_url
-        print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
+        logger.info("event=plugins_ready summary=%s", self.plugins.summary)
         for entry, reason in self.plugins.skipped:
-            print(f"[插件] 跳过 {entry}：{reason}", file=sys.stderr, flush=True)
+            logger.warning("event=plugin_skipped plugin_id=%s reason=%s", entry, reason)
         QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
 
         QTimer.singleShot(0, self.start_all)
@@ -494,7 +496,7 @@ class MainWindow(QMainWindow):
 
     def _startup_update_failed(self, payload) -> None:
         if not self._closing:
-            print(f"[更新检查] {payload[1]}", file=sys.stderr, flush=True)
+            logger.warning("event=startup_update_check_failed reason=%s", payload[1])
 
     def _startup_update_finished(self) -> None:
         task = self.sender()
@@ -514,7 +516,9 @@ class MainWindow(QMainWindow):
             url = platform.room_url(room_id)
             parts = urlsplit(url)
             return url if parts.scheme in ("http", "https") and parts.netloc else ""
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - 插件提供坏地址只隐藏浏览器入口
+            logger.exception("event=plugin_room_url_failed kind=%s room_id=%s",
+                             getattr(platform, "kind", "?"), room_id)
             return ""
 
     def _open_room_browser(self, url: str) -> None:
@@ -558,8 +562,8 @@ class MainWindow(QMainWindow):
         if geometry:
             try:
                 self.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii")))
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - 损坏的窗口位置回退默认尺寸
+                logger.warning("event=window_geometry_restore_failed", exc_info=True)
         if (self.state.get("ui") or {}).get("sidebar_collapsed"):
             self.sidebar.set_collapsed(True, animate=False)
         self.sidebar.set_import_order(self.state.get("import_order") or [])
@@ -703,8 +707,8 @@ class MainWindow(QMainWindow):
         self._content.layout().activate()
         self.wall.relayout(force=True)
         self._sync_tile_playback()
-        print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
-              file=sys.stderr, flush=True)
+        logger.info("event=orientation_applied orientation=%s layout=%s",
+                    "portrait" if portrait else "landscape", layout_id)
 
     def resizeEvent(self, event) -> None:
         if (getattr(self, "_interactive_resize", False)
@@ -851,7 +855,8 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self.shortcuts, self,
                                 plugin_manager=self.plugins)
         try:
-            print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
+            logger.info("event=settings_open_elapsed elapsed_ms=%.1f",
+                        (time.perf_counter() - started) * 1000)
             def page_created(index, widget):
                 key = dialog.PAGES[index][0]
                 if key == 'plugins':
@@ -904,7 +909,8 @@ class MainWindow(QMainWindow):
                             if key.startswith('skin_') or key == 'appearance_mode'}
         if appearance_after != appearance_before or plugins_changed:
             self.refresh_skin()
-        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
+        logger.info("event=settings_ui_applied_elapsed elapsed_ms=%.1f",
+                    (time.perf_counter() - saved_at) * 1000)
         if plugins_changed:
             self._sync_platform_rooms()
         self.state["settings"] = dict(self.settings)
@@ -921,11 +927,13 @@ class MainWindow(QMainWindow):
         self._sync_replay_scope()
         self.apply_danmaku_settings()
         self.apply_preview_settings()
-        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
+        logger.info("event=settings_saved_elapsed elapsed_ms=%.1f",
+                    (time.perf_counter() - saved_at) * 1000)
+        logger.info("event=settings_saved settings=%s shortcuts=%s",
+                    self.settings, self.shortcuts)
         update_page = dialog._loaded_pages.get(SettingsDialog.PAGE_INDEX['updates'])
         if getattr(update_page, "install_requested", False):
-            self._update_plan = dialog.update_page.plan_path
+            self._update_plan = update_page.plan_path
             self.close()
         elif getattr(dialog, "restart_requested", False):
             self._restart_requested = True
@@ -1055,7 +1063,8 @@ class MainWindow(QMainWindow):
             for player in self.players.values():
                 player.refresh_audio_device()
         except Exception as exc:  # noqa: BLE001 - device notifications must not stop Qt
-            print(f"[音频输出] 刷新设备失败：{exc}", file=sys.stderr, flush=True)
+            logger.warning("event=audio_output_refresh_failed reason=%s:%s",
+                           type(exc).__name__, exc, exc_info=True)
             return
         self._default_audio_output_id = device_id
 
@@ -1120,8 +1129,8 @@ class MainWindow(QMainWindow):
         self._resolvers.clear()
         self._resolvers_running.clear()
         total_ms = (time.perf_counter() - t0) * 1000
-        print(f"[关闭] 窗口 {hide_ms:.1f} ms 内隐藏；收尾（释放播放器+等线程）共 {total_ms:.1f} ms",
-              file=sys.stderr, flush=True)
+        logger.info("event=window_closed hide_ms=%.1f cleanup_ms=%.1f",
+                    hide_ms, total_ms)
         super().closeEvent(event)
 
     def _wait_background(self) -> None:
@@ -1223,9 +1232,8 @@ class MainWindow(QMainWindow):
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
         if reshape:
-            print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
-                  f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
-                  file=sys.stderr, flush=True)
+            logger.info("event=orientation_layout_mismatch layout=%s orientation=%s",
+                        layout_id, "portrait" if want_portrait else "landscape")
             # 转窗口会同步触发 _apply_orientation，而那里会把「切走前的记忆」摆回来，
             # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
             self._pending_layout = layout_id
@@ -1478,8 +1486,8 @@ class MainWindow(QMainWindow):
         self._root_layout.invalidate()
         self._root_layout.activate()
         self.resize(new_width, new_height)
-        print(f"[窗口] 改成 {'竖屏' if portrait else '横屏'} {new_width}x{new_height}",
-              file=sys.stderr, flush=True)
+        logger.info("event=window_orientation_changed orientation=%s size=%sx%s",
+                    "portrait" if portrait else "landscape", new_width, new_height)
 
     def _on_pin_changed(self, pinned: list) -> None:
         self.state["pinned"] = list(pinned)
@@ -1489,8 +1497,8 @@ class MainWindow(QMainWindow):
         self.state["sort"] = mode
         self.state["import_order"] = list(self.sidebar.import_order)
         config_module.save(self.current_state())
-        print(f"[排序] 关注列表改为：{dict(self.sidebar.SORT_MODES).get(mode, mode)}",
-              file=sys.stderr, flush=True)
+        logger.info("event=follow_sort_changed mode=%s",
+                    dict(self.sidebar.SORT_MODES).get(mode, mode))
 
     def _on_order_changed(self) -> None:
         config_module.save(self.current_state())
@@ -1539,8 +1547,8 @@ class MainWindow(QMainWindow):
                 continue
             target = 10000 if index == main else 250
             if tile.quality != target:
-                print(f"[画质策略] {tile.room.get('uname')} -> "
-                      f"{'原画' if target == 10000 else '720P'}", file=sys.stderr, flush=True)
+                logger.info("event=auto_quality_selected room_id=%s uname=%s quality=%s",
+                            tile.room.get("room_id"), tile.room.get("uname"), target)
                 blocked = tile.blockSignals(True)
                 try:
                     tile.set_quality(target)
@@ -1760,8 +1768,8 @@ class MainWindow(QMainWindow):
             return
         label = config_module.DECODE_LABELS.get(mode, mode)
         tile.set_status(f"解码异常，正在尝试{label}…")
-        print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
-              file=sys.stderr, flush=True)
+        logger.warning("event=decode_fallback room_id=%s uname=%s decode_mode=%s",
+                       tile.room.get("room_id"), tile.room.get("uname"), mode)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
@@ -1916,7 +1924,8 @@ class MainWindow(QMainWindow):
             return
         tile.set_buffering(False)
         tile.set_status("连接失败")
-        print(f"[取流失败] {tile.room.get('uname')}: {reason}")
+        logger.error("event=stream_resolve_failed room_id=%s uname=%s reason=%s",
+                     tile.room.get("room_id"), tile.room.get("uname"), reason)
         self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
                           room=dict(tile.room or {}))
         self.refresh_status()       # 取不到流时立刻确认是否已经下播
@@ -1954,6 +1963,15 @@ class MainWindow(QMainWindow):
         elif state == "frozen":
             self._on_picture_frozen(tile)
         elif state == "error":
+            player = self.players.get(tile)
+            logger.warning(
+                "event=stream_playback_failed room_id=%s uname=%s codec=%s "
+                "decode_mode=%s profile=%s attempt=%s",
+                tile.room.get("room_id"), tile.room.get("uname"),
+                getattr(player, "stream_codec", "") or "?",
+                getattr(player, "decode_mode", "") or "?",
+                getattr(player, "stream_profile", "") or "?",
+                self._retry_count.get(tile, 0) + 1)
             self._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
@@ -1971,8 +1989,8 @@ class MainWindow(QMainWindow):
         if tile not in self._freeze_refreshed:
             self._freeze_refreshed.add(tile)
             tile.set_status("画面停止更新，正在自动刷新…")
-            print(f"[画面静止] {tile.room.get('uname')} 自动刷新",
-                  file=sys.stderr, flush=True)
+            logger.warning("event=stream_frozen room_id=%s uname=%s action=refresh",
+                           tile.room.get("room_id"), tile.room.get("uname"))
             self.refresh_status()           # 静止可能来自下播；接口确认后会同步清屏和侧栏
             self.start_tile(tile)
             return
@@ -1990,8 +2008,8 @@ class MainWindow(QMainWindow):
         if not tile.room.get("room_id") or tile.paused:
             return
         tile.set_status("画面仍停止更新，正在再次刷新…")
-        print(f"[画面静止] {tile.room.get('uname')} 5 秒后再次刷新",
-              file=sys.stderr, flush=True)
+        logger.warning("event=stream_frozen_again room_id=%s uname=%s action=refresh",
+                       tile.room.get("room_id"), tile.room.get("uname"))
         self.start_tile(tile)
 
     def _on_picture_activity(self, tile) -> None:
@@ -2002,8 +2020,8 @@ class MainWindow(QMainWindow):
         self._clear_freeze_recovery(tile)
         if was_recovering:
             tile.set_status("")
-            print(f"[画面恢复] {tile.room.get('uname')} 已恢复更新",
-                  file=sys.stderr, flush=True)
+            logger.info("event=stream_recovered room_id=%s uname=%s",
+                        tile.room.get("room_id"), tile.room.get("uname"))
 
     def _clear_freeze_recovery(self, tile) -> None:
         timer = self._freeze_retry_timers.pop(tile, None)
@@ -2032,8 +2050,9 @@ class MainWindow(QMainWindow):
     def _retry_now(self, tile) -> None:
         self._retry_timers.pop(tile, None)
         if tile.room.get("room_id"):
-            print(f"[重连] {tile.room.get('uname')} 第 {self._retry_count.get(tile, 1)} 次",
-                  file=sys.stderr, flush=True)
+            logger.warning("event=stream_reconnect room_id=%s uname=%s attempt=%s",
+                           tile.room.get("room_id"), tile.room.get("uname"),
+                           self._retry_count.get(tile, 1))
             self.start_tile(tile)
 
     def _stop_tile(self, tile) -> None:
@@ -2112,8 +2131,8 @@ class MainWindow(QMainWindow):
                         and tile not in self._retry_timers
                         and tile not in self._freeze_retry_timers):
                     continue
-                print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
-                      file=sys.stderr, flush=True)
+                logger.info("event=tile_stopped_by_layout room_id=%s uname=%s",
+                            tile.room.get("room_id"), tile.room.get("uname"))
                 self._stop_tile(tile)
 
     def _offline_tile(self, tile) -> None:
@@ -2128,8 +2147,8 @@ class MainWindow(QMainWindow):
         tile.set_offline()
         if tile not in self.recorder.sessions:
             self._restore_capture_quality(tile)
-        print(f"[下播] {tile.room.get('uname')} 画面已清空，格子保留",
-              file=sys.stderr, flush=True)
+        logger.info("event=room_offline_cleared room_id=%s uname=%s",
+                    tile.room.get("room_id"), tile.room.get("uname"))
 
     def _tile_of(self, room_id: str):
         return next((tile for tile in self.wall.tiles
@@ -2169,7 +2188,7 @@ class MainWindow(QMainWindow):
     def _on_room_dropped(self, tile, room_id: str) -> None:
         room = self._room_dict(room_id)
         if not room:
-            print(f"拖入的直播间 {room_id} 查询失败")
+            logger.warning("event=room_drop_resolve_failed room_id=%s", room_id)
             return
         self.sidebar.watch_history.select(str(room_id))
         self._prepare_room(room)
@@ -2178,8 +2197,9 @@ class MainWindow(QMainWindow):
             return
         if other is not None and other is not tile and self._hot_swap(other, tile):
             # 拖进来的这个直播间本来就在别的格子里：两边直接对调画面
-            print(f"{room.get('uname')} ↔ 第 {self.wall.tiles.index(tile) + 1} 个格子",
-                  file=sys.stderr, flush=True)
+            logger.info("event=tile_room_swapped room_id=%s uname=%s slot=%s",
+                        room_id, room.get("uname"),
+                        self.wall.tiles.index(tile) + 1)
             return
         to_start = []
         if other is not None and other is not tile:
@@ -2200,7 +2220,8 @@ class MainWindow(QMainWindow):
             if candidate not in restarted:
                 self.start_tile(candidate)
         self._refresh_meta()
-        print(f"{room.get('uname')} → 第 {self.wall.tiles.index(tile) + 1} 个格子")
+        logger.info("event=tile_room_assigned room_id=%s uname=%s slot=%s",
+                    room_id, room.get("uname"), self.wall.tiles.index(tile) + 1)
 
     def _on_tile_swapped(self, source_room_id: str, target_tile) -> None:
         """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。
@@ -2226,7 +2247,7 @@ class MainWindow(QMainWindow):
             if tile.room.get("room_id") and tile not in restarted:
                 self.start_tile(tile)
         self._refresh_meta()
-        print("两个格子的直播间已互换")
+        logger.info("event=tiles_swapped")
 
     def _hot_swap(self, source, target) -> bool:
         """两个格子互换：**把两个格子本身换个位置**，播放器一个都不动。
@@ -2276,8 +2297,7 @@ class MainWindow(QMainWindow):
         for tile in (source, target):
             tile.raise_overlays()
         self._refresh_meta()
-        print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",
-              file=sys.stderr, flush=True)
+        logger.info("event=tiles_hot_swapped")
         return True
 
     def _tile_of_player(self, player):
@@ -2365,7 +2385,7 @@ class MainWindow(QMainWindow):
         self.sidebar.set_refreshing(False)
 
     def _on_status_failed(self, reason: str) -> None:
-        print(f"[状态刷新失败] {reason}", file=sys.stderr, flush=True)
+        logger.warning("event=status_refresh_failed reason=%s", reason)
         self.sidebar.count_label.setText("状态刷新失败 · 点击重试")
 
     def refresh_follow(self) -> None:
@@ -2410,8 +2430,8 @@ class MainWindow(QMainWindow):
                 else:
                     tile.set_status("未开播")
             elif not was_live and info["live"]:
-                print(f"[开播] {tile.room.get('uname')} 自动开始播放",
-                      file=sys.stderr, flush=True)
+                logger.info("event=room_live_autoplay room_id=%s uname=%s",
+                            tile.room.get("room_id"), tile.room.get("uname"))
                 self.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile,
                                   room=dict(tile.room or {}))
                 if tile not in self._resolvers:
@@ -2665,8 +2685,8 @@ class MainWindow(QMainWindow):
         player = self.players.get(tile)
         if player is not None:
             player.set_paused(paused)
-        print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
-              file=sys.stderr, flush=True)
+        logger.info("event=tile_pause_changed room_id=%s uname=%s paused=%s",
+                    tile.room.get("room_id"), tile.room.get("uname"), paused)
 
     def _grab_fullscreen_frame(self) -> tuple[QPixmap, object] | None:
         if sys.platform != "win32" or QApplication.platformName() != "windows":
@@ -2761,11 +2781,10 @@ class MainWindow(QMainWindow):
         4K 上这套切换本来就贵（抓屏、窗口样式、9 个格子的 播放器 窗口重配），
         有这几个数，下次再觉得卡就知道该动哪一段，而不是从头猜。
         """
-        print(f"[全屏] {action} {(done - started) * 1000:.0f} ms"
-              f"（遮盖 {(covered - started) * 1000:.0f}"
-              f" / 切换 {(switched - covered) * 1000:.0f}"
-              f" / 布局 {(done - switched) * 1000:.0f}）",
-              file=sys.stderr, flush=True)
+        logger.debug("event=fullscreen_transition action=%s total_ms=%.0f "
+                     "cover_ms=%.0f switch_ms=%.0f layout_ms=%.0f",
+                     action, (done - started) * 1000, (covered - started) * 1000,
+                     (switched - covered) * 1000, (done - switched) * 1000)
 
     def _sync_fullscreen_audio(self) -> None:
         if self._fullscreen_tile is not None and self.settings.get("fullscreen_solo_audio", True):
@@ -2808,9 +2827,10 @@ class MainWindow(QMainWindow):
         covered = time.perf_counter()
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_saved_geometry = self.saveGeometry()
-        print(f"[全屏音频] 进入原格子={self.wall.tiles.index(tile)+1} "
-              f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
-              f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
+        logger.info(
+            "event=fullscreen_entered slot=%s room_id=%s volume=%s channel=%s muted=%s",
+            self.wall.tiles.index(tile) + 1, tile.room.get("room_id"),
+            tile.volume, tile.audio_channel, tile.muted)
         self._fullscreen_tile = tile
         self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
@@ -2831,8 +2851,8 @@ class MainWindow(QMainWindow):
         finished = time.perf_counter()
         self._fullscreen_cursor.start()
         self._upgrade_fullscreen_quality(tile)
-        print(f"[全屏音频] 展开后音量={tile.volume} 声道={tile.audio_channel} "
-              f"静音={tile.muted}", file=sys.stderr, flush=True)
+        logger.info("event=fullscreen_audio_ready volume=%s channel=%s muted=%s",
+                    tile.volume, tile.audio_channel, tile.muted)
         self._report_fullscreen_cost("进入全屏", started, covered, finished, finished)
 
     def _exit_fullscreen(self) -> None:
@@ -2891,7 +2911,8 @@ class MainWindow(QMainWindow):
             return
         self._clear_tile_room(tile)
         self._refresh_meta()
-        print(f"已关闭 {room.get('uname')}，格子已清空")
+        logger.info("event=tile_cleared room_id=%s uname=%s",
+                    room.get("room_id"), room.get("uname"))
 
     def _wire_tile(self, tile) -> None:
         # 格子创建时接线一次；之后填入或替换房间不再重复连接。
@@ -2962,7 +2983,9 @@ class MainWindow(QMainWindow):
                 collected.append(("开启即时回放缓存", lambda t=tile: self._start_replay(t)))
         if manager is not None:
             for label, callback, name in manager.tile_actions(tile):
-                collected.append((label, lambda cb=callback: manager.run_action(cb)))
+                collected.append((label, lambda cb=callback, plugin_id=name, action=label:
+                                  manager.run_action(cb, plugin_id=plugin_id,
+                                                     action=action)))
         tile.plugin_actions = collected
 
     def _start_replay(self, tile) -> None:
@@ -3152,7 +3175,7 @@ class MainWindow(QMainWindow):
         from .room_input import is_bili_short_url
         short_link = is_bili_short_url(room_id)
         if any(str(room.get("room_id")) == room_id for room in self.sidebar.rooms()):
-            print(f"房间 {room_id} 已在关注列表里")
+            logger.info("event=room_add_duplicate room_id=%s", room_id)
             return
         platform = self.plugins.platform_for(room_id)
         if ":" in room_id and not short_link:
@@ -3170,7 +3193,7 @@ class MainWindow(QMainWindow):
             self._platform_info_running.add(resolver)
             resolver.start()
             return
-        print(f"正在查询房间 {room_id} ...")
+        logger.info("event=room_query_started room_id=%s", room_id)
         resolver = InfoResolver(room_id, self)
         resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id))
         if short_link:
@@ -3178,7 +3201,8 @@ class MainWindow(QMainWindow):
                 self, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
                 if not self._closing else None)
         else:
-            resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
+            resolver.failed.connect(lambda rid: logger.warning(
+                "event=room_query_failed room_id=%s", rid))
         resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
         resolver.finished.connect(resolver.deleteLater)
         self._platform_info_running.add(resolver)
@@ -3194,7 +3218,8 @@ class MainWindow(QMainWindow):
             from .online_ui import show_result
             show_result(self, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
         status = "直播中" if room.get("live") else "未开播"
-        print(f"已添加 {room.get('uname')}（{status}）")
+        logger.info("event=room_added room_id=%s uname=%s status=%s",
+                    room.get("room_id"), room.get("uname"), status)
         if len(self.wall.tiles) < MAX_TILES:
             self.add_to_wall(room)
         self._refresh_meta()
@@ -3205,7 +3230,8 @@ class MainWindow(QMainWindow):
         room_id = str(room.get("room_id"))
         self.sidebar.watch_history.select(room_id)
         if self._tile_of(room_id) is not None:
-            print(f"{room.get('uname')} 已经在画面墙上")
+            logger.info("event=room_already_on_wall room_id=%s uname=%s",
+                        room_id, room.get("uname"))
             return
         candidates = self.wall.visible_tiles() if empty_only else self.wall.tiles
         empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
@@ -3222,7 +3248,7 @@ class MainWindow(QMainWindow):
         if empty_only:
             return
         if len(self.wall.tiles) >= MAX_TILES:
-            print(f"画面墙已满（{MAX_TILES} 路）")
+            logger.warning("event=wall_full max_tiles=%s room_id=%s", MAX_TILES, room_id)
             return
         tile = self.wall.add_room(room)
         self._wire_tile(tile)
@@ -3246,12 +3272,13 @@ class MainWindow(QMainWindow):
                 self._restore_capture_quality(tile)
         self.sidebar.remove_room(room)
         self._refresh_meta()
-        print(f"已移除 {room.get('uname')}")
+        logger.info("event=room_removed room_id=%s uname=%s",
+                    room.get("room_id"), room.get("uname"))
 
     def remove_rooms(self, rooms: list) -> None:
         for room in rooms:
             self.remove_room(room)
-        print(f"多选删除完成，共 {len(rooms)} 个")
+        logger.info("event=rooms_removed count=%s", len(rooms))
 
     # ---- 登录 / 导入关注 ----
     def _follow_platforms(self) -> dict:
@@ -3334,7 +3361,7 @@ class MainWindow(QMainWindow):
                 else:
                     store.clear()
             except (OSError, RuntimeError):
-                print("[账号] 抖音关注缓存保存失败，本次读取结果仍可使用", file=sys.stderr)
+                logger.warning("event=douyin_follow_cache_save_failed", exc_info=True)
 
     def _render_account(self, *, load_avatar=True) -> None:
         if self._closing:
@@ -3464,8 +3491,7 @@ class MainWindow(QMainWindow):
         covers = {str(room.get("room_id")): room.get("cover_url")
                   for room in rooms if room.get("cover_url")}
         hit = self._prime_cached_avatars(faces)
-        print(f"[头像] 关注栏 {len(faces)} 张待取，本地缓存命中 {hit} 张",
-              file=sys.stderr, flush=True)
+        logger.debug("event=avatars_queued remote=%s cache_hits=%s", len(faces), hit)
         self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
         self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
                                                        subdir="covers")
@@ -3555,7 +3581,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "退出登录", "登录状态清除失败，请检查文件权限后重试")
                 return
         self._clear_platform_account(kind)
-        print("已退出登录", file=sys.stderr, flush=True)
+        logger.info("event=account_logged_out platform=%s", kind)
 
     def open_login(self, platform_kind=None, *, reauthenticate=False) -> None:
         follow_loader = getattr(self, "_follow_loader", None)
@@ -3599,7 +3625,8 @@ class MainWindow(QMainWindow):
         # 之前是匿名连的弹幕，服务端会把用户名打码；登录后重连一次
         self.stop_danmaku()
         self.sync_danmaku()
-        print(f"登录成功，已保存登录状态（{len(sessdata)} 字符）", file=sys.stderr, flush=True)
+        logger.info("event=account_logged_in platform=bilibili sessdata_chars=%s",
+                    len(sessdata))
 
     def open_import_follows(self) -> None:
         follow_loader = getattr(self, "_follow_loader", None)
@@ -3633,7 +3660,7 @@ class MainWindow(QMainWindow):
         message = f"导入完成：选中 {len(selected)} 个，新增 {added} 个"
         if pending_count:
             message += f"，另保存 {pending_count} 个待识别账号"
-        print(message)
+        logger.info("event=follow_import_finished message=%s", message)
         from .online_ui import show_result
         show_result(self, message, rooms=selected)
 
@@ -3728,7 +3755,7 @@ class MainWindow(QMainWindow):
             self._danmaku, self._danmaku_room = client, room_id
         if new:
             client.start()
-            print(f"[弹幕] 开始接收房间 {room_id}", file=sys.stderr, flush=True)
+            logger.info("event=danmaku_started room_id=%s", room_id)
         return client
 
     def _on_danmaku_finished(self, room_id: str, source) -> None:
@@ -3944,9 +3971,8 @@ class MainWindow(QMainWindow):
         if target is None:
             return
         target.set_muted(not target.muted)
-        print(f"[快捷键] {target.room.get('uname')} "
-              f"{'已静音' if target.muted else '已取消静音'}",
-              file=sys.stderr, flush=True)
+        logger.debug("event=shortcut_mute room_id=%s muted=%s",
+                     target.room.get("room_id"), target.muted)
 
     def _cycle_audio_under_cursor(self) -> None:
         """E：鼠标所在格子依次启用双声道、左声道、右声道、静音。"""
@@ -3973,10 +3999,10 @@ class MainWindow(QMainWindow):
         for tile in self.wall.tiles:
             tile.set_muted(tile is not target)
         if target is not None:
-            print(f"[快捷键] 只保留 {target.room.get('uname')} 的声音",
-                  file=sys.stderr, flush=True)
+            logger.debug("event=shortcut_solo_audio room_id=%s",
+                         target.room.get("room_id"))
         else:
-            print("[快捷键] 全部静音", file=sys.stderr, flush=True)
+            logger.debug("event=shortcut_mute_all")
 
 
 def _launch_restart() -> bool:
@@ -4002,8 +4028,8 @@ def main(argv: list[str] | None = None) -> int:
     session = diagnostics.get_session() or diagnostics.start(argv=argv)
     try:                                    # 控制台可能是 GBK，避免房间名里的特殊字符导致崩溃
         sys.stdout.reconfigure(errors="replace")
-    except Exception:  # noqa: BLE001
-        pass
+    except (AttributeError, OSError, ValueError):
+        logger.warning("event=stdout_reconfigure_failed", exc_info=True)
     with session.phase("qt_init"):
         session.install_qt_messages()
         app = QApplication(argv)
@@ -4035,18 +4061,17 @@ def main(argv: list[str] | None = None) -> int:
     _hits = overlay.overlays(_paths)
     _foreign = overlay.foreign_modules(_paths)
     if _foreign:
-        print(f"[覆盖层] 进程内非系统注入模块：{_foreign}", file=sys.stderr, flush=True)
+        logger.info("event=foreign_modules modules=%s", _foreign)
     if _hits:
-        print(f"[覆盖层] 检测到可能 hook 画面的工具：{_hits}",
-              file=sys.stderr, flush=True)
+        logger.warning("event=overlay_modules_detected modules=%s", _hits)
     sidebar, wall = config_module.build_rooms(state) if state else ([], [])
     t_rooms = time.perf_counter()
-    print(f"关注房间 {len(sidebar)} 个，画面墙 {len(wall)} 个格子"
-          + ("" if state else "（全新配置）"))
+    logger.info("event=rooms_loaded follow=%s wall=%s first_run=%s",
+                len(sidebar), len(wall), not state)
     decode_mode = settings.get("decode_mode") or (
         "auto" if settings.get("hw_decode", True) else "none")
-    print(f"[播放器] libmpv {TilePlayer.backend_version()} 解码方式={decode_mode}",
-          file=sys.stderr, flush=True)
+    logger.info("event=player_ready backend=libmpv version=%s decode_mode=%s",
+                TilePlayer.backend_version(), decode_mode)
 
     with session.phase("window_build"):
         window = MainWindow(sidebar, wall,
@@ -4072,11 +4097,10 @@ def main(argv: list[str] | None = None) -> int:
         "overlay_hits": _hits,
     })
     t_show = time.perf_counter()
-    print(f"[启动] 配置加载 {(t_load - t0) * 1000:.0f} ms | "
-          f"房间占位 {(t_rooms - t_load) * 1000:.0f} ms | "
-          f"界面构建 {(t_window - t_rooms) * 1000:.0f} ms | "
-          f"窗口显示 {(t_show - t0) * 1000:.0f} ms",
-          file=sys.stderr, flush=True)
+    logger.info("event=startup_timing config_ms=%.0f rooms_ms=%.0f window_ms=%.0f "
+                "shown_ms=%.0f", (t_load - t0) * 1000,
+                (t_rooms - t_load) * 1000, (t_window - t_rooms) * 1000,
+                (t_show - t0) * 1000)
     with session.phase("event_loop"):
         code = app.exec()
     watchdog.stop()
@@ -4088,7 +4112,8 @@ def main(argv: list[str] | None = None) -> int:
             launched = _launch_update(window._update_plan)
         except (OSError, ValueError) as error:
             launched = False
-            print(f"[更新] 启动助手失败：{error}", file=sys.stderr, flush=True)
+            logger.error("event=update_helper_launch_failed reason=%s:%s",
+                         type(error).__name__, error, exc_info=True)
         if not launched:
             QMessageBox.critical(None, "更新未执行", "无法启动更新助手，原程序已保留，请稍后重新下载更新。")
     elif window._restart_requested and not _launch_restart():
@@ -4098,8 +4123,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         sys.stdout.flush()
         sys.stderr.flush()
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, ValueError):
+        logger.warning("event=shutdown_flush_failed", exc_info=True)
     diagnostics.close()
     os._exit(code)
 

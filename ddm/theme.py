@@ -18,6 +18,10 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("theme")
+
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
     """把主题里的颜色变成 QColor。
@@ -289,8 +293,7 @@ class ThemeSignals(QObject):
             # Restore synchronously: deferring until the next event-loop turn
             # allows palette-based QSS to paint one frame in the platform colour.
             _apply_palette(app, colors)
-            print('[主题] 已拦截外部调色板重置，保持当前模式：' + _mode,
-                  file=sys.stderr, flush=True)
+            logger.warning("event=palette_reset_intercepted mode=%s", _mode)
         finally:
             self._repairing_palette = False
 

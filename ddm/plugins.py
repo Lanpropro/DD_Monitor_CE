@@ -25,8 +25,8 @@
 ``docs/plugins.md``。插件是**受信任的代码**，
 它在主进程里跑，能拿到窗口对象，能力和本体代码等价——只装自己看过源码的插件。
 
-插件里的异常不会拖垮本体：事件回调、平台回调、菜单回调都被包住并打印到 stderr，
-让一个坏插件只坏它自己。
+插件里的异常不会拖垮本体：事件回调、平台回调、菜单回调都被包住并写入诊断
+日志，让一个坏插件只坏它自己。
 """
 import importlib.util
 import json
@@ -35,13 +35,15 @@ import re
 import shutil
 import sys
 import tempfile
-import traceback
 import zipfile
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import config as config_module
+from . import diagnostics
 from .file_ops import replace_directory
+
+logger = diagnostics.get_logger("plugins")
 
 #: 插件目录要和 utils / cache / logs 一样落在**程序旁边**：源码运行时是仓库根，
 #: 打包成 exe 后是 exe 所在目录。这里用 config.REPO（它已经处理了 frozen），
@@ -286,7 +288,7 @@ class PluginContext:
         return self._manager.platforms.get(str(kind))
 
     def log(self, message: str) -> None:
-        print(f"[插件 {self.name}] {message}", file=sys.stderr, flush=True)
+        logger.info("event=plugin_log plugin_id=%s message=%s", self.name, message)
 
 
 class Plugin:
@@ -373,10 +375,13 @@ class PluginManager:
                 plugin = self._load_module(entry, module_path)
             except Exception as error:           # noqa: BLE001
                 self.skipped.append((entry, f"装载失败：{error}"))
-                traceback.print_exc()
+                logger.exception("event=plugin_load_failed plugin_id=%s reason=%s",
+                                 entry, type(error).__name__)
                 continue
             if plugin is None:
                 self.skipped.append((entry, "没有找到名为 plugin 的 Plugin 实例"))
+                logger.warning("event=plugin_load_skipped plugin_id=%s reason=no_plugin_instance",
+                               entry)
                 continue
             if manifest:
                 plugin.name = manifest["name"]
@@ -392,14 +397,14 @@ class PluginManager:
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
                 self.skipped.append((entry, f"on_load 出错：{error}"))
-                traceback.print_exc()
+                logger.exception("event=plugin_startup_failed plugin_id=%s hook=on_load",
+                                 entry)
                 continue
             if not plugin.name:
                 plugin.name = entry
             self.plugins.append(plugin)
-            print(f"[插件] 已装载 {plugin.name}"
-                  f"{' v' + plugin.version if plugin.version else ''}",
-                  file=sys.stderr, flush=True)
+            logger.info("event=plugin_loaded plugin_id=%s name=%s version=%s",
+                        entry, plugin.name, plugin.version or "?")
 
     def _load_module(self, name: str, path: str) -> Plugin | None:
         spec = importlib.util.spec_from_file_location(f"ddm_plugin_{name}", path)
@@ -415,8 +420,9 @@ class PluginManager:
         for plugin in self.plugins:
             try:
                 plugin.on_unload()
-            except Exception:                    # noqa: BLE001
-                traceback.print_exc()
+            except Exception:                    # noqa: BLE001 - 单个插件收尾失败不能阻止其余插件退出
+                logger.exception("event=plugin_unload_failed plugin_id=%s hook=on_unload",
+                                 _plugin_id(plugin))
 
     def active_skin(self):
         from .skins import plugin_skin
@@ -427,7 +433,8 @@ class PluginManager:
                 try:
                     return plugin_skin(plugin, os.path.join(self.plugins_dir, owner))
                 except (OSError, ValueError) as error:
-                    print(f"[插件 {owner}] 皮肤无效：{error}", file=sys.stderr, flush=True)
+                    logger.warning("event=plugin_skin_invalid plugin_id=%s reason=%s",
+                                   owner, error, exc_info=True)
         return None
 
     def save_plugin_settings(self) -> None:
@@ -435,8 +442,8 @@ class PluginManager:
         if self._save_settings is not None:
             try:
                 self._save_settings()
-            except Exception:                    # noqa: BLE001
-                traceback.print_exc()
+            except Exception:                    # noqa: BLE001 - 设置写入由本体统一兜底
+                logger.exception("event=plugin_settings_save_failed")
 
     def install_zip(self, archive: str) -> str:
         """安装单插件 ZIP；本次进程不执行新插件代码。"""
@@ -546,9 +553,9 @@ class PluginManager:
             try:
                 plugin.on_event(event, payload)
             except Exception as error:           # noqa: BLE001
-                print(f"[插件 {plugin.name}] 处理 {event} 出错：{error}",
-                      file=sys.stderr, flush=True)
-                traceback.print_exc()
+                logger.exception("event=plugin_event_failed plugin_id=%s name=%s event=%s "
+                                 "reason=%s", _plugin_id(plugin), plugin.name, event,
+                                 type(error).__name__)
 
     # ---- 注册 ----
     def register_platform(self, owner: str, platform: Platform) -> None:
@@ -562,9 +569,8 @@ class PluginManager:
                 f"{owner} 又注册了一次")
         self.platforms[kind] = platform
         self._platform_owner[kind] = owner
-        print(f"[插件] {owner} 注册平台 {kind}"
-              f"{'（' + platform.label + '）' if platform.label else ''}",
-              file=sys.stderr, flush=True)
+        logger.info("event=plugin_platform_registered plugin_id=%s kind=%s label=%s",
+                    owner, kind, platform.label or "")
 
     def register_danmaku_sender(self, owner: str, sender: DanmakuSender) -> None:
         if self._sender is not None:
@@ -579,8 +585,11 @@ class PluginManager:
             try:
                 if platform.matches(room_id):
                     return platform
-            except Exception:                    # noqa: BLE001
-                traceback.print_exc()
+            except Exception:                    # noqa: BLE001 - 一个平台的匹配器不能拖垮其他平台
+                logger.exception("event=plugin_platform_match_failed plugin_id=%s "
+                                 "kind=%s room_id=%s",
+                                 self._platform_owner.get(platform.kind, "?"),
+                                 platform.kind, room_id)
         return None
 
     @property
@@ -594,19 +603,21 @@ class PluginManager:
             try:
                 for item in plugin.tile_actions(tile) or []:
                     label, callback = item[0], item[1]
-                    actions.append((str(label), callback, plugin.name))
+                    actions.append((str(label), callback, _plugin_id(plugin)))
             except Exception as error:           # noqa: BLE001
-                print(f"[插件 {plugin.name}] 生成菜单项出错：{error}",
-                      file=sys.stderr, flush=True)
+                logger.exception("event=plugin_tile_actions_failed plugin_id=%s name=%s "
+                                 "room_id=%s reason=%s", _plugin_id(plugin), plugin.name,
+                                 (getattr(tile, "room", {}) or {}).get("room_id", ""),
+                                 type(error).__name__)
         return actions
 
-    def run_action(self, callback) -> None:
+    def run_action(self, callback, *, plugin_id: str = "", action: str = "") -> None:
         """执行插件菜单回调，异常不许冒到界面线程。"""
         try:
             callback()
         except Exception as error:               # noqa: BLE001
-            print(f"[插件] 菜单动作出错：{error}", file=sys.stderr, flush=True)
-            traceback.print_exc()
+            logger.exception("event=plugin_action_failed plugin_id=%s action=%s reason=%s",
+                             plugin_id or "?", action or "?", type(error).__name__)
 
     @property
     def summary(self) -> str:
@@ -622,6 +633,11 @@ class PluginManager:
 
 
 _MANAGER: PluginManager | None = None
+
+
+def _plugin_id(plugin: Plugin) -> str:
+    context = getattr(plugin, "context", None)
+    return str(getattr(context, "name", "") or getattr(plugin, "name", "") or "?")
 
 
 def manager() -> PluginManager | None:

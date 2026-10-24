@@ -9,6 +9,10 @@ D3D11 渲染时，两边的生命周期撞在一起，就会在用户机器上�
 """
 import os
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("diagnostics")
+
 #: 已知会 hook 图形管线的覆盖层/注入模块关键字（小写，按模块文件名匹配）
 #: FPS Monitor 实测注入的是 ``fps-mon64.dll``（带连字符），所以两种写法都要匹配。
 OVERLAY_HINTS = (
@@ -29,7 +33,8 @@ def module_paths() -> list[str]:
     try:
         import ctypes
         from ctypes import wintypes
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - ctypes 不可用时没有覆盖层信息
+        logger.debug("event=overlay_ctypes_unavailable", exc_info=True)
         return []
     try:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -57,7 +62,8 @@ def module_paths() -> list[str]:
             if psapi.GetModuleFileNameExW(handle, hmods[index], buf, 1024):
                 paths.append(buf.value)
         return paths
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 模块枚举失败不影响启动
+        logger.debug("event=overlay_module_enumeration_failed", exc_info=True)
         return []
 
 

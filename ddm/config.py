@@ -10,6 +10,10 @@ import os
 import shutil
 import sys
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("config")
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if getattr(sys, "frozen", False):
     # 打包成 exe 后代码在 _internal 里，而 utils / cache / logs 要放在 exe
@@ -148,7 +152,8 @@ def _read_json(path: str) -> dict:
         with io.open(path, "r", encoding="utf-8", errors="ignore") as handle:
             return json.loads(handle.read()) or {}
     except Exception as error:  # noqa: BLE001
-        print(f"配置读取失败 {path}: {error}")
+        logger.warning("event=config_read_failed path=%s reason=%s:%s",
+                       path, type(error).__name__, error, exc_info=True)
         return {}
 
 
@@ -172,7 +177,7 @@ def load() -> dict:
     if os.path.isfile(backup):          # 主配置坏了就回退到上一次的备份
         state = _read_json(backup)
         if state.get("version"):
-            print(f"主配置不可用，已回退到备份 {backup}")
+            logger.warning("event=config_backup_loaded path=%s", backup)
             return state
     return {}
 
@@ -187,7 +192,8 @@ def save(state: dict) -> None:
         with io.open(CONFIG_PATH, "w", encoding="utf-8", errors="ignore") as handle:
             handle.write(json.dumps(state, ensure_ascii=False, indent=2))
     except Exception as error:  # noqa: BLE001
-        print(f"配置写入失败: {error}")
+        logger.error("event=config_save_failed path=%s reason=%s:%s",
+                     CONFIG_PATH, type(error).__name__, error, exc_info=True)
 
 
 def sync_platform_rooms(state: dict, active_platforms: set[str]) -> dict:

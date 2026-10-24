@@ -163,9 +163,9 @@ def part_one() -> None:
     manager.run_action(actions[0][1])
     assert FakeTile.room.get("demo_clicked") is True, "回调应该被真的调用"
     manager.run_action(lambda: (_ for _ in ()).throw(RuntimeError("炸")))
-    print("  回调抛异常时只打印，不往外冒")
+    print("  回调抛异常时只记日志，不往外冒")
     print("  注意：上面那几条 Traceback 是本自检**故意**喂进去的坏插件/坏回调，"
-          "用来验证隔离；看到它们说明隔离生效。")
+          "用来验证隔离；它们被写入诊断日志说明隔离生效。")
 
     print("\n=== 6. 插件自己的配置读写 ===")
     saved = {"count": 0}

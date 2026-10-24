@@ -14,6 +14,9 @@ from PySide6.QtCore import QThread, Signal
 
 from . import bili
 from . import config as config_module
+from . import diagnostics
+
+logger = diagnostics.get_logger("danmaku")
 
 # blivedm 在原仓库根目录，独立版也放在项目根目录
 if config_module.REPO not in sys.path:
@@ -35,6 +38,8 @@ except Exception as error:              # noqa: BLE001
     blivedm = None
     blivedm_ws_base = None
     IMPORT_ERROR = f"{type(error).__name__}: {error}"
+    logger.warning("event=danmaku_backend_unavailable reason=%s", IMPORT_ERROR,
+                   exc_info=True)
 
 
 class DanmakuClient(QThread):
@@ -77,6 +82,8 @@ class DanmakuClient(QThread):
         try:
             asyncio.run(self._main(room_id))
         except Exception as error:      # noqa: BLE001
+            logger.warning("event=danmaku_connection_failed room_id=%s reason=%s:%s",
+                           self.room_id, type(error).__name__, error, exc_info=True)
             self.status.emit(f"弹幕连接出错：{error}")
 
     async def _main(self, room_id: int) -> None:
@@ -142,11 +149,18 @@ class _Client(_ClientBase):
             try:
                 ready = await self._init_uid()
             except (aiohttp.ClientError, OSError, ValueError, KeyError, TypeError) as error:
+                logger.debug("event=danmaku_uid_init_failed room_id=%s",
+                             self._room_id, exc_info=True)
                 raise aiohttp.ClientConnectionError("Unable to initialize danmaku user") from error
             if not ready:
                 raise aiohttp.ClientConnectionError("Unable to initialize danmaku user")
         if not self._get_buvid():
-            await self._init_buvid()
+            try:
+                await self._init_buvid()
+            except (aiohttp.ClientError, OSError, ValueError, KeyError, TypeError) as error:
+                logger.debug("event=danmaku_buvid_init_failed room_id=%s",
+                             self._room_id, exc_info=True)
+                raise
         cookies = {name: cookie.value for name, cookie in
                    self._session.cookie_jar.filter_cookies(yarl.URL(blivedm.clients.web.UID_INIT_URL)).items()}
         try:
@@ -154,6 +168,8 @@ class _Client(_ClientBase):
                 bili.danmaku_conf, str(self._tmp_room_id), cookies=cookies,
                 user_agent=self._session.headers.get("User-Agent", bili.UA))
         except (OSError, ValueError) as error:
+            logger.debug("event=danmaku_servers_load_failed room_id=%s",
+                         self._room_id, exc_info=True)
             raise aiohttp.ClientConnectionError("Unable to load danmaku servers") from error
         if not hosts:
             if self._on_status is not None:

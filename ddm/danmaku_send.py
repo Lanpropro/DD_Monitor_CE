@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import bili, config, images, motion, theme
+from . import bili, config, diagnostics, images, motion, theme
+
+logger = diagnostics.get_logger("danmaku_send")
 
 
 def _catalog_path(room_id, identity):
@@ -163,6 +165,8 @@ class _Request(QThread):
         except requests.RequestException:
             self.failed.emit(self.context, "网络请求失败，请检查网络后重试")
         except Exception as error:  # noqa: BLE001
+            logger.error("event=danmaku_request_failed context=%s reason=%s:%s",
+                         self.context, type(error).__name__, error, exc_info=True)
             self.failed.emit(self.context, str(error) or "请求失败，请重试")
         else:
             self.completed.emit(self.context, result)

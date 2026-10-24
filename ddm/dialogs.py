@@ -15,12 +15,15 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from . import diagnostics
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
+
+logger = diagnostics.get_logger("settings")
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
@@ -1242,8 +1245,8 @@ class SettingsDialog(QDialog):
         super().paintEvent(event)
         if not self._paint_logged:
             self._paint_logged = True
-            print(f"[设置耗时] 首次绘制 {(time.perf_counter() - self._created_at) * 1000:.1f}ms",
-                  file=sys.stderr, flush=True)
+            logger.info("event=settings_first_paint elapsed_ms=%.1f",
+                        (time.perf_counter() - self._created_at) * 1000)
 
     def _mark_update_page(self, key, active):
         for index in range(self.nav.count()):
@@ -1276,8 +1279,9 @@ class SettingsDialog(QDialog):
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
             self.pageCreated.emit(index, page)
-            print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
-                  file=sys.stderr, flush=True)
+            logger.info("event=settings_page_created page=%s elapsed_ms=%.1f",
+                        self.PAGES[index][0],
+                        (time.perf_counter() - started) * 1000)
         return self._loaded_pages[index]
 
     appearance_page = property(lambda self: self._page(1))

@@ -14,6 +14,10 @@ import threading
 from concurrent.futures import Future
 from pathlib import Path
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("recording")
+
 #: 「编码方式」设置项：值 -> 界面文案。
 ENCODER_CHOICES = (
     ("auto", "自动（优先显卡编码，不可用回退 CPU）"),
@@ -105,6 +109,8 @@ def resolve_encoder_async(preference: str, executable: str) -> Future:
         try:
             result.set_result(resolve_encoder(preference, executable))
         except Exception as error:  # noqa: BLE001
+            logger.warning("event=encoder_probe_failed preference=%s reason=%s:%s",
+                           preference, type(error).__name__, error, exc_info=True)
             result.set_exception(error)
 
     threading.Thread(target=resolve, name="ddm-encoder-probe", daemon=True).start()

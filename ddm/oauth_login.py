@@ -10,9 +10,11 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog, QF
                               QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                               QScrollArea, QVBoxLayout, QWidget)
 
-from . import theme
+from . import diagnostics, theme
 from .account_store import AccountStore
 from .oauth import authorize
+
+logger = diagnostics.get_logger("login")
 
 
 class OAuthLoader(QThread):
@@ -53,6 +55,9 @@ class OAuthLoader(QThread):
                 self.loaded.emit(rooms)
         except Exception as error:  # noqa: BLE001
             if not self.cancelled.is_set():
+                logger.warning("event=oauth_login_failed platform=%s reason=%s:%s",
+                               getattr(self.platform, "kind", "?"),
+                               type(error).__name__, error, exc_info=True)
                 self.failed.emit(str(error) if isinstance(error, RuntimeError) else
                                  '账号授权失败，请检查网络和客户端配置后重试')
 

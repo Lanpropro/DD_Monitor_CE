@@ -13,6 +13,10 @@ from urllib.parse import urlencode
 import aiohttp
 from PySide6.QtCore import QThread, Signal
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("danmaku")
+
 MAX_PACKET = 4 * 1024 * 1024
 DOUYU_HEARTBEAT = 20.0
 DOUYU_RECEIVE_TIMEOUT = 45.0
@@ -274,6 +278,10 @@ class LiveDanmakuClient(QThread):
             pass
         except Exception as error:  # noqa: BLE001
             if not self._stopped.is_set():
+                logger.warning("event=danmaku_connection_failed room_id=%s "
+                               "platform=%s reason=%s:%s",
+                               self.room_id, getattr(self.platform, "kind", "?"),
+                               type(error).__name__, error, exc_info=True)
                 self.status.emit(f"弹幕连接出错：{type(error).__name__}")
         finally:
             self._task = self._loop = None

@@ -672,7 +672,7 @@ def _version() -> str:
     try:
         from .version import VERSION
         return VERSION
-    except Exception:  # noqa: BLE001
+    except (ImportError, AttributeError, ValueError):
         return "?"
 
 
@@ -733,23 +733,26 @@ def show_startup_failure(message: str, log_path: str = "") -> None:
     body = message
     if log_path:
         body += f"\n\n日志文件：{log_path}"
+    logger = get_logger("diagnostics")
     try:
         from PySide6.QtWidgets import QApplication, QMessageBox
         if QApplication.instance() is not None:
             QMessageBox.critical(None, title, body)
             return
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as error:  # noqa: BLE001 - 启动失败提示不能再次中断退出流程
+        logger.warning("event=startup_failure_dialog_failed backend=qt reason=%s:%s",
+                       type(error).__name__, error, exc_info=True)
     if os.name == "nt":
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, body, title, 0x10)
             return
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as error:  # noqa: BLE001 - 同上，Qt 与本机对话框都不可用
+            logger.warning("event=startup_failure_dialog_failed backend=win32 reason=%s:%s",
+                           type(error).__name__, error, exc_info=True)
     try:
         print(f"{title}: {body}", file=sys.stderr)
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError):
         pass
 
 

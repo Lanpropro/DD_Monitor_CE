@@ -6,7 +6,10 @@ import time
 
 from PySide6.QtCore import QThread, QTimer, QUrl, Signal
 
+from . import diagnostics
 from .platform_login import PlatformFollowDialog
+
+logger = diagnostics.get_logger("login")
 
 
 class ProfileRoomLoader(QThread):
@@ -29,6 +32,9 @@ class ProfileRoomLoader(QThread):
                 self.loaded.emit(rid)
         except Exception as error:  # noqa: BLE001
             if not self.cancelled.is_set():
+                logger.warning("event=profile_room_failed user=%s reason=%s:%s",
+                               self.user.get("uid", "?"), type(error).__name__,
+                               error, exc_info=True)
                 self.failed.emit(str(error) if isinstance(error, RuntimeError) else
                                  "主播直播间读取失败，请检查网络后重试")
 

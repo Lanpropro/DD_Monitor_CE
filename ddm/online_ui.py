@@ -11,7 +11,9 @@ from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
-from . import config, motion, online, plugin_updates, theme, update_install, version
+from . import config, diagnostics, motion, online, plugin_updates, theme, update_install, version
+
+logger = diagnostics.get_logger("online")
 
 
 class UpdateDot(QLabel):
@@ -92,6 +94,9 @@ class OnlineTask(QThread):
                 self.succeeded.emit((self, result))
         except Exception as error:
             if not self.isInterruptionRequested():
+                logger.error("event=online_task_failed operation=%s reason=%s:%s",
+                             getattr(self.operation, "__name__", "task"),
+                             type(error).__name__, error, exc_info=True)
                 self.failed.emit((self, str(error)))
 
 
@@ -128,6 +133,8 @@ class OnlinePage(QWidget):
             try:
                 task.callback(result)
             except Exception as error:
+                logger.error("event=online_task_callback_failed reason=%s:%s",
+                             type(error).__name__, error, exc_info=True)
                 self.status.setText(str(error))
 
     def _failed(self, payload):

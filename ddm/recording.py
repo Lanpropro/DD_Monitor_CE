@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 from concurrent.futures import Future
 from pathlib import Path
@@ -16,6 +15,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import config
+from . import diagnostics
 from .encoders import (
     gop_args,
     resolve_encoder,
@@ -23,6 +23,8 @@ from .encoders import (
     segment_extension,
     segment_format,
 )
+
+logger = diagnostics.get_logger("recording")
 
 SEGMENT_SECONDS = 10
 CHECK_MS = 2000
@@ -306,7 +308,8 @@ class RecordingManager(QObject):
         self.timer.start()
 
     def _say(self, message: str, room=None) -> None:
-        print(f"[录制] {message}", file=sys.stderr, flush=True)
+        logger.info("event=recording_notice message=%s room_id=%s", message,
+                    (room or {}).get("room_id"))
         self.notice.emit(message)
         self.noticeWithRoom.emit(message, dict(room or {}))
 
@@ -365,6 +368,9 @@ class RecordingManager(QObject):
             return True
         except (OSError, ValueError) as error:
             self.sessions.pop(tile, None)
+            logger.error("event=recording_failed room_id=%s uname=%s reason=%s:%s",
+                         tile.room.get("room_id"), tile.room.get("uname"),
+                         type(error).__name__, error, exc_info=True)
             self._say(f"录制启动失败：{error}")
             return False
 

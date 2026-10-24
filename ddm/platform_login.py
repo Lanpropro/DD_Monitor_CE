@@ -10,7 +10,10 @@ from PySide6.QtNetwork import QNetworkCookie
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel,
                               QPushButton, QVBoxLayout)
 
+from . import diagnostics
 from .account_store import AccountStore
+
+logger = diagnostics.get_logger("login")
 
 _profiles = {}
 
@@ -89,6 +92,9 @@ class PlatformFollowLoader(QThread):
                 self.loaded.emit(rooms)
         except Exception as error:  # noqa: BLE001
             if not self._cancelled.is_set():
+                logger.warning("event=platform_login_failed platform=%s "
+                               "reason=%s:%s", getattr(self.platform, "kind", "?"),
+                               type(error).__name__, error, exc_info=True)
                 self.failed.emit(str(error) if isinstance(error, RuntimeError) else
                                  "关注获取失败，请检查登录状态和网络后重试")
 

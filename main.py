@@ -8,7 +8,6 @@
 import os
 from pathlib import Path
 import sys
-import traceback
 
 # Python 3.12 的 WMI 查询可能在导入 aiohttp 时卡住，使用系统版本接口回退。
 if sys.platform == "win32":
@@ -79,8 +78,8 @@ def _run() -> int:
             diagnostics.show_startup_failure(
                 f"启动阶段失败：{phase}\n{detail}\n\n"
                 "请把日志文件提供给开发者以便排查。", str(session.log_path))
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
+        except Exception:  # noqa: BLE001 - 提示失败不能再掩盖原始启动异常
+            logger.exception("event=startup_failure_notice_failed phase=%s", phase)
         return 1
     finally:
         diagnostics.close()
