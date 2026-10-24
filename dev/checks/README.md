@@ -330,6 +330,7 @@
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 单项执行前核对 |
+| [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |
 | [selfcheck_oauth_accounts](../selfcheck_oauth_accounts.py) | 单项执行前核对 |

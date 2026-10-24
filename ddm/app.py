@@ -3634,8 +3634,8 @@ class MainWindow(QMainWindow):
                 timer.deleteLater()
                 self._follow_import_timer = None
                 return
-            added_rooms.extend(self.sidebar.add_rooms(selected[offset:offset + 20]))
-            offset += 20
+            added_rooms.extend(self.sidebar.add_rooms(selected[offset:offset + 8]))
+            offset += 8
             if offset < len(selected):
                 timer.start(0)
                 return

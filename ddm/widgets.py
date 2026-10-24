@@ -3425,6 +3425,7 @@ class RoomStrip(QFrame):
         self._faces: dict = {}                   # room_id -> 头像图
         self._on_wall_ids: set[str] = set()
         self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
+        self._avatar_signatures = {}
         self._press_pos = None
         self._press_room = None
         self._hovered_room: dict | None = None
@@ -3543,26 +3544,33 @@ class RoomStrip(QFrame):
 
     def _rebuild(self) -> None:
         self._set_hover_room("")
+        previous = self._avatars
+        signatures = self._avatar_signatures
         while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
+            self._layout.takeAt(0)
         self._avatars = {}
+        self._avatar_signatures = {}
         for room in self._rooms:
             room_id = str(room.get("room_id") or "")
             uname = str(room.get("uname") or "")
-            avatar = self._add_avatar(
-                uname[0] if uname else "?", bool(room.get("live")),
-                tooltip=uname or room_id,
-                face=self._faces.get(room_id),
-                room_id=room_id,
-                pinned=bool(room.get("pinned")),
-                on_wall=room_id in self._on_wall_ids)
+            face = self._faces.get(room_id)
+            signature = (uname, bool(room.get("live")), bool(room.get("pinned")),
+                         room_id in self._on_wall_ids, face.cacheKey() if face is not None else None)
+            if room_id in previous and signatures.get(room_id) == signature:
+                avatar = previous.pop(room_id)
+                self._layout.addWidget(avatar)
+            else:
+                avatar = self._add_avatar(
+                    uname[0] if uname else "?", bool(room.get("live")),
+                    tooltip=uname or room_id, face=face, room_id=room_id,
+                    pinned=bool(room.get("pinned")), on_wall=room_id in self._on_wall_ids)
             if room_id:
                 self._avatars[room_id] = avatar
+                self._avatar_signatures[room_id] = signature
+        for widget in previous.values():
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
         self._layout.addStretch(1)
 
     def rebuild(self) -> None:
