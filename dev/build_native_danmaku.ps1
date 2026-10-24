@@ -3,10 +3,33 @@ param(
     [string]$BuildDir = "",
     [string]$InstallPrefix = "",
     [string]$SourceRoot = "",
-    [string]$Generator = "Visual Studio 17 2022",
+    [string]$Generator = "",
     [switch]$SkipTests
 )
 $ErrorActionPreference = "Stop"
+
+function Get-NativeConfigureArgs {
+    param(
+        [string]$SourceRoot,
+        [string]$BuildDir,
+        [string]$Python,
+        [string]$PybindDir,
+        [string]$Generator
+    )
+
+    $arguments = @(
+        "-S", (Join-Path $SourceRoot "native"),
+        "-B", $BuildDir,
+        "-DPython_EXECUTABLE=$Python",
+        "-Dpybind11_DIR=$PybindDir",
+        "-DBUILD_TESTING=ON"
+    )
+    if ($Generator) {
+        $arguments += @("-G", $Generator, "-A", "x64")
+    }
+    return $arguments
+}
+
 $repo = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 if (-not $Python) { $Python = Join-Path $repo ".venv\Scripts\python.exe" }
 if (-not $BuildDir) { $BuildDir = Join-Path $repo "work\native-build" }
@@ -21,7 +44,8 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $cmake)) { throw "Insta
 $ctest = Join-Path (Split-Path -Parent $cmake) "ctest.exe"
 $pybind = (& $Python -m pybind11 --cmakedir).Trim()
 if ($LASTEXITCODE -ne 0) { throw "pybind11 is unavailable in $Python" }
-& $cmake -S (Join-Path $SourceRoot "native") -B $BuildDir -G $Generator -A x64 "-DPython_EXECUTABLE=$Python" "-Dpybind11_DIR=$pybind" -DBUILD_TESTING=ON
+$configureArgs = Get-NativeConfigureArgs -SourceRoot $SourceRoot -BuildDir $BuildDir -Python $Python -PybindDir $pybind -Generator $Generator
+& $cmake @configureArgs
 if ($LASTEXITCODE -ne 0) { throw "Native CMake configuration failed" }
 & $cmake --build $BuildDir --config Release
 if ($LASTEXITCODE -ne 0) { throw "Native Release build failed" }
@@ -33,6 +57,7 @@ if (-not $SkipTests) {
 }
 & $cmake --install $BuildDir --config Release --prefix $InstallPrefix
 if ($LASTEXITCODE -ne 0) { throw "Native installation failed" }
+$reportGenerator = if ($Generator) { $Generator } else { "default" }
 $metadata = Join-Path $BuildDir "native-build.json"
 @'
 import hashlib, importlib, json, pathlib, platform, struct, subprocess, sys, sysconfig
@@ -75,6 +100,6 @@ report = {
 }
 output.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')
 print(f'Native Release import passed: {module_path}; report={output}')
-'@ | & $Python - $repo $InstallPrefix $metadata $testResult $Generator $SourceRoot
+'@ | & $Python - $repo $InstallPrefix $metadata $testResult $reportGenerator $SourceRoot
 if ($LASTEXITCODE -ne 0) { throw "Native import/ABI verification failed" }
 Write-Output "Native build report: $metadata"

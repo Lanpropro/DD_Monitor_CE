@@ -51,6 +51,36 @@ foreach ($name in @('build_release.ps1', 'build_native_danmaku.ps1')) {
                 throw 'UTF-8 JSON decoded path did not locate the original native module'
             }
         }
+    } else {
+        if ($ast.Extent.Text -match 'Visual Studio 17 2022') {
+            throw 'Native build must not pin a Visual Studio version'
+        }
+        $generatorParameter = $ast.ParamBlock.Parameters | Where-Object {
+            $_.Name.VariablePath.UserPath -eq 'Generator'
+        }
+        if ($generatorParameter.DefaultValue.Extent.Text -notin @("''", '""')) {
+            throw 'Native build generator must default to automatic selection'
+        }
+        $functions = $ast.FindAll({
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq 'Get-NativeConfigureArgs'
+        }, $true)
+        if ($functions.Count -ne 1) { throw 'Native configure argument builder is missing' }
+        Invoke-Expression $functions[0].Extent.Text
+        $common = @('-SourceRoot', 'C:\repo', '-BuildDir', 'C:\build', '-Python', 'python.exe',
+                    '-PybindDir', 'C:\pybind')
+        $automatic = @(Get-NativeConfigureArgs @common -Generator '')
+        if ($automatic -contains '-G' -or $automatic -contains '-A') {
+            throw 'Automatic generator selection must not pass -G or -A'
+        }
+        $explicit = @(Get-NativeConfigureArgs @common -Generator 'Visual Studio 17 2022')
+        $generatorIndex = [Array]::IndexOf($explicit, '-G')
+        $architectureIndex = [Array]::IndexOf($explicit, '-A')
+        if ($generatorIndex -lt 0 -or $explicit[$generatorIndex + 1] -ne 'Visual Studio 17 2022' -or
+            $architectureIndex -lt 0 -or $explicit[$architectureIndex + 1] -ne 'x64') {
+            throw 'Explicit native generation must pass its generator and x64 architecture'
+        }
     }
 }
 $root = Join-Path $Scratch 'root'
@@ -74,7 +104,7 @@ New-Item -ItemType Junction -Path $link -Target $sibling | Out-Null
 $rejected = $false
 try { Remove-BuildPath $link $root } catch { $rejected = $true }
 if (-not $rejected -or -not (Test-Path -LiteralPath $sentinel)) { throw 'Junction escaped cleanup boundary' }
-Write-Output 'PASS: PowerShell syntax, UTF-8 JSON paths/hashes, cleanup boundaries, traversal rejection and junction preservation'
+Write-Output 'PASS: PowerShell syntax, native generator selection, UTF-8 JSON paths/hashes, cleanup boundaries, traversal rejection and junction preservation'
 """, encoding="utf-8")
         subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                         "-File", str(script), "-Repo", str(repo), "-Scratch", temporary,
