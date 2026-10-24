@@ -53,6 +53,7 @@
 - `dev/selfcheck_audio_hotplug.py`
 - `dev/selfcheck_audio_owner.py`
 - `dev/selfcheck_audio_routing.py`
+- `dev/selfcheck_badge_memory.py`
 - `dev/selfcheck_auto_quality.py`
 - `dev/selfcheck_auto_quality_live.py`
 - `dev/selfcheck_auto_quality_switch_live.py`

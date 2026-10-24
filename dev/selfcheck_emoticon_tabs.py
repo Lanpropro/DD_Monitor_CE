@@ -148,7 +148,8 @@ class EmoticonTabTests(unittest.TestCase):
             self.calls.append((url, subdir))
         return self.pixmap
 
-    def test_drag_reorders_without_sending_and_shares_persistent_category_order(self):
+    @patch('ddm.danmaku_send.motion.enabled', return_value=True)
+    def test_drag_reorders_without_sending_and_shares_persistent_category_order(self, _animations):
         packs = [package('drag', 8), package('other', 2, 2)]
         for pack in packs:
             for emote in pack['emoticons']:
