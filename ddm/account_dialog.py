@@ -9,9 +9,12 @@ from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import bili, theme
+from . import diagnostics
 from .bili import FollowLoader
 from .dialogs import FollowImportDialog
 from .widgets import AccountRow, BRAND_ASSETS_DIR
+
+logger = diagnostics.get_logger("account")
 
 
 class FollowAccountResolver(QThread):
@@ -33,6 +36,10 @@ class FollowAccountResolver(QThread):
             try:
                 resolved = self.platform.resolve_follow_account(account, cancelled)
             except Exception:  # 单个账号失败不影响其余关注，也不覆盖原身份。
+                logger.warning("event=follow_account_resolve_failed "
+                               "platform=%s account_uid=%s",
+                               getattr(self.platform, "kind", "?"),
+                               account.get("uid", "?"), exc_info=True)
                 continue
             if not cancelled():
                 self.updated.emit(resolved)

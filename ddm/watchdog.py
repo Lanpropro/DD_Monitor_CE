@@ -16,6 +16,10 @@ import sys
 import threading
 import time
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("watchdog")
+
 DEFAULT_TIMEOUT = 4.0            # 主线程多久没报平安算卡死
 #: 4 秒而不是 8 秒：用户实测卡死 6 秒左右就把程序关了，8 秒的阈值还没到就
 #: 没留下任何线索。界面上 4 秒不动已经绝对是异常了。
@@ -66,7 +70,8 @@ class UiWatchdog:
             handle.flush()
             faulthandler.enable(file=handle, all_threads=True)
         except Exception as error:  # noqa: BLE001
-            print(f"{CRASH_MARK} 开启崩溃转储失败: {error}", file=sys.stderr, flush=True)
+            logger.error("event=crash_dump_enable_failed reason=%s:%s",
+                         type(error).__name__, error, exc_info=True)
 
     def stop(self) -> None:
         self._running = False
@@ -78,8 +83,8 @@ class UiWatchdog:
         if handle is not None:
             try:
                 handle.close()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - 关闭看门狗文件失败不影响退出
+                logger.debug("event=watchdog_close_failed", exc_info=True)
 
     @property
     def running(self) -> bool:
@@ -117,7 +122,8 @@ class UiWatchdog:
             handle.flush()
             self.dumps += 1
         except Exception as error:  # noqa: BLE001
-            print(f"{MARK} 写调用栈失败: {error}", file=sys.stderr, flush=True)
+            logger.error("event=watchdog_dump_failed reason=%s:%s",
+                         type(error).__name__, error, exc_info=True)
 
     def _open(self):
         if self._handle is not None:
@@ -134,8 +140,8 @@ class UiWatchdog:
                                         buffering=1)
                 return self._handle
         except Exception as error:  # noqa: BLE001
-            print(f"{MARK} 打不开日志 {self.log_path}: {error}",
-                  file=sys.stderr, flush=True)
+            logger.error("event=watchdog_log_open_failed path=%s reason=%s:%s",
+                         self.log_path, type(error).__name__, error, exc_info=True)
             return None
 
 

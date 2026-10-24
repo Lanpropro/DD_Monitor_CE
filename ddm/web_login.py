@@ -2,21 +2,22 @@
 
 只在用户主动选择"账号密码登录"时才导入 QtWebEngine（比较重）。
 """
-import sys
-
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QTimer, QUrl, Signal
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from . import bili
+from . import diagnostics
+
+logger = diagnostics.get_logger("login")
 
 PROFILE_NAME = "ddm-login"
 _profile: QWebEngineProfile | None = None
 
 
 def _log(message: str) -> None:
-    print(f"[网页登录] {message}", file=sys.stderr, flush=True)
+    logger.info("event=web_login %s", message)
 
 
 def _shared_profile() -> QWebEngineProfile:
@@ -89,7 +90,8 @@ class WebLoginWindow(QDialog):
             raw = cookie.value()
             value = bytes(raw.data() if hasattr(raw, "data") else raw).decode("utf-8", "ignore")
         except Exception as error:  # noqa: BLE001
-            _log(f"读取 cookie 失败: {error}")
+            logger.warning("event=web_login_cookie_read_failed reason=%s:%s",
+                           type(error).__name__, error, exc_info=True)
             return
         if not value:
             return

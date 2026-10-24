@@ -14,6 +14,10 @@ import urllib.parse
 import requests
 from PySide6.QtCore import QThread, Signal
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("bili")
+
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 HEADERS = {"User-Agent": UA, "Referer": "https://live.bilibili.com/"}
@@ -212,7 +216,8 @@ def room_info(room_id: str) -> dict | None:
             params={"req_biz": "web_room_componet", "room_ids": room_id},
             headers=HEADERS, cookies=_cookies(), timeout=10)
         info = response.json()["data"]["by_room_ids"][str(room_id)]
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 接口失败按“无房间信息”处理
+        logger.warning("event=room_info_failed room_id=%s", room_id, exc_info=True)
         return None
     live = info.get("live_status") == 1
     online = info.get("online")
@@ -253,7 +258,8 @@ def _parse_live_time(text) -> int:
         if text.isdigit():
             return int(text)
         return int(time.mktime(time.strptime(text, "%Y-%m-%d %H:%M:%S")))
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 接口时间格式变化时按未知开始时间处理
+        logger.debug("event=live_time_parse_failed value=%r", text, exc_info=True)
         return 0
 
 
@@ -263,7 +269,8 @@ def my_account() -> dict | None:
         response = requests.get("https://api.bilibili.com/x/web-interface/nav",
                                 headers=HEADERS, cookies=_cookies(), timeout=10)
         data = response.json().get("data") or {}
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 未登录或网络失败时返回未登录状态
+        logger.warning("event=account_info_failed", exc_info=True)
         return None
     if not data.get("isLogin"):
         return None
@@ -284,7 +291,9 @@ def _resolve_room_id(room_id: str) -> str:
         real_id = (data.get("data") or {}).get("room_id")
         if real_id:
             return str(real_id)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 短号解析失败时继续使用原房间号
+        logger.debug("event=room_id_resolve_failed room_id=%s", room_id,
+                     exc_info=True)
         pass
     return room_id
 
@@ -302,7 +311,8 @@ def _wbi_key() -> str:
         sub_key = str(wbi_img.get("sub_url") or "").rsplit("/", 1)[-1].split(".", 1)[0]
         source = img_key + sub_key
         key = "".join(source[index] for index in _WBI_KEY_INDEX if index < len(source))
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - WBI 密钥取不到时交给旧接口兜底
+        logger.warning("event=wbi_key_failed", exc_info=True)
         return ""
     if key:
         _WBI_CACHE.update(key=key, expires=now + 11 * 60 * 60)
@@ -341,7 +351,9 @@ def danmaku_conf(room_id: str, *, cookies: dict | None = None, user_agent: str =
             payload = response.json()
             if payload.get("code") == 0:
                 data = payload.get("data") or {}
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - WBI 接口失败时尝试旧接口
+            logger.warning("event=danmaku_conf_wbi_failed room_id=%s", real_id,
+                           exc_info=True)
             data = {}
     if not data.get("host_list"):
         try:
@@ -350,7 +362,9 @@ def danmaku_conf(room_id: str, *, cookies: dict | None = None, user_agent: str =
                 params={"room_id": real_id, "platform": "pc", "player": "web"},
                 headers=headers, cookies=cookies, timeout=10)
             data = response.json().get("data") or {}
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - 两种弹幕配置接口都失败
+            logger.warning("event=danmaku_conf_failed room_id=%s", real_id,
+                           exc_info=True)
             return int(real_id) if str(real_id).isdigit() else 0, "", []
     hosts = []
     seen_hosts = set()
@@ -373,7 +387,8 @@ def _fetchable(url: str, headers: dict) -> bool:
             return response.status_code == 200 and bool(chunk)
         finally:
             response.close()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 探测失败表示这条 CDN 地址不可用
+        logger.debug("event=stream_probe_failed url=%s", url, exc_info=True)
         return False
 
 
@@ -525,11 +540,14 @@ def play_url(room_id: str, quality: int = 250,
                 raise Cancelled()
             if not allow_codec_fallback:
                 raise
-            print(f"[取流] {room_id} 未提供 {codec.upper()}，改用 H.264",
-                  file=sys.stderr, flush=True)
+            logger.warning("event=codec_fallback room_id=%s requested=%s fallback=avc",
+                           room_id, codec)
             return play_url(room_id, quality, cancelled=cancelled,
                             source_offset=source_offset, codec="avc")
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001 - 继续尝试下一种取流通道
+            logger.warning("event=stream_source_failed room_id=%s source=%s "
+                           "reason=%s:%s", room_id, source.__name__,
+                           type(error).__name__, error, exc_info=True)
             errors.append(f"{source.__name__}: {error}")
             continue
         if urls:
@@ -543,8 +561,9 @@ def play_url(room_id: str, quality: int = 250,
             if _fetchable(playback_url, headers):
                 if _cancelled():           # 探测期间被作废：别把这个地址交出去
                     raise Cancelled()
-                print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
-                      file=sys.stderr, flush=True)
+                logger.info("event=stream_resolved room_id=%s channel=%s "
+                            "requested_quality=%s actual_quality=%s",
+                            room_id, profile, quality, current)
                 return playback_url, current, profile, dict(headers)
         errors.append(f"{source.__name__}: 地址不可用（CDN 拒绝）")
     detail = "；".join(errors) or "取流失败"
@@ -700,9 +719,10 @@ class StreamResolver(QThread):
             if not isinstance(options, list):
                 raise TypeError("平台画质档位必须为列表")
             if options:
-                print(f"[画质档位] {self.room_id}: "
-                      + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
-                      file=sys.stderr, flush=True)
+                logger.debug("event=quality_options room_id=%s options=%s",
+                             self.room_id,
+                             " / ".join(f"{item['desc']}({item['qn']})"
+                                        for item in options))
         except Cancelled:
             return                       # 作废：不发结果，也不算失败
         except CodecUnavailable as error:
@@ -711,6 +731,8 @@ class StreamResolver(QThread):
                 self.failed.emit(self.room_id, str(error))
             return
         except Exception as error:  # noqa: BLE001
+            logger.error("event=stream_resolver_failed room_id=%s reason=%s:%s",
+                         self.room_id, type(error).__name__, error, exc_info=True)
             from .plugins import LoginRequiredError, StreamCodecUnavailable
             self.login_required = isinstance(error, LoginRequiredError)
             self.codec_unavailable = isinstance(error, StreamCodecUnavailable)
@@ -722,6 +744,9 @@ class StreamResolver(QThread):
         self.headers = headers
         if self.platform is None:
             self.source_codec = codec_from_profile(profile)
+        if options:
+            logger.debug("event=quality_options room_id=%s options=%s", self.room_id,
+                         " / ".join(f"{item['desc']}({item['qn']})" for item in options))
         self.resolved.emit(self.room_id, url, current, profile, options)
 
 
@@ -745,7 +770,9 @@ class InfoResolver(QThread):
                 from .room_input import is_bili_short_url, resolve_bili_share
                 room_id = resolve_bili_share(self.room_id) if is_bili_short_url(self.room_id) else self.room_id
                 info = room_info(room_id) if room_id.isdigit() else None
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - 添加房间时接口失败等价于查无此房间
+            logger.warning("event=room_info_resolver_failed room_id=%s",
+                           self.room_id, exc_info=True)
             info = None
         if info is None:
             self.failed.emit(self.room_id)
@@ -761,7 +788,8 @@ def my_uid(force: bool = False) -> int | None:
         response = requests.get("https://api.bilibili.com/x/web-interface/nav",
                                 headers=HEADERS, cookies=_cookies(), timeout=10)
         data = response.json()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 未登录或网络失败时返回未知 UID
+        logger.warning("event=uid_fetch_failed", exc_info=True)
         return None
     if data.get("code") != 0 or not (data.get("data") or {}).get("isLogin"):
         return None
@@ -833,7 +861,8 @@ def _fill_faces(result: dict[str, dict], uids: dict[str, int]) -> None:
         return
     try:
         faces = _faces_by_room(missing)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 头像补充失败不影响状态刷新
+        logger.warning("event=face_fill_failed uids=%s", len(missing), exc_info=True)
         return                      # 补头像失败不该影响状态刷新本身
     for room_id, info in result.items():
         if not info.get("face"):
@@ -883,7 +912,9 @@ class FollowLoader(QThread):
     def run(self) -> None:
         try:
             self.loaded.emit(follow_rooms())
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001 - 后台关注列表加载失败
+            logger.error("event=follow_rooms_load_failed reason=%s:%s",
+                         type(error).__name__, error, exc_info=True)
             self.failed.emit(str(error))
 
 
@@ -963,7 +994,9 @@ class StatusPoller(QThread):
             missing = set(bili_ids) - status.keys()
             if missing:
                 self.failed.emit(f"{len(missing)} 个房间没有返回状态")
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001 - 状态刷新失败由界面提示
+            logger.error("event=status_refresh_failed reason=%s:%s",
+                         type(error).__name__, error, exc_info=True)
             self.failed.emit(str(error))
         # 各平台查完就送达；失败不阻塞其他平台，也不误标成下播。
         for kind, platform in self.platforms.items():
@@ -972,7 +1005,9 @@ class StatusPoller(QThread):
                 continue
             try:
                 self.updated.emit(platform.rooms_status(ids))
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - 单个平台状态失败不阻塞其他平台
+                logger.warning("event=platform_status_failed kind=%s room_count=%s",
+                               kind, len(ids), exc_info=True)
                 self.failed.emit(f"{platform.label or kind} 状态获取失败")
         self.status_ready.emit()
         before = {rid: info.get("face") for rid, info in status.items()}
@@ -1013,7 +1048,8 @@ def room_stats(room_id: str) -> dict | None:
             params={"ruid": anchor_uid, "roomId": room_id, "page": 1, "pageSize": 50},
             headers=HEADERS, cookies=_cookies(), timeout=10).json()
         rank_data = rank.get("data") or {}
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 人数接口失败时只是不显示统计
+        logger.debug("event=room_stats_failed room_id=%s", room_id, exc_info=True)
         return None
     online = int(rank_data.get("onlineNum") or 0)
     return {
@@ -1060,7 +1096,9 @@ def room_quality_options(room_id: str, codec: str = "avc") -> list[dict]:
             if result:
                 return result
             break
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - app 接口没有档位时尝试 web 接口
+        logger.debug("event=quality_options_app_failed room_id=%s codec=%s",
+                     room_id, codec, exc_info=True)
         pass
     if codec in HLS_ONLY_CODECS:
         return []               # 老 web 接口只有 H.264，不能拿来当这两档的档位
@@ -1070,7 +1108,9 @@ def room_quality_options(room_id: str, codec: str = "avc") -> list[dict]:
             params={"cid": room_id, "platform": "web", "qn": 10000},
             headers=HEADERS, cookies=_cookies(), timeout=10)
         data = response.json().get("data") or {}
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 两个档位接口都失败时返回空档位
+        logger.debug("event=quality_options_failed room_id=%s codec=%s",
+                     room_id, codec, exc_info=True)
         return []
     result = []
     for item in (data.get("quality_description") or []):

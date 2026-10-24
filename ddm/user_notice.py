@@ -2,6 +2,7 @@
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QTextBrowser, QVBoxLayout
 
 from . import config, theme
+from . import diagnostics
 
 
 NOTICE_HTML = """
@@ -51,15 +52,22 @@ class UserNoticeDialog(QDialog):
 
 
 def confirm_user_notice(state: dict) -> bool:
+    logger = diagnostics.get_logger("user_notice")
     if state.get("user_notice_accepted"):
+        logger.info("event=user_notice_skipped accepted=true")
         return True
+    logger.info("event=user_notice_shown first_run=true")
     dialog = UserNoticeDialog()
     try:
-        dialog.exec()
+        result = dialog.exec()
         # 沿用原配置键，确认或直接关闭都记为已显示。
         state["user_notice_accepted"] = True
         state.setdefault("version", config.STATE_VERSION)
         config.save(state)
+        logger.info("event=user_notice_dismissed result=%s accepted=true", result)
         return True
+    except BaseException:
+        logger.exception("event=user_notice_failed")
+        raise
     finally:
         dialog.deleteLater()

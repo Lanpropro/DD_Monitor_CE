@@ -118,11 +118,17 @@ def main():
         bootstrap = bootstrap_stage / 'update-plan.json'
         bootstrap.write_text(json.dumps({'root': str(install), 'stage': str(bootstrap_stage),
             'parent_pid': child.pid, 'old_exe': 'missing.exe', 'new_exe': 'new.exe', 'files': ['missing.dll']}), encoding='utf-8')
-        environment = dict(os.environ, PYTHON_VLC_LIB_PATH='definitely-missing-vlc.dll')
+        helper_logs = root / 'helper-logs'
+        environment = dict(os.environ, DDM_LOG_DIR=str(helper_logs),
+                           PYTHON_VLC_LIB_PATH='definitely-missing-vlc.dll')
         helper = subprocess.run([sys.executable, 'main.py', '--apply-update', str(bootstrap)],
                                 capture_output=True, env=environment, timeout=10)
         assert helper.returncode == 1
         assert not json.loads((install / updater.RESULT).read_text(encoding='utf-8'))['ok']
+        helper_log = (helper_logs / 'ddm.log').read_text(encoding='utf-8')
+        assert 'event=update_helper_start' in helper_log, helper_log
+        assert 'event=update_helper_failed' in helper_log, helper_log
+        assert 'event=update_helper_finished ok=False' in helper_log, helper_log
     for stage in stages:
         if stage.exists():
             shutil.rmtree(stage)

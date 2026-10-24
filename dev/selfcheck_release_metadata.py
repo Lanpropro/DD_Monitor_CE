@@ -63,9 +63,19 @@ def main():
     assert '--onedir --name $display' in source
     assert 'UTF8Encoding($false)' in source
     assert 'Remove-Item -LiteralPath $testConfig -Force' in source
+    assert 'Join-Path $logDir "ddm.log"' in source
+    assert "event=orientation_applied" in source
+    assert '[方向]' not in source
     assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
     assert 'asset_name = $remoteExeName' in source
     assert 'notes = [string]$updateNotes' in source
+    release_check = (Path(__file__).resolve().parents[1]
+                     / 'dev/check_release_package.py').read_text(encoding='utf-8')
+    assert 'logs" / "ddm.log' in release_check
+    assert 'event=orientation_applied' in release_check
+    assert 'event=plugin_loaded plugin_id=upgrade_probe' in release_check
+    assert '"user_notice_accepted": True' in release_check
+    assert 'glob("ddm-*.log")' not in release_check
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
     result = subprocess.run(['powershell', '-NoProfile', '-Command',

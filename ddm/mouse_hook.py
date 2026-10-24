@@ -13,6 +13,10 @@ Windows 上 Qt 的 ``QDrag::exec()`` 走的是 OLE ``DoDragDrop``，那个模态
 import ctypes
 import os
 
+from . import diagnostics
+
+logger = diagnostics.get_logger("ui")
+
 WH_MOUSE_LL = 14
 WM_MOUSEWHEEL = 0x020A
 WM_MOUSEHWHEEL = 0x020E
@@ -51,7 +55,8 @@ def _load():
                                           wintypes.WPARAM, wintypes.LPARAM]
         user32.CallNextHookEx.restype = result
         return user32, MouseHookStruct, proc
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 非 Windows 或 API 缺失时禁用滚轮钩子
+        logger.debug("event=mouse_hook_load_failed", exc_info=True)
         return None
 
 
@@ -89,8 +94,8 @@ class WheelHook:
                 try:
                     if self._listening:
                         self._dispatch(code, wparam, lparam)
-                except Exception:                  # noqa: BLE001
-                    pass
+                except Exception:                  # noqa: BLE001 - 回调异常不能中断系统钩子
+                    logger.warning("event=mouse_hook_callback_failed", exc_info=True)
                 return user32.CallNextHookEx(None, code, wparam, lparam)
             finally:
                 self._in_callback -= 1
@@ -103,7 +108,8 @@ class WheelHook:
         try:
             callback = proc(_proc)
             handle = user32.SetWindowsHookExW(WH_MOUSE_LL, callback, None, 0)
-        except Exception:                           # noqa: BLE001
+        except Exception:                           # noqa: BLE001 - 钩子安装失败时静默降级
+            logger.debug("event=mouse_hook_start_failed", exc_info=True)
             return False
         if not handle:
             return False
@@ -126,7 +132,8 @@ class WheelHook:
             data = ctypes.cast(ctypes.c_void_p(lparam),
                                ctypes.POINTER(self._struct)).contents
             delta = ctypes.c_short((data.mouseData >> 16) & 0xFFFF).value
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - 回调拿到坏数据时放行
+            logger.debug("event=mouse_hook_dispatch_failed", exc_info=True)
             return 0
         if delta and self._on_wheel is not None:
             self._on_wheel(delta)
@@ -142,8 +149,11 @@ class WheelHook:
             return
         try:
             if not loaded[0].UnhookWindowsHookEx(self._hook):
+                logger.warning("event=mouse_hook_unhook_failed error=%s",
+                               ctypes.get_last_error())
                 return
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - 程序退出时卸载钩子失败
+            logger.warning("event=mouse_hook_unhook_failed", exc_info=True)
             return
         self._hook = None
         _pending_hooks.discard(self)

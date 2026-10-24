@@ -241,14 +241,14 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     try { $null = $proc.WaitForExit(5000) } catch { }
     Start-Sleep -Milliseconds 300
     Remove-Item -LiteralPath $testConfig -Force
-    $log = Get-ChildItem $logDir -Filter "ddm-*.log" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $log = Join-Path $logDir "ddm.log"
     $started = $false
-    if ($log) {
-        $started = [bool](Select-String -Path $log.FullName -Pattern '\[方向\]' -Quiet)
-        Write-Output ("  日志：{0}" -f $log.Name)
+    if (Test-Path -LiteralPath $log) {
+        $started = [bool](Select-String -LiteralPath $log -Pattern 'event=orientation_applied' -Quiet)
+        Write-Output ("  日志：{0}" -f $log)
     }
     if (-not $started) {
-        throw "冻出来的 exe 没能启动（没写出 [方向] 启动日志）—— 别交付这半成品。日志目录：$logDir"
+        throw "冻出来的 exe 没能启动（没写出 event=orientation_applied 启动日志）—— 别交付这半成品。日志目录：$logDir"
     }
     Write-Output "  exe 启动验证通过 ✓ -> $exeDir"
     # 验证时写出来的 logs / cache / 插件的运行目录不留在发布包里

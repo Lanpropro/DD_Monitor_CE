@@ -3,7 +3,6 @@
 直接调用扫码登录接口（generate + poll），由我们自己控制整个流程：
 不再依赖内嵌浏览器，也就不存在"登录完成了但拿不到 cookie"的问题。
 """
-import sys
 import threading
 import time
 
@@ -12,10 +11,13 @@ import requests
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
+    QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
 )
 
 from . import bili
+from . import diagnostics
+
+logger = diagnostics.get_logger("login")
 
 GENERATE_URL = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
 POLL_URL = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
@@ -28,7 +30,7 @@ QR_WAITING = 86101
 
 
 def _log(message: str) -> None:
-    print(f"[登录] {message}", file=sys.stderr, flush=True)
+    logger.info("event=login %s", message)
 
 
 def _login_cookie(name: str, *jars) -> str:
@@ -95,6 +97,8 @@ class QRLogin(QThread):
             key = data.get("qrcode_key") or ""
             url = data.get("url") or ""
         except Exception as error:  # noqa: BLE001
+            logger.warning("event=qr_generate_failed reason=%s:%s",
+                           type(error).__name__, error, exc_info=True)
             self.failed.emit(f"二维码获取失败: {error}")
             return
         if self._cancelled:
@@ -113,6 +117,8 @@ class QRLogin(QThread):
                 payload = poll.json().get("data") or {}
                 code = payload.get("code")
             except Exception as error:  # noqa: BLE001
+                logger.warning("event=qr_poll_failed reason=%s:%s",
+                               type(error).__name__, error, exc_info=True)
                 _log(f"轮询异常: {error}")
                 self._cancel_event.wait(2)
                 continue

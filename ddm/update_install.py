@@ -9,6 +9,8 @@ import tempfile
 import time
 import zipfile
 
+from . import diagnostics
+
 MANIFEST = '.ddm-program-files.json'
 RESULT = '.ddm-update-result.json'
 PROTECTED = {'utils', 'cache', 'logs', 'plugins_user', 'recordings', 'results', 'work'}
@@ -192,6 +194,8 @@ def apply_plan(plan_path):
 
 
 def run_helper(plan_path):
+    logger = diagnostics.get_logger("update")
+    logger.info("event=update_helper_start plan=%s", plan_path)
     plan = json.loads(Path(plan_path).read_text(encoding='utf-8'))
     root = Path(plan['root']).resolve()
     entry = str(destination(root, plan['old_exe']))
@@ -203,7 +207,9 @@ def run_helper(plan_path):
     except Exception as error:
         result = {'ok': False, 'message': f'软件更新失败，已尝试恢复原程序：{error}', 'stage': plan['stage'],
                   'root': str(root), 'helper_pid': os.getpid()}
+        logger.exception("event=update_helper_failed stage=%s", plan.get('stage'))
     (root / RESULT).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
+    logger.info("event=update_helper_finished ok=%s", result['ok'])
     if Path(entry).is_file():
         subprocess.Popen([entry], cwd=root)
     return 0 if result['ok'] else 1
@@ -211,6 +217,7 @@ def run_helper(plan_path):
 
 def clean_previous(install_root):
     """启动后清理已完成助手的临时副本；仍占用时保留到下一次启动。"""
+    logger = diagnostics.get_logger("update")
     root = Path(install_root).resolve()
     result_path = root / RESULT
     if not result_path.is_file():
@@ -238,12 +245,13 @@ def clean_previous(install_root):
         result.pop('stage', None)
         result.pop('helper_pid', None)
         result_path.write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
-    except (OSError, ValueError, KeyError):
-        pass
+    except (OSError, ValueError, KeyError) as error:
+        logger.warning("event=previous_update_cleanup_failed reason=%s", error)
 
 
 def discard_plan(plan_path, install_root):
     """取消安装时只清理本次生成、且归属当前程序的暂存目录。"""
+    logger = diagnostics.get_logger("update")
     try:
         path = Path(plan_path).resolve()
         stage = path.parent
@@ -252,5 +260,5 @@ def discard_plan(plan_path, install_root):
         plan = json.loads(path.read_text(encoding='utf-8'))
         if Path(plan['stage']).resolve() == stage and Path(plan['root']).resolve() == Path(install_root).resolve():
             shutil.rmtree(stage)
-    except (OSError, ValueError, KeyError):
-        pass
+    except (OSError, ValueError, KeyError) as error:
+        logger.warning("event=update_plan_discard_failed reason=%s", error)

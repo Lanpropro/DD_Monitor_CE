@@ -410,10 +410,16 @@ B、M 也可用于空格子；静音状态属于格子，拖入直播间后保�
 | --- | --- |
 | 用户配置 | `utils/config.json` |
 | 配置备份 | `utils/config.json.bak` |
-| 运行日志 | `logs/ddm-YYYY-MM-DD.log` |
+| 运行日志 | `logs/ddm.log` |
+| 崩溃现场 | `logs/ddm-crash.log` |
 | 主播头像 | `cache/avatars/` |
 | 直播封面 | `cache/covers/` |
 | 弹幕表情 | `cache/emoticons/` |
+
+运行日志按 5 MiB 轮转，保留 `ddm.log.1` 到 `ddm.log.5`；启动时会清理 14 天
+以前的轮转文件和旧的 `ddm-*.log`。默认记录 `INFO` 及以上级别，排查问题时可
+用环境变量 `DDM_LOG_LEVEL=DEBUG` 临时提高详细度。日志会脱敏账号凭证、签名
+查询串和用户目录；分享前仍建议检查一遍内容。
 
 ## 开发指南
 

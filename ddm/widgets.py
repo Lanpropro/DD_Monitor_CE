@@ -1,6 +1,7 @@
 """界面组件：侧栏（可收起 / 批量选择）、顶栏、画面格子、自适应网格、布局选择器。"""
 import math
 import os
+import platform
 import sys
 import time
 from uuid import uuid4
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import layouts, motion, mouse_hook, resize_layout, theme
+from . import diagnostics, layouts, motion, mouse_hook, resize_layout, theme
 from .config import codec_overrides
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
@@ -37,6 +38,8 @@ from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .danmaku_send import DanmakuComposer
 from .video_danmaku_settings import VideoDanmakuSettings
+
+logger = diagnostics.get_logger("ui")
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -369,6 +372,22 @@ class LoadingIndicator(BadgeSurface):
         if not self.testAttribute(Qt.WA_NativeWindow):
             self.setAttribute(Qt.WA_NativeWindow, True)
         self.update()
+        self._apply_layered_alpha()
+
+    def _apply_layered_alpha(self) -> None:
+        """整层半透明：Qt 的子窗口没有逐像素透明，Windows 上借分层窗口实现。"""
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(hwnd, -20)          # GWL_EXSTYLE
+            user32.SetWindowLongW(hwnd, -20, style | 0x00080000)   # WS_EX_LAYERED
+            user32.SetLayeredWindowAttributes(hwnd, 0, 205, 0x00000002)  # LWA_ALPHA
+        except Exception:  # noqa: BLE001 - 分层窗口样式只是外观增强
+            logger.debug("event=layered_alpha_failed", exc_info=True)
 
 
 class VolumeButton(QPushButton):
@@ -3469,8 +3488,9 @@ class RoomStrip(QFrame):
             return
         try:
             avatar.set_pixmap_image(pixmap)
-        except Exception:                      # noqa: BLE001
-            pass
+        except Exception:                      # noqa: BLE001 - 已卸载的旧头像控件
+            logger.debug("event=avatar_pixmap_update_failed room_id=%s",
+                         room_id, exc_info=True)
 
     # ---- 交互 ----
     def mousePressEvent(self, event) -> None:
@@ -3581,7 +3601,8 @@ class RoomStrip(QFrame):
             try:
                 avatar.set_pixmap_image(face)
             except Exception:                      # noqa: BLE001
-                pass
+                logger.debug("event=avatar_initial_pixmap_failed room_id=%s",
+                             room_id, exc_info=True)
         tip = tooltip
         if pinned:
             tip += "（已置顶）"
@@ -5766,7 +5787,8 @@ class Sidebar(QFrame):
             if item.parentWidget() is None:      # 已经不在列表里了
                 continue
             item.play_live_alert()
-            print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
+            logger.info("event=live_alert room_id=%s uname=%s",
+                        item.room.get("room_id"), item.room.get("uname"))
 
     def toggle_pin(self, room: dict) -> None:
         room_id = str(room.get("room_id"))
@@ -7167,9 +7189,10 @@ class Tile(QFrame):
 
     def set_audio_channel(self, value: int) -> None:
         if self.audio_channel != int(value):
-            print(f"[声道切换] 房间={self.room.get('room_id', '')} "
-                  f"{self.audio_channel} -> {int(value)} 来源={sys._getframe(1).f_code.co_name}",
-                  file=sys.stderr, flush=True)
+            logger.debug(
+                "event=audio_channel_changed room_id=%s previous=%s current=%s "
+                "source=%s", self.room.get("room_id"), self.audio_channel,
+                int(value), sys._getframe(1).f_code.co_name)
         if self.muted:
             self.set_muted(False)
         self.audio_channel = int(value)
@@ -7531,10 +7554,11 @@ class WallGrid(QWidget):
                 self._quick_danmaku_layer.show()
             motion = ("XAnimator" if self._quick_danmaku_layer.render_thread_animation
                       else "Python timer")
-            print(f"[弹幕] Qt Quick共享层，位置更新：{motion}", file=sys.stderr)
-        except Exception as exc:
+            logger.info("event=quick_danmaku_layer_ready renderer=%s", motion)
+        except Exception:
             self._quick_danmaku_layer = None
-            print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
+            logger.warning("event=quick_danmaku_layer_failed fallback=qpainter",
+                           exc_info=True)
         return self._quick_danmaku_layer
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
@@ -7729,7 +7753,7 @@ class WallGrid(QWidget):
         self.tiles.insert(min(insert_at, len(self.tiles)), moved)
         self._danmaku_cell = new_cell
         self.relayout(force=True)
-        print(f"弹幕格已挪到第 {target + 1} 个画面位置", file=sys.stderr, flush=True)
+        logger.info("event=danmaku_tile_moved slot=%s", target + 1)
 
     def _on_danmaku_room_dropped(self, room_id: str) -> None:
         """把一路直播拖到弹幕格上：等于把弹幕换到那一格去。"""

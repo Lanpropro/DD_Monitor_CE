@@ -11,7 +11,9 @@ from PySide6.QtGui import QImage, QImageReader, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
 
-from . import config, theme
+from . import config, diagnostics, theme
+
+logger = diagnostics.get_logger("skins")
 
 IMAGES = {'.png', '.jpg', '.jpeg', '.webp', '.bmp'}
 VIDEOS = {'.mp4', '.webm', '.mkv', '.mov'}
@@ -295,7 +297,8 @@ class SkinController(QObject):
             personal = validate_parts(settings.get('skin_parts', {}), Path(config.REPO) / 'utils' / 'skins')
         except (OSError, ValueError) as error:
             personal = {}
-            print(f'[皮肤] 个人分区配置无效：{error}', file=sys.stderr)
+            logger.warning("event=skin_parts_invalid reason=%s", error,
+                           exc_info=True)
         configure(self.override.get('parts', {}) if self.override else {}, personal)
         use_package = self.override is not None and (self.override['version'] == 1
             or (bool(self.override['path']) and not settings.get('skin_background_override', False)))

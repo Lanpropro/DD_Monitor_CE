@@ -90,6 +90,7 @@ if args.old_zip:
         config = installed / "utils" / "config.json"
         config.parent.mkdir(exist_ok=True)
         config.write_text(json.dumps({"version": 2, "rooms": [], "wall": [],
+                                      "user_notice_accepted": True,
                                       "ui": {"layout_landscape": "3x2"},
                                       "settings": {"decode_mode": "d3d11va", "auto_update": False},
                                       "plugins_enabled": None, "user_notice_accepted": True}), encoding="utf-8")
@@ -128,14 +129,17 @@ if args.old_zip:
             ready = False
             while time.monotonic() < deadline:
                 assert process.poll() is None, "覆盖后的 exe 启动时退出"
-                logs = list((installed / "logs").glob("ddm-*.log"))
-                content = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in logs)
-                if "[方向]" in content and (custom / "loaded.txt").exists():
+                log = installed / "logs" / "ddm.log"
+                content = (log.read_text(encoding="utf-8", errors="replace")
+                           if log.is_file() else "")
+                if ("event=orientation_applied" in content
+                        and "event=plugin_loaded plugin_id=upgrade_probe" in content
+                        and (custom / "loaded.txt").exists()):
                     ready = True
                     assert "已装载 弹幕记录" not in content, "升级后仍执行旧内置插件"
                     break
                 time.sleep(0.2)
-            assert ready, "覆盖后的 exe 未进入界面或未加载保留的用户插件"
+            assert ready, "覆盖后的 exe 未创建运行日志、进入界面或加载保留的用户插件"
             assert all(path.read_bytes() == data for path, data in before.items()), \
                 "升级启动改变了保留数据"
         finally:

@@ -3,15 +3,16 @@
 画面就播在该条目的缩略图（NavThumb）里，不再另开小窗；鼠标移开立刻收掉并释放播放器，
 不会一直占带宽和 CPU。
 """
-import sys
-
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QFrame
 
 from .bili import StreamResolver
+from . import diagnostics
 from .player import TilePlayer
 from .widgets import CAROUSEL_WIDTH, NavThumb
+
+logger = diagnostics.get_logger("preview")
 
 PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
 
@@ -135,7 +136,13 @@ class HoverPreview(QObject):
             return
         self._stop_now()                        # 顺带把编号推进一格
         self._item = item
-        print(f"[预览] {room.get('uname')} → 缩略图", file=sys.stderr, flush=True)
+        try:
+            item.thumb.set_hint("连接中…")
+        except RuntimeError:                    # 条目已经被删掉
+            self._item = None
+            return
+        logger.debug("event=preview_started room_id=%s uname=%s",
+                     room_id, room.get("uname"))
         generation = self._generation
         kwargs = {"platform": platform, "preview": True} if platform is not None else {}
         resolver = StreamResolver(room_id, PREVIEW_QUALITY, self, **kwargs)
@@ -289,10 +296,11 @@ class HoverPreview(QObject):
     def _on_failed(self, generation: int, room_id: str, reason: str) -> None:
         if generation != self._generation:
             return
+        logger.warning("event=preview_stream_failed room_id=%s reason=%s",
+                       room_id, reason)
         if not self._ready_to_show:
             self._pending_failure = (generation, room_id, reason)
             return
-        print(f"[预览取流失败] {room_id}: {reason}", file=sys.stderr, flush=True)
         item = self._item
         if item is not None:
             try:

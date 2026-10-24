@@ -14,6 +14,9 @@ from PySide6.QtGui import QPixmap
 
 from . import bili
 from . import config as config_module
+from . import diagnostics
+
+logger = diagnostics.get_logger("images")
 
 #: 缓存也要落在程序旁边（源码运行时是仓库根，打包后是 exe 目录）。
 #: 不能用 __file__：冻结后在 _internal 里面，头像会写进运行库目录，用户找不到、
@@ -149,7 +152,8 @@ def remember_room_cover(room_id: str, url: str, subdir: str = "covers") -> None:
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copyfile(source, target)
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("event=cover_cache_write_failed room_id=%s", room_id,
+                     exc_info=True)
 
 
 def _load_one(url: str, subdir: str) -> QPixmap | None:
@@ -184,7 +188,8 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         with open(path, "wb") as handle:
             handle.write(response.content)
         return pixmap
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - 单张图片失败等价于加载失败
+        logger.debug("event=image_load_failed url=%s", url, exc_info=True)
         return None
 
 
@@ -303,7 +308,9 @@ class AvatarLoader(QThread):
                 key = futures[future]
                 try:
                     pixmap = future.result()
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 - 单张图片失败不阻塞其余头像
+                    logger.warning("event=avatar_batch_item_failed key=%s",
+                                   key, exc_info=True)
                     continue
                 if pixmap is not None and not pixmap.isNull():
                     if self.subdir == "covers":
