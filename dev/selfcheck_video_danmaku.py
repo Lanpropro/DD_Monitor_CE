@@ -42,7 +42,7 @@ def check_quick_occlusion(app):
     unrelated = QWidget()
     unrelated.setGeometry(400, 400, 100, 100)
     unrelated.show()
-    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(), _disposed=False)
+    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock())
     try:
         for widget in (dialog, notice):
             widget.show()
@@ -78,7 +78,7 @@ def check_quick_surface_recovery(app):
     parent.mapToGlobal.return_value = QPoint(120, 80)
     parent.isVisible.return_value = True
     parent.window.return_value.isMinimized.return_value = False
-    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(), _disposed=False,
+    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(),
                             _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
                             _update_occlusion=Mock(return_value=True),
                             _occlusion_timer=Mock(),
@@ -519,15 +519,15 @@ def check_cancel(app):
 
 def check_quick_owner_destruction(app):
     from ddm.video_danmaku_quick import QuickDanmakuLayer
+    from shiboken6 import isValid
 
     owner = QWidget()
     owner.winId()
     with patch.object(QuickDanmakuLayer, '_set_layered'):
         layer = QuickDanmakuLayer(owner)
-    with patch.object(app, 'removeEventFilter', wraps=app.removeEventFilter) as remove:
-        owner.deleteLater()
-        app.sendPostedEvents(None, QEvent.DeferredDelete)
-        remove.assert_called_once_with(layer)
+    owner.deleteLater()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    assert not isValid(owner)
     assert not QuickDanmakuLayer.eventFilter(layer, owner, QEvent(QEvent.Show)), \
         'Queued UI events must not dereference a destroyed playback wall'
 
