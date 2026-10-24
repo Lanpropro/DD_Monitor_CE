@@ -23,6 +23,9 @@ def main() -> None:
     original_stderr = sys.stderr
     directory = Path(tempfile.mkdtemp(prefix="ddm-logging-"))
     try:
+        assert diagnostics.MAX_BYTES == 5 * 1024 * 1024
+        assert diagnostics.BACKUP_COUNT == 5
+        assert diagnostics.RETENTION_DAYS == 14
         session = diagnostics.start(log_dir=directory, level="DEBUG")
         assert diagnostics.start(log_dir=directory) is session, "start() 必须幂等"
 
