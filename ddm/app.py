@@ -2815,6 +2815,7 @@ class MainWindow(QMainWindow):
               f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
               f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
         self._fullscreen_tile = tile
+        self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
         self.centralWidget().setUpdatesEnabled(False)
         try:
@@ -2857,6 +2858,7 @@ class MainWindow(QMainWindow):
                 self.showNormal()
             switched = time.perf_counter()
             self._fullscreen_tile = None
+            self._sync_input_shortcuts()
             self._sync_fullscreen_audio()
             self._fullscreen_saved_geometry = None
             self.sidebar.show()
@@ -3842,7 +3844,7 @@ class MainWindow(QMainWindow):
             shortcut.setEnabled(False)
             shortcut.deleteLater()
         self._window_shortcuts = []
-        sequences = list(self.shortcuts.values())
+        sequences = [*self.shortcuts.values(), "Up", "Down"]
         if self.shortcuts.get("danmaku_input") == "Return":
             sequences.append("Enter")
         for sequence in dict.fromkeys(sequences):
@@ -3861,7 +3863,11 @@ class MainWindow(QMainWindow):
     def _sync_input_shortcuts(self, *_args) -> None:
         editing = isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
         for shortcut in self._window_shortcuts:
-            if shortcut.property("danmakuInput"):
+            sequence = shortcut.key().toString()
+            if sequence in ("Up", "Down"):
+                shortcut.setEnabled(not editing and (self._fullscreen_tile is not None
+                                    or sequence in self.shortcuts.values()))
+            elif shortcut.property("danmakuInput"):
                 shortcut.setEnabled(not editing)
 
     def _tile_under_cursor(self):
@@ -3892,7 +3898,12 @@ class MainWindow(QMainWindow):
 
     def _handle_shortcut(self, pressed: str) -> bool:
         shortcuts = self.shortcuts
-        if pressed and pressed == shortcuts.get("focus"):
+        if pressed in ("Up", "Down") and self._fullscreen_tile is not None:
+            if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
+                return False
+            tile = self._fullscreen_tile
+            tile.set_volume(tile.volume + (10 if pressed == "Up" else -10))
+        elif pressed and pressed == shortcuts.get("focus"):
             if self._fullscreen_tile is not None:
                 self._exit_fullscreen()
             else:
