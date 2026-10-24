@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ctypes
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -17,6 +18,11 @@ import threading
 import time
 from typing import Iterator
 import uuid
+
+try:
+    import winreg
+except ImportError:  # pragma: no cover - 非 Windows
+    winreg = None
 
 LOG_NAME = "ddm.log"
 CRASH_NAME = "ddm-crash.log"
@@ -32,6 +38,7 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"password|passwd|authorization|proxy-authorization)"
     r"(\s*[=:]\s*)([^\s&,;]+)")
 _COOKIE_HEADER = re.compile(r"(?i)\b(cookie\s*:\s*)([^\r\n]+)")
+_AUTH_HEADER = re.compile(r"(?i)\b((?:proxy-)?authorization\s*:\s*)([^\r\n]+)")
 _SIGNED_URL = re.compile(r"(?i)\b(https?://[^\s?#]+)\?[^\s#]*")
 
 _SESSION: "LogSession | None" = None
@@ -47,8 +54,9 @@ def program_dir() -> Path:
 def sanitize(text: str) -> str:
     """移除日志中不应携带的凭证、签名查询串和用户目录。"""
     value = str(text)
-    value = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", value)
     value = _COOKIE_HEADER.sub(r"\1<redacted>", value)
+    value = _AUTH_HEADER.sub(r"\1<redacted>", value)
+    value = _SENSITIVE_ASSIGNMENT.sub(r"\1\2<redacted>", value)
     value = _SIGNED_URL.sub(r"\1?<redacted>", value)
     for variable in ("USERPROFILE", "HOME"):
         home = os.environ.get(variable)
@@ -56,6 +64,216 @@ def sanitize(text: str) -> str:
             value = value.replace(home, "%USERPROFILE%")
             value = value.replace(home.replace("\\", "/"), "%USERPROFILE%")
     return value
+
+
+def _cpu_details() -> dict:
+    details = {"cpu": platform.processor() or platform.machine(),
+               "cpu_logical": os.cpu_count() or 0}
+    if os.name != "nt":
+        return details
+    try:
+        import winreg as registry
+        path = r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+        with registry.OpenKey(registry.HKEY_LOCAL_MACHINE, path) as key:
+            details["cpu"] = registry.QueryValueEx(key, "ProcessorNameString")[0].strip()
+    except OSError:
+        pass
+    try:
+        class _Cache(ctypes.Structure):
+            _fields_ = [("Level", ctypes.c_ubyte), ("Associativity", ctypes.c_ubyte),
+                        ("LineSize", ctypes.c_ushort), ("CacheSize", ctypes.c_ulong),
+                        ("Type", ctypes.c_ulong)]
+
+        class _Processor(ctypes.Structure):
+            _fields_ = [("ProcessorMask", ctypes.c_size_t), ("Relationship", ctypes.c_ulong),
+                        ("Union", ctypes.c_byte * 16)]
+
+        relation_processor_core = 0
+        count = ctypes.c_ulong(0)
+        kernel = ctypes.windll.kernel32
+        kernel.GetLogicalProcessorInformation.argtypes = [ctypes.c_void_p,
+                                                         ctypes.POINTER(ctypes.c_ulong)]
+        kernel.GetLogicalProcessorInformation.restype = ctypes.c_int
+        kernel.GetLogicalProcessorInformation(None, ctypes.byref(count))
+        if count.value:
+            buffer = ctypes.create_string_buffer(count.value)
+            if kernel.GetLogicalProcessorInformation(buffer, ctypes.byref(count)):
+                entry_size = ctypes.sizeof(_Processor)
+                physical = sum(
+                    1 for offset in range(0, count.value - entry_size + 1, entry_size)
+                    if ctypes.cast(ctypes.byref(buffer, offset),
+                                   ctypes.POINTER(_Processor)).contents.Relationship
+                    == relation_processor_core)
+                if physical:
+                    details["cpu_physical"] = physical
+    except (AttributeError, OSError, ValueError):
+        pass
+    return details
+
+
+def _memory_details() -> dict:
+    if os.name != "nt":
+        return {}
+    try:
+        class _MemoryStatus(ctypes.Structure):
+            _fields_ = [("Length", ctypes.c_ulong), ("MemoryLoad", ctypes.c_ulong),
+                        ("TotalPhys", ctypes.c_ulonglong),
+                        ("AvailPhys", ctypes.c_ulonglong),
+                        ("TotalPageFile", ctypes.c_ulonglong),
+                        ("AvailPageFile", ctypes.c_ulonglong),
+                        ("TotalVirtual", ctypes.c_ulonglong),
+                        ("AvailVirtual", ctypes.c_ulonglong),
+                        ("AvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        status = _MemoryStatus()
+        status.Length = ctypes.sizeof(_MemoryStatus)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return {"memory_total_mb": round(status.TotalPhys / 1024 ** 2),
+                    "memory_available_mb": round(status.AvailPhys / 1024 ** 2),
+                    "memory_load_pct": status.MemoryLoad}
+    except (AttributeError, OSError, ValueError):
+        pass
+    return {}
+
+
+def _display_details() -> list[dict]:
+    if os.name != "nt":
+        return []
+    devices: list[dict] = []
+    try:
+        class _DisplayDevice(ctypes.Structure):
+            _fields_ = [("cb", ctypes.c_ulong), ("DeviceName", ctypes.c_wchar * 32),
+                        ("DeviceString", ctypes.c_wchar * 128),
+                        ("StateFlags", ctypes.c_ulong),
+                        ("DeviceID", ctypes.c_wchar * 128),
+                        ("DeviceKey", ctypes.c_wchar * 128)]
+
+        user32 = ctypes.windll.user32
+        user32.EnumDisplayDevicesW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong,
+                                               ctypes.POINTER(_DisplayDevice),
+                                               ctypes.c_ulong]
+        index = 0
+        while len(devices) < 8:
+            device = _DisplayDevice()
+            device.cb = ctypes.sizeof(_DisplayDevice)
+            if not user32.EnumDisplayDevicesW(None, index, ctypes.byref(device), 0):
+                break
+            if device.StateFlags & 0x1:
+                devices.append({"gpu": device.DeviceString.strip(),
+                                "gpu_device_id": device.DeviceID.strip()})
+            index += 1
+    except (AttributeError, OSError, ValueError):
+        pass
+    return devices
+
+
+def _registry_gpu_details() -> list[dict]:
+    if winreg is None:
+        return []
+    result: list[dict] = []
+    path = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as root:
+            for index in range(32):
+                try:
+                    name = winreg.EnumKey(root, index)
+                except OSError:
+                    break
+                if not name.isdigit():
+                    continue
+                with winreg.OpenKey(root, name) as key:
+                    values = {}
+                    for field, registry_name in (("gpu", "DriverDesc"),
+                                                 ("gpu_driver", "DriverVersion")):
+                        try:
+                            values[field] = str(winreg.QueryValueEx(key, registry_name)[0])
+                        except OSError:
+                            pass
+                    try:
+                        memory = int(winreg.QueryValueEx(
+                            key, "HardwareInformation.qwMemorySize")[0])
+                        values["gpu_memory_mb"] = round(memory / 1024 ** 2)
+                    except (OSError, TypeError, ValueError):
+                        pass
+                    if values.get("gpu"):
+                        result.append(values)
+    except OSError:
+        pass
+    return result
+
+
+def _collect_optional(collector, default, label: str) -> object:
+    try:
+        return collector()
+    except Exception as error:  # noqa: BLE001
+        get_logger("diagnostics").warning(
+            "event=system_info_collector_failed collector=%s reason=%s:%s",
+            label, type(error).__name__, error)
+        return default
+
+
+def collect_system_info(app=None) -> dict:
+    """尽力采集软硬件信息；单项失败不抛异常。"""
+    details: dict = {}
+    basic = _collect_optional(lambda: {
+        "system": platform.system(),
+        "release": platform.release(),
+        "version": platform.version(),
+        "machine": platform.machine(),
+        "python": platform.python_version(),
+        "python_bits": platform.architecture()[0],
+        "executable": sys.executable,
+        "frozen": bool(getattr(sys, "frozen", False)),
+    }, {}, "platform")
+    if isinstance(basic, dict):
+        details.update(basic)
+    details.update(_collect_optional(_cpu_details, {}, "cpu"))
+    details.update(_collect_optional(_memory_details, {}, "memory"))
+
+    def disk() -> dict:
+        import shutil
+        usage = shutil.disk_usage(program_dir())
+        return {"disk_total_gb": round(usage.total / 1024 ** 3, 1),
+                "disk_free_gb": round(usage.free / 1024 ** 3, 1)}
+
+    details.update(_collect_optional(disk, {}, "disk"))
+    gpus = _collect_optional(_registry_gpu_details, [], "gpu_registry")
+    devices = _collect_optional(_display_details, [], "display_devices")
+    if gpus:
+        details["gpus"] = "; ".join(
+            f"{item.get('gpu', '')} driver={item.get('gpu_driver', '?')} "
+            f"vram={item.get('gpu_memory_mb', '?')}MB" for item in gpus)
+    elif devices:
+        details["gpus"] = "; ".join(item.get("gpu", "") for item in devices)
+
+    def qt_details() -> dict:
+        from PySide6.QtCore import qVersion
+        from PySide6.QtGui import QGuiApplication
+        result = {"qt": qVersion()}
+        application = app if app is not None else QGuiApplication.instance()
+        if application is not None:
+            screens = []
+            for screen in application.screens():
+                geometry = screen.geometry()
+                screens.append(
+                    f"{screen.name()} {geometry.width()}x{geometry.height()} "
+                    f"dpr={screen.devicePixelRatio():.2f} "
+                    f"hz={screen.refreshRate():.1f}")
+            result["screens"] = "; ".join(screens)
+        return result
+
+    details.update(_collect_optional(qt_details, {}, "qt"))
+
+    def audio_details() -> dict:
+        from PySide6.QtMultimedia import QMediaDevices
+        if app is None:
+            return {}
+        default = QMediaDevices.defaultAudioOutput().description()
+        outputs = [device.description() for device in QMediaDevices.audioOutputs()]
+        return {"audio_default": default, "audio_outputs": "; ".join(outputs)}
+
+    details.update(_collect_optional(audio_details, {}, "audio"))
+    return details
 
 
 class _SanitizingFormatter(logging.Formatter):

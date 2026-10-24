@@ -46,7 +46,7 @@ from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
 from . import player as player_module
 from .player import TilePlayer
 from .preview import HoverPreview
-from .recording import RecordingManager
+from .recording import RecordingManager, ffmpeg_path
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 
@@ -4062,6 +4062,15 @@ def main(argv: list[str] | None = None) -> int:
     with session.phase("window_shown"):
         window.resize(1600, 900)
         window.showMaximized()
+    session.log_system_info(diagnostics.collect_system_info(app))
+    session.log_system_info({
+        "mpv": TilePlayer.backend_version(),
+        "decode_mode": decode_mode,
+        "ffmpeg": ffmpeg_path(settings),
+        "plugins": window.plugins.summary,
+        "overlay_modules": _foreign,
+        "overlay_hits": _hits,
+    })
     t_show = time.perf_counter()
     print(f"[启动] 配置加载 {(t_load - t0) * 1000:.0f} ms | "
           f"房间占位 {(t_rooms - t_load) * 1000:.0f} ms | "

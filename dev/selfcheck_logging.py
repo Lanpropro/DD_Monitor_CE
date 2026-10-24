@@ -34,7 +34,13 @@ def main() -> None:
         session.log_system_info({"cpu": "selfcheck-cpu", "gpu": "selfcheck-gpu"})
         token = "SESSDATA=very-secret"
         query = "https://example.invalid/live.m3u8?sign=secret-sign&t=1"
+        cookie = "Cookie: SESSDATA=very-secret; bili_jct=csrf-secret"
+        authorization = "Authorization: Bearer auth-secret"
+        proxy = "Proxy-Authorization: Basic proxy-secret"
         logger.error("credential %s url %s", token, query)
+        logger.error("%s", cookie)
+        logger.error("%s", authorization)
+        logger.error("%s", proxy)
         home = os.environ.get("USERPROFILE") or os.environ.get("HOME") or ""
         if home:
             logger.info("home path %s", os.path.join(home, "DDMonitor"))
@@ -48,6 +54,11 @@ def main() -> None:
         assert "DEBUG" in text and "debug detail" in text
         assert "system_info cpu=selfcheck-cpu" in text
         assert "very-secret" not in text and "secret-sign" not in text
+        assert "csrf-secret" not in text and "auth-secret" not in text, text
+        assert "proxy-secret" not in text, text
+        assert "Cookie: <redacted>" in text, text
+        assert "Authorization: <redacted>" in text, text
+        assert "Proxy-Authorization: <redacted>" in text, text
         assert "<redacted>" in text, text
         if home:
             assert home not in text, "用户目录必须脱敏"
@@ -84,6 +95,24 @@ def main() -> None:
         text = read(session.log_path)
         assert "phase=selfcheck_phase" in text and "phase=selfcheck_failure" in text
         assert "phase-selfcheck" in text
+        info = diagnostics.collect_system_info()
+        assert info.get("system"), "系统信息至少要有系统名"
+        assert info.get("cpu_logical", 0) >= 1, "应记录逻辑 CPU 数量"
+        assert info.get("python") == sys.version.split()[0]
+        session.log_system_info(info)
+        text = read(session.log_path)
+        assert "system_info system=" in text, "完整系统信息要进入日志"
+        assert "cpu_logical=" in text
+        original_gpu = diagnostics._registry_gpu_details
+        diagnostics._registry_gpu_details = lambda: (_ for _ in ()).throw(
+            RuntimeError("collector-selfcheck"))
+        try:
+            partial = diagnostics.collect_system_info()
+        finally:
+            diagnostics._registry_gpu_details = original_gpu
+        assert partial.get("system"), "单项采集失败仍要返回基础系统信息"
+        text = read(session.log_path)
+        assert "system_info_collector_failed collector=gpu_registry" in text, text
 
         # 轮转：不真正写 5 MiB，直接用小上限验证历史文件命名和保留数量。
         logger.info("rotation marker")
