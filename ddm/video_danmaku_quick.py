@@ -2,8 +2,8 @@
 import os
 import threading
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, QUrl, Qt
-from PySide6.QtGui import QImage, QSurfaceFormat
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QTimer, QUrl, Qt
+from PySide6.QtGui import QImage, QRegion, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
 
@@ -142,6 +142,83 @@ Item {
 }'''
 
 
+class _MovingDanmakuWindow(QQuickWindow):
+    """Native clipping hides old textures even while the GUI cannot sync Quick items."""
+
+    def __init__(self):
+        super().__init__()
+        self._base_mask = QRegion()
+        self._move_regions = {}
+        self._move_frames = {}
+        self._move_connection = None
+        self._move_sync_connection = None
+        self._move_epoch = 0
+
+    def setMask(self, region):
+        self._base_mask = QRegion(region)
+        self._apply_move_mask()
+
+    def begin_move(self, identifier, region):
+        self._move_regions[identifier] = self._move_regions.get(identifier, QRegion()) | region
+        self._move_frames.pop(identifier, None)
+        if not self._move_frames:
+            self._stop_move_frames()
+        self._apply_move_mask()
+
+    def commit_move(self, identifier):
+        if identifier in self._move_regions:
+            self._move_frames[identifier] = False
+            self._stop_move_frames()
+            epoch = self._move_epoch
+            self._move_sync_connection = self.afterSynchronizing.connect(
+                lambda: self._after_move_sync(epoch), Qt.QueuedConnection)
+            self._move_connection = self.frameSwapped.connect(
+                lambda: self._after_move_frame(epoch), Qt.QueuedConnection)
+            self.requestUpdate()
+
+    def cancel_move(self, identifier):
+        self._move_regions.pop(identifier, None)
+        self._move_frames.pop(identifier, None)
+        if not self._move_frames:
+            self._stop_move_frames()
+        self._apply_move_mask()
+
+    def _stop_move_frames(self):
+        self._move_epoch += 1
+        if self._move_connection is not None:
+            QObject.disconnect(self._move_connection)
+            self._move_connection = None
+        if self._move_sync_connection is not None:
+            QObject.disconnect(self._move_sync_connection)
+            self._move_sync_connection = None
+
+    def _after_move_sync(self, epoch):
+        if epoch == self._move_epoch:
+            for identifier in self._move_frames:
+                self._move_frames[identifier] = True
+
+    def _after_move_frame(self, epoch):
+        if epoch != self._move_epoch:
+            return  # Ignore queued swaps from before the latest geometry submission.
+        for identifier in tuple(self._move_frames):
+            if self._move_frames[identifier]:
+                self.cancel_move(identifier)
+        if self._move_frames:
+            self.requestUpdate()
+
+    def _apply_move_mask(self):
+        region = QRegion(self._base_mask)
+        if self._move_regions:
+            if region.isEmpty():
+                region = QRegion(0, 0, self.width(), self.height())
+            for moving in self._move_regions.values():
+                region -= moving
+            # Empty means no clipping; retain one edge pixel so Quick stays exposed and renders.
+            if region.isEmpty():
+                region = QRegion(0, max(0, self.height() - 1), 1, 1)
+        super().setMask(region)
+
+
 class QuickDanmakuLayer(QObject):
     """One transparent, refresh-synchronized window shared by a playback wall."""
 
@@ -162,7 +239,7 @@ class QuickDanmakuLayer(QObject):
 
         # An owned top-level swap chain avoids opaque child-window composition
         # after Windows moves the playback wall between monitors.
-        self.window = QQuickWindow()
+        self.window = _MovingDanmakuWindow()
         self.window.setTransientParent(parent.window().windowHandle())
         parent.destroyed.connect(self.window.deleteLater)
         self._empty_hide = QTimer(self)
@@ -301,6 +378,15 @@ class QuickDanmakuLayer(QObject):
             group.setY(y)
             group.setWidth(width)
             group.setHeight(height)
+            self.window.commit_move(identifier)
+
+    def begin_group_move(self, identifier, x, y, width, height):
+        group = self.groups.get(identifier)
+        if group is not None:
+            old = QRect(int(group.x()), int(group.y()), int(group.width()), int(group.height()))
+            target = QRect(x, y, width, height)
+            if old != target:
+                self.window.begin_move(identifier, QRegion(old) | QRegion(target))
 
     def set_group_visible(self, identifier, visible):
         group = self.groups.get(identifier)
@@ -424,6 +510,7 @@ class QuickDanmakuLayer(QObject):
         self.set_group_active(identifier, False)
 
     def remove_group(self, identifier):
+        self.window.cancel_move(identifier)
         self.clear_group(identifier)
         group = self.groups.pop(identifier, None)
         if group is not None:
