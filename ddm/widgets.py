@@ -30,6 +30,7 @@ from .danmaku_content import content_runs, content_html
 from . import follow_folders
 from .watch_history import SORT_TIP, WatchHistory
 from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
+from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
@@ -3878,6 +3879,7 @@ class Sidebar(QFrame):
         self.search = QLineEdit()
         self.search.setObjectName("Search")
         self.search.setPlaceholderText("搜索主播 / 房间号")
+        self.search.setToolTip("支持中文、全拼和拼音首字母；多个词用空格分隔")
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
@@ -4283,16 +4285,16 @@ class Sidebar(QFrame):
                 item.check.setChecked(False)
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
-        """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
+        """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
         if not words:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "title")).lower()
+                            for key in ("uname", "room_id")).lower()
         folder_id = folder_id or self.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in self.folders
                                 if folder["id"] == folder_id), "")
-        return all(word in haystack for word in words)
+        return all(matches_text(haystack, word) for word in words)
 
     def visible_items(self) -> list:
         """当前露在外面的条目（过滤掉的不算）。"""
