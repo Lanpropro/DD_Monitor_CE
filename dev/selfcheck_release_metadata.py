@@ -16,7 +16,12 @@ def main():
     assert version.VERSION == '0.5'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.5 更新说明')
-    for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', '0.5.1', 'DD监控室CE.exe'):
+    for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', 'DD监控室CE.exe'):
+        assert feature in notes, feature
+    for feature in ('正式版本 v0.4 到 v0.5', '播放内核从 VLC 更换为 libmpv',
+                    '全局和单窗口编解码设置', 'NVIDIA NVENC', '弹幕绘制增加 Qt Quick',
+                    '合并连续窗口尺寸更新', '独立 WASAPI 音频输出', '切换 B 站编码前后台探测',
+                    'AV1 直存选择 MOV／TS', '全屏残留选中边框', '恢复布局后背景透明异常'):
         assert feature in notes, feature
     assert '0.4（未发布）' not in notes
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.4.md').read_text(encoding='utf-8')
@@ -71,6 +76,18 @@ def main():
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { $_.Message }; exit 1 }"],
         capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+    # The EXE must use the same default rendering path as the accepted run.cmd.
+    import os
+    import runpy
+    hook = Path(__file__).resolve().parents[1] / 'dev/pyi_rth_pyside6_paths.py'
+    for explicit, expected in ((None, '1'), ('0', '0'), ('1', '1')):
+        with patch.dict(os.environ, {'DDM_PYI_DEBUG': '0'}), \
+                patch.object(sys, 'frozen', True, create=True):
+            os.environ.pop('DDM_QTQUICK_DANMAKU', None)
+            if explicit is not None:
+                os.environ['DDM_QTQUICK_DANMAKU'] = explicit
+            runpy.run_path(str(hook))
+            assert os.environ['DDM_QTQUICK_DANMAKU'] == expected
     print('PASS: plugin catalog generation, compatibility, current version and parsed release update metadata')
 
 

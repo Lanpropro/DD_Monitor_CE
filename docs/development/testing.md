@@ -7,7 +7,7 @@
 | 套件 | 依赖与行为 | 命令 |
 | --- | --- | --- |
 | `repository` | Python 标准库和 Git；不导入 Qt，不读取账号，不联网 | `python dev/run_checks.py` |
-| `smoke` | 开发依赖和 libmpv；五项离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 120` |
+| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 120` |
 | `offline` | 开发依赖；离屏 Qt、替身接口或本机 HTTP/WebSocket 服务，不访问真实直播 | `python dev/run_checks.py --suite offline` |
 | `native` | Windows、开发依赖、libmpv；部分项目需 FFmpeg，会创建原生窗口 | `python dev/run_checks.py --suite native` |
 | `live` | Windows、运行库和网络；显式指定公开开播房间，只读接收 | 使用下方单项命令 |
@@ -36,7 +36,7 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 - 单项默认超时 300 秒，可用 `--timeout` 调整。遇到失败先查看对应日志，不以“执行结束”判断通过。
 - 新增脚本先更新完整索引；核对真实配置、网络、窗口和依赖后，才将其加入 `dev/checks/suites.json`。
 - 涉及发弹幕的自动回归使用替身或本机服务。真实账号、跨屏操作、声音听感等需要独立人工验收。
-- CI 分别运行 `repository` 和 `smoke`，并编译应用源码。smoke 覆盖设置、通知、布局、弹幕发送和插件接口；它不代表原生播放、视觉帧率和真实直播验收全部通过。
+- CI 分别运行 `repository` 和 `smoke`，并编译应用源码。smoke 覆盖设置、通知、布局、关注排序、弹幕发送和插件接口；它不代表原生播放、视觉帧率和真实直播验收全部通过。
 - smoke 与 offline 可共享脚本，但必须保持相同隔离模式；同一套件不允许重复脚本。新增 smoke 项目应先核对隔离条件、耗时和依赖，不把所有历史脚本直接纳入 CI。
 
 ## 工具与历史记录
@@ -51,3 +51,11 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 性能测量见[性能工具](../../dev/benchmarks/README.md)，资源生成见[辅助工具](../../dev/tools/README.md)。发布构建入口继续使用 `dev/build_release.ps1`。
 
 PR 测试和整理过程的历史记录位于 [archive/](../archive/README.md)，版本说明位于 [releases/](../releases/RELEASE-v0.4.md)。
+
+## 账号菜单再次登录
+
+```powershell
+python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
+```
+
+此原生检查使用真实 `QMenu.exec`、鼠标点击和平台登录窗口，在展开与收起侧栏各重复打开、取消两次；断言登录入口在菜单和鼠标回调返回后才执行。只使用合成账号与 `about:blank` 页面，禁用宿主轮询、启动更新和插件检查，不读取真实账号。外部进程超时也覆盖原生事件循环卡死。

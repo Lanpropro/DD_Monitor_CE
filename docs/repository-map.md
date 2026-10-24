@@ -54,12 +54,22 @@
 - `dev/check_medal_size.py`
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
+- `dev/check_setup_install.py`
+- `dev/check_setup_data_cleanup.py`
+- `dev/selfcheck_setup.py`
+- `dev/build_setup.py`
+- `dev/installer/ChineseSimplified.isl`
+- `dev/installer/ChineseSimplified-LICENSE.txt`
+- `dev/installer/wizard.png`
+- `dev/installer/helper.cpp`
 - `dev/selfcheck_account_dialog.py`
+- `dev/selfcheck_account_login_reopen.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
 - `dev/selfcheck_accounts.py`
 - `dev/selfcheck_add_room_folder.py`
 - `dev/selfcheck_add_room_hints.py`
+- `dev/selfcheck_mobile_share.py`
 - `dev/selfcheck_alt_tab_orientation.py`
 - `dev/selfcheck_appearance.py`
 - `dev/selfcheck_appearance_design.py`
@@ -288,6 +298,7 @@
 - `dev/selfcheck_smart_folders.py`
 - `dev/selfcheck_smooth_edges.py`
 - `dev/selfcheck_sort_manager.py`
+- `dev/selfcheck_frequent_sort.py`
 - `dev/selfcheck_startup.py`
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
@@ -337,6 +348,7 @@
 ### 开发指南
 
 - `docs/development/testing.md`
+- `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
 - `docs/development/v0.4.1-backlog.md`
 - `docs/development/ui-integration-20261019.md`
