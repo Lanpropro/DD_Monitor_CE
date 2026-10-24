@@ -3,6 +3,7 @@ from copy import deepcopy
 
 UNCLASSIFIED = "__unclassified__"
 SORT_MODES = [("custom", "自定义顺序（拖动调整）"), ("live", "开播优先"),
+              ("frequent", "常看优先"),
               ("offline", "未开播优先"), ("imported", "导入顺序"), ("name", "主播名称")]
 PLATFORM_NAMES = {"bilibili": "哔哩哔哩", "huya": "虎牙", "douyu": "斗鱼",
                   "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}

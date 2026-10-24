@@ -82,7 +82,7 @@ python -m compileall -q ddm blivedm main.py
 git diff --check
 ```
 
-GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 120` 的五项离屏功能检查。smoke 使用开发依赖和 libmpv；CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。这些检查不能替代原生播放和真实直播验收。
+GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 120` 的离屏核心功能检查。smoke 使用开发依赖和 libmpv；CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。这些检查不能替代原生播放和真实直播验收。
 
 使用 `python dev/run_checks.py --list` 查看已审查的测试套件。完整命令、依赖与全部专项脚本的分类入口见[验证指南](docs/development/testing.md)。新增测试同步更新分类索引；确认隔离条件后再纳入批量套件。
 
@@ -105,6 +105,7 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 | --- | --- | --- |
 | 设置、设置保存与默认值 | `python dev/run_checks.py --script selfcheck_general_settings` | 修改具体页面时补充该页专项；检查打开、切换、保存、取消与重置 |
 | 通知、开播提醒、快捷键入口 | `python dev/run_checks.py --script selfcheck_main_notices` | 手动检查点击、关闭、遮挡及连续通知 |
+| 关注排序、常看记录 | `python dev/run_checks.py --script selfcheck_frequent_sort`；`python dev/run_checks.py --script selfcheck_sort_manager` | 检查启用／停用、置顶、普通及智能文件夹、手动刷新和重启恢复；悬停不计次 |
 | 布局、格子数量与状态恢复 | `python dev/run_checks.py --script selfcheck_layout_16`；`python dev/run_checks.py --script selfcheck_layout_growth_empty` | 拖拽、全屏或方向相关改动还需 `--suite native` 及实际播放验收 |
 | 弹幕发送、凭据快照与协议 | `python dev/run_checks.py --script selfcheck_danmaku_send`；连接改动另跑 `--script selfcheck_danmaku_connection` | 使用替身或本机服务，不向真实直播间发送测试消息 |
 | 弹幕绘制、浮层和控件 | `python dev/run_checks.py --script selfcheck_video_danmaku`；`python dev/run_checks.py --script selfcheck_video_danmaku_controls` | Quick 渲染或透明窗口改动另跑 native 套件并检查高 DPI |
