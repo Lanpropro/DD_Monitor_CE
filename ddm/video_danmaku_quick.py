@@ -151,6 +151,7 @@ class _MovingDanmakuWindow(QQuickWindow):
         self._move_regions = {}
         self._move_frames = {}
         self._move_connection = None
+        self._move_sync_connection = None
         self._move_epoch = 0
 
     def setMask(self, region):
@@ -166,10 +167,11 @@ class _MovingDanmakuWindow(QQuickWindow):
 
     def commit_move(self, identifier):
         if identifier in self._move_regions:
-            # The first swap may belong to a frame already in flight before the new geometry.
-            self._move_frames[identifier] = 2
+            self._move_frames[identifier] = False
             self._stop_move_frames()
             epoch = self._move_epoch
+            self._move_sync_connection = self.afterSynchronizing.connect(
+                lambda: self._after_move_sync(epoch), Qt.QueuedConnection)
             self._move_connection = self.frameSwapped.connect(
                 lambda: self._after_move_frame(epoch), Qt.QueuedConnection)
             self.requestUpdate()
@@ -186,13 +188,20 @@ class _MovingDanmakuWindow(QQuickWindow):
         if self._move_connection is not None:
             QObject.disconnect(self._move_connection)
             self._move_connection = None
+        if self._move_sync_connection is not None:
+            QObject.disconnect(self._move_sync_connection)
+            self._move_sync_connection = None
+
+    def _after_move_sync(self, epoch):
+        if epoch == self._move_epoch:
+            for identifier in self._move_frames:
+                self._move_frames[identifier] = True
 
     def _after_move_frame(self, epoch):
         if epoch != self._move_epoch:
             return  # Ignore queued swaps from before the latest geometry submission.
         for identifier in tuple(self._move_frames):
-            self._move_frames[identifier] -= 1
-            if not self._move_frames[identifier]:
+            if self._move_frames[identifier]:
                 self.cancel_move(identifier)
         if self._move_frames:
             self.requestUpdate()

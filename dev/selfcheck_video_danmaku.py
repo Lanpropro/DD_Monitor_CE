@@ -102,9 +102,13 @@ def check_move_window_mask():
         window.commit_move(1)
         epoch = window._move_epoch
         window._after_move_frame(stale)
-        assert window._move_frames[1] == 2, 'Queued old frames cannot reveal stale coordinates'
+        assert window._move_frames[1] is False, 'Queued old frames cannot reveal stale coordinates'
         window._after_move_frame(epoch)
         assert not window.mask().contains(QPoint(20, 20))
+        window._after_move_sync(stale)
+        assert window._move_frames[1] is False
+        window._after_move_sync(epoch)
+        assert not window.mask().contains(QPoint(20, 20)), 'Sync alone does not present the new frame'
         window._after_move_frame(epoch)
         assert window.mask() == updated
         window.begin_move(2, moving)
@@ -115,11 +119,37 @@ def check_move_window_mask():
         assert not window.mask().isEmpty() and not window.mask().contains(QPoint(400, 200))
         window.commit_move(3)
         epoch = window._move_epoch
-        window._after_move_frame(epoch)
+        window._after_move_sync(epoch)
         window._after_move_frame(epoch)
         assert window.mask().isEmpty(), 'An unrestricted base mask must be restored'
     finally:
         window.close()
+
+
+def check_moved_overlay_refresh(app):
+    wall = WallGrid([dict(room_id='1', uname='Moving text', title='Native caption', live=True)],
+                    layout_id='1x1')
+    wall.resize(1000, 700)
+    wall.show()
+    app.processEvents()
+    tile = wall.tiles[0]
+    tile.set_controls_visible(True)
+    tile._control_hover_timer.stop()
+    tile._controls_hide_timer.stop()
+    app.processEvents()
+    assert wall._quick_danmaku_layer is None, 'Caption refresh cannot depend on enabled Quick danmaku'
+    try:
+        with patch.object(tile.stream_badge, 'repaint', wraps=tile.stream_badge.repaint) as live, \
+                patch.object(tile.title_badge, 'repaint', wraps=tile.title_badge.repaint) as title, \
+                patch.object(tile.controls, 'repaint', wraps=tile.controls.repaint) as controls:
+            for _ in range(3):
+                tile.move(tile.x() + 5, tile.y() + 5)
+            assert not live.called and not title.called and not controls.called
+            app.processEvents()
+            assert live.call_count == title.call_count == controls.call_count == 1, \
+                'Move bursts must repaint caption text and controls once at the final position'
+    finally:
+        wall.close()
 
 
 def check_quick_surface_recovery(app):
@@ -573,6 +603,7 @@ def main():
     check_quick_surface_recovery(app)
     check_fonts(app)
     check_move_window_mask()
+    check_moved_overlay_refresh(app)
     check_quick_group_follows_tile_move(app)
     check_motion(app)
     check_routing(app)

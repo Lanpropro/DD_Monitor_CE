@@ -127,6 +127,12 @@ def check_native_swap_submission(app, owner, layer):
     by_group = {tile.video_danmaku._quick_group: tile for tile in tiles}
     handles = {tile: int(tile.video.winId()) for tile in tiles}
     textures = {key: (record['item'], record['key']) for key, record in layer.items.items()}
+    first = tiles[0]
+    overlay_visible = first._overlay_visible
+    first.set_controls_visible(True)
+    first._control_hover_timer.stop()
+    first._controls_hide_timer.stop()
+    settle(app)
     submitted = []
     original = layer.set_group_geometry
     user32 = ctypes.windll.user32
@@ -144,7 +150,9 @@ def check_native_swap_submission(app, owner, layer):
         submitted.append(identifier)
 
     try:
-        with patch.object(layer, 'set_group_geometry', side_effect=submit):
+        with patch.object(layer, 'set_group_geometry', side_effect=submit), \
+                patch.object(first.stream_badge, 'paint_badge', wraps=first.stream_badge.paint_badge) as live_paint, \
+                patch.object(first.title_badge, 'paint_badge', wraps=first.title_badge.paint_badge) as title_paint:
             owner.wall.tiles[0], owner.wall.tiles[1] = tiles[1], tiles[0]
             owner.wall.relayout(force=True)
             time.sleep(0.12)
@@ -162,7 +170,9 @@ def check_native_swap_submission(app, owner, layer):
             assert {tiles[0].video_danmaku._quick_group,
                     tiles[1].video_danmaku._quick_group} <= set(submitted)
             assert not layer.window._move_regions, 'Fresh frames must restore all moved groups'
+            assert live_paint.called and title_paint.called, 'Moved native captions must repaint their text'
     finally:
+        first.set_controls_visible(overlay_visible)
         owner.wall.tiles[:] = tiles
         owner.wall.relayout(force=True)
         settle(app)
