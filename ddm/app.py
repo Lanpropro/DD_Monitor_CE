@@ -1868,7 +1868,10 @@ class MainWindow(QMainWindow):
         if mode != requested["decode_mode"] or actual == "no" and mode != "none":
             decoder += "（故障回退）"
         note = getattr(tile, "codec_probe_note", "")
-        return f"实际直播源：{codec}\n当前解码方式：{decoder}" + (f"\n{note}" if note else "") + (
+        params = player._prop("video-params") or {}
+        resolution = (f"\n实际分辨率：{params['w']}×{params['h']}"
+                      if isinstance(params, dict) and params.get("w") and params.get("h") else "")
+        return f"实际直播源：{codec}\n当前解码方式：{decoder}" + resolution + (f"\n{note}" if note else "") + (
             "\n已暂停；新设置将在恢复播放时生效。" if tile.paused else "")
 
     def _open_tile_codecs(self, tile) -> None:
