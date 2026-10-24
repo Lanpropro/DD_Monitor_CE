@@ -136,6 +136,9 @@
 - `dev/selfcheck_huya_live.py`
 - `dev/selfcheck_huya_watch.py`
 - `dev/selfcheck_launch_scripts.py`
+- `dev/selfcheck_logging.py`
+- `dev/selfcheck_logging_errors.py`
+- `dev/selfcheck_logging_startup.py`
 - `dev/selfcheck_layout_16.py`
 - `dev/selfcheck_layout_growth_empty.py`
 - `dev/selfcheck_layout_live_priority.py`
@@ -423,6 +426,7 @@
 - `docs/appearance-design.md`
 - `docs/bug-cases.md`
 - `docs/customization-plan.md`
+- `docs/error-logging-plan.md`
 - `docs/online-updates.md`
 - `docs/overview1_Landscape_mode.png`
 - `docs/overview1_Portrait_Mode.png`

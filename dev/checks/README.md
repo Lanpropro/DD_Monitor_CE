@@ -47,6 +47,9 @@
 | [selfcheck_check_runner](../selfcheck_check_runner.py) | `repository` |
 | [selfcheck_customization_plan](../selfcheck_customization_plan.py) | `repository` |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
+| [selfcheck_logging](../selfcheck_logging.py) | `offline`；日志镜像、级别、轮转、过期清理、异常钩子与脱敏 |
+| [selfcheck_logging_errors](../selfcheck_logging_errors.py) | `offline`；静默异常、遗留输出、插件与录制错误上下文 |
+| [selfcheck_logging_startup](../selfcheck_logging_startup.py) | `offline`；首次启动、导入失败与窗口构建失败日志 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
 | [selfcheck_qt_log](../selfcheck_qt_log.py) | 单项执行前核对 |
 | [selfcheck_readme](../selfcheck_readme.py) | `repository` |
