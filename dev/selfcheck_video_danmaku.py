@@ -80,6 +80,25 @@ def check_quick_group_swap_layout(app, layout_id, room_count):
         wall.close()
 
 
+def check_quick_controller_mask():
+    overlay = VideoDanmaku()
+    overlay.resize(400, 240)
+    video_mask = QRegion(0, 0, 400, 240) - QRegion(0, 0, 3, 3)
+    try:
+        overlay._quick_requested = True
+        overlay.setMask(video_mask)
+        assert overlay._quick_video_mask == video_mask
+        assert overlay.mask().intersected(overlay.rect()).isEmpty()
+        overlay.clearMask()
+        assert overlay._quick_video_mask.isEmpty()
+        assert overlay.mask().intersected(overlay.rect()).isEmpty()
+        overlay._quick_requested = False
+        overlay.setMask(video_mask)
+        assert overlay.mask() == video_mask, 'Raster fallback must retain its native video region'
+    finally:
+        overlay.close()
+
+
 def check_move_window_mask():
     from ddm.video_danmaku_quick import _MovingDanmakuWindow
 
@@ -602,6 +621,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_quick_controller_mask()
     check_move_window_mask()
     check_moved_overlay_refresh(app)
     check_quick_group_follows_tile_move(app)

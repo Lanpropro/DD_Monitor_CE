@@ -80,6 +80,7 @@ class VideoDanmaku(QWidget):
         self._quick_group = None
         self._quick_rounded = True
         self._quick_mask_signature = None
+        self._quick_video_mask = QRegion()
         self._quick_geometry_timer = QTimer(self)
         self._quick_geometry_timer.setSingleShot(True)
         self._quick_geometry_timer.timeout.connect(self._sync_quick_geometry)
@@ -437,6 +438,8 @@ class VideoDanmaku(QWidget):
             self.update()
 
     def paintEvent(self, event) -> None:
+        if self._quick_requested:
+            return  # The shared Quick window is the only canvas in this mode.
         painter = QPainter(self)
         if self._native_layered():
             painter.fillRect(event.rect(), self.COLOR_KEY)
@@ -460,6 +463,12 @@ class VideoDanmaku(QWidget):
     def _apply_layered(self) -> None:
         if not self._native_layered():
             return
+        if self._quick_requested:
+            self._suppress_quick_raster_surface()
+            if self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.set_group_opacity(
+                    self._quick_group, int(self.settings.get("video_danmaku_opacity") or 80))
+            return
         import ctypes
         from ctypes import wintypes
 
@@ -474,9 +483,25 @@ class VideoDanmaku(QWidget):
         key = self.COLOR_KEY.red() | self.COLOR_KEY.green() << 8 | self.COLOR_KEY.blue() << 16
         alpha = round(int(self.settings.get("video_danmaku_opacity") or 80) * 255 / 100)
         user32.SetLayeredWindowAttributes(hwnd, key, alpha, 0x00000001 | 0x00000002)
-        if self._quick_layer is not None and self._quick_group is not None:
-            self._quick_layer.set_group_opacity(
-                self._quick_group, int(self.settings.get("video_danmaku_opacity") or 80))
+
+    def setMask(self, region) -> None:
+        if self._quick_requested:
+            self._quick_video_mask = QRegion(region)
+            self._suppress_quick_raster_surface()
+        else:
+            super().setMask(region)
+
+    def clearMask(self) -> None:
+        if self._quick_requested:
+            self._quick_video_mask = QRegion()
+            self._suppress_quick_raster_surface()
+        else:
+            super().clearMask()
+
+    def _suppress_quick_raster_surface(self) -> None:
+        # Qt and Windows must both know this controller has no visible canvas.
+        # An empty QWidget mask means unrestricted, so clip to an off-widget pixel.
+        super().setMask(QRegion(-1, -1, 1, 1))
 
     def attach_quick_layer(self, layer) -> None:
         if not self._quick_requested or layer is None:
@@ -538,9 +563,10 @@ class VideoDanmaku(QWidget):
                 if region.isEmpty():
                     region = QRegion(widget.rect())
                 holes |= region.translated(origin).intersected(QRegion(self.rect()))
+        video_mask = self._quick_video_mask if self._quick_requested else self.mask()
         signature = (self.width(), self.height(), self.devicePixelRatioF(),
                      self._quick_rounded,
-                     holes, self.mask())
+                     holes, video_mask)
         if signature == self._quick_mask_signature:
             return
         self._quick_mask_signature = signature
@@ -551,7 +577,7 @@ class VideoDanmaku(QWidget):
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
         painter = QPainter(image)
-        region = self.mask()
+        region = video_mask
         if region.isEmpty():
             region = QRegion(self.rect())
         painter.setClipRegion(region.subtracted(holes))
@@ -568,7 +594,7 @@ class VideoDanmaku(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._native_layered():
-            self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+            self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested)
             self.setAttribute(Qt.WA_NativeWindow, True)
             self._apply_layered()
             self._sync_quick_geometry()
