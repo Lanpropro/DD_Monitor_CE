@@ -48,6 +48,10 @@ class ComposerTests(unittest.TestCase):
 
     def setUp(self):
         self.assertIsNotNone(importlib.util.find_spec("ddm.danmaku_send"), "缺少独立的弹幕输入控件")
+        # Keep queued catalog requests offline, including those delivered after an inner patch exits.
+        catalog = patch.object(bili, "get_emoticons", return_value=[])
+        catalog.start()
+        self.addCleanup(catalog.stop)
         from ddm.danmaku_send import DanmakuComposer
         self.saved = (bili.SESSION_DATA, bili.BILI_JCT, bili.BUVID3)
         bili.set_login_cookies("test-session", "test-csrf", "device-test")
