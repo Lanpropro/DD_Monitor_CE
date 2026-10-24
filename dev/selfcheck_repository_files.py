@@ -17,6 +17,7 @@ LOCAL_ONLY = (
     "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
     "plugins_user/domestic_live/*", "plugins_user/global_live/*",
     "plugins_user/huya_watch/*", "plugins_user/_danmaku_log/*",
+    "work/test-artifacts/*",
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
