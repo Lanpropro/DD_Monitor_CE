@@ -3,7 +3,6 @@
 画面墙上的每个格子是一个"播放位"：关掉某一路会留下空格子，等着把侧栏里的
 直播间拖进来；播放器按格子持有，和房间号解耦。
 """
-import faulthandler
 from copy import deepcopy
 import os
 import sys
@@ -12,7 +11,7 @@ import webbrowser
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimation,
-                           QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
+                           QPoint, Qt, QTimer)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
@@ -23,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from . import bili
 from . import config as config_module
+from . import diagnostics
 from . import layouts
 from . import room_presets
 from . import overlay
@@ -65,48 +65,6 @@ RETRY_MAX_SECONDS = 60
 FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
 DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
-
-def setup_file_log() -> str:
-    """把标准错误同时写进 logs/ddm-日期.log，方便排查（控制台可能被关掉）。"""
-    log_dir = os.path.join(config_module.REPO, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    path = os.path.join(log_dir, f"ddm-{time.strftime('%Y-%m-%d')}.log")
-    original = sys.stderr
-    try:
-        handle = open(path, "a", encoding="utf-8", buffering=1)
-    except Exception:  # noqa: BLE001
-        return ""
-
-    class _Tee:
-        def write(self, data: str) -> int:
-            if original is not None:
-                try:
-                    original.write(data)
-                except Exception:  # noqa: BLE001
-                    pass
-            try:
-                handle.write(data)
-            except Exception:  # noqa: BLE001
-                pass
-            return len(data)
-
-        def flush(self) -> None:
-            if original is not None:
-                try:
-                    original.flush()
-                except Exception:  # noqa: BLE001
-                    pass
-
-    sys.stderr = _Tee()
-    # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
-    def qt_message(kind, context, message):
-        print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
-        if kind == QtMsgType.QtFatalMsg:
-            faulthandler.dump_traceback(file=handle, all_threads=True)
-
-    qInstallMessageHandler(qt_message)
-    print(f"日志文件: {path}", file=sys.stderr)
-    return path
 
 EMPTY_HINT = ("还没有直播间\n\n"
               "点左下角「+ 添加直播间」填房间号，\n"
@@ -4041,28 +3999,33 @@ def _launch_update(plan_path) -> bool:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
+    session = diagnostics.get_session() or diagnostics.start(argv=argv)
     try:                                    # 控制台可能是 GBK，避免房间名里的特殊字符导致崩溃
         sys.stdout.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
         pass
-    log_path = setup_file_log()
-    app = QApplication(argv)
-    from .localization import install_chinese_translations
-    install_chinese_translations(app)
-    app.setApplicationName(version_module.DISPLAY_NAME)
-    app.setStyleSheet(theme.qss())
-    for icon_path in (os.path.join(config_module.REPO, "assets", "favicon.ico"),
-                      os.path.join(config_module.REPO, "favicon.ico")):
-        if os.path.isfile(icon_path):        # 有图标文件就用，没有也不影响启动
-            app.setWindowIcon(QIcon(icon_path))
-            break
+    with session.phase("qt_init"):
+        session.install_qt_messages()
+        app = QApplication(argv)
+        from .localization import install_chinese_translations
+        install_chinese_translations(app)
+        app.setApplicationName(version_module.DISPLAY_NAME)
+        app.setStyleSheet(theme.qss())
+        for icon_path in (os.path.join(config_module.REPO, "assets", "favicon.ico"),
+                          os.path.join(config_module.REPO, "favicon.ico")):
+            if os.path.isfile(icon_path):        # 有图标文件就用，没有也不影响启动
+                app.setWindowIcon(QIcon(icon_path))
+                break
 
-    state = config_module.load()
-    theme.apply((state.get("settings") or {}).get("appearance_mode", "dark"))
-    from .user_notice import confirm_user_notice
-    confirm_user_notice(state)
-    from .update_install import clean_previous
-    clean_previous(config_module.REPO)
+    with session.phase("config_load"):
+        state = config_module.load()
+        theme.apply((state.get("settings") or {}).get("appearance_mode", "dark"))
+    with session.phase("user_notice"):
+        from .user_notice import confirm_user_notice
+        confirm_user_notice(state)
+    with session.phase("clean_previous"):
+        from .update_install import clean_previous
+        clean_previous(config_module.REPO)
     t_load = time.perf_counter()
     settings = dict(config_module.DEFAULT_SETTINGS)
     settings.update(state.get("settings") or {})
@@ -4085,26 +4048,32 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[播放器] libmpv {TilePlayer.backend_version()} 解码方式={decode_mode}",
           file=sys.stderr, flush=True)
 
-    window = MainWindow(sidebar, wall,
-                        layout_id=(state.get("ui") or {}).get("layout") or "",
-                        state=state)
+    with session.phase("window_build"):
+        window = MainWindow(sidebar, wall,
+                            layout_id=(state.get("ui") or {}).get("layout") or "",
+                            state=state)
     t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈
-    watchdog.start(log_path)
+    watchdog.start(str(session.crash_path))
     ticker = QTimer(window)
     ticker.setInterval(watchdog.TICK_MS)
     ticker.timeout.connect(watchdog.tick)
     ticker.start()
-    window.resize(1600, 900)
-    window.showMaximized()
+    with session.phase("window_shown"):
+        window.resize(1600, 900)
+        window.showMaximized()
     t_show = time.perf_counter()
     print(f"[启动] 配置加载 {(t_load - t0) * 1000:.0f} ms | "
           f"房间占位 {(t_rooms - t_load) * 1000:.0f} ms | "
           f"界面构建 {(t_window - t_rooms) * 1000:.0f} ms | "
           f"窗口显示 {(t_show - t0) * 1000:.0f} ms",
           file=sys.stderr, flush=True)
-    code = app.exec()
+    with session.phase("event_loop"):
+        code = app.exec()
     watchdog.stop()
+    diagnostics.get_logger("shutdown").info(
+        "event=app_exit code=%s update=%s restart=%s",
+        code, bool(window._update_plan), bool(window._restart_requested))
     if window._update_plan:
         try:
             launched = _launch_update(window._update_plan)
@@ -4122,6 +4091,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
+    diagnostics.close()
     os._exit(code)
 
 

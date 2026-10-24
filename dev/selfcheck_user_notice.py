@@ -3,6 +3,7 @@ from contextlib import ExitStack
 from copy import deepcopy
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from unittest.mock import patch
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from ddm import app as app_module, config, theme, user_notice
+from ddm import app as app_module, config, diagnostics, theme, user_notice
 
 
 def main():
@@ -81,8 +82,10 @@ def main():
     closing = real_dialog()
     QTimer.singleShot(0, closing.reject)
     unconfirmed = {}
+    log_dir = tempfile.mkdtemp(prefix="ddm-notice-log-")
+    session = diagnostics.start(log_dir=log_dir)
     with patch.object(app_module, "QApplication", return_value=app), \
-            patch.object(app_module, "setup_file_log", return_value=""), \
+            patch.object(diagnostics, "get_session", return_value=session), \
             patch.object(config, "load", return_value=unconfirmed), \
             patch.object(config, "save") as save, \
             patch.object(user_notice, "UserNoticeDialog", return_value=closing), \
@@ -107,6 +110,8 @@ def main():
         window.return_value.showMaximized.assert_called_once()
         save.assert_called_once_with(unconfirmed)
         assert unconfirmed["user_notice_accepted"] is True
+    diagnostics.close()
+    shutil.rmtree(log_dir, ignore_errors=True)
     print("PASS: notice content, confirmation persistence, repeated launch and normal startup after dismissal")
 
 
