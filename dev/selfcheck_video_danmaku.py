@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from types import MethodType, SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QWindowStateChangeEvent
+from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QRegion, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
 
@@ -78,6 +78,48 @@ def check_quick_group_swap_layout(app, layout_id, room_count):
             tile.video_danmaku._quick_layer = tile.video_danmaku._quick_group = None
         wall._quick_danmaku_layer = None
         wall.close()
+
+
+def check_move_window_mask():
+    from ddm.video_danmaku_quick import _MovingDanmakuWindow
+
+    window = _MovingDanmakuWindow()
+    window.resize(800, 450)
+    base = QRegion(0, 0, 800, 450) - QRegion(100, 100, 50, 50)
+    try:
+        window.setMask(base)
+        moving = QRegion(0, 0, 200, 100) | QRegion(400, 0, 200, 100)
+        window.begin_move(1, moving)
+        assert not window.mask().contains(QPoint(20, 20))
+        assert not window.mask().contains(QPoint(450, 20))
+        assert window.mask().contains(QPoint(700, 400)), 'Unmoved tiles must remain visible'
+        updated = base - QRegion(300, 200, 30, 30)
+        window.setMask(updated)
+        assert not window.mask().contains(QPoint(20, 20)), 'Notice mask updates must preserve move clipping'
+        window.commit_move(1)
+        stale = window._move_epoch
+        window.begin_move(1, moving)
+        window.commit_move(1)
+        epoch = window._move_epoch
+        window._after_move_frame(stale)
+        assert window._move_frames[1] == 2, 'Queued old frames cannot reveal stale coordinates'
+        window._after_move_frame(epoch)
+        assert not window.mask().contains(QPoint(20, 20))
+        window._after_move_frame(epoch)
+        assert window.mask() == updated
+        window.begin_move(2, moving)
+        window.cancel_move(2)
+        assert window.mask() == updated, 'Removing a moving group must release its clipping'
+        window.setMask(QRegion())
+        window.begin_move(3, QRegion(0, 0, 800, 450))
+        assert not window.mask().isEmpty() and not window.mask().contains(QPoint(400, 200))
+        window.commit_move(3)
+        epoch = window._move_epoch
+        window._after_move_frame(epoch)
+        window._after_move_frame(epoch)
+        assert window.mask().isEmpty(), 'An unrestricted base mask must be restored'
+    finally:
+        window.close()
 
 
 def check_quick_surface_recovery(app):
@@ -530,6 +572,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_move_window_mask()
     check_quick_group_follows_tile_move(app)
     check_motion(app)
     check_routing(app)

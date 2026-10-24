@@ -126,6 +126,7 @@ def check_native_swap_submission(app, owner, layer):
     tiles = list(owner.wall.tiles)
     by_group = {tile.video_danmaku._quick_group: tile for tile in tiles}
     handles = {tile: int(tile.video.winId()) for tile in tiles}
+    textures = {key: (record['item'], record['key']) for key, record in layer.items.items()}
     submitted = []
     original = layer.set_group_geometry
     user32 = ctypes.windll.user32
@@ -148,14 +149,25 @@ def check_native_swap_submission(app, owner, layer):
             owner.wall.relayout(force=True)
             time.sleep(0.12)
             assert not submitted, 'A stalled GUI must not submit Quick positions inside native moves'
+            for tile in tiles[:2]:
+                group = layer.groups[tile.video_danmaku._quick_group]
+                old_centre = QPoint(int(group.x() + group.width() / 2), int(group.y() + group.height() / 2))
+                mask = layer.window.mask()
+                assert not mask.isEmpty() and not mask.contains(old_centre), \
+                    'Native mask must hide old-position textures during GUI stalls'
+            unchanged = layer.groups[tiles[2].video_danmaku._quick_group]
+            assert layer.window.mask().contains(QPoint(int(unchanged.x() + unchanged.width() / 2),
+                                                      int(unchanged.y() + unchanged.height() / 2)))
             settle(app)
             assert {tiles[0].video_danmaku._quick_group,
                     tiles[1].video_danmaku._quick_group} <= set(submitted)
+            assert not layer.window._move_regions, 'Fresh frames must restore all moved groups'
     finally:
         owner.wall.tiles[:] = tiles
         owner.wall.relayout(force=True)
         settle(app)
     assert all(int(tile.video.winId()) == handle for tile, handle in handles.items())
+    assert textures == {key: (record['item'], record['key']) for key, record in layer.items.items()}
     print('Native video HWND geometry before coalesced Quick swap submission: PASS')
 
 
