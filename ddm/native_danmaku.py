@@ -34,6 +34,8 @@ _view_ids = itertools.count(1)
 _comment_ids = itertools.count(1)
 _extension: Any = None
 _import_attempted = False
+_LANE_PREFLIGHT = os.environ.get("DDM_NATIVE_LANE_PREFLIGHT", "1") != "0"
+_LANE_PREFLIGHT_REFRESH = os.environ.get("DDM_NATIVE_LANE_PREFLIGHT_REFRESH", "1") != "0"
 
 
 def native_available() -> bool:
@@ -144,6 +146,9 @@ class NativeDanmakuLayer(QObject):
         self.offered = 0
         self.queued = 0
         self.dropped_prepare = 0
+        self.lane_preflight_offered = 0
+        self.lane_preflight_rejected = 0
+        self.lane_preflight_refreshed = 0
         self.window = (_CompositionWindow() if QApplication.platformName() == "windows" else QWindow())
         self.window.setFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
                              Qt.WindowType.WindowTransparentForInput |
@@ -234,7 +239,8 @@ class NativeDanmakuLayer(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() in (QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.Show,
                             QEvent.Type.Hide, QEvent.Type.WindowStateChange,
-                            QEvent.Type.ScreenChangeInternal, QEvent.Type.WinIdChange):
+                            QEvent.Type.ScreenChangeInternal,
+                            QEvent.Type.DevicePixelRatioChange, QEvent.Type.WinIdChange):
             if isinstance(watched, QWidget) and (watched is self.wall.window() or
                     watched is self.wall or self.wall.isAncestorOf(watched)):
                 self.schedule_scene()
@@ -362,6 +368,15 @@ class NativeDanmakuLayer(QObject):
         if len(view.jobs) >= 64 or sum(len(item.jobs) for item in self.views.values()) >= 256:
             self.dropped_prepare += 1
             return False
+        if not replace:
+            if _LANE_PREFLIGHT:
+                self.lane_preflight_offered += 1
+                if _LANE_PREFLIGHT_REFRESH:
+                    self._status = self.host.status_snapshot()
+                    self.lane_preflight_refreshed += 1
+                if not self._native_can_start(view):
+                    self.lane_preflight_rejected += 1
+                    return False
         style = self._style(view.overlay)
         scale = style.dpr * style.sample_scale
         reserve = (math.ceil((style.logical_max_width + 64) * scale)
@@ -376,6 +391,17 @@ class NativeDanmakuLayer(QObject):
                                    entry.self_sent, style, images)
         self._reserved[future] = reserve
         view.jobs.append(_Job(entry, view.style_rev, replace, future))
+        return True
+
+    def _native_can_start(self, view: _View) -> bool:
+        statuses = self._status.get("views")
+        if not isinstance(statuses, list):
+            return True
+        for item in statuses:
+            if (isinstance(item, dict) and item.get("view_id") == view.view_id
+                    and item.get("room_epoch") == view.epoch
+                    and item.get("style_rev") == view.style_rev):
+                return item.get("can_start") is not False
         return True
 
     def _collect_downloads(self) -> None:
@@ -457,8 +483,10 @@ class NativeDanmakuLayer(QObject):
         self._reserved = {future: size for future, size in self._reserved.items() if future in retained}
         self._status = self.host.status_snapshot()
         if self._closing:
-            if (self.host.reap() and not self._retired
-                    and all(future.done() for future in self._download_jobs.values())):
+            if (self._status.get("state") in ("Failed", "Stopped")
+                    and not self._retired
+                    and all(future.done() for future in self._download_jobs.values())
+                    and self.host.reap()):
                 self._finish_close()
             return
         if self._status.get("state") == "Failed":
@@ -488,6 +516,11 @@ class NativeDanmakuLayer(QObject):
     def status_snapshot(self) -> dict[str, Any]:
         return dict(self.host.status_snapshot(), prepare_offered=self.offered,
                     prepare_queued=self.queued, dropped_prepare=self.dropped_prepare,
+                    lane_preflight_enabled=_LANE_PREFLIGHT,
+                    lane_preflight_refresh_enabled=_LANE_PREFLIGHT_REFRESH,
+                    lane_preflight_offered=self.lane_preflight_offered,
+                    lane_preflight_rejected=self.lane_preflight_rejected,
+                    lane_preflight_refreshed=self.lane_preflight_refreshed,
                     metadata_entries=len(self.entries),
                     prepare_reserved_bytes=sum(self._reserved.values()),
                     emoticon_bytes=self._image_bytes,

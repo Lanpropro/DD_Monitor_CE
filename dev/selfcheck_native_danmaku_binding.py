@@ -104,7 +104,9 @@ def run_checks(app: QApplication, extension: Any) -> None:
     finally:
         host.request_close()
         check(host.reap(), "unattached host closes without worker")
-        check(host.status_snapshot()["cpu_image_bytes"] == 0, "close releases queued CPU images")
+        stopped = host.status_snapshot()
+        check(stopped["cpu_image_bytes"] == 0 and stopped["views"] == [],
+              "close releases queued CPU images and preflight state")
 
     window = QWindow()
     window.setFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
@@ -131,6 +133,10 @@ def run_checks(app: QApplication, extension: Any) -> None:
                    bool(host.status_snapshot()["active"]), "copied image admitted after Python buffer destruction")
         status = host.status_snapshot()
         check(status["state"] == "Running", f"real renderer running: {status}")
+        check(len(status["views"]) == 1 and status["views"][0]["view_id"] == 1 and
+              status["views"][0]["room_epoch"] == 1 and status["views"][0]["style_rev"] == 1 and
+              isinstance(status["views"][0]["can_start"], bool),
+              "native exposes generation-matched lane preflight state")
         check(status["active"] == [(1, 1)] and status["image_bytes"] == 16,
               "native owns original padded bytes after caller mutation and resize")
         check(status["frames"] > 0, "real D3D11 submitted copied image")

@@ -121,6 +121,19 @@ py::list refs(const std::vector<CommentRef>& source) {
     return result;
 }
 
+py::list views(const std::vector<ViewStatus>& source) {
+    py::list result;
+    for (const auto& item : source) {
+        py::dict view;
+        view["view_id"] = item.view_id;
+        view["room_epoch"] = item.room_epoch;
+        view["style_rev"] = item.style_rev;
+        view["can_start"] = item.can_start;
+        result.append(std::move(view));
+    }
+    return result;
+}
+
 py::dict status_dict(const HostStatus& status) {
     const auto& counters = status.engine.counters;
     py::dict count;
@@ -142,6 +155,7 @@ py::dict status_dict(const HostStatus& status) {
     result["processed_sequence"] = status.engine.processed_sequence;
     result["active"] = refs(status.engine.active);
     result["pending"] = refs(status.engine.pending);
+    result["views"] = views(status.engine.views);
     result["image_bytes"] = status.engine.image_bytes;
     result["cpu_image_bytes"] = status.cpu_image_bytes;
     result["gpu_bytes"] = status.gpu_bytes;

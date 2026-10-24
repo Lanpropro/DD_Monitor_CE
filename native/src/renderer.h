@@ -23,7 +23,7 @@ public:
     void* frame_handle() const;
     DisplaySample display_sample(bool after_present, bool moving = false, std::uint32_t active_count = 0,
                                  DisplayFrameKind kind = DisplayFrameKind::Unknown);
-    void trim(const std::vector<RenderItem>& items);
+    void trim(const Scene& scene, const std::vector<RenderItem>& items);
     std::size_t gpu_bytes() const;
     std::uint64_t swap_chain_address() const;
 private:

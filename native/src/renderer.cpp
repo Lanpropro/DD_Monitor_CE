@@ -156,24 +156,28 @@ bool Renderer::prepare(const PreparedComment& comment) {
 void* Renderer::frame_handle() const { return impl_->frame; }
 std::uint64_t Renderer::swap_chain_address() const { return reinterpret_cast<std::uint64_t>(impl_->swap.Get()); }
 std::size_t Renderer::gpu_bytes() const { return impl_->bytes + impl_->mask_bytes; }
-void Renderer::trim(const std::vector<RenderItem>& items) {
+void Renderer::trim(const Scene& scene, const std::vector<RenderItem>& items) {
+    auto& p = *impl_;
     std::unordered_set<const Image*> active;
     for (const auto& item : items) active.insert(item.image.get());
-    auto& p = *impl_;
     for (auto it = p.textures.begin(); it != p.textures.end();) {
         if (!active.count(it->first)) { p.bytes -= it->second.bytes; it = p.textures.erase(it); }
+        else ++it;
+    }
+    std::unordered_set<std::uint64_t> active_views;
+    for (const auto& item : items) active_views.insert(item.view_id);
+    for (auto it = p.masks.begin(); it != p.masks.end();) {
+        const bool keep = scene.visible && active_views.count(it->first) && std::any_of(
+            scene.views.begin(), scene.views.end(), [&](const ViewScene& view) {
+                return view.view_id == it->first && view.visible && view.mask &&
+                    view.mask == it->second.image;
+            });
+        if (!keep) { p.mask_bytes -= it->second.bytes; it = p.masks.erase(it); }
         else ++it;
     }
 }
 void Renderer::draw(const Scene& scene, const std::vector<RenderItem>& items) {
     auto& p = *impl_;
-    for (auto it = p.masks.begin(); it != p.masks.end();) {
-        const bool keep = std::any_of(scene.views.begin(), scene.views.end(), [&](const ViewScene& view) {
-            return view.view_id == it->first && view.mask && view.visible;
-        });
-        if (!keep) { p.mask_bytes -= it->second.bytes; it = p.masks.erase(it); }
-        else ++it;
-    }
     const float clear[4]{}; p.context->ClearRenderTargetView(p.rtv.Get(), clear);
     auto target = p.rtv.Get(); p.context->OMSetRenderTargets(1, &target, nullptr);
     p.context->OMSetBlendState(p.blend.Get(), nullptr, 0xffffffff);
@@ -188,6 +192,10 @@ void Renderer::draw(const Scene& scene, const std::vector<RenderItem>& items) {
     auto constants = p.constants.Get(); p.context->PSSetConstantBuffers(0,1,&constants);
     for (const auto& view : scene.views) {
         if (!view.visible || view.width <= 0 || view.height <= 0 || view.clip.width <= 0 || view.clip.height <= 0) continue;
+        const bool active = std::any_of(items.begin(), items.end(), [&](const RenderItem& item) {
+            return item.view_id == view.view_id;
+        });
+        if (!active) continue;
         D3D11_RECT clip{std::max(0,view.clip.x),std::max(0,view.clip.y),std::min(p.width,view.clip.x+view.clip.width),std::min(p.height,view.clip.y+view.clip.height)};
         if (clip.right <= clip.left || clip.bottom <= clip.top) continue;
         p.context->RSSetScissorRects(1,&clip);

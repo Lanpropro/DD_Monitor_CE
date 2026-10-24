@@ -38,6 +38,7 @@ private:
     const View* find_view(std::uint64_t id) const;
     bool running(const View& view) const;
     bool valid(const PreparedComment& comment) const;
+    bool can_start(const View& view) const;
     bool lane_available(int lane, double speed, double x,
                         const std::vector<Active>& others) const;
     void prune(View& view);

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <atomic>
 
 static void require(bool condition,const char* message) { if (!condition) throw std::runtime_error(message); }
 static bool pump_until(const std::function<bool()>& predicate,int milliseconds=5000) {
@@ -59,6 +60,8 @@ static void pixel_prototype(HWND window) {
         require(close_color(blended,i==3 ? RGB(79,80,135) : RGB(138,120,90)),"premultiplied opacity pixel");
     }
     items.resize(1); items[0].x=300;
+    renderer.trim(scene,items);
+    require(renderer.gpu_bytes()<8u*1024u*1024u,"trim releases textures and masks for inactive views");
     require(pump_until([&] { return WaitForSingleObject(renderer.frame_handle(),0)==WAIT_OBJECT_0; }),"clip frame permit");
     renderer.draw(scene,items); pump_until([] { return false; },100);
     require(close_color(desktop_pixel(40+310,40+15),RGB(138,120,90)),"clip inside pixel");
@@ -67,19 +70,37 @@ static void pixel_prototype(HWND window) {
     large_mask->width=3072; large_mask->height=1536; large_mask->stride=3072*4;
     large_mask->pixels.assign(static_cast<std::size_t>(large_mask->stride)*large_mask->height,255);
     for (auto& view : scene.views) view.mask=large_mask;
+    items.clear();
+    renderer.trim(scene,items);
+    require(renderer.gpu_bytes()<4u*1024u*1024u,"empty items do not retain view masks");
     require(pump_until([&] { return WaitForSingleObject(renderer.frame_handle(),0)==WAIT_OBJECT_0; }),"large mask frame permit");
     renderer.draw(scene,{});
+    require(renderer.gpu_bytes()<4u*1024u*1024u,"draw without items does not upload masks");
     for (auto& view : scene.views) view.view_id+=10;
+    for (int i=0;i<4;++i) {
+        ddm::RenderItem item; item.view_id=i+11; item.comment_id=i+1; item.x=10; item.y=10;
+        item.width=100; item.height=50; item.image=large_mask; items.push_back(item);
+    }
     require(pump_until([&] { return WaitForSingleObject(renderer.frame_handle(),0)==WAIT_OBJECT_0; }),"replacement mask frame permit");
-    renderer.draw(scene,{});
+    renderer.draw(scene,items);
     require(renderer.gpu_bytes()>=72u*1024u*1024u && renderer.gpu_bytes()<80u*1024u*1024u,
             "new view masks replace old budget before uploading");
+    renderer.trim(scene,{});
+    require(renderer.gpu_bytes()<4u*1024u*1024u,"mask trim releases inactive view resources");
+    std::weak_ptr<const ddm::Image> retained_mask=large_mask;
+    large_mask.reset(); for (auto& view : scene.views) view.mask.reset();
+    items.clear();
+    renderer.trim(scene,{});
+    require(retained_mask.expired(),"mask trim releases its CPU image");
 }
 static void suspended_clear_releases_textures(HWND window) {
     ddm::Host host; host.attach(reinterpret_cast<std::uintptr_t>(window));
     ddm::Scene scene; scene.width=640; scene.height=360;
     ddm::ViewScene view; view.view_id=1; view.width=640; view.height=360;
     view.lane_height=40; view.lanes=1; view.clip={0,0,640,360};
+    auto mask=std::make_shared<ddm::Image>();
+    mask->width=640; mask->height=360; mask->stride=2560; mask->pixels.assign(2560*360,255);
+    view.mask=std::move(mask);
     scene.views.push_back(view); host.update_scene(scene);
     auto image=std::make_shared<ddm::Image>();
     image->width=80; image->height=24; image->stride=320; image->pixels.assign(320*24,255);
@@ -92,20 +113,87 @@ static void suspended_clear_releases_textures(HWND window) {
         return status.engine.active.size()==1 && status.gpu_bytes>0;
     }),"suspended-clear image uploaded");
     scene.visible=false; host.update_scene(scene);
-    require(pump_until([&] { return host.status_snapshot().state==ddm::HostState::Suspended; }),
-            "suspended-clear host suspended");
+    require(pump_until([&] {
+        const auto status=host.status_snapshot();
+        return status.state==ddm::HostState::Suspended;
+    }),"suspended host releases GPU resources");
     require(!retained.expired(),"suspended active texture retains CPU image");
     const auto frames=host.status_snapshot().frames;
     ++scene.views[0].room_epoch; host.update_scene(scene);
     require(pump_until([&] {
         const auto status=host.status_snapshot();
         return status.state==ddm::HostState::Suspended && status.engine.active.empty() &&
-            status.cpu_image_bytes==0 && status.gpu_bytes==0 && retained.expired();
-    }),"suspended clear releases GPU texture and its CPU image without a frame");
+            status.cpu_image_bytes==0 && retained.expired();
+    }),"suspended clear releases comment texture and CPU image without a frame");
     require(host.status_snapshot().frames==frames,"suspended clear does not present");
     std::cout << "PASS: suspended clear releases GPU texture and weak CPU image without presenting" << std::endl;
     host.request_close();
     require(pump_until([&] { return host.reap(); }),"suspended-clear host close");
+}
+static void hidden_suspend_releases_mask(HWND window) {
+    ddm::Host host; host.attach(reinterpret_cast<std::uintptr_t>(window));
+    ddm::Scene scene; scene.width=640; scene.height=360;
+    ddm::ViewScene view; view.view_id=1; view.width=640; view.height=360;
+    view.lane_height=40; view.lanes=1; view.clip={0,0,640,360};
+    auto mask=std::make_shared<ddm::Image>();
+    mask->width=640; mask->height=360; mask->stride=2560; mask->pixels.assign(2560*360,255);
+    view.mask=mask; scene.views.push_back(view); host.update_scene(scene);
+    auto image=std::make_shared<ddm::Image>();
+    image->width=80; image->height=24; image->stride=320; image->pixels.assign(320*24,255);
+    ddm::PreparedComment comment; comment.view_id=1; comment.comment_id=1;
+    comment.width=80; comment.height=24; comment.image=std::move(image);
+    require(host.submit_batch({std::move(comment)}).first==1,"hidden-mask submission");
+    require(pump_until([&] { return host.status_snapshot().engine.active.size()==1; }),
+            "hidden-mask active comment admitted");
+    scene.visible=false; host.update_scene(scene);
+    require(pump_until([&] {
+        const auto status=host.status_snapshot();
+        return status.state==ddm::HostState::Suspended && status.gpu_bytes<4u*1024u*1024u;
+    }),"hidden host releases mask while retaining active comment texture");
+    host.request_close(); require(pump_until([&] { return host.reap(); }),"hidden-mask host close");
+}
+static void paused_clear_releases_mask(HWND window) {
+    ddm::Host host; host.attach(reinterpret_cast<std::uintptr_t>(window));
+    ddm::Scene scene; scene.width=640; scene.height=360;
+    ddm::ViewScene view; view.view_id=1; view.width=640; view.height=360;
+    view.lane_height=40; view.lanes=1; view.clip={0,0,640,360};
+    auto mask=std::make_shared<ddm::Image>();
+    mask->width=640; mask->height=360; mask->stride=2560; mask->pixels.assign(2560*360,255);
+    view.mask=mask; scene.views.push_back(view); host.update_scene(scene);
+    auto image=std::make_shared<ddm::Image>();
+    image->width=80; image->height=24; image->stride=320; image->pixels.assign(320*24,255);
+    ddm::PreparedComment comment; comment.view_id=1; comment.comment_id=1;
+    comment.width=80; comment.height=24; comment.image=std::move(image);
+    require(host.submit_batch({std::move(comment)}).first==1,"paused-mask submission");
+    require(pump_until([&] { return host.status_snapshot().engine.active.size()==1; }),"paused-mask admission");
+    scene.views[0].paused=true; host.update_scene(scene);
+    require(pump_until([&] { return host.status_snapshot().gpu_bytes>0; }),"paused active mask uploaded");
+    ++scene.views[0].room_epoch; host.update_scene(scene);
+    require(pump_until([&] {
+        const auto status=host.status_snapshot();
+        return status.engine.active.empty() && status.gpu_bytes==0;
+    }),"paused clear releases mask without a content frame");
+    host.request_close(); require(pump_until([&] { return host.reap(); }),"paused-mask host close");
+}
+static void destructor_and_concurrent_reap_join_once(HWND window) {
+    {
+        ddm::Host host; host.attach(reinterpret_cast<std::uintptr_t>(window));
+        ddm::Scene scene; scene.width=640; scene.height=360;
+        scene.views.push_back(ddm::ViewScene{}); scene.views[0].view_id=1;
+        scene.views[0].width=640; scene.views[0].height=360; scene.views[0].lane_height=40; scene.views[0].lanes=2;
+        scene.views[0].clip={0,0,640,360};
+        host.update_scene(scene);
+        require(pump_until([&] { return host.status_snapshot().frames>0; }),"destructor host started");
+    }
+    for (int iteration=1;iteration<=8;++iteration) {
+        ddm::Host host; host.attach(reinterpret_cast<std::uintptr_t>(window)); host.request_close();
+        require(pump_until([&] { return host.status_snapshot().state==ddm::HostState::Stopped; }),"concurrent reap host stopped");
+        std::atomic<int> reaped{};
+        std::thread first([&] { if (host.reap()) ++reaped; });
+        std::thread second([&] { if (host.reap()) ++reaped; });
+        first.join(); second.join();
+        require(reaped.load()==1,"each host reaps exactly once");
+    }
 }
 int main() {
     try {
@@ -120,6 +208,9 @@ int main() {
         require(window!=nullptr,"CreateWindow"); ShowWindow(window,SW_SHOWNOACTIVATE);
         pixel_prototype(window);
         suspended_clear_releases_textures(window);
+        hidden_suspend_releases_mask(window);
+        paused_clear_releases_mask(window);
+        destructor_and_concurrent_reap_join_once(window);
         ddm::Host host; host.attach(reinterpret_cast<std::uintptr_t>(window));
         ddm::Scene scene; scene.width = 640; scene.height = 360;
         ddm::ViewScene view; view.view_id = 1; view.width=640; view.height=360; view.lane_height=40; view.lanes=8; view.clip={0,0,640,360};

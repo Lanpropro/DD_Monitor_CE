@@ -29,7 +29,7 @@ jobs:
         run: powershell -File dev/build_native_danmaku.ps1 -Python (Get-Command python.exe).Source -SkipTests
       - name: Run deterministic native engine checks
         run: python -m cmake --build work/native-build --config Release --target engine_tests
-      - name: Execute CTest engine checks
+      - name: Execute deterministic CTest engine checks
         shell: pwsh
         run: |
           $ctest = python -c "import pathlib,cmake; print(pathlib.Path(cmake.CMAKE_BIN_DIR)/'ctest.exe')"

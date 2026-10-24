@@ -71,9 +71,15 @@ struct Counters {
     std::uint64_t dropped_lanes = 0, dropped_budget = 0;
 };
 
+struct ViewStatus {
+    std::uint64_t view_id = 0, room_epoch = 0, style_rev = 0;
+    bool can_start = false;
+};
+
 struct EngineStatus {
     std::uint64_t processed_sequence = 0;
     std::vector<CommentRef> active, pending;
+    std::vector<ViewStatus> views;
     std::size_t image_bytes = 0;
     Counters counters;
 };

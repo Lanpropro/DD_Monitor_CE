@@ -65,13 +65,18 @@ class FakeHost:
         self.closed = False
         self.reaped = False
         self.status: dict[str, Any] = {"state": "Running", "active": [], "pending": [],
-                                      "processed_sequence": 0, "needs_visible": False}
+                                      "views": [], "processed_sequence": 0, "needs_visible": False}
 
     def attach(self, hwnd: int) -> None:
         check(hwnd != 0, "adapter creates host window")
 
     def update_scene(self, scene: dict[str, Any]) -> None:
         self.scenes.append(scene)
+        if "views" in self.status:
+            self.status["views"] = [{
+                "view_id": item["view_id"], "room_epoch": item["room_epoch"],
+                "style_rev": item["style_rev"], "can_start": True,
+            } for item in scene.get("views", [])]
 
     def submit_batch(self, batch: list[dict[str, Any]]) -> tuple[int, int]:
         self.batches.append(batch)
@@ -151,6 +156,7 @@ class Harness:
         self.pool.complete()
         self.downloads.complete(QImage())
         self.host.reaped = True
+        self.host.status["state"] = "Stopped"
         self.layer._poll()
         check(self.layer.close_ready(), "completed host and futures close")
         self.wall.close()
@@ -205,6 +211,60 @@ def check_epoch_removal_and_ack() -> None:
         h.layer._flush_jobs()
         check(not h.host.scenes[-1]["views"] and not h.layer.entries, "removed view disappears and frees metadata")
         check(not h.layer.add_event(h.overlay, {"text": "removed"}), "removed overlay refuses work")
+    finally:
+        h.dispose()
+
+
+def check_native_lane_preflight() -> None:
+    h = Harness()
+    try:
+        h.layer._status = h.host.status_snapshot()
+        h.host.status["views"][0]["can_start"] = False
+        check(not h.layer.add_event(h.overlay, {"text": "blocked"}), "blocked lane is rejected before raster")
+        check(not h.pool.futures and len(h.layer.entries) == 0
+              and h.layer.lane_preflight_offered == 1
+              and h.layer.lane_preflight_rejected == 1
+              and h.layer.lane_preflight_refreshed == 1,
+              "lane preflight refusal creates no worker or metadata")
+        h.host.status["views"][0]["can_start"] = True
+        h.layer._status = h.host.status_snapshot()
+        check(h.layer.add_event(h.overlay, {"text": "released"}), "released lane starts raster")
+        check(len(h.pool.futures) == 1 and len(h.layer.entries) == 1,
+              "released lane queues exactly once")
+        h.host.status["views"][0]["style_rev"] += 1
+        check(h.layer.add_event(h.overlay, {"text": "stale status"}),
+              "stale preflight state defers the decision to native lane ownership")
+        check(h.layer.lane_preflight_rejected == 1,
+              "stale preflight state is not treated as an explicit refusal")
+        h.host.status["views"][0]["style_rev"] -= 1
+        entry = next(iter(h.layer.entries.values()))
+        view = h.layer.views[h.overlay._native_view_id]
+        check(h.layer._prepare(view, entry, replace=True), "active replacement bypasses lane preflight")
+        h.host.status.pop("views")
+        check(h.layer.add_event(h.overlay, {"text": "legacy host"}),
+              "legacy host status preserves compatibility fallback")
+    finally:
+        h.dispose()
+
+
+def check_lane_preflight_switch() -> None:
+    h = Harness()
+    try:
+        h.host.status["views"][0]["can_start"] = False
+        h.layer._status = h.host.status_snapshot()
+        with patch.object(bridge, "_LANE_PREFLIGHT", False):
+            check(h.layer.add_event(h.overlay, {"text": "control"}),
+                  "A/B control bypasses only the early lane check")
+        check(len(h.pool.futures) == 1 and h.layer.lane_preflight_offered == 0
+              and h.layer.lane_preflight_rejected == 0,
+              "disabled preflight still uses final native lane ownership")
+        with patch.object(bridge, "_LANE_PREFLIGHT", True), \
+                patch.object(bridge, "_LANE_PREFLIGHT_REFRESH", False):
+            h.layer._status = h.host.status_snapshot()
+            check(not h.layer.add_event(h.overlay, {"text": "cached false"}),
+                  "cached lane query fails closed")
+            check(h.layer.lane_preflight_refreshed == 0,
+                  "cached lane query performs no status refresh")
     finally:
         h.dispose()
 
@@ -283,8 +343,10 @@ def check_binding_copy_fits_total_budget() -> None:
     try:
         h.overlay.resize(1920, 1080)
         h.overlay.font_size = 144
+        h.layer.sync_scene()
         native_bytes = 20 * 1024 * 1024
         h.host.status["cpu_image_bytes"] = native_bytes
+        h.host.status["views"][0]["can_start"] = True
         h.layer._poll()
         with patch.object(h.overlay, "lane_height", return_value=152):
             event = {"text": "W" * 300, "self_sent": True}
@@ -359,10 +421,13 @@ def check_runtime_failure_rejects_stopped_layer() -> None:
         h.overlay.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
         h.host.status["state"] = "Failed"
         h.layer._poll()
+        h.layer._poll()
+        check(not h.layer.close_ready(),
+              "runtime failure waits for native thread reaping")
         h.host.reaped = True
         h.layer._poll()
         check(h.layer.close_ready() and not h.overlay._native_requested,
-              "runtime failure finishes asynchronous stop before fallback")
+              "runtime failure finishes asynchronous stop from Failed state before fallback")
         check(not h.overlay.testAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen),
               "runtime fallback restores QWidget onscreen rendering")
         owner = SimpleNamespace(_native_danmaku_layer=h.layer, _native_danmaku_attempted=True)
@@ -482,11 +547,13 @@ def check_style_emote_scene_and_close() -> None:
         h.pool.futures[-1].set_exception(RuntimeError("injected replacement failure"))
         h.layer._flush_jobs()
         check(entry.comment_id in h.layer.entries, "replacement failure keeps active image metadata")
+        h.layer._poll()
         check(h.layer.add_event(h.overlay, {"text": "running on close"}), "pending worker for close")
         running = h.pool.futures[-1]
         h.layer.request_close()
         check(h.host.closed and not h.layer.close_ready() and not running.done(), "close returns while worker and host are still running")
         h.host.reaped = True
+        h.host.status["state"] = "Stopped"
         h.layer._poll()
         check(not h.layer.close_ready(), "host stop waits asynchronously for outstanding worker")
         running.set_result(raster())
@@ -507,6 +574,8 @@ def main() -> int:
               patch.object(socket.socket, "connect", side_effect=AssertionError("network forbidden"))):
             check_bounds()
             check_epoch_removal_and_ack()
+            check_native_lane_preflight()
+            check_lane_preflight_switch()
             check_rejected_batch_cleanup()
             check_style_under_budget_pressure()
             check_prepare_ttl_and_order()

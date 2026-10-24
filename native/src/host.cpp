@@ -12,6 +12,7 @@
 namespace ddm {
 struct Host::Impl {
     mutable std::mutex mutex;
+    std::mutex join_mutex;
     HostStatus status;
     DisplaySampleBuffer display_samples;
     std::uint64_t display_hwnd = 0, display_swap = 0;
@@ -24,7 +25,7 @@ struct Host::Impl {
     Scene scene;
     std::deque<PreparedComment> queue;
     std::size_t queue_bytes = 0, inflight_bytes = 0, inflight_count = 0;
-    bool scene_changed = false, closing = false, attached = false, exited = false;
+    bool scene_changed = false, closing = false, attached = false, exited = false, reaped = false;
     std::uint64_t sequence = 0, rejected = 0;
     HANDLE control = CreateEventW(nullptr,FALSE,FALSE,nullptr);
     HANDLE stop = CreateEventW(nullptr,TRUE,FALSE,nullptr);
@@ -38,7 +39,12 @@ Host::Host() : impl_(std::make_shared<Impl>()) {
     LARGE_INTEGER frequency{}; QueryPerformanceFrequency(&frequency); impl_->qpc_frequency = frequency.QuadPart;
     if (!impl_->control || !impl_->stop) throw std::runtime_error("CreateEvent failed");
 }
-Host::~Host() { request_close(); reap(); }
+Host::~Host() {
+    request_close();
+    auto p = impl_;
+    std::lock_guard<std::mutex> join_lock(p->join_mutex);
+    if (p->worker.joinable()) p->worker.join();
+}
 void Host::attach(std::uintptr_t hwnd) {
     auto p = impl_;
     std::lock_guard<std::mutex> lock(p->mutex);
@@ -99,7 +105,13 @@ void Host::request_close() {
 bool Host::reap() {
     auto p = impl_;
     { std::lock_guard<std::mutex> lock(p->mutex); if (!p->exited) return false; }
+    std::lock_guard<std::mutex> join_lock(p->join_mutex);
     if (p->worker.joinable()) p->worker.join();
+    {
+        std::lock_guard<std::mutex> lock(p->mutex);
+        if (p->reaped) return false;
+        p->reaped = true;
+    }
     std::lock_guard<std::mutex> lock(Impl::registry_mutex());
     auto& registry = Impl::registry(); registry.erase(std::remove(registry.begin(),registry.end(),p),registry.end()); return true;
 }
@@ -126,12 +138,13 @@ void Host::Impl::run(std::uintptr_t hwnd) noexcept {
             const bool suspended = !current.visible || current.width <= 0 || current.height <= 0;
             if (!suspended && !initialized) { renderer.attach(hwnd,current.width,current.height); initialized = true; }
             if (!suspended && changed) renderer.resize(current.width,current.height);
-            if (initialized) renderer.trim(engine.items());
+            if (initialized) renderer.trim(current, engine.items());
+            const auto trimmed_gpu_bytes = renderer.gpu_bytes();
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 status.state = suspended ? HostState::Suspended : HostState::Running;
                 status.swap_chain_address = renderer.swap_chain_address();
-                status.gpu_bytes = renderer.gpu_bytes();
+                status.gpu_bytes = trimmed_gpu_bytes;
                 if (suspended) status.needs_visible = false;
                 status.engine = engine.status(); inflight_bytes = 0; inflight_count = 0; status.engine.counters.offered += host_rejected;
                 status.engine.counters.dropped_queue += host_rejected;
@@ -150,10 +163,10 @@ void Host::Impl::run(std::uintptr_t hwnd) noexcept {
             if (WaitForSingleObject(control,0) == WAIT_OBJECT_0) continue;
             const auto frame_now = monotonic_seconds();
             engine.advance(frame_now);
-            renderer.trim(engine.items());
+            renderer.trim(current, engine.items());
             engine.process_pending(frame_now,[&](const PreparedComment& item) { return renderer.prepare(item); });
             const auto items = engine.items();
-            renderer.trim(items);
+            renderer.trim(current, items);
             if (WaitForSingleObject(stop,0) == WAIT_OBJECT_0) break;
             if (WaitForSingleObject(control,0) == WAIT_OBJECT_0) continue;
             if (!items.empty() || !transparent || dirty || engine.dirty()) {
@@ -165,10 +178,11 @@ void Host::Impl::run(std::uintptr_t hwnd) noexcept {
             }
             dirty = false; engine.mark_clean();
             {
+                const auto gpu_bytes = renderer.gpu_bytes();
                 std::lock_guard<std::mutex> lock(mutex);
                 status.engine = engine.status(); inflight_bytes = 0; inflight_count = 0; status.engine.counters.offered += host_rejected;
                 status.engine.counters.dropped_queue += host_rejected;
-                status.gpu_bytes = renderer.gpu_bytes(); status.needs_visible = !items.empty();
+                status.gpu_bytes = gpu_bytes; status.needs_visible = !items.empty();
             }
         }
     } catch (const RenderError& error) {
@@ -185,7 +199,7 @@ void Host::Impl::run(std::uintptr_t hwnd) noexcept {
     if (status.state != HostState::Failed) status.state = HostState::Stopped;
     status.needs_visible = false; status.gpu_bytes = 0; closing = true; exited = true;
     status.swap_chain_address = 0;
-    status.engine.active.clear(); status.engine.pending.clear(); status.engine.image_bytes = 0;
+    status.engine.active.clear(); status.engine.pending.clear(); status.engine.views.clear(); status.engine.image_bytes = 0;
     queue.clear(); queue_bytes = 0; inflight_bytes = 0; inflight_count = 0;
 }
 }

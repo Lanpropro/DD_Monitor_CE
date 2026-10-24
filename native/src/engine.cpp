@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <memory>
 
 namespace ddm {
 namespace {
@@ -52,6 +53,12 @@ bool Engine::lane_available(int lane, double speed, double x,
             (distance - gap) / (speed - other.speed) < right / other.speed) return false;
     }
     return true;
+}
+bool Engine::can_start(const View& view) const {
+    if (!running(view) || view.active.size() >= 80) return false;
+    for (int lane = 0; lane < view.scene.lanes; ++lane)
+        if (lane_available(lane, 0, view.scene.width, view.active)) return true;
+    return false;
 }
 void Engine::prune(View& view) {
     std::vector<Active> kept;
@@ -195,8 +202,12 @@ EngineStatus Engine::status() const {
     result.processed_sequence = processed_sequence_;
     result.image_bytes = bytes();
     result.counters = counters_;
-    for (const auto& view : views_) for (const auto& item : view.active)
-        result.active.push_back({view.scene.view_id, item.comment.comment_id});
+    for (const auto& view : views_) {
+        result.views.push_back({view.scene.view_id, view.scene.room_epoch,
+                                view.scene.style_rev, can_start(view)});
+        for (const auto& item : view.active)
+            result.active.push_back({view.scene.view_id, item.comment.comment_id});
+    }
     for (const auto& item : pending_) result.pending.push_back({item.comment.view_id, item.comment.comment_id});
     return result;
 }

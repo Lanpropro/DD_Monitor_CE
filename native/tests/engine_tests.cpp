@@ -85,7 +85,7 @@ void collision_and_resize() {
     auto spec = scene();
     engine.update_scene(spec, 0);
     admit(engine, comment(1), 0);
-    engine.advance(1);
+    engine.advance(.1);
     check(engine.submit(comment(2, 900), 1), "long follower queues");
     engine.process_pending(1, upload);
     check(engine.status().counters.dropped_lanes == 1 && engine.items().size() == 1,
@@ -100,6 +100,41 @@ void collision_and_resize() {
     spec.views[0].lanes = 0;
     engine.update_scene(spec, 3);
     check(engine.empty(), "removed lanes prune comments");
+}
+void lane_preflight_is_conservative() {
+    ddm::Engine engine;
+    auto spec = scene();
+    engine.update_scene(spec, 0);
+    check(engine.status().views.size() == 1 && engine.status().views[0].can_start,
+          "empty lane can start");
+    admit(engine, comment(1), 0);
+    auto status = engine.status();
+    check(!status.views[0].can_start && status.active.size() == 1 &&
+          status.pending.empty() && status.counters.offered == 1 &&
+          status.counters.queued == 1 && status.counters.admitted == 1,
+          "full lane preflight is reject-only");
+    engine.advance(.1);
+    check(!engine.status().views[0].can_start, "short elapsed time stays blocked");
+    engine.advance(5);
+    check(engine.status().views[0].can_start, "released lane can start");
+    check(engine.submit(comment(2, 500), 5) && engine.process_pending(5, upload) == 1,
+          "preflight true does not reserve or bypass final collision");
+    check(!engine.status().views[0].can_start, "long speed-zero preflight remains conservative");
+    spec.views[0].paused = true;
+    engine.update_scene(spec, 8);
+    check(!engine.status().views[0].can_start, "paused view cannot start");
+    spec.views[0].paused = false;
+    spec.views[0].lanes = 2;
+    engine.update_scene(spec, 8);
+    check(engine.status().views[0].can_start, "extra lane appears in native status");
+    spec.views[0].room_epoch = 2;
+    engine.update_scene(spec, 8);
+    status = engine.status();
+    check(status.views[0].room_epoch == 2 && status.views[0].style_rev == 1,
+          "preflight carries generation identity");
+    spec.views.clear();
+    engine.update_scene(spec, 8);
+    check(engine.status().views.empty(), "removed view disappears from preflight");
 }
 void generations_and_replacement() {
     ddm::Engine engine;
@@ -266,6 +301,7 @@ int main() {
         display_buffer_limits();
         motion_and_pause();
         collision_and_resize();
+        lane_preflight_is_conservative();
         generations_and_replacement();
         queue_and_upload();
         order_and_global_bound();

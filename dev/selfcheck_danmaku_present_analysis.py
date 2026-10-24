@@ -12,7 +12,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev.benchmarks.analyze_danmaku_present import analyze, analyze_dxgi, compare_resources, sha256
-from dev.benchmarks.benchmark_video_danmaku_render import DisplayStatisticsRecorder, ResourceSampler, benchmark_window_state, drop_stage_counters, memory_trend, stats
+from dev.benchmarks.benchmark_video_danmaku_render import (
+    DisplayStatisticsRecorder, ResourceSampler, benchmark_window_state, build_report,
+    counter_delta, drop_stage_counters, input_plan, input_plan_summary, memory_trend,
+    planned_offer, report_paths, stats, verify_abba_reports)
 
 
 class PresentAnalysisTests(unittest.TestCase):
@@ -316,8 +319,12 @@ class DxgiStatisticsTests(unittest.TestCase):
         from dev.benchmarks.benchmark_video_danmaku_render import parse_args
         with patch.object(sys, "argv", ["benchmark", "--backend", "native"]):
             self.assertFalse(parse_args().always_on_top)
+            self.assertEqual(parse_args().lane_preflight, 1)
         with patch.object(sys, "argv", ["benchmark", "--backend", "native", "--always-on-top"]):
             self.assertTrue(parse_args().always_on_top)
+        with patch.object(sys, "argv", ["benchmark", "--backend", "native", "--lane-preflight", "0"]):
+            self.assertEqual(parse_args().lane_preflight, 0)
+            self.assertEqual(parse_args().lane_preflight_refresh, 1)
 
     def test_recorder_drains_pages_using_last_returned_sequence(self):
         class Host:
@@ -368,6 +375,38 @@ class CollectorContractTests(unittest.TestCase):
 
 
 class ResourceTests(unittest.TestCase):
+    def test_report_counts_complete_plan_without_claiming_display_acceptance(self):
+        class Args:
+            lane_preflight = 1
+            lane_preflight_refresh = 1
+        class Screen:
+            def name(self): return "DISPLAY2"
+            def refreshRate(self): return 60
+            def size(self):
+                class Size:
+                    def width(self): return 3840
+                    def height(self): return 2160
+                return Size()
+            def devicePixelRatio(self): return 1.5
+            def geometry(self): return "geometry"
+        plan = input_plan(1, "high")
+        start = {"counters": {"offered": 1, "admitted": 2}, "lane_preflight_offered": 3}
+        end = {"counters": {"offered": 5, "admitted": 7}, "lane_preflight_offered": 8}
+        report = build_report(args=Args(), plan_summary=input_plan_summary(plan),
+                              counters={"offered": 32, "queued": 20, "rejected": 12},
+                              offer_lag={"count": 1, "max_seconds": 0.02},
+                              status_start=start, status_end=end,
+                              native_counts={"offered": 4, "admitted": 5},
+                              screen=Screen(), screen_start=("DISPLAY2", 60, "geometry"),
+                              mode_changed=False, resource_samples="samples.jsonl")
+        self.assertEqual(report["status"], "unverified")
+        self.assertEqual(report["input_actual"]["offered"], 32)
+        self.assertEqual(report["input_actual"]["events_per_tile"], 8)
+        self.assertEqual(report["input_plan"]["offered"], 32)
+        self.assertEqual(report["input_lag"]["count"], 1)
+        self.assertEqual(report["counter_delta"]["counters.admitted"], 5)
+        self.assertFalse(report["display_mode_changed_during_capture"])
+
     def test_benchmark_disables_hover_network_entry_without_mutating_defaults(self):
         defaults = {"auto_update": True, "preview_on_hover": True, "video_danmaku_size": 24}
         original = defaults.copy()
@@ -384,12 +423,160 @@ class ResourceTests(unittest.TestCase):
         self.assertEqual(fresh["plugins_enabled"], [])
 
     def test_overlapping_failures_remain_separate_and_replacements_unknown(self):
-        stages = drop_stage_counters(1, {"dropped_prepare": 3, "counters": {"dropped_queue": 5}},
-                                    {"dropped_prepare": 6, "counters": {"dropped_queue": 7}})
+        stages = drop_stage_counters(1, {"dropped_prepare": 3, "lane_preflight_offered": 4,
+                                        "lane_preflight_rejected": 2, "lane_preflight_refreshed": 4,
+                                        "counters": {"dropped_queue": 5}},
+                                    {"dropped_prepare": 6, "lane_preflight_offered": 11,
+                                     "lane_preflight_rejected": 9, "lane_preflight_refreshed": 11,
+                                     "counters": {"dropped_queue": 7}})
         self.assertEqual(stages["add_event_rejected"], 1)
         self.assertEqual(stages["prepare_failures_including_native_queue_rejections"], 3)
+        self.assertEqual(stages["lane_preflight_offered"], 7)
+        self.assertEqual(stages["lane_preflight_rejected"], 7)
+        self.assertEqual(stages["lane_preflight_refreshed"], 7)
         self.assertEqual(stages["native_submission_failures"], {"dropped_queue": 2})
         self.assertIsNone(stages["replacement_failures"])
+
+    def test_formal_input_plan_is_deterministic_and_counts_boundary(self):
+        plan = input_plan(2, "high")
+        repeat = input_plan(2, "high")
+        self.assertEqual(plan, repeat)
+        self.assertEqual(plan[0], {"due": 0.0, "sequence": 1, "kind": "long", "color": "#ff8844"})
+        self.assertEqual(plan[-1]["sequence"], len(plan))
+        self.assertEqual(len(plan), 16)
+        summary = input_plan_summary(plan)
+        self.assertEqual(summary["offered"], 64)
+        self.assertEqual(summary["sequence_start"], 1)
+        self.assertEqual(summary["sequence_end"], 16)
+        self.assertEqual(summary["exact_duration_seconds"], 2)
+        self.assertEqual(summary["sha256"], input_plan_summary(repeat)["sha256"])
+        self.assertEqual(input_plan(1, "burst")[0]["sequence"], 1)
+        self.assertEqual(len(input_plan(1, "burst")), 50)
+        self.assertEqual(input_plan_summary(input_plan(1, "burst"))["exact_duration_seconds"], 5)
+
+    def test_counter_delta_includes_all_native_and_preflight_fields(self):
+        start = {"counters": {"offered": 2, "admitted": 1},
+                 "prepare_offered": 4, "lane_preflight_offered": 5,
+                 "lane_preflight_rejected": 3}
+        end = {"counters": {"offered": 9, "admitted": 6, "dropped_lanes": 2},
+               "prepare_offered": 11, "lane_preflight_offered": 15,
+               "lane_preflight_rejected": 8, "lane_preflight_refreshed": 6}
+        result = counter_delta(start, end)
+        self.assertEqual(result["counters.offered"], 7)
+        self.assertEqual(result["counters.admitted"], 5)
+        self.assertEqual(result["counters.dropped_lanes"], 2)
+        self.assertEqual(result["prepare_offered"], 7)
+        self.assertEqual(result["lane_preflight_offered"], 10)
+        self.assertEqual(result["lane_preflight_rejected"], 5)
+        self.assertEqual(result["lane_preflight_refreshed"], 6)
+        self.assertEqual(result["prepare_queued"], 0)
+        self.assertEqual(result["dropped_prepare"], 0)
+
+    def test_planned_offer_resets_at_capture_boundary_and_never_duplicates(self):
+        plan = input_plan(2, "burst")
+        state = {"index": 0, "lag": {"count": 0, "max_seconds": 0.0}, "next_due": 20.0}
+        first = planned_offer(20.0, state, 20.015, plan)
+        second = planned_offer(20.0, state, 20.02, plan)
+        self.assertIs(first, plan[0])
+        self.assertIs(second, plan[1])
+        self.assertEqual(state["index"], 2)
+        self.assertAlmostEqual(state["lag"]["max_seconds"], 0.02)
+        self.assertEqual(state["lag"]["count"], 2)
+        self.assertEqual(state["next_due"], 20.0)
+
+    def test_abba_verifier_accepts_four_fresh_matching_children_and_rejects_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            base = {"source_commit": "fixed", "source_code_sha256": "source",
+                    "backend": "native", "video": "mixed", "density": "high",
+                    "source_dirty": [], "native_binary": {"sha256": "binary"},
+                    "python": "3.13", "qt_version": "6.9.3",
+                    "video_rates": [30, 60, 30, 60],
+                    "source_video_sha256": {"mixed": "videos"},
+                    "screen_hz": 60, "screen_size": [3840, 2160], "screen_dpr": 1.5,
+                    "sample_scale": 2, "render_quality": {"sample_scale": 2},
+                    "input_plan": {"offered": 480, "sha256": "plan"},
+                    "input_actual": {"offered": 480}, "repeat": 1,
+                    "warmup_seconds": 10, "capture_seconds": 120,
+                    "window_always_on_top": True,
+                    "display_mode_changed_during_capture": False,
+                    "measurement_schema": 3}
+            arms = (("control", 1, 0), ("enabled", 2, 1),
+                    ("enabled", 3, 1), ("control", 4, 0))
+            paths = []
+            for index, (arm, arm_id, enabled) in enumerate(arms):
+                path = output / f"{index}.json"
+                report = dict(base, worker_arm=arm, arm_id=arm_id,
+                              lane_preflight=enabled, lane_preflight_refresh=1,
+                              pid=900000000 + index,
+                              worker_environment={"lane_preflight": bool(enabled),
+                                                  "lane_preflight_refresh": True,
+                                                  "pid": 900000000 + index})
+                path.write_text(json.dumps(report), encoding="utf-8")
+                paths.append(path)
+            with patch("dev.benchmarks.benchmark_video_danmaku_render.process_alive",
+                       return_value=False):
+                self.assertEqual(verify_abba_reports(paths)["status"], "comparable")
+            drift = json.loads(paths[-1].read_text(encoding="utf-8"))
+            drift["screen_hz"] = 120
+            paths[-1].write_text(json.dumps(drift), encoding="utf-8")
+            with patch("dev.benchmarks.benchmark_video_danmaku_render.process_alive",
+                       return_value=False):
+                verifier = verify_abba_reports(paths)
+            self.assertEqual(verifier["status"], "unverified")
+            self.assertIn("Unmatched/missing ABBA screen_hz", verifier["errors"])
+            self.assertEqual(len(report_paths(output)), 4)
+
+    def test_abba_verifier_rejects_binary_and_source_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            base = {"source_commit": "fixed", "source_code_sha256": "source",
+                    "source_dirty": [], "native_binary": {"sha256": "binary"},
+                    "python": "3.13", "qt_version": "6.9.3", "backend": "native",
+                    "video": "mixed", "video_rates": [30, 60, 30, 60], "density": "high",
+                    "source_video_sha256": {"mixed": "videos"},
+                    "screen_hz": 60, "screen_size": [3840, 2160], "screen_dpr": 1.5,
+                    "sample_scale": 2, "render_quality": {"sample_scale": 2},
+                    "input_plan": {"offered": 480, "sha256": "plan"},
+                    "input_actual": {"offered": 480}, "repeat": 1,
+                    "warmup_seconds": 10, "capture_seconds": 120,
+                    "window_always_on_top": True,
+                    "display_mode_changed_during_capture": False,
+                    "measurement_schema": 3}
+            arms = (("control", 1, 0), ("enabled", 2, 1),
+                    ("enabled", 3, 1), ("control", 4, 0))
+            paths = []
+            for index, (arm, arm_id, enabled) in enumerate(arms):
+                path = output / f"{index}.json"
+                report = dict(base, worker_arm=arm, arm_id=arm_id,
+                              lane_preflight=enabled, lane_preflight_refresh=1,
+                              pid=910000000 + index,
+                              worker_environment={"lane_preflight": bool(enabled),
+                                                  "lane_preflight_refresh": True,
+                                                  "pid": 910000000 + index})
+                path.write_text(json.dumps(report), encoding="utf-8")
+                paths.append(path)
+            drift = json.loads(paths[-1].read_text(encoding="utf-8"))
+            drift["native_binary"] = {"sha256": "different"}
+            drift["source_dirty"] = [" M ddm/native_danmaku.py"]
+            paths[-1].write_text(json.dumps(drift), encoding="utf-8")
+            with patch("dev.benchmarks.benchmark_video_danmaku_render.process_alive",
+                       return_value=False):
+                verifier = verify_abba_reports(paths)
+            self.assertEqual(verifier["status"], "unverified")
+            self.assertIn("Unmatched/missing ABBA native_binary", verifier["errors"])
+            self.assertIn("ABBA arms were not captured from a clean relevant source tree",
+                          verifier["errors"])
+            self.assertIn("ABBA native binary hashes differ", verifier["errors"])
+
+    def test_repeat_orchestration_evidence_is_not_a_benchmark_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / "repeat-attempts.json").write_text("{}", encoding="utf-8")
+            (output / "capture-analysis.json").write_text("{}", encoding="utf-8")
+            report = output / "capture.json"
+            report.write_text("{}", encoding="utf-8")
+            self.assertEqual(report_paths(output), [report])
 
     @unittest.skipUnless(sys.platform == "win32", "Win32 process memory API")
     def test_real_current_process_memory_without_gui(self):

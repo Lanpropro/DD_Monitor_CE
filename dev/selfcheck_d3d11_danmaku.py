@@ -239,8 +239,8 @@ def main():
                 assert not layer.entries, "Metadata must be reclaimed after clear"
                 layer.request_close()
                 wait_for(app, layer.close_ready)
-                assert layer.host.reap()
                 assert layer.host.status_snapshot()["state"] == "Stopped"
+                assert not layer.host.reap(), "Shutdown wrapper already reaped the host"
                 assert handles == [int(tile.video.winId()) for tile in wall.tiles]
                 print(f"PASS shared hardware D3D11 over four 1080p mpv windows; GUI/GIL independence, "
                       f"pause/resize/minimize/clear/async close; screenshot={out}")
