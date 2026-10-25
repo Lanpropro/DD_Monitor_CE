@@ -1,5 +1,6 @@
 """Opt-in settings worker: JSON messages only, no shared GUI or playback objects."""
 import json
+from copy import deepcopy
 import os
 from pathlib import Path
 import sys
@@ -164,29 +165,41 @@ def run_worker():
     os.environ['DDM_NO_SAVE'] = '1'
     import tempfile
     import threading
-    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QApplication
     from . import config, theme
-    from .dialogs import SettingsDialog
+    from .dialogs import SettingsDialog, SettingsSavePrompt, SHORTCUT_ACTIONS
 
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    from .localization import install_chinese_translations
+    install_chinese_translations(app)
+    for icon_path in (Path(config.REPO) / 'assets/favicon.ico', Path(config.REPO) / 'favicon.ico'):
+        if icon_path.is_file():
+            app.setWindowIcon(QIcon(str(icon_path)))
+            break
 
     def send(message):
         print(PREFIX + json.dumps(message), flush=True)
 
     class RemoteDialog(SettingsDialog):
         def __init__(self, snapshot):
-            self.snapshot = snapshot
             self.host_page = None
             self.last_page = 0
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            # Compare against the values shown by the controls, not raw input.
+            # settings() adds metadata such as an empty seen_update_versions map.
+            self.initial_settings = deepcopy(self.settings())
+            self.initial_shortcuts = {
+                **{key: default for key, _label, default in SHORTCUT_ACTIONS},
+                **self.shortcuts()}
 
         def changes(self):
             return {'settings': {key: value for key, value in self.settings().items()
-                                 if value != self.snapshot['settings'].get(key)},
+                                 if value != self.initial_settings.get(key)},
                     'shortcuts': {key: value for key, value in self.shortcuts().items()
-                                  if value != self.snapshot['shortcuts'].get(key)}}
+                                  if value != self.initial_shortcuts.get(key)}}
 
         def _on_page_changed(self, index):
             if index not in HOST_PAGES:
@@ -198,11 +211,12 @@ def run_worker():
             changes = self.changes()
             accepted = False
             if any(changes.values()):
-                answer = QMessageBox.question(self, '保存设置', '切换前保存当前改动？',
-                    QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Cancel)
-                if answer == QMessageBox.Cancel:
+                prompt = SettingsSavePrompt(self)
+                answer = prompt.exec()
+                prompt.deleteLater()
+                if answer == SettingsSavePrompt.CANCEL:
                     return
-                accepted = answer == QMessageBox.Save
+                accepted = answer == SettingsSavePrompt.SAVE
             self.host_page = HOST_PAGES[index]
             self.done(SettingsDialog.Accepted if accepted else SettingsDialog.Rejected)
 

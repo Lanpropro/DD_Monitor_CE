@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QProcess, QTimer, qVersion
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 from ddm import config, settings_process
 
 
@@ -30,6 +30,18 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            if action.startswith(('clean-', 'revert-')):
+                if action.startswith('revert-'):
+                    initial = self.general_page.volume_slider.value()
+                    self.general_page.volume_slider.setValue(17)
+                    self.general_page.volume_slider.setValue(initial)
+                for index in (2, 3, 4, 5, 0):
+                    self.nav.setCurrentRow(index)
+                page = action.split('-')[1]
+                with patch.object(dialogs.SettingsSavePrompt, 'exec',
+                                  side_effect=AssertionError('Unchanged settings prompted to save')):
+                    self.nav.setCurrentRow(self.PAGE_INDEX[page])
+                return
             if action == 'focus':
                 self.general_page.volume_slider.setValue(17)
                 return
@@ -44,7 +56,8 @@ def child(action):
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
             if action.startswith('page'):
                 choice = action.split('-')[1]
-                with patch.object(QMessageBox, 'question', return_value=getattr(QMessageBox, choice)):
+                with patch.object(dialogs.SettingsSavePrompt, 'exec',
+                                  return_value=getattr(dialogs.SettingsSavePrompt, choice.upper())):
                     self.nav.setCurrentRow(1)
                 if choice == 'Cancel':
                     assert self.isVisible() and self.nav.currentRow() == 0
@@ -81,6 +94,35 @@ def wait(app, predicate, timeout=12):
         time.sleep(0.001)
 
 
+def check_save_prompt(app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from ddm import theme
+    from ddm.dialogs import SettingsSavePrompt
+
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        for action, expected in (('save_button', SettingsSavePrompt.SAVE),
+                                 ('discard_button', SettingsSavePrompt.DISCARD),
+                                 ('cancel_button', SettingsSavePrompt.CANCEL),
+                                 ('escape', SettingsSavePrompt.CANCEL)):
+            prompt = SettingsSavePrompt()
+            assert prompt.windowTitle() == '保存设置'
+            assert [prompt.save_button.text(), prompt.discard_button.text(), prompt.cancel_button.text()] == [
+                '保存', '放弃更改', '取消']
+            assert prompt.save_button.objectName() == 'PrimaryButton'
+            assert prompt.discard_button.objectName() == prompt.cancel_button.objectName() == 'IconButton'
+            assert prompt.cancel_button.isDefault()
+            if action == 'escape':
+                QTimer.singleShot(0, lambda p=prompt: QTest.keyClick(p, Qt.Key_Escape))
+            else:
+                QTimer.singleShot(0, getattr(prompt, action).click)
+            assert prompt.exec() == expected
+            prompt.deleteLater()
+            app.processEvents()
+    theme.apply('dark')
+
+
 def check_worker(app, action):
     messages, saves, pages, failures, ticks = [], [], [], [], []
     timer = QTimer()
@@ -102,18 +144,21 @@ def check_worker(app, action):
             assert client.worker_pid == pid and not grant.called, 'Prewarming must not take focus'
             process_pid = client.process.processId()
             assert pid != os.getpid()
-            initial = dict(config.DEFAULT_SETTINGS, default_volume=42)
+            initial = dict(config.DEFAULT_SETTINGS, default_volume=42, seen_update_versions={'app': '0.5.1'})
             client.open(initial, {})
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
             assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
-            assert bool(saves) == (action not in ('cancel', 'page-Discard', 'page-Cancel'))
+            clean = action.startswith(('clean-', 'revert-'))
+            assert bool(saves) == (not clean and action not in ('cancel', 'page-Discard', 'page-Cancel'))
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
                 assert 'appearance_mode' not in saves[0]['settings']
-            assert pages == (['appearance'] if action in ('page-Save', 'page-Discard') else [])
+                assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
+            assert pages == ([action.split('-')[1]] if clean else
+                             ['appearance'] if action in ('page-Save', 'page-Discard') else [])
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
                 assert maximum < 0.15, maximum
@@ -338,7 +383,9 @@ def main():
     if sys.argv[1:] == ['--native-focus']:
         check_native_focus(app)
         return 0
-    for action in ('save', 'cancel', 'page-Save', 'page-Discard', 'page-Cancel', 'busy'):
+    check_save_prompt(app)
+    for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
+                   'save', 'cancel', 'page-Save', 'page-Discard', 'page-Cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)
