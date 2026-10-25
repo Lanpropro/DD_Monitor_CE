@@ -16,7 +16,7 @@ runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -151,13 +151,13 @@ class MainNoticesTests(unittest.TestCase):
                 notice._open_file_location()
                 self.assertEqual(Path(folder.call_args.args[0].toLocalFile()), path.parent)
 
-    def test_recording_and_send_notices_include_room_and_update_all_avatars(self):
+    def test_room_notices_include_room_and_update_all_avatars(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
         window.recorder._say('主播甲 开始录制', room)
         recording = window._result_notice
         self.assertIn('1001', recording._avatars)
-        window.wall.tiles[0].composer.noticeRequested.emit('发送失败', False)
+        window._show_notice('房间提示', rooms=[room])
         sending = window._result_notice
         self.assertIn('1001', sending._avatars)
         with patch.object(recording, 'set_room_avatar') as first, \
@@ -338,7 +338,7 @@ class MainNoticesTests(unittest.TestCase):
         tile = window.wall.tiles[0]
         with patch.object(window, '_tile_under_cursor', return_value=tile), \
                 patch.object(window, '_clear_tile_room') as clear:
-            for edit in (window.sidebar.search, tile.composer.edit):
+            for edit in (window.sidebar.search, QLineEdit(tile.bottom)):
                 edit.setText('abc')
                 edit.setCursorPosition(0)
                 edit.setFocus()
@@ -364,29 +364,6 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(window.current_state()['ui']['shortcuts']['close_tile'], 'Ctrl+K')
         page.reset()
         self.assertEqual(page.values()['close_tile'], 'Del')
-
-    def test_send_auth_notice_opens_login_and_normal_notice_clears_action(self):
-        from ddm import bili
-        window = self.window([{'room_id': '1001'}])
-        composer = window.wall.tiles[0].composer
-        for session in ('', 'existing-session'):
-            with patch.object(bili, 'SESSION_DATA', session), patch.object(bili, 'BILI_JCT', ''), \
-                    patch.object(window, 'open_login') as login, patch.object(bili, 'send_danmaku') as send:
-                composer.edit.setText('test')
-                composer.send_text()
-                self.app.processEvents()
-                notice = window._result_notice
-                self.assertIn('登录', notice.title.text())
-                self.assertTrue(composer.feedback.isHidden())
-                self.assertFalse(composer.feedback.isWindow())
-                self.assertEqual(composer.edit.toolTip(), '')
-                QTest.mouseClick(notice.title, Qt.LeftButton)
-                login.assert_called_once_with('bilibili', reauthenticate=True)
-                send.assert_not_called()
-                window._show_notice('普通提示')
-                notice = window._result_notice
-                QTest.mouseClick(notice.title, Qt.LeftButton)
-                self.assertEqual(login.call_count, 1)
 
     def test_reauthentication_opens_login_without_discarding_existing_cookies(self):
         from ddm import bili

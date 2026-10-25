@@ -63,6 +63,7 @@
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_cookies.py`
+- `dev/selfcheck_bili_plugin_boundary.py`
 - `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
@@ -82,7 +83,6 @@
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_button.py`
-- `dev/selfcheck_danmaku_composer.py`
 - `dev/selfcheck_danmaku_connection.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
@@ -91,7 +91,6 @@
 - `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`
-- `dev/selfcheck_danmaku_send.py`
 - `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
 - `dev/selfcheck_delete.py`
@@ -109,7 +108,6 @@
 - `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
-- `dev/selfcheck_emoticon_tabs.py`
 - `dev/selfcheck_encoders.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
@@ -231,6 +229,8 @@
 - `dev/selfcheck_platform_quality_live.py`
 - `dev/selfcheck_platform_storage.py`
 - `dev/selfcheck_plugin_cache.py`
+- `dev/selfcheck_plugin_controls.py`
+- `dev/selfcheck_plugin_credentials.py`
 - `dev/selfcheck_plugin_drop_restart.py`
 - `dev/selfcheck_plugin_rename.py`
 - `dev/selfcheck_plugin_settings.py`
@@ -330,6 +330,7 @@
 
 ### 开发指南
 
+- `docs/development/bili-live-acceptance.md`
 - `docs/development/testing.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`

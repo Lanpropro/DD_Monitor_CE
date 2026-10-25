@@ -13,7 +13,7 @@
 | 0.4.1 待办 | [待修改内容、未决要求与验收范围](development/v0.4.1-backlog.md) |
 | 近期功能集成 | [已验收界面与性能改动、验证范围](development/ui-integration-20261019.md) |
 | 本次整合 | [2026-10-19 仓库与 PR 整合记录](archive/repository-integration-20261019.md) |
-| 插件 | [插件说明](plugins.md) |
+| 插件 | [插件说明](plugins.md)、[bili_live 本地验收及行为差异](development/bili-live-acceptance.md) |
 | 外观与皮肤 | [外观设计](appearance-design.md)、[皮肤说明](skins.md) |
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](archive/pr6-pr7-layout-testing.md) |
 | 窗口缩放性能 | [交互、模块分工与验收](resize-performance.md) |

@@ -107,7 +107,7 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 | 通知、开播提醒、快捷键入口 | `python dev/run_checks.py --script selfcheck_main_notices` | 手动检查点击、关闭、遮挡及连续通知 |
 | 关注排序、常看记录 | `python dev/run_checks.py --script selfcheck_frequent_sort`；`python dev/run_checks.py --script selfcheck_sort_manager` | 检查启用／停用、置顶、普通及智能文件夹、手动刷新和重启恢复；悬停不计次 |
 | 布局、格子数量与状态恢复 | `python dev/run_checks.py --script selfcheck_layout_16`；`python dev/run_checks.py --script selfcheck_layout_growth_empty` | 拖拽、全屏或方向相关改动还需 `--suite native` 及实际播放验收 |
-| 弹幕发送、凭据快照与协议 | `python dev/run_checks.py --script selfcheck_danmaku_send`；连接改动另跑 `--script selfcheck_danmaku_connection` | 使用替身或本机服务，不向真实直播间发送测试消息 |
+| 弹幕发送、凭据快照与协议 | `python dev/run_checks.py --script selfcheck_bili_plugin_boundary`；发送协议在独立插件仓执行对应专项；连接改动另跑 `--script selfcheck_danmaku_connection` | 使用替身或本机服务，不向真实直播间发送测试消息 |
 | 弹幕绘制、浮层和控件 | `python dev/run_checks.py --script selfcheck_video_danmaku`；`python dev/run_checks.py --script selfcheck_video_danmaku_controls` | Quick 渲染或透明窗口改动另跑 native 套件并检查高 DPI |
 | 插件接口、事件和装载 | `python dev/run_checks.py --script selfcheck_plugin_contract` | 安装／更新／启用交互需按插件主题索引选择专项，使用临时插件目录 |
 | 播放器、解码与原生窗口 | `python dev/run_checks.py --suite native` | 实际播放、音频听感及跨屏检查，必要时显式运行 live 单项 |

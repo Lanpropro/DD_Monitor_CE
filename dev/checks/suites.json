@@ -23,7 +23,7 @@
       "selfcheck_main_notices",
       "selfcheck_notification_center",
       "selfcheck_layout_16",
-      "selfcheck_danmaku_send",
+      "selfcheck_bili_plugin_boundary",
       "selfcheck_plugin_contract",
       "selfcheck_frequent_sort"
     ]
@@ -32,15 +32,15 @@
     "mode": "offline",
     "description": "已核对的离屏功能回归；需要开发依赖，使用替身或本机测试服务",
     "scripts": [
+      "selfcheck_bili_plugin_boundary",
+      "selfcheck_plugin_controls",
+      "selfcheck_plugin_credentials",
       "selfcheck_bili_cookies",
       "selfcheck_legacy_cleanup",
       "selfcheck_drag_lifecycle",
       "selfcheck_player_lifetime",
       "selfcheck_danmaku_connection",
       "selfcheck_danmaku_room_switches",
-      "selfcheck_danmaku_send",
-      "selfcheck_danmaku_composer",
-      "selfcheck_emoticon_tabs",
       "selfcheck_general_settings",
       "selfcheck_bili_codec",
       "selfcheck_tile_bottom_order",

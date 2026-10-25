@@ -11,11 +11,17 @@
 | `plugins_user/` | 模板、开发源码与本机安装副本混合存放；安装副本的改动应在独立插件仓库追踪 |
 | `utils/`、`cache/`、`logs/`、`recordings/` | 本机配置、账号、缓存、日志和录像；保持现有读取路径与 Git 忽略规则 |
 | `work/` | 临时工作树、构建依赖、回归日志和恢复备份；按子项目处理 |
-| `results/` | 发布与验证产物；不能全部当作缓存 |
+| `results/` | 发布成品、最终视频/封面及随附的来源和校验文件；不存放测试日志、素材、备份或验收入口 |
+| `work/test-artifacts/` | 按二路插件、设置进程、本体验证和导出校验分类的本机测试资料；迁移清单记录原路径与目标路径 |
 | `videos/`、`Video_reference/`、`raw/` | 独立宣传工程、参考与原始素材，按素材项目管理 |
 | `_perf_tmp/`、`ddm_plugins_dd3l0oxq/` | 2026-10-19 检查时无文件；来源或工具复用条件尚未确认，保留 |
 
 分类时只检查配置、媒体和素材目录的入口及必要文件元数据，不读取真实账号或媒体内容。
+
+测试输出默认写入 `work/checks/` 或 `work/test-artifacts/<任务>/`，最终安装包和成片才复制到 `results/`。
+本机历史资料迁移记录在 `work/test-artifacts/relocation-20261025.json`；二路合成视频位于
+`work/test-artifacts/match-sync/match-input-fixtures/`，未发布修复版入口位于
+`work/test-artifacts/host/v051-validation/启动修复验收.cmd`。旧报告中的 `results/` 路径按清单查找，不创建兼容链接把测试资料继续挂回成品目录。
 
 ## 本机旧 VLC 归档
 
