@@ -290,6 +290,10 @@ def app_release(client, current_version):
             return None
         offer = manifest_offer(manifest, APP_REPOSITORY)
         offer.setdefault('notes', '暂无更新说明')
+        try:
+            offer['notes'] = release_notes(client, offer['version'])
+        except (requests.RequestException, ValueError):
+            pass
         return offer
     candidates = []
     for release in releases(APP_REPOSITORY, client):

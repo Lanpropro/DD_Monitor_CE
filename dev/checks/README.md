@@ -193,8 +193,8 @@
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |
 | [selfcheck_download_retry](../selfcheck_download_retry.py) | 单项执行前核对 |
 | [selfcheck_fixed_exe_entry](../selfcheck_fixed_exe_entry.py) | 单项执行前核对 |
-| [selfcheck_online](../selfcheck_online.py) | 单项执行前核对 |
-| [selfcheck_online_ui](../selfcheck_online_ui.py) | 单项执行前核对 |
+| [selfcheck_online](../selfcheck_online.py) | 合成响应；发布正文刷新、清单回退、下载校验及插件升级事务 |
+| [selfcheck_online_ui](../selfcheck_online_ui.py) | 离屏合成数据；下载期间关闭/重开普通及独立设置、后台完成/退出收尾、当前版本正文及更新保存衔接 |
 | [selfcheck_parallel_plugin_downloads](../selfcheck_parallel_plugin_downloads.py) | 单项执行前核对 |
 | [selfcheck_plugin_cache](../selfcheck_plugin_cache.py) | 单项执行前核对 |
 | [selfcheck_plugin_drop_restart](../selfcheck_plugin_drop_restart.py) | 单项执行前核对 |

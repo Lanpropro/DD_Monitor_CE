@@ -1183,7 +1183,8 @@ class SettingsDialog(QDialog):
              ("plugins", "插件"), ("updates", "软件更新")]
     PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
 
-    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
+    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
+                 update_page_factory=None):
         super().__init__(parent)
         self._created_at = time.perf_counter()
         self._paint_logged = False
@@ -1195,6 +1196,7 @@ class SettingsDialog(QDialog):
         self._initial_shortcuts = {key: shortcuts.get(key) or default for key, _label, default in SHORTCUT_ACTIONS}
         self._plugin_manager = plugin_manager
         self._preview_only = preview
+        self._update_page_factory = update_page_factory
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
@@ -1232,7 +1234,7 @@ class SettingsDialog(QDialog):
             4: lambda: NotificationSettingsPage(settings),
             5: lambda: ShortcutSettingsPage(shortcuts),
             6: lambda: PluginSettingsPage(plugin_manager),
-            7: lambda: AppUpdatePage(settings),
+            7: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
         }
         self._loaded_pages = {}
         if preview:
@@ -1306,6 +1308,7 @@ class SettingsDialog(QDialog):
                 page.saveRequested.connect(self._save)
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
+                self._update_save_button()
             self.pageCreated.emit(index, page)
             print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
                   file=sys.stderr, flush=True)
@@ -1364,7 +1367,16 @@ class SettingsDialog(QDialog):
         if 6 in self._loaded_pages:
             self._loaded_pages[6].store_page.stop()
         if 7 in self._loaded_pages:
-            self._loaded_pages[7].stop()
+            page = self._loaded_pages[7]
+            if self._update_page_factory is None:
+                page.stop()
+            elif page.parentWidget() is self.stack:
+                page.saveRequested.disconnect()
+                page.busyChanged.disconnect(self._update_save_button)
+                page.releaseChecked.disconnect(self._mark_app_update)
+                self.stack.removeWidget(page)
+                page.hide()
+                page.setParent(self.parentWidget())
         super().done(result)
 
     def _on_page_changed(self, index: int) -> None:

@@ -85,7 +85,14 @@ def main():
                 'url': f'https://github.com/{online.APP_REPOSITORY}/releases/download/v0.3.2/DD监控室CE-v0.3.2-exe.zip',
                 'size': 3, 'sha256': hashlib.sha256(b'zip').hexdigest(), 'notes': 'manifest update'}
     with patch.object(online, 'latest_manifest', return_value=manifest):
-        assert online.app_release(Client([]), '0.3')['version'] == '0.3.2'
+        edited = {'tag_name': 'v0.3.2', 'body': '# Edited after publication\n'}
+        current = online.app_release(Client([Response(payload=edited)]), '0.3')
+        assert current['version'] == '0.3.2' and current['notes'] == edited['body']
+        assert current['sha256'] == manifest['sha256'] and current['url'] == manifest['url']
+        with patch.object(online, 'release_notes', side_effect=online.requests.HTTPError('rate limited')):
+            assert online.app_release(Client([]), '0.3')['notes'] == manifest['notes']
+        with patch.object(online, 'release_notes', side_effect=ValueError('invalid release')):
+            assert online.app_release(Client([]), '0.3')['notes'] == manifest['notes']
         assert online.app_release(Client([]), '0.3.2') is None
     with patch.object(online, 'latest_manifest', return_value=None), \
             patch.object(online, 'releases', side_effect=online.requests.HTTPError('rate limited')):

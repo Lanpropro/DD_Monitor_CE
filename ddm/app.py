@@ -901,6 +901,15 @@ class MainWindow(QMainWindow):
             self._settings_host = None
             session.close()
 
+    def _get_update_page(self, settings):
+        if getattr(self, '_app_update_page', None) is None:
+            from .online_ui import AppUpdatePage
+            self._app_update_page = AppUpdatePage(settings, self)
+            self._app_update_page.releaseChecked.connect(self._set_app_update)
+        page = self._app_update_page
+        page.auto.setChecked(bool(settings.get('auto_update', False)))
+        return page
+
     def _create_settings_dialog(self, settings=None, shortcuts=None):
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
@@ -912,7 +921,7 @@ class MainWindow(QMainWindow):
             config_module.save(self.current_state())
         dialog = SettingsDialog(self.settings if settings is None else settings,
                                 self.shortcuts if shortcuts is None else shortcuts, self,
-                                plugin_manager=self.plugins)
+                                plugin_manager=self.plugins, update_page_factory=self._get_update_page)
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
             if key == 'plugins':
@@ -920,8 +929,7 @@ class MainWindow(QMainWindow):
                 if self._plugin_catalog_offers:
                     widget.store_page._catalog_ready(self._plugin_catalog_offers)
             elif key == 'updates':
-                widget.releaseChecked.connect(self._set_app_update)
-                if self._available_update:
+                if self._available_update and not (widget._checked or widget.jobs or widget.plan_path):
                     widget._release_ready(self._available_update)
                     widget._busy(False)
         dialog.pageCreated.connect(page_created)
@@ -1146,6 +1154,8 @@ class MainWindow(QMainWindow):
         self._closing = True
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
+        if getattr(self, '_app_update_page', None) is not None:
+            self._app_update_page.stop()
         self._watch_history_timer.stop()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
