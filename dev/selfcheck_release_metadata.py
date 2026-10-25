@@ -13,8 +13,13 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.5'
+    assert version.VERSION == '0.5.1'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
+    assert notes.startswith('# DD监控室CE v0.5.1 更新说明')
+    for feature in ('4K', '平台 Logo', 'ddy', 'dcz', '750', 'legacy-program-backup-',
+                    'SHA256', '备份不自动删除', 'DDM_SETTINGS_PROCESS=0', '↑', '↓'):
+        assert feature in notes, feature
+    notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.5.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.5 更新说明')
     for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', 'DD监控室CE.exe'):
         assert feature in notes, feature
@@ -86,6 +91,14 @@ def main():
                 os.environ['DDM_QTQUICK_DANMAKU'] = explicit
             runpy.run_path(str(hook))
             assert os.environ['DDM_QTQUICK_DANMAKU'] == expected
+    for explicit, expected in ((None, '1'), ('0', '0'), ('1', '1')):
+        with patch.dict(os.environ, {'DDM_PYI_DEBUG': '0'}), \
+                patch.object(sys, 'frozen', True, create=True):
+            os.environ.pop('DDM_SETTINGS_PROCESS', None)
+            if explicit is not None:
+                os.environ['DDM_SETTINGS_PROCESS'] = explicit
+            runpy.run_path(str(hook))
+            assert os.environ['DDM_SETTINGS_PROCESS'] == expected
     print('PASS: plugin catalog generation, compatibility, current version and parsed release update metadata')
 
 
