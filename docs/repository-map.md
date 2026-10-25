@@ -391,6 +391,7 @@
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/releases/RELEASE-v0.5.md`
+- `docs/releases/RELEASE-v0.5.1.md`
 
 ### 独立网站原型
 
