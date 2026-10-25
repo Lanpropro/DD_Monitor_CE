@@ -3636,11 +3636,13 @@ class MainWindow(QMainWindow):
             folder_id = dialog.folder_id
             removed_ids = dialog.removed_ids
             move_existing = dialog.folder_changed
+            folder_room_ids = dialog.folder_room_ids
         finally:
             dialog.deleteLater()
         if import_follows and result == QDialog.Accepted and not self._closing:
             self._import_selected_follows(selected, folder_id=folder_id,
-                                          removed_ids=removed_ids, move_existing=move_existing, pending_count=pending_count)
+                                          removed_ids=removed_ids, move_existing=move_existing,
+                                          folder_room_ids=folder_room_ids, pending_count=pending_count)
 
     def _update_bilibili_credentials(self, changes: dict) -> None:
         if 'buvid3' in changes:
@@ -3670,7 +3672,7 @@ class MainWindow(QMainWindow):
         self._open_account_dialog(self._follow_platforms(), import_follows=True)
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, pending_count=0) -> None:
+                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0) -> None:
         if self._closing or getattr(self, "_follow_import_timer", None) is not None:
             return
         selected_ids = {str(room["room_id"]) for room in selected}
@@ -3700,13 +3702,18 @@ class MainWindow(QMainWindow):
             timer.deleteLater()
             self._follow_import_timer = None
             self._finish_follow_import(selected, added_rooms, folder_id=folder_id,
-                                       move_existing=move_existing, pending_count=pending_count)
+                                       move_existing=move_existing, folder_room_ids=folder_room_ids,
+                                       pending_count=pending_count)
 
         timer.timeout.connect(import_batch)
         import_batch()
 
-    def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing, pending_count):
+    def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
+                              folder_room_ids=None, pending_count):
         moving = selected if move_existing else added_rooms
+        if move_existing and folder_room_ids is not None:
+            folder_ids = set(folder_room_ids)
+            moving = [room for room in selected if str(room["room_id"]) in folder_ids]
         if (folder_id or move_existing) and moving:
             self.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
         if not move_existing:

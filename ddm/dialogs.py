@@ -1537,6 +1537,7 @@ class FollowImportDialog(QDialog):
         self.resize(520, 620)
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
+        self._explicitly_checked = set()
         self.folder_id = ""
         self.folder_changed = False
         self.folder_names = {folder['name'] for folder in folders or []}
@@ -1562,7 +1563,7 @@ class FollowImportDialog(QDialog):
         self.folder_button = QPushButton("未分类")
         self.folder_button.setObjectName("IconButton")
         self.folder_button.setAutoDefault(False)
-        self.folder_button.setToolTip("选择后调整所有勾选主播的归属；未调整时保留已导入主播的归属")
+        self.folder_button.setToolTip("仅调整新增或主动勾选的主播；默认勾选的已有关注保留原归属")
         folder_menu = QMenu(self.folder_button)
         options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
@@ -1578,7 +1579,7 @@ class FollowImportDialog(QDialog):
         folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
-        hint = QLabel("取消勾选并点击导入，会从本地关注栏移除对应主播；选择文件夹会调整已勾选主播的归属。")
+        hint = QLabel("取消勾选并导入会移除本地关注；文件夹仅用于新增或主动勾选的主播。已有关注需取消后重新勾选，或用筛选后的全选明确归类。")
         hint.setObjectName("SettingsHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -1611,12 +1612,14 @@ class FollowImportDialog(QDialog):
             item.setData(Qt.UserRole, room)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
+            item.setData(Qt.UserRole + 1, item.checkState() == Qt.Checked)
             self.list.addItem(item)
             if room_id:
                 self._avatar_items.setdefault(room_id, item)
             if room.get("anchor_uid"):
                 self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
         layout.addWidget(self.list, 1)
+        self.list.itemChanged.connect(self._track_checked)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -1653,6 +1656,17 @@ class FollowImportDialog(QDialog):
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----
+    def _track_checked(self, item: QListWidgetItem) -> None:
+        checked = item.checkState() == Qt.Checked
+        if checked == item.data(Qt.UserRole + 1):
+            return
+        item.setData(Qt.UserRole + 1, checked)
+        room_id = str(item.data(Qt.UserRole)["room_id"])
+        if checked:
+            self._explicitly_checked.add(room_id)
+        else:
+            self._explicitly_checked.discard(room_id)
+
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         position = self.list.viewport().mapFromGlobal(QCursor.pos())
         rect = self.list.visualItemRect(item)
@@ -1667,6 +1681,8 @@ class FollowImportDialog(QDialog):
             item = self.list.item(index)
             if not item.isHidden():
                 item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                if checked:
+                    self._explicitly_checked.add(str(item.data(Qt.UserRole)["room_id"]))
         self._update_header()
 
     def _check_live(self) -> None:
@@ -1674,6 +1690,8 @@ class FollowImportDialog(QDialog):
             item = self.list.item(index)
             if not item.isHidden():
                 item.setCheckState(Qt.Checked if item.data(Qt.UserRole)["live"] else Qt.Unchecked)
+                if item.checkState() == Qt.Checked:
+                    self._explicitly_checked.add(str(item.data(Qt.UserRole)["room_id"]))
         self._update_header()
 
     def _update_header(self) -> None:
@@ -1705,6 +1723,11 @@ class FollowImportDialog(QDialog):
                 return
 
     # ---- 结果 ----
+    def folder_room_ids(self) -> list[str]:
+        return [str(room["room_id"]) for room in self.selected()
+                if str(room["room_id"]) not in self.existing
+                or str(room["room_id"]) in self._explicitly_checked]
+
     def deselected_existing(self) -> list[str]:
         return [str(self.list.item(index).data(Qt.UserRole)["room_id"])
                 for index in range(self.list.count())
