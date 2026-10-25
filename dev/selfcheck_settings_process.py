@@ -62,7 +62,7 @@ def child(action):
             if action.startswith('embed-'):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
-                self.sequence = iter((1, 0, 6, 2, 7, 5, 1, 0))
+                self.sequence = iter((6,) if action.startswith('embed-restart-') else (1, 0, 6, 2, 7, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action == 'focus':
@@ -87,7 +87,7 @@ def child(action):
         def step(self):
             index = next(self.sequence, None)
             if index is None:
-                if action == 'embed-save':
+                if action == 'embed-save' or action.startswith('embed-restart-'):
                     self.confirm_button.click()
                 else:
                     self.reject()
@@ -369,16 +369,24 @@ def check_host_save_validation():
     applied = []
     client = SimpleNamespace(_send=Mock(), closing=False)
     window = SimpleNamespace(shortcuts={'keep': 'K'},
+                             _close_settings_host=lambda: order.append('closed'),
                              _apply_settings_dialog=lambda adapter, before: applied.append((adapter, before)))
+    order = []
     session = SimpleNamespace(dialog=dialog, client=client, window=window, before='before',
-                              values=lambda: {'auto_update': True}, sync=Mock())
+                              values=lambda: {'auto_update': True}, sync=Mock(), pending_apply=None)
     changes = {'settings': {'default_volume': 17}, 'shortcuts': {'edit': 'E'}}
     SettingsHost.save(session, changes)
+    assert not applied, 'Must wait for the worker to detach and close'
+    assert session.pending_apply is not None
+    SettingsHost.save(session, changes)
+    client._send.assert_called_once_with({'kind': 'host-saved'})
+    SettingsHost.handle(session, {'kind': 'result'})
+    assert order == ['closed']
     adapter, before = applied.pop()
     assert adapter.settings() == {'default_volume': 17, 'auto_update': True}
     assert adapter.shortcuts() == {'keep': 'K', 'edit': 'E'}
     assert adapter.enabled_plugins() == {'fixture'} and adapter.restart_requested and before == 'before'
-    assert adapter.update_page is dialog._loaded_pages[7]
+    assert adapter.update_page.install_requested is False and adapter.update_page.plan_path == ''
     client._send.assert_called_once_with({'kind': 'host-saved'})
     client._send.reset_mock()
     dialog.result.return_value = SettingsDialog.Rejected
@@ -534,9 +542,151 @@ def check_host_application(app, action='save', *, installed_controls=False):
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
 
 
+def restart_host_fixture(action, path):
+    """Actual host event-loop exit, with only an owned synthetic plugin."""
+    import ctypes
+    from PySide6.QtCore import Qt
+    from ddm import app as host, online_ui, plugins
+    from ddm.dialogs import PluginRemovePrompt
+    app = QApplication([])
+    root = Path(path).parent
+    (root / 'main.py').write_text(
+        "from pathlib import Path\nPath(__file__).with_name('restarted.txt').write_text('restarted')\n",
+        encoding='utf-8')
+    plugin_dir = root / 'plugins'
+    plugin_id = 'restart_fixture'
+    state = {'pid': os.getpid(), 'worker_pid': None}
+    def report(**fields):
+        state.update(fields)
+        Path(path).write_text(json.dumps(state), encoding='utf-8')
+    def create_plugin():
+        folder = plugin_dir / plugin_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'plugin.json').write_text(json.dumps({'id': plugin_id, 'name': '重启测试插件',
+            'version': '1.0', 'description': 'isolated fixture'}), encoding='utf-8')
+        (folder / 'plugin.py').write_text("raise RuntimeError('Never load this fixture')", encoding='utf-8')
+    if action == 'delete':
+        create_plugin()
+    with ExitStack() as patches:
+        patches.enter_context(patch.object(config, 'REPO', str(root)))
+        patches.enter_context(patch.object(config, 'CONFIG_PATH', str(root / 'config.json')))
+        patches.enter_context(patch.object(plugins, 'DEFAULT_PLUGINS_DIR', str(plugin_dir)))
+        patches.enter_context(patch.object(online_ui.OnlinePage, 'start'))
+        for name in ('start_all', 'refresh_account', 'refresh_status', 'refresh_stats',
+                     'load_cached_covers', 'load_cached_avatars', 'load_room_avatars'):
+            patches.enter_context(patch.object(host.MainWindow, name))
+        with patch.object(host.QTimer, 'singleShot'):
+            window = host.MainWindow([], [], state={'plugins_enabled': []})
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        window.setGeometry(-10000, -10000, 900, 650)
+        window.show()
+        client = window._get_settings_process()
+        patches.enter_context(patch.object(settings_process, 'worker_command', return_value=(sys.executable,
+            [str(Path(__file__).resolve()), '--worker-check', 'embed-restart-' + action])))
+        original_apply = window._apply_settings_dialog
+        source_handle = [None]
+        def apply(adapter, before):
+            user32 = ctypes.windll.user32
+            user32.GetAncestor.restype = ctypes.c_void_p
+            ancestor = user32.GetAncestor(ctypes.c_void_p(source_handle[0]), 2)
+            report(embedded_at_close=ancestor == state.get('shell_hwnd'))
+            return original_apply(adapter, before)
+        window._apply_settings_dialog = apply
+        def observed(message):
+            if message['kind'] == 'ready':
+                report(worker_pid=message['pid'])
+            elif message['kind'] == 'shell':
+                session = window._settings_host
+                page = session.dialog.plugin_page
+                source_handle[0] = int(session.stack.winId())
+                report(shell_hwnd=message['hwnd'])
+                if action == 'install':
+                    create_plugin()
+                    page.store_page._installed((plugin_id, True))
+                elif action == 'delete':
+                    execute = PluginRemovePrompt.exec
+                    def confirm(prompt):
+                        prompt.setAttribute(Qt.WA_ShowWithoutActivating)
+                        prompt.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+                        prompt.move(-10000, -10000)
+                        QTimer.singleShot(0, prompt.delete_button.click)
+                        return execute(prompt)
+                    with patch.object(PluginRemovePrompt, 'exec', confirm):
+                        page._remove(plugin_id, page.cards.itemAt(0).widget())
+                    assert window.isVisible(), 'Delete confirmation must not close the main window'
+                else:
+                    window.close()
+                    return
+                session.sync()
+        client.received.connect(observed)
+        def timed_out():
+            report(timed_out=True, main_hidden=not window.isVisible(),
+                   host_alive=getattr(window, '_settings_host', None) is not None)
+            app.quit()
+        QTimer.singleShot(10000, timed_out)
+        QTimer.singleShot(0, lambda: client.open(window.settings, window.shortcuts))
+        app.exec()
+        report(restart_requested=window._restart_requested,
+               restart_launched=host._launch_restart() if window._restart_requested else False)
+        # Match the real host's immediate process exit after requesting restart.
+        os._exit(0)
+
+
+def check_restart_native():
+    import subprocess
+    import psutil
+    for action in ('install', 'delete', 'close'):
+        with tempfile.TemporaryDirectory(prefix='ddm-settings-restart-') as temporary:
+            path = Path(temporary) / 'result.json'
+            process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
+                '--restart-host-fixture', action, str(path)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            worker = None
+            try:
+                output, _ = process.communicate(timeout=20)
+                data = json.loads(path.read_text(encoding='utf-8'))
+                print('Native restart:', action, data, flush=True)
+                try:
+                    worker = psutil.Process(data['worker_pid'])
+                    worker.wait(timeout=4)
+                except psutil.NoSuchProcess:
+                    pass
+                assert process.returncode == 0, output.decode('utf-8', errors='replace')
+                assert not data.get('timed_out'), data
+                if action == 'close':
+                    assert not data.get('restart_requested') and not data.get('restart_launched'), data
+                else:
+                    assert data.get('restart_requested') and data.get('restart_launched'), data
+                    assert data.get('embedded_at_close') is False, 'Host closed while owning a foreign child'
+                    deadline = time.monotonic() + 4
+                    while not (Path(temporary) / 'restarted.txt').exists() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    assert (Path(temporary) / 'restarted.txt').exists(), 'Replacement process did not run'
+            finally:
+                if process.poll() is None:
+                    for child_process in psutil.Process(process.pid).children(recursive=True):
+                        child_process.kill()
+                    process.kill()
+                    process.wait()
+                if path.exists():
+                    pid = json.loads(path.read_text(encoding='utf-8')).get('worker_pid')
+                    try:
+                        orphan = psutil.Process(pid)
+                        if '--worker-check' in orphan.cmdline() and 'embed-restart-' + action in orphan.cmdline():
+                            orphan.kill()
+                            orphan.wait(timeout=4)
+                    except psutil.NoSuchProcess:
+                        pass
+    print('PASS: install/delete restart releases foreign pages before host exit; no settings process remains')
+
+
 def main():
     if sys.argv[1:2] == ['--worker-check']:
         return child(sys.argv[2])
+    if sys.argv[1:2] == ['--restart-host-fixture']:
+        return restart_host_fixture(sys.argv[2], sys.argv[3])
+    if sys.argv[1:] == ['--restart-native']:
+        return check_restart_native()
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)

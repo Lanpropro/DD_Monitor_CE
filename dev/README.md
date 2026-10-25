@@ -58,10 +58,12 @@ python dev/checks/bootstrap.py dev/selfcheck_settings_process.py
 python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --installed-logo-controls
 $env:QT_QPA_PLATFORM='windows'
 python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --embedded-native
+python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --restart-native
 python dev/check_settings_process_playback.py --help
 ```
 
 普通回归验证保存、取消、窗口切换、失败重试、退出与 GUI 隔离；`--embedded-native` 使用屏幕外且不激活的合成 Windows 窗口，验证等待10秒后跨页 HWND 不变、页面嵌入与 DPI、保存/取消和清理。播放对照脚本用本地双路合成媒体检查画面间隔、音频欠供和时钟年龄。
+`--restart-native` 启动独立的屏幕外宿主与设置进程，在临时插件目录模拟安装、确认删除后保存并重启，以及直接关闭主程序。检查先解除原生页面嵌入、关闭设置窗口再退出宿主，且重启函数确实启动仅写入标记的隔离替代进程；不打开用户客户端、不修改真实插件，不残留设置进程。
 合成媒体及 Qt 定时器测试不能替代真实直播与打包 EXE 的人工验收。
 
 Windows 每次打开或再次点击设置时，宿主向握手返回的实际工作进程 PID 授予前台权限；预热本身不激活窗口。

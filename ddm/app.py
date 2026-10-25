@@ -1147,8 +1147,6 @@ class MainWindow(QMainWindow):
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
         self._watch_history_timer.stop()
-        if getattr(self, "_settings_process", None) is not None:
-            self._settings_process.stop()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
