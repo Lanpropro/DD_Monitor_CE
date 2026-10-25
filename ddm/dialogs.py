@@ -1274,6 +1274,7 @@ class SettingsDialog(QDialog):
                 page.store_page.offersChanged.connect(self._mark_plugin_updates)
                 self._mark_plugin_updates(page.store_page.offers)
             elif index == 7 and not self._preview_only:
+                page.saveRequested.connect(self._save)
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
             self.pageCreated.emit(index, page)

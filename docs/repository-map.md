@@ -418,6 +418,7 @@
 - `dev/tools/README.md`
 - `dev/tools/build_brand_assets.py`
 - `dev/tools/build_plugin_catalog.py`
+- `dev/tools/sync_release_notes.py`
 
 ### 项目文档与截图
 

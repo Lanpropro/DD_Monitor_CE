@@ -35,11 +35,17 @@ class SettingsHost(QObject):
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
         self.dialog.appearanceChanged.connect(
             lambda mode: client._send({'kind': 'host-theme', 'mode': mode}))
+        self.dialog.pageCreated.connect(self._page_created)
         self.last_state = None
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.sync)
         self.timer.start()
+
+    def _page_created(self, index, page):
+        if index == 7:
+            page.saveRequested.disconnect(self.dialog._save)
+            page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
 
     def handle(self, message):
         kind = message['kind']

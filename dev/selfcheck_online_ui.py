@@ -120,8 +120,12 @@ def main():
             cached_dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
             cached_dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, cached_dialog.plugin_page.store_page)
-            assert catalog.call_count == count, 'reopening settings must reuse the persisted catalog'
+            assert catalog.call_count == count + 1, 'first store entry must revalidate the persisted catalog'
             assert cached_dialog.plugin_page.store_page.buttons['global_live'].text() == '待重启'
+            cached_dialog.plugin_page.tabs.setCurrentIndex(0)
+            cached_dialog.plugin_page.tabs.setCurrentIndex(1)
+            settle(app, cached_dialog.plugin_page.store_page)
+            assert catalog.call_count == count + 1, 'tab switching must not repeatedly query the network'
             cached_dialog.close()
         update = dialog.update_page
         assert update.auto.isEnabled() and not update.auto.isChecked()

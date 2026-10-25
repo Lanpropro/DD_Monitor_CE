@@ -459,6 +459,8 @@ def check_host_application(app, action='save', *, installed_controls=False):
             stack.enter_context(patch.object(sys, 'excepthook', lambda _kind, error, _tb: errors.append(error)))
             from ddm.dialogs import SettingsDialog
             stack.enter_context(patch.object(SettingsDialog, 'exec', side_effect=AssertionError('Settings reopened')))
+            if action == 'embed-install':
+                stack.enter_context(patch.object(sys, 'frozen', True, create=True))
 
             def observed(message):
                 if message['kind'] != 'shell':
@@ -484,14 +486,24 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
                 if message['index'] == 7:
                     session.dialog.update_page.auto.setChecked(True)
+                    if action == 'embed-install':
+                        page = session.dialog.update_page
+                        page.plan_path = str(Path(temporary) / 'synthetic-update-plan.json')
+                        page._busy(False)
+                        page.action.click()
             client.received.connect(observed)
         try:
             client.open(window.settings, window.shortcuts)
             # Host changes made while the editor is open must survive its save.
             window.settings['skin_mask'] = 29
             window.shortcuts['fullscreen'] = 'Ctrl+F10'
-            wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
+            wait(app, lambda: window._closing if action == 'embed-install' else
+                 any(message['kind'] == 'result' for message in messages), timeout=25)
             assert window.settings['seen_update_versions'] == {'app': '0.5.1'}
+            if action == 'embed-install':
+                assert window._update_plan == str(Path(temporary) / 'synthetic-update-plan.json')
+                assert window.settings['default_volume'] == 17 and not errors
+                return
             if action.startswith('logos-'):
                 assert plugin_saves == ({'domestic_live': False, 'global_live': True} if action == 'logos-save' else {})
                 assert window.settings['sidebar_platform_logos'] is (action == 'logos-save')
@@ -535,6 +547,7 @@ def main():
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-save')
         check_host_application(app, 'embed-cancel')
+        check_host_application(app, 'embed-install')
         print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, save/cancel and cleanup')
         return 0
     if sys.argv[1:] == ['--installed-logo-controls']:

@@ -326,6 +326,8 @@ def run_worker():
                 self.dialog.nav.setCurrentRow(message['index'])
             elif kind == 'host-saved' and self.dialog is not None:
                 self.dialog.reject()  # Host has applied both groups of settings.
+            elif kind == 'host-request-save' and self.dialog is not None:
+                self.dialog._save()
             elif kind == 'host-cancel' and self.dialog is not None:
                 self.dialog.reject()
             elif kind == 'focus' and self.dialog is not None:
