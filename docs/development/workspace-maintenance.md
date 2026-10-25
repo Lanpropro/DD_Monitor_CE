@@ -19,6 +19,7 @@
 分类时只检查配置、媒体和素材目录的入口及必要文件元数据，不读取真实账号或媒体内容。
 
 测试输出默认写入 `work/checks/` 或 `work/test-artifacts/<任务>/`，最终安装包和成片才复制到 `results/`。
+`results/` 保留最新正式版本的发布目录；旧版发布目录归档为同名 ZIP，核对文件清单及内容一致后再删除原目录。需要旧版文件时解压到 `work/` 使用，不长期恢复为成品目录中的文件夹。此规则不处理宣传片、插件等其他成品，也不改变已发布的 GitHub Release。
 本机历史资料迁移记录在 `work/test-artifacts/relocation-20261025.json`；二路合成视频位于
 `work/test-artifacts/match-sync/match-input-fixtures/`。旧独立修复版已经集成回根目录，日常测试统一使用 `run.cmd`。旧报告中的 `results/` 路径按清单查找，不再维护长期验收入口。
 
