@@ -9,11 +9,12 @@
 #   DD监控室-v<版本>\       源码便携包（要 Python；-SourceOnly 时只出这个）
 #   DD监控室-v<版本>.zip    源码包的压缩包
 #
-# 开发入口与冻结包统一使用 PySide6 6.9.3，本机依赖位于 work\deps。
+# 开发入口与冻结包统一使用 PySide6 6.11.2，本机依赖位于 work\deps。
 # 源码从当前 HEAD 导出，不打包未提交的本机文件。
 param(
     [string]$OutDir = "",
     [string]$FFmpegExe = "",
+    [string]$DependencyRoot = "",
     [switch]$SkipZip,
     [switch]$SourceOnly
 )
@@ -140,17 +141,17 @@ Set-Content -Path (Join-Path $app "运行说明.txt") -Value $readme -Encoding U
 
 # ---- 4) exe 便携版（默认做；Q:\-SourceOnly 可跳过）----
 if (-not $SourceOnly) {
-    $deps = Join-Path $repo "work\deps"
+    $deps = if ($DependencyRoot) { [System.IO.Path]::GetFullPath($DependencyRoot) } else { Join-Path $repo "work\deps" }
     if (-not (Test-Path (Join-Path $deps "PySide6"))) {
         throw @"
-缺少 $deps（开发和冻结共用的 PySide6 6.9.3）。
+缺少 $deps（开发和冻结共用的 PySide6 6.11.2）。
 安装命令：
-    $py -m pip install --target "$deps" "PySide6==6.9.3"
+    $py -m pip install --target "$deps" "PySide6==6.11.2"
 "@
     }
     $env:PYTHONPATH = $deps
     $qtVersion = (& $py -c "from PySide6.QtCore import qVersion; print(qVersion())").Trim()
-    if ($qtVersion -ne "6.9.3") { throw "开发与发布 Qt 版本必须一致：期望 6.9.3，实际 $qtVersion" }
+    if ($qtVersion -ne "6.11.2") { throw "开发与发布 Qt 版本必须一致：期望 6.11.2，实际 $qtVersion" }
     Write-Output "=== 冻 exe（PySide6 $qtVersion）==="
     $exeDir = Join-Path $OutDir $display
     $build = Join-Path $repo "work\exebuild"

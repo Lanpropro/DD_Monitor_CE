@@ -62,9 +62,9 @@ def main():
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'Get-ChildItem (Join-Path $repo "utils")' not in source
     assert 'diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt' in source
-    assert 'PySide6==6.9.3' in source and '$qtVersion -ne "6.9.3"' in source
-    assert '$env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$(Split-Path -Parent $py)"' in source
-    assert '$env:PATH = $previousBuildPath' in source
+    assert 'PySide6==6.11.2' in source and '$qtVersion -ne "6.11.2"' in source
+    assert r'$env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$(Split-Path -Parent $py)"' in source
+    assert r'$env:PATH = $previousBuildPath' in source
     # Exercise the source export filter, including an added runtime module.
     export = source.split("$extractSource = @'\n", 1)[1].split("\n'@", 1)[0]
     with tempfile.TemporaryDirectory() as temporary:

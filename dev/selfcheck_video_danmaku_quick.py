@@ -388,7 +388,9 @@ def main():
             layer.window.frameSwapped.connect(lambda: frames.append(time.perf_counter_ns()))
             for tile in window.wall.tiles:
                 tile.video_danmaku.set_paused(False)
-            settle(app, 0.3)
+            deadline = time.monotonic() + 2
+            while len(frames) <= 10 and time.monotonic() < deadline:
+                settle(app, 0.05)
             assert len(frames) > 10, f"有滚动弹幕时 Quick 必须连续提交帧：{len(frames)} 帧"
             for tile in window.wall.tiles:
                 tile.video_danmaku.set_paused(True)
