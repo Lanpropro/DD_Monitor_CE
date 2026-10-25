@@ -6628,6 +6628,7 @@ class Tile(QFrame):
         self.bottom.move(self.bottom.x(), self.height() - TILE_BAR_HEIGHT
                          + round(TILE_BAR_HEIGHT * self._bar_progress))
         self.bottom.setVisible(self._bar_progress < 1.0 or self._bar_target == 0.0)
+        self._layout_time_badge()
         self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
@@ -6805,8 +6806,6 @@ class Tile(QFrame):
         if show_title:
             self.title_badge.set_max_width(room)
             self.title_badge.move(title_left, 8)
-        self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
-                             max(8, video_height - self.time_badge.height() - 10))
         # 摆位和显隐放在一起：重排（改窗口大小、切布局）之后状态不会走丢
         self.time_badge.setVisible(self._elapsed_visible())
         self.spinner.move(max(0, (self.video.width() - self.spinner.width()) // 2),
@@ -6818,10 +6817,17 @@ class Tile(QFrame):
                  if fullscreen else video_height)
         bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
         self.bottom.setGeometry(inset, bar_y, max(1, width - inset * 2), bar_height)
+        self._layout_time_badge()
         self.video_danmaku.setGeometry(self.video.geometry())
         self._layout_bottom_controls()
         self._layout_cover()
         self.raise_overlays()
+
+    def _layout_time_badge(self) -> None:
+        video_right = self.video.geometry().right() + 1
+        bottom = min(self.video.geometry().bottom() + 1, self.bottom.y())
+        self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
+                             max(8, bottom - self.time_badge.height() - 10))
 
     def _sync_stream_badge(self) -> bool:
         """收窄 / 显隐 LIVE 浮标，让它和右上角的控制条在同一行站得下。

@@ -44,18 +44,26 @@ python dev/run_checks.py --suite repository
 程序启动一秒后异步预热一个设置进程，点击关注栏设置时发送配置快照；保存只将变化的字段交回主程序，取消不应用。
 不设该环境变量时沿用原入口。源码运行需要开发依赖与 libmpv；现有旧 EXE 不支持新增的 `--settings-worker`，需另行构建才能验证打包行为。
 
-常规、弹幕、录制、通知和快捷键页面复用原控件。外观、插件和软件更新仍在主程序窗口打开；切换前可保存、放弃或取消当前改动。
+常规、弹幕、录制、通知和快捷键页面复用原控件，在独立进程中运行。外观、插件和软件更新继续由主程序处理，通过 Qt 的原生窗口容器嵌入同一设置窗口右侧；切换页面不关闭或重开设置窗口，不要求提前保存，普通页面中的未保存修改继续保留。主程序页面仍使用现有皮肤控制器、插件管理器和更新器，不在子进程加载账号或运行插件。原生页面不参与透明度切页动画。
 独立窗口不阻止操作主程序，因此主程序可继续播放；修改解码或录制等设置后，保存应用仍按原逻辑执行，可能影响正在使用的功能。
 子进程使用临时配置目录，不读取账号或加载用户插件，关闭主程序时退出。
+
+现有插件在主进程设置窗口 Show 事件中插入的具名复选框，由宿主收集后镜像到独立常规页；保存时交回原控件并触发插件原有的 accepted 回调，取消不写入。国内/海外 Logo 开关取代宿主总开关；旧总开关关闭时，两组初始均关闭，保存后由插件分别管理。嵌入页面使用不透明主题背景，默认窗口尺寸为 720×650 逻辑像素。
 
 验证命令：
 
 ```powershell
 python dev/checks/bootstrap.py dev/selfcheck_settings_process.py
+# 本机已安装国内/海外插件时，可单独验证控件桥接；只提取控件类，不加载插件运行时。
+python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --installed-logo-controls
+$env:QT_QPA_PLATFORM='windows'
+python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --embedded-native
+python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --restart-native
 python dev/check_settings_process_playback.py --help
 ```
 
-前者验证保存、取消、窗口切换、失败重试、退出与 GUI 隔离；后者用本地双路合成媒体对照画面间隔、音频欠供和时钟年龄。
+普通回归验证保存、取消、窗口切换、失败重试、退出与 GUI 隔离；`--embedded-native` 使用屏幕外且不激活的合成 Windows 窗口，验证等待10秒后跨页 HWND 不变、页面嵌入与 DPI、保存/取消和清理。播放对照脚本用本地双路合成媒体检查画面间隔、音频欠供和时钟年龄。
+`--restart-native` 启动独立的屏幕外宿主与设置进程，在临时插件目录模拟安装、确认删除后保存并重启，以及直接关闭主程序。检查先解除原生页面嵌入、关闭设置窗口再退出宿主，且重启函数确实启动仅写入标记的隔离替代进程；不打开用户客户端、不修改真实插件，不残留设置进程。
 合成媒体及 Qt 定时器测试不能替代真实直播与打包 EXE 的人工验收。
 
 Windows 每次打开或再次点击设置时，宿主向握手返回的实际工作进程 PID 授予前台权限；预热本身不激活窗口。

@@ -865,7 +865,8 @@ class MainWindow(QMainWindow):
             from .settings_process import SettingsProcess
             self._settings_process = SettingsProcess(self)
             self._settings_process.saved.connect(self._remote_settings_saved)
-            self._settings_process.hostPage.connect(self.open_settings)
+            self._settings_process.hostRequest.connect(self._settings_host_request)
+            self._settings_process.closed.connect(self._close_settings_host)
             self._settings_process.failed.connect(lambda message: self._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
         return self._settings_process
@@ -883,9 +884,33 @@ class MainWindow(QMainWindow):
                   dict(self.plugins._platform_owner), set(self.plugins._removed))
         self._apply_settings_dialog(dialog, before)
 
-    def open_settings(self, page: str = "general") -> bool:
-        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
-        started = time.perf_counter()
+    def _settings_host_request(self, message):
+        if getattr(self, '_closing', False):
+            return
+        session = getattr(self, '_settings_host', None)
+        if session is None:
+            if message['kind'] not in ('host-page', 'host-general'):
+                return
+            from .settings_host import SettingsHost
+            session = self._settings_host = SettingsHost(self, self._settings_process, message)
+        session.handle(message)
+
+    def _close_settings_host(self):
+        session = getattr(self, '_settings_host', None)
+        if session is not None:
+            self._settings_host = None
+            session.close()
+
+    def _get_update_page(self, settings):
+        if getattr(self, '_app_update_page', None) is None:
+            from .online_ui import AppUpdatePage
+            self._app_update_page = AppUpdatePage(settings, self)
+            self._app_update_page.releaseChecked.connect(self._set_app_update)
+        page = self._app_update_page
+        page.auto.setChecked(bool(settings.get('auto_update', False)))
+        return page
+
+    def _create_settings_dialog(self, settings=None, shortcuts=None):
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
             seen['app'] = self._available_update['version']
@@ -894,30 +919,36 @@ class MainWindow(QMainWindow):
             self.settings['seen_update_entry_versions'] = seen
             self._mark_updates()
             config_module.save(self.current_state())
+        dialog = SettingsDialog(self.settings if settings is None else settings,
+                                self.shortcuts if shortcuts is None else shortcuts, self,
+                                plugin_manager=self.plugins, update_page_factory=self._get_update_page)
+        def page_created(index, widget):
+            key = dialog.PAGES[index][0]
+            if key == 'plugins':
+                widget.store_page.offersChanged.connect(self._set_plugin_updates)
+                if self._plugin_catalog_offers:
+                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
+            elif key == 'updates':
+                if self._available_update and not (widget._checked or widget.jobs or widget.plan_path):
+                    widget._release_ready(self._available_update)
+                    widget._busy(False)
+        dialog.pageCreated.connect(page_created)
+        dialog.updatesViewed.connect(self._remember_updates)
+        dialog.appearanceChanged.connect(self.set_appearance)
+        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
+                                                for offer in self._plugin_update_offers))
+        dialog._mark_update_page('updates', bool(self._available_update and
+                                                dialog.seen_versions.get('app') != self._available_update['version']))
+        return dialog
+
+    def open_settings(self, page: str = "general") -> bool:
+        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        started = time.perf_counter()
         plugins_before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
                           dict(self.plugins._platform_owner), set(self.plugins._removed))
-        dialog = SettingsDialog(self.settings, self.shortcuts, self,
-                                plugin_manager=self.plugins)
+        dialog = self._create_settings_dialog()
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            def page_created(index, widget):
-                key = dialog.PAGES[index][0]
-                if key == 'plugins':
-                    widget.store_page.offersChanged.connect(self._set_plugin_updates)
-                    if self._plugin_catalog_offers:
-                        widget.store_page._catalog_ready(self._plugin_catalog_offers)
-                elif key == 'updates':
-                    widget.releaseChecked.connect(self._set_app_update)
-                    if self._available_update:
-                        widget._release_ready(self._available_update)
-                        widget._busy(False)
-            dialog.pageCreated.connect(page_created)
-            dialog.updatesViewed.connect(self._remember_updates)
-            dialog.appearanceChanged.connect(self.set_appearance)
-            dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
-                                                    for offer in self._plugin_update_offers))
-            dialog._mark_update_page('updates', bool(self._available_update and
-                                                    dialog.seen_versions.get('app') != self._available_update['version']))
             for index, (key, _label) in enumerate(dialog.PAGES):
                 if key == page:
                     dialog.nav.setCurrentRow(index)
@@ -1123,9 +1154,9 @@ class MainWindow(QMainWindow):
         self._closing = True
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
+        if getattr(self, '_app_update_page', None) is not None:
+            self._app_update_page.stop()
         self._watch_history_timer.stop()
-        if getattr(self, "_settings_process", None) is not None:
-            self._settings_process.stop()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
@@ -3615,11 +3646,13 @@ class MainWindow(QMainWindow):
             folder_id = dialog.folder_id
             removed_ids = dialog.removed_ids
             move_existing = dialog.folder_changed
+            folder_room_ids = dialog.folder_room_ids
         finally:
             dialog.deleteLater()
         if import_follows and result == QDialog.Accepted and not self._closing:
             self._import_selected_follows(selected, folder_id=folder_id,
-                                          removed_ids=removed_ids, move_existing=move_existing, pending_count=pending_count)
+                                          removed_ids=removed_ids, move_existing=move_existing,
+                                          folder_room_ids=folder_room_ids, pending_count=pending_count)
 
     def _update_bilibili_credentials(self, changes: dict) -> None:
         if 'buvid3' in changes:
@@ -3649,7 +3682,7 @@ class MainWindow(QMainWindow):
         self._open_account_dialog(self._follow_platforms(), import_follows=True)
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, pending_count=0) -> None:
+                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0) -> None:
         if self._closing or getattr(self, "_follow_import_timer", None) is not None:
             return
         selected_ids = {str(room["room_id"]) for room in selected}
@@ -3679,13 +3712,18 @@ class MainWindow(QMainWindow):
             timer.deleteLater()
             self._follow_import_timer = None
             self._finish_follow_import(selected, added_rooms, folder_id=folder_id,
-                                       move_existing=move_existing, pending_count=pending_count)
+                                       move_existing=move_existing, folder_room_ids=folder_room_ids,
+                                       pending_count=pending_count)
 
         timer.timeout.connect(import_batch)
         import_batch()
 
-    def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing, pending_count):
+    def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
+                              folder_room_ids=None, pending_count):
         moving = selected if move_existing else added_rooms
+        if move_existing and folder_room_ids is not None:
+            folder_ids = set(folder_room_ids)
+            moving = [room for room in selected if str(room["room_id"]) in folder_ids]
         if (folder_id or move_existing) and moving:
             self.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
         if not move_existing:
@@ -3699,12 +3737,12 @@ class MainWindow(QMainWindow):
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
         self._save_timer.start()
-        message = f"导入完成：选中 {len(selected)} 个，新增 {added} 个"
+        message = f"导入完成：新增 {added} 个"
         if pending_count:
             message += f"，另保存 {pending_count} 个待识别账号"
         print(message)
         from .online_ui import show_result
-        show_result(self, message, rooms=selected)
+        show_result(self, message, rooms=added_rooms)
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""

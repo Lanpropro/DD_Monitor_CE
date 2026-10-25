@@ -585,6 +585,9 @@ QSlider::handle:horizontal:hover {{
 #SettingsStack, #SettingsPage {{
     background: transparent;
 }}
+#SettingsStack[embeddedSettings="true"] {{
+    background: {BG};
+}}
 #SettingsTitle {{
     font-size: {FONT_HEADING}px;
     font-weight: 700;

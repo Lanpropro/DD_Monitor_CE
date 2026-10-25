@@ -231,6 +231,7 @@
 - `dev/selfcheck_plugin_cache.py`
 - `dev/selfcheck_plugin_controls.py`
 - `dev/selfcheck_plugin_credentials.py`
+- `dev/selfcheck_plugin_notices.py`
 - `dev/selfcheck_plugin_drop_restart.py`
 - `dev/selfcheck_plugin_rename.py`
 - `dev/selfcheck_plugin_settings.py`
@@ -389,6 +390,7 @@
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/releases/RELEASE-v0.5.md`
 - `docs/releases/RELEASE-v0.5.1.md`
+- `docs/releases/RELEASE-v0.5.2.md`
 
 ### 独立网站原型
 
@@ -417,6 +419,7 @@
 - `dev/tools/README.md`
 - `dev/tools/build_brand_assets.py`
 - `dev/tools/build_plugin_catalog.py`
+- `dev/tools/sync_release_notes.py`
 
 ### 项目文档与截图
 

@@ -13,12 +13,12 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.5.1'
+    assert version.VERSION == '0.5.2'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
-    assert notes.startswith('# DD监控室CE v0.5.1 更新说明')
-    for feature in ('4K', '平台 Logo', 'ddy', 'dcz', '750', 'legacy-program-backup-',
-                    'SHA256', '备份不自动删除', 'DDM_SETTINGS_PROCESS=0', '↑', '↓'):
-        assert feature in notes, feature
+    assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
+    technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
+    for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
+        assert feature in technical, feature
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.5.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.5 更新说明')
     for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', 'DD监控室CE.exe'):
@@ -48,7 +48,8 @@ def main():
         assert entry['min_app_version'] == '0.4'
         assert entry['sha256'] == hashlib.sha256(archive.read_bytes()).hexdigest()
         assert entry['size'] == archive.stat().st_size
-        with patch.object(online, 'latest_manifest', return_value=data):
+        with patch.object(online, 'latest_manifest', return_value=data), \
+                patch.object(online, 'releases', return_value=[]):
             offers = online.plugin_catalog(None, '0.3')
             assert not offers[0]['available'] and '0.4' in offers[0]['reason']
             assert online.plugin_catalog(None, '0.4')[0]['available']

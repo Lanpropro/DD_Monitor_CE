@@ -84,7 +84,7 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
-| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；进程保存、取消、退出、主线程隔离与前台授权；`--native-focus` 需 windows 平台，会显示空白测试窗口、临时移动并恢复光标，检查系统前台 HWND |
+| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--embedded-native` 检查屏幕外跨页 HWND/DPI，`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | 单项执行前核对 |
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
@@ -193,8 +193,8 @@
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |
 | [selfcheck_download_retry](../selfcheck_download_retry.py) | 单项执行前核对 |
 | [selfcheck_fixed_exe_entry](../selfcheck_fixed_exe_entry.py) | 单项执行前核对 |
-| [selfcheck_online](../selfcheck_online.py) | 单项执行前核对 |
-| [selfcheck_online_ui](../selfcheck_online_ui.py) | 单项执行前核对 |
+| [selfcheck_online](../selfcheck_online.py) | 合成响应；发布正文刷新、清单回退、下载校验及插件升级事务 |
+| [selfcheck_online_ui](../selfcheck_online_ui.py) | 离屏合成数据；下载期间关闭/重开普通及独立设置、后台完成/退出收尾、当前版本正文及更新保存衔接 |
 | [selfcheck_parallel_plugin_downloads](../selfcheck_parallel_plugin_downloads.py) | 单项执行前核对 |
 | [selfcheck_plugin_cache](../selfcheck_plugin_cache.py) | 单项执行前核对 |
 | [selfcheck_plugin_drop_restart](../selfcheck_plugin_drop_restart.py) | 单项执行前核对 |
@@ -204,6 +204,7 @@
 | [selfcheck_plugin_windows_lock](../selfcheck_plugin_windows_lock.py) | 单项执行前核对 |
 | [selfcheck_plugin_controls](../selfcheck_plugin_controls.py) | `offline` |
 | [selfcheck_plugin_credentials](../selfcheck_plugin_credentials.py) | `offline` |
+| [selfcheck_plugin_notices](../selfcheck_plugin_notices.py) | `offline` |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
@@ -334,7 +335,7 @@
 | [selfcheck_douyin_profile_add](../selfcheck_douyin_profile_add.py) | 单项执行前核对 |
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
-| [selfcheck_follow_import](../selfcheck_follow_import.py) | 单项执行前核对 |
+| [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32/33位原关注＋1位新增的归类隔离、结果提示与头像范围、主动勾选归类、取消勾选与保存 |
 | [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |

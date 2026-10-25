@@ -34,6 +34,12 @@ class ProjectWorkflowTests(unittest.TestCase):
             self.assertIn(text, source)
         self.assertFalse((ROOT / 'dev/restart-client.ps1').exists())
 
+    def test_old_release_folders_are_archived_after_verification(self):
+        source = (ROOT / 'docs/development/workspace-maintenance.md').read_text(encoding='utf-8')
+        for text in ('最新正式版本', '旧版发布目录归档为同名 ZIP',
+                     '核对文件清单及内容一致后再删除原目录', '解压到 `work/`'):
+            self.assertIn(text, source)
+
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
         self.assertIn('目标分支为 `develop`', source)
