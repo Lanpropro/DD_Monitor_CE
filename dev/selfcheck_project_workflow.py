@@ -30,7 +30,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_daily_entry_and_release_use_the_same_development_source(self):
         source = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
-        for text in ('根目录 `run.cmd`', '集成回根目录', '完整开发源码', 'PySide6 6.9.3'):
+        for text in ('根目录 `run.cmd`', '集成回根目录', '完整开发源码', 'PySide6 6.11.2'):
             self.assertIn(text, source)
         self.assertFalse((ROOT / 'dev/restart-client.ps1').exists())
 
