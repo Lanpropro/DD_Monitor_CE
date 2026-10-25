@@ -114,12 +114,6 @@ class CheckRunnerTests(unittest.TestCase):
             self.assertNotEqual(result['exit_code'], 0)
             self.assertIn('external network access', Path(result['log']).read_text(encoding='utf-8'))
 
-    def test_development_restart_matches_current_launcher(self):
-        source = (runner.ROOT / 'dev/restart-client.ps1').read_text(encoding='utf-8-sig')
-        self.assertNotIn('PYTHON_VLC_LIB_PATH', source)
-        self.assertIn("$env:DDM_QTQUICK_DANMAKU = '1'", source)
-        self.assertIn('-WindowStyle Hidden', source)
-
     def test_bootstrap_preserves_arguments_imports_and_failure_code(self):
         with tempfile.TemporaryDirectory(prefix='ddm check runner ') as temp:
             directory = Path(temp)

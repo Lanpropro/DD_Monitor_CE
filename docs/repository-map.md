@@ -330,12 +330,9 @@
 
 ### 开发指南
 
-- `docs/development/bili-live-acceptance.md`
 - `docs/development/testing.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
-- `docs/development/v0.4.1-backlog.md`
-- `docs/development/ui-integration-20261019.md`
 
 ### 性能基准
 
@@ -353,7 +350,6 @@
 - `dev/pyi_rth_pyside6_paths.py`
 - `dev/repro_d3d_quality.py`
 - `dev/repro_tile_lifecycle.py`
-- `dev/restart-client.ps1`
 - `dev/screens.py`
 
 ### 根目录协作文件

@@ -35,8 +35,9 @@ for folder, zip_path in ((source, results / f"{name}.zip"),
             assert not any(item.endswith(f"{VERSION_TAG}-exe.exe") for item in names), \
                 "ZIP 中仍有旧文件名的 exe"
 
-for path in ("ddm/app.py", "ddm/widgets.py", "ddm/audio_output.py", "ddm/dialogs.py",
-             "ddm/plugins.py", "docs/PLUGINS.md", f"docs/releases/RELEASE-{VERSION_TAG}.md"):
+runtime_files = subprocess.check_output(['git', 'ls-files', '-z', '--', 'ddm', 'blivedm',
+    'assets', 'main.py', 'requirements.txt'], cwd=repo).decode('utf-8').strip('\0').split('\0')
+for path in [*runtime_files, "docs/plugins.md", f"docs/releases/RELEASE-{VERSION_TAG}.md"]:
     original = (repo / path).read_bytes()
     packaged = (source / path).read_bytes()
     assert packaged.replace(b"\r\n", b"\n") == original.replace(b"\r\n", b"\n"), \

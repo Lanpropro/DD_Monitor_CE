@@ -56,12 +56,31 @@ def main():
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
-    assert 'if ($rel -like "plugins_user/*") { continue }' in source
-    assert 'if ($rel -like "videos/*") { continue }' in source
-    assert 'if ($rel -like "dev/*promo*"' in source
+    assert 'archive --format=zip --output=$snapshot HEAD' in source
+    for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
+        assert pattern in source
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'Get-ChildItem (Join-Path $repo "utils")' not in source
-    assert 'if ($rel -like "utils/*") { continue }' in source
+    assert 'diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt' in source
+    assert 'PySide6==6.9.3' in source and '$qtVersion -ne "6.9.3"' in source
+    # Exercise the source export filter, including an added runtime module.
+    export = source.split("$extractSource = @'\n", 1)[1].split("\n'@", 1)[0]
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        archive = root / 'snapshot.zip'
+        files = {'main.py': b'entry', 'ddm/new_feature.py': b'feature',
+                 'utils/config.json': b'private', 'plugins_user/local/data.bin': b'private',
+                 'videos/private.mp4': b'private'}
+        with zipfile.ZipFile(archive, 'w') as package:
+            for name, data in files.items():
+                package.writestr(name, data)
+        with patch.object(sys, 'argv', ['export', str(archive), str(root / 'out')]):
+            exec(compile(export, 'release-source-export', 'exec'), {})
+        assert (root / 'out/ddm/new_feature.py').read_bytes() == b'feature'
+        assert (root / 'out/main.py').read_bytes() == b'entry'
+        assert not (root / 'out/utils').exists()
+        assert not (root / 'out/plugins_user').exists()
+        assert not (root / 'out/videos').exists()
     assert 'user_notice_accepted = $true' in source
     assert 'if ($version -eq "v0.3.1")' in source
     assert '$exeDir = Join-Path $OutDir $display' in source

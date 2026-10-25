@@ -10,7 +10,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPushButton, QVBoxLayout
 from ddm.app import MainWindow
 
 
@@ -61,10 +61,13 @@ def main():
                 for modifiers in (Qt.ControlModifier, Qt.ShiftModifier, Qt.AltModifier):
                     QTest.keyClick(second.pause_button, Qt.Key_Up, modifiers)
                     assert second.volume == 42
-                second.composer.edit.setFocus()
-                QTest.keyClick(second.composer.edit, Qt.Key_Up)
-                QTest.keyClick(second.composer.edit, Qt.Key_Down)
-                assert second.volume == 42, 'composer arrows must stay available for editing'
+                edit = QLineEdit(second)
+                edit.show()
+                edit.setFocus()
+                QTest.keyClick(edit, Qt.Key_Up)
+                QTest.keyClick(edit, Qt.Key_Down)
+                assert second.volume == 42, 'input arrows must stay available for editing'
+                edit.close()
                 dialog = QDialog(window)
                 button = QPushButton('test', dialog)
                 QVBoxLayout(dialog).addWidget(button)

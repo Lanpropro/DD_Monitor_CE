@@ -24,23 +24,15 @@ class ProjectWorkflowTests(unittest.TestCase):
     def test_contribution_guide_preserves_shared_history_and_snapshot_scope(self):
         source = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
         for text in ('Squash and merge', '--force-with-lease', 'git revert',
-                     'release/', 'archive/', 'function/v0.4.1', '0.4.1（未发布）',
+                     'release/', 'archive/',
                      'git pull --ff-only origin develop'):
             self.assertIn(text, source)
 
-    def test_v041_backlog_keeps_requested_work_and_open_decisions(self):
-        source = (ROOT / 'docs/development/v0.4.1-backlog.md').read_text(encoding='utf-8')
-        for number in range(1, 6):
-            self.assertIn(f'V041-{number:02}', source)
-        for text in ('**0.5**', '**0.5.1**', 'PR #24、#33、#34、#39', '卡顿', '录制自动断点', '悬停预览',
-                     '主动点击才关闭', '排序逻辑', '待明确', '1000ms'):
+    def test_daily_entry_and_release_use_the_same_development_source(self):
+        source = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
+        for text in ('根目录 `run.cmd`', '集成回根目录', '完整开发源码', 'PySide6 6.9.3'):
             self.assertIn(text, source)
-        index = (ROOT / 'docs/README.md').read_text(encoding='utf-8')
-        self.assertIn('development/v0.4.1-backlog.md', index)
-        rows = [line for line in source.splitlines() if line.startswith('| V041-')]
-        for row in rows[:4]:
-            self.assertIn('用户已确认', row)
-        self.assertIn('待明确', rows[4])
+        self.assertFalse((ROOT / 'dev/restart-client.ps1').exists())
 
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
