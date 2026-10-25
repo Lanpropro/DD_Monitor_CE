@@ -61,6 +61,7 @@ def cleanup_legacy(root, catalog_path=CATALOG, expected_version=VERSION):
     for name, variants in historical.items():
         if name.casefold() in current:
             continue
+        saved = None
         try:
             target = safe_path(root, name)
             if not target.is_file():
@@ -98,6 +99,11 @@ def cleanup_legacy(root, catalog_path=CATALOG, expected_version=VERSION):
                 continue
             moved.append(name)
         except (OSError, ValueError):
+            if saved is not None and saved.is_file() and not target.exists():
+                try:
+                    _inside(root, saved).rename(safe_path(root, name))
+                except (OSError, ValueError):
+                    pass  # The relative-path recovery copy remains available if restoration is locked.
             skipped.append(name)  # Locked files and unsafe paths remain for a later start.
     report = {'version': expected_version, 'moved': moved, 'skipped': skipped,
               'backup': str(backup) if backup else None}

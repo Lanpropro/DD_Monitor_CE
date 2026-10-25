@@ -153,6 +153,22 @@ class LegacyCleanupTests(unittest.TestCase):
         self.assertEqual(old.read_bytes(), b'user change')
         self.assertEqual(result['moved'], [])
 
+    def test_verification_io_failure_restores_the_original_file(self):
+        old = self.put('_internal/old.dll', b'old-one')
+        digest = hashlib.file_digest
+        count = 0
+        def fail_second_read(source, algorithm):
+            nonlocal count
+            count += 1
+            if count == 2:
+                raise OSError('synthetic backup read failure')
+            return digest(source, algorithm)
+        with patch.object(hashlib, 'file_digest', fail_second_read):
+            result = self.run_cleanup()
+        self.assertEqual(old.read_bytes(), b'old-one')
+        self.assertEqual(result['moved'], [])
+        self.assertIn('_internal/old.dll', result['skipped'])
+
     @unittest.skipUnless(os.name == 'nt', 'Windows junction protection')
     def test_program_and_backup_junctions_never_touch_other_directories(self):
         original_install = self.install
