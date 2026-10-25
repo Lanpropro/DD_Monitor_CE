@@ -13,7 +13,9 @@
 | `release/<版本>` | 保留发布标签对应的源码基线，不承载日常开发 |
 | `archive/<名称>` | 保留旧方案或整理前的历史，不作为新任务基线 |
 
-`function/v0.4.1` 是本次整理得到的 **0.4.1（未发布）** 对照快照，内容已在主线历史中，不需要再次合并。软件内版本号暂未修改；后续任务从最新 `develop` 创建自己的分支。
+日常开发和人工验收统一使用仓库根目录 `run.cmd`。特殊项目确需隔离时才使用独立 worktree；测试结束后，必须将完成的功能集成回根目录，再从 `run.cmd` 复测。独立入口通过不代表日常开发版已经包含该功能。
+
+发布从根目录当前已提交的完整开发源码构建，包含当时完成的全部功能，不再另外挑选修复组合。配置、账号、缓存、日志、录制和本机插件安装副本不进入发布包；插件仍按独立仓库发布。开发入口与打包使用同一固定版本的 Qt 依赖，当前为 PySide6 6.9.3。
 
 分支是同一仓库中的代码历史，不是文件夹。先检查当前目录与分支：
 
@@ -29,7 +31,7 @@ git worktree list
 - 同一功能的相关修复、样式调整和验收反馈优先追加到尚未合入的原 PR；不要为每次微调新建 PR，独立需求再拆分。
 - 准备发布时，验证完整的 `develop`，再通过 PR 合入 `main`；已有面向 `main` 的 PR 先检查依赖与差异，再决定是否调整目标。
 - PR 模板区分日常贡献与发布；创建时核对 GitHub 的 base，日常贡献选择 `develop`，发布选择 `main`。
-- 多项任务同时进行时，使用独立 worktree 和分支；不要让测试目录与日常开发目录互相覆盖。
+- 特殊项目使用独立 worktree 和分支时，不覆盖日常配置；完成后集成回根目录并清理临时入口。
 - 合并后的功能分支可在确认不再被 worktree 使用后删除；备份和未合并成果先保留。
 
 ## 日常开发
@@ -107,7 +109,7 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 | 通知、开播提醒、快捷键入口 | `python dev/run_checks.py --script selfcheck_main_notices` | 手动检查点击、关闭、遮挡及连续通知 |
 | 关注排序、常看记录 | `python dev/run_checks.py --script selfcheck_frequent_sort`；`python dev/run_checks.py --script selfcheck_sort_manager` | 检查启用／停用、置顶、普通及智能文件夹、手动刷新和重启恢复；悬停不计次 |
 | 布局、格子数量与状态恢复 | `python dev/run_checks.py --script selfcheck_layout_16`；`python dev/run_checks.py --script selfcheck_layout_growth_empty` | 拖拽、全屏或方向相关改动还需 `--suite native` 及实际播放验收 |
-| 弹幕发送、凭据快照与协议 | `python dev/run_checks.py --script selfcheck_danmaku_send`；连接改动另跑 `--script selfcheck_danmaku_connection` | 使用替身或本机服务，不向真实直播间发送测试消息 |
+| 弹幕发送、凭据快照与协议 | `python dev/run_checks.py --script selfcheck_bili_plugin_boundary`；发送协议在独立插件仓执行对应专项；连接改动另跑 `--script selfcheck_danmaku_connection` | 使用替身或本机服务，不向真实直播间发送测试消息 |
 | 弹幕绘制、浮层和控件 | `python dev/run_checks.py --script selfcheck_video_danmaku`；`python dev/run_checks.py --script selfcheck_video_danmaku_controls` | Quick 渲染或透明窗口改动另跑 native 套件并检查高 DPI |
 | 插件接口、事件和装载 | `python dev/run_checks.py --script selfcheck_plugin_contract` | 安装／更新／启用交互需按插件主题索引选择专项，使用临时插件目录 |
 | 播放器、解码与原生窗口 | `python dev/run_checks.py --suite native` | 实际播放、音频听感及跨屏检查，必要时显式运行 live 单项 |

@@ -7,13 +7,14 @@ from unittest.mock import Mock, patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QPoint, Qt
-from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QKeySequence
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QPushButton, QVBoxLayout, QWidget
 from ddm.app import MainWindow
 from ddm.dialogs import SHORTCUT_ACTIONS, ShortcutSettingsPage
 from ddm.widgets import VolumeButton
+from ddm.plugins import TileControl
 
 
 def check_hover_shortcuts(app, window):
@@ -55,13 +56,6 @@ def check_hover_shortcuts(app, window):
         window.sidebar.search.clear()
         QTest.keyClicks(window.sidebar.search, 'bfme')
         assert window.sidebar.search.text() == 'bfme'
-        assert second.danmaku_button.isChecked() == before
-        assert second.muted == muted
-        # 每格发送框也必须保护播放器单键快捷键。
-        first.composer.edit.setFocus()
-        first.composer.edit.clear()
-        QTest.keyClicks(first.composer.edit, 'bfme')
-        assert first.composer.edit.text() == 'bfme'
         assert second.danmaku_button.isChecked() == before
         assert second.muted == muted
         dialog = QDialog(window)
@@ -110,6 +104,18 @@ def check_hover_shortcuts(app, window):
 
 def check_danmaku_input(app, window):
     first, second = window.wall.tiles[:2]
+    class InputControl(TileControl):
+        def __init__(self, context):
+            super().__init__(QLineEdit(context.parent), minimum_width=90)
+        def set_room(self, room):
+            self.widget.setVisible(str(room.get('room_id', '')).isdigit())
+        def focus_input(self):
+            self.widget.setFocus(Qt.ShortcutFocusReason)
+            return True
+        def interaction_active(self):
+            return self.widget.hasFocus()
+    window.plugins.register_tile_control('test-input', 'edit', InputControl, priority=100)
+    editors = [tile._plugin_controls.entries[0].control.widget for tile in (first, second)]
     window.resize(1800, 1000)
     window.show()
     window.activateWindow()
@@ -118,22 +124,14 @@ def check_danmaku_input(app, window):
     with patch('ddm.app.QCursor.pos', return_value=point):
         first.pause_button.setFocus()
         QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
-        assert second.composer.edit.hasFocus()
-        assert not first.composer.edit.hasFocus()
-        edit = second.composer.edit
-        sent = []
-        edit.returnPressed.connect(lambda: sent.append(edit.text()))
+        assert editors[1].hasFocus()
+        assert not editors[0].hasFocus()
+        edit = editors[1]
+        confirmed_input = []
+        edit.returnPressed.connect(lambda: confirmed_input.append(edit.text()))
         edit.setText('快捷输入')
-        app.sendEvent(edit, QInputMethodEvent('候选', []))
         QTest.keyClick(edit, Qt.Key.Key_Return)
-        assert not sent and edit.text() == '快捷输入'
-        app.sendEvent(edit, QInputMethodEvent('', []))
-        with patch.object(second.composer, '_send') as send:
-            QTest.keyClick(edit, Qt.Key.Key_Return)
-            send.assert_called_once_with('快捷输入', 0)
-            app.sendEvent(edit, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier, '', True))
-            assert send.call_count == 1
-        assert sent == ['快捷输入']
+        assert confirmed_input == ['快捷输入']
         edit.clear()
         edit.clearFocus()
         second.setProperty('fullscreen', True)
@@ -167,7 +165,7 @@ def check_danmaku_input(app, window):
         search.returnPressed.connect(lambda: confirmed.append(True))
         search.setFocus()
         QTest.keyClick(search, Qt.Key.Key_Return)
-        assert confirmed and not second.composer.edit.hasFocus()
+        assert confirmed and not editors[1].hasFocus()
         dialog = QDialog(window)
         dialog.setModal(True)
         layout = QVBoxLayout(dialog)
@@ -180,7 +178,7 @@ def check_danmaku_input(app, window):
         dialog.activateWindow()
         app.processEvents()
         QTest.keyClick(button, Qt.Key.Key_Return)
-        assert accepted and not second.composer.edit.hasFocus()
+        assert accepted and not editors[1].hasFocus()
         dialog.close()
         window.activateWindow()
         page = ShortcutSettingsPage(window.shortcuts)
@@ -190,11 +188,11 @@ def check_danmaku_input(app, window):
         first.pause_button.setFocus()
         app.processEvents()
         QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
-        assert not second.composer.edit.hasFocus()
+        assert not editors[1].hasFocus()
         QTest.keyClick(first.pause_button, Qt.Key.Key_T)
-        assert second.composer.edit.hasFocus()
+        assert editors[1].hasFocus()
         assert window.current_state()['ui']['shortcuts']['danmaku_input'] == 'T'
-        second.composer.edit.clearFocus()
+        editors[1].clearFocus()
         page.reset()
         window.shortcuts = page.values()
         window._refresh_shortcuts()
@@ -202,7 +200,9 @@ def check_danmaku_input(app, window):
     with patch.object(window, '_tile_under_cursor', return_value=None):
         first.pause_button.setFocus()
         QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
-        assert not second.composer.edit.hasFocus()
+        assert not editors[1].hasFocus()
+
+    window.plugins._remove_tile_owner('test-input')
 
 
 def check_corner_empty_slots(app):

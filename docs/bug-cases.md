@@ -112,7 +112,7 @@
 
 ## 弹幕、表情与输入
 
-来源：[历史反馈](archive/BUG-STATUS-2026-10-02.md)、[PR11/12 集成](archive/pr11-pr12-integration-testing.md)、[近期集成](development/ui-integration-20261019.md)、[v0.3](releases/RELEASE-v0.3.md)、[v0.4](releases/RELEASE-v0.4.md)。
+来源：[历史反馈](archive/BUG-STATUS-2026-10-02.md)、[PR11/12 集成](archive/pr11-pr12-integration-testing.md)、[v0.3](releases/RELEASE-v0.3.md)、[v0.4](releases/RELEASE-v0.4.md)。
 
 | 编号 | 现象 / 触发条件 | 状态 | 处理与验证边界 |
 | --- | --- | --- | --- |
@@ -132,7 +132,7 @@
 
 ## 关注栏、外观、性能与通知
 
-来源：[历史反馈](archive/BUG-STATUS-2026-10-02.md)、[v0.3.1](releases/RELEASE-v0.3.1.md)、[v0.4](releases/RELEASE-v0.4.md)、[近期集成](development/ui-integration-20261019.md)。后续复发反馈以当前状态为准。
+来源：[历史反馈](archive/BUG-STATUS-2026-10-02.md)、[v0.3.1](releases/RELEASE-v0.3.1.md)、[v0.4](releases/RELEASE-v0.4.md)。后续复发反馈以当前状态为准。
 
 | 编号 | 现象 / 触发条件 | 状态 | 处理与验证边界 |
 | --- | --- | --- | --- |

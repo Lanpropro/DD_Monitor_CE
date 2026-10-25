@@ -135,6 +135,7 @@ def check_native_occlusion(app, owner, layer):
             widget.show()
             settle(app)
             point = widget.mapToGlobal(widget.rect().center()) - origin
+            assert layer.parent.rect().contains(point), ('Dialog fixture outside wall', point, widget.geometry())
             assert not layer.window.mask().contains(point), 'Native overlay covers application UI'
             widget.move(origin.x() + 350, origin.y() + 200)
             settle(app)
@@ -296,14 +297,16 @@ def main():
              for i in range(4)]
     with tempfile.TemporaryDirectory(prefix="ddm-video-dm-quick-") as temp, \
             patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
-            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
+            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
+            patch("ddm.plugins.PluginManager.load"), patch("ddm.plugins.PluginManager.catalog", return_value=[]), \
+            patch("ddm.online.load_plugin_cache", return_value={}):
         source = str(Path(temp) / "blue.mp4")
         subprocess.run([ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
                         "-f", "lavfi", "-i", "color=c=blue:s=640x360:r=30",
                         "-t", "30", "-c:v", "libx264", "-preset", "ultrafast",
                         "-pix_fmt", "yuv420p", source], check=True)
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2",
-                            state={"plugins_enabled": []})
+                            state={"plugins_enabled": [], "settings": {"auto_update": False}})
         if "--surface-only" in sys.argv:
             window.setWindowFlag(Qt.WindowStaysOnTopHint)
         window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)

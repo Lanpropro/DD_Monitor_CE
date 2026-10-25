@@ -1,14 +1,7 @@
 """PyInstaller 运行时钩子：把 PySide6 / shiboken6 目录加进 DLL 搜索路径。
 
-PyInstaller 6.22 + PySide6 6.11 冻出来的 exe，一 `import QtCore` 就报
-「DLL load failed while importing QtCore: 找不到指定的程序」。原因不是文件缺失
-（`Qt6Core.dll`、`pyside6.abi3.dll` 都在 `_internal/PySide6/` 里，用干净的
-Python 手动 `add_dll_directory` 后能正常加载，已验证），而是这两个目录没进
-DLL 搜索路径。
-
-运行时钩子比用户代码先跑，所以在这里把**所有可能的位置**都补上：onedir 的
-`_MEIPASS`、exe 所在目录、exe 目录下的 `_internal`。同时写一份排查信息到
-`ddm-pyinstaller-paths.txt`（在 exe 旁边），出问题时有据可查。
+运行时钩子先于应用导入执行，为冻结目录中的绑定库添加 DLL 搜索位置。
+开发与发布统一使用 requirements.txt 固定的 Qt 版本；仅 DDM_PYI_DEBUG=1 时写诊断文件。
 """
 import os
 import sys
@@ -16,6 +9,7 @@ import sys
 if getattr(sys, "frozen", False):
     # Match run.cmd, including the verified cross-screen composition fix.
     os.environ.setdefault("DDM_QTQUICK_DANMAKU", "1")
+    os.environ.setdefault("DDM_SETTINGS_PROCESS", "1")
 
 _bases = []
 _exe_dir = os.path.dirname(os.path.abspath(sys.executable))

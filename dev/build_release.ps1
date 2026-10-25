@@ -9,11 +9,8 @@
 #   DD监控室-v<版本>\       源码便携包（要 Python；-SourceOnly 时只出这个）
 #   DD监控室-v<版本>.zip    源码包的压缩包
 #
-# exe 用 PyInstaller 冻结，但走**单独的依赖目录** `work\deps`（PySide6 6.9）：
-#   主环境是 PySide6 6.11，冻出来的 exe 一 import QtCore 就报
-#   「DLL load failed while importing QtCore」（文件不缺、路径也对，失败点在
-#   Qt6Core.dll 自身加载）；6.9 的老布局没这个问题，程序在 6.9 下自查全过。
-#   `work\deps` 缺了脚本会提示你怎么装（pip 要写系统临时目录，得在普通命令行跑）。
+# 开发入口与冻结包统一使用 PySide6 6.9.3，本机依赖位于 work\deps。
+# 源码从当前 HEAD 导出，不打包未提交的本机文件。
 param(
     [string]$OutDir = "",
     [string]$FFmpegExe = "",
@@ -68,20 +65,23 @@ New-Item -ItemType Directory -Force -Path $app | Out-Null
 # ---- 1) 源码：**只打包 git 跟踪的文件** ----
 # 不是简单拷目录：未跟踪的草稿/私有残留（比如 dev/mock_portrait.py 这种本地
 # 试做文件）不能进发布包 —— 用户要求上传/发布前不能带他自己的测试数据。
-$tracked = & git -C $repo ls-files
-if ($LASTEXITCODE -ne 0 -or -not $tracked) { throw "git ls-files 拿不到文件列表（$repo 是 git 仓库吗？）" }
-foreach ($rel in $tracked) {
-    if ($rel -like "plugins/*") { continue }                  # libmpv 运行库单独处理
-    if ($rel -like "plugins_user/*") { continue }
-    if ($rel -like "utils/*") { continue }
-    if ($rel -like "videos/*") { continue }
-    if ($rel -like "dev/*promo*" -or $rel -like "dev/*highlight*" -or $rel -like "dev/*videotogether*" -or $rel -like "docs/*VIDEO*" -or $rel -like "docs/*PROMO*" -or $rel -like "HANDOFF-*") { continue }
-    $src = Join-Path $repo ($rel -replace "/", "\")
-    $dst = Join-Path $app ($rel -replace "/", "\")
-    $dir = Split-Path $dst -Parent
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    Copy-Item $src $dst -Force
-}
+& git -C $repo diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt dev/build_release.ps1 dev/pyi_rth_pyside6_paths.py
+if ($LASTEXITCODE -ne 0) { throw "请先提交开发源码，再从同一提交打包" }
+$snapshot = Join-Path $OutDir "source-snapshot.zip"
+& git -C $repo archive --format=zip --output=$snapshot HEAD
+if ($LASTEXITCODE -ne 0) { throw "无法导出当前开发提交" }
+$extractSource = @'
+import fnmatch, sys, zipfile
+excluded = ('plugins/*', 'plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*',
+            'dev/*highlight*', 'dev/*videotogether*', 'docs/*VIDEO*', 'docs/*PROMO*', 'HANDOFF-*')
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    for item in archive.infolist():
+        if not any(fnmatch.fnmatchcase(item.filename, pattern) for pattern in excluded):
+            archive.extract(item, sys.argv[2])
+'@
+& $py -c $extractSource $snapshot $app
+if ($LASTEXITCODE -ne 0) { throw "开发源码导出失败" }
+Remove-Item -LiteralPath $snapshot -Force
 Copy-Item -LiteralPath $FFmpegExe -Destination (Join-Path $app "ffmpeg.exe") -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $app "ffmpeg-license") | Out-Null
 Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $app "ffmpeg-license\LICENSE") -Force
@@ -143,15 +143,15 @@ if (-not $SourceOnly) {
     $deps = Join-Path $repo "work\deps"
     if (-not (Test-Path (Join-Path $deps "PySide6"))) {
         throw @"
-缺少 $deps（PySide6 6.9，冻结专用）。
-先在**普通命令行**里执行一次（沙箱里 pip 写不了系统临时目录）：
-    $py -m pip install --target "$deps" "PySide6==6.9.*"
-为什么要单独装一份：主环境是 PySide6 6.11，冻出来的 exe 一 import QtCore 就报
-「DLL load failed while importing QtCore」（文件不缺、路径也对，失败点在
-Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9 下自查全过。
+缺少 $deps（开发和冻结共用的 PySide6 6.9.3）。
+安装命令：
+    $py -m pip install --target "$deps" "PySide6==6.9.3"
 "@
     }
-    Write-Output "=== 冻 exe（PySide6 6.9）==="
+    $env:PYTHONPATH = $deps
+    $qtVersion = (& $py -c "from PySide6.QtCore import qVersion; print(qVersion())").Trim()
+    if ($qtVersion -ne "6.9.3") { throw "开发与发布 Qt 版本必须一致：期望 6.9.3，实际 $qtVersion" }
+    Write-Output "=== 冻 exe（PySide6 $qtVersion）==="
     $exeDir = Join-Path $OutDir $display
     $build = Join-Path $repo "work\exebuild"
     if ((Split-Path $exeDir -Parent) -ne $OutDir -or
