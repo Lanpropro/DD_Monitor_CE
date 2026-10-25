@@ -131,76 +131,15 @@ def ensure_buvid3() -> str:
             return BUVID3
 
 
-def _danmaku_result(response) -> dict:
-    response.raise_for_status()
-    if not 200 <= response.status_code < 300:
-        raise ValueError("B 站接口未接受请求")
-    payload = response.json()
-    if not isinstance(payload, dict) or payload.get("code") != 0:
-        reason = (payload.get("message") or payload.get("msg")) if isinstance(payload, dict) else None
-        raise ValueError(str(reason or "B 站接口返回异常"))
-    return payload
-
-
-def _sending_room_id(room_id: str) -> str:
-    room_id = str(room_id or "").strip()
-    if not room_id.isascii() or not room_id.isdigit() or not room_id.strip("0"):
-        raise ValueError("仅支持有效的 B 站直播间")
-    return _resolve_room_id(room_id)
-
-
-def send_danmaku(room_id: str, message: str, *, dm_type: int = 0,
-                 cookies: dict | None = None) -> dict:
-    """发送文字或完整大表情标识；POST 不自动重试，避免超时后重复发送。"""
-    if not isinstance(message, str) or not message.strip() or dm_type not in (0, 1):
-        raise ValueError("弹幕内容或类型无效")
-    snapshot = dict(_cookies() if cookies is None else cookies)
-    if not snapshot.get("SESSDATA"):
-        raise ValueError("请先登录 B 站")
-    if not snapshot.get("bili_jct"):
-        raise ValueError("登录缺少 bili_jct，请退出 B 站账号后重新登录")
-    real_id = _sending_room_id(room_id)
-    if not snapshot.get("buvid3"):
-        snapshot["buvid3"] = ensure_buvid3()
-    csrf = snapshot["bili_jct"]
-    response = requests.post(
-        "https://api.live.bilibili.com/msg/send",
-        data={"roomid": real_id, "msg": message, "dm_type": str(dm_type),
-              "rnd": str(int(time.time())), "fontsize": "25", "color": "16777215",
-              "mode": "1", "bubble": "0", "csrf": csrf, "csrf_token": csrf},
-        headers={**HEADERS, "Origin": "https://live.bilibili.com",
-                 "Referer": f"https://live.bilibili.com/{real_id}"},
-        cookies=snapshot, timeout=10, allow_redirects=False)
-    payload = _danmaku_result(response)
-    # 有些拒绝仍返回 code=0（包括 message="f"），不能据此清空草稿。
-    data = payload.get("data")
-    for section in (payload, data if isinstance(data, dict) else {}):
-        for key in ("message", "msg"):
-            reason = section.get(key)
-            if reason not in (None, "", "0", 0):
-                raise ValueError("发送未成功，请稍后重试" if reason == "f" else str(reason))
-    return payload
-
-
-def get_emoticons(room_id: str, *, cookies: dict | None = None) -> list[dict]:
-    """保留服务端表情类型、完整标识和解锁权限；设备身份复用接收弹幕的缓存。"""
-    snapshot = dict(_cookies() if cookies is None else cookies)
-    real_id = _sending_room_id(room_id)
-    if not snapshot.get("buvid3"):
-        snapshot["buvid3"] = ensure_buvid3()
-    response = requests.get(
-        "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
-        params={"platform": "pc", "room_id": real_id},
-        headers=HEADERS, cookies=snapshot, timeout=10)
-    data = _danmaku_result(response).get("data")
-    packages = data.get("data") if isinstance(data, dict) else None
-    if not isinstance(packages, list) or any(not isinstance(p, dict) for p in packages):
-        raise ValueError("表情列表格式异常，请重试")
-    for package in packages:
-        emotes = package.get("emoticons")
-        if emotes is not None and (not isinstance(emotes, list) or any(not isinstance(e, dict) for e in emotes)):
-            raise ValueError("表情列表格式异常，请重试")
-    return packages
+def remember_buvid3(value: str) -> str:
+    """Fill a missing device identity without replacing a later login's value."""
+    global BUVID3
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError('设备 Cookie 不能为空')
+    with _COOKIE_LOCK:
+        if not BUVID3:
+            BUVID3 = value.strip()
+        return BUVID3
 
 
 def room_info(room_id: str) -> dict | None:
@@ -682,7 +621,7 @@ class StreamResolver(QThread):
                                                  codec_from_profile(profile) or self.codec))
             if (self.platform is None and not self.preview
                     and (self.strict_codec or codec_from_profile(profile) in HLS_ONLY_CODECS)
-                    and not any(int(option["qn"]) == 10000 for option in options)):
+                    and not any(int(option["qn"]) >= 10000 for option in options)):
                 name = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}[self.codec]
                 self.original_quality_note = (f"{name} 未提供原画" if options
                                               else f"未能验证 {name} 的原画档位")
@@ -770,23 +709,34 @@ def my_uid(force: bool = False) -> int | None:
     return uid
 
 
-def following(uid: int, page_size: int = 50, max_pages: int = 20) -> list[dict]:
+def following(uid: int, page_size: int = 50, max_pages: int | None = None) -> list[dict]:
     """拉取关注列表（分页）。"""
     result: list[dict] = []
-    for page in range(1, max_pages + 1):
+    seen = set()
+    page = 1
+    while max_pages is None or page <= max_pages:
         response = requests.get(
             "https://api.bilibili.com/x/relation/followings",
             params={"vmid": uid, "pn": page, "ps": page_size, "order": "desc"},
             headers=HEADERS, cookies=_cookies(), timeout=10)
         data = response.json()
         if data.get("code") != 0:
-            break
+            raise RuntimeError(data.get("message") or "读取 B 站关注失败")
         items = (data.get("data") or {}).get("list") or []
+        total = (data.get("data") or {}).get("total")
         if not items:
+            if total and len(result) < int(total):
+                raise RuntimeError("B 站关注列表未读取完整，请重新读取")
             break
-        result.extend({"uid": int(item["mid"]), "uname": item["uname"]} for item in items)
-        if len(items) < page_size:
+        new_items = [{"uid": int(item["mid"]), "uname": item["uname"]}
+                     for item in items if int(item["mid"]) not in seen]
+        if not new_items:
+            raise RuntimeError("B 站关注分页未前进，请重新读取")
+        result.extend(new_items)
+        seen.update(item["uid"] for item in new_items)
+        if len(items) < page_size or (total and len(result) >= int(total)):
             break
+        page += 1
     return result
 
 

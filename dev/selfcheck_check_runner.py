@@ -43,14 +43,14 @@ class CheckRunnerTests(unittest.TestCase):
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                         self.assertNotEqual(ast.unparse(node.func), 'os._exit', script)
 
-    def test_smoke_covers_five_areas_with_offline_isolation(self):
+    def test_smoke_covers_core_areas_with_offline_isolation(self):
         suite = runner.load_suites()['smoke']
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
             'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
             'selfcheck_player_lifetime',
             'selfcheck_main_notices', 'selfcheck_notification_center', 'selfcheck_layout_16',
-            'selfcheck_danmaku_send', 'selfcheck_plugin_contract'])
+            'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
                      'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
@@ -60,8 +60,8 @@ class CheckRunnerTests(unittest.TestCase):
     def test_shared_scripts_require_the_same_isolation_mode(self):
         with tempfile.TemporaryDirectory() as temp:
             catalog = Path(temp) / 'suites.json'
-            suites = {'a': {'mode': 'offline', 'scripts': ['selfcheck_danmaku_send']},
-                      'b': {'mode': 'offline', 'scripts': ['selfcheck_danmaku_send']}}
+            suites = {'a': {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary']},
+                      'b': {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary']}}
             with patch.object(runner, 'CATALOG', catalog):
                 catalog.write_text(json.dumps(suites), encoding='utf-8')
                 self.assertEqual(len(runner.load_suites()), 2)
@@ -69,7 +69,7 @@ class CheckRunnerTests(unittest.TestCase):
                 catalog.write_text(json.dumps(suites), encoding='utf-8')
                 with self.assertRaises(ValueError):
                     runner.load_suites()
-                suites['b'] = {'mode': 'offline', 'scripts': ['selfcheck_danmaku_send'] * 2}
+                suites['b'] = {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary'] * 2}
                 catalog.write_text(json.dumps(suites), encoding='utf-8')
                 with self.assertRaises(ValueError):
                     runner.load_suites()
@@ -113,12 +113,6 @@ class CheckRunnerTests(unittest.TestCase):
                 result = runner.run_script('fixture', 'offline', [], root, 10)
             self.assertNotEqual(result['exit_code'], 0)
             self.assertIn('external network access', Path(result['log']).read_text(encoding='utf-8'))
-
-    def test_development_restart_matches_current_launcher(self):
-        source = (runner.ROOT / 'dev/restart-client.ps1').read_text(encoding='utf-8-sig')
-        self.assertNotIn('PYTHON_VLC_LIB_PATH', source)
-        self.assertIn("$env:DDM_QTQUICK_DANMAKU = '1'", source)
-        self.assertIn('-WindowStyle Hidden', source)
 
     def test_bootstrap_preserves_arguments_imports_and_failure_code(self):
         with tempfile.TemporaryDirectory(prefix='ddm check runner ') as temp:

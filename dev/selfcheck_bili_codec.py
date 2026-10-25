@@ -238,6 +238,39 @@ def check_quality_options() -> None:
     assert get.call_args.kwargs["params"]["codec"] == 0
 
 
+def check_4k_quality() -> None:
+    from ddm.widgets import Tile
+
+    for codec, protocol in (('avc', 'http_stream'), ('hevc', 'http_hls'), ('av1', 'http_hls')):
+        info = {'g_qn_desc': [{'qn': 20000, 'desc': '4K'}, {'qn': 10000, 'desc': '原画'}],
+                'stream': [_stream(protocol, codec, [20000], '/4k', 'https://fixture.invalid')]}
+        info['stream'][0]['format'][0]['codec'][0]['current_qn'] = 20000
+        with patch.object(bili, '_app_play_info', return_value=info) as lookup, \
+                patch.object(bili, '_fetchable', return_value=True):
+            options = bili.room_quality_options('24', codec)
+            assert options == [{'qn': 20000, 'desc': '4K'}]
+            resolver = bili.StreamResolver('24', 20000, codec=codec, strict_codec=True)
+            resolved, failed = [], []
+            resolver.resolved.connect(lambda *args, target=resolved: target.append(args))
+            resolver.failed.connect(lambda *args, target=failed: target.append(args))
+            resolver.run()
+            assert resolved and not failed, 'A verified 4K tier must satisfy the original-or-higher gate'
+            assert resolved[0][2] == 20000 and resolved[0][4] == options
+            assert any(call.args[1:3] == (20000, codec) for call in lookup.call_args_list)
+        # Descriptions alone are not capabilities: anonymous responses can list 4K but omit its stream.
+        info['stream'][0]['format'][0]['codec'][0]['accept_qn'] = [10000]
+        with patch.object(bili, '_app_play_info', return_value=info):
+            assert all(option['qn'] != 20000 for option in bili.room_quality_options('24', codec))
+    tile = Tile({'room_id': '24', 'live': True})
+    try:
+        tile.set_quality(20000)
+        assert tile._quality_name(20000) == '4K', 'Do not display the quality ID as 20000P'
+        tile.set_actual_quality(250)
+        assert '4K' in tile.quality_button.toolTip() and '720' in tile.quality_button.toolTip()
+    finally:
+        tile.close()
+
+
 def check_resolver() -> None:
     """取流线程要把 codec 透传给取流和档位两处。"""
     for codec, profile in (("avc", "app"), ("hevc", "app-hls-hevc"), ("av1", "app-hls-av1")):
@@ -501,6 +534,13 @@ def check_codec_preflight(application) -> None:
         window._play_on(first, "http://old/hevc", 250, "app-hls-hevc")
         window._play_on(other, "http://old/avc", 250, "app")
         player = window.players[first]
+        original_prop = player._prop
+        for params, dimensions in (({'w': 3840, 'h': 2160}, '3840×2160'),
+                                   ({'w': 1280, 'h': 720}, '1280×720'), ({}, '')):
+            with patch.object(player, '_prop', side_effect=lambda name, default=None:
+                              params if name == 'video-params' else original_prop(name, default)):
+                status = window._codec_status(first)
+                assert (f'实际分辨率：{dimensions}' in status) if dimensions else ('实际分辨率' not in status)
         window._open_tile_codecs(first)
         dialog = window._codec_dialogs[first]
 
@@ -848,6 +888,7 @@ def main() -> None:
                         ("play_url", check_play_url),
                         ("缺失编码回退及房间隔离", check_codec_fallback),
                         ("画质档位", check_quality_options),
+                        ("4K能力、取流与降档显示", check_4k_quality),
                         ("取流线程", check_resolver),
                         ("严格编码探测", check_strict_codec),
                         ("原画档位切换条件与初始回退", check_original_quality_gate)):

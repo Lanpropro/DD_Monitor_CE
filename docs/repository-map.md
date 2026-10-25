@@ -33,11 +33,14 @@
 - `dev/check_setup_data_cleanup.py`
 - `dev/selfcheck_setup.py`
 - `dev/build_setup.py`
+- `dev/build_program_inventory.py`
+- `dev/selfcheck_legacy_cleanup.py`
 - `dev/installer/ChineseSimplified.isl`
 - `dev/installer/ChineseSimplified-LICENSE.txt`
 - `dev/installer/wizard.png`
 - `dev/installer/helper.cpp`
 - `dev/selfcheck_account_dialog.py`
+- `dev/selfcheck_account_login_reopen.py`
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
 - `dev/selfcheck_accounts.py`
@@ -60,6 +63,7 @@
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_cookies.py`
+- `dev/selfcheck_bili_plugin_boundary.py`
 - `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
@@ -79,7 +83,6 @@
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_button.py`
-- `dev/selfcheck_danmaku_composer.py`
 - `dev/selfcheck_danmaku_connection.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
@@ -88,7 +91,6 @@
 - `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`
-- `dev/selfcheck_danmaku_send.py`
 - `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
 - `dev/selfcheck_delete.py`
@@ -106,7 +108,6 @@
 - `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
-- `dev/selfcheck_emoticon_tabs.py`
 - `dev/selfcheck_encoders.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
@@ -117,8 +118,11 @@
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
+- `dev/selfcheck_follow_stress.py`
+- `dev/selfcheck_pinyin_search.py`
 - `dev/selfcheck_follow_refresh.py`
 - `dev/selfcheck_fullscreen_audio.py`
+- `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
@@ -126,6 +130,8 @@
 - `dev/selfcheck_fullscreen_quality.py`
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
+- `dev/selfcheck_settings_process.py`
+- `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
 - `dev/selfcheck_hls_proxy.py`
 - `dev/selfcheck_huya_live.py`
@@ -223,6 +229,8 @@
 - `dev/selfcheck_platform_quality_live.py`
 - `dev/selfcheck_platform_storage.py`
 - `dev/selfcheck_plugin_cache.py`
+- `dev/selfcheck_plugin_controls.py`
+- `dev/selfcheck_plugin_credentials.py`
 - `dev/selfcheck_plugin_drop_restart.py`
 - `dev/selfcheck_plugin_rename.py`
 - `dev/selfcheck_plugin_settings.py`
@@ -241,6 +249,7 @@
 - `dev/selfcheck_preview.py`
 - `dev/selfcheck_preview_collapsed.py`
 - `dev/selfcheck_preview_popup.py`
+- `dev/selfcheck_preview_scroll.py`
 - `dev/selfcheck_project_workflow.py`
 - `dev/selfcheck_qr_refresh.py`
 - `dev/selfcheck_qr_responsiveness.py`
@@ -272,6 +281,7 @@
 - `dev/selfcheck_smart_folders.py`
 - `dev/selfcheck_smooth_edges.py`
 - `dev/selfcheck_sort_manager.py`
+- `dev/selfcheck_frequent_sort.py`
 - `dev/selfcheck_startup.py`
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
@@ -323,8 +333,6 @@
 - `docs/development/testing.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
-- `docs/development/v0.4.1-backlog.md`
-- `docs/development/ui-integration-20261019.md`
 
 ### 性能基准
 
@@ -342,7 +350,6 @@
 - `dev/pyi_rth_pyside6_paths.py`
 - `dev/repro_d3d_quality.py`
 - `dev/repro_tile_lifecycle.py`
-- `dev/restart-client.ps1`
 - `dev/screens.py`
 
 ### 根目录协作文件
@@ -381,6 +388,7 @@
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/releases/RELEASE-v0.5.md`
+- `docs/releases/RELEASE-v0.5.1.md`
 
 ### 独立网站原型
 

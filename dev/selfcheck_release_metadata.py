@@ -13,10 +13,20 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.5'
+    assert version.VERSION == '0.5.1'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
+    assert notes.startswith('# DD监控室CE v0.5.1 更新说明')
+    for feature in ('4K', '平台 Logo', 'ddy', 'dcz', '750', 'legacy-program-backup-',
+                    'SHA256', '备份不自动删除', 'DDM_SETTINGS_PROCESS=0', '↑', '↓'):
+        assert feature in notes, feature
+    notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.5.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.5 更新说明')
     for feature in ('通知中心', '音量控制', '500ms', '画面黑屏', '只有弹幕', '关注栏完好', 'DD监控室CE.exe'):
+        assert feature in notes, feature
+    for feature in ('正式版本 v0.4 到 v0.5', '播放内核从 VLC 更换为 libmpv',
+                    '全局和单窗口编解码设置', 'NVIDIA NVENC', '弹幕绘制增加 Qt Quick',
+                    '合并连续窗口尺寸更新', '独立 WASAPI 音频输出', '切换 B 站编码前后台探测',
+                    'AV1 直存选择 MOV／TS', '全屏残留选中边框', '恢复布局后背景透明异常'):
         assert feature in notes, feature
     assert '0.4（未发布）' not in notes
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.4.md').read_text(encoding='utf-8')
@@ -46,12 +56,33 @@ def main():
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
-    assert 'if ($rel -like "plugins_user/*") { continue }' in source
-    assert 'if ($rel -like "videos/*") { continue }' in source
-    assert 'if ($rel -like "dev/*promo*"' in source
+    assert 'archive --format=zip --output=$snapshot HEAD' in source
+    for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
+        assert pattern in source
     assert 'Get-ChildItem (Join-Path $repo "plugins_user")' not in source
     assert 'Get-ChildItem (Join-Path $repo "utils")' not in source
-    assert 'if ($rel -like "utils/*") { continue }' in source
+    assert 'diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt' in source
+    assert 'PySide6==6.11.2' in source and '$qtVersion -ne "6.11.2"' in source
+    assert r'$env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$(Split-Path -Parent $py)"' in source
+    assert r'$env:PATH = $previousBuildPath' in source
+    # Exercise the source export filter, including an added runtime module.
+    export = source.split("$extractSource = @'\n", 1)[1].split("\n'@", 1)[0]
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        archive = root / 'snapshot.zip'
+        files = {'main.py': b'entry', 'ddm/new_feature.py': b'feature',
+                 'utils/config.json': b'private', 'plugins_user/local/data.bin': b'private',
+                 'videos/private.mp4': b'private'}
+        with zipfile.ZipFile(archive, 'w') as package:
+            for name, data in files.items():
+                package.writestr(name, data)
+        with patch.object(sys, 'argv', ['export', str(archive), str(root / 'out')]):
+            exec(compile(export, 'release-source-export', 'exec'), {})
+        assert (root / 'out/ddm/new_feature.py').read_bytes() == b'feature'
+        assert (root / 'out/main.py').read_bytes() == b'entry'
+        assert not (root / 'out/utils').exists()
+        assert not (root / 'out/plugins_user').exists()
+        assert not (root / 'out/videos').exists()
     assert 'user_notice_accepted = $true' in source
     assert 'if ($version -eq "v0.3.1")' in source
     assert '$exeDir = Join-Path $OutDir $display' in source
@@ -81,6 +112,14 @@ def main():
                 os.environ['DDM_QTQUICK_DANMAKU'] = explicit
             runpy.run_path(str(hook))
             assert os.environ['DDM_QTQUICK_DANMAKU'] == expected
+    for explicit, expected in ((None, '1'), ('0', '0'), ('1', '1')):
+        with patch.dict(os.environ, {'DDM_PYI_DEBUG': '0'}), \
+                patch.object(sys, 'frozen', True, create=True):
+            os.environ.pop('DDM_SETTINGS_PROCESS', None)
+            if explicit is not None:
+                os.environ['DDM_SETTINGS_PROCESS'] = explicit
+            runpy.run_path(str(hook))
+            assert os.environ['DDM_SETTINGS_PROCESS'] == expected
     print('PASS: plugin catalog generation, compatibility, current version and parsed release update metadata')
 
 

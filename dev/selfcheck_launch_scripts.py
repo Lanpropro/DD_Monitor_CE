@@ -19,7 +19,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="DDM 启动测试 ") as directory:
         root = Path(directory)
         env = dict(os.environ, PYTHONIOENCODING="gbk", PYTHONUTF8="0",
-                   DDM_QTQUICK_DANMAKU="0")
+                   DDM_QTQUICK_DANMAKU="0", DDM_SETTINGS_PROCESS="0")
         # Each launcher must override the incoming console encoding.
         for name in ("run-console.cmd", "run.cmd"):
             data = (REPO / name).read_bytes()
@@ -31,6 +31,8 @@ def main():
             'import os, sys\n'
             'print("中文启动正常", flush=True)\n'
             'Path(__file__).with_name("quick.txt").write_text(os.environ.get("DDM_QTQUICK_DANMAKU", ""), encoding="utf-8")\n'
+            'Path(__file__).with_name("settings.txt").write_text(os.environ.get("DDM_SETTINGS_PROCESS", ""), encoding="utf-8")\n'
+            'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
         result = invoke(root / "run-console.cmd", env)
@@ -38,15 +40,23 @@ def main():
         assert result.returncode == 7, (result.returncode, text, result.stderr)
         assert "中文启动正常" in text and "程序已退出，退出码：7。" in text
         assert (root / "started.txt").read_text(encoding="utf-8") == "启动成功"
+        assert (root / "settings.txt").read_text(encoding="utf-8") == "1"
+        assert (root / "quick.txt").read_text(encoding="utf-8") == "1"
         (root / "started.txt").unlink()
+        deps = root / 'work/deps/PySide6'
+        deps.mkdir(parents=True)
+        (deps / 'QtCore.pyd').touch()
         result = invoke(root / "run.cmd", env)
         assert result.returncode == 0, result.stderr
         deadline = time.monotonic() + 10
         while not (root / "started.txt").exists() and time.monotonic() < deadline:
             time.sleep(.05)
         assert (root / "started.txt").read_text(encoding="utf-8") == "启动成功"
+        assert (root / "settings.txt").read_text(encoding="utf-8") == "1"
         assert (root / "quick.txt").read_text(encoding="utf-8") == "1", \
             "run.cmd must enable Quick in the launched Python process"
+        assert (root / 'pythonpath.txt').read_text(encoding='utf-8').startswith(str(deps.parent)), \
+            'Daily launcher must select the same work/deps used by freezing'
         # Missing interpreter errors must also be readable and report failure.
         for name in ("run.cmd", "run-console.cmd"):
             text = (root / name).read_text(encoding="utf-8").replace(

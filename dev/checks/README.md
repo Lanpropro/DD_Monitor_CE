@@ -69,6 +69,7 @@
 | [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | 单项执行前核对 |
 | [selfcheck_avatars](../selfcheck_avatars.py) | 单项执行前核对 |
 | [selfcheck_bili_2k_live](../selfcheck_bili_2k_live.py) | 单项执行前核对 |
+| [selfcheck_bili_plugin_boundary](../selfcheck_bili_plugin_boundary.py) | `offline`、`smoke` |
 | [selfcheck_bili_cookies](../selfcheck_bili_cookies.py) | `offline` |
 | [selfcheck_cover_cache](../selfcheck_cover_cache.py) | 单项执行前核对 |
 | [selfcheck_delete](../selfcheck_delete.py) | 单项执行前核对 |
@@ -83,6 +84,8 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
+| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；进程保存、取消、退出、主线程隔离与前台授权；`--native-focus` 需 windows 平台，会显示空白测试窗口、临时移动并恢复光标，检查系统前台 HWND |
+| [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | 单项执行前核对 |
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
@@ -103,6 +106,7 @@
 | [selfcheck_smart_folder_sources](../selfcheck_smart_folder_sources.py) | 单项执行前核对 |
 | [selfcheck_smart_folders](../selfcheck_smart_folders.py) | 单项执行前核对 |
 | [selfcheck_sort_manager](../selfcheck_sort_manager.py) | `offline` |
+| [selfcheck_frequent_sort](../selfcheck_frequent_sort.py) | `offline`、`smoke`；主动观看计分、快照刷新、文件夹与持久化 |
 | [selfcheck_tile_bottom_order](../selfcheck_tile_bottom_order.py) | `offline` |
 | [selfcheck_tile_overlay](../selfcheck_tile_overlay.py) | 单项执行前核对 |
 | [selfcheck_tile_ui](../selfcheck_tile_ui.py) | 单项执行前核对 |
@@ -122,6 +126,7 @@
 | [selfcheck_corner_state](../selfcheck_corner_state.py) | 单项执行前核对 |
 | [selfcheck_feedback_layout](../selfcheck_feedback_layout.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_audio](../selfcheck_fullscreen_audio.py) | 单项执行前核对 |
+| [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、上下限、输入隔离及保存 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline` |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
@@ -160,7 +165,6 @@
 | [check_medal_size](../check_medal_size.py) | 单项执行前核对 |
 | [selfcheck_danmaku](../selfcheck_danmaku.py) | 单项执行前核对 |
 | [selfcheck_danmaku_button](../selfcheck_danmaku_button.py) | 单项执行前核对 |
-| [selfcheck_danmaku_composer](../selfcheck_danmaku_composer.py) | `offline` |
 | [selfcheck_danmaku_connection](../selfcheck_danmaku_connection.py) | `offline` |
 | [selfcheck_danmaku_emoji](../selfcheck_danmaku_emoji.py) | 单项执行前核对 |
 | [selfcheck_danmaku_limit_migration](../selfcheck_danmaku_limit_migration.py) | 单项执行前核对 |
@@ -169,10 +173,8 @@
 | [selfcheck_danmaku_render_thread](../selfcheck_danmaku_render_thread.py) | `native` |
 | [selfcheck_danmaku_retention](../selfcheck_danmaku_retention.py) | 单项执行前核对 |
 | [selfcheck_danmaku_room_switches](../selfcheck_danmaku_room_switches.py) | `offline` |
-| [selfcheck_danmaku_send](../selfcheck_danmaku_send.py) | `offline`、`smoke` |
 | [selfcheck_danmaku_smoothness](../selfcheck_danmaku_smoothness.py) | 单项执行前核对 |
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
-| [selfcheck_emoticon_tabs](../selfcheck_emoticon_tabs.py) | `offline` |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline` |
@@ -200,10 +202,13 @@
 | [selfcheck_plugin_settings](../selfcheck_plugin_settings.py) | 单项执行前核对 |
 | [selfcheck_plugin_update_notes](../selfcheck_plugin_update_notes.py) | 单项执行前核对 |
 | [selfcheck_plugin_windows_lock](../selfcheck_plugin_windows_lock.py) | 单项执行前核对 |
+| [selfcheck_plugin_controls](../selfcheck_plugin_controls.py) | `offline` |
+| [selfcheck_plugin_credentials](../selfcheck_plugin_credentials.py) | `offline` |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行前核对 |
+| [selfcheck_legacy_cleanup](../selfcheck_legacy_cleanup.py) | `offline`；历史包哈希、备份迁移、用户数据及链接保护 |
 | [selfcheck_update_notifications](../selfcheck_update_notifications.py) | 单项执行前核对 |
 | [selfcheck_windows_version](../selfcheck_windows_version.py) | 单项执行前核对 |
 
@@ -233,6 +238,7 @@
 | [selfcheck_preview](../selfcheck_preview.py) | 单项执行前核对 |
 | [selfcheck_preview_collapsed](../selfcheck_preview_collapsed.py) | 单项执行前核对 |
 | [selfcheck_preview_popup](../selfcheck_preview_popup.py) | 单项执行前核对 |
+| [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；65行紧凑关注栏，滚轮取流竞态、漏发离开事件与悬停重绘 |
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
 | [selfcheck_recording](../selfcheck_recording.py) | 单项执行前核对 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | 单项执行前核对 |
@@ -317,6 +323,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_account_dialog](../selfcheck_account_dialog.py) | 单项执行前核对 |
+| [selfcheck_account_login_reopen](../selfcheck_account_login_reopen.py) | `native` |
 | [selfcheck_account_recovery](../selfcheck_account_recovery.py) | 单项执行前核对 |
 | [selfcheck_account_render](../selfcheck_account_render.py) | 单项执行前核对 |
 | [selfcheck_accounts](../selfcheck_accounts.py) | 单项执行前核对 |
@@ -328,6 +335,8 @@
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 单项执行前核对 |
+| [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
+| [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |
 | [selfcheck_oauth_accounts](../selfcheck_oauth_accounts.py) | 单项执行前核对 |

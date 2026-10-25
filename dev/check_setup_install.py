@@ -35,7 +35,8 @@ class Probe(Plugin):
             notes_title = Text()
             notes = Text()
         page = Notes()
-        expected_notes = (Path(config.REPO) / 'RELEASE-v0.5.md').read_text(encoding='utf-8-sig')
+        from ddm.version import VERSION_TAG
+        expected_notes = (Path(config.REPO) / f'RELEASE-{VERSION_TAG}.md').read_text(encoding='utf-8-sig')
         AppUpdatePage.show_current_notes(page)
         assert page.notes.value == expected_notes
         assert os.environ.get('DDM_QTQUICK_DANMAKU') == '1'

@@ -48,7 +48,6 @@ def check_restored_styles(app, tile):
 def main():
     app = QApplication(sys.argv)
     tile = Tile({"room_id": "1000", "uname": "Test", "live": False})
-    assert hasattr(tile, "composer"), "发送输入区应已恢复"
     events = []
     tile.recordingRequested.connect(lambda: events.append("record"))
     tile.muteToggled.connect(lambda room, muted: events.append("mute"))
