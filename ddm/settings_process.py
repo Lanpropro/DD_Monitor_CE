@@ -126,7 +126,7 @@ class SettingsProcess(QObject):
                 if not self.closing and message.get('accepted'):
                     self.saved.emit(message['changes'])
                 self.closed.emit()
-            elif kind in ('host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden') and not self.closing:
+            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden') and not self.closing:
                 self.hostRequest.emit(message)
 
     def _stderr(self):
@@ -168,7 +168,7 @@ def run_worker():
     import threading
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QIcon, QWindow
-    from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QVBoxLayout, QWidget
     from . import config, theme
     from .dialogs import SettingsDialog, SHORTCUT_ACTIONS
 
@@ -190,6 +190,7 @@ def run_worker():
             self.host_values = {}
             self.host_container = None
             self.foreign = None
+            self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
             # Compare against the values shown by the controls, not raw input.
@@ -203,7 +204,31 @@ def run_worker():
             return {'settings': {key: value for key, value in self.settings().items()
                                  if value != self.initial_settings.get(key)},
                     'shortcuts': {key: value for key, value in self.shortcuts().items()
-                                  if value != self.initial_shortcuts.get(key)}}
+                                  if value != self.initial_shortcuts.get(key)},
+                    'plugin_controls': {name: check.isChecked() for name, check in self.plugin_checks.items()}}
+
+        def set_plugin_controls(self, controls):
+            if self.plugin_checks:
+                return
+            page = self.general_page
+            grid = page.layout().itemAt(1).layout()
+            anchor = page._checks['sidebar_platform_logos']
+            row = grid.getItemPosition(grid.indexOf(anchor))[0] + 1
+            for control in reversed(controls):
+                for index in range(grid.count() - 1, -1, -1):
+                    old_row, column, rows, columns = grid.getItemPosition(index)
+                    if old_row >= row:
+                        item = grid.takeAt(index)
+                        grid.addItem(item, old_row + 1, column, rows, columns)
+                check = QCheckBox(control['label'], page)
+                check.setObjectName(control['name'])
+                check.setChecked(control['checked'])
+                grid.addWidget(check, row, 0, 1, 2)
+                self.plugin_checks[control['name']] = check
+            if any(name.endswith('_show_platform_logo') for name in self.plugin_checks):
+                grid.removeWidget(anchor)
+                anchor.hide()
+                anchor.setChecked(True)  # Per-plugin switches now decide which platforms are visible.
 
         def settings(self):
             return {**super().settings(), **self.host_values}
@@ -252,7 +277,7 @@ def run_worker():
                 super()._reset_current()
 
         def _save(self):
-            if self.host_requested:
+            if self.host_requested or self.plugin_checks:
                 self.confirm_button.setEnabled(False)
                 send({'kind': 'host-save', 'changes': self.changes()})
             else:
@@ -270,6 +295,7 @@ def run_worker():
             if not self.painted:
                 self.painted = True
                 send({'kind': 'painted', 'pid': os.getpid()})
+                send({'kind': 'host-general', 'settings': self.settings(), 'shortcuts': self.shortcuts()})
 
     class Worker(QObject):
         request = Signal(dict)
@@ -291,6 +317,8 @@ def run_worker():
                 self.dialog.confirm_button.setText(message['save_text'])
                 for key, active in message['marks'].items():
                     self.dialog._mark_update_page(key, active)
+            elif kind == 'host-general-controls' and self.dialog is not None:
+                self.dialog.set_plugin_controls(message['controls'])
             elif kind == 'host-theme' and self.dialog is not None:
                 theme.apply(message['mode'])
             elif kind == 'host-save-blocked' and self.dialog is not None:
@@ -327,7 +355,10 @@ def run_worker():
 
         def read_requests():
             for line in sys.stdin:
-                worker.request.emit(json.loads(line))
+                message = json.loads(line)
+                worker.request.emit(message)
+                if message.get('kind') == 'quit':
+                    return
             worker.request.emit({'kind': 'quit'})
 
         threading.Thread(target=read_requests, name='settings-input', daemon=True).start()

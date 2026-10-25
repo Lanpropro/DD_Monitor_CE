@@ -1,8 +1,9 @@
 """Host-dependent settings content embedded in the existing worker window."""
 from types import SimpleNamespace
 
-from PySide6.QtCore import QObject, QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
@@ -18,9 +19,17 @@ class SettingsHost(QObject):
             {**window.settings, **{key: value for key, value in message['settings'].items()
                                    if key in DEFAULT_SETTINGS}}, message['shortcuts'])
         self.stack = self.dialog.stack
-        self.stack.setParent(None, Qt.FramelessWindowHint)
-        self.stack.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.stack.winId()  # Remains hidden until the worker embeds this handle.
+        self.embedded = False
+        # Existing plugins contribute controls on SettingsDialog's Show event.
+        # Dispatch that event without showing or activating a second window.
+        QApplication.sendEvent(self.dialog, QEvent(QEvent.Show))
+        page = self.dialog.general_page
+        core = set(page._checks.values())
+        grid = page.layout().itemAt(1).layout()
+        checks = [check for check in page.findChildren(QCheckBox)
+                  if check not in core and check.objectName() and grid.indexOf(check) >= 0]
+        checks.sort(key=lambda check: grid.getItemPosition(grid.indexOf(check))[:2])
+        self.plugin_checks = {check.objectName(): check for check in checks}
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self.stack)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
@@ -34,7 +43,19 @@ class SettingsHost(QObject):
 
     def handle(self, message):
         kind = message['kind']
-        if kind == 'host-page':
+        if kind == 'host-general':
+            master = self.dialog.general_page._checks['sidebar_platform_logos'].isChecked()
+            self.client._send({'kind': 'host-general-controls', 'controls': [
+                {'name': name, 'label': check.text(), 'checked': check.isChecked() and
+                 (master if name.endswith('_show_platform_logo') else True)}
+                for name, check in self.plugin_checks.items()]})
+        elif kind == 'host-page':
+            if not self.embedded:
+                self.stack.setProperty('embeddedSettings', True)
+                self.stack.setParent(None, Qt.FramelessWindowHint)
+                self.stack.setAttribute(Qt.WA_ShowWithoutActivating)
+                self.stack.style().polish(self.stack)
+                self.embedded = True
             self.dialog.nav.setCurrentRow(message['index'])
             self.stack.finish_transition()
             self.client._send({'kind': 'host-ready', 'hwnd': int(self.stack.winId())})
@@ -68,6 +89,8 @@ class SettingsHost(QObject):
             self.client._send(state)
 
     def save(self, changes):
+        for name, checked in changes.get('plugin_controls', {}).items():
+            self.plugin_checks[name].setChecked(checked)
         self.dialog._update_save_button()
         if not self.dialog.confirm_button.isEnabled():
             self.sync()

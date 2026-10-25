@@ -30,6 +30,20 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            if action.startswith('logos-'):
+                if len(self.plugin_checks) != 2:
+                    QTimer.singleShot(10, self.exercise)
+                    return
+                assert {check.text() for check in self.plugin_checks.values()} == {'显示海外平台 Logo', '显示国内平台 Logo'}
+                assert not self.general_page._checks['sidebar_platform_logos'].isVisible()
+                assert not any(check.isChecked() for check in self.plugin_checks.values())
+                self.plugin_checks['global_live_show_platform_logo'].setChecked(True)
+                self.general_page.volume_slider.setValue(17)
+                if action == 'logos-save':
+                    self.confirm_button.click()
+                else:
+                    self.reject()
+                return
             if action.startswith(('clean-', 'revert-')):
                 before = int(self.winId())
                 if action.startswith('revert-'):
@@ -343,6 +357,9 @@ def check_host_save_validation():
     from unittest.mock import Mock
     from ddm.dialogs import SettingsDialog
     from ddm.settings_host import SettingsHost
+    default_dialog = SettingsDialog(config.DEFAULT_SETTINGS, {}, preview=True)
+    assert default_dialog.width() == 720 and default_dialog.height() == 650
+    default_dialog.deleteLater()
     dialog = Mock()
     dialog.confirm_button.isEnabled.return_value = True
     dialog.result.return_value = SettingsDialog.Accepted
@@ -374,8 +391,8 @@ def check_host_save_validation():
     assert not applied and not client._send.called and session.sync.called
 
 
-def check_host_application(app, action='save'):
-    from ddm import app as host, plugins, online_ui
+def check_host_application(app, action='save', *, installed_controls=False):
+    from ddm import app as host, plugins, online_ui, theme
     with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
         stack.enter_context(patch.object(config, 'REPO', temporary))
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')))
@@ -386,7 +403,51 @@ def check_host_application(app, action='save'):
             stack.enter_context(patch.object(host.MainWindow, name))
         with patch.object(host.QTimer, 'singleShot'):
             window = host.MainWindow([], [], layout_id='1x1', state={
-                'plugins_enabled': [], 'settings': {'seen_update_versions': {'app': '0.5.1'}}})
+                'plugins_enabled': [], 'settings': {'seen_update_versions': {'app': '0.5.1'},
+                                                   'appearance_mode': 'light' if action == 'embed-cancel' else 'dark',
+                                                   'sidebar_platform_logos': not action.startswith('logos-')}})
+        plugin_saves = {}
+        if action.startswith('logos-'):
+            from PySide6.QtCore import QEvent, QObject
+            from PySide6.QtWidgets import QCheckBox
+            from ddm.dialogs import SettingsDialog
+
+            class ContributedChecks(QObject):
+                def eventFilter(self, watched, event):
+                    if (event.type() == QEvent.Show and isinstance(watched, SettingsDialog)
+                            and watched._plugin_manager is window.plugins):
+                        page = watched.general_page
+                        grid = page.layout().itemAt(1).layout()
+                        for name, label in (('domestic_live', '显示国内平台 Logo'), ('global_live', '显示海外平台 Logo')):
+                            control_name = name + '_show_platform_logo'
+                            if page.findChild(QCheckBox, control_name) is None:
+                                check = QCheckBox(label, page)
+                                check.setObjectName(control_name)
+                                check.setChecked(True)
+                                grid.addWidget(check, grid.rowCount(), 0, 1, 2)
+                                watched.accepted.connect(lambda key=name, check=check: plugin_saves.update({key: check.isChecked()}))
+                    return False
+            if installed_controls:
+                import ast
+                from PySide6.QtWidgets import QLabel
+                from PySide6.QtCore import Qt
+                for name, label in (('domestic_live', '显示国内平台 Logo'), ('global_live', '显示海外平台 Logo')):
+                    source = ROOT / 'plugins_user' / name / 'plugin.py'
+                    tree = ast.parse(source.read_text(encoding='utf-8'))
+                    definition = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                                      and node.name == 'PlatformLogoControl')
+                    namespace = dict(QObject=QObject, QApplication=QApplication, QEvent=QEvent, Qt=Qt,
+                                     SettingsDialog=SettingsDialog, QCheckBox=QCheckBox, QLabel=QLabel)
+                    exec(compile(ast.Module(body=[definition], type_ignores=[]), str(source), 'exec'), namespace)
+                    context = SimpleNamespace(window=window, manager=window.plugins, name=name,
+                        setting=lambda _key, default: default,
+                        set_setting=lambda _key, value, name=name: plugin_saves.update({name: value}))
+                    extension = namespace['PlatformLogoControl'](context, (), label)
+                    stack.callback(extension.detach)
+            else:
+                extension = ContributedChecks(window)
+                app.installEventFilter(extension)
+                stack.callback(app.removeEventFilter, extension)
         client = window._get_settings_process()
         initial_volume = window.settings['default_volume']
         messages = []
@@ -414,6 +475,13 @@ def check_host_application(app, action='save'):
                 assert session.stack.width() > 400 and session.stack.height() > 300
                 assert message['embedded']
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in (1, 6, 7) else -1)
+                if message['index'] in (1, 6, 7):
+                    image = session.stack.grab().toImage()
+                    actual = image.pixelColor(1, 1)
+                    assert actual == theme.qcolor(theme.BG), (message['index'], actual.name(), theme.BG, actual.alpha())
+                    output = ROOT / 'work/test-artifacts/host/settings-pages'
+                    output.mkdir(parents=True, exist_ok=True)
+                    image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
                 if message['index'] == 7:
                     session.dialog.update_page.auto.setChecked(True)
             client.received.connect(observed)
@@ -424,6 +492,11 @@ def check_host_application(app, action='save'):
             window.shortcuts['fullscreen'] = 'Ctrl+F10'
             wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
             assert window.settings['seen_update_versions'] == {'app': '0.5.1'}
+            if action.startswith('logos-'):
+                assert plugin_saves == ({'domestic_live': False, 'global_live': True} if action == 'logos-save' else {})
+                assert window.settings['sidebar_platform_logos'] is (action == 'logos-save')
+                assert window.settings['default_volume'] == (17 if action == 'logos-save' else initial_volume)
+                return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
                 assert [message['index'] for message in shells] == [1, 0, 6, 2, 7, 5, 1, 0]
@@ -464,6 +537,11 @@ def main():
         check_host_application(app, 'embed-cancel')
         print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, save/cancel and cleanup')
         return 0
+    if sys.argv[1:] == ['--installed-logo-controls']:
+        check_host_application(app, 'logos-save', installed_controls=True)
+        check_host_application(app, 'logos-cancel', installed_controls=True)
+        print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
+        return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
                    'save', 'cancel', 'busy'):
         check_worker(app, action)
@@ -473,6 +551,8 @@ def main():
     check_host_adapter()
     check_host_save_validation()
     check_host_application(app)
+    check_host_application(app, 'logos-save')
+    check_host_application(app, 'logos-cancel')
     print('PASS: isolated settings save/cancel, unchanged shell on page switch, validation, reuse, retry and GUI isolation')
     return 0
 

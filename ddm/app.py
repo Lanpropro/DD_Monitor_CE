@@ -889,7 +889,7 @@ class MainWindow(QMainWindow):
             return
         session = getattr(self, '_settings_host', None)
         if session is None:
-            if message['kind'] != 'host-page':
+            if message['kind'] not in ('host-page', 'host-general'):
                 return
             from .settings_host import SettingsHost
             session = self._settings_host = SettingsHost(self, self._settings_process, message)

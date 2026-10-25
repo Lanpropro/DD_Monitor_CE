@@ -48,10 +48,14 @@ python dev/run_checks.py --suite repository
 独立窗口不阻止操作主程序，因此主程序可继续播放；修改解码或录制等设置后，保存应用仍按原逻辑执行，可能影响正在使用的功能。
 子进程使用临时配置目录，不读取账号或加载用户插件，关闭主程序时退出。
 
+现有插件在主进程设置窗口 Show 事件中插入的具名复选框，由宿主收集后镜像到独立常规页；保存时交回原控件并触发插件原有的 accepted 回调，取消不写入。国内/海外 Logo 开关取代宿主总开关；旧总开关关闭时，两组初始均关闭，保存后由插件分别管理。嵌入页面使用不透明主题背景，默认窗口尺寸为 720×650 逻辑像素。
+
 验证命令：
 
 ```powershell
 python dev/checks/bootstrap.py dev/selfcheck_settings_process.py
+# 本机已安装国内/海外插件时，可单独验证控件桥接；只提取控件类，不加载插件运行时。
+python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --installed-logo-controls
 $env:QT_QPA_PLATFORM='windows'
 python dev/checks/bootstrap.py dev/selfcheck_settings_process.py --embedded-native
 python dev/check_settings_process_playback.py --help
