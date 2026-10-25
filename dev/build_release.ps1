@@ -255,6 +255,8 @@ ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可�
     Remove-Item (Join-Path $exeDir "logs"), (Join-Path $exeDir "cache") -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $exeDir "utils") -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $exeDir "plugins_user\_danmaku_log") -Recurse -Force -ErrorAction SilentlyContinue
+    & $py (Join-Path $repo "dev\build_program_inventory.py") --payload $exeDir
+    if ($LASTEXITCODE -ne 0) { throw "程序文件清单生成失败" }
     # 再压一个 zip：用户要的就是「下载一个 zip、解压直接双击 exe 用」
     if (-not $SkipZip) {
         $exeZip = Join-Path $OutDir "$name-exe.zip"

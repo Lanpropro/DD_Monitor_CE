@@ -4063,6 +4063,8 @@ def main(argv: list[str] | None = None) -> int:
     confirm_user_notice(state)
     from .update_install import clean_previous
     clean_previous(config_module.REPO)
+    from .legacy_cleanup import start_legacy_cleanup
+    start_legacy_cleanup(config_module.REPO)
     t_load = time.perf_counter()
     settings = dict(config_module.DEFAULT_SETTINGS)
     settings.update(state.get("settings") or {})

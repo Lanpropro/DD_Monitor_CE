@@ -8,12 +8,13 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ddm.update_install import MANIFEST, PROTECTED, relative_path
+from ddm.legacy_cleanup import INVENTORY
 from ddm.version import DISPLAY_NAME, VERSION
 
 APP_ID = 'DDMonitorCE'
 PROGRAM_DIRS = {'_internal', 'assets', 'ffmpeg-license', 'mpv-license'}
 PROGRAM_FILES = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', 'ddm-build.json', 'LICENSE',
-                 'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt'}
+                 'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt', INVENTORY}
 PORTABLE_ONLY = {'运行说明.txt'}
 # Only files written by config.py / AccountStore for the bundled platforms.
 PERSONAL_FILES = ['utils/config.json', 'utils/config.json.bak'] + [

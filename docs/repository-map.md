@@ -33,6 +33,8 @@
 - `dev/check_setup_data_cleanup.py`
 - `dev/selfcheck_setup.py`
 - `dev/build_setup.py`
+- `dev/build_program_inventory.py`
+- `dev/selfcheck_legacy_cleanup.py`
 - `dev/installer/ChineseSimplified.isl`
 - `dev/installer/ChineseSimplified-LICENSE.txt`
 - `dev/installer/wizard.png`

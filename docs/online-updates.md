@@ -47,3 +47,19 @@ python dev/tools/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json
 EXE 包内程序目录及日常启动文件固定为 `DD监控室CE/DD监控室CE.exe`，在线更新保留原安装目录，避免按路径设置的白名单因版本号变化而失效。手动更新请解压覆盖原目录。
 
 新用户安装包为 `DDMonitorSetup.exe`，安装时建立初始程序文件清单。安装、卸载边界和验证见 [Windows 安装包](development/windows-installer.md)。卸载保留个人数据与未登记文件，不以递归删除清空安装目录。
+
+## 无旧清单的历史版本清理
+
+新版冻结 EXE 启动后，在后台核对历史发布包清单，补处理旧便携版或多次覆盖升级遗留的程序文件。源码运行和更新助手不会执行。构建脚本在最终便携目录生成 `ddm-program-inventory.json`，记录本版本实际程序路径；该文件随在线更新 ZIP 和 Setup 一起安装。版本不匹配或清单缺失时保留原文件。
+
+历史目录为 `ddm/assets/update/legacy-program-files.json`，从本地 0.1、0.2、0.3、0.3.1、0.4、0.5 六份 EXE 发布 ZIP 生成，记录归档 SHA-256、程序文件路径、大小和各已知内容哈希。生成时排除用户数据目录，不将其配置内容读入清单。新版仍使用的路径始终保留；只有已知旧路径、大小及 SHA-256 全部匹配才会移出。用户改动过的旧文件、未知文件、账号、插件、录制、缓存和日志均不参与此兼容清理；目录链接和占用中的文件跳过，后续启动可重试。
+
+旧文件移动到安装目录的 `work/legacy-program-backup-*/files/`，相对路径保持不变，旁边有 `cleanup-report.json`。不递归清空旧运行库目录，不自动删除恢复备份，因此本步骤清理运行目录，不直接释放备份占用的磁盘空间。需要恢复时，退出软件后按报告将 `files/` 内对应文件复制回原相对路径；确认新版本稳定后可自行删除该批备份。更新器继续保护整个 `work/`。
+
+重新生成历史清单：
+
+```powershell
+python dev/build_program_inventory.py --archives <各版本EXE-ZIP路径> --output ddm/assets/update/legacy-program-files.json
+```
+
+正常发布构建自动生成当前清单；单独验证目录可用 `python dev/build_program_inventory.py --payload <干净的最终便携目录>`。`check_release_package.py` 会核对清单与最终 EXE ZIP 的文件集合一致。只有重新构建、安装包含本功能的新版本后才生效；不修改已发布的旧 EXE 或更新协议。

@@ -18,6 +18,7 @@ args = parser.parse_args()
 results = args.out_dir.resolve()
 sys.path.insert(0, str(repo))
 from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
+from ddm.legacy_cleanup import INVENTORY
 name = f"{DISPLAY_NAME}-{VERSION_TAG}"
 source = results / name
 exe = results / DISPLAY_NAME
@@ -68,6 +69,11 @@ assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEAS
 assert metadata["url"].endswith(f"/{VERSION_TAG}/{remote_name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
 assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64"}
+inventory = json.loads((exe / INVENTORY).read_text(encoding='utf-8'))
+assert inventory['schema'] == 1 and inventory['version'] == VERSION
+with zipfile.ZipFile(archive) as package:
+    packaged_files = {name.split('/', 1)[1] for name in package.namelist() if not name.endswith('/')}
+assert set(inventory['files']) == packaged_files, '程序清单与最终 EXE ZIP 不一致'
 
 if args.old_zip:
     # 用真实旧包模拟用户目录，合并解压新包，然后启动覆盖后的 exe。

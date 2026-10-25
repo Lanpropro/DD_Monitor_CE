@@ -208,6 +208,7 @@
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行前核对 |
+| [selfcheck_legacy_cleanup](../selfcheck_legacy_cleanup.py) | `offline`；历史包哈希、备份迁移、用户数据及链接保护 |
 | [selfcheck_update_notifications](../selfcheck_update_notifications.py) | 单项执行前核对 |
 | [selfcheck_windows_version](../selfcheck_windows_version.py) | 单项执行前核对 |
 
