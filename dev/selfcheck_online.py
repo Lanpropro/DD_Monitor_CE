@@ -90,8 +90,20 @@ def main():
     with patch.object(online, 'latest_manifest', return_value=None), \
             patch.object(online, 'releases', side_effect=online.requests.HTTPError('rate limited')):
         fallback = online.plugin_catalog(Client([]), '0.3')
-        assert len(fallback) == 3
+        assert len(fallback) == 4
         assert all(offer.get('cached') for offer in fallback if offer['available'])
+    bili_entry = {'id': 'bili_live', 'name': 'B站直播互动', 'description': '互动',
+                  'version': '1.0', 'min_app_version': '0.5.1', 'author': 'reon-nynes',
+                  'asset_name': 'bili_live-1.0.zip', 'url': asset('bili_live-1.0.zip')['browser_download_url'],
+                  'size': 3, 'sha256': hashlib.sha256(b'zip').hexdigest()}
+    with patch.object(online, 'latest_manifest', return_value={'plugins': [bili_entry]}):
+        bili = online.plugin_catalog(Client([]), '0.5.1')[0]
+        assert bili['id'] == 'bili_live' and bili['available'] and bili['author'] == 'reon-nynes'
+    metadata_bili = json.dumps({'plugins': [bili_entry]}).encode()
+    entries = [{'assets': [asset('bili_live-1.0.zip'), asset('plugin-catalog.json', metadata_bili)]}]
+    offers_bili = online.plugin_catalog(Client([Response(payload=entries), Response(metadata_bili)]), '0.5.1')
+    bili = next(o for o in offers_bili if o['id'] == 'bili_live')
+    assert bili['available'] and bili['author'] == 'reon-nynes'
     metadata = json.dumps({'plugins': [{'id': 'global_live', 'min_app_version': '0.4',
                                        'notes': 'plugin-specific fixes'}]}).encode()
     releases = [{'tag_name': 'v1', 'assets': [asset('global_live-1.0.zip'), asset('plugin-catalog.json', metadata)]},

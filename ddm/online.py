@@ -13,6 +13,7 @@ import requests
 APP_REPOSITORY = 'Lanpropro/DD_Monitor_CE'
 PLUGIN_REPOSITORY = 'Lanpropro/DD_Monitor_Plugins'
 KNOWN_PLUGINS = {
+    'bili_live': ('B站直播互动', '逐格发送弹幕、表情与直播礼物；使用本体登录'),
     'domestic_live': ('国内直播平台', '虎牙、斗鱼、抖音的直播与关注接入'),
     'global_live': ('海外直播平台', 'Twitch、YouTube 的直播与账号授权'),
     'match_sync': ('比赛二路同步', '多主播比赛画面同步、声音和弹幕合并'),
@@ -167,7 +168,7 @@ def plugin_catalog(client, current_version, cache=None):
                 data = json.loads(Path(path).read_text(encoding='utf-8'))
             metadata = {entry['id']: entry for entry in data['plugins'] if entry['id'] in KNOWN_PLUGINS}
         for asset in release.get('assets', []):
-            match = re.fullmatch(r'(domestic_live|global_live|match_sync|match-sync)-v?(\d+(?:\.\d+){0,3})\.zip',
+            match = re.fullmatch(r'(domestic_live|global_live|match_sync|match-sync|bili_live)-v?(\d+(?:\.\d+){0,3})\.zip',
                                  asset.get('name', ''))
             if not match:
                 continue
@@ -180,6 +181,7 @@ def plugin_catalog(client, current_version, cache=None):
             offer = {'id': plugin_id, 'name': name, 'description': description,
                      'version': plugin_version, 'min_app_version': details.get('min_app_version', '0.3'),
                      'notes': details.get('notes') or release.get('body', ''),
+                     'author': details.get('author', ''),
                      'release_url': release.get('html_url', ''), 'available': True, 'cached': cached}
             try:
                 offer.update(asset_info(asset, PLUGIN_REPOSITORY))
