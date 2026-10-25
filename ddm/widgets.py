@@ -30,6 +30,7 @@ from .danmaku_content import content_runs, content_html
 from . import follow_folders
 from .watch_history import SORT_TIP, WatchHistory
 from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
+from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
@@ -41,6 +42,7 @@ AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c
 
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 QUALITY_NAMES = {value: name for name, value in QUALITY_CHOICES}
+QUALITY_NAMES[20000] = "4K"
 
 TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
 ROOM_MIME = "application/x-ddm-room"
@@ -3426,6 +3428,7 @@ class RoomStrip(QFrame):
         self._faces: dict = {}                   # room_id -> 头像图
         self._on_wall_ids: set[str] = set()
         self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
+        self._avatar_signatures = {}
         self._press_pos = None
         self._press_room = None
         self._hovered_room: dict | None = None
@@ -3544,26 +3547,33 @@ class RoomStrip(QFrame):
 
     def _rebuild(self) -> None:
         self._set_hover_room("")
+        previous = self._avatars
+        signatures = self._avatar_signatures
         while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
+            self._layout.takeAt(0)
         self._avatars = {}
+        self._avatar_signatures = {}
         for room in self._rooms:
             room_id = str(room.get("room_id") or "")
             uname = str(room.get("uname") or "")
-            avatar = self._add_avatar(
-                uname[0] if uname else "?", bool(room.get("live")),
-                tooltip=uname or room_id,
-                face=self._faces.get(room_id),
-                room_id=room_id,
-                pinned=bool(room.get("pinned")),
-                on_wall=room_id in self._on_wall_ids)
+            face = self._faces.get(room_id)
+            signature = (uname, bool(room.get("live")), bool(room.get("pinned")),
+                         room_id in self._on_wall_ids, face.cacheKey() if face is not None else None)
+            if room_id in previous and signatures.get(room_id) == signature:
+                avatar = previous.pop(room_id)
+                self._layout.addWidget(avatar)
+            else:
+                avatar = self._add_avatar(
+                    uname[0] if uname else "?", bool(room.get("live")),
+                    tooltip=uname or room_id, face=face, room_id=room_id,
+                    pinned=bool(room.get("pinned")), on_wall=room_id in self._on_wall_ids)
             if room_id:
                 self._avatars[room_id] = avatar
+                self._avatar_signatures[room_id] = signature
+        for widget in previous.values():
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
         self._layout.addStretch(1)
 
     def rebuild(self) -> None:
@@ -3878,6 +3888,7 @@ class Sidebar(QFrame):
         self.search = QLineEdit()
         self.search.setObjectName("Search")
         self.search.setPlaceholderText("搜索主播 / 房间号")
+        self.search.setToolTip("支持中文、全拼和拼音首字母；多个词用空格分隔")
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
@@ -4288,16 +4299,16 @@ class Sidebar(QFrame):
                 item.check.setChecked(False)
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
-        """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
+        """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
         if not words:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "title")).lower()
+                            for key in ("uname", "room_id")).lower()
         folder_id = folder_id or self.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in self.folders
                                 if folder["id"] == folder_id), "")
-        return all(word in haystack for word in words)
+        return all(matches_text(haystack, word) for word in words)
 
     def visible_items(self) -> list:
         """当前露在外面的条目（过滤掉的不算）。"""
@@ -5467,11 +5478,21 @@ class Sidebar(QFrame):
         return item
 
     def add_room(self, room: dict) -> bool:
-        room_id = str(room.get("room_id"))
-        if any(str(item.room.get("room_id")) == room_id for item in self._items):
-            return False
-        self._folder_pending.add(room_id)
-        self._append_item(room)
+        return bool(self.add_rooms([room]))
+
+    def add_rooms(self, rooms: list[dict]) -> list[dict]:
+        known = {str(item.room.get("room_id")) for item in self._items}
+        added = []
+        for room in rooms:
+            room_id = str(room.get("room_id"))
+            if room_id in known:
+                continue
+            known.add(room_id)
+            self._folder_pending.add(room_id)
+            self._append_item(room)
+            added.append(room)
+        if not added:
+            return []
         self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
                                 self.compact_threshold)
         # 新控件初始坐标是 (0, 0)，必须立即排版，否则会压在第一项上，
@@ -5481,9 +5502,9 @@ class Sidebar(QFrame):
         self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
         self.refresh_strip()
         if self.isVisible() and motion.enabled():
-            self._entering_room_ids.add(room_id)
+            self._entering_room_ids.update(str(room["room_id"]) for room in added)
             self._card_entry_timer.start(0)
-        return True
+        return added
 
     def _reveal_added_rooms(self) -> None:
         """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
@@ -5825,8 +5846,9 @@ class Sidebar(QFrame):
                      if ":" in str(item.room.get("room_id", "")) else "bilibili"
                      for item in self._items}
         for item in self._items:
-            item.platform_badge.setProperty("showPlatform", len(platforms) > 1)
-            item.platform_badge.setVisible(len(platforms) > 1 and not item.thumb.video.isVisible())
+            show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
+            item.platform_badge.setProperty("showPlatform", show)
+            item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
             item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
@@ -6079,6 +6101,9 @@ class Tile(QFrame):
         self.pause_overlay.setObjectName("PauseOverlay")
         #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
         self._overlay_ready = True
+        self._move_repaint_timer = QTimer(self)
+        self._move_repaint_timer.setSingleShot(True)
+        self._move_repaint_timer.timeout.connect(self._refresh_moved_overlays)
         self._mask_refresh_timer = QTimer(self)
         self._mask_refresh_timer.setSingleShot(True)
         self._mask_refresh_timer.timeout.connect(self._refresh_overlay_masks)
@@ -6388,7 +6413,7 @@ class Tile(QFrame):
     def _update_quick_danmaku_mask(self) -> None:
         self.video_danmaku.update_quick_mask((
             self.controls, self.stream_badge, self.title_badge, self.time_badge,
-            self.spinner, self.pause_overlay, self.bottom, *self.video_corners))
+            self.spinner, self.pause_overlay, self.bottom))
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -6757,6 +6782,25 @@ class Tile(QFrame):
         super().resizeEvent(event)
         self._layout_areas()
 
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._move_repaint_timer.start(0)
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.update(QRect(event.oldPos(), self.size()))
+        # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
+        self.video_danmaku.schedule_quick_geometry()
+
+    def _refresh_moved_overlays(self) -> None:
+        # Native child windows can retain old backing-store text after only their parent moved.
+        if not self.isVisible():
+            return
+        for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
+                       self.controls, self.spinner, self.pause_overlay, self.bottom):
+            if widget.isVisible():
+                widget.repaint()
+        self.update()
+
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
@@ -6945,12 +6989,14 @@ class Tile(QFrame):
 
     def hideEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._move_repaint_timer.stop()
         self._volume_hide_timer.stop()
         self.volume_menu.hide()
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._move_repaint_timer.stop()
         super().closeEvent(event)
 
     def _refresh_overlay_masks(self) -> None:

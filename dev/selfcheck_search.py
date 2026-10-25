@@ -1,13 +1,13 @@
 """回归自检：关注列表的搜索框（以前只有外壳，输入什么都不起作用）。
 
 要钉住的：
-  1. 按主播名 / 房间号 / 直播间标题都能搜到，大小写不敏感；
+  1. 按主播名 / 房间号搜索，大小写不敏感；直播标题不参与搜索；
   2. 多个词（空格分开）要全部命中才算匹配；
   3. 过滤只「藏起来」：条目顺序、置顶、多选态都不动；
   4. 藏起来的条目**不占位**（下面的卡片要顶上来的位置连续）；
   5. 一条都不匹配时给一句空态提示，不留一片空白；
   6. 清空搜索（清空按钮 / search.clear()）之后全部恢复；
-  7. 过滤中收到状态刷新（resort）后过滤依然生效，新标题也能被搜到；
+  7. 过滤中收到状态刷新（resort）后过滤依然生效，新标题也不参与搜索；
   8. 竖屏顶部那排头像跟着过滤；
   9. 进多选态会把搜索清掉（免得批量删除选中看不见的条目）。
  10. Ctrl+F 会展开侧栏并聚焦搜索框；
@@ -77,20 +77,20 @@ def main() -> None:
         print(f"  「910」-> {ids(sidebar.visible_items())}")
         assert ids(sidebar.visible_items()) == ["9101", "9102", "9103", "9104"]
 
-        print("\n=== 3. 按标题搜 + 大小写不敏感 ===")
+        print("\n=== 3. 不匹配直播标题 + 名称大小写不敏感 ===")
         sidebar.search.setText("morning")
         settle(app)
         print(f"  「morning」-> {ids(sidebar.visible_items())}")
-        assert ids(sidebar.visible_items()) == ["9102"]
+        assert ids(sidebar.visible_items()) == []
         sidebar.search.setText("ALICE")
         settle(app)
         print(f"  「ALICE」-> {ids(sidebar.visible_items())}")
         assert ids(sidebar.visible_items()) == ["9102"]
 
         print("\n=== 4. 多个词要全部命中（空格分开）===")
-        sidebar.search.setText("深夜 电台")
+        sidebar.search.setText("Bob 9104")
         settle(app)
-        print(f"  「深夜 电台」-> {ids(sidebar.visible_items())}")
+        print(f"  「Bob 9104」-> {ids(sidebar.visible_items())}")
         assert ids(sidebar.visible_items()) == ["9104"]
         sidebar.search.setText("深夜 钓鱼")
         settle(app)
@@ -141,7 +141,7 @@ def main() -> None:
         assert box.minimumHeight() <= first_y + len(shown) * box.slot_height() + 1, \
             f"内容高度该只算可见的那 {len(shown)} 张，实际 {box.minimumHeight()}"
 
-        print("\n=== 8. 过滤中收到状态刷新：过滤仍然生效，新标题也能搜到 ===")
+        print("\n=== 8. 过滤中收到状态刷新：过滤保留，新标题不参与搜索 ===")
         sidebar.search.setText("小明")
         settle(app)
         item = next(entry for entry in sidebar._items
@@ -154,7 +154,7 @@ def main() -> None:
         sidebar.search.setText("abc")
         settle(app)
         print(f"  用新标题「abc」搜 -> {ids(sidebar.visible_items())}")
-        assert ids(sidebar.visible_items()) == ["9101"], "新标题要能被搜到"
+        assert ids(sidebar.visible_items()) == [], "刷新后的直播标题也不参与搜索"
 
         print("\n=== 9. 竖屏顶部头像排跟着过滤 ===")
         sidebar.search.clear()

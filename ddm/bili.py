@@ -682,7 +682,7 @@ class StreamResolver(QThread):
                                                  codec_from_profile(profile) or self.codec))
             if (self.platform is None and not self.preview
                     and (self.strict_codec or codec_from_profile(profile) in HLS_ONLY_CODECS)
-                    and not any(int(option["qn"]) == 10000 for option in options)):
+                    and not any(int(option["qn"]) >= 10000 for option in options)):
                 name = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}[self.codec]
                 self.original_quality_note = (f"{name} 未提供原画" if options
                                               else f"未能验证 {name} 的原画档位")
@@ -770,23 +770,34 @@ def my_uid(force: bool = False) -> int | None:
     return uid
 
 
-def following(uid: int, page_size: int = 50, max_pages: int = 20) -> list[dict]:
+def following(uid: int, page_size: int = 50, max_pages: int | None = None) -> list[dict]:
     """拉取关注列表（分页）。"""
     result: list[dict] = []
-    for page in range(1, max_pages + 1):
+    seen = set()
+    page = 1
+    while max_pages is None or page <= max_pages:
         response = requests.get(
             "https://api.bilibili.com/x/relation/followings",
             params={"vmid": uid, "pn": page, "ps": page_size, "order": "desc"},
             headers=HEADERS, cookies=_cookies(), timeout=10)
         data = response.json()
         if data.get("code") != 0:
-            break
+            raise RuntimeError(data.get("message") or "读取 B 站关注失败")
         items = (data.get("data") or {}).get("list") or []
+        total = (data.get("data") or {}).get("total")
         if not items:
+            if total and len(result) < int(total):
+                raise RuntimeError("B 站关注列表未读取完整，请重新读取")
             break
-        result.extend({"uid": int(item["mid"]), "uname": item["uname"]} for item in items)
-        if len(items) < page_size:
+        new_items = [{"uid": int(item["mid"]), "uname": item["uname"]}
+                     for item in items if int(item["mid"]) not in seen]
+        if not new_items:
+            raise RuntimeError("B 站关注分页未前进，请重新读取")
+        result.extend(new_items)
+        seen.update(item["uid"] for item in new_items)
+        if len(items) < page_size or (total and len(result) >= int(total)):
             break
+        page += 1
     return result
 
 

@@ -169,6 +169,7 @@ Qt6Core.dll 自身加载）；6.9 的老布局没有这个问题，程序在 6.9
         --distpath $OutDir --workpath $build --specpath $build `
         --runtime-hook (Join-Path $repo "dev\pyi_rth_pyside6_paths.py") `
         --collect-all streamlink `
+        --collect-all pypinyin `
         --collect-all av `
         --hidden-import numpy `
         --hidden-import mpv `

@@ -118,8 +118,11 @@
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
+- `dev/selfcheck_follow_stress.py`
+- `dev/selfcheck_pinyin_search.py`
 - `dev/selfcheck_follow_refresh.py`
 - `dev/selfcheck_fullscreen_audio.py`
+- `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
@@ -127,6 +130,8 @@
 - `dev/selfcheck_fullscreen_quality.py`
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
+- `dev/selfcheck_settings_process.py`
+- `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
 - `dev/selfcheck_hls_proxy.py`
 - `dev/selfcheck_huya_live.py`

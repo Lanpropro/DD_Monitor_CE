@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import theme
 from .folder_icons import create_folder_dialog
+from .search import matches_text
 from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .bili import BILI_CODECS
@@ -210,6 +211,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
+        ("sidebar_platform_logos", "显示关注栏平台 Logo"),
     ]
 
     def __init__(self, settings: dict, parent=None):
@@ -1520,6 +1522,7 @@ class FollowImportDialog(QDialog):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索主播名称")
+        self.search_edit.setToolTip("支持中文、全拼和拼音首字母")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_rooms)
         layout.addWidget(self.search_edit)
@@ -1571,6 +1574,7 @@ class FollowImportDialog(QDialog):
         self.list = QListWidget()
         self.list.setObjectName("FollowList")
         self.list.itemClicked.connect(self._on_item_clicked)
+        self._avatar_items = {}
         for room in rooms:
             room_id = str(room["room_id"])
             item = QListWidgetItem(self._room_text(room))
@@ -1578,6 +1582,10 @@ class FollowImportDialog(QDialog):
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
             self.list.addItem(item)
+            if room_id:
+                self._avatar_items.setdefault(room_id, item)
+            if room.get("anchor_uid"):
+                self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
         layout.addWidget(self.list, 1)
 
         buttons = QHBoxLayout()
@@ -1611,7 +1619,7 @@ class FollowImportDialog(QDialog):
         query = text.strip().casefold()
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setHidden(query not in item.data(Qt.UserRole)["uname"].casefold())
+            item.setHidden(not matches_text(item.data(Qt.UserRole)["uname"], query))
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----
@@ -1661,6 +1669,8 @@ class FollowImportDialog(QDialog):
                 self.rooms[index] = dict(account)
                 item.setData(Qt.UserRole, dict(account))
                 item.setText(self._room_text(account))
+                if account.get("room_id"):
+                    self._avatar_items[str(account["room_id"])] = item
                 self._update_header()
                 return
 
@@ -1682,10 +1692,6 @@ class FollowImportDialog(QDialog):
     def set_avatar(self, room_id: str, pixmap: QPixmap) -> None:
         """头像下好之后回填（下载是异步的）。"""
         from .widgets import circular_pixmap
-        icon_pixmap = circular_pixmap(pixmap, 32)
-        for index in range(self.list.count()):
-            item = self.list.item(index)
-            room = item.data(Qt.UserRole)
-            if str(room.get("room_id")) == str(room_id) or "account:" + str(room.get("anchor_uid")) == str(room_id):
-                item.setIcon(QIcon(icon_pixmap))
-                return
+        item = self._avatar_items.get(str(room_id))
+        if item is not None:
+            item.setIcon(QIcon(circular_pixmap(pixmap, 32)))
