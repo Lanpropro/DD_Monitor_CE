@@ -1169,7 +1169,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
-        self.resize(720, 500)
+        self.resize(720, 650)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
