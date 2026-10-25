@@ -123,8 +123,11 @@ class SettingsProcess(QObject):
                     self._open_pending()
             elif kind == 'result':
                 self.visible = False
-                if not self.closing and message.get('accepted'):
-                    self.saved.emit(message['changes'])
+                if not self.closing:
+                    if message.get('host_saved'):
+                        self.hostRequest.emit(message)
+                    elif message.get('accepted'):
+                        self.saved.emit(message['changes'])
                 self.closed.emit()
             elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden') and not self.closing:
                 self.hostRequest.emit(message)
@@ -187,6 +190,7 @@ def run_worker():
     class RemoteDialog(SettingsDialog):
         def __init__(self, snapshot):
             self.host_requested = False
+            self.host_saved = False
             self.host_values = {}
             self.host_container = None
             self.foreign = None
@@ -308,6 +312,8 @@ def run_worker():
         def handle(self, message):
             kind = message.get('kind')
             if kind == 'quit':
+                if self.dialog is not None:
+                    self.dialog.reject()
                 app.quit()
             elif kind == 'host-ready' and self.dialog is not None:
                 self.dialog.embed_host(message['hwnd'])
@@ -325,7 +331,10 @@ def run_worker():
                 self.dialog.confirm_button.setEnabled(True)
                 self.dialog.nav.setCurrentRow(message['index'])
             elif kind == 'host-saved' and self.dialog is not None:
-                self.dialog.reject()  # Host has applied both groups of settings.
+                self.dialog.host_saved = True
+                self.dialog.reject()  # Unembed before acknowledging that the host may apply/restart.
+            elif kind == 'host-request-save' and self.dialog is not None:
+                self.dialog._save()
             elif kind == 'host-cancel' and self.dialog is not None:
                 self.dialog.reject()
             elif kind == 'focus' and self.dialog is not None:
@@ -341,7 +350,8 @@ def run_worker():
         def finished(self, accepted):
             dialog, self.dialog = self.dialog, None
             send({'kind': 'result', 'accepted': accepted == SettingsDialog.Accepted,
-                  'changes': dialog.changes() if accepted == SettingsDialog.Accepted else {}})
+                  'changes': dialog.changes() if accepted == SettingsDialog.Accepted else {},
+                  'host_saved': dialog.host_saved})
             dialog.deleteLater()
 
     with tempfile.TemporaryDirectory(prefix='ddm_settings_') as temporary:

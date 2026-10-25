@@ -13,13 +13,114 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QFrame, QLabel
 from ddm import app as app_module, config, online, theme, update_install
-from ddm.dialogs import SettingsDialog
+from ddm.dialogs import PluginRemovePrompt, SettingsDialog
 from ddm.online_ui import OnlinePage, PluginStorePage
 from ddm.version import VERSION, VERSION_TAG
 from ddm.plugins import PluginManager, read_manifest
+
+
+def check_store_scroll(app, root):
+    from types import SimpleNamespace
+    entries = [dict(id=key, name=name, description=description, version='1.0', enabled=True,
+                    status='已加载', reason='') for key, (name, description) in online.KNOWN_PLUGINS.items()]
+    manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
+                              plugins_dir=str(root / 'scroll-plugins'), _removed=set())
+    offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))
+              for entry in entries]
+    with patch.object(PluginStorePage, 'open_catalog'):
+        dialog = SettingsDialog({}, {}, plugin_manager=manager)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
+        dialog.plugin_page.tabs.setCurrentIndex(1)
+        store = dialog.plugin_page.store_page
+        store.offers = offers
+        store.show_offers(offers)
+        dialog.show()
+        app.processEvents()
+        scroll = dialog.plugin_page.tabs.widget(1)
+        bar = scroll.verticalScrollBar()
+        button = store.buttons[offers[1]['id']]
+        button.setFocus()
+        app.processEvents()
+        scroll.ensureWidgetVisible(button)
+        app.processEvents()
+        assert bar.maximum() > 500
+        task = SimpleNamespace(key=offers[1]['id'], percent=0)
+        def start(operation, callback, key=None):
+            store.jobs.append(task)
+            store.busyChanged.emit(True)
+        try:
+            with patch.object(store, 'start', start), patch('ddm.online_ui.show_result'):
+                QTest.mousePress(button, Qt.LeftButton)
+                app.processEvents()
+                before = bar.value()
+                QTest.mouseRelease(button, Qt.LeftButton)
+                app.processEvents()
+                assert bar.value() == before, ('Download start moved scroll', before, bar.value(), button.hasFocus(), app.focusWidget())
+                bar.setValue(min(bar.maximum(), before + 40))  # Reading another card during download remains possible.
+                before = bar.value()
+                with patch.object(store, 'sender', return_value=task):
+                    store._progress(50)
+                app.processEvents()
+                assert bar.value() == before, 'Download progress moved scroll'
+                store.jobs.clear()
+                store.busyChanged.emit(False)
+                store._installed((offers[1]['id'], False))
+                app.processEvents()
+                assert bar.value() == before, 'Install completion moved scroll'
+            page = dialog.plugin_page
+            plugin_id = entries[0]['id']
+            card = page.cards.itemAt(0).widget()
+            with patch.object(manager, 'remove_plugin', create=True) as remove:
+                def cancel(prompt):
+                    text = '\n'.join(label.text() for label in prompt.findChildren(QLabel))
+                    assert entries[0]['name'] in text and plugin_id not in text
+                    return PluginRemovePrompt.Rejected
+                with patch.object(PluginRemovePrompt, 'exec', cancel):
+                    page._remove(plugin_id, card)
+                remove.assert_not_called()
+                assert plugin_id in page.checks
+                with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
+                    page._remove(plugin_id, card)
+                remove.assert_called_once_with(plugin_id)
+                assert plugin_id not in page.checks
+        finally:
+            store.jobs.clear()
+            dialog.close()
+            dialog.deleteLater()
+            app.processEvents()
+
+
+def check_remove_prompt(app):
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        for action, result in (('cancel', PluginRemovePrompt.Rejected),
+                               ('escape', PluginRemovePrompt.Rejected),
+                               ('close', PluginRemovePrompt.Rejected),
+                               ('enter', PluginRemovePrompt.Rejected),
+                               ('delete', PluginRemovePrompt.Accepted)):
+            prompt = PluginRemovePrompt('国内直播平台')
+            assert prompt.minimumWidth() == 440
+            assert prompt.windowTitle() == '删除插件'
+            assert any('国内直播平台' in label.text() for label in prompt.findChildren(QLabel))
+            assert prompt.cancel_button.text() == '取消' and prompt.cancel_button.isDefault()
+            assert prompt.delete_button.text() == '删除'
+            assert prompt.cancel_button.objectName() == 'IconButton'
+            assert prompt.delete_button.objectName() == 'PrimaryButton'
+            if action in ('escape', 'enter'):
+                key = Qt.Key_Escape if action == 'escape' else Qt.Key_Return
+                QTimer.singleShot(0, lambda prompt=prompt, key=key: QTest.keyClick(prompt, key))
+            elif action == 'close':
+                QTimer.singleShot(0, prompt.close)
+            else:
+                button = prompt.cancel_button if action == 'cancel' else prompt.delete_button
+                QTimer.singleShot(0, button.click)
+            assert prompt.exec() == result
+            prompt.deleteLater()
+            app.processEvents()
+    theme.apply('dark')
 
 
 class Session:
@@ -42,9 +143,11 @@ def settle(app, page):
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
+    check_remove_prompt(app)
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
+        check_store_scroll(app, root)
         (root / f'RELEASE-{VERSION_TAG}.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
         archive = root / 'plugin.zip'
         def write_package(version):
@@ -120,8 +223,12 @@ def main():
             cached_dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
             cached_dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, cached_dialog.plugin_page.store_page)
-            assert catalog.call_count == count, 'reopening settings must reuse the persisted catalog'
+            assert catalog.call_count == count + 1, 'first store entry must revalidate the persisted catalog'
             assert cached_dialog.plugin_page.store_page.buttons['global_live'].text() == '待重启'
+            cached_dialog.plugin_page.tabs.setCurrentIndex(0)
+            cached_dialog.plugin_page.tabs.setCurrentIndex(1)
+            settle(app, cached_dialog.plugin_page.store_page)
+            assert catalog.call_count == count + 1, 'tab switching must not repeatedly query the network'
             cached_dialog.close()
         update = dialog.update_page
         assert update.auto.isEnabled() and not update.auto.isChecked()

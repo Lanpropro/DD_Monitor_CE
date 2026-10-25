@@ -20,6 +20,7 @@ class SettingsHost(QObject):
                                    if key in DEFAULT_SETTINGS}}, message['shortcuts'])
         self.stack = self.dialog.stack
         self.embedded = False
+        self.pending_apply = None
         # Existing plugins contribute controls on SettingsDialog's Show event.
         # Dispatch that event without showing or activating a second window.
         QApplication.sendEvent(self.dialog, QEvent(QEvent.Show))
@@ -35,11 +36,17 @@ class SettingsHost(QObject):
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
         self.dialog.appearanceChanged.connect(
             lambda mode: client._send({'kind': 'host-theme', 'mode': mode}))
+        self.dialog.pageCreated.connect(self._page_created)
         self.last_state = None
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.sync)
         self.timer.start()
+
+    def _page_created(self, index, page):
+        if index == 7:
+            page.saveRequested.disconnect(self.dialog._save)
+            page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
 
     def handle(self, message):
         kind = message['kind']
@@ -69,6 +76,12 @@ class SettingsHost(QObject):
             self.dialog.nav.setCurrentRow(-1)
         elif kind == 'host-save':
             self.save(message['changes'])
+        elif kind == 'result' and self.pending_apply is not None:
+            adapter, before = self.pending_apply, self.before
+            self.pending_apply = None
+            window = self.window
+            window._close_settings_host()
+            window._apply_settings_dialog(adapter, before)
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
@@ -89,6 +102,8 @@ class SettingsHost(QObject):
             self.client._send(state)
 
     def save(self, changes):
+        if self.pending_apply is not None:
+            return
         for name, checked in changes.get('plugin_controls', {}).items():
             self.plugin_checks[name].setChecked(checked)
         self.dialog._update_save_button()
@@ -101,20 +116,24 @@ class SettingsHost(QObject):
             self.client._send({'kind': 'host-save-blocked', 'index': 1})
             return
         values = {**changes.get('settings', {}), **self.values()}
-        adapter = SimpleNamespace(
+        shortcuts = {**self.window.shortcuts, **changes.get('shortcuts', {})}
+        enabled = self.dialog.enabled_plugins()
+        update = self.dialog._loaded_pages.get(7)
+        update = SimpleNamespace(install_requested=bool(getattr(update, 'install_requested', False)),
+                                 plan_path=getattr(update, 'plan_path', ''))
+        self.pending_apply = SimpleNamespace(
             settings=lambda: values,
-            shortcuts=lambda: {**self.window.shortcuts, **changes.get('shortcuts', {})},
-            enabled_plugins=self.dialog.enabled_plugins,
-            _loaded_pages=self.dialog._loaded_pages,
-            update_page=self.dialog._loaded_pages.get(7),
+            shortcuts=lambda: shortcuts,
+            enabled_plugins=lambda: enabled,
+            _loaded_pages={7: update},
+            update_page=update,
             restart_requested=self.dialog.restart_requested)
-        self.window._apply_settings_dialog(adapter, self.before)
-        if not self.client.closing:
-            self.client._send({'kind': 'host-saved'})
+        # The worker must unembed and close its shell before the host can exit.
+        self.client._send({'kind': 'host-saved'})
 
     def close(self):
         self.timer.stop()
-        self.stack.hide()
+        self.stack.close()
         self.stack.setParent(self.dialog)
         self.dialog.reject()
         self.dialog.deleteLater()

@@ -84,7 +84,7 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
-| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；进程保存、取消、退出、主线程隔离；`--embedded-native` 需 windows 平台，使用屏幕外不激活窗口检查等待10秒后跨页 HWND、嵌入/DPI与保存取消；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
+| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--embedded-native` 检查屏幕外跨页 HWND/DPI，`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | 单项执行前核对 |
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
