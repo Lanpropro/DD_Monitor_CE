@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QCursor, QPixmap
+from PySide6.QtGui import QColor, QCursor, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from ddm import config, theme
@@ -148,6 +148,140 @@ def check_native_occlusion(app, owner, layer):
     finally:
         dialog.close()
         notice.close()
+def check_raster_fallback(app):
+    from ddm.video_danmaku import VideoDanmaku
+
+    owner = QWidget()
+    owner.setAttribute(Qt.WA_ShowWithoutActivating)
+    owner.setGeometry(-25000, -25000, 400, 240)
+    with patch.dict(os.environ, {'DDM_QTQUICK_DANMAKU': '0'}):
+        overlay = VideoDanmaku(owner)
+    try:
+        overlay.setGeometry(owner.rect())
+        region = QRegion(owner.rect())
+        overlay.setMask(region)
+        overlay.set_enabled(True)
+        overlay.set_active(True)
+        owner.show()
+        settle(app, .05)
+        assert not overlay._quick_requested and overlay.mask() == region
+        user32 = ctypes.windll.user32
+        user32.GetLayeredWindowAttributes.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+                                                    ctypes.POINTER(wintypes.BYTE), ctypes.POINTER(wintypes.DWORD)]
+        key, alpha, flags = wintypes.DWORD(), wintypes.BYTE(), wintypes.DWORD()
+        assert user32.GetLayeredWindowAttributes(int(overlay.winId()), ctypes.byref(key),
+                                               ctypes.byref(alpha), ctypes.byref(flags))
+        assert flags.value & 1 and not overlay.mask().intersected(overlay.rect()).isEmpty(), \
+            'Raster fallback must keep its visible color-key canvas'
+    finally:
+        owner.close()
+
+
+def check_quick_controller_surface(tile):
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    user32.GetWindowRgn.argtypes = [wintypes.HWND, wintypes.HANDLE]
+    gdi32.CreateRectRgn.argtypes = [ctypes.c_int] * 4
+    gdi32.CreateRectRgn.restype = wintypes.HANDLE
+    gdi32.DeleteObject.argtypes = [wintypes.HANDLE]
+    gdi32.CombineRgn.argtypes = [wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.c_int]
+    user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    client_region = None
+    try:
+        overlay = tile.video_danmaku
+        assert overlay._quick_requested
+        assert overlay._quick_video_mask == tile.video.mask(), 'Quick logical clipping must retain video corners'
+        assert overlay.mask().intersected(overlay.rect()).isEmpty(), 'Qt canvas clipping must exclude its client area'
+        hwnd = int(overlay.winId())
+        assert user32.GetWindowRgn(hwnd, region)
+        bounds = wintypes.RECT()
+        assert user32.GetClientRect(hwnd, ctypes.byref(bounds))
+        client_region = gdi32.CreateRectRgn(0, 0, bounds.right, bounds.bottom)
+        assert gdi32.CombineRgn(region, region, client_region, 1) == 1, \
+            'Quick mode must not expose a second native raster canvas over the video and badges'
+    finally:
+        gdi32.DeleteObject(region)
+        if client_region:
+            gdi32.DeleteObject(client_region)
+
+
+def check_quick_toggle_badges(tile):
+    visible = tile._overlay_visible
+    tile.set_controls_visible(True)
+    badges = (tile.stream_badge, tile.title_badge, tile.controls)
+    images = [badge.grab().toImage() for badge in badges]
+    try:
+        for _ in range(3):
+            tile.video_danmaku.set_enabled(False)
+            tile.video_danmaku.set_enabled(True)
+            check_quick_controller_surface(tile)
+            assert images == [badge.grab().toImage() for badge in badges], \
+                'Opening Quick danmaku must not darken badge backgrounds or lose caption glyphs'
+    finally:
+        tile.set_controls_visible(visible)
+
+
+def check_native_swap_submission(app, owner, layer):
+    tiles = list(owner.wall.tiles)
+    by_group = {tile.video_danmaku._quick_group: tile for tile in tiles}
+    handles = {tile: int(tile.video.winId()) for tile in tiles}
+    textures = {key: (record['item'], record['key']) for key, record in layer.items.items()}
+    first = tiles[0]
+    overlay_visible = first._overlay_visible
+    first.set_controls_visible(True)
+    first._control_hover_timer.stop()
+    first._controls_hide_timer.stop()
+    settle(app)
+    caption_images = [badge.grab().toImage() for badge in (first.stream_badge, first.title_badge)]
+    submitted = []
+    original = layer.set_group_geometry
+    user32 = ctypes.windll.user32
+    user32.MapWindowPoints.argtypes = [wintypes.HWND, wintypes.HWND,
+                                      ctypes.POINTER(wintypes.POINT), wintypes.UINT]
+
+    def submit(identifier, x, y, width, height):
+        tile = by_group[identifier]
+        native = wintypes.POINT()
+        user32.MapWindowPoints(handles[tile], int(owner.wall.winId()), ctypes.byref(native), 1)
+        scale = owner.wall.devicePixelRatioF()
+        assert abs(native.x - x * scale) <= 1 and abs(native.y - y * scale) <= 1, \
+            'Quick geometry must match the already-moved native video HWND'
+        original(identifier, x, y, width, height)
+        submitted.append(identifier)
+
+    try:
+        with patch.object(layer, 'set_group_geometry', side_effect=submit), \
+                patch('ddm.widgets.QCursor.pos', side_effect=lambda: first.mapToGlobal(first.rect().center())), \
+                patch.object(first.stream_badge, 'repaint', wraps=first.stream_badge.repaint) as live_repaint, \
+                patch.object(first.title_badge, 'repaint', wraps=first.title_badge.repaint) as title_repaint:
+            owner.wall.tiles[0], owner.wall.tiles[1] = tiles[1], tiles[0]
+            owner.wall.relayout(force=True)
+            time.sleep(0.12)
+            assert not submitted, 'A stalled GUI must not submit Quick positions inside native moves'
+            for tile in tiles[:2]:
+                group = layer.groups[tile.video_danmaku._quick_group]
+                old_centre = QPoint(int(group.x() + group.width() / 2), int(group.y() + group.height() / 2))
+                mask = layer.window.mask()
+                assert not mask.isEmpty() and not mask.contains(old_centre), \
+                    'Native mask must hide old-position textures during GUI stalls'
+            unchanged = layer.groups[tiles[2].video_danmaku._quick_group]
+            assert layer.window.mask().contains(QPoint(int(unchanged.x() + unchanged.width() / 2),
+                                                      int(unchanged.y() + unchanged.height() / 2)))
+            settle(app)
+            assert {tiles[0].video_danmaku._quick_group,
+                    tiles[1].video_danmaku._quick_group} <= set(submitted)
+            assert not layer.window._move_regions, 'Fresh frames must restore all moved groups'
+            assert live_repaint.called and title_repaint.called, 'Moved captions must request a fresh native repaint'
+            assert caption_images == [badge.grab().toImage() for badge in (first.stream_badge, first.title_badge)], \
+                'Caption glyphs and backgrounds must remain intact after native moves'
+    finally:
+        first.set_controls_visible(overlay_visible)
+        owner.wall.tiles[:] = tiles
+        owner.wall.relayout(force=True)
+        settle(app)
+    assert all(int(tile.video.winId()) == handle for tile, handle in handles.items())
+    assert textures == {key: (record['item'], record['key']) for key, record in layer.items.items()}
+    print('Native video HWND geometry before coalesced Quick swap submission: PASS')
 
 
 def main():
@@ -157,6 +291,7 @@ def main():
         print("跳过：需要 Windows 原生窗口")
         return
     app.setStyleSheet(theme.qss())
+    check_raster_fallback(app)
     rooms = [{"room_id": str(1000 + i), "uname": f"本地视频 {i}", "live": True}
              for i in range(4)]
     with tempfile.TemporaryDirectory(prefix="ddm-video-dm-quick-") as temp, \
@@ -193,6 +328,8 @@ def main():
                 player.play(source)
                 tile.set_video_active(True)
                 tile.danmaku_button.setChecked(True)
+                check_quick_controller_surface(tile)
+                check_quick_toggle_badges(tile)
             settle(app, 2)
             assert all(float(player._prop("time-pos", 0) or 0) > 0
                        for player in players), "本地 libmpv 测试视频必须持续播放"
@@ -229,6 +366,10 @@ def main():
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
+            check_native_swap_submission(app, window, layer)
+            for tile in window.wall.tiles:
+                tile._round_video()
+                check_quick_controller_surface(tile)
             assert all(layer.groups[tile.video_danmaku._quick_group].property("maskImage").scheme() == "image"
                        for tile in window.wall.tiles), "共享组必须获得控件/圆角遮罩纹理"
             if "--surface-only" in sys.argv:

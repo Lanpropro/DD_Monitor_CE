@@ -30,6 +30,7 @@ from .danmaku_content import content_runs, content_html
 from . import follow_folders
 from .watch_history import SORT_TIP, WatchHistory
 from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
+from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
@@ -41,6 +42,7 @@ AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c
 
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 QUALITY_NAMES = {value: name for name, value in QUALITY_CHOICES}
+QUALITY_NAMES[20000] = "4K"
 
 TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
 ROOM_MIME = "application/x-ddm-room"
@@ -3885,6 +3887,7 @@ class Sidebar(QFrame):
         self.search = QLineEdit()
         self.search.setObjectName("Search")
         self.search.setPlaceholderText("搜索主播 / 房间号")
+        self.search.setToolTip("支持中文、全拼和拼音首字母；多个词用空格分隔")
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
@@ -4290,16 +4293,16 @@ class Sidebar(QFrame):
                 item.check.setChecked(False)
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
-        """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
+        """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
         if not words:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "title")).lower()
+                            for key in ("uname", "room_id")).lower()
         folder_id = folder_id or self.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in self.folders
                                 if folder["id"] == folder_id), "")
-        return all(word in haystack for word in words)
+        return all(matches_text(haystack, word) for word in words)
 
     def visible_items(self) -> list:
         """当前露在外面的条目（过滤掉的不算）。"""
@@ -6052,6 +6055,9 @@ class Tile(QFrame):
         self.pause_overlay.setObjectName("PauseOverlay")
         #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
         self._overlay_ready = True
+        self._move_repaint_timer = QTimer(self)
+        self._move_repaint_timer.setSingleShot(True)
+        self._move_repaint_timer.timeout.connect(self._refresh_moved_overlays)
         self._mask_refresh_timer = QTimer(self)
         self._mask_refresh_timer.setSingleShot(True)
         self._mask_refresh_timer.timeout.connect(self._refresh_overlay_masks)
@@ -6730,6 +6736,25 @@ class Tile(QFrame):
         super().resizeEvent(event)
         self._layout_areas()
 
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._move_repaint_timer.start(0)
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.update(QRect(event.oldPos(), self.size()))
+        # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
+        self.video_danmaku.schedule_quick_geometry()
+
+    def _refresh_moved_overlays(self) -> None:
+        # Native child windows can retain old backing-store text after only their parent moved.
+        if not self.isVisible():
+            return
+        for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
+                       self.controls, self.spinner, self.pause_overlay, self.bottom):
+            if widget.isVisible():
+                widget.repaint()
+        self.update()
+
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
@@ -6918,12 +6943,14 @@ class Tile(QFrame):
 
     def hideEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._move_repaint_timer.stop()
         self._volume_hide_timer.stop()
         self.volume_menu.hide()
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._move_repaint_timer.stop()
         super().closeEvent(event)
 
     def _refresh_overlay_masks(self) -> None:

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import theme
 from .folder_icons import create_folder_dialog
+from .search import matches_text
 from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .bili import BILI_CODECS
@@ -1521,6 +1522,7 @@ class FollowImportDialog(QDialog):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索主播名称")
+        self.search_edit.setToolTip("支持中文、全拼和拼音首字母")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_rooms)
         layout.addWidget(self.search_edit)
@@ -1617,7 +1619,7 @@ class FollowImportDialog(QDialog):
         query = text.strip().casefold()
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setHidden(query not in item.data(Qt.UserRole)["uname"].casefold())
+            item.setHidden(not matches_text(item.data(Qt.UserRole)["uname"], query))
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----

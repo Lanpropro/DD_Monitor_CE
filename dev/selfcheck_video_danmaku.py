@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from types import MethodType, SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QWindowStateChangeEvent
+from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QRegion, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QDialog, QWidget
 
@@ -23,7 +23,152 @@ from ddm.app import MainWindow
 from ddm.danmaku import DanmakuClient
 from ddm.dialogs import DanmakuSettingsPage, SettingsDialog
 from ddm.video_danmaku import VideoDanmaku
-from ddm.widgets import DanmakuPanel, Tile
+from ddm.widgets import DanmakuPanel, Tile, WallGrid
+
+
+def check_quick_group_follows_tile_move(app):
+    for layout_id, room_count in (('2x2', 2), ('3x3', 6)):
+        check_quick_group_swap_layout(app, layout_id, room_count)
+
+
+def check_quick_group_swap_layout(app, layout_id, room_count):
+    wall = WallGrid([dict(room_id=str(i + 1), uname=str(i + 1), live=True)
+                     for i in range(room_count)], layout_id=layout_id)
+    wall.resize(*( (1000, 700) if layout_id == '2x2' else (1002, 702)))
+    wall.show()
+    app.processEvents()
+    layer = Mock()
+    layer.parent = wall
+    geometries = {}
+    layer.set_group_geometry.side_effect = lambda group, *rect: geometries.update({group: rect})
+    wall._quick_danmaku_layer = layer
+    first, second = wall.tiles[:2]
+    occupied = wall.tiles[:room_count]
+    try:
+        for index, tile in enumerate(occupied):
+            tile.danmaku_button.setChecked(True)
+            overlay = tile.video_danmaku
+            overlay._quick_layer, overlay._quick_group = layer, index
+            overlay._sync_quick_geometry()
+        local_rect = first.video_danmaku.geometry()
+        original = dict(geometries)
+        # 秒切移动整个格子，等大格子内部浮层的相对坐标不会产生 Move/Resize。
+        wall.tiles[0], wall.tiles[1] = second, first
+        wall.relayout(force=True)
+        time.sleep(0.12)  # A stalled GUI must not submit new Quick positions ahead of native moves.
+        assert geometries == original, 'GUI事件循环恢复前，不应提前提交共享弹幕的新坐标'
+        app.processEvents()
+        assert first.video_danmaku.geometry() == local_rect
+        assert first.x() != original[0][0] - local_rect.x()
+        for index, tile in enumerate(occupied):
+            overlay = tile.video_danmaku
+            point = overlay.mapTo(wall, QPoint())
+            assert geometries[index] == (point.x(), point.y(), overlay.width(), overlay.height()), \
+                '交换等大格子后，共享弹幕组必须跟随格子的墙内坐标'
+        # Replacing an empty slot with an occupied tile must move all six groups too.
+        wall.tiles[0], wall.tiles[-1] = wall.tiles[-1], wall.tiles[0]
+        wall.relayout(force=True)
+        app.processEvents()
+        for index, tile in enumerate(occupied):
+            overlay = tile.video_danmaku
+            point = overlay.mapTo(wall, QPoint())
+            assert geometries[index] == (point.x(), point.y(), overlay.width(), overlay.height())
+    finally:
+        for tile in occupied:
+            tile.video_danmaku._quick_layer = tile.video_danmaku._quick_group = None
+        wall._quick_danmaku_layer = None
+        wall.close()
+
+
+def check_quick_controller_mask():
+    overlay = VideoDanmaku()
+    overlay.resize(400, 240)
+    video_mask = QRegion(0, 0, 400, 240) - QRegion(0, 0, 3, 3)
+    try:
+        overlay._quick_requested = True
+        overlay.setMask(video_mask)
+        assert overlay._quick_video_mask == video_mask
+        assert overlay.mask().intersected(overlay.rect()).isEmpty()
+        overlay.clearMask()
+        assert overlay._quick_video_mask.isEmpty()
+        assert overlay.mask().intersected(overlay.rect()).isEmpty()
+        overlay._quick_requested = False
+        overlay.setMask(video_mask)
+        assert overlay.mask() == video_mask, 'Raster fallback must retain its native video region'
+    finally:
+        overlay.close()
+
+
+def check_move_window_mask():
+    from ddm.video_danmaku_quick import _MovingDanmakuWindow
+
+    window = _MovingDanmakuWindow()
+    window.resize(800, 450)
+    base = QRegion(0, 0, 800, 450) - QRegion(100, 100, 50, 50)
+    try:
+        window.setMask(base)
+        moving = QRegion(0, 0, 200, 100) | QRegion(400, 0, 200, 100)
+        window.begin_move(1, moving)
+        assert not window.mask().contains(QPoint(20, 20))
+        assert not window.mask().contains(QPoint(450, 20))
+        assert window.mask().contains(QPoint(700, 400)), 'Unmoved tiles must remain visible'
+        updated = base - QRegion(300, 200, 30, 30)
+        window.setMask(updated)
+        assert not window.mask().contains(QPoint(20, 20)), 'Notice mask updates must preserve move clipping'
+        window.commit_move(1)
+        stale = window._move_epoch
+        window.begin_move(1, moving)
+        window.commit_move(1)
+        epoch = window._move_epoch
+        window._after_move_frame(stale)
+        assert window._move_frames[1] is False, 'Queued old frames cannot reveal stale coordinates'
+        window._after_move_frame(epoch)
+        assert not window.mask().contains(QPoint(20, 20))
+        window._after_move_sync(stale)
+        assert window._move_frames[1] is False
+        window._after_move_sync(epoch)
+        assert not window.mask().contains(QPoint(20, 20)), 'Sync alone does not present the new frame'
+        window._after_move_frame(epoch)
+        assert window.mask() == updated
+        window.begin_move(2, moving)
+        window.cancel_move(2)
+        assert window.mask() == updated, 'Removing a moving group must release its clipping'
+        window.setMask(QRegion())
+        window.begin_move(3, QRegion(0, 0, 800, 450))
+        assert not window.mask().isEmpty() and not window.mask().contains(QPoint(400, 200))
+        window.commit_move(3)
+        epoch = window._move_epoch
+        window._after_move_sync(epoch)
+        window._after_move_frame(epoch)
+        assert window.mask().isEmpty(), 'An unrestricted base mask must be restored'
+    finally:
+        window.close()
+
+
+def check_moved_overlay_refresh(app):
+    wall = WallGrid([dict(room_id='1', uname='Moving text', title='Native caption', live=True)],
+                    layout_id='1x1')
+    wall.resize(1000, 700)
+    wall.show()
+    app.processEvents()
+    tile = wall.tiles[0]
+    tile.set_controls_visible(True)
+    tile._control_hover_timer.stop()
+    tile._controls_hide_timer.stop()
+    app.processEvents()
+    assert wall._quick_danmaku_layer is None, 'Caption refresh cannot depend on enabled Quick danmaku'
+    try:
+        with patch.object(tile.stream_badge, 'repaint', wraps=tile.stream_badge.repaint) as live, \
+                patch.object(tile.title_badge, 'repaint', wraps=tile.title_badge.repaint) as title, \
+                patch.object(tile.controls, 'repaint', wraps=tile.controls.repaint) as controls:
+            for _ in range(3):
+                tile.move(tile.x() + 5, tile.y() + 5)
+            assert not live.called and not title.called and not controls.called
+            app.processEvents()
+            assert live.call_count == title.call_count == controls.call_count == 1, \
+                'Move bursts must repaint caption text and controls once at the final position'
+    finally:
+        wall.close()
 
 
 def check_quick_occlusion(app):
@@ -538,6 +683,10 @@ def main():
     check_quick_surface_recovery(app)
     check_fonts(app)
     check_quick_occlusion(app)
+    check_quick_controller_mask()
+    check_move_window_mask()
+    check_moved_overlay_refresh(app)
+    check_quick_group_follows_tile_move(app)
     check_motion(app)
     check_routing(app)
     check_settings(app)
