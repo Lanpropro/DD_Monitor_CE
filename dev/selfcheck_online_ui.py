@@ -13,7 +13,7 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QPoint, QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QFrame, QLabel
 from ddm import app as app_module, config, online, theme, update_install
 from ddm.dialogs import PluginRemovePrompt, SettingsDialog
@@ -140,6 +140,104 @@ def settle(app, page):
     assert not page.jobs, 'background operation must finish'
 
 
+def check_download_reopen(app, root):
+    from types import SimpleNamespace
+    for hosted in (False, True):
+        started, release = threading.Event(), threading.Event()
+        messages = []
+        with patch.object(app_module.QTimer, 'singleShot'):
+            window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+        if hosted:
+            window._settings_process = SimpleNamespace(_send=messages.append, stop=lambda: None)
+        plan = str(root / 'retained-update-plan.json')
+        offer = {'version': '9.0', 'notes': 'New release'}
+
+        def open_dialog():
+            if hosted:
+                window._settings_host_request({'kind': 'host-general', 'settings': window.settings,
+                                               'shortcuts': window.shortcuts})
+                dialog = window._settings_host.dialog
+            else:
+                dialog = window._create_settings_dialog()
+            dialog.nav.setCurrentRow(7)
+            return dialog
+
+        def close_dialog(dialog):
+            if hosted:
+                window._close_settings_host()
+            else:
+                dialog.reject()
+                dialog.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+
+        def download(_offer, destination, _client, cancelled, progress):
+            progress(25, 100)
+            started.set()
+            while not release.wait(.01):
+                if cancelled():
+                    raise InterruptedError('Download interrupted on settings close')
+            return str(destination)
+
+        try:
+            with patch.object(sys, 'frozen', True, create=True), \
+                    patch.object(online, 'session', return_value=Session()), \
+                    patch.object(online, 'download', side_effect=download) as downloading, \
+                    patch.object(update_install, 'prepare', return_value=plan), \
+                    patch.object(update_install, 'discard_plan') as discard:
+                first = open_dialog()
+                page = first.update_page
+                page._release_ready(offer)
+                page.action.click()
+                assert started.wait(2)
+                app.processEvents()
+                assert '25%' in page.status.text()
+                close_dialog(first)
+                assert not page.stopping and len(page.jobs) == 1, 'Closing settings must keep the download'
+                second = open_dialog()
+                assert second.update_page is page and '25%' in page.status.text()
+                assert not second.confirm_button.isEnabled(), 'Reopened settings must reflect the busy task'
+                assert not page.action.isEnabled()
+                close_dialog(second)
+                release.set()
+                settle(app, page)
+                assert page.plan_path == plan, 'Download must finish while settings is closed'
+                third = open_dialog()
+                assert third.update_page is page and page.action.text() == '重启并更新'
+                assert third.confirm_button.isEnabled()
+                downloading.assert_called_once()
+                discard.assert_not_called()
+                page.action.click()
+                assert page.install_requested
+                if hosted:
+                    assert sum(m['kind'] == 'host-request-save' for m in messages) == 1
+                    window._close_settings_host()
+                else:
+                    assert third.result() == SettingsDialog.Accepted
+                    third.deleteLater()
+        finally:
+            release.set()
+            window._close_settings_host()
+            window.close()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+    print('PASS: same download/progress and prepared update after closing/reopening normal and hosted settings')
+    with patch.object(app_module.QTimer, 'singleShot'):
+        window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+    page = window._get_update_page({})
+    started, interrupted = threading.Event(), threading.Event()
+    def wait_for_exit(cancelled, progress):
+        started.set()
+        while not cancelled():
+            time.sleep(.01)
+        interrupted.set()
+    page.start(wait_for_exit, lambda _result: None)
+    assert started.wait(2)
+    window.close()
+    settle(app, page)
+    assert interrupted.is_set() and page.stopping, 'Application exit must stop a hidden update task'
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
@@ -147,6 +245,7 @@ def main():
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
+        check_download_reopen(app, root)
         check_store_scroll(app, root)
         (root / f'RELEASE-{VERSION_TAG}.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
         archive = root / 'plugin.zip'
@@ -286,6 +385,7 @@ def main():
             automatic._release_ready(None)
             assert not automatic.action.isEnabled() and automatic.action.text() == '已是最新版本'
             with patch.object(online, 'app_release', return_value=None), \
+                    patch.object(online, 'release_notes', side_effect=online.requests.HTTPError('offline')), \
                     patch.object(online, 'download') as download:
                 automatic.check.click()
                 settle(app, automatic)
@@ -294,6 +394,11 @@ def main():
                 assert automatic.auto.isEnabled() and not automatic.action.isEnabled()
                 assert automatic.action.text() == '已是最新版本'
                 download.assert_not_called()
+            with patch.object(online, 'app_release', return_value=None), \
+                    patch.object(online, 'release_notes', return_value='# 发布后修改的当前版本说明'):
+                automatic.check.click()
+                settle(app, automatic)
+                assert automatic.notes.toPlainText() == '发布后修改的当前版本说明'
             with patch.object(online, 'app_release', side_effect=OSError('offline')), \
                     patch.object(online, 'download') as download:
                 automatic.check.click()

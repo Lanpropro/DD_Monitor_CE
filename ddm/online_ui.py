@@ -461,8 +461,21 @@ class AppUpdatePage(OnlinePage):
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
             with online.session() as client:
-                return online.app_release(client, version.VERSION)
-        self.start(check, self._release_ready)
+                offer = online.app_release(client, version.VERSION)
+                notes = ''
+                if offer is None:
+                    try:
+                        notes = online.release_notes(client, version.VERSION)
+                    except (online.requests.RequestException, ValueError):
+                        pass
+                return offer, notes
+        self.start(check, self._check_ready)
+
+    def _check_ready(self, result):
+        offer, notes = result
+        self._release_ready(offer)
+        if offer is None and notes:
+            self.notes.setMarkdown(notes)
 
     def _release_ready(self, offer):
         self.offer = offer
