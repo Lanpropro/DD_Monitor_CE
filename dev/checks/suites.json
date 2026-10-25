@@ -33,6 +33,7 @@
     "description": "已核对的离屏功能回归；需要开发依赖，使用替身或本机测试服务",
     "scripts": [
       "selfcheck_bili_cookies",
+      "selfcheck_legacy_cleanup",
       "selfcheck_drag_lifecycle",
       "selfcheck_player_lifetime",
       "selfcheck_danmaku_connection",
