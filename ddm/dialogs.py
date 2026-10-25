@@ -828,6 +828,32 @@ class RecordingSettingsPage(QWidget):
         }
 
 
+class PluginRemovePrompt(AnimatedDialog):
+    def __init__(self, plugin_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('删除插件')
+        self.setMinimumWidth(440)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(20)
+        layout.addLayout(_page_head('删除这个插件？',
+            f'将删除插件“{plugin_name}”及其文件。\n已加载的插件将在重启后停止运行。'))
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.cancel_button = QPushButton('取消')
+        self.cancel_button.setObjectName('IconButton')
+        self.cancel_button.setDefault(True)
+        self.cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(self.cancel_button)
+        self.delete_button = QPushButton('删除')
+        self.delete_button.setObjectName('PrimaryButton')
+        self.delete_button.setAutoDefault(False)
+        self.delete_button.clicked.connect(self.accept)
+        buttons.addWidget(self.delete_button)
+        layout.addLayout(buttons)
+        self.cancel_button.setFocus()
+
+
 class PluginSettingsPage(QWidget):
     """按现有插件接口展示元数据和下次启动的启用选择。"""
 
@@ -957,6 +983,7 @@ class PluginSettingsPage(QWidget):
     def _update_plugin(self, plugin_id):
         offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), None)
         if offer:
+            self.update_buttons[plugin_id].clearFocus()
             self.store_page.install_offer(offer)
 
     def _add_card(self, entry):
@@ -1001,11 +1028,13 @@ class PluginSettingsPage(QWidget):
     def _remove(self, plugin_id, card):
         if self.manager is None:
             return
-        choice = QMessageBox.question(
-            self, "删除插件", f"确定删除插件 {plugin_id} 及其文件吗？\n已加载的插件将在重启后停止运行。",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if choice != QMessageBox.Yes:
-            return
+        name = next((entry['name'] for entry in self.manager.catalog() if entry['id'] == plugin_id), plugin_id)
+        prompt = PluginRemovePrompt(name, self)
+        try:
+            if prompt.exec() != PluginRemovePrompt.Accepted:
+                return
+        finally:
+            prompt.deleteLater()
         try:
             self.manager.remove_plugin(plugin_id)
         except (OSError, ValueError) as error:

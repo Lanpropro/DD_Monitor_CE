@@ -322,6 +322,9 @@ class PluginStorePage(OnlinePage):
         if (not self.manager or not offer.get('available') or self.stopping
                 or any(task.key in (None, offer['id']) for task in self.jobs)):
             return
+        button = self.buttons.get(offer['id'])
+        if button is not None and button.hasFocus():
+            button.clearFocus()  # Disabling a focused button otherwise scrolls to the next card.
         self.status.setText('正在下载安装包…')
         def install(cancelled, progress):
             with tempfile.TemporaryDirectory(prefix='ddm-plugin-download-') as temporary, online.session() as client:
@@ -338,7 +341,11 @@ class PluginStorePage(OnlinePage):
             self.manager.enabled.add(plugin_id)
             self.manager.save_plugin_settings()
         self.installed.emit(plugin_id)
-        self.show_offers(self.offers)
+        button = self.buttons.get(plugin_id)
+        if button is not None:
+            button.setProperty('storeText', '已安装' if new else '待重启')
+            button.setProperty('storeEnabled', False)
+        self.update_dots()  # Keep the cards and their scroll position while changing the completed action.
         self.offersChanged.emit(self.offers)
         self.status.setText('安装包已校验，保存并重启后生效。')
         show_result(self.window(), '插件已安装，保存并重启后生效')
