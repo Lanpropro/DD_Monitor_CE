@@ -238,6 +238,7 @@
 | [selfcheck_preview](../selfcheck_preview.py) | 单项执行前核对 |
 | [selfcheck_preview_collapsed](../selfcheck_preview_collapsed.py) | 单项执行前核对 |
 | [selfcheck_preview_popup](../selfcheck_preview_popup.py) | 单项执行前核对 |
+| [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；65行紧凑关注栏，滚轮取流竞态、漏发离开事件与悬停重绘 |
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
 | [selfcheck_recording](../selfcheck_recording.py) | 单项执行前核对 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | 单项执行前核对 |
@@ -334,6 +335,7 @@
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 单项执行前核对 |
+| [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |

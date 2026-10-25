@@ -770,23 +770,34 @@ def my_uid(force: bool = False) -> int | None:
     return uid
 
 
-def following(uid: int, page_size: int = 50, max_pages: int = 20) -> list[dict]:
+def following(uid: int, page_size: int = 50, max_pages: int | None = None) -> list[dict]:
     """拉取关注列表（分页）。"""
     result: list[dict] = []
-    for page in range(1, max_pages + 1):
+    seen = set()
+    page = 1
+    while max_pages is None or page <= max_pages:
         response = requests.get(
             "https://api.bilibili.com/x/relation/followings",
             params={"vmid": uid, "pn": page, "ps": page_size, "order": "desc"},
             headers=HEADERS, cookies=_cookies(), timeout=10)
         data = response.json()
         if data.get("code") != 0:
-            break
+            raise RuntimeError(data.get("message") or "读取 B 站关注失败")
         items = (data.get("data") or {}).get("list") or []
+        total = (data.get("data") or {}).get("total")
         if not items:
+            if total and len(result) < int(total):
+                raise RuntimeError("B 站关注列表未读取完整，请重新读取")
             break
-        result.extend({"uid": int(item["mid"]), "uname": item["uname"]} for item in items)
-        if len(items) < page_size:
+        new_items = [{"uid": int(item["mid"]), "uname": item["uname"]}
+                     for item in items if int(item["mid"]) not in seen]
+        if not new_items:
+            raise RuntimeError("B 站关注分页未前进，请重新读取")
+        result.extend(new_items)
+        seen.update(item["uid"] for item in new_items)
+        if len(items) < page_size or (total and len(result) >= int(total)):
             break
+        page += 1
     return result
 
 

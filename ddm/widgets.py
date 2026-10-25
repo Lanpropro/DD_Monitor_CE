@@ -2563,6 +2563,7 @@ class NavItem(QFrame):
             return
         self.setProperty("hovered", hovered)
         _repolish(self)
+        self.update()
 
     def _clear_hover_if_outside(self) -> None:
         if self.rect().contains(self.mapFromGlobal(QCursor.pos())):
@@ -3427,6 +3428,7 @@ class RoomStrip(QFrame):
         self._faces: dict = {}                   # room_id -> 头像图
         self._on_wall_ids: set[str] = set()
         self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
+        self._avatar_signatures = {}
         self._press_pos = None
         self._press_room = None
         self._hovered_room: dict | None = None
@@ -3545,26 +3547,33 @@ class RoomStrip(QFrame):
 
     def _rebuild(self) -> None:
         self._set_hover_room("")
+        previous = self._avatars
+        signatures = self._avatar_signatures
         while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
+            self._layout.takeAt(0)
         self._avatars = {}
+        self._avatar_signatures = {}
         for room in self._rooms:
             room_id = str(room.get("room_id") or "")
             uname = str(room.get("uname") or "")
-            avatar = self._add_avatar(
-                uname[0] if uname else "?", bool(room.get("live")),
-                tooltip=uname or room_id,
-                face=self._faces.get(room_id),
-                room_id=room_id,
-                pinned=bool(room.get("pinned")),
-                on_wall=room_id in self._on_wall_ids)
+            face = self._faces.get(room_id)
+            signature = (uname, bool(room.get("live")), bool(room.get("pinned")),
+                         room_id in self._on_wall_ids, face.cacheKey() if face is not None else None)
+            if room_id in previous and signatures.get(room_id) == signature:
+                avatar = previous.pop(room_id)
+                self._layout.addWidget(avatar)
+            else:
+                avatar = self._add_avatar(
+                    uname[0] if uname else "?", bool(room.get("live")),
+                    tooltip=uname or room_id, face=face, room_id=room_id,
+                    pinned=bool(room.get("pinned")), on_wall=room_id in self._on_wall_ids)
             if room_id:
                 self._avatars[room_id] = avatar
+                self._avatar_signatures[room_id] = signature
+        for widget in previous.values():
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
         self._layout.addStretch(1)
 
     def rebuild(self) -> None:
@@ -3925,6 +3934,10 @@ class Sidebar(QFrame):
         self.scroll = scroll
         holder = RoomListBox(self)
         self.list_box = holder
+        self._pointer_hover_item = None
+        self._hover_sync_timer = QTimer(self)
+        self._hover_sync_timer.setInterval(30)
+        self._hover_sync_timer.timeout.connect(self._sync_pointer_hover)
         self._wheel_hook: mouse_hook.WheelHook | None = None
         for room in rooms:
             self._append_item(room)
@@ -3932,6 +3945,7 @@ class Sidebar(QFrame):
         scroll.setWidget(holder)
         for bar in (scroll.verticalScrollBar(), scroll.horizontalScrollBar()):
             bar.valueChanged.connect(lambda _value: QTimer.singleShot(0, self._refresh_visible_covers))
+            bar.valueChanged.connect(self._sync_pointer_hover)
         layout.addWidget(scroll, 1)
 
         # 底部：批量操作条 / 正常操作
@@ -5273,7 +5287,47 @@ class Sidebar(QFrame):
             if item.thumb._cover_dirty and not item.thumb.visibleRegion().isEmpty():
                 item.thumb.refresh_cover()
 
+    def _set_pointer_hover(self, item) -> None:
+        previous = self._pointer_hover_item
+        self._pointer_hover_item = item
+        if previous is not None and previous is not item:
+            try:
+                previous._hover_leave_timer.stop()
+                if previous.property("hovered"):
+                    previous._set_hovered(False)
+                    previous.unhovered.emit(previous.room)
+            except RuntimeError:  # The previous row may have been removed.
+                pass
+        if item is not None:
+            item._hover_leave_timer.stop()
+            if not item.property("hovered"):
+                item._set_hovered(True)
+                item.hovered.emit(item.room)
+
+    def _sync_pointer_hover(self) -> None:
+        # Native child windows can omit Enter as well as Leave. Hit-test once
+        # for the whole visible list, including rows without a live preview.
+        item = None
+        viewport = self.scroll.viewport()
+        if (self.isVisible() and viewport.isVisible()
+                and not QApplication.activePopupWidget() and not QApplication.activeModalWidget()):
+            pointer = QCursor.pos()
+            if viewport.rect().contains(viewport.mapFromGlobal(pointer)):
+                child = self.list_box.childAt(self.list_box.mapFromGlobal(pointer))
+                while child is not None and child is not self.list_box:
+                    if isinstance(child, NavItem):
+                        item = child
+                        break
+                    child = child.parentWidget()
+        self._set_pointer_hover(item)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._hover_sync_timer.start()
+
     def hideEvent(self, event) -> None:
+        self._hover_sync_timer.stop()
+        self._set_pointer_hover(None)
         if self._collapse_animating:
             self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
         super().hideEvent(event)
@@ -5424,11 +5478,21 @@ class Sidebar(QFrame):
         return item
 
     def add_room(self, room: dict) -> bool:
-        room_id = str(room.get("room_id"))
-        if any(str(item.room.get("room_id")) == room_id for item in self._items):
-            return False
-        self._folder_pending.add(room_id)
-        self._append_item(room)
+        return bool(self.add_rooms([room]))
+
+    def add_rooms(self, rooms: list[dict]) -> list[dict]:
+        known = {str(item.room.get("room_id")) for item in self._items}
+        added = []
+        for room in rooms:
+            room_id = str(room.get("room_id"))
+            if room_id in known:
+                continue
+            known.add(room_id)
+            self._folder_pending.add(room_id)
+            self._append_item(room)
+            added.append(room)
+        if not added:
+            return []
         self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
                                 self.compact_threshold)
         # 新控件初始坐标是 (0, 0)，必须立即排版，否则会压在第一项上，
@@ -5438,9 +5502,9 @@ class Sidebar(QFrame):
         self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
         self.refresh_strip()
         if self.isVisible() and motion.enabled():
-            self._entering_room_ids.add(room_id)
+            self._entering_room_ids.update(str(room["room_id"]) for room in added)
             self._card_entry_timer.start(0)
-        return True
+        return added
 
     def _reveal_added_rooms(self) -> None:
         """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
@@ -5782,8 +5846,9 @@ class Sidebar(QFrame):
                      if ":" in str(item.room.get("room_id", "")) else "bilibili"
                      for item in self._items}
         for item in self._items:
-            item.platform_badge.setProperty("showPlatform", len(platforms) > 1)
-            item.platform_badge.setVisible(len(platforms) > 1 and not item.thumb.video.isVisible())
+            show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
+            item.platform_badge.setProperty("showPlatform", show)
+            item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
             item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
@@ -6348,7 +6413,7 @@ class Tile(QFrame):
     def _update_quick_danmaku_mask(self) -> None:
         self.video_danmaku.update_quick_mask((
             self.controls, self.stream_badge, self.title_badge, self.time_badge,
-            self.spinner, self.pause_overlay, self.bottom, *self.video_corners))
+            self.spinner, self.pause_overlay, self.bottom))
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active

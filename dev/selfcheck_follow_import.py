@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QPushButton
@@ -52,6 +52,7 @@ def main():
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_bulk_import(app)
     folders = [{"id": "games", "name": "赛事", "type": "normal"},
                {"id": "smart", "name": "直播中", "type": "smart"},
                {"id": UNCLASSIFIED, "name": "未分类", "type": "unclassified"}]
@@ -244,6 +245,44 @@ def main():
         assert set(saved['rooms']) == {room['room_id'] for room in ROOMS}
     window.close()
     print("PASS: shared account page passes target, cross-platform import, dedup, collapse, persistence, fallback and cancel")
+
+
+def check_bulk_import(app):
+    rooms = [dict(room_id=str(20000 + index), uname=f'Bulk {index}', live=index % 3 != 0)
+             for index in range(784)]
+    dialog = FollowImportDialog(rooms, set())
+    dialog._check_live()
+    selected = dialog.selected()
+    assert len(selected) == sum(room['live'] for room in rooms)
+    with patch('ddm.app.QTimer.singleShot'):
+        window = MainWindow([], [], state={'plugins_enabled': []})
+    try:
+        with patch.object(window, 'load_avatars_for'), patch.object(window, '_refresh_meta'), \
+                patch('ddm.online_ui.show_result') as result:
+            for batch in (selected, rooms):
+                ticks = []
+                heartbeat = QTimer()
+                heartbeat.timeout.connect(lambda: ticks.append(len(window.sidebar.rooms())))
+                heartbeat.start(0)
+                window._import_selected_follows(batch)
+                assert window._follow_import_timer is not None
+                with patch.object(window, '_open_account_dialog') as opened:
+                    window.open_import_follows()
+                    opened.assert_not_called()
+                for _ in range(200):
+                    app.processEvents()
+                    if window._follow_import_timer is None:
+                        break
+                heartbeat.stop()
+                assert window._follow_import_timer is None, 'Bulk import did not finish'
+                assert len(ticks) > 1, 'Import must yield to GUI events between batches'
+                expected = {room['room_id'] for room in batch}
+                assert {room['room_id'] for room in window.sidebar.rooms()} == expected
+                assert set(window.current_state()['rooms']) == expected
+            assert result.call_count == 2
+    finally:
+        dialog.close()
+        window.close()
 
 
 if __name__ == "__main__":
