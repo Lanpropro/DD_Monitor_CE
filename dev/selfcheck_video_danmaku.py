@@ -13,7 +13,7 @@ from types import MethodType, SimpleNamespace
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QRegion, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox, QLabel
+from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QDialog, QWidget
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DDM_NO_SAVE", "1")
@@ -171,6 +171,50 @@ def check_moved_overlay_refresh(app):
         wall.close()
 
 
+def check_quick_occlusion(app):
+    from ddm.video_danmaku_quick import QuickDanmakuLayer
+
+    owner = QWidget()
+    owner.setGeometry(100, 100, 800, 600)
+    wall = QWidget(owner)
+    wall.setGeometry(100, 0, 700, 600)
+    owner.show()
+    wall.show()
+    dialog = QDialog(owner)
+    dialog.setGeometry(350, 250, 200, 150)
+    notice = QWidget(owner, Qt.Tool)
+    notice.setGeometry(220, 110, 300, 100)
+    unrelated = QWidget()
+    unrelated.setGeometry(400, 400, 100, 100)
+    unrelated.show()
+    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock())
+    try:
+        for widget in (dialog, notice):
+            widget.show()
+            app.processEvents()
+            assert QuickDanmakuLayer._update_occlusion(layer)
+            region = layer.window.setMask.call_args.args[0]
+            point = wall.mapFromGlobal(widget.mapToGlobal(widget.rect().center()))
+            assert not region.contains(point), 'Danmaku must not cover dialogs or notices'
+            assert region.contains(QPoint(650, 550)), 'Uncovered video must retain danmaku'
+            QuickDanmakuLayer.eventFilter(layer, widget, QEvent(QEvent.Move))
+            layer._occlusion_timer.start.assert_called_with(0)
+        dialog.hide()
+        notice.hide()
+        app.processEvents()
+        assert QuickDanmakuLayer._update_occlusion(layer)
+        assert layer.window.setMask.call_args.args[0] == wall.rect()
+        dialog.setGeometry(100, 50, 1200, 900)
+        dialog.show()
+        app.processEvents()
+        assert not QuickDanmakuLayer._update_occlusion(layer), 'Full occlusion must hide the layer'
+    finally:
+        dialog.close()
+        notice.close()
+        unrelated.close()
+        owner.close()
+
+
 def check_quick_surface_recovery(app):
     from ddm.video_danmaku_quick import QuickDanmakuLayer
 
@@ -181,6 +225,8 @@ def check_quick_surface_recovery(app):
     parent.window.return_value.isMinimized.return_value = False
     layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(),
                             _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
+                            _update_occlusion=Mock(return_value=True),
+                            _occlusion_timer=Mock(),
                             _set_layered=Mock(), items={1: {"group": 1}}, groups={1: Mock()})
     layer.window.isVisible.return_value = False
     layer._surface_reset.setSingleShot(True)
@@ -616,11 +662,27 @@ def check_cancel(app):
             window.close()
 
 
+def check_quick_owner_destruction(app):
+    from ddm.video_danmaku_quick import QuickDanmakuLayer
+    from shiboken6 import isValid
+
+    owner = QWidget()
+    owner.winId()
+    with patch.object(QuickDanmakuLayer, '_set_layered'):
+        layer = QuickDanmakuLayer(owner)
+    owner.deleteLater()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    assert not isValid(owner)
+    assert not QuickDanmakuLayer.eventFilter(layer, owner, QEvent(QEvent.Show)), \
+        'Queued UI events must not dereference a destroyed playback wall'
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_quick_occlusion(app)
     check_quick_controller_mask()
     check_move_window_mask()
     check_moved_overlay_refresh(app)
@@ -629,6 +691,7 @@ def main():
     check_routing(app)
     check_settings(app)
     check_cancel(app)
+    check_quick_owner_destruction(app)
     print("画面弹幕滚动、防追尾、设置、底栏、连接共享、换台、全屏及退出：通过")
 
 

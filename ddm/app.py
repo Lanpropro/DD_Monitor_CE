@@ -3644,6 +3644,8 @@ class MainWindow(QMainWindow):
         print(f"登录成功，已保存登录状态（{len(sessdata)} 字符）", file=sys.stderr, flush=True)
 
     def open_import_follows(self) -> None:
+        if getattr(self, "_follow_import_timer", None) is not None:
+            return
         follow_loader = getattr(self, "_follow_loader", None)
         if follow_loader is not None and self._loader_running(follow_loader):
             return
@@ -3653,21 +3655,51 @@ class MainWindow(QMainWindow):
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
                                  removed_ids=(), move_existing=False, pending_count=0) -> None:
-        if self._closing:
+        if self._closing or getattr(self, "_follow_import_timer", None) is not None:
             return
         selected_ids = {str(room["room_id"]) for room in selected}
         removing = set(removed_ids) - selected_ids
         for room in list(self.sidebar.rooms()):
             if str(room["room_id"]) in removing:
                 self.remove_room(room)
-        added_rooms = [room for room in selected if self.sidebar.add_room(room)]
+        # Small imports finish immediately; large imports yield between bounded batches.
+        added_rooms = []
+        offset = 0
+        timer = QTimer(self)
+        self._follow_import_timer = timer
+
+        def import_batch():
+            nonlocal offset
+            if self._closing:
+                timer.stop()
+                timer.deleteLater()
+                self._follow_import_timer = None
+                return
+            added_rooms.extend(self.sidebar.add_rooms(selected[offset:offset + 8]))
+            offset += 8
+            if offset < len(selected):
+                timer.start(0)
+                return
+            timer.stop()
+            timer.deleteLater()
+            self._follow_import_timer = None
+            self._finish_follow_import(selected, added_rooms, folder_id=folder_id,
+                                       move_existing=move_existing, pending_count=pending_count)
+
+        timer.timeout.connect(import_batch)
+        import_batch()
+
+    def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing, pending_count):
         moving = selected if move_existing else added_rooms
         if (folder_id or move_existing) and moving:
             self.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
         if not move_existing:
+            pending_folders = {}
             for room in added_rooms:
                 if room.get("pending_folder_id"):
-                    self.sidebar.move_to_folder([str(room["room_id"])], room["pending_folder_id"])
+                    pending_folders.setdefault(room["pending_folder_id"], []).append(str(room["room_id"]))
+            for pending_folder, room_ids in pending_folders.items():
+                self.sidebar.move_to_folder(room_ids, pending_folder)
         added = len(added_rooms)
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
@@ -3818,6 +3850,8 @@ class MainWindow(QMainWindow):
     def apply_preview_settings(self) -> None:
         """关注列表样式与悬停预览开关。"""
         before = self.sidebar.card_mode
+        self.sidebar.show_platform_logos = bool(self.settings.get("sidebar_platform_logos", True))
+        self.sidebar._sync_count()
         self.sidebar.set_compact_policy(
             bool(self.settings.get("sidebar_card_mode", True)),
             bool(self.settings.get("sidebar_auto_compact", True)),
