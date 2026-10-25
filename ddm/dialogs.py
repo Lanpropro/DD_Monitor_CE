@@ -1143,40 +1143,7 @@ class AppearanceSettingsPage(QWidget):
         self._choose("dark")
 
 
-class SettingsSavePrompt(AnimatedDialog):
-    SAVE, DISCARD, CANCEL = 1, 2, 0
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("保存设置")
-        self.setMinimumWidth(440)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(20)
-        layout.addLayout(_page_head("保存当前更改？", "切换页面前，可保存当前设置，或放弃本次更改。"))
-        buttons = QHBoxLayout()
-        self.discard_button = QPushButton("放弃更改")
-        self.discard_button.setObjectName("IconButton")
-        self.discard_button.setAutoDefault(False)
-        self.discard_button.clicked.connect(lambda: self.done(self.DISCARD))
-        buttons.addWidget(self.discard_button)
-        buttons.addStretch(1)
-        self.cancel_button = QPushButton("取消")
-        self.cancel_button.setObjectName("IconButton")
-        self.cancel_button.setDefault(True)
-        self.cancel_button.clicked.connect(self.reject)
-        buttons.addWidget(self.cancel_button)
-        self.save_button = QPushButton("保存")
-        self.save_button.setObjectName("PrimaryButton")
-        self.save_button.setAutoDefault(False)
-        self.save_button.clicked.connect(lambda: self.done(self.SAVE))
-        buttons.addWidget(self.save_button)
-        layout.addLayout(buttons)
-        self.cancel_button.setFocus()
-
-
 class SettingsDialog(QDialog):
-    firstPainted = Signal()
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
     pageCreated = Signal(int, object)
@@ -1278,7 +1245,6 @@ class SettingsDialog(QDialog):
             self._paint_logged = True
             print(f"[设置耗时] 首次绘制 {(time.perf_counter() - self._created_at) * 1000:.1f}ms",
                   file=sys.stderr, flush=True)
-            self.firstPainted.emit()
 
     def _mark_update_page(self, key, active):
         for index in range(self.nav.count()):

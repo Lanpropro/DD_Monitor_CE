@@ -865,7 +865,8 @@ class MainWindow(QMainWindow):
             from .settings_process import SettingsProcess
             self._settings_process = SettingsProcess(self)
             self._settings_process.saved.connect(self._remote_settings_saved)
-            self._settings_process.hostPage.connect(self._open_settings_host_page)
+            self._settings_process.hostRequest.connect(self._settings_host_request)
+            self._settings_process.closed.connect(self._close_settings_host)
             self._settings_process.failed.connect(lambda message: self._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
         return self._settings_process
@@ -883,12 +884,24 @@ class MainWindow(QMainWindow):
                   dict(self.plugins._platform_owner), set(self.plugins._removed))
         self._apply_settings_dialog(dialog, before)
 
-    def _open_settings_host_page(self, page):
-        self.open_settings(page, handoff=self._settings_process)
+    def _settings_host_request(self, message):
+        if getattr(self, '_closing', False):
+            return
+        session = getattr(self, '_settings_host', None)
+        if session is None:
+            if message['kind'] != 'host-page':
+                return
+            from .settings_host import SettingsHost
+            session = self._settings_host = SettingsHost(self, self._settings_process, message)
+        session.handle(message)
 
-    def open_settings(self, page: str = "general", *, handoff=None) -> bool:
-        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
-        started = time.perf_counter()
+    def _close_settings_host(self):
+        session = getattr(self, '_settings_host', None)
+        if session is not None:
+            self._settings_host = None
+            session.close()
+
+    def _create_settings_dialog(self, settings=None, shortcuts=None):
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
             seen['app'] = self._available_update['version']
@@ -897,39 +910,43 @@ class MainWindow(QMainWindow):
             self.settings['seen_update_entry_versions'] = seen
             self._mark_updates()
             config_module.save(self.current_state())
+        dialog = SettingsDialog(self.settings if settings is None else settings,
+                                self.shortcuts if shortcuts is None else shortcuts, self,
+                                plugin_manager=self.plugins)
+        def page_created(index, widget):
+            key = dialog.PAGES[index][0]
+            if key == 'plugins':
+                widget.store_page.offersChanged.connect(self._set_plugin_updates)
+                if self._plugin_catalog_offers:
+                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
+            elif key == 'updates':
+                widget.releaseChecked.connect(self._set_app_update)
+                if self._available_update:
+                    widget._release_ready(self._available_update)
+                    widget._busy(False)
+        dialog.pageCreated.connect(page_created)
+        dialog.updatesViewed.connect(self._remember_updates)
+        dialog.appearanceChanged.connect(self.set_appearance)
+        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
+                                                for offer in self._plugin_update_offers))
+        dialog._mark_update_page('updates', bool(self._available_update and
+                                                dialog.seen_versions.get('app') != self._available_update['version']))
+        return dialog
+
+    def open_settings(self, page: str = "general") -> bool:
+        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        started = time.perf_counter()
         plugins_before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
                           dict(self.plugins._platform_owner), set(self.plugins._removed))
-        dialog = SettingsDialog(self.settings, self.shortcuts, self,
-                                plugin_manager=self.plugins)
+        dialog = self._create_settings_dialog()
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            def page_created(index, widget):
-                key = dialog.PAGES[index][0]
-                if key == 'plugins':
-                    widget.store_page.offersChanged.connect(self._set_plugin_updates)
-                    if self._plugin_catalog_offers:
-                        widget.store_page._catalog_ready(self._plugin_catalog_offers)
-                elif key == 'updates':
-                    widget.releaseChecked.connect(self._set_app_update)
-                    if self._available_update:
-                        widget._release_ready(self._available_update)
-                        widget._busy(False)
-            dialog.pageCreated.connect(page_created)
-            dialog.updatesViewed.connect(self._remember_updates)
-            dialog.appearanceChanged.connect(self.set_appearance)
-            dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
-                                                    for offer in self._plugin_update_offers))
-            dialog._mark_update_page('updates', bool(self._available_update and
-                                                    dialog.seen_versions.get('app') != self._available_update['version']))
             for index, (key, _label) in enumerate(dialog.PAGES):
                 if key == page:
                     dialog.nav.setCurrentRow(index)
                     break
             if page == "plugins":
                 dialog.plugin_page.tabs.setCurrentIndex(1)
-            if handoff is not None:
-                dialog.setGeometry(*handoff.handoff_geometry)
-                dialog.firstPainted.connect(handoff.complete_handoff, Qt.QueuedConnection)
             if dialog.exec() != SettingsDialog.Accepted:
                 return False
             return self._apply_settings_dialog(dialog, plugins_before)

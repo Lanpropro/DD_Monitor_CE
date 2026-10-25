@@ -31,6 +31,7 @@ def child(action):
 
         def exercise(self):
             if action.startswith(('clean-', 'revert-')):
+                before = int(self.winId())
                 if action.startswith('revert-'):
                     initial = self.general_page.volume_slider.value()
                     self.general_page.volume_slider.setValue(17)
@@ -38,10 +39,17 @@ def child(action):
                 for index in (2, 3, 4, 5, 0):
                     self.nav.setCurrentRow(index)
                 page = action.split('-')[1]
-                with patch.object(dialogs.SettingsSavePrompt, 'exec',
-                                  side_effect=AssertionError('Unchanged settings prompted to save')):
-                    self.nav.setCurrentRow(self.PAGE_INDEX[page])
-                assert self.isVisible() and not self.isEnabled(), 'Keep old window until host paints'
+                self.nav.setCurrentRow(self.PAGE_INDEX[page])
+                assert self.isVisible() and self.isEnabled()
+                assert int(self.winId()) == before and self.nav.currentRow() == self.PAGE_INDEX[page]
+                self.nav.setCurrentRow(0)
+                self.reject()
+                return
+            if action.startswith('embed-'):
+                self.general_page.volume_slider.setValue(17)
+                self.shell_hwnd = int(self.winId())
+                self.sequence = iter((1, 0, 6, 2, 7, 5, 1, 0))
+                QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action == 'focus':
                 self.general_page.volume_slider.setValue(17)
@@ -55,23 +63,42 @@ def child(action):
             self.general_page._checks['preview_on_hover'].setChecked(False)
             if 'sidebar_platform_logos' in self.general_page._checks:
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
-            if action.startswith('page'):
-                choice = action.split('-')[1]
-                with patch.object(dialogs.SettingsSavePrompt, 'exec',
-                                  return_value=getattr(dialogs.SettingsSavePrompt, choice.upper())):
-                    self.nav.setCurrentRow(1)
-                if choice == 'Cancel':
-                    assert self.isVisible() and self.nav.currentRow() == 0
-                    self.reject()
-            elif action == 'cancel':
+            if action == 'cancel':
                 self.reject()
             else:
-                # Exercise every supported lazy page without creating host pages.
                 for index in (2, 3, 4, 5, 0):
                     self.nav.setCurrentRow(index)
                 self.confirm_button.click()
 
+        def step(self):
+            index = next(self.sequence, None)
+            if index is None:
+                if action == 'embed-save':
+                    self.confirm_button.click()
+                else:
+                    self.reject()
+                return
+            self.nav.setCurrentRow(index)
+            def observed():
+                assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
+                assert self.nav.currentRow() == index
+                assert self.general_page.volume_slider.value() == 17
+                print(settings_process.PREFIX + json.dumps({
+                    'kind': 'shell', 'index': index, 'hwnd': int(self.winId()),
+                    'embedded': self.host_container is not None,
+                    'size': [self.width(), self.height()]}), flush=True)
+                QTimer.singleShot(50, self.step)
+            QTimer.singleShot(200, observed)
+
     dialogs.SettingsDialog = AutomatedDialog
+    if action.startswith('embed-'):
+        def background_activate(dialog):
+            from PySide6.QtCore import Qt
+            dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+            dialog.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            dialog.setGeometry(-10000, -10000, 980, 720)
+            dialog.show()
+        settings_process._activate_dialog = background_activate
     if action == 'focus':
         activate = settings_process._activate_dialog
 
@@ -95,35 +122,6 @@ def wait(app, predicate, timeout=12):
         time.sleep(0.001)
 
 
-def check_save_prompt(app):
-    from PySide6.QtCore import Qt
-    from PySide6.QtTest import QTest
-    from ddm import theme
-    from ddm.dialogs import SettingsSavePrompt
-
-    for mode in ('dark', 'light'):
-        theme.apply(mode)
-        for action, expected in (('save_button', SettingsSavePrompt.SAVE),
-                                 ('discard_button', SettingsSavePrompt.DISCARD),
-                                 ('cancel_button', SettingsSavePrompt.CANCEL),
-                                 ('escape', SettingsSavePrompt.CANCEL)):
-            prompt = SettingsSavePrompt()
-            assert prompt.windowTitle() == '保存设置'
-            assert [prompt.save_button.text(), prompt.discard_button.text(), prompt.cancel_button.text()] == [
-                '保存', '放弃更改', '取消']
-            assert prompt.save_button.objectName() == 'PrimaryButton'
-            assert prompt.discard_button.objectName() == prompt.cancel_button.objectName() == 'IconButton'
-            assert prompt.cancel_button.isDefault()
-            if action == 'escape':
-                QTimer.singleShot(0, lambda p=prompt: QTest.keyClick(p, Qt.Key_Escape))
-            else:
-                QTimer.singleShot(0, getattr(prompt, action).click)
-            assert prompt.exec() == expected
-            prompt.deleteLater()
-            app.processEvents()
-    theme.apply('dark')
-
-
 def check_worker(app, action):
     messages, saves, pages, failures, ticks = [], [], [], [], []
     timer = QTimer()
@@ -133,7 +131,7 @@ def check_worker(app, action):
     client = settings_process.SettingsProcess()
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
-    client.hostPage.connect(pages.append)
+    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else None)
     client.failed.connect(failures.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
     with patch.object(settings_process, 'worker_command', return_value=command), \
@@ -153,25 +151,18 @@ def check_worker(app, action):
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
             clean = action.startswith(('clean-', 'revert-'))
-            assert bool(saves) == (not clean and action not in ('cancel', 'page-Discard', 'page-Cancel'))
+            assert bool(saves) == (not clean and action != 'cancel')
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
                 assert 'appearance_mode' not in saves[0]['settings']
                 assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
-            assert pages == ([action.split('-')[1]] if clean else
-                             ['appearance'] if action in ('page-Save', 'page-Discard') else [])
+            assert pages == ([{'appearance': 1, 'plugins': 6, 'updates': 7}[action.split('-')[1]]] if clean else [])
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
                 assert maximum < 0.15, maximum
                 assert len(ticks) > 60, len(ticks)
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
-            if pages:
-                result = next(m for m in messages if m['kind'] == 'result')
-                assert client.handoff_geometry == result['geometry']
-                assert len(client.handoff_geometry) == 4
-                client.complete_handoff()
-                wait(app, lambda: any(m['kind'] == 'handoff-closed' for m in messages))
             messages.clear()
             client.open(initial, {})
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -348,49 +339,103 @@ def check_host_adapter():
     assert applied[-1] == 'original'
 
 
-def check_host_application(app):
-    from ddm import app as host, plugins
+def check_host_save_validation():
+    from unittest.mock import Mock
+    from ddm.dialogs import SettingsDialog
+    from ddm.settings_host import SettingsHost
+    dialog = Mock()
+    dialog.confirm_button.isEnabled.return_value = True
+    dialog.result.return_value = SettingsDialog.Accepted
+    dialog.enabled_plugins.return_value = {'fixture'}
+    dialog._loaded_pages = {7: SimpleNamespace(install_requested=False)}
+    dialog.restart_requested = True
+    applied = []
+    client = SimpleNamespace(_send=Mock(), closing=False)
+    window = SimpleNamespace(shortcuts={'keep': 'K'},
+                             _apply_settings_dialog=lambda adapter, before: applied.append((adapter, before)))
+    session = SimpleNamespace(dialog=dialog, client=client, window=window, before='before',
+                              values=lambda: {'auto_update': True}, sync=Mock())
+    changes = {'settings': {'default_volume': 17}, 'shortcuts': {'edit': 'E'}}
+    SettingsHost.save(session, changes)
+    adapter, before = applied.pop()
+    assert adapter.settings() == {'default_volume': 17, 'auto_update': True}
+    assert adapter.shortcuts() == {'keep': 'K', 'edit': 'E'}
+    assert adapter.enabled_plugins() == {'fixture'} and adapter.restart_requested and before == 'before'
+    assert adapter.update_page is dialog._loaded_pages[7]
+    client._send.assert_called_once_with({'kind': 'host-saved'})
+    client._send.reset_mock()
+    dialog.result.return_value = SettingsDialog.Rejected
+    SettingsHost.save(session, changes)
+    assert not applied
+    client._send.assert_called_once_with({'kind': 'host-save-blocked', 'index': 1})
+    client._send.reset_mock()
+    dialog.confirm_button.isEnabled.return_value = False
+    SettingsHost.save(session, changes)
+    assert not applied and not client._send.called and session.sync.called
+
+
+def check_host_application(app, action='save'):
+    from ddm import app as host, plugins, online_ui
     with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
         stack.enter_context(patch.object(config, 'REPO', temporary))
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')))
         stack.enter_context(patch.object(plugins, 'DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'plugins')))
+        stack.enter_context(patch.object(online_ui.OnlinePage, 'start'))
         for name in ('start_all', 'refresh_account', 'refresh_status', 'refresh_stats',
                      'load_cached_covers', 'load_cached_avatars', 'load_room_avatars'):
             stack.enter_context(patch.object(host.MainWindow, name))
         with patch.object(host.QTimer, 'singleShot'):
-            window = host.MainWindow([], [], layout_id='1x1', state={'plugins_enabled': []})
+            window = host.MainWindow([], [], layout_id='1x1', state={
+                'plugins_enabled': [], 'settings': {'seen_update_versions': {'app': '0.5.1'}}})
         client = window._get_settings_process()
-        command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'save'])
+        initial_volume = window.settings['default_volume']
+        messages = []
+        client.received.connect(messages.append)
+        command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
         stack.enter_context(patch.object(settings_process, 'worker_command', return_value=command))
-        try:
+        if action.startswith('embed-'):
+            errors = []
+            stack.enter_context(patch.object(sys, 'excepthook', lambda _kind, error, _tb: errors.append(error)))
             from ddm.dialogs import SettingsDialog
-            from PySide6.QtCore import QRect
-            bounds = [75, 90, 1080, 800]
-            painted = []
+            stack.enter_context(patch.object(SettingsDialog, 'exec', side_effect=AssertionError('Settings reopened')))
 
-            def complete_handoff():
-                dialog = next(widget for widget in app.topLevelWidgets()
-                              if isinstance(widget, SettingsDialog) and widget.isVisible())
-                assert dialog.geometry() == QRect(*bounds), 'Handoff moved or resized the window'
-                assert dialog.nav.currentRow() == 1
-                painted.append(dialog._paint_logged)
-
-            handoff = SimpleNamespace(handoff_geometry=bounds, complete_handoff=complete_handoff)
-            def close_after_handoff(dialog):
-                dialog.show()
-                wait(app, lambda: bool(painted))
-                dialog.reject()
-                return SettingsDialog.Rejected
-
-            with patch.object(SettingsDialog, 'exec', close_after_handoff):
-                window.open_settings('appearance', handoff=handoff)
-            assert painted == [True], 'Close worker only after replacement paints'
-            app.processEvents()
+            def observed(message):
+                if message['kind'] != 'shell':
+                    return
+                import ctypes
+                session = window._settings_host
+                assert session is not None and not session.dialog.isVisible()
+                user32 = ctypes.windll.user32
+                user32.GetAncestor.restype = ctypes.c_void_p
+                handle = ctypes.c_void_p(int(session.stack.winId()))
+                assert user32.GetAncestor(handle, 2) == message['hwnd'], 'Host page is not inside worker shell'
+                assert user32.GetDpiForWindow(handle) == user32.GetDpiForWindow(ctypes.c_void_p(message['hwnd']))
+                assert session.stack.isVisible()
+                assert session.stack.width() > 400 and session.stack.height() > 300
+                assert message['embedded']
+                assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in (1, 6, 7) else -1)
+                if message['index'] == 7:
+                    session.dialog.update_page.auto.setChecked(True)
+            client.received.connect(observed)
+        try:
             client.open(window.settings, window.shortcuts)
             # Host changes made while the editor is open must survive its save.
             window.settings['skin_mask'] = 29
             window.shortcuts['fullscreen'] = 'Ctrl+F10'
-            wait(app, lambda: window.settings['default_volume'] == 17)
+            wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
+            assert window.settings['seen_update_versions'] == {'app': '0.5.1'}
+            if action.startswith('embed-'):
+                shells = [message for message in messages if message['kind'] == 'shell']
+                assert [message['index'] for message in shells] == [1, 0, 6, 2, 7, 5, 1, 0]
+                assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
+                assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
+                assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
+                assert window.settings['default_volume'] == (17 if action == 'embed-save' else initial_volume)
+                assert window.settings['auto_update'] is (action == 'embed-save')
+                assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
+                assert not errors, errors
+                return
+            assert window.settings['default_volume'] == 17
             assert window.settings['skin_mask'] == 29
             assert window.shortcuts['fullscreen'] == 'Ctrl+F10'
             assert window.current_state()['settings']['default_volume'] == 17
@@ -413,16 +458,22 @@ def main():
     if sys.argv[1:] == ['--native-focus']:
         check_native_focus(app)
         return 0
-    check_save_prompt(app)
+    if sys.argv[1:] == ['--embedded-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-save')
+        check_host_application(app, 'embed-cancel')
+        print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, save/cancel and cleanup')
+        return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'cancel', 'page-Save', 'page-Discard', 'page-Cancel', 'busy'):
+                   'save', 'cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)
     check_close_during_edit(app)
     check_host_adapter()
+    check_host_save_validation()
     check_host_application(app)
-    print('PASS: isolated settings save/cancel, host page handoff, reuse, failure/retry, shutdown and GUI isolation')
+    print('PASS: isolated settings save/cancel, unchanged shell on page switch, validation, reuse, retry and GUI isolation')
     return 0
 
 
