@@ -247,6 +247,7 @@
 - `dev/selfcheck_preview.py`
 - `dev/selfcheck_preview_collapsed.py`
 - `dev/selfcheck_preview_popup.py`
+- `dev/selfcheck_preview_scroll.py`
 - `dev/selfcheck_project_workflow.py`
 - `dev/selfcheck_qr_refresh.py`
 - `dev/selfcheck_qr_responsiveness.py`

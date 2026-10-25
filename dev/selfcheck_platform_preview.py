@@ -58,7 +58,7 @@ class FakePlayer:
         assert kwargs["options"] == preview.PREVIEW_MEDIA_OPTIONS
         self.plays.append((url, profile, kwargs.get("headers")))
 
-    def stop(self):
+    def stop(self, *, keep_core=False):
         self.stops += 1
 
     def release(self):
