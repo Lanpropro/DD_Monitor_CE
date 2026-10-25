@@ -335,7 +335,7 @@
 | [selfcheck_douyin_profile_add](../selfcheck_douyin_profile_add.py) | 单项执行前核对 |
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
-| [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32位原关注＋1位新增的归类隔离、主动勾选归类、取消勾选与保存 |
+| [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32/33位原关注＋1位新增的归类隔离、结果提示与头像范围、主动勾选归类、取消勾选与保存 |
 | [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
