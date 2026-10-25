@@ -53,6 +53,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
     check_import_folder_scope(app)
+    check_import_folder_scope(app, existing_count=33)
     check_bulk_import(app)
     folders = [{"id": "games", "name": "赛事", "type": "normal"},
                {"id": "smart", "name": "直播中", "type": "smart"},
@@ -250,9 +251,9 @@ def main():
     print("PASS: shared account page passes target, cross-platform import, dedup, collapse, persistence, fallback and cancel")
 
 
-def check_import_folder_scope(app):
+def check_import_folder_scope(app, existing_count=32):
     rooms = [dict(room_id=str(30000 + index), uname=f'Existing {index}', live=False)
-             for index in range(32)]
+             for index in range(existing_count)]
     new = dict(room_id='40000', uname='New anchor', live=True)
     with patch('ddm.app.QTimer.singleShot'):
         window = MainWindow([], [], state={'plugins_enabled': []})
@@ -262,7 +263,7 @@ def check_import_folder_scope(app):
     def confirm(account):
         account._show_rooms(rooms + [new])
         page = account.page
-        assert len(page.selected()) == 32
+        assert len(page.selected()) == existing_count
         avatar = QPixmap(16, 16)
         avatar.fill(Qt.red)
         page.set_avatar(rooms[0]['room_id'], avatar)
@@ -297,7 +298,7 @@ def check_import_folder_scope(app):
     try:
         with patch.object(bili, 'SESSION_DATA', ''), patch.object(LoginWindow, 'start_login'), \
                 patch.object(window, '_start_avatar_loader'), patch.object(window, 'load_avatars_for'), \
-                patch.object(window, '_refresh_meta'), patch('ddm.online_ui.show_result'):
+                patch.object(window, '_refresh_meta'), patch('ddm.online_ui.show_result') as result:
             for confirm_action in (confirm, edit_existing, move_back):
                 with patch.object(AccountPlatformDialog, 'exec', confirm_action):
                     window.open_import_follows()
@@ -307,23 +308,31 @@ def check_import_folder_scope(app):
                         break
                 assert window._follow_import_timer is None
                 if confirm_action is confirm:
-                    assert len(window.sidebar.rooms()) == 33
+                    assert len(window.sidebar.rooms()) == existing_count + 1
                     assert all(window.sidebar.folder_for(room['room_id']) == UNCLASSIFIED
-                               for room in rooms), 'Importing one anchor must preserve 32 existing folders'
+                               for room in rooms), 'Importing one anchor must preserve existing folders'
                     assert window.sidebar.folder_for(new['room_id']) == target
+                    result.assert_called_once_with(window,
+                        '导入完成：新增 1 个', rooms=[new])
                 else:
-                    assert len(window.sidebar.rooms()) == 32
+                    assert len(window.sidebar.rooms()) == existing_count
                     assert rooms[1]['room_id'] not in window.current_state()['rooms']
                     assert window.sidebar.folder_for(rooms[0]['room_id']) == target
                     assert all(window.sidebar.folder_for(room['room_id']) == UNCLASSIFIED
                                for room in rooms[2:])
                     expected = UNCLASSIFIED if confirm_action is move_back else target
                     assert window.sidebar.folder_for(new['room_id']) == expected
+                    result.assert_called_once_with(window,
+                        '导入完成：新增 0 个', rooms=[])
+                result.reset_mock()
             saved = next(f for f in window.current_state()['follow_folders'] if f['id'] == target)
             assert saved['rooms'] == [rooms[0]['room_id']]
+            window._import_selected_follows([], pending_count=2)
+            result.assert_called_once_with(window,
+                '导入完成：新增 0 个，另保存 2 个待识别账号', rooms=[])
     finally:
         window.close()
-    print('PASS: 32 existing + 1 new follow, retained folders, explicit recheck/bulk classification and removal')
+    print(f'PASS: {existing_count} existing + 1 new follow, result counts/avatars, retained folders, classification and removal')
 
 
 def check_bulk_import(app):

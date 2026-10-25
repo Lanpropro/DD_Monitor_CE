@@ -3727,12 +3727,12 @@ class MainWindow(QMainWindow):
         self.load_avatars_for(selected)          # 导入后立刻补头像
         self._refresh_meta()
         self._save_timer.start()
-        message = f"导入完成：选中 {len(selected)} 个，新增 {added} 个"
+        message = f"导入完成：新增 {added} 个"
         if pending_count:
             message += f"，另保存 {pending_count} 个待识别账号"
         print(message)
         from .online_ui import show_result
-        show_result(self, message, rooms=selected)
+        show_result(self, message, rooms=added_rooms)
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
