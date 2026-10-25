@@ -865,7 +865,7 @@ class MainWindow(QMainWindow):
             from .settings_process import SettingsProcess
             self._settings_process = SettingsProcess(self)
             self._settings_process.saved.connect(self._remote_settings_saved)
-            self._settings_process.hostPage.connect(self.open_settings)
+            self._settings_process.hostPage.connect(self._open_settings_host_page)
             self._settings_process.failed.connect(lambda message: self._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
         return self._settings_process
@@ -883,7 +883,10 @@ class MainWindow(QMainWindow):
                   dict(self.plugins._platform_owner), set(self.plugins._removed))
         self._apply_settings_dialog(dialog, before)
 
-    def open_settings(self, page: str = "general") -> bool:
+    def _open_settings_host_page(self, page):
+        self.open_settings(page, handoff=self._settings_process)
+
+    def open_settings(self, page: str = "general", *, handoff=None) -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
         started = time.perf_counter()
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
@@ -924,6 +927,9 @@ class MainWindow(QMainWindow):
                     break
             if page == "plugins":
                 dialog.plugin_page.tabs.setCurrentIndex(1)
+            if handoff is not None:
+                dialog.setGeometry(*handoff.handoff_geometry)
+                dialog.firstPainted.connect(handoff.complete_handoff, Qt.QueuedConnection)
             if dialog.exec() != SettingsDialog.Accepted:
                 return False
             return self._apply_settings_dialog(dialog, plugins_before)

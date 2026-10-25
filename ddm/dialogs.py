@@ -1176,6 +1176,7 @@ class SettingsSavePrompt(AnimatedDialog):
 
 
 class SettingsDialog(QDialog):
+    firstPainted = Signal()
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
     pageCreated = Signal(int, object)
@@ -1277,6 +1278,7 @@ class SettingsDialog(QDialog):
             self._paint_logged = True
             print(f"[设置耗时] 首次绘制 {(time.perf_counter() - self._created_at) * 1000:.1f}ms",
                   file=sys.stderr, flush=True)
+            self.firstPainted.emit()
 
     def _mark_update_page(self, key, active):
         for index in range(self.nav.count()):

@@ -41,6 +41,7 @@ def child(action):
                 with patch.object(dialogs.SettingsSavePrompt, 'exec',
                                   side_effect=AssertionError('Unchanged settings prompted to save')):
                     self.nav.setCurrentRow(self.PAGE_INDEX[page])
+                assert self.isVisible() and not self.isEnabled(), 'Keep old window until host paints'
                 return
             if action == 'focus':
                 self.general_page.volume_slider.setValue(17)
@@ -165,6 +166,12 @@ def check_worker(app, action):
                 assert len(ticks) > 60, len(ticks)
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
+            if pages:
+                result = next(m for m in messages if m['kind'] == 'result')
+                assert client.handoff_geometry == result['geometry']
+                assert len(client.handoff_geometry) == 4
+                client.complete_handoff()
+                wait(app, lambda: any(m['kind'] == 'handoff-closed' for m in messages))
             messages.clear()
             client.open(initial, {})
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -356,6 +363,29 @@ def check_host_application(app):
         command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'save'])
         stack.enter_context(patch.object(settings_process, 'worker_command', return_value=command))
         try:
+            from ddm.dialogs import SettingsDialog
+            from PySide6.QtCore import QRect
+            bounds = [75, 90, 1080, 800]
+            painted = []
+
+            def complete_handoff():
+                dialog = next(widget for widget in app.topLevelWidgets()
+                              if isinstance(widget, SettingsDialog) and widget.isVisible())
+                assert dialog.geometry() == QRect(*bounds), 'Handoff moved or resized the window'
+                assert dialog.nav.currentRow() == 1
+                painted.append(dialog._paint_logged)
+
+            handoff = SimpleNamespace(handoff_geometry=bounds, complete_handoff=complete_handoff)
+            def close_after_handoff(dialog):
+                dialog.show()
+                wait(app, lambda: bool(painted))
+                dialog.reject()
+                return SettingsDialog.Rejected
+
+            with patch.object(SettingsDialog, 'exec', close_after_handoff):
+                window.open_settings('appearance', handoff=handoff)
+            assert painted == [True], 'Close worker only after replacement paints'
+            app.processEvents()
             client.open(window.settings, window.shortcuts)
             # Host changes made while the editor is open must survive its save.
             window.settings['skin_mask'] = 29

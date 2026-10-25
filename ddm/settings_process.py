@@ -57,6 +57,7 @@ class SettingsProcess(QObject):
         self.ready = self.visible = self.closing = False
         self.pending = None
         self.worker_pid = None
+        self.handoff_geometry = None
         self.start_timer = QTimer(self)
         self.start_timer.setSingleShot(True)
         self.start_timer.timeout.connect(self.process.kill)
@@ -127,7 +128,12 @@ class SettingsProcess(QObject):
                 if message.get('accepted'):
                     self.saved.emit(message['changes'])
                 if message.get('page') in HOST_PAGES.values():
+                    self.handoff_geometry = message['geometry']
                     self.hostPage.emit(message['page'])
+
+    def complete_handoff(self):
+        self.handoff_geometry = None
+        self._send({'kind': 'handoff-complete'})
 
     def _stderr(self):
         text = bytes(self.process.readAllStandardError()).decode('utf-8', errors='replace')
@@ -218,7 +224,11 @@ def run_worker():
                     return
                 accepted = answer == SettingsSavePrompt.SAVE
             self.host_page = HOST_PAGES[index]
-            self.done(SettingsDialog.Accepted if accepted else SettingsDialog.Rejected)
+            self.setEnabled(False)
+            # Keep the original window painted until its replacement is ready.
+            send({'kind': 'result', 'accepted': accepted,
+                  'changes': self.changes() if accepted else {},
+                  'page': self.host_page, 'geometry': self.geometry().getRect()})
 
         def paintEvent(self, event):
             super().paintEvent(event)
@@ -238,6 +248,12 @@ def run_worker():
             kind = message.get('kind')
             if kind == 'quit':
                 app.quit()
+            elif kind == 'handoff-complete' and self.dialog is not None:
+                dialog, self.dialog = self.dialog, None
+                dialog.finished.disconnect(self.finished)
+                dialog.reject()
+                dialog.deleteLater()
+                send({'kind': 'handoff-closed'})
             elif kind == 'focus' and self.dialog is not None:
                 _activate_dialog(self.dialog)
             elif kind == 'open' and self.dialog is None:
