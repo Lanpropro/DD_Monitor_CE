@@ -163,7 +163,11 @@ if (-not $SourceOnly) {
     & $py (Join-Path $repo "dev\build_windows_version.py") $versionInfo
     if ($LASTEXITCODE -ne 0) { throw "Windows EXE 版本信息生成失败" }
     $env:PYTHONPATH = $deps
-    & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name $display `
+    # Dependency scanning must not pick same-named DLLs from unrelated PATH tools.
+    $previousBuildPath = $env:PATH
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$(Split-Path -Parent $py)"
+    try {
+        & $py -m PyInstaller --noconfirm --clean --windowed --onedir --name $display `
         --icon (Join-Path $repo "favicon.ico") `
         --version-file $versionInfo `
         --distpath $OutDir --workpath $build --specpath $build `
@@ -178,7 +182,11 @@ if (-not $SourceOnly) {
         --hidden-import ddm.global_danmaku `
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
-    if ($LASTEXITCODE -ne 0) { throw "PyInstaller 失败（exit $LASTEXITCODE）" }
+        $freezeExit = $LASTEXITCODE
+    } finally {
+        $env:PATH = $previousBuildPath
+    }
+    if ($freezeExit -ne 0) { throw "PyInstaller 失败（exit $freezeExit）" }
     # 主程序名固定；带版本号的兼容入口供旧0.3更新器识别，启动后转到主程序。
     if ($version -eq "v0.3.1") {
         Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
