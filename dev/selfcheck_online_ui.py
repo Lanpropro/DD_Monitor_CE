@@ -13,11 +13,11 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication, QFrame
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QApplication, QFrame, QLabel
 from ddm import app as app_module, config, online, theme, update_install
 from ddm.dialogs import SettingsDialog
-from ddm.online_ui import OnlinePage
+from ddm.online_ui import OnlinePage, PluginStorePage
 from ddm.version import VERSION, VERSION_TAG
 from ddm.plugins import PluginManager, read_manifest
 
@@ -254,6 +254,22 @@ def main():
         settle(app, standalone)
         assert not called
         standalone.close()
+        store = PluginStorePage(manager)
+        store.resize(600, 400)
+        credit_offer = {'id': 'bili_live', 'name': 'B站直播互动', 'description': '发送弹幕、表情和礼物',
+                        'version': '1.0', 'available': True, 'author': 'reon-nynes'}
+        store.show_offers([credit_offer])
+        store.show(); app.processEvents()
+        card = store.cards.itemAt(0).widget()
+        credit = card.findChild(QLabel, 'PluginAuthor')
+        assert credit is not None and credit.text() == '@reon-nynes'
+        assert credit.textFormat() == Qt.PlainText
+        where = credit.mapTo(card, QPoint(0, 0))
+        assert where.x() > card.width() / 2 and where.y() > card.height() / 2
+        assert card.rect().contains(credit.mapTo(card, credit.rect().bottomRight()))
+        store.show_offers([{k: v for k, v in credit_offer.items() if k != 'author'}])
+        assert store.cards.itemAt(0).widget().findChild(QLabel, 'PluginAuthor') is None
+        store.close()
     print('PASS: store install/update, UI-thread saves, independent software update, cancel, restart and recording shutdown')
 
 

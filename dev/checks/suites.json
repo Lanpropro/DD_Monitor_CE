@@ -35,6 +35,7 @@
       "selfcheck_bili_plugin_boundary",
       "selfcheck_plugin_controls",
       "selfcheck_plugin_credentials",
+      "selfcheck_plugin_notices",
       "selfcheck_bili_cookies",
       "selfcheck_legacy_cleanup",
       "selfcheck_drag_lifecycle",

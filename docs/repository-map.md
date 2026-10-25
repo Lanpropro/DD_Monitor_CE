@@ -231,6 +231,7 @@
 - `dev/selfcheck_plugin_cache.py`
 - `dev/selfcheck_plugin_controls.py`
 - `dev/selfcheck_plugin_credentials.py`
+- `dev/selfcheck_plugin_notices.py`
 - `dev/selfcheck_plugin_drop_restart.py`
 - `dev/selfcheck_plugin_rename.py`
 - `dev/selfcheck_plugin_settings.py`
