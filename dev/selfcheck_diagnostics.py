@@ -74,6 +74,31 @@ class DiagnosticTests(unittest.TestCase):
                          + chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 2) * 2)) + chunk(b'IEND', b''))
         return path
 
+    def test_platform_diagnostics_summarize_redacted_existing_logs(self):
+        self.put('logs/ddm-2026-10-26.log', '\n'.join([
+            '[插件 domestic_live] [Issue13-test3] 阶段=page_response HTTP=200 类型=text/html',
+            '[插件 domestic_live] [Issue13-test3] 阶段=player_error 类别=HTTP_403',
+            '[画质档位] huya:199300: 原画(10000)',
+            '[取流失败] 连接失败',
+            '[取流失败] token=PRIVATE_DIAGNOSTIC_TOKEN https://cdn.test/live?secret=PRIVATE_URL',
+            'unrelated line']))
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(report['status'], 'observed')
+        self.assertEqual(report['counts'], {'page_response': 1, 'player_error': 1,
+                                           'source_ready': 1, 'failure_summary': 1})
+        self.assertEqual(len(report['events']), 4)
+        self.assertEqual(report['events'][0]['line'], 1)
+        self.assertNotIn('PRIVATE_DIAGNOSTIC_TOKEN', entries['platform-diagnostics.json'])
+        self.assertNotIn('PRIVATE_URL', entries['platform-diagnostics.json'])
+        self.assertIn('platform-diagnostics.json', entries['诊断摘要.txt'])
+
+    def test_platform_diagnostics_missing_logs_do_not_claim_success(self):
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(report['status'], 'not_recorded')
+        self.assertEqual(report['events'], [])
+
     def native_fixture(self, dependency='kernel32.dll', symbol='GetCurrentProcessId', x64=True):
         """Minimal inert PE DLL: no entry point, one import, no application code."""
         data = bytearray(0x800)
