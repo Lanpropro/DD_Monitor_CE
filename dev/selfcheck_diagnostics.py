@@ -358,6 +358,12 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(subsystem, 2)  # IMAGE_SUBSYSTEM_WINDOWS_GUI
         self.assertNotIn(b'PySide6', image)
 
+    def test_gui_optional_exit_preserves_generated_package(self):
+        result = subprocess.run([str(self.driver), '--auto-exit', str(self.app), str(self.output)],
+                                capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(b'auto-exit passed', result.stdout)
+
     def test_standalone_and_installer_use_the_same_independent_executable(self):
         standalone, bundle = self.case / 'standalone', self.case / 'bundle'
         for output, arguments in ((standalone, []), (bundle, ['-NoZip'])):

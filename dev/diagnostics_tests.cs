@@ -10,6 +10,11 @@ using DDMonitorDiagnostics;
 
 internal static class DiagnosticsTests
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr GetWindow(IntPtr window, uint command);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
     [STAThread]
     static int Main(string[] args)
     {
@@ -17,6 +22,40 @@ internal static class DiagnosticsTests
         {
             Console.OutputEncoding = new System.Text.UTF8Encoding(false);
             if (NativeDependencies.TryRun(args)) return 0;
+            if (args[0] == "--auto-exit")
+            {
+                foreach (bool enabled in new[] { false, true })
+                using (var form = new DiagnosticForm(args[1]))
+                {
+                    var handle = form.Handle;
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var option = (CheckBox)typeof(DiagnosticForm).GetField("exitAfterSuccess", flags).GetValue(form);
+                    if (option.Checked) throw new Exception("Auto-exit must default to off");
+                    option.Checked = enabled;
+                    string package = new Collector(args[1]).Collect(args[2], "auto-exit test", "test", (p, text) => { });
+                    typeof(DiagnosticForm).GetMethod("Completed", flags).Invoke(form, new object[] {
+                        null, new System.ComponentModel.RunWorkerCompletedEventArgs(package, null, false) });
+                    if (form.IsDisposed != enabled) throw new Exception("Completion did not respect auto-exit selection");
+                    using (var zip = System.IO.Compression.ZipFile.OpenRead(package))
+                        if (zip.GetEntry("native-dependencies.json") == null) throw new Exception("Package lost on exit");
+                    if (!enabled)
+                    using (var timer = new Timer { Interval = 50 })
+                    {
+                        option.Checked = true;
+                        timer.Tick += (s, e) => {
+                            var popup = GetWindow(handle, 6); // GW_ENABLEDPOPUP: only this form's error dialog.
+                            if (popup != IntPtr.Zero && popup != handle)
+                                SendMessage(popup, 0x0010, IntPtr.Zero, IntPtr.Zero); // WM_CLOSE
+                        };
+                        timer.Start();
+                        typeof(DiagnosticForm).GetMethod("Completed", flags).Invoke(form, new object[] {
+                            null, new System.ComponentModel.RunWorkerCompletedEventArgs(null, new IOException("Test save failure"), false) });
+                        if (form.IsDisposed) throw new Exception("Failure must preserve the window for retry");
+                    }
+                }
+                Console.WriteLine("auto-exit passed");
+                return 0;
+            }
             if (args[0] == "--native-timeout")
             {
                 Console.WriteLine(new JavaScriptSerializer().Serialize(NativeDependencies.Collect(args[1], 0)));
@@ -47,6 +86,9 @@ internal static class DiagnosticsTests
                     var required = TextRenderer.MeasureText(footer.Text, footer.Font,
                         new Size(footer.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
                     if (required.Height > footer.ClientSize.Height) throw new Exception("Feedback text clipped at minimum window size");
+                    var exitOption = (CheckBox)typeof(DiagnosticForm).GetField("exitAfterSuccess", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
+                        throw new Exception("Auto-exit option clipped at minimum window size");
                     Console.WriteLine("layout passed");
                     return 0;
                 }

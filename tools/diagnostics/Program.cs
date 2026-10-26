@@ -401,6 +401,7 @@ namespace DDMonitorDiagnostics
         readonly Button folder = new DiagnosticButton { Text = "打开所在文件夹", AutoSize = true, Enabled = false };
         readonly Button summary = new DiagnosticButton { Text = "查看诊断摘要", AutoSize = true, Enabled = false };
         readonly Button detect = new DiagnosticButton { Text = "自动查找", AutoSize = true };
+        readonly CheckBox exitAfterSuccess = new CheckBox { Text = "生成成功后自动退出", AutoSize = true, Dock = DockStyle.Fill };
         readonly AttachmentGallery attachments = new AttachmentGallery();
         readonly RadioButton repeatable = new RadioButton { Text = "稳定复现", AutoSize = true };
         readonly RadioButton intermittent = new RadioButton { Text = "概率触发", AutoSize = true };
@@ -418,13 +419,14 @@ namespace DDMonitorDiagnostics
             MinimumSize = new Size(760, 820);
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(24) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(24) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 65));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 460));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
             Controls.Add(layout);
             var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
@@ -486,7 +488,8 @@ namespace DDMonitorDiagnostics
             buttons.Controls.Add(generate);
             buttons.Controls.Add(folder);
             buttons.Controls.Add(summary);
-            layout.Controls.Add(buttons, 0, 6);
+            layout.Controls.Add(exitAfterSuccess, 0, 6);
+            layout.Controls.Add(buttons, 0, 7);
             directory.Text = AppDiscovery.HasApp(initial) ? Path.GetFullPath(initial) : "";
             destination.Text = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             happened.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " 左右";
@@ -622,6 +625,7 @@ namespace DDMonitorDiagnostics
             zipPath = (string)args.Result;
             folder.Enabled = summary.Enabled = true;
             status.Text = "已生成：" + Path.GetFileName(zipPath) + "\r\n请查看摘要与收集提示，检查内容后手动发送。";
+            if (exitAfterSuccess.Checked) Close();
         }
 
         void ShowSummary()
