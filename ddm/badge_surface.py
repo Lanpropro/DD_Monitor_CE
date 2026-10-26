@@ -10,6 +10,20 @@ from PySide6.QtWidgets import QApplication, QWidget
 from . import theme
 
 
+class BitmapInfo(ctypes.Structure):
+    _fields_ = [("size", wintypes.DWORD), ("width", wintypes.LONG),
+        ("height", wintypes.LONG), ("planes", wintypes.WORD),
+        ("bits", wintypes.WORD), ("compression", wintypes.DWORD),
+        ("bytes", wintypes.DWORD), ("xppm", wintypes.LONG),
+        ("yppm", wintypes.LONG), ("used", wintypes.DWORD),
+        ("important", wintypes.DWORD)]
+
+
+class Blend(ctypes.Structure):
+    _fields_ = [("operation", ctypes.c_ubyte), ("flags", ctypes.c_ubyte),
+        ("alpha", ctypes.c_ubyte), ("format", ctypes.c_ubyte)]
+
+
 class BadgeSurface(QWidget):
     @property
     def badge_path(self):
@@ -84,18 +98,6 @@ class BadgeSurface(QWidget):
         painter = QPainter(image)
         self._render_badge(painter)
         painter.end()
-
-        class BitmapInfo(ctypes.Structure):
-            _fields_ = [("size", wintypes.DWORD), ("width", wintypes.LONG),
-                ("height", wintypes.LONG), ("planes", wintypes.WORD),
-                ("bits", wintypes.WORD), ("compression", wintypes.DWORD),
-                ("bytes", wintypes.DWORD), ("xppm", wintypes.LONG),
-                ("yppm", wintypes.LONG), ("used", wintypes.DWORD),
-                ("important", wintypes.DWORD)]
-
-        class Blend(ctypes.Structure):
-            _fields_ = [("operation", ctypes.c_ubyte), ("flags", ctypes.c_ubyte),
-                ("alpha", ctypes.c_ubyte), ("format", ctypes.c_ubyte)]
 
         user32.GetDC.argtypes = (wintypes.HWND,)
         user32.GetDC.restype = wintypes.HDC

@@ -81,6 +81,19 @@ def main():
                 alphas = [image.pixelColor(x, y).alpha()
                     for y in range(image.height()) for x in range(image.width())]
                 assert 0 in alphas and any(0 < a < 255 for a in alphas), 'Rounded alpha fringe lost'
+                # A style query can reenter Qt painting before the outer upload.
+                # Both calls must retain compatible ctypes structure identities.
+                get_style = ctypes.windll.user32.GetWindowLongW
+                nested = []
+                def reenter(hwnd, index):
+                    if not nested:
+                        nested.append(True)
+                        badge._paint_layered()
+                    return get_style(hwnd, index)
+                with patch.object(badge, '_layered_render_key', return_value=None), \
+                        patch.object(ctypes.windll.user32, 'GetWindowLongW', side_effect=reenter):
+                    badge._paint_layered()
+                assert nested and badge._alpha_uploaded, 'Reentrant badge upload failed'
         with patch('PySide6.QtCore.QTimer.singleShot'):
             dialog = SettingsDialog(window.settings, window.shortcuts, window)
         dialog.appearanceChanged.connect(window.set_appearance)
