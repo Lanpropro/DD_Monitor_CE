@@ -596,8 +596,12 @@ def check_native_input_and_toggle() -> None:
     with (patch.object(ctypes.windll, "user32", user32),
           patch.object(bridge.QApplication, "platformName", return_value="windows")):
         bridge.NativeDanmakuLayer._configure_window(123)
-    check(user32.EnableWindow.call_args_list == [((123, False),)],
-          "composition window stays disabled so it cannot intercept activation")
+    check(user32.EnableWindow.call_args_list == [((123, True),)],
+          "composition window must stay enabled; disabling an owned popup blocks underlying clicks")
+    style = user32.SetWindowLongW.call_args.args[2]
+    check(style & 0x00080000 and style & 0x20 and style & 0x08000000,
+          "layered transparent no-activate host bypasses mouse hit testing across threads")
+    user32.SetLayeredWindowAttributes.assert_called_once_with(123, 0, 255, 2)
     for native in (True, False):
         tile = SimpleNamespace(room={}, danmaku_button=Mock(),
                                video_danmaku=Mock(_native_requested=native),
@@ -610,8 +614,91 @@ def check_native_input_and_toggle() -> None:
               "native toggle avoids restacking controls and video")
 
 
+
+def check_nine_view_visibility_transition() -> None:
+    h = Harness()
+    try:
+        overlays = [h.overlay] + [Overlay(h.wall) for _ in range(8)]
+        for overlay in overlays:
+            overlay.enabled = False
+            overlay.hide()
+            h.layer.attach(overlay)
+        for index, overlay in enumerate(overlays):
+            overlay.move(index % 3 * 200, index // 3 * 110)
+            overlay.resize(200, 110)
+            overlay.enabled = True
+            overlay.show()
+            h.host.status["needs_visible"] = index >= 6
+            h.layer._poll()
+            check(h.layer.window.isVisible() == (index >= 6),
+                  "shared window first shows when messages arrive around the seventh view")
+            check(len(h.layer.views) == 9 and overlay.isEnabled() and h.wall.isEnabled(),
+                  "enabling each of nine views preserves the shared host and enabled wall")
+            with patch.object(bridge, "_LANE_PREFLIGHT", False):
+                check(h.layer.add_event(overlay, {"text": str(index)}),
+                      "each enabled view can prepare comments")
+        with patch.object(h.layer.window, "setVisible", wraps=h.layer.window.setVisible) as show:
+            h.host.status["needs_visible"] = False
+            h.layer._poll()
+            h.host.status["needs_visible"] = True
+            h.layer._poll()
+            check(not show.call_args_list[-2].args[0] and show.call_args_list[-1].args[0],
+                  "clearing and restoring messages exercises both visibility transitions")
+    finally:
+        h.dispose()
+
+
+def check_real_window_contract(app: QApplication) -> None:
+    # Native windows stay outside the desktop; no cursor movement or real account/network access.
+    import ctypes
+    from ctypes import wintypes
+
+    wall = QWidget()
+    wall.setGeometry(-30000, -30000, 900, 600)
+    wall.show()
+    host = FakeHost()
+    layer = bridge.NativeDanmakuLayer(wall, host)
+    layer._poll_timer.stop()
+    user32 = ctypes.windll.user32
+    user32.IsWindowEnabled.argtypes = [wintypes.HWND]
+    user32.GetLayeredWindowAttributes.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.BYTE),
+        ctypes.POINTER(wintypes.DWORD)]
+    try:
+        overlays = [Overlay(wall) for _ in range(9)]
+        for index, overlay in enumerate(overlays):
+            overlay.move(index % 3 * 300, index // 3 * 200)
+            layer.attach(overlay)
+            host.status["needs_visible"] = index >= 6
+            layer._poll()
+            app.processEvents()
+            hwnd = int(layer.window.winId())
+            style = user32.GetWindowLongW(hwnd, -20)
+            check(user32.IsWindowEnabled(hwnd) and user32.IsWindowEnabled(int(wall.winId())),
+                  "real nine-view activation never disables the composition or owner HWND")
+            check(style & 0x00080000 and style & 0x20 and style & 0x08000000,
+                  "actual HWND retains layered transparent no-activate styles after showing")
+            key, alpha, flags = wintypes.DWORD(), wintypes.BYTE(), wintypes.DWORD()
+            check(bool(user32.GetLayeredWindowAttributes(hwnd, key, alpha, flags))
+                  and alpha.value == 255 and flags.value & 2,
+                  "actual HWND retains alpha passthrough attributes")
+    finally:
+        layer.request_close()
+        host.reaped = True
+        host.status["state"] = "Stopped"
+        layer._poll()
+        wall.close()
+        wall.deleteLater()
+        app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    print("nine-view native window contract passed (no foreground input)")
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
+    if "--window-contract" in sys.argv:
+        check_real_window_contract(app)
+        return 0
     with tempfile.TemporaryDirectory(prefix="ddm-native-bridge-") as directory:
         config.CONFIG_PATH = str(Path(directory) / "config.json")
         images.CACHE_DIR = str(Path(directory) / "cache")
@@ -621,6 +708,7 @@ def main() -> int:
               patch.object(socket.socket, "connect", side_effect=AssertionError("network forbidden"))):
             check_fullscreen_high_dpi_preparation()
             check_native_input_and_toggle()
+            check_nine_view_visibility_transition()
             check_bounds()
             check_epoch_removal_and_ack()
             check_native_lane_preflight()

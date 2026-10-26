@@ -163,7 +163,7 @@
 | --- | --- |
 | [selfcheck_danmaku_raster](../selfcheck_danmaku_raster.py) | `offline` |
 | [selfcheck_danmaku_present_analysis](../selfcheck_danmaku_present_analysis.py) | `offline` |
-| [selfcheck_native_danmaku_bridge](../selfcheck_native_danmaku_bridge.py) | `offline` |
+| [selfcheck_native_danmaku_bridge](../selfcheck_native_danmaku_bridge.py) | `offline`；`--window-contract` 使用 Windows 屏幕外 HWND 检查九路首次显示及鼠标穿透属性，无前台鼠标操作 |
 | [selfcheck_native_danmaku_binding](../selfcheck_native_danmaku_binding.py) | `native` |
 | [selfcheck_d3d11_danmaku](../selfcheck_d3d11_danmaku.py) | `native` |
 

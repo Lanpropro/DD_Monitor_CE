@@ -157,7 +157,6 @@ class NativeDanmakuLayer(QObject):
         self.window.setTransientParent(wall.window().windowHandle())
         self.window.setTitle("DDMonitor D3D11 Danmaku")
         self.window.create()
-        self._configure_window(int(self.window.winId()))
         self._scene_timer = QTimer(self)
         self._scene_timer.setSingleShot(True)
         self._scene_timer.timeout.connect(self.sync_scene)
@@ -169,6 +168,7 @@ class NativeDanmakuLayer(QObject):
             raise RuntimeError("QApplication is required")
         app.installEventFilter(self)
         try:
+            self._configure_window(int(self.window.winId()))
             self.host.attach(int(self.window.winId()))
             self.sync_scene()
         except Exception:
@@ -190,10 +190,15 @@ class NativeDanmakuLayer(QObject):
         user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
         user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.LONG]
         user32.EnableWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
+        user32.SetLayeredWindowAttributes.argtypes = [
+            wintypes.HWND, wintypes.DWORD, wintypes.BYTE, wintypes.DWORD]
         style = user32.GetWindowLongW(hwnd, -20)
-        user32.SetWindowLongW(hwnd, -20, (style & ~0x00080000) | 0x00200000 | 0x08000000 | 0x20)
-        # This surface only presents pixels; leave input and activation to the owner.
-        user32.EnableWindow(hwnd, False)
+        # Layered + transparent bypasses hit testing even across native video threads.
+        # Keep the popup enabled: a disabled owned popup can swallow the owner's clicks.
+        user32.SetWindowLongW(hwnd, -20, style | 0x00080000 | 0x00200000 | 0x08000000 | 0x20)
+        if not user32.SetLayeredWindowAttributes(hwnd, 0, 255, 2):
+            raise OSError("Could not enable native danmaku mouse passthrough")
+        user32.EnableWindow(hwnd, True)
 
     def attach(self, overlay: Any) -> None:
         if self._closing or any(view.overlay is overlay for view in self.views.values()):
