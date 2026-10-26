@@ -25,7 +25,8 @@
       "selfcheck_layout_16",
       "selfcheck_bili_plugin_boundary",
       "selfcheck_plugin_contract",
-      "selfcheck_frequent_sort"
+      "selfcheck_frequent_sort",
+      "selfcheck_system_tray"
     ]
   },
   "offline": {
@@ -71,13 +72,15 @@
       "selfcheck_video_danmaku",
       "selfcheck_stream_recovery",
       "selfcheck_mobile_share",
-      "selfcheck_setup"
+      "selfcheck_setup",
+      "selfcheck_system_tray"
     ]
   },
   "native": {
     "mode": "native",
     "description": "Windows 原生窗口与播放器；可能显示窗口或操作光标，需 libmpv",
     "scripts": [
+      "selfcheck_badge_memory",
       "selfcheck_account_login_reopen",
       "selfcheck_mpv",
       "selfcheck_mpv_com_lifetime",

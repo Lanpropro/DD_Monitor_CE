@@ -284,6 +284,14 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
+        grid.addWidget(QLabel("关闭窗口时"), row, 0)
+        self.close_behavior_combo = QComboBox()
+        for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
+            self.close_behavior_combo.addItem(label, value)
+        self.close_behavior_combo.setCurrentIndex(max(
+            0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
+        grid.addWidget(self.close_behavior_combo, row, 1)
+        row += 1
         grid.addWidget(QLabel("编解码设置"), row, 0)
         self._codec_values = codec_settings(settings)
         self.codec_button = QPushButton()
@@ -336,6 +344,8 @@ class GeneralSettingsPage(QWidget):
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self._codec_values = codec_settings(config_module.DEFAULT_SETTINGS)
+        self.close_behavior_combo.setCurrentIndex(
+            self.close_behavior_combo.findData(config_module.DEFAULT_SETTINGS["close_behavior"]))
         self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
@@ -344,6 +354,7 @@ class GeneralSettingsPage(QWidget):
             **self._hidden_values,
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
+            "close_behavior": self.close_behavior_combo.currentData(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             **self._codec_values,
         }

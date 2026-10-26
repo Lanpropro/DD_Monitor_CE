@@ -50,7 +50,8 @@ class CheckRunnerTests(unittest.TestCase):
             'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
             'selfcheck_player_lifetime',
             'selfcheck_main_notices', 'selfcheck_notification_center', 'selfcheck_layout_16',
-            'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort'])
+            'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort',
+            'selfcheck_system_tray'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
                      'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
