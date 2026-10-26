@@ -86,6 +86,20 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(original, image.read_bytes())
         self.assertIn('概率触发', entries['诊断摘要.txt'])
 
+    def test_thumbnail_file_drop_duplicate_removal_and_export(self):
+        image = self.image_fixture()
+        invalid = self.case / 'not-image.txt'
+        invalid.write_text('not an image', encoding='utf-8')
+        second = self.case / 'second.png'
+        second.write_bytes(image.read_bytes())
+        result = subprocess.run([str(self.driver), '--gallery', str(image), str(invalid), str(second),
+                                 str(self.app), str(self.output)], capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with zipfile.ZipFile(next(self.output.glob('*.zip'))) as archive:
+            problem = json.loads(archive.read('problem.json'))
+            self.assertEqual(problem['attachments'], ['attachments/image-01.png'])
+            self.assertTrue(archive.read(problem['attachments'][0]).startswith(b'\x89PNG'))
+
     def test_invalid_or_excessive_images_do_not_produce_partial_archive(self):
         image = self.image_fixture()
         self.collect(success=False, images=[image] * 6)

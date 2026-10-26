@@ -1,6 +1,9 @@
 // Console-only test driver; never included in the distributed GUI.
 using System;
 using System.Linq;
+using System.IO;
+using System.Drawing;
+using System.Reflection;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
 using DDMonitorDiagnostics;
@@ -13,6 +16,47 @@ internal static class DiagnosticsTests
         try
         {
             Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+            if (args[0] == "--gallery")
+            {
+                using (var gallery = new AttachmentGallery { Size = new Size(600, 100), BackColor = DiagnosticTheme.Surface })
+                {
+                    var data = new DataObject(DataFormats.FileDrop, new[] { args[1] });
+                    if (!gallery.AllowDrop || !gallery.CanAccept(data)) throw new Exception("File drop unavailable");
+                    var enter = new DragEventArgs(data, 0, 0, 0, DragDropEffects.Copy, DragDropEffects.None);
+                    typeof(AttachmentGallery).GetMethod("OnDragEnter", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(gallery, new object[] { enter });
+                    if (enter.Effect != DragDropEffects.Copy) throw new Exception("Drop cursor unavailable");
+                    typeof(AttachmentGallery).GetMethod("OnDragDrop", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(gallery, new object[] { enter });
+                    gallery.AddDroppedFiles(data);
+                    if (gallery.Paths.Length != 1) throw new Exception("Duplicate attachment");
+                    using (var image = new Bitmap(600, 100))
+                    {
+                        gallery.DrawToBitmap(image, new Rectangle(0, 0, 600, 100));
+                        bool red = false;
+                        for (int y = 10; y < 65; y++)
+                            for (int x = 20; x < 90; x++)
+                            {
+                                var pixel = image.GetPixel(x, y);
+                                if (pixel.R > 200 && pixel.G < 50) red = true;
+                            }
+                        if (!red) throw new Exception("Thumbnail not rendered");
+                    }
+                    using (File.Open(args[1], FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+                    if (gallery.CanAccept(new DataObject(DataFormats.Text, "not a file"))) throw new Exception("Text drop accepted");
+                    if (gallery.CanAccept(new DataObject(DataFormats.FileDrop, new[] { args[2] }))) throw new Exception("Non-image drop accepted");
+                    try { gallery.AddFiles(new[] { args[3], args[2] }); throw new Exception("Invalid batch accepted"); }
+                    catch (IOException) { }
+                    if (gallery.Paths.Length != 1) throw new Exception("Partial batch retained");
+                    try { gallery.AddFiles(Enumerable.Range(0, 6).Select(i => Path.Combine(Path.GetDirectoryName(args[1]), "image-" + i + ".png"))); throw new Exception("Excessive batch accepted"); }
+                    catch (IOException) { }
+                    // Export through exactly the paths retained by the thumbnail/drop control.
+                    var galleryCollector = new Collector(args[4]);
+                    var package = galleryCollector.Collect(args[5], "拖入图片测试", "test", (p, text) => { }, "尚未确认", gallery.Paths);
+                    Console.WriteLine(package);
+                    gallery.RemoveSelected();
+                    if (gallery.Paths.Length != 0) throw new Exception("Attachment removal failed");
+                    return 0;
+                }
+            }
             if (args[0] == "--nearby")
             {
                 Console.WriteLine(new JavaScriptSerializer().Serialize(AppDiscovery.Nearby(args[1])));
