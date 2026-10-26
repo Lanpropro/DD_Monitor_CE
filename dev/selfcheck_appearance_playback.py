@@ -73,6 +73,7 @@ def main():
                     if theme.is_light():
                         for tile in window.wall.tiles:
                             tile.stream_badge.grab()
+                            app.processEvents()
                             assert tile.stream_badge._alpha_uploaded
                             if visible:
                                 badge = tile.stream_badge

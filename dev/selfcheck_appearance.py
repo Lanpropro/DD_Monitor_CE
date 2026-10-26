@@ -77,6 +77,7 @@ def main():
         if app.platformName() == 'windows':
             for badge in (tile.stream_badge, tile.title_badge):
                 image = badge.grab().toImage()
+                app.processEvents()
                 assert getattr(badge, '_alpha_uploaded', False), type(badge).__name__
                 alphas = [image.pixelColor(x, y).alpha()
                     for y in range(image.height()) for x in range(image.width())]
