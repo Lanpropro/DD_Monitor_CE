@@ -567,6 +567,49 @@ def check_style_emote_scene_and_close() -> None:
         h.dispose()
 
 
+
+def check_fullscreen_high_dpi_preparation() -> None:
+    h = Harness()
+    try:
+        h.overlay.resize(2560, 1440)
+        h.overlay.font_size = 56
+        with (patch.object(h.overlay, "devicePixelRatioF", return_value=1.5),
+              patch.object(h.overlay, "lane_height", return_value=76)):
+            h.layer.sync_scene()
+            check(h.layer.add_event(h.overlay, {"text": "fullscreen message"}),
+                  "4K fullscreen at 150 percent DPI admits comments within preparation budget")
+            style = h.layer._style(h.overlay)
+            actual = bridge.rasterize("fullscreen message", "white", (), False, style)
+            check(sum(h.layer._reserved.values()) >= actual.image.sizeInBytes() * 3,
+                  "fullscreen preparation still reserves image and binding copies")
+    finally:
+        h.dispose()
+
+
+def check_native_input_and_toggle() -> None:
+    from unittest.mock import Mock
+    from ddm.widgets import Tile
+    import ctypes
+
+    user32 = Mock()
+    user32.GetWindowLongW.return_value = 0
+    with (patch.object(ctypes.windll, "user32", user32),
+          patch.object(bridge.QApplication, "platformName", return_value="windows")):
+        bridge.NativeDanmakuLayer._configure_window(123)
+    check(user32.EnableWindow.call_args_list == [((123, False),)],
+          "composition window stays disabled so it cannot intercept activation")
+    for native in (True, False):
+        tile = SimpleNamespace(room={}, danmaku_button=Mock(),
+                               video_danmaku=Mock(_native_requested=native),
+                               _overlay_ready=True, raise_overlays=Mock(),
+                               _mask_refresh_timer=Mock(), videoDanmakuChanged=Mock())
+        Tile._toggle_video_danmaku(tile, True)
+        check(tile._mask_refresh_timer.start.called is not native,
+              "native toggle avoids rebuilding unrelated native control masks")
+        check(tile.raise_overlays.called is not native,
+              "native toggle avoids restacking controls and video")
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     with tempfile.TemporaryDirectory(prefix="ddm-native-bridge-") as directory:
@@ -576,6 +619,8 @@ def main() -> int:
               patch.object(bridge, "load_image", side_effect=AssertionError("network loader forbidden")),
               patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")),
               patch.object(socket.socket, "connect", side_effect=AssertionError("network forbidden"))):
+            check_fullscreen_high_dpi_preparation()
+            check_native_input_and_toggle()
             check_bounds()
             check_epoch_removal_and_ack()
             check_native_lane_preflight()

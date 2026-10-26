@@ -6168,7 +6168,8 @@ class Tile(QFrame):
         self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if enabled
                                        else "开启画面弹幕（默认 B）")
         self.video_danmaku.set_enabled(enabled)
-        if getattr(self, "_overlay_ready", False):
+        if (getattr(self, "_overlay_ready", False)
+                and not self.video_danmaku._native_requested):
             self.raise_overlays()
             # Creating the layered danmaku HWND can expose Qt's rectangular
             # backing masks; restore native overlay contours after it settles.

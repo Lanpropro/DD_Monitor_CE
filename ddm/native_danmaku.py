@@ -8,7 +8,7 @@ import os
 import sys
 from collections import OrderedDict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from time import perf_counter, sleep
 from typing import Any, Protocol
 
@@ -192,8 +192,8 @@ class NativeDanmakuLayer(QObject):
         user32.EnableWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
         style = user32.GetWindowLongW(hwnd, -20)
         user32.SetWindowLongW(hwnd, -20, (style & ~0x00080000) | 0x00200000 | 0x08000000 | 0x20)
+        # This surface only presents pixels; leave input and activation to the owner.
         user32.EnableWindow(hwnd, False)
-        user32.EnableWindow(hwnd, True)
 
     def attach(self, overlay: Any) -> None:
         if self._closing or any(view.overlay is overlay for view in self.views.values()):
@@ -248,9 +248,20 @@ class NativeDanmakuLayer(QObject):
 
     def _style(self, overlay: Any) -> RasterStyle:
         sampling = 1 if os.environ.get("DDM_NATIVE_DANMAKU_SAMPLE_SCALE") == "1" else 2
-        return RasterStyle(overlay._font().family(), overlay.font_pixels(),
-                           overlay.outline_width(), max(128, overlay.width() * 2),
-                           overlay.devicePixelRatioF(), sampling)
+        style = RasterStyle(overlay._font().family(), overlay.font_pixels(),
+                            overlay.outline_width(), max(128, overlay.width() * 2),
+                            overlay.devicePixelRatioF(), sampling)
+        # Fullscreen/high-DPI canvases can exceed the per-image budget at 2x sampling.
+        # Keep native physical-pixel resolution instead of rejecting every comment.
+        if sampling > 1 and self._preparation_bytes(style, overlay.lane_height()) > 48 * 1024 * 1024:
+            style = replace(style, sample_scale=1)
+        return style
+
+    @staticmethod
+    def _preparation_bytes(style: RasterStyle, lane_height: int) -> int:
+        scale = style.dpr * style.sample_scale
+        return (math.ceil((style.logical_max_width + 64) * scale)
+                * math.ceil((lane_height + 64) * scale) * 4 * 3)
 
     def _mask(self, view: _View) -> dict[str, Any] | None:
         overlay = view.overlay
@@ -378,9 +389,7 @@ class NativeDanmakuLayer(QObject):
                     self.lane_preflight_rejected += 1
                     return False
         style = self._style(view.overlay)
-        scale = style.dpr * style.sample_scale
-        reserve = (math.ceil((style.logical_max_width + 64) * scale)
-                   * math.ceil((view.overlay.lane_height() + 64) * scale) * 4 * 3)
+        reserve = self._preparation_bytes(style, view.overlay.lane_height())
         native_bytes = int(self._status.get("cpu_image_bytes", self._status.get("image_bytes", 0)))
         if (reserve > 48 * 1024 * 1024
                 or sum(self._reserved.values()) + native_bytes + reserve > 128 * 1024 * 1024):
