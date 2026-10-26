@@ -5,8 +5,9 @@
 
 | 分类 | 入口 |
 | --- | --- |
-| 使用说明 | [项目 README](../README.md) |
+| 软件介绍 | [功能、截图与下载](../README.md) |
 | 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
+| Bug 案例库 | [按模块归纳的故障、根因、验证与验收记录](bug-cases.md) |
 | 开发验证 | [测试套件与执行条件](development/testing.md)、[开发工具导航](../dev/README.md)、[全部专项检查](../dev/checks/README.md) |
 | 本机工作区 | [目录归属、旧运行库归档与检查纳入标准](development/workspace-maintenance.md) |
 | 本次整合 | [2026-10-19 仓库与 PR 整合记录](archive/repository-integration-20261019.md) |
@@ -15,8 +16,9 @@
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](archive/pr6-pr7-layout-testing.md) |
 | 窗口缩放性能 | [交互、模块分工与验收](resize-performance.md) |
 | 直播间组合预设 | [首版试用、设计与验收清单](room-presets-design.md) |
+| 安装与卸载 | [Windows 安装包、卸载范围与验证](development/windows-installer.md) |
 | 更新机制 | [在线更新](online-updates.md) |
-| 版本记录 | [0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
+| 版本记录 | [0.5](releases/RELEASE-v0.5.md)、[0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
 | 第三方来源 | [NOTICE](NOTICE.md)、[许可证](../LICENSE) |
 | 规划 | [自定义规划](customization-plan.md)、[独立网站历史规划](website-plan.md) |
 | 历史反馈 | [2026-10-02 问题记录](archive/BUG-STATUS-2026-10-02.md)，含当时未确认事项，不等于当前状态 |

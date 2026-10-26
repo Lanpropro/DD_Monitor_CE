@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QPush
 from ddm.app import MainWindow
 from ddm.dialogs import SHORTCUT_ACTIONS, ShortcutSettingsPage
 from ddm.widgets import VolumeButton
+from ddm.plugins import TileControl
 
 
 def check_hover_shortcuts(app, window):
@@ -55,13 +56,6 @@ def check_hover_shortcuts(app, window):
         window.sidebar.search.clear()
         QTest.keyClicks(window.sidebar.search, 'bfme')
         assert window.sidebar.search.text() == 'bfme'
-        assert second.danmaku_button.isChecked() == before
-        assert second.muted == muted
-        # 每格发送框也必须保护播放器单键快捷键。
-        first.composer.edit.setFocus()
-        first.composer.edit.clear()
-        QTest.keyClicks(first.composer.edit, 'bfme')
-        assert first.composer.edit.text() == 'bfme'
         assert second.danmaku_button.isChecked() == before
         assert second.muted == muted
         dialog = QDialog(window)
@@ -106,6 +100,109 @@ def check_hover_shortcuts(app, window):
     with patch('ddm.app.QCursor.pos', return_value=window.mapToGlobal(QPoint(-100, -100))):
         QTest.keyClick(first.pause_button, Qt.Key_B)
         assert second.danmaku_button.isChecked() == before
+
+
+def check_danmaku_input(app, window):
+    first, second = window.wall.tiles[:2]
+    class InputControl(TileControl):
+        def __init__(self, context):
+            super().__init__(QLineEdit(context.parent), minimum_width=90)
+        def set_room(self, room):
+            self.widget.setVisible(str(room.get('room_id', '')).isdigit())
+        def focus_input(self):
+            self.widget.setFocus(Qt.ShortcutFocusReason)
+            return True
+        def interaction_active(self):
+            return self.widget.hasFocus()
+    window.plugins.register_tile_control('test-input', 'edit', InputControl, priority=100)
+    editors = [tile._plugin_controls.entries[0].control.widget for tile in (first, second)]
+    window.resize(1800, 1000)
+    window.show()
+    window.activateWindow()
+    app.processEvents()
+    point = second.video.mapToGlobal(second.video.rect().center())
+    with patch('ddm.app.QCursor.pos', return_value=point):
+        first.pause_button.setFocus()
+        QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
+        assert editors[1].hasFocus()
+        assert not editors[0].hasFocus()
+        edit = editors[1]
+        confirmed_input = []
+        edit.returnPressed.connect(lambda: confirmed_input.append(edit.text()))
+        edit.setText('快捷输入')
+        QTest.keyClick(edit, Qt.Key.Key_Return)
+        assert confirmed_input == ['快捷输入']
+        edit.clear()
+        edit.clearFocus()
+        second.setProperty('fullscreen', True)
+        window._fullscreen_tile = second
+        try:
+            second.set_fullscreen_controls_hidden(True)
+            first.pause_button.setFocus()
+            QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
+            assert second._bar_target == 0.0
+            assert not edit.hasFocus(), 'first Enter only restores the hidden bar'
+            QTest.keyClick(first.pause_button, Qt.Key.Key_Enter)
+            assert edit.hasFocus()
+            outside = window.mapToGlobal(QPoint(-100, -100))
+            with patch('ddm.fullscreen_cursor.QCursor.pos', return_value=outside):
+                window._fullscreen_cursor.update_cursor()
+                second._hide_controls_if_outside()
+            assert edit.hasFocus() and second._bar_target == 0.0
+        finally:
+            edit.clearFocus()
+            window._fullscreen_cursor.stop()
+            window._fullscreen_tile = None
+            second.setProperty('fullscreen', False)
+            second.set_fullscreen_controls_hidden(False)
+        second.set_room({'room_id': 'douyu:1', 'uname': 'unsupported'})
+        first.pause_button.setFocus()
+        QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
+        assert not edit.hasFocus()
+        second.set_room(dict(first.room))
+        search = window.sidebar.search
+        confirmed = []
+        search.returnPressed.connect(lambda: confirmed.append(True))
+        search.setFocus()
+        QTest.keyClick(search, Qt.Key.Key_Return)
+        assert confirmed and not editors[1].hasFocus()
+        dialog = QDialog(window)
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+        button = QPushButton('确认', dialog)
+        button.setDefault(True)
+        layout.addWidget(button)
+        accepted = []
+        button.clicked.connect(lambda: accepted.append(True))
+        dialog.show()
+        dialog.activateWindow()
+        app.processEvents()
+        QTest.keyClick(button, Qt.Key.Key_Return)
+        assert accepted and not editors[1].hasFocus()
+        dialog.close()
+        window.activateWindow()
+        page = ShortcutSettingsPage(window.shortcuts)
+        page._edits['danmaku_input'].setKeySequence(QKeySequence('T'))
+        window.shortcuts = page.values()
+        window._refresh_shortcuts()
+        first.pause_button.setFocus()
+        app.processEvents()
+        QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
+        assert not editors[1].hasFocus()
+        QTest.keyClick(first.pause_button, Qt.Key.Key_T)
+        assert editors[1].hasFocus()
+        assert window.current_state()['ui']['shortcuts']['danmaku_input'] == 'T'
+        editors[1].clearFocus()
+        page.reset()
+        window.shortcuts = page.values()
+        window._refresh_shortcuts()
+        assert all(not shortcut.autoRepeat() for shortcut in window._window_shortcuts)
+    with patch.object(window, '_tile_under_cursor', return_value=None):
+        first.pause_button.setFocus()
+        QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
+        assert not editors[1].hasFocus()
+
+    window.plugins._remove_tile_owner('test-input')
 
 
 def check_corner_empty_slots(app):
@@ -168,6 +265,7 @@ def main():
         window.players.update({first: first_player, second: second_player})
         try:
             check_hover_shortcuts(app, window)
+            check_danmaku_input(app, window)
             window.hide()
             # 迁移仅发生一次，此后手动改回 D 或其他键，重启仍须保留。
             for sequence in ('D', 'R'):

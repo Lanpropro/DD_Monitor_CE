@@ -10,6 +10,8 @@ from PySide6.QtGui import QColor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from ddm import theme  # noqa: E402
 from ddm.widgets import NavItem  # noqa: E402
+from ddm.app import MainWindow  # noqa: E402
+from unittest.mock import patch
 
 
 def edge_color(app, badge, background):
@@ -33,6 +35,23 @@ def edge_color(app, badge, background):
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
+    with patch('ddm.app.QTimer.singleShot'):
+        window = MainWindow([], [], state={'plugins_enabled': [],
+                            'settings': {'sidebar_platform_logos': False}})
+    try:
+        for room in ({'room_id': '1'}, {'room_id': 'huya:2'}):
+            window.sidebar.add_room(room)
+        for mode in (True, False):
+            window.sidebar.set_card_mode(mode)
+            for enabled in (False, True, False):
+                window.settings['sidebar_platform_logos'] = enabled
+                window.apply_preview_settings()
+                window.sidebar._sync_count()
+                assert all(item.platform_badge.isHidden() != enabled
+                           for item in window.sidebar.items())
+                assert window.current_state()['settings']['sidebar_platform_logos'] == enabled
+    finally:
+        window.close()
     for rid in ("1001", "huya:123", "douyu:123", "douyin:123", "twitch:test", "youtube:abcdefghijk"):
         item = NavItem({"room_id": rid, "live": True}, 0)
         item.resize(240, 128)

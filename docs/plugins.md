@@ -10,6 +10,25 @@
 
 ## 目录约定
 
+### 源码、模板与安装副本的边界
+
+`plugins_user` 同时容纳开发资料和运行时安装目录，不能整目录提交、删除或复制进发布包。
+
+| 路径 | 角色与维护位置 | Git 与发布边界 |
+| --- | --- | --- |
+| `plugins_user/_match_sync/` | 比赛二路插件的已跟踪源码，在本仓库维护 | 提交源码；下划线前缀使其不自动装载。`python dev/build_match_sync.py` 单独生成 ZIP，ZIP 顶层为 `match_sync/` |
+| `plugins_user/_template_platform/` | 本仓库维护的平台插件开发模板 | 提交模板；不自动装载。开发新插件时复制到独立源码目录，修改 ID 和清单后再打包安装 |
+| `plugins_user/match_sync/` | 比赛二路的本机安装副本 | Git 忽略；不作为唯一源码。修改应先落实到 `_match_sync` 并测试、提交，再重新打包安装 |
+| `plugins_user/domestic_live/`、`global_live/`、旧 `huya_watch/` | 独立仓库 DD_Monitor_Plugins 的本机安装副本 | Git 忽略；源码在独立仓库提交，ZIP 单独发布 |
+| `plugins_user/.updates/`、`_danmaku_log/` | 更新暂存或旧插件保留的数据 | 本机资料，Git 忽略；不作为源码或模板 |
+| 其他 `<插件ID>/` | 用户主动安装的运行时代码 | 不随本体源码提交；新增本机插件目录时核对忽略规则，避免误加入 Git |
+
+本体源码仓库保留上述两类已跟踪开发目录；`dev/build_release.ps1` 生成的便携包排除整个 `plugins_user/*` 并创建空安装目录，EXE 包同样从空安装目录开始。插件 ZIP 由各自发布流程提供，不把开发模板或本机安装副本作为本体内置插件。
+
+提交前使用 `git ls-files plugins_user` 检查已跟踪文件；用 `git check-ignore --no-index <安装副本路径>` 检查本机目录是否被忽略。`.gitignore` 只防止普通添加，不会自动备份已忽略的安装副本，也不能替代源码仓库提交。涉及插件修改时先确认所属源码位置，再按[贡献指南](../CONTRIBUTING.md)验证和提交。
+
+### 运行时安装结构
+
 旧内置插件 ID `danmaku_log` 已停用，其弹幕记录功能由本体提供。覆盖升级保留旧目录和数据，但不再加载该插件或显示其卡片。
 
 ```
@@ -189,7 +208,8 @@ B 站取流、在线人数或弹幕接口。当前跨平台悬停预览和弹幕
 
 ## 三、发弹幕
 
-弹幕接收与显示属于本体功能。发弹幕接口留给之后能完整实现认证和发送的插件：
+弹幕接收与显示属于本体功能。以下旧式发送器接口继续兼容；独立的 `bili_live` 插件通过
+本文后面的格子控件扩展和登录快照接口提供行内发送、表情及礼物界面：
 
 ```python
 class MySender(api.DanmakuSender):
@@ -234,3 +254,83 @@ context.set_setting("token", "abc")     # 写，并通知本体落盘
   插件起的线程要在这里停掉，否则 Qt 退出时会崩。
 - **插件不是沙箱**：它拿到的是真实窗口对象和进程权限。这是刻意的取舍 ——
   录像、抓别的平台这类事本来就需要完整的网络和文件访问。
+
+## 格子内控件扩展
+
+插件可调用 `context.register_tile_control("controls", factory, priority=100)`。
+`factory(TileControlContext)` 返回 `ddm.plugins.TileControl`；其中 `parent` 是本体管理的
+容器，`room` 是房间副本，`invalidate_layout()` 请求重新分配底栏空间。
+`TileControl(widget, minimum_width=90, preferred_width=240)` 可覆盖
+`set_room(room)`、`interaction_active()` 和 `shutdown()`。每个格子（包括初始空格子）
+只构造一次；每次房间赋值均通知。插件自行隐藏不支持房间的 widget，本体独立隐藏宽度
+不足的容器。优先级高的先分配，优先级相同时保持注册顺序。
+不支持的房间无需重新注册，移除格子或卸载时 `shutdown()` 只调用一次。
+注册在 `on_load` 成功之后生效；不要修改格子私有布局或包裹本体方法。
+
+## 登录快照与交互状态
+
+`context.credentials(platform)` 返回 `CredentialSnapshot(platform, generation, values)`，
+未注册的平台返回 `None`。`values` 为独立只读映射，快照 repr 不输出密钥。
+`account.changed` 事件只包含 `platform`、`generation`；读取新快照获取当前凭据。
+本体目前为 `bilibili` 提供 `SESSDATA`、`bili_jct`、`buvid3`，继续使用本体登录入口。
+工作线程使用事先捕获的副本，不得在线程中访问这些 GUI 接口。
+
+发现设备标识后，可在 GUI 线程调用
+`context.update_credentials("bilibili", {"buvid3": value}, expected_generation=generation)`。
+旧账号代次返回 `False`；未知字段或不支持的更新抛出 `ValueError`。
+本体仅在设备 Cookie 为空时接收并持久化，保留后来登录取得的设备身份。
+此更新不推进账号代次；`account.credentials_updated` 仅包含平台、代次与字段名列表。
+禁止把凭据写入插件设置或日志。
+
+控件的 `interaction_active()` 可为编辑焦点、输入法组合、打开的弹窗返回 `True`，
+本体据此保持全屏控件可见（包括指针离开格子时），并暂缓播放器快捷键，
+即使指针位于其他格子。隐藏或禁用的控件不参与查询。
+
+## 通知与登录入口
+
+`context.notify(message, *, rooms=(), kind="info", on_click=None) -> bool`
+将通知排入 GUI 线程，沿用主窗口上方的通知栏。`kind` 支持 `info`、`warning`、`live`；
+`rooms` 是房间字典序列，调用时复制，用于展示头像。需要让用户识别失败房间时，
+插件应同时把捕获的房间名和房间号写入 `message`，不依赖后来已切换的格子状态。
+`on_click` 是可选无参函数，点击会先关闭通知再执行它；异常由本体隔离。
+
+`context.request_login(platform, *, reauthenticate=False) -> bool`
+通过本体已有的登录界面登录指定平台，`reauthenticate=True` 直接进入重新验证流程。
+调用总是排入 GUI 队列，因此可安全地在通知点击动作中调用，不会让模态登录窗口
+嵌入通知的鼠标回调。网络错误、余额不足或权限不足不应自动要求重新登录；
+仅当接口明确拒绝凭据或账号尚未登录时提供该动作。
+
+```python
+context.notify("【示例主播（房间 120）】发送失败：登录失效，点击重新登录",
+               rooms=({"room_id": "120", "uname": "示例主播"},), kind="warning",
+               on_click=lambda: context.request_login("bilibili", reauthenticate=True))
+```
+
+这两个接口允许工作线程调用，返回 `True` 表示已接受排队，不保证窗口稍后仍可显示。
+没有窗口或相应能力时返回 `False`；插件装载失败、管理器卸载、主窗口关闭或 Qt 对象
+销毁后，待处理调用和保留的点击动作均失效。插件仍须自行检查请求的账号、房间和
+控件生命周期，过滤已经过期的后台结果；无需访问本体私有通知字段或登录字段。
+
+
+## bili_live 配套安装
+
+`function/plugin-tile-extensions` 提供上述接口；配套插件源码在
+[DD_Monitor_Plugins](https://github.com/Lanpropro/DD_Monitor_Plugins) 的本地
+`codex/bili-live` 分支。使用插件管理器安装 `dist/bili_live-1.0.zip`，按现有流程保存并重启。
+继续在本体账号界面登录 B 站，各数字房间格子自动显示输入、表情、礼物和发送控件。
+禁用/移除插件同样在重启后生效；登录持久化、播放和接收弹幕仍由本体负责。
+插件在装载前检查必要公开接口，旧版本本体会报告兼容性要求。
+
+该 ZIP 当前是本地产物，网站没有对应下载条目。
+
+### 控件居中与宽度预算
+
+格子把全部可用控件放进一个居中的扩展区域，按优先级、注册顺序分配宽度。
+该区域最多为 `min(520, max(300, int(tile_width * 0.45)))` 逻辑像素；
+空间不足时收窄并限制在现有播放器按钮之间，低优先级控件的最小宽度放不下时隐藏。
+200 像素等窄格优先保留音量、录制及全屏入口；插件不能依赖其控件始终可见。
+`preferred_width` 是多控件分配时的偏好，单个控件可以扩展到区域上限。
+控件自行改变可用性、可见性或宽度声明后，调用 `invalidate_layout()`。
+本体不保存发送草稿、不获取互动表情或发送礼物；这些能力由插件实现。
+
+格子控件可实现 `TileControl.focus_input()`，聚焦自己的输入并返回 `True`；默认返回 `False`。本体弹幕输入快捷键按优先级向可见且启用的控件请求聚焦，不访问平台专用输入框。`interaction_active()` 应覆盖输入焦点与浮窗交互，以保护全屏控制条。

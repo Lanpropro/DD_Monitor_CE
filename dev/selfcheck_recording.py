@@ -161,6 +161,9 @@ def main():
 
     dialog = SettingsDialog(DEFAULT_SETTINGS, {})
     assert dialog.recording_page.values()["recording_format"] == "mp4"
+    assert dialog.recording_page.segment_minutes.value() == 60
+    assert dialog.recording_page.segment_minutes.minimum() == 1
+    assert dialog.recording_page.segment_minutes.maximum() == 1440
     assert [dialog.recording_page.format.itemData(i) for i in range(
         dialog.recording_page.format.count())] == ["mp4", "mkv", "mov", "ts"]
     assert dialog.recording_page.bitrate.isEnabled() and dialog.recording_page.fps.isEnabled()
@@ -177,9 +180,11 @@ def main():
         "用户直接调帧率时应自动启用重编码"
     dialog.recording_page.format.setCurrentIndex(1)
     dialog.recording_page.bitrate.setValue(8500)
+    dialog.recording_page.segment_minutes.setValue(45)
     assert dialog.settings()["recording_format"] == "mkv"
     assert dialog.settings()["recording_bitrate"] == 8500
     assert dialog.settings()["recording_fps"] == 50
+    assert dialog.settings()["recording_segment_minutes"] == 45
     assert dialog.settings()["recording_lock_quality"] is True
     assert dialog.settings().keys().isdisjoint({"recording_backup_dir", "recording_ffmpeg"})
     assert dialog.recording_page.fps.isEnabled()
@@ -250,6 +255,41 @@ def main():
                                          "stream=codec_type", "-of", "csv=p=0", str(path)],
                                         check=True, capture_output=True, text=True)
                 assert "video" in result.stdout and "audio" in result.stdout
+
+        # 用户时长到达时单独封装一个文件并继续；最近回放应跨越自动分段边界。
+        split = FakeTile("自动分段", "21001", str(source))
+        split_notices = []
+        manager.noticeWithRoom.connect(lambda message, room: split_notices.append((message, room)))
+        manager.settings = dict(settings, recording_segment_minutes=1,
+                                recording_replay_minutes=1)
+        with patch("ddm.recording.SEGMENT_SECONDS", 1), patch(
+                "ddm.recording.input_args",
+                side_effect=lambda url, _headers: ["-re", "-stream_loop", "-1", "-i", url]):
+            assert manager.start(split, recording=True)
+            split_session = manager.sessions[split]
+            time.sleep(2.3)
+            with patch("ddm.recording.time.monotonic",
+                       return_value=split_session.output_started_at + 61):
+                manager._poll()
+            assert split_session.rotating, "达到设置时长后应结束当前文件"
+            assert until(app, lambda: split_session.chunk >= 2 and
+                         not split_session.rotating and not manager.exports, 10), \
+                "第一段导出后应自动启动下一段"
+            time.sleep(1.3)
+            manager.stop(split)
+            assert until(app, lambda: split not in manager.sessions and
+                         not manager.exports, 15), "停止后应完成最后一段和回放导出"
+        split_files = sorted((root / "out").glob("自动分段*.mp4"))
+        replay_files = sorted((root / "out" / "replays").glob("自动分段*.mp4"))
+        assert len(split_files) == 2, split_files
+        assert len(replay_files) == 1, replay_files
+        rotation_notices = [room for message, room in split_notices
+                            if '正在保存分段' in message or '分段已保存' in message]
+        assert len(rotation_notices) == 2 and all(
+            room.get('room_id') == '21001' for room in rotation_notices)
+        for path in split_files + replay_files:
+            assert path.stat().st_size > 500, path
+            _run_text([ffmpeg, "-v", "error", "-i", str(path), "-f", "null", "-"])
 
         transcoded = FakeTile("主播转码", "25002", str(source))
         manager.settings = dict(settings, recording_format="mkv", recording_codec="h264",
@@ -540,4 +580,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with patch.object(MainWindow, 'refresh_status'), \
+            patch.object(MainWindow, '_check_startup_update'), \
+            patch.object(MainWindow, '_check_startup_plugins'):
+        main()

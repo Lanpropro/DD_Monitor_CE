@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
@@ -26,6 +27,9 @@ def verify_outputs(folder, *, saved):
     replays = list((folder / "replays").glob("*.mp4"))
     assert len(replays) == int(saved), f"退出不应额外保存即时回放：{replays}"
     assert all(path.stat().st_size > 500 for path in replays)
+    assert not list(folder.glob('*.concat.txt')) and not list(folder.glob('*.ffmpeg.log'))
+    assert not list((folder / 'replays').glob('*.concat.txt'))
+    assert not list((folder / 'replays').glob('*.ffmpeg.log'))
     assert not list((folder / ".ddm-parts").glob("*.mp4")), "已导出的分段及缓存应清理"
     probe = shutil.which("ffprobe")
     if probe:
@@ -38,6 +42,26 @@ def verify_outputs(folder, *, saved):
 
 def main():
     app = QApplication(sys.argv)
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        manager = RecordingManager(dict(DEFAULT_SETTINGS))
+        for full in (True, False):
+            for code in (0, 1):
+                result = root / ('recording' if full else 'replay') / f'test-{code}.mp4'
+                result.parent.mkdir(exist_ok=True)
+                result.write_bytes(b'completed video')
+                part = root / 'part.ts'
+                part.write_bytes(b'original segment')
+                for suffix in ('.concat.txt', '.ffmpeg.log'):
+                    result.with_suffix(suffix).write_text('diagnostic', encoding='utf-8')
+                process = SimpleNamespace(returncode=code, poll=lambda value=code: value)
+                manager.exports.append((process, result, [part], full))
+                manager._poll()
+                assert result.exists()
+                for suffix in ('.concat.txt', '.ffmpeg.log'):
+                    assert result.with_suffix(suffix).exists() == bool(code)
+                assert part.exists() == (not full or bool(code))
+        manager.shutdown()
     ffmpeg = ffmpeg_path(DEFAULT_SETTINGS)
     assert ffmpeg, "本机需有 FFmpeg"
     with tempfile.TemporaryDirectory(prefix="ddm-shutdown-check-") as temp:
@@ -53,6 +77,8 @@ def main():
             settings = dict(DEFAULT_SETTINGS, recording_dir=str(folder),
                             recording_replay_enabled=True, recording_min_free_mb=256)
             manager = RecordingManager(settings)
+            notices = []
+            manager.noticeWithRoom.connect(lambda message, room: notices.append((message, room)))
             record = FakeTile("完整录制", "1", str(source))
             cache = FakeTile("纯缓存", "2", str(source))
             try:
@@ -74,9 +100,13 @@ def main():
                     assert manager.save_replay(record)
                     assert any(not full for _p, _r, _parts, full in manager.exports)
                 # 不再处理事件：验证关闭时会等待刚刚主动发起的导出完成。
+                record.room = {'room_id': 'replacement', 'uname': '后来放入的主播'}
                 manager.shutdown()
                 assert not manager.sessions and not manager.exports
                 verify_outputs(folder, saved=saved)
+                completed = [room for message, room in notices
+                             if message.startswith('已保存录制') and '完整录制' in message]
+                assert completed and completed[0]['room_id'] == '1', "导出应保留原主播头像上下文"
             finally:
                 manager.shutdown()
 

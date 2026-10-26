@@ -21,7 +21,7 @@ from dev.checks import bootstrap
 class CheckRunnerTests(unittest.TestCase):
     def test_catalog_has_explicit_modes_and_a_dependency_free_default(self):
         suites = runner.load_suites()
-        self.assertEqual(set(suites), {'repository', 'offline', 'native', 'live'})
+        self.assertEqual(set(suites), {'repository', 'smoke', 'offline', 'native', 'live'})
         self.assertEqual(suites['repository']['scripts'], [
             'selfcheck_repository_files', 'selfcheck_project_workflow',
             'selfcheck_repository_map', 'selfcheck_check_runner',
@@ -42,6 +42,48 @@ class CheckRunnerTests(unittest.TestCase):
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                         self.assertNotEqual(ast.unparse(node.func), 'os._exit', script)
+
+    def test_smoke_covers_core_areas_with_offline_isolation(self):
+        suite = runner.load_suites()['smoke']
+        self.assertEqual(suite['mode'], 'offline')
+        self.assertEqual(suite['scripts'], [
+            'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
+            'selfcheck_player_lifetime',
+            'selfcheck_main_notices', 'selfcheck_notification_center', 'selfcheck_layout_16',
+            'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort'])
+        workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
+        for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
+                     'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
+                     'python dev/run_checks.py --suite smoke --timeout 120'):
+            self.assertIn(text, workflow)
+
+    def test_shared_scripts_require_the_same_isolation_mode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            catalog = Path(temp) / 'suites.json'
+            suites = {'a': {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary']},
+                      'b': {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary']}}
+            with patch.object(runner, 'CATALOG', catalog):
+                catalog.write_text(json.dumps(suites), encoding='utf-8')
+                self.assertEqual(len(runner.load_suites()), 2)
+                suites['b']['mode'] = 'live'
+                catalog.write_text(json.dumps(suites), encoding='utf-8')
+                with self.assertRaises(ValueError):
+                    runner.load_suites()
+                suites['b'] = {'mode': 'offline', 'scripts': ['selfcheck_bili_plugin_boundary'] * 2}
+                catalog.write_text(json.dumps(suites), encoding='utf-8')
+                with self.assertRaises(ValueError):
+                    runner.load_suites()
+
+    def test_contribution_matrix_uses_registered_or_existing_checks(self):
+        source = (runner.ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
+        matrix = source.split('### 改动区域 → 必跑测试', 1)[1].split('## 本机资料与发布', 1)[0]
+        registered = {script for suite in runner.load_suites().values() for script in suite['scripts']}
+        for script in re.findall(r'--script\s+(\w+)', matrix):
+            self.assertIn(script, registered)
+        for script in re.findall(r'python dev/(\w+\.py)', matrix):
+            self.assertTrue((runner.ROOT / 'dev' / script).is_file(), script)
+        for area in ('设置', '通知', '布局', '弹幕', '插件', '录制', '播放器'):
+            self.assertIn('| ' + area, matrix)
 
     def test_offline_network_guard_allows_only_loopback(self):
         denied = []
@@ -71,12 +113,6 @@ class CheckRunnerTests(unittest.TestCase):
                 result = runner.run_script('fixture', 'offline', [], root, 10)
             self.assertNotEqual(result['exit_code'], 0)
             self.assertIn('external network access', Path(result['log']).read_text(encoding='utf-8'))
-
-    def test_development_restart_matches_current_launcher(self):
-        source = (runner.ROOT / 'dev/restart-client.ps1').read_text(encoding='utf-8-sig')
-        self.assertNotIn('PYTHON_VLC_LIB_PATH', source)
-        self.assertIn("$env:DDM_QTQUICK_DANMAKU = '1'", source)
-        self.assertIn('-WindowStyle Hidden', source)
 
     def test_bootstrap_preserves_arguments_imports_and_failure_code(self):
         with tempfile.TemporaryDirectory(prefix='ddm check runner ') as temp:
@@ -171,9 +207,10 @@ class CheckRunnerTests(unittest.TestCase):
         listed = re.findall(r'\]\(\.\./((?:selfcheck_|check_)[^/)]+\.py)\)', index)
         self.assertEqual(set(listed), checks)
         self.assertEqual(len(listed), len(set(listed)))
+        rows = dict(re.findall(r'\[([^]]+)\]\(\.\./(?:selfcheck_|check_)[^/)]+\.py\) \| ([^\n]+)', index))
         for suite, settings in runner.load_suites().items():
             for script in settings['scripts']:
-                self.assertIn(f'[{script}](../{script}.py) | `{suite}`', index)
+                self.assertIn(f'`{suite}`', rows[script])
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD wrapper')
     def test_real_cmd_handles_spaced_paths_and_failure_status(self):

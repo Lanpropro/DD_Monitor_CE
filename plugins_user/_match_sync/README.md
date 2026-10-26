@@ -22,7 +22,7 @@
 
 已有旧版时，安装器不支持同 ID 覆盖安装。退出程序后，将新 ZIP 内 `match_sync` 文件夹的文件覆盖到这份程序的 `plugins_user/match_sync/`，再重启；配置文件无需改动。
 
-源码开发目录 `_match_sync` 会被本体跳过，避免开发文件自动装载。ZIP 顶层目录是 `match_sync`；请使用 ZIP 安装。
+源码开发目录 `_match_sync` 会被本体跳过，避免开发文件自动装载。该目录由本仓库跟踪，修改先在这里测试和提交，再用 `python dev/build_match_sync.py` 生成 ZIP；不要只修改被 Git 忽略的 `plugins_user/match_sync/` 安装副本。ZIP 顶层目录是 `match_sync`；请使用 ZIP 安装。完整边界见 [插件接口](../../docs/plugins.md#源码模板与安装副本的边界)。
 
 ## 调节
 

@@ -20,8 +20,9 @@
 5. **皮肤美化**（``Plugin.skin`` / 清单 ``skin``）—— 背景、分区样式及按钮图标；
    v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/skins.md。
 
-插件放 ``plugins/<插件名>/plugin.py``，里面必须有一个名为 ``plugin`` 的
-``Plugin`` 实例（见 ``plugins/example/plugin.py``）。插件是**受信任的代码**，
+运行时插件放 ``plugins_user/<插件ID>/plugin.py``，里面必须有一个名为 ``plugin`` 的
+``Plugin`` 实例；开发模板见 ``plugins_user/_template_platform/plugin.py``，源码与安装副本边界见
+``docs/plugins.md``。插件是**受信任的代码**，
 它在主进程里跑，能拿到窗口对象，能力和本体代码等价——只装自己看过源码的插件。
 
 插件里的异常不会拖垮本体：事件回调、平台回调、菜单回调都被包住并打印到 stderr，
@@ -36,11 +37,15 @@ import sys
 import tempfile
 import traceback
 import zipfile
+import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import config as config_module
 from .file_ops import replace_directory
+from .plugin_controls import TileControl, TileControlContext, TileControls
+from .plugin_credentials import (CredentialSnapshot, CredentialStore,
+                                 EVENT_ACCOUNT_CHANGED, EVENT_CREDENTIALS_UPDATED)
 
 #: 插件目录要和 utils / cache / logs 一样落在**程序旁边**：源码运行时是仓库根，
 #: 打包成 exe 后是 exe 所在目录。这里用 config.REPO（它已经处理了 frozen），
@@ -93,6 +98,7 @@ ALL_EVENTS = (
     EVENT_TILE_PLAYING, EVENT_TILE_STOPPED, EVENT_TILE_ADDED, EVENT_TILE_REMOVED,
     EVENT_DANMAKU, EVENT_DANMAKU_STATUS, EVENT_ROOM_LIVE, EVENT_ROOM_OFFLINE,
     EVENT_SETTINGS,
+    EVENT_ACCOUNT_CHANGED, EVENT_CREDENTIALS_UPDATED,
 )
 
 
@@ -252,6 +258,8 @@ class PluginContext:
     def __init__(self, manager: "PluginManager", name: str):
         self._manager = manager
         self.name = name
+        self._active = not manager._unloaded
+        manager._contexts.add(self)
 
     # ---- 注册 ----
     def register_platform(self, platform: Platform) -> None:
@@ -259,6 +267,25 @@ class PluginContext:
 
     def register_danmaku_sender(self, sender: DanmakuSender) -> None:
         self._manager.register_danmaku_sender(self.name, sender)
+
+    def register_tile_control(self, control_id, factory, *, priority=0) -> None:
+        self._manager.register_tile_control(self.name, control_id, factory, priority=priority)
+
+    def credentials(self, platform) -> CredentialSnapshot | None:
+        return self._manager.credentials(platform)
+
+    def update_credentials(self, platform, changes, *, expected_generation) -> bool:
+        return self._manager.update_credentials(platform, changes, expected_generation=expected_generation)
+
+    def notify(self, message, *, rooms=(), kind='info', on_click=None) -> bool:
+        """Queue a main-window notice; False means this owner/window is unavailable."""
+        bridge = self._manager._notices
+        return bridge.notify(self, message, rooms=rooms, kind=kind, on_click=on_click) if bridge else False
+
+    def request_login(self, platform, *, reauthenticate=False) -> bool:
+        """Open the host login flow on the GUI thread after the current callback."""
+        bridge = self._manager._notices
+        return bridge.request_login(self, platform, reauthenticate=reauthenticate) if bridge else False
 
     # ---- 取用 ----
     @property
@@ -338,6 +365,31 @@ class PluginManager:
         self._removed: set[str] = set()
         self.plugin_settings: dict = {}
         self._save_settings: Callable | None = None
+        self._tiles = weakref.WeakSet()
+        self._tile_providers = {}
+        self._loading_owner = None
+        self._provider_order = 0
+        self._credentials = CredentialStore(self.emit)
+        self._contexts = weakref.WeakSet()
+        self._unloaded = False
+        self._notices = None
+        if window is not None:
+            from PySide6.QtCore import QObject
+            if isinstance(window, QObject):
+                from .plugin_notices import PluginNotices
+                self._notices = PluginNotices(window)
+
+    def register_credentials(self, platform, read, **options):
+        self._credentials.register(platform, read, **options)
+
+    def notify_credentials(self, platform):
+        self._credentials.notify(platform)
+
+    def credentials(self, platform):
+        return self._credentials.snapshot(platform)
+
+    def update_credentials(self, platform, changes, *, expected_generation):
+        return self._credentials.update(platform, changes, expected_generation=expected_generation)
 
     # ---- 装载 ----
     def load(self) -> None:
@@ -385,17 +437,28 @@ class PluginManager:
             context = PluginContext(self, entry)
             plugin.context = context
             try:
+                self._loading_owner = entry
                 plugin.on_load(context)
                 if plugin.skin is not None:
                     from .skins import plugin_skin
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
+                context._active = False
+                self._remove_tile_owner(entry)
+                try:
+                    plugin.on_unload()
+                except Exception:
+                    traceback.print_exc()
                 self.skipped.append((entry, f"on_load 出错：{error}"))
                 traceback.print_exc()
                 continue
+            finally:
+                self._loading_owner = None
             if not plugin.name:
                 plugin.name = entry
             self.plugins.append(plugin)
+            for tile in tuple(self._tiles):
+                self.attach_tile(tile)
             print(f"[插件] 已装载 {plugin.name}"
                   f"{' v' + plugin.version if plugin.version else ''}",
                   file=sys.stderr, flush=True)
@@ -411,11 +474,50 @@ class PluginManager:
         return plugin if isinstance(plugin, Plugin) else None
 
     def unload(self) -> None:
+        self._unloaded = True
+        for context in tuple(self._contexts):
+            context._active = False
+        for tile in tuple(self._tiles):
+            self.detach_tile(tile)
+        self._tile_providers.clear()
         for plugin in self.plugins:
             try:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
+
+    def register_tile_control(self, owner, control_id, factory, *, priority=0):
+        key = (owner, str(control_id))
+        if not control_id or key in self._tile_providers or not callable(factory):
+            raise ValueError('tile control needs a unique ID and callable factory')
+        self._provider_order += 1
+        self._tile_providers[key] = (factory, int(priority), self._provider_order)
+        if self._loading_owner != owner:
+            for tile in tuple(self._tiles):
+                self.attach_tile(tile)
+
+    def attach_tile(self, tile):
+        self._tiles.add(tile)
+        controls = getattr(tile, '_plugin_controls', None)
+        if controls is None or controls._disposed:
+            controls = tile._plugin_controls = TileControls(tile, on_shutdown=self._tiles.discard)
+            tile.destroyed.connect(controls.shutdown)
+        for (owner, key), (factory, priority, order) in self._tile_providers.items():
+            if self._loading_owner != owner:
+                controls.add(owner, key, factory, priority, order)
+
+    def detach_tile(self, tile):
+        self._tiles.discard(tile)
+        controls = getattr(tile, '_plugin_controls', None)
+        if controls is not None:
+            controls.shutdown()
+
+    def _remove_tile_owner(self, owner):
+        for key in tuple(self._tile_providers):
+            if key[0] == owner:
+                del self._tile_providers[key]
+        for tile in tuple(self._tiles):
+            tile._plugin_controls.remove_owner(owner)
 
     def active_skin(self):
         from .skins import plugin_skin

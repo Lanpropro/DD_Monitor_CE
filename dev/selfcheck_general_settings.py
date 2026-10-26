@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ["DDM_NO_SAVE"] = "1"
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtWidgets import QApplication, QLabel, QCheckBox
+from PySide6.QtCore import QCoreApplication, QEvent, SIGNAL
 from ddm import app as app_module, config
 from ddm.dialogs import CodecSettingsPanel, GeneralSettingsPage, SettingsDialog
 from dev.selfcheck_tile_fullscreen import SilentPoller
@@ -32,6 +33,27 @@ def check_volume_page_lifetime():
     finally:
         if gc_was_enabled:
             gc.enable()
+
+
+def check_settings_lifetime(app):
+    with patch('ddm.app.QTimer.singleShot'):
+        window = app_module.MainWindow([], [], layout_id='1x1', state={'plugins_enabled': []})
+    try:
+        layer = window.skin_controller.layer
+        receivers = layer.receivers(SIGNAL('frameReady()'))
+        for result in (SettingsDialog.Rejected, SettingsDialog.Accepted, SettingsDialog.Rejected):
+            def execute(dialog):
+                dialog.nav.setCurrentRow(1)
+                dialog.done(result)
+                return result
+            with patch.object(SettingsDialog, 'exec', execute):
+                assert window.open_settings() == (result == SettingsDialog.Accepted)
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+            assert not window.findChildren(SettingsDialog), '关闭设置后必须释放整棵页面控件'
+            assert layer.receivers(SIGNAL('frameReady()')) == receivers, '不能累积后台预览更新连接'
+    finally:
+        window.close()
 
 
 def check_codecs(app):
@@ -214,12 +236,14 @@ def main():
     assert [text for _, text in sorted(labels)] == [
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "全屏时自动收起底部控制条",
-        "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "开播提醒（顶部提示与关注栏动效）",
+        "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "显示关注栏平台 Logo",
         "编解码设置", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False
     assert values["freeze_watch"] is True and values["default_volume"] == 21
+    page._checks["sidebar_platform_logos"].setChecked(False)
+    assert page.values()["sidebar_platform_logos"] is False
     # 直播编码跟着解码方式走：两档都是「B 站这一路怎么播」的选择。
     assert values["bili_codec"] == config.DEFAULT_SETTINGS["bili_codec"]
     page._checks["sidebar_auto_compact"].setChecked(False)
@@ -267,6 +291,7 @@ def main():
     finally:
         window.close()
     check_volume_page_lifetime()
+    check_settings_lifetime(app)
     check_codecs(app)
     print("PASS: unified codec settings, per-window overrides, general settings and default volumes")
 

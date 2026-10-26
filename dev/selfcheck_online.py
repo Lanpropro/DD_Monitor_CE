@@ -85,13 +85,55 @@ def main():
                 'url': f'https://github.com/{online.APP_REPOSITORY}/releases/download/v0.3.2/DD监控室CE-v0.3.2-exe.zip',
                 'size': 3, 'sha256': hashlib.sha256(b'zip').hexdigest(), 'notes': 'manifest update'}
     with patch.object(online, 'latest_manifest', return_value=manifest):
-        assert online.app_release(Client([]), '0.3')['version'] == '0.3.2'
+        edited = {'tag_name': 'v0.3.2', 'body': '# Edited after publication\n'}
+        current = online.app_release(Client([Response(payload=edited)]), '0.3')
+        assert current['version'] == '0.3.2' and current['notes'] == edited['body']
+        assert current['sha256'] == manifest['sha256'] and current['url'] == manifest['url']
+        with patch.object(online, 'release_notes', side_effect=online.requests.HTTPError('rate limited')):
+            assert online.app_release(Client([]), '0.3')['notes'] == manifest['notes']
+        with patch.object(online, 'release_notes', side_effect=ValueError('invalid release')):
+            assert online.app_release(Client([]), '0.3')['notes'] == manifest['notes']
         assert online.app_release(Client([]), '0.3.2') is None
     with patch.object(online, 'latest_manifest', return_value=None), \
             patch.object(online, 'releases', side_effect=online.requests.HTTPError('rate limited')):
         fallback = online.plugin_catalog(Client([]), '0.3')
-        assert len(fallback) == 3
+        assert len(fallback) == 4
         assert all(offer.get('cached') for offer in fallback if offer['available'])
+    bili_entry = {'id': 'bili_live', 'name': 'B站直播互动', 'description': '互动',
+                  'version': '1.0', 'min_app_version': '0.5.1', 'author': 'reon-nynes',
+                  'asset_name': 'bili_live-1.0.zip', 'url': asset('bili_live-1.0.zip')['browser_download_url'],
+                  'size': 3, 'sha256': hashlib.sha256(b'zip').hexdigest()}
+    with patch.object(online, 'latest_manifest', return_value={'plugins': [bili_entry]}):
+        bili = online.plugin_catalog(Client([Response(payload=[])]), '0.5.1')[0]
+        assert bili['id'] == 'bili_live' and bili['available'] and bili['author'] == 'reon-nynes'
+    # A valid but stale latest manifest must not hide a newer independent release.
+    newer = {'tag_name': 'bili-live-v1.1', 'body': 'new interaction fixes',
+             'assets': [asset('bili_live-1.1.zip'), asset('bili_live-0.9.zip')]}
+    with patch.object(online, 'latest_manifest', return_value={'plugins': [bili_entry]}):
+        offers = online.plugin_catalog(Client([Response(payload=[newer])]), '0.5.1')
+        current = next(offer for offer in offers if offer['id'] == 'bili_live')
+        assert current['version'] == '1.1' and current['notes'] == 'new interaction fixes'
+    with patch.object(online, 'latest_manifest', return_value={'plugins': [bili_entry]}), \
+            patch.object(online, 'releases', side_effect=online.requests.HTTPError('offline')):
+        assert online.plugin_catalog(Client([]), '0.5.1')[0]['version'] == '1.0'
+        newer_cache = {'offers': [dict(current, min_app_version='0.5.1')]}
+        preserved = online.plugin_catalog(Client([]), '0.5.1', cache=newer_cache)[0]
+        assert preserved['version'] == '1.1' and preserved['cached'], 'offline refresh must not downgrade the cache'
+    from dev.tools.sync_release_notes import sync
+    with tempfile.TemporaryDirectory() as notes_root:
+        body = '# 在线修改后的说明\r\n\r\n- 更正内容\r\n'
+        release = {'tag_name': 'v0.5.1', 'body': body}
+        path, changed = sync(Client([Response(payload=release)]), notes_root, '0.5.1')
+        assert changed and path.read_text(encoding='utf-8') == body.replace('\r\n', '\n')
+        assert not sync(Client([Response(payload=release)]), notes_root, '0.5.1')[1]
+        before = path.read_bytes()
+        rejected(lambda: sync(Client([Response(payload={'tag_name': 'v0.5', 'body': body})]), notes_root, '0.5.1'))
+        assert path.read_bytes() == before
+    metadata_bili = json.dumps({'plugins': [bili_entry]}).encode()
+    entries = [{'assets': [asset('bili_live-1.0.zip'), asset('plugin-catalog.json', metadata_bili)]}]
+    offers_bili = online.plugin_catalog(Client([Response(payload=entries), Response(metadata_bili)]), '0.5.1')
+    bili = next(o for o in offers_bili if o['id'] == 'bili_live')
+    assert bili['available'] and bili['author'] == 'reon-nynes'
     metadata = json.dumps({'plugins': [{'id': 'global_live', 'min_app_version': '0.4',
                                        'notes': 'plugin-specific fixes'}]}).encode()
     releases = [{'tag_name': 'v1', 'assets': [asset('global_live-1.0.zip'), asset('plugin-catalog.json', metadata)]},

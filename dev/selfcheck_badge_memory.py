@@ -55,6 +55,9 @@ class BadgeMemoryTests(unittest.TestCase):
                 theme.apply(mode)
                 for _ in range(400):
                     for surface in surfaces:
+                        # Force a real upload even when the current renderer caches an unchanged surface.
+                        surface._last_alpha_state = None
+                        surface._alpha_uploaded = False
                         surface._paint_layered()
                         self.assertTrue(surface._alpha_uploaded, 'Native alpha upload failed')
             gc.collect()

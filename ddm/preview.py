@@ -1,4 +1,4 @@
-"""悬停预览：鼠标在关注列表的已开播直播间上停 1 秒，缩略图里直接放静音画面。
+"""悬停预览：鼠标在关注列表的已开播直播间上停 0.5 秒，缩略图里直接放静音画面。
 
 画面就播在该条目的缩略图（NavThumb）里，不再另开小窗；鼠标移开立刻收掉并释放播放器，
 不会一直占带宽和 CPU。
@@ -28,7 +28,8 @@ PREVIEW_MEDIA_OPTIONS = ("audio=no", "hwdec=no")
 class HoverPreview(QObject):
     """管悬停计时，并把预览发到对应条目的缩略图上。"""
 
-    DELAY_MS = 1000         # 停够 1 秒才播
+    DELAY_MS = 500          # 停够 0.5 秒才播
+    RESOLVE_DELAY_MS = 250  # 提前取流，快速划过时仍不发请求
     GRACE_MS = 120          # 移开后的宽限（手抖一下不立刻收）
 
     def __init__(self, sidebar, parent=None, *, platform_resolver=None):
@@ -41,6 +42,9 @@ class HoverPreview(QObject):
         self._resolver: StreamResolver | None = None
         self._resolvers_running = set()          # 包括已取消但还在请求中的线程
         self._generation = 0                    # 取流编号：旧编号的结果一律丢掉
+        self._ready_to_show = False
+        self._pending_result = None
+        self._pending_failure = None
         # 共用一个浮层预览。父控件挂**主窗口**（不是滚动视口）：视口会把自己裁掉，
         # 而横屏要往卡片右侧弹、竖屏要向下弹，都会越出视口范围。
         self._popup = QFrame(sidebar.window())
@@ -53,6 +57,7 @@ class HoverPreview(QObject):
         self._size_popup(CAROUSEL_WIDTH)
         self._popup.hide()
         self._popup_player: TilePlayer | None = None
+        self._popup_playing = False
         sidebar.scroll.horizontalScrollBar().valueChanged.connect(self._update_popup_position)
         # 横屏的列表是竖着滚的，不接上这一条，滚动时预览会停在原地
         sidebar.scroll.verticalScrollBar().valueChanged.connect(self._update_popup_position)
@@ -63,10 +68,17 @@ class HoverPreview(QObject):
         self._delay.setSingleShot(True)
         self._delay.setInterval(self.DELAY_MS)
         self._delay.timeout.connect(self._show_now)
+        self._resolve_delay = QTimer(self)
+        self._resolve_delay.setSingleShot(True)
+        self._resolve_delay.setInterval(self.RESOLVE_DELAY_MS)
+        self._resolve_delay.timeout.connect(self._begin_resolve)
         self._grace = QTimer(self)
         self._grace.setSingleShot(True)
         self._grace.setInterval(self.GRACE_MS)
         self._grace.timeout.connect(self._stop_now)
+        self._hover_watch = QTimer(self)
+        self._hover_watch.setInterval(50)
+        self._hover_watch.timeout.connect(self._check_hover)
 
     # ---- 悬停事件 ----
     def on_hover(self, room: dict) -> None:
@@ -80,17 +92,45 @@ class HoverPreview(QObject):
                 return                          # 原生视频窗口引起重复进入时继续播放，不重新取流
             self._stop_now()                    # 换到别人身上了：旧预览立刻收掉
         self._room = room
+        self._hover_watch.start()
         self._delay.start()
+        self._resolve_delay.start()
 
     def on_unhover(self, room: dict) -> None:
         if str(room.get("room_id") or "") != self._room_id():
             return                              # 已经换到别的条目上了
         self._delay.stop()
+        self._resolve_delay.stop()
         if self._item is not None:
-            self._grace.start()                 # 手抖一下不立刻收
+            if self._ready_to_show:
+                self._grace.start()             # 手抖一下不立刻收
+            else:
+                self._stop_now()
 
     # ---- 起播 / 收掉 ----
     def _show_now(self) -> None:
+        item = self._item or self._item_of(self._room)
+        if item is None or not self._cursor_on_item(item):
+            self.cancel()
+            return
+        self._ready_to_show = True
+        item = self._item
+        if item is not None:
+            try:
+                item.thumb.set_hint("连接中…")
+            except RuntimeError:
+                self._stop_now()
+                return
+        if self._pending_result is not None:
+            result = self._pending_result
+            self._pending_result = None
+            self._on_resolved(*result[:-1], headers=result[-1])
+        elif self._pending_failure is not None:
+            failure = self._pending_failure
+            self._pending_failure = None
+            self._on_failed(*failure)
+
+    def _begin_resolve(self) -> None:
         room = self._room
         if (not self.enabled or self.sidebar.select_mode or
                 not room.get("room_id") or not room.get("live")):
@@ -102,13 +142,12 @@ class HoverPreview(QObject):
         item = self._item_of(room)
         if item is None:
             return
+        if not self._cursor_on_item(item):
+            self.cancel()
+            return
         self._stop_now()                        # 顺带把编号推进一格
         self._item = item
-        try:
-            item.thumb.set_hint("连接中…")
-        except RuntimeError:                    # 条目已经被删掉
-            self._item = None
-            return
+        self._hover_watch.start()
         print(f"[预览] {room.get('uname')} → 缩略图", file=sys.stderr, flush=True)
         generation = self._generation
         kwargs = {"platform": platform, "preview": True} if platform is not None else {}
@@ -125,16 +164,34 @@ class HoverPreview(QObject):
         self._resolver = resolver
         self._resolvers_running.add(resolver)
         resolver.start()
+        # 取流在线程中进行；同时创建 mpv 核心，避免 URL 返回后才初始化播放器。
+        try:
+            if self._needs_popup():
+                if self._popup_player is None:
+                    self._popup_player = TilePlayer(self._popup_video, self, silent=True)
+                    self._popup_player.freeze_watch = False
+                self._popup_player.bind()
+            else:
+                item.thumb.prepare_preview()
+        except RuntimeError:
+            self._stop_now()
 
     def _on_resolved(self, generation: int, room_id: str, url: str, quality: int,
                      profile: str, options: list | None, *, headers=None) -> None:
         if generation != self._generation:
             return                              # 这次取流已经作废
+        if not self._ready_to_show:
+            self._pending_result = (generation, room_id, url, quality, profile,
+                                    options, headers)
+            return
         item = self._item
         if item is None or str(item.room.get("room_id")) != str(room_id):
             return
         if self._item_of(item.room) is not item:
             self._stop_now()
+            return
+        if not self._cursor_on_item(item):
+            self.cancel()
             return
         try:
             anchor = self._anchor_of(item)
@@ -156,6 +213,7 @@ class HoverPreview(QObject):
                 if not self._popup.testAttribute(Qt.WA_NativeWindow):
                     self._popup.setAttribute(Qt.WA_NativeWindow, True)
                 self._popup.raise_()
+                self._popup_playing = True
                 self._popup_player.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
             else:
                 item.thumb.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
@@ -225,10 +283,33 @@ class HoverPreview(QObject):
         """
         try:
             anchor = self._anchor_of(item)
+            viewport = (self.sidebar._head_scroll.viewport()
+                        if self.sidebar.side == "top" and self.sidebar.collapsed
+                        else self.sidebar.scroll.viewport())
+            pointer = QCursor.pos()
             return (anchor is not None and anchor.isVisible()
-                    and anchor.rect().contains(anchor.mapFromGlobal(QCursor.pos())))
+                    and viewport.isVisible()
+                    and viewport.rect().contains(viewport.mapFromGlobal(pointer))
+                    and anchor.rect().contains(anchor.mapFromGlobal(pointer)))
         except RuntimeError:                    # 条目已经被删掉
             return False
+
+    def _check_hover(self) -> None:
+        # Native video children may swallow Leave. Verify pending and playing previews.
+        if self._item is None and not self._hover_watch.isActive():
+            return
+        item = self._item or self._item_of(self._room)
+        if item is not None and self._cursor_on_item(item):
+            self._grace.stop()
+            item._set_hovered(True)
+            return
+        if item is not None:
+            item._set_hovered(False)
+        if self._ready_to_show:
+            if not self._grace.isActive():
+                self._grace.start()
+        else:
+            self.cancel()
 
     def _update_popup_position(self) -> None:
         """列表滚动时浮层跟着挪；卡片被滚出指针底下就收掉。
@@ -237,16 +318,20 @@ class HoverPreview(QObject):
         软件上下边缘贴着 —— 因为 `_place_popup()` 末尾那句 clamp 会把已经跑到视口
         外的条目硬夹回边界。指针底下已经不是这张卡片了，这里该收掉。
         """
+        self._check_hover()
         item = self._item
         if item is None or not self._popup.isVisible():
             return
         if not self._cursor_on_item(item):
-            self._stop_now()
+            self.cancel()
             return
         self._place_popup(item)
 
     def _on_failed(self, generation: int, room_id: str, reason: str) -> None:
         if generation != self._generation:
+            return
+        if not self._ready_to_show:
+            self._pending_failure = (generation, room_id, reason)
             return
         print(f"[预览取流失败] {room_id}: {reason}", file=sys.stderr, flush=True)
         item = self._item
@@ -268,6 +353,10 @@ class HoverPreview(QObject):
         （QThread.terminate）会带走线程本地存储和锁，主线程之后可能整个卡死。
         """
         self._generation += 1                   # 之前那次的结果从此一律作废
+        self._hover_watch.stop()
+        self._ready_to_show = False
+        self._pending_result = None
+        self._pending_failure = None
         resolver = self._resolver
         self._resolver = None
         if resolver is not None:
@@ -278,8 +367,10 @@ class HoverPreview(QObject):
         item = self._item
         self._item = None
         self._popup.hide()
-        if self._popup_player is not None:
-            self._popup_player.stop()
+        if self._popup_player is not None and self._popup_playing:
+            self._popup_playing = False
+            # One shared popup can reuse one idle core; per-card players still release theirs.
+            self._popup_player.stop(keep_core=True)
         if item is None:
             return
         try:
@@ -290,6 +381,7 @@ class HoverPreview(QObject):
     def cancel(self) -> None:
         """切换侧栏形态时收掉预览，但保留播放器供下一次悬停复用。"""
         self._delay.stop()
+        self._resolve_delay.stop()
         self._grace.stop()
         self._room = {}
         self._stop_now()

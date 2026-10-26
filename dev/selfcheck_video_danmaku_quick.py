@@ -1,4 +1,4 @@
-"""Windows Quick integration check; use --visible for desktop pixel checks."""
+"""Windows Quick checks; --surface-only covers monitors/fullscreen in a visible test window."""
 import ctypes
 from ctypes import wintypes
 import os
@@ -14,11 +14,12 @@ os.environ["DDM_QTQUICK_DANMAKU"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor, QCursor, QPixmap
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QCursor, QPixmap, QRegion
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
 from ddm import config, theme
+from ddm.auto_quality import AUTO_QUALITY
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
@@ -33,7 +34,7 @@ def settle(app, seconds=0.15):
 
 
 def capture(tile):
-    point = tile.video.mapToGlobal(QPoint())
+    point = tile.video.mapToGlobal(QPoint()) - tile.screen().geometry().topLeft()
     return tile.screen().grabWindow(0, point.x(), point.y(),
                                     tile.video.width(), tile.video.height()).toImage()
 
@@ -50,25 +51,264 @@ def brightest_text(image, tile):
                for x in range(left, min(image.width(), left + width)))
 
 
+def check_screen_surfaces(app, window, layer, players):
+    target = window.wall.tiles[0]
+    handles = {tile: int(tile.video.winId()) for tile in window.wall.tiles}
+    main_handle = int(window.winId())
+    groups = dict(layer.groups)
+    items = {key: record for key, record in layer.items.items()
+             if record["group"] == target.video_danmaku._quick_group}
+    before = [float(player._prop("time-pos", 0) or 0) for player in players]
+    target.quality = AUTO_QUALITY  # Keep the synthetic video source in fullscreen.
+    screens = app.screens()
+    for screen in screens + screens[:1]:
+        area = screen.availableGeometry()
+        window._begin_interactive_resize()
+        window.showNormal()
+        window.setGeometry(area.x() + 30, area.y() + 30,
+                           min(1100, area.width() - 60), min(700, area.height() - 60))
+        window._finish_interactive_resize()
+        window.activateWindow()
+        settle(app, .5)
+        assert window.screen() is screen, "Test window must reach the selected monitor"
+        window.showMaximized()
+        settle(app, .6)
+        assert not layer._surface_dirty
+        assert layer.window.parent() is None
+        assert layer.window.position() == window.wall.mapToGlobal(QPoint())
+        assert layer.window.size() == window.wall.size()
+        desktop = capture(target)
+        pixel = desktop.pixelColor(desktop.width() * 3 // 4, desktop.height() // 2)
+        assert pixel.blue() > 180 and pixel.red() < 50, ("Maximized video hidden", screen.name(), pixel.name())
+        print("maximized desktop video:", screen.name(), pixel.name())
+        window.showNormal()
+        settle(app, .4)
+        for fullscreen in (True, False):
+            if fullscreen:
+                window._on_fullscreen(target)
+            else:
+                window._exit_fullscreen()
+            window._clear_fullscreen_cover()
+            target.set_controls_visible(True)
+            target._controls_hide_timer.stop()
+            settle(app, .6)
+            assert not layer._surface_dirty and not layer._surface_reset.isActive()
+            assert int(window.winId()) == main_handle
+            assert all(tile in window.wall.tiles and int(tile.video.winId()) == handle
+                       for tile, handle in handles.items())
+            assert all(layer.groups.get(key) is group for key, group in groups.items())
+            assert all(layer.items.get(key) is record for key, record in items.items()), \
+                "Visible tile must retain its comment objects; hidden tiles may clear theirs"
+            # Fullscreen changes mask geometry; every group must retain its source.
+            assert all(layer.groups[record["group"]].property("maskLoaded")
+                       for record in layer.items.values())
+            assert all(record["item"].property("imageLoaded") for record in layer.items.values())
+            image = layer.window.grabWindow()
+            assert not image.isNull(), "Restored Quick surface must render"
+            pixel = image.pixelColor(image.width() * 3 // 4, image.height() * 3 // 4)
+            assert pixel.alpha() == 0, "Empty Quick surface must remain transparent"
+            if int(ctypes.windll.user32.GetForegroundWindow()) == main_handle:
+                desktop = capture(target)
+                pixel = desktop.pixelColor(desktop.width() * 3 // 4, desktop.height() // 2)
+                assert pixel.blue() > 180 and pixel.red() < 50, \
+                    "Cross-screen fullscreen must show blue video underneath danmaku"
+                print("desktop video visible:", screen.name(), fullscreen, pixel.name())
+            print("surface recovered:", screen.name(), "DPR", screen.devicePixelRatio(),
+                  "fullscreen", fullscreen, "alpha", image.hasAlphaChannel())
+        window.showMaximized()
+        settle(app, .4)
+    assert all(float(player._prop("time-pos", 0) or 0) > old
+               for player, old in zip(players, before)), "All local players must continue"
+    print("Cross-screen/fullscreen surface, alpha, textures and stable video HWNDs: PASS")
+
+
+def check_native_occlusion(app, owner, layer):
+    foreground = int(ctypes.windll.user32.GetForegroundWindow())
+    origin = layer.parent.mapToGlobal(QPoint())
+    dialog = QDialog(owner)
+    notice = QWidget(owner, Qt.Tool | Qt.WindowDoesNotAcceptFocus)
+    try:
+        for widget in (dialog, notice):
+            widget.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            widget.setAttribute(Qt.WA_ShowWithoutActivating)
+            widget.setGeometry(origin.x() + 40, origin.y() + 40, 200, 120)
+            widget.show()
+            settle(app)
+            point = widget.mapToGlobal(widget.rect().center()) - origin
+            assert layer.parent.rect().contains(point), ('Dialog fixture outside wall', point, widget.geometry())
+            assert not layer.window.mask().contains(point), 'Native overlay covers application UI'
+            widget.move(origin.x() + 350, origin.y() + 200)
+            settle(app)
+            assert layer.window.mask().contains(point), 'Moving UI must restore old danmaku area'
+            moved = widget.mapToGlobal(widget.rect().center()) - origin
+            assert not layer.window.mask().contains(moved)
+            widget.hide()
+            settle(app)
+            assert layer.window.mask().contains(moved), 'Closing UI must restore danmaku'
+        assert int(ctypes.windll.user32.GetForegroundWindow()) == foreground, 'Background check stole focus'
+    finally:
+        dialog.close()
+        notice.close()
+def check_raster_fallback(app):
+    from ddm.video_danmaku import VideoDanmaku
+
+    owner = QWidget()
+    owner.setAttribute(Qt.WA_ShowWithoutActivating)
+    owner.setGeometry(-25000, -25000, 400, 240)
+    with patch.dict(os.environ, {'DDM_QTQUICK_DANMAKU': '0'}):
+        overlay = VideoDanmaku(owner)
+    try:
+        overlay.setGeometry(owner.rect())
+        region = QRegion(owner.rect())
+        overlay.setMask(region)
+        overlay.set_enabled(True)
+        overlay.set_active(True)
+        owner.show()
+        settle(app, .05)
+        assert not overlay._quick_requested and overlay.mask() == region
+        user32 = ctypes.windll.user32
+        user32.GetLayeredWindowAttributes.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
+                                                    ctypes.POINTER(wintypes.BYTE), ctypes.POINTER(wintypes.DWORD)]
+        key, alpha, flags = wintypes.DWORD(), wintypes.BYTE(), wintypes.DWORD()
+        assert user32.GetLayeredWindowAttributes(int(overlay.winId()), ctypes.byref(key),
+                                               ctypes.byref(alpha), ctypes.byref(flags))
+        assert flags.value & 1 and not overlay.mask().intersected(overlay.rect()).isEmpty(), \
+            'Raster fallback must keep its visible color-key canvas'
+    finally:
+        owner.close()
+
+
+def check_quick_controller_surface(tile):
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    user32.GetWindowRgn.argtypes = [wintypes.HWND, wintypes.HANDLE]
+    gdi32.CreateRectRgn.argtypes = [ctypes.c_int] * 4
+    gdi32.CreateRectRgn.restype = wintypes.HANDLE
+    gdi32.DeleteObject.argtypes = [wintypes.HANDLE]
+    gdi32.CombineRgn.argtypes = [wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.c_int]
+    user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    region = gdi32.CreateRectRgn(0, 0, 0, 0)
+    client_region = None
+    try:
+        overlay = tile.video_danmaku
+        assert overlay._quick_requested
+        assert overlay._quick_video_mask == tile.video.mask(), 'Quick logical clipping must retain video corners'
+        assert overlay.mask().intersected(overlay.rect()).isEmpty(), 'Qt canvas clipping must exclude its client area'
+        hwnd = int(overlay.winId())
+        assert user32.GetWindowRgn(hwnd, region)
+        bounds = wintypes.RECT()
+        assert user32.GetClientRect(hwnd, ctypes.byref(bounds))
+        client_region = gdi32.CreateRectRgn(0, 0, bounds.right, bounds.bottom)
+        assert gdi32.CombineRgn(region, region, client_region, 1) == 1, \
+            'Quick mode must not expose a second native raster canvas over the video and badges'
+    finally:
+        gdi32.DeleteObject(region)
+        if client_region:
+            gdi32.DeleteObject(client_region)
+
+
+def check_quick_toggle_badges(tile):
+    visible = tile._overlay_visible
+    tile.set_controls_visible(True)
+    badges = (tile.stream_badge, tile.title_badge, tile.controls)
+    images = [badge.grab().toImage() for badge in badges]
+    try:
+        for _ in range(3):
+            tile.video_danmaku.set_enabled(False)
+            tile.video_danmaku.set_enabled(True)
+            check_quick_controller_surface(tile)
+            assert images == [badge.grab().toImage() for badge in badges], \
+                'Opening Quick danmaku must not darken badge backgrounds or lose caption glyphs'
+    finally:
+        tile.set_controls_visible(visible)
+
+
+def check_native_swap_submission(app, owner, layer):
+    tiles = list(owner.wall.tiles)
+    by_group = {tile.video_danmaku._quick_group: tile for tile in tiles}
+    handles = {tile: int(tile.video.winId()) for tile in tiles}
+    textures = {key: (record['item'], record['key']) for key, record in layer.items.items()}
+    first = tiles[0]
+    overlay_visible = first._overlay_visible
+    first.set_controls_visible(True)
+    first._control_hover_timer.stop()
+    first._controls_hide_timer.stop()
+    settle(app)
+    caption_images = [badge.grab().toImage() for badge in (first.stream_badge, first.title_badge)]
+    submitted = []
+    original = layer.set_group_geometry
+    user32 = ctypes.windll.user32
+    user32.MapWindowPoints.argtypes = [wintypes.HWND, wintypes.HWND,
+                                      ctypes.POINTER(wintypes.POINT), wintypes.UINT]
+
+    def submit(identifier, x, y, width, height):
+        tile = by_group[identifier]
+        native = wintypes.POINT()
+        user32.MapWindowPoints(handles[tile], int(owner.wall.winId()), ctypes.byref(native), 1)
+        scale = owner.wall.devicePixelRatioF()
+        assert abs(native.x - x * scale) <= 1 and abs(native.y - y * scale) <= 1, \
+            'Quick geometry must match the already-moved native video HWND'
+        original(identifier, x, y, width, height)
+        submitted.append(identifier)
+
+    try:
+        with patch.object(layer, 'set_group_geometry', side_effect=submit), \
+                patch('ddm.widgets.QCursor.pos', side_effect=lambda: first.mapToGlobal(first.rect().center())), \
+                patch.object(first.stream_badge, 'repaint', wraps=first.stream_badge.repaint) as live_repaint, \
+                patch.object(first.title_badge, 'repaint', wraps=first.title_badge.repaint) as title_repaint:
+            owner.wall.tiles[0], owner.wall.tiles[1] = tiles[1], tiles[0]
+            owner.wall.relayout(force=True)
+            time.sleep(0.12)
+            assert not submitted, 'A stalled GUI must not submit Quick positions inside native moves'
+            for tile in tiles[:2]:
+                group = layer.groups[tile.video_danmaku._quick_group]
+                old_centre = QPoint(int(group.x() + group.width() / 2), int(group.y() + group.height() / 2))
+                mask = layer.window.mask()
+                assert not mask.isEmpty() and not mask.contains(old_centre), \
+                    'Native mask must hide old-position textures during GUI stalls'
+            unchanged = layer.groups[tiles[2].video_danmaku._quick_group]
+            assert layer.window.mask().contains(QPoint(int(unchanged.x() + unchanged.width() / 2),
+                                                      int(unchanged.y() + unchanged.height() / 2)))
+            settle(app)
+            assert {tiles[0].video_danmaku._quick_group,
+                    tiles[1].video_danmaku._quick_group} <= set(submitted)
+            assert not layer.window._move_regions, 'Fresh frames must restore all moved groups'
+            assert live_repaint.called and title_repaint.called, 'Moved captions must request a fresh native repaint'
+            assert caption_images == [badge.grab().toImage() for badge in (first.stream_badge, first.title_badge)], \
+                'Caption glyphs and backgrounds must remain intact after native moves'
+    finally:
+        first.set_controls_visible(overlay_visible)
+        owner.wall.tiles[:] = tiles
+        owner.wall.relayout(force=True)
+        settle(app)
+    assert all(int(tile.video.winId()) == handle for tile, handle in handles.items())
+    assert textures == {key: (record['item'], record['key']) for key, record in layer.items.items()}
+    print('Native video HWND geometry before coalesced Quick swap submission: PASS')
+
+
 def main():
-    visible = "--visible" in sys.argv
+    visible = "--visible" in sys.argv or "--surface-only" in sys.argv
     app = QApplication(sys.argv)
     if app.platformName() != "windows":
         print("跳过：需要 Windows 原生窗口")
         return
     app.setStyleSheet(theme.qss())
+    check_raster_fallback(app)
     rooms = [{"room_id": str(1000 + i), "uname": f"本地视频 {i}", "live": True}
              for i in range(4)]
     with tempfile.TemporaryDirectory(prefix="ddm-video-dm-quick-") as temp, \
             patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
-            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
+            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
+            patch("ddm.plugins.PluginManager.load"), patch("ddm.plugins.PluginManager.catalog", return_value=[]), \
+            patch("ddm.online.load_plugin_cache", return_value={}):
         source = str(Path(temp) / "blue.mp4")
         subprocess.run([ffmpeg_path(), "-y", "-hide_banner", "-loglevel", "error",
                         "-f", "lavfi", "-i", "color=c=blue:s=640x360:r=30",
                         "-t", "30", "-c:v", "libx264", "-preset", "ultrafast",
                         "-pix_fmt", "yuv420p", source], check=True)
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2",
-                            state={"plugins_enabled": []})
+                            state={"plugins_enabled": [], "settings": {"auto_update": False}})
+        if "--surface-only" in sys.argv:
+            window.setWindowFlag(Qt.WindowStaysOnTopHint)
         window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)
         window.setGeometry(40 if visible else -20000, 60 if visible else -20000, 1200, 800)
         window.show()
@@ -91,6 +331,8 @@ def main():
                 player.play(source)
                 tile.set_video_active(True)
                 tile.danmaku_button.setChecked(True)
+                check_quick_controller_surface(tile)
+                check_quick_toggle_badges(tile)
             settle(app, 2)
             assert all(float(player._prop("time-pos", 0) or 0) > 0
                        for player in players), "本地 libmpv 测试视频必须持续播放"
@@ -127,13 +369,28 @@ def main():
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
+            check_native_swap_submission(app, window, layer)
+            for tile in window.wall.tiles:
+                tile._round_video()
+                check_quick_controller_surface(tile)
             assert all(layer.groups[tile.video_danmaku._quick_group].property("maskImage").scheme() == "image"
                        for tile in window.wall.tiles), "共享组必须获得控件/圆角遮罩纹理"
+            if "--surface-only" in sys.argv:
+                check_screen_surfaces(app, window, layer, players)
+                return
+            assert layer.window.parent() is None, "Quick overlay must not use a native child swap chain"
+            assert layer.window.transientParent() is window.windowHandle()
+            assert layer.window.flags() & Qt.WindowDoesNotAcceptFocus
+            check_native_occlusion(app, window, layer)
+            assert not user32.GetWindowLongW(int(layer.window.winId()), -16) & 0x40000000, \
+                "Cross-monitor danmaku must not use WS_CHILD"
             frames = []
             layer.window.frameSwapped.connect(lambda: frames.append(time.perf_counter_ns()))
             for tile in window.wall.tiles:
                 tile.video_danmaku.set_paused(False)
-            settle(app, 0.3)
+            deadline = time.monotonic() + 2
+            while len(frames) <= 10 and time.monotonic() < deadline:
+                settle(app, 0.05)
             assert len(frames) > 10, f"有滚动弹幕时 Quick 必须连续提交帧：{len(frames)} 帧"
             for tile in window.wall.tiles:
                 tile.video_danmaku.set_paused(True)
@@ -169,6 +426,40 @@ def main():
                                          round(control_point.y() * scale)).alpha() == 0, \
                 "Quick 遮罩必须给视频控制浮层留透明区域"
 
+            # Read the Quick framebuffer, without sampling or activating the desktop.
+            overlay = target.video_danmaku
+            comment = overlay.comments[0]
+            comment.x = max(0, control_origin.x() - 40)
+            comment.lane = 0
+            layer.move(comment.render_id, comment.x, 0)
+            target.set_controls_visible(False)
+            settle(app)
+            group = layer.groups[overlay._quick_group]
+            frame = layer.window.grabWindow()
+            assert not frame.isNull(), "必须能读取 Quick 渲染帧"
+            frame_scale = frame.devicePixelRatioF()
+            area = QRect(round((group.x() + comment.x) * frame_scale),
+                         round(group.y() * frame_scale),
+                         round((overlay.width() - comment.x) * frame_scale),
+                         round(overlay.lane_height() * frame_scale))
+            baseline = frame.copy(area)
+            assert any(baseline.pixelColor(x, y).alpha() > 100
+                       for y in range(baseline.height()) for x in range(baseline.width()))
+            image_key, render_id = comment.image.cacheKey(), comment.render_id
+            for _ in range(3):
+                target.set_controls_visible(True)
+                settle(app)
+                assert layer.window.grabWindow().copy(area) != baseline, \
+                    "显示按钮时应只遮住按钮位置的弹幕"
+                target.set_controls_visible(False)
+                settle(app)
+                assert layer.window.grabWindow().copy(area) == baseline, \
+                    "收起悬浮条后原有弹幕必须完整恢复，不能保留截断"
+                assert comment.image.cacheKey() == image_key and comment.render_id == render_id
+            comment.x, comment.lane = 36, 2
+            layer.move(comment.render_id, comment.x, comment.lane * overlay.lane_height())
+            print("Quick framebuffer: hover occlusion restores the same comment texture after repeated hide/show")
+
             overlay = target.video_danmaku
             comment = overlay.comments[0]
             colors = [comment.image.toImage().pixelColor(x, y)
@@ -194,6 +485,19 @@ def main():
             overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=20))
             assert abs(layer.groups[overlay._quick_group].opacity() - .2) < .001
             overlay.apply_settings(dict(overlay.settings, video_danmaku_opacity=100))
+
+            for width in (1, 6):
+                overlay.apply_settings(dict(overlay.settings, video_danmaku_outline_width=width))
+                settle(app)
+                assert all(record["item"].property("imageLoaded")
+                           for record in layer.items.values())
+                image = comment.image.toImage()
+                assert any(image.pixelColor(x, y).alpha() > 220 and
+                           max(image.pixelColor(x, y).red(), image.pixelColor(x, y).green(),
+                               image.pixelColor(x, y).blue()) < 15
+                           for y in range(image.height()) for x in range(image.width())), \
+                    "开启描边后 Quick 贴图必须含有黑色边缘"
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_outline_width=0))
 
             user32.WindowFromPoint.argtypes = [wintypes.POINT]
             user32.WindowFromPoint.restype = wintypes.HWND
@@ -270,6 +574,13 @@ def main():
             assert not late_frames, ("清空后的场景必须停止持续刷新；"
                                      f"总帧={len(frames)}，末帧延迟="
                                      f"{(frames[-1] - idle_start) / 1e6 if frames else None}ms")
+            assert not layer.window.isVisible(), "Clearing all comments must hide the shared window"
+            assert overlay.add_event({"text": "resume after empty scene"})
+            settle(app, .15)
+            assert layer.window.isVisible(), "A new comment must restore the overlay"
+            overlay.clear()
+            settle(app, .1)
+            assert not layer.window.isVisible()
             print("共享 Quick 窗口、D3D11、4 格纹理、不透明度状态、鼠标穿透样式、暂停/恢复、全屏圆角状态及空闲停刷：通过")
         finally:
             window.close()

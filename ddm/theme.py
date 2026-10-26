@@ -15,7 +15,7 @@ from functools import lru_cache
 from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
 
@@ -100,6 +100,16 @@ BORDER_STRONG = "rgba(255, 255, 255, 0.12)"
 
 FONT_DEFAULT = "Microsoft YaHei UI"
 FONT_FAMILY = f'"{FONT_DEFAULT}", "Microsoft YaHei", "Segoe UI", sans-serif'
+FONT_DANMAKU = "Source Han Sans SC"
+
+
+@lru_cache(maxsize=1)
+def danmaku_font_family() -> str:
+    """仅向当前应用注册内置弹幕字体，不依赖系统安装。"""
+    font_id = QFontDatabase.addApplicationFont(asset("fonts/SourceHanSansSC-Regular.otf"))
+    if font_id < 0:
+        raise RuntimeError("Cannot load bundled Source Han Sans SC font")
+    return FONT_DANMAKU
 
 FONT_CAPTION = 12
 FONT_CONTROL = 13
@@ -207,7 +217,7 @@ def refresh_theme_properties(widget):
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
     if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
-                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder',
+                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
                     'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
     if widget.property('appearanceLight') != _light:
@@ -398,6 +408,8 @@ def qss(palette_roles=False) -> str:
     badge_text = '#F1F2F5' if _light and not palette_roles else TEXT2
     cover_text = '#F1F2F5' if _light and not palette_roles else TEXT4
     hint_text = '#F1F2F5' if _light and not palette_roles else TEXT2
+    volume_dark = qcolor(_DARK['BG'])
+    volume_light = qcolor(_LIGHT['BG'])
     style = f"""
 QPushButton#AppearanceChoice {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
@@ -573,6 +585,9 @@ QSlider::handle:horizontal:hover {{
 #SettingsStack, #SettingsPage {{
     background: transparent;
 }}
+#SettingsStack[embeddedSettings="true"] {{
+    background: {BG};
+}}
 #SettingsTitle {{
     font-size: {FONT_HEADING}px;
     font-weight: 700;
@@ -580,6 +595,25 @@ QSlider::handle:horizontal:hover {{
 #SettingsHint {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
+}}
+#NotificationSettingsGroup {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
+#NotificationSettingsHeading {{
+    color: {TEXT2};
+    font-weight: 600;
+}}
+#NotificationSettingsState {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+    padding: 3px 6px;
+    background: {BG};
+    border-radius: 6px;
+}}
+#NotificationSettingsDivider {{
+    background: {BORDER};
 }}
 #PluginCard {{
     background: transparent;
@@ -620,9 +654,46 @@ QSlider::handle:horizontal:hover {{
     background: transparent;
     border: none;
 }}
+#NotificationCenter, #NotificationScroll, #NotificationViewport, #NotificationList {{
+    background: transparent;
+    border: none;
+}}
+#HistoryNotice {{
+    background: {ELEVATED};
+    border: 1px solid rgba(131, 131, 145, 0.31);
+    border-radius: {RADIUS_LG}px;
+}}
+#HistoryNotice #NoticeHeading {{color: {TEXT1}; font-weight: 600;}}
+#HistoryNotice #NoticeText {{color: {TEXT2}; font-weight: 400;}}
+#HistoryNotice #NoticeDescription {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
+#HistoryNotice #NoticeIcon {{
+    color: {ACCENT}; background: {ACCENT_SOFT}; border-radius: {RADIUS_MD}px; font-weight: 600;
+}}
+#HistoryNotice #PrimaryButton {{
+    padding: 5px 14px; min-height: 22px; border-radius: {RADIUS_MD}px;
+}}
 #NoticeText {{
+    color: {TEXT2};
+    font-weight: 400;
+}}
+#NoticeHeading {{
     color: {TEXT1};
-    font-weight: 500;
+    font-weight: 600;
+}}
+#NoticeDescription {{
+    color: {TEXT3};
+    font-size: {FONT_CAPTION}px;
+}}
+#NoticeIcon {{
+    color: {ACCENT};
+    background: {ACCENT_SOFT};
+    border-radius: {RADIUS_MD}px;
+    font-weight: 600;
+}}
+#UpdateNotice #PrimaryButton {{
+    padding: 5px 14px;
+    min-height: 22px;
+    border-radius: {RADIUS_MD}px;
 }}
 #NoticeClose {{
     background: transparent;
@@ -1179,7 +1250,11 @@ QPushButton#PrimaryButton:pressed {{
     width: 4px; background: {BORDER_STRONG}; border-radius: 2px;
 }}
 #TileVolumePopup {{
-    background: {ELEVATED}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 4px;
+    background: rgba({volume_dark.red()}, {volume_dark.green()}, {volume_dark.blue()}, 0.84);
+    border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; padding: 2px;
+}}
+#TileVolumePopup[appearanceLight="true"] {{
+    background: rgba({volume_light.red()}, {volume_light.green()}, {volume_light.blue()}, 0.84);
 }}
 #TileVolumePopup QLabel {{
     background: transparent; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;
@@ -1387,21 +1462,23 @@ QScrollArea, QScrollArea > QWidget > QWidget {{
     background: transparent;
     border: none;
 }}
-QScrollBar:vertical {{
+QScrollBar:vertical, #NotificationCenter QScrollBar:vertical {{
     background: transparent;
     width: {SCROLLBAR_SIZE}px;
     margin: 2px 0;
 }}
-QScrollBar::handle:vertical {{
+QScrollBar::handle:vertical, #NotificationCenter QScrollBar::handle:vertical {{
     background: rgba(131, 131, 145, 0.35);
     border-radius: 4px;
     min-height: 32px;
 }}
-QScrollBar::handle:vertical:hover {{
+QScrollBar::handle:vertical:hover, #NotificationCenter QScrollBar::handle:vertical:hover {{
     background: rgba(131, 131, 145, 0.55);
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+#NotificationCenter QScrollBar::add-line:vertical, #NotificationCenter QScrollBar::sub-line:vertical,
+#NotificationCenter QScrollBar::add-page:vertical, #NotificationCenter QScrollBar::sub-page:vertical {{
     background: none;
     height: 0;
 }}

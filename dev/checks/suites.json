@@ -13,20 +13,40 @@
       "selfcheck_website_plan"
     ]
   },
+  "smoke": {
+    "mode": "offline",
+    "description": "轻量功能冒烟：设置、通知、布局、弹幕发送与插件接口；离屏、隔离数据",
+    "scripts": [
+      "selfcheck_general_settings",
+      "selfcheck_drag_lifecycle",
+      "selfcheck_player_lifetime",
+      "selfcheck_main_notices",
+      "selfcheck_notification_center",
+      "selfcheck_layout_16",
+      "selfcheck_bili_plugin_boundary",
+      "selfcheck_plugin_contract",
+      "selfcheck_frequent_sort"
+    ]
+  },
   "offline": {
     "mode": "offline",
     "description": "已核对的离屏功能回归；需要开发依赖，使用替身或本机测试服务",
     "scripts": [
+      "selfcheck_bili_plugin_boundary",
+      "selfcheck_plugin_controls",
+      "selfcheck_plugin_credentials",
+      "selfcheck_plugin_notices",
       "selfcheck_bili_cookies",
+      "selfcheck_legacy_cleanup",
+      "selfcheck_drag_lifecycle",
+      "selfcheck_player_lifetime",
       "selfcheck_danmaku_connection",
       "selfcheck_danmaku_room_switches",
-      "selfcheck_danmaku_send",
-      "selfcheck_danmaku_composer",
-      "selfcheck_emoticon_tabs",
       "selfcheck_general_settings",
       "selfcheck_bili_codec",
       "selfcheck_tile_bottom_order",
       "selfcheck_sort_manager",
+      "selfcheck_frequent_sort",
       "selfcheck_theme_latency",
       "selfcheck_brand_assets",
       "selfcheck_release_metadata",
@@ -35,7 +55,10 @@
       "selfcheck_folder_blank_menu",
       "selfcheck_folder_card_size",
       "selfcheck_follow_folders",
+      "selfcheck_preview_scroll",
+      "selfcheck_pinyin_search",
       "selfcheck_main_notices",
+      "selfcheck_notification_center",
       "selfcheck_fullscreen_controls",
       "selfcheck_layout_16",
       "selfcheck_layout_growth_empty",
@@ -46,7 +69,9 @@
       "selfcheck_sidebar_text_theme",
       "selfcheck_video_danmaku_controls",
       "selfcheck_video_danmaku",
-      "selfcheck_stream_recovery"
+      "selfcheck_stream_recovery",
+      "selfcheck_mobile_share",
+      "selfcheck_setup"
     ]
   },
   "native": {
@@ -54,7 +79,9 @@
     "description": "Windows 原生窗口与播放器；可能显示窗口或操作光标，需 libmpv",
     "scripts": [
       "selfcheck_badge_memory",
+      "selfcheck_account_login_reopen",
       "selfcheck_mpv",
+      "selfcheck_mpv_com_lifetime",
       "selfcheck_resize_surface",
       "selfcheck_resize_widgets",
       "selfcheck_window_resize",

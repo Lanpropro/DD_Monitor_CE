@@ -13,13 +13,114 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication, QFrame
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QTimer, Qt
+from PySide6.QtWidgets import QApplication, QFrame, QLabel
 from ddm import app as app_module, config, online, theme, update_install
-from ddm.dialogs import SettingsDialog
-from ddm.online_ui import OnlinePage
+from ddm.dialogs import PluginRemovePrompt, SettingsDialog
+from ddm.online_ui import OnlinePage, PluginStorePage
 from ddm.version import VERSION, VERSION_TAG
 from ddm.plugins import PluginManager, read_manifest
+
+
+def check_store_scroll(app, root):
+    from types import SimpleNamespace
+    entries = [dict(id=key, name=name, description=description, version='1.0', enabled=True,
+                    status='已加载', reason='') for key, (name, description) in online.KNOWN_PLUGINS.items()]
+    manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
+                              plugins_dir=str(root / 'scroll-plugins'), _removed=set())
+    offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))
+              for entry in entries]
+    with patch.object(PluginStorePage, 'open_catalog'):
+        dialog = SettingsDialog({}, {}, plugin_manager=manager)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
+        dialog.plugin_page.tabs.setCurrentIndex(1)
+        store = dialog.plugin_page.store_page
+        store.offers = offers
+        store.show_offers(offers)
+        dialog.show()
+        app.processEvents()
+        scroll = dialog.plugin_page.tabs.widget(1)
+        bar = scroll.verticalScrollBar()
+        button = store.buttons[offers[1]['id']]
+        button.setFocus()
+        app.processEvents()
+        scroll.ensureWidgetVisible(button)
+        app.processEvents()
+        assert bar.maximum() > 500
+        task = SimpleNamespace(key=offers[1]['id'], percent=0)
+        def start(operation, callback, key=None):
+            store.jobs.append(task)
+            store.busyChanged.emit(True)
+        try:
+            with patch.object(store, 'start', start), patch('ddm.online_ui.show_result'):
+                QTest.mousePress(button, Qt.LeftButton)
+                app.processEvents()
+                before = bar.value()
+                QTest.mouseRelease(button, Qt.LeftButton)
+                app.processEvents()
+                assert bar.value() == before, ('Download start moved scroll', before, bar.value(), button.hasFocus(), app.focusWidget())
+                bar.setValue(min(bar.maximum(), before + 40))  # Reading another card during download remains possible.
+                before = bar.value()
+                with patch.object(store, 'sender', return_value=task):
+                    store._progress(50)
+                app.processEvents()
+                assert bar.value() == before, 'Download progress moved scroll'
+                store.jobs.clear()
+                store.busyChanged.emit(False)
+                store._installed((offers[1]['id'], False))
+                app.processEvents()
+                assert bar.value() == before, 'Install completion moved scroll'
+            page = dialog.plugin_page
+            plugin_id = entries[0]['id']
+            card = page.cards.itemAt(0).widget()
+            with patch.object(manager, 'remove_plugin', create=True) as remove:
+                def cancel(prompt):
+                    text = '\n'.join(label.text() for label in prompt.findChildren(QLabel))
+                    assert entries[0]['name'] in text and plugin_id not in text
+                    return PluginRemovePrompt.Rejected
+                with patch.object(PluginRemovePrompt, 'exec', cancel):
+                    page._remove(plugin_id, card)
+                remove.assert_not_called()
+                assert plugin_id in page.checks
+                with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
+                    page._remove(plugin_id, card)
+                remove.assert_called_once_with(plugin_id)
+                assert plugin_id not in page.checks
+        finally:
+            store.jobs.clear()
+            dialog.close()
+            dialog.deleteLater()
+            app.processEvents()
+
+
+def check_remove_prompt(app):
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        for action, result in (('cancel', PluginRemovePrompt.Rejected),
+                               ('escape', PluginRemovePrompt.Rejected),
+                               ('close', PluginRemovePrompt.Rejected),
+                               ('enter', PluginRemovePrompt.Rejected),
+                               ('delete', PluginRemovePrompt.Accepted)):
+            prompt = PluginRemovePrompt('国内直播平台')
+            assert prompt.minimumWidth() == 440
+            assert prompt.windowTitle() == '删除插件'
+            assert any('国内直播平台' in label.text() for label in prompt.findChildren(QLabel))
+            assert prompt.cancel_button.text() == '取消' and prompt.cancel_button.isDefault()
+            assert prompt.delete_button.text() == '删除'
+            assert prompt.cancel_button.objectName() == 'IconButton'
+            assert prompt.delete_button.objectName() == 'PrimaryButton'
+            if action in ('escape', 'enter'):
+                key = Qt.Key_Escape if action == 'escape' else Qt.Key_Return
+                QTimer.singleShot(0, lambda prompt=prompt, key=key: QTest.keyClick(prompt, key))
+            elif action == 'close':
+                QTimer.singleShot(0, prompt.close)
+            else:
+                button = prompt.cancel_button if action == 'cancel' else prompt.delete_button
+                QTimer.singleShot(0, button.click)
+            assert prompt.exec() == result
+            prompt.deleteLater()
+            app.processEvents()
+    theme.apply('dark')
 
 
 class Session:
@@ -39,12 +140,113 @@ def settle(app, page):
     assert not page.jobs, 'background operation must finish'
 
 
+def check_download_reopen(app, root):
+    from types import SimpleNamespace
+    for hosted in (False, True):
+        started, release = threading.Event(), threading.Event()
+        messages = []
+        with patch.object(app_module.QTimer, 'singleShot'):
+            window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+        if hosted:
+            window._settings_process = SimpleNamespace(_send=messages.append, stop=lambda: None)
+        plan = str(root / 'retained-update-plan.json')
+        offer = {'version': '9.0', 'notes': 'New release'}
+
+        def open_dialog():
+            if hosted:
+                window._settings_host_request({'kind': 'host-general', 'settings': window.settings,
+                                               'shortcuts': window.shortcuts})
+                dialog = window._settings_host.dialog
+            else:
+                dialog = window._create_settings_dialog()
+            dialog.nav.setCurrentRow(7)
+            return dialog
+
+        def close_dialog(dialog):
+            if hosted:
+                window._close_settings_host()
+            else:
+                dialog.reject()
+                dialog.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+
+        def download(_offer, destination, _client, cancelled, progress):
+            progress(25, 100)
+            started.set()
+            while not release.wait(.01):
+                if cancelled():
+                    raise InterruptedError('Download interrupted on settings close')
+            return str(destination)
+
+        try:
+            with patch.object(sys, 'frozen', True, create=True), \
+                    patch.object(online, 'session', return_value=Session()), \
+                    patch.object(online, 'download', side_effect=download) as downloading, \
+                    patch.object(update_install, 'prepare', return_value=plan), \
+                    patch.object(update_install, 'discard_plan') as discard:
+                first = open_dialog()
+                page = first.update_page
+                page._release_ready(offer)
+                page.action.click()
+                assert started.wait(2)
+                app.processEvents()
+                assert '25%' in page.status.text()
+                close_dialog(first)
+                assert not page.stopping and len(page.jobs) == 1, 'Closing settings must keep the download'
+                second = open_dialog()
+                assert second.update_page is page and '25%' in page.status.text()
+                assert not second.confirm_button.isEnabled(), 'Reopened settings must reflect the busy task'
+                assert not page.action.isEnabled()
+                close_dialog(second)
+                release.set()
+                settle(app, page)
+                assert page.plan_path == plan, 'Download must finish while settings is closed'
+                third = open_dialog()
+                assert third.update_page is page and page.action.text() == '重启并更新'
+                assert third.confirm_button.isEnabled()
+                downloading.assert_called_once()
+                discard.assert_not_called()
+                page.action.click()
+                assert page.install_requested
+                if hosted:
+                    assert sum(m['kind'] == 'host-request-save' for m in messages) == 1
+                    window._close_settings_host()
+                else:
+                    assert third.result() == SettingsDialog.Accepted
+                    third.deleteLater()
+        finally:
+            release.set()
+            window._close_settings_host()
+            window.close()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+    print('PASS: same download/progress and prepared update after closing/reopening normal and hosted settings')
+    with patch.object(app_module.QTimer, 'singleShot'):
+        window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+    page = window._get_update_page({})
+    started, interrupted = threading.Event(), threading.Event()
+    def wait_for_exit(cancelled, progress):
+        started.set()
+        while not cancelled():
+            time.sleep(.01)
+        interrupted.set()
+    page.start(wait_for_exit, lambda _result: None)
+    assert started.wait(2)
+    window.close()
+    settle(app, page)
+    assert interrupted.is_set() and page.stopping, 'Application exit must stop a hidden update task'
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
+    check_remove_prompt(app)
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
+        check_download_reopen(app, root)
+        check_store_scroll(app, root)
         (root / f'RELEASE-{VERSION_TAG}.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
         archive = root / 'plugin.zip'
         def write_package(version):
@@ -59,8 +261,8 @@ def main():
         manager._save_settings = lambda: saves.append(threading.get_ident())
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         dialog.show()
-        assert dialog.nav.item(6).text() == '软件更新'
-        dialog.nav.setCurrentRow(6)
+        assert dialog.nav.item(SettingsDialog.PAGE_INDEX['updates']).text() == '软件更新'
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['updates'])
         assert dialog.reset_button.isHidden()
         page = dialog.plugin_page.store_page
         offers = [{'id': 'global_live', 'name': '海外直播平台', 'description': 'Twitch / YouTube',
@@ -70,7 +272,7 @@ def main():
         with patch.object(online, 'session', return_value=Session()), \
                 patch.object(online, 'plugin_catalog', return_value=offers) as catalog, \
                 patch.object(online, 'download', return_value=str(archive)):
-            dialog.nav.setCurrentRow(5)
+            dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
             assert page.refresh.isHidden()
             dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, page)
@@ -117,11 +319,15 @@ def main():
             cached_dialog = SettingsDialog({}, {}, plugin_manager=manager)
             cached_dialog.show()
             count = catalog.call_count
-            cached_dialog.nav.setCurrentRow(5)
+            cached_dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
             cached_dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, cached_dialog.plugin_page.store_page)
-            assert catalog.call_count == count, 'reopening settings must reuse the persisted catalog'
+            assert catalog.call_count == count + 1, 'first store entry must revalidate the persisted catalog'
             assert cached_dialog.plugin_page.store_page.buttons['global_live'].text() == '待重启'
+            cached_dialog.plugin_page.tabs.setCurrentIndex(0)
+            cached_dialog.plugin_page.tabs.setCurrentIndex(1)
+            settle(app, cached_dialog.plugin_page.store_page)
+            assert catalog.call_count == count + 1, 'tab switching must not repeatedly query the network'
             cached_dialog.close()
         update = dialog.update_page
         assert update.auto.isEnabled() and not update.auto.isChecked()
@@ -179,6 +385,7 @@ def main():
             automatic._release_ready(None)
             assert not automatic.action.isEnabled() and automatic.action.text() == '已是最新版本'
             with patch.object(online, 'app_release', return_value=None), \
+                    patch.object(online, 'release_notes', side_effect=online.requests.HTTPError('offline')), \
                     patch.object(online, 'download') as download:
                 automatic.check.click()
                 settle(app, automatic)
@@ -187,6 +394,11 @@ def main():
                 assert automatic.auto.isEnabled() and not automatic.action.isEnabled()
                 assert automatic.action.text() == '已是最新版本'
                 download.assert_not_called()
+            with patch.object(online, 'app_release', return_value=None), \
+                    patch.object(online, 'release_notes', return_value='# 发布后修改的当前版本说明'):
+                automatic.check.click()
+                settle(app, automatic)
+                assert automatic.notes.toPlainText() == '发布后修改的当前版本说明'
             with patch.object(online, 'app_release', side_effect=OSError('offline')), \
                     patch.object(online, 'download') as download:
                 automatic.check.click()
@@ -254,6 +466,22 @@ def main():
         settle(app, standalone)
         assert not called
         standalone.close()
+        store = PluginStorePage(manager)
+        store.resize(600, 400)
+        credit_offer = {'id': 'bili_live', 'name': 'B站直播互动', 'description': '发送弹幕、表情和礼物',
+                        'version': '1.0', 'available': True, 'author': 'reon-nynes'}
+        store.show_offers([credit_offer])
+        store.show(); app.processEvents()
+        card = store.cards.itemAt(0).widget()
+        credit = card.findChild(QLabel, 'PluginAuthor')
+        assert credit is not None and credit.text() == '@reon-nynes'
+        assert credit.textFormat() == Qt.PlainText
+        where = credit.mapTo(card, QPoint(0, 0))
+        assert where.x() > card.width() / 2 and where.y() > card.height() / 2
+        assert card.rect().contains(credit.mapTo(card, credit.rect().bottomRight()))
+        store.show_offers([{k: v for k, v in credit_offer.items() if k != 'author'}])
+        assert store.cards.itemAt(0).widget().findChild(QLabel, 'PluginAuthor') is None
+        store.close()
     print('PASS: store install/update, UI-thread saves, independent software update, cancel, restart and recording shutdown')
 
 

@@ -23,6 +23,14 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 
 ## 第三方组件
 
+- pypinyin 0.55.0：关注栏与导入关注使用其词典进行全拼、首字母搜索，
+  上游 https://github.com/mozillazg/python-pinyin ，以 MIT 许可分发；
+  许可文本见 `ddm/assets/licenses/pypinyin-LICENSE.txt`。
+
+- Source Han Sans（思源黑体）：弹幕默认使用 Adobe 官方 2.005R 简体中文 Regular 字体，
+  以 SIL Open Font License 1.1 分发。原始字体位于 `ddm/assets/fonts/`，
+  版权与许可见 `ddm/assets/licenses/source-han-sans-LICENSE.txt`，
+  固定来源与 SHA256 见 `ddm/assets/licenses/source-han-sans-SOURCE.json`。
 - `blivedm/`：B 站直播弹幕协议库，上游 https://github.com/xfgryujk/blivedm 。
   这份是从原仓库带过来的，**仓库里没有附带它的许可文件**；如果以后要对外分发，需要补上上游的许可。
 - libmpv：随包提供 shinchiro 的 Windows x64 构建；固定版本、下载地址、DLL 和

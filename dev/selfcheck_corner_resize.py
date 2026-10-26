@@ -72,6 +72,10 @@ def check_geometry(wall, *, equal_small=False):
         border = wall._pane_borders[tile]
         assert border.isVisible()
         assert not border.mask().contains(border.rect().center())
+        assert not border.mask().contains(QPoint(0, 0)), "指示条不能越过圆角"
+        assert not border.mask().contains(QPoint(border.width() - 1, border.height() - 1))
+        inner = tile.bottom.geometry().adjusted(border.RADIUS, 3, -border.RADIUS, -3)
+        assert not border.mask().intersects(inner), "边框不能盖住底栏内容"
     if equal_small:
         assert abs(tiles[1].height() - tiles[2].height()) <= 1
         assert max(tile.width() for tile in tiles[3:]) - min(tile.width() for tile in tiles[3:]) <= 1

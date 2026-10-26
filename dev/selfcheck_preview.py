@@ -1,4 +1,4 @@
-"""自查：关注列表缩略图（封面）+ 悬停 1 秒在缩略图里放预览。不联网。"""
+"""自查：关注列表缩略图（封面）+ 悬停 0.5 秒在缩略图里放预览。不联网。"""
 import io
 import os
 import sys
@@ -216,7 +216,7 @@ def main() -> None:
     assert cover_img.pixelColor(centre.x(), centre.y()).alpha() > 200, "封面应完整铺底"
     assert cover_img.pixelColor(3, thumb_h // 2).alpha() > 200, "封面别的地方要在"
 
-    print("\n=== 2. 停够 1 秒，缩略图里直接放预览 ===")
+    print("\n=== 2. 停够 0.5 秒，缩略图里直接放预览 ===")
     played: list = []                       # 记录预览给播放器的 media 选项
     real_play = TilePlayer.play
 
@@ -226,12 +226,14 @@ def main() -> None:
 
     TilePlayer.play = spy_play
     hover(live_item, True)
-    settle(app, 0.6)
-    print(f"  停 0.6 秒：画面可见={live_item.thumb.video.isVisible()}（应该还没有）")
+    settle(app, 0.3)
+    print(f"  停 0.3 秒：画面可见={live_item.thumb.video.isVisible()}（应该还没有）")
     assert not live_item.thumb.video.isVisible()
-    assert wait_for(lambda: live_item.thumb.video.isVisible()), "停够 1 秒应该开始播"
+    assert FakeResolver.started and FakeResolver.started[-1][0] == "1001", \
+        "取流应在 0.5 秒显示门槛前开始"
+    assert wait_for(lambda: live_item.thumb.video.isVisible()), "停够 0.5 秒应该开始播"
     player = live_item.thumb._player                       # noqa: SLF001
-    print(f"  停 1 秒后：画面可见=True 播放器={player is not None}"
+    print(f"  停 0.5 秒后：画面可见=True 播放器={player is not None}"
           f" 请求画质={FakeResolver.started[-1][1]}")
     assert player is not None
     assert FakeResolver.started and FakeResolver.started[-1][0] == "1001"
@@ -240,7 +242,7 @@ def main() -> None:
     print(f"  预览的 media 选项={options}（期望 {PREVIEW_MEDIA_OPTIONS}）")
     assert options == PREVIEW_MEDIA_OPTIONS, \
         "预览要「不建音频输出 + 软解」，别和画面墙那一路抢音频/显卡设备"
-    assert ":no-audio" in options and ":avcodec-hw=none" in options
+    assert "audio=no" in options and "hwdec=no" in options
     TilePlayer.play = real_play
 
     assert player.silent and player.muted and player.volume == 0
@@ -270,7 +272,7 @@ def main() -> None:
     hover(other, True)
     assert wait_for(lambda: not live_item.thumb.video.isVisible(), timeout=1.5), \
         "换条目要立刻收掉旧画面"
-    assert wait_for(lambda: other.thumb.video.isVisible()), "新条目停够 1 秒要开始播"
+    assert wait_for(lambda: other.thumb.video.isVisible()), "新条目停够 0.5 秒要开始播"
     print(f"  旧条目画面={live_item.thumb.video.isVisible()}"
           f" 新条目画面={other.thumb.video.isVisible()}"
           f" 两个格子各一个播放器={live_item.thumb._player is not other.thumb._player}")
@@ -363,10 +365,14 @@ def main() -> None:
     FakeResolver.terminated = []
     hover(live_item, True)
     assert wait_for(lambda: preview._resolver is not None, timeout=3.0), \
-        "停够 1 秒应该开始取流"
+        "停够 0.5 秒应该开始取流"
     slow_resolver = preview._resolver                    # noqa: SLF001
     print(f"  取流中：running={slow_resolver.isRunning()}")
     assert slow_resolver.isRunning()
+    assert live_item.thumb._player is not None  # noqa: SLF001
+    assert live_item.thumb._player.player is not None  # noqa: SLF001
+    assert live_item.thumb.cover.isVisible(), "取流时应保留封面"
+    assert not live_item.thumb.video.isVisible(), "取流时不能露出黑色视频区"
     hover(live_item, False)
     assert wait_for(lambda: preview._resolver is None, timeout=3.0), \
         "移开之后应该把这次取流交出去（等它自己结束）"

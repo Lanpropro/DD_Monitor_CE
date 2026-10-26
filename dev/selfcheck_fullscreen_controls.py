@@ -65,6 +65,13 @@ def main():
         assert all(not corner.isVisible() for corner in tile.video_corners)
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
+        tile.time_badge.set_text('12:34:56')
+        tile._layout_areas()
+        assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps fullscreen bar'
+        for progress in (0.25, 0.5, 0.75, 1.0, 0.5, 0.0):
+            tile._slide_fullscreen_bar(progress)
+            assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps sliding bar'
+        tile._layout_areas()
         normal_y = tile.bottom.y()
         point = tile.video.mapToGlobal(tile.video.rect().center())
         with patch('ddm.fullscreen_cursor.QCursor.pos', return_value=point), \
@@ -130,6 +137,7 @@ def main():
         window._fullscreen_tile = None
         window.wall.set_fullscreen_tile(None)
         assert tile._bar_progress == 0 and tile.bottom.isVisible()
+        assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps normal bar'
         assert all(corner.isVisible() for corner in tile.video_corners)
         page = GeneralSettingsPage({'fullscreen_auto_hide_controls': False})
         assert not page.values()['fullscreen_auto_hide_controls']

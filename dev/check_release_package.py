@@ -18,6 +18,7 @@ args = parser.parse_args()
 results = args.out_dir.resolve()
 sys.path.insert(0, str(repo))
 from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
+from ddm.legacy_cleanup import INVENTORY
 name = f"{DISPLAY_NAME}-{VERSION_TAG}"
 source = results / name
 exe = results / DISPLAY_NAME
@@ -34,8 +35,9 @@ for folder, zip_path in ((source, results / f"{name}.zip"),
             assert not any(item.endswith(f"{VERSION_TAG}-exe.exe") for item in names), \
                 "ZIP 中仍有旧文件名的 exe"
 
-for path in ("ddm/app.py", "ddm/widgets.py", "ddm/audio_output.py", "ddm/dialogs.py",
-             "ddm/plugins.py", "docs/PLUGINS.md", f"docs/releases/RELEASE-{VERSION_TAG}.md"):
+runtime_files = subprocess.check_output(['git', 'ls-files', '-z', '--', 'ddm', 'blivedm',
+    'assets', 'main.py', 'requirements.txt'], cwd=repo).decode('utf-8').strip('\0').split('\0')
+for path in [*runtime_files, "docs/plugins.md", f"docs/releases/RELEASE-{VERSION_TAG}.md"]:
     original = (repo / path).read_bytes()
     packaged = (source / path).read_bytes()
     assert packaged.replace(b"\r\n", b"\n") == original.replace(b"\r\n", b"\n"), \
@@ -51,6 +53,8 @@ for folder in (source, exe):
     assert not list(folder.rglob("libvlc*.dll")), "发布包仍包含 VLC 运行库"
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
+    assert (folder / "DDMonitorDiagnostics.exe").is_file(), "独立诊断工具缺失"
+    assert (folder / "诊断工具说明.md").is_file(), "诊断工具说明缺失"
     assert not (folder / "utils").exists() or not any((folder / "utils").iterdir()), "发布包包含本机运行数据或背景素材"
     assert not (folder / "logs").exists(), "发布包包含运行日志"
     assert not any((folder / "plugins_user").iterdir()), "发布包包含本地用户插件"
@@ -68,6 +72,11 @@ assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEAS
 assert metadata["url"].endswith(f"/{VERSION_TAG}/{remote_name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
 assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64"}
+inventory = json.loads((exe / INVENTORY).read_text(encoding='utf-8'))
+assert inventory['schema'] == 1 and inventory['version'] == VERSION
+with zipfile.ZipFile(archive) as package:
+    packaged_files = {name.split('/', 1)[1] for name in package.namelist() if not name.endswith('/')}
+assert set(inventory['files']) == packaged_files, '程序清单与最终 EXE ZIP 不一致'
 
 if args.old_zip:
     # 用真实旧包模拟用户目录，合并解压新包，然后启动覆盖后的 exe。
@@ -91,8 +100,8 @@ if args.old_zip:
         config.parent.mkdir(exist_ok=True)
         config.write_text(json.dumps({"version": 2, "rooms": [], "wall": [],
                                       "ui": {"layout_landscape": "3x2"},
-                                      "settings": {"decode_mode": "d3d11va"},
-                                      "plugins_enabled": None}), encoding="utf-8")
+                                      "settings": {"decode_mode": "d3d11va", "auto_update": False},
+                                      "plugins_enabled": None, "user_notice_accepted": True}), encoding="utf-8")
         custom = installed / "plugins_user" / "upgrade_probe"
         custom.mkdir(parents=True)
         (custom / "plugin.json").write_text(json.dumps({"id": "upgrade_probe",
@@ -122,7 +131,7 @@ if args.old_zip:
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startup.wShowWindow = 0
         process = subprocess.Popen([str(updated_exe)], cwd=installed, startupinfo=startup,
-                                   env=dict(os.environ, DDM_NO_SAVE="1"))
+                                   env=dict(os.environ, DDM_NO_SAVE="1", QT_QPA_PLATFORM="offscreen"))
         try:
             deadline = time.monotonic() + 25
             ready = False

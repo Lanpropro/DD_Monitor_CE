@@ -7,7 +7,7 @@ from time import perf_counter
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QTextDocument
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
@@ -80,6 +80,10 @@ class VideoDanmaku(QWidget):
         self._quick_group = None
         self._quick_rounded = True
         self._quick_mask_signature = None
+        self._quick_video_mask = QRegion()
+        self._quick_geometry_timer = QTimer(self)
+        self._quick_geometry_timer.setSingleShot(True)
+        self._quick_geometry_timer.timeout.connect(self._sync_quick_geometry)
         self.timer.destroyed.connect(self._timer_resolution.release)
         self._last_tick = 0.0
         self.hide()
@@ -87,12 +91,14 @@ class VideoDanmaku(QWidget):
     def apply_settings(self, settings: dict) -> None:
         values = {key: settings.get(key) for key in (
             "danmaku_font", "video_danmaku_size", "video_danmaku_speed",
-            "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale")}
+            "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale",
+            "video_danmaku_outline_width")}
         if values != self.settings:
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
             redraw = any(values.get(key) != self.settings.get(key)
-                         for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale"))
+                         for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale",
+                                     "video_danmaku_outline_width"))
             self.settings = values
             if redraw:
                 self._resize_comments()
@@ -149,10 +155,16 @@ class VideoDanmaku(QWidget):
         return max(10, min(144, size))
 
     def lane_height(self) -> int:
-        return QFontMetrics(self._font()).height() + 8
+        return QFontMetrics(self._font()).height() + 8 + math.ceil(self.outline_width() * 2)
+
+    def outline_width(self) -> float:
+        width = max(0, min(6, int(self.settings.get("video_danmaku_outline_width") or 0)))
+        if self.settings.get("video_danmaku_scale", True):
+            width *= self.font_pixels() / int(self.settings.get("video_danmaku_size") or 28)
+        return float(width)
 
     def _font(self) -> QFont:
-        font = QFont(str(self.settings.get("danmaku_font") or theme.FONT_DEFAULT))
+        font = QFont(str(self.settings.get("danmaku_font") or theme.danmaku_font_family()))
         font.setPixelSize(self.font_pixels())
         font.setWeight(QFont.Medium)
         return font
@@ -231,7 +243,8 @@ class VideoDanmaku(QWidget):
     def _render_content(self, text, color, runs, self_sent=False) -> QPixmap:
         if not any(url in self._images for _, url in runs if url):
             return self._render_text(text, color, self_sent)
-        pad = 9 if self_sent else 4
+        outline = self.outline_width()
+        pad = (9 if self_sent else 4) + math.ceil(outline)
         document = QTextDocument()
         document.setDefaultFont(self._font())
         document.setDocumentMargin(0)
@@ -240,6 +253,17 @@ class VideoDanmaku(QWidget):
                 document.addResource(QTextDocument.ImageResource, QUrl(url), self._images[url])
         body = content_html(runs, self._images, QFontMetrics(self._font()).height())
         document.setHtml(f'<span style="color:{color.name()}">{body}</span>')
+        if outline:
+            style = QTextCharFormat()
+            style.setTextOutline(QPen(Qt.black, outline * 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            cursor = QTextCursor(document)
+            cursor.select(QTextCursor.Document)
+            cursor.mergeCharFormat(style)
+            transparent = QImage(1, 1, QImage.Format_ARGB32_Premultiplied)
+            transparent.fill(Qt.transparent)
+            for _, url in runs:
+                if url in self._images:
+                    document.addResource(QTextDocument.ImageResource, QUrl(url), transparent)
         document.adjustSize()
         document.setTextWidth(-1)  # A rolling comment stays on one line.
         scale = self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE
@@ -251,6 +275,17 @@ class VideoDanmaku(QWidget):
         painter.save()
         painter.translate(pad, pad)
         document.drawContents(painter)
+        if outline:
+            # Qt's text-outline pass covers thin glyph interiors; paint the
+            # original colored text over it. Images are drawn only in this pass
+            # so translucent emotes retain their original alpha.
+            style.setTextOutline(QPen(Qt.NoPen))
+            cursor.select(QTextCursor.Document)
+            cursor.mergeCharFormat(style)
+            for _, url in runs:
+                if url in self._images:
+                    document.addResource(QTextDocument.ImageResource, QUrl(url), self._images[url])
+            document.drawContents(painter)
         painter.restore()
         if self_sent:
             self._draw_self_sent_box(painter, image)
@@ -275,7 +310,8 @@ class VideoDanmaku(QWidget):
         bounds = path.boundingRect()
         left = min(0, bounds.left())
         top = min(-metrics.ascent(), bounds.top())
-        pad = 9 if self_sent else 4
+        outline = self.outline_width()
+        pad = (9 if self_sent else 4) + math.ceil(outline)
         width = max(metrics.horizontalAdvance(text), bounds.right()) - left + pad * 2
         height = max(metrics.descent(), bounds.bottom()) - top + pad * 2
         # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
@@ -285,6 +321,12 @@ class VideoDanmaku(QWidget):
         image.fill(Qt.transparent)
         painter = QPainter(image)
         painter.setRenderHint(QPainter.Antialiasing)
+        if outline:
+            painter.save()
+            painter.translate(pad - left, pad - top)
+            painter.strokePath(path, QPen(Qt.black, outline * 2, Qt.SolidLine,
+                                         Qt.RoundCap, Qt.RoundJoin))
+            painter.restore()
         # drawText keeps Qt's font fallback and colour Unicode emoji glyphs.
         painter.setPen(color)
         painter.setFont(font)
@@ -396,6 +438,8 @@ class VideoDanmaku(QWidget):
             self.update()
 
     def paintEvent(self, event) -> None:
+        if self._quick_requested:
+            return  # The shared Quick window is the only canvas in this mode.
         painter = QPainter(self)
         if self._native_layered():
             painter.fillRect(event.rect(), self.COLOR_KEY)
@@ -419,6 +463,12 @@ class VideoDanmaku(QWidget):
     def _apply_layered(self) -> None:
         if not self._native_layered():
             return
+        if self._quick_requested:
+            self._suppress_quick_raster_surface()
+            if self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.set_group_opacity(
+                    self._quick_group, int(self.settings.get("video_danmaku_opacity") or 80))
+            return
         import ctypes
         from ctypes import wintypes
 
@@ -433,9 +483,25 @@ class VideoDanmaku(QWidget):
         key = self.COLOR_KEY.red() | self.COLOR_KEY.green() << 8 | self.COLOR_KEY.blue() << 16
         alpha = round(int(self.settings.get("video_danmaku_opacity") or 80) * 255 / 100)
         user32.SetLayeredWindowAttributes(hwnd, key, alpha, 0x00000001 | 0x00000002)
-        if self._quick_layer is not None and self._quick_group is not None:
-            self._quick_layer.set_group_opacity(
-                self._quick_group, int(self.settings.get("video_danmaku_opacity") or 80))
+
+    def setMask(self, region) -> None:
+        if self._quick_requested:
+            self._quick_video_mask = QRegion(region)
+            self._suppress_quick_raster_surface()
+        else:
+            super().setMask(region)
+
+    def clearMask(self) -> None:
+        if self._quick_requested:
+            self._quick_video_mask = QRegion()
+            self._suppress_quick_raster_surface()
+        else:
+            super().clearMask()
+
+    def _suppress_quick_raster_surface(self) -> None:
+        # Qt and Windows must both know this controller has no visible canvas.
+        # An empty QWidget mask means unrestricted, so clip to an off-widget pixel.
+        super().setMask(QRegion(-1, -1, 1, 1))
 
     def attach_quick_layer(self, layer) -> None:
         if not self._quick_requested or layer is None:
@@ -461,6 +527,15 @@ class VideoDanmaku(QWidget):
                 comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
         self._set_quick_active()
 
+    def schedule_quick_geometry(self) -> None:
+        # QWidget move/resize events run before its native child windows settle.
+        # Coalesce updates after that move, rather than submitting Quick geometry inside it.
+        if self._quick_layer is not None and self._quick_group is not None:
+            point = self.mapTo(self._quick_layer.parent, QPoint())
+            self._quick_layer.begin_group_move(
+                self._quick_group, point.x(), point.y(), self.width(), self.height())
+            self._quick_geometry_timer.start(0)
+
     def _sync_quick_geometry(self) -> None:
         if self._quick_layer is None or self._quick_group is None:
             return
@@ -480,16 +555,18 @@ class VideoDanmaku(QWidget):
     def update_quick_mask(self, widgets) -> None:
         if self._quick_layer is None or self._quick_group is None:
             return
-        holes = []
+        holes = QRegion()
         for widget in widgets:
             if widget.isVisible():
                 origin = widget.pos() - self.pos()
-                rect = QRect(origin, widget.size()).intersected(self.rect())
-                if not rect.isEmpty():
-                    holes.append(rect)
+                region = widget.mask()
+                if region.isEmpty():
+                    region = QRegion(widget.rect())
+                holes |= region.translated(origin).intersected(QRegion(self.rect()))
+        video_mask = self._quick_video_mask if self._quick_requested else self.mask()
         signature = (self.width(), self.height(), self.devicePixelRatioF(),
                      self._quick_rounded,
-                     tuple((rect.x(), rect.y(), rect.width(), rect.height()) for rect in holes))
+                     holes, video_mask)
         if signature == self._quick_mask_signature:
             return
         self._quick_mask_signature = signature
@@ -500,15 +577,11 @@ class VideoDanmaku(QWidget):
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
         painter = QPainter(image)
-        region = self.mask()
+        region = video_mask
         if region.isEmpty():
-            region = self.rect()
-        painter.setClipRegion(region)
+            region = QRegion(self.rect())
+        painter.setClipRegion(region.subtracted(holes))
         painter.fillRect(self.rect(), Qt.white)
-        painter.setClipping(False)
-        painter.setCompositionMode(QPainter.CompositionMode_Clear)
-        for rect in holes:
-            painter.fillRect(rect, Qt.transparent)
         painter.end()
         self._quick_layer.set_group_mask(self._quick_group, image)
 
@@ -521,7 +594,7 @@ class VideoDanmaku(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._native_layered():
-            self.setAttribute(Qt.WA_OpaquePaintEvent, True)
+            self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested)
             self.setAttribute(Qt.WA_NativeWindow, True)
             self._apply_layered()
             self._sync_quick_geometry()
@@ -546,9 +619,9 @@ class VideoDanmaku(QWidget):
 
     def resizeEvent(self, event) -> None:
         self._resize_comments()
-        self._sync_quick_geometry()
+        self.schedule_quick_geometry()
         super().resizeEvent(event)
 
     def moveEvent(self, event) -> None:
-        self._sync_quick_geometry()
+        self.schedule_quick_geometry()
         super().moveEvent(event)
