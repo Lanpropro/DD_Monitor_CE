@@ -182,7 +182,7 @@ class TilePlayer(QObject):
         if not any(name.lower() == "user-agent" for name in request_headers):
             request_headers["User-Agent"] = UA
         playback_url = url
-        if overseas:
+        if overseas or profile == "huya":
             from .global_danmaku import request_proxy
             from .hls_proxy import HlsProxy
             self._hls_proxy = HlsProxy(url, request_headers, request_proxy(url))

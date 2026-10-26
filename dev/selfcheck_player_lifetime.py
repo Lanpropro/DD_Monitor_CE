@@ -97,6 +97,28 @@ class PlayerLifetimeTests(unittest.TestCase):
                 player.release()
                 widget.close()
 
+    def test_huya_uses_same_http_relay_as_probe_and_stops_it(self):
+        for profile, relayed in (('huya', True), ('youtube', True), ('twitch', True), ('web', False)):
+            with self.subTest(profile=profile):
+                widget = QWidget()
+                relay = Mock(url='http://127.0.0.1:34567/test.m3u8')
+                with patch('ddm.player.mpv.MPV'), patch('ddm.hls_proxy.HlsProxy', return_value=relay) as create, \
+                        patch('ddm.global_danmaku.request_proxy', return_value=None):
+                    player = TilePlayer(widget)
+                    try:
+                        headers = {'User-Agent': 'fixture-UA', 'Referer': 'https://www.huya.com/'}
+                        player.play('https://cdn.test/live.m3u8', profile, headers)
+                        self.assertEqual(create.called, relayed)
+                        self.assertEqual(player._media, relay.url if relayed else 'https://cdn.test/live.m3u8')
+                        if relayed:
+                            self.assertEqual(create.call_args.args[1], headers)
+                            self.assertEqual(create.call_args.args[2], None)
+                            player.stop()
+                            relay.stop.assert_called_once_with()
+                    finally:
+                        player.release()
+                        widget.close()
+
 
 if __name__ == '__main__':
     unittest.main()
