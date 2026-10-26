@@ -198,6 +198,29 @@ namespace DDMonitorDiagnostics
         }
     }
 
+    internal sealed class ImagePreview : Form
+    {
+        readonly PictureBox picture;
+        internal ImagePreview(string path)
+        {
+            Text = "图片预览 · " + Path.GetFileName(path);
+            ClientSize = new Size(880, 640);
+            StartPosition = FormStartPosition.CenterParent;
+            KeyPreview = true;
+            using (var stream = new MemoryStream(ImageAttachment.Encode(path)))
+            using (var image = Image.FromStream(stream))
+                picture = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, Image = new Bitmap(image) };
+            Controls.Add(picture);
+            DiagnosticTheme.Apply(this);
+            KeyDown += (s, e) => { if (e.KeyCode == Keys.Escape) Close(); };
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && picture != null && picture.Image != null) { picture.Image.Dispose(); picture.Image = null; }
+            base.Dispose(disposing);
+        }
+    }
+
     internal sealed class AttachmentGallery : Control
     {
         sealed class Item
@@ -209,6 +232,7 @@ namespace DDMonitorDiagnostics
         readonly ToolTip tooltip = new ToolTip();
         int selected = -1, tipIndex = -1;
         internal string[] Paths { get { return items.Select(item => item.Path).ToArray(); } }
+        internal event Action<string> PreviewRequested;
 
         internal AttachmentGallery()
         {
@@ -279,6 +303,11 @@ namespace DDMonitorDiagnostics
         }
 
         int CellWidth { get { return Math.Max(1, Width / ImageAttachment.MaximumCount); } }
+        internal Rectangle DeleteBounds(int index)
+        {
+            int size = Math.Max(18, Font.Height + 2);
+            return new Rectangle((index + 1) * CellWidth - size - 6, 5, size, size);
+        }
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.Clear(BackColor);
@@ -299,6 +328,14 @@ namespace DDMonitorDiagnostics
                 e.Graphics.DrawImage(items[index].Thumbnail, fitted);
                 var caption = new Rectangle(cell.X + 4, cell.Bottom - Font.Height - 3, cell.Width - 8, Font.Height + 1);
                 TextRenderer.DrawText(e.Graphics, Path.GetFileName(items[index].Path), Font, caption, DiagnosticTheme.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+                var delete = DeleteBounds(index);
+                using (var brush = new SolidBrush(DiagnosticTheme.Background)) e.Graphics.FillEllipse(brush, delete);
+                using (var pen = new Pen(DiagnosticTheme.Text, 2))
+                {
+                    float pad = delete.Width * 0.32f;
+                    e.Graphics.DrawLine(pen, delete.Left + pad, delete.Top + pad, delete.Right - pad, delete.Bottom - pad);
+                    e.Graphics.DrawLine(pen, delete.Right - pad, delete.Top + pad, delete.Left + pad, delete.Bottom - pad);
+                }
             }
         }
 
@@ -309,10 +346,24 @@ namespace DDMonitorDiagnostics
             Invalidate();
             base.OnMouseDown(e);
         }
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            int index = e.X / CellWidth;
+            if (e.Button == MouseButtons.Left && index >= 0 && index < items.Count)
+            {
+                selected = index;
+                if (DeleteBounds(index).Contains(e.Location)) RemoveSelected();
+                else if (PreviewRequested != null) PreviewRequested(items[index].Path);
+            }
+            base.OnMouseClick(e);
+        }
         protected override void OnMouseMove(MouseEventArgs e)
         {
             int index = e.X / CellWidth;
-            if (index != tipIndex) { tooltip.SetToolTip(this, index < items.Count ? Path.GetFileName(items[index].Path) : ""); tipIndex = index; }
+            bool delete = index >= 0 && index < items.Count && DeleteBounds(index).Contains(e.Location);
+            int tip = delete ? -index - 2 : index;
+            if (tip != tipIndex) { tooltip.SetToolTip(this, index >= 0 && index < items.Count ? delete ? "删除此附件（不会删除原图）" : "点击查看：" + Path.GetFileName(items[index].Path) : ""); tipIndex = tip; }
+            Cursor = index >= 0 && index < items.Count ? Cursors.Hand : Cursors.Default;
             base.OnMouseMove(e);
         }
         protected override void OnKeyDown(KeyEventArgs e)
@@ -408,16 +459,17 @@ namespace DDMonitorDiagnostics
             imageFrame.Controls.Add(attachments);
             imagePanel.Controls.Add(imageFrame, 0, 0);
             imagePanel.SetRowSpan(imageFrame, 2);
-            var addImage = new DiagnosticButton { Text = "添加图片", Dock = DockStyle.Fill };
-            var removeImage = new DiagnosticButton { Text = "移除所选", Dock = DockStyle.Fill };
+            var addImage = new DiagnosticButton { Text = "添加图片", Dock = DockStyle.Top, Height = 38 };
             imagePanel.Controls.Add(addImage, 1, 0);
-            imagePanel.Controls.Add(removeImage, 1, 1);
-            var imageHint = new Label { Text = "可拖入图片，最多 5 张；点击缩略图后可移除。请先遮挡个人信息。", AutoSize = true, Dock = DockStyle.Fill };
+            var imageHint = new Label { Text = "点击查看大图，右上角 × 删除；可拖入图片。最多 5 张，每张 ≤10MB，转换后合计 ≤25MB。请先遮挡个人信息。", AutoSize = true, Dock = DockStyle.Fill };
             imagePanel.Controls.Add(imageHint, 0, 2);
             imagePanel.SetColumnSpan(imageHint, 2);
             AddRow(5, "图片附件", imagePanel, null);
             addImage.Click += (s, e) => AddImages();
-            removeImage.Click += (s, e) => attachments.RemoveSelected();
+            attachments.PreviewRequested += path => {
+                try { using (var dialog = new ImagePreview(path)) dialog.ShowDialog(this); }
+                catch (Exception error) { MessageBox.Show(this, error.Message, "无法预览图片", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+            };
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,

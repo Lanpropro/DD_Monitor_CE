@@ -28,6 +28,16 @@ internal static class DiagnosticsTests
                     typeof(AttachmentGallery).GetMethod("OnDragDrop", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(gallery, new object[] { enter });
                     gallery.AddDroppedFiles(data);
                     if (gallery.Paths.Length != 1) throw new Exception("Duplicate attachment");
+                    string previewPath = null;
+                    gallery.PreviewRequested += path => previewPath = path;
+                    var click = typeof(AttachmentGallery).GetMethod("OnMouseClick", BindingFlags.Instance | BindingFlags.NonPublic);
+                    click.Invoke(gallery, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 30, 45, 0) });
+                    if (previewPath != args[1] || gallery.Paths.Length != 1) throw new Exception("Thumbnail click must preview without removing");
+                    using (var preview = new ImagePreview(previewPath))
+                    {
+                        var picture = preview.Controls.OfType<PictureBox>().Single();
+                        if (picture.Image.Width != 2 || picture.Image.Height != 2 || picture.SizeMode != PictureBoxSizeMode.Zoom) throw new Exception("Full-size preview unavailable");
+                    }
                     using (var image = new Bitmap(600, 100))
                     {
                         gallery.DrawToBitmap(image, new Rectangle(0, 0, 600, 100));
@@ -52,8 +62,11 @@ internal static class DiagnosticsTests
                     var galleryCollector = new Collector(args[4]);
                     var package = galleryCollector.Collect(args[5], "拖入图片测试", "test", (p, text) => { }, "尚未确认", gallery.Paths);
                     Console.WriteLine(package);
-                    gallery.RemoveSelected();
+                    previewPath = null;
+                    var delete = gallery.DeleteBounds(0);
+                    click.Invoke(gallery, new object[] { new MouseEventArgs(MouseButtons.Left, 1, delete.Left + delete.Width / 2, delete.Top + delete.Height / 2, 0) });
                     if (gallery.Paths.Length != 0) throw new Exception("Attachment removal failed");
+                    if (previewPath != null || !File.Exists(args[1])) throw new Exception("Delete must only remove the attachment");
                     return 0;
                 }
             }
