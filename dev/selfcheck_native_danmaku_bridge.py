@@ -6,6 +6,7 @@ from pathlib import Path
 import socket
 import sys
 import tempfile
+import shiboken6
 from concurrent.futures import Future
 from typing import Any, cast
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QFont, QImage
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -163,6 +164,9 @@ class Harness:
         app = QApplication.instance()
         if app is not None:
             app.processEvents()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        check(not shiboken6.isValid(self.layer.window),
+              "stopped native host releases its Qt window on the GUI thread")
 
 
 def check_bounds() -> None:

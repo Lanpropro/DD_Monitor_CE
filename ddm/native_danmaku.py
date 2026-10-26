@@ -550,6 +550,8 @@ class NativeDanmakuLayer(QObject):
         if app is not None:
             app.removeEventFilter(self)
         self.window.destroy()
+        # Release the Qt object on the GUI thread before cyclic Python GC can do it.
+        self.window.deleteLater()
         self.entries.clear()
         self._images.clear()
         if self._failed:
