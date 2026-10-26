@@ -53,6 +53,8 @@ for folder in (source, exe):
     assert not list(folder.rglob("libvlc*.dll")), "发布包仍包含 VLC 运行库"
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
+    assert (folder / "DDMonitorDiagnostics.exe").is_file(), "独立诊断工具缺失"
+    assert (folder / "诊断工具说明.md").is_file(), "诊断工具说明缺失"
     assert not (folder / "utils").exists() or not any((folder / "utils").iterdir()), "发布包包含本机运行数据或背景素材"
     assert not (folder / "logs").exists(), "发布包包含运行日志"
     assert not any((folder / "plugins_user").iterdir()), "发布包包含本地用户插件"

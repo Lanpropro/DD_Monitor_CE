@@ -16,6 +16,10 @@
 
 目录中还可能存在被 Git 忽略的本机预览或宣传脚本；它们不在源码清单和批量套件内。
 
+## 独立诊断工具
+
+使用 [build_diagnostics.ps1](build_diagnostics.ps1) 构建无需 Qt/Python 的 GUI 诊断 EXE；收集范围、脱敏和分发方式见[工具说明](../tools/diagnostics/README.md)。专项验证：`python dev/selfcheck_diagnostics.py`，使用临时模拟目录。
+
 ## 常用命令
 
 设置界面的文案和默认值入口：[`ddm/dialogs.py`](../ddm/dialogs.py) 管理设置页与按钮文案，

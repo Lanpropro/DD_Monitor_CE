@@ -16,6 +16,15 @@
 
 ## 已跟踪的其他文件：逐项标注
 
+### 独立诊断工具
+
+- `tools/diagnostics/Collector.cs`
+- `tools/diagnostics/Program.cs`
+- `tools/diagnostics/README.md`
+- `dev/build_diagnostics.ps1`
+- `dev/diagnostics_tests.cs`
+- `dev/selfcheck_diagnostics.py`
+
 ### GitHub 协作与检查
 
 - `.github/PULL_REQUEST_TEMPLATE.md`
