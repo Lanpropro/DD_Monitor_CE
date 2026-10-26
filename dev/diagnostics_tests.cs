@@ -16,6 +16,17 @@ internal static class DiagnosticsTests
         try
         {
             Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+            if (NativeDependencies.TryRun(args)) return 0;
+            if (args[0] == "--native-timeout")
+            {
+                Console.WriteLine(new JavaScriptSerializer().Serialize(NativeDependencies.Collect(args[1], 0)));
+                return 0;
+            }
+            if (args[0] == "--native-short")
+            {
+                Console.WriteLine(new JavaScriptSerializer().Serialize(NativeDependencies.Collect(args[1], 500)));
+                return 0;
+            }
             if (args[0] == "--layout")
             {
                 using (var form = new DiagnosticForm(args[1]))

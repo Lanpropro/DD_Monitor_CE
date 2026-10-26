@@ -14,7 +14,7 @@ $exe = Join-Path $OutDir 'DDMonitorDiagnostics.exe'
     "/win32icon:$(Join-Path $repo 'favicon.ico')" `
     /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Management.dll `
     /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll `
-    (Join-Path $repo 'tools\diagnostics\Collector.cs') (Join-Path $repo 'tools\diagnostics\Program.cs')
+    (Join-Path $repo 'tools\diagnostics\Collector.cs') (Join-Path $repo 'tools\diagnostics\NativeDependencies.cs') (Join-Path $repo 'tools\diagnostics\Program.cs')
 if ($LASTEXITCODE -ne 0) { throw '诊断工具编译失败。' }
 Copy-Item -LiteralPath (Join-Path $repo 'tools\diagnostics\README.md') -Destination (Join-Path $OutDir '诊断工具说明.md') -Force
 $toolVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
