@@ -84,13 +84,11 @@ def main():
             print(f"MEASURE: three real pipelines confirmed in {matched_at-begin:.2f}s; visible scene error {abs(actual-expected)*1000:.0f}ms")
             assert all(row.mix_gain == 1 for row in viewer.rows.values())
             assert viewer.compare.isChecked() and viewer.alignment.automatic
-            # Recollect the larger focused features on all three feeds without
-            # losing the human approvals or moving the healthy main timeline.
+            # Preview crops do not recollect features or lose human approvals.
             main_shift = viewer.shifts()['1']
             for row in viewer.rows.values():
                 row.crop = (.1, .1, .8, .8)
-                row.decoder.set_crop(row.crop)
-            viewer.retry_alignment('1')
+                assert row.decoder.crop == (0, 0, 1, 1)
             recrop_started = time.monotonic()
             while time.monotonic() - recrop_started < 8:
                 viewer.render()
@@ -102,13 +100,13 @@ def main():
                     break
                 time.sleep(.01)
             assert all(row.sync_state == '已同步' for row in viewer.rows.values()), [(r.match_text, r.sync_state) for r in viewer.rows.values()]
-            print('PASS: three focused feature streams reacquire fairly without repeated approval or moving the main')
+            print('PASS: three comparison crops preserve full-frame features, approvals and main timeline')
             # Resume one stream with a new PTS origin, reproducing a delayed rejoin.
             peer_lag = viewer.alignment.lags["3"]
             row = viewer.rows["2"]
             row.decoder.stop()
             row.decoder = media.Decoder("2", {"url": str(source)})
-            row.decoder.set_crop(row.crop)
+            row.decoder.set_crop((0, 0, 1, 1))
             decoders.append(row.decoder)
             viewer._reset(row, row.decoder)
             row.decoder.start()
@@ -117,8 +115,8 @@ def main():
             recovered_at = None
             checked_late = False
             main_shift = viewer.shifts()['1']
-            # Cropping cleared the pre-crop features. The restarted file must
-            # reach that retained scene interval for matching, but cannot catch
+            # The restarted file must reach a retained scene interval for
+            # matching, but cannot catch
             # the healthy main by replaying old content at the same speed.
             while time.monotonic() - resumed < 18:
                 viewer.render()

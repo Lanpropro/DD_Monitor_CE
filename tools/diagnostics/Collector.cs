@@ -194,7 +194,7 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.0";
+        internal const string ToolVersion = "1.1";
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
@@ -470,6 +470,9 @@ namespace DDMonitorDiagnostics
             add("problem.json", new { description = problem, happened, reproducibility, attachments = images.Keys.ToArray(), collected = DateTimeOffset.Now.ToString("o"), tool_version = ToolVersion });
             progress(20, "核对软件版本和关键文件…");
             section("software.json", Software);
+            progress(30, "检查播放器 DLL 加载及直接依赖…");
+            Dictionary<string, object> native = null;
+            section("native-dependencies.json", () => native = NativeDependencies.Collect(root));
             section("plugins.json", Plugins);
             progress(40, "读取系统、显卡与相关进程…");
             section("system.json", SystemInfo);
@@ -489,7 +492,8 @@ namespace DDMonitorDiagnostics
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
                 "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
-                "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
+                "\r\n\r\n" + (native == null ? "libmpv 检查未完成，见收集提示。" : redact.Text(NativeDependencies.Summary(native))) +
+                "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nnative-dependencies.json：隔离子进程中的 libmpv 加载、Win32错误码、直接依赖与函数入口检查。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
                 "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不能还原崩溃前内存。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
             progress(85, "写入诊断 ZIP…");
             var output = Path.Combine(Path.GetFullPath(destination), "DDMonitorCE-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 6) + ".zip");

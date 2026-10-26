@@ -30,6 +30,7 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            assert self.general_page._checks['sidebar_platform_logos'].isHidden(), 'Generic logo switch must stay hidden in the worker'
             if action.startswith('logos-'):
                 if len(self.plugin_checks) != 2:
                     QTimer.singleShot(10, self.exercise)
@@ -75,9 +76,12 @@ def child(action):
                     pass  # Deliberately hold this process's GUI thread and GIL.
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
+            if action.startswith('tray-'):
+                combo = self.general_page.close_behavior_combo
+                combo.setCurrentIndex(combo.findData('tray'))
             if 'sidebar_platform_logos' in self.general_page._checks:
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
-            if action == 'cancel':
+            if action in ('cancel', 'tray-cancel'):
                 self.reject()
             else:
                 for index in (2, 3, 4, 5, 0):
@@ -165,9 +169,11 @@ def check_worker(app, action):
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
             clean = action.startswith(('clean-', 'revert-'))
-            assert bool(saves) == (not clean and action != 'cancel')
+            assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
+                if action == 'tray-save':
+                    assert saves[0]['settings']['close_behavior'] == 'tray'
                 assert 'appearance_mode' not in saves[0]['settings']
                 assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
             assert pages == ([{'appearance': 1, 'plugins': 6, 'updates': 7}[action.split('-')[1]]] if clean else [])
@@ -706,7 +712,7 @@ def main():
         print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
         return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'cancel', 'busy'):
+                   'save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)
