@@ -331,6 +331,7 @@
 ### 其他已跟踪文件
 
 - `results/.gitignore`
+- `docs/overview3_Landscape_mode.png`
 
 ### 历史记录
 
