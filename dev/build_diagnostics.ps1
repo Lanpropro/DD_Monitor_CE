@@ -2,7 +2,7 @@
 param([string]$OutDir = "")
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-if (-not $OutDir) { $OutDir = Join-Path $repo 'results\diagnostics' }
+if (-not $OutDir) { $OutDir = Join-Path $repo 'work\diagnostics-preview' }
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $compiler = Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe'

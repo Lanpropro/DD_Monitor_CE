@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("DDMonitorDiagnostics")]
@@ -46,7 +47,7 @@ namespace DDMonitorDiagnostics
 
         internal static void Apply(Control control)
         {
-            control.BackColor = control is TextBox || control is ListBox || control is ComboBox || control is DiagnosticInput ? Surface : Background;
+            control.BackColor = control is TextBox || control is ListBox || control is ComboBox || control is DiagnosticInput || control is DiagnosticTextArea || control is DiagnosticScrollBar ? Surface : Background;
             control.ForeColor = Text;
             foreach (Control child in control.Controls) Apply(child);
         }
@@ -102,11 +103,105 @@ namespace DDMonitorDiagnostics
         }
     }
 
+    internal sealed class DiagnosticTextBox : TextBox
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+        internal event EventHandler Scrolled;
+        internal int FirstLine { get { return (int)SendMessage(Handle, 0xCE, IntPtr.Zero, IntPtr.Zero); } }
+        internal int LineCount { get { return (int)SendMessage(Handle, 0xBA, IntPtr.Zero, IntPtr.Zero); } }
+        internal int VisibleLines
+        {
+            get
+            {
+                int first = GetFirstCharIndexFromLine(FirstLine), next = GetFirstCharIndexFromLine(FirstLine + 1);
+                int height = next >= 0 && first >= 0 ? GetPositionFromCharIndex(next).Y - GetPositionFromCharIndex(first).Y : Font.Height;
+                return Math.Max(1, ClientSize.Height / Math.Max(1, height));
+            }
+        }
+        internal int Maximum { get { return Math.Max(0, LineCount - VisibleLines); } }
+        internal void ScrollToLine(int line)
+        {
+            SendMessage(Handle, 0xB6, IntPtr.Zero, (IntPtr)(Math.Max(0, Math.Min(Maximum, line)) - FirstLine));
+        }
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == 0x20A)
+            {
+                int delta = (short)((long)message.WParam >> 16);
+                ScrollToLine(FirstLine - delta / 120 * (SystemInformation.MouseWheelScrollLines < 0 ? VisibleLines : SystemInformation.MouseWheelScrollLines));
+                message.Result = IntPtr.Zero;
+                return;
+            }
+            base.WndProc(ref message);
+            if (message.Msg == 0xB6 || message.Msg == 0x111 || message.Msg == 0x100 || message.Msg == 0x102 || message.Msg == 0x202 || message.Msg == 0x5 || message.Msg == 0xC)
+                if (Scrolled != null) Scrolled(this, EventArgs.Empty);
+        }
+    }
+
+    internal sealed class DiagnosticScrollBar : Control
+    {
+        readonly DiagnosticTextBox editor;
+        bool dragging;
+        int startY, startLine;
+        internal DiagnosticScrollBar(DiagnosticTextBox editor)
+        {
+            this.editor = editor;
+            Dock = DockStyle.Right;
+            Width = 14;
+            DoubleBuffered = true;
+            AccessibleRole = AccessibleRole.ScrollBar;
+            AccessibleName = "垂直滚动条";
+            editor.Scrolled += (s, e) => Invalidate();
+            editor.TextChanged += (s, e) => Invalidate();
+            editor.SizeChanged += (s, e) => Invalidate();
+        }
+        Rectangle Thumb()
+        {
+            int track = Math.Max(1, Height - 8);
+            int height = Math.Min(track, Math.Max(24, track * editor.VisibleLines / Math.Max(1, editor.LineCount)));
+            return new Rectangle(Width / 2 - 3, 4 + (track - height) * Math.Min(editor.FirstLine, editor.Maximum) / Math.Max(1, editor.Maximum), 6, height);
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(BackColor);
+            if (!editor.IsHandleCreated || editor.Maximum == 0) return;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = DiagnosticTheme.Round(Thumb(), 3))
+            using (var brush = new SolidBrush(dragging ? DiagnosticTheme.Accent : Color.FromArgb(104, 111, 124))) e.Graphics.FillPath(brush, path);
+        }
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || editor.Maximum == 0) return;
+            if (Thumb().Contains(e.Location)) { dragging = true; startY = e.Y; startLine = editor.FirstLine; Capture = true; }
+            else editor.ScrollToLine(editor.FirstLine + (e.Y < Thumb().Top ? -editor.VisibleLines : editor.VisibleLines));
+            Invalidate();
+        }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            if (dragging) editor.ScrollToLine(startLine + (e.Y - startY) * editor.Maximum / Math.Max(1, Height - 8 - Thumb().Height));
+        }
+        protected override void OnMouseUp(MouseEventArgs e) { dragging = false; Capture = false; Invalidate(); }
+    }
+
+    internal sealed class DiagnosticTextArea : Panel
+    {
+        internal DiagnosticTextArea(DiagnosticTextBox editor)
+        {
+            Dock = DockStyle.Fill;
+            editor.ScrollBars = ScrollBars.None;
+            editor.BorderStyle = BorderStyle.None;
+            editor.Dock = DockStyle.Fill;
+            Controls.Add(editor);
+            Controls.Add(new DiagnosticScrollBar(editor));
+        }
+    }
+
     internal sealed class DiagnosticForm : Form
     {
         readonly TextBox directory = new TextBox { Dock = DockStyle.Fill };
         readonly TextBox destination = new TextBox { Dock = DockStyle.Fill };
-        readonly TextBox description = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, MaxLength = 12000 };
+        readonly DiagnosticTextBox description = new DiagnosticTextBox { Multiline = true, Dock = DockStyle.Fill, MaxLength = 12000 };
         readonly TextBox happened = new TextBox { Dock = DockStyle.Fill, MaxLength = 200 };
         readonly DiagnosticProgress progress = new DiagnosticProgress { Dock = DockStyle.Fill };
         readonly Label status = new Label { AutoSize = true, Text = "准备就绪。主软件无法启动时，也可以生成诊断包。", Dock = DockStyle.Fill };
@@ -184,12 +279,13 @@ namespace DDMonitorDiagnostics
             AddRow(5, "图片附件", imagePanel, null);
             addImage.Click += (s, e) => AddImages();
             removeImage.Click += (s, e) => { if (attachments.SelectedIndex >= 0) attachments.Items.RemoveAt(attachments.SelectedIndex); };
-            var content = new TextBox {
+            var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
-                ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, TabStop = false,
+                Dock = DockStyle.Fill, TabStop = false,
                 Text = "收集范围\r\n系统与显卡驱动、软件版本与关键文件校验、脱敏配置、插件版本、近期日志、相关崩溃事件和手动添加的图片。\r\n\r\n不读取账号文件、插件私有设置、聊天记录、录制或内存转储。不联网，不修改配置，也不启动或关闭主软件。图片会去除元数据，但不会遮挡画面。请检查诊断包后再手动发送。"
             };
-            layout.Controls.Add(content, 0, 2);
+            var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
+            layout.Controls.Add(contentArea, 0, 2);
             layout.Controls.Add(progress, 0, 3);
             layout.Controls.Add(status, 0, 4);
             layout.Controls.Add(new Label { Text = "提示：请描述操作步骤、实际表现和预期结果，避免填写密码或 Cookie。", AutoSize = true, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText }, 0, 5);
@@ -209,13 +305,15 @@ namespace DDMonitorDiagnostics
             FormClosing += (s, e) => { if (worker.IsBusy) { e.Cancel = true; status.Text = "正在收集，请等待诊断包生成后关闭。"; } };
             DiagnosticTheme.Apply(this);
             content.BackColor = DiagnosticTheme.Background;
+            foreach (Control child in contentArea.Controls) child.BackColor = DiagnosticTheme.Background;
             content.ForeColor = imageHint.ForeColor = DiagnosticTheme.Muted;
             detect.Click += (s, e) => Detect(initial, true);
-            Shown += (s, e) => { if (directory.Text.Length == 0) Detect(initial, false); };
+            Shown += (s, e) => Detect(initial, false);
         }
 
         void Detect(string initial, bool requested)
         {
+            string startingDirectory = directory.Text;
             detect.Enabled = false;
             status.Text = "正在查找软件目录…";
             var search = new BackgroundWorker();
@@ -227,7 +325,7 @@ namespace DDMonitorDiagnostics
                 var found = e.Error == null ? (string[])e.Result : new string[0];
                 if (worker.IsBusy) return;
                 if (found.Length == 0) { status.Text = "未找到软件目录，请点击“浏览”手动选择。"; return; }
-                if (!requested && directory.Text.Length != 0) return;
+                if (!requested && directory.Text != startingDirectory) return;
                 if (found.Length == 1) directory.Text = found[0];
                 else
                     using (var picker = new Form { Text = "选择软件目录", ClientSize = new Size(720, 140), StartPosition = FormStartPosition.CenterParent, Font = Font, MinimizeBox = false, MaximizeBox = false })
@@ -273,7 +371,8 @@ namespace DDMonitorDiagnostics
             {
                 textbox.BorderStyle = BorderStyle.None;
                 var frame = new DiagnosticInput { Dock = DockStyle.Fill };
-                frame.Controls.Add(textbox);
+                if (textbox is DiagnosticTextBox) frame.Controls.Add(new DiagnosticTextArea((DiagnosticTextBox)textbox));
+                else frame.Controls.Add(textbox);
                 control = frame;
             }
             control.Margin = new Padding(3, 3, 8, 9);

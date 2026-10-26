@@ -23,7 +23,7 @@ class DiagnosticTests(unittest.TestCase):
         cls.base = Path(cls.temp.name)
         cls.compiler = Path(os.environ['SystemRoot']) / 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
         cls.driver = cls.base / 'test.exe'
-        cls.compile(cls.driver, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'dev/diagnostics_tests.cs'])
+        cls.compile(cls.driver, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/Program.cs', ROOT / 'dev/diagnostics_tests.cs'])
 
     @classmethod
     def compile(cls, target, sources, gui=False):
@@ -32,6 +32,8 @@ class DiagnosticTests(unittest.TestCase):
         command = [str(cls.compiler), '/nologo', '/utf8output', '/platform:anycpu',
                    '/target:' + ('winexe' if gui else 'exe'), '/out:' + str(target)]
         command += ['/reference:' + name + '.dll' for name in references]
+        if not gui:
+            command += ['/main:DiagnosticsTests']
         command += list(map(str, sources))
         result = subprocess.run(command, capture_output=True, timeout=40)
         if result.returncode:
@@ -107,6 +109,29 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         found = json.loads(result.stdout.decode('utf-8'))
         self.assertEqual(found, [str(self.app), str(portable)])
+
+    def test_nearby_results_finds_extracted_releases_without_scanning_unrelated_trees(self):
+        tool = self.case / 'work/diagnostics-preview'
+        tool.mkdir(parents=True)
+        expected = []
+        for relative in ('results/release-v0.5.2-final/DD监控室CE', 'result/DDMonitorCE'):
+            app = self.case / relative
+            app.mkdir(parents=True)
+            (app / 'DD监控室CE.exe').write_bytes(b'fixture')
+            expected.append(str(app))
+        for relative in ('other/private/DDMonitorCE', 'results/cache/DDMonitorCE'):
+            hidden = self.case / relative
+            hidden.mkdir(parents=True)
+            (hidden / 'DD监控室CE.exe').write_bytes(b'fixture')
+        for initial in (str(tool), str(tool) + os.sep):
+            result = subprocess.run([str(self.driver), '--nearby', initial], capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(set(json.loads(result.stdout.decode('utf-8'))), set(expected))
+
+    def test_shared_dark_scrollbar_scrolls_clamps_and_resets(self):
+        result = subprocess.run([str(self.driver), '--scroll'], capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b'scroll passed', result.stdout)
 
     def test_collects_version_configuration_plugins_and_only_selected_logs(self):
         self.put('ddm-build.json', '\ufeff' + json.dumps({'version': '0.5.2', 'platform': 'windows-x64'}))

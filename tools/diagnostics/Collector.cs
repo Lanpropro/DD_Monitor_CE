@@ -67,7 +67,43 @@ namespace DDMonitorDiagnostics
                     catch { }
             paths.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "DDMonitorCE"));
             paths.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DDMonitorCE"));
-            if (Directory.Exists(initial)) paths.Add(Path.GetDirectoryName(Path.GetFullPath(initial).TrimEnd('\\', '/')));
+            paths.AddRange(Nearby(initial));
+            return Candidates(paths);
+        }
+
+        internal static string[] Nearby(string initial)
+        {
+            var full = Path.GetFullPath(initial);
+            var directory = File.Exists(full) ? Path.GetDirectoryName(full) : full.TrimEnd('\\', '/');
+            if (directory.Length < Path.GetPathRoot(full).Length) directory = Path.GetPathRoot(full);
+            var paths = new List<string>();
+            var roots = new List<string> { directory };
+            // Only inspect nearby result/results folders, never recursively scan parent drives.
+            for (int level = 0; level < 3 && directory != null; level++)
+            {
+                paths.Add(directory);
+                if (new[] { "result", "results" }.Contains(Path.GetFileName(directory).ToLowerInvariant())) roots.Add(directory);
+                foreach (var name in new[] { "result", "results" }) roots.Add(Path.Combine(directory, name));
+                directory = Path.GetDirectoryName(directory);
+            }
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var queue = new Queue<Tuple<string, int>>(roots.Select(p => Tuple.Create(p, 0)));
+            while (queue.Count > 0 && visited.Count < 512)
+            {
+                var next = queue.Dequeue();
+                if (!visited.Add(next.Item1)) continue;
+                try
+                {
+                    if (!Directory.Exists(next.Item1) || (File.GetAttributes(next.Item1) & FileAttributes.ReparsePoint) != 0) continue;
+                    if (HasApp(next.Item1)) { paths.Add(next.Item1); continue; }
+                    if (next.Item2 >= 3) continue;
+                    foreach (var child in Directory.EnumerateDirectories(next.Item1).Take(512))
+                        if (!new[] { "utils", "cache", "logs", "plugins_user", "_internal", "work", ".git", ".venv" }.Contains(Path.GetFileName(child).ToLowerInvariant()))
+                            queue.Enqueue(Tuple.Create(child, next.Item2 + 1));
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
             return Candidates(paths);
         }
     }
