@@ -55,8 +55,8 @@ def main():
     with patch.object(provider, '_share_room', side_effect=requests.Timeout('Fixture timeout')):
         try:
             read(provider, [{'uid': '103'}])
-        except requests.Timeout:
-            pass
+        except RuntimeError as error:
+            assert '超时' in str(error) and 'Fixture timeout' not in str(error)
         else:
             raise AssertionError('Unresolved failure became an empty success')
     with patch.object(provider, '_share_room', return_value={'status': 2, 'owner': {'web_rid': '9999'}}):

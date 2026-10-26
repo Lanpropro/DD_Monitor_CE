@@ -3225,8 +3225,9 @@ class MainWindow(QMainWindow):
             resolver = InfoResolver(room_id, self, platform=platform)
             resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id)
                                       if not self._closing else None)
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                self, "添加直播间", "平台房间获取失败，请检查房间链接或稍后重试")
+            resolver.failed.connect(lambda _rid, r=resolver: QMessageBox.warning(
+                self, "添加直播间", "平台房间获取失败\n\n" + (getattr(r, "error_message", "") or
+                    "请检查房间链接或稍后重试"))
                 if not self._closing else None)
             resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
             resolver.finished.connect(resolver.deleteLater)

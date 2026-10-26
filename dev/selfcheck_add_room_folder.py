@@ -1,8 +1,13 @@
 """添加直播间：文件夹选择、输入验证、异步归类与默认未分类。"""
 import os
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
+
+import requests
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -11,9 +16,11 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from ddm import theme
 from ddm.app import MainWindow
+from ddm.bili import InfoResolver
 from ddm.dialogs import AddRoomDialog
 from ddm.folder_icons import FolderIconDialog
 from ddm.follow_folders import UNCLASSIFIED
+from ddm.plugins import RoomInfo
 
 
 class InfoFixture(QObject):
@@ -51,8 +58,35 @@ def edit_folder(text, accepted=True):
     return execute
 
 
+def check_resolver_errors():
+    safe_error = RuntimeError('private raw response')
+    safe_error.user_message = '抖音直播间网页未返回可识别的房间资料'
+    http_response = requests.Response()
+    http_response.status_code = 429
+    for error, expected in ((safe_error, '未返回可识别'),
+            (requests.Timeout('private signed URL'), '超时'),
+            (requests.HTTPError('private signed URL', response=http_response), 'HTTP 429'),
+            (requests.ConnectionError('private Cookie'), '连接失败'),
+            (KeyError('private response body'), '未能解析')):
+        worker = InfoResolver('douyin:1001', platform=SimpleNamespace(room_info=lambda _rid: None))
+        failures, results = [], []
+        worker.failed.connect(failures.append)
+        worker.resolved.connect(results.append)
+        output = StringIO()
+        with patch.object(worker.platform, 'room_info', side_effect=error), redirect_stderr(output):
+            worker.run()
+        assert failures == ['douyin:1001'] and not results
+        assert expected in worker.error_message and expected in output.getvalue()
+        assert 'private' not in worker.error_message + output.getvalue()
+        worker.platform.room_info = lambda _rid: RoomInfo(room_id='douyin:1001')
+        worker.run()
+        assert not worker.error_message and len(results) == 1
+        worker.deleteLater()
+
+
 def main():
     app = QApplication([])
+    check_resolver_errors()
     app.setStyleSheet(theme.qss())
     folders = [{"id": "a", "name": "赛事", "type": "normal"},
                {"id": "smart", "name": "未开播", "type": "smart"},
@@ -125,9 +159,26 @@ def main():
         InfoFixture.pending[-1].failed.emit("104")
         InfoFixture.pending[-1].finished.emit()
         assert "104" not in {room["room_id"] for room in window.sidebar.rooms()}
+        # 两个失败查询反向返回，各自展示自己的原因；旧插件/替身没有详情时仍有通用提示。
+        window._add_room_id('douyin:1001')
+        first_error = InfoFixture.pending[-1]
+        first_error.error_message = '抖音直播间资料请求超时，请稍后重试'
+        window._add_room_id('douyin:1002')
+        second_error = InfoFixture.pending[-1]
+        second_error.error_message = '抖音直播间网页未返回可识别的房间资料'
+        with patch('ddm.app.QMessageBox.warning') as warning:
+            second_error.failed.emit('douyin:1002')
+            first_error.failed.emit('douyin:1001')
+            second_error.error_message = ''
+            second_error.failed.emit('douyin:1002')
+        messages = [call.args[2] for call in warning.call_args_list]
+        assert '未返回可识别' in messages[0] and '超时' in messages[1]
+        assert '请检查房间链接' in messages[2]
+        first_error.finished.emit()
+        second_error.finished.emit()
         with patch.object(AddRoomDialog, "exec", return_value=QDialog.Rejected):
             window.open_add_room()
-        assert len(InfoFixture.pending) == count + 1
+        assert len(InfoFixture.pending) == count + 3
         saved = window.current_state()
         assert "101" in next(folder["rooms"] for folder in saved["follow_folders"] if folder["id"] == first)
         assert "huya:a" in next(folder["rooms"] for folder in saved["follow_folders"] if folder["id"] == second)
