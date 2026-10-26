@@ -15,6 +15,7 @@ from ddm.version import DISPLAY_NAME, VERSION
 def fixture(root):
     root.mkdir()
     files = {f'{DISPLAY_NAME}.exe': b'program', 'ffmpeg.exe': b'ffmpeg',
+             'DDMonitorDiagnostics.exe': b'diagnostics', '诊断工具说明.md': b'diagnostic guide',
              '_internal/libmpv-2.dll': b'runtime', 'assets/logo.png': b'logo',
              'ddm-build.json': json.dumps({'version': VERSION, 'update_protocol': 1,
                                           'platform': 'windows-x64'}).encode()}
@@ -39,6 +40,18 @@ class SetupTests(unittest.TestCase):
         recorded = json.loads((script.parent / MANIFEST).read_text(encoding='utf-8'))
         self.assertEqual(set(recorded), set(self.files))
         self.assertNotIn(MANIFEST, recorded)
+
+    def test_diagnostic_tool_and_guide_are_installed_and_recorded(self):
+        script = write_script(self.payload, self.root / 'build', self.root / 'out')
+        recorded = json.loads((script.parent / MANIFEST).read_text(encoding='utf-8'))
+        for name in ('DDMonitorDiagnostics.exe', '诊断工具说明.md'):
+            self.assertIn(name, recorded)
+            self.assertIn(name, script.read_text(encoding='utf-8-sig'))
+            original = (self.payload / name).read_bytes()
+            (self.payload / name).unlink()
+            with self.assertRaises(ValueError):
+                payload_files(self.payload)
+            (self.payload / name).write_bytes(original)
 
     def test_user_data_or_unknown_files_cannot_enter_setup(self):
         for name in ('utils/config.json', 'plugins_user/custom/plugin.py',

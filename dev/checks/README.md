@@ -348,3 +348,9 @@
 | [selfcheck_qr_refresh](../selfcheck_qr_refresh.py) | 单项执行前核对 |
 | [selfcheck_qr_responsiveness](../selfcheck_qr_responsiveness.py) | 单项执行前核对 |
 | [selfcheck_remove_follow_position](../selfcheck_remove_follow_position.py) | 单项执行前核对 |
+
+## 独立诊断工具
+
+| 脚本 | 执行分类 |
+| --- | --- |
+| [selfcheck_diagnostics](../selfcheck_diagnostics.py) | 单项执行前核对；Windows .NET Framework，临时模拟目录，不读取真实账号配置，不启动主软件 |

@@ -14,7 +14,8 @@ from ddm.version import DISPLAY_NAME, VERSION
 APP_ID = 'DDMonitorCE'
 PROGRAM_DIRS = {'_internal', 'assets', 'ffmpeg-license', 'mpv-license'}
 PROGRAM_FILES = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', 'ddm-build.json', 'LICENSE',
-                 'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt', INVENTORY}
+                 'NOTICE.md', f'RELEASE-v{VERSION}.md', '运行说明.txt', INVENTORY,
+                 'DDMonitorDiagnostics.exe', '诊断工具说明.md'}
 PORTABLE_ONLY = {'运行说明.txt'}
 # Only files written by config.py / AccountStore for the bundled platforms.
 PERSONAL_FILES = ['utils/config.json', 'utils/config.json.bak'] + [
@@ -49,7 +50,8 @@ def payload_files(payload):
             raise ValueError(f'Not a release program path: {rel}')
         if path.is_file() and rel not in PORTABLE_ONLY:
             files.append(rel)
-    required = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', '_internal/libmpv-2.dll'}
+    required = {f'{DISPLAY_NAME}.exe', 'ffmpeg.exe', '_internal/libmpv-2.dll',
+                'DDMonitorDiagnostics.exe', '诊断工具说明.md'}
     if not required.issubset(files):
         raise ValueError('Portable program or playback runtime is missing')
     return files
