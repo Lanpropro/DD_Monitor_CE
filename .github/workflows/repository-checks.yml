@@ -57,6 +57,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python dev/checks/bootstrap.py dev/selfcheck_native_danmaku_bridge.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:QT_QPA_PLATFORM = "windows"
+          python dev/checks/bootstrap.py dev/selfcheck_native_danmaku_bridge.py --window-contract
 
   repository:
     name: Repository checks
