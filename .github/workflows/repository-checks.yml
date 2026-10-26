@@ -43,9 +43,19 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pyright --pythonpath python ddm/native_danmaku.py ddm/danmaku_raster.py
+          $nativePython = (Get-Command python.exe).Source
+          python -m pyright --pythonpath $nativePython ddm/native_danmaku.py ddm/danmaku_raster.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m ruff check ddm/native_danmaku.py ddm/danmaku_raster.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python dev/selfcheck_danmaku_raster.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install verified libmpv for bridge checks
+        run: python dev/fetch_mpv.py
+      - name: Check native host shutdown and fallback bridge
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
           python dev/checks/bootstrap.py dev/selfcheck_native_danmaku_bridge.py
 
   repository:
