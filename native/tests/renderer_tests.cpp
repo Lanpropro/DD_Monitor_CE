@@ -203,9 +203,11 @@ int main() {
         require(RegisterClassW(&cls)!=0,"RegisterClass");
         HWND background=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW,cls.lpszClassName,L"D3D background",WS_POPUP,40,40,640,360,nullptr,nullptr,cls.hInstance,nullptr);
         require(background!=nullptr,"background window"); ShowWindow(background,SW_SHOWNOACTIVATE); UpdateWindow(background);
-        HWND window = CreateWindowExW(WS_EX_TOPMOST|WS_EX_NOREDIRECTIONBITMAP|WS_EX_NOACTIVATE|WS_EX_TRANSPARENT|WS_EX_TOOLWINDOW,
+        HWND window = CreateWindowExW(WS_EX_TOPMOST|WS_EX_LAYERED|WS_EX_NOREDIRECTIONBITMAP|WS_EX_NOACTIVATE|WS_EX_TRANSPARENT|WS_EX_TOOLWINDOW,
             cls.lpszClassName,L"D3D11 smoke (not display acceptance)",WS_POPUP,40,40,640,360,background,nullptr,cls.hInstance,nullptr);
-        require(window!=nullptr,"CreateWindow"); ShowWindow(window,SW_SHOWNOACTIVATE);
+        require(window!=nullptr,"CreateWindow");
+        require(SetLayeredWindowAttributes(window,0,255,LWA_ALPHA)!=FALSE,"layered input passthrough");
+        ShowWindow(window,SW_SHOWNOACTIVATE);
         pixel_prototype(window);
         suspended_clear_releases_textures(window);
         hidden_suspend_releases_mask(window);
