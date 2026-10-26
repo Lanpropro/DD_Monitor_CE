@@ -194,7 +194,7 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.2.0";
+        internal const string ToolVersion = "1.0";
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;

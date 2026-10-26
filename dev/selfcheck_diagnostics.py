@@ -268,7 +268,7 @@ class DiagnosticTests(unittest.TestCase):
             result = subprocess.run(['powershell', '-NoProfile', '-File', str(ROOT / 'dev/build_diagnostics.ps1'),
                                      '-OutDir', str(output), *arguments], capture_output=True, timeout=40)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.2.0.zip') as archive:
+        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.0.zip') as archive:
             self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
             for name in archive.namelist():
                 self.assertEqual(archive.read(name), (standalone / name).read_bytes())

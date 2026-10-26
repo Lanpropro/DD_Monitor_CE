@@ -17,9 +17,9 @@ $exe = Join-Path $OutDir 'DDMonitorDiagnostics.exe'
     (Join-Path $repo 'tools\diagnostics\Collector.cs') (Join-Path $repo 'tools\diagnostics\Program.cs')
 if ($LASTEXITCODE -ne 0) { throw '诊断工具编译失败。' }
 Copy-Item -LiteralPath (Join-Path $repo 'tools\diagnostics\README.md') -Destination (Join-Path $OutDir '诊断工具说明.md') -Force
-$toolVersion = [version](Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+$toolVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
 if (-not $NoZip) {
-    $zip = Join-Path $OutDir "DDMonitorDiagnostics-v$($toolVersion.ToString(3)).zip"
+    $zip = Join-Path $OutDir "DDMonitorDiagnostics-v$toolVersion.zip"
     Compress-Archive -LiteralPath $exe,(Join-Path $OutDir '诊断工具说明.md') -DestinationPath $zip -Force
     Get-FileHash -LiteralPath $exe,$zip -Algorithm SHA256 | Format-Table -AutoSize
 } else {
