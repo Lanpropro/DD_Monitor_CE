@@ -100,6 +100,7 @@ def check_codecs(app):
     panel = CodecSettingsPanel({"bili_codec": "av1", "decode_mode": "none"})
     assert panel.values() == {"bili_codec": "av1", "decode_mode": "none"}
     page = GeneralSettingsPage(panel.values())
+    assert page._checks['sidebar_platform_logos'].isHidden(), 'Bilibili-only settings must not show a platform-logo switch'
     assert "AV1" in page.codec_button.text() and "CPU" in page.codec_button.text()
     for accepted in (False, True):
         with patch("ddm.dialogs.CodecSettingsDialog") as mocked:
