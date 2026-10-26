@@ -13,7 +13,7 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
-from ddm.widgets import LoadingIndicator, NavSelectionCheck
+from ddm.widgets import LoadingIndicator, NavSelectionCheck, StreamBadge, WallPaneBorder
 from ddm.video_surface import VideoCorner
 
 APP = QApplication.instance() or QApplication([])
@@ -27,6 +27,43 @@ def canvas(width, height, scale):
 
 
 class SmoothEdges(unittest.TestCase):
+    def test_native_upload_is_deferred_and_reentrant_paints_are_coalesced(self):
+        if APP.platformName() != 'windows':
+            self.skipTest('Windows native alpha upload')
+        theme.apply('light')
+        try:
+            for factory in (StreamBadge, VideoCorner, LoadingIndicator,
+                            lambda owner: WallPaneBorder(owner, None)):
+                with self.subTest(factory=factory):
+                    owner = QWidget()
+                    owner.move(-8000, -8000)
+                    widget = factory(owner)
+                    widget.setAttribute(Qt.WA_NativeWindow)
+                    try:
+                        with patch.object(widget, '_paint_layered') as upload:
+                            owner.show()
+                            widget.show()
+                            QTest.qWait(30)
+                            upload.reset_mock()
+                            for _ in range(5):
+                                widget.grab()
+                            upload.assert_not_called()
+                            # An upload may synchronously trigger another paint.
+                            upload.side_effect = lambda: widget.grab()
+                            APP.processEvents()
+                            self.assertEqual(upload.call_count, 1)
+                            APP.processEvents()
+                            self.assertEqual(upload.call_count, 1)
+                            upload.reset_mock()
+                            widget.grab()
+                            widget.hide()
+                            APP.processEvents()
+                            upload.assert_not_called()
+                    finally:
+                        owner.close()
+        finally:
+            theme.apply('dark')
+
     def test_static_native_corner_reuses_upload_until_theme_or_size_changes(self):
         if APP.platformName() != 'windows':
             self.skipTest('Windows native alpha upload')
@@ -38,16 +75,20 @@ class SmoothEdges(unittest.TestCase):
         APP.processEvents()
         try:
             corner.grab()
+            APP.processEvents()
             self.assertTrue(corner._alpha_uploaded)
             with patch.object(corner, '_render_badge', wraps=corner._render_badge) as render:
                 for _ in range(20):
                     corner.grab()
+                    APP.processEvents()
                 render.assert_not_called()
                 corner.setFixedSize(14, 14)
                 corner.grab()
+                APP.processEvents()
                 self.assertEqual(render.call_count, 1)
                 theme.apply('light')
                 corner.grab()
+                APP.processEvents()
                 self.assertEqual(render.call_count, 2)
         finally:
             owner.close()
@@ -117,10 +158,18 @@ class SmoothEdges(unittest.TestCase):
             indicator.start()
             QTest.qWait(120)
             indicator.grab()  # Native off-screen windows do not receive expose paints.
+            APP.processEvents()
             self.assertTrue(indicator._alpha_uploaded)
             self.assertTrue(indicator.mask().isEmpty())
             self.assertTrue(indicator._movie.isValid())
             self.assertGreater(indicator._movie.currentFrameNumber(), 0)
+            import ctypes
+            with patch.object(ctypes.windll.user32, 'SetWindowLongW',
+                              wraps=ctypes.windll.user32.SetWindowLongW) as set_style:
+                for _ in range(3):
+                    indicator.grab()
+                    APP.processEvents()
+                set_style.assert_not_called()
             indicator.stop()
             self.assertTrue(indicator.isHidden())
         finally:

@@ -46,7 +46,7 @@ class VideoCorner(BadgeSurface):
 
     def paintEvent(self, event):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._paint_layered()
+            self._schedule_layered_paint()
         else:
             painter = QPainter(self)
             self._render_badge(painter)
