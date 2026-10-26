@@ -33,6 +33,16 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+原生视频浮层的内存回归：
+
+```powershell
+python dev/run_checks.py --script selfcheck_badge_memory
+```
+
+使用真实 Windows 原生徽标和左右圆角窗口，在深浅主题下完成 2,400 次 alpha 上传，
+确认上传成功且 GC 后保留的 Python 内存低于 512 KiB。窗口在屏幕外创建，
+不打开媒体、不加载插件或账号配置；此检查用于捕获反复重绘时创建 ctypes 类型导致的持续积累。
+
 - 日志与 `summary.json` 写入忽略目录 `work/checks/<时间>/`。
 - 所有选中项目完成后，任一失败或超时均返回退出码 `1`；参数错误返回 `2`，全部通过返回 `0`。
 - 单项默认超时 300 秒，可用 `--timeout` 调整。遇到失败先查看对应日志，不以“执行结束”判断通过。

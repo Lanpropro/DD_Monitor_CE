@@ -10,6 +10,21 @@ from PySide6.QtWidgets import QApplication, QWidget
 from . import theme
 
 
+# ctypes caches POINTER types; defining these classes per paint retains every copy.
+class _BitmapInfo(ctypes.Structure):
+    _fields_ = [("size", wintypes.DWORD), ("width", wintypes.LONG),
+        ("height", wintypes.LONG), ("planes", wintypes.WORD),
+        ("bits", wintypes.WORD), ("compression", wintypes.DWORD),
+        ("bytes", wintypes.DWORD), ("xppm", wintypes.LONG),
+        ("yppm", wintypes.LONG), ("used", wintypes.DWORD),
+        ("important", wintypes.DWORD)]
+
+
+class _Blend(ctypes.Structure):
+    _fields_ = [("operation", ctypes.c_ubyte), ("flags", ctypes.c_ubyte),
+        ("alpha", ctypes.c_ubyte), ("format", ctypes.c_ubyte)]
+
+
 class BadgeSurface(QWidget):
     @property
     def badge_path(self):
@@ -85,18 +100,6 @@ class BadgeSurface(QWidget):
         self._render_badge(painter)
         painter.end()
 
-        class BitmapInfo(ctypes.Structure):
-            _fields_ = [("size", wintypes.DWORD), ("width", wintypes.LONG),
-                ("height", wintypes.LONG), ("planes", wintypes.WORD),
-                ("bits", wintypes.WORD), ("compression", wintypes.DWORD),
-                ("bytes", wintypes.DWORD), ("xppm", wintypes.LONG),
-                ("yppm", wintypes.LONG), ("used", wintypes.DWORD),
-                ("important", wintypes.DWORD)]
-
-        class Blend(ctypes.Structure):
-            _fields_ = [("operation", ctypes.c_ubyte), ("flags", ctypes.c_ubyte),
-                ("alpha", ctypes.c_ubyte), ("format", ctypes.c_ubyte)]
-
         user32.GetDC.argtypes = (wintypes.HWND,)
         user32.GetDC.restype = wintypes.HDC
         user32.ReleaseDC.argtypes = (wintypes.HWND, wintypes.HDC)
@@ -104,10 +107,10 @@ class BadgeSurface(QWidget):
         user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
         user32.UpdateLayeredWindow.argtypes = (wintypes.HWND, wintypes.HDC,
             ctypes.POINTER(wintypes.POINT), ctypes.POINTER(wintypes.SIZE), wintypes.HDC,
-            ctypes.POINTER(wintypes.POINT), wintypes.DWORD, ctypes.POINTER(Blend), wintypes.DWORD)
+            ctypes.POINTER(wintypes.POINT), wintypes.DWORD, ctypes.POINTER(_Blend), wintypes.DWORD)
         gdi32.CreateCompatibleDC.argtypes = (wintypes.HDC,)
         gdi32.CreateCompatibleDC.restype = wintypes.HDC
-        gdi32.CreateDIBSection.argtypes = (wintypes.HDC, ctypes.POINTER(BitmapInfo),
+        gdi32.CreateDIBSection.argtypes = (wintypes.HDC, ctypes.POINTER(_BitmapInfo),
             wintypes.UINT, ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD)
         gdi32.CreateDIBSection.restype = wintypes.HANDLE
         gdi32.SelectObject.argtypes = (wintypes.HDC, wintypes.HANDLE)
@@ -116,7 +119,7 @@ class BadgeSurface(QWidget):
         gdi32.DeleteDC.argtypes = (wintypes.HDC,)
         screen = user32.GetDC(None)
         memory = gdi32.CreateCompatibleDC(screen)
-        info = BitmapInfo(40, image.width(), -image.height(), 1, 32, 0, 0, 0, 0, 0, 0)
+        info = _BitmapInfo(40, image.width(), -image.height(), 1, 32, 0, 0, 0, 0, 0, 0)
         data = ctypes.c_void_p()
         bitmap = gdi32.CreateDIBSection(screen, ctypes.byref(info), 0, ctypes.byref(data), None, 0)
         try:
@@ -129,7 +132,7 @@ class BadgeSurface(QWidget):
                 user32.SetWindowLongW(hwnd, -20, style | 0x00080000)
                 size = wintypes.SIZE(image.width(), image.height())
                 origin = wintypes.POINT(0, 0)
-                blend = Blend(0, 0, 255, 1)
+                blend = _Blend(0, 0, 255, 1)
                 self._alpha_uploaded = bool(user32.UpdateLayeredWindow(hwnd, screen, None,
                     ctypes.byref(size), memory, ctypes.byref(origin), 0, ctypes.byref(blend), 2))
                 self._layered_hwnd = hwnd

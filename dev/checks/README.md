@@ -20,6 +20,7 @@
 | [selfcheck_appearance](../selfcheck_appearance.py) | 单项执行前核对 |
 | [selfcheck_appearance_design](../selfcheck_appearance_design.py) | `repository` |
 | [selfcheck_appearance_playback](../selfcheck_appearance_playback.py) | 单项执行前核对 |
+| [selfcheck_badge_memory](../selfcheck_badge_memory.py) | `native` |
 | [selfcheck_brand_assets](../selfcheck_brand_assets.py) | `offline` |
 | [selfcheck_button_feedback](../selfcheck_button_feedback.py) | `offline` |
 | [selfcheck_button_focus](../selfcheck_button_focus.py) | `offline` |
