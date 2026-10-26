@@ -461,7 +461,7 @@ namespace DDMonitorDiagnostics
             imagePanel.SetRowSpan(imageFrame, 2);
             var addImage = new DiagnosticButton { Text = "添加图片", Dock = DockStyle.Top, Height = 38 };
             imagePanel.Controls.Add(addImage, 1, 0);
-            var imageHint = new Label { Text = "点击查看大图，右上角 × 删除；可拖入图片。最多 5 张，每张 ≤20MB，转换后合计 ≤50MB。请先遮挡个人信息。", AutoSize = true, Dock = DockStyle.Fill };
+            var imageHint = new Label { Text = "点击查看大图，右上角 × 删除；可拖入图片。最多 5 张，每张 ≤20MB。", AutoSize = true, Dock = DockStyle.Fill };
             imagePanel.Controls.Add(imageHint, 0, 2);
             imagePanel.SetColumnSpan(imageHint, 2);
             AddRow(5, "图片附件", imagePanel, null);
@@ -479,7 +479,7 @@ namespace DDMonitorDiagnostics
             layout.Controls.Add(contentArea, 0, 2);
             layout.Controls.Add(progress, 0, 3);
             layout.Controls.Add(status, 0, 4);
-            layout.Controls.Add(new Label { Text = "提示：请描述操作步骤、实际表现和预期结果，避免填写密码或 Cookie。", AutoSize = true, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText }, 0, 5);
+            layout.Controls.Add(new Label { Text = "请描述操作步骤、实际表现和预期结果，非常感谢你的使用与反馈Ciallo～(∠・ω< )⌒★", AutoSize = true, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText }, 0, 5);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
             buttons.Controls.Add(generate);
             buttons.Controls.Add(folder);

@@ -16,6 +16,30 @@ internal static class DiagnosticsTests
         try
         {
             Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+            if (args[0] == "--layout")
+            {
+                using (var form = new DiagnosticForm(args[1]))
+                {
+                    var handle = form.Handle;
+                    form.Size = form.MinimumSize;
+                    form.PerformLayout();
+                    var pending = new System.Collections.Generic.Queue<Control>();
+                    pending.Enqueue(form);
+                    Label footer = null;
+                    while (pending.Count > 0)
+                    {
+                        var control = pending.Dequeue();
+                        foreach (Control child in control.Controls) pending.Enqueue(child);
+                        if (control is Label && control.Text.StartsWith("请描述操作步骤")) footer = (Label)control;
+                    }
+                    if (footer == null) throw new Exception("Feedback guidance missing");
+                    var required = TextRenderer.MeasureText(footer.Text, footer.Font,
+                        new Size(footer.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
+                    if (required.Height > footer.ClientSize.Height) throw new Exception("Feedback text clipped at minimum window size");
+                    Console.WriteLine("layout passed");
+                    return 0;
+                }
+            }
             if (args[0] == "--gallery")
             {
                 using (var gallery = new AttachmentGallery { Size = new Size(600, 100), BackColor = DiagnosticTheme.Surface })
