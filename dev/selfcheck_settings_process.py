@@ -30,6 +30,7 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            assert self.general_page._checks['sidebar_platform_logos'].isHidden(), 'Generic logo switch must stay hidden in the worker'
             if action.startswith('logos-'):
                 if len(self.plugin_checks) != 2:
                     QTimer.singleShot(10, self.exercise)

@@ -258,6 +258,9 @@ class GeneralSettingsPage(QWidget):
             box.setChecked(bool(settings.get(key, True)))
             grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
+            if key == "sidebar_platform_logos":
+                # Retain the saved master value and insertion anchor for plugin controls.
+                box.hide()
             row += 1
             if key == "sidebar_auto_compact":
                 grid.addWidget(QLabel("自动切换数量"), row, 0)
