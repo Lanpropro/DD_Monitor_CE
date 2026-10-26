@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -15,6 +17,91 @@ using Microsoft.Win32;
 
 namespace DDMonitorDiagnostics
 {
+    internal static class AppDiscovery
+    {
+        internal static bool HasApp(string path)
+        {
+            try { return Directory.Exists(path) && (File.Exists(Path.Combine(path, "main.py")) || File.Exists(Path.Combine(path, "ddm-build.json")) || Directory.GetFiles(path, "*.exe").Any(p => IsAppName(Path.GetFileNameWithoutExtension(p)))); }
+            catch { return false; }
+        }
+
+        static bool IsAppName(string name)
+        {
+            return Regex.IsMatch(name, @"^(?:DD监控室(?:CE)?|DDMonitorCE)(?:-v[\d.]+)?$", RegexOptions.IgnoreCase);
+        }
+
+        internal static string[] Candidates(IEnumerable<string> paths)
+        {
+            var result = new List<string>();
+            foreach (var path in paths)
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(path)) continue;
+                    var full = Path.GetFullPath(path);
+                    if (File.Exists(full)) full = Path.GetDirectoryName(full);
+                    if (HasApp(full) && !result.Contains(full, StringComparer.OrdinalIgnoreCase)) result.Add(full);
+                }
+                catch { }
+            return result.ToArray();
+        }
+
+        internal static string[] Find(string initial)
+        {
+            var paths = new List<string> { initial };
+            foreach (var process in Process.GetProcesses())
+                using (process)
+                    try { if (IsAppName(process.ProcessName)) paths.Add(Path.GetDirectoryName(process.MainModule.FileName)); }
+                    catch { }
+            foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    try
+                    {
+                        using (var registry = RegistryKey.OpenBaseKey(hive, view))
+                        using (var uninstall = registry.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"))
+                            if (uninstall != null)
+                                foreach (var id in uninstall.GetSubKeyNames())
+                                    using (var key = uninstall.OpenSubKey(id))
+                                        if (key != null && Convert.ToString(key.GetValue("DisplayName")).StartsWith("DD监控室CE", StringComparison.OrdinalIgnoreCase))
+                                            paths.Add(Convert.ToString(key.GetValue("InstallLocation")));
+                    }
+                    catch { }
+            paths.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "DDMonitorCE"));
+            paths.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "DDMonitorCE"));
+            if (Directory.Exists(initial)) paths.Add(Path.GetDirectoryName(Path.GetFullPath(initial).TrimEnd('\\', '/')));
+            return Candidates(paths);
+        }
+    }
+
+    internal static class ImageAttachment
+    {
+        internal const int MaximumCount = 5;
+        internal const int MaximumBytes = 10 * 1024 * 1024;
+
+        internal static byte[] Encode(string path)
+        {
+            var extension = Path.GetExtension(path).ToLowerInvariant();
+            if (!new[] { ".png", ".jpg", ".jpeg", ".bmp", ".gif" }.Contains(extension)) throw new IOException("仅支持 PNG、JPG、BMP 或 GIF 图片。");
+            using (var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                if (source.Length > MaximumBytes) throw new IOException("每张图片不能超过 10MB。");
+                using (var image = Image.FromStream(source, true, true))
+                {
+                    if (image.Width > 8192 || image.Height > 8192 || (long)image.Width * image.Height > 40000000) throw new IOException("图片尺寸过大，请缩小后添加。");
+                    // Render the first frame into a new PNG, omitting EXIF/location metadata.
+                    using (var bitmap = new Bitmap(image.Width, image.Height))
+                    using (var graphics = Graphics.FromImage(bitmap))
+                    using (var output = new MemoryStream())
+                    {
+                        graphics.DrawImage(image, 0, 0, image.Width, image.Height);
+                        bitmap.Save(output, ImageFormat.Png);
+                        if (output.Length > MaximumBytes) throw new IOException("转换后的图片超过 10MB，请缩小后添加。");
+                        return output.ToArray();
+                    }
+                }
+            }
+        }
+    }
+
     internal sealed class Redactor
     {
         internal static readonly Regex Sensitive = new Regex(
@@ -70,7 +157,7 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.0.0";
+        internal const string ToolVersion = "1.1.0";
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
@@ -314,8 +401,18 @@ namespace DDMonitorDiagnostics
             return result;
         }
 
-        internal string Collect(string destination, string problem, string happened, Action<int, string> progress)
+        internal string Collect(string destination, string problem, string happened, Action<int, string> progress,
+            string reproducibility = "尚未确认", string[] attachments = null)
         {
+            if (!new[] { "稳定复现", "概率触发", "尚未确认" }.Contains(reproducibility)) throw new ArgumentException("请选择有效的复现情况。");
+            attachments = attachments ?? new string[0];
+            if (attachments.Length > ImageAttachment.MaximumCount) throw new IOException("最多添加 5 张图片。");
+            var images = new Dictionary<string, byte[]>();
+            foreach (var path in attachments)
+            {
+                images["attachments/image-" + (images.Count + 1).ToString("00") + ".png"] = ImageAttachment.Encode(path);
+                if (images.Values.Sum(bytes => bytes.Length) > 25 * 1024 * 1024) throw new IOException("图片附件合计不能超过 25MB，请减少或缩小图片。");
+            }
             progress(5, "读取并脱敏配置…");
             var config = Config("utils/config.json");
             var backup = Config("utils/config.json.bak");
@@ -333,7 +430,7 @@ namespace DDMonitorDiagnostics
             };
             add("config/current.json", config);
             add("config/backup.json", backup);
-            add("problem.json", new { description = problem, happened, collected = DateTimeOffset.Now.ToString("o"), tool_version = ToolVersion });
+            add("problem.json", new { description = problem, happened, reproducibility, attachments = images.Keys.ToArray(), collected = DateTimeOffset.Now.ToString("o"), tool_version = ToolVersion });
             progress(20, "核对软件版本和关键文件…");
             section("software.json", Software);
             section("plugins.json", Plugins);
@@ -351,9 +448,10 @@ namespace DDMonitorDiagnostics
             catch (Exception error) { warnings.Add("日志目录无法枚举（" + error.GetType().Name + "）。"); }
             AddLog(entries, "ddm-pyinstaller-paths.txt");
             section("crash-events.json", CrashEvents);
-            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制、截图或内存转储；不联网、不启动或关闭软件。" });
+            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制、缓存或内存转储；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
+                "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
                 "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
                 "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不能还原崩溃前内存。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
             progress(85, "写入诊断 ZIP…");
@@ -364,8 +462,12 @@ namespace DDMonitorDiagnostics
                 try
                 {
                     using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, true))
+                    {
                         foreach (var entry in entries)
                             using (var writer = new StreamWriter(zip.CreateEntry(entry.Key, CompressionLevel.Optimal).Open(), new UTF8Encoding(false))) writer.Write(entry.Value);
+                        foreach (var image in images)
+                            using (var target = zip.CreateEntry(image.Key, CompressionLevel.Optimal).Open()) target.Write(image.Value, 0, image.Value.Length);
+                    }
                 }
                 catch { stream.Close(); File.Delete(output); throw; }
             }

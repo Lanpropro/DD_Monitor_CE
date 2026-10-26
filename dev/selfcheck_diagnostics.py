@@ -3,11 +3,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
 import zipfile
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,15 +50,63 @@ class DiagnosticTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(value, encoding='utf-8')
 
-    def collect(self, success=True, output=None):
-        result = subprocess.run([str(self.driver), str(self.app), str(output or self.output)],
+    def collect(self, success=True, output=None, reproduction='尚未确认', images=()):
+        result = subprocess.run([str(self.driver), str(self.app), str(output or self.output), reproduction, *map(str, images)],
                                 capture_output=True, timeout=90)
         self.assertEqual(result.returncode, 0 if success else 1, result.stderr)
         if success:
             files = list(self.output.glob('*.zip'))
             self.assertEqual(len(files), 1)
             with zipfile.ZipFile(files[0]) as archive:
-                return {name: archive.read(name).decode('utf-8') for name in archive.namelist()}
+                return {name: archive.read(name) if name.startswith('attachments/') else archive.read(name).decode('utf-8')
+                        for name in archive.namelist()}
+
+    def image_fixture(self):
+        def chunk(kind, data):
+            return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
+        path = self.case / 'private-image-name.png'
+        path.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!IIBBBBB', 2, 2, 8, 2, 0, 0, 0))
+                         + chunk(b'tEXt', b'Comment\0NEVER_KEEP_IMAGE_METADATA')
+                         + chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 2) * 2)) + chunk(b'IEND', b''))
+        return path
+
+    def test_reproduction_and_reencoded_image_are_exported_without_original_metadata(self):
+        image = self.image_fixture()
+        original = image.read_bytes()
+        entries = self.collect(reproduction='概率触发', images=[image])
+        problem = json.loads(entries['problem.json'])
+        self.assertEqual(problem['reproducibility'], '概率触发')
+        self.assertEqual(problem['attachments'], ['attachments/image-01.png'])
+        exported = entries['attachments/image-01.png']
+        self.assertTrue(exported.startswith(b'\x89PNG'))
+        self.assertNotIn(b'NEVER_KEEP_IMAGE_METADATA', exported)
+        self.assertNotIn('private-image-name', entries['problem.json'])
+        self.assertEqual(original, image.read_bytes())
+        self.assertIn('概率触发', entries['诊断摘要.txt'])
+
+    def test_invalid_or_excessive_images_do_not_produce_partial_archive(self):
+        image = self.image_fixture()
+        self.collect(success=False, images=[image] * 6)
+        self.collect(success=False, images=[self.case / 'missing.png'])
+        image.write_bytes(b'not an image')
+        self.collect(success=False, images=[image])
+        image.write_bytes(b'X' * (10 * 1024 * 1024 + 1))
+        self.collect(success=False, images=[image])
+        self.collect(success=False, reproduction='invalid')
+        self.assertEqual(list(self.output.iterdir()), [])
+
+    def test_discovery_validates_deduplicates_and_preserves_multiple_candidates(self):
+        portable = self.case / 'portable'
+        portable.mkdir()
+        (portable / 'DD监控室CE-v0.5.exe').write_bytes(b'fixture')
+        invalid = self.case / 'unrelated'
+        invalid.mkdir()
+        (invalid / 'unrelated.exe').write_bytes(b'fixture')
+        result = subprocess.run([str(self.driver), '--discover', str(self.app), str(self.app / 'main.py'),
+                                 str(portable), str(invalid), str(self.case / 'missing')], capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = json.loads(result.stdout.decode('utf-8'))
+        self.assertEqual(found, [str(self.app), str(portable)])
 
     def test_collects_version_configuration_plugins_and_only_selected_logs(self):
         self.put('ddm-build.json', '\ufeff' + json.dumps({'version': '0.5.2', 'platform': 'windows-x64'}))
