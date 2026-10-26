@@ -1,7 +1,8 @@
-"""验证功能版 README 的下载版本、链接、网页展示图与贡献者入口。"""
+"""验证功能版 README 的下载版本、链接、展示图与贡献者入口。"""
 import ast
 from pathlib import Path
 import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,18 +27,17 @@ def check():
         elif "://" not in target:
             assert (ROOT / target.split("#", 1)[0]).is_file(), f"missing local file: {target}"
     assert {"功能特性", "插件扩展", "下载", "文档", "贡献者", "致谢与许可"} <= anchors
-    web_source = '\n'.join((ROOT / 'website-prototype' / name).read_text(encoding='utf-8')
-                           for name in ('index.html', 'app.js'))
     images = [Path(target) for target in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', readme)
               if '://' not in target]
-    assert images, 'missing software screenshots'
+    assert [path.as_posix() for path in images] == [
+        'docs/overview4_Landscape_mode.png', 'docs/overview5_Landscape_mode.png',
+        'docs/overview2_Portrait_Mode.png'], 'README must use the selected current screenshots'
+    tracked = set(subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode('utf-8').split('\0'))
     for path in images:
-        assert path.parts[0] == 'website-prototype', f'screenshot is not a website asset: {path}'
-        assert path.relative_to('website-prototype').as_posix() in web_source, \
-            f'screenshot is not used by the website: {path}'
+        assert path.as_posix() in tracked, f'screenshot must be included in the repository: {path}'
     assert 'https://contrib.rocks/image?repo=Lanpropro/DD_Monitor_CE' in readme
     assert 'https://github.com/Lanpropro/DD_Monitor_CE/graphs/contributors' in readme
-    print("PASS: feature README downloads, local links/anchors, website screenshots and contributor wall")
+    print("PASS: feature README downloads, local links/anchors, selected tracked screenshots and contributor wall")
 
 
 if __name__ == "__main__":

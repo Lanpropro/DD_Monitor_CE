@@ -432,6 +432,9 @@
 - `docs/overview1_Landscape_mode.png`
 - `docs/overview1_Portrait_Mode.png`
 - `docs/overview2_Landscape_mode.png`
+- `docs/overview2_Portrait_Mode.png`
+- `docs/overview4_Landscape_mode.png`
+- `docs/overview5_Landscape_mode.png`
 - `docs/plugins.md`
 - `docs/repository-map.md`
 - `docs/resize-performance.md`
