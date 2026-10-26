@@ -1,6 +1,8 @@
 ﻿# 独立 WinForms EXE，只使用 Windows 自带的 .NET Framework，不依赖 Qt 或 Python。
-param([string]$OutDir = "")
+param([string]$OutDir = "", [switch]$NoZip)
 $ErrorActionPreference = 'Stop'
+# 使用当前 PowerShell 的内置模块，避免继承的 PS7 模块路径覆盖 WinPS 5.1。
+Import-Module (Join-Path $PSHOME "Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1") -Force
 $repo = Split-Path -Parent $PSScriptRoot
 if (-not $OutDir) { $OutDir = Join-Path $repo 'work\diagnostics-preview' }
 $OutDir = [IO.Path]::GetFullPath($OutDir)
@@ -14,7 +16,12 @@ $exe = Join-Path $OutDir 'DDMonitorDiagnostics.exe'
     /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll `
     (Join-Path $repo 'tools\diagnostics\Collector.cs') (Join-Path $repo 'tools\diagnostics\Program.cs')
 if ($LASTEXITCODE -ne 0) { throw '诊断工具编译失败。' }
-Copy-Item -LiteralPath (Join-Path $repo 'tools\diagnostics\README.md') -Destination (Join-Path $OutDir '使用说明.md') -Force
-$zip = Join-Path $OutDir 'DDMonitorDiagnostics-v1.1.0.zip'
-Compress-Archive -LiteralPath $exe,(Join-Path $OutDir '使用说明.md') -DestinationPath $zip -Force
-Get-FileHash -LiteralPath $exe,$zip -Algorithm SHA256 | Format-Table -AutoSize
+Copy-Item -LiteralPath (Join-Path $repo 'tools\diagnostics\README.md') -Destination (Join-Path $OutDir '诊断工具说明.md') -Force
+$toolVersion = [version](Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+if (-not $NoZip) {
+    $zip = Join-Path $OutDir "DDMonitorDiagnostics-v$($toolVersion.ToString(3)).zip"
+    Compress-Archive -LiteralPath $exe,(Join-Path $OutDir '诊断工具说明.md') -DestinationPath $zip -Force
+    Get-FileHash -LiteralPath $exe,$zip -Algorithm SHA256 | Format-Table -AutoSize
+} else {
+    Get-FileHash -LiteralPath $exe -Algorithm SHA256 | Format-Table -AutoSize
+}

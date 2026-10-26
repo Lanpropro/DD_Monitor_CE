@@ -20,6 +20,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# 使用当前 PowerShell 的内置模块，避免继承的 PS7 模块路径覆盖 WinPS 5.1。
+Import-Module (Join-Path $PSHOME "Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1") -Force
 $env:PYTHONIOENCODING = "utf-8"
 $repo = Split-Path -Parent $PSScriptRoot
 $py = Join-Path $repo ".venv\Scripts\python.exe"
@@ -66,7 +68,7 @@ New-Item -ItemType Directory -Force -Path $app | Out-Null
 # ---- 1) 源码：**只打包 git 跟踪的文件** ----
 # 不是简单拷目录：未跟踪的草稿/私有残留（比如 dev/mock_portrait.py 这种本地
 # 试做文件）不能进发布包 —— 用户要求上传/发布前不能带他自己的测试数据。
-& git -C $repo diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt dev/build_release.ps1 dev/pyi_rth_pyside6_paths.py
+& git -C $repo diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt dev/build_release.ps1 dev/pyi_rth_pyside6_paths.py tools/diagnostics dev/build_diagnostics.ps1
 if ($LASTEXITCODE -ne 0) { throw "请先提交开发源码，再从同一提交打包" }
 $snapshot = Join-Path $OutDir "source-snapshot.zip"
 & git -C $repo archive --format=zip --output=$snapshot HEAD
@@ -139,6 +141,10 @@ docs\releases\RELEASE-$version.md 这一版改了什么
 "@
 Set-Content -Path (Join-Path $app "运行说明.txt") -Value $readme -Encoding UTF8
 
+# 从本次 HEAD 的源码快照构建独立诊断工具，源码包和 EXE 包使用同一份产物。
+& (Join-Path $app "dev\build_diagnostics.ps1") -OutDir $app -NoZip
+if ($LASTEXITCODE -ne 0) { throw "独立诊断工具构建失败" }
+
 # ---- 4) exe 便携版（默认做；Q:\-SourceOnly 可跳过）----
 if (-not $SourceOnly) {
     $deps = if ($DependencyRoot) { [System.IO.Path]::GetFullPath($DependencyRoot) } else { Join-Path $repo "work\deps" }
@@ -194,6 +200,9 @@ if (-not $SourceOnly) {
     }
     @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
+    foreach ($diagnosticFile in @("DDMonitorDiagnostics.exe", "诊断工具说明.md")) {
+        Copy-Item -LiteralPath (Join-Path $app $diagnosticFile) -Destination $exeDir -Force
+    }
     # libmpv 与冻结后的 Python 模块放在同一个运行库目录。
     $internal = Join-Path $exeDir "_internal"
     Copy-Item -LiteralPath $FFmpegExe -Destination (Join-Path $exeDir "ffmpeg.exe") -Force
@@ -225,6 +234,7 @@ plugins_user\ 里是插件，可在设置页装载 ZIP 包，
 整个目录拷到别的 Windows 10/11 64 位机器就能用。
 _internal\ 里的东西（含 libmpv-2.dll）是运行库，别删。
 ffmpeg.exe 用于录制和即时回放；ffmpeg-license\ 里有第三方许可与来源说明。
+DDMonitorDiagnostics.exe 是独立诊断工具，软件无法启动时也可双击生成排查包。
 "@
     Set-Content -Path (Join-Path $exeDir "运行说明.txt") -Value $exeReadme -Encoding UTF8
 

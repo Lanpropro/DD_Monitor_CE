@@ -2,6 +2,8 @@
 import hashlib
 import json
 import os
+import random
+import runpy
 from pathlib import Path
 import struct
 import subprocess
@@ -86,6 +88,26 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(original, image.read_bytes())
         self.assertIn('概率触发', entries['诊断摘要.txt'])
 
+    def test_larger_images_fit_new_limits_and_combined_limit_still_applies(self):
+        def chunk(kind, data):
+            return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
+        width, height = 3000, 2000
+        pixels = random.Random(42).randbytes(width * height * 3)
+        rows = b''.join(b'\0' + pixels[row * width * 3:(row + 1) * width * 3] for row in range(height))
+        png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!IIBBBBB', width, height, 8, 2, 0, 0, 0))
+               + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+        self.assertGreater(len(png), 10 * 1024 * 1024)
+        self.assertLess(len(png), 20 * 1024 * 1024)
+        images = [self.case / f'noise-{index}.png' for index in range(3)]
+        for image in images:
+            image.write_bytes(png)
+        entries = self.collect(images=images[:2])
+        total = sum(len(data) for name, data in entries.items() if name.startswith('attachments/'))
+        self.assertGreater(total, 25 * 1024 * 1024)
+        self.assertLess(total, 50 * 1024 * 1024)
+        self.collect(success=False, images=images)
+        self.assertEqual(len(list(self.output.glob('*.zip'))), 1)
+
     def test_thumbnail_file_drop_duplicate_removal_and_export(self):
         image = self.image_fixture()
         invalid = self.case / 'not-image.txt'
@@ -106,7 +128,7 @@ class DiagnosticTests(unittest.TestCase):
         self.collect(success=False, images=[self.case / 'missing.png'])
         image.write_bytes(b'not an image')
         self.collect(success=False, images=[image])
-        image.write_bytes(b'X' * (10 * 1024 * 1024 + 1))
+        image.write_bytes(b'X' * (20 * 1024 * 1024 + 1))
         self.collect(success=False, images=[image])
         self.collect(success=False, reproduction='invalid')
         self.assertEqual(list(self.output.iterdir()), [])
@@ -234,6 +256,31 @@ class DiagnosticTests(unittest.TestCase):
         subsystem = int.from_bytes(image[pe + 24 + 68:pe + 24 + 70], 'little')
         self.assertEqual(subsystem, 2)  # IMAGE_SUBSYSTEM_WINDOWS_GUI
         self.assertNotIn(b'PySide6', image)
+
+    def test_standalone_and_installer_use_the_same_independent_executable(self):
+        standalone, bundle = self.case / 'standalone', self.case / 'bundle'
+        for output, arguments in ((standalone, []), (bundle, ['-NoZip'])):
+            result = subprocess.run(['powershell', '-NoProfile', '-File', str(ROOT / 'dev/build_diagnostics.ps1'),
+                                     '-OutDir', str(output), *arguments], capture_output=True, timeout=40)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.2.0.zip') as archive:
+            self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
+            for name in archive.namelist():
+                self.assertEqual(archive.read(name), (standalone / name).read_bytes())
+        self.assertEqual(set(p.name for p in bundle.iterdir()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
+        metadata = runpy.run_path(str(ROOT / 'dev/build_setup.py'))
+        version = metadata['VERSION']
+        files = {metadata['DISPLAY_NAME'] + '.exe': b'fake app', 'ffmpeg.exe': b'fake recorder',
+                 '_internal/libmpv-2.dll': b'fake runtime',
+                 'ddm-build.json': json.dumps({'version': version, 'update_protocol': 1, 'platform': 'windows-x64'}).encode()}
+        for name, data in files.items():
+            target = bundle / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        selected = metadata['payload_files'](bundle)
+        self.assertIn('DDMonitorDiagnostics.exe', selected)
+        self.assertIn('诊断工具说明.md', selected)
+        self.assertFalse(any(name.endswith('.zip') for name in selected))
 
 
 if __name__ == '__main__':

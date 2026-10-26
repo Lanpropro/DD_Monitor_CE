@@ -111,7 +111,8 @@ namespace DDMonitorDiagnostics
     internal static class ImageAttachment
     {
         internal const int MaximumCount = 5;
-        internal const int MaximumBytes = 10 * 1024 * 1024;
+        internal const int MaximumBytes = 20 * 1024 * 1024;
+        internal const int MaximumTotalBytes = 50 * 1024 * 1024;
 
         internal static byte[] Encode(string path)
         {
@@ -119,7 +120,7 @@ namespace DDMonitorDiagnostics
             if (!new[] { ".png", ".jpg", ".jpeg", ".bmp", ".gif" }.Contains(extension)) throw new IOException("仅支持 PNG、JPG、BMP 或 GIF 图片。");
             using (var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                if (source.Length > MaximumBytes) throw new IOException("每张图片不能超过 10MB。");
+                if (source.Length > MaximumBytes) throw new IOException("每张图片不能超过 20MB。");
                 using (var image = Image.FromStream(source, true, true))
                 {
                     if (image.Width > 8192 || image.Height > 8192 || (long)image.Width * image.Height > 40000000) throw new IOException("图片尺寸过大，请缩小后添加。");
@@ -130,7 +131,7 @@ namespace DDMonitorDiagnostics
                     {
                         graphics.DrawImage(image, 0, 0, image.Width, image.Height);
                         bitmap.Save(output, ImageFormat.Png);
-                        if (output.Length > MaximumBytes) throw new IOException("转换后的图片超过 10MB，请缩小后添加。");
+                        if (output.Length > MaximumBytes) throw new IOException("转换后的图片超过 20MB，请缩小后添加。");
                         return output.ToArray();
                     }
                 }
@@ -193,7 +194,7 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.1.0";
+        internal const string ToolVersion = "1.2.0";
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
@@ -447,7 +448,7 @@ namespace DDMonitorDiagnostics
             foreach (var path in attachments)
             {
                 images["attachments/image-" + (images.Count + 1).ToString("00") + ".png"] = ImageAttachment.Encode(path);
-                if (images.Values.Sum(bytes => bytes.Length) > 25 * 1024 * 1024) throw new IOException("图片附件合计不能超过 25MB，请减少或缩小图片。");
+                if (images.Values.Sum(bytes => bytes.Length) > ImageAttachment.MaximumTotalBytes) throw new IOException("图片附件合计不能超过 50MB，请减少或缩小图片。");
             }
             progress(5, "读取并脱敏配置…");
             var config = Config("utils/config.json");
