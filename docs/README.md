@@ -5,7 +5,7 @@
 
 | 分类 | 入口 |
 | --- | --- |
-| 使用说明 | [项目 README](../README.md) |
+| 软件介绍 | [功能、截图与下载](../README.md) |
 | 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
 | Bug 案例库 | [按模块归纳的故障、根因、验证与验收记录](bug-cases.md) |
 | 开发验证 | [测试套件与执行条件](development/testing.md)、[开发工具导航](../dev/README.md)、[全部专项检查](../dev/checks/README.md) |

@@ -18,6 +18,10 @@
 
 ## 常用命令
 
+设置界面的文案和默认值入口：[`ddm/dialogs.py`](../ddm/dialogs.py) 管理设置页与按钮文案，
+[`ddm/widgets.py`](../ddm/widgets.py) 管理主界面入口，
+[`ddm/theme.py`](../ddm/theme.py) 管理样式，[`ddm/config.py`](../ddm/config.py) 管理默认值。
+
 从仓库根目录执行：
 
 ```powershell
