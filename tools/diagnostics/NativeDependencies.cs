@@ -157,11 +157,13 @@ namespace DDMonitorDiagnostics
         {
             if (args.Length != 2 || args[0] != "--native-probe") return false;
             SetErrorMode(0x8003);
-            Console.OutputEncoding = new UTF8Encoding(false);
             Dictionary<string, object> result;
             try { result = Inspect(args[1]); }
             catch (Exception error) { result = Result("unavailable"); result["error_type"] = error.GetType().Name; }
-            Console.WriteLine(new JavaScriptSerializer().Serialize(result));
+            // A windowed executable has no console code page; write UTF-8 to the
+            // inherited pipe directly instead of setting Console.OutputEncoding.
+            using (var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)))
+                output.WriteLine(new JavaScriptSerializer().Serialize(result));
             return true;
         }
 

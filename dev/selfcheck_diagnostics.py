@@ -160,6 +160,16 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(self.native_check('--native-short')['status'], 'timeout')
         self.assertEqual(dll.read_bytes(), bytes(data))
 
+    def test_windowed_native_helper_outputs_json_without_console(self):
+        self.native_fixture()
+        executable = self.case / 'windowed.exe'
+        self.compile(executable, [ROOT / 'tools/diagnostics/Collector.cs',
+                                 ROOT / 'tools/diagnostics/NativeDependencies.cs',
+                                 ROOT / 'tools/diagnostics/Program.cs'], gui=True)
+        result = subprocess.run([str(executable), '--native-probe', str(self.app)], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout.decode('utf-8'))['status'], 'loaded')
+
     def test_reproduction_and_reencoded_image_are_exported_without_original_metadata(self):
         image = self.image_fixture()
         original = image.read_bytes()
