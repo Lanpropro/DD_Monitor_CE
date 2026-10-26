@@ -19,6 +19,7 @@
 ### 独立诊断工具
 
 - `tools/diagnostics/Collector.cs`
+- `tools/diagnostics/NativeDependencies.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
 - `dev/build_diagnostics.ps1`
