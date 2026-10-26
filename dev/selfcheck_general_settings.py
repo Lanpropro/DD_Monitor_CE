@@ -237,7 +237,7 @@ def main():
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "全屏时自动收起底部控制条",
         "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "显示关注栏平台 Logo",
-        "编解码设置", "新建格子的初始音量"]
+        "关闭窗口时", "编解码设置", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False

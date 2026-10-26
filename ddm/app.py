@@ -48,6 +48,7 @@ from .preview import HoverPreview
 from .recording import RecordingManager
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
+from .system_tray import SystemTray
 
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
 AUDIO_AUDIT_MS = 2_000
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
         self.rooms = rooms
         self.state = state or {}
+        self._tray_hint_shown = bool((self.state.get("ui") or {}).get("tray_hint_shown", False))
         self.room_presets = room_presets.collection(self.state.get("room_presets"))
         self._active_room_preset_id = (self.state.get("ui") or {}).get("room_preset_id", "")
         self._applying_room_preset = False
@@ -384,6 +386,7 @@ class MainWindow(QMainWindow):
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:
             print(f"[插件] 跳过 {entry}：{reason}", file=sys.stderr, flush=True)
+        self._tray = SystemTray(self)
         QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
 
         QTimer.singleShot(0, self.start_all)
@@ -1099,6 +1102,7 @@ class MainWindow(QMainWindow):
                 for tile in self.wall.tiles
             ],
             "ui": {
+                "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,
                 "sidebar_collapsed": self.sidebar.collapsed,
                 "layout_landscape": self._saved_layout("landscape"),
@@ -1139,6 +1143,8 @@ class MainWindow(QMainWindow):
         self._default_audio_output_id = device_id
 
     def closeEvent(self, event) -> None:
+        if self._tray.handle_close(event):
+            return
         # 先隐藏界面，再逐路终止播放并等待后台任务收尾。
         t0 = time.perf_counter()
         for dialog in list(self._codec_dialogs.values()):
@@ -1152,6 +1158,7 @@ class MainWindow(QMainWindow):
         hide_ms = (time.perf_counter() - t0) * 1000
         # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
+        self._tray.shutdown()
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
         if getattr(self, '_app_update_page', None) is not None:
@@ -1202,6 +1209,9 @@ class MainWindow(QMainWindow):
         print(f"[关闭] 窗口 {hide_ms:.1f} ms 内隐藏；收尾（释放播放器+等线程）共 {total_ms:.1f} ms",
               file=sys.stderr, flush=True)
         super().closeEvent(event)
+        app = QApplication.instance()
+        if not app.quitOnLastWindowClosed():
+            app.quit()
 
     def _wait_background(self) -> None:
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
@@ -4159,6 +4169,7 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    app.setQuitOnLastWindowClosed(False)
     t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈
     watchdog.start(log_path)

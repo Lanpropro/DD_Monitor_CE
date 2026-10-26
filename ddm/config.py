@@ -21,6 +21,7 @@ DEFAULT_VOLUME = 42
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 DEFAULT_SETTINGS = {
+    "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "appearance_mode": "dark",
     "skin_background": "",
     "skin_sidebar": True,
