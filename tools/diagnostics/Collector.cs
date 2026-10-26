@@ -533,7 +533,7 @@ namespace DDMonitorDiagnostics
             // Reuse the bounded, already-redacted log copies. Never load plugins or make requests.
             var events = new List<object>();
             var counts = new Dictionary<string, int>();
-            foreach (var entry in entries.Where(p => p.Key.StartsWith("logs/")))
+            foreach (var entry in entries.Where(p => p.Key.StartsWith("logs/")).OrderBy(p => p.Key, StringComparer.Ordinal))
             {
                 var lines = entry.Value.Split('\n');
                 for (int index = 0; index < lines.Length; index++)

@@ -99,6 +99,18 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(report['status'], 'not_recorded')
         self.assertEqual(report['events'], [])
 
+    def test_platform_summary_keeps_latest_day_when_old_logs_fill_limit(self):
+        self.put('logs/ddm-2026-10-25.log', '\n'.join(
+            '[画质档位] huya:1001: old-' + str(i) for i in range(1100)))
+        self.put('logs/ddm-2026-10-26.log',
+                 '[插件 domestic_live] [平台诊断] 阶段=player_error 类别=HTTP_403')
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(len(report['events']), 1000)
+        self.assertEqual(report['events'][-1]['log'], 'logs/ddm-2026-10-26.log')
+        self.assertEqual(report['events'][-1]['stage'], 'player_error')
+        self.assertEqual(report['counts']['source_ready'], 1100)
+
     def native_fixture(self, dependency='kernel32.dll', symbol='GetCurrentProcessId', x64=True):
         """Minimal inert PE DLL: no entry point, one import, no application code."""
         data = bytearray(0x800)
