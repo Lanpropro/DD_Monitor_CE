@@ -117,8 +117,7 @@ def main():
                     if not cropped and elapsed - matched >= 2 and pause_done:
                         for target in viewer.rows.values():
                             target.crop = (.1, .1, .8, .8)
-                            target.decoder.set_crop(target.crop)
-                        viewer.retry_alignment('1')
+                            assert target.decoder.crop == (0, 0, 1, 1)
                         viewer.show_comparison('2')
                         cropped = True
                 if recropped is not None and elapsed - recropped >= 2:
@@ -128,7 +127,7 @@ def main():
             expected = decoders[1].history.origin - decoders[0].history.origin
             assert abs(viewer.alignment.lags['2'] - expected) <= .1
             assert checks >= 100
-            print(f'PASS: two mixed-resolution/native-FPS streams matched at {matched:.2f}s; full-scene recrop at {recropped:.2f}s; {checks} checks without main buffering/quarantine/silent PCM')
+            print(f'PASS: two native streams matched at {matched:.2f}s; comparison crop at {recropped:.2f}s keeps full-scene matching; {checks} continuity checks')
         finally:
             if 'pause' in locals() and pause is not None:
                 pause.stop()

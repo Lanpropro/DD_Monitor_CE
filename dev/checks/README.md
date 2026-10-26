@@ -255,6 +255,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_match_sync](../selfcheck_match_sync.py) | 单项执行前核对 |
+| [selfcheck_match_sync_reserve](../selfcheck_match_sync_reserve.py) | 单项执行；合成时钟、假取流、临时插件设置，验证可选缓冲与持续补充，不联网 |
 | [selfcheck_match_sync_admission](../selfcheck_match_sync_admission.py) | 单项执行前核对 |
 | [selfcheck_match_sync_alignment](../selfcheck_match_sync_alignment.py) | 单项执行前核对 |
 | [selfcheck_match_sync_appearance](../selfcheck_match_sync_appearance.py) | 单项执行前核对 |
@@ -290,7 +291,7 @@
 | [selfcheck_match_sync_refinement](../selfcheck_match_sync_refinement.py) | 单项执行前核对 |
 | [selfcheck_match_sync_refinement_media](../selfcheck_match_sync_refinement_media.py) | 单项执行前核对 |
 | [selfcheck_match_sync_responsiveness](../selfcheck_match_sync_responsiveness.py) | 单项执行前核对 |
-| [selfcheck_match_sync_retry_rows](../selfcheck_match_sync_retry_rows.py) | 单项执行前核对 |
+| [selfcheck_match_sync_retry_rows](../selfcheck_match_sync_retry_rows.py) | 单项执行；使用 Windows 原生后端验证全屏窗口重挂、对照框选与拖动，不联网 |
 | [selfcheck_match_sync_session](../selfcheck_match_sync_session.py) | 单项执行前核对 |
 | [selfcheck_match_sync_shortcuts](../selfcheck_match_sync_shortcuts.py) | 单项执行前核对 |
 | [selfcheck_match_sync_smoothing](../selfcheck_match_sync_smoothing.py) | 单项执行前核对 |

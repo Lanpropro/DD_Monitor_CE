@@ -354,6 +354,12 @@
 ### 构建、维护与复现工具
 
 - `dev/build_match_sync.py`
+- `dev/benchmark_match_sync_ocr.ps1`
+- `dev/selfcheck_match_sync_reserve.py`
+- `docs/development/match-sync-ocr-evaluation.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.9.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.10.md`
+- `docs/releases/PLUGIN-match-sync-v1.3.md`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/fetch_mpv.py`
