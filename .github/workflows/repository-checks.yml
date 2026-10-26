@@ -63,6 +63,8 @@ jobs:
           }
       - name: Run isolated functional smoke
         run: python dev/run_checks.py --suite smoke --timeout 120
+      - name: Check native badge redraw memory
+        run: python dev/run_checks.py --script selfcheck_badge_memory
       - name: Show smoke logs
         if: always()
         shell: pwsh

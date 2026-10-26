@@ -39,6 +39,8 @@ class LegacyCleanupTests(unittest.TestCase):
         self.put('_internal/libmpv-2.dll', b'new-runtime')
         self.put('_internal/shared.dll', b'shared')
         self.put('ffmpeg.exe', b'ffmpeg')
+        self.put('DDMonitorDiagnostics.exe', b'diagnostics')
+        self.put('诊断工具说明.md', b'diagnostics-guide')
         self.put('ddm-build.json', json.dumps({'version': VERSION, 'platform': 'windows-x64',
                                              'update_protocol': 1}).encode())
         write_inventory(self.install)

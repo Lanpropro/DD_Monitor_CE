@@ -66,6 +66,7 @@
 - `dev/selfcheck_audio_hotplug.py`
 - `dev/selfcheck_audio_owner.py`
 - `dev/selfcheck_audio_routing.py`
+- `dev/selfcheck_badge_memory.py`
 - `dev/selfcheck_auto_quality.py`
 - `dev/selfcheck_auto_quality_live.py`
 - `dev/selfcheck_auto_quality_switch_live.py`
@@ -140,6 +141,7 @@
 - `dev/selfcheck_fullscreen_quality.py`
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
+- `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
 - `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
@@ -354,6 +356,12 @@
 ### 构建、维护与复现工具
 
 - `dev/build_match_sync.py`
+- `dev/benchmark_match_sync_ocr.ps1`
+- `dev/selfcheck_match_sync_reserve.py`
+- `docs/development/match-sync-ocr-evaluation.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.9.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.10.md`
+- `docs/releases/PLUGIN-match-sync-v1.3.md`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/fetch_mpv.py`

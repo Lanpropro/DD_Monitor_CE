@@ -20,6 +20,7 @@
 | [selfcheck_appearance](../selfcheck_appearance.py) | 单项执行前核对 |
 | [selfcheck_appearance_design](../selfcheck_appearance_design.py) | `repository` |
 | [selfcheck_appearance_playback](../selfcheck_appearance_playback.py) | 单项执行前核对 |
+| [selfcheck_badge_memory](../selfcheck_badge_memory.py) | `native` |
 | [selfcheck_brand_assets](../selfcheck_brand_assets.py) | `offline` |
 | [selfcheck_button_feedback](../selfcheck_button_feedback.py) | `offline` |
 | [selfcheck_button_focus](../selfcheck_button_focus.py) | `offline` |
@@ -84,6 +85,7 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
+| [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；模拟托盘、首次关闭选择及记忆、后台保持、恢复和退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--embedded-native` 检查屏幕外跨页 HWND/DPI，`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | 单项执行前核对 |
@@ -255,6 +257,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_match_sync](../selfcheck_match_sync.py) | 单项执行前核对 |
+| [selfcheck_match_sync_reserve](../selfcheck_match_sync_reserve.py) | 单项执行；合成时钟、假取流、临时插件设置，验证可选缓冲与持续补充，不联网 |
 | [selfcheck_match_sync_admission](../selfcheck_match_sync_admission.py) | 单项执行前核对 |
 | [selfcheck_match_sync_alignment](../selfcheck_match_sync_alignment.py) | 单项执行前核对 |
 | [selfcheck_match_sync_appearance](../selfcheck_match_sync_appearance.py) | 单项执行前核对 |
@@ -290,7 +293,7 @@
 | [selfcheck_match_sync_refinement](../selfcheck_match_sync_refinement.py) | 单项执行前核对 |
 | [selfcheck_match_sync_refinement_media](../selfcheck_match_sync_refinement_media.py) | 单项执行前核对 |
 | [selfcheck_match_sync_responsiveness](../selfcheck_match_sync_responsiveness.py) | 单项执行前核对 |
-| [selfcheck_match_sync_retry_rows](../selfcheck_match_sync_retry_rows.py) | 单项执行前核对 |
+| [selfcheck_match_sync_retry_rows](../selfcheck_match_sync_retry_rows.py) | 单项执行；使用 Windows 原生后端验证全屏窗口重挂、对照框选与拖动，不联网 |
 | [selfcheck_match_sync_session](../selfcheck_match_sync_session.py) | 单项执行前核对 |
 | [selfcheck_match_sync_shortcuts](../selfcheck_match_sync_shortcuts.py) | 单项执行前核对 |
 | [selfcheck_match_sync_smoothing](../selfcheck_match_sync_smoothing.py) | 单项执行前核对 |

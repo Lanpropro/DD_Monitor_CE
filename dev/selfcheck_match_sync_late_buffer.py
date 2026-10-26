@@ -65,6 +65,7 @@ def main():
         host = QWidget()
         host.settings = {}
         viewer = module.Viewer(plugins.PluginContext(plugins.PluginManager(window=host, plugins_dir=root), 'late_buffer'), {})
+        viewer.buffer_reserve.setCurrentIndex(viewer.buffer_reserve.findData(2))
         try:
             viewer.resize(2200, 900)
             viewer.show()
@@ -101,7 +102,7 @@ def main():
                     row.decoder.last_frame_received = now[0]
                 viewer.render()
                 building_seen |= viewer.late_buffer.building
-                reserve_seen |= '平滑补充约 2 秒副路播放缓冲' in viewer.late_notice.text()
+                reserve_seen |= '正在积累缓冲' in viewer.late_notice.text()
                 assert viewer.audio.correction == correction and viewer.shifts()['1'] == reference_shift
                 assert viewer.rows['1'].sync_state == '已同步' and not viewer.canvas.waiting
                 assert viewer.rows['3'].mix_gain == 1
