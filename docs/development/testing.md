@@ -2,6 +2,8 @@
 
 所有命令均从仓库根目录执行。默认入口只运行仓库检查，不遍历所有专项脚本。
 
+日常功能和人工验收统一使用根目录 `run.cmd`。特殊项目可隔离测试，完成后必须集成回根目录并在该入口复测；自动回归仍使用合成数据、临时配置和离屏窗口。开发入口与冻结包统一使用 PySide6 6.11.2。
+
 ## 执行分类
 
 | 套件 | 依赖与行为 | 命令 |
@@ -20,7 +22,7 @@
 
 ```powershell
 python dev/run_checks.py --list
-python dev/run_checks.py --script selfcheck_emoticon_tabs
+python dev/run_checks.py --script selfcheck_preview_scroll
 python dev/run_checks.py --script check_live_restore -- 6
 python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backend animator
 ```

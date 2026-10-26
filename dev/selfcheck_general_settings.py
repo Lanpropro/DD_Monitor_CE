@@ -100,6 +100,7 @@ def check_codecs(app):
     panel = CodecSettingsPanel({"bili_codec": "av1", "decode_mode": "none"})
     assert panel.values() == {"bili_codec": "av1", "decode_mode": "none"}
     page = GeneralSettingsPage(panel.values())
+    assert page._checks['sidebar_platform_logos'].isHidden(), 'Bilibili-only settings must not show a platform-logo switch'
     assert "AV1" in page.codec_button.text() and "CPU" in page.codec_button.text()
     for accepted in (False, True):
         with patch("ddm.dialogs.CodecSettingsDialog") as mocked:
@@ -236,12 +237,14 @@ def main():
     assert [text for _, text in sorted(labels)] == [
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "全屏时自动收起底部控制条",
-        "自动切换紧凑列表", "自动切换数量", "关注栏直播预览",
+        "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "显示关注栏平台 Logo",
         "编解码设置", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False
     assert values["freeze_watch"] is True and values["default_volume"] == 21
+    page._checks["sidebar_platform_logos"].setChecked(False)
+    assert page.values()["sidebar_platform_logos"] is False
     # 直播编码跟着解码方式走：两档都是「B 站这一路怎么播」的选择。
     assert values["bili_codec"] == config.DEFAULT_SETTINGS["bili_codec"]
     page._checks["sidebar_auto_compact"].setChecked(False)

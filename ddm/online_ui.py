@@ -166,6 +166,7 @@ class PluginStorePage(OnlinePage):
         self.seen_versions = {}
         self.cache_path = Path(config.REPO) / 'cache' / 'plugin-catalog.json'
         self._checked_at = 0
+        self._opened = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 4, 0)
         self.refresh = QPushButton('刷新插件商店')
@@ -196,9 +197,11 @@ class PluginStorePage(OnlinePage):
     def open_catalog(self):
         if self.jobs or self.stopping:
             return
-        if self.offers and 0 <= time.time() - self._checked_at < online.CATALOG_CHECK_SECONDS:
+        force = not self._opened
+        self._opened = True
+        if not force and self.offers and 0 <= time.time() - self._checked_at < online.CATALOG_CHECK_SECONDS:
             return
-        self.refresh_catalog()
+        self.refresh_catalog(force=force)
 
     def _busy(self, busy):
         self.refresh.setEnabled(not busy)
@@ -235,7 +238,7 @@ class PluginStorePage(OnlinePage):
             self.offers = [dict(offer) for offer in offers]
             self.show_offers(offers)
         self._checked_at = online.load_plugin_cache(self.cache_path).get('checked_at', self._checked_at)
-        self.status.setText('暂时无法查询最新版本，显示内置的已发布插件目录。' if any(
+        self.status.setText('暂时无法查询最新版本，显示已缓存的官方插件目录。' if any(
             offer.get('cached') for offer in offers) else '选择插件即可下载安装，重启后启用。')
         self.offersChanged.emit(self.offers)
 
@@ -293,7 +296,18 @@ class PluginStorePage(OnlinePage):
             hint.setWordWrap(True)
             hint.setObjectName('SettingsHint')
             hint.setVisible(offer['id'] not in updates)
-            body.addWidget(hint)
+            footer = QHBoxLayout()
+            footer.addWidget(hint, 1)
+            footer.addStretch(1)
+            author = str(offer.get('author') or '').strip().lstrip('@')
+            if author:
+                credit = QLabel('@' + author, card)
+                credit.setObjectName('PluginAuthor')
+                credit.setTextFormat(Qt.PlainText)
+                credit.setAccessibleName('GitHub 作者：' + author)
+                credit.setStyleSheet(f'color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px;')
+                footer.addWidget(credit, 0, Qt.AlignRight | Qt.AlignBottom)
+            body.addLayout(footer)
             self.cards.addWidget(card)
         self.update_dots()
 
@@ -308,6 +322,9 @@ class PluginStorePage(OnlinePage):
         if (not self.manager or not offer.get('available') or self.stopping
                 or any(task.key in (None, offer['id']) for task in self.jobs)):
             return
+        button = self.buttons.get(offer['id'])
+        if button is not None and button.hasFocus():
+            button.clearFocus()  # Disabling a focused button otherwise scrolls to the next card.
         self.status.setText('正在下载安装包…')
         def install(cancelled, progress):
             with tempfile.TemporaryDirectory(prefix='ddm-plugin-download-') as temporary, online.session() as client:
@@ -324,7 +341,11 @@ class PluginStorePage(OnlinePage):
             self.manager.enabled.add(plugin_id)
             self.manager.save_plugin_settings()
         self.installed.emit(plugin_id)
-        self.show_offers(self.offers)
+        button = self.buttons.get(plugin_id)
+        if button is not None:
+            button.setProperty('storeText', '已安装' if new else '待重启')
+            button.setProperty('storeEnabled', False)
+        self.update_dots()  # Keep the cards and their scroll position while changing the completed action.
         self.offersChanged.emit(self.offers)
         self.status.setText('安装包已校验，保存并重启后生效。')
         show_result(self.window(), '插件已安装，保存并重启后生效')
@@ -332,6 +353,7 @@ class PluginStorePage(OnlinePage):
 
 class AppUpdatePage(OnlinePage):
     releaseChecked = Signal(object)
+    saveRequested = Signal()
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -439,8 +461,21 @@ class AppUpdatePage(OnlinePage):
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
             with online.session() as client:
-                return online.app_release(client, version.VERSION)
-        self.start(check, self._release_ready)
+                offer = online.app_release(client, version.VERSION)
+                notes = ''
+                if offer is None:
+                    try:
+                        notes = online.release_notes(client, version.VERSION)
+                    except (online.requests.RequestException, ValueError):
+                        pass
+                return offer, notes
+        self.start(check, self._check_ready)
+
+    def _check_ready(self, result):
+        offer, notes = result
+        self._release_ready(offer)
+        if offer is None and notes:
+            self.notes.setMarkdown(notes)
 
     def _release_ready(self, offer):
         self.offer = offer
@@ -461,8 +496,7 @@ class AppUpdatePage(OnlinePage):
             return
         if self.plan_path:
             self.install_requested = True
-            dialog = self.window()
-            dialog._save()
+            self.saveRequested.emit()
             return
         if not self.offer:
             return

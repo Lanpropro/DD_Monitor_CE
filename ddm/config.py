@@ -48,6 +48,7 @@ DEFAULT_SETTINGS = {
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 0.5 秒，缩略图里播静音预览
+    "sidebar_platform_logos": True,
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
     "notice_persist_updates": True,
     "notice_persist_pinned_live": True,

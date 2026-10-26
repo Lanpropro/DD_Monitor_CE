@@ -1,11 +1,45 @@
 """Check PowerShell syntax and exercise release cleanup path boundaries."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
+
+
+def check_launchers(repo: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="ddm-launcher-check-") as temporary:
+        root = Path(temporary)
+        scripts = root / ".venv/Scripts"
+        scripts.mkdir(parents=True)
+        source = root / "Probe.cs"
+        source.write_text('using System; using System.IO; class Probe { static void Main() {'
+                          'File.WriteAllText(Environment.GetEnvironmentVariable("DDM_LAUNCH_PROBE"),'
+                          'Environment.GetEnvironmentVariable("DDM_QTQUICK_DANMAKU") ?? "unset"); }}',
+                          encoding="utf-8")
+        compiler = Path(os.environ["SystemRoot"]) / "Microsoft.NET/Framework/v4.0.30319/csc.exe"
+        subprocess.run([str(compiler), "/nologo", "/target:winexe",
+                        "/out:" + str(scripts / "python.exe"), str(source)], check=True)
+        shutil.copyfile(scripts / "python.exe", scripts / "pythonw.exe")
+        for name in ("run.cmd", "run-console.cmd"):
+            shutil.copyfile(repo / name, root / name)
+            for override in (None, "0", "1"):
+                output = root / (name + str(override) + ".txt")
+                env = dict(os.environ, DDM_LAUNCH_PROBE=str(output))
+                env.pop("DDM_QTQUICK_DANMAKU", None)
+                if override is not None:
+                    env["DDM_QTQUICK_DANMAKU"] = override
+                subprocess.run(["cmd.exe", "/d", "/c", str(root / name)], cwd=root,
+                               env=env, input="\n", text=True, capture_output=True,
+                               check=True, timeout=15)
+                deadline = time.monotonic() + 5
+                while not output.exists() and time.monotonic() < deadline:
+                    time.sleep(.02)
+                assert output.read_text() == (override or "0"), (name, override)
 
 
 def main() -> None:
@@ -13,6 +47,7 @@ def main() -> None:
         print("SKIP: Windows PowerShell build checks require Windows")
         return
     repo = Path(__file__).resolve().parents[1]
+    check_launchers(repo)
     cmake_version = next(
         line.split("==", 1)[1]
         for line in (repo / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()

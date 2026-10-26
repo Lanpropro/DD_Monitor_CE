@@ -27,6 +27,28 @@ def package(path, version='0.3.1', extra=None):
 
 def main():
     stages = []
+    # Match the published 0.5 fixed EXE name and the 0.5.1 documentation layout.
+    with tempfile.TemporaryDirectory(prefix='ddm-upgrade-051-') as temporary:
+        root = Path(temporary)
+        install = root / 'installed-0.5'
+        install.mkdir()
+        old = install / 'DD监控室CE.exe'
+        old.write_bytes(b'old-0.5-executable')
+        (install / 'ddm-build.json').write_text(json.dumps({'version': '0.5'}), encoding='utf-8')
+        (install / 'RELEASE-v0.5.md').write_text('old notes', encoding='utf-8')
+        (install / 'my-notes.md').write_text('personal notes', encoding='utf-8')
+        archive = root / '0.5.1.zip'
+        package(archive, version='0.5.1', extra={
+            old.name: b'new-0.5.1-executable',
+            'docs/releases/RELEASE-v0.5.1.md': 'new 0.5.1 notes'.encode()})
+        plan_path = updater.prepare(archive, install, old, expected_version='0.5.1')
+        stages.append(Path(plan_path).parent)
+        assert json.loads(Path(plan_path).read_text())['new_exe'] == old.name
+        entry = updater.apply_plan(plan_path)
+        assert Path(entry) == old and old.read_bytes() == b'new-0.5.1-executable'
+        assert json.loads((install / 'ddm-build.json').read_text())['version'] == '0.5.1'
+        assert (install / 'docs/releases/RELEASE-v0.5.1.md').read_text() == 'new 0.5.1 notes'
+        assert (install / 'my-notes.md').read_text() == 'personal notes'
     with tempfile.TemporaryDirectory(prefix='ddm-update-test with spaces-') as temporary:
         root = Path(temporary)
         install = root / '软件目录'

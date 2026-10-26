@@ -30,17 +30,18 @@ from .danmaku_content import content_runs, content_html
 from . import follow_folders
 from .watch_history import SORT_TIP, WatchHistory
 from .folder_icons import FolderIconDialog, create_folder_dialog, folder_icon
+from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
-from .danmaku_send import DanmakuComposer
 from .video_danmaku_settings import VideoDanmakuSettings
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 QUALITY_NAMES = {value: name for name, value in QUALITY_CHOICES}
+QUALITY_NAMES[20000] = "4K"
 
 TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
 ROOM_MIME = "application/x-ddm-room"
@@ -353,7 +354,7 @@ class LoadingIndicator(BadgeSurface):
 
     def paintEvent(self, event):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._paint_layered()
+            self._schedule_layered_paint()
         else:
             painter = QPainter(self)
             self._render_badge(painter)
@@ -2561,6 +2562,7 @@ class NavItem(QFrame):
             return
         self.setProperty("hovered", hovered)
         _repolish(self)
+        self.update()
 
     def _clear_hover_if_outside(self) -> None:
         if self.rect().contains(self.mapFromGlobal(QCursor.pos())):
@@ -3425,6 +3427,7 @@ class RoomStrip(QFrame):
         self._faces: dict = {}                   # room_id -> 头像图
         self._on_wall_ids: set[str] = set()
         self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
+        self._avatar_signatures = {}
         self._press_pos = None
         self._press_room = None
         self._hovered_room: dict | None = None
@@ -3543,26 +3546,33 @@ class RoomStrip(QFrame):
 
     def _rebuild(self) -> None:
         self._set_hover_room("")
+        previous = self._avatars
+        signatures = self._avatar_signatures
         while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
+            self._layout.takeAt(0)
         self._avatars = {}
+        self._avatar_signatures = {}
         for room in self._rooms:
             room_id = str(room.get("room_id") or "")
             uname = str(room.get("uname") or "")
-            avatar = self._add_avatar(
-                uname[0] if uname else "?", bool(room.get("live")),
-                tooltip=uname or room_id,
-                face=self._faces.get(room_id),
-                room_id=room_id,
-                pinned=bool(room.get("pinned")),
-                on_wall=room_id in self._on_wall_ids)
+            face = self._faces.get(room_id)
+            signature = (uname, bool(room.get("live")), bool(room.get("pinned")),
+                         room_id in self._on_wall_ids, face.cacheKey() if face is not None else None)
+            if room_id in previous and signatures.get(room_id) == signature:
+                avatar = previous.pop(room_id)
+                self._layout.addWidget(avatar)
+            else:
+                avatar = self._add_avatar(
+                    uname[0] if uname else "?", bool(room.get("live")),
+                    tooltip=uname or room_id, face=face, room_id=room_id,
+                    pinned=bool(room.get("pinned")), on_wall=room_id in self._on_wall_ids)
             if room_id:
                 self._avatars[room_id] = avatar
+                self._avatar_signatures[room_id] = signature
+        for widget in previous.values():
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
         self._layout.addStretch(1)
 
     def rebuild(self) -> None:
@@ -3877,6 +3887,7 @@ class Sidebar(QFrame):
         self.search = QLineEdit()
         self.search.setObjectName("Search")
         self.search.setPlaceholderText("搜索主播 / 房间号")
+        self.search.setToolTip("支持中文、全拼和拼音首字母；多个词用空格分隔")
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
@@ -3922,6 +3933,10 @@ class Sidebar(QFrame):
         self.scroll = scroll
         holder = RoomListBox(self)
         self.list_box = holder
+        self._pointer_hover_item = None
+        self._hover_sync_timer = QTimer(self)
+        self._hover_sync_timer.setInterval(30)
+        self._hover_sync_timer.timeout.connect(self._sync_pointer_hover)
         self._wheel_hook: mouse_hook.WheelHook | None = None
         for room in rooms:
             self._append_item(room)
@@ -3929,6 +3944,7 @@ class Sidebar(QFrame):
         scroll.setWidget(holder)
         for bar in (scroll.verticalScrollBar(), scroll.horizontalScrollBar()):
             bar.valueChanged.connect(lambda _value: QTimer.singleShot(0, self._refresh_visible_covers))
+            bar.valueChanged.connect(self._sync_pointer_hover)
         layout.addWidget(scroll, 1)
 
         # 底部：批量操作条 / 正常操作
@@ -4282,16 +4298,16 @@ class Sidebar(QFrame):
                 item.check.setChecked(False)
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
-        """主播名 / 房间号 / 直播间标题，大小写不敏感；写了多个词就要全中。"""
+        """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
         if not words:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "title")).lower()
+                            for key in ("uname", "room_id")).lower()
         folder_id = folder_id or self.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in self.folders
                                 if folder["id"] == folder_id), "")
-        return all(word in haystack for word in words)
+        return all(matches_text(haystack, word) for word in words)
 
     def visible_items(self) -> list:
         """当前露在外面的条目（过滤掉的不算）。"""
@@ -5270,7 +5286,47 @@ class Sidebar(QFrame):
             if item.thumb._cover_dirty and not item.thumb.visibleRegion().isEmpty():
                 item.thumb.refresh_cover()
 
+    def _set_pointer_hover(self, item) -> None:
+        previous = self._pointer_hover_item
+        self._pointer_hover_item = item
+        if previous is not None and previous is not item:
+            try:
+                previous._hover_leave_timer.stop()
+                if previous.property("hovered"):
+                    previous._set_hovered(False)
+                    previous.unhovered.emit(previous.room)
+            except RuntimeError:  # The previous row may have been removed.
+                pass
+        if item is not None:
+            item._hover_leave_timer.stop()
+            if not item.property("hovered"):
+                item._set_hovered(True)
+                item.hovered.emit(item.room)
+
+    def _sync_pointer_hover(self) -> None:
+        # Native child windows can omit Enter as well as Leave. Hit-test once
+        # for the whole visible list, including rows without a live preview.
+        item = None
+        viewport = self.scroll.viewport()
+        if (self.isVisible() and viewport.isVisible()
+                and not QApplication.activePopupWidget() and not QApplication.activeModalWidget()):
+            pointer = QCursor.pos()
+            if viewport.rect().contains(viewport.mapFromGlobal(pointer)):
+                child = self.list_box.childAt(self.list_box.mapFromGlobal(pointer))
+                while child is not None and child is not self.list_box:
+                    if isinstance(child, NavItem):
+                        item = child
+                        break
+                    child = child.parentWidget()
+        self._set_pointer_hover(item)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._hover_sync_timer.start()
+
     def hideEvent(self, event) -> None:
+        self._hover_sync_timer.stop()
+        self._set_pointer_hover(None)
         if self._collapse_animating:
             self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
         super().hideEvent(event)
@@ -5421,11 +5477,21 @@ class Sidebar(QFrame):
         return item
 
     def add_room(self, room: dict) -> bool:
-        room_id = str(room.get("room_id"))
-        if any(str(item.room.get("room_id")) == room_id for item in self._items):
-            return False
-        self._folder_pending.add(room_id)
-        self._append_item(room)
+        return bool(self.add_rooms([room]))
+
+    def add_rooms(self, rooms: list[dict]) -> list[dict]:
+        known = {str(item.room.get("room_id")) for item in self._items}
+        added = []
+        for room in rooms:
+            room_id = str(room.get("room_id"))
+            if room_id in known:
+                continue
+            known.add(room_id)
+            self._folder_pending.add(room_id)
+            self._append_item(room)
+            added.append(room)
+        if not added:
+            return []
         self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
                                 self.compact_threshold)
         # 新控件初始坐标是 (0, 0)，必须立即排版，否则会压在第一项上，
@@ -5435,9 +5501,9 @@ class Sidebar(QFrame):
         self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
         self.refresh_strip()
         if self.isVisible() and motion.enabled():
-            self._entering_room_ids.add(room_id)
+            self._entering_room_ids.update(str(room["room_id"]) for room in added)
             self._card_entry_timer.start(0)
-        return True
+        return added
 
     def _reveal_added_rooms(self) -> None:
         """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
@@ -5779,8 +5845,9 @@ class Sidebar(QFrame):
                      if ":" in str(item.room.get("room_id", "")) else "bilibili"
                      for item in self._items}
         for item in self._items:
-            item.platform_badge.setProperty("showPlatform", len(platforms) > 1)
-            item.platform_badge.setVisible(len(platforms) > 1 and not item.thumb.video.isVisible())
+            show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
+            item.platform_badge.setProperty("showPlatform", show)
+            item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
             item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
@@ -5987,13 +6054,6 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
-        self.composer = DanmakuComposer(self.bottom)
-        self.composer.set_room(room.get("room_id"))
-        bottom_layout.addWidget(self.composer, 0, Qt.AlignVCenter)
-        self._composer_spacer = QWidget(self.bottom)
-        self._composer_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._composer_spacer.setFixedWidth(0)
-        bottom_layout.addWidget(self._composer_spacer, 0)
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -6033,6 +6093,9 @@ class Tile(QFrame):
         self.pause_overlay.setObjectName("PauseOverlay")
         #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
         self._overlay_ready = True
+        self._move_repaint_timer = QTimer(self)
+        self._move_repaint_timer.setSingleShot(True)
+        self._move_repaint_timer.timeout.connect(self._refresh_moved_overlays)
         self._mask_refresh_timer = QTimer(self)
         self._mask_refresh_timer.setSingleShot(True)
         self._mask_refresh_timer.timeout.connect(self._refresh_overlay_masks)
@@ -6048,9 +6111,11 @@ class Tile(QFrame):
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         self.room = dict(room or {})
+        controls = getattr(self, '_plugin_controls', None)
+        if controls is not None:
+            controls.set_room(self.room)
         self.codec_probe_note = ""
         self.codec_reconnect_pending = False
-        self.composer.set_room(self.room.get("room_id"))
         self.video_danmaku.clear()
         self.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         self.actual_quality = 0
@@ -6114,27 +6179,18 @@ class Tile(QFrame):
         self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
         self.videoDanmakuSettingsChanged.emit(values)
 
-    COMPOSER_MIN_WIDTH = 72
-    """输入区至少要有这么宽（表情按钮 + 几字宽的输入框），不够就不显示。"""
-
-    COMPOSER_MAX_WIDTH = 520
-    """大格子的输入框可以拉得比较长，但不铺满整条底栏。"""
-
-    @property
-    def _composer_shown(self) -> bool:
-        """这一格现在该不该露出弹幕输入区；宽度够不够由布局时判断。"""
-        return self.composer.supported
-
-    def _sync_composer_visibility(self) -> None:
-        self.composer.setVisible(self._composer_shown)
+    def plugin_interaction_active(self) -> bool:
+        controls = getattr(self, '_plugin_controls', None)
+        return controls.interaction_active() if controls is not None else False
 
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
         return (self.width(),
                 self.bottom.width(),
+                tuple((e.owner, e.key, e.control.widget.isHidden(),
+                       e.control.minimum_width, e.control.preferred_width)
+                      for e in getattr(getattr(self, '_plugin_controls', None), 'entries', ())),
                 self.isVisible(),
-                bool(self.composer.supported),
-                self.composer._room_id,
                 bool(getattr(self, "_fullscreen_controls_hidden", False)),
                 self.recording_time.text(),
                 bool(getattr(self, "_recording_available", True)),
@@ -6147,7 +6203,6 @@ class Tile(QFrame):
         if signature == getattr(self, "_bottom_layout_signature_value", None):
             return
         self._bottom_layout_signature_value = signature
-        self._sync_composer_visibility()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
@@ -6183,50 +6238,33 @@ class Tile(QFrame):
         # 原有控件的宽度完全按「没有输入区」时算，按钮位置因此不会变。
         available = width - fixed - margin * 2 - spacing * (len(visible) + 1)
         slider_width = max(18, min(86, available - 8))
-        # 空白区域用于输入栏居中，不再为底栏状态提示预留文字宽度。
-        status_min = 0
-        composer_cap = min(self.COMPOSER_MAX_WIDTH, max(300, int(width * 0.45)))
         self.volume_slider.setFixedWidth(slider_width)
-        self._composer_spacer.setFixedWidth(0)
-        layout.setStretchFactor(self.status_label, 1)
         self.status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.status_label.setMinimumWidth(0)
         self.status_label.setMaximumWidth(16777215)
-        # 按固定控件宽度计算可用空间，避免为测量隐藏输入框而丢失输入焦点。
-        layout.activate()
-        composing = False
-        if self._composer_shown:
-            left_controls = [widget for widget in (self.pause_button, self.volume_button,
-                             self.volume_slider, self.volume_label) if not widget.isHidden()]
-            right_controls = [widget for widget in (self.danmaku_button, self.danmaku_settings_button,
-                              self.recording_button, self.recording_time, self.fullscreen_button)
-                              if not widget.isHidden()]
-            left = margin + sum(widget.width() for widget in left_controls) + spacing * len(left_controls)
-            right = (self.bottom.width() - margin - sum(widget.width() for widget in right_controls)
+        layout.setStretchFactor(self.status_label, 1)
+        extensions = getattr(self, '_plugin_controls', None)
+        if extensions is not None and not extensions._disposed:
+            # Existing player actions determine the free interval; extensions
+            # share one centered, bounded region without moving those actions.
+            extensions.spacer.setFixedWidth(0)
+            layout.activate()
+            left_controls = [w for w in (self.pause_button, self.volume_button,
+                self.volume_slider, self.volume_label) if not w.isHidden()]
+            right_controls = [w for w in (self.danmaku_button, self.danmaku_settings_button,
+                self.recording_button, self.recording_time, self.fullscreen_button) if not w.isHidden()]
+            left = margin + sum(w.width() for w in left_controls) + spacing * len(left_controls)
+            right = (self.bottom.width() - margin - sum(w.width() for w in right_controls)
                      - spacing * max(0, len(right_controls) - 1))
-            leftover = right - left - 3 * spacing          # 状态 + 输入区 + 右侧空位
-            composer_width = min(composer_cap, leftover - status_min)
-            if composer_width >= self.COMPOSER_MIN_WIDTH:
-                composing = True
-                self.composer.setFixedWidth(composer_width)
-                self.composer.layout().activate()
-                # 让输入区落在底栏正中；受状态文字和右侧按钮夹住时取最近位置
-                x = (self.bottom.width() - composer_width) // 2
-                x = max(left + status_min + spacing,
-                        min(x, right - 2 * spacing - composer_width))
-                status_width = x - left - spacing
-                spacer_width = right - 2 * spacing - x - composer_width
+            cap = min(520, max(300, int(width * 0.45)))
+            fitted = extensions.allocate(min(cap, max(0, right - left - 3 * spacing)))
+            if fitted:
+                x = max(left + spacing, min((self.bottom.width() - fitted) // 2,
+                                            right - 2 * spacing - fitted))
                 self.status_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-                self.status_label.setFixedWidth(max(status_min, status_width))
-                self._composer_spacer.setFixedWidth(max(0, spacer_width))
-        self.composer.setVisible(composing)
-        self._composer_spacer.setVisible(composing)
-        if not composing:
-            self.composer.setMinimumWidth(0)
-            self.composer.setMaximumWidth(16777215)
-            layout.setStretchFactor(self.status_label, 1)
-        else:
-            layout.setStretchFactor(self.status_label, 0)
+                self.status_label.setFixedWidth(max(0, x - left - spacing))
+                layout.setStretchFactor(self.status_label, 0)
+                extensions.spacer.setFixedWidth(max(0, right - 2 * spacing - x - fitted))
         layout.activate()
 
     def set_recording_state(self, state: str) -> None:
@@ -6342,7 +6380,7 @@ class Tile(QFrame):
     def _update_quick_danmaku_mask(self) -> None:
         self.video_danmaku.update_quick_mask((
             self.controls, self.stream_badge, self.title_badge, self.time_badge,
-            self.spinner, self.pause_overlay, self.bottom, *self.video_corners))
+            self.spinner, self.pause_overlay, self.bottom))
 
     def set_video_active(self, active: bool) -> None:
         self._player_active = active
@@ -6590,6 +6628,7 @@ class Tile(QFrame):
         self.bottom.move(self.bottom.x(), self.height() - TILE_BAR_HEIGHT
                          + round(TILE_BAR_HEIGHT * self._bar_progress))
         self.bottom.setVisible(self._bar_progress < 1.0 or self._bar_target == 0.0)
+        self._layout_time_badge()
         self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
@@ -6641,7 +6680,7 @@ class Tile(QFrame):
         self._set_control_hover(hovered)
 
     def _hide_controls_if_outside(self) -> None:
-        if self.composer.edit.hasFocus():
+        if self.plugin_interaction_active():
             return
         local = self.mapFromGlobal(QCursor.pos())
         if self.rect().contains(local):
@@ -6649,9 +6688,9 @@ class Tile(QFrame):
         self.set_controls_visible(False)
 
     def focus_danmaku_input(self) -> None:
-        if not self.composer.isVisible() or not self.composer.edit.isEnabled():
-            return
-        self.composer.edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        controls = getattr(self, '_plugin_controls', None)
+        if controls is not None:
+            controls.focus_input()
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
@@ -6711,6 +6750,25 @@ class Tile(QFrame):
         super().resizeEvent(event)
         self._layout_areas()
 
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._move_repaint_timer.start(0)
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.update(QRect(event.oldPos(), self.size()))
+        # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
+        self.video_danmaku.schedule_quick_geometry()
+
+    def _refresh_moved_overlays(self) -> None:
+        # Native child windows can retain old backing-store text after only their parent moved.
+        if not self.isVisible():
+            return
+        for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
+                       self.controls, self.spinner, self.pause_overlay, self.bottom):
+            if widget.isVisible():
+                widget.repaint()
+        self.update()
+
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         width, height = self.width(), self.height()
@@ -6748,8 +6806,6 @@ class Tile(QFrame):
         if show_title:
             self.title_badge.set_max_width(room)
             self.title_badge.move(title_left, 8)
-        self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
-                             max(8, video_height - self.time_badge.height() - 10))
         # 摆位和显隐放在一起：重排（改窗口大小、切布局）之后状态不会走丢
         self.time_badge.setVisible(self._elapsed_visible())
         self.spinner.move(max(0, (self.video.width() - self.spinner.width()) // 2),
@@ -6761,10 +6817,17 @@ class Tile(QFrame):
                  if fullscreen else video_height)
         bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
         self.bottom.setGeometry(inset, bar_y, max(1, width - inset * 2), bar_height)
+        self._layout_time_badge()
         self.video_danmaku.setGeometry(self.video.geometry())
         self._layout_bottom_controls()
         self._layout_cover()
         self.raise_overlays()
+
+    def _layout_time_badge(self) -> None:
+        video_right = self.video.geometry().right() + 1
+        bottom = min(self.video.geometry().bottom() + 1, self.bottom.y())
+        self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
+                             max(8, bottom - self.time_badge.height() - 10))
 
     def _sync_stream_badge(self) -> bool:
         """收窄 / 显隐 LIVE 浮标，让它和右上角的控制条在同一行站得下。
@@ -6899,12 +6962,14 @@ class Tile(QFrame):
 
     def hideEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._move_repaint_timer.stop()
         self._volume_hide_timer.stop()
         self.volume_menu.hide()
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
+        self._move_repaint_timer.stop()
         super().closeEvent(event)
 
     def _refresh_overlay_masks(self) -> None:
@@ -7299,7 +7364,7 @@ class WallPaneBorder(BadgeSurface):
 
     def paintEvent(self, event):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._paint_layered()
+            self._schedule_layered_paint()
         else:
             painter = QPainter(self)
             self._render_badge(painter)
@@ -7657,6 +7722,9 @@ class WallGrid(QWidget):
     def _drop_tile(self, tile: Tile) -> None:
         if self._native_danmaku_layer is not None:
             self._native_danmaku_layer.remove(tile.video_danmaku)
+        controls = getattr(tile, '_plugin_controls', None)
+        if controls is not None:
+            controls.shutdown()
         border = self._pane_borders.pop(tile, None)
         if border is not None and (self._hover_border is border or
                                    self._border_drag is not None and self._border_drag["border"] is border):

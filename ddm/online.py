@@ -13,6 +13,7 @@ import requests
 APP_REPOSITORY = 'Lanpropro/DD_Monitor_CE'
 PLUGIN_REPOSITORY = 'Lanpropro/DD_Monitor_Plugins'
 KNOWN_PLUGINS = {
+    'bili_live': ('B站直播互动', '逐格发送弹幕、表情与直播礼物；使用本体登录'),
     'domestic_live': ('国内直播平台', '虎牙、斗鱼、抖音的直播与关注接入'),
     'global_live': ('海外直播平台', 'Twitch、YouTube 的直播与账号授权'),
     'match_sync': ('比赛二路同步', '多主播比赛画面同步、声音和弹幕合并'),
@@ -119,12 +120,10 @@ def manifest_offer(entry, repository):
 
 
 def plugin_catalog(client, current_version, cache=None):
+    offers = {}
     try:
         catalog = latest_manifest(client, PLUGIN_REPOSITORY, 'plugin-catalog.json', cache=cache)
         if catalog is not None:
-            if cache and cache.get('source') == 'manifest' and cache.get('unchanged') and cache.get('offers'):
-                return _compatible_offers(cache['offers'], current_version)
-            offers = []
             for entry in catalog['plugins']:
                 if entry['id'] not in KNOWN_PLUGINS:
                     continue
@@ -132,20 +131,19 @@ def plugin_catalog(client, current_version, cache=None):
                 offer['available'] = version_key(current_version) >= version_key(entry['min_app_version'])
                 if not offer['available']:
                     offer['reason'] = '请先更新本体至 ' + entry['min_app_version']
-                offers.append(offer)
-            if cache is not None:
-                cache['source'] = 'manifest'
-            return offers
+                offers[entry['id']] = offer
     except requests.RequestException:
         pass
-    offers = {}
     try:
         published = releases(PLUGIN_REPOSITORY, client, cache=cache)
-        if cache and cache.get('source') == 'releases' and cache.get('unchanged') and cache.get('offers'):
-            return _compatible_offers(cache['offers'], current_version)
     except requests.RequestException:
-        if cache and cache.get('offers'):
-            return _compatible_offers(cache['offers'], current_version)
+        for cached_offer in _compatible_offers((cache or {}).get('offers', []), current_version):
+            plugin_id = cached_offer['id']
+            if (plugin_id not in offers or cached_offer.get('version') and
+                    version_key(cached_offer['version']) > version_key(offers[plugin_id]['version'])):
+                offers[plugin_id] = dict(cached_offer, cached=True)
+        if offers:
+            return list(offers.values())
         # 公开 API 额度用尽或离线时仍能展示已核实的官方安装包。
         published = [{'assets': [
             {'name': f'{plugin_id}-{plugin_version}.zip', 'size': size, 'digest': 'sha256:' + digest,
@@ -155,6 +153,19 @@ def plugin_catalog(client, current_version, cache=None):
     else:
         cached = False
     for release in published:
+        candidates = []
+        for asset in release.get('assets', []):
+            match = re.fullmatch(r'(domestic_live|global_live|match_sync|match-sync|bili_live)-v?(\d+(?:\.\d+){0,3})\.zip',
+                                 asset.get('name', ''))
+            if not match:
+                continue
+            plugin_id, plugin_version = match.groups()
+            plugin_id = plugin_id.replace('-', '_')
+            if plugin_id in offers and version_key(offers[plugin_id]['version']) >= version_key(plugin_version):
+                continue
+            candidates.append((plugin_id, plugin_version, asset))
+        if not candidates:
+            continue
         metadata = {}
         catalog_asset = next((asset for asset in release.get('assets', [])
                               if asset.get('name') == 'plugin-catalog.json'), None)
@@ -166,13 +177,7 @@ def plugin_catalog(client, current_version, cache=None):
                 path = download(info, Path(temporary) / 'catalog.json', client)
                 data = json.loads(Path(path).read_text(encoding='utf-8'))
             metadata = {entry['id']: entry for entry in data['plugins'] if entry['id'] in KNOWN_PLUGINS}
-        for asset in release.get('assets', []):
-            match = re.fullmatch(r'(domestic_live|global_live|match_sync|match-sync)-v?(\d+(?:\.\d+){0,3})\.zip',
-                                 asset.get('name', ''))
-            if not match:
-                continue
-            plugin_id, plugin_version = match.groups()
-            plugin_id = plugin_id.replace('-', '_')
+        for plugin_id, plugin_version, asset in candidates:
             if plugin_id in offers and version_key(offers[plugin_id]['version']) >= version_key(plugin_version):
                 continue
             name, description = KNOWN_PLUGINS[plugin_id]
@@ -180,6 +185,7 @@ def plugin_catalog(client, current_version, cache=None):
             offer = {'id': plugin_id, 'name': name, 'description': description,
                      'version': plugin_version, 'min_app_version': details.get('min_app_version', '0.3'),
                      'notes': details.get('notes') or release.get('body', ''),
+                     'author': details.get('author', ''),
                      'release_url': release.get('html_url', ''), 'available': True, 'cached': cached}
             try:
                 offer.update(asset_info(asset, PLUGIN_REPOSITORY))
@@ -193,8 +199,21 @@ def plugin_catalog(client, current_version, cache=None):
         offers.setdefault(plugin_id, {'id': plugin_id, 'name': name, 'description': description,
                                      'version': '', 'available': False, 'reason': '官方仓库暂未发布安装包'})
     if cache is not None:
-        cache['source'] = 'releases'
+        cache['source'] = 'combined'
     return list(offers.values())
+
+
+def release_notes(client, release_version):
+    version_key(release_version)
+    tag = 'v' + release_version.removeprefix('v')
+    with client.get(f'https://api.github.com/repos/{APP_REPOSITORY}/releases/tags/{tag}',
+                    timeout=(5, 15)) as response:
+        response.raise_for_status()
+        release = response.json()
+    if (release.get('tag_name') != tag or release.get('draft') or release.get('prerelease')
+            or not isinstance(release.get('body'), str) or not release['body'].strip()):
+        raise ValueError('正式版本的在线发布说明无效')
+    return release['body'].replace('\r\n', '\n').rstrip() + '\n'
 
 
 def _compatible_offers(offers, current_version):
@@ -271,6 +290,10 @@ def app_release(client, current_version):
             return None
         offer = manifest_offer(manifest, APP_REPOSITORY)
         offer.setdefault('notes', '暂无更新说明')
+        try:
+            offer['notes'] = release_notes(client, offer['version'])
+        except (requests.RequestException, ValueError):
+            pass
         return offer
     candidates = []
     for release in releases(APP_REPOSITORY, client):

@@ -49,6 +49,7 @@ class AccountPlatformDialog(QDialog):
         self._account_resolver = None
         self.folder_id = ""
         self.folder_changed = False
+        self.folder_room_ids = []
         self.removed_ids = []
         self.pending_count = 0
         self.kind = ""
@@ -309,6 +310,7 @@ class AccountPlatformDialog(QDialog):
                 self.owner._cache_douyin_follows(page.rooms, pending=pending)
             self.folder_id = page.folder_id
             self.folder_changed = page.folder_changed
+            self.folder_room_ids = page.folder_room_ids()
             self.removed_ids = page.deselected_existing()
             self.accept()
             return

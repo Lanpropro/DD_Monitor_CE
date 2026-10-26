@@ -64,4 +64,4 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 python dev/selfcheck_resize_widgets.py
 ```
 
-整窗自检使用 mock 播放器并禁止网络，覆盖 1、6、16 格；可追加 `--baseline` 对照原始 PR13。真实多路播放仍需实测。源码验证记录保存在本机 `results/resize-20261019/`，EXE 验证记录保存在 `results/resize-test-20261019/`，运行日志、个人配置和打包产物不进入 Git。
+整窗自检使用 mock 播放器并禁止网络，覆盖 1、6、16 格；可追加 `--baseline` 对照原始 PR13。真实多路播放仍需实测。源码验证记录已归档至本机 `work/test-artifacts/host/resize-20261019/`，历史 EXE 验证记录原位置为 `results/resize-test-20261019/`，运行日志、个人配置和打包产物不进入 Git。

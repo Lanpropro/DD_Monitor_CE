@@ -17,6 +17,7 @@ LOCAL_ONLY = (
     "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
     "plugins_user/domestic_live/*", "plugins_user/global_live/*",
     "plugins_user/huya_watch/*", "plugins_user/_danmaku_log/*",
+    "work/test-artifacts/*",
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
@@ -69,7 +70,8 @@ class RepositoryFilesTests(unittest.TestCase):
         self.assertIn('python dev/build_match_sync.py', doc)
         self.assertIn('DD_Monitor_Plugins', doc)
         build = (ROOT / 'dev/build_release.ps1').read_text(encoding='utf-8')
-        self.assertIn('if ($rel -like "plugins_user/*") { continue }', build)
+        self.assertIn("'plugins_user/*'", build)
+        self.assertIn('archive --format=zip --output=$snapshot HEAD', build)
         self.assertIn('Join-Path $exeDir "plugins_user"', build)
 
 

@@ -19,7 +19,8 @@ parser.add_argument("--skip-zip", action="store_true")
 args = parser.parse_args()
 results = args.out_dir.resolve()
 sys.path.insert(0, str(repo))
-from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG  # noqa: E402
+from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
+from ddm.legacy_cleanup import INVENTORY
 name = f"{DISPLAY_NAME}-{VERSION_TAG}"
 source = results / name
 exe = results / DISPLAY_NAME
@@ -41,11 +42,10 @@ for folder, zip_path in packages:
             assert not any(item.endswith(f"{VERSION_TAG}-exe.exe") for item in names), \
                 "ZIP 中仍有旧文件名的 exe"
 
-for path in ("ddm/app.py", "ddm/widgets.py", "ddm/audio_output.py", "ddm/dialogs.py",
-             "ddm/plugins.py", "docs/PLUGINS.md", f"docs/releases/RELEASE-{VERSION_TAG}.md",
-             "ddm/native_danmaku.py", "ddm/danmaku_raster.py", "native/CMakeLists.txt",
-             "native/src/host.cpp", "native/src/renderer.cpp", "native/src/engine.cpp",
-             "native/README.md", "dev/build_native_danmaku.ps1"):
+runtime_files = subprocess.check_output(['git', 'ls-files', '-z', '--', 'ddm', 'blivedm',
+    'assets', 'native', 'main.py', 'requirements.txt',
+    'requirements-dev.txt', 'dev/build_native_danmaku.ps1'], cwd=repo).decode('utf-8').strip('\0').split('\0')
+for path in [*runtime_files, "docs/plugins.md", f"docs/releases/RELEASE-{VERSION_TAG}.md"]:
     original = (repo / path).read_bytes()
     packaged = (source / path).read_bytes()
     assert packaged.replace(b"\r\n", b"\n") == original.replace(b"\r\n", b"\n"), \
@@ -73,6 +73,8 @@ for folder, _ in packages:
     assert not list(folder.rglob("libvlc*.dll")), "发布包仍包含 VLC 运行库"
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
+    assert (folder / "DDMonitorDiagnostics.exe").is_file(), "独立诊断工具缺失"
+    assert (folder / "诊断工具说明.md").is_file(), "诊断工具说明缺失"
     assert not (folder / "utils").exists() or not any((folder / "utils").iterdir()), "发布包包含本机运行数据或背景素材"
     assert not (folder / "logs").exists(), "发布包包含运行日志"
     assert not any((folder / "plugins_user").iterdir()), "发布包包含本地用户插件"
@@ -99,7 +101,7 @@ native = build["native"]
 assert native["configuration"] == "Release" and native["ctest"] == "passed" and native["import"] == "passed"
 assert native["source_commit"] == source_build["source_commit"]
 assert native["source_dirty"] == source_build["source_dirty"]
-assert native["qt_version"] == "6.9.3" and native["contract_version"] == 1
+assert native["qt_version"] == "6.11.2" and native["contract_version"] == 1
 modules = list((exe / "_internal" / "ddm").glob("_native_danmaku*.pyd"))
 assert len(modules) == 1, "冻结包必须包含唯一原生扩展"
 assert native["python_tag"] in modules[0].name, "原生扩展 Python ABI 不匹配"
@@ -126,6 +128,14 @@ for mode, backend in (("native", "d3d11"), ("fallback", "qpainter")):
             assert hashlib.sha256(loaded.read_bytes()).hexdigest() == native["module_sha256"]
         else:
             assert actual["fallback"]
+inventory = json.loads((exe / INVENTORY).read_text(encoding='utf-8'))
+assert inventory['schema'] == 1 and inventory['version'] == VERSION
+if args.skip_zip:
+    packaged_files = {path.relative_to(exe).as_posix() for path in exe.rglob('*') if path.is_file()}
+else:
+    with zipfile.ZipFile(archive) as package:
+        packaged_files = {name.split('/', 1)[1] for name in package.namelist() if not name.endswith('/')}
+assert set(inventory['files']) == packaged_files, '程序清单与最终 EXE ZIP 不一致'
 
 if args.old_zip:
     # 用真实旧包模拟用户目录，合并解压新包，然后启动覆盖后的 exe。

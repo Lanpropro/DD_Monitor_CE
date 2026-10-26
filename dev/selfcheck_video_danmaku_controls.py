@@ -266,6 +266,9 @@ def check_overlay_mask(app):
         # Hiding controls does not change the cached video geometry.
         tile.set_controls_visible(False)
         hidden = layer.set_group_mask.call_args.args[1]
+        for point in (QPoint(10, 10), QPoint(overlay.width() - 11, 10)):
+            assert alpha(hidden, point) == 255, '透明圆角补边不能挖掉12像素方块弹幕'
+        assert alpha(hidden, QPoint(0, 0)) == 0, '视频外侧仍应保留圆角裁切'
         assert alpha(hidden, button_point) == 255, ("收起悬浮条后必须恢复弹幕遮罩",
             button_point, overlay.size(), tile.controls.isVisible(),
             overlay._quick_mask_signature, alpha(hidden, button_point))

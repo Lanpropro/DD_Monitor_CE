@@ -31,7 +31,7 @@ class FakePlayer:
     def play(self, *_args, **_kwargs):
         FakePlayer.plays += 1
 
-    def stop(self):
+    def stop(self, *, keep_core=False):
         pass
 
     def release(self):
@@ -52,10 +52,17 @@ class FakeDrag:
 
 
 def resolved(preview, item):
+    # This geometry fixture injects a result after the hover delay; cursor races
+    # are exercised with real coordinate ownership in selfcheck_preview_scroll.
+    preview._delay.stop()
+    preview._resolve_delay.stop()
+    preview._hover_watch.stop()
     preview._item = item
     preview._room = item.room
-    preview._on_resolved(preview._generation, str(item.room["room_id"]),
-                         "https://example.invalid/live.flv", 80, "web", None)
+    preview._ready_to_show = True
+    with patch.object(HoverPreview, '_cursor_on_item', return_value=True):
+        preview._on_resolved(preview._generation, str(item.room["room_id"]),
+                             "https://example.invalid/live.flv", 80, "web", None)
 
 
 def move_mouse(widget, point, buttons=Qt.NoButton):

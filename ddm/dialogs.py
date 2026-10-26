@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import theme
 from .folder_icons import create_folder_dialog
+from .search import matches_text
 from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .bili import BILI_CODECS
@@ -210,6 +211,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("preview_on_hover", "关注栏直播预览"),
+        ("sidebar_platform_logos", "显示关注栏平台 Logo"),
     ]
 
     def __init__(self, settings: dict, parent=None):
@@ -256,6 +258,9 @@ class GeneralSettingsPage(QWidget):
             box.setChecked(bool(settings.get(key, True)))
             grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
+            if key == "sidebar_platform_logos":
+                # Retain the saved master value and insertion anchor for plugin controls.
+                box.hide()
             row += 1
             if key == "sidebar_auto_compact":
                 grid.addWidget(QLabel("自动切换数量"), row, 0)
@@ -826,6 +831,32 @@ class RecordingSettingsPage(QWidget):
         }
 
 
+class PluginRemovePrompt(AnimatedDialog):
+    def __init__(self, plugin_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('删除插件')
+        self.setMinimumWidth(440)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(20)
+        layout.addLayout(_page_head('删除这个插件？',
+            f'将删除插件“{plugin_name}”及其文件。\n已加载的插件将在重启后停止运行。'))
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.cancel_button = QPushButton('取消')
+        self.cancel_button.setObjectName('IconButton')
+        self.cancel_button.setDefault(True)
+        self.cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(self.cancel_button)
+        self.delete_button = QPushButton('删除')
+        self.delete_button.setObjectName('PrimaryButton')
+        self.delete_button.setAutoDefault(False)
+        self.delete_button.clicked.connect(self.accept)
+        buttons.addWidget(self.delete_button)
+        layout.addLayout(buttons)
+        self.cancel_button.setFocus()
+
+
 class PluginSettingsPage(QWidget):
     """按现有插件接口展示元数据和下次启动的启用选择。"""
 
@@ -955,6 +986,7 @@ class PluginSettingsPage(QWidget):
     def _update_plugin(self, plugin_id):
         offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), None)
         if offer:
+            self.update_buttons[plugin_id].clearFocus()
             self.store_page.install_offer(offer)
 
     def _add_card(self, entry):
@@ -999,11 +1031,13 @@ class PluginSettingsPage(QWidget):
     def _remove(self, plugin_id, card):
         if self.manager is None:
             return
-        choice = QMessageBox.question(
-            self, "删除插件", f"确定删除插件 {plugin_id} 及其文件吗？\n已加载的插件将在重启后停止运行。",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if choice != QMessageBox.Yes:
-            return
+        name = next((entry['name'] for entry in self.manager.catalog() if entry['id'] == plugin_id), plugin_id)
+        prompt = PluginRemovePrompt(name, self)
+        try:
+            if prompt.exec() != PluginRemovePrompt.Accepted:
+                return
+        finally:
+            prompt.deleteLater()
         try:
             self.manager.remove_plugin(plugin_id)
         except (OSError, ValueError) as error:
@@ -1152,7 +1186,8 @@ class SettingsDialog(QDialog):
              ("plugins", "插件"), ("updates", "软件更新")]
     PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
 
-    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False):
+    def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
+                 update_page_factory=None):
         super().__init__(parent)
         self._created_at = time.perf_counter()
         self._paint_logged = False
@@ -1164,10 +1199,11 @@ class SettingsDialog(QDialog):
         self._initial_shortcuts = {key: shortcuts.get(key) or default for key, _label, default in SHORTCUT_ACTIONS}
         self._plugin_manager = plugin_manager
         self._preview_only = preview
+        self._update_page_factory = update_page_factory
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
-        self.resize(720, 500)
+        self.resize(720, 650)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1201,7 +1237,7 @@ class SettingsDialog(QDialog):
             4: lambda: NotificationSettingsPage(settings),
             5: lambda: ShortcutSettingsPage(shortcuts),
             6: lambda: PluginSettingsPage(plugin_manager),
-            7: lambda: AppUpdatePage(settings),
+            7: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
         }
         self._loaded_pages = {}
         if preview:
@@ -1272,8 +1308,10 @@ class SettingsDialog(QDialog):
                 page.store_page.offersChanged.connect(self._mark_plugin_updates)
                 self._mark_plugin_updates(page.store_page.offers)
             elif index == 7 and not self._preview_only:
+                page.saveRequested.connect(self._save)
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
+                self._update_save_button()
             self.pageCreated.emit(index, page)
             print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
                   file=sys.stderr, flush=True)
@@ -1332,7 +1370,16 @@ class SettingsDialog(QDialog):
         if 6 in self._loaded_pages:
             self._loaded_pages[6].store_page.stop()
         if 7 in self._loaded_pages:
-            self._loaded_pages[7].stop()
+            page = self._loaded_pages[7]
+            if self._update_page_factory is None:
+                page.stop()
+            elif page.parentWidget() is self.stack:
+                page.saveRequested.disconnect()
+                page.busyChanged.disconnect(self._update_save_button)
+                page.releaseChecked.disconnect(self._mark_app_update)
+                self.stack.removeWidget(page)
+                page.hide()
+                page.setParent(self.parentWidget())
         super().done(result)
 
     def _on_page_changed(self, index: int) -> None:
@@ -1505,6 +1552,7 @@ class FollowImportDialog(QDialog):
         self.resize(520, 620)
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
+        self._explicitly_checked = set()
         self.folder_id = ""
         self.folder_changed = False
         self.folder_names = {folder['name'] for folder in folders or []}
@@ -1520,6 +1568,7 @@ class FollowImportDialog(QDialog):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索主播名称")
+        self.search_edit.setToolTip("支持中文、全拼和拼音首字母")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_rooms)
         layout.addWidget(self.search_edit)
@@ -1529,7 +1578,7 @@ class FollowImportDialog(QDialog):
         self.folder_button = QPushButton("未分类")
         self.folder_button.setObjectName("IconButton")
         self.folder_button.setAutoDefault(False)
-        self.folder_button.setToolTip("选择后调整所有勾选主播的归属；未调整时保留已导入主播的归属")
+        self.folder_button.setToolTip("仅调整新增或主动勾选的主播；默认勾选的已有关注保留原归属")
         folder_menu = QMenu(self.folder_button)
         options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
@@ -1545,7 +1594,7 @@ class FollowImportDialog(QDialog):
         folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
-        hint = QLabel("取消勾选并点击导入，会从本地关注栏移除对应主播；选择文件夹会调整已勾选主播的归属。")
+        hint = QLabel("取消勾选并导入会移除本地关注；文件夹仅用于新增或主动勾选的主播。已有关注需取消后重新勾选，或用筛选后的全选明确归类。")
         hint.setObjectName("SettingsHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -1571,14 +1620,21 @@ class FollowImportDialog(QDialog):
         self.list = QListWidget()
         self.list.setObjectName("FollowList")
         self.list.itemClicked.connect(self._on_item_clicked)
+        self._avatar_items = {}
         for room in rooms:
             room_id = str(room["room_id"])
             item = QListWidgetItem(self._room_text(room))
             item.setData(Qt.UserRole, room)
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
+            item.setData(Qt.UserRole + 1, item.checkState() == Qt.Checked)
             self.list.addItem(item)
+            if room_id:
+                self._avatar_items.setdefault(room_id, item)
+            if room.get("anchor_uid"):
+                self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
         layout.addWidget(self.list, 1)
+        self.list.itemChanged.connect(self._track_checked)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -1611,10 +1667,21 @@ class FollowImportDialog(QDialog):
         query = text.strip().casefold()
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setHidden(query not in item.data(Qt.UserRole)["uname"].casefold())
+            item.setHidden(not matches_text(item.data(Qt.UserRole)["uname"], query))
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----
+    def _track_checked(self, item: QListWidgetItem) -> None:
+        checked = item.checkState() == Qt.Checked
+        if checked == item.data(Qt.UserRole + 1):
+            return
+        item.setData(Qt.UserRole + 1, checked)
+        room_id = str(item.data(Qt.UserRole)["room_id"])
+        if checked:
+            self._explicitly_checked.add(room_id)
+        else:
+            self._explicitly_checked.discard(room_id)
+
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         position = self.list.viewport().mapFromGlobal(QCursor.pos())
         rect = self.list.visualItemRect(item)
@@ -1629,6 +1696,8 @@ class FollowImportDialog(QDialog):
             item = self.list.item(index)
             if not item.isHidden():
                 item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                if checked:
+                    self._explicitly_checked.add(str(item.data(Qt.UserRole)["room_id"]))
         self._update_header()
 
     def _check_live(self) -> None:
@@ -1636,6 +1705,8 @@ class FollowImportDialog(QDialog):
             item = self.list.item(index)
             if not item.isHidden():
                 item.setCheckState(Qt.Checked if item.data(Qt.UserRole)["live"] else Qt.Unchecked)
+                if item.checkState() == Qt.Checked:
+                    self._explicitly_checked.add(str(item.data(Qt.UserRole)["room_id"]))
         self._update_header()
 
     def _update_header(self) -> None:
@@ -1661,10 +1732,17 @@ class FollowImportDialog(QDialog):
                 self.rooms[index] = dict(account)
                 item.setData(Qt.UserRole, dict(account))
                 item.setText(self._room_text(account))
+                if account.get("room_id"):
+                    self._avatar_items[str(account["room_id"])] = item
                 self._update_header()
                 return
 
     # ---- 结果 ----
+    def folder_room_ids(self) -> list[str]:
+        return [str(room["room_id"]) for room in self.selected()
+                if str(room["room_id"]) not in self.existing
+                or str(room["room_id"]) in self._explicitly_checked]
+
     def deselected_existing(self) -> list[str]:
         return [str(self.list.item(index).data(Qt.UserRole)["room_id"])
                 for index in range(self.list.count())
@@ -1682,10 +1760,6 @@ class FollowImportDialog(QDialog):
     def set_avatar(self, room_id: str, pixmap: QPixmap) -> None:
         """头像下好之后回填（下载是异步的）。"""
         from .widgets import circular_pixmap
-        icon_pixmap = circular_pixmap(pixmap, 32)
-        for index in range(self.list.count()):
-            item = self.list.item(index)
-            room = item.data(Qt.UserRole)
-            if str(room.get("room_id")) == str(room_id) or "account:" + str(room.get("anchor_uid")) == str(room_id):
-                item.setIcon(QIcon(icon_pixmap))
-                return
+        item = self._avatar_items.get(str(room_id))
+        if item is not None:
+            item.setIcon(QIcon(circular_pixmap(pixmap, 32)))

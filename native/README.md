@@ -7,8 +7,10 @@ final admission and drops are reported by `status_snapshot()`.
 
 ## Build
 
-Validated locally: Python 3.13.7 x64, PySide6 6.9.3, MSVC 19.44 / VS Build Tools 2022,
-Windows SDK 10.0.26100.0, CMake 4.1.2 and pybind11 3.0.1. Install the C++ x64 tools and
+Current development and frozen builds use PySide6 6.11.2. The extension has been built
+and imported with Python 3.12.14 x64 and pybind11 3.0.1, with engine/renderer CTest checks.
+Earlier validation used Python 3.13.7 x64, PySide6 6.9.3, MSVC 19.44 / VS Build Tools 2022,
+Windows SDK 10.0.26100.0 and CMake 4.1.2. Install the C++ x64 tools and
 Windows SDK with Visual Studio Build Tools, then install `requirements-dev.txt` into the
 same Python environment used for freezing. No Qt C++ SDK is needed.
 
@@ -21,10 +23,11 @@ powershell -File dev/build_native_danmaku.ps1
 
 The build script creates a Release extension in `ddm/`, tests it with CTest, checks the ABI
 by importing it with the selected interpreter and writes build evidence under `work/`.
-Generated `.pyd` files are not committed. Only cp313-win_amd64 has been validated locally;
-other Python ABIs require a separate build and CI validation before distribution.
+Generated `.pyd` files are not committed. Build a matching extension for each Python ABI;
+cp312-win_amd64 and cp313-win_amd64 have been exercised locally. CI checks both versions.
 
 On Windows, the native backend is selected when the extension imports successfully.
+Both launchers default to this selection and preserve an explicitly set Quick override.
 `DDM_NATIVE_DANMAKU=0` selects the previous raster backend. `DDM_QTQUICK_DANMAKU=1`
 retains the existing experimental Quick selection. Missing modules and initialization/runtime
 failure restore the raster backend once; the host is stopped before its window is destroyed.

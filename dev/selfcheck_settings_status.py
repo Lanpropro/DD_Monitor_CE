@@ -420,7 +420,7 @@ def main() -> None:
     # These legacy choices are retained in settings, no longer exposed as checks.
     window.settings.update(auto_quality=False, sidebar_card_mode=False)
     dialog = SettingsDialog(window.settings, window.shortcuts)
-    with open(os.path.join(REPO, "README.md"), encoding="utf-8") as guide:
+    with open(os.path.join(REPO, "dev", "README.md"), encoding="utf-8") as guide:
         navigation = guide.read()
     assert all(path in navigation for path in
                ("ddm/dialogs.py", "ddm/widgets.py", "ddm/theme.py", "ddm/config.py")), \

@@ -33,7 +33,6 @@ class RepositoryMapTests(unittest.TestCase):
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",
-                     "docs/development/v0.4.1-backlog.md",
                      "docs/archive/pr11-pr12-integration-testing.md",
                      "docs/archive/repository-integration-20261019.md",
                      "docs/archive/README.md", "dev/benchmarks/README.md",
@@ -57,7 +56,11 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 67)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 68)])
+        tile_swap = next(line for line in content.splitlines() if line.startswith('| BUG-067 |'))
+        self.assertEqual(tile_swap.split('|')[3].strip(), '已修复待验收')
+        for feature in ('等大', '共享', '坐标', '旧清单'):
+            self.assertIn(feature, tile_swap)
         cross_screen = next(line for line in content.splitlines() if line.startswith('| BUG-066 |'))
         self.assertEqual(cross_screen.split('|')[3].strip(), '已验收')
         for feature in ('画面黑屏', '只有弹幕', '关注栏完好', '基本确认修复'):

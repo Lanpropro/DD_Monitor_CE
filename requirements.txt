@@ -1,7 +1,8 @@
 # 运行这个程序需要的包
-PySide6
+PySide6==6.11.2
 python-mpv==1.0.8
 requests
+pypinyin==0.55.0
 qrcode
 # B 站及国内直播平台的弹幕 websocket 客户端
 aiohttp>=3.12

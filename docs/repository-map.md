@@ -41,6 +41,16 @@
 - `dev/selfcheck_native_danmaku_binding.py`
 - `dev/selfcheck_d3d11_danmaku.py`
 
+### 独立诊断工具
+
+- `tools/diagnostics/Collector.cs`
+- `tools/diagnostics/NativeDependencies.cs`
+- `tools/diagnostics/Program.cs`
+- `tools/diagnostics/README.md`
+- `dev/build_diagnostics.ps1`
+- `dev/diagnostics_tests.cs`
+- `dev/selfcheck_diagnostics.py`
+
 ### GitHub 协作与检查
 
 - `.github/PULL_REQUEST_TEMPLATE.md`
@@ -58,6 +68,8 @@
 - `dev/check_setup_data_cleanup.py`
 - `dev/selfcheck_setup.py`
 - `dev/build_setup.py`
+- `dev/build_program_inventory.py`
+- `dev/selfcheck_legacy_cleanup.py`
 - `dev/installer/ChineseSimplified.isl`
 - `dev/installer/ChineseSimplified-LICENSE.txt`
 - `dev/installer/wizard.png`
@@ -86,6 +98,7 @@
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_cookies.py`
+- `dev/selfcheck_bili_plugin_boundary.py`
 - `dev/selfcheck_bili_quality.py`
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
@@ -105,7 +118,6 @@
 - `dev/selfcheck_customization_plan.py`
 - `dev/selfcheck_danmaku.py`
 - `dev/selfcheck_danmaku_button.py`
-- `dev/selfcheck_danmaku_composer.py`
 - `dev/selfcheck_danmaku_connection.py`
 - `dev/selfcheck_danmaku_emoji.py`
 - `dev/selfcheck_danmaku_limit_migration.py`
@@ -114,7 +126,6 @@
 - `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`
-- `dev/selfcheck_danmaku_send.py`
 - `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
 - `dev/selfcheck_delete.py`
@@ -132,7 +143,6 @@
 - `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
-- `dev/selfcheck_emoticon_tabs.py`
 - `dev/selfcheck_encoders.py`
 - `dev/selfcheck_feedback_layout.py`
 - `dev/selfcheck_fixed_exe_entry.py`
@@ -143,8 +153,11 @@
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
+- `dev/selfcheck_follow_stress.py`
+- `dev/selfcheck_pinyin_search.py`
 - `dev/selfcheck_follow_refresh.py`
 - `dev/selfcheck_fullscreen_audio.py`
+- `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
@@ -152,6 +165,8 @@
 - `dev/selfcheck_fullscreen_quality.py`
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
+- `dev/selfcheck_settings_process.py`
+- `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
 - `dev/selfcheck_hls_proxy.py`
 - `dev/selfcheck_huya_live.py`
@@ -249,6 +264,9 @@
 - `dev/selfcheck_platform_quality_live.py`
 - `dev/selfcheck_platform_storage.py`
 - `dev/selfcheck_plugin_cache.py`
+- `dev/selfcheck_plugin_controls.py`
+- `dev/selfcheck_plugin_credentials.py`
+- `dev/selfcheck_plugin_notices.py`
 - `dev/selfcheck_plugin_drop_restart.py`
 - `dev/selfcheck_plugin_rename.py`
 - `dev/selfcheck_plugin_settings.py`
@@ -267,6 +285,7 @@
 - `dev/selfcheck_preview.py`
 - `dev/selfcheck_preview_collapsed.py`
 - `dev/selfcheck_preview_popup.py`
+- `dev/selfcheck_preview_scroll.py`
 - `dev/selfcheck_project_workflow.py`
 - `dev/selfcheck_qr_refresh.py`
 - `dev/selfcheck_qr_responsiveness.py`
@@ -350,8 +369,6 @@
 - `docs/development/testing.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
-- `docs/development/v0.4.1-backlog.md`
-- `docs/development/ui-integration-20261019.md`
 
 ### 性能基准
 
@@ -362,6 +379,12 @@
 ### 构建、维护与复现工具
 
 - `dev/build_match_sync.py`
+- `dev/benchmark_match_sync_ocr.ps1`
+- `dev/selfcheck_match_sync_reserve.py`
+- `docs/development/match-sync-ocr-evaluation.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.9.md`
+- `docs/releases/PLUGIN-match-sync-v1.2.10.md`
+- `docs/releases/PLUGIN-match-sync-v1.3.md`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/fetch_mpv.py`
@@ -369,7 +392,6 @@
 - `dev/pyi_rth_pyside6_paths.py`
 - `dev/repro_d3d_quality.py`
 - `dev/repro_tile_lifecycle.py`
-- `dev/restart-client.ps1`
 - `dev/screens.py`
 
 ### 根目录协作文件
@@ -408,6 +430,8 @@
 - `docs/releases/RELEASE-v0.3.md`
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/releases/RELEASE-v0.5.md`
+- `docs/releases/RELEASE-v0.5.1.md`
+- `docs/releases/RELEASE-v0.5.2.md`
 
 ### 独立网站原型
 
@@ -436,6 +460,7 @@
 - `dev/tools/README.md`
 - `dev/tools/build_brand_assets.py`
 - `dev/tools/build_plugin_catalog.py`
+- `dev/tools/sync_release_notes.py`
 
 ### 项目文档与截图
 
@@ -448,6 +473,9 @@
 - `docs/overview1_Landscape_mode.png`
 - `docs/overview1_Portrait_Mode.png`
 - `docs/overview2_Landscape_mode.png`
+- `docs/overview2_Portrait_Mode.png`
+- `docs/overview4_Landscape_mode.png`
+- `docs/overview5_Landscape_mode.png`
 - `docs/plugins.md`
 - `docs/repository-map.md`
 - `docs/resize-performance.md`

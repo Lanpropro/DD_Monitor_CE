@@ -449,7 +449,8 @@ class LateBuffer:
     reserve_seconds = 2.0
     max_seconds = 240
 
-    def __init__(self):
+    def __init__(self, reserve_seconds=2.0):
+        self.reserve_seconds = reserve_seconds
         self.floor = 0.0
         self.since = {}
         self.failed = {}
@@ -457,6 +458,9 @@ class LateBuffer:
         self.rooms = set()
         self.started = None
         self.initial_gaps = {}
+        self.deadline = 0.0
+        self.retry_after = 0.0
+        self.limited = set()
 
     @property
     def building(self):
@@ -464,18 +468,21 @@ class LateBuffer:
 
     def update(self, now, ahead, capacity, deficits):
         late = {key: gap for key, gap in deficits.items() if gap > .05}
-        self.since = {key: self.since.get(key, now) for key in late}
+        short = {key: gap for key, gap in deficits.items() if gap > -self.reserve_seconds + .5}
+        self.since = {key: self.since.get(key, now) for key in short}
         self.failed = {key: gap for key, gap in self.failed.items()
                        if key in late and late[key] >= gap - .5}
-        persistent = {key: late[key] for key in late if now - self.since[key] >= 5}
+        persistent = {key: short[key] for key in short if now - self.since[key] >= 5}
         self.blocked = {key for key, gap in persistent.items()
-                        if gap + .5 > .02 * 120 or ahead + gap + self.reserve_seconds > capacity or key in self.failed}
+                        if gap > .05 and (gap + .5 > .02 * 120 or ahead + gap + .5 > capacity or key in self.failed)}
+        self.limited = {key for key, gap in persistent.items()
+                        if key not in self.blocked and ahead + gap + self.reserve_seconds > capacity}
         if self.building:
             self.rooms.intersection_update(deficits)
-            gap = max((deficits[key] for key in self.rooms), default=0)
+            gap = max((deficits[key] for key in self.rooms), default=-self.reserve_seconds)
             growing = {key for key in self.rooms if now - self.started >= 15
-                       and deficits[key] > self.initial_gaps[key] + .5}
-            exhausted = (self.floor > capacity or now - self.started >= self.max_seconds or bool(growing)
+                       and deficits[key] > .05 and deficits[key] > self.initial_gaps[key] + .5}
+            exhausted = (self.floor > capacity or now >= self.deadline or bool(growing)
                          or ahead >= self.floor - .1 and gap > .05)
             if exhausted:
                 limited = {key for key in self.rooms if ahead + deficits[key] + self.reserve_seconds > capacity}
@@ -487,11 +494,14 @@ class LateBuffer:
                 self.floor = max(0, min(self.floor, ahead))
                 self.started = None
                 self.rooms.clear()
+                self.retry_after = now + 20
         eligible = set(persistent) - self.blocked
+        eligible = {key for key in eligible if now >= self.retry_after or persistent[key] > .05}
         if not self.building and eligible:
             self.rooms = eligible
             self.initial_gaps = {key: persistent[key] for key in eligible}
             self.floor = max(self.floor, ahead + max(self.initial_gaps.values()) + self.reserve_seconds)
+            self.deadline = now + max(self.max_seconds, (max(self.initial_gaps.values()) + self.reserve_seconds) / .02 + 30)
             self.started = now
         self.floor = max(0, min(self.floor, capacity))
         return self.building
