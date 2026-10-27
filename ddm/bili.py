@@ -260,6 +260,11 @@ def _wbi_signed_params(params: dict, key: str) -> dict:
     return {**signed, "w_rid": hashlib.md5((query + key).encode("utf-8")).hexdigest()}
 
 
+# Fresh Space's isUsingSelfDefToutu excludes this official preset list (2026-10-27):
+# https://s1.hdslb.com/bfs/static/shanks/fresh-space/assets/index-c5b07bd7.js
+_SPACE_PRESET_BANNER_IDS = frozenset((1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 19))
+
+
 def profile_banner(uid: int) -> str:
     """个人空间头图；失败时通知继续使用直播封面。仅在图片工作线程调用。"""
     try:
@@ -273,6 +278,8 @@ def profile_banner(uid: int) -> str:
             return ''
         data = payload.get('data') or {}
         photo = data.get('top_photo_v2') or {}
+        if photo.get('sid') in _SPACE_PRESET_BANNER_IDS:
+            return ''
         url = str(photo.get('l_200h_img') or photo.get('l_img') or data.get('top_photo') or '')
         filename = urllib.parse.urlsplit(url).path.split('@', 1)[0].rsplit('/', 1)[-1]
         # These are the current activity header and the legacy default space header.

@@ -80,8 +80,8 @@ def load_room_cover(room_id: str) -> QPixmap | None:
 
 
 def room_banner_path(room_id: str) -> str:
-    # The old room cache may contain Bilibili's default header; re-resolve it once.
-    return os.path.join(REPO, 'cache', 'banners', 'custom-room', _safe_name(room_id) + '.png')
+    # Earlier caches checked only two filenames and may contain other preset headers.
+    return os.path.join(REPO, 'cache', 'banners', 'personal-room', _safe_name(room_id) + '.png')
 
 
 def load_room_banner(room_id: str) -> QPixmap | None:
