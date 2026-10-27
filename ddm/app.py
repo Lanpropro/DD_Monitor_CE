@@ -2513,6 +2513,9 @@ class MainWindow(QMainWindow):
                 item.set_title(info["title"])
             if info.get("uname"):
                 item.set_uname(info["uname"])
+            for key in ('uid', 'banner_url'):
+                if key in info:
+                    item.room[key] = info[key]
             cover = info.get("cover_url") or ""
             if cover and cover != item.room.get("cover_url"):
                 item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
@@ -2565,6 +2568,7 @@ class MainWindow(QMainWindow):
                 covers, self._on_room_cover, subdir="covers")
         if faces:
             self._status_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
+        self._load_room_banners(self.sidebar.rooms())
 
     # ---- 全局操作 ----
     def _on_tile_clicked(self, room: dict) -> None:
@@ -3185,6 +3189,9 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         from .online_ui import show_result
+        by_id = {str(item.room.get('room_id')): item.room for item in self.sidebar._items}
+        rooms = [{**by_id.get(str(room.get('room_id')), {}), **room} for room in rooms]
+        self._load_room_banners(rooms)
         pinned_live = kind == 'live' and any(
             str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
         category = 'pinned_live' if pinned_live else kind
@@ -3542,6 +3549,7 @@ class MainWindow(QMainWindow):
         self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
         self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
                                                        subdir="covers")
+        self._load_room_banners(rooms)
 
     def _prime_cached_avatars(self, faces: dict) -> int:
         """把本地缓存里那张头像先摆上（纯读文件，不联网），返回命中张数。
@@ -3572,6 +3580,36 @@ class MainWindow(QMainWindow):
                   for room in rooms if room.get("cover_url")}
         self._start_avatar_loader(faces, self._on_room_avatar)
         self._start_avatar_loader(covers, self._on_room_cover, subdir="covers")
+        self._load_room_banners(rooms)
+
+    def _load_room_banners(self, rooms):
+        from .room_artwork import supports_banner
+        requested = getattr(self, '_banner_requested', set())
+        self._banner_requested = requested
+        items = {}
+        for room in rooms:
+            identity = room.get('banner_url') or room.get('uid')
+            key = (str(room.get('room_id', '')), str(identity))
+            if identity and supports_banner(room) and key not in requested:
+                requested.add(key)
+                items[key[0]] = dict(room)
+        if items:
+            self._start_avatar_loader(items, self._on_room_banner, subdir='banners')
+
+    def _on_room_banner(self, room_id, pixmap):
+        self._on_room_artwork(room_id, pixmap, 'banners')
+
+    def _on_room_artwork(self, room_id, pixmap, kind):
+        for notice in getattr(self, '_notices', []):
+            if hasattr(notice, 'set_room_artwork'):
+                notice.set_room_artwork(room_id, pixmap, kind)
+        center = self.sidebar.notification_button.center
+        for row in center.rows.values():
+            row.set_room_artwork(room_id, pixmap, kind)
+        if kind == 'banners':
+            for item in self.sidebar._items:
+                if str(item.room.get('room_id')) == str(room_id):
+                    item.thumb.set_banner(pixmap)
 
     def _start_avatar_loader(self, items: dict, slot, subdir: str = "avatars"):
         """统一的头像下载：线程都留个引用，关窗时好等它们收尾。"""
@@ -3605,6 +3643,7 @@ class MainWindow(QMainWindow):
                 return
 
     def _on_room_cover(self, room_id: str, pixmap) -> None:
+        self._on_room_artwork(room_id, pixmap, 'covers')
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_cover(pixmap)

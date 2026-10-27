@@ -684,6 +684,14 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#UpdateNotice[roomBackdrop="true"] #NoticeHeading,
+#UpdateNotice[roomBackdrop="true"] #NoticeText,
+#HistoryNotice[roomBackdrop="true"] #NoticeHeading,
+#HistoryNotice[roomBackdrop="true"] #NoticeText {{color: #ffffff; background: transparent;}}
+#UpdateNotice[roomBackdrop="true"] #NoticeDescription,
+#HistoryNotice[roomBackdrop="true"] #NoticeDescription {{color: #e5eaf3; background: transparent;}}
+#UpdateNotice[roomBackdrop="true"] #NoticeClose,
+#HistoryNotice[roomBackdrop="true"] #NoticeClose {{color: #ffffff; background: rgba(12, 19, 30, 0.4); border-radius: 6px;}}
 #NoticeIcon {{
     color: {ACCENT};
     background: {ACCENT_SOFT};
@@ -783,6 +791,8 @@ QSlider::handle:horizontal:hover {{
 #NavSub[cardMode="false"] {{
     color: {TEXT2};
 }}
+#NavName[cardMode="false"][roomBackdrop="true"] {{color: #ffffff;}}
+#NavSub[cardMode="false"][roomBackdrop="true"] {{color: #eef1f6;}}
 #NavAvatar {{
     color: {TEXT1};
     font-size: {FONT_CONTROL}px;
