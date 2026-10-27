@@ -131,12 +131,25 @@ class MainNoticesTests(unittest.TestCase):
                 ({'top_photo': current + '@3840w_400h_1c_100q.avif?from=space'}, ''),
                 ({'top_photo_v2': {'l_img': 'https://i0.hdslb.com/custom-old.png',
                     'l_200h_img': current}}, ''),
-                ({'top_photo': legacy, 'top_photo_v2': {'sid': 1,
+                ({'top_photo': legacy, 'top_photo_v2': {'sid': 0,
                     'l_200h_img': 'https://i1.hdslb.com/custom-current.png'}},
                  'https://i1.hdslb.com/custom-current.png')):
             with self.subTest(data=data), patch.object(bili, '_wbi_key', return_value='test'), \
                     patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': data})):
                 self.assertEqual(bili.profile_banner(1298779265), expected)
+
+    def test_official_space_preset_ids_are_not_personal_banners(self):
+        from ddm import bili
+        # The official Fresh Space client excludes these IDs from custom headers.
+        presets = (1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 19)
+        for sid in (*presets, 0, 103):
+            photo = {'sid': sid, 'l_img': 'https://i1.hdslb.com/legacy.png',
+                     'l_200h_img': 'https://i0.hdslb.com/arbitrary-header.png'}
+            with self.subTest(sid=sid), patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                        'top_photo_v2': photo}})):
+                expected = '' if sid in presets else photo['l_200h_img']
+                self.assertEqual(bili.profile_banner(193559518), expected)
 
     def test_default_banner_invalidates_old_cache_and_updates_visible_notices(self):
         from ddm import images
@@ -148,6 +161,7 @@ class MainNoticesTests(unittest.TestCase):
             banner.fill(QColor('red'))
             for path, pixmap in (
                     (Path(directory) / 'cache/banners/room/1001.png', banner),
+                    (Path(directory) / 'cache/banners/custom-room/1001.png', banner),
                     (Path(images.room_cover_path('1001')), cover)):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 pixmap.save(str(path))
@@ -165,7 +179,11 @@ class MainNoticesTests(unittest.TestCase):
             self.assertIsNotNone(notice.artwork.banner)
             loader = images.AvatarLoader({'1001': room}, subdir='banners')
             loader.loaded.connect(window._on_room_banner)
-            with patch.object(images.bili, 'profile_banner', return_value=''), \
+            with patch.object(images.bili, '_wbi_key', return_value='test'), \
+                    patch.object(images.bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                        'top_photo': 'bfs/space/c919a9818172a8297f8b0597722f96504a1e1d88.png',
+                        'top_photo_v2': {'sid': 11,
+                            'l_200h_img': 'https://i0.hdslb.com/bfs/activity-plat/static/0977767b2e79d8ad0a36a731068a83d7/UIAMgvvo2L.png'}}})), \
                     patch.object(images, 'load_pixmap') as download:
                 loader.run()
             download.assert_not_called()
