@@ -82,7 +82,14 @@ class NoticeRow(QFrame):
         category = {'live': '开播提醒', 'warning': '需要留意', 'update': '版本更新'}.get(entry.kind, '操作提示')
         self.category = QLabel(category)
         self.category.setObjectName('NoticeHeading')
-        content.addWidget(self.category)
+        category_row = QHBoxLayout()
+        from .room_artwork import RoomArtwork, add_platform_logos, style_room_notice
+        self.artwork = RoomArtwork(entry.rooms)
+        theme.signals().changed.connect(self._refresh_artwork_theme)
+        add_platform_logos(category_row, entry.rooms, self)
+        category_row.addWidget(self.category)
+        category_row.addStretch()
+        content.addLayout(category_row)
         self.message = QLabel(entry.message)
         self.message.setObjectName('NoticeText')
         self.message.setTextFormat(Qt.PlainText)
@@ -119,11 +126,21 @@ class NoticeRow(QFrame):
         self.animation.valueChanged.connect(self._frame)
         self.animation.finished.connect(self.finish_removal)
         self.ensurePolished()
+        style_room_notice(self, self.artwork)
         self.setMinimumHeight(layout.totalHeightForWidth(max(80, parent.width())))
 
     def activate(self):
         self.window().hide()
         self.entry.callback()
+
+    def set_room_artwork(self, room_id, pixmap, kind):
+        from .room_artwork import style_room_notice
+        if self.artwork.set_image(room_id, pixmap, kind):
+            style_room_notice(self, self.artwork)
+
+    def _refresh_artwork_theme(self, _mode):
+        from .room_artwork import style_room_notice
+        style_room_notice(self, self.artwork)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -153,7 +170,12 @@ class NoticeRow(QFrame):
 
     def paintEvent(self, event):
         if self._paper is None:
-            return super().paintEvent(event)
+            super().paintEvent(event)
+            if self.artwork.source is not None:
+                from .room_artwork import paint_room_background
+                painter = QPainter(self)
+                paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG)
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         progress = self._progress

@@ -1772,6 +1772,7 @@ class NavThumb(QFrame):
         self._cover_dirty = False
         self._cover_hold = False         # 宽度动画期间挂起封面重裁，见 set_cover_hold()
         self._cover_source: QPixmap | None = None
+        self._banner_source: QPixmap | None = None
         self._face_source: QPixmap | None = None
 
     # ---- 外观 ----
@@ -1845,6 +1846,11 @@ class NavThumb(QFrame):
         self.cover.setText("")
         self._cover_source = pixmap
         self._render_cover()
+
+    def set_banner(self, pixmap) -> None:
+        self._banner_source = pixmap
+        if not self._card_mode:
+            self._render_cover()
 
     def set_face(self, pixmap) -> None:
         if pixmap is None or pixmap.isNull():
@@ -1985,6 +1991,15 @@ class NavThumb(QFrame):
         if self._compact_thumb():
             return                       # 收起后封面隐藏，展开时再裁切即可
         source = getattr(self, "_cover_source", None)
+        if not self._card_mode and self._banner_source is not None:
+            source = self._banner_source
+        has_background = source is not None and not source.isNull()
+        if self._overlay_widgets is not None:
+            for label in self._overlay_widgets[:2]:
+                if label.property('roomBackdrop') != has_background:
+                    label.setProperty('roomBackdrop', has_background)
+                    _repolish(label)
+        self.cover.setVisible(has_background and not self._compact)
         if source is None or source.isNull():
             return
         if self.visibleRegion().isEmpty():
@@ -2075,7 +2090,7 @@ class NavThumb(QFrame):
             self.setMinimumSize(0, height)
             self.setMaximumSize(16777215, height)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.cover.setVisible(enabled and not self._compact)
+        self.cover.setVisible(not self._compact)
         self._render_face()
         self._render_cover()
         self._place_face()
@@ -2102,7 +2117,7 @@ class NavThumb(QFrame):
         preview_rect = self._preview_rect() if self.video.isVisible() else self.rect()
         self.video.setGeometry(preview_rect)
         self.hint.setGeometry(preview_rect if self.hint.isVisible() else self.rect())
-        self.cover.setVisible(self._card_mode and not compact)
+        self.cover.setVisible(not compact)
         self._render_face()          # 可见性也归它管（见 _render_face）
         self._render_cover()
         self._layout_overlay()
@@ -2154,7 +2169,7 @@ class NavThumb(QFrame):
         self.hint.setVisible(False)
         self.video.setGeometry(self.rect())
         self.hint.setGeometry(self.rect())
-        self.cover.setVisible(self._card_mode and not self._compact_thumb())
+        self.cover.setVisible(not self._compact_thumb())
         self.face.setVisible(bool(self.face.pixmap()))
         self._set_overlay_visible(True)
 
@@ -2242,6 +2257,10 @@ class NavItem(QFrame):
         self.check.clicked.connect(lambda: self.checkedChanged.emit())
 
         self.thumb = NavThumb(self)
+        from .images import load_room_banner
+        from .room_artwork import supports_banner
+        if supports_banner(room):
+            self.thumb.set_banner(load_room_banner(str(room.get('room_id', ''))))
         self.check.setParent(self.thumb)
         self._layout.addWidget(self.thumb, 1)
 

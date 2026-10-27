@@ -24,6 +24,140 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_room_background_crops_the_center_and_clips_corners(self):
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QPainter
+        from ddm.room_artwork import paint_room_background
+        source = QPixmap(300, 100)
+        source.fill(QColor('red'))
+        painter = QPainter(source)
+        painter.fillRect(100, 0, 100, 100, QColor('green'))
+        painter.fillRect(200, 0, 100, 100, QColor('blue'))
+        painter.end()
+        target = QPixmap(60, 100)
+        target.fill(Qt.transparent)
+        painter = QPainter(target)
+        paint_room_background(painter, QRectF(0, 0, 60, 100), source, 12)
+        painter.end()
+        image = target.toImage()
+        self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+        for x in (4, 30, 55):
+            color = image.pixelColor(x, 50)
+            self.assertGreater(color.green(), max(color.red(), color.blue()))
+
+    def test_streamer_background_priority_and_platform_logo(self):
+        self.addCleanup(theme.apply, theme.mode())
+        from ddm import images
+        from ddm.room_artwork import RoomArtwork
+        from ddm.notification_center import NoticeEntry, NoticeRow
+        from ddm.online_ui import ResultNotice
+        from ddm.widgets import NavItem
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            cover = QPixmap(160, 90)
+            cover.fill(QColor('#20b060'))
+            banner = QPixmap(300, 70)
+            banner.fill(QColor('#e06020'))
+            for rid in ('1001', 'huya:2', 'douyin:3', 'douyin:4'):
+                path = Path(images.room_cover_path(rid))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                cover.save(str(path))
+                if rid == 'douyin:4':
+                    continue
+                path = Path(images.room_banner_path(rid))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                banner.save(str(path))
+            owner = QWidget()
+            owner.resize(900, 700)
+            self.addCleanup(owner.close)
+            room = {'room_id': '1001', 'uname': '示例主播'}
+            self.assertEqual(RoomArtwork([room]).source.toImage().pixelColor(0, 0).name(), '#e06020')
+            self.assertEqual(RoomArtwork([{'room_id': 'huya:2'}]).source.toImage().pixelColor(0, 0).name(), '#20b060')
+            self.assertEqual(RoomArtwork([{'room_id': 'douyin:3'}]).source.toImage().pixelColor(0, 0).name(), '#e06020')
+            self.assertEqual(RoomArtwork([{'room_id': 'douyin:4'}]).source.toImage().pixelColor(0, 0).name(), '#20b060')
+            self.assertIsNone(RoomArtwork([room, {'room_id': 'huya:2'}]).source)
+            notice = ResultNotice(owner)
+            notice.show_message('示例主播 开播了', [room], kind='live')
+            row = NoticeRow(NoticeEntry('示例主播 开播了', 'live', '20:36', rooms=(room,)), owner)
+            row.resize(360, row.sizeHint().height())
+            row.show()
+            item = NavItem(room, 0)
+            self.addCleanup(item.close)
+            item.set_card_mode(False)
+            item.resize(300, 60)
+            item.show()
+            owner.show()
+            self.app.processEvents()
+            for card in (notice, row):
+                self.assertIsNotNone(card.artwork.source)
+                self.assertTrue(card.findChildren(QWidget, 'NoticePlatform'))
+                for mode in ('light', 'dark'):
+                    theme.apply(mode)
+                    self.app.processEvents()
+                    rendered = card.grab().toImage()
+                    scale = rendered.devicePixelRatio()
+                    pixel = rendered.pixelColor(round((card.width() - 8) * scale), round(card.height() / 2 * scale))
+                    self.assertGreater(pixel.red(), pixel.green(), 'Banner must be painted, not the theme surface')
+                    self.assertGreater(card.title.palette().color(card.title.foregroundRole()).lightness()
+                                       if hasattr(card, 'title') else card.message.palette().color(card.message.foregroundRole()).lightness(), 200,
+                                       (type(card).__name__, card.property('roomBackdrop'), mode))
+            self.assertFalse(item.thumb.cover.isHidden())
+            self.assertEqual(item.thumb._banner_source.toImage().pixelColor(0, 0).name(), '#e06020')
+            item.set_compact(True)
+            self.assertTrue(item.thumb.cover.isHidden(), 'The avatar rail must remain compact')
+
+    def test_profile_banner_accepts_current_and_legacy_api_fields(self):
+        from ddm import bili
+        for data, expected in (
+                ({'top_photo': 'bfs/space/old.png', 'top_photo_v2': {'l_img': 'https://i1.hdslb.com/new.png'}},
+                 'https://i1.hdslb.com/new.png'),
+                ({'top_photo': 'bfs/space/old.png'}, 'https://i0.hdslb.com/bfs/space/old.png'),
+                ({'top_photo': '//i0.hdslb.com/old.png'}, 'https://i0.hdslb.com/old.png'),
+                ({}, '')):
+            with patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': data})):
+                self.assertEqual(bili.profile_banner(12), expected)
+        with patch.object(bili, '_wbi_key', return_value='test'), \
+                patch.object(bili.requests, 'get', side_effect=bili.requests.Timeout):
+            self.assertEqual(bili.profile_banner(12), '')
+
+    def test_streamer_background_failure_and_late_updates(self):
+        from ddm import images
+        from ddm.room_artwork import RoomArtwork
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            room = {'room_id': '1001', 'uname': '主播甲', 'uid': 12}
+            window = self.window([room])
+            window._show_notice('主播甲 开播了', rooms=[{'room_id': '1001'}], kind='live')
+            notice = window._result_notice
+            center = window.sidebar.notification_button.center
+            entry = center.entries[-1]
+            center._add_row(entry)
+            row = center.rows[entry]
+            self.assertIsNone(notice.artwork.source)
+            image = QPixmap(100, 40)
+            image.fill(QColor('#e06020'))
+            window._on_room_artwork('1001', image, 'banners')
+            self.assertIsNotNone(notice.artwork.source)
+            self.assertIsNotNone(row.artwork.source)
+            window._on_room_cover('1001', image)
+            self.assertIsNotNone(notice.artwork.banner)
+            plain = RoomArtwork([])
+            self.assertIsNone(plain.source)
+            self.assertFalse(plain.set_image('1001', image, 'banners'))
+            with patch.object(images.bili, 'profile_banner', return_value='https://example.test/banner') as profile, \
+                    patch.object(images, 'load_pixmap', return_value=None):
+                loader = images.AvatarLoader({'1001': room}, subdir='banners')
+                loader.run()
+                profile.assert_called_once_with(12)
+                self.assertFalse(Path(images.room_banner_path('1001')).exists())
+            with patch.object(images.bili, 'profile_banner', return_value='https://example.test/banner'), \
+                    patch.object(images, 'load_pixmap', return_value=image):
+                received = []
+                loader = images.AvatarLoader({'1001': room}, subdir='banners')
+                loader.loaded.connect(lambda rid, pixmap: received.append(rid))
+                loader.run()
+                self.assertEqual(received, ['1001'])
+                self.assertIsNotNone(images.load_room_banner('1001'))
+
     def test_toasts_anchor_on_the_left_and_stack_down(self):
         window = self.window([])
         window.resize(1200, 800)
