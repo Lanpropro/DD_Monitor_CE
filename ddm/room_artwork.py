@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QLabel, QWidget
 
 from . import images
+from .cover_focus import source_rect
 
 
 def room_platform(room):
@@ -43,8 +44,8 @@ class RoomArtwork:
         return True
 
 
-def paint_room_background(painter, rect, pixmap, radius):
-    """等比居中裁切，文字区压暗，右侧保留图片细节。"""
+def paint_room_background(painter, rect, pixmap, radius, *, focus=True):
+    """等比裁切，封面优先保留人脸，文字区压暗。"""
     rect = QRectF(rect)
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
@@ -52,9 +53,7 @@ def paint_room_background(painter, rect, pixmap, radius):
     clip = QPainterPath()
     clip.addRoundedRect(rect, radius, radius)
     painter.setClipPath(clip)
-    scale = max(rect.width() / pixmap.width(), rect.height() / pixmap.height())
-    width, height = rect.width() / scale, rect.height() / scale
-    source = QRectF((pixmap.width() - width) / 2, (pixmap.height() - height) / 2, width, height)
+    source = source_rect(pixmap, rect.width(), rect.height(), focus=focus)
     painter.drawPixmap(rect, pixmap, source)
     shade = QLinearGradient(rect.topLeft(), rect.topRight())
     shade.setColorAt(0, QColor(12, 19, 30, 200))

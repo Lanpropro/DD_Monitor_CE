@@ -174,7 +174,8 @@ class NoticeRow(QFrame):
             if self.artwork.source is not None:
                 from .room_artwork import paint_room_background
                 painter = QPainter(self)
-                paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG)
+                paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
+                                      focus=self.artwork.banner is None)
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
