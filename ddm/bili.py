@@ -272,7 +272,12 @@ def profile_banner(uid: int) -> str:
         if payload.get('code') != 0:
             return ''
         data = payload.get('data') or {}
-        url = str((data.get('top_photo_v2') or {}).get('l_img') or data.get('top_photo') or '')
+        photo = data.get('top_photo_v2') or {}
+        url = str(photo.get('l_200h_img') or photo.get('l_img') or data.get('top_photo') or '')
+        filename = urllib.parse.urlsplit(url).path.split('@', 1)[0].rsplit('/', 1)[-1]
+        # These are the current activity header and the legacy default space header.
+        if filename in ('1sz3p8w2Sk.png', 'cb1c3ef50e22b6096fde67febe863494caefebad.png'):
+            return ''
         if url.startswith('//'):
             return 'https:' + url
         if url.startswith('bfs/'):

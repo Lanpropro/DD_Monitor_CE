@@ -1848,7 +1848,7 @@ class NavThumb(QFrame):
         self._render_cover()
 
     def set_banner(self, pixmap) -> None:
-        self._banner_source = pixmap
+        self._banner_source = None if pixmap is None or pixmap.isNull() else pixmap
         if not self._card_mode:
             self._render_cover()
 

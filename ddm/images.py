@@ -80,7 +80,8 @@ def load_room_cover(room_id: str) -> QPixmap | None:
 
 
 def room_banner_path(room_id: str) -> str:
-    return os.path.join(REPO, 'cache', 'banners', 'room', _safe_name(room_id) + '.png')
+    # The old room cache may contain Bilibili's default header; re-resolve it once.
+    return os.path.join(REPO, 'cache', 'banners', 'custom-room', _safe_name(room_id) + '.png')
 
 
 def load_room_banner(room_id: str) -> QPixmap | None:
@@ -105,13 +106,16 @@ def load_banner(room: dict) -> QPixmap | None:
     url = room.get('banner_url') or ''
     if not url and room_platform(room) == 'bilibili' and room.get('uid'):
         url = bili.profile_banner(room['uid'])
-    if not url:
-        return None
-    pixmap = load_pixmap(url, 'banners', cdn_size='@960w.webp')
+    path = room_banner_path(str(room['room_id']))
+    pixmap = load_pixmap(url, 'banners', cdn_size='@960w.webp') if url else None
     if pixmap is not None:
-        path = room_banner_path(str(room['room_id']))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         pixmap.save(path)
+    else:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
     return pixmap
 
 
@@ -341,6 +345,10 @@ class AvatarLoader(QThread):
                 try:
                     pixmap = future.result()
                 except Exception:  # noqa: BLE001
+                    continue
+                if self.subdir == 'banners':
+                    # An empty result must also clear an already visible/cached banner.
+                    self.loaded.emit(key, pixmap if pixmap is not None else QPixmap())
                     continue
                 if pixmap is not None and not pixmap.isNull():
                     if self.subdir == "covers":

@@ -120,6 +120,62 @@ class MainNoticesTests(unittest.TestCase):
                 patch.object(bili.requests, 'get', side_effect=bili.requests.Timeout):
             self.assertEqual(bili.profile_banner(12), '')
 
+    def test_bili_default_headers_are_not_personal_banners(self):
+        from ddm import bili
+        legacy = 'bfs/space/cb1c3ef50e22b6096fde67febe863494caefebad.png'
+        current = 'https://i1.hdslb.com/bfs/activity-plat/static/0977767b2e79d8ad0a36a731068a83d7/1sz3p8w2Sk.png'
+        for data, expected in (
+                ({'top_photo': legacy, 'top_photo_v2': {'sid': 1,
+                    'l_img': 'https://i0.hdslb.com/' + legacy, 'l_200h_img': current}}, ''),
+                ({'top_photo': '//i2.hdslb.com/' + legacy + '@960w.webp'}, ''),
+                ({'top_photo': current + '@3840w_400h_1c_100q.avif?from=space'}, ''),
+                ({'top_photo_v2': {'l_img': 'https://i0.hdslb.com/custom-old.png',
+                    'l_200h_img': current}}, ''),
+                ({'top_photo': legacy, 'top_photo_v2': {'sid': 1,
+                    'l_200h_img': 'https://i1.hdslb.com/custom-current.png'}},
+                 'https://i1.hdslb.com/custom-current.png')):
+            with self.subTest(data=data), patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': data})):
+                self.assertEqual(bili.profile_banner(1298779265), expected)
+
+    def test_default_banner_invalidates_old_cache_and_updates_visible_notices(self):
+        from ddm import images
+        from ddm.room_artwork import RoomArtwork
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            room = {'room_id': '1001', 'uid': 12, 'uname': '主播甲'}
+            cover, banner = QPixmap(100, 50), QPixmap(100, 50)
+            cover.fill(QColor('green'))
+            banner.fill(QColor('red'))
+            for path, pixmap in (
+                    (Path(directory) / 'cache/banners/room/1001.png', banner),
+                    (Path(images.room_cover_path('1001')), cover)):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                pixmap.save(str(path))
+            self.assertIsNone(RoomArtwork([room]).banner, 'The old unfiltered banner cache must be ignored')
+            target = Path(images.room_banner_path('1001'))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            banner.save(str(target))
+            window = self.window([room])
+            window._show_notice('主播甲开播了', rooms=[room], kind='live')
+            notice = window._result_notice
+            center = window.sidebar.notification_button.center
+            entry = center.entries[-1]
+            center._add_row(entry)
+            row = center.rows[entry]
+            self.assertIsNotNone(notice.artwork.banner)
+            loader = images.AvatarLoader({'1001': room}, subdir='banners')
+            loader.loaded.connect(window._on_room_banner)
+            with patch.object(images.bili, 'profile_banner', return_value=''), \
+                    patch.object(images, 'load_pixmap') as download:
+                loader.run()
+            download.assert_not_called()
+            self.assertFalse(target.exists())
+            self.assertIsNone(notice.artwork.banner)
+            self.assertIsNone(row.artwork.banner)
+            self.assertIsNotNone(row.artwork.source)
+            self.assertEqual(notice.artwork.source.toImage().pixelColor(0, 0).name(), '#008000')
+            self.assertIsNone(window.sidebar._items[0].thumb._banner_source)
+
     def test_streamer_background_failure_and_late_updates(self):
         from ddm import images
         from ddm.room_artwork import RoomArtwork
