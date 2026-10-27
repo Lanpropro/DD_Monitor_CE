@@ -1,6 +1,7 @@
 """Offline checks for per-tile D shortcut, compact notices and startup live baseline."""
 from contextlib import ExitStack
 import os
+import json
 from pathlib import Path
 import runpy
 import sys
@@ -151,6 +152,28 @@ class MainNoticesTests(unittest.TestCase):
                 expected = '' if sid in presets else photo['l_200h_img']
                 self.assertEqual(bili.profile_banner(193559518), expected)
 
+    def test_all_space_header_categories_fall_back_without_rejecting_uploads(self):
+        from ddm import bili
+        catalog = json.loads((ROOT / 'ddm/assets/bilibili-space-presets.json').read_text(encoding='utf-8'))
+        groups = catalog['categories']
+        self.assertEqual({key: len(value) for key, value in groups.items()}, {'经典': 15, '季节': 29, '其他': 8})
+        paths = [item['path'] for group in groups.values() for item in group]
+        self.assertEqual(len(set(paths)), 52)
+        for path in paths:
+            for url in ('https://i0.hdslb.com' + path,
+                        '//i2.hdslb.com' + path + '@3840w_400h_1c_100q.avif?from=space'):
+                with self.subTest(url=url), patch.object(bili, '_wbi_key', return_value='test'), \
+                        patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                            'top_photo_v2': {'sid': 103, 'l_200h_img': url}}})):
+                    self.assertEqual(bili.profile_banner(12), '')
+        for sid, filename in ((7759001, '66c1d9886a5f73a4f8e18f990cc1ce4e559e73ee.png'),
+                              (36402681, '451d967c8418b4b88551bb905d63721006ab3bee.png')):
+            url = 'https://i1.hdslb.com/bfs/space/' + filename
+            with self.subTest(sid=sid), patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                        'top_photo_v2': {'sid': sid, 'l_200h_img': url}}})):
+                self.assertEqual(bili.profile_banner(12), url)
+
     def test_default_banner_invalidates_old_cache_and_updates_visible_notices(self):
         from ddm import images
         from ddm.room_artwork import RoomArtwork
@@ -162,6 +185,7 @@ class MainNoticesTests(unittest.TestCase):
             for path, pixmap in (
                     (Path(directory) / 'cache/banners/room/1001.png', banner),
                     (Path(directory) / 'cache/banners/custom-room/1001.png', banner),
+                    (Path(directory) / 'cache/banners/personal-room/1001.png', banner),
                     (Path(images.room_cover_path('1001')), cover)):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 pixmap.save(str(path))
