@@ -362,12 +362,18 @@ def _fetchable(url: str, headers: dict) -> bool:
 
 
 def _app_protocol(codec: str) -> str:
-    """这种编码在 app-room 接口里该挑哪条通道。
+    """这种编码在 app-room 接口里的首选通道。
 
-    H.264 是 ``http_stream``（FLV）；HEVC / AV1 只有
-    ``http_hls``（fMP4 分片），由 libmpv 原生播放。
+    H.264 首选 ``http_stream``（FLV），也支持仅提供 HLS 的房间；
+    HEVC / AV1 使用 ``http_hls``（fMP4 分片），由 libmpv 原生播放。
     """
     return "http_hls" if codec in HLS_ONLY_CODECS else "http_stream"
+
+
+def _app_streams(play: dict, codec: str):
+    protocols = ("http_stream", "http_hls") if codec == "avc" else (_app_protocol(codec),)
+    return (stream for protocol in protocols for stream in play.get("stream") or []
+            if stream.get("protocol_name") == protocol)
 
 
 def _app_codec_entry(stream: dict, codec: str) -> dict | None:
@@ -432,7 +438,7 @@ def _app_play_info(room_id: str, quality: int, codec: str = "avc") -> dict:
 
 
 def _app_profile(codec: str) -> str:
-    """这种编码走 app-room 时对应的通道名。
+    """这种编码走 app-room 时首选的通道名。
 
     后缀记录 HLS 容器及实际编码，播放器直接交给 libmpv。
     """
@@ -443,24 +449,23 @@ class CodecUnavailable(RuntimeError):
     pass
 
 
-def _app_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list[str], int]:
+def _app_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list[str], int, str]:
     """app-room 接口：尊重 qn（登录后能拿到原画）。
 
-    H.264 取 FLV 通道（给播放器直连）；HEVC / AV1 只有 HLS 通道，取回来要
-    由 libmpv 直接读取分片（见 :func:`_app_profile`）。
+    H.264 优先 FLV，也支持仅提供 HLS 的房间；通道名来自实际协议元数据。
+    所有格式均由 libmpv 直接读取。
     """
     protocol = _app_protocol(codec)
-    streams = _app_play_info(room_id, quality, codec).get("stream") or []
-    for stream in streams:
-        if stream.get("protocol_name") != protocol:
-            continue
+    for stream in _app_streams(_app_play_info(room_id, quality, codec), codec):
         entry = _app_codec_entry(stream, codec)
         if entry is None:
             continue
         urls = [info["host"] + entry["base_url"] + info["extra"]
                 for info in entry.get("url_info") or []]
         if urls:
-            return list(dict.fromkeys(urls)), int(entry.get("current_qn") or 0)
+            profile = (f"app-hls-{codec}" if stream.get("protocol_name") == "http_hls"
+                       else _app_profile(codec))
+            return list(dict.fromkeys(urls)), int(entry.get("current_qn") or 0), profile
     error = CodecUnavailable if codec in HLS_ONLY_CODECS else RuntimeError
     raise error(f"app-room 接口没有返回 {protocol} 地址（{codec}）")
 
@@ -503,7 +508,10 @@ def play_url(room_id: str, quality: int = 250,
         if _cancelled():
             raise Cancelled()
         try:
-            urls, current = source(room_id, quality, codec)
+            result = source(room_id, quality, codec)
+            urls, current = result[:2]
+            if len(result) > 2:
+                profile = result[2]
         except CodecUnavailable:
             if _cancelled():
                 raise Cancelled()
@@ -1030,9 +1038,7 @@ def room_quality_options(room_id: str, codec: str = "avc") -> list[dict]:
     """
     try:
         play = _app_play_info(room_id, 10000, codec)
-        for stream in play.get("stream") or []:
-            if stream.get("protocol_name") != _app_protocol(codec):
-                continue
+        for stream in _app_streams(play, codec):
             # 与 _app_play_urls 选取同一条流，避免列出其他编码/协议的档位。
             entry = _app_codec_entry(stream, codec)
             if entry is None:
