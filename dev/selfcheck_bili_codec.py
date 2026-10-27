@@ -1,4 +1,4 @@
-"""离线自检：B站取流按设置的编码要流（H.264 直连 FLV，HEVC/AV1 原生 HLS 播放）。
+"""离线自检：B站取流按设置的编码要流（H.264 优先 FLV，也支持原生 HLS）。
 
 全部打桩，不联网。
 """
@@ -92,9 +92,9 @@ def check_app_urls() -> None:
     """取地址：avc 挑 FLV，hevc / av1 挑 HLS，绝不串味。"""
     payload = response(app_payload())
     with patch.object(bili.requests, "get", return_value=payload):
-        assert bili._app_play_urls("1001", 10000, "avc") == (["https://cdn-avc/avc.flv"], 10000)
-        assert bili._app_play_urls("1001", 10000, "hevc") == (["https://cdn-hevc/hevc.m3u8"], 10000)
-        assert bili._app_play_urls("1001", 10000, "av1") == (["https://cdn-av1/av1.m3u8"], 10000)
+        assert bili._app_play_urls("1001", 10000, "avc") == (["https://cdn-avc/avc.flv"], 10000, "app")
+        assert bili._app_play_urls("1001", 10000, "hevc") == (["https://cdn-hevc/hevc.m3u8"], 10000, "app-hls-hevc")
+        assert bili._app_play_urls("1001", 10000, "av1") == (["https://cdn-av1/av1.m3u8"], 10000, "app-hls-av1")
     mismatched = _stream("http_stream", "hevc", HEVC_ACCEPT, "/hevc.flv", "https://cdn-hevc")
     assert bili._app_codec_entry(mismatched, "avc") is None
     legacy = _stream("http_stream", "avc", AVC_ACCEPT, "/avc.flv", "https://cdn-avc")
@@ -135,6 +135,32 @@ def check_play_url() -> None:
     assert default[0] == "https://cdn-avc/avc.flv" and default[2] == "app"
     assert default[3] == bili.STREAM_APP, "FLV 通道的请求头不能变"
 
+
+def check_avc_hls_only_room() -> None:
+    # 22833739 exposes AVC and HEVC on fMP4 HLS, with no http_stream.
+    # Protocol metadata is authoritative even when a URL has no .m3u8 suffix.
+    hls = _stream('http_hls', 'avc', [10000, 250], '/playlist?token=fixture', 'https://cdn-avc')
+    hevc = _stream('http_hls', 'hevc', [10000, 250], '/hevc.m3u8', 'https://cdn-hevc')
+    play = {'g_qn_desc': [{'qn': 10000, 'desc': '原画'}, {'qn': 250, 'desc': '超清'}],
+            'stream': [hevc, hls]}
+    with patch.object(bili, '_app_play_info', return_value=play), \
+            patch.object(bili, '_fetchable', return_value=True), \
+            patch.object(bili, '_web_play_urls', side_effect=AssertionError('Do not fall back to legacy web')):
+        result = bili.play_url('22833739', 250, codec='avc')
+        assert result == ('https://cdn-avc/playlist?token=fixture', 10000, 'app-hls-avc', bili.STREAM_APP)
+        assert bili.is_hls_profile(result[2]) and bili.codec_from_profile(result[2]) == 'avc'
+        assert [option['qn'] for option in bili.room_quality_options('22833739', 'avc')] == [10000, 250]
+        resolver = bili.StreamResolver('22833739', 250, codec='avc')
+        resolved, failed = [], []
+        resolver.resolved.connect(lambda *args: resolved.append(args))
+        resolver.failed.connect(lambda *args: failed.append(args))
+        resolver.run()
+        assert len(resolved) == 1 and not failed and resolved[0][3] == 'app-hls-avc'
+        assert resolver.source_codec == 'avc'
+        assert [option['qn'] for option in resolved[0][4]] == [10000, 250]
+        play['stream'].append(_stream('http_stream', 'avc', [250], '/preferred.flv', 'https://cdn-flv'))
+        assert bili.play_url('22833739', 250, codec='avc')[2] == 'app', 'FLV remains preferred regardless of API order'
+        assert [option['qn'] for option in bili.room_quality_options('22833739', 'avc')] == [250]
 def check_codec_fallback() -> None:
     for codec in ("hevc", "av1"):
         with patch.object(bili.requests, "get",
@@ -320,7 +346,7 @@ def check_player_container(application) -> None:
         tile_player = player_module.TilePlayer(video)
         tile_player.player = core
         try:
-            for profile in ("app", "app-hls-hevc", "app-hls-av1", "web-hls", "huya", "douyu", "douyin"):
+            for profile in ("app", "app-hls-avc", "app-hls-hevc", "app-hls-av1", "web-hls", "huya", "douyu", "douyin"):
                 tile_player.play("https://cdn.test/live.m3u8", profile, {"User-Agent": "test"})
                 if profile == "huya":
                     assert tile_player._hls_proxy is not None
@@ -892,6 +918,7 @@ def main() -> None:
                         ("通道名 -> 编码", check_codec_from_profile),
                         ("app-room 地址", check_app_urls),
                         ("play_url", check_play_url),
+                        ("H.264仅HLS房间与FLV优先", check_avc_hls_only_room),
                         ("缺失编码回退及房间隔离", check_codec_fallback),
                         ("画质档位", check_quality_options),
                         ("4K能力、取流与降档显示", check_4k_quality),
@@ -911,7 +938,7 @@ def main() -> None:
     print("  通过：平台编码映射、真实编码/通道、回退、兼容、暂停取消及终态")
     check_platform_codec_resolver()
     print("  通过：平台网络回退、登录、错误编码、兼容 Mock、空/异常画质及取消")
-    print("PASS: Bili codec selection (avc=FLV direct, hevc/av1=native HLS), "
+    print("PASS: Bili codec selection (avc=FLV/HLS, hevc/av1=native HLS), "
           "per-room H.264 fallback, actual-codec tiers, channels and containers")
 
 
