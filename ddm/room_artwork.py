@@ -30,13 +30,15 @@ class RoomArtwork:
         return self.banner if self.banner is not None else self.cover
 
     def set_image(self, room_id, pixmap, kind):
-        if str(self.room.get('room_id', '')) != str(room_id) or pixmap.isNull():
+        if str(self.room.get('room_id', '')) != str(room_id):
             return False
         if kind == 'banners':
             if not supports_banner(self.room):
                 return False
-            self.banner = pixmap
+            self.banner = None if pixmap.isNull() else pixmap
         else:
+            if pixmap.isNull():
+                return False
             self.cover = pixmap
         return True
 
