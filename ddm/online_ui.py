@@ -852,7 +852,8 @@ class ResultNotice(UpdateNotice):
         if self.artwork.source is not None:
             from .room_artwork import paint_room_background
             painter = QPainter(self)
-            paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG)
+            paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
+                                  focus=self.artwork.banner is None)
 
     def set_room_avatar(self, room_id, pixmap):
         avatar = self._avatars.get(str(room_id))

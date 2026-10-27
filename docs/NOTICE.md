@@ -23,6 +23,11 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 
 ## 第三方组件
 
+- 封面人物焦点使用本地 OpenCV 4.13（Apache-2.0）和
+  opencv-python-headless 4.13.0.92（打包代码 MIT）；wheel 自带依赖许可。
+  真人 YuNet 与二次元 lbpcascade_animeface 模型均为 MIT，固定上游来源、
+  SHA256 和许可见 `ddm/assets/licenses/cover-focus-*` 与动漫模型 XML 内的许可。
+
 - pypinyin 0.55.0：关注栏与导入关注使用其词典进行全拼、首字母搜索，
   上游 https://github.com/mozillazg/python-pinyin ，以 MIT 许可分发；
   许可文本见 `ddm/assets/licenses/pypinyin-LICENSE.txt`。

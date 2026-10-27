@@ -2007,17 +2007,18 @@ class NavThumb(QFrame):
             return
         self._cover_dirty = False
         width, height = self._size
-        scaled = source.scaled(width, height, Qt.KeepAspectRatioByExpanding,
-                               Qt.SmoothTransformation)
+        from .cover_focus import source_rect
+        crop = source_rect(source, width, height,
+                           focus=self._card_mode or self._banner_source is None)
         canvas = QPixmap(width, height)
         canvas.fill(Qt.transparent)
         painter = QPainter(canvas)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, width, height), self.RADIUS, self.RADIUS)
         painter.setClipPath(path)
-        painter.drawPixmap((width - scaled.width()) // 2,
-                           (height - scaled.height()) // 2, scaled)
+        painter.drawPixmap(QRectF(0, 0, width, height), source, crop)
         if not self._compact_thumb():
             shade = QLinearGradient(0, 0, width, 0)
             shade.setColorAt(0.0, QColor(7, 9, 13, 205))
