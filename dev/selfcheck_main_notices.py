@@ -25,6 +25,118 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def focused_cover(self, boxes, width=1000, height=600):
+        from ddm import cover_focus
+        cover = QPixmap(width, height)
+        cover.fill(QColor('green'))
+        with patch.object(cover_focus, '_detect_faces', return_value=boxes):
+            return cover_focus.prepare_cover(cover)
+
+    def test_cover_face_cache_persists_positive_and_negative_results(self):
+        from ddm import cover_focus, images
+        for boxes in ([], [[0.7, 0.05, 0.15, 0.2]]):
+            with self.subTest(boxes=boxes), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(images, 'REPO', directory):
+                url = 'https://example.invalid/cover.jpg'
+                path = Path(images._cache_path(url, 'covers'))
+                path.parent.mkdir(parents=True)
+                original = QPixmap(400, 240)
+                original.fill(QColor('red'))
+                original.save(str(path))
+                with patch.object(cover_focus, '_detect_faces', return_value=boxes) as detect:
+                    prepared = images.load_cover(url)
+                    self.assertEqual(cover_focus.faces_for(prepared), boxes)
+                    images.remember_room_cover('123', url)
+                    loader = images.CachedCoverLoader(['123'])
+                    seen = []
+                    loader.loaded.connect(lambda _, cover: seen.append(cover))
+                    loader.run()
+                    self.assertEqual(cover_focus.faces_for(seen[0]), boxes)
+                    images.load_cover(url)
+                    detect.assert_called_once()
+
+    def test_cover_detector_failure_is_retryable(self):
+        from ddm import cover_focus
+        cover = QPixmap(400, 240)
+        with patch.object(cover_focus, '_detect_faces', return_value=None) as detect:
+            self.assertIs(cover_focus.prepare_cover(cover), cover)
+            self.assertIsNone(cover_focus.faces_for(cover))
+            cover_focus.prepare_cover(cover)
+            self.assertEqual(detect.call_count, 2)
+
+    def test_cached_cover_detection_runs_on_worker_thread(self):
+        import threading
+        from ddm import cover_focus, images
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            path = Path(images.room_cover_path('123'))
+            path.parent.mkdir(parents=True)
+            cover = QPixmap(400, 240)
+            cover.fill(QColor('black'))
+            cover.save(str(path))
+            called_on = []
+            def detect(_):
+                called_on.append(threading.get_ident())
+                return []
+            with patch.object(cover_focus, '_detect_faces', side_effect=detect):
+                loader = images.CachedCoverLoader(['123'])
+                loader.start()
+                self.assertTrue(loader.wait(5000))
+            self.assertEqual(len(called_on), 1)
+            self.assertNotEqual(called_on[0], threading.get_ident())
+            self.assertEqual(cover_focus.faces_for(images.load_room_cover('123')), [])
+
+    def test_cover_focus_keeps_top_face_and_banner_stays_centered(self):
+        from ddm import cover_focus
+        from PySide6.QtCore import QRectF
+        cover = self.focused_cover([[0.75, 0.02, 0.12, 0.18]])
+        with patch.object(cover_focus, '_detect_faces', side_effect=AssertionError('paint detection')):
+            crop = cover_focus.source_rect(cover, 420, 120)
+            self.assertTrue(crop.contains(QRectF(750, 12, 120, 108)))
+            centered = cover_focus.source_rect(cover, 420, 120, focus=False)
+            self.assertAlmostEqual(centered.center().y(), 300)
+            self.assertLess(crop.top(), centered.top())
+
+    def test_cover_focus_group_and_largest_face_selection(self):
+        from ddm import cover_focus
+        from PySide6.QtCore import QRectF
+        cover = self.focused_cover([[0.5, 0.1, 0.1, 0.1], [0.7, 0.12, 0.1, 0.1]])
+        crop = cover_focus.source_rect(cover, 420, 120)
+        self.assertTrue(crop.contains(QRectF(500, 60, 300, 72)))
+        cover = self.focused_cover([[0.4, 0.1, 0.1, 0.1], [0.6, 0.12, 0.1, 0.1]])
+        crop = cover_focus.source_rect(cover, 60, 100)
+        self.assertTrue(crop.contains(QRectF(400, 60, 300, 72)))
+        cover = self.focused_cover([[0.1, 0.05, 0.2, 0.2], [0.7, 0.75, 0.1, 0.1]])
+        crop = cover_focus.source_rect(cover, 420, 120)
+        self.assertTrue(crop.contains(QRectF(100, 30, 200, 120)))
+
+    def test_cover_focus_edges_thin_strips_and_no_face_fallback(self):
+        from ddm import cover_focus
+        for box in ([0., 0., 0.3, 0.5], [0.7, 0.5, 0.3, 0.5]):
+            cover = self.focused_cover([box])
+            for width, height in ((420, 48), (60, 100), (1920, 1080)):
+                crop = cover_focus.source_rect(cover, width, height)
+                self.assertGreaterEqual(crop.left(), 0)
+                self.assertGreaterEqual(crop.top(), 0)
+                self.assertLessEqual(crop.right(), cover.width() + 1e-8)
+                self.assertLessEqual(crop.bottom(), cover.height() + 1e-8)
+                self.assertAlmostEqual(crop.width() / crop.height(), width / height)
+        cover = self.focused_cover([])
+        crop = cover_focus.source_rect(cover, 420, 120)
+        self.assertAlmostEqual(crop.center().x(), 500)
+        self.assertAlmostEqual(crop.center().y(), 300)
+
+    def test_cover_models_match_pinned_sources_and_load_offline(self):
+        import hashlib
+        from ddm import cover_focus
+        assets = ROOT / 'ddm/assets'
+        records = json.loads((assets / 'licenses/cover-focus-SOURCE.json').read_text())
+        for record in records:
+            self.assertEqual(hashlib.sha256((assets / record['file']).read_bytes()).hexdigest(),
+                             record['sha256'])
+        cover = QPixmap(412, 232)
+        cover.fill(QColor('black'))
+        self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
+
     def test_room_background_crops_the_center_and_clips_corners(self):
         from PySide6.QtCore import QRectF
         from PySide6.QtGui import QPainter

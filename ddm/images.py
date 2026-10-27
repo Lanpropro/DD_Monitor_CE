@@ -287,6 +287,21 @@ def load_pixmap(url: str, subdir: str = "avatars",
     return None
 
 
+def load_cover(url: str) -> QPixmap | None:
+    from .cover_focus import prepare_cover
+    pixmap = load_pixmap(url, 'covers')
+    if pixmap is None:
+        return None
+    prepared = prepare_cover(pixmap)
+    if prepared.cacheKey() != pixmap.cacheKey():
+        for candidate in (_cdn_url(url, _cdn_size_for('covers')), url):
+            path = _cache_path(candidate, 'covers')
+            if os.path.isfile(path):
+                prepared.save(path, 'PNG')
+                break
+    return prepared
+
+
 class CachedCoverLoader(QThread):
     """把各房间「上次那张封面」从本地读出来（不联网、不用等状态）。
 
@@ -301,10 +316,14 @@ class CachedCoverLoader(QThread):
         self.room_ids = [str(room_id) for room_id in room_ids]
 
     def run(self) -> None:
+        from .cover_focus import prepare_cover
         for room_id in self.room_ids:
             pixmap = load_room_cover(room_id)
             if pixmap is not None:
-                self.loaded.emit(room_id, pixmap)
+                prepared = prepare_cover(pixmap)
+                if prepared.cacheKey() != pixmap.cacheKey():
+                    prepared.save(room_cover_path(room_id), 'PNG')
+                self.loaded.emit(room_id, prepared)
 
 
 class CachedAvatarLoader(QThread):
@@ -339,6 +358,7 @@ class AvatarLoader(QThread):
             return
         with ThreadPoolExecutor(max_workers=8) as pool:
             futures = {(pool.submit(load_banner, url) if self.subdir == 'banners'
+                        else pool.submit(load_cover, url) if self.subdir == 'covers'
                         else pool.submit(load_pixmap, url, self.subdir)): key
                        for key, url in self.items.items()}
             for future in as_completed(futures):
