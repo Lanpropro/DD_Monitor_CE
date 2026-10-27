@@ -12,7 +12,7 @@ import requests
 
 
 class HlsProxy:
-    def __init__(self, source, headers, proxy=None):
+    def __init__(self, source, headers, proxy=None, *, diagnostic=None):
         self._stopped = threading.Event()
         self._lock = threading.Lock()
         self._responses = set()
@@ -22,6 +22,14 @@ class HlsProxy:
         prefix = "/" + uuid.uuid4().hex + "/"
         relay = self
         proxies = {"http": proxy, "https": proxy} if proxy else None
+
+        def report(url, status, started, attempt, *, local=False, error=""):
+            if diagnostic is not None:
+                host = urlsplit(url).hostname or ""
+                host = host if re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host) else "other"
+                diagnostic(host=host, resource="playlist" if urlsplit(url).path.endswith(".m3u8") else "media",
+                    status=status, elapsed=round(time.monotonic() - started, 2), attempt=attempt,
+                    local=local, error=error)
 
         def local_url(url):
             if urlsplit(url).scheme not in ("http", "https"):
@@ -41,6 +49,7 @@ class HlsProxy:
                     self.send_error(404)
                     return
                 if relay.refresh_required.is_set():
+                    report(source, 503, time.monotonic(), 0, local=True, error="refresh_required")
                     self.send_error(503)
                     return
                 try:
@@ -69,8 +78,9 @@ class HlsProxy:
                                 stream=True, timeout=(4, 8))
                             response.raise_for_status()
                             break
-                        except requests.RequestException:
+                        except requests.RequestException as error:
                             status = response.status_code if response is not None else 0
+                            report(url, status, started, attempt + 1, error=type(error).__name__)
                             playlist = (urlsplit(url).path.endswith(".m3u8") or response is not None and
                                         "mpegurl" in response.headers.get("Content-Type", "").lower())
                             if status in (401, 403) or playlist and status in (404, 410):

@@ -1,7 +1,10 @@
 """每个画面独立的 libmpv 播放、音频与故障恢复。"""
 import os
+import re
 import sys
 import time
+from urllib.parse import urlsplit
+import uuid
 from pathlib import Path
 from typing import ClassVar
 
@@ -83,6 +86,10 @@ class TilePlayer(QObject):
         self._bound_hwnd = 0
         self._media = None
         self._hls_proxy = None
+        self.diagnostic_room = ""
+        self.play_session = ""
+        self.source_failure = ""
+        self.state_generation = 0
         self.player = None
         self.decode_mode = "none" if self.silent else "auto"
         self._decode_key = None
@@ -119,8 +126,18 @@ class TilePlayer(QObject):
             setattr(self.player, name.replace("-", "_"), value)
 
     def _log(self, level, prefix, message):
+        if level in ("error", "fatal") and self.stream_profile == "huya":
+            status = re.search(r"HTTP(?:/\d(?:\.\d)?| error)?\s+([45]\d\d)", message, re.I)
+            if status and not self.source_failure:
+                self.source_failure = "HTTP_" + status[1]
         if level in ("error", "fatal") and prefix.startswith(("vd", "ffmpeg/video")):
             self._decoder_error = True
+
+    def _transport_diagnostic(self, session, room, **event):
+        if session == self.play_session and not event["local"] and not self.source_failure:
+            self.source_failure = "HTTP_" + str(event["status"]) if event["status"] else event["error"]
+        print(f"[平台诊断] 阶段=hls_request 房间={room} 会话={session} "
+              + " ".join(f"{key}={value}" for key, value in event.items()), file=sys.stderr, flush=True)
 
     def bind(self) -> None:
         if self._released:
@@ -169,6 +186,9 @@ class TilePlayer(QObject):
         self._stop_media()
         self.bind()
         self.url = url
+        self.stream_profile = profile
+        self.play_session = uuid.uuid4().hex[:8]
+        self.source_failure = ""
         self.paused = False
         self._decoder_error = False
         self._decode_snapshot = None
@@ -185,8 +205,20 @@ class TilePlayer(QObject):
         if overseas or profile == "huya":
             from .global_danmaku import request_proxy
             from .hls_proxy import HlsProxy
-            self._hls_proxy = HlsProxy(url, request_headers, request_proxy(url))
+            session, room = self.play_session, self.diagnostic_room
+            proxy = request_proxy(url)
+            self._hls_proxy = HlsProxy(url, request_headers, proxy,
+                **({"diagnostic": lambda **event: self._transport_diagnostic(session, room, **event)}
+                   if profile == "huya" else {}))
             playback_url = self._hls_proxy.url
+        if profile == "huya":
+            host = urlsplit(url).hostname or ""
+            host = host if re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host) else "other"
+            print(f"[平台诊断] 阶段=playback_session 房间={self.diagnostic_room} 会话={self.play_session} "
+                  f"路径=hls_relay CDN={host} 画质={self.actual_quality} "
+                  f"UA={bool(request_headers.get('User-Agent'))} Referer={bool(request_headers.get('Referer'))} "
+                  f"显式代理={bool(proxy)}",
+                  file=sys.stderr, flush=True)
         self._set("http-header-fields", [f"{name}: {value}" for name, value in request_headers.items()
                                          if value and "\n" not in str(value) and "\r" not in str(value)])
         self._set("hwdec", HWDEC[self.decode_mode])
@@ -386,12 +418,14 @@ class TilePlayer(QObject):
         if not self.video_widget.isVisible() or self.video_widget.window().isMinimized():
             self._check_picture(False)
             return
-        playing = not self.paused and not self._prop("paused-for-cache", False)
+        playing = (self.state in ("playing", "frozen") and not self.paused
+                   and not self._prop("paused-for-cache", False))
         if self._check_picture(playing) and not self._recover_decoder(frozen=True):
             self._set_state("frozen")
 
     def _set_state(self, state: str) -> None:
         if state != self.state:
+            self.state_generation += 1
             self.state = state
             self.stateChanged.emit(state)
 

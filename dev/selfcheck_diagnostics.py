@@ -93,6 +93,18 @@ class DiagnosticTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_URL', entries['platform-diagnostics.json'])
         self.assertIn('platform-diagnostics.json', entries['诊断摘要.txt'])
 
+    def test_huya_transport_and_cdn_recovery_are_included(self):
+        self.put('logs/ddm-2026-10-27.log', '\n'.join([
+            '[平台诊断] 阶段=playback_session 房间=huya:123 会话=fixture 路径=hls_relay CDN=cdn.test',
+            '[平台诊断] 阶段=hls_request 房间=huya:123 会话=fixture resource=media status=403 local=False',
+            '[平台诊断] 阶段=hls_request 房间=huya:123 会话=fixture status=503 local=True error=refresh_required',
+            '[插件 domestic_live] [平台诊断] 阶段=source_rejected 房间=huya:123 CDN=cdn.test',
+            '[插件 domestic_live] [平台诊断] 阶段=source_selected 房间=huya:123 CDN=next.test']))
+        report = json.loads(self.collect()['platform-diagnostics.json'])
+        self.assertEqual(report['counts'], {'playback_session': 1, 'hls_request': 2,
+                                           'source_rejected': 1, 'source_selected': 1})
+        self.assertIn('local=True', report['events'][2]['text'])
+
     def test_platform_diagnostics_missing_logs_do_not_claim_success(self):
         entries = self.collect()
         report = json.loads(entries['platform-diagnostics.json'])

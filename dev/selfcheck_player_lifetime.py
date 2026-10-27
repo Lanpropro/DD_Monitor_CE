@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -118,6 +119,48 @@ class PlayerLifetimeTests(unittest.TestCase):
                     finally:
                         player.release()
                         widget.close()
+
+    def test_error_or_connecting_cannot_trigger_frozen_picture_recovery(self):
+        widget = Mock()
+        widget.isVisible.return_value = True
+        widget.window.return_value.isMinimized.return_value = False
+        player = TilePlayer(widget)
+        player._media = 'fixture'
+        try:
+            for state in ('error', 'connecting', 'buffering'):
+                player.state = state
+                with patch.object(player, '_check_picture', return_value=False) as picture:
+                    player._check_picture_tick()
+                    picture.assert_called_once_with(False)
+            player.play_session = 'new'
+            player._transport_diagnostic('old', 'huya:123', host='cdn.test', resource='media',
+                status=403, elapsed=1, attempt=1, local=False, error='HTTPError')
+            self.assertEqual(player.source_failure, '', 'Old relay must not reject the new source')
+        finally:
+            player.release()
+
+    def test_huya_recovery_has_one_timer_and_resets_only_after_stable_generation(self):
+        from ddm.app import MainWindow
+        tile = Mock(room={'room_id': 'huya:123'}, paused=False)
+        host = SimpleNamespace(_resolvers={tile: object()}, _retry_timers={}, _retry_count={},
+            _retry_now=Mock(), start_tile=Mock(), _closing=False, players={})
+        MainWindow._schedule_retry(host, tile)
+        MainWindow._on_picture_frozen(host, tile)
+        self.assertFalse(host._retry_timers)
+        host._resolvers.clear()
+        with patch('ddm.app.QTimer') as timer:
+            MainWindow._schedule_retry(host, tile)
+            MainWindow._schedule_retry(host, tile)
+            MainWindow._on_picture_frozen(host, tile)
+            timer.assert_called_once_with(host)
+            self.assertEqual(host._retry_count[tile], 1)
+            host.start_tile.assert_not_called()
+        player = SimpleNamespace(state='playing', state_generation=4)
+        host.players[tile] = player
+        MainWindow._reset_stable_huya_retry(host, tile, player, 3)
+        self.assertIn(tile, host._retry_count)
+        MainWindow._reset_stable_huya_retry(host, tile, player, 4)
+        self.assertNotIn(tile, host._retry_count)
 
 
 if __name__ == '__main__':
