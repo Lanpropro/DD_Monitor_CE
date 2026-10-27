@@ -121,7 +121,17 @@ class VideoDanmaku(QWidget):
 
     def set_native_video(self, native: bool) -> None:
         """Select the backing surface before the overlay is first shown."""
+        was_quick = self._quick_requested
         self.native_video = bool(native)
+        self._quick_requested = (os.environ.get("DDM_QTQUICK_DANMAKU") == "1"
+                                 and self._native_layered())
+        if was_quick and not self._quick_requested:
+            self._stop_timer()
+            if self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.remove_group(self._quick_group)
+            self._quick_layer = self._quick_group = None
+            self._quick_mask_signature = None
+            super().setMask(self._quick_video_mask)
         self.setAttribute(Qt.WA_NoSystemBackground, self.native_video)
 
     def set_active(self, active: bool) -> None:
