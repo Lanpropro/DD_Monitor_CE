@@ -2582,15 +2582,9 @@ class MainWindow(QMainWindow):
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
-            groups = [[room for room in rooms if (str(room['room_id']) in self.sidebar.pinned) == pinned]
-                      for pinned in (True, False)]
-            for group in groups:
-                if not group:
-                    continue
-                names = "、".join(str(room.get("uname") or room["room_id"]) for room in group[:2])
-                message = (names + " 开播了" if len(group) <= 2
-                           else f"{names} 等 {len(group)} 位主播开播了")
-                self._show_notice(message, rooms=group, kind="live")
+            for room in rooms:
+                name = str(room.get("uname") or room["room_id"])
+                self._show_notice(name + " 开播了", rooms=[room], kind="live")
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")

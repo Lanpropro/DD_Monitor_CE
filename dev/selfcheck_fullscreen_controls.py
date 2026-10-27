@@ -10,11 +10,61 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLineEdit
 from ddm import app as app_module, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
+
+
+def check_transparent_bar(app, tile):
+    from ddm.widgets import _icon_color
+    editor = QLineEdit(tile.bottom)
+    editor.setGeometry(tile.bottom.width() // 2 - 90, 4, 180, 24)
+    editor.show()
+    try:
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            app.processEvents()
+            QTest.qWait(30)
+            image = QImage(tile.bottom.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            painter = QPainter(image)
+            tile.bottom._render_layered(painter)
+            painter.end()
+            sample_x = tile.bottom.width() // 2 + 120
+            assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
+            assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
+            assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
+            clicked = []
+            tile.pause_button.clicked.connect(lambda: clicked.append(True))
+            QTest.mouseClick(tile.pause_button, Qt.LeftButton)
+            assert clicked, 'Transparent bar controls must remain interactive'
+            editor.setFocus()
+            QTest.keyClicks(editor, 'local-only')
+            assert editor.text().endswith('local-only'), 'Embedded editors must retain keyboard input'
+            if app.platformName() == 'windows':
+                assert tile.bottom._alpha_uploaded, 'Native video needs a real per-pixel layered bar'
+                with patch.object(tile.bottom, '_paint_layered', wraps=tile.bottom._paint_layered) as upload:
+                    tile.volume_label.setText('77' if mode == 'dark' else '42')
+                    QTest.qWait(30)
+                    assert upload.called, 'Changing label text must refresh the native composite'
+                import ctypes
+                from ctypes import wintypes
+                gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
+                gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+                gdi32.CreateRectRgn.restype = wintypes.HRGN
+                gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+                user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
+                region = gdi32.CreateRectRgn(0, 0, 0, 0)
+                try:
+                    assert user32.GetWindowRgn(int(tile.status_label.winId()), region) == 1, 'Native status backing must not obscure video'
+                    assert user32.GetWindowRgn(int(tile.volume_label.winId()), region) == 1, 'Native volume backing must not obscure video'
+                finally:
+                    gdi32.DeleteObject(region)
+        editor.hide()
+    finally:
+        editor.deleteLater()
 
 
 def main():
@@ -31,7 +81,8 @@ def main():
     room = {'room_id': '1000', 'uname': 'Fixture', 'live': False}
     with patch('ddm.app.QTimer.singleShot'):
         window = app_module.MainWindow([room], [dict(room)], layout_id='1x1',
-            state={'plugins_enabled': [], 'settings': {'auto_update': False}})
+            state={'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+    window._startup_update_timer.stop()
     window.setAttribute(Qt.WA_ShowWithoutActivating)
     window.move(-10000, -10000)
     window.resize(900, 650)
@@ -65,6 +116,7 @@ def main():
         assert all(not corner.isVisible() for corner in tile.video_corners)
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
+        check_transparent_bar(app, tile)
         tile.time_badge.set_text('12:34:56')
         tile._layout_areas()
         assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps fullscreen bar'
@@ -136,6 +188,10 @@ def main():
             cursor.stop()
         window._fullscreen_tile = None
         window.wall.set_fullscreen_tile(None)
+        assert not tile.bottom.property('fullscreen')
+        assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
+        assert not tile.bottom._masked_labels, 'Leaving fullscreen must restore native label regions'
+        assert not tile.pause_button.property('fullscreen')
         assert tile._bar_progress == 0 and tile.bottom.isVisible()
         assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps normal bar'
         assert all(corner.isVisible() for corner in tile.video_corners)

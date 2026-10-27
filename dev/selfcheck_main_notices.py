@@ -870,15 +870,37 @@ class MainNoticesTests(unittest.TestCase):
             alerts.assert_not_called()
             self.assertTrue(all(item.room['live'] for item in window.sidebar._items))
 
-    def test_batch_live_message_and_recording_use_main_notice(self):
+    def test_simultaneous_live_rooms_receive_independent_notices(self):
         window = self.window([{'room_id': str(index), 'uname': '主播' + str(index),
                                'live': False, 'live_known': True} for index in range(1, 5)])
         self.complete_startup(window)
         with patch.object(window, '_show_notice') as notice:
             window._on_status_updated({str(index): self.status(True) for index in range(1, 5)})
-            notice.assert_called_once()
-            self.assertIn('等 4 位主播开播了', notice.call_args.args[0])
-            self.assertEqual(len(notice.call_args.kwargs['rooms']), 4)
+            self.assertEqual(notice.call_count, 4)
+            self.assertEqual({call.args[0] for call in notice.call_args_list},
+                             {f'主播{index} 开播了' for index in range(1, 5)})
+            self.assertEqual({call.kwargs['rooms'][0]['room_id'] for call in notice.call_args_list},
+                             {str(index) for index in range(1, 5)})
+            self.assertTrue(all(len(call.kwargs['rooms']) == 1 and call.kwargs['kind'] == 'live'
+                                for call in notice.call_args_list))
+        window._on_status_updated({str(index): self.status(False) for index in range(1, 5)})
+        window.sidebar.apply_pins(['1', '2'])
+        for tile in window.wall.tiles:
+            tile.set_room(None)
+        with patch.object(window, '_place_live_notice_rooms') as place:
+            window._on_status_updated({str(index): self.status(True) for index in range(1, 5)})
+            notices = [notice for notice in window._notices if hasattr(notice, 'artwork')]
+            self.assertEqual(len(notices), 4)
+            self.assertEqual(len(window.sidebar.notification_button.center.entries), 4)
+            for card in notices:
+                rid = card.artwork.room['room_id']
+                self.assertEqual(card.timer.isActive(), rid not in ('1', '2'))
+                QTest.mouseClick(card.action, Qt.LeftButton)
+                self.assertEqual([room['room_id'] for room in place.call_args.args[0]], [rid])
+            self.assertEqual(place.call_count, 4)
+
+    def test_recording_uses_main_notice(self):
+        window = self.window([])
         window._record_notice('请先选择录制保存目录')
         self.assertEqual(window._result_notice.title.text(), '请先选择录制保存目录')
         self.assertEqual(window._result_notice.timer.interval(), 6000)
