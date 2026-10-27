@@ -6,6 +6,7 @@
 import hashlib
 import inspect
 import json
+from pathlib import Path
 import sys
 import threading
 import time
@@ -260,9 +261,15 @@ def _wbi_signed_params(params: dict, key: str) -> dict:
     return {**signed, "w_rid": hashlib.md5((query + key).encode("utf-8")).hexdigest()}
 
 
-# Fresh Space's isUsingSelfDefToutu excludes this official preset list (2026-10-27):
+# Classic preset IDs from Fresh Space; the catalogue below also covers seasonal/other images.
 # https://s1.hdslb.com/bfs/static/shanks/fresh-space/assets/index-c5b07bd7.js
 _SPACE_PRESET_BANNER_IDS = frozenset((1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 19))
+_SPACE_PRESET_BANNER_PATHS = frozenset(
+    item['path'] for group in json.loads(
+        (Path(__file__).parent / 'assets/bilibili-space-presets.json').read_text(encoding='utf-8')
+    )['categories'].values() for item in group)
+SPACE_PRESET_BANNER_CACHE_KEY = hashlib.sha256(
+    '\n'.join(sorted(_SPACE_PRESET_BANNER_PATHS)).encode('utf-8')).hexdigest()[:12]
 
 
 def profile_banner(uid: int) -> str:
@@ -281,7 +288,10 @@ def profile_banner(uid: int) -> str:
         if photo.get('sid') in _SPACE_PRESET_BANNER_IDS:
             return ''
         url = str(photo.get('l_200h_img') or photo.get('l_img') or data.get('top_photo') or '')
-        filename = urllib.parse.urlsplit(url).path.split('@', 1)[0].rsplit('/', 1)[-1]
+        path = '/' + urllib.parse.urlsplit(url).path.split('@', 1)[0].lstrip('/')
+        if path in _SPACE_PRESET_BANNER_PATHS:
+            return ''
+        filename = path.rsplit('/', 1)[-1]
         # These are the current activity header and the legacy default space header.
         if filename in ('1sz3p8w2Sk.png', 'cb1c3ef50e22b6096fde67febe863494caefebad.png'):
             return ''

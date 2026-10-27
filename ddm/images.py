@@ -80,8 +80,9 @@ def load_room_cover(room_id: str) -> QPixmap | None:
 
 
 def room_banner_path(room_id: str) -> str:
-    # Earlier caches checked only two filenames and may contain other preset headers.
-    return os.path.join(REPO, 'cache', 'banners', 'personal-room', _safe_name(room_id) + '.png')
+    # Revalidate earlier images when the known preset catalogue changes.
+    return os.path.join(REPO, 'cache', 'banners', 'personal-room-' + bili.SPACE_PRESET_BANNER_CACHE_KEY,
+                        _safe_name(room_id) + '.png')
 
 
 def load_room_banner(room_id: str) -> QPixmap | None:
