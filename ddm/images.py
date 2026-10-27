@@ -79,6 +79,47 @@ def load_room_cover(room_id: str) -> QPixmap | None:
     return pixmap if not pixmap.isNull() else None
 
 
+def room_banner_path(room_id: str) -> str:
+    # Revalidate earlier images when the known preset catalogue changes.
+    return os.path.join(REPO, 'cache', 'banners', 'personal-room-' + bili.SPACE_PRESET_BANNER_CACHE_KEY,
+                        _safe_name(room_id) + '.png')
+
+
+def load_room_banner(room_id: str) -> QPixmap | None:
+    pixmap = QPixmap(room_banner_path(room_id))
+    return pixmap if not pixmap.isNull() else None
+
+
+def load_cached_image(url: str, subdir: str) -> QPixmap | None:
+    if not url:
+        return None
+    for candidate in (_cdn_url(url, _cdn_size_for(subdir)), url):
+        pixmap = QPixmap(_cache_path(candidate, subdir))
+        if not pixmap.isNull():
+            return pixmap
+    return None
+
+
+def load_banner(room: dict) -> QPixmap | None:
+    from .room_artwork import room_platform, supports_banner
+    if not supports_banner(room):
+        return None
+    url = room.get('banner_url') or ''
+    if not url and room_platform(room) == 'bilibili' and room.get('uid'):
+        url = bili.profile_banner(room['uid'])
+    path = room_banner_path(str(room['room_id']))
+    pixmap = load_pixmap(url, 'banners', cdn_size='@960w.webp') if url else None
+    if pixmap is not None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        pixmap.save(path)
+    else:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return pixmap
+
+
 def room_avatar_path(room_id: str) -> str:
     """这个房间「最后用过的头像」在缓存里的位置（按房间号，不按 URL）。"""
     return os.path.join(REPO, "cache", "avatars", "room", _safe_name(room_id) + ".png")
@@ -297,13 +338,18 @@ class AvatarLoader(QThread):
         if not self.items:
             return
         with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {pool.submit(load_pixmap, url, self.subdir): key
+            futures = {(pool.submit(load_banner, url) if self.subdir == 'banners'
+                        else pool.submit(load_pixmap, url, self.subdir)): key
                        for key, url in self.items.items()}
             for future in as_completed(futures):
                 key = futures[future]
                 try:
                     pixmap = future.result()
                 except Exception:  # noqa: BLE001
+                    continue
+                if self.subdir == 'banners':
+                    # An empty result must also clear an already visible/cached banner.
+                    self.loaded.emit(key, pixmap if pixmap is not None else QPixmap())
                     continue
                 if pixmap is not None and not pixmap.isNull():
                     if self.subdir == "covers":

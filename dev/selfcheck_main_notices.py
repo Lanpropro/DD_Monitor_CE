@@ -1,6 +1,7 @@
 """Offline checks for per-tile D shortcut, compact notices and startup live baseline."""
 from contextlib import ExitStack
 import os
+import json
 from pathlib import Path
 import runpy
 import sys
@@ -24,6 +25,237 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_room_background_crops_the_center_and_clips_corners(self):
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QPainter
+        from ddm.room_artwork import paint_room_background
+        source = QPixmap(300, 100)
+        source.fill(QColor('red'))
+        painter = QPainter(source)
+        painter.fillRect(100, 0, 100, 100, QColor('green'))
+        painter.fillRect(200, 0, 100, 100, QColor('blue'))
+        painter.end()
+        target = QPixmap(60, 100)
+        target.fill(Qt.transparent)
+        painter = QPainter(target)
+        paint_room_background(painter, QRectF(0, 0, 60, 100), source, 12)
+        painter.end()
+        image = target.toImage()
+        self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+        for x in (4, 30, 55):
+            color = image.pixelColor(x, 50)
+            self.assertGreater(color.green(), max(color.red(), color.blue()))
+
+    def test_streamer_background_priority_and_platform_logo(self):
+        self.addCleanup(theme.apply, theme.mode())
+        from ddm import images
+        from ddm.room_artwork import RoomArtwork
+        from ddm.notification_center import NoticeEntry, NoticeRow
+        from ddm.online_ui import ResultNotice
+        from ddm.widgets import NavItem
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            cover = QPixmap(160, 90)
+            cover.fill(QColor('#20b060'))
+            banner = QPixmap(300, 70)
+            banner.fill(QColor('#e06020'))
+            for rid in ('1001', 'huya:2', 'douyin:3', 'douyin:4'):
+                path = Path(images.room_cover_path(rid))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                cover.save(str(path))
+                if rid == 'douyin:4':
+                    continue
+                path = Path(images.room_banner_path(rid))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                banner.save(str(path))
+            owner = QWidget()
+            owner.resize(900, 700)
+            self.addCleanup(owner.close)
+            room = {'room_id': '1001', 'uname': '示例主播'}
+            self.assertEqual(RoomArtwork([room]).source.toImage().pixelColor(0, 0).name(), '#e06020')
+            self.assertEqual(RoomArtwork([{'room_id': 'huya:2'}]).source.toImage().pixelColor(0, 0).name(), '#20b060')
+            self.assertEqual(RoomArtwork([{'room_id': 'douyin:3'}]).source.toImage().pixelColor(0, 0).name(), '#e06020')
+            self.assertEqual(RoomArtwork([{'room_id': 'douyin:4'}]).source.toImage().pixelColor(0, 0).name(), '#20b060')
+            self.assertIsNone(RoomArtwork([room, {'room_id': 'huya:2'}]).source)
+            notice = ResultNotice(owner)
+            notice.show_message('示例主播 开播了', [room], kind='live')
+            row = NoticeRow(NoticeEntry('示例主播 开播了', 'live', '20:36', rooms=(room,)), owner)
+            row.resize(360, row.sizeHint().height())
+            row.show()
+            item = NavItem(room, 0)
+            self.addCleanup(item.close)
+            item.set_card_mode(False)
+            item.resize(300, 60)
+            item.show()
+            owner.show()
+            self.app.processEvents()
+            for card in (notice, row):
+                self.assertIsNotNone(card.artwork.source)
+                self.assertTrue(card.findChildren(QWidget, 'NoticePlatform'))
+                for mode in ('light', 'dark'):
+                    theme.apply(mode)
+                    self.app.processEvents()
+                    rendered = card.grab().toImage()
+                    scale = rendered.devicePixelRatio()
+                    pixel = rendered.pixelColor(round((card.width() - 8) * scale), round(card.height() / 2 * scale))
+                    self.assertGreater(pixel.red(), pixel.green(), 'Banner must be painted, not the theme surface')
+                    self.assertGreater(card.title.palette().color(card.title.foregroundRole()).lightness()
+                                       if hasattr(card, 'title') else card.message.palette().color(card.message.foregroundRole()).lightness(), 200,
+                                       (type(card).__name__, card.property('roomBackdrop'), mode))
+            self.assertFalse(item.thumb.cover.isHidden())
+            self.assertEqual(item.thumb._banner_source.toImage().pixelColor(0, 0).name(), '#e06020')
+            item.set_compact(True)
+            self.assertTrue(item.thumb.cover.isHidden(), 'The avatar rail must remain compact')
+
+    def test_profile_banner_accepts_current_and_legacy_api_fields(self):
+        from ddm import bili
+        for data, expected in (
+                ({'top_photo': 'bfs/space/old.png', 'top_photo_v2': {'l_img': 'https://i1.hdslb.com/new.png'}},
+                 'https://i1.hdslb.com/new.png'),
+                ({'top_photo': 'bfs/space/old.png'}, 'https://i0.hdslb.com/bfs/space/old.png'),
+                ({'top_photo': '//i0.hdslb.com/old.png'}, 'https://i0.hdslb.com/old.png'),
+                ({}, '')):
+            with patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': data})):
+                self.assertEqual(bili.profile_banner(12), expected)
+        with patch.object(bili, '_wbi_key', return_value='test'), \
+                patch.object(bili.requests, 'get', side_effect=bili.requests.Timeout):
+            self.assertEqual(bili.profile_banner(12), '')
+
+    def test_bili_default_headers_are_not_personal_banners(self):
+        from ddm import bili
+        legacy = 'bfs/space/cb1c3ef50e22b6096fde67febe863494caefebad.png'
+        current = 'https://i1.hdslb.com/bfs/activity-plat/static/0977767b2e79d8ad0a36a731068a83d7/1sz3p8w2Sk.png'
+        for data, expected in (
+                ({'top_photo': legacy, 'top_photo_v2': {'sid': 1,
+                    'l_img': 'https://i0.hdslb.com/' + legacy, 'l_200h_img': current}}, ''),
+                ({'top_photo': '//i2.hdslb.com/' + legacy + '@960w.webp'}, ''),
+                ({'top_photo': current + '@3840w_400h_1c_100q.avif?from=space'}, ''),
+                ({'top_photo_v2': {'l_img': 'https://i0.hdslb.com/custom-old.png',
+                    'l_200h_img': current}}, ''),
+                ({'top_photo': legacy, 'top_photo_v2': {'sid': 0,
+                    'l_200h_img': 'https://i1.hdslb.com/custom-current.png'}},
+                 'https://i1.hdslb.com/custom-current.png')):
+            with self.subTest(data=data), patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': data})):
+                self.assertEqual(bili.profile_banner(1298779265), expected)
+
+    def test_official_space_preset_ids_are_not_personal_banners(self):
+        from ddm import bili
+        # The official Fresh Space client excludes these IDs from custom headers.
+        presets = (1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 19)
+        for sid in (*presets, 0, 103):
+            photo = {'sid': sid, 'l_img': 'https://i1.hdslb.com/legacy.png',
+                     'l_200h_img': 'https://i0.hdslb.com/arbitrary-header.png'}
+            with self.subTest(sid=sid), patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                        'top_photo_v2': photo}})):
+                expected = '' if sid in presets else photo['l_200h_img']
+                self.assertEqual(bili.profile_banner(193559518), expected)
+
+    def test_all_space_header_categories_fall_back_without_rejecting_uploads(self):
+        from ddm import bili
+        catalog = json.loads((ROOT / 'ddm/assets/bilibili-space-presets.json').read_text(encoding='utf-8'))
+        groups = catalog['categories']
+        self.assertEqual({key: len(value) for key, value in groups.items()}, {'经典': 15, '季节': 29, '其他': 8})
+        paths = [item['path'] for group in groups.values() for item in group]
+        self.assertEqual(len(set(paths)), 52)
+        for path in paths:
+            for url in ('https://i0.hdslb.com' + path,
+                        '//i2.hdslb.com' + path + '@3840w_400h_1c_100q.avif?from=space'):
+                with self.subTest(url=url), patch.object(bili, '_wbi_key', return_value='test'), \
+                        patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                            'top_photo_v2': {'sid': 103, 'l_200h_img': url}}})):
+                    self.assertEqual(bili.profile_banner(12), '')
+        for sid, filename in ((7759001, '66c1d9886a5f73a4f8e18f990cc1ce4e559e73ee.png'),
+                              (36402681, '451d967c8418b4b88551bb905d63721006ab3bee.png')):
+            url = 'https://i1.hdslb.com/bfs/space/' + filename
+            with self.subTest(sid=sid), patch.object(bili, '_wbi_key', return_value='test'), \
+                    patch.object(bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                        'top_photo_v2': {'sid': sid, 'l_200h_img': url}}})):
+                self.assertEqual(bili.profile_banner(12), url)
+
+    def test_default_banner_invalidates_old_cache_and_updates_visible_notices(self):
+        from ddm import images
+        from ddm.room_artwork import RoomArtwork
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            room = {'room_id': '1001', 'uid': 12, 'uname': '主播甲'}
+            cover, banner = QPixmap(100, 50), QPixmap(100, 50)
+            cover.fill(QColor('green'))
+            banner.fill(QColor('red'))
+            for path, pixmap in (
+                    (Path(directory) / 'cache/banners/room/1001.png', banner),
+                    (Path(directory) / 'cache/banners/custom-room/1001.png', banner),
+                    (Path(directory) / 'cache/banners/personal-room/1001.png', banner),
+                    (Path(images.room_cover_path('1001')), cover)):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                pixmap.save(str(path))
+            self.assertIsNone(RoomArtwork([room]).banner, 'The old unfiltered banner cache must be ignored')
+            target = Path(images.room_banner_path('1001'))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            banner.save(str(target))
+            window = self.window([room])
+            window._show_notice('主播甲开播了', rooms=[room], kind='live')
+            notice = window._result_notice
+            center = window.sidebar.notification_button.center
+            entry = center.entries[-1]
+            center._add_row(entry)
+            row = center.rows[entry]
+            self.assertIsNotNone(notice.artwork.banner)
+            loader = images.AvatarLoader({'1001': room}, subdir='banners')
+            loader.loaded.connect(window._on_room_banner)
+            with patch.object(images.bili, '_wbi_key', return_value='test'), \
+                    patch.object(images.bili.requests, 'get', return_value=Mock(json=lambda: {'code': 0, 'data': {
+                        'top_photo': 'bfs/space/c919a9818172a8297f8b0597722f96504a1e1d88.png',
+                        'top_photo_v2': {'sid': 11,
+                            'l_200h_img': 'https://i0.hdslb.com/bfs/activity-plat/static/0977767b2e79d8ad0a36a731068a83d7/UIAMgvvo2L.png'}}})), \
+                    patch.object(images, 'load_pixmap') as download:
+                loader.run()
+            download.assert_not_called()
+            self.assertFalse(target.exists())
+            self.assertIsNone(notice.artwork.banner)
+            self.assertIsNone(row.artwork.banner)
+            self.assertIsNotNone(row.artwork.source)
+            self.assertEqual(notice.artwork.source.toImage().pixelColor(0, 0).name(), '#008000')
+            self.assertIsNone(window.sidebar._items[0].thumb._banner_source)
+
+    def test_streamer_background_failure_and_late_updates(self):
+        from ddm import images
+        from ddm.room_artwork import RoomArtwork
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            room = {'room_id': '1001', 'uname': '主播甲', 'uid': 12}
+            window = self.window([room])
+            window._show_notice('主播甲 开播了', rooms=[{'room_id': '1001'}], kind='live')
+            notice = window._result_notice
+            center = window.sidebar.notification_button.center
+            entry = center.entries[-1]
+            center._add_row(entry)
+            row = center.rows[entry]
+            self.assertIsNone(notice.artwork.source)
+            image = QPixmap(100, 40)
+            image.fill(QColor('#e06020'))
+            window._on_room_artwork('1001', image, 'banners')
+            self.assertIsNotNone(notice.artwork.source)
+            self.assertIsNotNone(row.artwork.source)
+            window._on_room_cover('1001', image)
+            self.assertIsNotNone(notice.artwork.banner)
+            plain = RoomArtwork([])
+            self.assertIsNone(plain.source)
+            self.assertFalse(plain.set_image('1001', image, 'banners'))
+            with patch.object(images.bili, 'profile_banner', return_value='https://example.test/banner') as profile, \
+                    patch.object(images, 'load_pixmap', return_value=None):
+                loader = images.AvatarLoader({'1001': room}, subdir='banners')
+                loader.run()
+                profile.assert_called_once_with(12)
+                self.assertFalse(Path(images.room_banner_path('1001')).exists())
+            with patch.object(images.bili, 'profile_banner', return_value='https://example.test/banner'), \
+                    patch.object(images, 'load_pixmap', return_value=image):
+                received = []
+                loader = images.AvatarLoader({'1001': room}, subdir='banners')
+                loader.loaded.connect(lambda rid, pixmap: received.append(rid))
+                loader.run()
+                self.assertEqual(received, ['1001'])
+                self.assertIsNotNone(images.load_room_banner('1001'))
+
     def test_toasts_anchor_on_the_left_and_stack_down(self):
         window = self.window([])
         window.resize(1200, 800)

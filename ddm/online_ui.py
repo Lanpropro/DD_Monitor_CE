@@ -735,6 +735,14 @@ class ResultNotice(UpdateNotice):
     """顶部通知卡片：不抢焦点，按提示类型自动收起。"""
     def __init__(self, parent):
         super().__init__(parent)
+        from .room_artwork import RoomArtwork
+        self.artwork = RoomArtwork(())
+        theme.signals().changed.connect(self._refresh_artwork_theme)
+        self.platform_layout = QHBoxLayout()
+        self.platform_layout.setContentsMargins(0, 0, 0, 0)
+        self.platform_layout.setSpacing(4)
+        self.text_column.layout().removeWidget(self.category)
+        self.text_column.layout().insertLayout(0, self.platform_layout)
         self.description.hide()
         self.action.hide()
         self.timer.setInterval(3000)
@@ -816,6 +824,35 @@ class ResultNotice(UpdateNotice):
         count = self.avatar_layout.count()
         self.avatar_strip.setFixedWidth(count * 28 + max(0, count - 1) * self.avatar_layout.spacing())
         self.avatar_strip.setVisible(bool(self._avatars))
+        from .room_artwork import RoomArtwork, add_platform_logos, style_room_notice
+        self.artwork = RoomArtwork(rooms)
+        while self.platform_layout.count():
+            widget = self.platform_layout.takeAt(0).widget()
+            if widget is not None:
+                widget.hide()
+                if widget is not self.category:
+                    widget.deleteLater()
+        add_platform_logos(self.platform_layout, rooms, self.text_column)
+        self.platform_layout.addWidget(self.category)
+        self.category.show()
+        self.platform_layout.addStretch()
+        style_room_notice(self, self.artwork)
+
+    def set_room_artwork(self, room_id, pixmap, kind):
+        from .room_artwork import style_room_notice
+        if self.artwork.set_image(room_id, pixmap, kind):
+            style_room_notice(self, self.artwork)
+
+    def _refresh_artwork_theme(self, _mode):
+        from .room_artwork import style_room_notice
+        style_room_notice(self, self.artwork)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.artwork.source is not None:
+            from .room_artwork import paint_room_background
+            painter = QPainter(self)
+            paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG)
 
     def set_room_avatar(self, room_id, pixmap):
         avatar = self._avatars.get(str(room_id))

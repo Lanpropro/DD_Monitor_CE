@@ -6,6 +6,7 @@
 import hashlib
 import inspect
 import json
+from pathlib import Path
 import sys
 import threading
 import time
@@ -160,6 +161,7 @@ def room_info(room_id: str) -> dict | None:
         viewers = f"{online / 10000:.1f}万" if online >= 10000 else str(online)
     result = {
         "room_id": str(room_id),
+        "uid": info.get("uid") or 0,
         "uname": info.get("uname") or f"房间 {room_id}",
         "title": info.get("title") or "",
         "live": live,
@@ -257,6 +259,49 @@ def _wbi_signed_params(params: dict, key: str) -> dict:
     }
     query = urllib.parse.urlencode(cleaned)
     return {**signed, "w_rid": hashlib.md5((query + key).encode("utf-8")).hexdigest()}
+
+
+# Classic preset IDs from Fresh Space; the catalogue below also covers seasonal/other images.
+# https://s1.hdslb.com/bfs/static/shanks/fresh-space/assets/index-c5b07bd7.js
+_SPACE_PRESET_BANNER_IDS = frozenset((1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 19))
+_SPACE_PRESET_BANNER_PATHS = frozenset(
+    item['path'] for group in json.loads(
+        (Path(__file__).parent / 'assets/bilibili-space-presets.json').read_text(encoding='utf-8')
+    )['categories'].values() for item in group)
+SPACE_PRESET_BANNER_CACHE_KEY = hashlib.sha256(
+    '\n'.join(sorted(_SPACE_PRESET_BANNER_PATHS)).encode('utf-8')).hexdigest()[:12]
+
+
+def profile_banner(uid: int) -> str:
+    """个人空间头图；失败时通知继续使用直播封面。仅在图片工作线程调用。"""
+    try:
+        key = _wbi_key()
+        if not key:
+            return ''
+        payload = requests.get('https://api.bilibili.com/x/space/wbi/acc/info',
+                               params=_wbi_signed_params({'mid': uid}, key),
+                               headers=HEADERS, cookies=_cookies(), timeout=10).json()
+        if payload.get('code') != 0:
+            return ''
+        data = payload.get('data') or {}
+        photo = data.get('top_photo_v2') or {}
+        if photo.get('sid') in _SPACE_PRESET_BANNER_IDS:
+            return ''
+        url = str(photo.get('l_200h_img') or photo.get('l_img') or data.get('top_photo') or '')
+        path = '/' + urllib.parse.urlsplit(url).path.split('@', 1)[0].lstrip('/')
+        if path in _SPACE_PRESET_BANNER_PATHS:
+            return ''
+        filename = path.rsplit('/', 1)[-1]
+        # These are the current activity header and the legacy default space header.
+        if filename in ('1sz3p8w2Sk.png', 'cb1c3ef50e22b6096fde67febe863494caefebad.png'):
+            return ''
+        if url.startswith('//'):
+            return 'https:' + url
+        if url.startswith('bfs/'):
+            return 'https://i0.hdslb.com/' + url
+        return url
+    except (requests.RequestException, ValueError):
+        return ''
 
 
 def danmaku_conf(room_id: str, *, cookies: dict | None = None, user_agent: str = UA) -> tuple[int, str, list]:
@@ -866,6 +911,7 @@ def _rooms_status_base(room_ids: list[str]) -> tuple[dict[str, dict], dict[str, 
             live = info.get("live_status") == 1
             online = info.get("online") or 0
             result[room_id] = {
+                "uid": info.get("uid") or 0,
                 "live": live,
                 "title": info.get("title") or "",
                 "uname": info.get("uname") or "",
