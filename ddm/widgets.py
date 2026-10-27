@@ -34,6 +34,7 @@ from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
+from .fullscreen_bar import FullscreenBar
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 
@@ -426,7 +427,8 @@ class VolumeButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1) if theme.is_light()
+        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1)
+                 if theme.is_light() and not self.property('fullscreen')
                  else QColor("#9499a0" if self.muted else "#f1f2f3"))
         if self.underMouse():
             color = QColor(theme.ACCENT)
@@ -487,6 +489,8 @@ class VolumePopup(QFrame):
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
+    if button.property('fullscreen'):
+        return QColor('#ffffff')
     if button.underMouse() or button.property("hovered") is True:
         return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
     if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
@@ -5956,7 +5960,7 @@ class Tile(QFrame):
         self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
         # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
-        self.bottom = QWidget(self)
+        self.bottom = FullscreenBar(self)
         self._bar_progress = 0.0
         self._bar_target = 0.0
         self._bar_animation = QVariantAnimation(self)
@@ -6795,6 +6799,7 @@ class Tile(QFrame):
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(self.property("fullscreen"))
+        self.bottom.set_fullscreen(fullscreen)
         if not fullscreen:
             self._bar_animation.stop()
             self._bar_progress = self._bar_target = 0.0

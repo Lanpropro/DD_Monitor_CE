@@ -82,6 +82,9 @@ class BadgeSurface(QWidget):
     def _layered_render_key(self):
         return None
 
+    def _render_layered(self, painter):
+        self._render_badge(painter)
+
     def _schedule_layered_paint(self):
         if not getattr(self, '_layered_paint_pending', False):
             self._layered_paint_pending = True
@@ -111,7 +114,7 @@ class BadgeSurface(QWidget):
         image.setDevicePixelRatio(self.devicePixelRatioF())
         image.fill(Qt.transparent)
         painter = QPainter(image)
-        self._render_badge(painter)
+        self._render_layered(painter)
         painter.end()
 
         user32.GetDC.argtypes = (wintypes.HWND,)

@@ -76,6 +76,30 @@ TILE_FULLSCREEN_STYLE = '''
 }
 '''
 
+FULLSCREEN_BAR_STYLE = '''
+#TileBottom[fullscreen="true"] {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+#TileBottom[fullscreen="true"] QLabel,
+#TileBottom[fullscreen="true"] #TileCtrl,
+#TileBottom[fullscreen="true"] #TileToggle {
+    color: #ffffff;
+    background: transparent;
+    border: none;
+}
+#TileBottom[fullscreen="true"] #TileCtrl:hover,
+#TileBottom[fullscreen="true"] #TileCtrl[hovered="true"],
+#TileBottom[fullscreen="true"] #TileToggle:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+}
+#TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
+    color: #fb7299;
+}
+'''
+
 BG = mix(BASE, "#000000", 0.20)
 SIDEBAR = mix(BASE, "#000000", 0.30)
 CONTENT = mix(BASE, "#ffffff", 0.03)
@@ -240,13 +264,13 @@ def _conditional_light_style(style):
 def _light_style(widget):
     name = widget.objectName()
     if name == 'TileToggle':
-        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}')
+        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}') + FULLSCREEN_BAR_STYLE
         return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
@@ -263,7 +287,7 @@ def _light_style(widget):
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
         'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
-    }.get(name, ''))
+    }.get(name, '')) + (FULLSCREEN_BAR_STYLE if name == 'TileBottom' else '')
 
 
 class ThemeSignals(QObject):
@@ -1549,4 +1573,4 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuCount[state="error"] {color: #B93665;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
-    return style + TILE_FULLSCREEN_STYLE
+    return style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE
