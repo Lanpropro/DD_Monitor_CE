@@ -371,7 +371,7 @@ def run_case(app, count, identifier, baseline, native, result):
               "live": False, "muted": True} for index in range(count)]
     window = MainWindow(rooms, [dict(room) for room in rooms], layout_id=identifier,
                         state={"plugins_enabled": [], "settings": {
-                            "auto_update": False, "preview_on_hover": False,
+                            "auto_update": False, "preview_on_hover": False, "close_behavior": "exit",
                             "recording_enabled": False, "recording_replay_enabled": False}})
     window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
     window.setGeometry(-9000, 40, 1420, 860)
