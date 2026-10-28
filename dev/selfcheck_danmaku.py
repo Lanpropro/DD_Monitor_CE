@@ -175,13 +175,16 @@ def main() -> None:
     bili.play_url = boom
     app_module.DanmakuClient = FakeDanmakuClient
     app_module.SuperChatSnapshot = FakeSuperChatSnapshot
+    MainWindow.refresh_status = lambda self: None
+    MainWindow.refresh_stats = lambda self: None
     widgets_module.AvatarLoader = FakeImageLoader      # 表情图不真的去下
     FakeDanmakuClient.instances = []
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
 
     window = MainWindow([dict(room) for room in ROOMS], [dict(room) for room in ROOMS],
-                        layout_id="dm_pair")
+                        layout_id="dm_pair", state={"plugins_enabled": [],
+                                                    "settings": {"auto_update": False}})
     window.setGeometry(-8000, -8000, 1400, 800)
     window.show()
     settle(app, 1.0)
@@ -389,7 +392,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    # 直接退出进程：Qt / VLC 在线程收尾时析构会偶发崩在退出瞬间（程序本体也是这么做的）
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(0)
