@@ -119,12 +119,17 @@ def main():
         token = retain_flv_response(opened, prefix, chunks)
         initial = take_flv_response(token)
         assert take_flv_response(token) is None
-        transferred = HlsProxy(source, {}, forward_range=False, initial_response=initial)
+        eof_events = []
+        transferred = HlsProxy(source, {}, forward_range=False, initial_response=initial,
+                               diagnostic=lambda **event: eof_events.append(event))
         try:
             result = requests.get(transferred.url, headers={"Range": "bytes=0-"}, timeout=3)
             assert result.content == b"transport stream", result.content
             assert attempts.count("/handoff.flv") == 1
             assert transferred.live_ended.is_set(), "Live EOF must be visible to the player"
+            assert eof_events[-1]["received_bytes"] == len(b"transport stream")
+            assert eof_events[-1]["error"] == "LIVE_EOF"
+            assert eof_events[-1]["last_data_age"] >= 0
         finally:
             transferred.stop()
         opened = requests.get(source, stream=True, timeout=3)

@@ -54,13 +54,15 @@ class HlsProxy:
         relay = self
         proxies = {"http": proxy, "https": proxy} if proxy else None
 
-        def report(url, status, started, attempt, *, local=False, error=""):
+        def report(url, status, started, attempt, *, local=False, error="", received_bytes=None, last_data_age=None):
             if diagnostic is not None:
                 host = urlsplit(url).hostname or ""
                 host = host if re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host) else "other"
+                metrics = {} if received_bytes is None else {"received_bytes": received_bytes,
+                                                              "last_data_age": last_data_age}
                 diagnostic(host=host, resource="playlist" if urlsplit(url).path.endswith(".m3u8") else "media",
                     status=status, elapsed=round(time.monotonic() - started, 2), attempt=attempt,
-                    local=local, error=error)
+                    local=local, error=error, **metrics)
 
         def local_url(url):
             if urlsplit(url).scheme not in ("http", "https"):
@@ -173,6 +175,7 @@ class HlsProxy:
                         self.wfile.write(body)
                     else:
                         size = 0
+                        last_data = time.monotonic()
                         chunks = (itertools.chain([initial[1]], initial[2]) if initial is not None
                                   else response.iter_content(65536))
                         while True:
@@ -182,11 +185,13 @@ class HlsProxy:
                             if chunk is None:
                                 if initial is not None and not relay._stopped.is_set():
                                     relay.live_ended.set()
-                                    report(url, 0, started, 1, error="LIVE_EOF")
+                                    report(url, 0, started, 1, error="LIVE_EOF", received_bytes=size,
+                                           last_data_age=round(time.monotonic() - last_data, 2))
                                 break
                             if relay._stopped.is_set():
                                 break
                             if chunk:
+                                last_data = time.monotonic()
                                 size += len(chunk)
                                 self.wfile.write((f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n") if chunked else chunk)
                         if chunked and not relay._stopped.is_set():
