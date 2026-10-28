@@ -28,6 +28,7 @@ def check_volume_icon_alignment(app):
         button.setStyleSheet('background: black; border: none;')
         button.show()
         try:
+            channel_centers = {}
             for muted, channel in ((False, 0), (False, 3), (False, 4), (True, 0)):
                 button.set_state(muted, 42, channel)
                 app.processEvents()
@@ -44,6 +45,15 @@ def check_volume_icon_alignment(app):
                 assert abs((top + bottom + 1) / (2 * scale) - size / 2) <= 0.5, \
                     f'L/R and mute cross must center on the speaker: {size}, {muted}, {channel}'
                 assert left > 0 and right < image.width() - 1, 'icon must not clip'
+                if not muted and channel == 0:
+                    stereo = image
+                elif not muted:
+                    highlighted = [x for y in range(image.height()) for x in range(image.width())
+                                   if image.pixelColor(x, y) != stereo.pixelColor(x, y)]
+                    assert highlighted, 'selected channel must highlight its letter'
+                    channel_centers[channel] = (min(highlighted) + max(highlighted) + 1) / (2 * scale)
+            assert 0 < channel_centers[4] - channel_centers[3] <= 6, \
+                'L/R must form a compact pair with space beside the speaker'
         finally:
             button.close()
 
