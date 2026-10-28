@@ -225,6 +225,13 @@ def check_codecs(app):
 
 def main():
     app = QApplication([])
+    assert config.DEFAULT_VOLUME == config.DEFAULT_SETTINGS['default_volume'] == 40
+    assert GeneralSettingsPage({}).values()['default_volume'] == 40
+    from ddm.player import TilePlayer
+    from PySide6.QtWidgets import QWidget
+    player = TilePlayer(QWidget())
+    assert player.volume == 40
+    player.release()
     page = GeneralSettingsPage({"auto_quality": False, "sidebar_card_mode": False,
                                 "freeze_watch": False, "default_volume": 21})
     grid = page.layout().itemAt(1).layout()
@@ -237,13 +244,16 @@ def main():
     assert [text for _, text in sorted(labels)] == [
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "全屏时自动收起底部控制条",
-        "自动切换紧凑列表", "自动切换数量", "关注栏直播预览", "显示关注栏平台 Logo",
+        "自动切换紧凑列表", "自动切换数量", "紧凑关注卡片显示背景图（Banner／封面）",
+        "关注栏直播预览", "显示关注栏平台 Logo",
         "关闭窗口时", "编解码设置", "新建格子的初始音量"]
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False
     assert values["freeze_watch"] is True and values["default_volume"] == 21
     page._checks["sidebar_platform_logos"].setChecked(False)
+    page._checks['sidebar_compact_background'].setChecked(False)
+    assert page.values()['sidebar_compact_background'] is False
     assert page.values()["sidebar_platform_logos"] is False
     # 直播编码跟着解码方式走：两档都是「B 站这一路怎么播」的选择。
     assert values["bili_codec"] == config.DEFAULT_SETTINGS["bili_codec"]
@@ -257,6 +267,8 @@ def main():
         window = app_module.MainWindow([], [], state={"plugins_enabled": [],
             "settings": {"freeze_watch": False, "auto_update": False}})
     assert window.settings["freeze_watch"] is True, "Old setting disabled always-on detection"
+    assert window.settings['default_volume'] == 40
+    assert all(tile.volume == 40 for tile in window.wall.tiles), 'First-launch slots must start at 40'
     window.close()
     app.processEvents()
     for default_volume in (40, 0, 100):

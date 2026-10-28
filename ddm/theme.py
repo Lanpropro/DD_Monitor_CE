@@ -277,7 +277,7 @@ def _light_style(widget):
         'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
-        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}' + TILE_FULLSCREEN_STYLE,
+        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;}' + TILE_FULLSCREEN_STYLE,
         'TileVideo': '#TileVideo {background: #FFFFFF;}',
         'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
         'TileBottom': '#TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;} #TileBottom QLabel {color: #4A5565;}',
@@ -1171,9 +1171,6 @@ QPushButton#PrimaryButton:pressed {{
 #Tile:hover {{
     border: 1px solid {BORDER_STRONG};
 }}
-#Tile[focused="true"] {{
-    border: 1px solid rgba(0, 161, 214, 0.65);
-}}
 #TileVideo {{
     background: {TILE_BG};
     border-radius: 10px;
@@ -1553,7 +1550,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #WallGrid {background: #E6EBF2;}
         #Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;}
         #Tile:hover {border-color: #95A7BE;}
-        #Tile[focused="true"] {border-color: #00A1D6;}
         #DanmakuPanel, #TileVideo {background: #FFFFFF;}
         #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
         #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}

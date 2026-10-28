@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import layouts, motion, mouse_hook, resize_layout, theme
-from .config import codec_overrides
+from .config import DEFAULT_VOLUME, codec_overrides
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -391,7 +391,7 @@ class VolumeButton(QPushButton):
         self.setFixedSize(size + (8 if size >= 30 else 14), size)
         self.setCursor(Qt.PointingHandCursor)
         self.muted = False
-        self.level = 42
+        self.level = DEFAULT_VOLUME
         self.audio_channel = 0
         self.compact_popup = False
         self._update_tooltip()
@@ -1777,6 +1777,7 @@ class NavThumb(QFrame):
         self._cover_hold = False         # 宽度动画期间挂起封面重裁，见 set_cover_hold()
         self._cover_source: QPixmap | None = None
         self._banner_source: QPixmap | None = None
+        self._compact_background = True
         self._face_source: QPixmap | None = None
 
     # ---- 外观 ----
@@ -1855,6 +1856,10 @@ class NavThumb(QFrame):
         self._banner_source = None if pixmap is None or pixmap.isNull() else pixmap
         if not self._card_mode:
             self._render_cover()
+
+    def set_compact_background(self, enabled: bool) -> None:
+        self._compact_background = bool(enabled)
+        self._render_cover()
 
     def set_face(self, pixmap) -> None:
         if pixmap is None or pixmap.isNull():
@@ -1997,6 +2002,8 @@ class NavThumb(QFrame):
         source = getattr(self, "_cover_source", None)
         if not self._card_mode and self._banner_source is not None:
             source = self._banner_source
+        if not self._card_mode and not self._compact_background:
+            source = None
         has_background = source is not None and not source.isNull()
         if self._overlay_widgets is not None:
             for label in self._overlay_widgets[:2]:
@@ -3806,7 +3813,8 @@ class Sidebar(QFrame):
     # （用户报的「登录按钮点了没反应」就是踩了这个）。
 
     def __init__(self, rooms: list[dict], parent=None, card_mode: bool = True,
-                 auto_compact: bool = True, compact_threshold: int = 18):
+                 auto_compact: bool = True, compact_threshold: int = 18,
+                 compact_background: bool = True):
         super().__init__(parent)
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH)
@@ -3818,6 +3826,7 @@ class Sidebar(QFrame):
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
         self.compact_threshold = max(2, int(compact_threshold))
+        self.compact_background = bool(compact_background)
         self.card_mode = self.preferred_card_mode and not (
             self.auto_compact and len(rooms) >= self.compact_threshold)
         self._wall_room_ids: set[str] = set()
@@ -5377,6 +5386,11 @@ class Sidebar(QFrame):
         self.compact_threshold = max(2, int(compact_threshold))
         self.set_card_mode(self._effective_card_mode())
 
+    def set_compact_background(self, enabled: bool) -> None:
+        self.compact_background = bool(enabled)
+        for item in self._items:
+            item.thumb.set_compact_background(enabled)
+
     def _effective_card_mode(self) -> bool:
         """横竖屏共用关注数量阈值，竖屏改为紧凑横向列表。"""
         return self.preferred_card_mode and not (
@@ -5491,6 +5505,7 @@ class Sidebar(QFrame):
         item.hovered.connect(self.previewHovered.emit)
         item.unhovered.connect(self.previewUnhovered.emit)
         item.set_card_mode(self.card_mode)
+        item.thumb.set_compact_background(self.compact_background)
         item.set_portrait_strip(self.side == "top" and not self.card_mode)
         item.set_on_wall(room_id in self._wall_room_ids)
         item.set_select_mode(self.select_mode)
@@ -5939,7 +5954,7 @@ class Tile(QFrame):
         self.muted = bool(room.get("muted", True))       # 默认静音
         self.quality = int(room.get("quality", AUTO_QUALITY
             if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250))
-        self.volume = int(room.get("volume", 42))
+        self.volume = int(room.get("volume", DEFAULT_VOLUME))
         self.audio_channel = int(room.get("audio_channel", 0))
         self.codec_overrides = codec_overrides(room.get("codec_overrides"))
         self.codec_reconnect_pending = False
