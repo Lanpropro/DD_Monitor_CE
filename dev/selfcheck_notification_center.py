@@ -280,6 +280,45 @@ class NotificationTests(unittest.TestCase):
             self.center.hide()
         self.assertEqual([entry.message for entry in self.center.entries], ['清空后新到达'])
 
+    def test_recording_paths_keep_cards_and_actions_inside_viewport(self):
+        previous = theme.mode()
+        self.addCleanup(theme.apply, previous)
+        path = 'F:\\CodexAppManager\\Code\\DD_Monitor_CE\\videos\\' + '主播Shiori_' * 12 + '.mp4'
+        room = {'room_id': '1001', 'uname': '主播Shiori'}
+        with patch('ddm.images.load_cached_avatar', return_value=None), \
+                patch('ddm.images.load_room_avatar', return_value=None):
+            for message in ('已保存录制：', '已保存即时回放：'):
+                remember_result(self.owner, message, file_path=path, rooms=[room])
+            self.open()
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                for width in (300, 900, 400):
+                    self.owner.resize(width, 800)
+                    self.app.processEvents()
+                    viewport = self.center.scroll.viewport()
+                    content = self.center.scroll.widget()
+                    self.assertLessEqual(content.width(), viewport.width())
+                    for row in self.center.rows.values():
+                        self.assertLessEqual(row.geometry().right(), content.width())
+                        self.assertGreaterEqual(row.action.x(), 0)
+                        self.assertLess(row.action.geometry().right(), row.width())
+                        self.assertLess(row.remove_button.geometry().right(), row.width())
+                        self.assertLessEqual(row.message.geometry().right(), row.remove_button.x())
+                        self.assertGreaterEqual(row.message.height(), row.message.heightForWidth(row.message.width()))
+                        self.assertGreaterEqual(row.height(), row.layout().totalHeightForWidth(row.width()))
+                        self.assertIn(path, row.message.text())
+                        self.assertEqual(row.message.toPlainText(), row.entry.message)
+                        self.assertLessEqual(row.message.document().size().height(), row.message.viewport().height())
+                        block = row.message.document().begin()
+                        while block.isValid():
+                            text_layout = block.layout()
+                            for index in range(text_layout.lineCount()):
+                                self.assertLessEqual(text_layout.lineAt(index).naturalTextWidth(),
+                                                     row.message.viewport().width() + 1)
+                            block = block.next()
+                        row.message.selectAll()
+                        self.assertEqual(row.message.textCursor().selectedText(), row.entry.message)
+
     def test_resize_move_and_owner_hide(self):
         self.center.add('长通知' * 30)
         self.open()

@@ -1,14 +1,15 @@
 """本次启动的通知收件箱；仅存内存，不随账号配置落盘。"""
 from dataclasses import dataclass
 from datetime import datetime
+import math
 from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QUrl, QVariantAnimation, Signal
-from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QTransform
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QUrl, QVariantAnimation, Signal
+from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QTextOption, QTransform
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
-                               QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+                               QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
 from . import motion, theme
 
@@ -36,6 +37,37 @@ class NoticeEntry:
     key: object = None
 
 
+class NoticeMessage(QTextEdit):
+    """Selectable plain text that also wraps long paths without word breaks."""
+    def __init__(self, text):
+        super().__init__()
+        self.setReadOnly(True)
+        self.setPlainText(text)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setStyleSheet('background: transparent; border: none; padding: 0;')
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDocumentMargin(0)
+        policy = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def text(self):
+        return self.toPlainText()
+
+    def heightForWidth(self, width):
+        document = self.document().clone()
+        document.setTextWidth(max(1, width))
+        return math.ceil(document.size().height())
+
+    def sizeHint(self):
+        return QSize(180, self.heightForWidth(180))
+
+    def minimumSizeHint(self):
+        return QSize(0, 0)
+
+
 class NoticeRow(QFrame):
     removed = Signal(object)
 
@@ -43,7 +75,7 @@ class NoticeRow(QFrame):
         super().__init__(parent)
         self.entry = entry
         self.setObjectName('HistoryNotice')
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
@@ -90,10 +122,8 @@ class NoticeRow(QFrame):
         category_row.addWidget(self.category)
         category_row.addStretch()
         content.addLayout(category_row)
-        self.message = QLabel(entry.message)
+        self.message = NoticeMessage(entry.message)
         self.message.setObjectName('NoticeText')
-        self.message.setTextFormat(Qt.PlainText)
-        self.message.setWordWrap(True)
         self.message.setMinimumWidth(0)
         self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
         content.addWidget(self.message)
