@@ -41,9 +41,8 @@ def check_volume_icon_alignment(app):
                     f'speaker and indicator must be centered together: {size}, {muted}, {channel}'
                 indicator = [(x, y) for x, y in pixels if x >= image.width() / 2]
                 top, bottom = min(y for x, y in indicator), max(y for x, y in indicator)
-                target_y = size / 2 if muted else size / 2 - 1
-                assert abs((top + bottom + 1) / (2 * scale) - target_y) <= 1, \
-                    f'L/R must sit one pixel above the mute cross: {size}, {muted}, {channel}'
+                assert abs((top + bottom + 1) / (2 * scale) - size / 2) <= 0.5, \
+                    f'L/R and mute cross must center on the speaker: {size}, {muted}, {channel}'
                 assert left > 0 and right < image.width() - 1, 'icon must not clip'
         finally:
             button.close()

@@ -10,7 +10,7 @@ from PySide6.QtCore import (
     QTimer, QUrl, Signal, QVariantAnimation,
 )
 from PySide6.QtGui import (
-    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QFontMetricsF, QIcon, QKeySequence,
+    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
     QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
     QShortcut, QTextDocument,
 )
@@ -461,10 +461,6 @@ class VolumeButton(QPushButton):
         font = QFont(theme.FONT_DEFAULT)
         font.setPixelSize(8)
         font.setBold(True)
-        painter.setFont(font)
-        metrics = QFontMetricsF(font, painter.device())
-        # Lift the tiny capitals optically above the geometric axis.
-        baseline = top + 4.5 - metrics.tightBoundingRect("LR").center().y()
         for label, x, selected in (
             ("L", left + 13.75, self.audio_channel == self.CHANNEL_LEFT),
             ("R", left + 20.25, self.audio_channel == self.CHANNEL_RIGHT),
@@ -474,9 +470,13 @@ class VolumeButton(QPushButton):
             else:
                 colour = QColor("#9499a0" if self.muted else "#6d737d")
                 colour.setAlpha(150)
-            painter.setPen(colour)
-            bounds = metrics.tightBoundingRect(label)
-            painter.drawText(QPointF(x - bounds.center().x(), baseline), label)
+            # Center the visible glyph outline, avoiding font baseline/hinting
+            # offsets that put these tiny capitals above or below the speaker.
+            glyph = QPainterPath()
+            glyph.addText(QPointF(), font, label)
+            bounds = glyph.boundingRect()
+            glyph.translate(x - bounds.center().x(), top + 6 - bounds.center().y())
+            painter.fillPath(glyph, colour)
 
 
 
