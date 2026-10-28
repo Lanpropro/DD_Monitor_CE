@@ -518,7 +518,7 @@ def main() -> None:
     print("  画面墙的播放器不是 silent（只有预览才是）：")
     plain = TilePlayer(QWidget())
     print(f"    silent={plain.silent} muted={plain.muted} volume={plain.volume}")
-    assert plain.silent is False and plain.muted is False and plain.volume == 42
+    assert plain.silent is False and plain.muted is False and plain.volume == config_module.DEFAULT_VOLUME
     plain.release()
     calls: list = []
     original = window.apply_quality_policy

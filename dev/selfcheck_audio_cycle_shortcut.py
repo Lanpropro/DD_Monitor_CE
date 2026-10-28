@@ -85,14 +85,14 @@ def check_hover_shortcuts(app, window):
         first.pause_button.setFocus()
         app.processEvents()
         page = ShortcutSettingsPage(window.shortcuts)
-        page._edits['video_danmaku'].setKeySequence(QKeySequence('R'))
+        page._edits['video_danmaku'].setKeySequence(QKeySequence('K'))
         window.shortcuts = page.values()
         window._refresh_shortcuts()
         QTest.keyClick(first.pause_button, Qt.Key_B)
         assert second.danmaku_button.isChecked() == before
-        QTest.keyClick(first.pause_button, Qt.Key_R)
+        QTest.keyClick(first.pause_button, Qt.Key_K)
         assert second.danmaku_button.isChecked() != before
-        assert window.current_state()['ui']['shortcuts']['video_danmaku'] == 'R'
+        assert window.current_state()['ui']['shortcuts']['video_danmaku'] == 'K'
         page.reset()
         window.shortcuts = page.values()
         window._refresh_shortcuts()
@@ -294,11 +294,11 @@ def main():
             assert window.current_state()['wall'][1]['audio_channel'] == VolumeButton.CHANNEL_RIGHT
             # 更改按键后 E 不触发，保存值与恢复默认沿用原快捷键界面。
             page = ShortcutSettingsPage(window.shortcuts)
-            page._edits['audio_cycle'].setKeySequence(QKeySequence('R'))
+            page._edits['audio_cycle'].setKeySequence(QKeySequence('K'))
             window.shortcuts = page.values()
             QTest.keyClick(window, Qt.Key_E)
             assert second.muted
-            QTest.keyClick(window, Qt.Key_R)
+            QTest.keyClick(window, Qt.Key_K)
             assert not second.muted and second.audio_channel == 0
             page.reset()
             assert page.values()['audio_cycle'] == 'E'
