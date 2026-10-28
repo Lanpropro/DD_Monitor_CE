@@ -234,6 +234,7 @@
 - `dev/selfcheck_platform_follows.py`
 - `dev/selfcheck_platform_login_expiry.py`
 - `dev/selfcheck_platform_logo_background.py`
+- `dev/selfcheck_platform_reauthentication.py`
 - `dev/selfcheck_platform_offline_tiles.py`
 - `dev/selfcheck_platform_preview.py`
 - `dev/selfcheck_platform_preview_live.py`
