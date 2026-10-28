@@ -860,21 +860,24 @@ class ResultNotice(UpdateNotice):
         if avatar is not None:
             avatar.set_pixmap_image(pixmap)
 
-    def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False, file_path=None):
+    def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False,
+                     file_path=None, pending=False):
         self._file_path = str(file_path or '')
         self._file_message = message + Path(self._file_path).name if self._file_path else message
-        self._on_click = self._open_file_location if self._file_path else on_click
+        self._on_click = None if pending else self._open_file_location if self._file_path else on_click
         self.setCursor(Qt.PointingHandCursor if self._on_click else Qt.ArrowCursor)
-        self.setToolTip(self._file_path + '\n点击打开文件位置；右键复制完整路径' if self._file_path
+        self.setToolTip(self._file_path if pending else
+                        self._file_path + '\n点击打开文件位置；右键复制完整路径' if self._file_path
                         else ('点击跳转' if on_click else ''))
         self._motion.stop()
         self._leaving = False
         self.title.setWordWrap(not bool(self._file_path))
         self.title.setText(self._file_message)
-        self.category.setText('录制文件' if self._file_path else
+        self.category.setText(('正在导出' if pending else '导出失败' if kind == 'warning' else '已完成') if self._file_path else
                               {'live': '开播提醒', 'warning': '需要留意'}.get(kind, '操作提示'))
-        self.action.setVisible(self._on_click is not None)
-        self.action.setText('打开文件位置' if self._file_path else
+        self.action.setVisible(pending or self._on_click is not None)
+        self.action.setEnabled(not pending)
+        self.action.setText('正在导出…' if pending else '打开文件位置' if self._file_path else
                             ('放入画面墙' if kind == 'live' else
                              ('前往登录' if '登录' in message else '查看详情')))
         self._set_rooms(rooms)
@@ -914,14 +917,21 @@ class ResultNotice(UpdateNotice):
         self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
-def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False, file_path=None):
+def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False,
+                file_path=None, notice_key=None, pending=False):
     from .notification_center import remember_result
     if getattr(parent, '_closing', False):
         return
-    record = remember_result(parent, message, kind=kind, on_click=on_click, file_path=file_path, rooms=rooms)
+    record = remember_result(parent, message, kind=kind, on_click=on_click, file_path=file_path,
+                             rooms=rooms, notice_key=notice_key, pending=pending)
     if not parent.isVisible():
         return
-    notice = parent._result_notice = ResultNotice(parent)
+    notice = next((item for item in getattr(parent, '_notices', [])
+                   if notice_key is not None and getattr(item, '_notice_key', None) == notice_key), None)
+    if notice is None:
+        notice = ResultNotice(parent)
+    notice._notice_key = notice_key
+    parent._result_notice = notice
     notice.track_history(record)
     notice.show_message(message, rooms, kind=kind, on_click=on_click,
-                        persistent=persistent, file_path=file_path)
+                        persistent=persistent or pending, file_path=file_path, pending=pending)

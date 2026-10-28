@@ -618,7 +618,7 @@ class RecordingManager(QObject):
                 if full:
                     self._delete_after_exports.update(parts)
             else:
-                self._say(f"导出失败；原始分段仍保留在 .ddm-parts：{result.parent}", room)
+                self._say(f"导出{'录制' if full else '即时回放'}失败（原始分段保留）：{result}", room)
                 self._delete_after_exports.difference_update(parts)
         self._cleanup_parts()
 
