@@ -427,7 +427,8 @@ class MainNoticesTests(unittest.TestCase):
             notice = window._result_notice
             self.assertEqual(notice._file_path, path)
             entry = window.sidebar.notification_button.center.entries[-1]
-            self.assertIn(path, entry.message)
+            self.assertEqual(entry.message, prefix + '：' + filename)
+            self.assertEqual(entry.file_path, path)
             with patch('ddm.notification_center.reveal_file') as reveal:
                 if prefix.startswith('正在导出'):
                     self.assertIsNone(entry.callback)
@@ -457,6 +458,51 @@ class MainNoticesTests(unittest.TestCase):
         window.recorder._say('导出失败；原始分段仍保留在 .ddm-parts：错误目录', room)
         self.assertEqual(window._result_notice._file_path, '')
         self.assertIn('错误目录', window._result_notice.title.text())
+
+    def test_recording_start_waits_for_encoder_and_announces_only_once(self):
+        from concurrent.futures import Future
+        from ddm import recording
+        for codec, ready_via in (('copy', 'poll'), ('h264', 'poll'), ('h264', 'resolved')):
+            with self.subTest(codec=codec, ready_via=ready_via), tempfile.TemporaryDirectory() as directory:
+                window = self.window([{'room_id': '1001', 'uname': '主播甲', 'live': True}])
+                tile = window.wall.tiles[0]
+                tile.stream_url, tile.stream_headers = 'synthetic://stream', {}
+                manager = window.recorder
+                manager.settings.update(recording_dir=directory, recording_codec=codec)
+                future = Future()
+                process = Mock()
+                process.poll.return_value = None
+                messages = []
+                manager.notice.connect(messages.append)
+                try:
+                    with patch.object(recording, 'ffmpeg_path', return_value='synthetic-ffmpeg'), \
+                            patch.object(recording, 'resolve_encoder_async', return_value=future), \
+                            patch.object(recording, 'segment_args', return_value=[]), \
+                            patch.object(recording.subprocess, 'Popen', return_value=process), \
+                            patch.object(recording, '_adopt_process'), \
+                            patch.object(manager, '_free_enough', return_value=True), \
+                            patch.object(manager, '_check_space'):
+                        self.assertTrue(manager.start(tile, recording=True))
+                        if codec == 'h264':
+                            self.assertEqual(messages, [], 'Encoder probing is not a started recording')
+                            future.set_result(('libx264', [], 'CPU'))
+                            if ready_via == 'resolved':
+                                manager.on_resolved(tile)
+                            else:
+                                manager._poll()
+                        manager._poll()
+                        self.assertEqual(messages, ['主播甲 开始录制'])
+                        center = window.sidebar.notification_button.center
+                        self.assertEqual([entry.message for entry in center.entries], messages)
+                        self.assertEqual(len(window._notices), 1)
+                        session = manager.sessions[tile]
+                        session.close_chunk()
+                        session.retry_at = 0.001
+                        manager._poll()
+                        self.assertEqual(messages, ['主播甲 开始录制', '主播甲 重新连接录制流'])
+                finally:
+                    manager.sessions.clear()
+                    manager.timer.stop()
 
     def test_recording_status_has_no_unrelated_browser_action(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
@@ -493,7 +539,8 @@ class MainNoticesTests(unittest.TestCase):
             self.assertTrue(cards[index].action.isEnabled())
             self.assertEqual(cards[index].action.text(), '打开文件位置')
             self.assertTrue(cards[index].timer.isActive())
-            self.assertEqual(center.rows[entries[index]].message.text(), '已保存' + label + '：' + path)
+            self.assertEqual(center.rows[entries[index]].message.text(), '已保存' + label + '：' + Path(path).name)
+            self.assertEqual(center.rows[entries[index]].toolTip(), path)
         self.assertEqual(len(window._notices), 2)
         self.assertEqual(len(center.entries), 2)
         center.hide()
