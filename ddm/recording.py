@@ -338,6 +338,8 @@ class RecordingManager(QObject):
                 session.recording = True
                 session.output_started_at = time.monotonic()
                 self.changed.emit(tile)
+                if session.process is not None:
+                    self._say(f"{session.name} 开始录制", session.room)
             return True
         if not str(self.settings.get("recording_dir") or "").strip():
             self._say("请先在「设置 → 录制」选择保存目录")
@@ -361,7 +363,6 @@ class RecordingManager(QObject):
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
             self.changed.emit(tile)
-            self._say(f"{session.name} {'开始录制' if recording else '开启即时回放缓存'}", session.room)
             return True
         except (OSError, ValueError) as error:
             self.sessions.pop(tile, None)
@@ -399,6 +400,8 @@ class RecordingManager(QObject):
         session.started_at = time.monotonic()
         if session.recording and not session.output_started_at:
             session.output_started_at = session.started_at
+        if session.chunk == 1:
+            self._say(f"{session.name} {'开始录制' if session.recording else '开启即时回放缓存'}", session.room)
 
     @staticmethod
     def _end_process(session: _Session) -> None:
@@ -456,9 +459,11 @@ class RecordingManager(QObject):
         codec = str(getattr(tile, "stream_codec", "") or "")
         if session.process is None:
             try:
+                reconnecting = session.chunk > 0
                 self._change_codec(session, codec)
                 self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
-                self._say(f"{session.name} 取到新流，继续录制", session.room)
+                if reconnecting and session.process is not None:
+                    self._say(f"{session.name} 取到新流，继续录制", session.room)
             except OSError as error:
                 self._say(f"{session.name} 续录失败：{error}", session.room)
                 self.stop(tile)
@@ -514,9 +519,11 @@ class RecordingManager(QObject):
                 if ((session.encoder_future is not None and session.encoder_future.done())
                         or session.retry_at and time.monotonic() >= session.retry_at):
                     try:
+                        reconnecting = session.chunk > 0
                         self._launch(session, tile.stream_url,
                                      dict(tile.stream_headers or {}))
-                        self._say(f"{session.name} 重新连接录制流", session.room)
+                        if reconnecting and session.process is not None:
+                            self._say(f"{session.name} 重新连接录制流", session.room)
                     except OSError as error:
                         self._say(f"{session.name} 续录失败：{error}", session.room)
                         self.stop(tile)

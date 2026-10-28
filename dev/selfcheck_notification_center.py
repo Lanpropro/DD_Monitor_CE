@@ -248,7 +248,8 @@ class NotificationTests(unittest.TestCase):
         path = 'C:/recordings/很长的目录/' + '文件名' * 30 + '.mp4'
         remember_result(self.owner, '已保存录制：', file_path=path)
         entry = self.center.entries[0]
-        self.assertIn(path, entry.message)
+        self.assertEqual(entry.message, '已保存录制：' + Path(path).name)
+        self.assertEqual(entry.file_path, path)
         self.assertEqual(entry.action, '打开文件位置')
         with patch('ddm.notification_center.reveal_file') as reveal:
             entry.callback()
@@ -306,7 +307,9 @@ class NotificationTests(unittest.TestCase):
                         self.assertLessEqual(row.message.geometry().right(), row.remove_button.x())
                         self.assertGreaterEqual(row.message.height(), row.message.heightForWidth(row.message.width()))
                         self.assertGreaterEqual(row.height(), row.layout().totalHeightForWidth(row.width()))
-                        self.assertIn(path, row.message.text())
+                        self.assertIn(Path(path.replace('\\', '/')).name, row.message.text())
+                        self.assertNotIn('CodexAppManager', row.message.text())
+                        self.assertEqual(row.toolTip(), path)
                         self.assertEqual(row.message.toPlainText(), row.entry.message)
                         self.assertLessEqual(row.message.document().size().height(), row.message.viewport().height())
                         block = row.message.document().begin()

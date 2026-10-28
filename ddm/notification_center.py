@@ -35,6 +35,7 @@ class NoticeEntry:
     unread: bool = True
     rooms: tuple = ()
     key: object = None
+    file_path: str = ''
 
 
 class NoticeMessage(QTextEdit):
@@ -75,6 +76,7 @@ class NoticeRow(QFrame):
         super().__init__(parent)
         self.entry = entry
         self.setObjectName('HistoryNotice')
+        self.setToolTip(entry.file_path)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
@@ -124,6 +126,7 @@ class NoticeRow(QFrame):
         content.addLayout(category_row)
         self.message = NoticeMessage(entry.message)
         self.message.setObjectName('NoticeText')
+        self.message.setToolTip(entry.file_path)
         self.message.setMinimumWidth(0)
         self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
         content.addWidget(self.message)
@@ -282,7 +285,8 @@ class NotificationCenter(QFrame):
         layout.addWidget(self.scroll, 1)
         self._sync()
 
-    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False):
+    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False,
+            file_path=None):
         if key is not None:
             if key in self._seen_keys:
                 entry = next((entry for entry in self.entries if entry.key == key), None)
@@ -294,6 +298,7 @@ class NotificationCenter(QFrame):
                     entry.time = datetime.now().strftime('%H:%M:%S')
                     entry.unread = not self.isVisible()
                     entry.rooms = tuple(dict(room) for room in rooms[:3])
+                    entry.file_path = str(file_path or '')
                     row = self.rows.pop(entry, None)
                     if row is not None:
                         self.list_layout.removeWidget(row)
@@ -304,7 +309,8 @@ class NotificationCenter(QFrame):
                     self._sync()
                     return entry
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
-                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key)
+                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key,
+                            str(file_path or ''))
         self.entries.append(entry)
         if key is not None:
             self._seen_keys.add(key)
@@ -466,11 +472,11 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
     if file_path:
         callback = None if pending else lambda path=str(file_path): reveal_file(path)
         action = '打开文件位置'
-        message = message + str(file_path)
+        message = message + Path(str(file_path).replace('\\', '/')).name
     else:
         callback = on_click
         action = '放入画面墙' if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
     center = sidebar.notification_button.center
     entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms,
-                       key=notice_key, replace=notice_key is not None)
+                       key=notice_key, replace=notice_key is not None, file_path=file_path)
     return center, entry
