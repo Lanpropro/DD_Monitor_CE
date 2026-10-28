@@ -24,7 +24,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
     with patch.object(app_module.QTimer, "singleShot"):
         owner = app_module.MainWindow([], [], state={
-            "plugins_enabled": [], "settings": {"auto_update": False}})
+            "plugins_enabled": [], "settings": {"auto_update": False, "close_behavior": "exit"}})
     # 不运行宿主轮询；浏览器只加载 about:blank，身份由替身提供。
     owner._poll_timer.stop()
     owner._stats_timer.stop()
@@ -119,6 +119,7 @@ def main():
     finally:
         deadline.stop()
         bili.set_sessdata("")
+        owner.settings["close_behavior"] = "exit"
         owner.close()
         app.processEvents()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

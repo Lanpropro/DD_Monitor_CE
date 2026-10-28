@@ -583,6 +583,7 @@ def main():
             assert not layer.window.isVisible()
             print("共享 Quick 窗口、D3D11、4 格纹理、不透明度状态、鼠标穿透样式、暂停/恢复、全屏圆角状态及空闲停刷：通过")
         finally:
+            window.settings["close_behavior"] = "exit"
             window.close()
 
 

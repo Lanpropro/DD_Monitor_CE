@@ -412,6 +412,7 @@ def run_case(app, count, identifier, baseline, native, result):
                 check(fullscreen_error is None, fullscreen_error)
             return result
     finally:
+        window.settings["close_behavior"] = "exit"
         window.close()
         app.processEvents()
 
