@@ -10,7 +10,7 @@ from PySide6.QtCore import (
     QTimer, QUrl, Signal, QVariantAnimation,
 )
 from PySide6.QtGui import (
-    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
+    QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QFontMetricsF, QIcon, QKeySequence,
     QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
     QShortcut, QTextDocument,
 )
@@ -435,8 +435,9 @@ class VolumeButton(QPushButton):
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        center = self.rect().center()
-        left = center.x() - 8
+        center = QRectF(self.rect()).center()
+        # Center the speaker and its right-hand indicator as a single icon.
+        left = center.x() - 11
         top = center.y() - 6
         path = QPainterPath()
         path.moveTo(left, top + 4)
@@ -449,10 +450,9 @@ class VolumeButton(QPushButton):
         painter.drawPath(path)
         if self.muted:
             # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
-            cross = center.y() - 3.5
-            right = center.x() + 8.5
-            painter.drawLine(right, cross, right + 7, cross + 7)
-            painter.drawLine(right + 7, cross, right, cross + 7)
+            cross = QPointF(left + 17, center.y())
+            painter.drawLine(cross + QPointF(-3.5, -3.5), cross + QPointF(3.5, 3.5))
+            painter.drawLine(cross + QPointF(-3.5, 3.5), cross + QPointF(3.5, -3.5))
         else:
             self._paint_channel(painter, top, left)
 
@@ -462,9 +462,12 @@ class VolumeButton(QPushButton):
         font.setPixelSize(8)
         font.setBold(True)
         painter.setFont(font)
+        metrics = QFontMetricsF(font, painter.device())
+        # Lift the tiny capitals optically above the geometric axis.
+        baseline = top + 4.5 - metrics.tightBoundingRect("LR").center().y()
         for label, x, selected in (
-            ("L", left + 10.0, self.audio_channel == self.CHANNEL_LEFT),
-            ("R", left + 15.5, self.audio_channel == self.CHANNEL_RIGHT),
+            ("L", left + 13.75, self.audio_channel == self.CHANNEL_LEFT),
+            ("R", left + 20.25, self.audio_channel == self.CHANNEL_RIGHT),
         ):
             if selected:
                 colour = QColor(theme.ACCENT)
@@ -472,7 +475,8 @@ class VolumeButton(QPushButton):
                 colour = QColor("#9499a0" if self.muted else "#6d737d")
                 colour.setAlpha(150)
             painter.setPen(colour)
-            painter.drawText(QRectF(x, top + 2, 7, 9), int(Qt.AlignCenter), label)
+            bounds = metrics.tightBoundingRect(label)
+            painter.drawText(QPointF(x - bounds.center().x(), baseline), label)
 
 
 
@@ -7180,6 +7184,9 @@ class Tile(QFrame):
             self.volume_slider.setValue(value)
             self.volume_slider.blockSignals(False)
         self.volumeChanged.emit(self.room, value)
+        if self.muted and value > 0:
+            # Apply the new level before making the player's audio audible.
+            self.set_muted(False)
 
     def _sync_vertical_volume(self) -> None:
         blocked = self.vertical_volume.blockSignals(True)
