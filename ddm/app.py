@@ -1732,6 +1732,7 @@ class MainWindow(QMainWindow):
             if not current() or int(tile.quality) != quality:
                 return
             self._resolvers.pop(tile, None)
+            tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
             if strict_codec:
                 self._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
