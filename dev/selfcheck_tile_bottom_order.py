@@ -45,13 +45,18 @@ def check_volume_icon_alignment(app):
                 assert abs((top + bottom + 1) / (2 * scale) - size / 2) <= 0.5, \
                     f'L/R and mute cross must center on the speaker: {size}, {muted}, {channel}'
                 assert left > 0 and right < image.width() - 1, 'icon must not clip'
-                if not muted and channel == 0:
-                    stereo = image
-                elif not muted:
-                    highlighted = [x for y in range(image.height()) for x in range(image.width())
-                                   if image.pixelColor(x, y) != stereo.pixelColor(x, y)]
-                    assert highlighted, 'selected channel must highlight its letter'
-                    channel_centers[channel] = (min(highlighted) + max(highlighted) + 1) / (2 * scale)
+                if not muted:
+                    blue = [x for x, y in indicator
+                            if image.pixelColor(x, y).green() > image.pixelColor(x, y).red() + 10
+                            and image.pixelColor(x, y).blue() > image.pixelColor(x, y).red() + 10]
+                    split = (button.width() / 2 + 6.5) * scale
+                    # Ignore the antialiased edge between the two letters.
+                    assert any(x + 0.5 < split - 0.5 * scale for x in blue) == (channel in (0, 3)), \
+                        'default stereo and left-only must highlight L blue'
+                    assert any(x + 0.5 >= split + 0.5 * scale for x in blue) == (channel in (0, 4)), \
+                        'default stereo and right-only must highlight R blue'
+                    if channel:
+                        channel_centers[channel] = (min(blue) + max(blue) + 1) / (2 * scale)
             assert 0 < channel_centers[4] - channel_centers[3] <= 6, \
                 'L/R must form a compact pair with space beside the speaker'
         finally:

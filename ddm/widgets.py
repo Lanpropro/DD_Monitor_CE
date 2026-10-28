@@ -462,8 +462,8 @@ class VolumeButton(QPushButton):
         font.setPixelSize(8)
         font.setBold(True)
         for label, x, selected in (
-            ("L", left + 14.75, self.audio_channel == self.CHANNEL_LEFT),
-            ("R", left + 20.25, self.audio_channel == self.CHANNEL_RIGHT),
+            ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
+            ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
         ):
             if selected:
                 colour = QColor(theme.ACCENT)
