@@ -177,6 +177,7 @@
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
+| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline` |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline` |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline` |
 | [selfcheck_video_danmaku_native](../selfcheck_video_danmaku_native.py) | 单项执行前核对 |

@@ -14,6 +14,7 @@ from PySide6.QtCore import QThread, Signal
 
 from . import bili
 from . import config as config_module
+from .super_chat import normalize as normalize_super_chat
 
 # blivedm 在原仓库根目录，独立版也放在项目根目录
 if config_module.REPO not in sys.path:
@@ -40,7 +41,7 @@ except Exception as error:              # noqa: BLE001
 class DanmakuClient(QThread):
     """某个直播间的弹幕连接。"""
 
-    message = Signal(dict)              # {kind, uname, text, medal, emoticon…}
+    message = Signal(dict)              # {kind, uname, text, super_chat…}
     status = Signal(str)                # 给界面显示的状态文字
 
     def __init__(self, room_id: str, parent=None):
@@ -266,10 +267,35 @@ class _Handler(_HandlerBase):
         })
 
     def _on_super_chat(self, client, message):
+        self._emit_open_super_chat(message)
+
+    def _on_open_live_super_chat(self, client, message):
+        self._emit_open_super_chat(message)
+
+    def _emit_open_super_chat(self, message):
+        data = dict(vars(message))
+        if not data.get("message"):
+            data["message"] = getattr(message, "msg", "")
+        if "rmb" in data:
+            data["price"] = data.get("rmb")
+        if "uface" in data:
+            data["face"] = data.get("uface")
+        if "message_id" in data and not data.get("id"):
+            data["id"] = data.get("message_id")
+        self._emit(normalize_super_chat(data, source="websocket"))
+
+    def _on_super_chat_delete(self, client, message):
+        ids = (message.ids if hasattr(message, "ids")
+               else getattr(message, "message_ids", ()))
+        self._emit_super_chat_delete(ids)
+
+    def _on_open_live_super_chat_delete(self, client, message):
+        self._emit_super_chat_delete(getattr(message, "message_ids", ()))
+
+    def _emit_super_chat_delete(self, ids):
         self._emit({
-            "kind": "super_chat",
-            "uname": message.uname,
-            "text": f"¥{message.price}　{message.message}",
+            "kind": "super_chat_delete",
+            "ids": [str(chat_id) for chat_id in (ids or [])],
         })
 
 

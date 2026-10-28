@@ -36,6 +36,8 @@ from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
+from .super_chat import (format_price, format_remaining, readable_text_color,
+                         remaining_seconds)
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -783,6 +785,113 @@ class DanmakuTextBrowser(QTextBrowser):
         self.userScrolled.emit()
 
 
+class SuperChatCard(QFrame):
+    """One fixed Super Chat card; colors come from Bilibili with safe fallbacks."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SuperChatCard")
+        self.chat_id = ""
+        self.setMinimumHeight(64)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setSpacing(3)
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        self.name = QLabel()
+        self.name.setObjectName("SuperChatName")
+        self.name.setTextFormat(Qt.PlainText)
+        self.price = QLabel()
+        self.price.setObjectName("SuperChatPrice")
+        self.left = QLabel()
+        self.left.setObjectName("SuperChatTime")
+        top.addWidget(self.name, 1)
+        top.addWidget(self.price, 0, Qt.AlignRight | Qt.AlignVCenter)
+        top.addWidget(self.left, 0, Qt.AlignRight | Qt.AlignVCenter)
+        self.message = QLabel()
+        self.message.setObjectName("SuperChatMessage")
+        self.message.setTextFormat(Qt.PlainText)
+        self.message.setWordWrap(True)
+        self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.message.setFixedHeight(32)
+        self.message.setMaximumHeight(44)
+        layout.addLayout(top)
+        layout.addWidget(self.message)
+
+    def set_event(self, event: dict) -> None:
+        self.chat_id = str(event.get("super_chat_id") or event.get("id") or "")
+        uname = str(event.get("uname") or "匿名用户")
+        message = str(event.get("message") or event.get("text") or "")
+        price = format_price(event.get("price"))
+        background = event.get("background_color") or "#f59e0b"
+        text_color = readable_text_color(background).name()
+        remaining = format_remaining(remaining_seconds(event.get("end_time")))
+        self.name.setText(uname)
+        self.name.setToolTip(uname)
+        self.name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.price.setText(price)
+        self.message.setText(message)
+        self.message.setToolTip(message)
+        self.left.setText(f"剩 {remaining}")
+        self.ensurePolished()
+        desired = self.layout().sizeHint().height()
+        self.setFixedHeight(desired)
+        self.setStyleSheet(
+            "QFrame#SuperChatCard {"
+            f"background:{background};"
+            "border-radius:7px;"
+            f"border-left:3px solid {event.get('background_price_color') or '#b45309'};"
+            "}"
+            f"QFrame#SuperChatCard QLabel {{background:transparent;color:{text_color};}}"
+            "QFrame#SuperChatCard QLabel#SuperChatName {font-weight:700;}"
+            "QFrame#SuperChatCard QLabel#SuperChatPrice {font-weight:700;}"
+            "QFrame#SuperChatCard QLabel#SuperChatTime {font-size:11px;}"
+            "QFrame#SuperChatCard QLabel#SuperChatMessage {font-size:12px;}")
+
+    def tick(self, event: dict) -> None:
+        self.left.setText(f"剩 {format_remaining(remaining_seconds(event.get('end_time')))}")
+
+
+class SuperChatStack(QWidget):
+    """Compact, bounded card stack used inside the danmaku panel."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SuperChatStack")
+        self._events: list[dict] = []
+        self._cards: list[SuperChatCard] = []
+        self.more = QLabel()
+        self.more.setObjectName("SuperChatMore")
+        self.more.setAlignment(Qt.AlignCenter)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(8, 6, 8, 4)
+        self._layout.setSpacing(4)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        self._layout.addWidget(self.more)
+        self.hide()
+
+    def set_events(self, events: list[dict], limit: int | None = None) -> None:
+        self._events = list(events)
+        count = len(events) if limit is None else min(len(events), max(0, int(limit)))
+        while len(self._cards) < count:
+            card = SuperChatCard(self)
+            self._cards.append(card)
+            self._layout.insertWidget(len(self._cards) - 1, card)
+        for index, card in enumerate(self._cards):
+            card.setVisible(index < count)
+        for card, event in zip(self._cards, events):
+            card.set_event(event)
+        hidden = len(events) - count
+        self.more.setText(f"还有 {hidden} 条醒目留言")
+        self.more.setVisible(hidden > 0)
+        self.setVisible(bool(events))
+
+    def tick(self) -> None:
+        for card, event in zip(self._cards, self._events):
+            card.tick(event)
+
+
 class DanmakuPanel(QFrame):
     """弹幕格：占画面墙里的一整格，风格和别的格子统一。
 
@@ -852,6 +961,9 @@ class DanmakuPanel(QFrame):
         header_box.addWidget(self.count, 0, Qt.AlignVCenter)
         layout.addWidget(header)
 
+        self.super_chats = SuperChatStack(self)
+        layout.addWidget(self.super_chats)
+
         self.body = DanmakuTextBrowser(self)
         self.body.setObjectName("DanmakuBody")
         self.body.setFrameShape(QFrame.NoFrame)
@@ -890,6 +1002,7 @@ class DanmakuPanel(QFrame):
         bar_box.addWidget(self.font_value)
         layout.addWidget(self.bar)
         self.apply_style()
+        self._sync_super_chat_limit()
         self.set_placeholder("把直播间放到主画面，这里就会显示它的弹幕")
 
     # ---- 拖动 ----
@@ -929,6 +1042,7 @@ class DanmakuPanel(QFrame):
 
     # ---- 内容 ----
     def set_placeholder(self, text: str) -> None:
+        self.set_super_chats([])
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._blocks = []
@@ -1001,6 +1115,27 @@ class DanmakuPanel(QFrame):
             self.body.setHtml(block)              # 第一条：先把占位文字换掉
             self._has_content = True
         self._restore_scroll_state(scroll_state)
+
+    def set_super_chats(self, events: list[dict]) -> None:
+        self.super_chats.set_events(events, self._super_chat_limit())
+
+    def _super_chat_limit(self) -> int:
+        height = 66
+        if self.super_chats._cards:
+            card = self.super_chats._cards[0]
+            height = max(66, card.height() + 4)
+        header_height = self.findChild(QWidget, "DanmakuHeader")
+        header = header_height.height() if header_height is not None else 32
+        reserved = header + 32 + 48
+        fit = (self.height() - reserved) // height
+        return max(0, min(3, fit))
+
+    def _sync_super_chat_limit(self) -> None:
+        self.super_chats.set_events(self.super_chats._events, self._super_chat_limit())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_super_chat_limit()
 
     def _scroll_state(self, removed_blocks: int = 0) -> tuple[bool, int, int]:
         scroll_bar = self.body.verticalScrollBar()
