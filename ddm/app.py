@@ -236,6 +236,7 @@ class MainWindow(QMainWindow):
             card_mode=bool(self.settings.get("sidebar_card_mode", True)),
             auto_compact=bool(self.settings.get("sidebar_auto_compact", True)),
             compact_threshold=int(self.settings.get("sidebar_compact_threshold", 18)),
+            compact_background=bool(self.settings.get("sidebar_compact_background", True)),
         )
 
         self.empty_hint = QLabel(EMPTY_HINT)
@@ -3957,6 +3958,8 @@ class MainWindow(QMainWindow):
         before = self.sidebar.card_mode
         self.sidebar.show_platform_logos = bool(self.settings.get("sidebar_platform_logos", True))
         self.sidebar._sync_count()
+        self.sidebar.set_compact_background(
+            bool(self.settings.get("sidebar_compact_background", True)))
         self.sidebar.set_compact_policy(
             bool(self.settings.get("sidebar_card_mode", True)),
             bool(self.settings.get("sidebar_auto_compact", True)),
@@ -4094,6 +4097,10 @@ class MainWindow(QMainWindow):
             self._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("audio_cycle"):
             self._cycle_audio_under_cursor()
+        elif pressed and pressed == shortcuts.get("record"):
+            tile = self._tile_under_cursor()
+            if tile is not None and tile.room.get("room_id"):
+                self._toggle_recording(tile)
         elif pressed and pressed == shortcuts.get("video_danmaku"):
             tile = self._tile_under_cursor()
             if tile is not None:

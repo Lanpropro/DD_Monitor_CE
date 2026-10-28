@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from . import theme
 from .folder_icons import create_folder_dialog
 from .search import matches_text
-from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
+from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
@@ -31,6 +31,7 @@ SHORTCUT_ACTIONS = [
     ("danmaku_input", "显示播放栏／聚焦鼠标所在格子的弹幕输入框", "Return"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("audio_cycle", "声音轮询按键", "E"),
+    ("record", "开始／停止鼠标所在格子的录制", "R"),
     ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
@@ -210,6 +211,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
+        ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
         ("preview_on_hover", "关注栏直播预览"),
         ("sidebar_platform_logos", "显示关注栏平台 Logo"),
     ]
@@ -307,7 +309,7 @@ class GeneralSettingsPage(QWidget):
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setFixedWidth(240)
-        self.volume_slider.setValue(int(settings.get("default_volume", 42)))
+        self.volume_slider.setValue(int(settings.get("default_volume", DEFAULT_VOLUME)))
         self.volume_label = QLabel(str(self.volume_slider.value()))
         self.volume_label.setObjectName("NavSub")
         self.volume_label.setFixedWidth(28)

@@ -638,11 +638,11 @@ class MainNoticesTests(unittest.TestCase):
         QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(second.danmaku_button.isChecked())
         page = ShortcutSettingsPage(window.shortcuts)
-        page._edits['video_danmaku'].setKeySequence(QKeySequence('R'))
+        page._edits['video_danmaku'].setKeySequence(QKeySequence('K'))
         window.shortcuts = page.values()
         QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(second.danmaku_button.isChecked())
-        QTest.keyClick(window, Qt.Key_R)
+        QTest.keyClick(window, Qt.Key_K)
         self.assertTrue(second.danmaku_button.isChecked())
         page.reset()
         window.shortcuts = page.values()
@@ -656,6 +656,94 @@ class MainNoticesTests(unittest.TestCase):
             QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(first.danmaku_button.isChecked())
         window.sync_danmaku.assert_called()
+
+    def test_record_shortcut_routes_to_hovered_tile_and_preserves_typing(self):
+        window = self.window([{'room_id': '1001'}, {'room_id': '1002'}])
+        tile = window.wall.tiles[1]
+        with patch.object(window, '_tile_under_cursor', return_value=tile) as cursor, \
+                patch.object(window, '_toggle_recording') as toggle:
+            self.assertEqual(window.shortcuts['record'], 'R')
+            QTest.keyClick(window, Qt.Key_R)
+            toggle.assert_called_once_with(tile)
+            toggle.reset_mock()
+            for target in (None, window.wall.tiles[2]):
+                cursor.return_value = target
+                QTest.keyClick(window, Qt.Key_R)
+            toggle.assert_not_called()
+            cursor.return_value = tile
+            window.sidebar.search.clear()
+            QTest.keyClick(window.sidebar.search, Qt.Key_R)
+            self.assertEqual(window.sidebar.search.text(), 'r')
+            toggle.assert_not_called()
+            page = ShortcutSettingsPage(window.shortcuts)
+            self.addCleanup(page.close)
+            page._edits['record'].setKeySequence(QKeySequence('Ctrl+R'))
+            window.shortcuts = page.values()
+            self.assertEqual(window.current_state()['ui']['shortcuts']['record'], 'Ctrl+R')
+            window._handle_shortcut('R')
+            toggle.assert_not_called()
+            window._handle_shortcut('Ctrl+R')
+            toggle.assert_called_once_with(tile)
+            page.reset()
+            self.assertEqual(page.values()['record'], 'R')
+        with patch.object(window, '_start_capture') as start:
+            window._toggle_recording(tile)
+            start.assert_called_once_with(tile, recording=True)
+        with patch.dict(window.recorder.sessions, {tile: Mock(recording=True)}), \
+                patch.object(window.recorder, 'stop') as stop:
+            window._toggle_recording(tile)
+            stop.assert_called_once_with(tile)
+
+    def test_compact_background_switch_hides_banner_and_cover_only_in_compact_mode(self):
+        window = self.window([{'room_id': '1001', 'uname': '背景测试'}])
+        window.settings['sidebar_card_mode'] = False
+        window.apply_preview_settings()
+        thumb = window.sidebar._items[0].thumb
+        cover, banner = QPixmap(400, 200), QPixmap(800, 80)
+        cover.fill(QColor('green'))
+        banner.fill(QColor('red'))
+        thumb.set_cover(cover)
+        thumb.set_banner(banner)
+        thumb.set_face(cover)
+        self.app.processEvents()
+        self.assertFalse(thumb.cover.isHidden())
+        window.settings['sidebar_compact_background'] = False
+        window.apply_preview_settings()
+        self.assertTrue(thumb.cover.isHidden())
+        thumb.set_banner(None)
+        self.assertTrue(thumb.cover.isHidden(), 'Cover fallback must also respect the switch')
+        self.assertFalse(thumb.face.isHidden())
+        self.assertFalse(thumb._overlay_widgets[0].isHidden())
+        window.sidebar.add_room({'room_id': '1002', 'uname': '新关注'})
+        added = window.sidebar._items[-1].thumb
+        added.set_cover(cover)
+        self.assertTrue(added.cover.isHidden(), 'New items inherit the saved policy')
+        self.assertFalse(window.current_state()['settings']['sidebar_compact_background'])
+        window.settings['sidebar_card_mode'] = True
+        window.apply_preview_settings()
+        self.app.processEvents()
+        self.assertFalse(thumb.cover.isHidden(), 'Large cover cards keep their artwork')
+        window.settings['sidebar_card_mode'] = False
+        window.settings['sidebar_compact_background'] = True
+        window.apply_preview_settings()
+        self.app.processEvents()
+        self.assertFalse(thumb.cover.isHidden(), 'Re-enabling restores the cached cover')
+
+    def test_tile_selection_does_not_change_border_in_dark_or_light_theme(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            self.app.processEvents()
+            tile.set_focused(False)
+            before = tile.grab().toImage()
+            tile.set_focused(True)
+            after = tile.grab().toImage()
+            self.assertTrue(tile.property('focused'), 'Selection behavior is retained')
+            for x, y in ((before.width() // 2, 0), (0, before.height() // 2),
+                         (before.width() - 1, before.height() // 2)):
+                self.assertEqual(before.pixelColor(x, y), after.pixelColor(x, y), mode)
+        theme.apply('dark')
 
     def test_delete_closes_only_hovered_tile_and_keeps_empty_slot(self):
         window = self.window([{'room_id': '1001'}, {'room_id': '1001'}])

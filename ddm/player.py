@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from .audio_output import channel_filters, linear_volume
 from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
-from .config import DECODE_HWDEC as HWDEC
+from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
 from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
 
 _runtime = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
@@ -67,7 +67,7 @@ class TilePlayer(QObject):
         self.video_widget = video_widget
         self.silent = bool(silent)
         self.muted = self.silent
-        self.volume = 0 if self.silent else 42
+        self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
         self.paused = False
         self.state = "idle"
