@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+import time
 from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
@@ -336,9 +337,40 @@ def check_import_folder_scope(app, existing_count=32):
 
 
 def check_bulk_import(app):
-    rooms = [dict(room_id=str(20000 + index), uname=f'Bulk {index}', live=index % 3 != 0)
+    rooms = [dict(room_id=str(20000 + index), uname=f'Bulk {index}', live=index % 3 != 0,
+                  face='https://example.invalid/' + str(index))
              for index in range(784)]
+    started = time.perf_counter()
     dialog = FollowImportDialog(rooms, set())
+    construction_ms = (time.perf_counter() - started) * 1000
+    ticks = []
+    heartbeat = QTimer()
+    heartbeat.timeout.connect(lambda: ticks.append(time.perf_counter()))
+    heartbeat.start(5)
+    assert dialog.list.count() < len(rooms) and not dialog.import_button.isEnabled()
+    requests = []
+    dialog.avatarRequested.connect(requests.append)
+    dialog.show()
+    from PySide6.QtTest import QTest
+    QTest.qWait(40)
+    assert 0 < sum(len(batch) for batch in requests) < 60, 'Only visible avatars should be requested'
+    dialog.hide()
+    count = dialog.list.count()
+    QTest.qWait(40)
+    assert dialog.list.count() == count, 'Hidden follow pages must pause population'
+    dialog.show()
+    for _ in range(500):
+        if not dialog._populating:
+            break
+        QTest.qWait(10)
+    assert dialog.list.count() == len(rooms) and dialog.import_button.isEnabled()
+    heartbeat.stop()
+    assert len(ticks) > 2, 'Population must yield to the event loop'
+    gap = max(b - a for a, b in zip(ticks, ticks[1:])) * 1000
+    print(f'Follow page: {len(rooms)} rows, initial {construction_ms:.1f} ms, GUI heartbeat max gap {gap:.1f} ms, initial avatar requests {sum(map(len, requests))}')
+    dialog.list.scrollToBottom()
+    QTest.qWait(80)
+    assert any(rooms[-1]['room_id'] in batch for batch in requests), 'Scrolling loads newly visible avatars'
     dialog._check_live()
     selected = dialog.selected()
     assert len(selected) == sum(room['live'] for room in rooms)

@@ -7869,6 +7869,8 @@ class WallGrid(QWidget):
         if not active:
             self.relayout(force=True)
             self.grid.activate()
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.resize()
 
     def relayout(self, force: bool = False) -> None:
         if self._sidebar_animating:
@@ -8408,11 +8410,13 @@ class WallGrid(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self._sidebar_animating:
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.move()
+            return
         if self._quick_danmaku_layer is not None:
             self._quick_danmaku_layer.resize()
         self._cancel_border_drag()
-        if self._sidebar_animating:
-            return
         if (self._interactive_resize and self.fullscreen_tile is None
                 and (self.layout_id == "corner" or self.layout_id in self._partitions)):
             self._resize_pending = True
