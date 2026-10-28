@@ -45,7 +45,6 @@ class AccountPlatformDialog(QDialog):
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
         self.reauthenticate = reauthenticate
-        self._reauthenticate_kind = platform_kind
         self.rooms = []
         self._account_resolver = None
         self.folder_id = ""
@@ -213,7 +212,7 @@ class AccountPlatformDialog(QDialog):
             layout.addStretch()
             self._set_page(page)
             return
-        if not self.import_follows and not (self.reauthenticate and kind == self._reauthenticate_kind) and (bili.SESSION_DATA if kind == "bilibili"
+        if not self.import_follows and not (self.reauthenticate and kind == "bilibili") and (bili.SESSION_DATA if kind == "bilibili"
                                         else kind in self.owner._accounts and
                                         not self.owner._accounts[kind].get("_login_expired")):
             account = self.owner._accounts.get(kind, {"uname": "B站账号"})
@@ -263,10 +262,6 @@ class AccountPlatformDialog(QDialog):
                 page.finished.connect(lambda result, p=page: self._page_finished(result, p))
                 page.readFailed.connect(lambda _reason, p=page: self._platform_failed(p))
                 self._platform_pages[kind] = page
-                if (self.reauthenticate and kind == self._reauthenticate_kind
-                        and dialog_type is PlatformFollowDialog):
-                    page._forget()
-                    self.reauthenticate = False
                 if auto_read:
                     if (getattr(self.providers[kind], "follow_browser_init_script", "")
                             or getattr(self.providers[kind], "oauth_provider", "")):
