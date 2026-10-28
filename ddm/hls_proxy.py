@@ -12,7 +12,7 @@ import requests
 
 
 class HlsProxy:
-    def __init__(self, source, headers, proxy=None, *, diagnostic=None):
+    def __init__(self, source, headers, proxy=None, *, diagnostic=None, forward_range=True):
         self._stopped = threading.Event()
         self._lock = threading.Lock()
         self._responses = set()
@@ -61,7 +61,7 @@ class HlsProxy:
                     self.send_error(404)
                     return
                 request_headers = dict(headers)
-                if self.headers.get("Range"):
+                if forward_range and self.headers.get("Range"):
                     request_headers["Range"] = self.headers["Range"]
                 response = None
                 session = None

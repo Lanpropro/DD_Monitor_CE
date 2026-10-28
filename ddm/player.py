@@ -208,6 +208,7 @@ class TilePlayer(QObject):
             session, room = self.play_session, self.diagnostic_room
             proxy = request_proxy(url)
             self._hls_proxy = HlsProxy(url, request_headers, proxy,
+                forward_range=not (profile == "huya" and urlsplit(url).path.lower().endswith(".flv")),
                 **({"diagnostic": lambda **event: self._transport_diagnostic(session, room, **event)}
                    if profile == "huya" else {}))
             playback_url = self._hls_proxy.url

@@ -104,6 +104,13 @@ def main():
         assert all(item["Referer"] == "https://www.twitch.tv/" for item in headers)
         assert requests.get(proxy.url.replace(proxy.url.split("/")[3], "wrong", 1), timeout=3).status_code == 404
         assert requests.get(proxy.url.rsplit("/", 2)[0] + "/%%%/resource.ts", timeout=3).status_code == 404
+        live = HlsProxy(base + "/video.ts?signature=public", {}, forward_range=False)
+        try:
+            result = requests.get(live.url, headers={"Range": "bytes=0-"}, timeout=3)
+            assert result.status_code == 200
+            assert "Range" not in headers[-1], "Live FLV must omit player range requests upstream"
+        finally:
+            live.stop()
         events = []
         late = HlsProxy(base + '/late.m3u8', {}, diagnostic=lambda **event: events.append(event))
         try:
