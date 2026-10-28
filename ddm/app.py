@@ -6,6 +6,7 @@
 import faulthandler
 from copy import deepcopy
 import os
+from pathlib import Path
 import sys
 import time
 import webbrowser
@@ -3174,13 +3175,19 @@ class MainWindow(QMainWindow):
             return
         prefix, separator, path = message.partition('：')
         if separator and path and prefix in (
-                '已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放'):
-            self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path)
+                '已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放',
+                '导出录制失败（原始分段保留）', '导出即时回放失败（原始分段保留）'):
+            self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path,
+                              kind='warning' if '失败' in prefix else 'info',
+                              notice_key=('record-export', str(Path(path))),
+                              pending=prefix.startswith('正在导出'))
             return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
-        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
+        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info",
+                          auto_room_link=False)
 
-    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None) -> None:
+    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None,
+                     notice_key=None, pending=False, auto_room_link=True) -> None:
         if self._closing:
             return
         from .online_ui import show_result
@@ -3191,7 +3198,7 @@ class MainWindow(QMainWindow):
             str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
         category = 'pinned_live' if pinned_live else kind
         persistent = self.settings.get('notice_persist_' + category, pinned_live)
-        if on_click is None and rooms and not file_path:
+        if auto_room_link and on_click is None and rooms and not file_path:
             if kind == 'live':
                 on_click = lambda targets=tuple(dict(room) for room in rooms): self._place_live_notice_rooms(targets)
             else:
@@ -3199,7 +3206,8 @@ class MainWindow(QMainWindow):
                 if url:
                     on_click = lambda target=url: self._open_room_browser(target)
         show_result(self, message, rooms=rooms, kind=kind, on_click=on_click,
-                    persistent=persistent, file_path=file_path)
+                    persistent=persistent or pending, file_path=file_path,
+                    notice_key=notice_key, pending=pending)
 
     def _place_live_notice_rooms(self, rooms):
         for room in rooms:

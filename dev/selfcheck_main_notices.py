@@ -427,10 +427,14 @@ class MainNoticesTests(unittest.TestCase):
             notice = window._result_notice
             self.assertEqual(notice._file_path, path)
             entry = window.sidebar.notification_button.center.entries[-1]
-            self.assertIn(path, entry.message)
+            self.assertEqual(entry.message, prefix + '：' + filename)
+            self.assertEqual(entry.file_path, path)
             with patch('ddm.notification_center.reveal_file') as reveal:
-                entry.callback()
-                reveal.assert_called_once_with(path)
+                if prefix.startswith('正在导出'):
+                    self.assertIsNone(entry.callback)
+                else:
+                    entry.callback()
+                    reveal.assert_called_once_with(path)
             self.assertIn('1001', notice._avatars)
             self.assertNotIn(str(Path(path).parent), notice.title.text())
             self.assertIn('…', notice.title.text())
@@ -439,7 +443,7 @@ class MainNoticesTests(unittest.TestCase):
             self.assertFalse(notice.title.wordWrap())
             self.assertGreaterEqual(notice.category.height(), notice.category.fontMetrics().height())
             self.assertGreaterEqual(notice.title.height(), notice.title.fontMetrics().height())
-            self.assertEqual(notice.action.text(), '打开文件位置')
+            self.assertEqual(notice.action.text(), '正在导出…' if prefix.startswith('正在导出') else '打开文件位置')
             self.assertGreaterEqual(notice.height(), 76)
             for width in (320, 1000):
                 window.resize(width, 700)
@@ -454,6 +458,113 @@ class MainNoticesTests(unittest.TestCase):
         window.recorder._say('导出失败；原始分段仍保留在 .ddm-parts：错误目录', room)
         self.assertEqual(window._result_notice._file_path, '')
         self.assertIn('错误目录', window._result_notice.title.text())
+
+    def test_recording_start_waits_for_encoder_and_announces_only_once(self):
+        from concurrent.futures import Future
+        from ddm import recording
+        for codec, ready_via in (('copy', 'poll'), ('h264', 'poll'), ('h264', 'resolved')):
+            with self.subTest(codec=codec, ready_via=ready_via), tempfile.TemporaryDirectory() as directory:
+                window = self.window([{'room_id': '1001', 'uname': '主播甲', 'live': True}])
+                tile = window.wall.tiles[0]
+                tile.stream_url, tile.stream_headers = 'synthetic://stream', {}
+                manager = window.recorder
+                manager.settings.update(recording_dir=directory, recording_codec=codec)
+                future = Future()
+                process = Mock()
+                process.poll.return_value = None
+                messages = []
+                manager.notice.connect(messages.append)
+                try:
+                    with patch.object(recording, 'ffmpeg_path', return_value='synthetic-ffmpeg'), \
+                            patch.object(recording, 'resolve_encoder_async', return_value=future), \
+                            patch.object(recording, 'segment_args', return_value=[]), \
+                            patch.object(recording.subprocess, 'Popen', return_value=process), \
+                            patch.object(recording, '_adopt_process'), \
+                            patch.object(manager, '_free_enough', return_value=True), \
+                            patch.object(manager, '_check_space'):
+                        self.assertTrue(manager.start(tile, recording=True))
+                        if codec == 'h264':
+                            self.assertEqual(messages, [], 'Encoder probing is not a started recording')
+                            future.set_result(('libx264', [], 'CPU'))
+                            if ready_via == 'resolved':
+                                manager.on_resolved(tile)
+                            else:
+                                manager._poll()
+                        manager._poll()
+                        self.assertEqual(messages, ['主播甲 开始录制'])
+                        center = window.sidebar.notification_button.center
+                        self.assertEqual([entry.message for entry in center.entries], messages)
+                        self.assertEqual(len(window._notices), 1)
+                        session = manager.sessions[tile]
+                        session.close_chunk()
+                        session.retry_at = 0.001
+                        manager._poll()
+                        self.assertEqual(messages, ['主播甲 开始录制', '主播甲 重新连接录制流'])
+                finally:
+                    manager.sessions.clear()
+                    manager.timer.stop()
+
+    def test_recording_status_has_no_unrelated_browser_action(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        window = self.window([room])
+        with patch.object(window, '_open_room_browser') as browser:
+            for message in ('主播甲 开始录制', '主播甲 没有可导出的录制分段'):
+                window.recorder._say(message, room)
+                notice = window._result_notice
+                self.assertTrue(notice.action.isHidden())
+                self.assertIsNone(notice._on_click)
+                self.assertIsNone(window.sidebar.notification_button.center.entries[-1].callback)
+                QTest.mouseClick(notice.title, Qt.LeftButton)
+            browser.assert_not_called()
+
+    def test_export_updates_one_card_and_history_entry_per_file(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        window = self.window([room])
+        center = window.sidebar.notification_button.center
+        cards = []
+        for label, path in (('录制', '/synthetic/record.mp4'), ('即时回放', '/synthetic/replay.mp4')):
+            window.recorder._say('正在导出' + label + '：' + path, room)
+            card = window._result_notice
+            cards.append(card)
+            self.assertFalse(card.action.isEnabled())
+            self.assertFalse(card.timer.isActive(), 'Export card must survive long exports')
+        entries = list(center.entries)
+        center.show()
+        self.app.processEvents()
+        for index, (label, path) in enumerate((('录制', '/synthetic/record.mp4'), ('即时回放', '/synthetic/replay.mp4'))):
+            window.recorder._say('已保存' + label + '：' + path, room)
+            self.assertIs(window._result_notice, cards[index])
+            self.assertIs(center.entries[index], entries[index])
+            self.assertEqual(cards[index].category.text(), '已完成')
+            self.assertTrue(cards[index].action.isEnabled())
+            self.assertEqual(cards[index].action.text(), '打开文件位置')
+            self.assertTrue(cards[index].timer.isActive())
+            self.assertEqual(center.rows[entries[index]].message.text(), '已保存' + label + '：' + Path(path).name)
+            self.assertEqual(center.rows[entries[index]].toolTip(), path)
+        self.assertEqual(len(window._notices), 2)
+        self.assertEqual(len(center.entries), 2)
+        center.hide()
+
+    def test_export_failure_updates_pending_card_and_dismissed_export_can_complete(self):
+        room = {'room_id': '1001'}
+        window = self.window([room])
+        path = Path('/synthetic/failed.mp4')
+        window.recorder._say('正在导出录制：' + str(path), room)
+        card = window._result_notice
+        process = Mock(returncode=1)
+        process.poll.return_value = 1
+        window.recorder.exports.append((process, path, [], True))
+        window.recorder._export_rooms[path] = room
+        window.recorder._poll()
+        self.assertIs(window._result_notice, card)
+        self.assertEqual(card.category.text(), '导出失败')
+        self.assertIn('原始分段保留', card.title.text())
+        self.assertTrue(card.timer.isActive())
+        card.dismiss(animate=False, handled=True)
+        window.recorder._say('已保存录制：' + str(path), room)
+        self.assertEqual(len(window._notices), 1)
+        self.assertEqual(window._result_notice.category.text(), '已完成')
+        self.assertEqual(len(window.sidebar.notification_button.center.entries), 1)
 
     def test_recording_file_click_and_context_copy_use_full_path(self):
         window = self.window([{'room_id': '1001', 'uname': '主播甲'}])
