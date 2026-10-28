@@ -2134,6 +2134,10 @@ class MainWindow(QMainWindow):
         attempt = self._retry_count.get(tile, 0) + 1
         self._retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
+        player = self.players.get(tile)
+        if (str(tile.room.get("room_id", "")).startswith("huya:") and
+                getattr(player, "source_failure", "") == "LIVE_EOF"):
+            delay = min(attempt, 5)
         if str(tile.room.get("room_id", "")).startswith("huya:"):
             print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
                   file=sys.stderr, flush=True)

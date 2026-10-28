@@ -49,6 +49,7 @@ class HlsProxy:
         self._samples = deque(maxlen=12)
         self._idle_sessions = []
         self.refresh_required = threading.Event()
+        self.live_ended = threading.Event()
         prefix = "/" + uuid.uuid4().hex + "/"
         relay = self
         proxies = {"http": proxy, "https": proxy} if proxy else None
@@ -179,6 +180,9 @@ class HlsProxy:
                             chunk = next(chunks, None)
                             elapsed += time.monotonic() - reading
                             if chunk is None:
+                                if initial is not None and not relay._stopped.is_set():
+                                    relay.live_ended.set()
+                                    report(url, 0, started, 1, error="LIVE_EOF")
                                 break
                             if relay._stopped.is_set():
                                 break

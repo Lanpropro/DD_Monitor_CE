@@ -124,6 +124,7 @@ def main():
             result = requests.get(transferred.url, headers={"Range": "bytes=0-"}, timeout=3)
             assert result.content == b"transport stream", result.content
             assert attempts.count("/handoff.flv") == 1
+            assert transferred.live_ended.is_set(), "Live EOF must be visible to the player"
         finally:
             transferred.stop()
         opened = requests.get(source, stream=True, timeout=3)

@@ -448,6 +448,9 @@ class TilePlayer(QObject):
             if self.state != "frozen":
                 self._set_state("playing")
             return
+        if self._hls_proxy is not None and self._hls_proxy.live_ended.is_set():
+            self._set_state("error")
+            return
         self._stall_ticks += 2 if ended else 1
         if self._stall_ticks >= self._buffer_limit:
             self._set_state("error")
