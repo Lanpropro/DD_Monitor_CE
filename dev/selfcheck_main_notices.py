@@ -429,8 +429,11 @@ class MainNoticesTests(unittest.TestCase):
             entry = window.sidebar.notification_button.center.entries[-1]
             self.assertIn(path, entry.message)
             with patch('ddm.notification_center.reveal_file') as reveal:
-                entry.callback()
-                reveal.assert_called_once_with(path)
+                if prefix.startswith('正在导出'):
+                    self.assertIsNone(entry.callback)
+                else:
+                    entry.callback()
+                    reveal.assert_called_once_with(path)
             self.assertIn('1001', notice._avatars)
             self.assertNotIn(str(Path(path).parent), notice.title.text())
             self.assertIn('…', notice.title.text())
@@ -439,7 +442,7 @@ class MainNoticesTests(unittest.TestCase):
             self.assertFalse(notice.title.wordWrap())
             self.assertGreaterEqual(notice.category.height(), notice.category.fontMetrics().height())
             self.assertGreaterEqual(notice.title.height(), notice.title.fontMetrics().height())
-            self.assertEqual(notice.action.text(), '打开文件位置')
+            self.assertEqual(notice.action.text(), '正在导出…' if prefix.startswith('正在导出') else '打开文件位置')
             self.assertGreaterEqual(notice.height(), 76)
             for width in (320, 1000):
                 window.resize(width, 700)
@@ -454,6 +457,67 @@ class MainNoticesTests(unittest.TestCase):
         window.recorder._say('导出失败；原始分段仍保留在 .ddm-parts：错误目录', room)
         self.assertEqual(window._result_notice._file_path, '')
         self.assertIn('错误目录', window._result_notice.title.text())
+
+    def test_recording_status_has_no_unrelated_browser_action(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        window = self.window([room])
+        with patch.object(window, '_open_room_browser') as browser:
+            for message in ('主播甲 开始录制', '主播甲 没有可导出的录制分段'):
+                window.recorder._say(message, room)
+                notice = window._result_notice
+                self.assertTrue(notice.action.isHidden())
+                self.assertIsNone(notice._on_click)
+                self.assertIsNone(window.sidebar.notification_button.center.entries[-1].callback)
+                QTest.mouseClick(notice.title, Qt.LeftButton)
+            browser.assert_not_called()
+
+    def test_export_updates_one_card_and_history_entry_per_file(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        window = self.window([room])
+        center = window.sidebar.notification_button.center
+        cards = []
+        for label, path in (('录制', '/synthetic/record.mp4'), ('即时回放', '/synthetic/replay.mp4')):
+            window.recorder._say('正在导出' + label + '：' + path, room)
+            card = window._result_notice
+            cards.append(card)
+            self.assertFalse(card.action.isEnabled())
+            self.assertFalse(card.timer.isActive(), 'Export card must survive long exports')
+        entries = list(center.entries)
+        center.show()
+        self.app.processEvents()
+        for index, (label, path) in enumerate((('录制', '/synthetic/record.mp4'), ('即时回放', '/synthetic/replay.mp4'))):
+            window.recorder._say('已保存' + label + '：' + path, room)
+            self.assertIs(window._result_notice, cards[index])
+            self.assertIs(center.entries[index], entries[index])
+            self.assertEqual(cards[index].category.text(), '已完成')
+            self.assertTrue(cards[index].action.isEnabled())
+            self.assertEqual(cards[index].action.text(), '打开文件位置')
+            self.assertTrue(cards[index].timer.isActive())
+            self.assertEqual(center.rows[entries[index]].message.text(), '已保存' + label + '：' + path)
+        self.assertEqual(len(window._notices), 2)
+        self.assertEqual(len(center.entries), 2)
+        center.hide()
+
+    def test_export_failure_updates_pending_card_and_dismissed_export_can_complete(self):
+        room = {'room_id': '1001'}
+        window = self.window([room])
+        path = Path('/synthetic/failed.mp4')
+        window.recorder._say('正在导出录制：' + str(path), room)
+        card = window._result_notice
+        process = Mock(returncode=1)
+        process.poll.return_value = 1
+        window.recorder.exports.append((process, path, [], True))
+        window.recorder._export_rooms[path] = room
+        window.recorder._poll()
+        self.assertIs(window._result_notice, card)
+        self.assertEqual(card.category.text(), '导出失败')
+        self.assertIn('原始分段保留', card.title.text())
+        self.assertTrue(card.timer.isActive())
+        card.dismiss(animate=False, handled=True)
+        window.recorder._say('已保存录制：' + str(path), room)
+        self.assertEqual(len(window._notices), 1)
+        self.assertEqual(window._result_notice.category.text(), '已完成')
+        self.assertEqual(len(window.sidebar.notification_button.center.entries), 1)
 
     def test_recording_file_click_and_context_copy_use_full_path(self):
         window = self.window([{'room_id': '1001', 'uname': '主播甲'}])

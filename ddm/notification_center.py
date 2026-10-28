@@ -252,10 +252,27 @@ class NotificationCenter(QFrame):
         layout.addWidget(self.scroll, 1)
         self._sync()
 
-    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=()):
+    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False):
         if key is not None:
             if key in self._seen_keys:
-                return next((entry for entry in self.entries if entry.key == key), None)
+                entry = next((entry for entry in self.entries if entry.key == key), None)
+                if not replace:
+                    return entry
+                if entry is not None:
+                    entry.message, entry.kind = str(message), kind
+                    entry.callback, entry.action = callback, action
+                    entry.time = datetime.now().strftime('%H:%M:%S')
+                    entry.unread = not self.isVisible()
+                    entry.rooms = tuple(dict(room) for room in rooms[:3])
+                    row = self.rows.pop(entry, None)
+                    if row is not None:
+                        self.list_layout.removeWidget(row)
+                        row.hide()
+                        row.deleteLater()
+                    if self.isVisible():
+                        self._add_row(entry)
+                    self._sync()
+                    return entry
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
                             callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key)
         self.entries.append(entry)
@@ -406,7 +423,8 @@ class NotificationButton(QPushButton):
             painter.drawEllipse(QPointF(6, -6), 3, 3)
 
 
-def remember_result(parent, message, *, kind='info', on_click=None, file_path=None, rooms=()):
+def remember_result(parent, message, *, kind='info', on_click=None, file_path=None, rooms=(),
+                    notice_key=None, pending=False):
     sidebar = getattr(parent, 'sidebar', None)
     while sidebar is None and parent.parentWidget() is not None:
         parent = parent.parentWidget()
@@ -416,12 +434,13 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
     if sidebar is None or not hasattr(sidebar, 'notification_button'):
         return
     if file_path:
-        callback = lambda path=str(file_path): reveal_file(path)
+        callback = None if pending else lambda path=str(file_path): reveal_file(path)
         action = '打开文件位置'
         message = message + str(file_path)
     else:
         callback = on_click
         action = '放入画面墙' if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
     center = sidebar.notification_button.center
-    entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms)
+    entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms,
+                       key=notice_key, replace=notice_key is not None)
     return center, entry
