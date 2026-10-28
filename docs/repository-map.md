@@ -147,6 +147,7 @@
 - `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
 - `dev/selfcheck_hls_proxy.py`
+- `dev/selfcheck_huya_live_eof.py`
 - `dev/selfcheck_huya_live.py`
 - `dev/selfcheck_huya_watch.py`
 - `dev/selfcheck_launch_scripts.py`

@@ -359,3 +359,5 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_diagnostics](../selfcheck_diagnostics.py) | 单项执行前核对；Windows .NET Framework，临时模拟目录，不读取真实账号配置，不启动主软件 |
+
+| [selfcheck_huya_live_eof](../selfcheck_huya_live_eof.py) | 离线验证虎牙实时流结束后的缓存播放与自动恢复 |
