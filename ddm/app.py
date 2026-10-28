@@ -1732,6 +1732,7 @@ class MainWindow(QMainWindow):
             if not current() or int(tile.quality) != quality:
                 return
             self._resolvers.pop(tile, None)
+            tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
             if strict_codec:
                 self._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
@@ -2927,6 +2928,9 @@ class MainWindow(QMainWindow):
               f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
               f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
         self._fullscreen_tile = tile
+        if self.settings.get('notice_hide_fullscreen', False):
+            for notice in tuple(getattr(self, '_notices', [])):
+                notice.dismiss(animate=False)
         self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
         self.centralWidget().setUpdatesEnabled(False)

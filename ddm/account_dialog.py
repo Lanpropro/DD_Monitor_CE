@@ -420,10 +420,9 @@ class AccountPlatformDialog(QDialog):
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
+        page.avatarRequested.connect(lambda faces: self.owner._start_avatar_loader(faces, page.set_avatar))
         self._set_page(page)
-        faces = {str(room.get("room_id") or "account:" + str(room.get("anchor_uid"))): room.get("face")
-                 for room in rooms if room.get("face")}
-        self.owner._start_avatar_loader(faces, page.set_avatar)
+        page.request_visible_avatars()
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
             page.resolve_button = QPushButton("补充识别", page)
             page.resolve_button.setObjectName("IconButton")

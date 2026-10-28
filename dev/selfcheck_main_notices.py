@@ -517,6 +517,28 @@ class MainNoticesTests(unittest.TestCase):
                 QTest.mouseClick(notice.title, Qt.LeftButton)
             browser.assert_not_called()
 
+    def test_fullscreen_notice_switch_keeps_history_without_popup(self):
+        window = self.window([{'room_id': '1001'}])
+        window._fullscreen_tile = window.wall.tiles[0]
+        window.settings['notice_hide_fullscreen'] = True
+        window._show_notice('全屏提示')
+        self.assertFalse(getattr(window, '_notices', []))
+        center = window.sidebar.notification_button.center
+        self.assertEqual(center.entries[-1].message, '全屏提示')
+        with patch.object(window, '_unread_app_update', return_value={'version': 'test'}), \
+                patch.object(window, '_unread_plugin_updates', return_value=[]):
+            window._show_update_notice()
+            self.assertFalse(window._update_notice.isVisible())
+            self.assertEqual(center.entries[-1].kind, 'update')
+        window.settings['notice_hide_fullscreen'] = False
+        window._show_notice('全屏允许提示')
+        self.assertTrue(window._result_notice.isVisible())
+        window._result_notice.dismiss(animate=False)
+        window.settings['notice_hide_fullscreen'] = True
+        window._fullscreen_tile = None
+        window._show_notice('窗口提示')
+        self.assertTrue(window._result_notice.isVisible())
+
     def test_export_updates_one_card_and_history_entry_per_file(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])

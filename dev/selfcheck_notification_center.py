@@ -91,7 +91,7 @@ class NotificationTests(unittest.TestCase):
             box.setFocus()
             QTest.keyClick(box, Qt.Key_Space)
             self.assertEqual(box.isChecked(), not before)
-            expected = ('已启用' if box.isChecked() else '已关闭') if key == 'live_alert' else (
+            expected = ('已启用' if box.isChecked() else '已关闭') if key in ('live_alert', 'notice_hide_fullscreen') else (
                 '手动关闭' if box.isChecked() else '自动收起')
             self.assertEqual(page._states[key].text(), expected)
             QTest.mouseClick(box, Qt.LeftButton, pos=QPoint(box.width()-2, box.height()//2))

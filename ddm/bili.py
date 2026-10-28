@@ -568,6 +568,7 @@ class StreamResolver(QThread):
         self.original_quality_note = ""
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self.login_required = False
+        self.failure_quality_options = []
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -706,6 +707,14 @@ class StreamResolver(QThread):
             from .plugins import LoginRequiredError, StreamCodecUnavailable
             self.login_required = isinstance(error, LoginRequiredError)
             self.codec_unavailable = isinstance(error, StreamCodecUnavailable)
+            if self.platform is not None and not self.preview and not self._cancelled:
+                try:
+                    options = self.platform.room_quality_options(self.room_id)
+                    self.failure_quality_options = [dict(item) for item in options]
+                    if not any(int(item["qn"]) == 10000 for item in self.failure_quality_options):
+                        self.failure_quality_options.insert(0, {"qn": 10000, "desc": "最高可用"})
+                except Exception:  # A menu lookup must not replace the original playback error.
+                    self.failure_quality_options = [{"qn": 10000, "desc": "最高可用"}]
             if not self._cancelled:
                 self.failed.emit(self.room_id, str(error))
             return

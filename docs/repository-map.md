@@ -129,6 +129,7 @@
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
+- `dev/selfcheck_failed_stream_quality.py`
 - `dev/selfcheck_follow_stress.py`
 - `dev/selfcheck_pinyin_search.py`
 - `dev/selfcheck_follow_refresh.py`

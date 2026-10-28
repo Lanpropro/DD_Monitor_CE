@@ -580,6 +580,8 @@ class UpdateNotice(QFrame):
             sidebar.installEventFilter(self)
 
     def show_offer(self, offer, *, persistent=False):
+        if _notifications_hidden(self.parentWidget()):
+            return
         was_visible = self.isVisible()
         self._motion.stop()
         self._leaving = False
@@ -917,6 +919,11 @@ class ResultNotice(UpdateNotice):
         self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
+def _notifications_hidden(parent):
+    return bool(getattr(parent, 'settings', {}).get('notice_hide_fullscreen', False)
+                and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen()))
+
+
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False,
                 file_path=None, notice_key=None, pending=False):
     from .notification_center import remember_result
@@ -924,7 +931,7 @@ def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persis
         return
     record = remember_result(parent, message, kind=kind, on_click=on_click, file_path=file_path,
                              rooms=rooms, notice_key=notice_key, pending=pending)
-    if not parent.isVisible():
+    if not parent.isVisible() or _notifications_hidden(parent):
         return
     notice = next((item for item in getattr(parent, '_notices', [])
                    if notice_key is not None and getattr(item, '_notice_key', None) == notice_key), None)

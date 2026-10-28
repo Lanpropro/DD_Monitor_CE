@@ -319,6 +319,7 @@
 | [selfcheck_platform_login_expiry](../selfcheck_platform_login_expiry.py) | 单项执行前核对 |
 | [selfcheck_platform_logo_background](../selfcheck_platform_logo_background.py) | `offline` |
 | [selfcheck_platform_reauthentication](../selfcheck_platform_reauthentication.py) | 单项执行前核对；强制重新登录路由与目标平台会话清理 |
+| [selfcheck_failed_stream_quality](../selfcheck_failed_stream_quality.py) | 单项执行前核对；取流失败后的平台画质菜单 |
 | [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | `offline` |
 | [selfcheck_platform_storage](../selfcheck_platform_storage.py) | 单项执行前核对 |
 | [selfcheck_room_status](../selfcheck_room_status.py) | `offline` |
