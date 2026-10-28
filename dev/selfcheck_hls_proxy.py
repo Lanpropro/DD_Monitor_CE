@@ -10,7 +10,7 @@ import time
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ddm.hls_proxy import HlsProxy  # noqa: E402
+from ddm.hls_proxy import HlsProxy, retain_flv_response, take_flv_response  # noqa: E402
 
 
 def main():
@@ -111,6 +111,27 @@ def main():
             assert "Range" not in headers[-1], "Live FLV must omit player range requests upstream"
         finally:
             live.stop()
+        # The source is opened exactly once, including bytes consumed by probing.
+        source = base + "/handoff.flv"
+        opened = requests.get(source, stream=True, timeout=3)
+        chunks = opened.iter_content(4)
+        prefix = next(chunks)
+        token = retain_flv_response(opened, prefix, chunks)
+        initial = take_flv_response(token)
+        assert take_flv_response(token) is None
+        transferred = HlsProxy(source, {}, forward_range=False, initial_response=initial)
+        try:
+            result = requests.get(transferred.url, headers={"Range": "bytes=0-"}, timeout=3)
+            assert result.content == b"transport stream", result.content
+            assert attempts.count("/handoff.flv") == 1
+        finally:
+            transferred.stop()
+        opened = requests.get(source, stream=True, timeout=3)
+        token = retain_flv_response(opened, b"", iter(()))
+        initial = take_flv_response(token)
+        abandoned = HlsProxy(source, {}, initial_response=initial)
+        abandoned.stop()
+        assert opened.raw.closed
         events = []
         late = HlsProxy(base + '/late.m3u8', {}, diagnostic=lambda **event: events.append(event))
         try:

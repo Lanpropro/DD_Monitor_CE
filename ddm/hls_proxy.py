@@ -1,5 +1,6 @@
 """本机 HLS 转发：使用与取流相同的 HTTP/TLS 栈和代理下载清单及分片。"""
 import base64
+import itertools
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import re
@@ -11,8 +12,37 @@ import uuid
 import requests
 
 
+# One-use transfer from source probing to playback; abandoned results expire.
+_FLV_HANDOFFS = {}
+_FLV_LOCK = threading.Lock()
+FLV_HANDOFF_HEADER = "X-DDM-FLV-Handoff"
+
+
+def retain_flv_response(response, prefix, chunks):
+    token = uuid.uuid4().hex
+    def expire():
+        item = take_flv_response(token)
+        if item is not None:
+            item[0].close()
+    timer = threading.Timer(20, expire)
+    timer.daemon = True
+    with _FLV_LOCK:
+        _FLV_HANDOFFS[token] = (response, prefix, chunks, timer)
+    timer.start()
+    return token
+
+
+def take_flv_response(token):
+    with _FLV_LOCK:
+        item = _FLV_HANDOFFS.pop(token, None)
+    if item is not None:
+        item[3].cancel()
+    return item
+
+
 class HlsProxy:
-    def __init__(self, source, headers, proxy=None, *, diagnostic=None, forward_range=True):
+    def __init__(self, source, headers, proxy=None, *, diagnostic=None, forward_range=True, initial_response=None):
+        self._initial_response = initial_response
         self._stopped = threading.Event()
         self._lock = threading.Lock()
         self._responses = set()
@@ -72,10 +102,14 @@ class HlsProxy:
                             return
                         session = relay._idle_sessions.pop() if relay._idle_sessions else requests.Session()
                     started = time.monotonic()
+                    initial = None
+                    with relay._lock:
+                        if url == source and relay._initial_response is not None:
+                            initial, relay._initial_response = relay._initial_response, None
                     for attempt in range(3):
                         try:
-                            response = session.get(url, headers=request_headers, proxies=proxies,
-                                stream=True, timeout=(4, 8))
+                            response = initial[0] if initial is not None else session.get(
+                                url, headers=request_headers, proxies=proxies, stream=True, timeout=(4, 8))
                             response.raise_for_status()
                             break
                         except requests.RequestException as error:
@@ -138,7 +172,8 @@ class HlsProxy:
                         self.wfile.write(body)
                     else:
                         size = 0
-                        chunks = response.iter_content(65536)
+                        chunks = (itertools.chain([initial[1]], initial[2]) if initial is not None
+                                  else response.iter_content(65536))
                         while True:
                             reading = time.monotonic()
                             chunk = next(chunks, None)
@@ -189,7 +224,10 @@ class HlsProxy:
             return
         self._stopped.set()
         with self._lock:
+            initial, self._initial_response = self._initial_response, None
             sessions, self._idle_sessions = self._idle_sessions, []
+        if initial is not None:
+            initial[0].close()
         for session in sessions:
             session.close()
         # 由请求线程关闭 response；跨线程 close 会等待读锁，阻塞窗口关闭。

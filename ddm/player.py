@@ -204,10 +204,11 @@ class TilePlayer(QObject):
         playback_url = url
         if overseas or profile == "huya":
             from .global_danmaku import request_proxy
-            from .hls_proxy import HlsProxy
+            from .hls_proxy import HlsProxy, FLV_HANDOFF_HEADER, take_flv_response
             session, room = self.play_session, self.diagnostic_room
             proxy = request_proxy(url)
-            self._hls_proxy = HlsProxy(url, request_headers, proxy,
+            initial = take_flv_response(request_headers.pop(FLV_HANDOFF_HEADER, ""))
+            self._hls_proxy = HlsProxy(url, request_headers, proxy, initial_response=initial,
                 forward_range=not (profile == "huya" and urlsplit(url).path.lower().endswith(".flv")),
                 **({"diagnostic": lambda **event: self._transport_diagnostic(session, room, **event)}
                    if profile == "huya" else {}))
