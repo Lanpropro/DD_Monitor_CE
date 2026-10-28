@@ -91,6 +91,9 @@ class SettingsProcess(QObject):
         self.pending = {'kind': 'open', 'settings': {
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
+        from PySide6.QtWidgets import QWidget
+        if isinstance(self.parent(), QWidget):
+            self.pending['owner_hwnd'] = int(self.parent().window().winId())
         if self.ready:
             self._open_pending()
         else:
@@ -197,6 +200,13 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            self.owner_window = None
+            if snapshot.get('owner_hwnd') and app.platformName() == 'windows':
+                # A separate process has no QWidget parent. Native ownership
+                # keeps settings above the host when its video overlays raise.
+                self.owner_window = QWindow.fromWinId(snapshot['owner_hwnd'])
+                self.winId()
+                self.windowHandle().setTransientParent(self.owner_window)
             # Compare against the values shown by the controls, not raw input.
             # settings() adds metadata such as an empty seen_update_versions map.
             self.initial_settings = deepcopy(self.settings())
