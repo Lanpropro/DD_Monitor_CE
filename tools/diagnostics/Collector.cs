@@ -487,12 +487,14 @@ namespace DDMonitorDiagnostics
             }
             catch (Exception error) { warnings.Add("日志目录无法枚举（" + error.GetType().Name + "）。"); }
             AddLog(entries, "ddm-pyinstaller-paths.txt");
+            section("platform-diagnostics.json", () => PlatformDiagnostics(entries));
             section("crash-events.json", CrashEvents);
             add("collection.json", new { schema = 1, warnings, limits = "最多5份近期日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制、缓存或内存转储；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
                 "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
                 "\r\n\r\n" + (native == null ? "libmpv 检查未完成，见收集提示。" : redact.Text(NativeDependencies.Summary(native))) +
+                "\r\n\r\nplatform-diagnostics.json：平台响应、查询、取流和播放器错误的已有日志摘要，无需手工筛选；缺少记录不代表正常，不自动判定根因。" +
                 "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nnative-dependencies.json：隔离子进程中的 libmpv 加载、Win32错误码、直接依赖与函数入口检查。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
                 "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不能还原崩溃前内存。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
             progress(85, "写入诊断 ZIP…");
@@ -524,6 +526,30 @@ namespace DDMonitorDiagnostics
                 if (text != null) entries[relative] = redact.Text(text);
             }
             catch (Exception error) { warnings.Add(relative + "：读取失败（" + error.GetType().Name + "）。"); }
+        }
+
+        object PlatformDiagnostics(Dictionary<string, string> entries)
+        {
+            // Reuse the bounded, already-redacted log copies. Never load plugins or make requests.
+            var events = new List<object>();
+            var counts = new Dictionary<string, int>();
+            foreach (var entry in entries.Where(p => p.Key.StartsWith("logs/")).OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                var lines = entry.Value.Split('\n');
+                for (int index = 0; index < lines.Length; index++)
+                {
+                    var line = lines[index].TrimEnd('\r');
+                    if (!Regex.IsMatch(line, @"\[(?:Issue13-test\d+|平台诊断|状态刷新失败|取流失败|画质档位)\]")) continue;
+                    var stage = Regex.Match(line, @"阶段=(\w+)");
+                    var category = stage.Success ? stage.Groups[1].Value :
+                        line.Contains("[画质档位]") ? "source_ready" : "failure_summary";
+                    counts[category] = counts.ContainsKey(category) ? counts[category] + 1 : 1;
+                    events.Add(new { log = entry.Key, line = index + 1, stage = category, text = line });
+                }
+            }
+            return new { status = events.Count == 0 ? "not_recorded" : "observed", counts,
+                events = events.Skip(Math.Max(0, events.Count - 1000)).ToArray(),
+                note = "仅汇总已有日志；未记录某阶段不代表正常。记录位于日志截取范围内，行号对应包内日志。" };
         }
     }
 }

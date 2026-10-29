@@ -339,7 +339,7 @@ def check_resolver() -> None:
 
 
 def check_player_container(application) -> None:
-    """H.264/HEVC/AV1 和国内平台直接交给 libmpv，无 FFmpeg 播放中继。"""
+    """编码交给 libmpv；虎牙沿用 HTTP 入口代理，不引入 FFmpeg 播放中继。"""
     video = QWidget()
     core = Mock()
     with patch.object(player_module.TilePlayer, "bind"):
@@ -348,9 +348,15 @@ def check_player_container(application) -> None:
         try:
             for profile in ("app", "app-hls-avc", "app-hls-hevc", "app-hls-av1", "web-hls", "huya", "douyu", "douyin"):
                 tile_player.play("https://cdn.test/live.m3u8", profile, {"User-Agent": "test"})
-                assert tile_player._media == "https://cdn.test/live.m3u8"
-                assert tile_player._hls_proxy is None
-                core.command.assert_called_with("loadfile", "https://cdn.test/live.m3u8", "replace")
+                if profile == "huya":
+                    assert tile_player._hls_proxy is not None
+                    playback_url = tile_player._hls_proxy.url
+                    assert playback_url.startswith("http://127.0.0.1:")
+                else:
+                    assert tile_player._hls_proxy is None
+                    playback_url = "https://cdn.test/live.m3u8"
+                assert tile_player._media == playback_url
+                core.command.assert_called_with("loadfile", playback_url, "replace")
                 assert core.http_header_fields == ["User-Agent: test"]
         finally:
             tile_player.release()

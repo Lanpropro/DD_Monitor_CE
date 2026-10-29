@@ -1660,6 +1660,9 @@ class MainWindow(QMainWindow):
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = self._stream_attempts.get(tile, 0)
         self._stream_attempts[tile] = source_offset + 1
+        if room_id.startswith("huya:"):
+            print(f"[平台诊断] 阶段=source_request 房间={room_id} 画质={quality} 尝试={source_offset + 1}",
+                  file=sys.stderr, flush=True)
         resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
                                   self, source_offset=source_offset,
                                   platform=platform,
@@ -1784,6 +1787,7 @@ class MainWindow(QMainWindow):
         player.stream_profile = profile
         player.stream_codec = stream_codec
         player.stream_headers = dict(tile.stream_headers)
+        player.diagnostic_room = str(room.get("room_id") or "")
         player.actual_quality = int(quality or 0)
         player.configure_auto_quality(str(room.get("room_id") or ""),
             options if tile.quality == AUTO_QUALITY and profile in OVERSEAS_PLATFORMS else [])
@@ -2000,7 +2004,13 @@ class MainWindow(QMainWindow):
             tile.set_buffering(False)
             tile.set_status("")
             tile.start_elapsed_timer()
-            self._retry_count.pop(tile, None)
+            if str(tile.room.get("room_id", "")).startswith("huya:"):
+                player = self.players.get(tile)
+                if player is not None:
+                    generation = player.state_generation
+                    QTimer.singleShot(15000, lambda: self._reset_stable_huya_retry(tile, player, generation))
+            else:
+                self._retry_count.pop(tile, None)
             player = self.players.get(tile)
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
@@ -2018,6 +2028,10 @@ class MainWindow(QMainWindow):
             self._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
+            player = self.players.get(tile)
+            if str(tile.room.get("room_id", "")).startswith("huya:") and player is not None:
+                self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
+                    source_url=player.stream_url, reason=player.source_failure or "STALL")
             self.refresh_status()           # 断流可能来自下播，立即向接口确认
             self._schedule_retry(tile)
         else:
@@ -2025,10 +2039,18 @@ class MainWindow(QMainWindow):
             tile.stop_elapsed_timer()
         tile.raise_overlays()
 
+    def _reset_stable_huya_retry(self, tile, player, generation):
+        if (not self._closing and self.players.get(tile) is player and player.state == "playing"
+                and player.state_generation == generation):
+            self._retry_count.pop(tile, None)
+
     def _on_picture_frozen(self, tile) -> None:
         """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
         if not tile.room.get("room_id") or tile.paused:
             return
+        if str(tile.room["room_id"]).startswith("huya:"):
+            if tile in self._resolvers or tile in self._retry_timers:
+                return
         if tile not in self._freeze_refreshed:
             self._freeze_refreshed.add(tile)
             tile.set_status("画面停止更新，正在自动刷新…")
@@ -2077,9 +2099,15 @@ class MainWindow(QMainWindow):
         """断流自动重连：5 秒起，逐次翻倍，最多 60 秒。"""
         if not tile.room.get("room_id"):
             return
+        if str(tile.room["room_id"]).startswith("huya:"):
+            if tile in self._resolvers or tile in self._retry_timers:
+                return
         attempt = self._retry_count.get(tile, 0) + 1
         self._retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
+        if str(tile.room.get("room_id", "")).startswith("huya:"):
+            print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
+                  file=sys.stderr, flush=True)
         tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）")
         timer = self._retry_timers.pop(tile, None)
         if timer is not None:
@@ -3217,8 +3245,9 @@ class MainWindow(QMainWindow):
             resolver = InfoResolver(room_id, self, platform=platform)
             resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id)
                                       if not self._closing else None)
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                self, "添加直播间", "平台房间获取失败，请检查房间链接或稍后重试")
+            resolver.failed.connect(lambda _rid, r=resolver: QMessageBox.warning(
+                self, "添加直播间", "平台房间获取失败\n\n" + (getattr(r, "error_message", "") or
+                    "请检查房间链接或稍后重试"))
                 if not self._closing else None)
             resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
             resolver.finished.connect(resolver.deleteLater)

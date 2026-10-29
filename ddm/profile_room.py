@@ -23,8 +23,12 @@ class ProfileRoomLoader(QThread):
 
     def run(self):
         try:
-            rid = self.platform.profile_room(self.user['uid'], self.cancelled.is_set,
-                                             web_rid=self.user.get('web_rid', ''))
+            from_page = getattr(self.platform, 'profile_room_from_page', None)
+            if callable(from_page):
+                rid = from_page(self.user, self.cancelled.is_set)
+            else:
+                rid = self.platform.profile_room(self.user['uid'], self.cancelled.is_set,
+                                                 web_rid=self.user.get('web_rid', ''))
             if rid and not self.cancelled.is_set():
                 self.loaded.emit(rid)
         except Exception as error:  # noqa: BLE001

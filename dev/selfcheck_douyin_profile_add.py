@@ -20,6 +20,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from ddm.app import MainWindow
 from ddm.dialogs import AddRoomDialog
 from ddm.profile_room import ProfileRoomDialog
+from ddm.bili import InfoResolver
 from dev.selfcheck_account_dialog import dispose
 from dev.selfcheck_platform_follows import wait_for
 from plugins_user.domestic_live.plugin import DouyinPlatform
@@ -84,7 +85,8 @@ def main():
                 elif mode[0] in ('react', 'direct', 'wrong_owner'):
                     user['secUid'] = user.pop('sec_uid')
                     if mode[0] in ('direct', 'wrong_owner'):
-                        user['roomData'] = json.dumps({'owner': {'idStr': '101' if mode[0] == 'direct' else '202',
+                        user['roomData'] = json.dumps({'status': 2, 'title': 'Browser live',
+                                                      'owner': {'idStr': '101' if mode[0] == 'direct' else '202',
                                                                'webRid': '123'}})
                     content = ('<div data-e2e="user-info"></div><script>' +
                         'document.querySelector("div")["__reactProps$fixture"] = {userInfo:' +
@@ -128,7 +130,22 @@ def main():
                 exported = []
                 dialog.browser.page().runJavaScript('JSON.stringify(window.__ddmDouyinProfile.peek())', exported.append)
                 wait_for(app, lambda: bool(exported))
-                assert set(json.loads(exported[0])) == {'uid', 'sec_uid', 'web_rid'}
+                snapshot = json.loads(exported[0])
+                assert not snapshot.get('unneeded') and snapshot['nickname'] == 'Fixture'
+                assert set(snapshot) <= {'uid', 'sec_uid', 'web_rid', 'nickname', 'avatar', 'title', 'status', 'cover'}
+                if reading == 'direct':
+                    # 复现官网窗口成功、后续匿名 HTTP 超时：真正执行添加解析而非仅断言房间号。
+                    resolved, failed = [], []
+                    resolver = InfoResolver(dialog.room_id, platform=provider)
+                    resolver.resolved.connect(resolved.append)
+                    resolver.failed.connect(failed.append)
+                    with patch('requests.get', side_effect=AssertionError('Must reuse browser room data')):
+                        resolver.run()
+                    assert not failed and resolved[0]['uname'] == 'Fixture'
+                    assert resolved[0]['title'] == 'Browser live' and resolved[0]['live']
+                    assert resolved[0]['anchor_uid'] == '101'
+                elif reading == 'wrong_owner':
+                    assert not snapshot.get('web_rid') and snapshot.get('status') is None
                 assert owner._platform_login_sessions == {}
                 dispose(app, dialog)
             # 官网主动请求失败时停止等待；重试必须重新加载页面，并能读取新渲染的资料。

@@ -727,8 +727,10 @@ class InfoResolver(QThread):
         super().__init__(parent)
         self.room_id = str(room_id)
         self.platform = platform
+        self.error_message = ""
 
     def run(self) -> None:
+        self.error_message = ""
         try:
             if self.platform is not None:
                 result = self.platform.room_info(self.room_id)
@@ -737,7 +739,21 @@ class InfoResolver(QThread):
                 from .room_input import is_bili_short_url, resolve_bili_share
                 room_id = resolve_bili_share(self.room_id) if is_bili_short_url(self.room_id) else self.room_id
                 info = room_info(room_id) if room_id.isdigit() else None
-        except Exception:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
+            message = getattr(error, "user_message", "")
+            if isinstance(message, str) and message.strip():
+                self.error_message = message[:600]
+            elif isinstance(error, requests.Timeout):
+                self.error_message = "房间资料请求超时，请稍后重试"
+            elif isinstance(error, requests.HTTPError):
+                status = error.response.status_code if error.response is not None else "未知"
+                self.error_message = f"房间资料请求失败（HTTP {status}），请稍后重试"
+            elif isinstance(error, requests.RequestException):
+                self.error_message = "房间资料连接失败，请检查网络或代理设置后重试"
+            else:
+                self.error_message = "未能解析房间资料，请确认完整直播间链接；持续失败时请反馈平台、版本与失败时间"
+            # 异常原文可能包含账号凭证或带签名 URL，只记录类型与明确可展示的提示。
+            print(f"[添加直播间] {type(error).__name__}: {self.error_message}", file=sys.stderr)
             info = None
         if info is None:
             self.failed.emit(self.room_id)

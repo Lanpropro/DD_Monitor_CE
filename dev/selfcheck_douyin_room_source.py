@@ -63,12 +63,15 @@ def main():
         status[0] = 4
         assert not provider.room_info('douyin:123').live
         target[0] = '999'
-        try:
-            provider.room_data('douyin:123')
-        except ValueError:
-            pass
-        else:
-            raise AssertionError('Different anchor room accepted')
+        # 主播记录不匹配时允许独立网页回退，但不能接受错误主播的记录。
+        with patch.object(provider, '_room_page', side_effect=ValueError('No matching fallback')) as fallback:
+            try:
+                provider.room_data('douyin:123')
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError('Different anchor room accepted')
+            fallback.assert_called_once_with('douyin:123', None)
         assert all('/live.douyin.com/123' not in call.args[0] for call in get.call_args_list)
     # 主页已提供固定房间号而历史记录为空时，同步取流和异步弹幕均可回退到官方直播页。
     page_info = {'room': {'id_str': '903', 'status': 2, 'owner': {'id_str': '101'}}}

@@ -85,6 +85,55 @@ class DiagnosticTests(unittest.TestCase):
                          + chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 2) * 2)) + chunk(b'IEND', b''))
         return path
 
+    def test_platform_diagnostics_summarize_redacted_existing_logs(self):
+        self.put('logs/ddm-2026-10-26.log', '\n'.join([
+            '[插件 domestic_live] [Issue13-test3] 阶段=page_response HTTP=200 类型=text/html',
+            '[插件 domestic_live] [Issue13-test3] 阶段=player_error 类别=HTTP_403',
+            '[画质档位] huya:199300: 原画(10000)',
+            '[取流失败] 连接失败',
+            '[取流失败] token=PRIVATE_DIAGNOSTIC_TOKEN https://cdn.test/live?secret=PRIVATE_URL',
+            'unrelated line']))
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(report['status'], 'observed')
+        self.assertEqual(report['counts'], {'page_response': 1, 'player_error': 1,
+                                           'source_ready': 1, 'failure_summary': 1})
+        self.assertEqual(len(report['events']), 4)
+        self.assertEqual(report['events'][0]['line'], 1)
+        self.assertNotIn('PRIVATE_DIAGNOSTIC_TOKEN', entries['platform-diagnostics.json'])
+        self.assertNotIn('PRIVATE_URL', entries['platform-diagnostics.json'])
+        self.assertIn('platform-diagnostics.json', entries['诊断摘要.txt'])
+
+    def test_huya_transport_and_cdn_recovery_are_included(self):
+        self.put('logs/ddm-2026-10-27.log', '\n'.join([
+            '[平台诊断] 阶段=playback_session 房间=huya:123 会话=fixture 路径=hls_relay CDN=cdn.test',
+            '[平台诊断] 阶段=hls_request 房间=huya:123 会话=fixture resource=media status=403 local=False',
+            '[平台诊断] 阶段=hls_request 房间=huya:123 会话=fixture status=503 local=True error=refresh_required',
+            '[插件 domestic_live] [平台诊断] 阶段=source_rejected 房间=huya:123 CDN=cdn.test',
+            '[插件 domestic_live] [平台诊断] 阶段=source_selected 房间=huya:123 CDN=next.test']))
+        report = json.loads(self.collect()['platform-diagnostics.json'])
+        self.assertEqual(report['counts'], {'playback_session': 1, 'hls_request': 2,
+                                           'source_rejected': 1, 'source_selected': 1})
+        self.assertIn('local=True', report['events'][2]['text'])
+
+    def test_platform_diagnostics_missing_logs_do_not_claim_success(self):
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(report['status'], 'not_recorded')
+        self.assertEqual(report['events'], [])
+
+    def test_platform_summary_keeps_latest_day_when_old_logs_fill_limit(self):
+        self.put('logs/ddm-2026-10-25.log', '\n'.join(
+            '[画质档位] huya:1001: old-' + str(i) for i in range(1100)))
+        self.put('logs/ddm-2026-10-26.log',
+                 '[插件 domestic_live] [平台诊断] 阶段=player_error 类别=HTTP_403')
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(len(report['events']), 1000)
+        self.assertEqual(report['events'][-1]['log'], 'logs/ddm-2026-10-26.log')
+        self.assertEqual(report['events'][-1]['stage'], 'player_error')
+        self.assertEqual(report['counts']['source_ready'], 1100)
+
     def native_fixture(self, dependency='kernel32.dll', symbol='GetCurrentProcessId', x64=True):
         """Minimal inert PE DLL: no entry point, one import, no application code."""
         data = bytearray(0x800)
