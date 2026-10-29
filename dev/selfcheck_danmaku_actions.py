@@ -122,6 +122,56 @@ class ActionsTests(unittest.TestCase):
             tile._show_danmaku_actions('small tile', QPoint())
         self.assertEqual(self.sent, [('13', 'small tile')])
 
+    def test_outside_click_only_dismisses_toolbar_without_replaying_on_comments(self):
+        panel = self.wall.danmaku
+        panel.add_message('Viewer', 'first comment')
+        panel.add_message('Viewer', 'second comment')
+        APP.processEvents()
+        body = panel.body
+        cursor = body.textCursor()
+        cursor.setPosition(0)
+        first = body.cursorRect(cursor).center()
+        cursor.setPosition(body.document().lastBlock().position())
+        second = body.cursorRect(cursor).center()
+        targets = (second, QPoint(20, body.viewport().height() - 10))
+        for target in targets:
+            with self.subTest(target=target):
+                opened = []
+                replay_blocked = []
+                class TrackingToolbar(danmaku_actions.CommentToolbar):
+                    def exec(menu, position):
+                        opened.append(menu)
+                        return super().exec(position + QPoint(150, 100))
+                    def closeEvent(menu, event):
+                        replay_blocked.append(menu.testAttribute(Qt.WA_NoMouseReplay))
+                        super().closeEvent(event)
+                APP.clipboard().setText('unchanged')
+                fallback = QTimer()
+                fallback.setSingleShot(True)
+                fallback.timeout.connect(lambda: QApplication.activePopupWidget().reject()
+                    if QApplication.activePopupWidget() else None)
+                fallback.start(250)
+                def click_outside():
+                    menu = QApplication.activePopupWidget()
+                    point = menu.mapFromGlobal(body.viewport().mapToGlobal(target))
+                    QTest.mouseClick(menu.windowHandle(), Qt.LeftButton, pos=point)
+                QTimer.singleShot(30, click_outside)
+                with patch.object(danmaku_actions, 'CommentToolbar', TrackingToolbar):
+                    QTest.mouseClick(body.viewport(), Qt.LeftButton, pos=first)
+                closed_by_click = fallback.isActive()
+                fallback.stop()
+                self.assertTrue(closed_by_click)
+                self.assertEqual(replay_blocked, [True])
+                self.assertEqual(len(opened), 1)
+                self.assertIsNone(opened[0].chosen)
+                self.assertIsNone(QApplication.activePopupWidget())
+                self.assertEqual(APP.clipboard().text(), 'unchanged')
+                self.assertEqual(self.sent, [])
+                self.assertFalse(panel._follow_tail)
+        with self.choose(0):
+            QTest.mouseClick(body.viewport(), Qt.LeftButton, pos=second)
+        self.assertEqual(APP.clipboard().text(), 'second comment')
+
     def test_chat_left_click_targets_body_and_ignores_blank_space(self):
         panel = self.wall.danmaku
         panel.add_message('Name', 'first <message>')
