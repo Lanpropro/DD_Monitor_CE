@@ -677,11 +677,55 @@ def check_quick_owner_destruction(app):
         'Queued UI events must not dereference a destroyed playback wall'
 
 
+def check_qt_picture_surface(app):
+    # run.cmd requests Quick for native mpv tiles. Plugin Qt pictures have no
+    # shared Quick wall and must restore their own raster canvas instead.
+    with patch.dict(os.environ, DDM_QTQUICK_DANMAKU='1'), \
+            patch.object(VideoDanmaku, '_native_layered', lambda self: self.native_video):
+        for clipped in (False, True):
+            parent = QWidget()
+            parent.resize(640, 360)
+            overlay = VideoDanmaku(parent)
+            overlay.setGeometry(parent.rect())
+            try:
+                assert overlay._quick_requested
+                region = QRegion(QRect(0, 0, 640, 340)) if clipped else QRegion()
+                overlay.setMask(region)
+                layer = Mock() if clipped else None
+                if layer is not None:
+                    overlay._quick_layer, overlay._quick_group = layer, 17
+                overlay.set_native_video(False)
+                if layer is not None:
+                    layer.remove_group.assert_called_once_with(17)
+                    assert overlay._quick_layer is None and overlay._quick_group is None
+                assert not overlay._quick_requested, 'Qt plugin pictures must not wait for a shared Quick canvas'
+                assert overlay.mask() == region, 'Restore the real video mask, not the hidden controller pixel'
+                overlay.apply_settings({'video_danmaku_size': 24, 'video_danmaku_area': 100,
+                                        'video_danmaku_scale': False, 'video_danmaku_opacity': 100})
+                parent.show()
+                overlay.set_active(True)
+                overlay.set_enabled(True)
+                app.processEvents()
+                before = overlay.grab().toImage()
+                assert overlay.add_event({'text': 'Qt picture comment', 'uname': 'fixture'})
+                overlay.set_paused(True)
+                overlay.comments[0].x = 80
+                overlay.repaint()
+                app.processEvents()
+                after = overlay.grab().toImage()
+                assert before != after, 'Received comments must actually paint over the Qt picture'
+            finally:
+                overlay.clear()
+                parent.close()
+    print('PASS: Quick-enabled launcher restores visible scrolling comments on Qt plugin pictures')
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_qt_picture_surface(app)
     check_quick_occlusion(app)
     check_quick_controller_mask()
     check_move_window_mask()
