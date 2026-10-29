@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QFontDatabase, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -11,7 +12,98 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme
-from ddm.widgets import DanmakuToggleButton, ElidedLabel, Tile
+from ddm.widgets import DanmakuToggleButton, ElidedLabel, Tile, VolumeButton
+
+
+def check_volume_icon_alignment(app):
+    # Offscreen Windows has no system fonts. Load the UI font explicitly and
+    # keep the bundled font as a fallback on other platforms.
+    theme.danmaku_font_family()
+    fonts = Path(os.environ.get('WINDIR', '')) / 'Fonts'
+    for name in ('msyh.ttc', 'msyhbd.ttc'):
+        if (fonts / name).is_file():
+            QFontDatabase.addApplicationFont(str(fonts / name))
+    for size in (26, 30, 36):
+        button = VolumeButton(size=size)
+        button.setStyleSheet('background: black; border: none;')
+        button.show()
+        try:
+            channel_centers = {}
+            for muted, channel in ((False, 0), (False, 3), (False, 4), (True, 0)):
+                button.set_state(muted, 42, channel)
+                app.processEvents()
+                image = button.grab().toImage()
+                scale = image.devicePixelRatio()
+                pixels = [(x, y) for y in range(image.height()) for x in range(image.width())
+                          if image.pixelColor(x, y).lightness() > 40]
+                assert pixels
+                left, right = min(x for x, y in pixels), max(x for x, y in pixels)
+                assert abs((left + right + 1) / (2 * scale) - button.width() / 2) <= 1, \
+                    f'speaker and indicator must be centered together: {size}, {muted}, {channel}'
+                indicator = [(x, y) for x, y in pixels if x >= image.width() / 2]
+                top, bottom = min(y for x, y in indicator), max(y for x, y in indicator)
+                assert abs((top + bottom + 1) / (2 * scale) - size / 2) <= 0.5, \
+                    f'L/R and mute cross must center on the speaker: {size}, {muted}, {channel}'
+                assert left > 0 and right < image.width() - 1, 'icon must not clip'
+                if not muted:
+                    blue = [x for x, y in indicator
+                            if image.pixelColor(x, y).green() > image.pixelColor(x, y).red() + 10
+                            and image.pixelColor(x, y).blue() > image.pixelColor(x, y).red() + 10]
+                    split = (button.width() / 2 + 6.5) * scale
+                    # Ignore the antialiased edge between the two letters.
+                    assert any(x + 0.5 < split - 0.5 * scale for x in blue) == (channel in (0, 3)), \
+                        'default stereo and left-only must highlight L blue'
+                    assert any(x + 0.5 >= split + 0.5 * scale for x in blue) == (channel in (0, 4)), \
+                        'default stereo and right-only must highlight R blue'
+                    if channel:
+                        channel_centers[channel] = (min(blue) + max(blue) + 1) / (2 * scale)
+            assert 0 < channel_centers[4] - channel_centers[3] <= 6, \
+                'L/R must form a compact pair with space beside the speaker'
+        finally:
+            button.close()
+
+
+def check_volume_unmutes(app, tile):
+    changes = []
+    tile.volumeChanged.connect(lambda room, value: changes.append(('volume', value)))
+    tile.muteToggled.connect(lambda room, muted: changes.append(('mute', muted)))
+    for control in ('horizontal', 'vertical', 'wheel-up', 'wheel-down', 'direct'):
+        tile.set_volume(42)
+        tile.set_muted(True)
+        changes.clear()
+        if control == 'horizontal':
+            tile.volume_slider.setValue(55)
+            expected = 55
+        elif control == 'vertical':
+            tile.vertical_volume.setValue(31)
+            expected = 31
+        elif control.startswith('wheel'):
+            delta = 120 if control == 'wheel-up' else -120
+            event = QWheelEvent(QPointF(10, 10), QPointF(10, 10), QPoint(), QPoint(0, delta),
+                                Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+            QApplication.sendEvent(tile.volume_button, event)
+            expected = 47 if delta > 0 else 37
+        else:
+            tile.set_volume(60)
+            expected = 60
+        assert not tile.muted and not tile.room['muted'] and not tile.volume_button.muted, control
+        assert tile.volume == tile.room['volume'] == tile.volume_button.level == expected, control
+        assert tile.volume_slider.value() == tile.vertical_volume.value() == expected, control
+        assert changes == [('volume', expected), ('mute', False)], (control, changes)
+    tile.set_muted(True)
+    changes.clear()
+    tile.set_volume(0)
+    assert tile.muted and tile.room['muted'] and tile.volume_button.muted
+    assert changes == [('volume', 0)], changes
+    tile.set_volume(42)
+    tile.set_muted(True)
+    changes.clear()
+    tile.sync_audio_ui()
+    assert tile.muted and tile.volume_button.muted and not changes, 'UI refresh must preserve mute'
+    tile.set_muted(False)
+    changes.clear()
+    tile.set_volume(43)
+    assert changes == [('volume', 43)], 'audible adjustments must not repeat mute signals'
 
 
 def check_restored_styles(app, tile):
@@ -54,6 +146,8 @@ def main():
     tile.volumeChanged.connect(lambda room, volume: events.append(volume))
     tile.show()
     try:
+        check_volume_unmutes(app, tile)
+        check_volume_icon_alignment(app)
         check_restored_styles(app, tile)
         for width, height in ((900, 500), (360, 210), (300, 500)):
             tile.resize(width, height)
@@ -87,7 +181,7 @@ def main():
         assert "record" in events and "mute" in events and 55 in events
     finally:
         tile.close()
-    print("Tile bottom: wide/narrow/portrait, recording time, disabled recording and signals passed")
+    print("Tile bottom: volume unmute, centered icons, wide/narrow/portrait, recording and signals passed")
 
 
 if __name__ == "__main__":
