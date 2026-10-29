@@ -158,6 +158,39 @@ class MainNoticesTests(unittest.TestCase):
             color = image.pixelColor(x, 50)
             self.assertGreater(color.green(), max(color.red(), color.blue()))
 
+    def test_notice_frost_blurs_artwork_and_refreshes_cached_image(self):
+        from PySide6.QtGui import QPainter
+        from ddm.room_artwork import RoomArtwork, notice_frost
+        artwork = RoomArtwork(())
+        source = QPixmap(160, 80)
+        source.fill(Qt.black)
+        painter = QPainter(source)
+        painter.fillRect(80, 0, 80, 80, Qt.white)
+        painter.end()
+        artwork.cover = source
+        frost = artwork.frosted()
+        self.assertEqual(frost.size(), source.size())
+        self.assertGreater(frost.toImage().pixelColor(78, 40).red(), 0)
+        self.assertLess(frost.toImage().pixelColor(82, 40).red(), 255)
+        self.assertEqual(artwork.frosted().cacheKey(), frost.cacheKey())
+        self.assertEqual(source.toImage().pixelColor(78, 40).red(), 0)
+        owner = QWidget()
+        child = QWidget(owner)
+        owner.settings = {'notice_banner_blur': 0}
+        self.assertIsNone(notice_frost(child, artwork))
+        owner.settings['notice_banner_blur'] = 4
+        weak = notice_frost(child, artwork)
+        owner.settings['notice_banner_blur'] = 40
+        strong = notice_frost(child, artwork)
+        self.assertGreater(strong.toImage().pixelColor(77, 40).red(),
+                           weak.toImage().pixelColor(77, 40).red())
+        self.assertEqual(notice_frost(child, artwork).cacheKey(), strong.cacheKey())
+        artwork.banner = QPixmap(160, 80)
+        artwork.banner.fill(Qt.red)
+        self.assertNotEqual(artwork.frosted().cacheKey(), frost.cacheKey())
+        artwork.banner = artwork.cover = None
+        self.assertIsNone(artwork.frosted())
+
     def test_streamer_background_priority_and_platform_logo(self):
         self.addCleanup(theme.apply, theme.mode())
         from ddm import images
@@ -517,6 +550,28 @@ class MainNoticesTests(unittest.TestCase):
                 QTest.mouseClick(notice.title, Qt.LeftButton)
             browser.assert_not_called()
 
+    def test_fullscreen_notice_switch_keeps_history_without_popup(self):
+        window = self.window([{'room_id': '1001'}])
+        window._fullscreen_tile = window.wall.tiles[0]
+        window.settings['notice_hide_fullscreen'] = True
+        window._show_notice('全屏提示')
+        self.assertFalse(getattr(window, '_notices', []))
+        center = window.sidebar.notification_button.center
+        self.assertEqual(center.entries[-1].message, '全屏提示')
+        with patch.object(window, '_unread_app_update', return_value={'version': 'test'}), \
+                patch.object(window, '_unread_plugin_updates', return_value=[]):
+            window._show_update_notice()
+            self.assertFalse(window._update_notice.isVisible())
+            self.assertEqual(center.entries[-1].kind, 'update')
+        window.settings['notice_hide_fullscreen'] = False
+        window._show_notice('全屏允许提示')
+        self.assertTrue(window._result_notice.isVisible())
+        window._result_notice.dismiss(animate=False)
+        window.settings['notice_hide_fullscreen'] = True
+        window._fullscreen_tile = None
+        window._show_notice('窗口提示')
+        self.assertTrue(window._result_notice.isVisible())
+
     def test_export_updates_one_card_and_history_entry_per_file(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
@@ -767,6 +822,18 @@ class MainNoticesTests(unittest.TestCase):
             QTest.keyClick(window, Qt.Key_B)
         self.assertFalse(first.danmaku_button.isChecked())
         window.sync_danmaku.assert_called()
+
+    def test_input_shortcut_over_danmaku_panel_routes_to_its_composer(self):
+        window = self.window([{'room_id': '1001'}])
+        window.wall.set_layout('dm_pair')
+        self.app.processEvents()
+        panel = window.wall.danmaku
+        controls = panel._tile_controls
+        self.assertIsNotNone(controls)
+        with patch('ddm.app.QCursor.pos', return_value=panel.mapToGlobal(panel.rect().center())), \
+                patch.object(controls, 'focus_input', return_value=True) as focus:
+            self.assertTrue(window._handle_shortcut(window.shortcuts['danmaku_input']))
+            focus.assert_called_once_with()
 
     def test_record_shortcut_routes_to_hovered_tile_and_preserves_typing(self):
         window = self.window([{'room_id': '1001'}, {'room_id': '1002'}])

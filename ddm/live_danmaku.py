@@ -213,8 +213,16 @@ def douyin_events(data):
         user = proto_fields(proto_first(chat, 2))
         text = proto_first(chat, 3 if method == b"WebcastChatMessage" else 5).decode("utf-8", "replace")
         if text:
-            events.append({"kind": "danmaku", "uname": proto_first(user, 3).decode("utf-8", "replace"),
-                           "text": text})
+            event = {"kind": "danmaku", "uname": proto_first(user, 3).decode("utf-8", "replace"),
+                     "text": text}
+            common = proto_fields(proto_first(chat, 1))
+            mid = proto_first(message, 3, 0) or proto_first(common, 2, 0)
+            if isinstance(mid, int) and mid > 0:
+                event["message_id"] = str(mid)
+            uid = proto_first(user, 1, 0)
+            if isinstance(uid, int) and uid > 0:
+                event["uid"] = str(uid)
+            events.append(event)
     return True, events, ack
 
 

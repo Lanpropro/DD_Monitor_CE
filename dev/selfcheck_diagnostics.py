@@ -41,17 +41,6 @@ class DiagnosticTests(unittest.TestCase):
         if result.returncode:
             raise AssertionError(result.stdout.decode('utf-8', errors='replace') + result.stderr.decode('utf-8', errors='replace'))
 
-    def test_rotated_and_crash_logs_are_included_with_platform_summary(self):
-        self.put('logs/ddm-crash.log', 'fixture native crash')
-        self.put('logs/ddm-2026-10-29.log.1', '[平台诊断] 阶段=source_request fixture rotated')
-        self.put('logs/ddm.log', 'fixture PR61 compatible')
-        self.put('logs/unrelated.log.1', 'PRIVATE_UNRELATED')
-        entries = self.collect()
-        self.assertIn('fixture native crash', entries['logs/ddm-crash.log'])
-        self.assertIn('fixture rotated', entries['logs/ddm-2026-10-29.log.1'])
-        self.assertIn('fixture PR61 compatible', entries['logs/ddm.log'])
-        self.assertNotIn('PRIVATE_UNRELATED', str(entries))
-
     def setUp(self):
         self.case = Path(tempfile.mkdtemp(dir=self.base, prefix='case-'))
         self.app = self.case / '软件 测试目录'
@@ -84,6 +73,41 @@ class DiagnosticTests(unittest.TestCase):
                          + chunk(b'tEXt', b'Comment\0NEVER_KEEP_IMAGE_METADATA')
                          + chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 2) * 2)) + chunk(b'IEND', b''))
         return path
+
+    def test_independent_user_data_folder_is_used_for_config_plugins_and_logs(self):
+        location_file = runpy.run_path(str(ROOT / 'ddm/data_paths.py'))['location_file']
+        data = self.case / '用户数据'
+        (data / 'utils').mkdir(parents=True)
+        (data / 'utils/config.json').write_text('{"settings":{"default_volume":37}}', encoding='utf-8')
+        self.put('utils/config.json', '{"settings":{"default_volume":12}}')
+        (data / 'logs').mkdir()
+        (data / 'logs/ddm-2026-10-29.log').write_text('external data log', encoding='utf-8')
+        plugin = data / 'plugins_user/test_plugin'
+        plugin.mkdir(parents=True)
+        (plugin / 'plugin.json').write_text('{"version":"9.9"}', encoding='utf-8')
+        home = self.case / 'user-home'
+        location = location_file(self.app, home)
+        location.parent.mkdir(parents=True)
+        location.write_text(json.dumps({'root': str(data)}), encoding='utf-8')
+        result = subprocess.run([str(self.driver), '--data-location', str(self.app), str(self.output), str(home)],
+                                capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with zipfile.ZipFile(next(self.output.glob('*.zip'))) as archive:
+            self.assertEqual(json.loads(archive.read('config/current.json'))['settings']['default_volume'], 37)
+            self.assertIn(b'external data log', archive.read('logs/ddm-2026-10-29.log'))
+            self.assertIn(b'9.9', archive.read('plugins.json'))
+
+    def test_rotated_and_crash_logs_are_included_with_platform_summary(self):
+        self.put('logs/ddm-crash.log', 'fixture native crash')
+        self.put('logs/ddm-2026-10-29.log.1', '[平台诊断] 阶段=source_request fixture rotated')
+        self.put('logs/ddm.log', 'fixture PR61 compatible')
+        self.put('logs/unrelated.log.1', 'PRIVATE_UNRELATED')
+        entries = self.collect()
+        self.assertIn('fixture native crash', entries['logs/ddm-crash.log'])
+        self.assertIn('fixture rotated', entries['logs/ddm-2026-10-29.log.1'])
+        self.assertIn('fixture PR61 compatible', entries['logs/ddm.log'])
+        self.assertIn('source_request', entries['platform-diagnostics.json'])
+        self.assertNotIn('PRIVATE_UNRELATED', str(entries))
 
     def test_platform_diagnostics_summarize_redacted_existing_logs(self):
         self.put('logs/ddm-2026-10-26.log', '\n'.join([
@@ -430,7 +454,7 @@ class DiagnosticTests(unittest.TestCase):
             result = subprocess.run(['powershell', '-NoProfile', '-File', str(ROOT / 'dev/build_diagnostics.ps1'),
                                      '-OutDir', str(output), *arguments], capture_output=True, timeout=40)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.1.zip') as archive:
+        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.2.zip') as archive:
             self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
             for name in archive.namelist():
                 self.assertEqual(archive.read(name), (standalone / name).read_bytes())

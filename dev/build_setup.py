@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ddm.update_install import MANIFEST, PROTECTED, relative_path
 from ddm.legacy_cleanup import INVENTORY
+from ddm.data_paths import INSTALL_MARKER
 from ddm.version import DISPLAY_NAME, VERSION
 
 APP_ID = 'DDMonitorCE'
@@ -36,8 +37,14 @@ def payload_files(payload):
     """Allow only release program files, never local data or directory links."""
     payload = Path(payload).resolve()
     build = json.loads((payload / 'ddm-build.json').read_text(encoding='utf-8-sig'))
-    if build != {'version': VERSION, 'update_protocol': 1, 'platform': 'windows-x64'}:
+    expected = {'version': VERSION, 'update_protocol': 1, 'platform': 'windows-x64'}
+    if ({key: build.get(key) for key in expected} != expected
+            or set(build) - set(expected) - {'source_commit'}):
         raise ValueError('Portable build does not match this release')
+    commit = build.get('source_commit')
+    if commit is not None and (not isinstance(commit, str) or len(commit) != 40
+                               or any(char not in '0123456789abcdef' for char in commit)):
+        raise ValueError('Invalid source commit in portable build')
     files = []
     for path in sorted(payload.rglob('*')):
         if path.is_symlink() or path.is_junction():
@@ -64,6 +71,8 @@ def write_script(payload, work, output):
     # Only Setup receives this initial inventory; the update ZIP forbids this path.
     inventory = work / MANIFEST
     inventory.write_text(json.dumps(files, ensure_ascii=False), encoding='utf-8')
+    marker = work / INSTALL_MARKER
+    marker.write_text('{"schema":1,"installed":true}', encoding='utf-8')
     helper = ROOT / 'work/setup-native/DDMonitorInstallerHelper.exe'
     # Keep the pre-install tool before the large payload, in its own solid block.
     entries = [f'Source: {quote(helper)}; Flags: dontcopy']
@@ -78,14 +87,15 @@ def write_script(payload, work, output):
     entries.insert(1, f'Source: {quote(helper)}; DestDir: "{{app}}"; '
                    'DestName: "DDMonitorUninstall.exe"; Flags: ignoreversion')
     entries.append(f'Source: {quote(inventory)}; DestDir: "{{app}}"; Flags: ignoreversion')
+    entries.append(f'Source: {quote(marker)}; DestDir: "{{app}}"; Flags: ignoreversion')
     entries.append(f'Source: {quote(ROOT / "dev/installer/ChineseSimplified-LICENSE.txt")}; '
                    'DestDir: "{app}\\setup-license"; Flags: ignoreversion')
     directories.add('\\setup-license')
     guards = '\n'.join('  if not SafePath(ExpandConstant(' +
                        "'{app}" + directory.replace("'", "''") + "')) then Exit;"
                        for directory in sorted(directories))
-    cleanup_guards = '\n'.join("  if not SafePath(ExpandConstant('{app}\\" +
-                               name.replace('/', '\\') + "')) then Exit;" for name in PERSONAL_FILES)
+    cleanup_guards = '\n'.join("  if not SafePath(AddBackslash(PersonalDataDir) + '" +
+                               name.replace('/', '\\') + "') then Exit;" for name in PERSONAL_FILES)
     cleanup_files = '\n'.join("  RemovePersonalFile('" + name.replace('/', '\\') + "');"
                               for name in PERSONAL_FILES)
     script = f'''[Setup]
@@ -94,8 +104,11 @@ AppName={DISPLAY_NAME}
 AppVersion={VERSION}
 AppPublisher=Lanpropro
 AppPublisherURL=https://github.com/Lanpropro/DD_Monitor_CE
-DefaultDirName={{localappdata}}\\Programs\\DDMonitorCE
+DefaultDirName={{autopf}}\\DDMonitorCE
+DisableDirPage=no
 PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
+UsePreviousPrivileges=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -145,6 +158,20 @@ Filename: "{{app}}\\{DISPLAY_NAME}.exe"; Description: "启动 {DISPLAY_NAME}"; F
 [Code]
 var
   RemovePersonalData, CleanupFailed: Boolean;
+  PersonalDataDir: String;
+
+function QuoteProcessPath(Value: String): String;
+var
+  Index: Integer;
+begin
+  Result := Value;
+  Index := Length(Value);
+  while (Index > 0) and (Value[Index] = '\\') do begin
+    Result := Result + '\\';
+    Index := Index - 1;
+  end;
+  Result := '"' + Result + '"';
+end;
 
 procedure BrowseInstallFolder(Sender: TObject);
 var
@@ -158,7 +185,7 @@ begin
   while (not DirExists(Initial)) and (ExtractFileDir(Initial) <> Initial) do
     Initial := ExtractFileDir(Initial);
   if Exec(ExpandConstant('{{tmp}}\\DDMonitorInstallerHelper.exe'),
-      '--pick-folder "' + Initial + '" "' + Output + '" ' + IntToStr(WizardForm.Handle),
+      '--pick-folder ' + QuoteProcessPath(Initial) + ' ' + QuoteProcessPath(Output) + ' ' + IntToStr(WizardForm.Handle),
       '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then begin
     if LoadStringsFromFile(Output, Lines) and (GetArrayLength(Lines) = 1) then begin
       Selected := Trim(Lines[0]);
@@ -179,6 +206,9 @@ end;
 
 function GetFileAttributes(Name: String): LongWord;
   external 'GetFileAttributesW@kernel32.dll stdcall';
+
+function GetTempFileName(Directory, Prefix: String; Unique: LongWord; Name: String): LongWord;
+  external 'GetTempFileNameW@kernel32.dll stdcall';
 
 function CanCreateShortcut(Name: String): Boolean;
 begin
@@ -209,11 +239,114 @@ begin
   Result := True;
 end;
 
+function InstallDirectoryError: String;
+var
+  Directory, Parent, Probe, FileName: String;
+begin
+  Result := '安装目录包含链接，请选择普通文件夹。';
+  if not SafeProgramPaths then Exit;
+  Result := '无法写入所选安装位置：' + WizardDirValue + #13#10 + #13#10 +
+    '当前安装进程没有此位置的写入权限。' + #13#10 +
+    '请选择默认目录 ' + ExpandConstant('{{localappdata}}\\Programs\\DDMonitorCE') +
+    '，或其他可写位置（例如 E:\\DDMonitorCE）。' + #13#10 +
+    '如需安装到 Program Files，请重新启动安装器并选择“为所有用户安装”，按提示授权管理员权限。';
+  Directory := WizardDirValue;
+  while not DirExists(Directory) do begin
+    Parent := ExtractFileDir(Directory);
+    if Parent = Directory then Exit;
+    Directory := Parent;
+  end;
+  Probe := StringOfChar(#0, 260);
+  if GetTempFileName(Directory, 'ddm', 0, Probe) = 0 then Exit;
+  while (Length(Probe) > 0) and (Probe[Length(Probe)] = #0) do
+    SetLength(Probe, Length(Probe) - 1);
+  if not DeleteFile(Probe) then Exit;
+  if not CreateDir(Probe) then Exit;
+  try
+    FileName := AddBackslash(Probe) + 'write-test';
+    if SaveStringToFile(FileName, 'DDMonitorCE write check', False) then
+      Result := '';
+  finally
+    DeleteFile(FileName);
+    RemoveDir(Probe);
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Error: String;
+begin
+  Result := True;
+  if CurPageID <> wpSelectDir then Exit;
+  Error := InstallDirectoryError;
+  Result := Error = '';
+  if not Result then
+    SuppressibleMsgBox(Error, mbError, MB_OK, IDOK);
+end;
+
 function PersonalPathsSafe: Boolean;
 begin
   Result := False;
+  if PersonalDataDir = '' then Exit;
 {cleanup_guards}
   Result := True;
+end;
+
+function ReadDataRoot(Json: String; var Root: String): Boolean;
+var
+  Index, Offset: Integer;
+  Value: String;
+begin
+  Result := False;
+  Root := '';
+  Index := Pos('"root"', Json);
+  if Index = 0 then Exit;
+  Index := Index + Length('"root"');
+  Offset := Pos(':', Copy(Json, Index, Length(Json)));
+  if Offset = 0 then Exit;
+  Index := Index + Offset;
+  while (Index <= Length(Json)) and (Json[Index] <= ' ') do Index := Index + 1;
+  if (Index > Length(Json)) or (Json[Index] <> '"') then Exit;
+  Index := Index + 1;
+  while Index <= Length(Json) do begin
+    Value := Json[Index];
+    if Value = '"' then begin
+      Result := Root <> '';
+      Exit;
+    end;
+    if Value = '\\' then begin
+      Index := Index + 1;
+      if Index > Length(Json) then Exit;
+      Value := Json[Index];
+      if (Value <> '\\') and (Value <> '/') and (Value <> '"') then Exit;
+    end;
+    Root := Root + Value;
+    Index := Index + 1;
+  end;
+end;
+
+function ResolvePersonalDataDir: Boolean;
+var
+  ProgramDir, Identity, Location: String;
+  Raw: AnsiString;
+begin
+  Result := False;
+  PersonalDataDir := '';
+  ProgramDir := RemoveBackslashUnlessRoot(ExpandFileName(ExpandConstant('{{app}}')));
+  Identity := Copy(Lowercase(GetSHA256OfString(UTF8Encode(Lowercase(ProgramDir)))), 1, 16);
+  Location := ExpandConstant('{{localappdata}}\\DDMonitorCE\\locations\\') + Identity + '.json';
+  if not FileExists(Location) then begin
+    PersonalDataDir := ProgramDir;
+  end else begin
+    if not SafePath(Location) then Exit;
+    if not LoadStringFromFile(Location, Raw) then Exit;
+    if not ReadDataRoot(UTF8Decode(Raw), PersonalDataDir) then Exit;
+    PersonalDataDir := RemoveBackslashUnlessRoot(ExpandFileName(PersonalDataDir));
+  end;
+  Log('Resolved personal data directory: ' + PersonalDataDir);
+  Result := DirExists(PersonalDataDir) and SafePath(PersonalDataDir) and
+    (ExtractFileDir(PersonalDataDir) <> PersonalDataDir);
+  if not Result then PersonalDataDir := '';
 end;
 
 function ChooseUninstallOptions: Boolean;
@@ -234,15 +367,19 @@ begin
     Choice := TNewCheckBox.Create(Form);
     Choice.Parent := Form;
     Choice.SetBounds(ScaleX(20), ScaleY(18), ScaleX(430), ScaleY(30));
-    Choice.Caption := '同时清除可识别的个人信息（账号和设置）';
+    Choice.Caption := '同时清除个人信息（账号、设置及插件）';
     Choice.Checked := False;
+    Choice.Enabled := PersonalDataDir <> '';
     Description := TNewStaticText.Create(Form);
     Description.Parent := Form;
     Description.SetBounds(ScaleX(20), ScaleY(62), ScaleX(430), ScaleY(125));
     Description.AutoSize := False;
     Description.WordWrap := True;
-    Description.Caption := '默认保留。勾选后清除内置平台的登录凭据、关注房间、布局和设置及其备份。' + #13#10 + #13#10 +
-      '录制和未登记来源的文件始终保留。现有插件、皮肤、日志和缓存没有逐文件来源记录，因此保留，安装目录可能仍有内容。清理前请退出软件。';
+    if PersonalDataDir <> '' then
+      Description.Caption := '个人信息目录：' + PersonalDataDir + #13#10 + #13#10 +
+        '勾选后清除内置平台登录凭据、关注、布局、设置及其备份，以及已登记的插件文件。录制和未登记来源的文件保留。仅处理当前 Windows 用户的数据，清理前请退出软件。'
+    else
+      Description.Caption := '无法确认当前数据目录，本次卸载将保留个人信息。可先在设置→数据与存储中查看目录。';
     ProceedButton := TNewButton.Create(Form);
     ProceedButton.Parent := Form;
     ProceedButton.SetBounds(ScaleX(260), ScaleY(200), ScaleX(90), ScaleY(28));
@@ -266,12 +403,104 @@ procedure RemovePersonalFile(RelativeName: String);
 var
   Name: String;
 begin
-  Name := ExpandConstant('{{app}}\\') + RelativeName;
+  Name := AddBackslash(PersonalDataDir) + RelativeName;
   if not SafePath(Name) then begin
     CleanupFailed := True;
     Exit;
   end;
   if FileExists(Name) and not DeleteFile(Name) then CleanupFailed := True;
+end;
+
+function PluginIdValid(Name: String): Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  if (Name = '') or (Name[1] < 'a') or (Name[1] > 'z') then Exit;
+  for Index := 2 to Length(Name) do
+    if not (((Name[Index] >= 'a') and (Name[Index] <= 'z')) or
+            ((Name[Index] >= '0') and (Name[Index] <= '9')) or (Name[Index] = '_')) then Exit;
+  Result := True;
+end;
+
+function PluginFileSafe(RelativeName: String): Boolean;
+begin
+  Result := (RelativeName <> '') and (Pos(':', RelativeName) = 0) and
+    (Copy(RelativeName, 1, 1) <> '\\') and
+    (Pos('\\..\\', '\\' + RelativeName + '\\') = 0) and
+    (Pos('\\.\\', '\\' + RelativeName + '\\') = 0) and
+    (Pos('\\\\', RelativeName) = 0);
+end;
+
+procedure RemovePluginFiles(RelativeDir: String);
+var
+  Directory, Inventory, Name, Parent: String;
+  Files: TArrayOfString;
+  Index: Integer;
+begin
+  Directory := AddBackslash(PersonalDataDir) + RelativeDir;
+  Inventory := AddBackslash(Directory) + '.ddm-plugin-files.txt';
+  if not FileExists(AddBackslash(Directory) + 'plugin.py') and not FileExists(Inventory) then Exit;
+  if not SafePath(Directory) or not SafePath(Inventory) then begin
+    CleanupFailed := True;
+    Exit;
+  end;
+  if FileExists(Inventory) then begin
+    if not LoadStringsFromFile(Inventory, Files) then begin
+      CleanupFailed := True;
+      Exit;
+    end;
+    for Index := 0 to GetArrayLength(Files) - 1 do begin
+      StringChangeEx(Files[Index], '/', '\\', True);
+      Name := AddBackslash(Directory) + Files[Index];
+      if not PluginFileSafe(Files[Index]) or not SafePath(Name) then begin
+        CleanupFailed := True;
+        Exit;
+      end;
+    end;
+    for Index := 0 to GetArrayLength(Files) - 1 do begin
+      RemovePersonalFile(AddBackslash(RelativeDir) + Files[Index]);
+      Parent := ExtractFileDir(AddBackslash(Directory) + Files[Index]);
+      while CompareText(Parent, Directory) <> 0 do begin
+        if not RemoveDir(Parent) then Break;
+        Parent := ExtractFileDir(Parent);
+      end;
+    end;
+    RemovePersonalFile(AddBackslash(RelativeDir) + '.ddm-plugin-files.txt');
+  end else begin
+    RemovePersonalFile(AddBackslash(RelativeDir) + 'plugin.py');
+    RemovePersonalFile(AddBackslash(RelativeDir) + 'plugin.json');
+  end;
+  RemoveDir(Directory);
+end;
+
+procedure RemoveInstalledPlugins(RelativeRoot: String);
+var
+  Found: TFindRec;
+  Directory, Id: String;
+begin
+  Directory := AddBackslash(PersonalDataDir) + RelativeRoot;
+  if not DirExists(Directory) then Exit;
+  if not SafePath(Directory) then begin
+    CleanupFailed := True;
+    Exit;
+  end;
+  if FindFirst(AddBackslash(Directory) + '*', Found) then begin
+    try
+      repeat
+        if (Found.Attributes and $10) <> 0 then begin
+          Id := Found.Name;
+          if (RelativeRoot = 'plugins_user\\.updates') and
+             (Copy(Id, Length(Id) - 6, 7) = '.backup') then
+            Id := Copy(Id, 1, Length(Id) - 7);
+          if PluginIdValid(Id) then RemovePluginFiles(AddBackslash(RelativeRoot) + Found.Name);
+        end;
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+  RemoveDir(Directory);
 end;
 
 procedure CurUninstallStepChanged(Step: TUninstallStep);
@@ -280,12 +509,14 @@ begin
     if not PersonalPathsSafe then CleanupFailed := True
     else begin
 {cleanup_files}
-      RemoveDir(ExpandConstant('{{app}}\\utils\\accounts'));
-      RemoveDir(ExpandConstant('{{app}}\\utils'));
+      RemoveInstalledPlugins('plugins_user\\.updates');
+      RemoveInstalledPlugins('plugins_user');
+      RemoveDir(AddBackslash(PersonalDataDir) + 'utils\\accounts');
+      RemoveDir(AddBackslash(PersonalDataDir) + 'utils');
     end;
   end;
   if (Step = usPostUninstall) and CleanupFailed then
-    SuppressibleMsgBox('部分个人信息无法清理，或路径包含链接。为保护其他文件，已保留这些内容。请检查原安装目录。',
+    SuppressibleMsgBox('部分个人信息无法清理，或路径包含链接。为保护其他文件，已保留这些内容。请检查数据目录：' + PersonalDataDir,
       mbError, MB_OK, IDOK);
 end;
 
@@ -295,11 +526,8 @@ var
   OldDir: String;
   HasFiles, OwnInstall: Boolean;
 begin
-  Result := '';
-  if not SafeProgramPaths then begin
-    Result := '安装目录包含链接，请选择普通文件夹。';
-    Exit;
-  end;
+  Result := InstallDirectoryError;
+  if Result <> '' then Exit;
   HasFiles := False;
   if FindFirst(ExpandConstant('{{app}}\\*'), Found) then begin
     try
@@ -310,7 +538,7 @@ begin
       FindClose(Found);
     end;
   end;
-  OwnInstall := RegQueryStringValue(HKCU,
+  OwnInstall := RegQueryStringValue(HKA,
     'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}_is1',
     'InstallLocation', OldDir);
   OwnInstall := OwnInstall and
@@ -327,7 +555,10 @@ begin
   if not Result then
     SuppressibleMsgBox('程序目录被改成了链接。为保护其他位置的文件，卸载已停止，请先恢复普通目录。',
       mbError, MB_OK, IDOK);
-  if Result then Result := ChooseUninstallOptions;
+  if Result then begin
+    if not ResolvePersonalDataDir then PersonalDataDir := '';
+    Result := ChooseUninstallOptions;
+  end;
 end;
 '''
     target = work / 'DDMonitorSetup.iss'

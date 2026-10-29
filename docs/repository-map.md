@@ -40,8 +40,10 @@
 - `dev/check_preview_live.py`
 - `dev/check_release_package.py`
 - `dev/check_setup_install.py`
+- `dev/check_setup_permissions.py`
 - `dev/check_setup_data_cleanup.py`
 - `dev/selfcheck_setup.py`
+- `dev/selfcheck_data_paths.py`
 - `dev/build_setup.py`
 - `dev/build_program_inventory.py`
 - `dev/selfcheck_legacy_cleanup.py`
@@ -99,6 +101,7 @@
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`
+- `dev/selfcheck_danmaku_actions.py`
 - `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`
@@ -114,6 +117,7 @@
 - `dev/selfcheck_douyin_follow_cache.py`
 - `dev/selfcheck_douyin_follow_resolution.py`
 - `dev/selfcheck_douyin_profile_add.py`
+- `dev/selfcheck_douyin_room_verification.py`
 - `dev/selfcheck_douyin_restart_cache.py`
 - `dev/selfcheck_douyin_room_source.py`
 - `dev/selfcheck_douyin_stream_fallback.py`
@@ -133,6 +137,7 @@
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
+- `dev/selfcheck_failed_stream_quality.py`
 - `dev/selfcheck_follow_stress.py`
 - `dev/selfcheck_pinyin_search.py`
 - `dev/selfcheck_follow_refresh.py`
@@ -150,6 +155,7 @@
 - `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
 - `dev/selfcheck_hls_proxy.py`
+- `dev/selfcheck_huya_live_eof.py`
 - `dev/selfcheck_huya_live.py`
 - `dev/selfcheck_huya_watch.py`
 - `dev/selfcheck_launch_scripts.py`
@@ -238,6 +244,7 @@
 - `dev/selfcheck_platform_follows.py`
 - `dev/selfcheck_platform_login_expiry.py`
 - `dev/selfcheck_platform_logo_background.py`
+- `dev/selfcheck_platform_reauthentication.py`
 - `dev/selfcheck_platform_offline_tiles.py`
 - `dev/selfcheck_platform_preview.py`
 - `dev/selfcheck_platform_preview_live.py`
@@ -336,6 +343,7 @@
 ### 其他已跟踪文件
 
 - `results/.gitignore`
+- `docs/overview3_Landscape_mode.png`
 
 ### 历史记录
 
@@ -415,6 +423,7 @@
 - `docs/releases/RELEASE-v0.5.1.md`
 - `docs/releases/RELEASE-v0.5.2-super-chat.md`
 - `docs/releases/RELEASE-v0.5.2.md`
+- `docs/releases/RELEASE-v0.6.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 独立网站原型

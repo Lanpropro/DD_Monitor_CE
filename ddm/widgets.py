@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOption, QStyleOptionButton, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import layouts, motion, mouse_hook, resize_layout, theme
@@ -373,7 +373,51 @@ class LoadingIndicator(BadgeSurface):
         self.update()
 
 
-class VolumeButton(QPushButton):
+class TileButton(QPushButton):
+    def focusInEvent(self, event):
+        self._keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason)
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+        self.update()
+
+    def mousePressEvent(self, event):
+        self._keyboard_focus = False
+        super().mousePressEvent(event)
+        self.update()
+
+    def paintEvent(self, event):
+        if not self.property('tileButton'):
+            return super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        painter = QPainter(self)
+        self._paint_button(painter, option)
+
+    def _paint_button(self, painter, option):
+        focused = self.hasFocus() and getattr(self, '_keyboard_focus', False)
+        option.state &= ~QStyle.State_HasFocus
+        frame = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
+        radius = min(9.0, frame.height() / 2)
+        painter.save()
+        if focused:
+            clip = QPainterPath()
+            clip.addRoundedRect(frame.adjusted(1, 1, -1, -1), max(0, radius - 1), max(0, radius - 1))
+            painter.setClipPath(clip)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
+        painter.restore()
+        self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
+        if focused:
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor('#ffffff'), 1.2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(frame, radius, radius)
+
+
+class VolumeButton(TileButton):
     """音量按钮：细线喇叭 + 声道标记，静音时喇叭右边打一个 ×。
 
     点击切换静音，滚轮调音量；声道（原始 / 仅左 / 仅右）由右键菜单切换，
@@ -549,7 +593,7 @@ class SidebarToggleButton(QPushButton):
                          QPointF(center.x(), tip_y))
 
 
-class PauseButton(QPushButton):
+class PauseButton(TileButton):
     """暂停 / 继续：最常见的 ⏸ / ▶ 图形按钮。"""
 
     def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT):
@@ -591,7 +635,7 @@ class PauseButton(QPushButton):
                 QRectF(center.x() + 1.6, center.y() - 6, 3.6, 12), 1.3, 1.3)
 
 
-class RefreshButton(QPushButton):
+class RefreshButton(TileButton):
     """刷新：两个箭头首尾相接的圆环图标。"""
 
     def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT,
@@ -658,7 +702,7 @@ class RefreshButton(QPushButton):
             _draw_arrow_head(painter, center, radius, angle, direction)
 
 
-class DanmakuToggleButton(QPushButton):
+class DanmakuToggleButton(TileButton):
     """画面弹幕开关：开启时在右下角画一个勾（和 B 站播放器一样），不靠整块底色区分。"""
 
     def paintEvent(self, event) -> None:
@@ -766,6 +810,74 @@ class DanmakuTextBrowser(QTextBrowser):
     """能告诉面板“用户正在查看旧弹幕”的文本区。"""
 
     userScrolled = Signal()
+    messageClicked = Signal(int, QPoint)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
+        self._hover_block = None
+        self._action_block = None
+
+    def _block_at(self, position):
+        if not getattr(self.parentWidget(), '_has_content', True):
+            return None
+        block = self.cursorForPosition(position.toPoint()).block()
+        rect = self.document().documentLayout().blockBoundingRect(block).translated(
+            -self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
+        return block if rect.contains(position) and block.text() else None
+
+    def _hover_at(self, position):
+        self._hover_block = self._block_at(position)
+        self.viewport().setCursor(Qt.PointingHandCursor if self._hover_block is not None else Qt.IBeamCursor)
+        self.viewport().update()
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        self._hover_at(event.position())
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.Leave:
+            self._hover_block = None
+            self.viewport().update()
+        return super().viewportEvent(event)
+
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        if self.viewport().underMouse():
+            self._hover_at(QPointF(self.viewport().mapFromGlobal(QCursor.pos())))
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        block = self._action_block if self._action_block is not None else self._hover_block
+        if block is not None and block.isValid():
+            from .danmaku_actions import comment_hover_color
+            rect = self.document().documentLayout().blockBoundingRect(block).translated(
+                -self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
+            rect.setLeft(4)
+            rect.setRight(self.viewport().width() - 4)
+            painter = QPainter(self.viewport())
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(comment_hover_color())
+            painter.drawRoundedRect(rect.adjusted(0, 0, 0, -1), 8, 8)
+
+    def mousePressEvent(self, event):
+        self._click_start = event.position().toPoint() if event.button() == Qt.LeftButton else None
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        start = getattr(self, '_click_start', None)
+        self._click_start = None
+        if (event.button() != Qt.LeftButton or start is None
+                or (event.position().toPoint() - start).manhattanLength() >= QApplication.startDragDistance()
+                or self.textCursor().hasSelection()):
+            return
+        block = self._block_at(event.position())
+        if block is not None:
+            self._hover_at(event.position())
+            self.messageClicked.emit(block.blockNumber(), event.globalPosition().toPoint())
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
@@ -793,6 +905,28 @@ class DanmakuTextBrowser(QTextBrowser):
         self.userScrolled.emit()
 
 
+class DanmakuBottomButton(QPushButton):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("TileCtrl")
+        self.setFixedSize(32, 32)
+        self.setStyleSheet("#TileCtrl {padding: 0; min-width: 0; min-height: 0;}")
+        self.setToolTip("滚动到底部并继续跟随新弹幕")
+        self.setAccessibleName("滚动到最新弹幕")
+        self.setCursor(Qt.PointingHandCursor)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(_icon_color(self), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+        center = self.rect().center()
+        x, y = center.x(), center.y()
+        painter.drawLine(QPointF(x, y - 6), QPointF(x, y + 3))
+        painter.drawLine(QPointF(x - 4, y - 1), QPointF(x, y + 3))
+        painter.drawLine(QPointF(x + 4, y - 1), QPointF(x, y + 3))
+        painter.drawLine(QPointF(x - 5, y + 7), QPointF(x + 5, y + 7))
 class SuperChatAvatarView(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
@@ -1112,12 +1246,12 @@ class DanmakuPanel(QFrame):
         self.body.document().setDocumentMargin(8)
         self.body.document().setMaximumBlockCount(self.max_blocks)
         self.body.userScrolled.connect(self._on_user_scroll)
+        self.body.messageClicked.connect(self._message_clicked)
         scroll_bar = self.body.verticalScrollBar()
         scroll_bar.sliderPressed.connect(self._on_scroll_pressed)
         scroll_bar.sliderReleased.connect(self._on_scroll_released)
         scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
         layout.addWidget(self.body, 1)
-        self.body.viewport().installEventFilter(self)
         self.super_chats = SuperChatStack(self.body.viewport())
         self.super_chats.layoutChanged.connect(self._sync_super_chat_limit)
         self.super_chats.dismissed.connect(self.superChatDismissed)
@@ -1130,9 +1264,14 @@ class DanmakuPanel(QFrame):
         bar_box = QHBoxLayout(self.bar)
         bar_box.setContentsMargins(10, 0, 10, 0)
         bar_box.setSpacing(8)
+        self.bottom_button = DanmakuBottomButton(self.body.viewport())
+        self.bottom_button.clicked.connect(self.jump_to_bottom)
+        self.bottom_button.hide()
+        self.body.viewport().installEventFilter(self)
         bar_box.addStretch(1)
         size_label = QLabel("字号")
         size_label.setObjectName("DanmakuBarLabel")
+        self.font_label = size_label
         bar_box.addWidget(size_label)
         self.font_slider = QSlider(Qt.Horizontal)
         self.font_slider.setRange(self.MIN_FONT_SIZE, self.MAX_FONT_SIZE)
@@ -1146,18 +1285,41 @@ class DanmakuPanel(QFrame):
         self.font_value.setFixedWidth(22)
         bar_box.addWidget(self.font_value)
         layout.addWidget(self.bar)
+        self.composer_bar = QWidget(self)
+        self.composer_bar.setObjectName("DanmakuBar")
+        self.composer_bar.setAttribute(Qt.WA_StyledBackground, True)
+        self.composer_bar.setFixedHeight(TILE_BAR_HEIGHT)
+        composer_layout = QHBoxLayout(self.composer_bar)
+        composer_layout.setContentsMargins(8, 4, 8, 4)
+        self.composer_bar.hide()
+        layout.addWidget(self.composer_bar)
+        self._tile_controls = None
         self.apply_style()
         self._sync_super_chat_limit()
         self.set_placeholder("把直播间放到主画面，这里就会显示它的弹幕")
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._layout_bar()
+        if self._tile_controls is not None:
+            self._tile_controls.layout_panel()
         self._sync_super_chat_limit()
+
+    def _layout_bar(self) -> None:
+        used = 20 + self.font_label.sizeHint().width() + 22 + 16
+        self.font_slider.setFixedWidth(max(12, min(96, self.width() - used)))
 
     def eventFilter(self, watched, event):
         if watched is self.body.viewport() and event.type() == QEvent.Resize:
+            self._position_bottom_button()
             self._sync_super_chat_limit()
         return super().eventFilter(watched, event)
+
+    def _position_bottom_button(self):
+        viewport = self.body.viewport()
+        self.bottom_button.move(max(0, viewport.width() - self.bottom_button.width() - 10),
+                                max(0, viewport.height() - self.bottom_button.height() - 10))
+        self.bottom_button.raise_()
 
     # ---- 拖动 ----
     def mousePressEvent(self, event) -> None:
@@ -1195,6 +1357,18 @@ class DanmakuPanel(QFrame):
             self.roomDropped.emit(source)
 
     # ---- 内容 ----
+    def _message_clicked(self, index, position):
+        if not 0 <= index < len(self._blocks):
+            return
+        from .danmaku_actions import show_comment_menu
+        self.body._action_block = self.body.document().findBlockByNumber(index)
+        self.body.viewport().update()
+        try:
+            show_comment_menu(self, self._blocks[index]['text'], self._tile_controls, position)
+        finally:
+            self.body._action_block = None
+            self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
+
     def set_placeholder(self, text: str) -> None:
         for card in self.super_chats._cards:
             if card._paper is not None:
@@ -1211,6 +1385,7 @@ class DanmakuPanel(QFrame):
         color = "#5e6a7d" if theme.is_light() else "#8a8f98"
         self.body.setHtml(
             f'<div style="color:{color};line-height:160%">{text}</div>')
+        self._update_bottom_button()
 
     def set_status(self, text: str) -> None:
         """连接状态（连接中… / 已连接 / 连接失败…）。"""
@@ -1334,6 +1509,17 @@ class DanmakuPanel(QFrame):
         # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。
         QTimer.singleShot(0, restore)
 
+    def jump_to_bottom(self) -> None:
+        self._scroll_revision += 1
+        self._scroll_trim_remainder = 0.0
+        self._follow_tail = True
+        self._scroll_to_bottom()
+        self._update_bottom_button()
+
+    def _update_bottom_button(self) -> None:
+        self.bottom_button.setVisible(not self._follow_tail and self._has_content)
+        self._position_bottom_button()
+
     def _scroll_to_bottom(self) -> None:
         if not self._follow_tail:
             return
@@ -1349,6 +1535,7 @@ class DanmakuPanel(QFrame):
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._follow_tail = self._at_scroll_tail()
+        self._update_bottom_button()
 
     def _on_scroll_pressed(self) -> None:
         self._scroll_revision += 1
@@ -1358,10 +1545,12 @@ class DanmakuPanel(QFrame):
     def _on_scroll_released(self) -> None:
         self._scroll_dragging = False
         self._follow_tail = self._at_scroll_tail()
+        self._update_bottom_button()
 
     def _on_scroll_value_changed(self, _value: int) -> None:
         if self._scroll_dragging:
             self._follow_tail = self._at_scroll_tail()
+            self._update_bottom_button()
 
     # ---- 渲染 ----
     def refresh_theme(self) -> None:
@@ -6263,6 +6452,7 @@ class Tile(QFrame):
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.video_danmaku = VideoDanmaku(self)
+        self.video_danmaku.actionsRequested.connect(self._show_danmaku_actions)
         self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
         # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
@@ -6299,12 +6489,12 @@ class Tile(QFrame):
         self.pause_button = PauseButton(self)
         self.pause_button.clicked.connect(lambda: self.pauseToggled.emit(self.room))
         bottom_layout.addWidget(self.pause_button, 0, Qt.AlignVCenter)
-        self.fullscreen_button = QPushButton("⛶")
+        self.fullscreen_button = TileButton("⛶")
         self.fullscreen_button.setObjectName("TileCtrl")
         self.fullscreen_button.setFixedSize(28, 26)
         self.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self.fullscreen_button.clicked.connect(lambda: self.fullscreenRequested.emit(self))
-        self.recording_button = QPushButton("● 录制")
+        self.recording_button = TileButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
@@ -6318,7 +6508,7 @@ class Tile(QFrame):
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
         self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
                                        else "开启画面弹幕（默认 B）")
-        self.danmaku_settings_button = QPushButton("⚙")
+        self.danmaku_settings_button = TileButton("⚙")
         self.danmaku_settings_button.setObjectName("TileCtrl")
         self.danmaku_settings_button.setFixedSize(26, 26)
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
@@ -6405,6 +6595,11 @@ class Tile(QFrame):
         self.close_button.clicked.connect(lambda: self.closeRequested.emit(self.room))
         for button in (self.quality_button, self.reload_button, self.close_button):
             button.setParent(self.controls)
+        for button in (self.quality_button, self.reload_button, self.close_button,
+                       self.pause_button, self.volume_button, self.fullscreen_button,
+                       self.danmaku_button, self.danmaku_settings_button, self.recording_button):
+            button.setFocusPolicy(Qt.TabFocus)
+            button.setProperty('tileButton', True)
         self.controls.setVisible(False)
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
@@ -6825,7 +7020,7 @@ class Tile(QFrame):
 
     # ---- 控制 ----
     def _make_control(self, text: str, tip: str) -> QPushButton:
-        button = QPushButton(text)
+        button = TileButton(text)
         button.setObjectName("TileCtrl")
         button.setToolTip(tip)
         button.setCursor(Qt.PointingHandCursor)
@@ -7016,6 +7211,17 @@ class Tile(QFrame):
         if self.rect().contains(local):
             return
         self.set_controls_visible(False)
+
+    def _show_danmaku_actions(self, text, position):
+        from .danmaku_actions import show_comment_menu
+        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position)
+
+    def _open_clicked_danmaku(self, event):
+        start = getattr(self, '_press_pos', None)
+        position = event.globalPosition().toPoint()
+        return (event.button() == Qt.LeftButton and start is not None
+                and (self.mapFromGlobal(position) - start).manhattanLength() < QApplication.startDragDistance()
+                and self.video_danmaku.open_actions_at(position))
 
     def focus_danmaku_input(self) -> None:
         controls = getattr(self, '_plugin_controls', None)
@@ -7270,6 +7476,12 @@ class Tile(QFrame):
         return result
 
     def eventFilter(self, watched, event) -> bool:
+        if watched is self.video:
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._press_pos = self.mapFromGlobal(event.globalPosition().toPoint())
+            elif event.type() == QEvent.MouseButtonRelease and self._open_clicked_danmaku(event):
+                event.accept()
+                return True
         if watched in (self.volume_button, self.volume_menu):
             if event.type() == QEvent.Enter:
                 self._volume_hide_timer.stop()
@@ -7551,6 +7763,9 @@ class Tile(QFrame):
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
+            if self._open_clicked_danmaku(event):
+                event.accept()
+                return
             self.clicked.emit(self.room)
 
     def set_focused(self, focused: bool) -> None:
@@ -8175,11 +8390,14 @@ class WallGrid(QWidget):
         if not active:
             self.relayout(force=True)
             self.grid.activate()
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.resize()
 
     def relayout(self, force: bool = False) -> None:
         self.sync_sc_placement()
         if self._sidebar_animating:
             return
+        QTimer.singleShot(0, self._sync_danmaku_controls)
         if force:
             self._relayout_timer.stop()
         self.ensure_slots()          # 按布局补空位
@@ -8223,6 +8441,26 @@ class WallGrid(QWidget):
             return
 
         self._relayout_preset(apply_visibility=True)
+
+    def _sync_danmaku_controls(self) -> None:
+        panel = self.danmaku
+        target = None
+        if self.has_danmaku and self.fullscreen_tile is None:
+            main = self.main_index()
+            tile = (self.tiles[main] if main is not None else
+                    next((tile for tile in self.tiles if tile.room.get("room_id")), None))
+            target = getattr(tile, '_plugin_controls', None)
+            if target is not None and target._disposed:
+                target = None
+        previous = panel._tile_controls
+        if previous is not target:
+            if previous is not None:
+                previous.set_panel(None)
+            panel._tile_controls = target
+            if target is not None:
+                target.set_panel(panel)
+        if target is not None:
+            target.layout_panel()
 
     # ---- 其余预设：分区树只计算几何，视频始终是 WallGrid 的直接子窗口 ----
     def layout_ratios(self) -> dict:
@@ -8715,11 +8953,13 @@ class WallGrid(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self._sidebar_animating:
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.move()
+            return
         if self._quick_danmaku_layer is not None:
             self._quick_danmaku_layer.resize()
         self._cancel_border_drag()
-        if self._sidebar_animating:
-            return
         if (self._interactive_resize and self.fullscreen_tile is None
                 and (self.layout_id == "corner" or self.layout_id in self._partitions)):
             self._resize_pending = True

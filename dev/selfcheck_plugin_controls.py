@@ -10,9 +10,11 @@ os.environ.setdefault('DDM_NO_SAVE', '1')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
+from PySide6.QtGui import QPalette
 from ddm import plugins as api
 from ddm.widgets import Tile, WallGrid
+from ddm import theme
 
 APP = QApplication.instance() or QApplication([])
 
@@ -88,6 +90,145 @@ class ControlsTests(unittest.TestCase):
         first.set_room({'room_id': '11'})
         self.assertEqual(self.controls[0].rooms, [{}, {'room_id': '11'}])
         self.assertFalse(self.controls[0].widget.isHidden())
+
+    def test_danmaku_layout_moves_existing_editor_and_restores_it(self):
+        self.register()
+        wall = WallGrid([{'room_id': '12'}, {'room_id': '13'}], layout_id='dm_main2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.resize(1200, 700)
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        main, small = wall.tiles
+        controls = main._plugin_controls
+        edit = controls.entries[0].control.widget
+        edit.setText('unsent draft')
+        panel = wall.danmaku
+        self.assertIs(controls.widget.parentWidget(), panel.composer_bar)
+        self.assertTrue(panel.composer_bar.isVisible())
+        self.assertTrue(panel.composer_bar.rect().contains(controls.widget.geometry()))
+        self.assertGreater(panel.composer_bar.y(), panel.body.geometry().bottom())
+        self.assertIs(small._plugin_controls.widget.parentWidget(), small.bottom)
+        wall.resize(600, 480)
+        APP.processEvents()
+        self.assertTrue(panel.composer_bar.rect().contains(controls.widget.geometry()))
+        wall.set_fullscreen_tile(main)
+        APP.processEvents()
+        self.assertIs(controls.widget.parentWidget(), main.bottom)
+        self.assertTrue(panel.composer_bar.isHidden())
+        wall.set_fullscreen_tile(None)
+        APP.processEvents()
+        self.assertIs(controls.widget.parentWidget(), panel.composer_bar)
+        self.assertEqual(edit.text(), 'unsent draft')
+        main.set_room({'room_id': 'other:12'})
+        APP.processEvents()
+        self.assertTrue(panel.composer_bar.isHidden())
+        main.set_room({'room_id': '14'})
+        APP.processEvents()
+        self.assertTrue(panel.composer_bar.isVisible())
+        self.assertEqual(controls.entries[0].context.room['room_id'], '14')
+        wall.set_layout('1x2')
+        APP.processEvents()
+        self.assertIs(controls.widget.parentWidget(), main.bottom)
+        self.assertEqual(edit.text(), 'unsent draft')
+        wall.set_layout('dm_main2')
+        APP.processEvents()
+        self.manager.detach_tile(main)
+        APP.processEvents()
+        self.assertIsNone(panel._tile_controls)
+        self.assertTrue(panel.composer_bar.isHidden())
+
+    def test_destroyed_wall_disposes_docked_controls_once(self):
+        self.register()
+        wall = WallGrid([{'room_id': '12'}], layout_id='dm_pair')
+        tile = wall.tiles[0]
+        self.manager.attach_tile(tile)
+        wall.show()
+        APP.processEvents()
+        control = tile._plugin_controls.entries[0].control
+        wall.deleteLater()
+        APP.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertNotIn(tile, self.manager._tiles)
+        self.assertEqual(control.stops, 1)
+
+    def test_docked_composer_and_bottom_icon_follow_light_dark_theme(self):
+        previous = theme.mode()
+        self.addCleanup(theme.apply, previous)
+        theme.apply('dark')
+        def factory(context):
+            widget = QWidget(context.parent)
+            widget.setObjectName('DanmakuComposer')
+            widget.setStyleSheet('#DanmakuComposer {background: transparent; border: none;}')
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            edit = QLineEdit(widget)
+            edit.setPlaceholderText('输入弹幕，Enter 发送')
+            layout.addWidget(edit)
+            send = QPushButton('发送', widget)
+            send.setObjectName('TileCtrl')
+            send.setEnabled(False)
+            layout.addWidget(send)
+            return api.TileControl(widget, minimum_width=90)
+        self.manager.register_tile_control('synthetic', 'interaction', factory)
+        wall = WallGrid([{'room_id': '12'}], layout_id='dm_pair')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.resize(900, 600)
+        wall.show()
+        self.manager.attach_tile(wall.tiles[0])
+        panel = wall.danmaku
+        for i in range(100):
+            panel.add_message('Viewer', str(i))
+        APP.processEvents()
+        panel.body.verticalScrollBar().setValue(0)
+        panel._on_user_scroll()
+        composer = panel._tile_controls.entries[0].control.widget
+        edit = composer.findChild(QLineEdit)
+        for mode in ('light', 'dark', 'light'):
+            theme.apply(mode)
+            APP.processEvents()
+            self.assertEqual(panel.bar.property('appearanceLight'), mode == 'light')
+            self.assertEqual(panel.composer_bar.property('appearanceLight'), mode == 'light')
+            for bar in (panel.bar, panel.composer_bar):
+                pixel = bar.grab().toImage().pixelColor(2, 8)
+                self.assertEqual(pixel.lightness() > 200, mode == 'light')
+            self.assertEqual(edit.palette().color(QPalette.Text).lightness() < 128, mode == 'light')
+            image = edit.grab().toImage()
+            ink = [image.pixelColor(x, y).lightness()
+                   for y in range(6, image.height() - 6) for x in range(10, min(100, image.width() - 10))]
+            self.assertGreater(max(ink) - min(ink), 60)
+            self.assertEqual(edit.palette().color(QPalette.PlaceholderText).lightness() < 128, mode == 'light')
+            send = composer.findChild(QPushButton)
+            self.assertEqual(send.palette().color(QPalette.ButtonText).lightness() < 160, mode == 'light')
+            button = panel.bottom_button
+            self.assertTrue(button.isVisible())
+            pixel = button.grab().toImage().pixelColor(3, 16)
+            self.assertEqual(pixel.lightness() > 200, mode == 'light',
+                             (mode, pixel.name(), pixel.alpha(), button.styleSheet()))
+
+    def test_danmaku_target_switch_and_late_registration(self):
+        wall = WallGrid([{'room_id': '12'}, {'room_id': '13'}], layout_id='dm_pair')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.resize(1200, 700)
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        self.assertTrue(wall.danmaku.composer_bar.isHidden())
+        self.register()
+        APP.processEvents()
+        first, second = wall.tiles
+        self.assertIs(wall.danmaku._tile_controls, first._plugin_controls)
+        first.set_room(None)
+        APP.processEvents()
+        self.assertIs(wall.danmaku._tile_controls, second._plugin_controls)
+        self.assertIs(first._plugin_controls.widget.parentWidget(), first.bottom)
+        self.manager._remove_tile_owner('demo')
+        APP.processEvents()
+        self.assertTrue(wall.danmaku.composer_bar.isHidden())
 
     def test_every_assignment_is_delivered_as_a_copy(self):
         self.register()

@@ -39,7 +39,7 @@ class AccountStore:
     def __init__(self, platform: str, root=None):
         if not re.fullmatch(r"[a-z][a-z0-9_]*", platform):
             raise ValueError("Invalid account platform")
-        self.path = Path(root or Path(config.REPO) / "utils" / "accounts") / (platform + ".bin")
+        self.path = Path(root or Path(config.data_root()) / "utils" / "accounts") / (platform + ".bin")
 
     def _load(self) -> dict:
         if not self.path.exists():

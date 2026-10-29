@@ -65,3 +65,6 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 原项目以 LGPL-2.1 发布，允许修改与再分发，但需要保留许可、提供对应源码。
 如果你打算把这套改动对外分享，建议先看 `docs/给原作者的授权咨询.md`（给原作者的说明草稿），
 确认署名方式与许可选择；如果只是本地自用，这一条可以先不管。
+
+Vulkan Runtime 1.4.363.0 来自 LunarG 官方可分发组件，使用 MIT / Apache-2.0 许可证。
+发布包在 libmpv 同目录附带 x64 vulkan-1.dll 和 VulkanRT-License.txt，来源与 SHA256 见 ddm/assets/licenses/vulkan-SOURCE.json。

@@ -25,7 +25,7 @@ if __name__ == "__main__" and getattr(sys, "frozen", False):
     if entry.name.startswith("DD监控室CE-v") and fixed.is_file():
         import subprocess
         command = [str(fixed), *sys.argv[1:]]
-        if len(sys.argv) == 3 and sys.argv[1] == "--apply-update":
+        if len(sys.argv) == 3 and sys.argv[1] in ("--apply-update", "--apply-update-elevated"):
             raise SystemExit(subprocess.call(command, cwd=entry.parent))
         subprocess.Popen(command, cwd=entry.parent)
         raise SystemExit(0)
@@ -33,6 +33,10 @@ if __name__ == "__main__" and getattr(sys, "frozen", False):
 if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--apply-update":
     from ddm.update_install import run_helper
     raise SystemExit(run_helper(sys.argv[2]))
+
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--apply-update-elevated":
+    from ddm.update_install import run_elevated_helper
+    raise SystemExit(run_elevated_helper(sys.argv[2]))
 
 if __name__ == "__main__" and sys.argv[1:] == ["--settings-worker"]:
     from ddm.settings_process import run_worker
@@ -43,9 +47,25 @@ os.chdir(PROJ)                       # 配置、日志、头像缓存都按这�
 if PROJ not in sys.path:
     sys.path.insert(0, PROJ)
 
+from ddm import config           # noqa: E402
+
+try:
+    config.initialize_paths()
+except (OSError, ValueError) as error:
+    if __name__ == "__main__":
+        import tempfile
+        import traceback
+        from ddm import diagnostics
+        diagnostics.start(os.path.join(tempfile.gettempdir(), 'DDMonitorCE-startup-logs'))
+        traceback.print_exc()
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    _error_app = QApplication(sys.argv)
+    QMessageBox.critical(None, '无法打开数据目录', str(error))
+    raise SystemExit(1)
+
 if __name__ == "__main__":
-    from ddm import config, diagnostics
-    diagnostics.start(os.path.join(config.REPO, 'logs'))
+    from ddm import diagnostics
+    diagnostics.start(os.path.join(config.data_root(), 'logs'))
 
 from ddm.app import main         # noqa: E402
 

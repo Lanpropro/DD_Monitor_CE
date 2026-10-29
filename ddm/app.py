@@ -71,7 +71,7 @@ DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 def setup_file_log() -> str:
     """Install Qt capture after the standard-library startup logger is ready."""
-    session = diagnostics.start(os.path.join(config_module.REPO, "logs"))
+    session = diagnostics.start(os.path.join(config_module.data_root(), "logs"))
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
@@ -399,7 +399,7 @@ class MainWindow(QMainWindow):
         self._startup_update_timer.timeout.connect(self._check_startup_update)
         from . import online
         from pathlib import Path
-        cached = online.load_plugin_cache(Path(config_module.REPO) / 'cache' / 'plugin-catalog.json')
+        cached = online.load_plugin_cache(Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json')
         self._set_plugin_updates(cached.get('offers', []))
         if os.environ.get("DDM_SETTINGS_PROCESS") == "1":
             QTimer.singleShot(1000, self._get_settings_process().warm)
@@ -473,7 +473,7 @@ class MainWindow(QMainWindow):
         from pathlib import Path
         from . import online
         from .online_ui import OnlineTask
-        path = Path(config_module.REPO) / 'cache' / 'plugin-catalog.json'
+        path = Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json'
         def check(cancelled, progress):
             with online.session() as client:
                 return online.cached_plugin_catalog(client, version_module.VERSION, path)
@@ -953,6 +953,10 @@ class MainWindow(QMainWindow):
                              if key.startswith('skin_') or key == 'appearance_mode'}
         codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
         self.settings.update(dialog.settings())
+        from .notification_center import NoticeRow
+        from .online_ui import ResultNotice
+        for notice in [*self.findChildren(NoticeRow), *self.findChildren(ResultNotice)]:
+            notice.update()
         for codec_dialog in self._codec_dialogs.values():
             codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
         if not self.settings.get("auto_update", False):
@@ -1012,7 +1016,7 @@ class MainWindow(QMainWindow):
     def set_skin_parts(self, values):
         from .skin_parts import validate_parts
         from pathlib import Path
-        validate_parts(values, Path(config_module.REPO) / 'utils' / 'skins')
+        validate_parts(values, Path(config_module.data_root()) / 'utils' / 'skins')
         self.settings['skin_parts'] = deepcopy(values)
         self.refresh_skin()
         config_module.save(self.current_state())
@@ -1720,6 +1724,7 @@ class MainWindow(QMainWindow):
             if not current() or int(tile.quality) != quality:
                 return
             self._resolvers.pop(tile, None)
+            tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
             if strict_codec:
                 self._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
@@ -2121,6 +2126,10 @@ class MainWindow(QMainWindow):
         attempt = self._retry_count.get(tile, 0) + 1
         self._retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
+        player = self.players.get(tile)
+        if (str(tile.room.get("room_id", "")).startswith("huya:") and
+                getattr(player, "source_failure", "") == "LIVE_EOF"):
+            delay = min(attempt, 5)
         if str(tile.room.get("room_id", "")).startswith("huya:"):
             print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
                   file=sys.stderr, flush=True)
@@ -2915,6 +2924,9 @@ class MainWindow(QMainWindow):
               f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
               f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
         self._fullscreen_tile = tile
+        if self.settings.get('notice_hide_fullscreen', False):
+            for notice in tuple(getattr(self, '_notices', [])):
+                notice.dismiss(animate=False)
         self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
         self.centralWidget().setUpdatesEnabled(False)
@@ -3262,10 +3274,8 @@ class MainWindow(QMainWindow):
             resolver = InfoResolver(room_id, self, platform=platform)
             resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id)
                                       if not self._closing else None)
-            resolver.failed.connect(lambda _rid, r=resolver: QMessageBox.warning(
-                self, "添加直播间", "平台房间获取失败\n\n" + (getattr(r, "error_message", "") or
-                    "请检查房间链接或稍后重试"))
-                if not self._closing else None)
+            resolver.failed.connect(lambda _rid, r=resolver: self._on_platform_room_failed(
+                r, platform, room_id, folder_id=folder_id))
             resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
             resolver.finished.connect(resolver.deleteLater)
             self._platform_info_running.add(resolver)
@@ -3284,6 +3294,22 @@ class MainWindow(QMainWindow):
         resolver.finished.connect(resolver.deleteLater)
         self._platform_info_running.add(resolver)
         resolver.start()
+
+    def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
+        if self._closing:
+            return
+        if (getattr(resolver, "browser_verification", False) is True
+                and platform.kind == "douyin" and getattr(platform, "room_browser_init_script", "")):
+            from .profile_room import ProfileRoomDialog
+            dialog = ProfileRoomDialog(platform, "", self, room_id=room_id)
+            result = dialog.exec()
+            canonical = dialog.room_id
+            dialog.deleteLater()
+            if result == QDialog.Accepted and canonical and not self._closing:
+                self._add_room_id(canonical, folder_id=folder_id)
+            return
+        QMessageBox.warning(self, "添加直播间", "平台房间获取失败\n\n" + (
+            getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
 
     def _on_room_added(self, room: dict, *, folder_id: str = "") -> None:
         if self._closing:
@@ -4199,6 +4225,11 @@ class MainWindow(QMainWindow):
                 tile.closeRequested.emit(tile.room)
         elif pressed and (pressed == shortcuts.get("danmaku_input") or (
                 pressed == "Enter" and shortcuts.get("danmaku_input") == "Return")):
+            panel = self.wall.danmaku
+            if panel.isVisible() and panel.rect().contains(panel.mapFromGlobal(QCursor.pos())):
+                if panel._tile_controls is not None:
+                    panel._tile_controls.focus_input()
+                return True
             tile = self._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
                 if tile is self._fullscreen_tile:
@@ -4298,7 +4329,7 @@ def main(argv: list[str] | None = None) -> int:
     from .user_notice import confirm_user_notice
     confirm_user_notice(state)
     from .update_install import clean_previous
-    clean_previous(config_module.REPO)
+    clean_previous(config_module.REPO, config_module.data_root())
     from .legacy_cleanup import start_legacy_cleanup
     start_legacy_cleanup(config_module.REPO)
     t_load = time.perf_counter()
@@ -4337,6 +4368,8 @@ def main(argv: list[str] | None = None) -> int:
     ticker.start()
     window.resize(1600, 900)
     window.showMaximized()
+    if config_module.DATA_MIGRATION_ERROR:
+        QMessageBox.warning(window, '数据迁移未完成', config_module.DATA_MIGRATION_ERROR)
     t_show = time.perf_counter()
     print(f"[启动] 配置加载 {(t_load - t0) * 1000:.0f} ms | "
           f"房间占位 {(t_rooms - t_load) * 1000:.0f} ms | "

@@ -1,4 +1,4 @@
-"""通过官网主页确认抖音主播身份，再查询最近直播的固定房间号。"""
+"""通过官网主页或直播间验证页面确认抖音主播身份和固定房间号。"""
 import json
 import re
 import threading
@@ -38,29 +38,37 @@ class ProfileRoomLoader(QThread):
 
 
 class ProfileRoomDialog(PlatformFollowDialog):
-    def __init__(self, platform, sec_uid, owner):
+    def __init__(self, platform, sec_uid, owner, *, room_id=""):
         super().__init__(platform, owner, owner=owner, login_only=True, defer_login=True)
         from PySide6.QtWebEngineCore import QWebEngineScript
         self.room_id, self.sec_uid = '', sec_uid
-        self._profile_url = 'https://www.douyin.com/user/' + sec_uid
+        self._verification_room = platform.normalize(room_id) if room_id else ''
+        self._room_page_loaded = False
+        self._profile_url = (platform.room_url(self._verification_room) if room_id else
+                             'https://www.douyin.com/user/' + sec_uid)
         self.setWindowTitle('读取抖音主播直播间')
         self.remember.hide()
         self.forget_button.hide()
         self.read_button.setText('重试读取')
         self.status.setText('正在读取主播主页，成功后自动添加；若官网要求验证，请在页面内完成。')
         self.status.setWordWrap(True)
+        if room_id:
+            self.setWindowTitle('读取抖音直播间')
+            self.status.setText('正在打开官网并读取房间资料；若出现验证，请在页面内完成。')
         script = QWebEngineScript()
         script.setName('ddm-profile-identity')
         script.setInjectionPoint(QWebEngineScript.DocumentCreation)
         script.setWorldId(QWebEngineScript.MainWorld)
-        script.setSourceCode('(%s)(%s);' % (platform.profile_browser_init_script, json.dumps(sec_uid)))
+        source = platform.room_browser_init_script if room_id else platform.profile_browser_init_script
+        target = self._verification_room.split(':', 1)[1] if room_id else sec_uid
+        script.setSourceCode('(%s)(%s);' % (source, json.dumps(target)))
         self.browser.page().scripts().insert(script)
         self.poll = QTimer(self)
         self.poll.setInterval(500)
         self.poll.timeout.connect(self._poll)
         self._pending_script = False
         self._script_generation = 0
-        self._deadline = time.monotonic() + 30
+        self._deadline = time.monotonic() + (300 if self._verification_room else 30)
         self.browser.loadFinished.connect(self._page_loaded)
         self.poll.start()
         self.browser.load(QUrl(self._profile_url))
@@ -71,8 +79,9 @@ class ProfileRoomDialog(PlatformFollowDialog):
         self._read_cancelled = False
         self._script_generation += 1
         self._pending_script = False
-        self._deadline = time.monotonic() + 30
-        self.status.setText('正在重新加载主播主页并读取直播间…')
+        self._room_page_loaded = False
+        self._deadline = time.monotonic() + (300 if self._verification_room else 30)
+        self.status.setText('正在重新加载官网页面并读取直播间…')
         self.poll.start()
         self.browser.load(QUrl(self._profile_url))
 
@@ -81,7 +90,7 @@ class ProfileRoomDialog(PlatformFollowDialog):
             return
         if not ok:
             self.poll.stop()
-            self.status.setText('主播主页加载失败，请检查网络后点击「重试读取」')
+            self.status.setText('官网页面加载失败，请检查网络后点击「重试读取」')
             return
         if self.browser.url().toString().split('?', 1)[0].rstrip('/') != self._profile_url:
             return
@@ -98,7 +107,8 @@ class ProfileRoomDialog(PlatformFollowDialog):
             return
         if time.monotonic() >= self._deadline:
             self.poll.stop()
-            self.status.setText('主页资料尚未加载，请完成官网验证或登录后点击「重试读取」')
+            self.status.setText('官网已加载，但未识别房间资料，请重试读取或使用个人主页链接添加' if self._room_page_loaded else
+                                '官网资料尚未加载，请完成官网验证或登录后点击「重试读取」')
             return
         if self._pending_script:
             return
@@ -118,15 +128,25 @@ class ProfileRoomDialog(PlatformFollowDialog):
             user = json.loads(value) if isinstance(value, str) else value
         except ValueError:
             return
+        if self._verification_room and isinstance(user, dict) and user.get('page_state'):
+            self._room_page_loaded = user['page_state'] == 'room_loaded'
+            self.status.setText('官网直播间已加载，正在读取房间资料，无需寻找验证码。' if self._room_page_loaded else
+                                '官网正在进行访问验证；若出现验证码，请在页面内完成。')
+            return
         if isinstance(user, dict) and user.get('error'):
             self.poll.stop()
             self.status.setText('官网未返回主播资料，请完成页面验证或登录后点击「重试读取」')
             return
-        if (not isinstance(user, dict) or user.get('sec_uid') != self.sec_uid
-                or not re.fullmatch(r'[1-9][0-9]{0,19}', str(user.get('uid', '')))):
+        if not isinstance(user, dict) or not re.fullmatch(r'[1-9][0-9]{0,19}', str(user.get('uid', ''))):
+            return
+        if self._verification_room:
+            if user.get('web_rid') != self._verification_room.split(':', 1)[1]:
+                return
+        elif user.get('sec_uid') != self.sec_uid:
             return
         self.poll.stop()
-        self.status.setText('已确认主播身份，正在查询最近直播记录…')
+        self.status.setText('已确认房间资料，正在添加…' if self._verification_room else
+                            '已确认主播身份，正在查询最近直播记录…')
         self.read_button.setEnabled(False)
         worker = ProfileRoomLoader(self.platform, user, self)
         self._worker = worker

@@ -78,7 +78,26 @@ class NotificationTests(unittest.TestCase):
         dialog.nav.setCurrentRow(4)
         dialog._reset_current()
         self.assertEqual(dialog.notification_page.values(), {
-            key: DEFAULT_SETTINGS[key] for key, _label in NotificationSettingsPage.ITEMS})
+            **{key: DEFAULT_SETTINGS[key] for key, _label in NotificationSettingsPage.ITEMS},
+            'notice_banner_blur': DEFAULT_SETTINGS['notice_banner_blur']})
+
+    def test_banner_blur_settings_roundtrip_and_reset(self):
+        dialog = SettingsDialog({'notice_banner_blur': 30}, {}, preview=True)
+        self.addCleanup(self.dispose, dialog)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
+        page = dialog.notification_page
+        self.assertEqual(page.banner_blur.value(), 30)
+        for strength in (0, 8, 40):
+            page.banner_blur.setValue(strength)
+            saved = dialog.settings()
+            self.assertEqual(saved['notice_banner_blur'], strength)
+            self.assertEqual(page.banner_preview.strength, strength)
+            self.assertEqual(page.banner_blur_value.text(), str(strength) if strength else '关闭')
+            reopened = NotificationSettingsPage(saved)
+            self.addCleanup(self.dispose, reopened)
+            self.assertEqual(reopened.banner_blur.value(), strength)
+        dialog._reset_current()
+        self.assertEqual(page.values()['notice_banner_blur'], DEFAULT_SETTINGS['notice_banner_blur'])
 
     def test_notification_switches_support_keyboard_click_and_explicit_states(self):
         page = NotificationSettingsPage({})
@@ -91,7 +110,7 @@ class NotificationTests(unittest.TestCase):
             box.setFocus()
             QTest.keyClick(box, Qt.Key_Space)
             self.assertEqual(box.isChecked(), not before)
-            expected = ('已启用' if box.isChecked() else '已关闭') if key == 'live_alert' else (
+            expected = ('已启用' if box.isChecked() else '已关闭') if key in ('live_alert', 'notice_hide_fullscreen') else (
                 '手动关闭' if box.isChecked() else '自动收起')
             self.assertEqual(page._states[key].text(), expected)
             QTest.mouseClick(box, Qt.LeftButton, pos=QPoint(box.width()-2, box.height()//2))
@@ -114,6 +133,16 @@ class NotificationTests(unittest.TestCase):
                 dialog.resize(*size)
                 self.app.processEvents()
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                page.scroll.verticalScrollBar().setValue(0)
+                preview = page.banner_preview
+                self.assertTrue(page.scroll.viewport().rect().contains(
+                    preview.mapTo(page.scroll.viewport(), preview.rect().center())))
+                self.assertLess(preview.mapTo(page, QPoint()).y(),
+                                page._checks['live_alert'].mapTo(page, QPoint()).y())
+                page.banner_blur.setValue(0)
+                sharp = preview.grab().toImage()
+                page.banner_blur.setValue(40)
+                self.assertNotEqual(preview.grab().toImage(), sharp)
                 for key, box in page._checks.items():
                     state = page._states[key]
                     self.assertLess(state.mapTo(page, QPoint(state.width(), 0)).x(),

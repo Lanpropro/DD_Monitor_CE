@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QCursor, QImage, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtTest import QTest
 
 from ddm import config, theme
 from ddm.auto_quality import AUTO_QUALITY
@@ -370,6 +371,33 @@ def main():
                 layer.set_group_active(overlay._quick_group, False)
 
             target = window.wall.tiles[0]
+            overlay = target.video_danmaku
+            held = overlay.comments[0]
+            with patch.object(overlay, '_poll_hover'):
+                overlay.set_paused(False)
+                overlay._set_hover(held)
+                settle(app, .15)
+                assert held.held and layer.items[held.render_id].get('held')
+                assert layer.items[held.render_id]['item'].property('motionPaused')
+                before = held.x
+                settle(app, .15)
+                assert held.x == before, 'Hovered Quick comment must remain still'
+                overlay._set_hover(None)
+                settle(app, .15)
+                assert held.x < before and not layer.items[held.render_id].get('held')
+                overlay.set_paused(True)
+                held.x = 36
+                layer.move(held.render_id, held.x, held.lane * overlay.lane_height())
+            with patch('ddm.danmaku_actions.show_comment_menu') as toolbar:
+                global_point = target.mapToGlobal(overlay.pos() + QPoint(46, held.lane * overlay.lane_height() + 8))
+                point = target.video.mapFromGlobal(global_point)
+                hit = overlay.mapFromGlobal(global_point)
+                assert overlay.comment_at(hit) is held, (hit, held.x, held.lane, overlay.size(),
+                    overlay._quick_video_mask.contains(hit), overlay.mask(),
+                    held.image.size(), held.image.devicePixelRatioF(), len(overlay.comments))
+                QTest.mouseClick(target.video, Qt.LeftButton, pos=point)
+                toolbar.assert_called_once()
+                assert toolbar.call_args.args[1] == held.message, 'Native video click must target the comment'
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)

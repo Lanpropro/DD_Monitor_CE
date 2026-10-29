@@ -84,7 +84,7 @@ root, data = sys.argv[1:]
 sys.path.insert(0, root)
 config = types.ModuleType('ddm.config')
 config.initialize_paths = lambda: None
-config.REPO = data
+config.data_root = lambda: data
 sys.modules['ddm.config'] = config
 class FailApp:
     def find_spec(self, fullname, path=None, target=None):
@@ -127,12 +127,35 @@ sys.modules[module.__name__] = module
 sys.argv = ['main.py', option] + ([] if option == '--settings-worker' else ['fixture'])
 runpy.run_path(root + '/main.py', run_name='__main__')
 """
-        for option in ("--settings-worker", "--apply-update"):
+        for option in ("--settings-worker", "--apply-update", "--apply-update-elevated"):
             with self.subTest(option=option):
                 result = subprocess.run([sys.executable, "-c", program, str(ROOT), option],
                                         capture_output=True, timeout=20)
                 self.assertEqual(result.returncode, 17, result.stderr)
 
+    def test_bad_data_location_keeps_error_and_writes_fallback_log(self):
+        program = """
+import runpy, sys, tempfile, types
+root, data = sys.argv[1:]
+sys.path.insert(0, root)
+tempfile.tempdir = data
+config = types.ModuleType('ddm.config')
+def initialize():
+    raise OSError('fixture missing data folder')
+config.initialize_paths = initialize
+sys.modules['ddm.config'] = config
+widgets = types.ModuleType('PySide6.QtWidgets')
+widgets.QApplication = lambda args: None
+widgets.QMessageBox = types.SimpleNamespace(critical=lambda *args: None)
+sys.modules['PySide6'] = types.ModuleType('PySide6')
+sys.modules['PySide6.QtWidgets'] = widgets
+runpy.run_path(root + '/main.py', run_name='__main__')
+"""
+        result = subprocess.run([sys.executable, "-c", program, str(ROOT), str(self.directory)],
+                                capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        contents = next((self.directory / "DDMonitorCE-startup-logs").glob("ddm-20*.log")).read_text(encoding="utf-8")
+        self.assertIn("fixture missing data folder", contents)
 
 
 if __name__ == "__main__":

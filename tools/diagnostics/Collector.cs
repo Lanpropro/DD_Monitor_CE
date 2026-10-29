@@ -194,31 +194,53 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.1";
+        internal const string ToolVersion = "1.2";
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
+        readonly string dataRoot;
         readonly Redactor redact = new Redactor();
         readonly List<string> warnings = new List<string>();
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 100 };
 
-        internal Collector(string directory)
+        internal Collector(string directory, string userDataHome = null)
         {
             root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
             if (!Directory.Exists(root)) throw new IOException("软件目录不存在。");
             if (!Safe(root)) throw new IOException("请选择实际软件目录，不要选择目录链接。");
             if (!File.Exists(Path.Combine(root, "main.py")) && !File.Exists(Path.Combine(root, "ddm-build.json")) && AppExecutables().Length == 0)
                 throw new IOException("所选目录未找到 DD监控室CE 主程序或版本文件，请选择软件所在文件夹。");
+            dataRoot = root;
+            using (var hash = SHA256.Create())
+            {
+                var identity = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(root.ToLowerInvariant()))).Replace("-", "").ToLowerInvariant().Substring(0, 16);
+                var home = userDataHome ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DDMonitorCE");
+                var location = Path.Combine(home, "locations", identity + ".json");
+                if (File.Exists(location))
+                    try
+                    {
+                        if (new FileInfo(location).Length > 65536 || !SafeWithin(Path.GetDirectoryName(location), location)) throw new IOException();
+                        var values = json.DeserializeObject(File.ReadAllText(location, Encoding.UTF8)) as IDictionary<string, object>;
+                        var candidate = Path.GetFullPath(Convert.ToString(values["root"])).TrimEnd(Path.DirectorySeparatorChar);
+                        if (!Directory.Exists(candidate) || !SafeWithin(candidate, candidate)) throw new IOException();
+                        dataRoot = candidate;
+                    }
+                    catch { warnings.Add("独立数据目录不可读取，未回退收集旧配置或日志。"); dataRoot = null; }
+            }
         }
 
         internal bool Safe(string path)
         {
+            return SafeWithin(root, path);
+        }
+
+        static bool SafeWithin(string boundary, string path)
+        {
             var full = Path.GetFullPath(path);
-            if (!full.Equals(root, StringComparison.OrdinalIgnoreCase) && !full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return false;
+            if (boundary == null || (!full.Equals(boundary, StringComparison.OrdinalIgnoreCase) && !full.StartsWith(boundary + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) return false;
             for (var item = new FileInfo(full) as FileSystemInfo; item != null; item = Directory.GetParent(item.FullName))
             {
                 if ((File.Exists(item.FullName) || Directory.Exists(item.FullName)) && (File.GetAttributes(item.FullName) & FileAttributes.ReparsePoint) != 0) return false;
-                if (item.FullName.Equals(root, StringComparison.OrdinalIgnoreCase)) break;
             }
             return true;
         }
@@ -230,9 +252,12 @@ namespace DDMonitorDiagnostics
 
         string Read(string relative, int maximum, bool tail)
         {
-            var path = Path.Combine(root, relative);
+            bool personal = relative.StartsWith("utils/") || relative.StartsWith("plugins_user/") || relative.StartsWith("logs/");
+            var boundary = personal ? dataRoot : root;
+            if (boundary == null) return null;
+            var path = Path.Combine(boundary, relative);
             if (!File.Exists(path)) return null;
-            if (!Safe(path)) { warnings.Add(relative + "：跳过链接文件。"); return null; }
+            if (!SafeWithin(boundary, path)) { warnings.Add(relative + "：跳过链接文件。"); return null; }
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 if (stream.Length > maximum)
@@ -353,12 +378,13 @@ namespace DDMonitorDiagnostics
         object Plugins()
         {
             var result = new List<object>();
-            var folder = Path.Combine(root, "plugins_user");
-            if (!Directory.Exists(folder) || !Safe(folder)) return result;
+            if (dataRoot == null) return result;
+            var folder = Path.Combine(dataRoot, "plugins_user");
+            if (!Directory.Exists(folder) || !SafeWithin(dataRoot, folder)) return result;
             foreach (var directory in Directory.GetDirectories(folder).Take(100))
             {
                 var id = Path.GetFileName(directory);
-                if (!Regex.IsMatch(id, "^[a-z][a-z0-9_]*$") || !Safe(directory)) continue;
+                if (!Regex.IsMatch(id, "^[a-z][a-z0-9_]*$") || !SafeWithin(dataRoot, directory)) continue;
                 try
                 {
                     var text = Read("plugins_user/" + id + "/plugin.json", 262144, false);
@@ -478,10 +504,10 @@ namespace DDMonitorDiagnostics
             section("system.json", SystemInfo);
             section("processes.json", Processes);
             progress(60, "筛选近期日志与崩溃事件…");
-            var logs = Path.Combine(root, "logs");
+            var logs = dataRoot == null ? null : Path.Combine(dataRoot, "logs");
             try
             {
-                if (Directory.Exists(logs) && Safe(logs))
+                if (logs != null && Directory.Exists(logs) && SafeWithin(dataRoot, logs))
                     foreach (var path in Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p), @"^(ddm(?:-\d{4}-\d{2}-\d{2}|-crash)?\.log(?:\.[1-5])?|(?:update[^\\/]*|updater[^\\/]*)\.log)$", RegexOptions.IgnoreCase)).OrderByDescending(p => Path.GetFileName(p).Equals("ddm-crash.log", StringComparison.OrdinalIgnoreCase)).ThenByDescending(File.GetLastWriteTimeUtc).Take(5))
                         AddLog(entries, "logs/" + Path.GetFileName(path));
             }

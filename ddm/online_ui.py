@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, QThread, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
 from . import config, motion, online, plugin_updates, theme, update_install, version
 
@@ -164,7 +164,7 @@ class PluginStorePage(OnlinePage):
         self.offers = []
         self.buttons = {}
         self.seen_versions = {}
-        self.cache_path = Path(config.REPO) / 'cache' / 'plugin-catalog.json'
+        self.cache_path = Path(config.data_root()) / 'cache' / 'plugin-catalog.json'
         self._checked_at = 0
         self._opened = False
         layout = QVBoxLayout(self)
@@ -361,7 +361,16 @@ class AppUpdatePage(OnlinePage):
         self._checked = False
         self.plan_path = ''
         self.install_requested = False
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea(self)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        self.scroll.setWidget(content)
+        root.addWidget(self.scroll)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         title = QLabel('软件更新')
         title.setObjectName('SettingsTitle')
@@ -388,6 +397,7 @@ class AppUpdatePage(OnlinePage):
         self.notes_title = QLabel('当前版本 ' + version.VERSION + ' 更新说明')
         layout.addWidget(self.notes_title)
         self.notes = QTextBrowser()
+        self.notes.setMinimumHeight(160)
         self.notes.setObjectName('UpdateNotes')
         self.notes.setOpenExternalLinks(True)
         self.show_current_notes()
@@ -397,9 +407,13 @@ class AppUpdatePage(OnlinePage):
         self.release_button.clicked.connect(lambda: QDesktopServices.openUrl(
             QUrl(f'https://github.com/{online.APP_REPOSITORY}/releases')))
         layout.addWidget(self.release_button, 0, Qt.AlignLeft)
+        from .data_settings import DataSettingsPage
+        self.data_page = DataSettingsPage()
+        layout.addSpacing(16)
+        layout.addWidget(self.data_page)
         self.status.setText('点击“检查更新”查询可下载的新版。' if getattr(sys, 'frozen', False) else
                             '源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
-        result = Path(config.REPO) / update_install.RESULT
+        result = Path(config.data_root()) / update_install.RESULT
         if result.is_file():
             try:
                 self.status.setText(json.loads(result.read_text(encoding='utf-8'))['message'])
@@ -505,13 +519,16 @@ class AppUpdatePage(OnlinePage):
         def prepare(cancelled, progress):
             with tempfile.TemporaryDirectory(prefix='ddm-app-download-') as temporary, online.session() as client:
                 archive = online.download(offer, Path(temporary) / 'app.zip', client, cancelled, progress)
-                return update_install.prepare(archive, config.REPO, sys.executable, cancelled, offer['version'])
+                return update_install.prepare(archive, config.REPO, sys.executable, cancelled, offer['version'],
+                                              data_root=config.data_root())
         self.start(prepare, self._prepared)
 
     def _prepared(self, plan_path):
         self.plan_path = plan_path
         self.action.setText('重启并更新')
-        self.status.setText('下载和校验完成。点击重启并更新，将先保存设置并收尾录制。')
+        plan = json.loads(Path(plan_path).read_text(encoding='utf-8'))
+        permission = ' 更新程序文件时将请求管理员授权；取消授权会保留原版本。' if plan.get('elevate') else ''
+        self.status.setText('下载和校验完成。点击重启并更新，将先保存设置并收尾录制。' + permission)
 
 
 class UpdateNotice(QFrame):
@@ -580,6 +597,8 @@ class UpdateNotice(QFrame):
             sidebar.installEventFilter(self)
 
     def show_offer(self, offer, *, persistent=False):
+        if _notifications_hidden(self.parentWidget()):
+            return
         was_visible = self.isVisible()
         self._motion.stop()
         self._leaving = False
@@ -850,10 +869,10 @@ class ResultNotice(UpdateNotice):
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.artwork.source is not None:
-            from .room_artwork import paint_room_background
+            from .room_artwork import paint_room_background, notice_frost
             painter = QPainter(self)
             paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
-                                  focus=self.artwork.banner is None)
+                                  focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
 
     def set_room_avatar(self, room_id, pixmap):
         avatar = self._avatars.get(str(room_id))
@@ -917,6 +936,11 @@ class ResultNotice(UpdateNotice):
         self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
+def _notifications_hidden(parent):
+    return bool(getattr(parent, 'settings', {}).get('notice_hide_fullscreen', False)
+                and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen()))
+
+
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False,
                 file_path=None, notice_key=None, pending=False):
     from .notification_center import remember_result
@@ -924,7 +948,7 @@ def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persis
         return
     record = remember_result(parent, message, kind=kind, on_click=on_click, file_path=file_path,
                              rooms=rooms, notice_key=notice_key, pending=pending)
-    if not parent.isVisible():
+    if not parent.isVisible() or _notifications_hidden(parent):
         return
     notice = next((item for item in getattr(parent, '_notices', [])
                    if notice_key is not None and getattr(item, '_notice_key', None) == notice_key), None)

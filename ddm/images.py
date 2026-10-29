@@ -15,10 +15,8 @@ from PySide6.QtGui import QPixmap
 from . import bili
 from . import config as config_module
 
-#: 缓存也要落在程序旁边（源码运行时是仓库根，打包后是 exe 目录）。
-#: 不能用 __file__：冻结后在 _internal 里面，头像会写进运行库目录，用户找不到、
-#: 升级时也会被一起删掉。
-REPO = config_module.REPO
+#: Installed builds use the user's data folder; portable builds keep adjacent data.
+REPO = config_module.data_root()
 CACHE_DIR = os.path.join(REPO, "cache", "avatars")
 
 # Shared decoded images complement the persistent cache, including across rooms.

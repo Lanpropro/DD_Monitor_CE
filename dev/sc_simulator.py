@@ -17,7 +17,7 @@ if hasattr(platform, '_wmi_query'):
 from ddm import config
 
 _data = tempfile.TemporaryDirectory(prefix='ddm-sc-simulator-')
-config.REPO = _data.name
+config.DATA_ROOT = _data.name
 config.CONFIG_PATH = str(Path(_data.name) / 'utils/config.json')
 
 from PySide6.QtCore import Qt, QTimer

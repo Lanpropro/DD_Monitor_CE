@@ -51,7 +51,7 @@ def folder_icon(folder, widget, size=18):
     spec = normalize_icon(folder.get('icon'))
     if spec and spec['type'] == 'image':
         try:
-            image = read_image(Path(config.REPO) / spec['path'])
+            image = read_image(Path(config.data_root()) / spec['path'])
             return QIcon(QPixmap.fromImage(image))
         except (OSError, ValueError):
             pass
@@ -369,7 +369,7 @@ class FolderIconDialog(QDialog):
             return
         selection = self.selection
         if self.image is not None:
-            path = Path(config.REPO) / 'utils' / 'folder-icons' / (uuid4().hex + '.png')
+            path = Path(config.data_root()) / 'utils' / 'folder-icons' / (uuid4().hex + '.png')
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 if not self.image.save(str(path), 'PNG'):
@@ -378,7 +378,7 @@ class FolderIconDialog(QDialog):
                 path.unlink(missing_ok=True)
                 self.error.setText(str(error))
                 return
-            selection = {'type': 'image', 'path': path.relative_to(config.REPO).as_posix()}
+            selection = {'type': 'image', 'path': path.relative_to(config.data_root()).as_posix()}
         self.result_icon = selection
         self.result_name = name
         super().accept()

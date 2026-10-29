@@ -7,7 +7,7 @@ from time import perf_counter
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextCharFormat, QTextCursor, QTextDocument
+from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from . import motion, theme
@@ -294,9 +294,12 @@ class _Comment:
     runs: list[tuple[str, str]]
     render_id: int = 0
     self_sent: bool = False
+    message: str = ''
+    held: bool = False
 
 
 class VideoDanmaku(QWidget):
+    actionsRequested = Signal(str, QPoint)
     superChatDismissed = Signal(str)
     MAX_COMMENTS = 80
     GAP = 24
@@ -342,7 +345,74 @@ class VideoDanmaku(QWidget):
         self._quick_geometry_timer.timeout.connect(self._sync_quick_geometry)
         self.timer.destroyed.connect(self._timer_resolution.release)
         self._last_tick = 0.0
+        self._hovered = None
+        self._menu_open = False
         self.hide()
+
+    def comment_at(self, point):
+        mask = self._quick_video_mask if self._quick_requested else self.mask()
+        if not self.rect().contains(point) or (not mask.isEmpty() and not mask.contains(point)):
+            return None
+        for comment in reversed(self.comments):
+            scale = comment.image.devicePixelRatioF()
+            rect = QRectF(comment.x, comment.lane * self.lane_height(),
+                          comment.image.width() / scale, comment.image.height() / scale)
+            if rect.contains(QPointF(point)):
+                return comment
+        return None
+
+    def _set_hover(self, comment):
+        if self._hovered is comment:
+            return
+        previous, self._hovered = self._hovered, comment
+        if previous is not None:
+            previous.held = False
+            if self._quick_layer is not None:
+                self._quick_layer.pause_comment(previous.render_id, False, previous.x)
+        if comment is not None:
+            comment.held = True
+            if self._quick_layer is not None:
+                self._quick_layer.pause_comment(comment.render_id, True, comment.x)
+        self.update()
+
+    def _poll_hover(self):
+        if self._menu_open or QApplication.mouseButtons():
+            return
+        point = QCursor.pos()
+        tile = self.parentWidget()
+        active = self.window().isActiveWindow()
+        if not active and self._native_layered():
+            import ctypes
+            user32 = ctypes.windll.user32
+            user32.GetForegroundWindow.restype = ctypes.c_void_p
+            user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+            user32.GetAncestor.restype = ctypes.c_void_p
+            active = user32.GetAncestor(user32.GetForegroundWindow(), 2) == int(self.window().winId())
+        eligible = (self.isVisible() and not self.paused and active
+                    and QApplication.activePopupWidget() is None
+                    and QApplication.activeModalWidget() is None and not QApplication.mouseButtons())
+        if eligible and tile is not None:
+            for name in ('controls', 'stream_badge', 'title_badge', 'bottom'):
+                widget = getattr(tile, name, None)
+                if widget is not None and widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(point)):
+                    eligible = False
+                    break
+        self._set_hover(self.comment_at(self.mapFromGlobal(point)) if eligible else None)
+
+    def open_actions_at(self, position):
+        if not self.isVisible():
+            return False
+        comment = self.comment_at(self.mapFromGlobal(position))
+        if comment is None:
+            return False
+        self._set_hover(comment)
+        self._menu_open = True
+        try:
+            self.actionsRequested.emit(comment.message, position)
+        finally:
+            self._menu_open = False
+            self._poll_hover()
+        return True
 
     def apply_settings(self, settings: dict) -> None:
         values = {key: settings.get(key) for key in (
@@ -404,6 +474,8 @@ class VideoDanmaku(QWidget):
         if self._quick_animated() and self.timer.isActive():
             self._tick()
         self.paused = bool(paused)
+        if self.paused:
+            self._set_hover(None)
         if not self.paused:
             self.super_chat_overlay.raise_()
         self._set_quick_active()
@@ -433,6 +505,7 @@ class VideoDanmaku(QWidget):
         if not visible:
             # Erase the native backing while still visible. Hiding first leaves
             # its last rendered comments cached until the next asynchronous paint.
+            self._set_hover(None)
             self._stop_timer()
             self.comments.clear()
             if self._quick_layer is not None and self._quick_group is not None:
@@ -507,7 +580,7 @@ class VideoDanmaku(QWidget):
             if ensure_layer is not None:
                 self.attach_quick_layer(ensure_layer())
         comment = _Comment(image, float(self.width()), lane, speed, text, color, runs,
-                           self_sent=self_sent)
+                           self_sent=self_sent, message=str(event.get('text') or ''))
         if self._quick_layer is not None and self._quick_group is not None:
             comment.render_id = self._quick_layer.add(
                 self._quick_group, image.toImage(), comment.x,
@@ -750,7 +823,8 @@ class VideoDanmaku(QWidget):
         elapsed = now - self._last_tick if self._last_tick else 0.0
         self._last_tick = now
         for comment in self.comments:
-            comment.x -= elapsed * comment.speed
+            if not comment.held:
+                comment.x -= elapsed * comment.speed
             if (self._quick_layer is not None and self._quick_group is not None
                     and not self._quick_animated()):
                 self._quick_layer.move(comment.render_id, comment.x,
@@ -762,6 +836,7 @@ class VideoDanmaku(QWidget):
             elif self._quick_layer is not None and self._quick_group is not None:
                 self._quick_layer.remove(comment.render_id)
         self.comments = active
+        self._poll_hover()
         self._set_quick_active()
         if bottom and self._quick_layer is None:
             self.update(QRect(0, 0, self.width(), min(self.height(), bottom)))
@@ -769,6 +844,7 @@ class VideoDanmaku(QWidget):
             self._stop_timer()
 
     def clear(self) -> None:
+        self._set_hover(None)
         self._stop_timer()
         self.comments.clear()
         self.super_chats.clear()
@@ -799,7 +875,7 @@ class VideoDanmaku(QWidget):
         for comment in self.comments:
             y = comment.lane * height
             if y < event.rect().bottom() + 1 and y + height > event.rect().top():
-                painter.drawPixmap(QPointF(comment.x - elapsed * comment.speed, y), comment.image)
+                painter.drawPixmap(QPointF(comment.x - (0 if comment.held else elapsed * comment.speed), y), comment.image)
 
     @staticmethod
     def _paint_super_chat(painter, rect, chat: dict, scale: float,
@@ -1007,6 +1083,7 @@ class VideoDanmaku(QWidget):
 
     def hideEvent(self, event) -> None:
         # 布局/全屏可能短暂隐藏浮层；仅停止绘制，显式关弹幕或换台才清空。
+        self._set_hover(None)
         if self._quick_animated() and self.timer.isActive():
             self._tick()
         self._stop_timer()

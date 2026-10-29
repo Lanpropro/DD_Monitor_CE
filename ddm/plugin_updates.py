@@ -58,7 +58,7 @@ def pending_versions(manager):
 
 
 def apply_pending(manager):
-    from .plugins import read_manifest
+    from .plugins import PLUGIN_INVENTORY, read_manifest
     root = Path(manager.plugins_dir)
     for plugin_id in pending_versions(manager):
         package = root / '.updates' / plugin_id
@@ -74,6 +74,13 @@ def apply_pending(manager):
                 # 在启动时复制最终数据，避免丢失下载之后、退出之前的写入。
                 shutil.copytree(target, merged)
                 shutil.copytree(package, merged, dirs_exist_ok=True)
+                owned = set()
+                for folder in (target, package):
+                    inventory = folder / PLUGIN_INVENTORY
+                    if inventory.is_file():
+                        owned.update(inventory.read_text(encoding='utf-8-sig').splitlines())
+                if owned:
+                    (merged / PLUGIN_INVENTORY).write_text('\n'.join(sorted(owned)) + '\n', encoding='utf-8-sig')
                 read_manifest(str(merged), plugin_id)
                 if backup.exists():
                     shutil.rmtree(backup)

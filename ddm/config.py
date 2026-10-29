@@ -1,7 +1,7 @@
 """配置读写。
 
 状态（关注了哪些房间、画面墙上有哪些、每格的静音/音量/画质、界面状态）
-写在仓库的 utils/config.json。新用户第一次打开时是空的，房间靠自己添加。
+写在数据目录的 utils/config.json。安装版使用用户目录，便携版默认保存在程序旁。
 """
 import io
 from copy import deepcopy
@@ -12,10 +12,26 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if getattr(sys, "frozen", False):
-    # 打包成 exe 后代码在 _internal 里，而 utils / cache / logs 要放在 exe
-    # **旁边**（便携版：配置跟着包走，用户找得到、也删得掉）
+    # Resources stay beside the executable; initialize_paths selects user data separately.
     REPO = os.path.dirname(os.path.abspath(sys.executable))
 CONFIG_PATH = os.path.join(REPO, "utils", "config.json")
+DATA_ROOT = None
+DATA_MIGRATION_ERROR = ''
+
+
+def data_root():
+    return DATA_ROOT or REPO
+
+
+def initialize_paths():
+    global DATA_ROOT, CONFIG_PATH, DATA_MIGRATION_ERROR
+    if os.environ.get('DDM_NO_SAVE'):
+        return
+    from .data_paths import resolve
+    root, DATA_MIGRATION_ERROR = resolve(REPO)
+    DATA_ROOT = str(root)
+    CONFIG_PATH = os.path.join(DATA_ROOT, 'utils', 'config.json')
+
 
 DEFAULT_VOLUME = 40
 
@@ -52,6 +68,8 @@ DEFAULT_SETTINGS = {
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 0.5 秒，缩略图里播静音预览
     "sidebar_platform_logos": True,
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
+    "notice_hide_fullscreen": False,
+    "notice_banner_blur": 16,
     "notice_persist_updates": True,
     "notice_persist_pinned_live": True,
     "notice_persist_live": False,

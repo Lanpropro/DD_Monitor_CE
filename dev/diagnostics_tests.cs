@@ -21,6 +21,11 @@ internal static class DiagnosticsTests
         try
         {
             Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+            if (args[0] == "--data-location")
+            {
+                Console.WriteLine(new Collector(args[1], args[3]).Collect(args[2], "data location test", "test", (p, text) => { }));
+                return 0;
+            }
             if (NativeDependencies.TryRun(args)) return 0;
             if (args[0] == "--auto-exit")
             {

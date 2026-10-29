@@ -15,6 +15,7 @@ param(
     [string]$OutDir = "",
     [string]$FFmpegExe = "",
     [string]$DependencyRoot = "",
+    [string]$VulkanRuntimeDir = "",
     [switch]$SkipZip,
     [switch]$SourceOnly
 )
@@ -38,6 +39,7 @@ if (-not $version) { throw "读不到版本号（ddm/version.py）" }
 $display = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.DISPLAY_NAME)").Trim()
 if (-not $display) { $display = "DD监控室CE" }
 $name = "$display-$version"
+$sourceCommit = (& git -C $repo rev-parse HEAD).Trim()
 $app = Join-Path $OutDir $name
 Write-Output "=== 打包 $name -> $OutDir ==="
 
@@ -59,6 +61,18 @@ $ffmpegLicense = Join-Path $ffmpegHome "LICENSE"
 $ffmpegReadme = Join-Path $ffmpegHome "README.txt"
 if (-not (Test-Path $ffmpegLicense) -or -not (Test-Path $ffmpegReadme)) {
     throw "FFmpeg 包缺少 LICENSE 或 README.txt，不能做发布包：$ffmpegHome"
+}
+
+# The pinned libmpv build imports the Vulkan loader even on D3D11 systems.
+if (-not $VulkanRuntimeDir) { $VulkanRuntimeDir = Join-Path $repo "work\deps\vulkan-runtime" }
+$vulkanSource = Get-Content -LiteralPath (Join-Path $repo "ddm\assets\licenses\vulkan-SOURCE.json") -Raw | ConvertFrom-Json
+$vulkanDll = Join-Path $VulkanRuntimeDir "x64\vulkan-1.dll"
+$vulkanLicense = Join-Path $VulkanRuntimeDir "VulkanRT-License.txt"
+foreach ($entry in @(@($vulkanDll, $vulkanSource.dll_sha256), @($vulkanLicense, $vulkanSource.license_sha256))) {
+    if (-not (Test-Path -LiteralPath $entry[0] -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $entry[0] -Algorithm SHA256).Hash.ToLower() -ne $entry[1]) {
+        throw "Vulkan runtime is missing or does not match the pinned source: $($entry[0]); use -VulkanRuntimeDir"
+    }
 }
 
 if ((Split-Path $app -Parent) -ne $OutDir) { throw "源码包路径越界：$app" }
@@ -100,6 +114,7 @@ foreach ($file in @("libmpv-2.dll")) {
     if (-not (Test-Path $src)) { throw "缺少 $file（libmpv 运行库），打包中止" }
     Copy-Item $src $app -Force
 }
+Copy-Item -LiteralPath $vulkanDll,$vulkanLicense -Destination $app -Force
 # 用户插件目录：直播平台扩展由独立插件仓库发布。
 New-Item -ItemType Directory -Force -Path (Join-Path $app "plugins_user") | Out-Null
 # utils is runtime user data; release packages start with an empty directory.
@@ -198,7 +213,7 @@ if (-not $SourceOnly) {
     if ($version -eq "v0.3.1") {
         Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
     }
-    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64' } |
+    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64'; source_commit = $sourceCommit } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     foreach ($diagnosticFile in @("DDMonitorDiagnostics.exe", "诊断工具说明.md")) {
         Copy-Item -LiteralPath (Join-Path $app $diagnosticFile) -Destination $exeDir -Force
@@ -210,6 +225,7 @@ if (-not $SourceOnly) {
     Copy-Item -LiteralPath $ffmpegLicense -Destination (Join-Path $exeDir "ffmpeg-license\LICENSE") -Force
     Copy-Item -LiteralPath $ffmpegReadme -Destination (Join-Path $exeDir "ffmpeg-license\README.txt") -Force
     Copy-Item (Join-Path $repo "libmpv-2.dll") $internal -Force
+    Copy-Item -LiteralPath $vulkanDll,$vulkanLicense -Destination $internal -Force
     $mpvLicenseDir = Join-Path $exeDir "mpv-license"
     New-Item -ItemType Directory -Force -Path $mpvLicenseDir | Out-Null
     Get-ChildItem (Join-Path $repo "ddm\assets\licenses") -File |

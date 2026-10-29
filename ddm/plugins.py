@@ -47,13 +47,11 @@ from .plugin_controls import TileControl, TileControlContext, TileControls
 from .plugin_credentials import (CredentialSnapshot, CredentialStore,
                                  EVENT_ACCOUNT_CHANGED, EVENT_CREDENTIALS_UPDATED)
 
-#: 插件目录要和 utils / cache / logs 一样落在**程序旁边**：源码运行时是仓库根，
-#: 打包成 exe 后是 exe 所在目录。这里用 config.REPO（它已经处理了 frozen），
-#: 不能用 __file__ —— 冻结后 __file__ 在 _internal 里面，插件目录会找错地方，
-#: 结果就是 exe 版永远是「[插件] 0 个插件」。
-REPO = config_module.REPO
+#: User-installed plugins follow the data folder, separate from bundled resources.
+REPO = config_module.data_root()
 DEFAULT_PLUGINS_DIR = os.path.join(REPO, "plugins_user")
 PLUGIN_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+PLUGIN_INVENTORY = '.ddm-plugin-files.txt'
 # 旧发布包的记录插件已由本体接管；覆盖升级保留文件，但不再执行或展示。
 RETIRED_BUNDLED_PLUGINS = frozenset({"danmaku_log"})
 RENAMED_PLUGINS = {"huya_watch": "domestic_live"}
@@ -557,6 +555,7 @@ class PluginManager:
                 if (len(parts) < 2 or parts[0] != plugin_id or
                         any(part in ("", ".", "..") for part in parts) or
                         "\\" in item.filename or ":" in item.filename or
+                        '\n' in item.filename or '\r' in item.filename or
                         (item.external_attr >> 16) & 0o170000 == 0o120000):
                     raise ValueError("插件包包含不安全路径或多个顶层目录")
             if f"{plugin_id}/plugin.py" not in package.namelist() or \
@@ -573,6 +572,9 @@ class PluginManager:
                     with package.open(item) as source, open(destination, "wb") as output:
                         shutil.copyfileobj(source, output)
                 read_manifest(os.path.join(staging, plugin_id), plugin_id)
+                inventory = os.path.join(staging, plugin_id, PLUGIN_INVENTORY)
+                with open(inventory, 'w', encoding='utf-8-sig') as output:
+                    output.write('\n'.join(sorted('/'.join(parts[1:]) for parts in names)) + '\n')
                 replace_directory(os.path.join(staging, plugin_id), target)
         if self.enabled is not None:
             self.enabled.add(plugin_id)

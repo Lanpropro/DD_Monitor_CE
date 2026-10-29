@@ -10,7 +10,7 @@ import time
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ddm.hls_proxy import HlsProxy  # noqa: E402
+from ddm.hls_proxy import HlsProxy, retain_flv_response, take_flv_response  # noqa: E402
 
 
 def main():
@@ -104,6 +104,40 @@ def main():
         assert all(item["Referer"] == "https://www.twitch.tv/" for item in headers)
         assert requests.get(proxy.url.replace(proxy.url.split("/")[3], "wrong", 1), timeout=3).status_code == 404
         assert requests.get(proxy.url.rsplit("/", 2)[0] + "/%%%/resource.ts", timeout=3).status_code == 404
+        live = HlsProxy(base + "/video.ts?signature=public", {}, forward_range=False)
+        try:
+            result = requests.get(live.url, headers={"Range": "bytes=0-"}, timeout=3)
+            assert result.status_code == 200
+            assert "Range" not in headers[-1], "Live FLV must omit player range requests upstream"
+        finally:
+            live.stop()
+        # The source is opened exactly once, including bytes consumed by probing.
+        source = base + "/handoff.flv"
+        opened = requests.get(source, stream=True, timeout=3)
+        chunks = opened.iter_content(4)
+        prefix = next(chunks)
+        token = retain_flv_response(opened, prefix, chunks)
+        initial = take_flv_response(token)
+        assert take_flv_response(token) is None
+        eof_events = []
+        transferred = HlsProxy(source, {}, forward_range=False, initial_response=initial,
+                               diagnostic=lambda **event: eof_events.append(event))
+        try:
+            result = requests.get(transferred.url, headers={"Range": "bytes=0-"}, timeout=3)
+            assert result.content == b"transport stream", result.content
+            assert attempts.count("/handoff.flv") == 1
+            assert transferred.live_ended.is_set(), "Live EOF must be visible to the player"
+            assert eof_events[-1]["received_bytes"] == len(b"transport stream")
+            assert eof_events[-1]["error"] == "LIVE_EOF"
+            assert eof_events[-1]["last_data_age"] >= 0
+        finally:
+            transferred.stop()
+        opened = requests.get(source, stream=True, timeout=3)
+        token = retain_flv_response(opened, b"", iter(()))
+        initial = take_flv_response(token)
+        abandoned = HlsProxy(source, {}, initial_response=initial)
+        abandoned.stop()
+        assert opened.raw.closed
         events = []
         late = HlsProxy(base + '/late.m3u8', {}, diagnostic=lambda **event: events.append(event))
         try:

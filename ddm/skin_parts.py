@@ -253,6 +253,8 @@ def paint_button(widget):
     painter = QPainter(widget)
     if tool:
         widget.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, widget)
+    elif widget.property('tileButton'):
+        widget._paint_button(painter, option)
     else:
         widget.style().drawControl(QStyle.CE_PushButton, option, painter, widget)
     return True

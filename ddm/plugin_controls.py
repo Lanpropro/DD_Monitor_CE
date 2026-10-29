@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 import traceback
 import weakref
 
-from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QSizePolicy, QWidget
 
 
 @dataclass
@@ -52,6 +54,7 @@ class TileControls:
         self._on_shutdown = on_shutdown
         self.entries = []
         self._disposed = False
+        self._panel = None
         self.widget = QWidget(tile.bottom)
         self.widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         self.widget.hide()
@@ -66,11 +69,82 @@ class TileControls:
         bar.insertWidget(index, self.widget)
         bar.insertWidget(index + 1, self.spacer)
 
+    def room_id(self):
+        tile = self._tile()
+        return str(tile.room.get('room_id') or '') if tile is not None else ''
+
+    def can_repeat(self):
+        return self._repeat_editor() is not None
+
+    def _repeat_editor(self):
+        if self._disposed:
+            return None
+        for entry in self.applicable():
+            widget = entry.control.widget
+            if not widget.isEnabled() or type(entry.control).focus_input is TileControl.focus_input:
+                continue
+            editors = ([widget] if isinstance(widget, QLineEdit) else widget.findChildren(QLineEdit))
+            editors = [editor for editor in editors if editor.window() is widget.window()
+                       and editor.isEnabled() and not editor.isReadOnly() and not editor.isHidden()]
+            if len(editors) == 1:
+                return editors[0]
+        return None
+
+    def repeat_text(self, text, room_id):
+        if not room_id or room_id != self.room_id():
+            return False
+        editor = self._repeat_editor()
+        if editor is None or len(text) > editor.maxLength():
+            return False
+        editor.setText(text)
+        # Match Enter in the existing composer, including its login/busy checks.
+        QApplication.sendEvent(editor, QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.NoModifier))
+        QApplication.sendEvent(editor, QKeyEvent(QEvent.KeyRelease, Qt.Key_Return, Qt.NoModifier))
+        return True
+
     def invalidate(self):
         tile = self._tile()
         if tile is not None and not self._disposed:
+            wall = tile.parentWidget()
+            if hasattr(wall, '_sync_danmaku_controls'):
+                wall._sync_danmaku_controls()
+            if self._panel is not None:
+                self.layout_panel()
             tile._bottom_layout_signature_value = None
             tile._layout_bottom_controls()
+
+    def set_panel(self, panel):
+        """Move the same controls, keeping drafts and plugin ownership intact."""
+        if panel is self._panel:
+            return
+        tile = self._tile()
+        if self._panel is not None:
+            self._panel.composer_bar.layout().removeWidget(self.widget)
+            self._panel.composer_bar.hide()
+            self._panel._tile_controls = None
+        else:
+            tile.bottom.layout().removeWidget(self.widget)
+        self._panel = panel
+        self.widget.hide()
+        if panel is not None:
+            self.widget.setParent(panel.composer_bar)
+            panel.composer_bar.layout().addWidget(self.widget)
+            panel._tile_controls = self
+            self.spacer.hide()
+            self.layout_panel()
+        else:
+            self.widget.setParent(tile.bottom)
+            bar = tile.bottom.layout()
+            bar.insertWidget(bar.indexOf(self.spacer), self.widget)
+        tile._bottom_layout_signature_value = None
+        tile._layout_bottom_controls()
+
+    def layout_panel(self):
+        if self._panel is not None and not self._disposed:
+            width = max(0, self._panel.width() - 16)
+            fitted = self._allocate(width)
+            self._panel.composer_bar.setVisible(bool(fitted))
+            self.spacer.hide()
 
     def add(self, owner, key, factory, priority, order):
         if self._disposed or any(e.owner == owner and e.key == key for e in self.entries):
@@ -128,6 +202,12 @@ class TileControls:
 
     def allocate(self, width):
         """Fit prioritized minima, then preferred widths, returning group width."""
+        if self._panel is not None:
+            self.spacer.hide()
+            return 0
+        return self._allocate(width)
+
+    def _allocate(self, width):
         if self._disposed:
             return 0
         width = max(0, int(width))
@@ -200,6 +280,13 @@ class TileControls:
         if self._disposed:
             return
         self._disposed = True
+        if self._panel is not None:
+            try:
+                self._panel.composer_bar.hide()
+                self._panel._tile_controls = None
+            except RuntimeError:
+                pass  # The wall can destroy the panel before its tiles.
+            self._panel = None
         tile = self._tile()
         callback, self._on_shutdown = self._on_shutdown, None
         if callback is not None and tile is not None:

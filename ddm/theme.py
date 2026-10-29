@@ -226,6 +226,7 @@ def _apply_palette(app, colors):
         if color.startswith('rgba('):
             parsed.setAlpha(int(float(color[5:-1].split(',')[-1]) * 255))
         palette.setColor(roles[name.replace('-', '')], parsed)
+    palette.setColor(QPalette.PlaceholderText, qcolor(colors['TEXT3']))
     app.setPalette(palette.resolve(app.palette()))
     for widget in app.allWidgets():
         widget.setPalette(palette.resolve(widget.palette()))
@@ -242,7 +243,7 @@ def refresh_theme_properties(widget):
     name = widget.objectName()
     if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
@@ -1243,8 +1244,8 @@ QPushButton#PrimaryButton:pressed {{
     background: transparent;
     color: {TEXT4};
 }}
-#TileCtrl:focus {{
-    border: 1px solid {ACCENT};
+#TileCtrl:focus, #TileToggle:focus, #BiliVolumeButton:focus {{
+    outline: none;
 }}
 #BiliVolumeButton {{
     background: transparent;
@@ -1271,7 +1272,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #DanmakuSendButton[hasText="true"]:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
 #DanmakuSendButton:disabled {{background: transparent; color: {TEXT4}; border-color: {BORDER};}}
-#DanmakuSendButton:focus {{border: 1px solid {ACCENT};}}
+#DanmakuSendButton:focus {{outline: none;}}
 #DanmakuComposer {{background: transparent; border: none;}}
 #DanmakuComposer QLineEdit {{
     padding: 2px 8px; font-size: {FONT_CAPTION}px;

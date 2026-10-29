@@ -7,7 +7,7 @@ import time
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dev.sc_simulator import ScSimulator, ROOT, config, theme
+from dev.sc_simulator import ScSimulator, config, theme
 from ddm import motion
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
@@ -49,8 +49,8 @@ class SimulatorTests(unittest.TestCase):
 
     def test_visibility_opacity_and_isolated_data(self):
         window = self.window
-        self.assertNotEqual(Path(config.REPO), ROOT)
-        self.assertTrue(Path(config.CONFIG_PATH).is_relative_to(Path(config.REPO)))
+        self.assertNotEqual(Path(config.data_root()), Path(config.REPO))
+        self.assertTrue(Path(config.CONFIG_PATH).is_relative_to(Path(config.data_root())))
         window.visible_box.setChecked(False)
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
@@ -222,7 +222,7 @@ def check_native_alpha():
     window.activateWindow()
     from ddm.player import TilePlayer
     from ddm.recording import ffmpeg_path
-    source = ROOT / 'work/test-artifacts/sc-simulator/alpha-blue.mp4'
+    source = Path(config.REPO) / 'work/test-artifacts/sc-simulator/alpha-blue.mp4'
     source.parent.mkdir(parents=True, exist_ok=True)
     if not source.exists():
         subprocess.run([ffmpeg_path(), '-y', '-hide_banner', '-loglevel', 'error',
@@ -269,7 +269,7 @@ def check_native_alpha():
             expected = getattr(colour, component)() * .35 + getattr(base, component)() * .65
             assert abs(getattr(faded, component)() - expected) < 15, \
                 (component, base.name(), colour.name(), faded.name(), expected)
-        output = ROOT / 'work/test-artifacts/sc-simulator/native-stack.png'
+        output = Path(config.REPO) / 'work/test-artifacts/sc-simulator/native-stack.png'
         now = int(time.time())
         for chat_id, price, colour in (('2', 60, '#00ff00'), ('3', 100, '#ffdd00')):
             window.store.upsert({'id': chat_id, 'price': price, 'uname': 'Native stack',

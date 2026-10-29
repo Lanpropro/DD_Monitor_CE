@@ -7,7 +7,7 @@
 免费、开源的 Windows 多窗口直播观看与监控工具。
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-0.5.2-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
+[![版本](https://img.shields.io/badge/版本-0.6-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
 [下载软件](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
@@ -67,9 +67,10 @@
 
 ## 下载
 
-当前版本 **0.5.2**，支持 **Windows 10 / 11 64 位**。
 
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorCE-v0.5.2-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
+当前已发布版本 **0.6**，支持 **Windows 10 / 11 64 位**。
+
+[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.6/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.6/DDMonitorCE-v0.6-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
 安装版与便携版均无需安装 Python。官方下载与更新请认准本仓库 Releases。
 
