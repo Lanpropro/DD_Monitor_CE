@@ -4,6 +4,7 @@
 | --- | --- |
 | [run-checks.cmd](run-checks.cmd)、[run_checks.py](run_checks.py) | 统一验证入口，默认仅运行仓库检查 |
 | [checks/](checks/README.md) | 全部专项脚本的功能索引、已审查的执行套件与子进程引导 |
+| [run-sc-simulator.cmd](run-sc-simulator.cmd)、[sc_simulator.py](sc_simulator.py) | 虚拟 SC 手动测试窗口；通过根 `run.cmd --sc-simulator` 启动，使用临时数据，不联网或发送真实消息 |
 | [benchmarks/](benchmarks/README.md) | 弹幕性能测量；结果不等同于桌面最终呈现帧率 |
 | [tools/](tools/README.md) | 品牌资源生成、插件发布目录生成工具 |
 | `selfcheck_*.py`、`check_*.py` | 软件专项回归及诊断；暂保留现有路径，兼容相互导入 |

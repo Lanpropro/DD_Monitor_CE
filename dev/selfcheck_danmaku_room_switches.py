@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 from ddm import config
 from ddm.app import MainWindow
 from ddm.widgets import ROOM_MIME, Tile
-from dev.selfcheck_video_danmaku import Client
+from dev.selfcheck_video_danmaku import Client, Snapshot
 
 APP = QApplication.instance() or QApplication([])
 
@@ -25,6 +25,7 @@ class RoomSwitchTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch("ddm.app.DanmakuClient", Client))
+        self.stack.enter_context(patch("ddm.app.SuperChatSnapshot", Snapshot))
         for method in ("start_tile", "refresh_status", "refresh_stats"):
             self.stack.enter_context(patch.object(MainWindow, method))
         rooms = [dict(room_id=str(rid), uname=str(rid), live=True) for rid in (1001, 1002, 1003)]

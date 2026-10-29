@@ -6,8 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QUrl, QVariantAnimation, Signal
-from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QTextOption, QTransform
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextOption
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
                                QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
@@ -151,13 +151,7 @@ class NoticeRow(QFrame):
         layout.addLayout(footer)
         self._paper = None
         self._progress = 0.0
-        self.animation = QVariantAnimation(self)
-        self.animation.setDuration(240)
-        self.animation.setEasingCurve(motion.THEME_WAVE_EASING)
-        self.animation.setStartValue(0.0)
-        self.animation.setEndValue(1.0)
-        self.animation.valueChanged.connect(self._frame)
-        self.animation.finished.connect(self.finish_removal)
+        self.animation = motion.paper_animation(self, self._frame, self.finish_removal)
         self.ensurePolished()
         style_room_notice(self, self.artwork)
         self.setMinimumHeight(layout.totalHeightForWidth(max(80, parent.width())))
@@ -211,26 +205,8 @@ class NoticeRow(QFrame):
                                       focus=self.artwork.banner is None)
             return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        progress = self._progress
-        painter.setOpacity(min(1.0, (1.0 - progress) * 3))
-        width, height = self.width(), self.height()
-        # Horizontal strips bend and narrow toward the bottom-right paper slot.
-        for index in range(12):
-            top, bottom = height * index / 12, height * (index + 1) / 12
-            points = []
-            for x, y in ((0, top), (width, top), (width, bottom), (0, bottom)):
-                bend = progress * (0.5 + 0.5 * y / height)
-                points.append(QPointF(x + (width - 12 - x) * bend,
-                                      y + (height - 4 - y) * progress))
-            source = QPolygonF([QPointF(0, top), QPointF(width, top),
-                                QPointF(width, bottom), QPointF(0, bottom)])
-            transform = QTransform()
-            if QTransform.quadToQuad(source, QPolygonF(points), transform):
-                painter.setTransform(transform)
-                scale = self._paper.devicePixelRatio()
-                painter.drawPixmap(QRectF(0, top, width, bottom - top), self._paper,
-                                   QRectF(0, top * scale, width * scale, (bottom - top) * scale))
+        motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
+        painter.end()
 
 
 class NotificationCenter(QFrame):

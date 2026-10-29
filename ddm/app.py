@@ -36,6 +36,7 @@ from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
 from .danmaku import DanmakuClient
+from .super_chat import SuperChatSnapshot, SuperChatStore
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
@@ -158,6 +159,13 @@ class MainWindow(QMainWindow):
         self._danmaku_clients: dict[str, object] = {}
         self._danmaku_status: dict[str, str] = {}
         self._danmaku_retired: list = []
+        self._super_chats: dict[str, SuperChatStore] = {}
+        self._super_chat_snapshots: dict[str, SuperChatSnapshot] = {}
+        self._super_chat_retired: list = []
+        self._super_chat_timer = QTimer(self)
+        self._super_chat_timer.setInterval(1000)
+        self._super_chat_timer.timeout.connect(self._tick_super_chats)
+        self._super_chat_timer.start()
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
@@ -267,6 +275,7 @@ class MainWindow(QMainWindow):
         self.sidebar.layoutResetRequested.connect(self.wall.reset_layout_ratios)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
+        self.wall.danmaku.superChatDismissed.connect(lambda chat_id: self._dismiss_super_chat(self._danmaku_room, chat_id))
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
         self.hover_preview = HoverPreview(
             self.sidebar, self, platform_resolver=lambda rid: self.plugins.platform_for(rid))
@@ -1155,6 +1164,7 @@ class MainWindow(QMainWindow):
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
         self._audio_device_timer.stop()
         self._record_clock.stop()
+        self._super_chat_timer.stop()
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
         self.skin_controller.stop()
@@ -1196,6 +1206,8 @@ class MainWindow(QMainWindow):
                  "_poller", "_stats_poller")
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
+        threads.extend(self._super_chat_snapshots.values())
+        threads.extend(self._super_chat_retired)
         threads.extend(self._resolvers_running)
         threads.extend(self._danmaku_retired)
         preview_threads = list(self.hover_preview._resolvers_running)
@@ -1209,6 +1221,10 @@ class MainWindow(QMainWindow):
             except RuntimeError:             # 已被 Qt 回收
                 pass
         self._avatar_loaders.clear()
+        for thread in list(self._super_chat_retired) + list(self._super_chat_snapshots.values()):
+            if self._loader_running(thread):
+                thread.wait()
+        self._super_chat_retired.clear()
         for thread in list(self._danmaku_retired):
             if self._loader_running(thread):
                 thread.wait()
@@ -3011,6 +3027,7 @@ class MainWindow(QMainWindow):
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.video_danmaku.apply_settings(self.settings)
+        tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
@@ -3812,25 +3829,23 @@ class MainWindow(QMainWindow):
     # ---- 弹幕 ----
     def _danmaku_target_room(self) -> dict:
         """弹幕格跟着主画面走；没有主画面就跟第一路有人的画面。"""
-        tiles = self.wall.tiles
-        main = self.wall.main_index()
-        if main is not None and 0 <= main < len(tiles):
-            return tiles[main].room or {}
-        for tile in tiles:
-            if tile.room.get("room_id"):
-                return tile.room
-        return {}
+        tile = self.wall.danmaku_target_tile()
+        return tile.room if tile is not None else {}
 
     def sync_danmaku(self) -> None:
         """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
         if self._closing or not getattr(self, "plugins", None):
             return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
         panel = self.wall.danmaku
+        self.wall.sync_sc_placement()
         room = self._danmaku_target_room() if self.wall.has_danmaku else {}
         room_id = str(room.get("room_id") or "")
         wanted = {str(tile.room["room_id"]) for tile in self.wall.tiles
-                  if tile.isVisible() and tile.danmaku_button.isChecked()
+                  if tile.isVisible() and (tile.danmaku_button.isChecked() or
+                      self.wall.has_danmaku and self.settings.get('super_chat_enabled', True))
                   and tile.room.get("room_id") and (tile.room.get("live") or tile._player_active)}
+        if self.wall.has_danmaku and self._danmaku is None and self._danmaku_room:
+            wanted.add(self._danmaku_room)
         if room_id:
             wanted.add(room_id)
         if room_id != self._danmaku_room:
@@ -3841,6 +3856,8 @@ class MainWindow(QMainWindow):
             self.start_danmaku(room_id, room.get("uname", ""))
         elif not room_id:
             panel.set_placeholder("把直播间拖到主画面，这里就会显示它的弹幕")
+        elif self._danmaku is not None:
+            self._publish_super_chats(room_id)
         for target in wanted - set(self._danmaku_clients) - {room_id}:
             self._ensure_danmaku_client(target)
 
@@ -3861,6 +3878,8 @@ class MainWindow(QMainWindow):
         if client is None:
             panel.set_placeholder("此平台弹幕尚未接入，直播画面可正常播放")
             panel.set_status("暂不支持")
+        else:
+            self._publish_super_chats(str(room_id))
 
     def _ensure_danmaku_client(self, room_id: str, *, for_panel: bool = False):
         client = self._danmaku_clients.get(room_id)
@@ -3877,6 +3896,9 @@ class MainWindow(QMainWindow):
                         tile.danmaku_button.setToolTip("此平台弹幕尚未接入")
                 return None
             self._danmaku_clients[room_id] = client
+            if room_id.isdigit():
+                QTimer.singleShot(0, lambda rid=room_id, source=client:
+                                  self._load_super_chat_snapshot(rid, source))
             client.message.connect(
                 lambda event, source=client: self._on_danmaku_message(source, event))
             client.status.connect(
@@ -3890,6 +3912,39 @@ class MainWindow(QMainWindow):
             client.start()
             print(f"[弹幕] 开始接收房间 {room_id}", file=sys.stderr, flush=True)
         return client
+
+    def _load_super_chat_snapshot(self, room_id: str, client=None) -> None:
+        if self._danmaku_clients.get(room_id) is None:
+            return
+        if client is not None and self._danmaku_clients.get(room_id) is not client:
+            return                      # 排队期间已换台，别为旧房间发请求
+        running = self._super_chat_snapshots.get(room_id)
+        if running is not None and running.isRunning():
+            return
+        loader = SuperChatSnapshot(room_id, self)
+        loader.loaded.connect(lambda rid, events, source=loader:
+                              self._on_super_chat_snapshot(rid, events, source=source))
+        loader.finished.connect(lambda rid=room_id, source=loader:
+                                self._on_super_chat_snapshot_finished(rid, source))
+        loader.finished.connect(loader.deleteLater)
+        self._super_chat_snapshots[room_id] = loader
+        loader.start()
+
+    def _on_super_chat_snapshot(self, room_id: str, events: list, *, source=None) -> None:
+        if self._closing or self._danmaku_clients.get(room_id) is None:
+            return
+        if source is not None and self._super_chat_snapshots.get(room_id) is not source:
+            return
+        store = self._super_chats.setdefault(room_id, SuperChatStore())
+        for event in events:
+            store.upsert(event)
+        self._publish_super_chats(room_id)
+
+    def _on_super_chat_snapshot_finished(self, room_id: str, source) -> None:
+        if self._super_chat_snapshots.get(room_id) is source:
+            self._super_chat_snapshots.pop(room_id, None)
+        if source in self._super_chat_retired:
+            self._super_chat_retired.remove(source)
 
     def _on_danmaku_finished(self, room_id: str, source) -> None:
         if source in self._danmaku_retired:
@@ -3909,6 +3964,12 @@ class MainWindow(QMainWindow):
     def _stop_danmaku_client(self, room_id: str) -> None:
         client = self._danmaku_clients.pop(room_id)
         self._danmaku_status.pop(room_id, None)
+        self._super_chats.pop(room_id, None)
+        self._publish_super_chats(room_id)
+        loader = self._super_chat_snapshots.pop(room_id, None)
+        if loader is not None:
+            loader.requestInterruption()
+            self._super_chat_retired.append(loader)
         client.stop()
         try:
             if client.isRunning():
@@ -3924,6 +3985,7 @@ class MainWindow(QMainWindow):
             int(self.settings.get("danmaku_font_size") or 13))
         self.wall.danmaku.set_max_blocks(
             int(self.settings.get("danmaku_max_blocks") or 3000))
+        self.wall.danmaku.apply_super_chat_settings(self.settings)
         for tile in self.wall.tiles:
             tile.video_danmaku.apply_settings(self.settings)
             tile.danmaku_settings_menu.apply_settings(self.settings)
@@ -3968,13 +4030,59 @@ class MainWindow(QMainWindow):
         kind = event.get("kind") or "danmaku"
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
+        if kind == "super_chat":
+            store = self._super_chats.setdefault(room_id, SuperChatStore())
+            event = store.upsert(event)
+            self._publish_super_chats(room_id)
+        elif kind == "super_chat_delete":
+            store = self._super_chats.setdefault(room_id, SuperChatStore())
+            store.remove(event.get("ids") or ())
+            self._publish_super_chats(room_id)
         if source is self._danmaku:
-            self.wall.danmaku.add_event(event)
+            if kind not in ("super_chat", "super_chat_delete"):
+                self.wall.danmaku.add_event(event)
         for tile in self.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
-                tile.video_danmaku.add_event(event)
+                if kind == "danmaku":
+                    tile.video_danmaku.add_event(event)
         self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=room_id,
                           message=dict(event))
+
+    def _dismiss_super_chat(self, room_id: str, chat_id: str) -> None:
+        store = self._super_chats.get(room_id)
+        if store is not None:
+            for tile in self.wall.tiles:
+                if str(tile.room.get('room_id') or '') == room_id:
+                    tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
+            if room_id == self._danmaku_room:
+                self.wall.danmaku.super_chats.animate_dismiss(chat_id)
+            store.dismiss(chat_id)
+            self._publish_super_chats(room_id)
+
+    def _publish_super_chats(self, room_id: str) -> None:
+        store = self._super_chats.get(room_id)
+        chats = store.active() if store is not None else []
+        for tile in self.wall.tiles:
+            if str(tile.room.get("room_id") or "") == room_id:
+                tile.video_danmaku.set_super_chats(chats)
+        if room_id == self._danmaku_room:
+            self.wall.danmaku.set_super_chats(chats)
+
+    def _tick_super_chats(self) -> None:
+        changed = False
+        for room_id, store in list(self._super_chats.items()):
+            if store.expire():
+                changed = True
+                self._publish_super_chats(room_id)
+        if changed or any(store.items for store in self._super_chats.values()):
+            self.wall.danmaku.super_chats.tick()
+            for tile in self.wall.tiles:
+                if tile.video_danmaku.super_chats:
+                    tile.video_danmaku.super_chat_overlay.set_chats(
+                        tile.video_danmaku.super_chats,
+                        int(self.settings.get(
+                            "super_chat_opacity",
+                            config_module.DEFAULT_SETTINGS["super_chat_opacity"])) / 100)
 
     def _on_danmaku_status(self, source, text: str) -> None:
         room_id = next((rid for rid, client in self._danmaku_clients.items()

@@ -104,6 +104,10 @@
 - `dev/selfcheck_danmaku_room_switches.py`
 - `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
+- `dev/selfcheck_super_chat.py`
+- `dev/selfcheck_sc_simulator.py`
+- `dev/sc_simulator.py`
+- `dev/run-sc-simulator.cmd`
 - `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`
 - `dev/selfcheck_douyin_account_import.py`
@@ -409,6 +413,7 @@
 - `docs/releases/RELEASE-v0.4.md`
 - `docs/releases/RELEASE-v0.5.md`
 - `docs/releases/RELEASE-v0.5.1.md`
+- `docs/releases/RELEASE-v0.5.2-super-chat.md`
 - `docs/releases/RELEASE-v0.5.2.md`
 - `docs/releases/UNRELEASED.md`
 

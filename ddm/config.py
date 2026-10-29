@@ -104,6 +104,8 @@ DEFAULT_SETTINGS = {
     "video_danmaku_size": 28,
     "video_danmaku_speed": 100,
     "video_danmaku_opacity": 80,
+    "super_chat_enabled": True,
+    "super_chat_opacity": 80,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
     "video_danmaku_outline_width": 0,

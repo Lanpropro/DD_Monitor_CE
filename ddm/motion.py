@@ -2,8 +2,8 @@
 import ctypes
 import sys
 
-from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPointF, QPropertyAnimation, Qt, QVariantAnimation
-from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPointF, QRectF, QPropertyAnimation, Qt, QVariantAnimation
+from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap, QPolygonF, QTransform
 from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabWidget
 
 THEME_WAVE_MS = 360
@@ -238,3 +238,44 @@ class SettingsStack(QStackedWidget):
     def resizeEvent(self, event):
         self.finish_transition()
         super().resizeEvent(event)
+
+
+PAPER_DISMISS_MS = 240
+
+
+def paper_animation(owner, frame, finished):
+    animation = QVariantAnimation(owner)
+    animation.setDuration(PAPER_DISMISS_MS)
+    animation.setEasingCurve(THEME_WAVE_EASING)
+    animation.setStartValue(0.0)
+    animation.setEndValue(1.0)
+    animation.valueChanged.connect(frame)
+    animation.finished.connect(finished)
+    return animation
+
+
+def paint_paper_discard(painter, rect, paper, progress):
+    """Notification paper-slot exit, shared with dismissible SC cards."""
+    painter.save()
+    painter.translate(rect.topLeft())
+    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    painter.setOpacity(min(1.0, (1.0 - progress) * 3))
+    width, height = rect.width(), rect.height()
+    for index in range(12):
+        top, bottom = height * index / 12, height * (index + 1) / 12
+        points = []
+        for x, y in ((0, top), (width, top), (width, bottom), (0, bottom)):
+            bend = progress * (0.5 + 0.5 * y / height)
+            points.append(QPointF(x + (width - 12 - x) * bend,
+                                 y + (height - 4 - y) * progress))
+        source = QPolygonF([QPointF(0, top), QPointF(width, top),
+                            QPointF(width, bottom), QPointF(0, bottom)])
+        transform = QTransform()
+        if QTransform.quadToQuad(source, QPolygonF(points), transform):
+            painter.save()
+            painter.setTransform(transform, True)
+            scale = paper.devicePixelRatio()
+            painter.drawPixmap(QRectF(0, top, width, bottom - top), paper,
+                               QRectF(0, top * scale, width * scale, (bottom - top) * scale))
+            painter.restore()
+    painter.restore()

@@ -597,6 +597,20 @@ class DanmakuSettingsPage(QWidget):
         keep_box.addStretch(1)
         grid.addLayout(keep_box, 2, 1)
 
+        self.super_chat_enabled = QCheckBox('显示醒目留言（SC）')
+        self.super_chat_enabled.setChecked(bool(settings.get('super_chat_enabled', True)))
+        grid.addWidget(self.super_chat_enabled, 3, 0, 1, 2)
+        grid.addWidget(QLabel('SC 不透明度'), 4, 0)
+        self.super_chat_opacity = QSlider(Qt.Horizontal)
+        self.super_chat_opacity.setRange(10, 100)
+        self.super_chat_opacity.setValue(int(settings.get('super_chat_opacity', 80)))
+        sc_value = QLabel(f'{self.super_chat_opacity.value()}%')
+        self.super_chat_opacity.valueChanged.connect(lambda value: sc_value.setText(f'{value}%'))
+        sc_row = QHBoxLayout()
+        sc_row.addWidget(self.super_chat_opacity, 1)
+        sc_row.addWidget(sc_value)
+        grid.addLayout(sc_row, 4, 1)
+
         layout.addLayout(grid)
 
         tip = QLabel("字号也可以在弹幕格底部那条滑块上实时拖，不用每次进设置")
@@ -625,6 +639,8 @@ class DanmakuSettingsPage(QWidget):
         self.font_box.setCurrentFont(QFont(theme.danmaku_font_family()))
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
+        self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
+        self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
@@ -637,6 +653,8 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
+            "super_chat_enabled": self.super_chat_enabled.isChecked(),
+            "super_chat_opacity": self.super_chat_opacity.value(),
         }
 
 

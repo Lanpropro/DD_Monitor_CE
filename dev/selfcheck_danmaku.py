@@ -64,6 +64,28 @@ class FakeImageLoader(QThread):
         return
 
 
+class FakeSuperChatSnapshot(QThread):
+    loaded = Signal(str, list)
+    instances: list = []
+
+    def __init__(self, room_id, parent=None):
+        super().__init__(parent)
+        self.room_id = str(room_id)
+        self.started = False
+        self.interrupted = False
+        FakeSuperChatSnapshot.instances.append(self)
+
+    def start(self) -> None:
+        self.started = True
+        self.loaded.emit(self.room_id, [])
+
+    def requestInterruption(self) -> None:
+        self.interrupted = True
+
+    def isRunning(self) -> bool:
+        return self.started and not self.interrupted
+
+
 ROOMS = [
     {"room_id": "1001", "uname": "示例主播A", "title": "示例直播标题", "live": True,
      "muted": True, "quality": 250},
@@ -152,13 +174,17 @@ def main() -> None:
     print("  WebSocket 建连、鉴权成功、鉴权失败三种状态区分正确")
     bili.play_url = boom
     app_module.DanmakuClient = FakeDanmakuClient
+    app_module.SuperChatSnapshot = FakeSuperChatSnapshot
+    MainWindow.refresh_status = lambda self: None
+    MainWindow.refresh_stats = lambda self: None
     widgets_module.AvatarLoader = FakeImageLoader      # 表情图不真的去下
     FakeDanmakuClient.instances = []
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
 
     window = MainWindow([dict(room) for room in ROOMS], [dict(room) for room in ROOMS],
-                        layout_id="dm_pair")
+                        layout_id="dm_pair", state={"plugins_enabled": [],
+                                                    "settings": {"auto_update": False}})
     window.setGeometry(-8000, -8000, 1400, 800)
     window.show()
     settle(app, 1.0)
@@ -171,6 +197,7 @@ def main() -> None:
     assert window.wall.has_danmaku
     assert len(FakeDanmakuClient.instances) == 1, "应该只连一路"
     assert FakeDanmakuClient.instances[-1].room_id == "1001", "要连主画面那一路"
+    assert FakeSuperChatSnapshot.instances[-1].room_id == "1001"
     assert panel.count.text() == "连接中…", "鉴权完成前右上角不能显示已连接"
     assert panel.count.property("state") == "connecting"
     client = FakeDanmakuClient.instances[-1]
@@ -182,17 +209,54 @@ def main() -> None:
     assert "等待弹幕" in panel.body.toPlainText()
     assert panel.count.property("state") == "connected"
 
-    print("\n=== 2. 收到消息会进面板（弹幕 / 礼物 / SC 上色）===")
+    print("\n=== 2. 收到消息会进面板（弹幕 / 礼物 / SC 固定卡片）===")
     client.message.emit({"kind": "danmaku", "uname": "示例主播A", "text": "今天的直播好看",
                          "medal": {"name": "绿冻", "level": "10", "color": "#8d8366"}})
     client.message.emit({"kind": "gift", "uname": "路人甲", "text": "投喂 辣条 ×2"})
-    client.message.emit({"kind": "super_chat", "uname": "老板", "text": "¥30　加油"})
+    now = int(time.time())
+    client.message.emit({"kind": "super_chat", "id": "sc-1", "uid": "9",
+                         "uname": "老板", "message": "加油", "text": "加油",
+                         "price": 30, "start_time": now,
+                         "end_time": now + 120,
+                         "background_color": "#ffdd00",
+                         "background_price_color": "#ff8800"})
     settle(app, 0.4)
     text = panel.body.toPlainText()
     print(f"  条数={panel._received} 状态位={panel.count.text()!r}")
     print(f"  正文={text[:60]!r}")
-    assert panel._received == 3
-    assert "今天的直播好看" in text and "辣条" in text and "加油" in text
+    assert panel._received == 2
+    assert "今天的直播好看" in text and "辣条" in text
+    assert "加油" not in text, "SC 不应混进普通弹幕时间线"
+    assert sum(not card.isHidden() for card in panel.super_chats._cards) == 1
+    assert panel.super_chats._cards[0].message.text() == "加油"
+    assert panel.super_chats._cards[0].price.text() == "¥30"
+
+    print("\n=== 2a. 快照 / 实时去重、删除与过期 ===")
+    window._on_super_chat_snapshot("1001", [
+        {"kind": "super_chat", "id": "sc-1", "uid": "9", "uname": "老板",
+         "message": "加油", "price": 30, "start_time": now, "end_time": now + 120,
+         "source": "snapshot"},
+        {"kind": "super_chat", "id": "sc-2", "uid": "10", "uname": "观众",
+         "message": "第二条", "price": 50, "start_time": now + 1,
+         "end_time": now + 120, "source": "snapshot"},
+    ])
+    assert len(window._super_chats["1001"].items) == 2, "快照与实时同 ID 必须去重"
+    history_before_delete = panel.body.toPlainText()
+    received_before_delete = panel._received
+    client.message.emit({"kind": "super_chat_delete", "ids": ["sc-1"]})
+    settle(app, 0.1)
+    assert "sc-1" not in window._super_chats["1001"].items
+    assert any("第二条" in card.message.text()
+               for card in panel.super_chats._cards)
+    assert panel.body.toPlainText() == history_before_delete, "删除 SC 不能写进普通弹幕历史"
+    assert panel._received == received_before_delete, "删除 SC 不能增加普通弹幕计数"
+    expire_id = "sc-expire"
+    client.message.emit({"kind": "super_chat", "id": expire_id, "uid": "11",
+                         "uname": "过期", "message": "马上到期", "price": 1,
+                         "start_time": now - 2, "end_time": now - 1})
+    settle(app, 0.1)
+    assert expire_id not in window._super_chats["1001"].items, "过期 SC 应立刻过滤"
+    window._on_super_chat_snapshot("1001", [])
     assert panel.count.text() == "已连接", "连接状态不应附带弹幕数量"
     history = panel.body.toPlainText()
     window._on_danmaku_status(client, "重连中…（第 1 次）")
@@ -201,7 +265,7 @@ def main() -> None:
     assert panel.body.toPlainText() == history, "重连时应保留已收到的弹幕"
     window._on_danmaku_status(client, "已连接")
     html = panel.body.toHtml()
-    assert theme.PINK in html and theme.WARNING in html, "礼物/SC 应该有自己的颜色"
+    assert theme.PINK in html, "礼物应该有自己的颜色"
 
     print("\n=== 2b. 粉丝牌和表情 ===")
     # 粉丝牌要画成圆角小图（富文本不支持圆角），所以这里看有没有插进图片
@@ -220,7 +284,7 @@ def main() -> None:
     html = panel.body.toHtml()
     print(f"  下好之后：文档里出现 <img>={'<img' in html}")
     assert "<img" in html, "表情下好之后要换成图片"
-    assert panel._received == 4
+    assert panel._received == 3        # 2 条普通 + 礼物 + SC 不计入时间线
 
     print("\n=== 2c. 面板上的字号滑块 ===")
     panel.apply_style("", 13)
@@ -247,6 +311,12 @@ def main() -> None:
     settle(app, 0.4)
     print(f"  发了 3 条（其中 1 条命中屏蔽词、1 条是礼物），面板条数 {before} -> {panel._received}")
     assert panel._received == before + 2, "命中的弹幕要丢掉，礼物不受影响"
+    client.message.emit({"kind": "super_chat", "id": "sc-blocked", "uid": "12",
+                         "uname": "老板", "message": "广告", "price": 5,
+                         "start_time": now, "end_time": now + 120})
+    settle(app, 0.2)
+    assert any(chat["id"] == "sc-blocked" and chat["message"] == "广告" for chat in panel.super_chats._events), "屏蔽词不能过滤 SC"
+    assert panel._received == before + 2, "SC 不应计入普通弹幕时间线"
     window.settings["danmaku_block_words"] = []
 
     print("\n=== 2e. 手动查看旧弹幕时不强制跳回最新 ===")
@@ -322,7 +392,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    # 直接退出进程：Qt / VLC 在线程收尾时析构会偶发崩在退出瞬间（程序本体也是这么做的）
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(0)

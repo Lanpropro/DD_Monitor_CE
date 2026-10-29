@@ -13,7 +13,16 @@ set "PY=%PROJ%.venv\Scripts\pythonw.exe"
 if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pythonw.exe"
 if not exist "%PY%" goto nopy
 
+if /i "%~1"=="--sc-simulator" goto scsimulator
 start "" "%PY%" "%PROJ%main.py"
+exit /b 0
+
+:scsimulator
+if /i "%~2"=="--smoke" (
+    start "" "%PY%" "%PROJ%dev\sc_simulator.py" --smoke
+) else (
+    start "" "%PY%" "%PROJ%dev\sc_simulator.py"
+)
 exit /b 0
 
 :nopy
