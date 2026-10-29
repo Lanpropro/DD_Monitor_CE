@@ -1236,6 +1236,10 @@ class DanmakuPanel(QFrame):
         self.count.setFixedHeight(20)
         header_box.addWidget(dot)
         header_box.addWidget(title)
+        self.font_controls = QWidget(header)
+        font_box = QHBoxLayout(self.font_controls)
+        font_box.setContentsMargins(0, 0, 0, 0)
+        font_box.setSpacing(6)
         self.font_slider = QSlider(Qt.Horizontal)
         self.font_slider.setRange(self.MIN_FONT_SIZE, self.MAX_FONT_SIZE)
         self.font_slider.setMinimumWidth(12)
@@ -1244,11 +1248,11 @@ class DanmakuPanel(QFrame):
         self.font_slider.setToolTip("拖一下就能改弹幕字号，直接生效")
         self.font_slider.setAccessibleName("弹幕字号")
         self.font_slider.valueChanged.connect(self._on_font_slider)
-        header_box.addWidget(self.font_slider)
+        font_box.addWidget(self.font_slider)
         self.font_value = QLabel(str(self._base_size))
         self.font_value.setObjectName("DanmakuBarValue")
         self.font_value.setFixedWidth(22)
-        header_box.addWidget(self.font_value)
+        font_box.addWidget(self.font_value)
         header_box.addStretch(1)
         header_box.addWidget(self.count, 0, Qt.AlignVCenter)
         layout.addWidget(header)
@@ -1295,13 +1299,15 @@ class DanmakuPanel(QFrame):
         self._sync_super_chat_limit()
 
     def _layout_header(self) -> None:
-        self.count.setFixedWidth(min(self.count.sizeHint().width(), max(48, self.width() // 3)))
         box = self.header.layout()
         margins = box.contentsMargins()
-        used = (margins.left() + margins.right() + 5 * box.spacing()
-                + sum(box.itemAt(i).widget().sizeHint().width() for i in (0, 1))
-                + self.count.width() + self.font_value.width())
-        self.font_slider.setMaximumWidth(max(12, min(96, self.width() - used)))
+        minimum = self.font_slider.minimumWidth() + self.font_value.width() + 6
+        side = max(0, (self.width() - minimum) // 2 - margins.right() - box.spacing())
+        self.count.setFixedWidth(min(self.count.sizeHint().width(), side))
+        left = sum(box.itemAt(i).widget().sizeHint().width() for i in (0, 1)) + box.spacing()
+        reserved = max(left + margins.left(), self.count.width() + margins.right()) + box.spacing()
+        width = max(minimum, min(124, self.width() - 2 * reserved))
+        self.font_controls.setGeometry((self.width() - width) // 2, 0, width, self.header.height())
 
     def eventFilter(self, watched, event):
         if watched is self.body.viewport() and event.type() == QEvent.Resize:
