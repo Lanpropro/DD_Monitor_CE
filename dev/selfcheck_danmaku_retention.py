@@ -56,7 +56,11 @@ def main():
         assert all(panel.font_controls.rect().contains(widget.geometry()) for widget in controls)
         assert all(not a.geometry().intersects(b.geometry()) for a, b in zip(controls, controls[1:]))
         assert not panel.font_controls.geometry().intersects(panel.count.geometry())
-        assert abs(panel.font_controls.geometry().center().x() - panel.header.rect().center().x()) <= 1
+        title = panel.header.layout().itemAt(1).widget()
+        assert panel.font_controls.x() == title.geometry().right() + 1 + panel.header.layout().spacing()
+        assert abs(panel.font_controls.geometry().center().y() - panel.header.rect().center().y()) <= 1
+        for widget in controls:
+            assert abs(widget.geometry().center().y() - panel.font_controls.rect().center().y()) <= 1
         assert panel.body.y() == panel.header.height()
         assert panel.body.geometry().bottom() == panel.height() - 1
         assert panel.width() == width, "Header controls force the panel wider"
