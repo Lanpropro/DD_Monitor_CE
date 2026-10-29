@@ -29,7 +29,7 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertEqual(len(listed), len(set(listed)), "Duplicate inventory path")
 
     def test_document_index_links_resolve(self):
-        for name in ("docs/README.md", "docs/bug-cases.md", "docs/archive/repository-cleanup-review.md", "README.md",
+        for name in ("docs/README.md", "docs/releases/UNRELEASED.md", "docs/bug-cases.md", "docs/archive/repository-cleanup-review.md", "README.md",
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",

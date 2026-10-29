@@ -90,9 +90,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR arguments, int) {
     LPWSTR* values = CommandLineToArgvW(GetCommandLineW(), &count);
     if (!values) return 2;
     int result;
-    if (count == 5 && wcscmp(values[1], L"--pick-folder") == 0) {
-        HWND owner = reinterpret_cast<HWND>(_wcstoui64(values[4], nullptr, 10));
-        result = PickFolder(owner, values[2], values[3]);
+    if (count >= 2 && wcscmp(values[1], L"--pick-folder") == 0) {
+        result = 2;
+        if (count == 5) {
+            HWND owner = reinterpret_cast<HWND>(_wcstoui64(values[4], nullptr, 10));
+            result = PickFolder(owner, values[2], values[3]);
+        }
     } else result = LaunchUninstaller(arguments);
     LocalFree(values);
     return result;

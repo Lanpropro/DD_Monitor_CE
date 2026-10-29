@@ -42,7 +42,7 @@ def main() -> None:
         }]}],
     }]}}}}
     with mock.patch.object(bili.requests, "get", return_value=JsonResponse(app_payload)):
-        assert bili._app_play_urls("1001", 250) == (candidates, 250)
+        assert bili._app_play_urls("1001", 250) == (candidates, 250, "app")
 
     web_payload = {"code": 0, "data": {"current_qn": 250, "durl": [{
         "url": candidates[0], "backup_url": [candidates[1]],

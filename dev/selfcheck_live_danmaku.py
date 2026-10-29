@@ -36,10 +36,10 @@ def huya_fixture(text="直播测试", name="测试用户"):
     return dm.tars_int(0, 7) + dm.tars_bytes(1, push)
 
 
-def douyin_fixture(method="WebcastChatMessage", text="直播测试", name="测试用户", compressed=True):
-    user = dm.proto_field(3, name)
+def douyin_fixture(method="WebcastChatMessage", text="直播测试", name="测试用户", compressed=True, mid=0, uid=0):
+    user = dm.proto_field(3, name) + (dm.proto_field(1, uid) if uid else b"")
     chat = dm.proto_field(2, user) + dm.proto_field(5 if method == "WebcastEmojiChatMessage" else 3, text)
-    message = dm.proto_field(1, method) + dm.proto_field(2, chat)
+    message = dm.proto_field(1, method) + dm.proto_field(2, chat) + (dm.proto_field(3, mid) if mid else b"")
     response = dm.proto_field(1, message) + dm.proto_field(5, "seq:42") + dm.proto_field(9, 1)
     return dm.proto_field(2, 999) + dm.proto_field(8, gzip.compress(response) if compressed else response)
 
@@ -68,6 +68,8 @@ def check_protocols():
             ready, events, ack = dm.douyin_events(douyin_fixture(method, compressed=compressed))
             assert ready and events == [{"kind": "danmaku", "uname": "测试用户", "text": "直播测试"}]
             assert ack == bytes.fromhex("10e7073a0361636b42067365713a3432")
+    event = dm.douyin_events(douyin_fixture(mid=7560000000000000123, uid=42))[1][0]
+    assert event["message_id"] == "7560000000000000123" and event["uid"] == "42"
     assert dm.douyin_events(douyin_fixture("WebcastRoomUserSeqMessage"))[1] == []
     assert dm.douyin_events(dm.proto_field(7, "hb")) == (False, [], None)
     assert dm.proto_fields(bytes.fromhex("08011201611201621901000000000000002d01000000")) == {
@@ -169,8 +171,8 @@ async def check_douyu_recovery(platform):
     try:
         with patch.object(dm.asyncio, "open_connection", redirect), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo("douyu:123")), \
-                patch.object(dm, "DOUYU_HEARTBEAT", .04), \
-                patch.object(dm, "DOUYU_RECEIVE_TIMEOUT", .18):
+                patch.object(sys.modules[type(client).__module__], "DOUYU_HEARTBEAT", .04), \
+                patch.object(sys.modules[type(client).__module__], "DOUYU_RECEIVE_TIMEOUT", .18):
             try:
                 await asyncio.wait_for(client._douyu(), .8)
             except ValueError as error:

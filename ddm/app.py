@@ -6,6 +6,7 @@
 import faulthandler
 from copy import deepcopy
 import os
+from pathlib import Path
 import sys
 import time
 import webbrowser
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from . import bili
 from . import config as config_module
+from . import diagnostics
 from . import layouts
 from . import room_presets
 from . import overlay
@@ -34,6 +36,7 @@ from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
 from .danmaku import DanmakuClient
+from .super_chat import SuperChatSnapshot, SuperChatStore
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
@@ -48,6 +51,7 @@ from .preview import HoverPreview
 from .recording import RecordingManager
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
+from .system_tray import SystemTray
 
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
 AUDIO_AUDIT_MS = 2_000
@@ -66,46 +70,17 @@ DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 
 def setup_file_log() -> str:
-    """把标准错误同时写进 logs/ddm-日期.log，方便排查（控制台可能被关掉）。"""
-    log_dir = os.path.join(config_module.REPO, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    path = os.path.join(log_dir, f"ddm-{time.strftime('%Y-%m-%d')}.log")
-    original = sys.stderr
-    try:
-        handle = open(path, "a", encoding="utf-8", buffering=1)
-    except Exception:  # noqa: BLE001
-        return ""
-
-    class _Tee:
-        def write(self, data: str) -> int:
-            if original is not None:
-                try:
-                    original.write(data)
-                except Exception:  # noqa: BLE001
-                    pass
-            try:
-                handle.write(data)
-            except Exception:  # noqa: BLE001
-                pass
-            return len(data)
-
-        def flush(self) -> None:
-            if original is not None:
-                try:
-                    original.flush()
-                except Exception:  # noqa: BLE001
-                    pass
-
-    sys.stderr = _Tee()
+    """Install Qt capture after the standard-library startup logger is ready."""
+    session = diagnostics.start(os.path.join(config_module.data_root(), "logs"))
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
         if kind == QtMsgType.QtFatalMsg:
-            faulthandler.dump_traceback(file=handle, all_threads=True)
+            faulthandler.dump_traceback(file=session.crash_handle, all_threads=True)
 
     qInstallMessageHandler(qt_message)
-    print(f"日志文件: {path}", file=sys.stderr)
-    return path
+    print(f"日志文件: {session.path}", file=sys.stderr)
+    return session.path
 
 EMPTY_HINT = ("还没有直播间\n\n"
               "点左下角「+ 添加直播间」填房间号，\n"
@@ -120,6 +95,7 @@ class MainWindow(QMainWindow):
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
         self.rooms = rooms
         self.state = state or {}
+        self._tray_hint_shown = bool((self.state.get("ui") or {}).get("tray_hint_shown", False))
         self.room_presets = room_presets.collection(self.state.get("room_presets"))
         self._active_room_preset_id = (self.state.get("ui") or {}).get("room_preset_id", "")
         self._applying_room_preset = False
@@ -183,6 +159,13 @@ class MainWindow(QMainWindow):
         self._danmaku_clients: dict[str, object] = {}
         self._danmaku_status: dict[str, str] = {}
         self._danmaku_retired: list = []
+        self._super_chats: dict[str, SuperChatStore] = {}
+        self._super_chat_snapshots: dict[str, SuperChatSnapshot] = {}
+        self._super_chat_retired: list = []
+        self._super_chat_timer = QTimer(self)
+        self._super_chat_timer.setInterval(1000)
+        self._super_chat_timer.timeout.connect(self._tick_super_chats)
+        self._super_chat_timer.start()
         self.shortcuts = dict(DEFAULT_SHORTCUTS)
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
@@ -234,6 +217,7 @@ class MainWindow(QMainWindow):
             card_mode=bool(self.settings.get("sidebar_card_mode", True)),
             auto_compact=bool(self.settings.get("sidebar_auto_compact", True)),
             compact_threshold=int(self.settings.get("sidebar_compact_threshold", 18)),
+            compact_background=bool(self.settings.get("sidebar_compact_background", True)),
         )
 
         self.empty_hint = QLabel(EMPTY_HINT)
@@ -291,6 +275,7 @@ class MainWindow(QMainWindow):
         self.sidebar.layoutResetRequested.connect(self.wall.reset_layout_ratios)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.danmaku.fontSizeChanged.connect(self._on_danmaku_font_size)
+        self.wall.danmaku.superChatDismissed.connect(lambda chat_id: self._dismiss_super_chat(self._danmaku_room, chat_id))
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
         self.hover_preview = HoverPreview(
             self.sidebar, self, platform_resolver=lambda rid: self.plugins.platform_for(rid))
@@ -384,6 +369,7 @@ class MainWindow(QMainWindow):
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:
             print(f"[插件] 跳过 {entry}：{reason}", file=sys.stderr, flush=True)
+        self._tray = SystemTray(self)
         QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
 
         QTimer.singleShot(0, self.start_all)
@@ -413,7 +399,7 @@ class MainWindow(QMainWindow):
         self._startup_update_timer.timeout.connect(self._check_startup_update)
         from . import online
         from pathlib import Path
-        cached = online.load_plugin_cache(Path(config_module.REPO) / 'cache' / 'plugin-catalog.json')
+        cached = online.load_plugin_cache(Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json')
         self._set_plugin_updates(cached.get('offers', []))
         if os.environ.get("DDM_SETTINGS_PROCESS") == "1":
             QTimer.singleShot(1000, self._get_settings_process().warm)
@@ -487,7 +473,7 @@ class MainWindow(QMainWindow):
         from pathlib import Path
         from . import online
         from .online_ui import OnlineTask
-        path = Path(config_module.REPO) / 'cache' / 'plugin-catalog.json'
+        path = Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json'
         def check(cancelled, progress):
             with online.session() as client:
                 return online.cached_plugin_catalog(client, version_module.VERSION, path)
@@ -967,6 +953,10 @@ class MainWindow(QMainWindow):
                              if key.startswith('skin_') or key == 'appearance_mode'}
         codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
         self.settings.update(dialog.settings())
+        from .notification_center import NoticeRow
+        from .online_ui import ResultNotice
+        for notice in [*self.findChildren(NoticeRow), *self.findChildren(ResultNotice)]:
+            notice.update()
         for codec_dialog in self._codec_dialogs.values():
             codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
         if not self.settings.get("auto_update", False):
@@ -1026,7 +1016,7 @@ class MainWindow(QMainWindow):
     def set_skin_parts(self, values):
         from .skin_parts import validate_parts
         from pathlib import Path
-        validate_parts(values, Path(config_module.REPO) / 'utils' / 'skins')
+        validate_parts(values, Path(config_module.data_root()) / 'utils' / 'skins')
         self.settings['skin_parts'] = deepcopy(values)
         self.refresh_skin()
         config_module.save(self.current_state())
@@ -1099,6 +1089,7 @@ class MainWindow(QMainWindow):
                 for tile in self.wall.tiles
             ],
             "ui": {
+                "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,
                 "sidebar_collapsed": self.sidebar.collapsed,
                 "layout_landscape": self._saved_layout("landscape"),
@@ -1139,6 +1130,8 @@ class MainWindow(QMainWindow):
         self._default_audio_output_id = device_id
 
     def closeEvent(self, event) -> None:
+        if self._tray.handle_close(event):
+            return
         # 先隐藏界面，再逐路终止播放并等待后台任务收尾。
         t0 = time.perf_counter()
         for dialog in list(self._codec_dialogs.values()):
@@ -1152,6 +1145,7 @@ class MainWindow(QMainWindow):
         hide_ms = (time.perf_counter() - t0) * 1000
         # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
+        self._tray.shutdown()
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
         if getattr(self, '_app_update_page', None) is not None:
@@ -1174,6 +1168,7 @@ class MainWindow(QMainWindow):
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
         self._audio_device_timer.stop()
         self._record_clock.stop()
+        self._super_chat_timer.stop()
         watchdog.stop()
         self.plugins.emit(plugin_api.EVENT_CLOSING)
         self.skin_controller.stop()
@@ -1202,6 +1197,9 @@ class MainWindow(QMainWindow):
         print(f"[关闭] 窗口 {hide_ms:.1f} ms 内隐藏；收尾（释放播放器+等线程）共 {total_ms:.1f} ms",
               file=sys.stderr, flush=True)
         super().closeEvent(event)
+        app = QApplication.instance()
+        if not app.quitOnLastWindowClosed():
+            app.quit()
 
     def _wait_background(self) -> None:
         """等在跑的线程收尾；线程还在跑就析构，Qt 会直接崩。"""
@@ -1212,6 +1210,8 @@ class MainWindow(QMainWindow):
                  "_poller", "_stats_poller")
         threads = [getattr(self, name, None) for name in names]
         threads.extend(self._avatar_loaders)
+        threads.extend(self._super_chat_snapshots.values())
+        threads.extend(self._super_chat_retired)
         threads.extend(self._resolvers_running)
         threads.extend(self._danmaku_retired)
         preview_threads = list(self.hover_preview._resolvers_running)
@@ -1225,6 +1225,10 @@ class MainWindow(QMainWindow):
             except RuntimeError:             # 已被 Qt 回收
                 pass
         self._avatar_loaders.clear()
+        for thread in list(self._super_chat_retired) + list(self._super_chat_snapshots.values()):
+            if self._loader_running(thread):
+                thread.wait()
+        self._super_chat_retired.clear()
         for thread in list(self._danmaku_retired):
             if self._loader_running(thread):
                 thread.wait()
@@ -1676,6 +1680,9 @@ class MainWindow(QMainWindow):
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = self._stream_attempts.get(tile, 0)
         self._stream_attempts[tile] = source_offset + 1
+        if room_id.startswith("huya:"):
+            print(f"[平台诊断] 阶段=source_request 房间={room_id} 画质={quality} 尝试={source_offset + 1}",
+                  file=sys.stderr, flush=True)
         resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
                                   self, source_offset=source_offset,
                                   platform=platform,
@@ -1717,6 +1724,7 @@ class MainWindow(QMainWindow):
             if not current() or int(tile.quality) != quality:
                 return
             self._resolvers.pop(tile, None)
+            tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
             if strict_codec:
                 self._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
@@ -1800,6 +1808,7 @@ class MainWindow(QMainWindow):
         player.stream_profile = profile
         player.stream_codec = stream_codec
         player.stream_headers = dict(tile.stream_headers)
+        player.diagnostic_room = str(room.get("room_id") or "")
         player.actual_quality = int(quality or 0)
         player.configure_auto_quality(str(room.get("room_id") or ""),
             options if tile.quality == AUTO_QUALITY and profile in OVERSEAS_PLATFORMS else [])
@@ -2016,7 +2025,13 @@ class MainWindow(QMainWindow):
             tile.set_buffering(False)
             tile.set_status("")
             tile.start_elapsed_timer()
-            self._retry_count.pop(tile, None)
+            if str(tile.room.get("room_id", "")).startswith("huya:"):
+                player = self.players.get(tile)
+                if player is not None:
+                    generation = player.state_generation
+                    QTimer.singleShot(15000, lambda: self._reset_stable_huya_retry(tile, player, generation))
+            else:
+                self._retry_count.pop(tile, None)
             player = self.players.get(tile)
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
@@ -2034,6 +2049,10 @@ class MainWindow(QMainWindow):
             self._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
+            player = self.players.get(tile)
+            if str(tile.room.get("room_id", "")).startswith("huya:") and player is not None:
+                self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
+                    source_url=player.stream_url, reason=player.source_failure or "STALL")
             self.refresh_status()           # 断流可能来自下播，立即向接口确认
             self._schedule_retry(tile)
         else:
@@ -2041,10 +2060,18 @@ class MainWindow(QMainWindow):
             tile.stop_elapsed_timer()
         tile.raise_overlays()
 
+    def _reset_stable_huya_retry(self, tile, player, generation):
+        if (not self._closing and self.players.get(tile) is player and player.state == "playing"
+                and player.state_generation == generation):
+            self._retry_count.pop(tile, None)
+
     def _on_picture_frozen(self, tile) -> None:
         """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
         if not tile.room.get("room_id") or tile.paused:
             return
+        if str(tile.room["room_id"]).startswith("huya:"):
+            if tile in self._resolvers or tile in self._retry_timers:
+                return
         if tile not in self._freeze_refreshed:
             self._freeze_refreshed.add(tile)
             tile.set_status("画面停止更新，正在自动刷新…")
@@ -2093,9 +2120,19 @@ class MainWindow(QMainWindow):
         """断流自动重连：5 秒起，逐次翻倍，最多 60 秒。"""
         if not tile.room.get("room_id"):
             return
+        if str(tile.room["room_id"]).startswith("huya:"):
+            if tile in self._resolvers or tile in self._retry_timers:
+                return
         attempt = self._retry_count.get(tile, 0) + 1
         self._retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
+        player = self.players.get(tile)
+        if (str(tile.room.get("room_id", "")).startswith("huya:") and
+                getattr(player, "source_failure", "") == "LIVE_EOF"):
+            delay = min(attempt, 5)
+        if str(tile.room.get("room_id", "")).startswith("huya:"):
+            print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
+                  file=sys.stderr, flush=True)
         tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）")
         timer = self._retry_timers.pop(tile, None)
         if timer is not None:
@@ -2503,6 +2540,9 @@ class MainWindow(QMainWindow):
                 item.set_title(info["title"])
             if info.get("uname"):
                 item.set_uname(info["uname"])
+            for key in ('uid', 'banner_url'):
+                if key in info:
+                    item.room[key] = info[key]
             cover = info.get("cover_url") or ""
             if cover and cover != item.room.get("cover_url"):
                 item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
@@ -2541,20 +2581,15 @@ class MainWindow(QMainWindow):
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             self.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
-            groups = [[room for room in rooms if (str(room['room_id']) in self.sidebar.pinned) == pinned]
-                      for pinned in (True, False)]
-            for group in groups:
-                if not group:
-                    continue
-                names = "、".join(str(room.get("uname") or room["room_id"]) for room in group[:2])
-                message = (names + " 开播了" if len(group) <= 2
-                           else f"{names} 等 {len(group)} 位主播开播了")
-                self._show_notice(message, rooms=group, kind="live")
+            for room in rooms:
+                name = str(room.get("uname") or room["room_id"])
+                self._show_notice(name + " 开播了", rooms=[room], kind="live")
         if covers:
             self._aside_cover_loader = self._start_avatar_loader(
                 covers, self._on_room_cover, subdir="covers")
         if faces:
             self._status_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
+        self._load_room_banners(self.sidebar.rooms())
 
     # ---- 全局操作 ----
     def _on_tile_clicked(self, room: dict) -> None:
@@ -2889,6 +2924,9 @@ class MainWindow(QMainWindow):
               f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
               f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
         self._fullscreen_tile = tile
+        if self.settings.get('notice_hide_fullscreen', False):
+            for notice in tuple(getattr(self, '_notices', [])):
+                notice.dismiss(animate=False)
         self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
         self.centralWidget().setUpdatesEnabled(False)
@@ -3001,6 +3039,7 @@ class MainWindow(QMainWindow):
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.video_danmaku.apply_settings(self.settings)
+        tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.videoDanmakuAdvancedRequested.connect(lambda: self.open_settings("danmaku"))
@@ -3165,21 +3204,30 @@ class MainWindow(QMainWindow):
             return
         prefix, separator, path = message.partition('：')
         if separator and path and prefix in (
-                '已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放'):
-            self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path)
+                '已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放',
+                '导出录制失败（原始分段保留）', '导出即时回放失败（原始分段保留）'):
+            self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path,
+                              kind='warning' if '失败' in prefix else 'info',
+                              notice_key=('record-export', str(Path(path))),
+                              pending=prefix.startswith('正在导出'))
             return
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
-        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info")
+        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info",
+                          auto_room_link=False)
 
-    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None) -> None:
+    def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None,
+                     notice_key=None, pending=False, auto_room_link=True) -> None:
         if self._closing:
             return
         from .online_ui import show_result
+        by_id = {str(item.room.get('room_id')): item.room for item in self.sidebar._items}
+        rooms = [{**by_id.get(str(room.get('room_id')), {}), **room} for room in rooms]
+        self._load_room_banners(rooms)
         pinned_live = kind == 'live' and any(
             str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
         category = 'pinned_live' if pinned_live else kind
         persistent = self.settings.get('notice_persist_' + category, pinned_live)
-        if on_click is None and rooms and not file_path:
+        if auto_room_link and on_click is None and rooms and not file_path:
             if kind == 'live':
                 on_click = lambda targets=tuple(dict(room) for room in rooms): self._place_live_notice_rooms(targets)
             else:
@@ -3187,7 +3235,8 @@ class MainWindow(QMainWindow):
                 if url:
                     on_click = lambda target=url: self._open_room_browser(target)
         show_result(self, message, rooms=rooms, kind=kind, on_click=on_click,
-                    persistent=persistent, file_path=file_path)
+                    persistent=persistent or pending, file_path=file_path,
+                    notice_key=notice_key, pending=pending)
 
     def _place_live_notice_rooms(self, rooms):
         for room in rooms:
@@ -3225,9 +3274,8 @@ class MainWindow(QMainWindow):
             resolver = InfoResolver(room_id, self, platform=platform)
             resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id)
                                       if not self._closing else None)
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                self, "添加直播间", "平台房间获取失败，请检查房间链接或稍后重试")
-                if not self._closing else None)
+            resolver.failed.connect(lambda _rid, r=resolver: self._on_platform_room_failed(
+                r, platform, room_id, folder_id=folder_id))
             resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
             resolver.finished.connect(resolver.deleteLater)
             self._platform_info_running.add(resolver)
@@ -3246,6 +3294,22 @@ class MainWindow(QMainWindow):
         resolver.finished.connect(resolver.deleteLater)
         self._platform_info_running.add(resolver)
         resolver.start()
+
+    def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
+        if self._closing:
+            return
+        if (getattr(resolver, "browser_verification", False) is True
+                and platform.kind == "douyin" and getattr(platform, "room_browser_init_script", "")):
+            from .profile_room import ProfileRoomDialog
+            dialog = ProfileRoomDialog(platform, "", self, room_id=room_id)
+            result = dialog.exec()
+            canonical = dialog.room_id
+            dialog.deleteLater()
+            if result == QDialog.Accepted and canonical and not self._closing:
+                self._add_room_id(canonical, folder_id=folder_id)
+            return
+        QMessageBox.warning(self, "添加直播间", "平台房间获取失败\n\n" + (
+            getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
 
     def _on_room_added(self, room: dict, *, folder_id: str = "") -> None:
         if self._closing:
@@ -3532,6 +3596,7 @@ class MainWindow(QMainWindow):
         self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
         self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
                                                        subdir="covers")
+        self._load_room_banners(rooms)
 
     def _prime_cached_avatars(self, faces: dict) -> int:
         """把本地缓存里那张头像先摆上（纯读文件，不联网），返回命中张数。
@@ -3562,6 +3627,36 @@ class MainWindow(QMainWindow):
                   for room in rooms if room.get("cover_url")}
         self._start_avatar_loader(faces, self._on_room_avatar)
         self._start_avatar_loader(covers, self._on_room_cover, subdir="covers")
+        self._load_room_banners(rooms)
+
+    def _load_room_banners(self, rooms):
+        from .room_artwork import supports_banner
+        requested = getattr(self, '_banner_requested', set())
+        self._banner_requested = requested
+        items = {}
+        for room in rooms:
+            identity = room.get('banner_url') or room.get('uid')
+            key = (str(room.get('room_id', '')), str(identity))
+            if identity and supports_banner(room) and key not in requested:
+                requested.add(key)
+                items[key[0]] = dict(room)
+        if items:
+            self._start_avatar_loader(items, self._on_room_banner, subdir='banners')
+
+    def _on_room_banner(self, room_id, pixmap):
+        self._on_room_artwork(room_id, pixmap, 'banners')
+
+    def _on_room_artwork(self, room_id, pixmap, kind):
+        for notice in getattr(self, '_notices', []):
+            if hasattr(notice, 'set_room_artwork'):
+                notice.set_room_artwork(room_id, pixmap, kind)
+        center = self.sidebar.notification_button.center
+        for row in center.rows.values():
+            row.set_room_artwork(room_id, pixmap, kind)
+        if kind == 'banners':
+            for item in self.sidebar._items:
+                if str(item.room.get('room_id')) == str(room_id):
+                    item.thumb.set_banner(pixmap)
 
     def _start_avatar_loader(self, items: dict, slot, subdir: str = "avatars"):
         """统一的头像下载：线程都留个引用，关窗时好等它们收尾。"""
@@ -3595,6 +3690,7 @@ class MainWindow(QMainWindow):
                 return
 
     def _on_room_cover(self, room_id: str, pixmap) -> None:
+        self._on_room_artwork(room_id, pixmap, 'covers')
         for item in self.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
                 item.thumb.set_cover(pixmap)
@@ -3759,25 +3855,23 @@ class MainWindow(QMainWindow):
     # ---- 弹幕 ----
     def _danmaku_target_room(self) -> dict:
         """弹幕格跟着主画面走；没有主画面就跟第一路有人的画面。"""
-        tiles = self.wall.tiles
-        main = self.wall.main_index()
-        if main is not None and 0 <= main < len(tiles):
-            return tiles[main].room or {}
-        for tile in tiles:
-            if tile.room.get("room_id"):
-                return tile.room
-        return {}
+        tile = self.wall.danmaku_target_tile()
+        return tile.room if tile is not None else {}
 
     def sync_danmaku(self) -> None:
         """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
         if self._closing or not getattr(self, "plugins", None):
             return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
         panel = self.wall.danmaku
+        self.wall.sync_sc_placement()
         room = self._danmaku_target_room() if self.wall.has_danmaku else {}
         room_id = str(room.get("room_id") or "")
         wanted = {str(tile.room["room_id"]) for tile in self.wall.tiles
-                  if tile.isVisible() and tile.danmaku_button.isChecked()
+                  if tile.isVisible() and (tile.danmaku_button.isChecked() or
+                      self.wall.has_danmaku and self.settings.get('super_chat_enabled', True))
                   and tile.room.get("room_id") and (tile.room.get("live") or tile._player_active)}
+        if self.wall.has_danmaku and self._danmaku is None and self._danmaku_room:
+            wanted.add(self._danmaku_room)
         if room_id:
             wanted.add(room_id)
         if room_id != self._danmaku_room:
@@ -3788,6 +3882,8 @@ class MainWindow(QMainWindow):
             self.start_danmaku(room_id, room.get("uname", ""))
         elif not room_id:
             panel.set_placeholder("把直播间拖到主画面，这里就会显示它的弹幕")
+        elif self._danmaku is not None:
+            self._publish_super_chats(room_id)
         for target in wanted - set(self._danmaku_clients) - {room_id}:
             self._ensure_danmaku_client(target)
 
@@ -3808,6 +3904,8 @@ class MainWindow(QMainWindow):
         if client is None:
             panel.set_placeholder("此平台弹幕尚未接入，直播画面可正常播放")
             panel.set_status("暂不支持")
+        else:
+            self._publish_super_chats(str(room_id))
 
     def _ensure_danmaku_client(self, room_id: str, *, for_panel: bool = False):
         client = self._danmaku_clients.get(room_id)
@@ -3824,6 +3922,9 @@ class MainWindow(QMainWindow):
                         tile.danmaku_button.setToolTip("此平台弹幕尚未接入")
                 return None
             self._danmaku_clients[room_id] = client
+            if room_id.isdigit():
+                QTimer.singleShot(0, lambda rid=room_id, source=client:
+                                  self._load_super_chat_snapshot(rid, source))
             client.message.connect(
                 lambda event, source=client: self._on_danmaku_message(source, event))
             client.status.connect(
@@ -3837,6 +3938,39 @@ class MainWindow(QMainWindow):
             client.start()
             print(f"[弹幕] 开始接收房间 {room_id}", file=sys.stderr, flush=True)
         return client
+
+    def _load_super_chat_snapshot(self, room_id: str, client=None) -> None:
+        if self._danmaku_clients.get(room_id) is None:
+            return
+        if client is not None and self._danmaku_clients.get(room_id) is not client:
+            return                      # 排队期间已换台，别为旧房间发请求
+        running = self._super_chat_snapshots.get(room_id)
+        if running is not None and running.isRunning():
+            return
+        loader = SuperChatSnapshot(room_id, self)
+        loader.loaded.connect(lambda rid, events, source=loader:
+                              self._on_super_chat_snapshot(rid, events, source=source))
+        loader.finished.connect(lambda rid=room_id, source=loader:
+                                self._on_super_chat_snapshot_finished(rid, source))
+        loader.finished.connect(loader.deleteLater)
+        self._super_chat_snapshots[room_id] = loader
+        loader.start()
+
+    def _on_super_chat_snapshot(self, room_id: str, events: list, *, source=None) -> None:
+        if self._closing or self._danmaku_clients.get(room_id) is None:
+            return
+        if source is not None and self._super_chat_snapshots.get(room_id) is not source:
+            return
+        store = self._super_chats.setdefault(room_id, SuperChatStore())
+        for event in events:
+            store.upsert(event)
+        self._publish_super_chats(room_id)
+
+    def _on_super_chat_snapshot_finished(self, room_id: str, source) -> None:
+        if self._super_chat_snapshots.get(room_id) is source:
+            self._super_chat_snapshots.pop(room_id, None)
+        if source in self._super_chat_retired:
+            self._super_chat_retired.remove(source)
 
     def _on_danmaku_finished(self, room_id: str, source) -> None:
         if source in self._danmaku_retired:
@@ -3856,6 +3990,12 @@ class MainWindow(QMainWindow):
     def _stop_danmaku_client(self, room_id: str) -> None:
         client = self._danmaku_clients.pop(room_id)
         self._danmaku_status.pop(room_id, None)
+        self._super_chats.pop(room_id, None)
+        self._publish_super_chats(room_id)
+        loader = self._super_chat_snapshots.pop(room_id, None)
+        if loader is not None:
+            loader.requestInterruption()
+            self._super_chat_retired.append(loader)
         client.stop()
         try:
             if client.isRunning():
@@ -3871,6 +4011,7 @@ class MainWindow(QMainWindow):
             int(self.settings.get("danmaku_font_size") or 13))
         self.wall.danmaku.set_max_blocks(
             int(self.settings.get("danmaku_max_blocks") or 3000))
+        self.wall.danmaku.apply_super_chat_settings(self.settings)
         for tile in self.wall.tiles:
             tile.video_danmaku.apply_settings(self.settings)
             tile.danmaku_settings_menu.apply_settings(self.settings)
@@ -3885,6 +4026,8 @@ class MainWindow(QMainWindow):
         before = self.sidebar.card_mode
         self.sidebar.show_platform_logos = bool(self.settings.get("sidebar_platform_logos", True))
         self.sidebar._sync_count()
+        self.sidebar.set_compact_background(
+            bool(self.settings.get("sidebar_compact_background", True)))
         self.sidebar.set_compact_policy(
             bool(self.settings.get("sidebar_card_mode", True)),
             bool(self.settings.get("sidebar_auto_compact", True)),
@@ -3913,13 +4056,59 @@ class MainWindow(QMainWindow):
         kind = event.get("kind") or "danmaku"
         if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
             return
+        if kind == "super_chat":
+            store = self._super_chats.setdefault(room_id, SuperChatStore())
+            event = store.upsert(event)
+            self._publish_super_chats(room_id)
+        elif kind == "super_chat_delete":
+            store = self._super_chats.setdefault(room_id, SuperChatStore())
+            store.remove(event.get("ids") or ())
+            self._publish_super_chats(room_id)
         if source is self._danmaku:
-            self.wall.danmaku.add_event(event)
+            if kind not in ("super_chat", "super_chat_delete"):
+                self.wall.danmaku.add_event(event)
         for tile in self.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
-                tile.video_danmaku.add_event(event)
+                if kind == "danmaku":
+                    tile.video_danmaku.add_event(event)
         self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=room_id,
                           message=dict(event))
+
+    def _dismiss_super_chat(self, room_id: str, chat_id: str) -> None:
+        store = self._super_chats.get(room_id)
+        if store is not None:
+            for tile in self.wall.tiles:
+                if str(tile.room.get('room_id') or '') == room_id:
+                    tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
+            if room_id == self._danmaku_room:
+                self.wall.danmaku.super_chats.animate_dismiss(chat_id)
+            store.dismiss(chat_id)
+            self._publish_super_chats(room_id)
+
+    def _publish_super_chats(self, room_id: str) -> None:
+        store = self._super_chats.get(room_id)
+        chats = store.active() if store is not None else []
+        for tile in self.wall.tiles:
+            if str(tile.room.get("room_id") or "") == room_id:
+                tile.video_danmaku.set_super_chats(chats)
+        if room_id == self._danmaku_room:
+            self.wall.danmaku.set_super_chats(chats)
+
+    def _tick_super_chats(self) -> None:
+        changed = False
+        for room_id, store in list(self._super_chats.items()):
+            if store.expire():
+                changed = True
+                self._publish_super_chats(room_id)
+        if changed or any(store.items for store in self._super_chats.values()):
+            self.wall.danmaku.super_chats.tick()
+            for tile in self.wall.tiles:
+                if tile.video_danmaku.super_chats:
+                    tile.video_danmaku.super_chat_overlay.set_chats(
+                        tile.video_danmaku.super_chats,
+                        int(self.settings.get(
+                            "super_chat_opacity",
+                            config_module.DEFAULT_SETTINGS["super_chat_opacity"])) / 100)
 
     def _on_danmaku_status(self, source, text: str) -> None:
         room_id = next((rid for rid, client in self._danmaku_clients.items()
@@ -4022,6 +4211,10 @@ class MainWindow(QMainWindow):
             self._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("audio_cycle"):
             self._cycle_audio_under_cursor()
+        elif pressed and pressed == shortcuts.get("record"):
+            tile = self._tile_under_cursor()
+            if tile is not None and tile.room.get("room_id"):
+                self._toggle_recording(tile)
         elif pressed and pressed == shortcuts.get("video_danmaku"):
             tile = self._tile_under_cursor()
             if tile is not None:
@@ -4032,6 +4225,11 @@ class MainWindow(QMainWindow):
                 tile.closeRequested.emit(tile.room)
         elif pressed and (pressed == shortcuts.get("danmaku_input") or (
                 pressed == "Enter" and shortcuts.get("danmaku_input") == "Return")):
+            panel = self.wall.danmaku
+            if panel.isVisible() and panel.rect().contains(panel.mapFromGlobal(QCursor.pos())):
+                if panel._tile_controls is not None:
+                    panel._tile_controls.focus_input()
+                return True
             tile = self._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
                 if tile is self._fullscreen_tile:
@@ -4131,7 +4329,7 @@ def main(argv: list[str] | None = None) -> int:
     from .user_notice import confirm_user_notice
     confirm_user_notice(state)
     from .update_install import clean_previous
-    clean_previous(config_module.REPO)
+    clean_previous(config_module.REPO, config_module.data_root())
     from .legacy_cleanup import start_legacy_cleanup
     start_legacy_cleanup(config_module.REPO)
     t_load = time.perf_counter()
@@ -4159,15 +4357,19 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    app.setQuitOnLastWindowClosed(False)
     t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈
-    watchdog.start(log_path)
+    session = diagnostics.get_session()
+    watchdog.start(session.crash_path if session else log_path)
     ticker = QTimer(window)
     ticker.setInterval(watchdog.TICK_MS)
     ticker.timeout.connect(watchdog.tick)
     ticker.start()
     window.resize(1600, 900)
     window.showMaximized()
+    if config_module.DATA_MIGRATION_ERROR:
+        QMessageBox.warning(window, '数据迁移未完成', config_module.DATA_MIGRATION_ERROR)
     t_show = time.perf_counter()
     print(f"[启动] 配置加载 {(t_load - t0) * 1000:.0f} ms | "
           f"房间占位 {(t_rooms - t_load) * 1000:.0f} ms | "
@@ -4176,6 +4378,8 @@ def main(argv: list[str] | None = None) -> int:
           file=sys.stderr, flush=True)
     code = app.exec()
     watchdog.stop()
+    if session is not None:
+        faulthandler.enable(file=session.crash_handle, all_threads=True)
     if window._update_plan:
         try:
             launched = _launch_update(window._update_plan)
@@ -4193,6 +4397,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
+    diagnostics.close()
     os._exit(code)
 
 

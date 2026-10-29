@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from . import theme
 from .folder_icons import create_folder_dialog
 from .search import matches_text
-from .config import DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
+from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
@@ -31,6 +31,7 @@ SHORTCUT_ACTIONS = [
     ("danmaku_input", "显示播放栏／聚焦鼠标所在格子的弹幕输入框", "Return"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("audio_cycle", "声音轮询按键", "E"),
+    ("record", "开始／停止鼠标所在格子的录制", "R"),
     ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
@@ -210,6 +211,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
+        ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
         ("preview_on_hover", "关注栏直播预览"),
         ("sidebar_platform_logos", "显示关注栏平台 Logo"),
     ]
@@ -258,6 +260,9 @@ class GeneralSettingsPage(QWidget):
             box.setChecked(bool(settings.get(key, True)))
             grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
+            if key == "sidebar_platform_logos":
+                # Retain the saved master value and insertion anchor for plugin controls.
+                box.hide()
             row += 1
             if key == "sidebar_auto_compact":
                 grid.addWidget(QLabel("自动切换数量"), row, 0)
@@ -281,6 +286,14 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
+        grid.addWidget(QLabel("关闭窗口时"), row, 0)
+        self.close_behavior_combo = QComboBox()
+        for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
+            self.close_behavior_combo.addItem(label, value)
+        self.close_behavior_combo.setCurrentIndex(max(
+            0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
+        grid.addWidget(self.close_behavior_combo, row, 1)
+        row += 1
         grid.addWidget(QLabel("编解码设置"), row, 0)
         self._codec_values = codec_settings(settings)
         self.codec_button = QPushButton()
@@ -296,7 +309,7 @@ class GeneralSettingsPage(QWidget):
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setFixedWidth(240)
-        self.volume_slider.setValue(int(settings.get("default_volume", 42)))
+        self.volume_slider.setValue(int(settings.get("default_volume", DEFAULT_VOLUME)))
         self.volume_label = QLabel(str(self.volume_slider.value()))
         self.volume_label.setObjectName("NavSub")
         self.volume_label.setFixedWidth(28)
@@ -333,6 +346,8 @@ class GeneralSettingsPage(QWidget):
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self._codec_values = codec_settings(config_module.DEFAULT_SETTINGS)
+        self.close_behavior_combo.setCurrentIndex(
+            self.close_behavior_combo.findData(config_module.DEFAULT_SETTINGS["close_behavior"]))
         self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
@@ -341,6 +356,7 @@ class GeneralSettingsPage(QWidget):
             **self._hidden_values,
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
+            "close_behavior": self.close_behavior_combo.currentData(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             **self._codec_values,
         }
@@ -378,9 +394,53 @@ class NotificationSwitch(QCheckBox):
         painter.drawEllipse(QRectF(25 if self.isChecked() else 6, 7, 12, 12))
 
 
+class NoticeBlurPreview(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from .room_artwork import RoomArtwork
+        self.setFixedSize(180, 86)
+        self.setAccessibleName('通知 Banner 模糊效果示例')
+        self.artwork = RoomArtwork(())
+        self.artwork.banner = QPixmap(640, 280)
+        painter = QPainter(self.artwork.banner)
+        from PySide6.QtGui import QLinearGradient, QPainterPath
+        gradient = QLinearGradient(0, 0, 640, 280)
+        gradient.setColorAt(0, QColor('#e7a968'))
+        gradient.setColorAt(1, QColor('#6858a8'))
+        painter.fillRect(self.artwork.banner.rect(), gradient)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor('#ffe2b4'))
+        painter.drawEllipse(440, 34, 80, 80)
+        painter.setBrush(QColor('#344f75'))
+        hills = QPainterPath()
+        hills.moveTo(0, 280)
+        for x, y in ((0, 170), (150, 84), (290, 204), (420, 120), (640, 210), (640, 280)):
+            hills.lineTo(x, y)
+        painter.drawPath(hills)
+        painter.end()
+        self.strength = 16
+
+    def set_strength(self, value):
+        self.strength = value
+        self.update()
+
+    def paintEvent(self, event):
+        from .room_artwork import paint_room_background
+        painter = QPainter(self)
+        paint_room_background(painter, self.rect(), self.artwork.source, 8,
+                              focus=False, frost=self.artwork.frosted(self.strength))
+        painter.setPen(QColor('#ffffff'))
+        font = painter.font()
+        font.setPixelSize(12)
+        painter.setFont(font)
+        painter.drawText(self.rect().adjusted(12, 10, -8, -8), Qt.AlignLeft | Qt.AlignTop, '开播提醒')
+        painter.drawText(self.rect().adjusted(12, 32, -8, -8), Qt.AlignLeft | Qt.AlignTop, '示例主播开播了')
+
+
 class NotificationSettingsPage(QWidget):
     ITEMS = [
         ('live_alert', '启用开播提醒（顶部提示与关注栏动效）'),
+        ('notice_hide_fullscreen', '全屏时不弹出通知'),
         ('notice_persist_updates', '软件和插件更新'),
         ('notice_persist_pinned_live', '置顶主播开播'),
         ('notice_persist_live', '其他主播开播'),
@@ -410,6 +470,7 @@ class NotificationSettingsPage(QWidget):
         self._states = {}
         descriptions = (
             '主播开播时显示浮动提醒，并突出关注卡片。',
+            '全屏观看时不显示浮动通知，仍可在通知面板查看。',
             '发现新版本时，保留更新入口。',
             '重要主播的开播提醒不自动消失。',
             '未置顶主播的开播提醒是否持续显示。',
@@ -417,7 +478,7 @@ class NotificationSettingsPage(QWidget):
             '录制、保存等操作结果是否持续显示。',
         )
         for index, (key, label) in enumerate(self.ITEMS):
-            if index in (0, 1):
+            if index in (0, 2):
                 card = QFrame()
                 card.setObjectName('NotificationSettingsGroup')
                 rows = QVBoxLayout(card)
@@ -426,13 +487,13 @@ class NotificationSettingsPage(QWidget):
                 heading = QLabel('开播提醒' if index == 0 else '浮动通知停留方式')
                 heading.setObjectName('NotificationSettingsHeading')
                 rows.addWidget(heading)
-                if index == 1:
+                if index == 2:
                     hint = QLabel('关闭常驻后自动收起，仍可在通知面板查看。')
                     hint.setObjectName('SettingsHint')
                     hint.setWordWrap(True)
                     rows.addWidget(hint)
                 groups.addWidget(card)
-            if index > 1:
+            if index not in (0, 2):
                 separator = QFrame()
                 separator.setObjectName('NotificationSettingsDivider')
                 separator.setFixedHeight(1)
@@ -456,7 +517,7 @@ class NotificationSettingsPage(QWidget):
             box = NotificationSwitch(title.text())
             box.setAccessibleDescription(descriptions[index])
             box.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
-            def update_state(checked, state=state, live=index == 0):
+            def update_state(checked, state=state, live=index < 2):
                 state.setText(('已启用' if checked else '已关闭') if live
                               else ('手动关闭' if checked else '自动收起'))
             box.toggled.connect(update_state)
@@ -465,15 +526,49 @@ class NotificationSettingsPage(QWidget):
             self._states[key] = state
             row.addWidget(box)
             rows.addLayout(row)
+        card = QFrame()
+        card.setObjectName('NotificationSettingsGroup')
+        blur_layout = QVBoxLayout(card)
+        blur_layout.setContentsMargins(14, 12, 14, 12)
+        row = QHBoxLayout()
+        controls = QVBoxLayout()
+        controls.addWidget(QLabel('Banner 毛玻璃模糊强度'))
+        slider_row = QHBoxLayout()
+        self.banner_blur = QSlider(Qt.Horizontal)
+        self.banner_blur.setRange(0, 40)
+        self.banner_blur.setAccessibleName('Banner 毛玻璃模糊强度')
+        self.banner_blur.setValue(int(settings.get('notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))
+        slider_row.addWidget(self.banner_blur, 1)
+        self.banner_blur_value = QLabel()
+        self.banner_blur_value.setMinimumWidth(28)
+        slider_row.addWidget(self.banner_blur_value)
+        controls.addLayout(slider_row)
+        row.addLayout(controls, 1)
+        self.banner_preview = NoticeBlurPreview()
+        row.addWidget(self.banner_preview)
+        self.banner_blur.valueChanged.connect(self._update_banner_blur)
+        self._update_banner_blur(self.banner_blur.value())
+        blur_layout.addLayout(row)
+        hint = QLabel('数值越大，通知背景越模糊；0 为关闭，文字和头像保持清晰。')
+        hint.setObjectName('SettingsHint')
+        hint.setWordWrap(True)
+        blur_layout.addWidget(hint)
+        groups.insertWidget(0, card)
         groups.addStretch(1)
+
+    def _update_banner_blur(self, value):
+        self.banner_blur_value.setText(str(value) if value else '关闭')
+        self.banner_preview.set_strength(value)
 
     def reset(self):
         from .config import DEFAULT_SETTINGS
         for key, box in self._checks.items():
             box.setChecked(DEFAULT_SETTINGS[key])
+        self.banner_blur.setValue(DEFAULT_SETTINGS['notice_banner_blur'])
 
     def values(self):
-        return {key: box.isChecked() for key, box in self._checks.items()}
+        return {**{key: box.isChecked() for key, box in self._checks.items()},
+                'notice_banner_blur': self.banner_blur.value()}
 
 
 class ShortcutSettingsPage(QWidget):
@@ -581,6 +676,20 @@ class DanmakuSettingsPage(QWidget):
         keep_box.addStretch(1)
         grid.addLayout(keep_box, 2, 1)
 
+        self.super_chat_enabled = QCheckBox('显示醒目留言（SC）')
+        self.super_chat_enabled.setChecked(bool(settings.get('super_chat_enabled', True)))
+        grid.addWidget(self.super_chat_enabled, 3, 0, 1, 2)
+        grid.addWidget(QLabel('SC 不透明度'), 4, 0)
+        self.super_chat_opacity = QSlider(Qt.Horizontal)
+        self.super_chat_opacity.setRange(10, 100)
+        self.super_chat_opacity.setValue(int(settings.get('super_chat_opacity', 80)))
+        sc_value = QLabel(f'{self.super_chat_opacity.value()}%')
+        self.super_chat_opacity.valueChanged.connect(lambda value: sc_value.setText(f'{value}%'))
+        sc_row = QHBoxLayout()
+        sc_row.addWidget(self.super_chat_opacity, 1)
+        sc_row.addWidget(sc_value)
+        grid.addLayout(sc_row, 4, 1)
+
         layout.addLayout(grid)
 
         tip = QLabel("字号也可以在弹幕格底部那条滑块上实时拖，不用每次进设置")
@@ -609,6 +718,8 @@ class DanmakuSettingsPage(QWidget):
         self.font_box.setCurrentFont(QFont(theme.danmaku_font_family()))
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
+        self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
+        self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
@@ -621,6 +732,8 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
+            "super_chat_enabled": self.super_chat_enabled.isChecked(),
+            "super_chat_opacity": self.super_chat_opacity.value(),
         }
 
 
@@ -1308,6 +1421,7 @@ class SettingsDialog(QDialog):
                 page.saveRequested.connect(self._save)
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
+                page.data_page.changed.connect(self._update_save_button)
                 self._update_save_button()
             self.pageCreated.emit(index, page)
             print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
@@ -1345,7 +1459,9 @@ class SettingsDialog(QDialog):
 
     def _update_save_button(self, *_args) -> None:
         plugin, update = self._loaded_pages.get(6), self._loaded_pages.get(7)
-        self.confirm_button.setText("保存并重启" if plugin is not None and plugin.needs_restart() else "保存")
+        data = getattr(update, 'data_page', None)
+        restart = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
+        self.confirm_button.setText("保存并重启" if restart else "保存")
         self.confirm_button.setEnabled(not (plugin is not None and plugin.store_page.jobs)
                                       and not (update is not None and update.jobs))
 
@@ -1357,7 +1473,12 @@ class SettingsDialog(QDialog):
                 appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
                 return
         plugin = self._loaded_pages.get(6)
-        self.restart_requested = plugin is not None and plugin.needs_restart()
+        data = getattr(self._loaded_pages.get(7), 'data_page', None)
+        if data is not None and not data.prepare():
+            self.nav.setCurrentRow(7)
+            self.update_page.scroll.ensureWidgetVisible(data.status)
+            return
+        self.restart_requested = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
         self.accept()
 
     def done(self, result):
@@ -1368,12 +1489,15 @@ class SettingsDialog(QDialog):
             self._loaded_pages[6].store_page.stop()
         if 7 in self._loaded_pages:
             page = self._loaded_pages[7]
+            if result != QDialog.Accepted:
+                page.data_page.cancel_target()
             if self._update_page_factory is None:
                 page.stop()
             elif page.parentWidget() is self.stack:
                 page.saveRequested.disconnect()
                 page.busyChanged.disconnect(self._update_save_button)
                 page.releaseChecked.disconnect(self._mark_app_update)
+                page.data_page.changed.disconnect(self._update_save_button)
                 self.stack.removeWidget(page)
                 page.hide()
                 page.setParent(self.parentWidget())
@@ -1618,18 +1742,23 @@ class FollowImportDialog(QDialog):
         self.list.setObjectName("FollowList")
         self.list.itemClicked.connect(self._on_item_clicked)
         self._avatar_items = {}
-        for room in rooms:
-            room_id = str(room["room_id"])
-            item = QListWidgetItem(self._room_text(room))
-            item.setData(Qt.UserRole, room)
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
-            item.setData(Qt.UserRole + 1, item.checkState() == Qt.Checked)
-            self.list.addItem(item)
-            if room_id:
-                self._avatar_items.setdefault(room_id, item)
-            if room.get("anchor_uid"):
-                self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
+        self.list.setUniformItemSizes(True)
+        self.list.setLayoutMode(QListWidget.Batched)
+        self.list.setBatchSize(64)
+        self._offset = 0
+        self._populating = len(rooms) > 128
+        self._pending_avatars = {}
+        self._requested_avatars = set()
+        self._populate_timer = QTimer(self)
+        self._populate_timer.setInterval(8)
+        self._populate_timer.timeout.connect(self._populate_more)
+        self._avatar_timer = QTimer(self)
+        self._avatar_timer.setSingleShot(True)
+        self._avatar_timer.setInterval(30)
+        self._avatar_timer.timeout.connect(self.request_visible_avatars)
+        self.list.verticalScrollBar().valueChanged.connect(lambda: self._avatar_timer.start())
+        self._append_rooms(rooms[:32] if self._populating else rooms)
+        self._offset = self.list.count()
         layout.addWidget(self.list, 1)
         self.list.itemChanged.connect(self._track_checked)
 
@@ -1648,7 +1777,72 @@ class FollowImportDialog(QDialog):
         buttons.addWidget(confirm)
         layout.addLayout(buttons)
 
+        self.import_button.setEnabled(not self._populating)
+        for button in self.filter_buttons:
+            button.setEnabled(not self._populating)
         self._update_header()
+
+    avatarRequested = Signal(dict)
+
+    def _append_rooms(self, rooms):
+        for room in rooms:
+            room_id = str(room["room_id"])
+            item = QListWidgetItem(self._room_text(room))
+            item.setData(Qt.UserRole, room)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
+            item.setData(Qt.UserRole + 1, item.checkState() == Qt.Checked)
+            self.list.addItem(item)
+            if room_id:
+                self._avatar_items.setdefault(room_id, item)
+            if room.get("anchor_uid"):
+                self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
+            query = self.search_edit.text().strip().casefold()
+            item.setHidden(not matches_text(room['uname'], query))
+            for key in (room_id, 'account:' + str(room.get('anchor_uid'))):
+                pixmap = self._pending_avatars.pop(key, None)
+                if pixmap is not None:
+                    self.set_avatar(key, pixmap)
+
+    def _populate_more(self):
+        self._append_rooms(self.rooms[self._offset:self._offset + 32])
+        self._offset = self.list.count()
+        self._populating = self._offset < len(self.rooms)
+        if not self._populating:
+            self._populate_timer.stop()
+            self.import_button.setEnabled(True)
+            for button in self.filter_buttons:
+                button.setEnabled(True)
+            self._avatar_timer.start()
+        self._update_header()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._populating:
+            self._populate_timer.start()
+        self._avatar_timer.start()
+
+    def hideEvent(self, event):
+        self._populate_timer.stop()
+        self._avatar_timer.stop()
+        super().hideEvent(event)
+
+    def request_visible_avatars(self):
+        if not self.isVisible():
+            return
+        first = max(0, self.list.indexAt(self.list.viewport().rect().topLeft()).row())
+        last = self.list.indexAt(self.list.viewport().rect().bottomLeft()).row()
+        if last < first:
+            last = first + 24
+        faces = {}
+        for index in range(first, min(self.list.count(), last + 5)):
+            room = self.list.item(index).data(Qt.UserRole)
+            key = str(room.get('room_id') or 'account:' + str(room.get('anchor_uid')))
+            if room.get('face') and key not in self._requested_avatars:
+                self._requested_avatars.add(key)
+                faces[key] = room['face']
+        if faces:
+            self.avatarRequested.emit(faces)
 
     def _select_folder(self, action) -> None:
         self.folder_id = action.data()
@@ -1707,6 +1901,9 @@ class FollowImportDialog(QDialog):
         self._update_header()
 
     def _update_header(self) -> None:
+        if self._populating:
+            self.header.setText(f'共 {len(self.rooms)} 个关注，正在显示 {self.list.count()} 个…')
+            return
         selected = len(self.selected())
         shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
         filtered = f"，当前显示 {shown} 个" if self.search_edit.text().strip() else ""
@@ -1723,10 +1920,12 @@ class FollowImportDialog(QDialog):
         return "　".join([room["uname"], status] + ([room["title"][:18]] if room.get("title") else []))
 
     def update_account(self, account):
-        for index in range(self.list.count()):
-            item = self.list.item(index)
-            if item.data(Qt.UserRole).get("anchor_uid") == account.get("anchor_uid"):
+        for index, room in enumerate(self.rooms):
+            if room.get("anchor_uid") == account.get("anchor_uid"):
                 self.rooms[index] = dict(account)
+                if index >= self.list.count():
+                    return
+                item = self.list.item(index)
                 item.setData(Qt.UserRole, dict(account))
                 item.setText(self._room_text(account))
                 if account.get("room_id"):
@@ -1758,5 +1957,7 @@ class FollowImportDialog(QDialog):
         """头像下好之后回填（下载是异步的）。"""
         from .widgets import circular_pixmap
         item = self._avatar_items.get(str(room_id))
+        if item is None and self._populating:
+            self._pending_avatars[str(room_id)] = pixmap
         if item is not None:
             item.setIcon(QIcon(circular_pixmap(pixmap, 32)))

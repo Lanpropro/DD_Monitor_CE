@@ -36,7 +36,7 @@ def validate_asset(path):
 
 def import_asset(source, cancelled=lambda: False):
     source = validate_asset(source)
-    directory = Path(config.REPO) / 'utils' / 'skins'
+    directory = Path(config.data_root()) / 'utils' / 'skins'
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / (uuid.uuid4().hex + '_' + source.name)
     partial = target.with_suffix(target.suffix + '.part')
@@ -51,7 +51,7 @@ def import_asset(source, cancelled=lambda: False):
         os.replace(partial, target)
     finally:
         partial.unlink(missing_ok=True)
-    return target.relative_to(config.REPO).as_posix()
+    return target.relative_to(config.data_root()).as_posix()
 
 
 class AssetImport(QThread):
@@ -292,7 +292,7 @@ class SkinController(QObject):
                 settings['skin_parts'] = personal
         from .skin_parts import configure, validate_parts
         try:
-            personal = validate_parts(settings.get('skin_parts', {}), Path(config.REPO) / 'utils' / 'skins')
+            personal = validate_parts(settings.get('skin_parts', {}), Path(config.data_root()) / 'utils' / 'skins')
         except (OSError, ValueError) as error:
             personal = {}
             print(f'[皮肤] 个人分区配置无效：{error}', file=sys.stderr)
@@ -301,7 +301,7 @@ class SkinController(QObject):
             or (bool(self.override['path']) and not settings.get('skin_background_override', False)))
         path = self.override['path'] if use_package else settings.get('skin_background', '')
         if path and not use_package:
-            root = Path(config.REPO).resolve()
+            root = Path(config.data_root()).resolve()
             path = (root / path).resolve()
             if not path.is_relative_to(root / 'utils' / 'skins'):
                 path = ''

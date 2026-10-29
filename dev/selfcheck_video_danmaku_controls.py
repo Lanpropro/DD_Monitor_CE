@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from ddm import config, theme
 from ddm.app import MainWindow
 from ddm.widgets import Tile
-from selfcheck_video_danmaku import Client
+from selfcheck_video_danmaku import Client, Snapshot
 
 
 def progress(overlay, comment):
@@ -130,7 +130,8 @@ def check_text(app):
 
 def check_controls(app):
     rooms = [{"room_id": str(i), "uname": str(i), "live": True} for i in (1001, 1002)]
-    with patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
+    with patch("ddm.app.DanmakuClient", Client), patch("ddm.app.SuperChatSnapshot", Snapshot), \
+            patch.object(MainWindow, "start_tile"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="1x2",
                             state={"plugins_enabled": []})
@@ -293,7 +294,8 @@ def check_outline_migration(app):
              ({"video_danmaku_outline": False, "video_danmaku_outline_width": 4}, 0),
              ({"video_danmaku_outline": True, "video_danmaku_outline_width": 3}, 3),
              ({"video_danmaku_outline": True}, 2)]
-    with patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
+    with patch("ddm.app.DanmakuClient", Client), patch("ddm.app.SuperChatSnapshot", Snapshot), \
+            patch.object(MainWindow, "start_tile"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         for settings, expected in cases:
             window = MainWindow([], [], state={"plugins_enabled": [], "settings": settings})

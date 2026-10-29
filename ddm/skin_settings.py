@@ -462,7 +462,7 @@ class PartSettings(QDialog):
                       if key in self.fields and key not in self._editable_fields()} | target
         try:
             values = self._draft_values(None if background else target)
-            self.preview.personal = validate_parts(values, Path(config.REPO)/'utils/skins')
+            self.preview.personal = validate_parts(values, Path(config.data_root())/'utils/skins')
         except (OSError, ValueError) as error:
             if not self.professional and self.preview.scene != 'main':
                 self.preview.capture_interface(self.owner)

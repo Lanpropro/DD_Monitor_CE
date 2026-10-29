@@ -90,10 +90,17 @@ def main():
             for i in range(750)]
     large = FollowImportDialog(many, set())
     try:
+        large.show()
         _pinyin_keys.cache_clear()
         start = time.perf_counter()
         large.search_edit.setText('ceshizhubo')
         cold_ms = (time.perf_counter() - start) * 1000
+        from PySide6.QtTest import QTest
+        for _ in range(500):
+            if not large._populating:
+                break
+            QTest.qWait(10)
+        assert not large._populating, 'All fetched follows must eventually be available'
         assert all(not large.list.item(i).isHidden() for i in range(750))
         misses = _pinyin_keys.cache_info().misses
         start = time.perf_counter()

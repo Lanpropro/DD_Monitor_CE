@@ -50,6 +50,11 @@ assert f"{DISPLAY_NAME}.exe" in (exe / "运行说明.txt").read_text(encoding="u
 for folder in (source, exe):
     runtime = folder / "_internal" if folder == exe else folder
     assert (runtime / "libmpv-2.dll").is_file(), "libmpv 缺失"
+    vulkan = json.loads((repo / 'ddm/assets/licenses/vulkan-SOURCE.json').read_text(encoding='utf-8'))
+    for filename, expected in (('vulkan-1.dll', vulkan['dll_sha256']),
+                               ('VulkanRT-License.txt', vulkan['license_sha256'])):
+        assert hashlib.sha256((runtime / filename).read_bytes()).hexdigest() == expected, \
+            f'Vulkan runtime or license differs from the pinned source: {filename}'
     assert not list(folder.rglob("libvlc*.dll")), "发布包仍包含 VLC 运行库"
     assert (folder / "ffmpeg.exe").is_file(), "FFmpeg 缺失"
     assert (folder / "ffmpeg-license" / "LICENSE").is_file(), "FFmpeg 许可缺失"
@@ -63,6 +68,9 @@ for folder in (source, exe):
     assert not (folder / "videos").exists(), "发布包包含宣传片工程"
     assert not list((folder / "dev").glob("*promo*")), "发布包包含宣传片工具"
 metadata = json.loads((results / "app-update.json").read_text(encoding="utf-8-sig"))
+build_metadata = json.loads((exe / 'ddm-build.json').read_text(encoding='utf-8-sig'))
+assert build_metadata['source_commit'] == subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repo).decode().strip(), \
+    'Frozen build metadata must identify the exact source commit'
 archive = results / f"{name}-exe.zip"
 remote_name = f"DDMonitorCE-{VERSION_TAG}-exe.zip"
 assert metadata["version"] == VERSION and metadata["asset_name"] == remote_name
@@ -71,7 +79,8 @@ assert metadata["size"] == archive.stat().st_size
 assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
 assert metadata["url"].endswith(f"/{VERSION_TAG}/{remote_name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
-assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64"}
+assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64",
+                 "source_commit": build_metadata['source_commit']}
 inventory = json.loads((exe / INVENTORY).read_text(encoding='utf-8'))
 assert inventory['schema'] == 1 and inventory['version'] == VERSION
 with zipfile.ZipFile(archive) as package:

@@ -10,9 +10,9 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("DDMonitorDiagnostics")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2")]
 
 namespace DDMonitorDiagnostics
 {
@@ -21,6 +21,7 @@ namespace DDMonitorDiagnostics
         [STAThread]
         static void Main(string[] args)
         {
+            if (NativeDependencies.TryRun(args)) return;
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new DiagnosticForm(args.Length > 0 ? args[0] : AppDomain.CurrentDomain.BaseDirectory));
@@ -400,6 +401,7 @@ namespace DDMonitorDiagnostics
         readonly Button folder = new DiagnosticButton { Text = "打开所在文件夹", AutoSize = true, Enabled = false };
         readonly Button summary = new DiagnosticButton { Text = "查看诊断摘要", AutoSize = true, Enabled = false };
         readonly Button detect = new DiagnosticButton { Text = "自动查找", AutoSize = true };
+        readonly CheckBox exitAfterSuccess = new CheckBox { Text = "生成成功后自动退出", AutoSize = true, Dock = DockStyle.Fill };
         readonly AttachmentGallery attachments = new AttachmentGallery();
         readonly RadioButton repeatable = new RadioButton { Text = "稳定复现", AutoSize = true };
         readonly RadioButton intermittent = new RadioButton { Text = "概率触发", AutoSize = true };
@@ -417,13 +419,14 @@ namespace DDMonitorDiagnostics
             MinimumSize = new Size(760, 820);
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(24) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(24) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 65));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 460));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
             Controls.Add(layout);
             var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
@@ -474,7 +477,7 @@ namespace DDMonitorDiagnostics
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,
-                Text = "收集范围\r\n系统与显卡驱动、软件版本与关键文件校验、脱敏配置、插件版本、近期日志、相关崩溃事件和手动添加的图片。\r\n\r\n不读取账号文件、插件私有设置、聊天记录、录制或内存转储。不联网，不修改配置，也不启动或关闭主软件。图片会去除元数据，但不会遮挡画面。请检查诊断包后再手动发送。"
+                Text = "收集范围\r\n系统与显卡驱动、软件版本与关键文件校验、libmpv 加载与依赖检查、脱敏配置、插件版本、近期日志、相关崩溃事件和手动添加的图片。\r\n\r\nDLL 检测在独立子进程中加载所选目录的播放器库，最长等待10秒。不读取账号文件、插件私有设置、聊天记录、录制或内存转储。不联网，不修改配置，也不启动或关闭主软件。图片会去除元数据，但不会遮挡画面。请检查诊断包后再手动发送。"
             };
             var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
             layout.Controls.Add(contentArea, 0, 2);
@@ -485,7 +488,8 @@ namespace DDMonitorDiagnostics
             buttons.Controls.Add(generate);
             buttons.Controls.Add(folder);
             buttons.Controls.Add(summary);
-            layout.Controls.Add(buttons, 0, 6);
+            layout.Controls.Add(exitAfterSuccess, 0, 6);
+            layout.Controls.Add(buttons, 0, 7);
             directory.Text = AppDiscovery.HasApp(initial) ? Path.GetFullPath(initial) : "";
             destination.Text = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             happened.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " 左右";
@@ -621,6 +625,7 @@ namespace DDMonitorDiagnostics
             zipPath = (string)args.Result;
             folder.Enabled = summary.Enabled = true;
             status.Text = "已生成：" + Path.GetFileName(zipPath) + "\r\n请查看摘要与收集提示，检查内容后手动发送。";
+            if (exitAfterSuccess.Checked) Close();
         }
 
         void ShowSummary()

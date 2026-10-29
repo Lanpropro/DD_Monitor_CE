@@ -134,8 +134,8 @@ def preview_checks(app):
         viewer.alignment.lags["2"] = 4.5
         viewer.show_comparison("2")
         def crop_dialog(dialog):
-            assert any(label.text() == "自动对齐请保留完整画面；如需人工细调，可只框选计时区域。"
-                       "两路请选择相同内容，框选不会自动读取计时器数字。"
+            assert any(label.text() == "自动匹配始终使用完整画面；框选仅用于放大对照、人工微调偏移。"
+                       "两路请选择相同计时器，框选不会改变自动匹配或读取计时器数字。"
                        for label in dialog.findChildren(module.QLabel))
             selector = dialog.findChild(module.Canvas)
             assert selector.frame_key == cards["2"][2].frame_key
@@ -146,7 +146,7 @@ def preview_checks(app):
                 patch.object(late.decoder.history, "latest", side_effect=AssertionError("Latest cache is not the displayed picture")):
             viewer.choose_crop(late)
         assert viewer.alignment.lags["2"] == 4.5, "Changing crop must preserve confirmed alignment"
-        assert late.decoder.crop == late.crop == (.2, .1, .3, .2)
+        assert late.decoder.crop == (0, 0, 1, 1) and late.crop == (.2, .1, .3, .2)
         viewer.render()
         assert cards["2"][2].zoom_crop and cards["2"][2].crop == QRectF(*late.crop)
         viewer.comparison_panel.zoom.setChecked(False)

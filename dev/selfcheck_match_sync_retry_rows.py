@@ -1,4 +1,4 @@
-"""Per-room rematching, crop retry, real row drop ordering and bottom restore control."""
+"""Per-room rematching, comparison-only crops, row drops and bottom restore control."""
 import os
 from pathlib import Path
 import sys
@@ -118,7 +118,7 @@ def main():
             assert viewer.rows['2'].rematch_locally, 'A buffered resume should recheck the saved offset first'
             assert viewer.rows['3'].match_confirmed
             assert not viewer.sync_waiting
-            # Accepting a crop clears the independent fallback and actively enables retry.
+            # Accepting a comparison crop keeps manual mode and independent fallback intact.
             viewer._block_alignment('2','blocked fixture')
             viewer.rows['2'].sync_state = '已同步'
             viewer.comparison_panel.render(viewer.audio.clock(), viewer.shifts())
@@ -127,15 +127,16 @@ def main():
             assert '提前' not in state and '延后' not in state
             viewer.automatic.setChecked(False)
             assert all(row.realign.isHidden() for row in viewer.rows.values())
+            independent_before_crop = dict(viewer.independent_shifts)
             def crop(dialog):
                 dialog.findChild(module.Canvas).crop=QRectF(.1,.1,.7,.7)
                 return QDialog.Accepted
             with patch.object(module.QDialog,'exec',crop), patch.object(viewer,'analyse') as kick:
                 viewer.choose_crop(viewer.rows['2'])
-                kick.assert_called_once()
-            assert viewer.automatic.isChecked() and '2' not in viewer.independent_shifts
-            assert not viewer.rows['2'].realign.isHidden()
-            assert '2' in viewer.rematch_rooms and viewer.rows['2'].crop==(.1,.1,.7,.7)
+                kick.assert_not_called()
+            assert not viewer.automatic.isChecked() and viewer.independent_shifts == independent_before_crop
+            assert viewer.rows['2'].realign.isHidden()
+            assert viewer.rows['2'].crop==(.1,.1,.7,.7) and viewer.rows['2'].decoder.crop == (0,0,1,1)
             # Use the row's actual drop handler, preserving IDs, main choice and decoders.
             main_id=viewer.alignment.reference
             mime=QMimeData()
@@ -168,13 +169,15 @@ def main():
             button.click()
             app.processEvents()
             assert viewer.fullscreen_dialog is None and viewer.settings_panel.isVisible()
-            viewer.select_main('3')
+            with patch.object(viewer, 'analyse'):
+                viewer.automatic.setChecked(True)
+                viewer.select_main('3')
             assert viewer.rows['3'].realign.isHidden() and not viewer.rows['1'].realign.isHidden()
         finally:
             viewer.close()
             host.close()
             app.processEvents()
-    print('PASS: targeted global rematch, buffered-source recheck, crop auto retry, safe row drag ordering, bottom restore placement')
+    print('PASS: targeted global rematch, buffered-source recheck, comparison-only crop, safe row drag ordering, bottom restore placement')
 
 if __name__=='__main__':
     main()

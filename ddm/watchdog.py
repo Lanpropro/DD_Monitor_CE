@@ -77,6 +77,7 @@ class UiWatchdog:
             handle, self._handle = self._handle, None
         if handle is not None:
             try:
+                faulthandler.disable()
                 handle.close()
             except Exception:  # noqa: BLE001
                 pass

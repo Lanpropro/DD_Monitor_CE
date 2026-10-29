@@ -10,8 +10,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from . import theme
 
 
-# ctypes caches POINTER types; defining these classes per paint retains every copy.
-class _BitmapInfo(ctypes.Structure):
+class BitmapInfo(ctypes.Structure):
     _fields_ = [("size", wintypes.DWORD), ("width", wintypes.LONG),
         ("height", wintypes.LONG), ("planes", wintypes.WORD),
         ("bits", wintypes.WORD), ("compression", wintypes.DWORD),
@@ -20,7 +19,7 @@ class _BitmapInfo(ctypes.Structure):
         ("important", wintypes.DWORD)]
 
 
-class _Blend(ctypes.Structure):
+class Blend(ctypes.Structure):
     _fields_ = [("operation", ctypes.c_ubyte), ("flags", ctypes.c_ubyte),
         ("alpha", ctypes.c_ubyte), ("format", ctypes.c_ubyte)]
 
@@ -59,7 +58,7 @@ class BadgeSurface(QWidget):
         if (theme.is_light() and sys.platform == "win32"
                 and QApplication.platformName() == "windows"
                 and self.testAttribute(Qt.WA_NativeWindow) and self.isVisible()):
-            self._paint_layered()
+            self._schedule_layered_paint()
 
     def event(self, event):
         result = super().event(event)
@@ -69,6 +68,7 @@ class BadgeSurface(QWidget):
         return result
 
     def _clear_layered(self):
+        self._layered_paint_pending = False
         self._last_alpha_state = None
         hwnd = getattr(self, "_layered_hwnd", None)
         if hwnd and sys.platform == "win32":
@@ -81,6 +81,23 @@ class BadgeSurface(QWidget):
 
     def _layered_render_key(self):
         return None
+
+    def _render_layered(self, painter):
+        self._render_badge(painter)
+
+    def _schedule_layered_paint(self):
+        if not getattr(self, '_layered_paint_pending', False):
+            self._layered_paint_pending = True
+            QTimer.singleShot(0, self, self._flush_layered_paint)
+
+    def _flush_layered_paint(self):
+        # Native style/alpha updates can synchronously repaint the widget.
+        # Leave Qt's paint stack first and coalesce paints during the upload.
+        try:
+            if self._layered_paint_pending and self.isVisible():
+                self._paint_layered()
+        finally:
+            self._layered_paint_pending = False
 
     def _paint_layered(self):
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
@@ -97,7 +114,7 @@ class BadgeSurface(QWidget):
         image.setDevicePixelRatio(self.devicePixelRatioF())
         image.fill(Qt.transparent)
         painter = QPainter(image)
-        self._render_badge(painter)
+        self._render_layered(painter)
         painter.end()
 
         user32.GetDC.argtypes = (wintypes.HWND,)
@@ -107,10 +124,10 @@ class BadgeSurface(QWidget):
         user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
         user32.UpdateLayeredWindow.argtypes = (wintypes.HWND, wintypes.HDC,
             ctypes.POINTER(wintypes.POINT), ctypes.POINTER(wintypes.SIZE), wintypes.HDC,
-            ctypes.POINTER(wintypes.POINT), wintypes.DWORD, ctypes.POINTER(_Blend), wintypes.DWORD)
+            ctypes.POINTER(wintypes.POINT), wintypes.DWORD, ctypes.POINTER(Blend), wintypes.DWORD)
         gdi32.CreateCompatibleDC.argtypes = (wintypes.HDC,)
         gdi32.CreateCompatibleDC.restype = wintypes.HDC
-        gdi32.CreateDIBSection.argtypes = (wintypes.HDC, ctypes.POINTER(_BitmapInfo),
+        gdi32.CreateDIBSection.argtypes = (wintypes.HDC, ctypes.POINTER(BitmapInfo),
             wintypes.UINT, ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD)
         gdi32.CreateDIBSection.restype = wintypes.HANDLE
         gdi32.SelectObject.argtypes = (wintypes.HDC, wintypes.HANDLE)
@@ -119,7 +136,7 @@ class BadgeSurface(QWidget):
         gdi32.DeleteDC.argtypes = (wintypes.HDC,)
         screen = user32.GetDC(None)
         memory = gdi32.CreateCompatibleDC(screen)
-        info = _BitmapInfo(40, image.width(), -image.height(), 1, 32, 0, 0, 0, 0, 0, 0)
+        info = BitmapInfo(40, image.width(), -image.height(), 1, 32, 0, 0, 0, 0, 0, 0)
         data = ctypes.c_void_p()
         bitmap = gdi32.CreateDIBSection(screen, ctypes.byref(info), 0, ctypes.byref(data), None, 0)
         try:
@@ -129,10 +146,11 @@ class BadgeSurface(QWidget):
             try:
                 ctypes.memmove(data, bytes(image.constBits()), image.sizeInBytes())
                 style = user32.GetWindowLongW(hwnd, -20)
-                user32.SetWindowLongW(hwnd, -20, style | 0x00080000)
+                if not style & 0x00080000:
+                    user32.SetWindowLongW(hwnd, -20, style | 0x00080000)
                 size = wintypes.SIZE(image.width(), image.height())
                 origin = wintypes.POINT(0, 0)
-                blend = _Blend(0, 0, 255, 1)
+                blend = Blend(0, 0, 255, 1)
                 self._alpha_uploaded = bool(user32.UpdateLayeredWindow(hwnd, screen, None,
                     ctypes.byref(size), memory, ctypes.byref(origin), 0, ctypes.byref(blend), 2))
                 self._layered_hwnd = hwnd

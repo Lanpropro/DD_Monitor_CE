@@ -5,9 +5,12 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
+
+from .data_paths import INSTALL_MARKER
 
 MANIFEST = '.ddm-program-files.json'
 RESULT = '.ddm-update-result.json'
@@ -19,7 +22,7 @@ def relative_path(name):
     if (not name or '\\' in name or ':' in name or path.is_absolute()
             or any(part in ('', '.', '..') for part in name.split('/'))
             or path.parts[0].casefold() in PROTECTED or name in (MANIFEST, RESULT, 'update-plan.json')
-            or path.parts[0].casefold() == 'backup'):
+            or path.parts[0].casefold() == 'backup' or name.casefold() == INSTALL_MARKER):
         raise ValueError('更新包包含用户数据目录或无效路径')
     return path
 
@@ -36,7 +39,7 @@ def destination(root, name):
     return path
 
 
-def prepare(archive, install_root, current_exe, cancelled=lambda: False, expected_version=None):
+def prepare(archive, install_root, current_exe, cancelled=lambda: False, expected_version=None, data_root=None):
     root = Path(install_root).resolve()
     old_exe = Path(current_exe).resolve()
     if root == Path(root.anchor) or old_exe.parent != root or not old_exe.is_file():
@@ -84,6 +87,9 @@ def prepare(archive, install_root, current_exe, cancelled=lambda: False, expecte
             raise ValueError('更新包版本与发布记录不一致')
         plan = {'root': str(root), 'stage': str(stage), 'files': paths,
                 'old_exe': old_exe.name, 'new_exe': executables[0], 'parent_pid': os.getpid()}
+        from .data_paths import writable
+        plan['elevate'] = os.name == 'nt' and not writable(root)
+        plan['result_root'] = str(Path(data_root or root).resolve())
         path = stage / 'update-plan.json'
         path.write_text(json.dumps(plan, ensure_ascii=False), encoding='utf-8')
         return str(path)
@@ -197,22 +203,42 @@ def run_helper(plan_path):
     entry = str(destination(root, plan['old_exe']))
     try:
         wait_parent(int(plan['parent_pid']))
-        entry = apply_plan(plan_path)
+        if plan.get('elevate'):
+            from .windows_elevation import run_elevated
+            run_elevated(sys.executable, ['--apply-update-elevated', str(plan_path)], plan['stage'])
+            elevated = json.loads((Path(plan['stage']) / 'elevated-result.json').read_text(encoding='utf-8'))
+            if not elevated['ok']:
+                raise OSError(elevated['message'])
+            entry = str(destination(root, plan['new_exe']))
+        else:
+            entry = apply_plan(plan_path)
         result = {'ok': True, 'message': '软件更新完成', 'stage': plan['stage'],
                   'root': str(root), 'helper_pid': os.getpid()}
     except Exception as error:
         result = {'ok': False, 'message': f'软件更新失败，已尝试恢复原程序：{error}', 'stage': plan['stage'],
                   'root': str(root), 'helper_pid': os.getpid()}
-    (root / RESULT).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
+    (Path(plan.get('result_root', root)) / RESULT).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
     if Path(entry).is_file():
         subprocess.Popen([entry], cwd=root)
     return 0 if result['ok'] else 1
 
 
-def clean_previous(install_root):
+def run_elevated_helper(plan_path):
+    """Only replace program files; the unelevated helper restarts the application."""
+    stage = Path(plan_path).resolve().parent
+    try:
+        apply_plan(plan_path)
+        result = {'ok': True, 'message': ''}
+    except Exception as error:
+        result = {'ok': False, 'message': str(error)}
+    (stage / 'elevated-result.json').write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
+    return 0 if result['ok'] else 1
+
+
+def clean_previous(install_root, result_root=None):
     """启动后清理已完成助手的临时副本；仍占用时保留到下一次启动。"""
     root = Path(install_root).resolve()
-    result_path = root / RESULT
+    result_path = Path(result_root or root) / RESULT
     if not result_path.is_file():
         return
     try:

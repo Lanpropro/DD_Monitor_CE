@@ -40,6 +40,28 @@ def main():
     assert now.block().text() == anchor_text, "Incoming messages move the message being read"
     assert abs(panel.body.cursorRect(now).y() - anchor_y) <= 1, "Reading anchor jumps vertically"
     assert not panel._follow_tail
+    assert panel.bottom_button.isVisible()
+    for width in (180, 237, 340):
+        panel.resize(width, 400)
+        app.processEvents()
+        viewport = panel.body.viewport()
+        assert panel.bottom_button.parentWidget() is viewport
+        assert panel.bottom_button.text() == ''
+        assert viewport.rect().contains(panel.bottom_button.geometry())
+        assert viewport.width() - panel.bottom_button.geometry().right() == 11
+        assert viewport.height() - panel.bottom_button.geometry().bottom() == 11
+        controls = (panel.font_label, panel.font_slider, panel.font_value)
+        assert all(panel.bar.rect().contains(widget.geometry()) for widget in controls)
+        assert all(not a.geometry().intersects(b.geometry()) for a, b in zip(controls, controls[1:]))
+    # A pending document correction must not undo an explicit jump.
+    panel.add_message("before jump", "pending restore")
+    panel.bottom_button.click()
+    app.processEvents()
+    assert panel._follow_tail and bar.value() == bar.maximum()
+    assert panel.bottom_button.isHidden()
+    panel.add_message("after jump", "follow new messages")
+    app.processEvents()
+    assert bar.value() == bar.maximum()
     assert len(panel._blocks) == panel.body.document().blockCount() == 300
     text = panel.body.toPlainText()
     assert "user0：" not in text and "user319：message319" in text
@@ -51,7 +73,7 @@ def main():
             app.processEvents()
     app.processEvents()
     assert bar.value() == bar.maximum(), "Tail following stops after pruning"
-    assert panel._received == 1000
+    assert panel._received == 1002
     assert len(panel._blocks) == panel.body.document().blockCount() == 300
     panel.set_max_blocks(20)
     app.processEvents()
@@ -81,6 +103,7 @@ def main():
     app.processEvents()
     assert panel.body.document().blockCount() == 20
     panel.clear()
+    assert panel.bottom_button.isHidden()
     panel.add_message("new room", "first message")
     app.processEvents()
     assert panel._received == 1 and panel.body.document().blockCount() == 1

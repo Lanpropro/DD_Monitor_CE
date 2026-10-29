@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QObject, Qt
@@ -70,6 +70,17 @@ def main():
         return result
     sidebar.list_box.relayout = relayout
     baseline = os.environ.get('DDM_BENCHMARK_BASELINE') == '1'
+    quick = Mock()
+    wall._quick_danmaku_layer = quick
+    with patch.object(motion, 'enabled', return_value=True):
+        sidebar.set_collapsed(True)
+        QTest.qWait(60)
+        assert quick.resize.call_count == 0, 'Quick surface must not resize during collapse frames'
+        assert quick.move.called, 'Quick overlay must still follow the wall position'
+        QTest.qWait(240)
+        assert quick.resize.called, 'Quick surface geometry must catch up after collapse'
+        wall._quick_danmaku_layer = None
+        sidebar.set_collapsed(False, animate=False)
     with patch.object(motion, 'enabled', return_value=True):
         for collapsed in (True, False):
             calls.clear()

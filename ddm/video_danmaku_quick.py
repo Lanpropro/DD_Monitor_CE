@@ -381,6 +381,9 @@ class QuickDanmakuLayer(QObject):
         self.window.setMask(region)
         return not region.isEmpty()
 
+    def move(self):
+        self.window.setPosition(self.parent.mapToGlobal(QPoint()))
+
     def resize(self):
         point = self.parent.mapToGlobal(QPoint())
         self.window.setGeometry(point.x(), point.y(), self.parent.width(), self.parent.height())
@@ -468,7 +471,7 @@ class QuickDanmakuLayer(QObject):
         if self.render_thread_animation and active != was_active:
             for record in self.items.values():
                 if record["group"] == identifier:
-                    record["item"].setMotionPaused(not active)
+                    record["item"].setMotionPaused(not active or record.get('held', False))
         self.stage.setProperty("active", bool(self._active_groups) and
                                not self.render_thread_animation)
 
@@ -524,9 +527,15 @@ class QuickDanmakuLayer(QObject):
             if self.render_thread_animation and record["speed"] > 0:
                 distance = max(0, x + item.width())
                 item.setMotion(x, -item.width(), distance / record["speed"] * 1000,
-                               record["group"] not in self._active_groups)
+                               record["group"] not in self._active_groups or record.get('held', False))
             else:
                 item.setX(x)
+
+    def pause_comment(self, identifier, paused, x):
+        record = self.items.get(identifier)
+        if record is not None:
+            record['held'] = bool(paused)
+            self.move(identifier, x, record['item'].y())
 
     def remove(self, identifier):
         record = self.items.pop(identifier, None)

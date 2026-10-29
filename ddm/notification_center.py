@@ -1,14 +1,15 @@
 """本次启动的通知收件箱；仅存内存，不随账号配置落盘。"""
 from dataclasses import dataclass
 from datetime import datetime
+import math
 from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QUrl, QVariantAnimation, Signal
-from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QTransform
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextOption
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
-                               QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+                               QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
 from . import motion, theme
 
@@ -34,6 +35,38 @@ class NoticeEntry:
     unread: bool = True
     rooms: tuple = ()
     key: object = None
+    file_path: str = ''
+
+
+class NoticeMessage(QTextEdit):
+    """Selectable plain text that also wraps long paths without word breaks."""
+    def __init__(self, text):
+        super().__init__()
+        self.setReadOnly(True)
+        self.setPlainText(text)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setStyleSheet('background: transparent; border: none; padding: 0;')
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDocumentMargin(0)
+        policy = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def text(self):
+        return self.toPlainText()
+
+    def heightForWidth(self, width):
+        document = self.document().clone()
+        document.setTextWidth(max(1, width))
+        return math.ceil(document.size().height())
+
+    def sizeHint(self):
+        return QSize(180, self.heightForWidth(180))
+
+    def minimumSizeHint(self):
+        return QSize(0, 0)
 
 
 class NoticeRow(QFrame):
@@ -43,7 +76,8 @@ class NoticeRow(QFrame):
         super().__init__(parent)
         self.entry = entry
         self.setObjectName('HistoryNotice')
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.setToolTip(entry.file_path)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
@@ -82,11 +116,17 @@ class NoticeRow(QFrame):
         category = {'live': '开播提醒', 'warning': '需要留意', 'update': '版本更新'}.get(entry.kind, '操作提示')
         self.category = QLabel(category)
         self.category.setObjectName('NoticeHeading')
-        content.addWidget(self.category)
-        self.message = QLabel(entry.message)
+        category_row = QHBoxLayout()
+        from .room_artwork import RoomArtwork, add_platform_logos, style_room_notice
+        self.artwork = RoomArtwork(entry.rooms)
+        theme.signals().changed.connect(self._refresh_artwork_theme)
+        add_platform_logos(category_row, entry.rooms, self)
+        category_row.addWidget(self.category)
+        category_row.addStretch()
+        content.addLayout(category_row)
+        self.message = NoticeMessage(entry.message)
         self.message.setObjectName('NoticeText')
-        self.message.setTextFormat(Qt.PlainText)
-        self.message.setWordWrap(True)
+        self.message.setToolTip(entry.file_path)
         self.message.setMinimumWidth(0)
         self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
         content.addWidget(self.message)
@@ -111,19 +151,23 @@ class NoticeRow(QFrame):
         layout.addLayout(footer)
         self._paper = None
         self._progress = 0.0
-        self.animation = QVariantAnimation(self)
-        self.animation.setDuration(240)
-        self.animation.setEasingCurve(motion.THEME_WAVE_EASING)
-        self.animation.setStartValue(0.0)
-        self.animation.setEndValue(1.0)
-        self.animation.valueChanged.connect(self._frame)
-        self.animation.finished.connect(self.finish_removal)
+        self.animation = motion.paper_animation(self, self._frame, self.finish_removal)
         self.ensurePolished()
+        style_room_notice(self, self.artwork)
         self.setMinimumHeight(layout.totalHeightForWidth(max(80, parent.width())))
 
     def activate(self):
         self.window().hide()
         self.entry.callback()
+
+    def set_room_artwork(self, room_id, pixmap, kind):
+        from .room_artwork import style_room_notice
+        if self.artwork.set_image(room_id, pixmap, kind):
+            style_room_notice(self, self.artwork)
+
+    def _refresh_artwork_theme(self, _mode):
+        from .room_artwork import style_room_notice
+        style_room_notice(self, self.artwork)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -153,28 +197,16 @@ class NoticeRow(QFrame):
 
     def paintEvent(self, event):
         if self._paper is None:
-            return super().paintEvent(event)
+            super().paintEvent(event)
+            if self.artwork.source is not None:
+                from .room_artwork import paint_room_background, notice_frost
+                painter = QPainter(self)
+                paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
+                                      focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
+            return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        progress = self._progress
-        painter.setOpacity(min(1.0, (1.0 - progress) * 3))
-        width, height = self.width(), self.height()
-        # Horizontal strips bend and narrow toward the bottom-right paper slot.
-        for index in range(12):
-            top, bottom = height * index / 12, height * (index + 1) / 12
-            points = []
-            for x, y in ((0, top), (width, top), (width, bottom), (0, bottom)):
-                bend = progress * (0.5 + 0.5 * y / height)
-                points.append(QPointF(x + (width - 12 - x) * bend,
-                                      y + (height - 4 - y) * progress))
-            source = QPolygonF([QPointF(0, top), QPointF(width, top),
-                                QPointF(width, bottom), QPointF(0, bottom)])
-            transform = QTransform()
-            if QTransform.quadToQuad(source, QPolygonF(points), transform):
-                painter.setTransform(transform)
-                scale = self._paper.devicePixelRatio()
-                painter.drawPixmap(QRectF(0, top, width, bottom - top), self._paper,
-                                   QRectF(0, top * scale, width * scale, (bottom - top) * scale))
+        motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
+        painter.end()
 
 
 class NotificationCenter(QFrame):
@@ -229,12 +261,32 @@ class NotificationCenter(QFrame):
         layout.addWidget(self.scroll, 1)
         self._sync()
 
-    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=()):
+    def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False,
+            file_path=None):
         if key is not None:
             if key in self._seen_keys:
-                return next((entry for entry in self.entries if entry.key == key), None)
+                entry = next((entry for entry in self.entries if entry.key == key), None)
+                if not replace:
+                    return entry
+                if entry is not None:
+                    entry.message, entry.kind = str(message), kind
+                    entry.callback, entry.action = callback, action
+                    entry.time = datetime.now().strftime('%H:%M:%S')
+                    entry.unread = not self.isVisible()
+                    entry.rooms = tuple(dict(room) for room in rooms[:3])
+                    entry.file_path = str(file_path or '')
+                    row = self.rows.pop(entry, None)
+                    if row is not None:
+                        self.list_layout.removeWidget(row)
+                        row.hide()
+                        row.deleteLater()
+                    if self.isVisible():
+                        self._add_row(entry)
+                    self._sync()
+                    return entry
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
-                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key)
+                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key,
+                            str(file_path or ''))
         self.entries.append(entry)
         if key is not None:
             self._seen_keys.add(key)
@@ -383,7 +435,8 @@ class NotificationButton(QPushButton):
             painter.drawEllipse(QPointF(6, -6), 3, 3)
 
 
-def remember_result(parent, message, *, kind='info', on_click=None, file_path=None, rooms=()):
+def remember_result(parent, message, *, kind='info', on_click=None, file_path=None, rooms=(),
+                    notice_key=None, pending=False):
     sidebar = getattr(parent, 'sidebar', None)
     while sidebar is None and parent.parentWidget() is not None:
         parent = parent.parentWidget()
@@ -393,12 +446,13 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
     if sidebar is None or not hasattr(sidebar, 'notification_button'):
         return
     if file_path:
-        callback = lambda path=str(file_path): reveal_file(path)
+        callback = None if pending else lambda path=str(file_path): reveal_file(path)
         action = '打开文件位置'
-        message = message + str(file_path)
+        message = message + Path(str(file_path).replace('\\', '/')).name
     else:
         callback = on_click
         action = '放入画面墙' if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
     center = sidebar.notification_button.center
-    entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms)
+    entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms,
+                       key=notice_key, replace=notice_key is not None, file_path=file_path)
     return center, entry

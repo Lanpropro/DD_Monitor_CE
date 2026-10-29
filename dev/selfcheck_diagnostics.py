@@ -25,7 +25,7 @@ class DiagnosticTests(unittest.TestCase):
         cls.base = Path(cls.temp.name)
         cls.compiler = Path(os.environ['SystemRoot']) / 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
         cls.driver = cls.base / 'test.exe'
-        cls.compile(cls.driver, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/Program.cs', ROOT / 'dev/diagnostics_tests.cs'])
+        cls.compile(cls.driver, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/NativeDependencies.cs', ROOT / 'tools/diagnostics/Program.cs', ROOT / 'dev/diagnostics_tests.cs'])
 
     @classmethod
     def compile(cls, target, sources, gui=False):
@@ -73,6 +73,186 @@ class DiagnosticTests(unittest.TestCase):
                          + chunk(b'tEXt', b'Comment\0NEVER_KEEP_IMAGE_METADATA')
                          + chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 2) * 2)) + chunk(b'IEND', b''))
         return path
+
+    def test_independent_user_data_folder_is_used_for_config_plugins_and_logs(self):
+        location_file = runpy.run_path(str(ROOT / 'ddm/data_paths.py'))['location_file']
+        data = self.case / '用户数据'
+        (data / 'utils').mkdir(parents=True)
+        (data / 'utils/config.json').write_text('{"settings":{"default_volume":37}}', encoding='utf-8')
+        self.put('utils/config.json', '{"settings":{"default_volume":12}}')
+        (data / 'logs').mkdir()
+        (data / 'logs/ddm-2026-10-29.log').write_text('external data log', encoding='utf-8')
+        plugin = data / 'plugins_user/test_plugin'
+        plugin.mkdir(parents=True)
+        (plugin / 'plugin.json').write_text('{"version":"9.9"}', encoding='utf-8')
+        home = self.case / 'user-home'
+        location = location_file(self.app, home)
+        location.parent.mkdir(parents=True)
+        location.write_text(json.dumps({'root': str(data)}), encoding='utf-8')
+        result = subprocess.run([str(self.driver), '--data-location', str(self.app), str(self.output), str(home)],
+                                capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with zipfile.ZipFile(next(self.output.glob('*.zip'))) as archive:
+            self.assertEqual(json.loads(archive.read('config/current.json'))['settings']['default_volume'], 37)
+            self.assertIn(b'external data log', archive.read('logs/ddm-2026-10-29.log'))
+            self.assertIn(b'9.9', archive.read('plugins.json'))
+
+    def test_rotated_and_crash_logs_are_included_with_platform_summary(self):
+        self.put('logs/ddm-crash.log', 'fixture native crash')
+        self.put('logs/ddm-2026-10-29.log.1', '[平台诊断] 阶段=source_request fixture rotated')
+        self.put('logs/ddm.log', 'fixture PR61 compatible')
+        self.put('logs/unrelated.log.1', 'PRIVATE_UNRELATED')
+        entries = self.collect()
+        self.assertIn('fixture native crash', entries['logs/ddm-crash.log'])
+        self.assertIn('fixture rotated', entries['logs/ddm-2026-10-29.log.1'])
+        self.assertIn('fixture PR61 compatible', entries['logs/ddm.log'])
+        self.assertIn('source_request', entries['platform-diagnostics.json'])
+        self.assertNotIn('PRIVATE_UNRELATED', str(entries))
+
+    def test_platform_diagnostics_summarize_redacted_existing_logs(self):
+        self.put('logs/ddm-2026-10-26.log', '\n'.join([
+            '[插件 domestic_live] [Issue13-test3] 阶段=page_response HTTP=200 类型=text/html',
+            '[插件 domestic_live] [Issue13-test3] 阶段=player_error 类别=HTTP_403',
+            '[画质档位] huya:199300: 原画(10000)',
+            '[取流失败] 连接失败',
+            '[取流失败] token=PRIVATE_DIAGNOSTIC_TOKEN https://cdn.test/live?secret=PRIVATE_URL',
+            'unrelated line']))
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(report['status'], 'observed')
+        self.assertEqual(report['counts'], {'page_response': 1, 'player_error': 1,
+                                           'source_ready': 1, 'failure_summary': 1})
+        self.assertEqual(len(report['events']), 4)
+        self.assertEqual(report['events'][0]['line'], 1)
+        self.assertNotIn('PRIVATE_DIAGNOSTIC_TOKEN', entries['platform-diagnostics.json'])
+        self.assertNotIn('PRIVATE_URL', entries['platform-diagnostics.json'])
+        self.assertIn('platform-diagnostics.json', entries['诊断摘要.txt'])
+
+    def test_huya_transport_and_cdn_recovery_are_included(self):
+        self.put('logs/ddm-2026-10-27.log', '\n'.join([
+            '[平台诊断] 阶段=playback_session 房间=huya:123 会话=fixture 路径=hls_relay CDN=cdn.test',
+            '[平台诊断] 阶段=hls_request 房间=huya:123 会话=fixture resource=media status=403 local=False',
+            '[平台诊断] 阶段=hls_request 房间=huya:123 会话=fixture status=503 local=True error=refresh_required',
+            '[插件 domestic_live] [平台诊断] 阶段=source_rejected 房间=huya:123 CDN=cdn.test',
+            '[插件 domestic_live] [平台诊断] 阶段=source_selected 房间=huya:123 CDN=next.test']))
+        report = json.loads(self.collect()['platform-diagnostics.json'])
+        self.assertEqual(report['counts'], {'playback_session': 1, 'hls_request': 2,
+                                           'source_rejected': 1, 'source_selected': 1})
+        self.assertIn('local=True', report['events'][2]['text'])
+
+    def test_platform_diagnostics_missing_logs_do_not_claim_success(self):
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(report['status'], 'not_recorded')
+        self.assertEqual(report['events'], [])
+
+    def test_platform_summary_keeps_latest_day_when_old_logs_fill_limit(self):
+        self.put('logs/ddm-2026-10-25.log', '\n'.join(
+            '[画质档位] huya:1001: old-' + str(i) for i in range(1100)))
+        self.put('logs/ddm-2026-10-26.log',
+                 '[插件 domestic_live] [平台诊断] 阶段=player_error 类别=HTTP_403')
+        entries = self.collect()
+        report = json.loads(entries['platform-diagnostics.json'])
+        self.assertEqual(len(report['events']), 1000)
+        self.assertEqual(report['events'][-1]['log'], 'logs/ddm-2026-10-26.log')
+        self.assertEqual(report['events'][-1]['stage'], 'player_error')
+        self.assertEqual(report['counts']['source_ready'], 1100)
+
+    def native_fixture(self, dependency='kernel32.dll', symbol='GetCurrentProcessId', x64=True):
+        """Minimal inert PE DLL: no entry point, one import, no application code."""
+        data = bytearray(0x800)
+        data[:2] = b'MZ'
+        struct.pack_into('<I', data, 60, 0x80)
+        data[0x80:0x84] = b'PE\0\0'
+        optional_size = 240 if x64 else 224
+        struct.pack_into('<HHIIIHH', data, 0x84, 0x8664 if x64 else 0x14c, 1, 0, 0, 0, optional_size, 0x2022)
+        optional = 0x98
+        struct.pack_into('<H', data, optional, 0x20b if x64 else 0x10b)
+        struct.pack_into('<Q' if x64 else '<I', data, optional + (24 if x64 else 28), 0x180000000 if x64 else 0x10000000)
+        struct.pack_into('<II', data, optional + 32, 0x1000, 0x200)
+        struct.pack_into('<HH', data, optional + 40, 6, 0)
+        struct.pack_into('<HH', data, optional + 48, 6, 0)
+        struct.pack_into('<II', data, optional + 56, 0x2000, 0x200)
+        struct.pack_into('<H', data, optional + 68, 3)
+        directory = optional + (112 if x64 else 96)
+        struct.pack_into('<I', data, directory - 4, 16)
+        struct.pack_into('<II', data, directory + 8, 0x1000, 40)
+        struct.pack_into('<II', data, directory + 40, 0x1400, 12)
+        struct.pack_into('<IIHH', data, 0x600, 0x1000, 12, 0, 0)
+        section = optional + optional_size
+        data[section:section + 8] = b'.rdata\0\0'
+        struct.pack_into('<IIII', data, section + 8, 0x600, 0x1000, 0x600, 0x200)
+        struct.pack_into('<I', data, section + 36, 0xc0000040)
+        struct.pack_into('<IIIII', data, 0x200, 0x1200, 0, 0, 0x1100, 0x1240)
+        encoded = dependency.encode('ascii') + b'\0'
+        data[0x300:0x300 + len(encoded)] = encoded
+        struct.pack_into('<Q' if x64 else '<I', data, 0x400, 0x1300)
+        struct.pack_into('<Q' if x64 else '<I', data, 0x440, 0x1300)
+        encoded = symbol.encode('ascii') + b'\0'
+        data[0x502:0x502 + len(encoded)] = encoded
+        dll = self.app / '_internal/libmpv-2.dll'
+        dll.parent.mkdir(exist_ok=True)
+        dll.write_bytes(data)
+        return dll
+
+    def native_check(self, mode='--native-probe'):
+        result = subprocess.run([str(self.driver), mode, str(self.app)], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout.decode('utf-8-sig'))
+
+    def test_native_missing_library_and_invalid_pe_are_reported(self):
+        self.assertEqual(self.native_check()['status'], 'not_present')
+        self.put('_internal/libmpv-2.dll', 'not a DLL')
+        self.assertEqual(self.native_check()['status'], 'invalid_pe')
+
+    def test_native_missing_dependency_has_error_and_summary(self):
+        dll = self.native_fixture(dependency='DDM_fixture_missing_913bed.dll')
+        before = dll.read_bytes()
+        entries = self.collect()
+        report = json.loads(entries['native-dependencies.json'])
+        self.assertEqual(report['status'], 'load_failed')
+        self.assertEqual(report['win32_error'], 126)
+        self.assertEqual(report['dependencies'][0]['status'], 'load_failed')
+        self.assertIn('DDM_fixture_missing_913bed.dll', entries['诊断摘要.txt'])
+        self.assertNotIn(str(self.app), entries['native-dependencies.json'])
+        self.assertEqual(dll.read_bytes(), before)
+
+    def test_native_missing_export_and_architecture_mismatch(self):
+        self.native_fixture(symbol='DDM_fixture_missing_export_913bed')
+        report = self.native_check()
+        self.assertEqual(report['status'], 'load_failed')
+        self.assertEqual(report['dependencies'][0]['missing_exports'], ['DDM_fixture_missing_export_913bed'])
+        self.native_fixture(x64=False)
+        self.assertEqual(self.native_check()['status'], 'architecture_mismatch')
+
+    def test_native_success_and_timeout_still_allow_collection(self):
+        self.native_fixture()
+        report = self.native_check()
+        self.assertEqual(report['status'], 'loaded')
+        self.assertEqual(report['dependencies'][0]['status'], 'loaded')
+        self.assertEqual(self.native_check('--native-timeout')['status'], 'timeout')
+        entries = self.collect()
+        self.assertEqual(json.loads(entries['native-dependencies.json'])['status'], 'loaded')
+
+    def test_native_initialization_hang_is_terminated_in_child(self):
+        dll = self.native_fixture()
+        data = bytearray(dll.read_bytes())
+        struct.pack_into('<I', data, 0x98 + 16, 0x1500)
+        struct.pack_into('<I', data, 0x98 + 240 + 36, 0xe0000040)
+        data[0x700:0x702] = b'\xeb\xfe'  # DllMain deliberately loops inside the child.
+        dll.write_bytes(data)
+        self.assertEqual(self.native_check('--native-short')['status'], 'timeout')
+        self.assertEqual(dll.read_bytes(), bytes(data))
+
+    def test_windowed_native_helper_outputs_json_without_console(self):
+        self.native_fixture()
+        executable = self.case / 'windowed.exe'
+        self.compile(executable, [ROOT / 'tools/diagnostics/Collector.cs',
+                                 ROOT / 'tools/diagnostics/NativeDependencies.cs',
+                                 ROOT / 'tools/diagnostics/Program.cs'], gui=True)
+        result = subprocess.run([str(executable), '--native-probe', str(self.app)], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout.decode('utf-8'))['status'], 'loaded')
 
     def test_reproduction_and_reencoded_image_are_exported_without_original_metadata(self):
         image = self.image_fixture()
@@ -255,12 +435,18 @@ class DiagnosticTests(unittest.TestCase):
 
     def test_gui_compiles_without_qt_or_python_and_has_windows_subsystem(self):
         executable = self.base / 'DDMonitorDiagnostics.exe'
-        self.compile(executable, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/Program.cs'], gui=True)
+        self.compile(executable, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/NativeDependencies.cs', ROOT / 'tools/diagnostics/Program.cs'], gui=True)
         image = executable.read_bytes()
         pe = int.from_bytes(image[0x3c:0x40], 'little')
         subsystem = int.from_bytes(image[pe + 24 + 68:pe + 24 + 70], 'little')
         self.assertEqual(subsystem, 2)  # IMAGE_SUBSYSTEM_WINDOWS_GUI
         self.assertNotIn(b'PySide6', image)
+
+    def test_gui_optional_exit_preserves_generated_package(self):
+        result = subprocess.run([str(self.driver), '--auto-exit', str(self.app), str(self.output)],
+                                capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(b'auto-exit passed', result.stdout)
 
     def test_standalone_and_installer_use_the_same_independent_executable(self):
         standalone, bundle = self.case / 'standalone', self.case / 'bundle'
@@ -268,7 +454,7 @@ class DiagnosticTests(unittest.TestCase):
             result = subprocess.run(['powershell', '-NoProfile', '-File', str(ROOT / 'dev/build_diagnostics.ps1'),
                                      '-OutDir', str(output), *arguments], capture_output=True, timeout=40)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.0.zip') as archive:
+        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.2.zip') as archive:
             self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
             for name in archive.namelist():
                 self.assertEqual(archive.read(name), (standalone / name).read_bytes())

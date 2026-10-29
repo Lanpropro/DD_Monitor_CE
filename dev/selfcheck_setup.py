@@ -41,6 +41,17 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(set(recorded), set(self.files))
         self.assertNotIn(MANIFEST, recorded)
 
+    def test_build_commit_provenance_is_validated(self):
+        path = self.payload / 'ddm-build.json'
+        build = json.loads(path.read_text(encoding='utf-8'))
+        build['source_commit'] = 'a' * 40
+        path.write_text(json.dumps(build), encoding='utf-8')
+        write_script(self.payload, self.root / 'valid', self.root / 'out')
+        build['source_commit'] = 'not-a-commit'
+        path.write_text(json.dumps(build), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Invalid source commit'):
+            write_script(self.payload, self.root / 'invalid', self.root / 'out')
+
     def test_diagnostic_tool_and_guide_are_installed_and_recorded(self):
         script = write_script(self.payload, self.root / 'build', self.root / 'out')
         recorded = json.loads((script.parent / MANIFEST).read_text(encoding='utf-8'))
@@ -56,7 +67,7 @@ class SetupTests(unittest.TestCase):
     def test_user_data_or_unknown_files_cannot_enter_setup(self):
         for name in ('utils/config.json', 'plugins_user/custom/plugin.py',
                      'cache/token', 'recordings/a.mp4', 'personal.txt',
-                     '_internal/../secret.txt'):
+                     '.ddm-install.json', '_internal/../secret.txt'):
             path = self.payload / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('keep', encoding='utf-8')
@@ -108,7 +119,14 @@ class SetupTests(unittest.TestCase):
         self.assertIn('(Step = usUninstall) and RemovePersonalData', source)
         self.assertIn('if not PersonalPathsSafe then CleanupFailed := True', source)
         self.assertIn('未登记来源的文件始终保留', source)
-        self.assertIn('没有逐文件来源记录，因此保留', source)
+        self.assertIn('同时清除个人信息（账号、设置及插件）', source)
+        self.assertIn('个人信息目录：', source)
+        self.assertIn("if not ResolvePersonalDataDir then PersonalDataDir := '';", source)
+        self.assertIn('AddBackslash(PersonalDataDir) + RelativeName', source)
+        self.assertIn("if PersonalDataDir = '' then Exit", source)
+        self.assertNotIn('旧版安装目录中的个人信息', source)
+        self.assertIn("RemoveInstalledPlugins('plugins_user');", source)
+        self.assertIn('.ddm-plugin-files.txt', source)
         for name in PERSONAL_FILES:
             self.assertTrue(name.startswith('utils/'))
             self.assertNotIn('*', name)
@@ -142,12 +160,33 @@ class SetupTests(unittest.TestCase):
                        'recursesubdirs', 'Source: "*', 'restartreplace'):
             self.assertNotIn(unsafe, source)
         entries = source.split('[Files]', 1)[1].split('[Icons]', 1)[0].strip().splitlines()
-        self.assertEqual(len(entries), len(self.files) + 4)
+        self.assertEqual(len(entries), len(self.files) + 5)
         self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries[1:]))
         self.assertIn('Flags: dontcopy', entries[0])
         self.assertIn('solidbreak', entries[2])
         self.assertIn('DDMonitorInstallerHelper.exe', entries[0])
         self.assertIn('DDMonitorUninstall.exe', entries[1])
+
+    def test_two_install_modes_keep_user_data_separate(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        self.assertIn('DefaultDirName={autopf}\\DDMonitorCE', source)
+        self.assertIn('PrivilegesRequiredOverridesAllowed=dialog', source)
+        self.assertIn('RegQueryStringValue(HKA,', source)
+        self.assertIn('.ddm-install.json', source)
+        self.assertNotIn('.ddm-install.json', json.loads((self.root / 'build' / MANIFEST).read_text(encoding='utf-8')))
+
+    def test_directory_page_is_always_visible_including_repeat_installs(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        setup = source.split('[Setup]', 1)[1].split('[Languages]', 1)[0]
+        self.assertEqual([line for line in setup.splitlines() if line.startswith('DisableDirPage=')],
+                         ['DisableDirPage=no'])
+
+    def test_repeat_installs_do_not_hide_privilege_mode_choice(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        setup = source.split('[Setup]', 1)[1].split('[Languages]', 1)[0]
+        self.assertIn('PrivilegesRequiredOverridesAllowed=dialog', setup)
+        self.assertEqual([line for line in setup.splitlines() if line.startswith('UsePreviousPrivileges=')],
+                         ['UsePreviousPrivileges=no'])
 
     def test_picker_is_extracted_before_browse_and_dialog_is_not_scaled_twice(self):
         source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
@@ -157,6 +196,36 @@ class SetupTests(unittest.TestCase):
         self.assertIn('CreateCustomForm(470, 245, True, True)', source)
         self.assertIn('Compression=lzma2/fast', source)
         self.assertIn('SetupLogging=no', source)
+
+    def test_folder_picker_quotes_trailing_backslashes_and_keeps_uninstall_separate(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        self.assertIn("'--pick-folder ' + QuoteProcessPath(Initial)", source)
+        self.assertIn('QuoteProcessPath(Output)', source)
+        quoting = source.split('function QuoteProcessPath', 1)[1].split('procedure BrowseInstallFolder', 1)[0]
+        self.assertIn("(Value[Index] = '\\')", quoting)
+        self.assertIn("Result := Result + '\\';", quoting)
+        helper = (Path(__file__).resolve().parent / 'installer/helper.cpp').read_text(encoding='utf-8')
+        branch = helper.split('if (count >= 2 &&', 1)[1].split('} else result = LaunchUninstaller', 1)[0]
+        self.assertIn('result = 2;', branch)
+        self.assertIn('if (count == 5)', branch)
+        self.assertNotIn('LaunchUninstaller', branch)
+
+    def test_install_directory_permissions_are_checked_before_extracting_payload(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        check = source.split('function InstallDirectoryError:', 1)[1].split('function NextButtonClick', 1)[0]
+        self.assertIn('if not SafeProgramPaths then Exit', check)
+        self.assertIn('while not DirExists(Directory)', check)
+        self.assertIn("SaveStringToFile(FileName, 'DDMonitorCE write check', False)", check)
+        self.assertIn('RemoveDir(Probe)', check)
+        self.assertNotIn('ForceDirectories', check)
+        self.assertIn('无法写入所选安装位置', check)
+        self.assertIn('例如 E:\\DDMonitorCE', check)
+        next_page = source.split('function NextButtonClick', 1)[1].split('function PersonalPathsSafe', 1)[0]
+        self.assertIn('CurPageID <> wpSelectDir', next_page)
+        self.assertIn('Error := InstallDirectoryError', next_page)
+        prepare = source.split('function PrepareToInstall', 1)[1].split('function InitializeUninstall', 1)[0]
+        self.assertIn('Result := InstallDirectoryError', prepare)
+        self.assertLess(prepare.index('Result := InstallDirectoryError'), prepare.index('FindFirst('))
 
 
 if __name__ == '__main__':

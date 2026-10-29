@@ -227,8 +227,8 @@ def check_douyin():
         get_reflow.side_effect = requests.Timeout('Fixture share-page timeout')
         try:
             provider.follow_rooms(session, lambda: False)
-        except requests.Timeout:
-            pass
+        except RuntimeError as error:
+            assert '超时' in str(error) and 'Fixture share-page timeout' not in str(error)
         else:
             raise AssertionError('Share-page timeout returned an empty import')
         get_reflow.side_effect = None

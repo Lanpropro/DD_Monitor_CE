@@ -29,6 +29,7 @@ def main():
     with patch('PySide6.QtCore.QTimer.singleShot'):
         window = module.MainWindow(rooms, [], layout_id='corner', state={
             'plugins_enabled': [], 'settings': {'auto_update': False}})
+    window._startup_update_timer.stop()  # Installed plugin catalogs must not start network checks.
     window.setAttribute(Qt.WA_ShowWithoutActivating)
     window.move(-10000, -10000)
     window.resize(2560, 1440)

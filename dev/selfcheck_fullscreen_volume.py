@@ -50,7 +50,9 @@ def main():
                 assert second.volume_slider.value() == second.vertical_volume.value() == 42
                 assert second.volume_label.text() == '42'
                 assert window.current_state()['wall'][1]['volume'] == 42
-                assert second.muted, 'volume keys must preserve the mute choice'
+                assert not second.muted and not second.room['muted'], 'volume keys must unmute'
+                assert not second.volume_button.muted
+                player.set_muted.assert_called_with(False)
                 second.set_volume(96)
                 QTest.keyClick(second.pause_button, Qt.Key_Up)
                 assert second.volume == 100

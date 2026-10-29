@@ -30,6 +30,7 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            assert self.general_page._checks['sidebar_platform_logos'].isHidden(), 'Generic logo switch must stay hidden in the worker'
             if action.startswith('logos-'):
                 if len(self.plugin_checks) != 2:
                     QTimer.singleShot(10, self.exercise)
@@ -65,7 +66,7 @@ def child(action):
                 self.sequence = iter((6,) if action.startswith('embed-restart-') else (1, 0, 6, 2, 7, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
-            if action == 'focus':
+            if action in ('focus', 'zorder'):
                 self.general_page.volume_slider.setValue(17)
                 return
             if action == 'busy':
@@ -75,9 +76,12 @@ def child(action):
                     pass  # Deliberately hold this process's GUI thread and GIL.
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
+            if action.startswith('tray-'):
+                combo = self.general_page.close_behavior_combo
+                combo.setCurrentIndex(combo.findData('tray'))
             if 'sidebar_platform_logos' in self.general_page._checks:
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
-            if action == 'cancel':
+            if action in ('cancel', 'tray-cancel'):
                 self.reject()
             else:
                 for index in (2, 3, 4, 5, 0):
@@ -105,7 +109,7 @@ def child(action):
             QTimer.singleShot(200, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
-    if action.startswith('embed-'):
+    if action.startswith('embed-') or action == 'zorder':
         def background_activate(dialog):
             from PySide6.QtCore import Qt
             dialog.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -113,6 +117,14 @@ def child(action):
             dialog.setGeometry(-10000, -10000, 980, 720)
             dialog.show()
         settings_process._activate_dialog = background_activate
+    if action == 'zorder':
+        activate = settings_process._activate_dialog
+
+        def report_window(dialog):
+            activate(dialog)
+            print(settings_process.PREFIX + json.dumps({
+                'kind': 'zorder', 'hwnd': int(dialog.winId())}), flush=True)
+        settings_process._activate_dialog = report_window
     if action == 'focus':
         activate = settings_process._activate_dialog
 
@@ -165,9 +177,11 @@ def check_worker(app, action):
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
             clean = action.startswith(('clean-', 'revert-'))
-            assert bool(saves) == (not clean and action != 'cancel')
+            assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
+                if action == 'tray-save':
+                    assert saves[0]['settings']['close_behavior'] == 'tray'
                 assert 'appearance_mode' not in saves[0]['settings']
                 assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
             assert pages == ([{'appearance': 1, 'plugins': 6, 'updates': 7}[action.split('-')[1]]] if clean else [])
@@ -187,6 +201,66 @@ def check_worker(app, action):
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
             timer.stop()
     assert not failures
+
+
+def check_native_zorder(app):
+    """Only use offscreen synthetic HWNDs; never move the user's pointer/focus."""
+    import ctypes
+    from ctypes import wintypes
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+    user32 = ctypes.windll.user32
+    user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+    host = QWidget()
+    host.setAttribute(Qt.WA_ShowWithoutActivating)
+    host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+    host.setGeometry(-10000, -10000, 1200, 900)
+    host.show()
+    overlay = QWidget(host)
+    overlay.setAttribute(Qt.WA_NativeWindow)
+    overlay.show()
+    client = settings_process.SettingsProcess(host)
+    messages = []
+    client.received.connect(messages.append)
+    command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'zorder'])
+
+    def above(first, second):
+        current = second
+        while current:
+            current = user32.GetWindow(current, 3)  # GW_HWNDPREV
+            if current == first:
+                return True
+        return False
+
+    with patch.object(settings_process, 'worker_command', return_value=command):
+        try:
+            for _ in range(2):  # Reopening must bind the replacement dialog too.
+                messages.clear()
+                client.open(config.DEFAULT_SETTINGS, {})
+                wait(app, lambda: any(m['kind'] == 'zorder' for m in messages))
+                hwnd = next(m['hwnd'] for m in messages if m['kind'] == 'zorder')
+                owner = int(host.winId())
+                assert user32.GetWindow(hwnd, 4) == owner, 'Worker settings must be owned by the host HWND'
+                assert not user32.GetWindowLongW(hwnd, -20) & 8, 'Settings must not be globally TOPMOST'
+                for _ in range(5):
+                    host.raise_()
+                    overlay.hide()
+                    overlay.show()
+                    overlay.raise_()
+                    user32.SetWindowPos(owner, 0, 0, 0, 0, 0, 0x13)  # TOP, no activate/move/resize.
+                    app.processEvents()
+                    assert above(hwnd, owner), 'Host/overlay raises must not cover settings'
+                client._send({'kind': 'host-cancel'})
+                wait(app, lambda: not client.visible)
+        finally:
+            client.stop()
+            wait(app, lambda: client.process.state() == QProcess.NotRunning)
+            host.close()
+    print('PASS: cross-process owner keeps settings above host after native overlay raises and reopen')
 
 
 def check_native_focus(app):
@@ -412,6 +486,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
         with patch.object(host.QTimer, 'singleShot'):
             window = host.MainWindow([], [], layout_id='1x1', state={
                 'plugins_enabled': [], 'settings': {'seen_update_versions': {'app': '0.5.1'},
+                                                   'close_behavior': 'exit',
                                                    'appearance_mode': 'light' if action == 'embed-cancel' else 'dark',
                                                    'sidebar_platform_logos': not action.startswith('logos-')}})
         plugin_saves = {}
@@ -484,8 +559,8 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert session.stack.isVisible()
                 assert session.stack.width() > 400 and session.stack.height() > 300
                 assert message['embedded']
-                assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in (1, 6, 7) else -1)
-                if message['index'] in (1, 6, 7):
+                assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
+                if message['index'] in settings_process.HOST_PAGES:
                     image = session.stack.grab().toImage()
                     actual = image.pixelColor(1, 1)
                     assert actual == theme.qcolor(theme.BG), (message['index'], actual.name(), theme.BG, actual.alpha())
@@ -576,7 +651,8 @@ def restart_host_fixture(action, path):
                      'load_cached_covers', 'load_cached_avatars', 'load_room_avatars'):
             patches.enter_context(patch.object(host.MainWindow, name))
         with patch.object(host.QTimer, 'singleShot'):
-            window = host.MainWindow([], [], state={'plugins_enabled': []})
+            window = host.MainWindow([], [], state={'plugins_enabled': [],
+                                                    'settings': {'close_behavior': 'exit'}})
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
         window.setGeometry(-10000, -10000, 900, 650)
@@ -690,6 +766,10 @@ def main():
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
+    if sys.argv[1:] == ['--native-zorder']:
+        assert app.platformName() == 'windows'
+        check_native_zorder(app)
+        return 0
     if sys.argv[1:] == ['--native-focus']:
         check_native_focus(app)
         return 0
@@ -706,7 +786,7 @@ def main():
         print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
         return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'cancel', 'busy'):
+                   'save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)

@@ -48,7 +48,7 @@ def main():
         assert options[1]["label"] == "原画", "常用档位的按钮名称应保持可区分"
         assert get.call_count == 1
         assert "getRoomPlayInfo" in get.call_args.args[0]
-        assert bili._app_play_urls("27183290", 25000) == (["https://cdn/live.flv"], 25000)
+        assert bili._app_play_urls("27183290", 25000) == (["https://cdn/live.flv"], 25000, "app")
         assert get.call_args.kwargs["params"]["qn"] == 25000
 
     # 未登录/普通直播间只展示服务端允许的档位；不能把全局的2K名称硬加进去。

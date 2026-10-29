@@ -194,31 +194,53 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.0";
+        internal const string ToolVersion = "1.2";
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
+        readonly string dataRoot;
         readonly Redactor redact = new Redactor();
         readonly List<string> warnings = new List<string>();
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 100 };
 
-        internal Collector(string directory)
+        internal Collector(string directory, string userDataHome = null)
         {
             root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
             if (!Directory.Exists(root)) throw new IOException("软件目录不存在。");
             if (!Safe(root)) throw new IOException("请选择实际软件目录，不要选择目录链接。");
             if (!File.Exists(Path.Combine(root, "main.py")) && !File.Exists(Path.Combine(root, "ddm-build.json")) && AppExecutables().Length == 0)
                 throw new IOException("所选目录未找到 DD监控室CE 主程序或版本文件，请选择软件所在文件夹。");
+            dataRoot = root;
+            using (var hash = SHA256.Create())
+            {
+                var identity = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(root.ToLowerInvariant()))).Replace("-", "").ToLowerInvariant().Substring(0, 16);
+                var home = userDataHome ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DDMonitorCE");
+                var location = Path.Combine(home, "locations", identity + ".json");
+                if (File.Exists(location))
+                    try
+                    {
+                        if (new FileInfo(location).Length > 65536 || !SafeWithin(Path.GetDirectoryName(location), location)) throw new IOException();
+                        var values = json.DeserializeObject(File.ReadAllText(location, Encoding.UTF8)) as IDictionary<string, object>;
+                        var candidate = Path.GetFullPath(Convert.ToString(values["root"])).TrimEnd(Path.DirectorySeparatorChar);
+                        if (!Directory.Exists(candidate) || !SafeWithin(candidate, candidate)) throw new IOException();
+                        dataRoot = candidate;
+                    }
+                    catch { warnings.Add("独立数据目录不可读取，未回退收集旧配置或日志。"); dataRoot = null; }
+            }
         }
 
         internal bool Safe(string path)
         {
+            return SafeWithin(root, path);
+        }
+
+        static bool SafeWithin(string boundary, string path)
+        {
             var full = Path.GetFullPath(path);
-            if (!full.Equals(root, StringComparison.OrdinalIgnoreCase) && !full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return false;
+            if (boundary == null || (!full.Equals(boundary, StringComparison.OrdinalIgnoreCase) && !full.StartsWith(boundary + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) return false;
             for (var item = new FileInfo(full) as FileSystemInfo; item != null; item = Directory.GetParent(item.FullName))
             {
                 if ((File.Exists(item.FullName) || Directory.Exists(item.FullName)) && (File.GetAttributes(item.FullName) & FileAttributes.ReparsePoint) != 0) return false;
-                if (item.FullName.Equals(root, StringComparison.OrdinalIgnoreCase)) break;
             }
             return true;
         }
@@ -230,9 +252,12 @@ namespace DDMonitorDiagnostics
 
         string Read(string relative, int maximum, bool tail)
         {
-            var path = Path.Combine(root, relative);
+            bool personal = relative.StartsWith("utils/") || relative.StartsWith("plugins_user/") || relative.StartsWith("logs/");
+            var boundary = personal ? dataRoot : root;
+            if (boundary == null) return null;
+            var path = Path.Combine(boundary, relative);
             if (!File.Exists(path)) return null;
-            if (!Safe(path)) { warnings.Add(relative + "：跳过链接文件。"); return null; }
+            if (!SafeWithin(boundary, path)) { warnings.Add(relative + "：跳过链接文件。"); return null; }
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 if (stream.Length > maximum)
@@ -353,12 +378,13 @@ namespace DDMonitorDiagnostics
         object Plugins()
         {
             var result = new List<object>();
-            var folder = Path.Combine(root, "plugins_user");
-            if (!Directory.Exists(folder) || !Safe(folder)) return result;
+            if (dataRoot == null) return result;
+            var folder = Path.Combine(dataRoot, "plugins_user");
+            if (!Directory.Exists(folder) || !SafeWithin(dataRoot, folder)) return result;
             foreach (var directory in Directory.GetDirectories(folder).Take(100))
             {
                 var id = Path.GetFileName(directory);
-                if (!Regex.IsMatch(id, "^[a-z][a-z0-9_]*$") || !Safe(directory)) continue;
+                if (!Regex.IsMatch(id, "^[a-z][a-z0-9_]*$") || !SafeWithin(dataRoot, directory)) continue;
                 try
                 {
                     var text = Read("plugins_user/" + id + "/plugin.json", 262144, false);
@@ -470,26 +496,32 @@ namespace DDMonitorDiagnostics
             add("problem.json", new { description = problem, happened, reproducibility, attachments = images.Keys.ToArray(), collected = DateTimeOffset.Now.ToString("o"), tool_version = ToolVersion });
             progress(20, "核对软件版本和关键文件…");
             section("software.json", Software);
+            progress(30, "检查播放器 DLL 加载及直接依赖…");
+            Dictionary<string, object> native = null;
+            section("native-dependencies.json", () => native = NativeDependencies.Collect(root));
             section("plugins.json", Plugins);
             progress(40, "读取系统、显卡与相关进程…");
             section("system.json", SystemInfo);
             section("processes.json", Processes);
             progress(60, "筛选近期日志与崩溃事件…");
-            var logs = Path.Combine(root, "logs");
+            var logs = dataRoot == null ? null : Path.Combine(dataRoot, "logs");
             try
             {
-                if (Directory.Exists(logs) && Safe(logs))
-                    foreach (var path in Directory.GetFiles(logs, "*.log").Where(p => Regex.IsMatch(Path.GetFileName(p), @"^(ddm-\d{4}-\d{2}-\d{2}|update[^\\/]*|updater[^\\/]*)\.log$", RegexOptions.IgnoreCase)).OrderByDescending(File.GetLastWriteTimeUtc).Take(5))
+                if (logs != null && Directory.Exists(logs) && SafeWithin(dataRoot, logs))
+                    foreach (var path in Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p), @"^(ddm(?:-\d{4}-\d{2}-\d{2}|-crash)?\.log(?:\.[1-5])?|(?:update[^\\/]*|updater[^\\/]*)\.log)$", RegexOptions.IgnoreCase)).OrderByDescending(p => Path.GetFileName(p).Equals("ddm-crash.log", StringComparison.OrdinalIgnoreCase)).ThenByDescending(File.GetLastWriteTimeUtc).Take(5))
                         AddLog(entries, "logs/" + Path.GetFileName(path));
             }
             catch (Exception error) { warnings.Add("日志目录无法枚举（" + error.GetType().Name + "）。"); }
             AddLog(entries, "ddm-pyinstaller-paths.txt");
+            section("platform-diagnostics.json", () => PlatformDiagnostics(entries));
             section("crash-events.json", CrashEvents);
             add("collection.json", new { schema = 1, warnings, limits = "最多5份近期日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制、缓存或内存转储；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
                 "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
-                "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
+                "\r\n\r\n" + (native == null ? "libmpv 检查未完成，见收集提示。" : redact.Text(NativeDependencies.Summary(native))) +
+                "\r\n\r\nplatform-diagnostics.json：平台响应、查询、取流和播放器错误的已有日志摘要，无需手工筛选；缺少记录不代表正常，不自动判定根因。" +
+                "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nnative-dependencies.json：隔离子进程中的 libmpv 加载、Win32错误码、直接依赖与函数入口检查。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
                 "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不能还原崩溃前内存。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
             progress(85, "写入诊断 ZIP…");
             var output = Path.Combine(Path.GetFullPath(destination), "DDMonitorCE-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 6) + ".zip");
@@ -520,6 +552,30 @@ namespace DDMonitorDiagnostics
                 if (text != null) entries[relative] = redact.Text(text);
             }
             catch (Exception error) { warnings.Add(relative + "：读取失败（" + error.GetType().Name + "）。"); }
+        }
+
+        object PlatformDiagnostics(Dictionary<string, string> entries)
+        {
+            // Reuse the bounded, already-redacted log copies. Never load plugins or make requests.
+            var events = new List<object>();
+            var counts = new Dictionary<string, int>();
+            foreach (var entry in entries.Where(p => p.Key.StartsWith("logs/")).OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                var lines = entry.Value.Split('\n');
+                for (int index = 0; index < lines.Length; index++)
+                {
+                    var line = lines[index].TrimEnd('\r');
+                    if (!Regex.IsMatch(line, @"\[(?:Issue13-test\d+|平台诊断|状态刷新失败|取流失败|画质档位)\]")) continue;
+                    var stage = Regex.Match(line, @"阶段=(\w+)");
+                    var category = stage.Success ? stage.Groups[1].Value :
+                        line.Contains("[画质档位]") ? "source_ready" : "failure_summary";
+                    counts[category] = counts.ContainsKey(category) ? counts[category] + 1 : 1;
+                    events.Add(new { log = entry.Key, line = index + 1, stage = category, text = line });
+                }
+            }
+            return new { status = events.Count == 0 ? "not_recorded" : "observed", counts,
+                events = events.Skip(Math.Max(0, events.Count - 1000)).ToArray(),
+                note = "仅汇总已有日志；未记录某阶段不代表正常。记录位于日志截取范围内，行号对应包内日志。" };
         }
     }
 }

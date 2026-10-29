@@ -15,15 +15,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QCursor, QPixmap, QRegion
+from PySide6.QtGui import QColor, QCursor, QImage, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtTest import QTest
 
 from ddm import config, theme
 from ddm.auto_quality import AUTO_QUALITY
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
-from selfcheck_video_danmaku import Client
+from selfcheck_video_danmaku import Client, Snapshot
 
 
 def settle(app, seconds=0.15):
@@ -34,9 +35,12 @@ def settle(app, seconds=0.15):
 
 
 def capture(tile):
-    point = tile.video.mapToGlobal(QPoint()) - tile.screen().geometry().topLeft()
-    return tile.screen().grabWindow(0, point.x(), point.y(),
-                                    tile.video.width(), tile.video.height()).toImage()
+    screen = tile.screen()
+    if screen is None:
+        return QImage()
+    point = tile.video.mapToGlobal(QPoint()) - screen.geometry().topLeft()
+    return screen.grabWindow(0, point.x(), point.y(),
+                             tile.video.width(), tile.video.height()).toImage()
 
 
 def brightest_text(image, tile):
@@ -296,7 +300,8 @@ def main():
     rooms = [{"room_id": str(1000 + i), "uname": f"本地视频 {i}", "live": True}
              for i in range(4)]
     with tempfile.TemporaryDirectory(prefix="ddm-video-dm-quick-") as temp, \
-            patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
+            patch("ddm.app.DanmakuClient", Client), patch("ddm.app.SuperChatSnapshot", Snapshot), \
+            patch.object(MainWindow, "start_tile"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
             patch("ddm.plugins.PluginManager.load"), patch("ddm.plugins.PluginManager.catalog", return_value=[]), \
             patch("ddm.online.load_plugin_cache", return_value={}):
@@ -366,6 +371,33 @@ def main():
                 layer.set_group_active(overlay._quick_group, False)
 
             target = window.wall.tiles[0]
+            overlay = target.video_danmaku
+            held = overlay.comments[0]
+            with patch.object(overlay, '_poll_hover'):
+                overlay.set_paused(False)
+                overlay._set_hover(held)
+                settle(app, .15)
+                assert held.held and layer.items[held.render_id].get('held')
+                assert layer.items[held.render_id]['item'].property('motionPaused')
+                before = held.x
+                settle(app, .15)
+                assert held.x == before, 'Hovered Quick comment must remain still'
+                overlay._set_hover(None)
+                settle(app, .15)
+                assert held.x < before and not layer.items[held.render_id].get('held')
+                overlay.set_paused(True)
+                held.x = 36
+                layer.move(held.render_id, held.x, held.lane * overlay.lane_height())
+            with patch('ddm.danmaku_actions.show_comment_menu') as toolbar:
+                global_point = target.mapToGlobal(overlay.pos() + QPoint(46, held.lane * overlay.lane_height() + 8))
+                point = target.video.mapFromGlobal(global_point)
+                hit = overlay.mapFromGlobal(global_point)
+                assert overlay.comment_at(hit) is held, (hit, held.x, held.lane, overlay.size(),
+                    overlay._quick_video_mask.contains(hit), overlay.mask(),
+                    held.image.size(), held.image.devicePixelRatioF(), len(overlay.comments))
+                QTest.mouseClick(target.video, Qt.LeftButton, pos=point)
+                toolbar.assert_called_once()
+                assert toolbar.call_args.args[1] == held.message, 'Native video click must target the comment'
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
@@ -375,6 +407,44 @@ def main():
                 check_quick_controller_surface(tile)
             assert all(layer.groups[tile.video_danmaku._quick_group].property("maskImage").scheme() == "image"
                        for tile in window.wall.tiles), "共享组必须获得控件/圆角遮罩纹理"
+            overlay = target.video_danmaku
+            overlay.set_super_chats([{
+                "kind": "super_chat", "id": "sc-quick", "super_chat_id": "sc-quick",
+                "uname": "老板", "message": "醒目留言", "price": 30,
+                "start_time": int(time.time()),
+                "end_time": int(time.time()) + 120,
+                "background_color": "#ffdd00",
+                "background_price_color": "#ff8800",
+            }])
+            settle(app)
+            card_rect = overlay.super_chat_overlay.card_rects()[0]
+            card_point = card_rect.center()
+            local_card_point = card_point - overlay.super_chat_overlay._content_origin
+            assert overlay.super_chat_overlay.mask().contains(local_card_point.toPoint()), \
+                'SC sibling must use the video mask, not the hidden Quick controller mask'
+            card_image = overlay.super_chat_overlay.render_image()
+            card_scale = card_image.devicePixelRatio()
+            assert card_image.pixelColor(round(local_card_point.x() * card_scale),
+                                         round(local_card_point.y() * card_scale)).alpha() > 0, \
+                'SC card pixels must actually be painted inside the visible region'
+            mask_key = layer.group_masks[overlay._quick_group]
+            mask_image = layer.images.images[mask_key]
+            scale = mask_image.devicePixelRatioF()
+            assert mask_image.pixelColor(round(card_point.x() * scale),
+                                         round(card_point.y() * scale)).alpha() == 0, \
+                "Quick 遮罩必须给固定 SC 卡片留出透明区域"
+            normal_comment_point = target.video_danmaku.comments[0]
+            normal_y = normal_comment_point.lane * overlay.lane_height()
+            assert mask_image.pixelColor(
+                round(12 * scale), round((normal_y + overlay.lane_height() / 2) * scale)
+            ).alpha() > 0, "SC 区域之外必须继续显示普通弹幕"
+            overlay.set_super_chats([])
+            settle(app)
+            mask_key = layer.group_masks[overlay._quick_group]
+            mask_image = layer.images.images[mask_key]
+            scale = mask_image.devicePixelRatioF()
+            assert mask_image.pixelColor(round(card_point.x() * scale),
+                                         round(card_point.y() * scale)).alpha() > 0
             if "--surface-only" in sys.argv:
                 check_screen_surfaces(app, window, layer, players)
                 return
@@ -583,6 +653,7 @@ def main():
             assert not layer.window.isVisible()
             print("共享 Quick 窗口、D3D11、4 格纹理、不透明度状态、鼠标穿透样式、暂停/恢复、全屏圆角状态及空闲停刷：通过")
         finally:
+            window.settings["close_behavior"] = "exit"
             window.close()
 
 

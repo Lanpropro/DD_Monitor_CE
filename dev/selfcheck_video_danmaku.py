@@ -99,6 +99,56 @@ def check_quick_controller_mask():
         overlay.close()
 
 
+def check_super_chat_overlay(app):
+    overlay = VideoDanmaku()
+    overlay.resize(800, 450)
+    now = int(time.time())
+    chats = [
+        {"kind": "super_chat", "id": "sc-1", "super_chat_id": "sc-1",
+         "uname": "老板", "message": "醒目留言", "price": 30,
+         "start_time": now, "end_time": now + 120,
+         "background_color": "#ffdd00", "background_price_color": "#ff8800"},
+        {"kind": "super_chat", "id": "sc-2", "super_chat_id": "sc-2",
+         "uname": "观众", "message": "第二条", "price": 50,
+         "start_time": now + 1, "end_time": now + 120,
+         "background_color": "#ff88aa", "background_price_color": "#cc3366"},
+    ]
+    try:
+        overlay.set_enabled(True)
+        overlay.set_active(True)
+        overlay.set_super_chats(chats)
+        overlay.show()
+        app.processEvents()
+        assert overlay.super_chats == chats
+        assert overlay.super_chat_overlay.isVisible()
+        image = overlay.super_chat_overlay.grab().toImage()
+        assert not image.isNull()
+        assert not image.pixelColor(image.width() - 20, 100).alpha() == 0
+        overlay.set_enabled(False)
+        assert not overlay.enabled
+        assert overlay.super_chat_overlay.isHidden()
+        assert len(overlay.super_chats) == 2, "关闭弹幕只隐藏，不能丢掉 SC 状态"
+        overlay.set_enabled(True)
+        assert overlay.super_chat_overlay.isVisible(), "重开弹幕要恢复当前 SC"
+        overlay.set_active(False)
+        assert overlay.super_chat_overlay.isHidden()
+        assert len(overlay.super_chats) == 2, "停播只隐藏 SC，不能丢掉状态"
+        overlay.set_active(True)
+        assert overlay.super_chat_overlay.isVisible()
+        overlay.resize(1600, 900)
+        app.processEvents()
+        sc = overlay.super_chat_overlay
+        assert sc.width() <= 342 and sc.height() <= 210
+        card = sc.card_rects()[0].toAlignedRect()
+        assert overlay.rect().contains(card)
+        assert sc.geometry().contains(card.translated(overlay.pos()))
+        overlay.clear()
+        assert not overlay.super_chats and overlay.super_chat_overlay.isHidden()
+        assert overlay.add_event({"kind": "gift", "uname": "x", "text": "礼物"}) is False
+    finally:
+        overlay.close()
+
+
 def check_move_window_mask():
     from ddm.video_danmaku_quick import _MovingDanmakuWindow
 
@@ -364,6 +414,16 @@ class Client(QThread):
         self.stopped = True
 
 
+class Snapshot(QThread):
+    loaded = Signal(str, list)
+
+    def __init__(self, room_id, parent=None):
+        super().__init__(parent)
+
+    def start(self):
+        return None
+
+
 def check_motion(app):
     tile = Tile({"room_id": "1", "live": True})
     tile.resize(900, 540)
@@ -520,7 +580,8 @@ def check_motion(app):
 def check_routing(app):
     rooms = [{"room_id": rid, "uname": rid, "live": True}
              for rid in ("1001", "1001", "1002", "1003")]
-    with patch("ddm.app.DanmakuClient", Client), patch.object(MainWindow, "start_tile"), \
+    with patch("ddm.app.DanmakuClient", Client), patch("ddm.app.SuperChatSnapshot", Snapshot), \
+            patch.object(MainWindow, "start_tile"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2",
                             state={"plugins_enabled": []})
@@ -610,7 +671,12 @@ def check_settings(app):
         labels = [label.text() for label in page.findChildren(QLabel)]
         assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
         assert not {"大小", "滚动速度", "不透明度", "顶部显示区域"}.intersection(labels)
-        assert not page.findChildren(QCheckBox), "总设置不再显示画面弹幕随屏幕缩放选项"
+        assert [box.text() for box in page.findChildren(QCheckBox)] == ['显示醒目留言（SC）'], \
+            'Global danmaku settings expose the SC switch, not the removed scale switch'
+        page.super_chat_enabled.setChecked(False)
+        page.super_chat_opacity.setValue(35)
+        assert page.values()['super_chat_enabled'] is False
+        assert page.values()['super_chat_opacity'] == 35
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()
@@ -643,6 +709,7 @@ def check_cancel(app):
             patch("ddm.danmaku._Client._init_uid", new_callable=AsyncMock), \
             patch("ddm.danmaku._Client._init_buvid", new_callable=AsyncMock), \
             patch("aiohttp.ClientSession.ws_connect") as connect, \
+            patch("ddm.app.SuperChatSnapshot", Snapshot), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         window = MainWindow([], [], layout_id="1x1", state={"plugins_enabled": []})
         try:
@@ -677,13 +744,58 @@ def check_quick_owner_destruction(app):
         'Queued UI events must not dereference a destroyed playback wall'
 
 
+def check_qt_picture_surface(app):
+    # run.cmd requests Quick for native mpv tiles. Plugin Qt pictures have no
+    # shared Quick wall and must restore their own raster canvas instead.
+    with patch.dict(os.environ, DDM_QTQUICK_DANMAKU='1'), \
+            patch.object(VideoDanmaku, '_native_layered', lambda self: self.native_video):
+        for clipped in (False, True):
+            parent = QWidget()
+            parent.resize(640, 360)
+            overlay = VideoDanmaku(parent)
+            overlay.setGeometry(parent.rect())
+            try:
+                assert overlay._quick_requested
+                region = QRegion(QRect(0, 0, 640, 340)) if clipped else QRegion()
+                overlay.setMask(region)
+                layer = Mock() if clipped else None
+                if layer is not None:
+                    overlay._quick_layer, overlay._quick_group = layer, 17
+                overlay.set_native_video(False)
+                if layer is not None:
+                    layer.remove_group.assert_called_once_with(17)
+                    assert overlay._quick_layer is None and overlay._quick_group is None
+                assert not overlay._quick_requested, 'Qt plugin pictures must not wait for a shared Quick canvas'
+                assert overlay.mask() == region, 'Restore the real video mask, not the hidden controller pixel'
+                overlay.apply_settings({'video_danmaku_size': 24, 'video_danmaku_area': 100,
+                                        'video_danmaku_scale': False, 'video_danmaku_opacity': 100})
+                parent.show()
+                overlay.set_active(True)
+                overlay.set_enabled(True)
+                app.processEvents()
+                before = overlay.grab().toImage()
+                assert overlay.add_event({'text': 'Qt picture comment', 'uname': 'fixture'})
+                overlay.set_paused(True)
+                overlay.comments[0].x = 80
+                overlay.repaint()
+                app.processEvents()
+                after = overlay.grab().toImage()
+                assert before != after, 'Received comments must actually paint over the Qt picture'
+            finally:
+                overlay.clear()
+                parent.close()
+    print('PASS: Quick-enabled launcher restores visible scrolling comments on Qt plugin pictures')
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_qt_picture_surface(app)
     check_quick_occlusion(app)
     check_quick_controller_mask()
+    check_super_chat_overlay(app)
     check_move_window_mask()
     check_moved_overlay_refresh(app)
     check_quick_group_follows_tile_move(app)
@@ -697,3 +809,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    sys.stdout.flush()
+    sys.stderr.flush()

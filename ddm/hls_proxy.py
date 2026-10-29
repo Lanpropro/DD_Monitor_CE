@@ -1,5 +1,6 @@
 """本机 HLS 转发：使用与取流相同的 HTTP/TLS 栈和代理下载清单及分片。"""
 import base64
+import itertools
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import re
@@ -11,17 +12,57 @@ import uuid
 import requests
 
 
+# One-use transfer from source probing to playback; abandoned results expire.
+_FLV_HANDOFFS = {}
+_FLV_LOCK = threading.Lock()
+FLV_HANDOFF_HEADER = "X-DDM-FLV-Handoff"
+
+
+def retain_flv_response(response, prefix, chunks):
+    token = uuid.uuid4().hex
+    def expire():
+        item = take_flv_response(token)
+        if item is not None:
+            item[0].close()
+    timer = threading.Timer(20, expire)
+    timer.daemon = True
+    with _FLV_LOCK:
+        _FLV_HANDOFFS[token] = (response, prefix, chunks, timer)
+    timer.start()
+    return token
+
+
+def take_flv_response(token):
+    with _FLV_LOCK:
+        item = _FLV_HANDOFFS.pop(token, None)
+    if item is not None:
+        item[3].cancel()
+    return item
+
+
 class HlsProxy:
-    def __init__(self, source, headers, proxy=None):
+    def __init__(self, source, headers, proxy=None, *, diagnostic=None, forward_range=True, initial_response=None):
+        self._initial_response = initial_response
         self._stopped = threading.Event()
         self._lock = threading.Lock()
         self._responses = set()
         self._samples = deque(maxlen=12)
         self._idle_sessions = []
         self.refresh_required = threading.Event()
+        self.live_ended = threading.Event()
         prefix = "/" + uuid.uuid4().hex + "/"
         relay = self
         proxies = {"http": proxy, "https": proxy} if proxy else None
+
+        def report(url, status, started, attempt, *, local=False, error="", received_bytes=None, last_data_age=None):
+            if diagnostic is not None:
+                host = urlsplit(url).hostname or ""
+                host = host if re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host) else "other"
+                metrics = {} if received_bytes is None else {"received_bytes": received_bytes,
+                                                              "last_data_age": last_data_age}
+                diagnostic(host=host, resource="playlist" if urlsplit(url).path.endswith(".m3u8") else "media",
+                    status=status, elapsed=round(time.monotonic() - started, 2), attempt=attempt,
+                    local=local, error=error, **metrics)
 
         def local_url(url):
             if urlsplit(url).scheme not in ("http", "https"):
@@ -41,6 +82,7 @@ class HlsProxy:
                     self.send_error(404)
                     return
                 if relay.refresh_required.is_set():
+                    report(source, 503, time.monotonic(), 0, local=True, error="refresh_required")
                     self.send_error(503)
                     return
                 try:
@@ -52,7 +94,7 @@ class HlsProxy:
                     self.send_error(404)
                     return
                 request_headers = dict(headers)
-                if self.headers.get("Range"):
+                if forward_range and self.headers.get("Range"):
                     request_headers["Range"] = self.headers["Range"]
                 response = None
                 session = None
@@ -63,14 +105,19 @@ class HlsProxy:
                             return
                         session = relay._idle_sessions.pop() if relay._idle_sessions else requests.Session()
                     started = time.monotonic()
+                    initial = None
+                    with relay._lock:
+                        if url == source and relay._initial_response is not None:
+                            initial, relay._initial_response = relay._initial_response, None
                     for attempt in range(3):
                         try:
-                            response = session.get(url, headers=request_headers, proxies=proxies,
-                                stream=True, timeout=(4, 8))
+                            response = initial[0] if initial is not None else session.get(
+                                url, headers=request_headers, proxies=proxies, stream=True, timeout=(4, 8))
                             response.raise_for_status()
                             break
-                        except requests.RequestException:
+                        except requests.RequestException as error:
                             status = response.status_code if response is not None else 0
+                            report(url, status, started, attempt + 1, error=type(error).__name__)
                             playlist = (urlsplit(url).path.endswith(".m3u8") or response is not None and
                                         "mpegurl" in response.headers.get("Content-Type", "").lower())
                             if status in (401, 403) or playlist and status in (404, 410):
@@ -128,16 +175,23 @@ class HlsProxy:
                         self.wfile.write(body)
                     else:
                         size = 0
-                        chunks = response.iter_content(65536)
+                        last_data = time.monotonic()
+                        chunks = (itertools.chain([initial[1]], initial[2]) if initial is not None
+                                  else response.iter_content(65536))
                         while True:
                             reading = time.monotonic()
                             chunk = next(chunks, None)
                             elapsed += time.monotonic() - reading
                             if chunk is None:
+                                if initial is not None and not relay._stopped.is_set():
+                                    relay.live_ended.set()
+                                    report(url, 0, started, 1, error="LIVE_EOF", received_bytes=size,
+                                           last_data_age=round(time.monotonic() - last_data, 2))
                                 break
                             if relay._stopped.is_set():
                                 break
                             if chunk:
+                                last_data = time.monotonic()
                                 size += len(chunk)
                                 self.wfile.write((f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n") if chunked else chunk)
                         if chunked and not relay._stopped.is_set():
@@ -179,7 +233,10 @@ class HlsProxy:
             return
         self._stopped.set()
         with self._lock:
+            initial, self._initial_response = self._initial_response, None
             sessions, self._idle_sessions = self._idle_sessions, []
+        if initial is not None:
+            initial[0].close()
         for session in sessions:
             session.close()
         # 由请求线程关闭 response；跨线程 close 会等待读锁，阻塞窗口关闭。

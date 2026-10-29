@@ -76,6 +76,30 @@ TILE_FULLSCREEN_STYLE = '''
 }
 '''
 
+FULLSCREEN_BAR_STYLE = '''
+#TileBottom[fullscreen="true"] {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+#TileBottom[fullscreen="true"] QLabel,
+#TileBottom[fullscreen="true"] #TileCtrl,
+#TileBottom[fullscreen="true"] #TileToggle {
+    color: #ffffff;
+    background: transparent;
+    border: none;
+}
+#TileBottom[fullscreen="true"] #TileCtrl:hover,
+#TileBottom[fullscreen="true"] #TileCtrl[hovered="true"],
+#TileBottom[fullscreen="true"] #TileToggle:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+}
+#TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
+    color: #fb7299;
+}
+'''
+
 BG = mix(BASE, "#000000", 0.20)
 SIDEBAR = mix(BASE, "#000000", 0.30)
 CONTENT = mix(BASE, "#ffffff", 0.03)
@@ -202,6 +226,7 @@ def _apply_palette(app, colors):
         if color.startswith('rgba('):
             parsed.setAlpha(int(float(color[5:-1].split(',')[-1]) * 255))
         palette.setColor(roles[name.replace('-', '')], parsed)
+    palette.setColor(QPalette.PlaceholderText, qcolor(colors['TEXT3']))
     app.setPalette(palette.resolve(app.palette()))
     for widget in app.allWidgets():
         widget.setPalette(palette.resolve(widget.palette()))
@@ -218,7 +243,7 @@ def refresh_theme_properties(widget):
     name = widget.objectName()
     if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'TileCtrl', 'TileToggle', 'WallGrid'):
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
@@ -240,20 +265,20 @@ def _conditional_light_style(style):
 def _light_style(widget):
     name = widget.objectName()
     if name == 'TileToggle':
-        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}')
+        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}') + FULLSCREEN_BAR_STYLE
         return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
         'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
         'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
-        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;} #Tile[focused="true"] {border-color: #00A1D6;}' + TILE_FULLSCREEN_STYLE,
+        'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;}' + TILE_FULLSCREEN_STYLE,
         'TileVideo': '#TileVideo {background: #FFFFFF;}',
         'DanmakuPanel': '#DanmakuPanel {background: #FFFFFF;}',
         'TileBottom': '#TileBottom {background: #F0F3F8; border: none; border-top: 1px solid #D7DDE7; border-top-left-radius: 0; border-top-right-radius: 0; border-bottom-left-radius: 9px; border-bottom-right-radius: 9px;} #TileBottom QLabel {color: #4A5565;}',
@@ -263,7 +288,7 @@ def _light_style(widget):
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
         'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
-    }.get(name, ''))
+    }.get(name, '')) + (FULLSCREEN_BAR_STYLE if name == 'TileBottom' else '')
 
 
 class ThemeSignals(QObject):
@@ -684,6 +709,14 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#UpdateNotice[roomBackdrop="true"] #NoticeHeading,
+#UpdateNotice[roomBackdrop="true"] #NoticeText,
+#HistoryNotice[roomBackdrop="true"] #NoticeHeading,
+#HistoryNotice[roomBackdrop="true"] #NoticeText {{color: #ffffff; background: transparent;}}
+#UpdateNotice[roomBackdrop="true"] #NoticeDescription,
+#HistoryNotice[roomBackdrop="true"] #NoticeDescription {{color: #e5eaf3; background: transparent;}}
+#UpdateNotice[roomBackdrop="true"] #NoticeClose,
+#HistoryNotice[roomBackdrop="true"] #NoticeClose {{color: #ffffff; background: rgba(12, 19, 30, 0.4); border-radius: 6px;}}
 #NoticeIcon {{
     color: {ACCENT};
     background: {ACCENT_SOFT};
@@ -783,6 +816,8 @@ QSlider::handle:horizontal:hover {{
 #NavSub[cardMode="false"] {{
     color: {TEXT2};
 }}
+#NavName[cardMode="false"][roomBackdrop="true"] {{color: #ffffff;}}
+#NavSub[cardMode="false"][roomBackdrop="true"] {{color: #eef1f6;}}
 #NavAvatar {{
     color: {TEXT1};
     font-size: {FONT_CONTROL}px;
@@ -1137,9 +1172,6 @@ QPushButton#PrimaryButton:pressed {{
 #Tile:hover {{
     border: 1px solid {BORDER_STRONG};
 }}
-#Tile[focused="true"] {{
-    border: 1px solid rgba(0, 161, 214, 0.65);
-}}
 #TileVideo {{
     background: {TILE_BG};
     border-radius: 10px;
@@ -1212,8 +1244,8 @@ QPushButton#PrimaryButton:pressed {{
     background: transparent;
     color: {TEXT4};
 }}
-#TileCtrl:focus {{
-    border: 1px solid {ACCENT};
+#TileCtrl:focus, #TileToggle:focus, #BiliVolumeButton:focus {{
+    outline: none;
 }}
 #BiliVolumeButton {{
     background: transparent;
@@ -1240,7 +1272,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #DanmakuSendButton[hasText="true"]:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
 #DanmakuSendButton:disabled {{background: transparent; color: {TEXT4}; border-color: {BORDER};}}
-#DanmakuSendButton:focus {{border: 1px solid {ACCENT};}}
+#DanmakuSendButton:focus {{outline: none;}}
 #DanmakuComposer {{background: transparent; border: none;}}
 #DanmakuComposer QLineEdit {{
     padding: 2px 8px; font-size: {FONT_CAPTION}px;
@@ -1519,7 +1551,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #WallGrid {background: #E6EBF2;}
         #Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;}
         #Tile:hover {border-color: #95A7BE;}
-        #Tile[focused="true"] {border-color: #00A1D6;}
         #DanmakuPanel, #TileVideo {background: #FFFFFF;}
         #TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;}
         #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;}
@@ -1539,4 +1570,4 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuCount[state="error"] {color: #B93665;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
-    return style + TILE_FULLSCREEN_STYLE
+    return style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE

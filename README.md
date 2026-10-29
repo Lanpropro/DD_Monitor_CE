@@ -7,7 +7,7 @@
 免费、开源的 Windows 多窗口直播观看与监控工具。
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-0.5.2-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
+[![版本](https://img.shields.io/badge/版本-0.6-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
 [下载软件](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
@@ -44,6 +44,11 @@
 | 录制回放 | 每路独立录制、保存最近数分钟的即时回放，原始流直存与显卡重编码 |
 | 外观主题 | 深浅主题、自定义图片或静音视频背景、皮肤与美化插件 |
 | 软件更新 | 本体与插件独立更新，软件内置更新入口 |
+| 后台常驻 | 关闭时选择隐藏到托盘或退出，可记住选择；托盘支持恢复窗口和退出 |
+
+首次关闭窗口时可选择“隐藏到托盘”或“退出程序”。勾选“记住我的选择”后按所选方式关闭；
+未勾选则下次继续询问。可在“设置 → 常规 → 关闭窗口时”更改。
+隐藏到托盘后继续播放和录制，双击托盘图标恢复窗口；右键菜单可显示/隐藏窗口或退出程序。
 
 ## 插件扩展
 
@@ -62,9 +67,10 @@
 
 ## 下载
 
-当前版本 **0.5.2**，支持 **Windows 10 / 11 64 位**。
 
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorCE-v0.5.2-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
+当前已发布版本 **0.6**，支持 **Windows 10 / 11 64 位**。
+
+[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.6/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.6/DDMonitorCE-v0.6-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
 安装版与便携版均无需安装 Python。官方下载与更新请认准本仓库 Releases。
 

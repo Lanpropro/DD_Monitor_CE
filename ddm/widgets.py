@@ -16,13 +16,13 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOption, QStyleOptionButton, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
 from . import layouts, motion, mouse_hook, resize_layout, theme
-from .config import codec_overrides
+from .config import DEFAULT_VOLUME, codec_overrides
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -34,8 +34,11 @@ from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
+from .fullscreen_bar import FullscreenBar
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
+from .super_chat import (SuperChatAvatar, format_price, format_remaining, readable_text_color,
+                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects)
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -354,7 +357,7 @@ class LoadingIndicator(BadgeSurface):
 
     def paintEvent(self, event):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._paint_layered()
+            self._schedule_layered_paint()
         else:
             painter = QPainter(self)
             self._render_badge(painter)
@@ -370,7 +373,51 @@ class LoadingIndicator(BadgeSurface):
         self.update()
 
 
-class VolumeButton(QPushButton):
+class TileButton(QPushButton):
+    def focusInEvent(self, event):
+        self._keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason)
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+        self.update()
+
+    def mousePressEvent(self, event):
+        self._keyboard_focus = False
+        super().mousePressEvent(event)
+        self.update()
+
+    def paintEvent(self, event):
+        if not self.property('tileButton'):
+            return super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        painter = QPainter(self)
+        self._paint_button(painter, option)
+
+    def _paint_button(self, painter, option):
+        focused = self.hasFocus() and getattr(self, '_keyboard_focus', False)
+        option.state &= ~QStyle.State_HasFocus
+        frame = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
+        radius = min(9.0, frame.height() / 2)
+        painter.save()
+        if focused:
+            clip = QPainterPath()
+            clip.addRoundedRect(frame.adjusted(1, 1, -1, -1), max(0, radius - 1), max(0, radius - 1))
+            painter.setClipPath(clip)
+        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
+        painter.restore()
+        self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
+        if focused:
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor('#ffffff'), 1.2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(frame, radius, radius)
+
+
+class VolumeButton(TileButton):
     """音量按钮：细线喇叭 + 声道标记，静音时喇叭右边打一个 ×。
 
     点击切换静音，滚轮调音量；声道（原始 / 仅左 / 仅右）由右键菜单切换，
@@ -390,7 +437,7 @@ class VolumeButton(QPushButton):
         self.setFixedSize(size + (8 if size >= 30 else 14), size)
         self.setCursor(Qt.PointingHandCursor)
         self.muted = False
-        self.level = 42
+        self.level = DEFAULT_VOLUME
         self.audio_channel = 0
         self.compact_popup = False
         self._update_tooltip()
@@ -426,7 +473,8 @@ class VolumeButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1) if theme.is_light()
+        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1)
+                 if theme.is_light() and not self.property('fullscreen')
                  else QColor("#9499a0" if self.muted else "#f1f2f3"))
         if self.underMouse():
             color = QColor(theme.ACCENT)
@@ -435,8 +483,9 @@ class VolumeButton(QPushButton):
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        center = self.rect().center()
-        left = center.x() - 8
+        center = QRectF(self.rect()).center()
+        # Center the speaker and its right-hand indicator as a single icon.
+        left = center.x() - 11
         top = center.y() - 6
         path = QPainterPath()
         path.moveTo(left, top + 4)
@@ -449,10 +498,9 @@ class VolumeButton(QPushButton):
         painter.drawPath(path)
         if self.muted:
             # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
-            cross = center.y() - 3.5
-            right = center.x() + 8.5
-            painter.drawLine(right, cross, right + 7, cross + 7)
-            painter.drawLine(right + 7, cross, right, cross + 7)
+            cross = QPointF(left + 17, center.y())
+            painter.drawLine(cross + QPointF(-3.5, -3.5), cross + QPointF(3.5, 3.5))
+            painter.drawLine(cross + QPointF(-3.5, 3.5), cross + QPointF(3.5, -3.5))
         else:
             self._paint_channel(painter, top, left)
 
@@ -461,18 +509,22 @@ class VolumeButton(QPushButton):
         font = QFont(theme.FONT_DEFAULT)
         font.setPixelSize(8)
         font.setBold(True)
-        painter.setFont(font)
         for label, x, selected in (
-            ("L", left + 10.0, self.audio_channel == self.CHANNEL_LEFT),
-            ("R", left + 15.5, self.audio_channel == self.CHANNEL_RIGHT),
+            ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
+            ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
         ):
             if selected:
                 colour = QColor(theme.ACCENT)
             else:
                 colour = QColor("#9499a0" if self.muted else "#6d737d")
                 colour.setAlpha(150)
-            painter.setPen(colour)
-            painter.drawText(QRectF(x, top + 2, 7, 9), int(Qt.AlignCenter), label)
+            # Center the visible glyph outline, avoiding font baseline/hinting
+            # offsets that put these tiny capitals above or below the speaker.
+            glyph = QPainterPath()
+            glyph.addText(QPointF(), font, label)
+            bounds = glyph.boundingRect()
+            glyph.translate(x - bounds.center().x(), top + 6 - bounds.center().y())
+            painter.fillPath(glyph, colour)
 
 
 
@@ -487,6 +539,8 @@ class VolumePopup(QFrame):
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
+    if button.property('fullscreen'):
+        return QColor('#ffffff')
     if button.underMouse() or button.property("hovered") is True:
         return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
     if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
@@ -539,7 +593,7 @@ class SidebarToggleButton(QPushButton):
                          QPointF(center.x(), tip_y))
 
 
-class PauseButton(QPushButton):
+class PauseButton(TileButton):
     """暂停 / 继续：最常见的 ⏸ / ▶ 图形按钮。"""
 
     def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT):
@@ -581,7 +635,7 @@ class PauseButton(QPushButton):
                 QRectF(center.x() + 1.6, center.y() - 6, 3.6, 12), 1.3, 1.3)
 
 
-class RefreshButton(QPushButton):
+class RefreshButton(TileButton):
     """刷新：两个箭头首尾相接的圆环图标。"""
 
     def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT,
@@ -648,7 +702,7 @@ class RefreshButton(QPushButton):
             _draw_arrow_head(painter, center, radius, angle, direction)
 
 
-class DanmakuToggleButton(QPushButton):
+class DanmakuToggleButton(TileButton):
     """画面弹幕开关：开启时在右下角画一个勾（和 B 站播放器一样），不靠整块底色区分。"""
 
     def paintEvent(self, event) -> None:
@@ -756,6 +810,74 @@ class DanmakuTextBrowser(QTextBrowser):
     """能告诉面板“用户正在查看旧弹幕”的文本区。"""
 
     userScrolled = Signal()
+    messageClicked = Signal(int, QPoint)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
+        self._hover_block = None
+        self._action_block = None
+
+    def _block_at(self, position):
+        if not getattr(self.parentWidget(), '_has_content', True):
+            return None
+        block = self.cursorForPosition(position.toPoint()).block()
+        rect = self.document().documentLayout().blockBoundingRect(block).translated(
+            -self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
+        return block if rect.contains(position) and block.text() else None
+
+    def _hover_at(self, position):
+        self._hover_block = self._block_at(position)
+        self.viewport().setCursor(Qt.PointingHandCursor if self._hover_block is not None else Qt.IBeamCursor)
+        self.viewport().update()
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        self._hover_at(event.position())
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.Leave:
+            self._hover_block = None
+            self.viewport().update()
+        return super().viewportEvent(event)
+
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        if self.viewport().underMouse():
+            self._hover_at(QPointF(self.viewport().mapFromGlobal(QCursor.pos())))
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        block = self._action_block if self._action_block is not None else self._hover_block
+        if block is not None and block.isValid():
+            from .danmaku_actions import comment_hover_color
+            rect = self.document().documentLayout().blockBoundingRect(block).translated(
+                -self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
+            rect.setLeft(4)
+            rect.setRight(self.viewport().width() - 4)
+            painter = QPainter(self.viewport())
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(comment_hover_color())
+            painter.drawRoundedRect(rect.adjusted(0, 0, 0, -1), 8, 8)
+
+    def mousePressEvent(self, event):
+        self._click_start = event.position().toPoint() if event.button() == Qt.LeftButton else None
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        start = getattr(self, '_click_start', None)
+        self._click_start = None
+        if (event.button() != Qt.LeftButton or start is None
+                or (event.position().toPoint() - start).manhattanLength() >= QApplication.startDragDistance()
+                or self.textCursor().hasSelection()):
+            return
+        block = self._block_at(event.position())
+        if block is not None:
+            self._hover_at(event.position())
+            self.messageClicked.emit(block.blockNumber(), event.globalPosition().toPoint())
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
@@ -783,12 +905,277 @@ class DanmakuTextBrowser(QTextBrowser):
         self.userScrolled.emit()
 
 
+class DanmakuBottomButton(QPushButton):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("TileCtrl")
+        self.setFixedSize(32, 32)
+        self.setStyleSheet("#TileCtrl {padding: 0; min-width: 0; min-height: 0;}")
+        self.setToolTip("滚动到底部并继续跟随新弹幕")
+        self.setAccessibleName("滚动到最新弹幕")
+        self.setCursor(Qt.PointingHandCursor)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(_icon_color(self), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+        center = self.rect().center()
+        x, y = center.x(), center.y()
+        painter.drawLine(QPointF(x, y - 6), QPointF(x, y + 3))
+        painter.drawLine(QPointF(x - 4, y - 1), QPointF(x, y + 3))
+        painter.drawLine(QPointF(x + 4, y - 1), QPointF(x, y + 3))
+        painter.drawLine(QPointF(x - 5, y + 7), QPointF(x + 5, y + 7))
+class SuperChatAvatarView(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setFixedSize(24, 24)
+
+    def paintEvent(self, event):
+        card = self.parentWidget().parentWidget()
+        painter = QPainter(self)
+        paint_sc_avatar(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
+                        card.avatar_image.pixmap, card.name.text())
+        painter.end()
+
+
+class SuperChatCard(QFrame):
+    """One fixed Super Chat card; colors come from Bilibili with safe fallbacks."""
+    dismissed = Signal(str)
+    dismissFinished = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SuperChatCard")
+        self.chat_id = ""
+        self._paper = None
+        self._progress = 0.0
+        self.animation = motion.paper_animation(self, self._dismiss_frame, self.finish_dismiss)
+        self.setMinimumHeight(64)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.header = QWidget(self)
+        self.header.setObjectName('SuperChatHeader')
+        top = QHBoxLayout(self.header)
+        top.setContentsMargins(10, 6, 6, 6)
+        top.setSpacing(6)
+        self.avatar = SuperChatAvatarView(self.header)
+        top.addWidget(self.avatar)
+        self.avatar_image = SuperChatAvatar(self)
+        self.avatar_image.changed.connect(self._refresh_avatar)
+        self.name = ElidedLabel()
+        self.name.setObjectName("SuperChatName")
+        self.name.setMinimumWidth(0)
+        self.name.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.name.setTextFormat(Qt.PlainText)
+        self.price = QLabel()
+        self.price.setObjectName("SuperChatPrice")
+        self.left = QLabel()
+        self.left.setObjectName("SuperChatTime")
+        top.addWidget(self.name)
+        top.addWidget(self.left)
+        top.addStretch(1)
+        top.addWidget(self.price, 0, Qt.AlignRight | Qt.AlignVCenter)
+        self.close_button = QPushButton('×', self)
+        self.close_button.setFixedSize(20, 20)
+        self.close_button.setCursor(Qt.PointingHandCursor)
+        self.close_button.setToolTip('隐藏这条醒目留言')
+        self.close_button.setAccessibleName('关闭当前醒目留言')
+        self.close_button.clicked.connect(lambda: self.dismissed.emit(self.chat_id))
+        top.addWidget(self.close_button)
+        self.message = QLabel()
+        self.message.setObjectName("SuperChatMessage")
+        self.message.setTextFormat(Qt.PlainText)
+        self.message.setWordWrap(True)
+        self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.message.setFixedHeight(44)
+        self.message.setContentsMargins(10, 6, 10, 4)
+        layout.addWidget(self.header)
+        layout.addWidget(self.message)
+
+    def set_event(self, event: dict) -> None:
+        self.chat_id = str(event.get("super_chat_id") or event.get("id") or "")
+        uname = str(event.get("uname") or "匿名用户")
+        message = str(event.get("message") or event.get("text") or "")
+        price = format_price(event.get("price"))
+        background = event.get("background_color") or "#f59e0b"
+        text_color = readable_text_color(background).name()
+        header = event.get('background_bottom_color') or background
+        header_text = readable_text_color(header).name()
+        self._colours = (background, header, event.get('background_price_color') or header)
+        remaining = format_remaining(remaining_seconds(event.get("end_time")))
+        self.name.setText(uname)
+        self.avatar_image.set_url(event.get('face'))
+        self._refresh_avatar()
+        self.name.setToolTip(uname)
+        self.name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.price.setText(price)
+        self.message.setText(message)
+        self.message.setToolTip(message)
+        self.left.setText(f"剩 {remaining}")
+        self.ensurePolished()
+        desired = self.layout().sizeHint().height()
+        self.setFixedHeight(desired)
+        self.setStyleSheet(
+            "QFrame#SuperChatCard {"
+            "background:transparent;border:0;"
+            "}"
+            f"QFrame#SuperChatCard QLabel {{background:transparent;color:{text_color};}}"
+            f"QFrame#SuperChatCard QPushButton {{background:transparent;color:{text_color};border:0;padding:0;font-size:18px;}}"
+            "QWidget#SuperChatHeader {background:transparent;}"
+            f"QFrame#SuperChatCard QLabel#SuperChatName {{font-weight:700;color:{header_text};}}"
+            f"QFrame#SuperChatCard QLabel#SuperChatPrice {{font-weight:700;color:{header_text};}}"
+            f"QFrame#SuperChatCard QPushButton {{color:{header_text};}}"
+            f"QFrame#SuperChatCard QLabel#SuperChatTime {{font-size:11px;color:{header_text};}}"
+            "QFrame#SuperChatCard QLabel#SuperChatMessage {font-size:14px;}")
+
+    def _refresh_avatar(self):
+        self.avatar.update()
+
+    def tick(self, event: dict) -> None:
+        self.left.setText(f"剩 {format_remaining(remaining_seconds(event.get('end_time')))}")
+
+    def animate_dismiss(self, chat_id):
+        if self._paper is not None or self.chat_id != str(chat_id) or not self.isVisible() or not motion.enabled():
+            return
+        self._paper = self.grab()
+        self._paper_style = self.styleSheet()
+        self.setStyleSheet("QFrame#SuperChatCard {background:transparent;border:0;}")
+        for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+            child.hide()
+        self.animation.start()
+
+    def _dismiss_frame(self, progress):
+        self._progress = progress
+        self.update()
+        self.parentWidget().update()
+
+    def finish_dismiss(self):
+        self.animation.stop()
+        if self._paper is not None:
+            self.setStyleSheet(self._paper_style)
+        self._paper = None
+        self._progress = 0.0
+        for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+            child.show()
+        self.dismissFinished.emit()
+
+    def paintEvent(self, event):
+        if self._paper is None:
+            if hasattr(self, '_colours'):
+                painter = QPainter(self)
+                paint_sc_background(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
+                                    *self._colours, self.header.height())
+                painter.end()
+            return
+        painter = QPainter(self)
+        motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
+        painter.end()
+
+
+class SuperChatStack(QWidget):
+    """Two expanded SC cards, or a selectable stack for three or more."""
+    dismissed = Signal(str)
+    layoutChanged = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._events = []
+        self._selected_id = ''
+        self._enabled = True
+        self._cards = [SuperChatCard(self) for _ in range(3)]
+        for card in self._cards:
+            card.dismissed.connect(self.dismissed)
+            card.dismissFinished.connect(self._dismiss_finished)
+            for child in [card, *card.findChildren(QWidget)]:
+                child.installEventFilter(self)
+        self.more = QPushButton(self)
+        self.more.setToolTip('切换下一条醒目留言')
+        self.more.setCursor(Qt.PointingHandCursor)
+        self.more.setStyleSheet('background:rgba(0,0,0,160);color:white;border:0;border-radius:4px;padding:1px 4px;')
+        self.more.clicked.connect(self._cycle)
+        self.alpha = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.alpha)
+        self.hide()
+
+    def select_chat(self, chat_id):
+        if any(card._paper is not None for card in self._cards):
+            return
+        self._selected_id = str(chat_id)
+        self.set_events(self._events)
+
+    def _dismiss_finished(self):
+        self.set_events(self._events)
+        self.layoutChanged.emit()
+
+    def _cycle(self):
+        ordered = order_super_chats(self._events)
+        index = next((i for i, chat in enumerate(ordered) if str(chat.get('id')) == self._selected_id), 0)
+        self.select_chat(ordered[(index + 1) % len(ordered)]['id'])
+
+    def eventFilter(self, watched, event):
+        if len(self._events) >= 3 and event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            for index, card in enumerate(self._cards[1:], 1):
+                if card is watched or card.isAncestorOf(watched):
+                    self.select_chat(self._events[index]['id'])
+                    return True
+        return super().eventFilter(watched, event)
+
+    def animate_dismiss(self, chat_id):
+        for card in self._cards:
+            card.animate_dismiss(chat_id)
+
+    def set_events(self, events, limit=None):
+        self._events = order_super_chats(list(events), self._selected_id)
+        if len(self._events) < 3 or not any(str(chat.get('id')) == self._selected_id for chat in self._events):
+            self._selected_id = ''
+        closing = [card for card in self._cards if card._paper is not None]
+        if closing:
+            if self._enabled and limit != 0:
+                return
+            for card in closing:
+                card.finish_dismiss()
+        self.setVisible(bool(events) and self._enabled and limit != 0)
+        for card, event in zip(self._cards, self._events):
+            card.set_event(event)
+        self.arrange()
+        self.update()
+
+    def arrange(self):
+        rects = sc_stack_rects(self.width(), self.height(), len(self._events))
+        for index in reversed(range(3)):
+            card = self._cards[index]
+            card.setVisible(index < len(rects))
+            if index < len(rects):
+                card.setFixedHeight(round(rects[index].height()))
+                card.setGeometry(rects[index].toAlignedRect())
+                card.close_button.setVisible(len(self._events) < 3 or index == 0)
+                card.setCursor(Qt.PointingHandCursor if index and len(self._events) >= 3 else Qt.ArrowCursor)
+                card.raise_()
+        self.more.setText(f'共 {len(self._events)} 条')
+        self.more.adjustSize()
+        self.more.move(max(0, self.width() - self.more.width() - 8), max(0, self.height() - self.more.height() - 4))
+        self.more.setVisible(len(self._events) >= 3)
+        self.more.raise_()
+
+    def tick(self):
+        if not any(card._paper is not None for card in self._cards):
+            for card, event in zip(self._cards, self._events):
+                card.tick(event)
+
+
+
 class DanmakuPanel(QFrame):
     """弹幕格：占画面墙里的一整格，风格和别的格子统一。
 
     内容是主画面那一路的弹幕（app.py 里的 sync_danmaku 负责连谁）。
     整格可以像别的窗口一样拖动，换到别的格子上。
     """
+
+    superChatDismissed = Signal(str)
 
     MAX_BLOCKS = 3000         # 默认最多留多少条（设置里可改）
     MIN_BLOCKS = 20
@@ -859,11 +1246,15 @@ class DanmakuPanel(QFrame):
         self.body.document().setDocumentMargin(8)
         self.body.document().setMaximumBlockCount(self.max_blocks)
         self.body.userScrolled.connect(self._on_user_scroll)
+        self.body.messageClicked.connect(self._message_clicked)
         scroll_bar = self.body.verticalScrollBar()
         scroll_bar.sliderPressed.connect(self._on_scroll_pressed)
         scroll_bar.sliderReleased.connect(self._on_scroll_released)
         scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
         layout.addWidget(self.body, 1)
+        self.super_chats = SuperChatStack(self.body.viewport())
+        self.super_chats.layoutChanged.connect(self._sync_super_chat_limit)
+        self.super_chats.dismissed.connect(self.superChatDismissed)
 
         # 底部条：字号滑块（跟格子的音量条一个做法，拖了立刻生效）
         self.bar = QWidget(self)
@@ -873,9 +1264,14 @@ class DanmakuPanel(QFrame):
         bar_box = QHBoxLayout(self.bar)
         bar_box.setContentsMargins(10, 0, 10, 0)
         bar_box.setSpacing(8)
+        self.bottom_button = DanmakuBottomButton(self.body.viewport())
+        self.bottom_button.clicked.connect(self.jump_to_bottom)
+        self.bottom_button.hide()
+        self.body.viewport().installEventFilter(self)
         bar_box.addStretch(1)
         size_label = QLabel("字号")
         size_label.setObjectName("DanmakuBarLabel")
+        self.font_label = size_label
         bar_box.addWidget(size_label)
         self.font_slider = QSlider(Qt.Horizontal)
         self.font_slider.setRange(self.MIN_FONT_SIZE, self.MAX_FONT_SIZE)
@@ -889,8 +1285,41 @@ class DanmakuPanel(QFrame):
         self.font_value.setFixedWidth(22)
         bar_box.addWidget(self.font_value)
         layout.addWidget(self.bar)
+        self.composer_bar = QWidget(self)
+        self.composer_bar.setObjectName("DanmakuBar")
+        self.composer_bar.setAttribute(Qt.WA_StyledBackground, True)
+        self.composer_bar.setFixedHeight(TILE_BAR_HEIGHT)
+        composer_layout = QHBoxLayout(self.composer_bar)
+        composer_layout.setContentsMargins(8, 4, 8, 4)
+        self.composer_bar.hide()
+        layout.addWidget(self.composer_bar)
+        self._tile_controls = None
         self.apply_style()
+        self._sync_super_chat_limit()
         self.set_placeholder("把直播间放到主画面，这里就会显示它的弹幕")
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._layout_bar()
+        if self._tile_controls is not None:
+            self._tile_controls.layout_panel()
+        self._sync_super_chat_limit()
+
+    def _layout_bar(self) -> None:
+        used = 20 + self.font_label.sizeHint().width() + 22 + 16
+        self.font_slider.setFixedWidth(max(12, min(96, self.width() - used)))
+
+    def eventFilter(self, watched, event):
+        if watched is self.body.viewport() and event.type() == QEvent.Resize:
+            self._position_bottom_button()
+            self._sync_super_chat_limit()
+        return super().eventFilter(watched, event)
+
+    def _position_bottom_button(self):
+        viewport = self.body.viewport()
+        self.bottom_button.move(max(0, viewport.width() - self.bottom_button.width() - 10),
+                                max(0, viewport.height() - self.bottom_button.height() - 10))
+        self.bottom_button.raise_()
 
     # ---- 拖动 ----
     def mousePressEvent(self, event) -> None:
@@ -928,7 +1357,23 @@ class DanmakuPanel(QFrame):
             self.roomDropped.emit(source)
 
     # ---- 内容 ----
+    def _message_clicked(self, index, position):
+        if not 0 <= index < len(self._blocks):
+            return
+        from .danmaku_actions import show_comment_menu
+        self.body._action_block = self.body.document().findBlockByNumber(index)
+        self.body.viewport().update()
+        try:
+            show_comment_menu(self, self._blocks[index]['text'], self._tile_controls, position)
+        finally:
+            self.body._action_block = None
+            self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
+
     def set_placeholder(self, text: str) -> None:
+        for card in self.super_chats._cards:
+            if card._paper is not None:
+                card.finish_dismiss()
+        self.set_super_chats([])
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._blocks = []
@@ -940,6 +1385,7 @@ class DanmakuPanel(QFrame):
         color = "#5e6a7d" if theme.is_light() else "#8a8f98"
         self.body.setHtml(
             f'<div style="color:{color};line-height:160%">{text}</div>')
+        self._update_bottom_button()
 
     def set_status(self, text: str) -> None:
         """连接状态（连接中… / 已连接 / 连接失败…）。"""
@@ -1002,6 +1448,30 @@ class DanmakuPanel(QFrame):
             self._has_content = True
         self._restore_scroll_state(scroll_state)
 
+    def set_super_chats(self, events: list[dict]) -> None:
+        self.super_chats.set_events(events, self._super_chat_limit())
+        self._sync_super_chat_limit()
+
+    def _super_chat_limit(self):
+        return 1 if self.body.viewport().height() >= 76 else 0
+
+    def apply_super_chat_settings(self, settings):
+        self.super_chats._enabled = bool(settings.get('super_chat_enabled', True))
+        self.super_chats.alpha.setOpacity(int(settings.get('super_chat_opacity', 80)) / 100)
+        self._sync_super_chat_limit()
+
+    def _sync_super_chat_limit(self):
+        if any(card._paper is not None for card in self.super_chats._cards):
+            return
+        viewport = self.body.viewport()
+        width = max(1, min(340, max(150, round(viewport.width() * .46)), viewport.width() - 16))
+        count = len(self.super_chats._events)
+        height = 140 if count >= 3 else 208 if count == 2 else 100
+        self.super_chats.resize(width, min(height, max(1, viewport.height() - 16)))
+        self.super_chats.move(max(8, viewport.width() - width - 8), 8)
+        self.super_chats.set_events(self.super_chats._events, self._super_chat_limit())
+        self.super_chats.raise_()
+
     def _scroll_state(self, removed_blocks: int = 0) -> tuple[bool, int, int]:
         scroll_bar = self.body.verticalScrollBar()
         value = scroll_bar.value()
@@ -1039,6 +1509,17 @@ class DanmakuPanel(QFrame):
         # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。
         QTimer.singleShot(0, restore)
 
+    def jump_to_bottom(self) -> None:
+        self._scroll_revision += 1
+        self._scroll_trim_remainder = 0.0
+        self._follow_tail = True
+        self._scroll_to_bottom()
+        self._update_bottom_button()
+
+    def _update_bottom_button(self) -> None:
+        self.bottom_button.setVisible(not self._follow_tail and self._has_content)
+        self._position_bottom_button()
+
     def _scroll_to_bottom(self) -> None:
         if not self._follow_tail:
             return
@@ -1054,6 +1535,7 @@ class DanmakuPanel(QFrame):
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._follow_tail = self._at_scroll_tail()
+        self._update_bottom_button()
 
     def _on_scroll_pressed(self) -> None:
         self._scroll_revision += 1
@@ -1063,10 +1545,12 @@ class DanmakuPanel(QFrame):
     def _on_scroll_released(self) -> None:
         self._scroll_dragging = False
         self._follow_tail = self._at_scroll_tail()
+        self._update_bottom_button()
 
     def _on_scroll_value_changed(self, _value: int) -> None:
         if self._scroll_dragging:
             self._follow_tail = self._at_scroll_tail()
+            self._update_bottom_button()
 
     # ---- 渲染 ----
     def refresh_theme(self) -> None:
@@ -1772,6 +2256,8 @@ class NavThumb(QFrame):
         self._cover_dirty = False
         self._cover_hold = False         # 宽度动画期间挂起封面重裁，见 set_cover_hold()
         self._cover_source: QPixmap | None = None
+        self._banner_source: QPixmap | None = None
+        self._compact_background = True
         self._face_source: QPixmap | None = None
 
     # ---- 外观 ----
@@ -1844,6 +2330,15 @@ class NavThumb(QFrame):
             return
         self.cover.setText("")
         self._cover_source = pixmap
+        self._render_cover()
+
+    def set_banner(self, pixmap) -> None:
+        self._banner_source = None if pixmap is None or pixmap.isNull() else pixmap
+        if not self._card_mode:
+            self._render_cover()
+
+    def set_compact_background(self, enabled: bool) -> None:
+        self._compact_background = bool(enabled)
         self._render_cover()
 
     def set_face(self, pixmap) -> None:
@@ -1985,6 +2480,17 @@ class NavThumb(QFrame):
         if self._compact_thumb():
             return                       # 收起后封面隐藏，展开时再裁切即可
         source = getattr(self, "_cover_source", None)
+        if not self._card_mode and self._banner_source is not None:
+            source = self._banner_source
+        if not self._card_mode and not self._compact_background:
+            source = None
+        has_background = source is not None and not source.isNull()
+        if self._overlay_widgets is not None:
+            for label in self._overlay_widgets[:2]:
+                if label.property('roomBackdrop') != has_background:
+                    label.setProperty('roomBackdrop', has_background)
+                    _repolish(label)
+        self.cover.setVisible(has_background and not self._compact)
         if source is None or source.isNull():
             return
         if self.visibleRegion().isEmpty():
@@ -1992,17 +2498,18 @@ class NavThumb(QFrame):
             return
         self._cover_dirty = False
         width, height = self._size
-        scaled = source.scaled(width, height, Qt.KeepAspectRatioByExpanding,
-                               Qt.SmoothTransformation)
+        from .cover_focus import source_rect
+        crop = source_rect(source, width, height,
+                           focus=self._card_mode or self._banner_source is None)
         canvas = QPixmap(width, height)
         canvas.fill(Qt.transparent)
         painter = QPainter(canvas)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, width, height), self.RADIUS, self.RADIUS)
         painter.setClipPath(path)
-        painter.drawPixmap((width - scaled.width()) // 2,
-                           (height - scaled.height()) // 2, scaled)
+        painter.drawPixmap(QRectF(0, 0, width, height), source, crop)
         if not self._compact_thumb():
             shade = QLinearGradient(0, 0, width, 0)
             shade.setColorAt(0.0, QColor(7, 9, 13, 205))
@@ -2075,7 +2582,7 @@ class NavThumb(QFrame):
             self.setMinimumSize(0, height)
             self.setMaximumSize(16777215, height)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.cover.setVisible(enabled and not self._compact)
+        self.cover.setVisible(not self._compact)
         self._render_face()
         self._render_cover()
         self._place_face()
@@ -2102,7 +2609,7 @@ class NavThumb(QFrame):
         preview_rect = self._preview_rect() if self.video.isVisible() else self.rect()
         self.video.setGeometry(preview_rect)
         self.hint.setGeometry(preview_rect if self.hint.isVisible() else self.rect())
-        self.cover.setVisible(self._card_mode and not compact)
+        self.cover.setVisible(not compact)
         self._render_face()          # 可见性也归它管（见 _render_face）
         self._render_cover()
         self._layout_overlay()
@@ -2154,7 +2661,7 @@ class NavThumb(QFrame):
         self.hint.setVisible(False)
         self.video.setGeometry(self.rect())
         self.hint.setGeometry(self.rect())
-        self.cover.setVisible(self._card_mode and not self._compact_thumb())
+        self.cover.setVisible(not self._compact_thumb())
         self.face.setVisible(bool(self.face.pixmap()))
         self._set_overlay_visible(True)
 
@@ -2242,6 +2749,10 @@ class NavItem(QFrame):
         self.check.clicked.connect(lambda: self.checkedChanged.emit())
 
         self.thumb = NavThumb(self)
+        from .images import load_room_banner
+        from .room_artwork import supports_banner
+        if supports_banner(room):
+            self.thumb.set_banner(load_room_banner(str(room.get('room_id', ''))))
         self.check.setParent(self.thumb)
         self._layout.addWidget(self.thumb, 1)
 
@@ -3782,7 +4293,8 @@ class Sidebar(QFrame):
     # （用户报的「登录按钮点了没反应」就是踩了这个）。
 
     def __init__(self, rooms: list[dict], parent=None, card_mode: bool = True,
-                 auto_compact: bool = True, compact_threshold: int = 18):
+                 auto_compact: bool = True, compact_threshold: int = 18,
+                 compact_background: bool = True):
         super().__init__(parent)
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH)
@@ -3794,6 +4306,7 @@ class Sidebar(QFrame):
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
         self.compact_threshold = max(2, int(compact_threshold))
+        self.compact_background = bool(compact_background)
         self.card_mode = self.preferred_card_mode and not (
             self.auto_compact and len(rooms) >= self.compact_threshold)
         self._wall_room_ids: set[str] = set()
@@ -5353,6 +5866,11 @@ class Sidebar(QFrame):
         self.compact_threshold = max(2, int(compact_threshold))
         self.set_card_mode(self._effective_card_mode())
 
+    def set_compact_background(self, enabled: bool) -> None:
+        self.compact_background = bool(enabled)
+        for item in self._items:
+            item.thumb.set_compact_background(enabled)
+
     def _effective_card_mode(self) -> bool:
         """横竖屏共用关注数量阈值，竖屏改为紧凑横向列表。"""
         return self.preferred_card_mode and not (
@@ -5467,6 +5985,7 @@ class Sidebar(QFrame):
         item.hovered.connect(self.previewHovered.emit)
         item.unhovered.connect(self.previewUnhovered.emit)
         item.set_card_mode(self.card_mode)
+        item.thumb.set_compact_background(self.compact_background)
         item.set_portrait_strip(self.side == "top" and not self.card_mode)
         item.set_on_wall(room_id in self._wall_room_ids)
         item.set_select_mode(self.select_mode)
@@ -5915,7 +6434,7 @@ class Tile(QFrame):
         self.muted = bool(room.get("muted", True))       # 默认静音
         self.quality = int(room.get("quality", AUTO_QUALITY
             if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250))
-        self.volume = int(room.get("volume", 42))
+        self.volume = int(room.get("volume", DEFAULT_VOLUME))
         self.audio_channel = int(room.get("audio_channel", 0))
         self.codec_overrides = codec_overrides(room.get("codec_overrides"))
         self.codec_reconnect_pending = False
@@ -5933,10 +6452,11 @@ class Tile(QFrame):
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.video_danmaku = VideoDanmaku(self)
+        self.video_danmaku.actionsRequested.connect(self._show_danmaku_actions)
         self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
         # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
-        self.bottom = QWidget(self)
+        self.bottom = FullscreenBar(self)
         self._bar_progress = 0.0
         self._bar_target = 0.0
         self._bar_animation = QVariantAnimation(self)
@@ -5969,12 +6489,12 @@ class Tile(QFrame):
         self.pause_button = PauseButton(self)
         self.pause_button.clicked.connect(lambda: self.pauseToggled.emit(self.room))
         bottom_layout.addWidget(self.pause_button, 0, Qt.AlignVCenter)
-        self.fullscreen_button = QPushButton("⛶")
+        self.fullscreen_button = TileButton("⛶")
         self.fullscreen_button.setObjectName("TileCtrl")
         self.fullscreen_button.setFixedSize(28, 26)
         self.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self.fullscreen_button.clicked.connect(lambda: self.fullscreenRequested.emit(self))
-        self.recording_button = QPushButton("● 录制")
+        self.recording_button = TileButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
@@ -5988,7 +6508,7 @@ class Tile(QFrame):
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
         self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
                                        else "开启画面弹幕（默认 B）")
-        self.danmaku_settings_button = QPushButton("⚙")
+        self.danmaku_settings_button = TileButton("⚙")
         self.danmaku_settings_button.setObjectName("TileCtrl")
         self.danmaku_settings_button.setFixedSize(26, 26)
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
@@ -6075,6 +6595,11 @@ class Tile(QFrame):
         self.close_button.clicked.connect(lambda: self.closeRequested.emit(self.room))
         for button in (self.quality_button, self.reload_button, self.close_button):
             button.setParent(self.controls)
+        for button in (self.quality_button, self.reload_button, self.close_button,
+                       self.pause_button, self.volume_button, self.fullscreen_button,
+                       self.danmaku_button, self.danmaku_settings_button, self.recording_button):
+            button.setFocusPolicy(Qt.TabFocus)
+            button.setProperty('tileButton', True)
         self.controls.setVisible(False)
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
@@ -6495,7 +7020,7 @@ class Tile(QFrame):
 
     # ---- 控制 ----
     def _make_control(self, text: str, tip: str) -> QPushButton:
-        button = QPushButton(text)
+        button = TileButton(text)
         button.setObjectName("TileCtrl")
         button.setToolTip(tip)
         button.setCursor(Qt.PointingHandCursor)
@@ -6687,6 +7212,17 @@ class Tile(QFrame):
             return
         self.set_controls_visible(False)
 
+    def _show_danmaku_actions(self, text, position):
+        from .danmaku_actions import show_comment_menu
+        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position)
+
+    def _open_clicked_danmaku(self, event):
+        start = getattr(self, '_press_pos', None)
+        position = event.globalPosition().toPoint()
+        return (event.button() == Qt.LeftButton and start is not None
+                and (self.mapFromGlobal(position) - start).manhattanLength() < QApplication.startDragDistance()
+                and self.video_danmaku.open_actions_at(position))
+
     def focus_danmaku_input(self) -> None:
         controls = getattr(self, '_plugin_controls', None)
         if controls is not None:
@@ -6775,6 +7311,7 @@ class Tile(QFrame):
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(self.property("fullscreen"))
+        self.bottom.set_fullscreen(fullscreen)
         if not fullscreen:
             self._bar_animation.stop()
             self._bar_progress = self._bar_target = 0.0
@@ -6939,6 +7476,12 @@ class Tile(QFrame):
         return result
 
     def eventFilter(self, watched, event) -> bool:
+        if watched is self.video:
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._press_pos = self.mapFromGlobal(event.globalPosition().toPoint())
+            elif event.type() == QEvent.MouseButtonRelease and self._open_clicked_danmaku(event):
+                event.accept()
+                return True
         if watched in (self.volume_button, self.volume_menu):
             if event.type() == QEvent.Enter:
                 self._volume_hide_timer.stop()
@@ -7180,6 +7723,9 @@ class Tile(QFrame):
             self.volume_slider.setValue(value)
             self.volume_slider.blockSignals(False)
         self.volumeChanged.emit(self.room, value)
+        if self.muted and value > 0:
+            # Apply the new level before making the player's audio audible.
+            self.set_muted(False)
 
     def _sync_vertical_volume(self) -> None:
         blocked = self.vertical_volume.blockSignals(True)
@@ -7217,6 +7763,9 @@ class Tile(QFrame):
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
+            if self._open_clicked_danmaku(event):
+                event.accept()
+                return
             self.clicked.emit(self.room)
 
     def set_focused(self, focused: bool) -> None:
@@ -7364,7 +7913,7 @@ class WallPaneBorder(BadgeSurface):
 
     def paintEvent(self, event):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._paint_layered()
+            self._schedule_layered_paint()
         else:
             painter = QPainter(self)
             self._render_badge(painter)
@@ -7732,6 +8281,18 @@ class WallGrid(QWidget):
     def has_danmaku(self) -> bool:
         return self._danmaku_cell is not None and bool(self._cells())
 
+    def danmaku_target_tile(self):
+        main = self.main_index()
+        if main is not None and 0 <= main < len(self.tiles):
+            return self.tiles[main]
+        return next((tile for tile in self.tiles if tile.room.get('room_id')), None)
+
+    def sync_sc_placement(self):
+        target = self.danmaku_target_tile() if self.has_danmaku and self.fullscreen_tile is None else None
+        for tile in self.tiles:
+            tile.video_danmaku.set_sc_independent(self.has_danmaku)
+            tile.video_danmaku.set_sc_in_panel(tile is target)
+
     def cell_of(self, tile: Tile):
         """这一路画面用的是哪个 cell（排查布局问题时用）。"""
         order = self._cell_order()
@@ -7829,10 +8390,14 @@ class WallGrid(QWidget):
         if not active:
             self.relayout(force=True)
             self.grid.activate()
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.resize()
 
     def relayout(self, force: bool = False) -> None:
+        self.sync_sc_placement()
         if self._sidebar_animating:
             return
+        QTimer.singleShot(0, self._sync_danmaku_controls)
         if force:
             self._relayout_timer.stop()
         self.ensure_slots()          # 按布局补空位
@@ -7876,6 +8441,26 @@ class WallGrid(QWidget):
             return
 
         self._relayout_preset(apply_visibility=True)
+
+    def _sync_danmaku_controls(self) -> None:
+        panel = self.danmaku
+        target = None
+        if self.has_danmaku and self.fullscreen_tile is None:
+            main = self.main_index()
+            tile = (self.tiles[main] if main is not None else
+                    next((tile for tile in self.tiles if tile.room.get("room_id")), None))
+            target = getattr(tile, '_plugin_controls', None)
+            if target is not None and target._disposed:
+                target = None
+        previous = panel._tile_controls
+        if previous is not target:
+            if previous is not None:
+                previous.set_panel(None)
+            panel._tile_controls = target
+            if target is not None:
+                target.set_panel(panel)
+        if target is not None:
+            target.layout_panel()
 
     # ---- 其余预设：分区树只计算几何，视频始终是 WallGrid 的直接子窗口 ----
     def layout_ratios(self) -> dict:
@@ -8368,11 +8953,13 @@ class WallGrid(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self._sidebar_animating:
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.move()
+            return
         if self._quick_danmaku_layer is not None:
             self._quick_danmaku_layer.resize()
         self._cancel_border_drag()
-        if self._sidebar_animating:
-            return
         if (self._interactive_resize and self.fullscreen_tile is None
                 and (self.layout_id == "corner" or self.layout_id in self._partitions)):
             self._resize_pending = True

@@ -3,6 +3,7 @@
 只在用户主动选择"账号密码登录"时才导入 QtWebEngine（比较重）。
 """
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
@@ -10,6 +11,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from . import bili
+from . import config
 
 PROFILE_NAME = "ddm-login"
 _profile: QWebEngineProfile | None = None
@@ -23,6 +25,7 @@ def _shared_profile() -> QWebEngineProfile:
     global _profile
     if _profile is None:
         _profile = QWebEngineProfile(PROFILE_NAME)
+        _profile.setCachePath(str(Path(config.data_root()) / 'cache' / 'web-login'))
     return _profile
 
 
