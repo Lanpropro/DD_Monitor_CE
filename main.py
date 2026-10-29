@@ -43,6 +43,10 @@ os.chdir(PROJ)                       # 配置、日志、头像缓存都按这�
 if PROJ not in sys.path:
     sys.path.insert(0, PROJ)
 
+if __name__ == "__main__":
+    from ddm import config, diagnostics
+    diagnostics.start(os.path.join(config.REPO, 'logs'))
+
 from ddm.app import main         # noqa: E402
 
 

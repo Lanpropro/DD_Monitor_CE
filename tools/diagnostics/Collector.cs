@@ -482,7 +482,7 @@ namespace DDMonitorDiagnostics
             try
             {
                 if (Directory.Exists(logs) && Safe(logs))
-                    foreach (var path in Directory.GetFiles(logs, "*.log").Where(p => Regex.IsMatch(Path.GetFileName(p), @"^(ddm-\d{4}-\d{2}-\d{2}|update[^\\/]*|updater[^\\/]*)\.log$", RegexOptions.IgnoreCase)).OrderByDescending(File.GetLastWriteTimeUtc).Take(5))
+                    foreach (var path in Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p), @"^(ddm(?:-\d{4}-\d{2}-\d{2}|-crash)?\.log(?:\.[1-5])?|(?:update[^\\/]*|updater[^\\/]*)\.log)$", RegexOptions.IgnoreCase)).OrderByDescending(p => Path.GetFileName(p).Equals("ddm-crash.log", StringComparison.OrdinalIgnoreCase)).ThenByDescending(File.GetLastWriteTimeUtc).Take(5))
                         AddLog(entries, "logs/" + Path.GetFileName(path));
             }
             catch (Exception error) { warnings.Add("日志目录无法枚举（" + error.GetType().Name + "）。"); }

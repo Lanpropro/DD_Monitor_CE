@@ -267,6 +267,7 @@
 - `dev/selfcheck_qr_refresh.py`
 - `dev/selfcheck_qr_responsiveness.py`
 - `dev/selfcheck_qt_log.py`
+- `dev/selfcheck_logging.py`
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
@@ -409,6 +410,7 @@
 - `docs/releases/RELEASE-v0.5.md`
 - `docs/releases/RELEASE-v0.5.1.md`
 - `docs/releases/RELEASE-v0.5.2.md`
+- `docs/releases/UNRELEASED.md`
 
 ### 独立网站原型
 

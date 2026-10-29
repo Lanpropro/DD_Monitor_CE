@@ -30,13 +30,14 @@ def main():
                 dump.assert_called_once()
                 assert dump.call_args.kwargs["all_threads"]
                 handle = dump.call_args.kwargs["file"]
+                assert Path(handle.name).name == "ddm-crash.log"
             contents = Path(path).read_text(encoding="utf-8")
             assert "[Qt QtWarningMsg] quality switch diagnostic" in contents
             assert "[Qt QtFatalMsg] fatal quality switch diagnostic" in contents
         finally:
             qInstallMessageHandler(previous)
+            app_module.diagnostics.close()
             sys.stderr = original_stderr
-            handle.close()
     print("PASS: Qt messages and fatal stack logging without a console")
 
 

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from . import bili
 from . import config as config_module
+from . import diagnostics
 from . import layouts
 from . import room_presets
 from . import overlay
@@ -68,46 +69,17 @@ DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 
 def setup_file_log() -> str:
-    """把标准错误同时写进 logs/ddm-日期.log，方便排查（控制台可能被关掉）。"""
-    log_dir = os.path.join(config_module.REPO, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    path = os.path.join(log_dir, f"ddm-{time.strftime('%Y-%m-%d')}.log")
-    original = sys.stderr
-    try:
-        handle = open(path, "a", encoding="utf-8", buffering=1)
-    except Exception:  # noqa: BLE001
-        return ""
-
-    class _Tee:
-        def write(self, data: str) -> int:
-            if original is not None:
-                try:
-                    original.write(data)
-                except Exception:  # noqa: BLE001
-                    pass
-            try:
-                handle.write(data)
-            except Exception:  # noqa: BLE001
-                pass
-            return len(data)
-
-        def flush(self) -> None:
-            if original is not None:
-                try:
-                    original.flush()
-                except Exception:  # noqa: BLE001
-                    pass
-
-    sys.stderr = _Tee()
+    """Install Qt capture after the standard-library startup logger is ready."""
+    session = diagnostics.start(os.path.join(config_module.REPO, "logs"))
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
         if kind == QtMsgType.QtFatalMsg:
-            faulthandler.dump_traceback(file=handle, all_threads=True)
+            faulthandler.dump_traceback(file=session.crash_handle, all_threads=True)
 
     qInstallMessageHandler(qt_message)
-    print(f"日志文件: {path}", file=sys.stderr)
-    return path
+    print(f"日志文件: {session.path}", file=sys.stderr)
+    return session.path
 
 EMPTY_HINT = ("还没有直播间\n\n"
               "点左下角「+ 添加直播间」填房间号，\n"
@@ -4220,7 +4192,8 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈
-    watchdog.start(log_path)
+    session = diagnostics.get_session()
+    watchdog.start(session.crash_path if session else log_path)
     ticker = QTimer(window)
     ticker.setInterval(watchdog.TICK_MS)
     ticker.timeout.connect(watchdog.tick)
@@ -4235,6 +4208,8 @@ def main(argv: list[str] | None = None) -> int:
           file=sys.stderr, flush=True)
     code = app.exec()
     watchdog.stop()
+    if session is not None:
+        faulthandler.enable(file=session.crash_handle, all_threads=True)
     if window._update_plan:
         try:
             launched = _launch_update(window._update_plan)
@@ -4252,6 +4227,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
+    diagnostics.close()
     os._exit(code)
 
 

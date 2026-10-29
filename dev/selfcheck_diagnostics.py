@@ -41,6 +41,17 @@ class DiagnosticTests(unittest.TestCase):
         if result.returncode:
             raise AssertionError(result.stdout.decode('utf-8', errors='replace') + result.stderr.decode('utf-8', errors='replace'))
 
+    def test_rotated_and_crash_logs_are_included_with_platform_summary(self):
+        self.put('logs/ddm-crash.log', 'fixture native crash')
+        self.put('logs/ddm-2026-10-29.log.1', '[平台诊断] 阶段=source_request fixture rotated')
+        self.put('logs/ddm.log', 'fixture PR61 compatible')
+        self.put('logs/unrelated.log.1', 'PRIVATE_UNRELATED')
+        entries = self.collect()
+        self.assertIn('fixture native crash', entries['logs/ddm-crash.log'])
+        self.assertIn('fixture rotated', entries['logs/ddm-2026-10-29.log.1'])
+        self.assertIn('fixture PR61 compatible', entries['logs/ddm.log'])
+        self.assertNotIn('PRIVATE_UNRELATED', str(entries))
+
     def setUp(self):
         self.case = Path(tempfile.mkdtemp(dir=self.base, prefix='case-'))
         self.app = self.case / '软件 测试目录'

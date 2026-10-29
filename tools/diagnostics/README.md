@@ -21,7 +21,7 @@
 | `native-dependencies.json` | 独立子进程中的 libmpv 实际加载结果、位数检查、Win32 错误码、直接依赖 DLL 和缺少的函数入口；同时记录系统及软件目录的 Vulkan 加载器是否存在 |
 | `config/` | 当前配置及备份的脱敏副本；损坏或过大的配置不收集原文 |
 | `plugins.json` | 已安装插件 ID 与版本；启用状态见配置中的 `plugins_enabled` |
-| `logs/`、`ddm-pyinstaller-paths.txt` | 最多五份近期主程序/更新日志，每份仅末尾 2MB，以及已有启动路径日志 |
+| `logs/`、`ddm-pyinstaller-paths.txt` | 最多五份主程序/更新日志，兼容日期日志、轮转备份与 PR61 文件名，优先当前崩溃日志，其余按时间排序；每份仅末尾 2MB，以及已有启动路径日志 |
 | `processes.json` | 匹配所选安装路径的主程序进程、内存与启动时间 |
 | `crash-events.json` | 最近七天内与所选安装路径匹配的 Windows Application 事件，最多三十条 |
 | `collection.json` | 收集限制、警告与隐私范围 |

@@ -73,6 +73,8 @@
       "selfcheck_stream_recovery",
       "selfcheck_mobile_share",
       "selfcheck_setup",
+      "selfcheck_logging",
+      "selfcheck_qt_log",
       "selfcheck_system_tray"
     ]
   },

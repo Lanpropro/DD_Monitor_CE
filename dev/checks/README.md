@@ -49,7 +49,8 @@
 | [selfcheck_customization_plan](../selfcheck_customization_plan.py) | `repository` |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
-| [selfcheck_qt_log](../selfcheck_qt_log.py) | 单项执行前核对 |
+| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台 Qt 消息 |
+| [selfcheck_logging](../selfcheck_logging.py) | `offline`；临时日志、脱敏、轮转、启动失败与线程异常 |
 | [selfcheck_readme](../selfcheck_readme.py) | `repository` |
 | [selfcheck_repository_files](../selfcheck_repository_files.py) | `repository` |
 | [selfcheck_repository_map](../selfcheck_repository_map.py) | `repository` |
