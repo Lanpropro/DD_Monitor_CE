@@ -1564,6 +1564,7 @@ class DanmakuPanel(QFrame):
 
     # ---- 渲染 ----
     def refresh_theme(self) -> None:
+        self._layout_header()
         if self._blocks:
             self._render_all()
         else:
