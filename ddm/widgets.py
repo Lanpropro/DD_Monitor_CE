@@ -1360,6 +1360,10 @@ class DanmakuPanel(QFrame):
     def _message_clicked(self, index, position):
         if not 0 <= index < len(self._blocks):
             return
+        self._scroll_revision += 1
+        self._scroll_trim_remainder = 0.0
+        self._follow_tail = False
+        self._update_bottom_button()
         from .danmaku_actions import show_comment_menu
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()

@@ -137,10 +137,53 @@ class ActionsTests(unittest.TestCase):
         with self.choose(1):
             QTest.mouseClick(body.viewport(), Qt.LeftButton, pos=position)
         self.assertEqual(self.sent, [('12', 'first <message>')])
+        panel.jump_to_bottom()
         with patch.object(danmaku_actions, 'show_comment_menu') as show:
             QTest.mouseClick(body.viewport(), Qt.LeftButton,
                              pos=QPoint(20, body.viewport().height() - 10))
             show.assert_not_called()
+        self.assertTrue(panel._follow_tail)
+
+    def test_chat_click_holds_reading_position_until_return_to_bottom(self):
+        panel = self.wall.danmaku
+        panel.set_max_blocks(80)
+        for index in range(80):
+            panel.add_message('Viewer', f'comment {index} ' + 'wrapped text ' * (index % 3))
+        APP.processEvents()
+        body = panel.body
+        bar = body.verticalScrollBar()
+        self.assertGreater(bar.maximum(), 0)
+        self.assertEqual(bar.value(), bar.maximum())
+        # Leave a queued tail correction pending when the user clicks.
+        panel.add_message('Viewer', 'pending before click')
+        cursor = body.textCursor()
+        cursor.setPosition(body.document().lastBlock().position())
+        point = body.cursorRect(cursor).center()
+        anchor = body.cursorForPosition(QPoint(12, 12))
+        anchor_text = anchor.block().text()
+        anchor_y = body.cursorRect(anchor).y()
+
+        def incoming(_menu=None):
+            for index in range(5):
+                panel.add_message('New viewer', f'new comment {index}')
+            APP.processEvents()
+            current = body.cursorForPosition(QPoint(12, 12))
+            self.assertFalse(panel._follow_tail)
+            self.assertEqual(current.block().text(), anchor_text)
+            self.assertLessEqual(abs(body.cursorRect(current).y() - anchor_y), 1)
+            self.assertTrue(body.toPlainText().endswith('new comment 4'))
+            self.assertTrue(panel.bottom_button.isVisible())
+
+        with self.choose(0, incoming):
+            QTest.mouseClick(body.viewport(), Qt.LeftButton, pos=point)
+        incoming()  # Closing the action toolbar must not resume following.
+        self.assertEqual(len(panel._blocks), body.document().blockCount())
+        panel.bottom_button.click()
+        panel.add_message('Viewer', 'follow again')
+        APP.processEvents()
+        self.assertTrue(panel._follow_tail)
+        self.assertEqual(bar.value(), bar.maximum())
+        self.assertTrue(panel.bottom_button.isHidden())
 
     def test_hover_pauses_one_comment_and_resumes_without_jumping(self):
         video = self.wall.tiles[0].video_danmaku
