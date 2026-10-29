@@ -45,6 +45,11 @@ class CommentToolbar(QDialog):
         self.chosen = action
         self.accept()
 
+    def mousePressEvent(self, event):
+        # Dismissing the popup must not replay the click onto another comment.
+        self.setAttribute(Qt.WA_NoMouseReplay)
+        super().mousePressEvent(event)
+
     def refresh_theme(self):
         color = theme.qcolor(theme.ELEVATED)
         background = f'rgba({color.red()}, {color.green()}, {color.blue()}, 230)'
