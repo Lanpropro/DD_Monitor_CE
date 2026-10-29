@@ -189,10 +189,10 @@ class ControlsTests(unittest.TestCase):
         for mode in ('light', 'dark', 'light'):
             theme.apply(mode)
             APP.processEvents()
-            self.assertEqual(panel.bar.property('appearanceLight'), mode == 'light')
+            self.assertEqual(panel.header.property('appearanceLight'), mode == 'light')
             self.assertEqual(panel.composer_bar.property('appearanceLight'), mode == 'light')
-            for bar in (panel.bar, panel.composer_bar):
-                pixel = bar.grab().toImage().pixelColor(2, 8)
+            for bar in (panel.header, panel.composer_bar):
+                pixel = panel.grab().toImage().pixelColor(bar.x() + 2, bar.y() + 8)
                 self.assertEqual(pixel.lightness() > 200, mode == 'light')
             self.assertEqual(edit.palette().color(QPalette.Text).lightness() < 128, mode == 'light')
             image = edit.grab().toImage()
