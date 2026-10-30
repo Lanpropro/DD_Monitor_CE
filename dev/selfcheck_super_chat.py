@@ -4,6 +4,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from PySide6.QtCore import QRect, QThread, Qt, Signal
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
-from ddm import super_chat, theme  # noqa: E402
+from ddm import config, super_chat, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.video_danmaku import VideoDanmaku  # noqa: E402
@@ -396,6 +397,31 @@ def check_quick_card_mask(app):
         parent.close()
 
 
+def check_settings_persistence():
+    expected = {'super_chat_scale': 140, 'super_chat_collapse_delay': 9,
+                'super_chat_position': [.2, .7]}
+    with patch.object(MainWindow, 'refresh_status'), patch.object(MainWindow, 'refresh_stats'):
+        window = MainWindow([], [], state={'plugins_enabled': []})
+        try:
+            window._on_video_danmaku_settings_changed(expected)
+            saved = window.current_state()
+            assert window._save_timer.isActive()
+        finally:
+            window.close()
+        with TemporaryDirectory(prefix='ddm-sc-settings-') as directory, \
+                patch.object(config, 'CONFIG_PATH', str(Path(directory) / 'config.json')), \
+                patch.dict(os.environ):
+            os.environ.pop('DDM_NO_SAVE', None)
+            config.save(saved)
+            loaded = config.load()
+        restored = MainWindow([], [], state=loaded)
+        try:
+            for key, value in expected.items():
+                assert restored.settings[key] == value, (key, restored.settings[key])
+        finally:
+            restored.close()
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
@@ -414,9 +440,11 @@ def main():
     check_snapshot_retirement(app)
     check_websocket_adapter()
     check_room_lifecycle()
-    check_widgets(app)
-    check_avatar_header_and_edges(app)
-    check_quick_card_mask(app)
+    check_settings_persistence()
+    with patch('ddm.super_chat.motion.enabled', return_value=False):
+        check_widgets(app)
+        check_avatar_header_and_edges(app)
+        check_quick_card_mask(app)
     print("Super Chat store, snapshot, panel, and video overlay: PASS")
     sys.stdout.flush()
     sys.stderr.flush()

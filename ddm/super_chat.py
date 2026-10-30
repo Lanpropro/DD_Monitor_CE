@@ -7,11 +7,11 @@ from copy import deepcopy
 from urllib.parse import urlparse
 
 import requests
-from PySide6.QtCore import QObject, QRectF, QThread, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QObject, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QTransform
 from PySide6.QtWidgets import QApplication
 
-from . import bili
+from . import bili, motion
 from .images import AvatarLoader, load_cached_image
 
 
@@ -27,15 +27,77 @@ def order_super_chats(chats, selected=''):
     return ordered
 
 
-def sc_stack_rects(width, height, count):
+def sc_stack_rects(width, height, count, card_height=100, scale=1.0):
     if not count:
         return []
     if count < 3:
-        card_height = min(100, max(1, (height - 8 * (count - 1)) / count))
-        return [QRectF(0, i * (card_height + 8), width, card_height) for i in range(count)]
-    card_height = min(100, max(1, height - 40))
-    return [QRectF(i * 6, (2 - i) * 20, max(1, width - i * 12), card_height)
+        card_height = min(card_height * scale, max(1, (height - 8 * scale * (count - 1)) / count))
+        return [QRectF(0, i * (card_height + 8 * scale), width, card_height) for i in range(count)]
+    card_height = min(card_height * scale, max(1, height - 40 * scale))
+    return [QRectF(i * 6 * scale, (2 - i) * 20 * scale, max(1, width - i * 12 * scale), card_height)
             for i in range(3)]
+
+
+class SuperChatPresentation(QObject):
+    changed = Signal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.collapsed = False
+        self.progress = 1.0
+        self.delay = 7
+        self.ids = set()
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.collapse)
+        self.entrance = QVariantAnimation(self)
+        self.entrance.setDuration(180)
+        self.entrance.setEasingCurve(QEasingCurve.OutCubic)
+        self.entrance.setStartValue(0.0)
+        self.entrance.setEndValue(1.0)
+        self.entrance.valueChanged.connect(self._reveal)
+
+    def configure(self, settings):
+        delay = max(1, min(60, _number(settings.get('super_chat_collapse_delay'), 7)))
+        if self.delay != delay:
+            self.delay = delay
+            if self.ids and not self.collapsed:
+                self.timer.start(delay * 1000)
+
+    def set_events(self, events):
+        ids = {str(item.get('id') or item.get('super_chat_id') or '') for item in events}
+        added = ids - self.ids
+        self.ids = ids
+        if not ids:
+            self.timer.stop()
+            self.entrance.stop()
+            self.collapsed = False
+            self.progress = 1.0
+        elif added:
+            self.expand(animate=True)
+
+    def expand(self, *, animate=False):
+        self.collapsed = False
+        self.timer.start(self.delay * 1000)
+        if animate and motion.enabled():
+            self.entrance.stop()
+            self.entrance.start()
+        else:
+            self.entrance.stop()
+            self.progress = 1.0
+        self.changed.emit()
+
+    def collapse(self):
+        if not self.ids:
+            return
+        self.entrance.stop()
+        self.progress = 1.0
+        self.collapsed = True
+        self.changed.emit()
+
+    def _reveal(self, value):
+        self.progress = float(value)
+        self.changed.emit()
 
 
 class SuperChatAvatar(QObject):
@@ -103,13 +165,16 @@ def paint_sc_background(painter, rect, background, header, accent, header_height
     top = QPainterPath()
     x, y, right = rect.left(), rect.top(), rect.right()
     bottom = min(rect.bottom(), y + header_height)
-    top.moveTo(x, bottom)
-    top.lineTo(x, y + 7)
-    top.quadTo(x, y, x + 7, y)
-    top.lineTo(right - 7, y)
-    top.quadTo(right, y, right, y + 7)
-    top.lineTo(right, bottom)
-    top.closeSubpath()
+    if header_height >= rect.height():
+        top.addRoundedRect(rect, 7, 7)
+    else:
+        top.moveTo(x, bottom)
+        top.lineTo(x, y + 7)
+        top.quadTo(x, y, x + 7, y)
+        top.lineTo(right - 7, y)
+        top.quadTo(right, y, right, y + 7)
+        top.lineTo(right, bottom)
+        top.closeSubpath()
     painter.fillPath(top, QColor(header))
     painter.setBrush(QColor(accent))
     painter.drawRoundedRect(QRectF(x, y + 7, 3, max(0, rect.height() - 14)), 1.5, 1.5)

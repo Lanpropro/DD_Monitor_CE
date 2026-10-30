@@ -3039,6 +3039,7 @@ class MainWindow(QMainWindow):
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.video_danmaku.apply_settings(self.settings)
+        tile.video_danmaku.superChatSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
@@ -4077,11 +4078,6 @@ class MainWindow(QMainWindow):
     def _dismiss_super_chat(self, room_id: str, chat_id: str) -> None:
         store = self._super_chats.get(room_id)
         if store is not None:
-            for tile in self.wall.tiles:
-                if str(tile.room.get('room_id') or '') == room_id:
-                    tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
-            if room_id == self._danmaku_room:
-                self.wall.danmaku.super_chats.animate_dismiss(chat_id)
             store.dismiss(chat_id)
             self._publish_super_chats(room_id)
 

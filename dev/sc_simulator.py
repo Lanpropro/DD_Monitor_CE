@@ -111,6 +111,20 @@ class ScSimulator(QMainWindow):
         self.opacity.setValue(80)
         self.opacity.valueChanged.connect(self.change_opacity)
         form.addRow('SC 不透明度', self.opacity)
+        self.collapse_delay = QSpinBox()
+        self.collapse_delay.setRange(1, 60)
+        self.collapse_delay.setSuffix(' 秒')
+        self.collapse_delay.setValue(7)
+        self.collapse_delay.valueChanged.connect(lambda value: self.change_sc_settings({'super_chat_collapse_delay': value}))
+        form.addRow('SC 自动折叠', self.collapse_delay)
+        self.sc_scale = QSlider(Qt.Horizontal)
+        self.sc_scale.setRange(75, 200)
+        self.sc_scale.setValue(100)
+        self.sc_scale.valueChanged.connect(lambda value: self.change_sc_settings({'super_chat_scale': value}))
+        form.addRow('SC 大小', self.sc_scale)
+        reset_position = QPushButton('恢复 SC 位置')
+        reset_position.clicked.connect(lambda: self.change_sc_settings({'super_chat_position': None}))
+        form.addRow(reset_position)
         self.sc_enabled = QCheckBox('显示醒目留言（SC）')
         self.sc_enabled.setChecked(True)
         self.sc_enabled.toggled.connect(self.change_sc_enabled)
@@ -122,6 +136,7 @@ class ScSimulator(QMainWindow):
         self.layout_choice.currentIndexChanged.connect(
             self.change_layout)
         form.addRow('布局', self.layout_choice)
+        self.tile.video_danmaku.superChatSettingsChanged.connect(self.change_sc_settings)
         self.tile.video_danmaku.superChatDismissed.connect(self.dismiss_chat)
         self.wall.danmaku.superChatDismissed.connect(self.dismiss_chat)
         appearance = QComboBox()
@@ -176,8 +191,6 @@ class ScSimulator(QMainWindow):
         self.status.setText(f'活动留言：{len(chats)} 条')
 
     def dismiss_chat(self, chat_id):
-        self.tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
-        self.wall.danmaku.super_chats.animate_dismiss(chat_id)
         self.store.dismiss(chat_id)
         self.publish()
 
@@ -187,6 +200,16 @@ class ScSimulator(QMainWindow):
         event = {'kind': 'danmaku', 'uname': '虚拟观众', 'text': '普通滚动弹幕共存测试'}
         self.wall.danmaku.add_event(event)
         self.tile.video_danmaku.add_event(event)
+
+    def change_sc_settings(self, values):
+        self.sc_settings.update(values)
+        for control, key in ((self.sc_scale, 'super_chat_scale'),
+                             (self.collapse_delay, 'super_chat_collapse_delay')):
+            control.blockSignals(True)
+            control.setValue(self.sc_settings[key])
+            control.blockSignals(False)
+        self.tile.video_danmaku.apply_settings(self.sc_settings)
+        self.publish()
 
     def change_opacity(self, value):
         self.sc_settings['super_chat_opacity'] = value

@@ -18,6 +18,9 @@ APP = QApplication.instance() or QApplication([])
 
 class SimulatorTests(unittest.TestCase):
     def setUp(self):
+        self.motion_patch = patch.object(motion, 'enabled', return_value=False)
+        self.motion_patch.start()
+        self.addCleanup(self.motion_patch.stop)
         self.window = ScSimulator()
         self.window.show()
         APP.processEvents()
@@ -98,16 +101,9 @@ class SimulatorTests(unittest.TestCase):
         point = sc.card_rects()[1].topLeft().toPoint() + QPoint(24, 8) - sc._content_origin
         QTest.mouseClick(sc, Qt.LeftButton, pos=point)
         self.assertEqual(sc.chats[0]['id'], '4')
-        with patch.object(motion, 'enabled', return_value=True):
-            self.click(sc.close_button)
-            sc.animation.setCurrentTime(180)
-            image = sc.render_image()
-            rect = sc.card_rects()[1].translated(-sc._content_origin)
-            scale = image.devicePixelRatio()
-            pixel = image.pixelColor(round(rect.center().x() * scale), round((rect.bottom() - 12) * scale))
-            self.assertGreater(pixel.alpha(), 0, 'Rear card body must be painted during the fold')
-            self.assertGreater(pixel.red() + pixel.green() + pixel.blue(), 100, 'Rear body must not turn black')
-            QTest.qWait(300)
+        self.click(sc.close_button)
+        self.assertEqual([chat['id'] for chat in sc.chats], ['3', '2', '1'])
+        self.assertEqual(sc.presentation.progress, 1.0)
         self.assertEqual(sc.chats[0]['id'], '3')
 
         self.click(sc.close_button)
@@ -145,33 +141,114 @@ class SimulatorTests(unittest.TestCase):
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
 
-    def test_notification_paper_motion_and_reduced_motion(self):
+    def test_entrance_and_immediate_dismiss(self):
         window = self.window
-        overlay = window.tile.video_danmaku.super_chat_overlay
-        card = window.wall.danmaku.super_chats._cards[0]
-        with patch.object(motion, 'enabled', return_value=True):
-            self.click(card.close_button)
-            self.assertEqual(overlay.animation.duration(), motion.PAPER_DISMISS_MS)
-            self.assertEqual(card.animation.easingCurve(), motion.THEME_WAVE_EASING)
-            self.assertIsNone(overlay._paper)
-            self.assertIsNotNone(card._paper)
-            self.assertFalse(window.store.active())
-            QTest.qWait(300)
-            self.assertIsNone(overlay._paper)
-            self.assertTrue(overlay.isHidden())
-        window.number.setValue(2)
-        self.click(window.add_button)
         window.layout_choice.setCurrentIndex(1)
+        sc = window.tile.video_danmaku.super_chat_overlay
         with patch.object(motion, 'enabled', return_value=True):
-            self.click(overlay.close_button)
-            self.assertIsNotNone(overlay._paper)
-            QTest.qWait(300)
+            window.number.setValue(2)
+            self.click(window.add_button)
+            self.assertEqual(sc.presentation.entrance.duration(), 180)
+            sc.presentation.entrance.setCurrentTime(90)
+            self.assertGreater(sc.presentation.progress, 0)
+            self.assertLess(sc.presentation.progress, 1)
+            sc.presentation.entrance.setCurrentTime(180)
+            self.assertEqual(sc.presentation.progress, 1)
+            self.click(sc.close_buttons[1])
+            self.assertEqual([chat['id'] for chat in sc.chats], ['1'])
+            self.click(sc.close_button)
+            self.assertTrue(sc.isHidden())
+            self.assertFalse(sc.presentation.timer.isActive())
+        window.layout_choice.setCurrentIndex(0)
         window.number.setValue(3)
         self.click(window.add_button)
-        with patch.object(motion, 'enabled', return_value=False):
-            self.click(overlay.close_button)
-            self.assertIsNone(overlay._paper)
-            self.assertTrue(overlay.isHidden())
+        stack = window.wall.danmaku.super_chats
+        self.assertEqual(stack.presentation.progress, 1)
+        self.click(stack._cards[0].close_button)
+        self.assertTrue(stack.isHidden())
+
+    def test_collapse_timer_survives_refresh_and_click_reopens(self):
+        window = self.window
+        stack = window.wall.danmaku.super_chats
+        sc = window.tile.video_danmaku.super_chat_overlay
+        self.assertEqual(stack.presentation.timer.interval(), 7000)
+        window.collapse_delay.setValue(1)
+        QTest.qWait(400)
+        window.publish()
+        QTest.qWait(700)
+        self.assertTrue(stack.presentation.collapsed)
+        self.assertTrue(sc.presentation.collapsed)
+        self.assertLessEqual(stack._cards[0].height(), 37)
+        self.assertTrue(stack._cards[0].message.isHidden())
+        self.assertEqual(stack._cards[0].price.text(), '¥30')
+        self.click(window.add_button)
+        self.assertTrue(stack.presentation.collapsed, 'Duplicate updates must not restart the timer')
+        self.click(stack._cards[0].name)
+        self.assertFalse(stack.presentation.collapsed)
+        self.assertFalse(stack._cards[0].message.isHidden())
+        window.layout_choice.setCurrentIndex(1)
+        point = sc.card_rects()[0].center().toPoint() - sc._content_origin
+        QTest.mouseClick(sc, Qt.LeftButton, pos=point)
+        self.assertFalse(sc.presentation.collapsed)
+        sc.presentation.collapse()
+        window.number.setValue(2)
+        self.click(window.add_button)
+        self.assertFalse(sc.presentation.collapsed, 'A new SC must expand the cards')
+        self.assertFalse(stack.presentation.collapsed)
+
+    def test_drag_snap_resize_and_restore(self):
+        window = self.window
+        window.layout_choice.setCurrentIndex(1)
+        overlay = window.tile.video_danmaku
+        sc = overlay.super_chat_overlay
+        start = sc.card_rects()[0].topLeft().toPoint() + QPoint(60, 16) - sc._content_origin
+        origin = sc.card_rects()[0].topLeft().toPoint()
+        delta = QPoint(12, 12) - origin
+        QTest.mousePress(sc, Qt.LeftButton, pos=start)
+        QTest.mouseMove(sc, start + delta)
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=start + delta)
+        APP.processEvents()
+        self.assertEqual(window.sc_settings['super_chat_position'], [0.0, 0.0])
+        self.assertAlmostEqual(sc.card_rects()[0].left(), 10)
+        self.assertAlmostEqual(sc.card_rects()[0].top(), 10)
+        window.resize(1000, 700)
+        APP.processEvents()
+        self.assertAlmostEqual(sc.card_rects()[0].left(), 10)
+        old_width = sc.card_rects()[0].width()
+        corner = sc.card_rects()[0].bottomRight().toPoint() - sc._content_origin - QPoint(3, 3)
+        QTest.mousePress(sc, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(sc, corner + QPoint(50, 0))
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=corner + QPoint(50, 0))
+        APP.processEvents()
+        self.assertGreater(window.sc_settings['super_chat_scale'], 100)
+        self.assertEqual(window.sc_scale.value(), window.sc_settings['super_chat_scale'])
+        self.assertGreater(sc.card_rects()[0].width(), old_width)
+        window.sc_scale.setValue(150)
+        self.assertEqual(overlay.settings['super_chat_scale'], 150)
+        sc.presentation.collapse()
+        for size in ((200, 100), (1200, 700)):
+            overlay.resize(*size)
+            for rect in sc.card_rects():
+                self.assertTrue(overlay.rect().contains(rect.toAlignedRect()))
+        saved = dict(window.sc_settings)
+        window.change_sc_settings({'super_chat_position': None})
+        self.assertGreater(sc.card_rects()[0].left(), 10)
+        window.change_sc_settings(saved)
+        self.assertAlmostEqual(sc.card_rects()[0].left(), 10)
+
+    def test_expiry_during_drag_releases_the_gesture(self):
+        window = self.window
+        window.layout_choice.setCurrentIndex(1)
+        sc = window.tile.video_danmaku.super_chat_overlay
+        point = sc.card_rects()[0].center().toPoint() - sc._content_origin
+        QTest.mousePress(sc, Qt.LeftButton, pos=point)
+        window.store.expire(now=time.time() + 1000)
+        window.publish()
+        self.assertTrue(sc.isHidden())
+        self.assertIsNone(sc._gesture)
+        QTest.mouseMove(sc, point + QPoint(50, 0))
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=point)
+        self.assertIsNone(window.sc_settings['super_chat_position'])
 
     def test_master_toggle_controls_comments_and_sc_without_panel(self):
         window = self.window
