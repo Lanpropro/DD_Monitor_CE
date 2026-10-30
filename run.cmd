@@ -7,6 +7,7 @@ setlocal
 set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
 set "PROJ=%~dp0"
+if /i "%~1"=="--mobile" goto mobile
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 
 set "PY=%PROJ%.venv\Scripts\pythonw.exe"
@@ -31,3 +32,15 @@ echo 请在本目录执行：  python -m venv .venv
 echo 然后执行：        .venv\Scripts\pip install -r requirements.txt
 pause
 exit /b 1
+
+:mobile
+where flutter.bat >nul 2>nul
+if errorlevel 1 (
+    echo 请先将 Flutter SDK 的 bin 目录加入 PATH。
+    exit /b 1
+)
+pushd "%PROJ%mobile"
+call flutter.bat run
+set "MOBILE_EXIT=%ERRORLEVEL%"
+popd
+exit /b %MOBILE_EXIT%
