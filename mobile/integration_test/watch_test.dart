@@ -15,6 +15,13 @@ void main() {
         model.dispose();
       });
       await tester.pumpWidget(MonitorApp(model: model));
+      Future<void> wakeControls() async {
+        if (find.byKey(const Key('show-dock')).evaluate().isNotEmpty) {
+          await tester.tap(find.byKey(const Key('show-dock')));
+          await tester.pumpAndSettle();
+        }
+      }
+
       await tester.tap(find.byKey(const Key('dock-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('add-follow')));
@@ -37,6 +44,7 @@ void main() {
       expect(room.live, isTrue);
       expect(room.cover, isNotEmpty);
       expect(find.byKey(Key('cover-${room.roomId}')), findsOneWidget);
+      await wakeControls();
       await tester.tap(find.byKey(Key('follow-${room.roomId}')));
       await tester.pumpAndSettle();
       expect(find.text('放到哪个位置'), findsOneWidget);
@@ -66,6 +74,10 @@ void main() {
       expect(model.sessions[1].controller!.value.isPlaying, isTrue);
       expect(model.sessions[0].controller!.value.isPlaying, isTrue);
       expect(model.sessions[1].controller!.value.volume, 0);
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('show-dock')), findsOneWidget);
+      await wakeControls();
       await tester.tap(find.byKey(const Key('dock-1')));
       await tester.pumpAndSettle();
       expect(find.text('画面 1'), findsOneWidget);

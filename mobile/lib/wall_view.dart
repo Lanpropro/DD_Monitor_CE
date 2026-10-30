@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -9,15 +7,20 @@ import 'platforms/bilibili.dart';
 import 'watch_session.dart';
 
 class SlotLayout extends StatelessWidget {
-  const SlotLayout({super.key, required this.layout, required this.builder});
+  const SlotLayout({
+    super.key,
+    required this.layout,
+    required this.builder,
+    this.fill = false,
+  });
+  final bool fill;
   final WallLayout layout;
   final Widget Function(int index) builder;
   static double aspect(WallLayout layout) =>
       layout == WallLayout.focus ? 32 / 27 : 16 / 9;
   @override
-  Widget build(BuildContext context) => AspectRatio(
-    aspectRatio: aspect(layout),
-    child: LayoutBuilder(
+  Widget build(BuildContext context) {
+    final content = LayoutBuilder(
       builder: (_, box) {
         final cells = layoutCells(layout);
         return Stack(
@@ -36,8 +39,11 @@ class SlotLayout extends StatelessWidget {
           ],
         );
       },
-    ),
-  );
+    );
+    return fill
+        ? content
+        : AspectRatio(aspectRatio: aspect(layout), child: content);
+  }
 }
 
 class WatchWall extends StatelessWidget {
@@ -49,24 +55,17 @@ class WatchWall extends StatelessWidget {
     builder: (_, box) {
       final wide = box.maxWidth >= 720;
       final layout = model.effectiveLayout(wide);
-      // Reserve space for the floating Dock, including on short landscape phones.
-      final height = math.max(
-        80.0,
-        box.maxHeight - MediaQuery.viewPaddingOf(context).bottom - 132,
-      );
-      final width = math.min(
-        box.maxWidth - 24,
-        height * SlotLayout.aspect(layout),
-      );
       return Align(
         key: Key(wide ? 'regular-wall' : 'portrait-wall'),
-        alignment: Alignment.topCenter,
+        alignment: Alignment.center,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          padding: const EdgeInsets.all(3),
           child: SizedBox(
-            width: width,
+            width: double.infinity,
+            height: double.infinity,
             child: SlotLayout(
               key: const Key('wall-layout'),
+              fill: true,
               layout: layout,
               builder: (index) => LiveTile(
                 index: index,

@@ -89,8 +89,9 @@ void main() {
           ),
         ),
       );
-      final dock = tester.getRect(find.byKey(const Key('dock-0')));
-      expect(lastSlot.bottom, lessThanOrEqualTo(dock.top));
+      expect(lastSlot.bottom, closeTo(wall.bottom - 6, 1));
+      expect(wall.width, size.width);
+      expect(wall.height, size.height);
       await tester.tap(find.byKey(const Key('dock-1')));
       await tester.pumpAndSettle();
       final cover = tester.getSize(find.byKey(const Key('cover-6')));
@@ -168,7 +169,26 @@ void main() {
     model.sessions[0].controller = VideoPlayerController.networkUrl(
       Uri.parse('https://example.com/live.m3u8'),
     );
-    await tester.pumpWidget(MonitorApp(model: model));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 120,
+              height: 90,
+              child: LiveTile(
+                index: 0,
+                session: model.sessions[0],
+                room: liveRoom,
+                onSelect: () {},
+                onClear: () {},
+                onAudio: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
     expect(find.byKey(const Key('tile-menu-0')), findsOneWidget);
     await tester.tap(find.byKey(const Key('tile-menu-0')));
     await tester.pumpAndSettle();
@@ -185,4 +205,49 @@ void main() {
     expect(find.byKey(const Key('regular-wall')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'Tablet controls are compact, hide after inactivity and wake on touch',
+    (tester) async {
+      await boot(tester, size: const Size(1280, 800));
+      expect(find.text('DD监控室'), findsNothing);
+      expect(find.byType(AppBar), findsNothing);
+      final dock = tester.getRect(find.byKey(const Key('dock-surface')));
+      final layout = tester.getRect(find.byKey(const Key('choose-layout')));
+      expect(dock.height, lessThanOrEqualTo(52));
+      expect(layout.left, lessThan(24));
+      expect(layout.bottom, greaterThan(760));
+      expect(dock.left, greaterThan(layout.right));
+      await tester.pump(const Duration(seconds: 4));
+      await tester.tap(find.byKey(const Key('dock-2')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byKey(const Key('show-dock')), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('show-dock')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('show-dock')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('show-dock')), findsNothing);
+      await tester.tap(find.byKey(const Key('dock-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 6));
+      expect(find.text('选择布局'), findsOneWidget);
+      expect(find.byKey(const Key('show-dock')), findsNothing);
+      await tester.tap(find.byKey(const Key('layout-quad')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('video-slot-3')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      await tester.tapAt(
+        tester.getCenter(find.byKey(const Key('empty-slot-0'))),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('show-dock')), findsNothing);
+      expect(find.byType(AppBar), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

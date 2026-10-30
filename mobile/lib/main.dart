@@ -7,6 +7,7 @@ import 'app.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   final preferences = await SharedPreferences.getInstance();
   runApp(MonitorApp(preferences: preferences));
 }

@@ -134,7 +134,7 @@ class _FollowPageState extends State<FollowPage> {
                       onRefresh: widget.model.refreshFollows,
                       child: GridView.builder(
                         key: const Key('follow-cards'),
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 130),
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 72),
                         physics: const AlwaysScrollableScrollPhysics(),
                         itemCount: rooms.length,
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

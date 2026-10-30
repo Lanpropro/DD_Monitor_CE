@@ -30,10 +30,38 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
       widget.model ?? MonitorModel(preferences: widget.preferences);
   int selected = 0;
   Timer? refreshTimer;
+  Timer? controlsTimer;
+  bool controlsVisible = true;
+
+  void showControls() {
+    controlsTimer?.cancel();
+    if (!controlsVisible && mounted) setState(() => controlsVisible = true);
+    controlsTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted &&
+          !WidgetsBinding
+              .instance
+              .platformDispatcher
+              .accessibilityFeatures
+              .accessibleNavigation) {
+        setState(() => controlsVisible = false);
+      }
+    });
+  }
+
+  Future<T?> presentPanel<T>(BuildContext context, Widget child) async {
+    controlsTimer?.cancel();
+    try {
+      return await showAdaptivePanel<T>(context, child, model);
+    } finally {
+      if (mounted) showControls();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    showControls();
     unawaited(model.refreshFollows());
     refreshTimer = Timer.periodic(
       const Duration(seconds: 60),
@@ -44,10 +72,12 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      controlsTimer?.cancel();
       refreshTimer?.cancel();
       unawaited(model.suspend());
     }
     if (state == AppLifecycleState.resumed) {
+      showControls();
       unawaited(model.resume());
       refreshTimer?.cancel();
       refreshTimer = Timer.periodic(
@@ -60,13 +90,14 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     refreshTimer?.cancel();
+    controlsTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (widget.model == null) model.dispose();
     super.dispose();
   }
 
   Future<void> addFollow(BuildContext context) async {
-    await showAdaptivePanel<void>(context, AddFollowSheet(model: model), model);
+    await presentPanel<void>(context, AddFollowSheet(model: model));
   }
 
   Future<void> place(BuildContext context, RoomInfo room) async {
@@ -78,10 +109,9 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
     }
     final wide = MediaQuery.sizeOf(context).width >= 720;
     final layout = model.effectiveLayout(wide);
-    final index = await showAdaptivePanel<int>(
+    final index = await presentPanel<int>(
       context,
       PlacementPanel(model: model, room: room, layout: layout),
-      model,
     );
     if (index == null || !mounted || !context.mounted) return;
     if (model.rooms[index] != null &&
@@ -112,7 +142,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   }
 
   Future<void> chooseLayout(BuildContext context) async {
-    final chosen = await showAdaptivePanel<WallLayout>(
+    final chosen = await presentPanel<WallLayout>(
       context,
       Padding(
         padding: const EdgeInsets.all(20),
@@ -138,7 +168,6 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
           ],
         ),
       ),
-      model,
     );
     if (chosen == null || !context.mounted) return;
     if (model.rooms.skip(chosen.slots).any((room) => room != null)) {
@@ -192,192 +221,216 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
         listenable: model,
         builder: (_, _) => MediaQuery.sizeOf(context).isEmpty
             ? const ColoredBox(color: background)
-            : Scaffold(
-                extendBody: true,
-                appBar: AppBar(
-                  toolbarHeight:
-                      70 *
-                      MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.5),
-                  title: Row(
-                    children: [
-                      const Icon(
-                        Icons.live_tv_rounded,
-                        size: 21,
-                        color: accent,
-                      ),
-                      const SizedBox(width: 9),
-                      Flexible(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'DD监控室',
-                              style: TextStyle(fontSize: 12, color: secondary),
-                            ),
-                            Text(
-                              tabs[selected],
-                              style: const TextStyle(
-                                fontSize: 25,
-                                fontWeight: FontWeight.w600,
+            : Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: (_) => showControls(),
+                onPointerMove: (_) => showControls(),
+                onPointerHover: (_) => showControls(),
+                onPointerSignal: (_) => showControls(),
+                child: Scaffold(
+                  appBar: selected == 0
+                      ? null
+                      : AppBar(
+                          toolbarHeight: 48,
+                          title: Text(
+                            tabs[selected],
+                            style: const TextStyle(fontSize: 21),
+                          ),
+                          actions: [
+                            if (selected == 1) ...[
+                              IconButton(
+                                tooltip: '刷新主播状态',
+                                onPressed: model.refreshing
+                                    ? null
+                                    : model.refreshFollows,
+                                icon: const Icon(Icons.refresh),
                               ),
+                              IconButton(
+                                key: const Key('add-follow'),
+                                tooltip: '添加关注',
+                                onPressed: () => addFollow(context),
+                                icon: const Icon(Icons.add_circle_outline),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                          ],
+                        ),
+                  body: SafeArea(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        IndexedStack(
+                          index: selected,
+                          children: [
+                            WatchWall(
+                              model: model,
+                              onSelect: () => setState(() => selected = 1),
+                            ),
+                            FollowPage(
+                              model: model,
+                              onSelect: (room) => place(context, room),
+                              onAdd: () => addFollow(context),
+                            ),
+                            const PluginPage(),
+                            SettingsPage(
+                              model: model,
+                              onLayout: () => chooseLayout(context),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    if (selected == 0)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 16),
-                        child: GlassSurface(
-                          radius: 23,
-                          reduced: model.reduceTransparency,
-                          child: TextButton.icon(
-                            key: const Key('choose-layout'),
-                            onPressed: () => chooseLayout(context),
-                            icon: const Icon(Icons.grid_view_rounded, size: 18),
-                            label: Text(
-                              model
-                                  .effectiveLayout(
-                                    MediaQuery.sizeOf(context).width >= 720,
-                                  )
-                                  .label,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Colors.white,
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 8,
+                          child: IgnorePointer(
+                            ignoring: !controlsVisible,
+                            child: AnimatedSlide(
+                              duration: MediaQuery.disableAnimationsOf(context)
+                                  ? Duration.zero
+                                  : const Duration(milliseconds: 200),
+                              offset: controlsVisible
+                                  ? Offset.zero
+                                  : const Offset(0, 1.5),
+                              child: ExcludeSemantics(
+                                excluding: !controlsVisible,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Center(child: dock()),
+                                    if (selected == 0)
+                                      Positioned(
+                                        left: 12,
+                                        child: GlassSurface(
+                                          radius: 24,
+                                          reduced: model.reduceTransparency,
+                                          child: IconButton(
+                                            key: const Key('choose-layout'),
+                                            tooltip: '切换布局',
+                                            onPressed: () =>
+                                                chooseLayout(context),
+                                            icon: const Icon(
+                                              Icons.grid_view_rounded,
+                                              size: 22,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    if (selected == 1) ...[
-                      IconButton(
-                        tooltip: '刷新主播状态',
-                        onPressed: model.refreshing
-                            ? null
-                            : model.refreshFollows,
-                        icon: const Icon(Icons.refresh),
-                      ),
-                      IconButton(
-                        key: const Key('add-follow'),
-                        tooltip: '添加关注',
-                        onPressed: () => addFollow(context),
-                        icon: const Icon(Icons.add_circle_outline),
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                  ],
-                ),
-                body: SafeArea(
-                  top: false,
-                  bottom: false,
-                  child: IndexedStack(
-                    index: selected,
-                    children: [
-                      WatchWall(
-                        model: model,
-                        onSelect: () => setState(() => selected = 1),
-                      ),
-                      FollowPage(
-                        model: model,
-                        onSelect: (room) => place(context, room),
-                        onAdd: () => addFollow(context),
-                      ),
-                      const PluginPage(),
-                      SettingsPage(
-                        model: model,
-                        onLayout: () => chooseLayout(context),
-                      ),
-                    ],
-                  ),
-                ),
-                bottomNavigationBar: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-                    child: Center(
-                      heightFactor: 1,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 500),
-                        child: GlassSurface(
-                          radius: 32,
-                          reduced: model.reduceTransparency,
-                          child: Padding(
-                            padding: const EdgeInsets.all(5),
-                            child: Row(
-                              children: [
-                                for (var i = 0; i < tabs.length; i++)
-                                  Expanded(
-                                    child: Semantics(
-                                      selected: selected == i,
-                                      button: true,
-                                      child: Material(
-                                        color: Colors.transparent,
-                                        child: InkWell(
-                                          key: Key('dock-$i'),
-                                          borderRadius: BorderRadius.circular(
-                                            27,
-                                          ),
-                                          onTap: () =>
-                                              setState(() => selected = i),
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              color: selected == i
-                                                  ? Colors.white.withValues(
-                                                      alpha: 0.13,
-                                                    )
-                                                  : Colors.transparent,
-                                              borderRadius:
-                                                  BorderRadius.circular(27),
-                                              border: Border.all(
-                                                color: selected == i
-                                                    ? Colors.white24
-                                                    : Colors.transparent,
-                                              ),
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 9,
-                                                  ),
-                                              child: Column(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    tabIcons[i],
-                                                    size: 23,
-                                                    color: selected == i
-                                                        ? accent
-                                                        : secondary,
-                                                  ),
-                                                  const SizedBox(height: 3),
-                                                  Text(
-                                                    tabs[i],
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: selected == i
-                                                          ? accent
-                                                          : secondary,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
+                        if (!controlsVisible)
+                          Positioned.fill(
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              child: Semantics(
+                                button: true,
+                                label: '显示导航栏',
+                                child: GestureDetector(
+                                  key: const Key('show-dock'),
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: showControls,
+                                  child: SizedBox.expand(
+                                    child: Align(
+                                      alignment: Alignment.bottomCenter,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 10,
+                                        ),
+                                        child: Container(
+                                          width: 32,
+                                          height: 3,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white38,
+                                            borderRadius: BorderRadius.circular(
+                                              2,
                                             ),
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
-                              ],
+                                ),
+                              ),
                             ),
                           ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+      ),
+    ),
+  );
+
+  Widget dock() => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 360),
+    child: GlassSurface(
+      key: const Key('dock-surface'),
+      radius: 26,
+      reduced: model.reduceTransparency,
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < tabs.length; i++)
+              Flexible(
+                child: Semantics(
+                  selected: selected == i,
+                  button: true,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      key: Key('dock-$i'),
+                      borderRadius: BorderRadius.circular(23),
+                      onTap: () {
+                        showControls();
+                        setState(() => selected = i);
+                      },
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected == i
+                              ? Colors.white.withValues(alpha: 0.13)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(23),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              tabIcons[i],
+                              size: 20,
+                              color: selected == i ? accent : secondary,
+                            ),
+                            const SizedBox(width: 5),
+                            Flexible(
+                              child: Text(
+                                tabs[i],
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: selected == i ? accent : secondary,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
+          ],
+        ),
       ),
     ),
   );
@@ -397,7 +450,10 @@ Future<T?> showAdaptivePanel<T>(
           constraints: const BoxConstraints(maxWidth: 540),
           child: GlassSurface(
             reduced: model.reduceTransparency,
-            child: SingleChildScrollView(child: child),
+            child: Material(
+              color: Colors.transparent,
+              child: SingleChildScrollView(child: child),
+            ),
           ),
         ),
       ),
@@ -411,12 +467,15 @@ Future<T?> showAdaptivePanel<T>(
     builder: (_) => GlassSurface(
       reduced: model.reduceTransparency,
       radius: 28,
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
+      child: Material(
+        color: Colors.transparent,
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: child,
           ),
-          child: child,
         ),
       ),
     ),
@@ -447,7 +506,7 @@ class PluginPage extends StatelessWidget {
           ),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 72),
             children: [
               Card(
                 color: panel,
@@ -606,9 +665,9 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800),
+                constraints: const BoxConstraints(maxWidth: double.infinity),
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 72),
                   children: [
                     if (wide)
                       sections[section]
