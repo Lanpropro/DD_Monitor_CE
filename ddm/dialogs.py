@@ -209,6 +209,7 @@ class GeneralSettingsPage(QWidget):
     ITEMS = [
         ("default_muted", "新建格子初始静音"),
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
+        ("volume_normalization", "音量均衡（减小直播间音量差异）"),
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
@@ -257,7 +258,9 @@ class GeneralSettingsPage(QWidget):
         row += 1
         for key, label in self.ITEMS:
             box = QCheckBox(label)
-            box.setChecked(bool(settings.get(key, True)))
+            box.setChecked(bool(settings.get(key, key != "volume_normalization")))
+            if key == "volume_normalization":
+                box.setToolTip("自动调整偏轻或偏响的声音；保存后应用于所有播放格子，仍可独立调节音量。")
             grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
             if key == "sidebar_platform_logos":
