@@ -2672,7 +2672,8 @@ class NavThumb(QFrame):
         self.hint.setVisible(False)
         self.video.setGeometry(self.rect())
         self.hint.setGeometry(self.rect())
-        self.cover.setVisible(not self._compact_thumb())
+        self.cover.setVisible(not self._compact_thumb() and
+                              (self._card_mode or self._compact_background))
         self.face.setVisible(bool(self.face.pixmap()))
         self._set_overlay_visible(True)
 
