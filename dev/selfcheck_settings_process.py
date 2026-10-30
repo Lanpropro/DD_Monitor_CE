@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QProcess, QTimer, qVersion
+from PySide6.QtCore import QCoreApplication, QEvent, QProcess, QTimer, qVersion
 from PySide6.QtWidgets import QApplication
 from ddm import config, settings_process
 
@@ -756,6 +757,63 @@ def check_restart_native():
     print('PASS: install/delete restart releases foreign pages before host exit; no settings process remains')
 
 
+def check_nonblocking_online_close(app):
+    from unittest.mock import Mock
+    from ddm.dialogs import SettingsDialog
+    from ddm import online_ui
+    from shiboken6 import isValid
+    for update in (False, True):
+        entered, release = threading.Event(), threading.Event()
+        callback = Mock()
+        dialog = SettingsDialog(config.DEFAULT_SETTINGS, {})
+        page = online_ui.AppUpdatePage(config.DEFAULT_SETTINGS, dialog) if update else online_ui.OnlinePage(dialog)
+        if not update:
+            dialog._loaded_pages[6] = SimpleNamespace(store_page=page)
+        def operation(cancelled, progress):
+            entered.set()
+            release.wait(3)
+            progress(1, 1)
+            return '/fixture/late-update-plan.json' if update else ['late-catalog']
+        ticks = []
+        heartbeat = QTimer()
+        heartbeat.setInterval(10)
+        heartbeat.timeout.connect(lambda: ticks.append(1))
+        heartbeat.start()
+        fallback = threading.Timer(1.5, release.set)
+        fallback.daemon = True
+        fallback.start()
+        with patch.object(online_ui.update_install, 'discard_plan') as discard:
+            page.start(operation, callback)
+            task = page.jobs[0]
+            assert entered.wait(1)
+            try:
+                started = time.monotonic()
+                page.stop() if update else dialog.reject()
+                assert time.monotonic() - started < .2, 'Closing settings must not wait for a network response'
+                assert task.isInterruptionRequested() and task.parent() is None
+                assert task in online_ui._retired_online_tasks
+                dialog.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                assert not isValid(page), 'Settings page must be releasable while the request is pending'
+                wait(app, lambda: len(ticks) >= 3)
+                assert not callback.called
+                release.set()
+                wait(app, lambda: task not in online_ui._retired_online_tasks)
+                assert not callback.called, 'Cancelled results must not touch destroyed settings pages'
+                if update:
+                    discard.assert_called_once_with('/fixture/late-update-plan.json', config.REPO)
+                else:
+                    discard.assert_not_called()
+            finally:
+                release.set()
+                fallback.cancel()
+                heartbeat.stop()
+                if isValid(task):
+                    task.wait(3000)
+                app.processEvents()
+    print('PASS: slow online settings close immediately, GUI heartbeat continues, late results cleaned safely')
+
+
 def main():
     if sys.argv[1:2] == ['--worker-check']:
         return child(sys.argv[2])
@@ -766,6 +824,7 @@ def main():
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
+    check_nonblocking_online_close(app)
     if sys.argv[1:] == ['--native-zorder']:
         assert app.platformName() == 'windows'
         check_native_zorder(app)
