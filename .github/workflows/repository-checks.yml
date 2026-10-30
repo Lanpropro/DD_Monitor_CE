@@ -24,8 +24,9 @@ jobs:
         run: |
           git init "$RUNNER_TEMP/flutter"
           git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
-          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin c197ca5199e9ee5661e865596c9c07294dfab51c
-          git -C "$RUNNER_TEMP/flutter" checkout FETCH_HEAD
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin tag 3.47.9
+          git -C "$RUNNER_TEMP/flutter" checkout 3.47.9
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = c197ca5199e9ee5661e865596c9c07294dfab51c
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
       - name: Resolve mobile dependencies
         working-directory: mobile
