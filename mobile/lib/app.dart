@@ -238,48 +238,62 @@ class WatchWall extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        VideoTile(session: session, onAdd: onAdd),
-        const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                session.stream == null
-                    ? '我的画面墙'
-                    : 'B 站 · ${session.stream!.roomId}',
-                style: const TextStyle(fontSize: 20),
-              ),
-            ),
-            if (session.stream != null ||
-                session.loading ||
-                session.error != null)
-              IconButton(
-                tooltip: '停止观看',
-                onPressed: session.stop,
-                icon: const Icon(Icons.stop_circle_outlined),
-              ),
-          ],
-        ),
-        Text(
-          session.status,
-          style: TextStyle(
-            color: session.error == null
-                ? secondary
-                : Theme.of(context).colorScheme.error,
-          ),
-        ),
-        if (session.error != null)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(onPressed: onAdd, child: const Text('重新连接')),
-          ),
-      ],
-    );
     return LayoutBuilder(
       builder: (_, constraints) {
+        final content = ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Align(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: constraints.maxWidth >= 720
+                      ? (constraints.maxHeight - 112).clamp(
+                              128.0,
+                              double.infinity,
+                            ) *
+                            16 /
+                            9
+                      : double.infinity,
+                ),
+                child: VideoTile(session: session, onAdd: onAdd),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    session.stream == null
+                        ? '我的画面墙'
+                        : 'B 站 · ${session.stream!.roomId}',
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                ),
+                if (session.stream != null ||
+                    session.loading ||
+                    session.error != null)
+                  IconButton(
+                    tooltip: '停止观看',
+                    onPressed: session.stop,
+                    icon: const Icon(Icons.stop_circle_outlined),
+                  ),
+              ],
+            ),
+            Text(
+              session.status,
+              style: TextStyle(
+                color: session.error == null
+                    ? secondary
+                    : Theme.of(context).colorScheme.error,
+              ),
+            ),
+            if (session.error != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(onPressed: onAdd, child: const Text('重新连接')),
+              ),
+          ],
+        );
         if (constraints.maxWidth < 720) {
           return KeyedSubtree(key: const Key('portrait-wall'), child: content);
         }

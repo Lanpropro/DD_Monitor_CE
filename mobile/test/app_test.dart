@@ -38,17 +38,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Tablet width uses regular layout and keeps video at 16:9', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1280, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const MonitorApp());
-    expect(find.byKey(const Key('regular-wall')), findsOneWidget);
-    final size = tester.getSize(find.byKey(const Key('video-slot')));
-    expect(size.width / size.height, closeTo(16 / 9, 0.001));
-    expect(tester.takeException(), isNull);
-  });
+  for (final screen in [const Size(1280, 800), const Size(844, 390)]) {
+    testWidgets('Wide layout keeps the entire 16:9 video visible on $screen', (
+      tester,
+    ) async {
+      tester.view.physicalSize = screen;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(const MonitorApp());
+      expect(find.byKey(const Key('regular-wall')), findsOneWidget);
+      final size = tester.getSize(find.byKey(const Key('video-slot')));
+      expect(size.width / size.height, closeTo(16 / 9, 0.001));
+      final video = tester.getRect(find.byKey(const Key('video-slot')));
+      final wall = tester.getRect(find.byKey(const Key('regular-wall')));
+      expect(video.bottom, lessThanOrEqualTo(wall.bottom));
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
