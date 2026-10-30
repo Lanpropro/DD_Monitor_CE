@@ -3244,8 +3244,14 @@ class MainWindow(QMainWindow):
                               notice_key=('record-export', str(Path(path))),
                               pending=prefix.startswith('正在导出'))
             return
-        warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
+        room_id = str((room or {}).get('room_id') or '')
+        progress = any(text in message for text in (
+            '开始录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
+            '重新连接录制流', '正在保存分段', '分段已保存，', '等待 ',
+            '重新获取录制地址失败', 'FFmpeg 意外退出'))
+        warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能", "意外退出"))
         self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info",
+                          notice_key=('record-state', room_id) if room_id and progress else None,
                           auto_room_link=False)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None,
