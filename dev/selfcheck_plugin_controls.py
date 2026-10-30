@@ -13,7 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
 from PySide6.QtGui import QPalette
 from ddm import plugins as api
-from ddm.widgets import Tile, WallGrid
+from ddm.widgets import DanmakuPanel, Tile, WallGrid
 from ddm import theme
 
 APP = QApplication.instance() or QApplication([])
@@ -152,6 +152,26 @@ class ControlsTests(unittest.TestCase):
         APP.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertNotIn(tile, self.manager._tiles)
         self.assertEqual(control.stops, 1)
+
+    def test_danmaku_header_background_stays_inside_rounded_top_corners(self):
+        host = QWidget()
+        host.setObjectName('Root')
+        host.resize(360, 240)
+        panel = DanmakuPanel(host)
+        panel.setGeometry(16, 16, 328, 208)
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        self.addCleanup(theme.apply, theme.mode())
+        host.show()
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            APP.setStyleSheet(theme.qss())
+            APP.processEvents()
+            image = host.grab().toImage()
+            outside = image.pixelColor(2, 2)
+            for x in (panel.x(), panel.geometry().right()):
+                self.assertEqual(image.pixelColor(x, panel.y()), outside, mode)
+            self.assertNotEqual(image.pixelColor(panel.x() + 164, panel.y() + 2), outside, mode)
 
     def test_docked_composer_and_bottom_icon_follow_light_dark_theme(self):
         previous = theme.mode()
