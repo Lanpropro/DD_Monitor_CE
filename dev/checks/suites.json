@@ -90,6 +90,7 @@
       "selfcheck_account_login_reopen",
       "selfcheck_mpv",
       "selfcheck_mpv_com_lifetime",
+        "selfcheck_drag_diagnostics",
       "selfcheck_resize_surface",
       "selfcheck_resize_widgets",
       "selfcheck_window_resize",

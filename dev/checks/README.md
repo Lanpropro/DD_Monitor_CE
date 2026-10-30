@@ -78,6 +78,7 @@
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | 单项执行前核对 |
 | [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke` |
+| [selfcheck_drag_diagnostics](../selfcheck_drag_diagnostics.py) | `native` |
 | [selfcheck_duplicate_tile_controls](../selfcheck_duplicate_tile_controls.py) | 单项执行前核对 |
 | [selfcheck_encoders](../selfcheck_encoders.py) | 单项执行前核对 |
 | [selfcheck_folder_blank_menu](../selfcheck_folder_blank_menu.py) | `offline` |

@@ -9,9 +9,9 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 
 
-def invoke(script, env):
+def invoke(script, env, args=()):
     return subprocess.run([os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c",
-                           script.name], input=b"\r\n", capture_output=True,
+                           script.name, *args], input=b"\r\n", capture_output=True,
                           cwd=script.parent, env=env, timeout=15)
 
 
@@ -35,6 +35,16 @@ def main():
             'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
+        (root / 'dev').mkdir()
+        (root / 'dev/diagnose_drag_windows.py').write_text(
+            'from pathlib import Path\nimport runpy\n'
+            'root = Path(__file__).resolve().parents[1]\n'
+            '(root / "trace-enabled.txt").write_text("1")\n'
+            'runpy.run_path(str(root / "main.py"), run_name="__main__")\n', encoding='utf-8')
+        (root / 'dev/sc_simulator.py').write_text(
+            'from pathlib import Path\nimport sys\n'
+            'Path(__file__).resolve().parents[1].joinpath("simulator.txt").write_text(" ".join(sys.argv[1:]))\n',
+            encoding='utf-8')
         result = invoke(root / "run-console.cmd", env)
         text = result.stdout.decode("utf-8")
         assert result.returncode == 7, (result.returncode, text, result.stderr)
@@ -42,6 +52,7 @@ def main():
         assert (root / "started.txt").read_text(encoding="utf-8") == "启动成功"
         assert (root / "settings.txt").read_text(encoding="utf-8") == "1"
         assert (root / "quick.txt").read_text(encoding="utf-8") == "1"
+        assert not (root / 'trace-enabled.txt').exists(), 'Console launcher retains its normal entry'
         (root / "started.txt").unlink()
         deps = root / 'work/deps/PySide6'
         deps.mkdir(parents=True)
@@ -57,6 +68,15 @@ def main():
             "run.cmd must enable Quick in the launched Python process"
         assert (root / 'pythonpath.txt').read_text(encoding='utf-8').startswith(str(deps.parent)), \
             'Daily launcher must select the same work/deps used by freezing'
+        assert (root / 'trace-enabled.txt').read_text() == '1', 'run.cmd must enable temporary drag tracing'
+        (root / 'trace-enabled.txt').unlink()
+        result = invoke(root / 'run.cmd', env, ('--sc-simulator', '--smoke'))
+        assert result.returncode == 0
+        deadline = time.monotonic() + 10
+        while not (root / 'simulator.txt').exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert (root / 'simulator.txt').read_text() == '--smoke'
+        assert not (root / 'trace-enabled.txt').exists(), 'Simulator keeps its independent entry'
         # Missing interpreter errors must also be readable and report failure.
         for name in ("run.cmd", "run-console.cmd"):
             text = (root / name).read_text(encoding="utf-8").replace(

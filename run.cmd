@@ -14,7 +14,8 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 if /i "%~1"=="--sc-simulator" goto scsimulator
-start "" "%PY%" "%PROJ%main.py"
+rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
+start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
 
 :scsimulator
