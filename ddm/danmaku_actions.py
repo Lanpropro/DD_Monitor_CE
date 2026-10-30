@@ -80,20 +80,21 @@ class CommentToolbar(QDialog):
         return self.chosen
 
 
-def show_comment_menu(parent, text, controls, position):
-    text = str(text)
+def show_comment_menu(parent, message, controls, position):
+    event = dict(message) if isinstance(message, dict) else {'text': str(message)}
+    text = str(event.get('text') or '')
     room_id = controls.room_id() if controls is not None else ''
     menu = CommentToolbar(parent)
     copy, repeat = menu.command_actions
     copy.setEnabled(bool(text))
     repeat.setToolTip('复制并发送到当前直播间')
     menu.repeat_button.setToolTip(repeat.toolTip())
-    repeat.setEnabled(bool(text and controls is not None and controls.can_repeat()))
+    repeat.setEnabled(bool(text and controls is not None and controls.can_repeat(event)))
     try:
         chosen = menu.exec(position)
         if chosen is copy or chosen is repeat:
             QApplication.clipboard().setText(text)
-        if chosen is repeat and not controls.repeat_text(text, room_id):
+        if chosen is repeat and not controls.repeat_message(event, room_id):
             QToolTip.showText(position, '当前房间的发送入口不可用，请检查登录状态或发送控件。', parent)
     finally:
         menu.deleteLater()

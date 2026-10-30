@@ -31,6 +31,9 @@ class ActionsTests(unittest.TestCase):
                 self.widget.returnPressed.connect(self.send)
             def send(self):
                 sent.append((self.context.room.get('room_id'), self.widget.text()))
+            def repeat_message(self, event):
+                sent.append((self.context.room.get('room_id'), event['emoticon_unique'], event['dm_type']))
+                return True
             def focus_input(self):
                 if not self.widget.isEnabled():
                     return False
@@ -75,6 +78,51 @@ class ActionsTests(unittest.TestCase):
         with self.choose(1, lambda _menu: tile.set_room({'room_id': '99'})):
             tile._show_danmaku_actions('stale', QPoint())
         self.assertEqual(self.sent, [('12', message)])
+
+    def test_emoticon_repeat_keeps_identifier_in_panel_and_video(self):
+        tile = self.wall.tiles[0]
+        event = {'text': '[表情]', 'dm_type': 1, 'emoticon_unique': 'official_13'}
+        controls = tile._plugin_controls
+        edit = controls.entries[0].control.widget
+        edit.setText('keep draft')
+        panel = self.wall.danmaku
+        panel.add_event(event)
+        with self.choose(0):
+            panel._message_clicked(0, QPoint())
+        self.assertEqual(APP.clipboard().text(), '[表情]')
+        self.assertEqual(self.sent, [])
+        with self.choose(1):
+            panel._message_clicked(0, QPoint())
+        video = tile.video_danmaku
+        video.set_native_video(False)
+        video.set_enabled(True)
+        video.set_active(True)
+        with patch.object(video, '_poll_hover'):
+            self.assertTrue(video.add_event(event))
+            comment = video.comments[0]
+            comment.x = 20
+            point = QPoint(25, comment.lane * video.lane_height() + 8)
+            with self.choose(1):
+                self.assertTrue(video.open_actions_at(video.mapToGlobal(point)))
+        self.assertEqual(self.sent, [('12', 'official_13', 1)] * 2)
+        self.assertEqual(edit.text(), 'keep draft')
+        with self.choose(1, lambda _menu: tile.set_room({'room_id': '99'})):
+            tile._show_danmaku_actions(event, QPoint())
+        self.assertEqual(len(self.sent), 2, 'Room changes must invalidate structured repeats')
+
+    def test_emoticon_never_falls_back_to_text_with_missing_id_or_old_plugin(self):
+        controls = self.wall.tiles[0]._plugin_controls
+        event = {'text': '[表情]', 'dm_type': 1, 'emoticon_unique': 'official_13'}
+        missing = dict(event, emoticon_unique='')
+        self.assertFalse(controls.can_repeat(missing))
+        self.assertFalse(controls.repeat_message(missing, '12'))
+        control = controls.entries[0].control
+        with patch.object(type(control), 'repeat_message', plugins.TileControl.repeat_message):
+            self.assertFalse(controls.can_repeat(event))
+            self.assertFalse(controls.repeat_message(event, '12'))
+            with self.choose(0, lambda menu: self.assertFalse(menu.repeat_button.isEnabled())):
+                self.wall.tiles[0]._show_danmaku_actions(event, QPoint())
+        self.assertEqual(self.sent, [])
 
     def test_unavailable_or_readonly_input_cannot_send(self):
         controls = self.wall.tiles[0]._plugin_controls
@@ -262,7 +310,7 @@ class ActionsTests(unittest.TestCase):
             QTest.qWait(450)
             self.assertEqual(received, [], 'Hover must never open the toolbar automatically')
             self.assertTrue(video.open_actions_at(video.mapToGlobal(point)))
-            self.assertEqual(received, ['  original   text  '])
+            self.assertEqual(received, [{'text': '  original   text  '}])
             video._set_hover(None)
             self.assertFalse(first.held)
             video._last_tick = 101
