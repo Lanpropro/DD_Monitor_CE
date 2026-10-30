@@ -476,6 +476,25 @@
 - `docs/skins.md`
 - `docs/website-plan.md`
 
+### 安卓单路观看预览
+
+- `android/.gitignore`
+- `android/README.md`
+- `android/app/build.gradle.kts`
+- `android/app/src/androidTest/java/io/github/lanpropro/ddmonitor/WatchScreenTest.kt`
+- `android/app/src/main/AndroidManifest.xml`
+- `android/app/src/main/java/io/github/lanpropro/ddmonitor/MainActivity.kt`
+- `android/app/src/main/java/io/github/lanpropro/ddmonitor/WatchModel.kt`
+- `android/app/src/main/python/bili_provider.py`
+- `android/build.gradle.kts`
+- `android/gradle.properties`
+- `android/gradle/wrapper/gradle-wrapper.jar`
+- `android/gradle/wrapper/gradle-wrapper.properties`
+- `android/gradlew`
+- `android/gradlew.bat`
+- `android/settings.gradle.kts`
+- `android/tests/test_bili_provider.py`
+
 ## 仅本机存在的其他资料
 
 此处只列目录和文件入口，不展开真实配置、账号、缓存、录制内容或临时依赖。
