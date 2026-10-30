@@ -1307,6 +1307,8 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuHeader {{
     background: rgba(255, 255, 255, 0.025);
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
 }}
 #DanmakuDot {{
     color: {PINK};

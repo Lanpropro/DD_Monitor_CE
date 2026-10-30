@@ -50,9 +50,27 @@ def main():
         assert viewport.rect().contains(panel.bottom_button.geometry())
         assert viewport.width() - panel.bottom_button.geometry().right() == 11
         assert viewport.height() - panel.bottom_button.geometry().bottom() == 11
-        controls = (panel.font_label, panel.font_slider, panel.font_value)
-        assert all(panel.bar.rect().contains(widget.geometry()) for widget in controls)
+        controls = (panel.font_slider, panel.font_value)
+        assert panel.font_controls.parentWidget() is panel.header
+        assert all(widget.parentWidget() is panel.font_controls for widget in controls)
+        assert all(panel.font_controls.rect().contains(widget.geometry()) for widget in controls)
         assert all(not a.geometry().intersects(b.geometry()) for a, b in zip(controls, controls[1:]))
+        assert not panel.font_controls.geometry().intersects(panel.count.geometry())
+        title = panel.header.layout().itemAt(1).widget()
+        assert panel.font_controls.x() == title.geometry().right() + 1 + panel.header.layout().spacing()
+        assert abs(panel.font_controls.geometry().center().y() - panel.header.rect().center().y()) <= 1
+        for widget in controls:
+            assert abs(widget.geometry().center().y() - panel.font_controls.rect().center().y()) <= 1
+        assert panel.body.y() == panel.header.height()
+        assert panel.body.geometry().bottom() == panel.height() - 1
+        assert panel.width() == width, "Header controls force the panel wider"
+    panel.font_slider.setValue(17)
+    app.processEvents()
+    assert panel._font_size() == 17 and panel.font_value.text() == '17'
+    panel.set_status('正在连接服务器，请稍候')
+    app.processEvents()
+    assert not panel.font_controls.geometry().intersects(panel.count.geometry())
+    assert panel.header.rect().contains(panel.count.geometry())
     # A pending document correction must not undo an explicit jump.
     panel.add_message("before jump", "pending restore")
     panel.bottom_button.click()

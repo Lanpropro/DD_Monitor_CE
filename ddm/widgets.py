@@ -1219,6 +1219,7 @@ class DanmakuPanel(QFrame):
         layout.setSpacing(0)
 
         header = QWidget(self)
+        self.header = header
         header.setObjectName("DanmakuHeader")
         header.setAttribute(Qt.WA_StyledBackground, True)
         header.setFixedHeight(32)
@@ -1235,6 +1236,28 @@ class DanmakuPanel(QFrame):
         self.count.setFixedHeight(20)
         header_box.addWidget(dot)
         header_box.addWidget(title)
+        self.font_controls = QWidget(header)
+        self.font_controls.setFixedHeight(24)
+        font_box = QHBoxLayout(self.font_controls)
+        font_box.setContentsMargins(0, 0, 0, 0)
+        font_box.setSpacing(6)
+        self.font_slider = QSlider(Qt.Horizontal)
+        self.font_slider.setRange(self.MIN_FONT_SIZE, self.MAX_FONT_SIZE)
+        self.font_slider.setMinimumWidth(12)
+        self.font_slider.setMaximumWidth(96)
+        self.font_slider.setFixedHeight(20)
+        self.font_slider.setValue(self._base_size)
+        self.font_slider.setToolTip("拖一下就能改弹幕字号，直接生效")
+        self.font_slider.setAccessibleName("弹幕字号")
+        self.font_slider.valueChanged.connect(self._on_font_slider)
+        font_box.addWidget(self.font_slider, 0, Qt.AlignVCenter)
+        self.font_value = QLabel(str(self._base_size))
+        self.font_value.setObjectName("DanmakuBarValue")
+        self.font_value.setFixedWidth(22)
+        self.font_value.setFixedHeight(20)
+        self.font_value.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        font_box.addWidget(self.font_value, 0, Qt.AlignVCenter)
+        header_box.addWidget(self.font_controls, 0, Qt.AlignVCenter)
         header_box.addStretch(1)
         header_box.addWidget(self.count, 0, Qt.AlignVCenter)
         layout.addWidget(header)
@@ -1256,35 +1279,10 @@ class DanmakuPanel(QFrame):
         self.super_chats.layoutChanged.connect(self._sync_super_chat_limit)
         self.super_chats.dismissed.connect(self.superChatDismissed)
 
-        # 底部条：字号滑块（跟格子的音量条一个做法，拖了立刻生效）
-        self.bar = QWidget(self)
-        self.bar.setObjectName("DanmakuBar")
-        self.bar.setAttribute(Qt.WA_StyledBackground, True)
-        self.bar.setFixedHeight(32)
-        bar_box = QHBoxLayout(self.bar)
-        bar_box.setContentsMargins(10, 0, 10, 0)
-        bar_box.setSpacing(8)
         self.bottom_button = DanmakuBottomButton(self.body.viewport())
         self.bottom_button.clicked.connect(self.jump_to_bottom)
         self.bottom_button.hide()
         self.body.viewport().installEventFilter(self)
-        bar_box.addStretch(1)
-        size_label = QLabel("字号")
-        size_label.setObjectName("DanmakuBarLabel")
-        self.font_label = size_label
-        bar_box.addWidget(size_label)
-        self.font_slider = QSlider(Qt.Horizontal)
-        self.font_slider.setRange(self.MIN_FONT_SIZE, self.MAX_FONT_SIZE)
-        self.font_slider.setFixedWidth(96)
-        self.font_slider.setValue(self._base_size)
-        self.font_slider.setToolTip("拖一下就能改弹幕字号，直接生效")
-        self.font_slider.valueChanged.connect(self._on_font_slider)
-        bar_box.addWidget(self.font_slider)
-        self.font_value = QLabel(str(self._base_size))
-        self.font_value.setObjectName("DanmakuBarValue")
-        self.font_value.setFixedWidth(22)
-        bar_box.addWidget(self.font_value)
-        layout.addWidget(self.bar)
         self.composer_bar = QWidget(self)
         self.composer_bar.setObjectName("DanmakuBar")
         self.composer_bar.setAttribute(Qt.WA_StyledBackground, True)
@@ -1300,14 +1298,20 @@ class DanmakuPanel(QFrame):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._layout_bar()
+        self._layout_header()
         if self._tile_controls is not None:
             self._tile_controls.layout_panel()
         self._sync_super_chat_limit()
 
-    def _layout_bar(self) -> None:
-        used = 20 + self.font_label.sizeHint().width() + 22 + 16
-        self.font_slider.setFixedWidth(max(12, min(96, self.width() - used)))
+    def _layout_header(self) -> None:
+        box = self.header.layout()
+        margins = box.contentsMargins()
+        minimum = self.font_slider.minimumWidth() + self.font_value.width() + 6
+        self.count.setFixedWidth(min(self.count.sizeHint().width(), max(48, self.width() // 3)))
+        used = (margins.left() + margins.right() + 4 * box.spacing()
+                + sum(box.itemAt(i).widget().sizeHint().width() for i in (0, 1))
+                + self.count.width())
+        self.font_controls.setMaximumWidth(max(minimum, min(124, self.width() - used)))
 
     def eventFilter(self, watched, event):
         if watched is self.body.viewport() and event.type() == QEvent.Resize:
@@ -1417,6 +1421,8 @@ class DanmakuPanel(QFrame):
             self.count.setProperty("state", state)
             _repolish(self.count)
         self.count.setText(text)
+        self.count.setToolTip(text)
+        self._layout_header()
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
         """直接给文本的简写（预览、自检用）。"""
@@ -1558,6 +1564,7 @@ class DanmakuPanel(QFrame):
 
     # ---- 渲染 ----
     def refresh_theme(self) -> None:
+        self._layout_header()
         if self._blocks:
             self._render_all()
         else:
