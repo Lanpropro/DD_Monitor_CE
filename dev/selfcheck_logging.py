@@ -78,7 +78,7 @@ class LoggingTests(unittest.TestCase):
     def test_early_import_failure_and_uncaught_thread_exception(self):
         # Execute the real entry point; replace config/app imports before Qt or accounts load.
         program = """
-import runpy, sys, threading, types
+import importlib.util, runpy, sys, threading, types
 from pathlib import Path
 root, data = sys.argv[1:]
 sys.path.insert(0, root)
@@ -89,19 +89,18 @@ sys.modules['ddm.config'] = config
 class FailApp:
     def find_spec(self, fullname, path=None, target=None):
         if fullname == 'ddm.app':
-            raise ImportError('fixture Qt import failure token=SECRET_IMPORT')
-sys.meta_path.insert(0, FailApp())
-def fail():
-    raise RuntimeError('fixture thread failure token=SECRET_THREAD')
-# Start the thread after logging starts, during the fake app import.
-original = FailApp.find_spec
-def find(self, fullname, path=None, target=None):
-    if fullname == 'ddm.app':
+            return importlib.util.spec_from_loader(fullname, self)
+    def create_module(self, spec):
+        return None
+    def exec_module(self, module):
+        # The finder holds Python's import lock; run the thread in the loader.
         thread = threading.Thread(target=fail)
         thread.start()
         thread.join()
-    return original(self, fullname, path, target)
-FailApp.find_spec = find
+        raise ImportError('fixture Qt import failure token=SECRET_IMPORT')
+def fail():
+    raise RuntimeError('fixture thread failure token=SECRET_THREAD')
+sys.meta_path.insert(0, FailApp())
 runpy.run_path(str(Path(root) / 'main.py'), run_name='__main__')
 """
         result = subprocess.run([sys.executable, "-c", program, str(ROOT), str(self.directory)],
