@@ -381,7 +381,7 @@ class QuickDanmakuLayer(QObject):
         self.window.setMask(region)
         return not region.isEmpty()
 
-    def move(self):
+    def move_window(self):
         self.window.setPosition(self.parent.mapToGlobal(QPoint()))
 
     def resize(self):
