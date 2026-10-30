@@ -175,4 +175,14 @@ void main() {
     expect(find.text('全屏'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('Cold start waits for usable viewport dimensions', (
+    tester,
+  ) async {
+    await boot(tester, size: Size.zero);
+    expect(tester.takeException(), isNull);
+    tester.view.physicalSize = const Size(1280, 800);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('regular-wall')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

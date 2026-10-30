@@ -190,180 +190,194 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
     home: Builder(
       builder: (context) => ListenableBuilder(
         listenable: model,
-        builder: (_, _) => Scaffold(
-          extendBody: true,
-          appBar: AppBar(
-            toolbarHeight:
-                70 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.5),
-            title: Row(
-              children: [
-                const Icon(Icons.live_tv_rounded, size: 21, color: accent),
-                const SizedBox(width: 9),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        builder: (_, _) => MediaQuery.sizeOf(context).isEmpty
+            ? const ColoredBox(color: background)
+            : Scaffold(
+                extendBody: true,
+                appBar: AppBar(
+                  toolbarHeight:
+                      70 *
+                      MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.5),
+                  title: Row(
                     children: [
-                      const Text(
-                        'DD监控室',
-                        style: TextStyle(fontSize: 12, color: secondary),
+                      const Icon(
+                        Icons.live_tv_rounded,
+                        size: 21,
+                        color: accent,
                       ),
-                      Text(
-                        tabs[selected],
-                        style: const TextStyle(
-                          fontSize: 25,
-                          fontWeight: FontWeight.w600,
+                      const SizedBox(width: 9),
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'DD监控室',
+                              style: TextStyle(fontSize: 12, color: secondary),
+                            ),
+                            Text(
+                              tabs[selected],
+                              style: const TextStyle(
+                                fontSize: 25,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-            actions: [
-              if (selected == 0)
-                Padding(
-                  padding: const EdgeInsets.only(right: 16),
-                  child: GlassSurface(
-                    radius: 23,
-                    reduced: model.reduceTransparency,
-                    child: TextButton.icon(
-                      key: const Key('choose-layout'),
-                      onPressed: () => chooseLayout(context),
-                      icon: const Icon(Icons.grid_view_rounded, size: 18),
-                      label: Text(
-                        model
-                            .effectiveLayout(
-                              MediaQuery.sizeOf(context).width >= 720,
-                            )
-                            .label,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.white,
+                  actions: [
+                    if (selected == 0)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 16),
+                        child: GlassSurface(
+                          radius: 23,
+                          reduced: model.reduceTransparency,
+                          child: TextButton.icon(
+                            key: const Key('choose-layout'),
+                            onPressed: () => chooseLayout(context),
+                            icon: const Icon(Icons.grid_view_rounded, size: 18),
+                            label: Text(
+                              model
+                                  .effectiveLayout(
+                                    MediaQuery.sizeOf(context).width >= 720,
+                                  )
+                                  .label,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    if (selected == 1) ...[
+                      IconButton(
+                        tooltip: '刷新主播状态',
+                        onPressed: model.refreshing
+                            ? null
+                            : model.refreshFollows,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                      IconButton(
+                        key: const Key('add-follow'),
+                        tooltip: '添加关注',
+                        onPressed: () => addFollow(context),
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                  ],
+                ),
+                body: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: IndexedStack(
+                    index: selected,
+                    children: [
+                      WatchWall(
+                        model: model,
+                        onSelect: () => setState(() => selected = 1),
+                      ),
+                      FollowPage(
+                        model: model,
+                        onSelect: (room) => place(context, room),
+                        onAdd: () => addFollow(context),
+                      ),
+                      const PluginPage(),
+                      SettingsPage(
+                        model: model,
+                        onLayout: () => chooseLayout(context),
+                      ),
+                    ],
                   ),
                 ),
-              if (selected == 1) ...[
-                IconButton(
-                  tooltip: '刷新主播状态',
-                  onPressed: model.refreshing ? null : model.refreshFollows,
-                  icon: const Icon(Icons.refresh),
-                ),
-                IconButton(
-                  key: const Key('add-follow'),
-                  tooltip: '添加关注',
-                  onPressed: () => addFollow(context),
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
-                const SizedBox(width: 12),
-              ],
-            ],
-          ),
-          body: SafeArea(
-            top: false,
-            bottom: false,
-            child: IndexedStack(
-              index: selected,
-              children: [
-                WatchWall(
-                  model: model,
-                  onSelect: () => setState(() => selected = 1),
-                ),
-                FollowPage(
-                  model: model,
-                  onSelect: (room) => place(context, room),
-                  onAdd: () => addFollow(context),
-                ),
-                const PluginPage(),
-                SettingsPage(
-                  model: model,
-                  onLayout: () => chooseLayout(context),
-                ),
-              ],
-            ),
-          ),
-          bottomNavigationBar: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-              child: Center(
-                heightFactor: 1,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
-                  child: GlassSurface(
-                    radius: 32,
-                    reduced: model.reduceTransparency,
-                    child: Padding(
-                      padding: const EdgeInsets.all(5),
-                      child: Row(
-                        children: [
-                          for (var i = 0; i < tabs.length; i++)
-                            Expanded(
-                              child: Semantics(
-                                selected: selected == i,
-                                button: true,
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    key: Key('dock-$i'),
-                                    borderRadius: BorderRadius.circular(27),
-                                    onTap: () => setState(() => selected = i),
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: selected == i
-                                            ? Colors.white.withValues(
-                                                alpha: 0.13,
-                                              )
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(27),
-                                        border: Border.all(
-                                          color: selected == i
-                                              ? Colors.white24
-                                              : Colors.transparent,
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 9,
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              tabIcons[i],
-                                              size: 23,
+                bottomNavigationBar: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+                    child: Center(
+                      heightFactor: 1,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 500),
+                        child: GlassSurface(
+                          radius: 32,
+                          reduced: model.reduceTransparency,
+                          child: Padding(
+                            padding: const EdgeInsets.all(5),
+                            child: Row(
+                              children: [
+                                for (var i = 0; i < tabs.length; i++)
+                                  Expanded(
+                                    child: Semantics(
+                                      selected: selected == i,
+                                      button: true,
+                                      child: Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          key: Key('dock-$i'),
+                                          borderRadius: BorderRadius.circular(
+                                            27,
+                                          ),
+                                          onTap: () =>
+                                              setState(() => selected = i),
+                                          child: DecoratedBox(
+                                            decoration: BoxDecoration(
                                               color: selected == i
-                                                  ? accent
-                                                  : secondary,
-                                            ),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              tabs[i],
-                                              style: TextStyle(
-                                                fontSize: 11,
+                                                  ? Colors.white.withValues(
+                                                      alpha: 0.13,
+                                                    )
+                                                  : Colors.transparent,
+                                              borderRadius:
+                                                  BorderRadius.circular(27),
+                                              border: Border.all(
                                                 color: selected == i
-                                                    ? accent
-                                                    : secondary,
+                                                    ? Colors.white24
+                                                    : Colors.transparent,
                                               ),
                                             ),
-                                          ],
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 9,
+                                                  ),
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    tabIcons[i],
+                                                    size: 23,
+                                                    color: selected == i
+                                                        ? accent
+                                                        : secondary,
+                                                  ),
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    tabs[i],
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: selected == i
+                                                          ? accent
+                                                          : secondary,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
+                              ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
       ),
     ),
   );
