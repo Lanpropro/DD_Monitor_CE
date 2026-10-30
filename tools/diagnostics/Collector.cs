@@ -199,6 +199,7 @@ namespace DDMonitorDiagnostics
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
         readonly string dataRoot;
+        string recordingDirectory;
         readonly Redactor redact = new Redactor();
         readonly List<string> warnings = new List<string>();
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 100 };
@@ -284,6 +285,18 @@ namespace DDMonitorDiagnostics
                 if (text == null) return new { status = "missing_or_skipped" };
                 var data = json.DeserializeObject(text);
                 if (!(data is IDictionary<string, object>)) throw new FormatException();
+                if (relative == "utils/config.json")
+                {
+                    var values = (IDictionary<string, object>)data;
+                    object settingsValue, directoryValue;
+                    if (values.TryGetValue("settings", out settingsValue))
+                    {
+                        var settings = settingsValue as IDictionary<string, object>;
+                        if (settings != null && settings.TryGetValue("recording_dir", out directoryValue)
+                            && directoryValue is string && !string.IsNullOrWhiteSpace((string)directoryValue))
+                            recordingDirectory = Path.GetFullPath(Path.Combine(root, (string)directoryValue));
+                    }
+                }
                 // Discover private values before sanitizing strings elsewhere in the config.
                 RememberPrivate(data);
                 return redact.Clean(data);
@@ -513,14 +526,16 @@ namespace DDMonitorDiagnostics
             }
             catch (Exception error) { warnings.Add("日志目录无法枚举（" + error.GetType().Name + "）。"); }
             AddLog(entries, "ddm-pyinstaller-paths.txt");
+            section("recording-diagnostics.json", () => RecordingLogs(entries));
             section("platform-diagnostics.json", () => PlatformDiagnostics(entries));
             section("crash-events.json", CrashEvents);
-            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制、缓存或内存转储；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
+            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期主程序日志及5份录制FFmpeg日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制视频、缓存或内存转储；仅读取配置指定录制目录.ddm-parts内的近期FFmpeg日志；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
                 "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
                 "\r\n\r\n" + (native == null ? "libmpv 检查未完成，见收集提示。" : redact.Text(NativeDependencies.Summary(native))) +
                 "\r\n\r\nplatform-diagnostics.json：平台响应、查询、取流和播放器错误的已有日志摘要，无需手工筛选；缺少记录不代表正常，不自动判定根因。" +
+                "\r\nrecording-diagnostics.json、recording/：近期录制FFmpeg日志及HTTP拒绝、地址到期时间摘要，签名地址已脱敏，不包含录制视频。" +
                 "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nnative-dependencies.json：隔离子进程中的 libmpv 加载、Win32错误码、直接依赖与函数入口检查。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
                 "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不能还原崩溃前内存。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
             progress(85, "写入诊断 ZIP…");
@@ -542,6 +557,36 @@ namespace DDMonitorDiagnostics
             }
             progress(100, "诊断包已生成，请检查后手动发送。");
             return output;
+        }
+
+        object RecordingLogs(Dictionary<string, string> entries)
+        {
+            var result = new List<object>();
+            if (string.IsNullOrEmpty(recordingDirectory)) return new { status = "not_configured", files = result };
+            var folder = Path.Combine(recordingDirectory, ".ddm-parts");
+            if (!Directory.Exists(folder)) return new { status = "missing", files = result };
+            if (!SafeWithin(folder, folder)) throw new IOException("录制日志目录为链接。");
+            foreach (var path in Directory.GetFiles(folder, "*.log").OrderByDescending(File.GetLastWriteTimeUtc).Take(5))
+            {
+                if (!SafeWithin(folder, path)) { warnings.Add("录制日志：跳过链接文件。"); continue; }
+                try
+                {
+                    string text;
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    {
+                        stream.Seek(Math.Max(0, stream.Length - TextLimit), SeekOrigin.Begin);
+                        using (var reader = new StreamReader(stream, Encoding.UTF8, true)) text = reader.ReadToEnd();
+                    }
+                    var name = "recording/ffmpeg-" + (result.Count + 1).ToString("00") + ".log";
+                    entries[name] = redact.Text(text);
+                    var expires = Regex.Matches(text, @"[?&]expires=(\d{9,12})(?:&|\s|$)").Cast<Match>()
+                        .Select(m => m.Groups[1].Value).Distinct().Take(10).ToArray();
+                    result.Add(new { log = name, http_403 = text.IndexOf("403 Forbidden", StringComparison.OrdinalIgnoreCase) >= 0,
+                        expires_unix_seconds = expires, modified_utc = File.GetLastWriteTimeUtc(path).ToString("o") });
+                }
+                catch (Exception error) { warnings.Add("录制日志：读取失败（" + error.GetType().Name + "）。"); }
+            }
+            return new { status = result.Count == 0 ? "not_recorded" : "observed", files = result };
         }
 
         void AddLog(Dictionary<string, string> entries, string relative)
