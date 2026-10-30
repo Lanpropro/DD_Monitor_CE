@@ -249,7 +249,7 @@
 | [selfcheck_preview_popup](../selfcheck_preview_popup.py) | 单项执行前核对 |
 | [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；65行紧凑关注栏，滚轮取流竞态、漏发离开事件与悬停重绘 |
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
-| [selfcheck_recording](../selfcheck_recording.py) | 单项执行前核对 |
+| [selfcheck_recording](../selfcheck_recording.py) | 合成视频与本机HTTP，含过期地址分片续录、403重新取流与停止／切房隔离；单项执行前核对 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | 单项执行前核对 |
 | [selfcheck_replay_scope](../selfcheck_replay_scope.py) | 单项执行前核对 |
 | [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | `offline` |
