@@ -181,7 +181,7 @@
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
-| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline` |
+| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行 |
 | [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 入场、即时关闭、折叠计时、点击展开、拖动吸附、缩放与临时数据隔离 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline` |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline` |

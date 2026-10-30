@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from PySide6.QtCore import QRect, QThread, Qt, Signal
-from PySide6.QtGui import QColor, QPixmap, QRegion
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -241,12 +241,12 @@ def check_widgets(app):
         assert panel.super_chats._cards[0].price.text() == "¥50"
         assert panel.super_chats._cards[0].name.textFormat() == Qt.PlainText
         assert panel.super_chats._cards[0].message.textFormat() == Qt.PlainText
-        assert "#20242c" in panel.super_chats._cards[0].styleSheet()
+        assert "#FFFFFF" in panel.super_chats._cards[0].styleSheet()
         panel.set_super_chats([
             super_chat.normalize(chat("dark", background_color="#1f2a44")),
         ])
         app.processEvents()
-        assert "#ffffff" in panel.super_chats._cards[0].styleSheet()
+        assert "#FFFFFF" in panel.super_chats._cards[0].styleSheet()
         panel.set_super_chats([*items, super_chat.normalize(chat("3", message="第三条"))])
         panel.resize(480, 420)
         app.processEvents()
@@ -305,7 +305,7 @@ def check_widgets(app):
 def check_avatar_header_and_edges(app):
     avatar = QPixmap(64, 64)
     avatar.fill(QColor('#dd22bb'))
-    event = super_chat.normalize(chat('avatar', face='https://example.invalid/avatar.png',
+    event = super_chat.normalize(chat('avatar', price=100, face='https://example.invalid/avatar.png',
                                       background_color='#ddeeff', background_bottom_color='#234567',
                                       background_price_color='#ff8800'))
     card = SuperChatCard()
@@ -323,8 +323,9 @@ def check_avatar_header_and_edges(app):
             overlay.show()
             app.processEvents()
         assert card.avatar_image.pixmap.cacheKey() == avatar.cacheKey()
-        assert card.left.parentWidget() is card.header
+        assert card.left.parentWidget() is card.user_details
         assert card.left.x() >= card.name.geometry().right()
+        assert card.price.y() >= card.name.geometry().bottom()
         assert card.message.font().pixelSize() == 14
         image = card.avatar.grab().toImage()
         assert image.pixelColor(image.width() // 2, image.height() // 2).name() == '#dd22bb'
@@ -335,7 +336,7 @@ def check_avatar_header_and_edges(app):
         def pixel(x, y):
             return image.pixelColor(round((rect.x() + x) * scale), round((rect.y() + y) * scale))
         assert pixel(22, 18).name() == '#dd22bb', 'Video SC must paint the sender avatar'
-        assert pixel(rect.width() - 60, 5).name() == '#234567', 'Price must share the header background'
+        assert pixel(rect.width() - 60, 5).name() == '#fff1c5', 'User information must use the light official header'
         assert any(0 < pixel(x, y).alpha() < 255 for x in range(9) for y in range(9)), \
             'Rounded corners must retain fractional alpha instead of a binary mask'
         before = sc.avatar_image.pixmap.cacheKey()
@@ -344,8 +345,8 @@ def check_avatar_header_and_edges(app):
         sc.set_chats([event], .35)
         baseline = sc.render_image()
         base_rect = sc.card_rects()[0].translated(-sc._content_origin)
-        sc.set_chats([event, super_chat.normalize(chat('low', price=10, background_color='#ff0000')),
-                      super_chat.normalize(chat('middle', price=20, background_color='#00ff00'))], .35)
+        sc.set_chats([event, super_chat.normalize(chat('low', price=30, background_color='#ff0000')),
+                      super_chat.normalize(chat('middle', price=50, background_color='#00ff00'))], .35)
         stacked = sc.render_image()
         front = sc.card_rects()[0].translated(-sc._content_origin)
         for x, y in ((2, 50), (7, 38), (rect.width() - 4, 50)):
@@ -397,6 +398,102 @@ def check_quick_card_mask(app):
         parent.close()
 
 
+def check_official_palette(app):
+    expected = (
+        (30, '#EDF5FF', '#2A60B2'), (50, '#DBFFFD', '#427D9E'),
+        (100, '#FFF1C5', '#E2B52B'), (500, '#FFEAD2', '#E09443'),
+        (1000, '#FFE7E4', '#E54D4D'), (2000, '#FFD8D8', '#AB1A32'))
+    for price, header, body in expected:
+        for source in ('snapshot', 'websocket'):
+            event = super_chat.normalize(chat(str(price), price=price, background_color='#010203',
+                                             background_bottom_color='#040506'), source=source)
+            assert event['background_color'] == header
+            assert event['background_bottom_color'] == body
+        card = SuperChatCard()
+        overlay = VideoDanmaku()
+        try:
+            with patch('ddm.super_chat.motion.enabled', return_value=False):
+                raw = chat(str(price), price=price, background_color='#FF0000',
+                           background_bottom_color='#00FF00')
+                card.resize(340, 100)
+                card.set_event(raw)
+                card.show()
+                overlay.resize(1200, 600)
+                overlay.apply_settings({'super_chat_opacity': 100})
+                overlay.set_enabled(True)
+                overlay.set_active(True)
+                overlay.set_super_chats([dict(raw, kind='super_chat')])
+                overlay.show()
+                app.processEvents()
+            panel_image = card.grab().toImage()
+            assert panel_image.pixelColor(panel_image.width() // 2, 4).name() == header.lower()
+            assert panel_image.pixelColor(5, panel_image.height() - 12).name() == body.lower()
+            assert panel_image.pixelColor(panel_image.width() - 20, panel_image.height() - 10).name() == body.lower(), \
+                'The SC text viewport must keep its official body background'
+            sc = overlay.super_chat_overlay
+            image = sc.render_image()
+            rect = sc.card_rects()[0].translated(-sc._content_origin)
+            ratio = image.devicePixelRatio()
+            pixel = lambda x, y: image.pixelColor(round((rect.x() + x) * ratio), round((rect.y() + y) * ratio))
+            assert pixel(rect.width() / 2, 4).name() == header.lower()
+            assert pixel(5, rect.height() - 12).name() == body.lower()
+            assert any(pixel(x, y).red() > 245 and pixel(x, y).green() > 245 and pixel(x, y).blue() > 245
+                       for y in range(62, 90) for x in range(12, 120)), 'SC body text must be white'
+            sc.presentation.collapse()
+            rect = sc.card_rects()[0].translated(-sc._content_origin)
+            image = sc.render_image()
+            assert pixel(rect.width() / 2, 4).name() == header.lower()
+            assert rect.height() == 36
+        finally:
+            card.close()
+            overlay.close()
+    for price, minimum in ((0, 30), (49, 30), (99, 50), (499, 100), (999, 500),
+                           (1999, 1000), (5000, 2000)):
+        assert super_chat.super_chat_palette(price) == super_chat.super_chat_palette(minimum)
+    palette = super_chat.super_chat_palette(30)
+    palette['background_color'] = '#FF0000'
+    assert super_chat.super_chat_palette(30)['background_color'] == '#EDF5FF'
+
+
+def check_adaptive_content(app):
+    samples = ('第一行 abc\n第二行 gypq', '这是一条较长的醒目留言，全部正文应该完整展示。' * 6,
+               'https://example.invalid/' + 'abcdefghijklmnop' * 10,
+               'A long message with several English words. ' * 8,
+               '第一段\n\n第二段\n第三段 😀 表情与换行\nEND gypq')
+    for scale in (1.0, 1.25, 2.0):
+        for message in samples:
+            event = chat('adaptive', message=message)
+            width = round(340 * scale)
+            height = super_chat.sc_card_height(event, width, scale)
+            images = []
+            for extra in (0, 50):
+                image = QImage(width, height + round(extra * scale), QImage.Format_ARGB32_Premultiplied)
+                image.fill(Qt.transparent)
+                painter = QPainter(image)
+                VideoDanmaku._paint_super_chat(painter, image.rect(), event, scale)
+                painter.end()
+                images.append(image)
+            region = QRect(round(12 * scale), round(56 * scale), width - round(24 * scale), height - round(56 * scale))
+            assert images[0].copy(region) == images[1].copy(region), 'Expanded SC text must match an unconstrained render'
+            card = SuperChatCard()
+            try:
+                card.configure(scale, False)
+                card.setFixedWidth(width)
+                card.set_event(event)
+                card.show()
+                app.processEvents()
+                assert card.message.text() == message
+                assert card.message.document().size().height() <= card.message.viewport().height(), \
+                    ('All panel SC text must fit', scale, len(message), card.height())
+                assert card.height() == height
+            finally:
+                card.close()
+    short = super_chat.sc_card_height(chat('short', message='short'), 340)
+    long = super_chat.sc_card_height(chat('long', message=samples[1]), 340)
+    assert long > short
+    assert super_chat.sc_card_height(chat('compact', message=samples[1]), 340, collapsed=True) == 36
+
+
 def check_settings_persistence():
     expected = {'super_chat_scale': 140, 'super_chat_collapse_delay': 9,
                 'super_chat_position': [.2, .7]}
@@ -425,15 +522,8 @@ def check_settings_persistence():
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
-    palette = super_chat.normalize(chat('palette', background_color='#ffffff',
-                                        background_bottom_color='#112233',
-                                        background_price_color='#445566'))
-    assert palette['background_color'] == '#ffffff'
-    assert palette['background_bottom_color'] == '#112233'
-    assert palette['background_price_color'] == '#445566'
-    fallback = super_chat.normalize({'id': 'fallback', 'background_color': '#336699'})
-    assert fallback['background_bottom_color'] == '#336699'
-    assert fallback['background_price_color'] == '#336699'
+    check_official_palette(app)
+    check_adaptive_content(app)
     check_store()
     check_text_contrast()
     check_snapshot()

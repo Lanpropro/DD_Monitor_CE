@@ -9,6 +9,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev.sc_simulator import ScSimulator, config, theme
 from ddm import motion
+from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
+from PySide6.QtGui import QColor
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -49,6 +51,66 @@ class SimulatorTests(unittest.TestCase):
         self.assertFalse(window.store.active())
         self.assertTrue(window.wall.danmaku.super_chats.isHidden())
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
+
+    def test_official_tiers_follow_amount_and_update_both_surfaces(self):
+        window = self.window
+        for index, (price, header, body, _) in enumerate(SC_PRICE_TIERS):
+            window.tier.setCurrentIndex(index)
+            self.assertEqual(window.price.value(), price)
+            self.click(window.add_button)
+            event = window.store.active()[0]
+            self.assertEqual(event['background_color'], header)
+            self.assertEqual(event['background_bottom_color'], body)
+            card = window.wall.danmaku.super_chats._cards[0]
+            self.assertEqual(card._colours, (body, header))
+            self.assertEqual(window.tile.video_danmaku.super_chats[0]['background_color'], header)
+        window.price.setValue(999)
+        self.assertEqual(window.tier.currentData(), 500)
+        self.assertEqual(window.price.value(), 999)
+
+    def test_expanded_cards_grow_for_all_text_and_reflow_after_selection(self):
+        window = self.window
+        short = window.wall.danmaku.super_chats.height()
+        message = '长文本、中文与 English mixed words 应当完整显示。' * 6 + '\n末尾 END gypq'
+        window.message.setPlainText(message)
+        self.click(window.add_button)
+        stack = window.wall.danmaku.super_chats
+        card = stack._cards[0]
+        self.assertGreater(stack.height(), short)
+        self.assertEqual(card.message.text(), message)
+        self.assertLessEqual(card.message.document().size().height(), card.message.viewport().height())
+        window.number.setValue(2)
+        window.price.setValue(50)
+        window.message.setPlainText('short')
+        self.click(window.add_button)
+        first, second = stack._cards[:2]
+        self.assertGreater(second.height(), first.height())
+        self.assertGreater(second.y(), first.geometry().bottom())
+        window.number.setValue(3)
+        window.price.setValue(100)
+        self.click(window.add_button)
+        small_height = stack.height()
+        stack.select_chat('1')
+        APP.processEvents()
+        self.assertGreater(stack.height(), small_height)
+        self.assertEqual(stack._cards[0].message.text(), message)
+        window.layout_choice.setCurrentIndex(1)
+        sc = window.tile.video_danmaku.super_chat_overlay
+        sc.select_chat('1')
+        tall = sc.card_rects()[0].height()
+        self.assertGreater(tall, 100)
+        window.sc_scale.setValue(150)
+        self.assertGreater(sc.card_rects()[0].height(), tall)
+        sc.presentation.collapse()
+        self.assertAlmostEqual(sc.card_rects()[0].height(), 54)
+        sc.presentation.expand()
+        self.assertGreater(sc.card_rects()[0].height(), tall)
+        for size in ((200, 120), (420, 240), (1000, 700)):
+            window.tile.video_danmaku.resize(*size)
+            rect = sc.card_rects()[0]
+            self.assertTrue(window.tile.video_danmaku.rect().contains(rect.toAlignedRect()))
+            document = sc_message_document(sc.chats[0], rect.width(), sc._paint_scale)
+            self.assertLessEqual(document.size().height() + 61 * sc._paint_scale, rect.height() + 1)
 
     def test_visibility_opacity_and_isolated_data(self):
         window = self.window
@@ -329,11 +391,11 @@ def check_native_alpha():
         solid = capture()
         assert window.tile.video_danmaku.super_chat_overlay.width() <= 342
         assert window.tile.video_danmaku.super_chat_overlay.height() <= 118
-        point = window.tile.video_danmaku.super_chat_overlay.card_rects()[0].bottomLeft() + QPoint(18, -10)
+        point = window.tile.video_danmaku.super_chat_overlay.card_rects()[0].bottomLeft() + QPoint(5, -12)
         scale = solid.devicePixelRatio()
         x, y = round(point.x() * scale), round(point.y() * scale)
         colour = solid.pixelColor(x, y)
-        assert colour.red() > 220 and colour.green() > 180 and colour.blue() < 40, colour.name()
+        assert colour.name() == super_chat_palette(30)['background_bottom_color'].lower(), colour.name()
         row = solid.height() * 3 // 4
         assert all(solid.pixelColor(i, row) == background.pixelColor(i, row)
                    for i in range(20, solid.width() - 20)), 'SC must not alter the video background outside its cards'
@@ -355,7 +417,7 @@ def check_native_alpha():
         window.publish()
         QTest.qWait(100)
         sc = window.tile.video_danmaku.super_chat_overlay
-        reveal = sc.card_rects()[1].topLeft() + QPoint(20, 70)
+        reveal = sc.card_rects()[1].topRight() + QPoint(-12, 70)
         point = window.mapToGlobal(QPoint()) - window.screen().geometry().topLeft()
         window.screen().grabWindow(0, point.x(), point.y(), window.width(), window.height()).save(str(output))
         closing = time.perf_counter()
@@ -370,7 +432,11 @@ def check_native_alpha():
                 ('Black flash over actual mpv video during SC close', pixel.name())
             if index >= 8:
                 rear = frame.pixelColor(round(reveal.x() * scale), round(reveal.y() * scale))
-                assert rear.green() > 60 and rear.red() < 35, ('Rear SC must reveal green, not black', rear.name())
+                expected = QColor(super_chat_palette(60)['background_bottom_color'])
+                base = background.pixelColor(round(reveal.x() * scale), round(reveal.y() * scale))
+                for component in ('red', 'green', 'blue'):
+                    target = getattr(expected, component)() * .35 + getattr(base, component)() * .65
+                    assert abs(getattr(rear, component)() - target) < 15, ('Rear official SC colour', rear.name())
         print(f'PASS: SC alpha/close over actual mpv video; no black flash; close dispatch {close_ms:.1f} ms')
     finally:
         player.release()

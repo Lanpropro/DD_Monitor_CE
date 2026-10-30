@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDockWidget,
                               QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QWidget)
 from ddm import theme
 from ddm.images import _cache_path
-from ddm.super_chat import SuperChatStore
+from ddm.super_chat import SC_PRICE_TIERS, SuperChatStore
 from ddm.widgets import WallGrid
 
 
@@ -76,7 +76,7 @@ class ScSimulator(QMainWindow):
         self.number.setRange(1, 999999)
         self.name = QLineEdit('虚拟用户')
         self.price = QSpinBox()
-        self.price.setRange(1, 99999)
+        self.price.setRange(30, 99999)
         self.price.setPrefix('¥ ')
         self.price.setValue(30)
         self.duration = QSpinBox()
@@ -85,11 +85,13 @@ class ScSimulator(QMainWindow):
         self.duration.setValue(30)
         self.message = QPlainTextEdit('这是一条虚拟醒目留言，可以修改内容后再次添加。')
         self.message.setMaximumHeight(100)
-        self.color = QComboBox()
-        for label, value in (('金色', '#ffdd00'), ('深蓝', '#1f2a44'), ('粉色', '#ff88aa')):
-            self.color.addItem(label, value)
+        self.tier = QComboBox()
+        for amount, *_ in SC_PRICE_TIERS:
+            self.tier.addItem(f'¥{amount:,}', amount)
+        self.tier.currentIndexChanged.connect(lambda: self.price.setValue(self.tier.currentData()))
+        self.price.valueChanged.connect(self.sync_tier)
         for label, widget in (('编号', self.number), ('用户名', self.name), ('金额', self.price),
-                              ('有效期', self.duration), ('正文', self.message), ('卡片颜色', self.color)):
+                              ('有效期', self.duration), ('正文', self.message), ('官方金额档位', self.tier)):
             form.addRow(label, widget)
         self.add_button = QPushButton('添加 / 更新')
         self.add_button.clicked.connect(self.add_chat)
@@ -165,13 +167,18 @@ class ScSimulator(QMainWindow):
         self.timer.start()
         self.add_chat()
 
+    def sync_tier(self, amount):
+        index = max(index for index, tier in enumerate(SC_PRICE_TIERS) if amount >= tier[0])
+        self.tier.blockSignals(True)
+        self.tier.setCurrentIndex(index)
+        self.tier.blockSignals(False)
+
     def add_chat(self):
         now = int(time.time())
         self.store.upsert({'id': str(self.number.value()), 'uname': self.name.text(),
             'face': self.face_url,
             'price': self.price.value(), 'message': self.message.toPlainText(),
-            'start_time': now, 'end_time': now + self.duration.value(),
-            'background_color': self.color.currentData()})
+            'start_time': now, 'end_time': now + self.duration.value()})
         self.publish()
 
     def delete_chat(self):

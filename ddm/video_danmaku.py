@@ -14,8 +14,9 @@ from . import motion, theme
 from .danmaku_content import content_runs, content_html
 from .images import AvatarLoader
 from .badge_surface import BadgeSurface
-from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, readable_text_color,
-                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects)
+from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
+                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
+                         sc_card_geometry, sc_message_document)
 
 
 class SuperChatOverlay(BadgeSurface):
@@ -118,7 +119,7 @@ class SuperChatOverlay(BadgeSurface):
         if self.chats:
             self.sync(owner)
             for chat, button in zip(self.chats, self.close_buttons):
-                colour = readable_text_color(chat.get('background_bottom_color') or chat.get('background_color')).name()
+                colour = SC_USER_COLOR
                 style = ('QPushButton {background:transparent;border:0;'
                          f'color:{colour};font-size:{round(18 * self._paint_scale)}px;padding:0;}}')
                 if style != button.styleSheet():
@@ -244,13 +245,11 @@ class SuperChatOverlay(BadgeSurface):
         if not self.chats or owner is None:
             return []
         base_width = min(340, max(168, round(owner.width() * .30)))
-        card_height = 36 if self.presentation.collapsed else 100
-        base_height = card_height + 40 if len(self.chats) >= 3 else card_height * len(self.chats) + 8 * (len(self.chats) - 1)
         scale = max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100))
-        scale = min(scale, max(1, owner.width() - 20) / base_width,
-                    max(1, owner.height() - 20) / base_height)
+        width, height, scale, heights = sc_card_geometry(
+            self.chats, base_width, scale, owner.width() - 20, owner.height() - 20,
+            self.presentation.collapsed)
         self._paint_scale = scale
-        width, height = base_width * scale, base_height * scale
         spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
         position = owner.settings.get('super_chat_position')
         if isinstance(position, (list, tuple)) and len(position) == 2:
@@ -262,7 +261,7 @@ class SuperChatOverlay(BadgeSurface):
         else:
             left = 10 + spans[0]
             top = min(54 if owner.height() >= 320 else 10, 10 + spans[1])
-        rects = sc_stack_rects(width, height, len(self.chats), card_height, scale)
+        rects = sc_stack_rects(width, height, len(self.chats), scale=scale, card_heights=heights)
         return [rect.translated(left, top) for rect in rects]
 
     def _refresh_quick_mask(self):
@@ -287,7 +286,7 @@ class SuperChatOverlay(BadgeSurface):
             owner._paint_super_chat(content, rects[index], self.chats[index], self._paint_scale,
                                     avatar=self._avatars[index].pixmap, collapsed=self.presentation.collapsed)
         if len(self.chats) >= 3 and rects:
-            content.setPen(readable_text_color(self.chats[0].get('background_color')))
+            content.setPen(QColor(SC_CONTENT_COLOR))
             font = QFont(theme.FONT_DEFAULT)
             font.setPixelSize(max(7, round(11 * self._paint_scale)))
             content.setFont(font)
@@ -295,7 +294,7 @@ class SuperChatOverlay(BadgeSurface):
                 content.drawText(rects[0].adjusted(12, 0, -32, -4), int(Qt.AlignRight | Qt.AlignBottom),
                                  f'共 {len(self.chats)} 条')
         if rects:
-            content.setPen(QPen(readable_text_color(self.chats[0].get('background_color')), 1))
+            content.setPen(QPen(QColor(SC_USER_COLOR if self.presentation.collapsed else SC_CONTENT_COLOR), 1))
             corner = rects[0].bottomLeft() + QPointF(4, -4)
             for length in (4, 7):
                 content.drawLine(corner + QPointF(0, -length), corner + QPointF(length, 0))
@@ -967,49 +966,56 @@ class VideoDanmaku(QWidget):
     @staticmethod
     def _paint_super_chat(painter, rect, chat: dict, scale: float,
                           paint_opacity: float | None = None, avatar=None, collapsed=False) -> None:
-        background = QColor(str(chat.get('background_color') or '#f59e0b'))
-        header = QColor(str(chat.get('background_bottom_color') or background.name()))
-        accent = QColor(str(chat.get('background_price_color') or header.name()))
+        palette = super_chat_palette(chat.get('price'))
+        header = QColor(palette['background_color'])
+        background = QColor(palette['background_bottom_color'])
         painter.save()
         if paint_opacity is not None:
             painter.setOpacity(paint_opacity)
-        paint_sc_background(painter, rect, background, header, accent, 36 * scale)
-        top = rect.top() + 6 * scale
-        avatar_rect = QRectF(rect.left() + 10 * scale, top, 24 * scale, 24 * scale)
+        header_height = 36 if collapsed else 56
+        paint_sc_background(painter, rect, background, header, header_height * scale)
+        top = rect.top() + (6 if collapsed else 10) * scale
+        avatar_size = (24 if collapsed else 36) * scale
+        avatar_rect = QRectF(rect.left() + 10 * scale, top, avatar_size, avatar_size)
         paint_sc_avatar(painter, avatar_rect, avatar, str(chat.get('uname') or '?'))
         left = avatar_rect.right() + 6 * scale
         font = QFont(theme.FONT_DEFAULT)
-        font.setPixelSize(max(6, round(13 * scale)))
-        font.setBold(True)
+        font.setPixelSize(max(1, round(13 * scale)))
         painter.setFont(font)
-        painter.setPen(readable_text_color(header))
+        painter.setPen(QColor(SC_USER_COLOR))
         metrics = QFontMetrics(font)
         price = format_price(chat.get('price'))
         price_width = metrics.horizontalAdvance(price) + 4 * scale
-        price_left = rect.right() - 34 * scale - price_width
-        painter.drawText(QRectF(price_left, top, price_width, 24 * scale),
-                         int(Qt.AlignRight | Qt.AlignVCenter), price)
+        right = rect.right() - 34 * scale
+        if collapsed:
+            right -= price_width + 4 * scale
         small = QFont(theme.FONT_DEFAULT)
-        small.setPixelSize(max(6, round(11 * scale)))
+        small.setPixelSize(max(1, round(11 * scale)))
         remaining = '剩 ' + format_remaining(remaining_seconds(chat.get('end_time')))
         time_width = QFontMetrics(small).horizontalAdvance(remaining)
-        name_width = max(0, price_left - left - time_width - 12 * scale)
+        name_width = max(0, right - left - time_width - 6 * scale)
         name = metrics.elidedText(str(chat.get('uname') or '匿名用户'), Qt.ElideRight, round(name_width))
-        painter.drawText(QRectF(left, top, name_width, 24 * scale),
+        painter.drawText(QRectF(left, top, name_width, (24 if collapsed else 18) * scale),
                          int(Qt.AlignLeft | Qt.AlignVCenter), name)
         painter.setFont(small)
         painter.drawText(QRectF(left + metrics.horizontalAdvance(name) + 6 * scale,
-                               top, time_width, 24 * scale), int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
+                               top, time_width, (24 if collapsed else 18) * scale),
+                         int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
+        painter.setPen(QColor(SC_PRICE_COLOR))
+        font.setPixelSize(max(1, round((13 if collapsed else 15) * scale)))
+        painter.setFont(font)
         if collapsed:
+            painter.drawText(QRectF(right + 4 * scale, top, price_width, 24 * scale),
+                             int(Qt.AlignRight | Qt.AlignVCenter), price)
             painter.restore()
             return
-        body = QFont(theme.FONT_DEFAULT)
-        body.setPixelSize(max(7, round(14 * scale)))
-        painter.setFont(body)
-        painter.setPen(readable_text_color(background))
-        painter.drawText(rect.adjusted(11 * scale, 42 * scale, -11 * scale, -7 * scale),
-                         int(Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap),
-                         str(chat.get('message') or chat.get('text') or ''))
+        painter.drawText(QRectF(left, top + 19 * scale, max(0, right - left), 22 * scale),
+                         int(Qt.AlignLeft | Qt.AlignVCenter), price)
+        body_rect = rect.adjusted(11 * scale, 59 * scale, -11 * scale, -2 * scale)
+        document = sc_message_document(chat, rect.width(), scale)
+        painter.setClipRect(body_rect, Qt.IntersectClip)
+        painter.translate(body_rect.topLeft())
+        document.drawContents(painter, QRectF(0, 0, body_rect.width(), body_rect.height()))
         painter.restore()
 
     def _native_layered(self) -> bool:
