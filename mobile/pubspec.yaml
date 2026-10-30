@@ -1,7 +1,7 @@
 name: ddmonitor
 description: DD Monitor shared mobile viewer.
 publish_to: none
-version: 0.2.0+2
+version: 0.3.0+3
 environment:
   sdk: ^3.13.7
 dependencies:
@@ -9,6 +9,7 @@ dependencies:
     sdk: flutter
   http: ^1.6.0
   video_player: ^2.14.1
+  shared_preferences: ^2.5.4
 dev_dependencies:
   flutter_test:
     sdk: flutter

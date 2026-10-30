@@ -1,17 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'design.dart';
+import 'follow_view.dart';
+import 'monitor_model.dart';
 import 'platforms/bilibili.dart';
-import 'watch_session.dart';
+import 'wall_view.dart';
 
-const background = Color(0xFF11151C);
-const panel = Color(0xFF1C222C);
-const accent = Color(0xFF8AB4FF);
-const secondary = Color(0xFFA7B0BD);
-const tabs = ['观看', '关注', '插件', '设置'];
+const tabs = ['直播墙', '关注', '插件', '设置'];
 const tabIcons = [
   Icons.live_tv_outlined,
   Icons.favorite_border,
@@ -20,53 +18,150 @@ const tabIcons = [
 ];
 
 class MonitorApp extends StatefulWidget {
-  const MonitorApp({super.key, this.provider});
-  final BilibiliProvider? provider;
+  const MonitorApp({super.key, this.model, this.preferences});
+  final MonitorModel? model;
+  final SharedPreferences? preferences;
   @override
   State<MonitorApp> createState() => _MonitorAppState();
 }
 
 class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
-  late final session = WatchSession(
-    widget.provider ??
-        BilibiliProvider(allowFlv: defaultTargetPlatform != TargetPlatform.iOS),
-  );
+  late final model =
+      widget.model ?? MonitorModel(preferences: widget.preferences);
   int selected = 0;
-  String lastInput = '';
-
+  Timer? refreshTimer;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(model.refreshFollows());
+    refreshTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => unawaited(model.refreshFollows()),
+    );
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) unawaited(session.suspend());
-    if (state == AppLifecycleState.resumed) unawaited(session.resume());
+    if (state == AppLifecycleState.paused) {
+      refreshTimer?.cancel();
+      unawaited(model.suspend());
+    }
+    if (state == AppLifecycleState.resumed) {
+      unawaited(model.resume());
+      refreshTimer?.cancel();
+      refreshTimer = Timer.periodic(
+        const Duration(seconds: 60),
+        (_) => unawaited(model.refreshFollows()),
+      );
+    }
   }
 
   @override
   void dispose() {
+    refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    session.dispose();
+    if (widget.model == null) model.dispose();
     super.dispose();
   }
 
-  Future<void> addRoom(BuildContext context) async {
-    final room = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (_) => AddRoomSheet(initial: lastInput),
+  Future<void> addFollow(BuildContext context) async {
+    await showAdaptivePanel<void>(context, AddFollowSheet(model: model), model);
+  }
+
+  Future<void> place(BuildContext context, RoomInfo room) async {
+    if (room.live != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(room.live == false ? '该主播尚未开播' : '请先刷新主播状态')),
+      );
+      return;
+    }
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+    final layout = model.effectiveLayout(wide);
+    final index = await showAdaptivePanel<int>(
+      context,
+      PlacementPanel(model: model, room: room, layout: layout),
+      model,
     );
-    if (room == null || !mounted) return;
-    setState(() {
-      lastInput = room;
-      selected = 0;
-    });
-    unawaited(session.watch(room));
+    if (index == null || !mounted || !context.mounted) return;
+    if (model.rooms[index] != null &&
+        model.rooms[index]!.roomId != room.roomId) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('替换当前画面？'),
+          content: Text(
+            '位置 ${index + 1} 的 ${model.rooms[index]!.name} 将替换为 ${room.name}。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('替换'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true || !mounted) return;
+    }
+    setState(() => selected = 0);
+    unawaited(model.place(room, index));
+  }
+
+  Future<void> chooseLayout(BuildContext context) async {
+    final chosen = await showAdaptivePanel<WallLayout>(
+      context,
+      Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '选择布局',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            for (final layout in WallLayout.values)
+              ListTile(
+                key: Key('layout-${layout.name}'),
+                leading: const Icon(Icons.grid_view_rounded),
+                title: Text(layout.label),
+                trailing: model.layout == layout
+                    ? const Icon(Icons.check, color: accent)
+                    : null,
+                onTap: () => Navigator.pop(context, layout),
+              ),
+          ],
+        ),
+      ),
+      model,
+    );
+    if (chosen == null || !context.mounted) return;
+    if (model.rooms.skip(chosen.slots).any((room) => room != null)) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('移除超出布局的画面？'),
+          content: const Text('关注会保留，超出新布局的位置将停止播放。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('切换'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    await model.changeLayout(chosen);
   }
 
   @override
@@ -83,145 +178,188 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
         primary: accent,
       ),
       scaffoldBackgroundColor: background,
-      appBarTheme: const AppBarTheme(backgroundColor: background),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: background,
+        scrolledUnderElevation: 0,
+      ),
       textTheme: const TextTheme(
         bodyLarge: TextStyle(fontSize: 17),
         bodyMedium: TextStyle(fontSize: 15, color: secondary),
       ),
     ),
     home: Builder(
-      builder: (context) => Scaffold(
-        appBar: AppBar(
-          toolbarHeight: 80,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'DD监控室',
-                style: TextStyle(fontSize: 13, color: secondary),
-              ),
-              Text(
-                tabs[selected],
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            if (selected == 0)
-              IconButton(
-                key: const Key('add-room'),
-                tooltip: '添加直播间',
-                onPressed: () => addRoom(context),
-                icon: const Icon(Icons.add_circle_outline),
-              ),
-            const SizedBox(width: 12),
-          ],
-        ),
-        body: SafeArea(
-          top: false,
-          bottom: false,
-          child: IndexedStack(
-            index: selected,
-            children: [
-              ListenableBuilder(
-                listenable: session,
-                builder: (_, _) =>
-                    WatchWall(session: session, onAdd: () => addRoom(context)),
-              ),
-              const EmptySection(
-                icon: Icons.favorite_border,
-                title: '关注的直播间',
-                detail: '关注管理尚未接入此预览版',
-              ),
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Card(
-                      child: ListTile(
-                        leading: Icon(Icons.live_tv),
-                        title: Text('B 站直播'),
-                        subtitle: Text('匿名观看 · 已内置'),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text('插件商店尚未接入此预览版'),
-                    ),
-                  ],
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('DD监控室 0.2.0', style: TextStyle(fontSize: 20)),
-                    SizedBox(height: 16),
-                    Text('Flutter 移动端预览 · 单路 B 站直播'),
-                    SizedBox(height: 12),
-                    Text('进入后台时释放播放器；返回后恢复正在观看的直播。'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: Center(
-              heightFactor: 1,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Material(
-                  color: panel,
-                  borderRadius: BorderRadius.circular(26),
-                  clipBehavior: Clip.antiAlias,
-                  child: Row(
+      builder: (context) => ListenableBuilder(
+        listenable: model,
+        builder: (_, _) => Scaffold(
+          extendBody: true,
+          appBar: AppBar(
+            toolbarHeight:
+                70 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.5),
+            title: Row(
+              children: [
+                const Icon(Icons.live_tv_rounded, size: 21, color: accent),
+                const SizedBox(width: 9),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (var i = 0; i < tabs.length; i++)
-                        Expanded(
-                          child: Semantics(
-                            selected: selected == i,
-                            child: InkWell(
-                              key: Key('dock-$i'),
-                              onTap: () => setState(() => selected = i),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      tabIcons[i],
-                                      color: selected == i ? accent : secondary,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      tabs[i],
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: selected == i
-                                            ? accent
-                                            : secondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
+                      const Text(
+                        'DD监控室',
+                        style: TextStyle(fontSize: 12, color: secondary),
+                      ),
+                      Text(
+                        tabs[selected],
+                        style: const TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w600,
                         ),
+                      ),
                     ],
                   ),
                 ),
+              ],
+            ),
+            actions: [
+              if (selected == 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: GlassSurface(
+                    radius: 23,
+                    reduced: model.reduceTransparency,
+                    child: TextButton.icon(
+                      key: const Key('choose-layout'),
+                      onPressed: () => chooseLayout(context),
+                      icon: const Icon(Icons.grid_view_rounded, size: 18),
+                      label: Text(
+                        model
+                            .effectiveLayout(
+                              MediaQuery.sizeOf(context).width >= 720,
+                            )
+                            .label,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (selected == 1) ...[
+                IconButton(
+                  tooltip: '刷新主播状态',
+                  onPressed: model.refreshing ? null : model.refreshFollows,
+                  icon: const Icon(Icons.refresh),
+                ),
+                IconButton(
+                  key: const Key('add-follow'),
+                  tooltip: '添加关注',
+                  onPressed: () => addFollow(context),
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+                const SizedBox(width: 12),
+              ],
+            ],
+          ),
+          body: SafeArea(
+            top: false,
+            bottom: false,
+            child: IndexedStack(
+              index: selected,
+              children: [
+                WatchWall(
+                  model: model,
+                  onSelect: () => setState(() => selected = 1),
+                ),
+                FollowPage(
+                  model: model,
+                  onSelect: (room) => place(context, room),
+                  onAdd: () => addFollow(context),
+                ),
+                const PluginPage(),
+                SettingsPage(
+                  model: model,
+                  onLayout: () => chooseLayout(context),
+                ),
+              ],
+            ),
+          ),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  child: GlassSurface(
+                    radius: 32,
+                    reduced: model.reduceTransparency,
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: Row(
+                        children: [
+                          for (var i = 0; i < tabs.length; i++)
+                            Expanded(
+                              child: Semantics(
+                                selected: selected == i,
+                                button: true,
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    key: Key('dock-$i'),
+                                    borderRadius: BorderRadius.circular(27),
+                                    onTap: () => setState(() => selected = i),
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: selected == i
+                                            ? Colors.white.withValues(
+                                                alpha: 0.13,
+                                              )
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(27),
+                                        border: Border.all(
+                                          color: selected == i
+                                              ? Colors.white24
+                                              : Colors.transparent,
+                                        ),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 9,
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              tabIcons[i],
+                                              size: 23,
+                                              color: selected == i
+                                                  ? accent
+                                                  : secondary,
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              tabs[i],
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: selected == i
+                                                    ? accent
+                                                    : secondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -231,288 +369,248 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   );
 }
 
-class WatchWall extends StatelessWidget {
-  const WatchWall({super.key, required this.session, required this.onAdd});
-  final WatchSession session;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final content = ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Align(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: constraints.maxWidth >= 720
-                      ? (constraints.maxHeight - 112).clamp(
-                              128.0,
-                              double.infinity,
-                            ) *
-                            16 /
-                            9
-                      : double.infinity,
-                ),
-                child: VideoTile(session: session, onAdd: onAdd),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    session.stream == null
-                        ? '我的画面墙'
-                        : 'B 站 · ${session.stream!.roomId}',
-                    style: const TextStyle(fontSize: 20),
-                  ),
-                ),
-                if (session.stream != null ||
-                    session.loading ||
-                    session.error != null)
-                  IconButton(
-                    tooltip: '停止观看',
-                    onPressed: session.stop,
-                    icon: const Icon(Icons.stop_circle_outlined),
-                  ),
-              ],
-            ),
-            Text(
-              session.status,
-              style: TextStyle(
-                color: session.error == null
-                    ? secondary
-                    : Theme.of(context).colorScheme.error,
-              ),
-            ),
-            if (session.error != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(onPressed: onAdd, child: const Text('重新连接')),
-              ),
-          ],
-        );
-        if (constraints.maxWidth < 720) {
-          return KeyedSubtree(key: const Key('portrait-wall'), child: content);
-        }
-        return Row(
-          key: const Key('regular-wall'),
-          children: [
-            SizedBox(
-              width: 230,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('直播间', style: TextStyle(fontSize: 20)),
-                    const SizedBox(height: 20),
-                    Text(
-                      session.stream == null
-                          ? '尚未添加直播间'
-                          : 'B 站 · ${session.stream!.roomId}',
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: onAdd,
-                      icon: const Icon(Icons.add),
-                      label: const Text('添加直播间'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: content),
-          ],
-        );
-      },
+Future<T?> showAdaptivePanel<T>(
+  BuildContext context,
+  Widget child,
+  MonitorModel model,
+) {
+  if (MediaQuery.sizeOf(context).width >= 720) {
+    return showDialog<T>(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 540),
+          child: GlassSurface(
+            reduced: model.reduceTransparency,
+            child: SingleChildScrollView(child: child),
+          ),
+        ),
+      ),
     );
   }
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => GlassSurface(
+      reduced: model.reduceTransparency,
+      radius: 28,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: child,
+        ),
+      ),
+    ),
+  );
 }
 
-class VideoTile extends StatelessWidget {
-  const VideoTile({super.key, required this.session, required this.onAdd});
-  final WatchSession session;
-  final VoidCallback onAdd;
-
+class PluginPage extends StatelessWidget {
+  const PluginPage({super.key});
   @override
-  Widget build(BuildContext context) {
-    final controller = session.controller;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: AspectRatio(
-        key: const Key('video-slot'),
-        aspectRatio: 16 / 9,
-        child: ColoredBox(
-          color: Colors.black,
-          child: Stack(
-            alignment: Alignment.center,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (_, box) => Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (box.maxWidth >= 720)
+          const SizedBox(
+            width: 220,
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('已安装', style: TextStyle(fontSize: 20)),
+                  SizedBox(height: 22),
+                  ListTile(leading: Icon(Icons.live_tv), title: Text('平台源')),
+                ],
+              ),
+            ),
+          ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
             children: [
-              if (controller != null && controller.value.isInitialized)
-                AspectRatio(
-                  aspectRatio: controller.value.aspectRatio,
-                  child: VideoPlayer(controller),
-                )
-              else if (!session.loading)
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.live_tv_outlined,
-                      size: 36,
-                      color: secondary,
+              Card(
+                color: panel,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ListTile(
+                    leading: Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDE6A9B),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: const Icon(
+                        Icons.live_tv_rounded,
+                        color: Colors.white,
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    const Text('还没有直播画面'),
-                    TextButton(onPressed: onAdd, child: const Text('添加直播间')),
-                  ],
-                ),
-              if (session.loading) const CircularProgressIndicator(),
-              if (controller != null)
-                Positioned(
-                  bottom: 4,
-                  right: 4,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: controller.value.isPlaying ? '暂停' : '播放',
-                          onPressed: session.togglePlayback,
-                          icon: Icon(
-                            controller.value.isPlaying
-                                ? Icons.pause
-                                : Icons.play_arrow,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: controller.value.volume == 0 ? '开启声音' : '静音',
-                          onPressed: () => controller.setVolume(
-                            controller.value.volume == 0 ? 1 : 0,
-                          ),
-                          icon: Icon(
-                            controller.value.volume == 0
-                                ? Icons.volume_off
-                                : Icons.volume_up,
-                          ),
-                        ),
-                      ],
+                    title: const Text('B站直播'),
+                    subtitle: const Text('平台源 · 匿名观看'),
+                    trailing: const Text(
+                      '已内置',
+                      style: TextStyle(color: accent),
                     ),
                   ),
                 ),
+              ),
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('插件商店尚未接入此预览版。'),
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class EmptySection extends StatelessWidget {
-  const EmptySection({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.detail,
-  });
-  final IconData icon;
-  final String title;
-  final String detail;
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 40, color: secondary),
-          const SizedBox(height: 18),
-          Text(title, style: const TextStyle(fontSize: 22)),
-          const SizedBox(height: 8),
-          Text(detail, textAlign: TextAlign.center),
-        ],
-      ),
+      ],
     ),
   );
 }
 
-class AddRoomSheet extends StatefulWidget {
-  const AddRoomSheet({super.key, required this.initial});
-  final String initial;
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key, required this.model, required this.onLayout});
+  final MonitorModel model;
+  final VoidCallback onLayout;
   @override
-  State<AddRoomSheet> createState() => _AddRoomSheetState();
+  State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _AddRoomSheetState extends State<AddRoomSheet> {
-  final form = GlobalKey<FormState>();
-  late final input = TextEditingController(text: widget.initial);
-  void submit() {
-    if (form.currentState!.validate()) {
-      Navigator.pop(context, validateRoomId(input.text));
-    }
-  }
-
+class _SettingsPageState extends State<SettingsPage> {
+  int section = 0;
   @override
-  void dispose() {
-    input.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    child: Padding(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        8,
-        24,
-        MediaQuery.viewInsetsOf(context).bottom + 24,
-      ),
-      child: Form(
-        key: form,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (_, box) {
+      final wide = box.maxWidth >= 720;
+      final sections = [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('添加 B 站直播间', style: TextStyle(fontSize: 22)),
-            const SizedBox(height: 20),
-            TextFormField(
-              key: const Key('room-input'),
-              controller: input,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.go,
-              decoration: const InputDecoration(
-                labelText: '房间号',
-                hintText: '输入数字房间号',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) {
-                try {
-                  validateRoomId(value ?? '');
-                  return null;
-                } on LiveLookupException catch (error) {
-                  return error.message;
-                }
-              },
-              onFieldSubmitted: (_) => submit(),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              key: const Key('start-watch'),
-              onPressed: submit,
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('开始观看'),
+            const Text('观看', style: TextStyle(color: secondary)),
+            const SizedBox(height: 10),
+            Card(
+              color: panel,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.grid_view_rounded),
+                    title: const Text('默认布局'),
+                    subtitle: Text(widget.model.layout.label),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: widget.onLayout,
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  const ListTile(
+                    leading: Icon(Icons.volume_up_outlined),
+                    title: Text('声音'),
+                    subtitle: Text('默认仅位置 1 出声，点击其他画面的声音按钮切换'),
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  const ListTile(
+                    leading: Icon(Icons.aspect_ratio),
+                    title: Text('画面适配'),
+                    subtitle: Text('保持原始比例'),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-      ),
-    ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('外观', style: TextStyle(color: secondary)),
+            const SizedBox(height: 10),
+            Card(
+              color: panel,
+              child: Column(
+                children: [
+                  const ListTile(
+                    leading: Icon(Icons.dark_mode_outlined),
+                    title: Text('主题'),
+                    trailing: Text('深色'),
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  SwitchListTile(
+                    key: const Key('reduce-transparency'),
+                    secondary: const Icon(Icons.blur_off_outlined),
+                    title: const Text('减少透明效果'),
+                    value: widget.model.reduceTransparency,
+                    onChanged: widget.model.setTransparency,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('应用', style: TextStyle(color: secondary)),
+            const SizedBox(height: 10),
+            const Card(
+              color: panel,
+              child: ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('关于 DD监控室'),
+                subtitle: Text('0.3.0 · Flutter 移动端预览'),
+              ),
+            ),
+          ],
+        ),
+      ];
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (wide)
+            SizedBox(
+              width: 220,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < 3; i++)
+                      ListTile(
+                        selected: section == i,
+                        selectedTileColor: accent.withValues(alpha: 0.12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        title: Text(['观看', '外观', '应用'][i]),
+                        onTap: () => setState(() => section = i),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+                  children: [
+                    if (wide)
+                      sections[section]
+                    else
+                      for (final section in sections)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 22),
+                          child: section,
+                        ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    },
   );
 }

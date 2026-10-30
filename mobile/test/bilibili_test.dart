@@ -24,10 +24,46 @@ Map<String, dynamic> source(String protocol, {String codec = 'avc'}) => {
     },
   ],
 };
-http.Response payload(Map<String, dynamic> data) =>
-    http.Response(jsonEncode({'code': 0, 'data': data}), 200);
+http.Response payload(Map<String, dynamic> data) => http.Response(
+  jsonEncode({'code': 0, 'data': data}),
+  200,
+  headers: {'content-type': 'application/json; charset=utf-8'},
+);
 
 void main() {
+  test('Cover cards use real names, live keyframes and offline covers without cookies', () async {
+    for (final live in [true, false]) {
+      final provider = BilibiliProvider(
+        client: MockClient((request) async {
+          expect(request.headers.containsKey('cookie'), isFalse);
+          if (request.url.path.endsWith('room_init')) {
+            return payload({'room_id': 7734200, 'live_status': live ? 1 : 0});
+          }
+          expect(request.url.queryParameters['room_ids'], '7734200');
+          return payload({
+            'by_room_ids': {
+              '7734200': {
+                'uname': '主播名',
+                'title': '当前直播标题',
+                'live_status': live ? 1 : 0,
+                'keyframe': 'https://example.com/current.jpg',
+                'cover': 'https://example.com/cover.jpg',
+              },
+            },
+          });
+        }),
+      );
+      final room = await provider.roomInfo('6');
+      expect(room.roomId, '7734200');
+      expect(room.name, '主播名');
+      expect(room.live, live);
+      expect(
+        room.cover,
+        'https://example.com/${live ? 'current' : 'cover'}.jpg',
+      );
+      provider.close();
+    }
+  });
   test('Room ID validation normalizes short IDs', () {
     expect(validateRoomId(' 006 '), '6');
     for (final invalid in [

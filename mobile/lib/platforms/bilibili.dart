@@ -34,6 +34,35 @@ class LiveStream {
   Map<String, String> get headers => const {'User-Agent': appUserAgent};
 }
 
+class RoomInfo {
+  const RoomInfo({
+    required this.roomId,
+    required this.name,
+    this.title = '',
+    this.cover = '',
+    this.live,
+  });
+  final String roomId;
+  final String name;
+  final String title;
+  final String cover;
+  final bool? live;
+
+  Map<String, dynamic> toJson() => {
+    'roomId': roomId,
+    'name': name,
+    'title': title,
+    'cover': cover,
+  };
+
+  factory RoomInfo.fromJson(Map<String, dynamic> json) => RoomInfo(
+    roomId: validateRoomId('${json['roomId']}'),
+    name: json['name'] as String,
+    title: json['title'] as String? ?? '',
+    cover: json['cover'] as String? ?? '',
+  );
+}
+
 String validateRoomId(String value) {
   final room = value.trim();
   if (!RegExp(r'^[0-9]{1,12}$').hasMatch(room) || int.parse(room) == 0) {
@@ -49,6 +78,29 @@ class BilibiliProvider {
     : _client = client ?? http.Client();
   final http.Client _client;
   final bool allowFlv;
+
+  Future<RoomInfo> roomInfo(String value) async {
+    final room = await _get('/room/v1/Room/room_init', {
+      'id': validateRoomId(value),
+    });
+    final id = validateRoomId('${room['room_id']}');
+    // Same cover source and live keyframe preference as ddm/bili.py room_info.
+    final data = await _get('/xlive/web-room/v1/index/getRoomBaseInfo', {
+      'req_biz': 'web_room_componet',
+      'room_ids': id,
+    });
+    final info = data['by_room_ids']?[id] as Map<String, dynamic>?;
+    if (info == null) throw const LiveLookupException('暂时无法获取主播信息，请重试');
+    final live = info['live_status'] == 1;
+    final keyframe = '${info['keyframe'] ?? ''}';
+    return RoomInfo(
+      roomId: id,
+      name: '${info['uname'] ?? '房间 $id'}',
+      title: '${info['title'] ?? ''}',
+      live: live,
+      cover: live && keyframe.isNotEmpty ? keyframe : '${info['cover'] ?? ''}',
+    );
+  }
 
   Future<Map<String, dynamic>> _get(
     String path,

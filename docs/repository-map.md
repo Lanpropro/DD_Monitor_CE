@@ -543,13 +543,18 @@
 - `mobile/ios/Runner/SceneDelegate.swift`
 - `mobile/ios/RunnerTests/RunnerTests.swift`
 - `mobile/lib/app.dart`
+- `mobile/lib/design.dart`
+- `mobile/lib/follow_view.dart`
 - `mobile/lib/main.dart`
+- `mobile/lib/monitor_model.dart`
 - `mobile/lib/platforms/bilibili.dart`
+- `mobile/lib/wall_view.dart`
 - `mobile/lib/watch_session.dart`
 - `mobile/pubspec.lock`
 - `mobile/pubspec.yaml`
 - `mobile/test/app_test.dart`
 - `mobile/test/bilibili_test.dart`
+- `mobile/test/model_test.dart`
 - `mobile/test/watch_session_test.dart`
 
 ## 仅本机存在的其他资料
