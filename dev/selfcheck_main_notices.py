@@ -661,6 +661,34 @@ class MainNoticesTests(unittest.TestCase):
                 notice._open_file_location()
                 self.assertEqual(Path(folder.call_args.args[0].toLocalFile()), path.parent)
 
+    def test_recording_reconnect_progress_updates_one_notice_per_room(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        other = {'room_id': '1002', 'uname': '主播乙'}
+        window = self.window([room, other])
+        messages = ('开始录制', '已录制 60 分钟，正在保存分段', '正在重新获取录制地址',
+                    '分段已保存，正在获取新录制地址', '取到新流，继续录制')
+        notice = None
+        for text in messages:
+            window.recorder._say('主播甲 ' + text, room)
+            if notice is None:
+                notice = window._result_notice
+            self.assertIs(window._result_notice, notice)
+        center = window.sidebar.notification_button.center
+        self.assertEqual(len(center.entries), 1)
+        self.assertEqual(center.entries[0].message, '主播甲 取到新流，继续录制')
+        window.recorder._say('主播乙 正在重新获取录制地址', other)
+        self.assertEqual(len(center.entries), 2)
+        window.recorder._say('主播甲 的 FFmpeg 意外退出（3436169992）；详见 .ddm-parts 日志', room)
+        self.assertEqual(center.entries[0].kind, 'warning')
+        window.recorder._say('主播甲 等待 3 秒续录', room)
+        window.recorder._say('主播甲 正在重新获取录制地址', room)
+        window.recorder._say('主播甲 取到新流，继续录制', room)
+        self.assertEqual(len(center.entries), 2)
+        window.recorder._say('正在导出录制：/synthetic/record.mkv', room)
+        self.assertEqual(len(center.entries), 3)
+        window.recorder._say('已保存录制：/synthetic/record.mkv', room)
+        self.assertEqual(len(center.entries), 3)
+
     def test_room_notices_include_room_and_update_all_avatars(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
@@ -906,6 +934,41 @@ class MainNoticesTests(unittest.TestCase):
         window.apply_preview_settings()
         self.app.processEvents()
         self.assertFalse(thumb.cover.isHidden(), 'Re-enabling restores the cached cover')
+
+    def test_preview_stop_respects_compact_background_switch(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Preview background'}])
+        window.settings['sidebar_card_mode'] = False
+        window.apply_preview_settings()
+        thumb = window.sidebar._items[0].thumb
+        cover, banner = QPixmap(400, 200), QPixmap(800, 80)
+        cover.fill(QColor('green'))
+        banner.fill(QColor('red'))
+        thumb.set_cover(cover)
+        thumb.set_face(cover)
+        for artwork in (banner, None):
+            with self.subTest(banner=artwork is not None):
+                thumb.set_banner(artwork)
+                thumb.set_compact_background(True)
+                self.app.processEvents()
+                self.assertFalse(thumb.cover.isHidden())
+                thumb.set_compact_background(False)
+                for hold in (False, True):
+                    thumb.set_cover_hold(hold)
+                    # Popup previews finish here without an embedded tile player.
+                    thumb.stop()
+                    self.assertTrue(thumb.cover.isHidden())
+                    self.assertFalse(thumb.face.isHidden())
+                    self.assertFalse(thumb._overlay_widgets[0].isHidden())
+                    self.assertFalse(thumb._overlay_widgets[0].property('roomBackdrop'))
+                thumb.set_cover_hold(False)
+                thumb.set_compact_background(True)
+                thumb.stop()
+                self.assertFalse(thumb.cover.isHidden())
+        window.settings['sidebar_card_mode'] = True
+        window.apply_preview_settings()
+        thumb.set_compact_background(False)
+        thumb.stop()
+        self.assertFalse(thumb.cover.isHidden(), 'Large cards retain the cover')
 
     def test_tile_selection_does_not_change_border_in_dark_or_light_theme(self):
         window = self.window([{'room_id': '1001'}])

@@ -190,7 +190,7 @@ class MainWindow(QMainWindow):
         self.settings.pop("auto_reconnect", None)  # 旧配置的开关不再控制内置重连
         self.settings.pop("recording_backup_dir", None)
         self.settings.pop("recording_ffmpeg", None)
-        self.recorder = RecordingManager(self.settings, self)
+        self.recorder = RecordingManager(self.settings, self, source_resolver=self._refresh_recording_source)
         self.recorder.noticeWithRoom.connect(self._record_notice)
         self.recorder.changed.connect(self._record_state_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
@@ -3137,6 +3137,39 @@ class MainWindow(QMainWindow):
             tile.room["quality"] = 10000
         self.start_tile(tile)
 
+    def _refresh_recording_source(self, session) -> None:
+        tile = session.tile
+        platform = self.plugins.platform_for(session.room_id)
+        if self._closing or tile not in self.wall.tiles or (':' in session.room_id and platform is None):
+            self.recorder.source_failed(session, '直播间已关闭或平台不可用')
+            return
+        resolver = StreamResolver(session.room_id, int(tile.actual_quality or tile.quality or 250),
+                                  self, platform=platform,
+                                  codec=session.video_codec or self._codec_settings(tile)['bili_codec'])
+        session.resolver = resolver
+
+        def current():
+            return (not self._closing and self.recorder.sessions.get(tile) is session
+                    and not session.stopping and session.resolver is resolver
+                    and tile in self.wall.tiles
+                    and str(tile.room.get('room_id') or '') == session.room_id)
+
+        def resolved(_rid, url, _quality, profile, _options):
+            if current():
+                codec = resolver.source_codec if platform is not None else bili.codec_from_profile(profile)
+                self.recorder.source_resolved(session, url, dict(resolver.headers), codec)
+
+        def failed(_rid, reason):
+            if current():
+                self.recorder.source_failed(session, reason)
+
+        resolver.resolved.connect(resolved)
+        resolver.failed.connect(failed)
+        resolver.finished.connect(lambda: self._resolvers_running.discard(resolver))
+        resolver.finished.connect(resolver.deleteLater)
+        self._resolvers_running.add(resolver)
+        resolver.start()
+
     def _finish_pending_capture(self, tile) -> None:
         recording = self._pending_capture.pop(tile)
         if tile.actual_quality != 10000:
@@ -3212,8 +3245,14 @@ class MainWindow(QMainWindow):
                               notice_key=('record-export', str(Path(path))),
                               pending=prefix.startswith('正在导出'))
             return
-        warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能"))
+        room_id = str((room or {}).get('room_id') or '')
+        progress = any(text in message for text in (
+            '开始录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
+            '重新连接录制流', '正在保存分段', '分段已保存，', '等待 ',
+            '重新获取录制地址失败', 'FFmpeg 意外退出'))
+        warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能", "意外退出"))
         self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info",
+                          notice_key=('record-state', room_id) if room_id and progress else None,
                           auto_room_link=False)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None,

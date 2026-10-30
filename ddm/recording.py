@@ -266,6 +266,8 @@ class _Session:
         self.started_at = 0.0
         self.output_started_at = 0.0
         self.rotating = False
+        self.resolver = None
+        self.refreshing = False
         self.pruned_at = 0.0        # 上次裁分段的时间；纯缓存会话用（见 _prune_cache）
 
     def finished_parts(self) -> list[Path]:
@@ -293,9 +295,10 @@ class RecordingManager(QObject):
     noticeWithRoom = Signal(str, dict)
     changed = Signal(object)
 
-    def __init__(self, settings: dict, parent=None):
+    def __init__(self, settings: dict, parent=None, *, source_resolver=None):
         super().__init__(parent)
         self.settings = settings
+        self.source_resolver = source_resolver
         self.sessions: dict[Any, _Session] = {}
         self.exports: list[tuple[subprocess.Popen, Path, list[Path], bool]] = []
         self._export_rooms: dict[Path, dict] = {}
@@ -418,10 +421,48 @@ class RecordingManager(QObject):
         if session is None or session.stopping:
             return
         session.stopping = True
+        self._cancel_source(session)
         self._end_process(session)
         self.changed.emit(tile)
         if session.process is None:
             self._finalize(session)
+
+    @staticmethod
+    def _cancel_source(session) -> None:
+        if session.resolver is not None:
+            session.resolver.cancel()
+            session.resolver = None
+        session.refreshing = False
+
+    def _continue(self, session, url, headers) -> None:
+        if self.source_resolver is not None and url.lower().startswith(('http://', 'https://')):
+            if not session.refreshing:
+                session.refreshing = True
+                session.retry_at = 0.0
+                self._say(f"{session.name} 正在重新获取录制地址", session.room)
+                self.source_resolver(session)
+        else:
+            self._launch(session, url, headers)
+
+    def source_resolved(self, session, url, headers, codec) -> None:
+        if (self.sessions.get(session.tile) is not session or session.stopping
+                or str(session.tile.room.get('room_id') or '') != session.room_id):
+            return
+        self._cancel_source(session)
+        try:
+            self._change_codec(session, codec)
+            self._launch(session, url, headers)
+            self._say(f"{session.name} 取到新流，继续录制", session.room)
+        except (OSError, ValueError) as error:
+            self.source_failed(session, str(error))
+
+    def source_failed(self, session, reason) -> None:
+        if self.sessions.get(session.tile) is not session or session.stopping:
+            return
+        self._cancel_source(session)
+        session.retry_count += 1
+        session.retry_at = time.monotonic() + min(60, 2 ** min(6, session.retry_count))
+        self._say(f"{session.name} 重新获取录制地址失败：{reason}；稍后重试", session.room)
 
     def _finalize(self, session: _Session, *, save_replay: bool = True) -> None:
         self.sessions.pop(session.tile, None)
@@ -458,6 +499,7 @@ class RecordingManager(QObject):
             return
         codec = str(getattr(tile, "stream_codec", "") or "")
         if session.process is None:
+            self._cancel_source(session)
             try:
                 reconnecting = session.chunk > 0
                 self._change_codec(session, codec)
@@ -520,8 +562,8 @@ class RecordingManager(QObject):
                         or session.retry_at and time.monotonic() >= session.retry_at):
                     try:
                         reconnecting = session.chunk > 0
-                        self._launch(session, tile.stream_url,
-                                     dict(tile.stream_headers or {}))
+                        self._continue(session, tile.stream_url,
+                                       dict(tile.stream_headers or {}))
                         if reconnecting and session.process is not None:
                             self._say(f"{session.name} 重新连接录制流", session.room)
                     except OSError as error:
@@ -574,8 +616,8 @@ class RecordingManager(QObject):
                 try:
                     if codec is not None:
                         self._change_codec(session, codec)
-                    self._launch(session, url, headers)
-                    self._say(f"{session.name} 分段已保存，继续录制", session.room)
+                    self._continue(session, url, headers)
+                    self._say(f"{session.name} 分段已保存，{'正在获取新录制地址' if session.refreshing else '继续录制'}", session.room)
                 except OSError as error:
                     self._say(f"{session.name} 续录失败：{error}", session.room)
                     self.stop(tile)
@@ -740,6 +782,7 @@ class RecordingManager(QObject):
     def shutdown(self) -> None:
         self.timer.stop()
         for session in self.sessions.values():
+            self._cancel_source(session)
             self._end_process(session)
         for session in list(self.sessions.values()):
             if session.process:

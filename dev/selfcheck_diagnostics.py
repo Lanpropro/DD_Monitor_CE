@@ -109,6 +109,49 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn('source_request', entries['platform-diagnostics.json'])
         self.assertNotIn('PRIVATE_UNRELATED', str(entries))
 
+    def test_recording_logs_are_bounded_redacted_and_keep_expiry_evidence(self):
+        folder = self.case / 'recordings'
+        parts = folder / '.ddm-parts'
+        parts.mkdir(parents=True)
+        self.put('utils/config.json', json.dumps({'settings': {'recording_dir': str(folder)}}))
+        for index in range(7):
+            path = parts / f'private-streamer_{index}.log'
+            path.write_text('X' * (2 * 1024 * 1024 + 10) +
+                '\nHTTP error 403 Forbidden\nhttps://cdn.test/live.flv?expires=1793320572&sign=PRIVATE_SIGN\n'
+                'Cookie: PRIVATE_COOKIE\n', encoding='utf-8')
+            os.utime(path, (index + 1000, index + 1000))
+        (parts / 'video.mkv').write_text('NEVER_READ_VIDEO', encoding='utf-8')
+        entries = self.collect()
+        logs = [v for k, v in entries.items() if k.startswith('recording/')]
+        self.assertEqual(len(logs), 5)
+        self.assertTrue(all(len(v.encode('utf-8')) <= 2 * 1024 * 1024 for v in logs))
+        combined = str(entries)
+        for secret in ('PRIVATE_SIGN', 'PRIVATE_COOKIE', 'NEVER_READ_VIDEO', 'private-streamer'):
+            self.assertNotIn(secret, combined)
+        report = json.loads(entries['recording-diagnostics.json'])
+        self.assertEqual(report['status'], 'observed')
+        self.assertTrue(all(v['http_403'] for v in report['files']))
+        self.assertEqual(report['files'][0]['expires_unix_seconds'], ['1793320572'])
+
+    def test_missing_recording_directory_does_not_break_diagnostics(self):
+        self.put('utils/config.json', json.dumps({'settings': {'recording_dir': str(self.case / 'missing')}}))
+        entries = self.collect()
+        self.assertEqual(json.loads(entries['recording-diagnostics.json'])['status'], 'missing')
+
+    def test_linked_recording_log_directory_is_not_followed(self):
+        folder = self.case / 'recordings'
+        folder.mkdir()
+        outside = self.case / 'unrelated'
+        outside.mkdir()
+        (outside / 'private.log').write_text('NEVER_FOLLOW_RECORDING_LINK', encoding='utf-8')
+        result = subprocess.run(['cmd.exe', '/c', 'mklink', '/J', str(folder / '.ddm-parts'), str(outside)],
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.put('utils/config.json', json.dumps({'settings': {'recording_dir': str(folder)}}))
+        entries = self.collect()
+        self.assertNotIn('NEVER_FOLLOW_RECORDING_LINK', str(entries))
+        self.assertEqual(json.loads(entries['recording-diagnostics.json'])['status'], 'unavailable')
+
     def test_platform_diagnostics_summarize_redacted_existing_logs(self):
         self.put('logs/ddm-2026-10-26.log', '\n'.join([
             '[插件 domestic_live] [Issue13-test3] 阶段=page_response HTTP=200 类型=text/html',
