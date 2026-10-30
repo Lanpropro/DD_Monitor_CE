@@ -5,12 +5,16 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from concurrent.futures import Future
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, Signal
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -121,8 +125,130 @@ def check_codec_switch_queue():
         manager.timer.stop()
 
 
+def check_recording_source_isolation():
+    class Resolver(QObject):
+        resolved = Signal(str, str, int, str, list)
+        failed = Signal(str, str)
+        finished = Signal()
+        def __init__(self, room, quality, parent, **kwargs):
+            super().__init__()
+            self.headers = {'X-Test': 'fresh'}
+            self.source_codec = 'avc'
+            self.cancelled = False
+        def start(self):
+            pass
+        def cancel(self):
+            self.cancelled = True
+    tile = FakeTile('isolated', '123', 'https://cdn.test/old')
+    tile.quality = tile.actual_quality = 250
+    manager = RecordingManager(dict(DEFAULT_SETTINGS))
+    manager.timer.stop()
+    owner = SimpleNamespace(_closing=False, recorder=manager,
+        plugins=SimpleNamespace(platform_for=lambda _rid: None), wall=SimpleNamespace(tiles=[tile]),
+        _codec_settings=lambda _tile: {'bili_codec': 'avc'}, _resolvers_running=set())
+    manager.source_resolver = lambda session: MainWindow._refresh_recording_source(owner, session)
+    session = _Session(tile, DEFAULT_SETTINGS, True, Path.cwd(), 'avc')
+    manager.sessions[tile] = session
+    with patch('ddm.app.StreamResolver', Resolver), patch.object(manager, '_launch') as launch:
+        manager._continue(session, tile.stream_url, {})
+        resolver = session.resolver
+        manager._continue(session, tile.stream_url, {})
+        assert session.resolver is resolver and len(owner._resolvers_running) == 1
+        resolver.resolved.emit('123', 'https://cdn.test/fresh', 250, 'app', [])
+        launch.assert_called_once_with(session, 'https://cdn.test/fresh', {'X-Test': 'fresh'})
+        assert resolver.cancelled and tile.stream_url == 'https://cdn.test/old'
+        resolver.finished.emit()
+        assert not owner._resolvers_running
+        manager._continue(session, tile.stream_url, {})
+        resolver = session.resolver
+        resolver.failed.emit('123', 'fixture temporary failure')
+        assert not session.refreshing and session.retry_at > 0
+        manager._continue(session, tile.stream_url, {})
+        resolver = session.resolver
+        tile.room = dict(tile.room, room_id='456')
+        resolver.resolved.emit('123', 'https://cdn.test/stale-room', 250, 'app', [])
+        assert launch.call_count == 1, 'Room changes must invalidate recording resolution'
+        manager.stop(tile)
+        assert resolver.cancelled
+        resolver.resolved.emit('123', 'https://cdn.test/late', 250, 'app', [])
+        assert launch.call_count == 1, 'Stopped session must ignore late resolution results'
+
+
+def check_expired_http_source(app, root, ffmpeg):
+    """A split and a 403 retry must resolve independently of the watching player."""
+    source = root / 'http-source.ts'
+    _run_text([ffmpeg, '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=160x90:r=10',
+               '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '30',
+               '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '10', '-c:a', 'aac',
+               '-f', 'mpegts', str(source)])
+    data = source.read_bytes()
+    requests = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+        def do_GET(self):
+            allowed = self.path == '/fresh.ts' or self.path == '/old.ts' and '/old.ts' not in requests
+            requests.append(self.path)
+            if not allowed:
+                self.send_error(403)
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'video/mp2t')
+            self.end_headers()
+            try:
+                for index in range(0, len(data), 1024):
+                    self.wfile.write(data[index:index + 1024])
+                    self.wfile.flush()
+                    time.sleep(.03)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{server.server_port}'
+    tile = FakeTile('HTTP expiry', '123', base + '/old.ts')
+    tile.stream_codec = 'avc'
+    calls = []
+    def resolve(session):
+        calls.append(session)
+        manager.source_resolved(session, base + ('/denied.ts' if len(calls) == 2 else '/fresh.ts'),
+                                {'X-Test': 'fresh-header'}, 'avc')
+    settings = dict(DEFAULT_SETTINGS, recording_dir=str(root / 'http-output'),
+                    recording_format='mkv', recording_min_free_mb=256, recording_replay_enabled=False)
+    manager = RecordingManager(settings, source_resolver=resolve)
+    manager.timer.setInterval(50)
+    try:
+        assert manager.start(tile, recording=True)
+        session = manager.sessions[tile]
+        assert until(app, lambda: bool(list((root / 'http-output/.ddm-parts').glob('*.mkv'))))
+        time.sleep(.5)
+        for count in (1, 2):
+            with patch('ddm.recording.time.monotonic', return_value=session.output_started_at + 3601):
+                manager._poll()
+            assert until(app, lambda: len(calls) >= count), 'Split must request a fresh recording source'
+            if count == 1:
+                assert until(app, lambda: '/fresh.ts' in requests)
+                time.sleep(.5)
+        assert until(app, lambda: session.process is None and session.retry_at > 0)
+        session.retry_at = time.monotonic() - 1
+        assert until(app, lambda: len(calls) == 3 and requests.count('/fresh.ts') == 2)
+        assert session.process.poll() is None
+        assert requests.count('/old.ts') == 1, 'Expired input must not be reused after splitting'
+        assert tile.stream_url == base + '/old.ts', 'Recording refresh must not replace the watching source'
+        manager.stop(tile)
+        assert until(app, lambda: tile not in manager.sessions and not manager.exports)
+        count = session.chunk
+        manager.source_resolved(session, base + '/fresh.ts', {}, 'avc')
+        assert session.chunk == count, 'Late results must not restart stopped recordings'
+        assert len(list((root / 'http-output').glob('*.mkv'))) >= 2
+    finally:
+        manager.shutdown()
+        server.shutdown()
+        server.server_close()
+
+
 def main():
     app = QApplication(sys.argv)
+    check_recording_source_isolation()
     assert safe_name('A:/\\*?<>|"B').startswith("A_")
     assert all(char not in safe_name('A:/\\*?<>|"B') for char in ':/*?<>|"\\')
     assert "12345" not in output_path(Path.cwd(), "主播", "mp4").name
@@ -202,6 +328,7 @@ def main():
     assert ffmpeg, "本机需有 FFmpeg 才能完成录制自检"
     with tempfile.TemporaryDirectory(prefix="ddm-record-check-") as temp:
         root = Path(temp)
+        check_expired_http_source(app, root, ffmpeg)
         source = root / "source.mp4"
         command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
                    "-f", "lavfi", "-i", "color=c=blue:s=160x90:r=10",
