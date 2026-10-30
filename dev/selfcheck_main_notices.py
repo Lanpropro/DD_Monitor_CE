@@ -907,6 +907,41 @@ class MainNoticesTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(thumb.cover.isHidden(), 'Re-enabling restores the cached cover')
 
+    def test_preview_stop_respects_compact_background_switch(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Preview background'}])
+        window.settings['sidebar_card_mode'] = False
+        window.apply_preview_settings()
+        thumb = window.sidebar._items[0].thumb
+        cover, banner = QPixmap(400, 200), QPixmap(800, 80)
+        cover.fill(QColor('green'))
+        banner.fill(QColor('red'))
+        thumb.set_cover(cover)
+        thumb.set_face(cover)
+        for artwork in (banner, None):
+            with self.subTest(banner=artwork is not None):
+                thumb.set_banner(artwork)
+                thumb.set_compact_background(True)
+                self.app.processEvents()
+                self.assertFalse(thumb.cover.isHidden())
+                thumb.set_compact_background(False)
+                for hold in (False, True):
+                    thumb.set_cover_hold(hold)
+                    # Popup previews finish here without an embedded tile player.
+                    thumb.stop()
+                    self.assertTrue(thumb.cover.isHidden())
+                    self.assertFalse(thumb.face.isHidden())
+                    self.assertFalse(thumb._overlay_widgets[0].isHidden())
+                    self.assertFalse(thumb._overlay_widgets[0].property('roomBackdrop'))
+                thumb.set_cover_hold(False)
+                thumb.set_compact_background(True)
+                thumb.stop()
+                self.assertFalse(thumb.cover.isHidden())
+        window.settings['sidebar_card_mode'] = True
+        window.apply_preview_settings()
+        thumb.set_compact_background(False)
+        thumb.stop()
+        self.assertFalse(thumb.cover.isHidden(), 'Large cards retain the cover')
+
     def test_tile_selection_does_not_change_border_in_dark_or_light_theme(self):
         window = self.window([{'room_id': '1001'}])
         tile = window.wall.tiles[0]
