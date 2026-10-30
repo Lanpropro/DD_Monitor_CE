@@ -206,6 +206,57 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Empty wall is unmarked and remains selectable', (tester) async {
+    await boot(tester, size: const Size(1280, 800));
+    expect(find.textContaining('空位'), findsNothing);
+    expect(find.byIcon(Icons.add_circle_outline), findsNothing);
+    expect(find.bySemanticsLabel('从关注中选择主播，位置 1'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('empty-slot-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('把喜欢的主播放在这里'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'Layout cards show matching miniatures and select the real geometry',
+    (tester) async {
+      final model = await boot(tester, size: const Size(1280, 800));
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      for (final layout in WallLayout.values) {
+        final preview = tester.widget<SlotLayout>(
+          find.byKey(Key('layout-preview-${layout.name}')),
+        );
+        expect(
+          preview.layout,
+          layout == WallLayout.adaptive ? WallLayout.quad : layout,
+        );
+        expect(preview.fill, isTrue);
+        expect(find.text(layout.label), findsOneWidget);
+      }
+      await tester.tap(find.byKey(const Key('layout-single')));
+      await tester.pumpAndSettle();
+      expect(model.layout, WallLayout.single);
+      expect(find.byKey(const Key('video-slot-1')), findsNothing);
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SlotLayout>(
+              find.byKey(const Key('layout-preview-adaptive')),
+            )
+            .layout,
+        WallLayout.quad,
+      );
+      await tester.tap(find.byKey(const Key('layout-focus')));
+      await tester.pumpAndSettle();
+      expect(model.layout, WallLayout.focus);
+      expect(find.byKey(const Key('video-slot-2')), findsOneWidget);
+      expect(find.byKey(const Key('video-slot-3')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'Tablet controls are compact, hide after inactivity and wake on touch',
     (tester) async {

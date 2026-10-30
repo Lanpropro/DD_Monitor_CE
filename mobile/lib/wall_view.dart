@@ -136,47 +136,42 @@ class LiveTile extends StatelessWidget {
                     child: InkWell(
                       key: Key('empty-slot-$index'),
                       onTap: onSelect,
-                      child: Center(
-                        child: Semantics(
-                          label: '从关注中选择主播，位置 ${index + 1}',
-                          button: true,
-                          child: const Icon(
-                            Icons.add_circle_outline,
-                            size: 32,
-                            color: secondary,
+                      child: Semantics(
+                        label: '从关注中选择主播，位置 ${index + 1}',
+                        button: true,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                if (room != null)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    right: 40,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          child: Text(
+                            '${index + 1}  ${room!.name}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                Positioned(
-                  left: 8,
-                  top: 8,
-                  right: room == null ? null : 40,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 3,
-                        ),
-                        child: Text(
-                          '${index + 1}${room == null ? ' 空位' : '  ${room!.name}'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
                 if (room != null)
                   Positioned(
                     top: 0,

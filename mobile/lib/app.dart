@@ -155,16 +155,81 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
-            for (final layout in WallLayout.values)
-              ListTile(
-                key: Key('layout-${layout.name}'),
-                leading: const Icon(Icons.grid_view_rounded),
-                title: Text(layout.label),
-                trailing: model.layout == layout
-                    ? const Icon(Icons.check, color: accent)
-                    : null,
-                onTap: () => Navigator.pop(context, layout),
+            LayoutBuilder(
+              builder: (_, box) => Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final layout in WallLayout.values)
+                    SizedBox(
+                      width: (box.maxWidth - 12) / 2,
+                      child: Semantics(
+                        selected: model.layout == layout,
+                        child: Material(
+                          color: model.layout == layout
+                              ? accent.withValues(alpha: 0.12)
+                              : panel,
+                          borderRadius: BorderRadius.circular(14),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            key: Key('layout-${layout.name}'),
+                            onTap: () => Navigator.pop(context, layout),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: model.layout == layout
+                                      ? accent
+                                      : Colors.white24,
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  SizedBox(
+                                    height: 72,
+                                    width: 128,
+                                    child: SlotLayout(
+                                      key: Key('layout-preview-${layout.name}'),
+                                      layout: layout == WallLayout.adaptive
+                                          ? (MediaQuery.sizeOf(context).width >=
+                                                        720 ||
+                                                    model.rooms[3] != null
+                                                ? WallLayout.quad
+                                                : WallLayout.focus)
+                                          : layout,
+                                      fill: true,
+                                      builder: (index) => DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.30,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.white60,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            3,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    layout.label,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),
