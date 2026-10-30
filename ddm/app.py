@@ -981,6 +981,7 @@ class MainWindow(QMainWindow):
         self._poll_timer.setInterval(self.poll_interval_ms())
         for player in self.players.values():
             player.freeze_watch = bool(self.settings.get("freeze_watch", True))
+            player.set_volume_normalization(bool(self.settings.get("volume_normalization", False)))
         for tile in self.wall.tiles:
             if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
                 self._restart_codec_tile(tile)
@@ -1791,6 +1792,7 @@ class MainWindow(QMainWindow):
             player.decoderFallback.connect(lambda mode, p=player: self._on_decoder_fallback(p, mode))
             self.players[tile] = player
         player.freeze_watch = bool(self.settings.get("freeze_watch", True))
+        player.set_volume_normalization(bool(self.settings.get("volume_normalization", False)))
         player.set_volume(int(tile.volume))
         player.set_audio_channel(int(tile.audio_channel))
         player.set_muted(tile.muted or bool(getattr(self, "_match_sync_active", False)))

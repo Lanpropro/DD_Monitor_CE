@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import weakref
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ["DDM_NO_SAVE"] = "1"
@@ -33,6 +33,38 @@ def check_volume_page_lifetime():
     finally:
         if gc_was_enabled:
             gc.enable()
+
+
+def check_volume_normalization(app):
+    """Saved settings update current players and are inherited by later playback."""
+    with patch('ddm.app.QTimer.singleShot'):
+        window = app_module.MainWindow([], [], layout_id='1x1', state={'plugins_enabled': [],
+            'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+    try:
+        tile = window.wall.tiles[0]
+        tile.set_room({'room_id': '1', 'uname': 'Fixture'})
+        with patch.object(app_module.TilePlayer, 'play') as play:
+            window._play_on(tile, 'http://127.0.0.1:9/test', 250, 'app')
+            player = window.players[tile]
+            assert player.volume_normalization is False
+            player.player = Mock()
+            player.set_audio_channel(3)
+            play.reset_mock()
+            window._remote_settings_saved({'settings': {'volume_normalization': True}})
+            assert player.volume_normalization is True
+            assert 'dynaudnorm' in player.player.af and 'pan=' in player.player.af
+            assert window.current_state()['settings']['volume_normalization'] is True
+            play.assert_not_called()
+            window._remote_settings_saved({'settings': {'volume_normalization': False}})
+            assert 'dynaudnorm' not in player.player.af and 'pan=' in player.player.af
+            # A newly created player also inherits the saved switch before playback.
+            window._stop_tile(tile)
+            window.settings['volume_normalization'] = True
+            window._play_on(tile, 'http://127.0.0.1:9/test', 250, 'app')
+            assert window.players[tile].volume_normalization is True
+    finally:
+        window.close()
+        app.processEvents()
 
 
 def check_settings_lifetime(app):
@@ -227,6 +259,12 @@ def main():
     app = QApplication([])
     assert config.DEFAULT_VOLUME == config.DEFAULT_SETTINGS['default_volume'] == 40
     assert GeneralSettingsPage({}).values()['default_volume'] == 40
+    assert config.DEFAULT_SETTINGS['volume_normalization'] is False
+    assert GeneralSettingsPage({}).values()['volume_normalization'] is False
+    normalization_page = GeneralSettingsPage({'volume_normalization': True})
+    assert normalization_page.values()['volume_normalization'] is True
+    normalization_page.reset()
+    assert normalization_page.values()['volume_normalization'] is False
     from ddm.player import TilePlayer
     from PySide6.QtWidgets import QWidget
     player = TilePlayer(QWidget())
@@ -243,6 +281,7 @@ def main():
             labels.append((grid.getItemPosition(index)[0], widget.text()))
     assert [text for _, text in sorted(labels)] == [
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
+        "音量均衡（减小直播间音量差异）",
         "全屏时自动收起底部控制条",
         "自动切换紧凑列表", "自动切换数量", "紧凑关注卡片显示背景图（Banner／封面）",
         "关注栏直播预览", "显示关注栏平台 Logo",
@@ -304,6 +343,7 @@ def main():
     finally:
         window.close()
     check_volume_page_lifetime()
+    check_volume_normalization(app)
     check_settings_lifetime(app)
     check_codecs(app)
     print("PASS: unified codec settings, per-window overrides, general settings and default volumes")

@@ -10,7 +10,7 @@ from typing import ClassVar
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .audio_output import channel_filters, linear_volume
+from .audio_output import audio_filters, linear_volume
 from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
@@ -69,6 +69,7 @@ class TilePlayer(QObject):
         self.muted = self.silent
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
+        self.volume_normalization = False
         self.paused = False
         self.state = "idle"
         self.url = ""
@@ -294,7 +295,16 @@ class TilePlayer(QObject):
 
     def set_audio_channel(self, channel: int) -> None:
         self.audio_channel = int(channel)
-        self._set("af", ",".join(channel_filters(self.audio_channel)))
+        self._apply_audio_filters()
+
+    def set_volume_normalization(self, enabled: bool) -> None:
+        enabled = bool(enabled) and not self.silent
+        if self.volume_normalization != enabled:
+            self.volume_normalization = enabled
+            self._apply_audio_filters()
+
+    def _apply_audio_filters(self) -> None:
+        self._set("af", ",".join(audio_filters(self.audio_channel, self.volume_normalization)))
 
     def reapply_audio_channel(self) -> None:
         self.set_audio_channel(self.audio_channel)

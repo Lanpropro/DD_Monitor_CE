@@ -76,6 +76,7 @@ def child(action):
                     pass  # Deliberately hold this process's GUI thread and GIL.
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
+            self.general_page._checks['volume_normalization'].setChecked(True)
             if action.startswith('tray-'):
                 combo = self.general_page.close_behavior_combo
                 combo.setCurrentIndex(combo.findData('tray'))
@@ -180,6 +181,7 @@ def check_worker(app, action):
             assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
+                assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
                 assert 'appearance_mode' not in saves[0]['settings']
