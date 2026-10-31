@@ -76,7 +76,7 @@ def main():
         sidebar.set_collapsed(True)
         QTest.qWait(60)
         assert quick.resize.call_count == 0, 'Quick surface must not resize during collapse frames'
-        assert quick.move.called, 'Quick overlay must still follow the wall position'
+        assert quick.move_window.called, 'Quick overlay must still follow the wall position'
         QTest.qWait(240)
         assert quick.resize.called, 'Quick surface geometry must catch up after collapse'
         wall._quick_danmaku_layer = None

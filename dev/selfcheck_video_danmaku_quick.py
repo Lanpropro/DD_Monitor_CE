@@ -362,6 +362,15 @@ def main():
                 assert overlay.add_event(event)
                 layer = window.wall._quick_danmaku_layer
                 assert layer is not None, "首条弹幕应建立共享 Qt Quick 窗口"
+                with patch.object(layer, 'move', wraps=layer.move) as move_comment:
+                    window.wall.set_sidebar_animating(True)
+                    try:
+                        from PySide6.QtGui import QResizeEvent
+                        window.wall.resizeEvent(QResizeEvent(window.wall.size(), window.wall.size()))
+                        assert layer.window.position() == window.wall.mapToGlobal(QPoint())
+                        move_comment.assert_not_called()
+                    finally:
+                        window.wall.set_sidebar_animating(False)
                 overlay.set_paused(True)
                 comment = overlay.comments[0]
                 comment.x = 36

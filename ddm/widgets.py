@@ -8967,7 +8967,7 @@ class WallGrid(QWidget):
         super().resizeEvent(event)
         if self._sidebar_animating:
             if self._quick_danmaku_layer is not None:
-                self._quick_danmaku_layer.move()
+                self._quick_danmaku_layer.move_window()
             return
         if self._quick_danmaku_layer is not None:
             self._quick_danmaku_layer.resize()
