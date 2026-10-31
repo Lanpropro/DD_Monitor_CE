@@ -1372,7 +1372,7 @@ class DanmakuPanel(QFrame):
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()
         try:
-            show_comment_menu(self, self._blocks[index]['text'], self._tile_controls, position)
+            show_comment_menu(self, self._blocks[index], self._tile_controls, position)
         finally:
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
@@ -1437,6 +1437,8 @@ class DanmakuPanel(QFrame):
                 event.get("kind") or "danmaku", theme.ACCENT),
             "medal": event.get("medal") or {},
             "emoticon": event.get("emoticon") or "",
+            "dm_type": event.get("dm_type", 0),
+            "emoticon_unique": event.get("emoticon_unique") or "",
             "emoticons": event.get("emoticons") or {},
             "self_sent": bool(event.get("self_sent")),
         }

@@ -4,7 +4,7 @@ import os
 import sys
 # Python 3.12 on Windows uses a 15.625ms monotonic clock; QPC preserves sub-frame motion.
 from time import perf_counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextCharFormat, QTextCursor, QTextDocument
@@ -296,10 +296,11 @@ class _Comment:
     self_sent: bool = False
     message: str = ''
     held: bool = False
+    event: dict = field(default_factory=dict)
 
 
 class VideoDanmaku(QWidget):
-    actionsRequested = Signal(str, QPoint)
+    actionsRequested = Signal(object, QPoint)
     superChatDismissed = Signal(str)
     MAX_COMMENTS = 80
     GAP = 24
@@ -408,7 +409,7 @@ class VideoDanmaku(QWidget):
         self._set_hover(comment)
         self._menu_open = True
         try:
-            self.actionsRequested.emit(comment.message, position)
+            self.actionsRequested.emit(comment.event, position)
         finally:
             self._menu_open = False
             self._poll_hover()
@@ -580,7 +581,7 @@ class VideoDanmaku(QWidget):
             if ensure_layer is not None:
                 self.attach_quick_layer(ensure_layer())
         comment = _Comment(image, float(self.width()), lane, speed, text, color, runs,
-                           self_sent=self_sent, message=str(event.get('text') or ''))
+                           self_sent=self_sent, message=str(event.get('text') or ''), event=dict(event))
         if self._quick_layer is not None and self._quick_group is not None:
             comment.render_id = self._quick_layer.add(
                 self._quick_group, image.toImage(), comment.x,

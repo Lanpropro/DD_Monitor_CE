@@ -36,6 +36,10 @@ class TileControl:
     def shutdown(self):
         pass
 
+    def repeat_message(self, event):
+        """Send a structured comment using the platform's existing composer checks."""
+        return False
+
 
 @dataclass
 class _Entry:
@@ -73,8 +77,27 @@ class TileControls:
         tile = self._tile()
         return str(tile.room.get('room_id') or '') if tile is not None else ''
 
-    def can_repeat(self):
+    def can_repeat(self, event=None):
+        if event and event.get('dm_type') == 1:
+            return bool(event.get('emoticon_unique') and self._repeat_message_control() is not None)
         return self._repeat_editor() is not None
+
+    def _repeat_message_control(self):
+        if not self._disposed:
+            for entry in self.applicable():
+                if (entry.control.widget.isEnabled() and
+                        type(entry.control).repeat_message is not TileControl.repeat_message):
+                    return entry.control
+        return None
+
+    def repeat_message(self, event, room_id):
+        if not room_id or room_id != self.room_id():
+            return False
+        if event.get('dm_type') == 1:
+            control = self._repeat_message_control()
+            return bool(event.get('emoticon_unique') and control is not None and
+                        control.repeat_message(dict(event)))
+        return self.repeat_text(str(event.get('text') or ''), room_id)
 
     def _repeat_editor(self):
         if self._disposed:

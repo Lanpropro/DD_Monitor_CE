@@ -397,7 +397,7 @@ def main():
                     held.image.size(), held.image.devicePixelRatioF(), len(overlay.comments))
                 QTest.mouseClick(target.video, Qt.LeftButton, pos=point)
                 toolbar.assert_called_once()
-                assert toolbar.call_args.args[1] == held.message, 'Native video click must target the comment'
+                assert toolbar.call_args.args[1] == held.event, 'Native video click must target the comment'
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
