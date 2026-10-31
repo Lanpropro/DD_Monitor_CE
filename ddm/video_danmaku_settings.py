@@ -28,6 +28,8 @@ class VideoDanmakuSettings(QMenu):
                 ("video_danmaku_area", "显示区域", 10, 100, "%"),
                 ("video_danmaku_opacity", "不透明度", 10, 100, "%"),
                 ("super_chat_opacity", "SC 不透明度", 10, 100, "%"),
+                ("super_chat_collapse_delay", "SC 自动折叠", 1, 60, " 秒"),
+                ("super_chat_scale", "SC 大小", 75, 200, "%"),
                 ("video_danmaku_size", "字体大小", 12, 64, " px"),
                 ("video_danmaku_speed", "弹幕速度", 50, 200, "%"),
                 ("video_danmaku_outline_width", "描边宽度", 0, 6, " px"))):
@@ -50,17 +52,18 @@ class VideoDanmakuSettings(QMenu):
         self.controls["video_danmaku_outline_width"].setToolTip("黑色描边宽度，0 为关闭；随弹幕字体缩放")
         self.scale = QCheckBox("弹幕随屏幕缩放", holder)
         self.scale.toggled.connect(lambda checked: self.settingsChanged.emit({"video_danmaku_scale": checked}))
-        grid.addWidget(self.scale, 6, 0, 1, 3)
+        grid.addWidget(self.scale, 8, 0, 1, 3)
         self.super_chat = QCheckBox('显示醒目留言（SC）', holder)
         self.super_chat.toggled.connect(lambda checked: self.settingsChanged.emit({'super_chat_enabled': checked}))
-        grid.addWidget(self.super_chat, 7, 0, 1, 3)
+        grid.addWidget(self.super_chat, 9, 0, 1, 3)
         hint = QLabel("观看设置应用于所有格子")
         hint.setObjectName("SettingsHint")
-        grid.addWidget(hint, 8, 0, 1, 3)
+        grid.addWidget(hint, 10, 0, 1, 3)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
         self.addSeparator()
+        self.addAction("恢复 SC 位置", lambda: self.settingsChanged.emit({'super_chat_position': None}))
         self.addAction("更多弹幕设置", self.advancedRequested.emit)
 
     def _change_value(self, key: str, value: int, suffix: str) -> None:
@@ -76,7 +79,8 @@ class VideoDanmakuSettings(QMenu):
             slider.blockSignals(True)
             slider.setValue(value)
             slider.blockSignals(False)
-            suffix = " px" if key in ("video_danmaku_size", "video_danmaku_outline_width") else "%"
+            suffix = (" 秒" if key == "super_chat_collapse_delay" else " px"
+                      if key in ("video_danmaku_size", "video_danmaku_outline_width") else "%")
             self.labels[key].setText(f"{slider.value()}{suffix}")
         self.scale.blockSignals(True)
         self.scale.setChecked(bool(settings.get("video_danmaku_scale", True)))

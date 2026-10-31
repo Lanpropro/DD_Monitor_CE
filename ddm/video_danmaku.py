@@ -14,50 +14,52 @@ from . import motion, theme
 from .danmaku_content import content_runs, content_html
 from .images import AvatarLoader
 from .badge_surface import BadgeSurface
-from .super_chat import (SuperChatAvatar, format_price, format_remaining, readable_text_color,
-                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects)
+from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
+                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
+                         sc_card_geometry, sc_message_document)
 
 
 class SuperChatOverlay(BadgeSurface):
-    """Compact SC stack with per-pixel alpha above native video."""
+    """Movable SC cards with per-pixel alpha above native video."""
     dismissed = Signal(str)
+    settingsChanged = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SuperChatOverlay")
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.OpenHandCursor)
+        self.setToolTip('拖动标题移动，拖动边角缩放；折叠后点击展开')
         self.chats = []
         self.opacity = 0.8
         self._video_danmaku = None
         self._content_origin = QPoint()
-        self._paper = None
-        self._pending_chats = None
-        self._progress = 0.0
         self._selected_id = ''
-        self._closing_index = None
+        self._gesture = None
+        self._moved = False
+        self._paint_scale = 1.0
+        self.presentation = SuperChatPresentation(self)
+        self.presentation.changed.connect(self._refresh)
         self._avatars = [SuperChatAvatar(self) for _ in range(3)]
         self.avatar_image = self._avatars[0]
         for avatar in self._avatars:
-            avatar.changed.connect(self.update)
-        self.animation = motion.paper_animation(self, self._dismiss_frame, self.finish_dismiss)
-        self.close_button = QPushButton('×', self)
-        self.close_button.setFixedSize(22, 22)
-        self.close_button.setCursor(Qt.PointingHandCursor)
-        self.close_button.setToolTip('隐藏这条醒目留言')
-        self.close_button.setAccessibleName('关闭当前醒目留言')
-        self.close_button.clicked.connect(self._dismiss_front)
-        second = QPushButton('×', self)
-        second.setFixedSize(22, 22)
-        second.setCursor(Qt.PointingHandCursor)
-        second.setToolTip('隐藏这条醒目留言')
-        second.clicked.connect(lambda: self.dismissed.emit(str(self.chats[1]['id'])) if len(self.chats) == 2 else None)
-        self.close_buttons = [self.close_button, second]
+            avatar.changed.connect(self._refresh)
+        self.close_buttons = []
+        for index in range(2):
+            button = QPushButton('×', self)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setToolTip('隐藏这条醒目留言')
+            button.setAccessibleName('关闭醒目留言')
+            button.clicked.connect(lambda checked=False, i=index: self._dismiss(i))
+            self.close_buttons.append(button)
+        self.close_button = self.close_buttons[0]
         self.hide()
 
-    def _dismiss_front(self):
-        if self.chats:
-            self.dismissed.emit(str(self.chats[0].get('id') or self.chats[0].get('super_chat_id') or ''))
+    def _dismiss(self, index):
+        if index < len(self.chats):
+            self.dismissed.emit(str(self.chats[index]['id']))
 
     def bind(self, owner):
         self._video_danmaku = owner
@@ -76,7 +78,6 @@ class SuperChatOverlay(BadgeSurface):
         bounds = bounds.adjusted(-1, -1, 1, 1).intersected(owner.rect())
         self._content_origin = bounds.topLeft()
         self.setGeometry(QRect(owner.pos() + bounds.topLeft(), bounds.size()))
-        # Keep antialiased corner pixels; per-pixel alpha supplies the shape.
         region = QRegion()
         for rect in rects:
             region |= QRegion(rect.toAlignedRect().adjusted(-1, -1, 1, 1))
@@ -87,20 +88,16 @@ class SuperChatOverlay(BadgeSurface):
         region.translate(-self._content_origin)
         if region != self.mask():
             self.setMask(region)
+        scale = self._paint_scale
         for index, button in enumerate(self.close_buttons):
-            visible = index < len(rects) and (index == 0 or len(self.chats) == 2) and self._paper is None
-            button.setVisible(visible)
+            button.setVisible(index < len(rects) and (index == 0 or len(self.chats) == 2)
+                              and self.presentation.progress == 1.0)
+            button.setFixedSize(max(12, round(22 * scale)), max(12, round(22 * scale)))
             if index < len(rects):
-                button.move(rects[index].topRight().toPoint() - self._content_origin + QPoint(-26, 7))
+                button.move(rects[index].topRight().toPoint() - self._content_origin
+                            + QPoint(round(-26 * scale), round(7 * scale)))
 
     def set_chats(self, chats, opacity):
-        if self._paper is not None:
-            self._pending_chats = (list(chats), opacity)
-            if self._video_danmaku.sc_visible():
-                return
-            self.finish_dismiss()
-            return
-        was_visible = self.isVisible()
         self.chats = order_super_chats([dict(chat) for chat in chats], self._selected_id)
         if len(self.chats) < 3 or not any(str(chat.get('id')) == self._selected_id for chat in self.chats):
             self._selected_id = ''
@@ -108,14 +105,23 @@ class SuperChatOverlay(BadgeSurface):
             avatar.set_url(self.chats[index].get('face') if index < len(self.chats) else '')
         self.opacity = max(0.0, min(1.0, float(opacity)))
         owner = self._video_danmaku
-        visible = bool(self.chats) and owner is not None and owner.sc_visible()
-        if self.chats and owner is not None:
+        if owner is not None:
+            self.presentation.configure(owner.settings)
+        self.presentation.set_events(self.chats)
+        self._refresh()
+
+    def _refresh(self):
+        owner = self._video_danmaku
+        if owner is None:
+            return
+        was_visible = self.isVisible()
+        visible = bool(self.chats) and owner.sc_visible()
+        if self.chats:
             self.sync(owner)
             for chat, button in zip(self.chats, self.close_buttons):
-                header = chat.get('background_bottom_color') or chat.get('background_color')
-                colour = readable_text_color(header).name()
+                colour = SC_USER_COLOR
                 style = ('QPushButton {background:transparent;border:0;'
-                         f'color:{colour};font-size:18px;padding:0;}}')
+                         f'color:{colour};font-size:{round(18 * self._paint_scale)}px;padding:0;}}')
                 if style != button.styleSheet():
                     button.setStyleSheet(style)
         self.setVisible(visible)
@@ -124,71 +130,139 @@ class SuperChatOverlay(BadgeSurface):
         self._refresh_quick_mask()
         self.update()
         if visible and sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._paint_layered()
+            self._schedule_layered_paint()
 
     def select_chat(self, chat_id):
-        if self._paper is None:
-            self._selected_id = str(chat_id)
-            self.set_chats(self.chats, self.opacity)
+        self._selected_id = str(chat_id)
+        self.set_chats(self.chats, self.opacity)
+
+    def _corner(self, point):
+        rects = self.card_rects()
+        if not rects:
+            return None
+        bounds = rects[0]
+        for rect in rects[1:]:
+            bounds = bounds.united(rect)
+        for x, y, corner in ((bounds.left(), bounds.top(), (-1, -1)),
+                             (bounds.right(), bounds.top(), (1, -1)),
+                             (bounds.left(), bounds.bottom(), (-1, 1)),
+                             (bounds.right(), bounds.bottom(), (1, 1))):
+            if abs(point.x() - x) <= 12 and abs(point.y() - y) <= 12:
+                return corner
+        return None
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and len(self.chats) >= 3 and self._paper is None:
-            point = event.position() + self._content_origin
-            front = self.card_rects()[0]
-            if front.adjusted(front.width() - 100, front.height() - 24, -24, 0).contains(point):
-                ordered = order_super_chats(self.chats)
-                index = next((i for i, chat in enumerate(ordered) if str(chat['id']) == str(self.chats[0]['id'])), 0)
-                self.select_chat(ordered[(index + 1) % len(ordered)]['id'])
-                return
-            for index, rect in enumerate(self.card_rects()):
-                if rect.contains(point):
-                    if index:
-                        self.select_chat(self.chats[index]['id'])
-                    return
-        super().mousePressEvent(event)
+        if event.button() != Qt.LeftButton or not self.chats:
+            return super().mousePressEvent(event)
+        self._press_global = event.globalPosition()
+        self._press_point = event.position() + self._content_origin
+        self._corner_sign = self._corner(self._press_point)
+        self._gesture = 'resize' if self._corner_sign else 'drag'
+        self._moved = False
+        rects = self.card_rects()
+        self._start_origin = QPointF(min(rect.left() for rect in rects), min(rect.top() for rect in rects))
+        self._start_scale = int(self._video_danmaku.settings.get('super_chat_scale', 100))
+        self._start_extent = self.size()
+        self.presentation.timer.stop()
+        event.accept()
 
-    def animate_dismiss(self, chat_id):
-        index = next((i for i, chat in enumerate(self.chats[:2]) if str(chat.get('id')) == str(chat_id)), None)
-        if (self._paper is not None or index is None or (len(self.chats) >= 3 and index != 0)
-                or not self.isVisible() or not motion.enabled()):
+    def mouseMoveEvent(self, event):
+        point = event.position() + self._content_origin
+        if self._gesture is None:
+            corner = self._corner(point)
+            self.setCursor((Qt.SizeFDiagCursor if corner[0] == corner[1] else Qt.SizeBDiagCursor)
+                           if corner else Qt.PointingHandCursor if self.presentation.collapsed else Qt.OpenHandCursor)
             return
-        rect = self.card_rects()[index]
-        scale = self.devicePixelRatioF()
-        image = QImage(round(rect.width() * scale), round(rect.height() * scale), QImage.Format_ARGB32_Premultiplied)
-        image.setDevicePixelRatio(scale)
-        image.fill(Qt.transparent)
-        painter = QPainter(image)
-        self._video_danmaku._paint_super_chat(painter, QRectF(0, 0, rect.width(), rect.height()),
-                                            self.chats[index], 1.0, avatar=self._avatars[index].pixmap)
-        painter.end()
-        self._paper = QPixmap.fromImage(image)
-        self._closing_index = index
-        for button in self.close_buttons:
-            button.hide()
-        self.animation.start()
+        delta = event.globalPosition() - self._press_global
+        if not self._moved and abs(delta.x()) + abs(delta.y()) < QApplication.startDragDistance():
+            return
+        self._moved = True
+        self.presentation.entrance.stop()
+        self.presentation.progress = 1.0
+        owner = self._video_danmaku
+        if self._gesture == 'resize':
+            dx = delta.x() * self._corner_sign[0] / max(1, self._start_extent.width())
+            dy = delta.y() * self._corner_sign[1] / max(1, self._start_extent.height())
+            change = dx if abs(dx) >= abs(dy) else dy
+            owner.settings['super_chat_scale'] = max(75, min(200, round(self._start_scale * (1 + change))))
+        else:
+            self._place_at(self._start_origin + delta)
+            self.setCursor(Qt.ClosedHandCursor)
+        self._refresh()
+        event.accept()
 
-    def _dismiss_frame(self, progress):
-        self._progress = progress
-        self.update()
+    def _place_at(self, point):
+        owner = self._video_danmaku
+        rects = self.card_rects()
+        width = max(rect.right() for rect in rects) - min(rect.left() for rect in rects)
+        height = max(rect.bottom() for rect in rects) - min(rect.top() for rect in rects)
+        spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
+        values = []
+        for value, span in zip((point.x() - 10, point.y() - 10), spans):
+            value = max(0, min(span, value))
+            if value <= 16:
+                value = 0
+            elif span - value <= 16:
+                value = span
+            values.append(round(value / span, 6) if span else 0.0)
+        owner.settings['super_chat_position'] = values
 
-    def finish_dismiss(self):
-        self.animation.stop()
-        self._paper = None
-        self._closing_index = None
-        self._progress = 0.0
-        pending, self._pending_chats = self._pending_chats, None
-        if pending is not None:
-            self.set_chats(*pending)
+    def mouseReleaseEvent(self, event):
+        if event.button() != Qt.LeftButton or self._gesture is None:
+            return super().mouseReleaseEvent(event)
+        gesture, self._gesture = self._gesture, None
+        if self._moved:
+            key = 'super_chat_scale' if gesture == 'resize' else 'super_chat_position'
+            self.settingsChanged.emit({key: self._video_danmaku.settings[key]})
+        else:
+            self._activate(self._press_point)
+        if self.chats and not self.presentation.collapsed:
+            self.presentation.timer.start(self.presentation.delay * 1000)
+        self.setCursor(Qt.OpenHandCursor)
+        event.accept()
+
+    def _activate(self, point):
+        if self.presentation.collapsed:
+            self.presentation.expand()
+            return
+        if len(self.chats) < 3:
+            return
+        front = self.card_rects()[0]
+        if front.adjusted(front.width() - 110 * self._paint_scale,
+                          front.height() - 24 * self._paint_scale, -24 * self._paint_scale, 0).contains(point):
+            ordered = order_super_chats(self.chats)
+            index = next((i for i, chat in enumerate(ordered) if str(chat['id']) == str(self.chats[0]['id'])), 0)
+            self.select_chat(ordered[(index + 1) % len(ordered)]['id'])
+            return
+        for index, rect in enumerate(self.card_rects()):
+            if rect.contains(point):
+                if index:
+                    self.select_chat(self.chats[index]['id'])
+                return
 
     def card_rects(self):
-        if not self.chats:
-            return []
         owner = self._video_danmaku
-        margin = 10
-        width = min(340, max(168, round(owner.width() * .30)), max(1, owner.width() - margin * 2))
-        top = 54 if owner.height() >= 320 else 10
-        rects = sc_stack_rects(width, max(1, owner.height() - top - 10), len(self.chats))
-        return [rect.translated(owner.width() - margin - width, top) for rect in rects]
+        if not self.chats or owner is None:
+            return []
+        base_width = min(340, max(168, round(owner.width() * .30)))
+        scale = max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100))
+        width, height, scale, heights = sc_card_geometry(
+            self.chats, base_width, scale, owner.width() - 20, owner.height() - 20,
+            self.presentation.collapsed)
+        self._paint_scale = scale
+        spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
+        position = owner.settings.get('super_chat_position')
+        if isinstance(position, (list, tuple)) and len(position) == 2:
+            try:
+                ratios = [max(0.0, min(1.0, float(value))) for value in position]
+            except (TypeError, ValueError):
+                ratios = [1.0, 0.0]
+            left, top = [10 + ratio * span for ratio, span in zip(ratios, spans)]
+        else:
+            left = 10 + spans[0]
+            top = min(54 if owner.height() >= 320 else 10, 10 + spans[1])
+        rects = sc_stack_rects(width, height, len(self.chats), scale=scale, card_heights=heights)
+        return [rect.translated(left, top) for rect in rects]
 
     def _refresh_quick_mask(self):
         owner = self._video_danmaku
@@ -201,8 +275,6 @@ class SuperChatOverlay(BadgeSurface):
         owner = self._video_danmaku
         if owner is None:
             return
-        # Compose opaque cards before applying alpha once. Complete rear cards
-        # remain available on every animation frame as the front folds away.
         scale = self.devicePixelRatioF()
         layer = QImage(round(self.width() * scale), round(self.height() * scale), QImage.Format_ARGB32_Premultiplied)
         layer.setDevicePixelRatio(scale)
@@ -211,18 +283,25 @@ class SuperChatOverlay(BadgeSurface):
         content.translate(-self._content_origin)
         rects = self.card_rects()
         for index in reversed(range(len(rects))):
-            if self._paper is not None and index == self._closing_index:
-                motion.paint_paper_discard(content, rects[index], self._paper, self._progress)
-            else:
-                owner._paint_super_chat(content, rects[index], self.chats[index], 1.0,
-                                        avatar=self._avatars[index].pixmap)
-        if len(self.chats) >= 3 and rects and self._paper is None:
-            content.setPen(readable_text_color(self.chats[0].get('background_color')))
-            content.drawText(rects[0].adjusted(12, 0, -32, -4), int(Qt.AlignRight | Qt.AlignBottom),
-                             f'共 {len(self.chats)} 条')
+            owner._paint_super_chat(content, rects[index], self.chats[index], self._paint_scale,
+                                    avatar=self._avatars[index].pixmap, collapsed=self.presentation.collapsed)
+        if len(self.chats) >= 3 and rects:
+            content.setPen(QColor(SC_CONTENT_COLOR))
+            font = QFont(theme.FONT_DEFAULT)
+            font.setPixelSize(max(7, round(11 * self._paint_scale)))
+            content.setFont(font)
+            if not self.presentation.collapsed:
+                content.drawText(rects[0].adjusted(12, 0, -32, -4), int(Qt.AlignRight | Qt.AlignBottom),
+                                 f'共 {len(self.chats)} 条')
+        if rects:
+            content.setPen(QPen(QColor(SC_USER_COLOR if self.presentation.collapsed else SC_CONTENT_COLOR), 1))
+            corner = rects[0].bottomLeft() + QPointF(4, -4)
+            for length in (4, 7):
+                content.drawLine(corner + QPointF(0, -length), corner + QPointF(length, 0))
         content.end()
         painter.save()
-        painter.setOpacity(self.opacity)
+        painter.setOpacity(self.opacity * self.presentation.progress)
+        painter.translate(0, 6 * (1 - self.presentation.progress))
         painter.drawImage(QPoint(), layer)
         painter.restore()
         for button in self.close_buttons:
@@ -231,17 +310,16 @@ class SuperChatOverlay(BadgeSurface):
 
     def _layered_render_key(self):
         fields = ('id', 'uname', 'face', 'message', 'price', 'background_color', 'background_bottom_color', 'background_price_color')
-        return (self.opacity, len(self.chats), self._progress,
+        return (self.opacity, self.presentation.progress, self.presentation.collapsed, self._paint_scale,
+                self._content_origin.x(), self._content_origin.y(), len(self.chats),
                 tuple(avatar.pixmap.cacheKey() if avatar.pixmap is not None else None for avatar in self._avatars),
-                self._closing_index,
                 tuple(tuple(str(chat.get(key, '')) for key in fields)
                       + (remaining_seconds(chat.get('end_time')),)
-                      for chat in self.chats[:3]), self.close_button.isDown())
+                      for chat in self.chats[:3]), tuple(button.isDown() for button in self.close_buttons))
 
     def render_image(self):
         scale = self.devicePixelRatioF()
-        image = QImage(round(self.width() * scale), round(self.height() * scale),
-                       QImage.Format_ARGB32_Premultiplied)
+        image = QImage(round(self.width() * scale), round(self.height() * scale), QImage.Format_ARGB32_Premultiplied)
         image.setDevicePixelRatio(scale)
         image.fill(Qt.transparent)
         painter = QPainter(image)
@@ -253,7 +331,7 @@ class SuperChatOverlay(BadgeSurface):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             if self.isVisible():
                 self._schedule_layered_paint()
-            return  # Native alpha upload is the sole canvas; do not paint the parent backing too.
+            return
         painter = QPainter(self)
         self._render_layered(painter)
         painter.end()
@@ -262,6 +340,10 @@ class SuperChatOverlay(BadgeSurface):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             self.setAttribute(Qt.WA_NativeWindow, True)
         super().showEvent(event)
+
+    def hideEvent(self, event):
+        self._gesture = None
+        super().hideEvent(event)
 
 
 class _TimerResolution:
@@ -301,6 +383,7 @@ class _Comment:
 class VideoDanmaku(QWidget):
     actionsRequested = Signal(str, QPoint)
     superChatDismissed = Signal(str)
+    superChatSettingsChanged = Signal(dict)
     MAX_COMMENTS = 80
     GAP = 24
     COLOR_KEY = QColor(1, 2, 3)
@@ -326,6 +409,7 @@ class VideoDanmaku(QWidget):
         self.super_chat_overlay = SuperChatOverlay(parent)
         self.super_chat_overlay.bind(self)
         self.super_chat_overlay.dismissed.connect(self.superChatDismissed)
+        self.super_chat_overlay.settingsChanged.connect(self.superChatSettingsChanged)
         self._images = {}
         self._emoticon_loaders = {}
         self.timer = QTimer(self)
@@ -418,9 +502,12 @@ class VideoDanmaku(QWidget):
         values = {key: settings.get(key) for key in (
             "danmaku_font", "video_danmaku_size", "video_danmaku_speed",
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale",
-            "video_danmaku_outline_width", "super_chat_enabled", "super_chat_opacity")}
+            "video_danmaku_outline_width", "super_chat_enabled", "super_chat_opacity",
+            "super_chat_collapse_delay", "super_chat_scale", "super_chat_position")}
         values['super_chat_enabled'] = settings.get('super_chat_enabled', True)
         values['super_chat_opacity'] = settings.get('super_chat_opacity', 80)
+        values['super_chat_collapse_delay'] = settings.get('super_chat_collapse_delay', 7)
+        values['super_chat_scale'] = settings.get('super_chat_scale', 100)
         if values != self.settings:
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
@@ -501,7 +588,7 @@ class VideoDanmaku(QWidget):
     def _sync_visible(self) -> None:
         visible = self.enabled and self.active
         self.super_chat_overlay.setVisible(self.sc_visible() and
-            (bool(self.super_chats) or self.super_chat_overlay._paper is not None))
+            bool(self.super_chats))
         if not visible:
             # Erase the native backing while still visible. Hiding first leaves
             # its last rendered comments cached until the next asynchronous paint.
@@ -848,7 +935,6 @@ class VideoDanmaku(QWidget):
         self._stop_timer()
         self.comments.clear()
         self.super_chats.clear()
-        self.super_chat_overlay.finish_dismiss()
         self.super_chat_overlay.set_chats([], 0)
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.clear_group(self._quick_group)
@@ -879,47 +965,57 @@ class VideoDanmaku(QWidget):
 
     @staticmethod
     def _paint_super_chat(painter, rect, chat: dict, scale: float,
-                          paint_opacity: float | None = None, avatar=None) -> None:
-        background = QColor(str(chat.get('background_color') or '#f59e0b'))
-        header = QColor(str(chat.get('background_bottom_color') or background.name()))
-        accent = QColor(str(chat.get('background_price_color') or header.name()))
+                          paint_opacity: float | None = None, avatar=None, collapsed=False) -> None:
+        palette = super_chat_palette(chat.get('price'))
+        header = QColor(palette['background_color'])
+        background = QColor(palette['background_bottom_color'])
         painter.save()
         if paint_opacity is not None:
             painter.setOpacity(paint_opacity)
-        paint_sc_background(painter, rect, background, header, accent, 36 * scale)
-        top = rect.top() + 6 * scale
-        avatar_rect = QRectF(rect.left() + 10 * scale, top, 24 * scale, 24 * scale)
+        header_height = 36 if collapsed else 56
+        paint_sc_background(painter, rect, background, header, header_height * scale)
+        top = rect.top() + (6 if collapsed else 10) * scale
+        avatar_size = (24 if collapsed else 36) * scale
+        avatar_rect = QRectF(rect.left() + 10 * scale, top, avatar_size, avatar_size)
         paint_sc_avatar(painter, avatar_rect, avatar, str(chat.get('uname') or '?'))
         left = avatar_rect.right() + 6 * scale
         font = QFont(theme.FONT_DEFAULT)
-        font.setPixelSize(max(10, round(13 * scale)))
-        font.setBold(True)
+        font.setPixelSize(max(1, round(13 * scale)))
         painter.setFont(font)
-        painter.setPen(readable_text_color(header))
+        painter.setPen(QColor(SC_USER_COLOR))
         metrics = QFontMetrics(font)
         price = format_price(chat.get('price'))
         price_width = metrics.horizontalAdvance(price) + 4 * scale
-        price_left = rect.right() - 34 * scale - price_width
-        painter.drawText(QRectF(price_left, top, price_width, 24 * scale),
-                         int(Qt.AlignRight | Qt.AlignVCenter), price)
+        right = rect.right() - 34 * scale
+        if collapsed:
+            right -= price_width + 4 * scale
         small = QFont(theme.FONT_DEFAULT)
-        small.setPixelSize(max(9, round(11 * scale)))
+        small.setPixelSize(max(1, round(11 * scale)))
         remaining = '剩 ' + format_remaining(remaining_seconds(chat.get('end_time')))
         time_width = QFontMetrics(small).horizontalAdvance(remaining)
-        name_width = max(0, price_left - left - time_width - 12 * scale)
+        name_width = max(0, right - left - time_width - 6 * scale)
         name = metrics.elidedText(str(chat.get('uname') or '匿名用户'), Qt.ElideRight, round(name_width))
-        painter.drawText(QRectF(left, top, name_width, 24 * scale),
+        painter.drawText(QRectF(left, top, name_width, (24 if collapsed else 18) * scale),
                          int(Qt.AlignLeft | Qt.AlignVCenter), name)
         painter.setFont(small)
         painter.drawText(QRectF(left + metrics.horizontalAdvance(name) + 6 * scale,
-                               top, time_width, 24 * scale), int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
-        body = QFont(theme.FONT_DEFAULT)
-        body.setPixelSize(max(11, round(14 * scale)))
-        painter.setFont(body)
-        painter.setPen(readable_text_color(background))
-        painter.drawText(rect.adjusted(11 * scale, 42 * scale, -11 * scale, -7 * scale),
-                         int(Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap),
-                         str(chat.get('message') or chat.get('text') or ''))
+                               top, time_width, (24 if collapsed else 18) * scale),
+                         int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
+        painter.setPen(QColor(SC_PRICE_COLOR))
+        font.setPixelSize(max(1, round((13 if collapsed else 15) * scale)))
+        painter.setFont(font)
+        if collapsed:
+            painter.drawText(QRectF(right + 4 * scale, top, price_width, 24 * scale),
+                             int(Qt.AlignRight | Qt.AlignVCenter), price)
+            painter.restore()
+            return
+        painter.drawText(QRectF(left, top + 19 * scale, max(0, right - left), 22 * scale),
+                         int(Qt.AlignLeft | Qt.AlignVCenter), price)
+        body_rect = rect.adjusted(11 * scale, 59 * scale, -11 * scale, -2 * scale)
+        document = sc_message_document(chat, rect.width(), scale)
+        painter.setClipRect(body_rect, Qt.IntersectClip)
+        painter.translate(body_rect.topLeft())
+        document.drawContents(painter, QRectF(0, 0, body_rect.width(), body_rect.height()))
         painter.restore()
 
     def _native_layered(self) -> bool:

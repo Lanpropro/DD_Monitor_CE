@@ -2,21 +2,80 @@
 from __future__ import annotations
 
 import time
+import math
 from dataclasses import dataclass, field
 from copy import deepcopy
 from urllib.parse import urlparse
 
 import requests
-from PySide6.QtCore import QObject, QRectF, QThread, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QTransform
+from PySide6.QtCore import QEasingCurve, QObject, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
 from PySide6.QtWidgets import QApplication
 
-from . import bili
+from . import bili, motion, theme
 from .images import AvatarLoader, load_cached_image
 
 
 SUPER_CHAT_API = "https://api.live.bilibili.com/av/v1/SuperChat/getMessageList"
 DEFAULT_DURATION = 60
+SC_PRICE_TIERS = (
+    (30, '#EDF5FF', '#2A60B2', '#7497CD'),
+    (50, '#DBFFFD', '#427D9E', '#7DA4BD'),
+    (100, '#FFF1C5', '#E2B52B', '#ECCF75'),
+    (500, '#FFEAD2', '#E09443', '#E8AF79'),
+    (1000, '#FFE7E4', '#E54D4D', '#EE8B8B'),
+    (2000, '#FFD8D8', '#AB1A32', '#C86A7A'),
+)
+SC_USER_COLOR = '#666666'
+SC_PRICE_COLOR = '#333333'
+SC_CONTENT_COLOR = '#FFFFFF'
+
+
+def super_chat_palette(price):
+    amount = _number(price)
+    tier = next((tier for tier in reversed(SC_PRICE_TIERS) if amount >= tier[0]), SC_PRICE_TIERS[0])
+    return dict(zip(('background_color', 'background_bottom_color', 'background_price_color'), tier[1:]))
+
+
+def sc_message_document(event, width, scale=1.0):
+    font = QFont(theme.FONT_DEFAULT)
+    font.setPixelSize(max(1, round(14 * scale)))
+    document = QTextDocument()
+    document.setDocumentMargin(0)
+    document.setDefaultFont(font)
+    option = document.defaultTextOption()
+    option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+    document.setDefaultTextOption(option)
+    document.setPlainText(str(event.get('message') or event.get('text') or ''))
+    cursor = QTextCursor(document)
+    cursor.select(QTextCursor.Document)
+    style = QTextCharFormat()
+    style.setForeground(QColor(SC_CONTENT_COLOR))
+    cursor.mergeCharFormat(style)
+    document.setTextWidth(max(1, math.floor(width) - 2 * math.ceil(11 * scale)))
+    return document
+
+
+def sc_card_height(event, width, scale=1.0, collapsed=False):
+    if collapsed:
+        return round(36 * scale)
+    document = sc_message_document(event, width, scale)
+    padding = max(61 * scale, round(56 * scale) + round(3 * scale) + round(2 * scale))
+    return math.ceil(max(100 * scale, padding + document.size().height() + 1))
+
+
+def sc_card_geometry(events, base_width, scale, available_width, available_height, collapsed=False):
+    if not events:
+        return 1, 1, scale, []
+    scale = min(scale, max(1, available_width) / base_width)
+    for attempt in range(8):
+        width = base_width * scale
+        heights = [sc_card_height(event, width, scale, collapsed) for event in events[:2]]
+        height = heights[0] + 40 * scale if len(events) >= 3 else sum(heights) + 8 * scale * (len(heights) - 1)
+        if height <= max(1, available_height) or attempt == 7:
+            break
+        scale *= max(1, available_height) / height * .98
+    return width, height, scale, heights
 
 
 def order_super_chats(chats, selected=''):
@@ -27,15 +86,84 @@ def order_super_chats(chats, selected=''):
     return ordered
 
 
-def sc_stack_rects(width, height, count):
+def sc_stack_rects(width, height, count, card_height=100, scale=1.0, card_heights=None):
     if not count:
         return []
     if count < 3:
-        card_height = min(100, max(1, (height - 8 * (count - 1)) / count))
-        return [QRectF(0, i * (card_height + 8), width, card_height) for i in range(count)]
-    card_height = min(100, max(1, height - 40))
-    return [QRectF(i * 6, (2 - i) * 20, max(1, width - i * 12), card_height)
+        if card_heights is not None:
+            rects = []
+            top = 0
+            for item_height in card_heights:
+                rects.append(QRectF(0, top, width, item_height))
+                top += item_height + 8 * scale
+            return rects
+        card_height = min(card_height * scale, max(1, (height - 8 * scale * (count - 1)) / count))
+        return [QRectF(0, i * (card_height + 8 * scale), width, card_height) for i in range(count)]
+    card_height = card_heights[0] if card_heights is not None else min(card_height * scale, max(1, height - 40 * scale))
+    return [QRectF(i * 6 * scale, (2 - i) * 20 * scale, max(1, width - i * 12 * scale), card_height)
             for i in range(3)]
+
+
+class SuperChatPresentation(QObject):
+    changed = Signal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.collapsed = False
+        self.progress = 1.0
+        self.delay = 7
+        self.ids = set()
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.collapse)
+        self.entrance = QVariantAnimation(self)
+        self.entrance.setDuration(180)
+        self.entrance.setEasingCurve(QEasingCurve.OutCubic)
+        self.entrance.setStartValue(0.0)
+        self.entrance.setEndValue(1.0)
+        self.entrance.valueChanged.connect(self._reveal)
+
+    def configure(self, settings):
+        delay = max(1, min(60, _number(settings.get('super_chat_collapse_delay'), 7)))
+        if self.delay != delay:
+            self.delay = delay
+            if self.ids and not self.collapsed:
+                self.timer.start(delay * 1000)
+
+    def set_events(self, events):
+        ids = {str(item.get('id') or item.get('super_chat_id') or '') for item in events}
+        added = ids - self.ids
+        self.ids = ids
+        if not ids:
+            self.timer.stop()
+            self.entrance.stop()
+            self.collapsed = False
+            self.progress = 1.0
+        elif added:
+            self.expand(animate=True)
+
+    def expand(self, *, animate=False):
+        self.collapsed = False
+        self.timer.start(self.delay * 1000)
+        if animate and motion.enabled():
+            self.entrance.stop()
+            self.entrance.start()
+        else:
+            self.entrance.stop()
+            self.progress = 1.0
+        self.changed.emit()
+
+    def collapse(self):
+        if not self.ids:
+            return
+        self.entrance.stop()
+        self.progress = 1.0
+        self.collapsed = True
+        self.changed.emit()
+
+    def _reveal(self, value):
+        self.progress = float(value)
+        self.changed.emit()
 
 
 class SuperChatAvatar(QObject):
@@ -94,7 +222,7 @@ def paint_sc_avatar(painter, rect, pixmap, name):
     painter.restore()
 
 
-def paint_sc_background(painter, rect, background, header, accent, header_height):
+def paint_sc_background(painter, rect, background, header, header_height):
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setPen(Qt.NoPen)
@@ -103,16 +231,20 @@ def paint_sc_background(painter, rect, background, header, accent, header_height
     top = QPainterPath()
     x, y, right = rect.left(), rect.top(), rect.right()
     bottom = min(rect.bottom(), y + header_height)
-    top.moveTo(x, bottom)
-    top.lineTo(x, y + 7)
-    top.quadTo(x, y, x + 7, y)
-    top.lineTo(right - 7, y)
-    top.quadTo(right, y, right, y + 7)
-    top.lineTo(right, bottom)
-    top.closeSubpath()
+    if header_height >= rect.height():
+        top.addRoundedRect(rect, 7, 7)
+    else:
+        top.moveTo(x, bottom)
+        top.lineTo(x, y + 7)
+        top.quadTo(x, y, x + 7, y)
+        top.lineTo(right - 7, y)
+        top.quadTo(right, y, right, y + 7)
+        top.lineTo(right, bottom)
+        top.closeSubpath()
     painter.fillPath(top, QColor(header))
-    painter.setBrush(QColor(accent))
-    painter.drawRoundedRect(QRectF(x, y + 7, 3, max(0, rect.height() - 14)), 1.5, 1.5)
+    painter.setPen(QPen(QColor(background), 1))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawPath(top)
     painter.restore()
 
 
@@ -125,14 +257,6 @@ def _number(value, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _color(value, fallback: str) -> str:
-    text = _text(value)
-    if len(text) == 7 and text.startswith("#") and all(
-            char in "0123456789abcdefABCDEF" for char in text[1:]):
-        return text
-    return fallback
 
 
 def readable_text_color(background) -> QColor:
@@ -177,9 +301,6 @@ def normalize(event: dict, *, source: str = "websocket") -> dict:
         end = int(time.time()) + duration
     if end <= start:
         end = start + DEFAULT_DURATION if start else int(time.time()) + DEFAULT_DURATION
-    background = _color(event.get('background_color'), '#f59e0b')
-    header = _color(event.get('background_bottom_color'), background)
-    price_color = _color(event.get('background_price_color'), header)
     return {
         "kind": "super_chat",
         "super_chat_id": chat_id,
@@ -195,9 +316,7 @@ def normalize(event: dict, *, source: str = "websocket") -> dict:
         "face": _text(event.get("face") or user.get("face")),
         "guard_level": _number(event.get("guard_level") or user.get("guard_level")),
         "user_level": _number(event.get("user_level") or user.get("user_level")),
-        "background_color": background,
-        "background_bottom_color": header,
-        "background_price_color": price_color,
+        **super_chat_palette(price),
         "background_image": _hosted_asset_url(event.get("background_image")),
         "background_icon": _hosted_asset_url(event.get("background_icon")),
         "message_trans": _text(event.get("message_trans")),

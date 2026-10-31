@@ -693,6 +693,23 @@ class DanmakuSettingsPage(QWidget):
         sc_row.addWidget(sc_value)
         grid.addLayout(sc_row, 4, 1)
 
+        self.super_chat_collapse_delay = QSpinBox()
+        self.super_chat_collapse_delay.setRange(1, 60)
+        self.super_chat_collapse_delay.setSuffix(' 秒')
+        self.super_chat_collapse_delay.setValue(int(settings.get('super_chat_collapse_delay', 7)))
+        grid.addWidget(QLabel('SC 自动折叠'), 5, 0)
+        grid.addWidget(self.super_chat_collapse_delay, 5, 1)
+        self.super_chat_scale = QSlider(Qt.Horizontal)
+        self.super_chat_scale.setRange(75, 200)
+        self.super_chat_scale.setValue(int(settings.get('super_chat_scale', 100)))
+        scale_value = QLabel(f'{self.super_chat_scale.value()}%')
+        self.super_chat_scale.valueChanged.connect(lambda value: scale_value.setText(f'{value}%'))
+        scale_row = QHBoxLayout()
+        scale_row.addWidget(self.super_chat_scale, 1)
+        scale_row.addWidget(scale_value)
+        grid.addWidget(QLabel('SC 大小'), 6, 0)
+        grid.addLayout(scale_row, 6, 1)
+
         layout.addLayout(grid)
 
         tip = QLabel("字号也可以在弹幕格底部那条滑块上实时拖，不用每次进设置")
@@ -723,6 +740,8 @@ class DanmakuSettingsPage(QWidget):
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
+        self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
+        self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
@@ -737,6 +756,8 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_block_words": [word for word in words if word],
             "super_chat_enabled": self.super_chat_enabled.isChecked(),
             "super_chat_opacity": self.super_chat_opacity.value(),
+            "super_chat_collapse_delay": self.super_chat_collapse_delay.value(),
+            "super_chat_scale": self.super_chat_scale.value(),
         }
 
 
