@@ -56,7 +56,11 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 68)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 69)])
+        speed_case = content.split('### BUG-068：', 1)[1].split('## 新案例记录规则', 1)[0]
+        self.assertIn('**状态**：已验收。', speed_case)
+        self.assertIn('2026-10-31', speed_case)
+        self.assertIn('具体启动方式未另行说明', speed_case)
         tile_swap = next(line for line in content.splitlines() if line.startswith('| BUG-067 |'))
         self.assertEqual(tile_swap.split('|')[3].strip(), '已修复待验收')
         for feature in ('等大', '共享', '坐标', '旧清单'):
