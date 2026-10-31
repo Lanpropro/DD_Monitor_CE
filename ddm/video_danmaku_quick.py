@@ -3,6 +3,9 @@ import os
 import threading
 from shiboken6 import isValid
 
+# Animator clocks must follow real time even when the driver disables VSync.
+os.environ.setdefault("QSG_USE_SIMPLE_ANIMATION_DRIVER", "1")
+
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QTimer, QUrl, Qt
 from PySide6.QtGui import QImage, QRegion, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
