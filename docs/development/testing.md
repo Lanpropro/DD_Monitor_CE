@@ -97,3 +97,7 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 ```
 
 此原生检查使用真实 `QMenu.exec`、鼠标点击和平台登录窗口，在展开与收起侧栏各重复打开、取消两次；断言登录入口在菜单和鼠标回调返回后才执行。只使用合成账号与 `about:blank` 页面，禁用宿主轮询、启动更新和插件检查，不读取真实账号。外部进程超时也覆盖原生事件循环卡死。
+
+## 久用卡顿的真实采集
+
+`run.cmd --diagnose-responsiveness` 开启默认关闭的专项采集，步骤及字段说明见[真实复现采集](responsiveness-capture.md)。采集器回归不代表 BUG-070 已定位或性能改善。

@@ -31,6 +31,7 @@
 - `dev/build_diagnostics.ps1`
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
+- `dev/selfcheck_responsiveness.py`
 
 ### GitHub 协作与检查
 
@@ -369,6 +370,7 @@
 ### 开发指南
 
 - `docs/development/testing.md`
+- `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
 
