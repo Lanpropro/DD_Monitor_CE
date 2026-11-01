@@ -173,6 +173,11 @@ class WindowMove(QObject):
         resized = (bounds.right-bounds.left, bounds.bottom-bounds.top) != preview.physical_size
         size = preview.size() if resized and not maximized else self.original_geometry.size()
         destination = QRect(preview.geometry().topLeft(), size)
+        if not maximized:
+            # Cover the destination at its new DPI before exposing the live
+            # children. The drag preview still has the old physical size here.
+            preview.setGeometry(destination)
+        preview.repaint()
         self.user32.SetWindowPos(int(preview.winId()), -1, 0, 0, 0, 0, 0x0013)  # temporary cover
         self.source.setGeometry(destination)
         self.source.showMaximized() if maximized else self.source.showNormal()

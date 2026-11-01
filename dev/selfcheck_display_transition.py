@@ -184,6 +184,16 @@ def check_lifecycle():
             assert window.isMaximized() == expected
         wait_orientation(window, 'landscape')
         assert_settled(window)
+        # Model the smaller logical preview produced by a higher-DPI monitor.
+        preview = controller.begin()
+        preview.resize(700, 450)
+        bounds = wintypes.RECT()
+        controller.user32.GetWindowRect(int(preview.winId()), ctypes.byref(bounds))
+        preview.physical_size = bounds.right-bounds.left, bounds.bottom-bounds.top
+        controller.finish()
+        assert preview.size() == controller.original_geometry.size(), 'Restore cover exposed live children'
+        controller._complete()
+        controller.reveal()
         controller.begin()
         controller.finish()
         with patch.object(window, '_finish_interactive_resize', side_effect=RuntimeError('test')):
@@ -266,6 +276,8 @@ def check_native_drag(window, target, return_to=None):
             assert audio_position is not None and player._prop('audio-pts') > audio_position
             assert player.player is core and player.play_session == session
         controller.finish()
+        assert preview.size() == geometry.size(), 'Restore cover must match the final logical size'
+        cover_geometry = preview.geometry()
         deadline = time.monotonic()+3
         while controller.preview is not None and time.monotonic() < deadline:
             settle(25)
@@ -274,6 +286,7 @@ def check_native_drag(window, target, return_to=None):
         controller.cancel()
     wait_orientation(window, 'landscape')
     assert window.size() == geometry.size(), ('Normal size changed after moving', geometry, window.geometry())
+    assert window.geometry() == cover_geometry, 'Live window escaped the restore cover'
     assert window.devicePixelRatioF() == (return_to or target).devicePixelRatio()
     assert_settled(window)
     assert_native_geometry(window)
