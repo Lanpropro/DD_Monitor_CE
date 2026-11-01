@@ -52,7 +52,9 @@ class MainNoticesTests(unittest.TestCase):
         with patch.object(motion, 'enabled', return_value=True), \
                 patch.object(sidebar, '_apply_collapsed_controls', wraps=sidebar._apply_collapsed_controls) as prepare, \
                 patch.object(sidebar.items()[0].thumb, 'stop', wraps=sidebar.items()[0].thumb.stop) as stop, \
-                patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as layout:
+                patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as layout, \
+                patch.object(window.wall, '_clear', wraps=window.wall._clear) as clear, \
+                patch.object(window.wall, '_relayout_preset', wraps=window.wall._relayout_preset) as geometry:
             for _ in range(10):
                 sidebar.toggle_collapsed()
             self.assertEqual(prepare.call_count, 1)
@@ -72,7 +74,32 @@ class MainNoticesTests(unittest.TestCase):
             self.assertFalse(sidebar._collapse_settle.isActive())
             self.assertTrue(window.wall.updatesEnabled())
             self.assertTrue(all(item._compact for item in sidebar.items()))
-            layout.assert_called_once_with(force=True)
+            layout.assert_not_called()
+            clear.assert_not_called()
+            geometry.assert_called_once_with()
+
+    def test_sidebar_layout_change_during_animation_still_rebuilds_visibility(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        wall = window.wall
+        wall.set_sidebar_animating(True)
+        wall.set_layout('dm_main3')
+        with patch.object(wall, '_clear', wraps=wall._clear) as clear:
+            wall.set_sidebar_animating(False)
+        clear.assert_called_once_with()
+        self.assertEqual(len(wall.visible_tiles()), 3)
+        self.assertTrue(wall.danmaku.isVisible())
+        self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+
+    def test_sidebar_geometry_failure_restores_repaint_and_layout(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        wall = window.wall
+        wall.set_sidebar_animating(True)
+        with patch.object(wall, '_relayout_preset', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError):
+                wall.set_sidebar_animating(False)
+        self.assertFalse(wall._sidebar_animating)
+        self.assertFalse(wall._resize_pending)
+        self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
 
     def test_avatar_components_import_without_window_or_player(self):
         subprocess.run([sys.executable, '-c',

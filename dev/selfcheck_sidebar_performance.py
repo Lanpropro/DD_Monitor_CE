@@ -49,6 +49,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--layout', default='4x4')
     parser.add_argument('--players', type=int, default=0)
+    parser.add_argument('--size', nargs=2, type=int, default=(1400, 850), metavar=('WIDTH', 'HEIGHT'))
     parser.add_argument('--quick', action='store_true')
     parser.add_argument('--burst', action='store_true')
     args = parser.parse_args()
@@ -70,7 +71,7 @@ def main():
     layout.addWidget(wall, 1)
     if hasattr(sidebar, 'collapseAnimationChanged'):
         sidebar.collapseAnimationChanged.connect(wall.set_sidebar_animating)
-    root.resize(1400, 850)
+    root.resize(*args.size)
     root.show()
     wait(150)
     players = []
@@ -82,10 +83,18 @@ def main():
                         '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30', '-t', '30',
                         '-c:v', 'libx264', '-preset', 'ultrafast', media], check=True, timeout=30)
         assert 0 < args.players <= len(wall.tiles)
-        for tile in wall.tiles[:args.players]:
+        for index, tile in enumerate(wall.tiles[:args.players]):
+            tile.set_room(dict(room_id=f'fixture:{index}', uname=f'Local {index}', live=True))
             player = TilePlayer(tile.video, root)
             player.set_muted(True)
             player.play(str(media))
+            tile.set_video_active(True)
+            if args.quick:
+                tile.video_danmaku.set_enabled(True)
+                for number in range(min(8, tile.video_danmaku.lane_count())):
+                    assert tile.video_danmaku.add_event(dict(kind='danmaku', uname='Fixture',
+                        text=f'Local comment {number}', color='#ffffff'))
+                assert tile.video_danmaku.comments
             players.append(player)
         wait(1000)
     source = QPixmap(400, 225)
@@ -128,6 +137,7 @@ def main():
         assert quick.resize.called, 'Quick surface geometry must catch up after collapse'
         wall._quick_danmaku_layer = previous_layer
         sidebar.set_collapsed(False, animate=False)
+        wait(100)  # Flush the immediate expansion before taking the next geometry baseline.
     with patch.object(motion, 'enabled', return_value=True):
         for collapsed in (True, False):
             calls.clear()

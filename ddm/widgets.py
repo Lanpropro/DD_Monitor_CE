@@ -7688,6 +7688,7 @@ class WallGrid(QWidget):
         self._pending_reveal: list[Tile] = []
         self._stagger_first: Tile | None = None
         self._sidebar_animating = False
+        self._sidebar_layout = None
         self._interactive_resize = False
         self._resize_pending = False
         self._resize_on_show = False
@@ -8044,6 +8045,8 @@ class WallGrid(QWidget):
             return
         self._sidebar_animating = active
         if active:
+            self._sidebar_layout = (self.layout_id, tuple(self.tiles),
+                                    self.fullscreen_tile, self._danmaku_cell)
             self._sidebar_updates_enabled = self.updatesEnabled()
             self.setUpdatesEnabled(False)
         self._resize_timer.stop()
@@ -8052,11 +8055,21 @@ class WallGrid(QWidget):
         self.grid.setEnabled(not active)
         if not active:
             try:
-                self.relayout(force=True)
+                layout_state = (self.layout_id, tuple(self.tiles),
+                                self.fullscreen_tile, self._danmaku_cell)
+                if (layout_state == self._sidebar_layout and self.fullscreen_tile is None
+                        and (self.layout_id == 'corner' or self.layout_id in self._partitions)):
+                    # Width-only settlement keeps pane visibility and native stacking intact.
+                    self._resize_pending = True
+                    self._flush_resize()
+                    QTimer.singleShot(0, self._sync_danmaku_controls)
+                else:
+                    self.relayout(force=True)
                 self.grid.activate()
                 if self._quick_danmaku_layer is not None:
                     self._quick_danmaku_layer.resize()
             finally:
+                self._sidebar_layout = None
                 self.setUpdatesEnabled(self._sidebar_updates_enabled)
 
     def relayout(self, force: bool = False) -> None:
