@@ -73,7 +73,11 @@ class ActionsTests(unittest.TestCase):
             panel.set_status('连接失败')
             self.assertEqual(idle, panel.count.grab().toImage())
             panel.set_status('已连接')
-            self.assertNotEqual(idle, panel.count.grab().toImage())
+            connected = panel.count.grab().toImage()
+            self.assertNotEqual(idle, connected)
+            ratio = connected.devicePixelRatio()
+            self.assertEqual(connected.pixelColor(round(5 * ratio), round(10 * ratio)),
+                             theme.qcolor(theme.PINK), 'The Wi-Fi dot must face left')
 
     def choose(self, index, before=None):
         class TestMenu(danmaku_actions.CommentToolbar):

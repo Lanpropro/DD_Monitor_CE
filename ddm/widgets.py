@@ -1160,6 +1160,9 @@ class DanmakuConnectionIcon(QLabel):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        painter.translate(10, 10)
+        painter.rotate(90)
+        painter.translate(-10, -10)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(self.palette().color(QPalette.WindowText), 1.8,
                             Qt.SolidLine, Qt.RoundCap))
