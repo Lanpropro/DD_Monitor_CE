@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import app as app_module, theme
+from ddm.room_status import RoomStatus
 from ddm.widgets import Sidebar
 
 
@@ -48,10 +49,12 @@ class Window(QObject):
     def __init__(self, sidebar):
         super().__init__()
         self.sidebar = sidebar
+        self.wall = SimpleNamespace(tiles=[])
         self._closing = False
         self._poller = None
         self._refresh_queued = False
         self.plugins = SimpleNamespace(platforms={})
+        self.room_status = RoomStatus(self)
 
     def load_room_avatars(self):
         pass

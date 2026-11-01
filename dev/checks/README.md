@@ -101,7 +101,7 @@
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
 | [selfcheck_overseas_playback_live](../selfcheck_overseas_playback_live.py) | 单项执行前核对 |
 | [selfcheck_overseas_stability](../selfcheck_overseas_stability.py) | 单项执行前核对 |
-| [selfcheck_poller_lifecycle](../selfcheck_poller_lifecycle.py) | 单项执行前核对 |
+| [selfcheck_poller_lifecycle](../selfcheck_poller_lifecycle.py) | `offline`；受控 QThread、延迟完成回调与下一轮归属，退出不再起轮询，无账号或外网 |
 | [selfcheck_resolve_retry](../selfcheck_resolve_retry.py) | 单项执行前核对 |
 | [selfcheck_search](../selfcheck_search.py) | 单项执行前核对 |
 | [selfcheck_settings_status](../selfcheck_settings_status.py) | 单项执行前核对 |
@@ -332,6 +332,7 @@
 | [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | `offline` |
 | [selfcheck_platform_storage](../selfcheck_platform_storage.py) | 单项执行前核对 |
 | [selfcheck_room_status](../selfcheck_room_status.py) | `offline` |
+| [selfcheck_room_status_controller](../selfcheck_room_status_controller.py) | `offline` / `smoke`；合成信号检查轮询父对象、请求去重、平台参数、刷新排队、旧回调和关闭清理 |
 
 ## 账号、登录与关注导入
 
@@ -353,7 +354,7 @@
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32/33位原关注＋1位新增的归类隔离、结果提示与头像范围、主动勾选归类、取消勾选与保存 |
 | [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
-| [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
+| [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | `offline`；合成关注列表、替身轮询器，检查刷新连点、头像补充阶段、失败与空列表恢复 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |
 | [selfcheck_oauth_accounts](../selfcheck_oauth_accounts.py) | 单项执行前核对 |
 | [selfcheck_oauth_guide](../selfcheck_oauth_guide.py) | 单项执行前核对 |
