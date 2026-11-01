@@ -158,7 +158,7 @@
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
-| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；DPI 批处理、重绘恢复、隐藏/关闭/异常收尾；`--screens --players 3` 使用两块实际屏幕、123 张合成关注封面及本地视频，覆盖原生控件物理几何、跨屏、最大化及 HWND/播放器保持，无账号或真实直播 |
+| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；静态窗口移动预览、取消/抓图失败/关闭/异常清理及双击消息路由；`--screens --players 3` 使用两块屏幕、123 张合成关注和本地视频，检查截图视频像素、隐藏时连续播放、原生几何、跨屏/最大化及 HWND/播放器保持；无账号或真实直播，真实输入与吸附另验 |
 
 ## 弹幕与表情
 
