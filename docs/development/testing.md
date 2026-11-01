@@ -33,6 +33,14 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+预览播放器初始化回归与对照测量：
+
+```powershell
+python dev/run_checks.py --script selfcheck_mpv --timeout 120 -- --preview-startup
+```
+
+需要 Windows、libmpv 和 PATH 中的 FFmpeg。临时生成本地视频，对照立即创建输出与预览按需创建输出的初始化耗时、播放调用耗时和 10 ms UI 心跳最大间隔；启动期间不轮询 mpv 同步属性，避免测量自身引入等待。随后验证实际播放进度、GPU 输出、核心复用、未播放取消、起播中取消和重复释放。不读取账号或访问真实直播。性能数字仅代表本机合成场景，不设跨机器耗时门槛，也不表示原生拖放问题已全部解决。
+
 原生视频浮层的内存回归：
 
 ```powershell

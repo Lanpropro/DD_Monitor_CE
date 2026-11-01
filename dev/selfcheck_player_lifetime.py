@@ -28,6 +28,7 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(options.get('gapless_audio'), False)
                     self.assertEqual(options['ao'], 'null' if silent else 'wasapi')
                     self.assertEqual(options['audio'], 'no' if silent else 'auto')
+                    self.assertEqual(options['force_window'], False if silent else 'immediate')
                     self.assertTrue(options['idle'])
                     self.assertTrue(options['keep_open'])
                     player.bind()

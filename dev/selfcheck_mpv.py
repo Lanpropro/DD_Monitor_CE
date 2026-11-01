@@ -3,7 +3,11 @@ import argparse
 import gc
 import json
 import os
+import shutil
+import statistics
+import subprocess
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -44,6 +48,77 @@ def ready(app, player, timeout=12):
             assert player.state == "playing"
             return
     raise TimeoutError(f"no frame: {player.state}, {player.actual_decoder}")
+
+
+def preview_startup(app):
+    """Local-only before/after startup, first frame, heartbeat and cancellation check."""
+    from ddm import player as player_module
+    widget = QWidget()
+    widget.setAttribute(Qt.WA_ShowWithoutActivating)
+    widget.setGeometry(-15000, 0, 320, 180)
+    widget.show()
+    app.processEvents()
+    create = player_module.mpv.MPV
+    results = []
+    try:
+        with tempfile.TemporaryDirectory(prefix='ddm-preview-startup-') as directory:
+            source = str(Path(directory) / 'blue.mp4')
+            subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                            '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:r=30', '-t', '10',
+                            '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', source],
+                           check=True, timeout=30)
+            for immediate in (True, False, True, False):
+                def factory(**options):
+                    if immediate:
+                        options['force_window'] = 'immediate'
+                    return create(**options)
+                player = TilePlayer(widget, silent=True)
+                ticks = [time.perf_counter()]
+                timer = QTimer()
+                timer.setInterval(10)
+                timer.timeout.connect(lambda: ticks.append(time.perf_counter()))
+                timer.start()
+                try:
+                    with patch.object(player_module.mpv, 'MPV', side_effect=factory):
+                        started = time.perf_counter()
+                        player.bind()
+                        bind_ms = (time.perf_counter() - started) * 1000
+                        core = player.player
+                        if not immediate:
+                            assert not player._prop('current-vo'), 'Idle preview must not open GPU output'
+                        started = time.perf_counter()
+                        player.play(source)
+                        play_ms = (time.perf_counter() - started) * 1000
+                        # Let native startup run without synchronous property polling.
+                        pump(app, .5)
+                        heartbeat_ms = max((b-a)*1000 for a, b in zip(ticks, ticks[1:]))
+                        timer.stop()
+                        ready(app, player)
+                        assert player.player is core and player._prop('current-vo') == 'gpu'
+                        pump(app, .1)
+                        results.append(dict(immediate=immediate, bind_ms=round(bind_ms, 3),
+                            play_ms=round(play_ms, 3),
+                            heartbeat_max_ms=round(heartbeat_ms, 3)))
+                    player.stop()
+                    assert player.player is None and not player._watch.isActive()
+                    player.bind()  # Cancel preparation before any URL is played.
+                    player.stop()
+                    assert player.player is None
+                    player.play(source)
+                    QTimer.singleShot(0, player.stop)  # Leave while native output is starting.
+                    pump(app, .2)
+                    assert player.player is None and player.state == 'idle'
+                    assert not player._watch.isActive() and not player._picture_watch.isActive()
+                finally:
+                    timer.stop()
+                    player.release()
+                    player.release()
+                    app.processEvents()
+        print(json.dumps({'preview_startup': results,
+            'bind_median_ms': {str(mode): round(statistics.median(r['bind_ms'] for r in results
+                                    if r['immediate'] == mode), 3) for mode in (True, False)}}), flush=True)
+    finally:
+        widget.close()
 
 
 def unit(app):
@@ -278,6 +353,7 @@ def main():
     parser.add_argument("--soak-seconds", type=int, default=0)
     parser.add_argument("--destroy-cycles", type=int, default=0)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--preview-startup", action="store_true", help="synthetic preview startup comparison; needs FFmpeg")
     args = parser.parse_args()
     # Keep MTA resources alive until Qt has released its WinRT factory cache.
     with mta_lifetime():
@@ -299,6 +375,8 @@ def main():
 
 def run(app, args):
     unit(app)
+    if args.preview_startup:
+        preview_startup(app)
     if args.source or args.input_file:
         if args.input_file:
             settings = json.loads(args.input_file.read_text(encoding="utf-8-sig"))
