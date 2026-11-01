@@ -2568,13 +2568,7 @@ class MainWindow(QMainWindow):
             if face and face != item.room.get("face"):
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
-                # 同一张 URL 以前下过就**直接读本地摆上**，不用等这一轮下载回来 ——
-                # 下载慢、或者干脆失败（CDN 抽风、图片防盗链变了）时，
-                # 条目也不至于一直空着。用户报的「关注栏头像消失」就出在这：
-                # 头像只有「下载成功回调」这一条路，一失败就再没有第二次机会。
-                cached = load_cached_avatar(face)
-                if cached is not None:
-                    item.thumb.set_face(cached)
+                # 缓存命中也由 AvatarLoader 后台读取，批量状态回调不在 UI 线程解码图片。
             item.room["live_known"] = info.get("live_known", True)
             self.sidebar._folder_pending.discard(str(item.room.get("room_id")))
         self.sidebar.resort()               # 「开播优先」要跟着开播状态重排

@@ -33,6 +33,27 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+关注栏应用内拖拽回归：
+
+```powershell
+python dev/run_checks.py --script selfcheck_drag_lifecycle
+python dev/run_checks.py --script selfcheck_folder_drag
+python dev/run_checks.py --script selfcheck_folder_card_drag
+python dev/run_checks.py --script selfcheck_drag_wheel --timeout 120
+```
+
+前三项使用合成关注数据，覆盖排序、文件夹、多选、智能副本与头像、滚轮、移动合并、松手、取消和异常清理。最后一项需要 Windows、libmpv 与 FFmpeg，在真实视频子窗口上连续执行 60 次合成鼠标拖放，断言捕获释放、落点高亮及视频持续播放，报告抓起耗时、UI 心跳和进程 CPU 时间；不证明真实桌面下所有输入均已验收。需另测实际鼠标时可追加 `-- --physical`；该模式需要交互桌面，只在确认命中自身测试窗口后注入鼠标消息，并恢复指针。高 DPI、跨屏与 Alt+Tab 仍需人工验收。
+
+连续拖动的跟手测量可追加 `-- --motion`：在视频区和列表区持续注入合成移动，统计拖影窗口位置更新频率、间隔、落点检查次数、CPU 时间和视频丢帧。拖影使用精确定时器按所在屏幕刷新率更新，跨屏后调整；排序与落点检查保持 16 ms 节流。位置回调频率不是 DWM 最终呈现帧率，不能用 UI 心跳代替拖影流畅度。
+
+预览播放器初始化回归与对照测量：
+
+```powershell
+python dev/run_checks.py --script selfcheck_mpv --timeout 120 -- --preview-startup
+```
+
+需要 Windows、libmpv 和 PATH 中的 FFmpeg。临时生成本地视频，对照立即创建输出与预览按需创建输出的初始化耗时、播放调用耗时和 10 ms UI 心跳最大间隔；启动期间不轮询 mpv 同步属性，避免测量自身引入等待。随后验证实际播放进度、GPU 输出、核心复用、未播放取消、起播中取消和重复释放。不读取账号或访问真实直播。性能数字仅代表本机合成场景，不设跨机器耗时门槛，也不表示原生拖放问题已全部解决。
+
 原生视频浮层的内存回归：
 
 ```powershell

@@ -7,7 +7,7 @@ import sys
 
 from PySide6.QtCore import QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QFrame
+from PySide6.QtWidgets import QApplication, QFrame
 
 from .bili import StreamResolver
 from .player import TilePlayer
@@ -45,6 +45,7 @@ class HoverPreview(QObject):
         self._ready_to_show = False
         self._pending_result = None
         self._pending_failure = None
+        self._interaction_paused = False
         # 共用一个浮层预览。父控件挂**主窗口**（不是滚动视口）：视口会把自己裁掉，
         # 而横屏要往卡片右侧弹、竖屏要向下弹，都会越出视口范围。
         self._popup = QFrame(sidebar.window())
@@ -81,8 +82,27 @@ class HoverPreview(QObject):
         self._hover_watch.timeout.connect(self._check_hover)
 
     # ---- 悬停事件 ----
+    def _pause_for_pointer_action(self) -> bool:
+        """按住左键时不创建/销毁原生预览播放器，松手后重新判断指针目标。"""
+        if not self.sidebar.drag_session.active and not QApplication.mouseButtons() & Qt.LeftButton:
+            return False
+        if not self._interaction_paused:
+            self._interaction_paused = True
+            self._generation += 1
+            if self._resolver is not None:
+                self._resolver.cancel()
+                self._resolver = None
+            self._pending_result = self._pending_failure = None
+            self._delay.stop()
+            self._resolve_delay.stop()
+            self._grace.stop()
+        self._hover_watch.start()
+        return True
+
     def on_hover(self, room: dict) -> None:
         if not self.enabled or self.sidebar.select_mode:
+            return
+        if self._pause_for_pointer_action():
             return
         if not room.get("live"):
             return                              # 没开播就没什么可看的
@@ -97,6 +117,8 @@ class HoverPreview(QObject):
         self._resolve_delay.start()
 
     def on_unhover(self, room: dict) -> None:
+        if self._pause_for_pointer_action():
+            return
         if str(room.get("room_id") or "") != self._room_id():
             return                              # 已经换到别的条目上了
         self._delay.stop()
@@ -109,6 +131,8 @@ class HoverPreview(QObject):
 
     # ---- 起播 / 收掉 ----
     def _show_now(self) -> None:
+        if self._pause_for_pointer_action():
+            return
         item = self._item or self._item_of(self._room)
         if item is None or not self._cursor_on_item(item):
             self.cancel()
@@ -131,6 +155,8 @@ class HoverPreview(QObject):
             self._on_failed(*failure)
 
     def _begin_resolve(self) -> None:
+        if self._pause_for_pointer_action():
+            return
         room = self._room
         if (not self.enabled or self.sidebar.select_mode or
                 not room.get("room_id") or not room.get("live")):
@@ -180,6 +206,8 @@ class HoverPreview(QObject):
                      profile: str, options: list | None, *, headers=None) -> None:
         if generation != self._generation:
             return                              # 这次取流已经作废
+        if self._pause_for_pointer_action():
+            return
         if not self._ready_to_show:
             self._pending_result = (generation, room_id, url, quality, profile,
                                     options, headers)
@@ -295,6 +323,14 @@ class HoverPreview(QObject):
             return False
 
     def _check_hover(self) -> None:
+        if self._pause_for_pointer_action():
+            return
+        if self._interaction_paused:
+            self.cancel()
+            item = next((item for item in self.sidebar.items() if self._cursor_on_item(item)), None)
+            if item is not None:
+                self.on_hover(item.room)
+            return
         # Native video children may swallow Leave. Verify pending and playing previews.
         if self._item is None and not self._hover_watch.isActive():
             return
@@ -318,6 +354,8 @@ class HoverPreview(QObject):
         软件上下边缘贴着 —— 因为 `_place_popup()` 末尾那句 clamp 会把已经跑到视口
         外的条目硬夹回边界。指针底下已经不是这张卡片了，这里该收掉。
         """
+        if self._pause_for_pointer_action():
+            return
         self._check_hover()
         item = self._item
         if item is None or not self._popup.isVisible():
@@ -380,6 +418,7 @@ class HoverPreview(QObject):
 
     def cancel(self) -> None:
         """切换侧栏形态时收掉预览，但保留播放器供下一次悬停复用。"""
+        self._interaction_paused = False
         self._delay.stop()
         self._resolve_delay.stop()
         self._grace.stop()

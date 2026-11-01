@@ -1199,6 +1199,69 @@ class MainNoticesTests(unittest.TestCase):
             alerts.assert_not_called()
             self.assertTrue(all(item.room['live'] for item in window.sidebar._items))
 
+    def test_status_avatar_changes_use_background_cache_loading(self):
+        window = self.window([{'room_id': '1001', 'live': False}])
+        url = 'https://example.invalid/avatar.png'
+        item = window.sidebar.items()[0]
+        with patch('ddm.app.load_cached_avatar',
+                          side_effect=AssertionError('UI status callback must not decode avatar files')), \
+                patch.object(window, '_start_avatar_loader') as load:
+            window._on_status_updated({'1001': dict(self.status(False), face=url)})
+            load.assert_called_once_with({'1001': url}, window._on_room_avatar)
+            window._on_status_updated({'1001': dict(self.status(False), face=url)})
+            self.assertEqual(load.call_count, 1, 'Unchanged avatar must not reload')
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(QColor('green'))
+        window._on_room_avatar('1001', pixmap)
+        self.assertEqual(item.thumb.face_pixmap().cacheKey(), pixmap.cacheKey())
+
+    def test_strip_face_updates_do_not_recreate_unrelated_avatars_on_drop(self):
+        from ddm.widgets import RoomStrip
+        strip = RoomStrip()
+        self.addCleanup(strip.close)
+        rooms = [dict(room_id=str(i), uname='Fixture', live=True) for i in range(1, 5)]
+        strip.set_rooms(rooms)
+        previous = dict(strip._avatars)
+        image = QPixmap(24, 24)
+        image.fill(QColor('green'))
+        faces = {room['room_id']: image for room in rooms}
+        for room_id in faces:
+            strip.set_room_face(room_id, image)
+        with patch.object(strip, '_add_avatar', wraps=strip._add_avatar) as create:
+            strip.set_rooms(rooms, faces, {'1'})
+            self.assertEqual(create.call_count, 1, 'Only the dropped room wall badge changed')
+        for room_id in ('2', '3', '4'):
+            self.assertIs(strip._avatars[room_id], previous[room_id])
+        changed = dict(rooms[1], live=False)
+        strip.set_rooms([rooms[0], changed, *rooms[2:]], faces, {'1'})
+        self.assertIsNot(strip._avatars['2'], previous['2'], 'Live badge changes must still update')
+
+    def test_background_avatar_loader_uses_disk_cache_without_network(self):
+        import threading
+        from ddm import images
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            url = 'https://example.invalid/avatar.png'
+            path = Path(images._cache_path(url, 'avatars'))
+            path.parent.mkdir(parents=True)
+            image = QPixmap(24, 24)
+            image.fill(QColor('green'))
+            image.save(str(path))
+            loaded, threads = [], []
+            original = images.load_pixmap
+            def read(*args, **kwargs):
+                threads.append(threading.get_ident())
+                return original(*args, **kwargs)
+            loader = images.AvatarLoader({'1001': url})
+            loader.loaded.connect(lambda rid, pixmap: loaded.append((rid, pixmap)))
+            with patch.object(images, 'load_pixmap', side_effect=read), \
+                    patch.object(images.requests, 'get', side_effect=AssertionError('Cache hit must not use network')):
+                loader.start()
+                self.assertTrue(loader.wait(3000))
+                self.app.processEvents()
+            self.assertEqual([rid for rid, _ in loaded], ['1001'])
+            self.assertFalse(loaded[0][1].isNull())
+            self.assertTrue(threads and all(t != threading.get_ident() for t in threads))
+
     def test_simultaneous_live_rooms_receive_independent_notices(self):
         window = self.window([{'room_id': str(index), 'uname': '主播' + str(index),
                                'live': False, 'live_known': True} for index in range(1, 5)])
