@@ -108,12 +108,41 @@ def check_lifecycle():
             window.resize(1100, height)
             QApplication.processEvents()
             assert window._root_layout.isEnabled() and window.updatesEnabled()
-        window._finish_interactive_resize()
+        intermediate = []
+        arranging = False
+        original_side = window.sidebar.set_side
+
+        def set_side(side):
+            nonlocal arranging
+            arranging = True
+            try:
+                return original_side(side)
+            finally:
+                arranging = False
+
+        with ExitStack() as measured:
+            measured.enter_context(patch.object(window.sidebar, 'set_side', side_effect=set_side))
+            for name in ('_relayout_corner', '_relayout_preset'):
+                original = getattr(window.wall, name)
+                def layout(*args, _original=original, **kwargs):
+                    if arranging:
+                        intermediate.append(window.wall.size())
+                    return _original(*args, **kwargs)
+                measured.enter_context(patch.object(window.wall, name, side_effect=layout))
+            window._finish_interactive_resize()
+        assert not intermediate, 'Sidebar changes must not lay out intermediate video geometry'
         wait_orientation(window, 'portrait')
         assert_settled(window)
         window.resize(1200, 750)
         wait_orientation(window, 'landscape')
         original = window.geometry()
+        with patch.object(window, '_build_arrangement', side_effect=RuntimeError('test')):
+            try:
+                window._apply_orientation('portrait')
+                raise AssertionError('Expected injected arrangement failure')
+            except RuntimeError:
+                pass
+        assert window._root_layout.isEnabled() and window.updatesEnabled()
         for _ in range(3):
             preview = controller.begin()
             assert preview is not None and not preview.frame.isNull()

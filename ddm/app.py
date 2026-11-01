@@ -674,65 +674,74 @@ class MainWindow(QMainWindow):
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         if self._applying_room_preset:
             return
-        orientation = orientation or ("portrait" if self.is_portrait() else "landscape")
-        # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
-        # 否则 first 永远是 False，第一次也会走「对映」那条路。
-        first = not self.orientation
-        changed = orientation != self.orientation
-        if changed:
-            self.hover_preview.cancel()
-            self._build_arrangement(orientation)
-        # 切走之前正在用的那套，记在**原来那个方向**名下：用户转个方向逛一圈再转回来，
-        # 原来那边的布局得原样还在，不能靠「按容量折算」猜回来。
-        if self.orientation and changed:
-            self._layout_by_orientation[self.orientation] = self.wall.layout_id
-        self.orientation = orientation
-        portrait = orientation == "portrait"
+        # Side/header reparenting activates ancestor layouts synchronously.
+        # Commit their final arrangement once; DPI and painting remain enabled.
+        layout_enabled = self._root_layout.isEnabled()
+        self._root_layout.setEnabled(False)
+        try:
+            orientation = orientation or ("portrait" if self.is_portrait() else "landscape")
+            # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
+            # 否则 first 永远是 False，第一次也会走「对映」那条路。
+            first = not self.orientation
+            changed = orientation != self.orientation
+            if changed:
+                self.hover_preview.cancel()
+                self._build_arrangement(orientation)
+            # 切走之前正在用的那套，记在**原来那个方向**名下：用户转个方向逛一圈再转回来，
+            # 原来那边的布局得原样还在，不能靠「按容量折算」猜回来。
+            if self.orientation and changed:
+                self._layout_by_orientation[self.orientation] = self.wall.layout_id
+            self.orientation = orientation
+            portrait = orientation == "portrait"
 
-        # 竖屏不再强制「收起」：顶部横栏本来就只占一条，横屏的收起语义（60px 窄条）
-        # 混进来会在拖回横屏时留下一堆隐藏控件。竖屏保持展开（头像排 + 按钮行）。
-        self.sidebar.set_collapsed(False, animate=False)
+            # 竖屏不再强制「收起」：顶部横栏本来就只占一条，横屏的收起语义（60px 窄条）
+            # 混进来会在拖回横屏时留下一堆隐藏控件。竖屏保持展开（头像排 + 按钮行）。
+            self.sidebar.set_collapsed(False, animate=False)
 
-        saved = self._saved_layout(orientation)
-        # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
-        pending = getattr(self, "_pending_layout", "")
-        if pending and self._layout_fits(pending, portrait):
-            layout_id = pending
-            self._pending_layout = ""
-        elif first:
-            # 启动：配置里存过哪套就用哪套（第一次启动就是 FIRST_LAYOUT /
-            # PORTRAIT_AUTO）；只有存的那套跟当前方向不匹配（老配置、
-            # 或者上次是在另一个方向下用的）才按「对映」折算一套出来。
-            layout_id = saved if self._layout_fits(saved, portrait) else (
-                layouts.counterpart(self.wall.layout_id, portrait)
-                or (layouts.PORTRAIT_AUTO if portrait else layouts.FIRST_LAYOUT))
-        else:
-            # 回自己待过的方向：先把「切走之前在用的那套」摆回来。横屏的
-            # 「主画面 + 5 小环绕」和「六分」都是 6 路，只按容量折算的话，从竖屏
-            # 切回来会被换成六分 —— 用户报的「布局被改了」就是这个。
-            remembered = self._layout_by_orientation.get(orientation, "")
-            if remembered and self._layout_fits(remembered, portrait):
-                layout_id = remembered
+            saved = self._saved_layout(orientation)
+            # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
+            pending = getattr(self, "_pending_layout", "")
+            if pending and self._layout_fits(pending, portrait):
+                layout_id = pending
+                self._pending_layout = ""
+            elif first:
+                # 启动：配置里存过哪套就用哪套（第一次启动就是 FIRST_LAYOUT /
+                # PORTRAIT_AUTO）；只有存的那套跟当前方向不匹配（老配置、
+                # 或者上次是在另一个方向下用的）才按「对映」折算一套出来。
+                layout_id = saved if self._layout_fits(saved, portrait) else (
+                    layouts.counterpart(self.wall.layout_id, portrait)
+                    or (layouts.PORTRAIT_AUTO if portrait else layouts.FIRST_LAYOUT))
             else:
-                # 本次会话第一次进这个方向：跟着当前这套找最相似的那套
-                # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
-                # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
-                # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
-                mapped = layouts.counterpart(self.wall.layout_id, portrait)
-                if mapped:
-                    layout_id = mapped
-                elif self._layout_fits(saved, portrait):
-                    layout_id = saved
+                # 回自己待过的方向：先把「切走之前在用的那套」摆回来。横屏的
+                # 「主画面 + 5 小环绕」和「六分」都是 6 路，只按容量折算的话，从竖屏
+                # 切回来会被换成六分 —— 用户报的「布局被改了」就是这个。
+                remembered = self._layout_by_orientation.get(orientation, "")
+                if remembered and self._layout_fits(remembered, portrait):
+                    layout_id = remembered
                 else:
-                    layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
-        if layout_id != self.wall.layout_id:
-            if not first:
-                self._clear_expanded_slots(layout_id)
-            self.wall.set_layout(layout_id, relayout=False)
-            self.sidebar.set_layout_name(layout_id)
-        # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
-        if self._settling_resize:
-            self.wall.set_interactive_resize(True)
+                    # 本次会话第一次进这个方向：跟着当前这套找最相似的那套
+                    # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
+                    # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
+                    # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
+                    mapped = layouts.counterpart(self.wall.layout_id, portrait)
+                    if mapped:
+                        layout_id = mapped
+                    elif self._layout_fits(saved, portrait):
+                        layout_id = saved
+                    else:
+                        layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
+            if layout_id != self.wall.layout_id:
+                if not first:
+                    self._clear_expanded_slots(layout_id)
+                self.wall.set_layout(layout_id, relayout=False)
+                self.sidebar.set_layout_name(layout_id)
+            # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
+            if self._settling_resize:
+                self.wall.set_interactive_resize(True)
+        finally:
+            self._root_layout.setEnabled(layout_enabled)
+            if layout_enabled:
+                self._root_layout.invalidate()
         self._root_layout.activate()
         self._content.layout().activate()
         self.wall.relayout(force=True)
