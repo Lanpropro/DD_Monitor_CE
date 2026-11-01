@@ -55,6 +55,10 @@ Windows 冻结 EXE 另行通过启动、真实原生缩放消息、16 格几何�
 
 跨 DPI 和最大化切换会先暂缓根布局，再沿用现有 150ms 静默收尾（交互拖动时等松手），在最终方向下提交布局。根布局恢复后主动失效旧几何；强制重排同时清除已经完成的缩放任务。隐藏、关闭、显式预设、全屏及异常路径均恢复布局开关和轻量模式。此过程复用现有控件和播放器，不改变缓存或解码设置。
 
+Windows 标题栏移动期间由 `window_dpi.DpiDragGuard` 暂存主窗口的 `WM_DPICHANGED` 及其原生子窗口的 `WM_DPICHANGED_AFTERPARENT`，避免 Qt 在松手前自动放大/缩小窗口。松手或取消时卸载过滤器，使用最新位置提交最后一份 DPI 建议尺寸，再按收到的父子顺序更新子窗口；原生 `WM_SIZING` 则立即退出暂缓，保持拖边缩放行为。过滤器仅在本窗口的交互移动期间存在，不影响其他窗口，也不启动定时轮询或独立进程。
+
+最大化时不再按当前屏幕方向改写 Windows 的普通窗口还原矩形。竖屏最大化采用竖屏布局，还原回横向普通窗口时恢复该方向记忆的布局。跨屏测试通过 `WM_ENTERSIZEMOVE`、原生 `SetWindowPos` 和 `WM_EXITSIZEMOVE` 模拟保持按住状态，检查松手前主窗口及视频的物理尺寸和 Qt DPR 保持；同时验证一次手势往返跨屏及不额外调用 `setGeometry` 的直接还原。该测试没有注入真实鼠标输入。
+
 ```powershell
 python dev/run_checks.py --script selfcheck_display_transition
 python dev/run_checks.py --script selfcheck_display_transition --timeout 150 -- --screens --players 3 --output work/display-transition.json

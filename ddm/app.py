@@ -117,6 +117,7 @@ class MainWindow(QMainWindow):
         self._display_transition = False
         self._display_layout_enabled = True
         self._native_size_state = 0
+        self._dpi_drag = None
         self._resize_idle_timer = QTimer(self)
         self._resize_idle_timer.setSingleShot(True)
         self._resize_idle_timer.setInterval(RESIZE_SETTLE_MS)
@@ -769,6 +770,8 @@ class MainWindow(QMainWindow):
                 self._begin_interactive_resize()
             elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
                 self._finish_interactive_resize()
+            elif msg.message == 0x0214:  # WM_SIZING: only title-bar moves defer DPI
+                self._finish_dpi_drag()
             elif msg.message == 0x02E0:  # WM_DPICHANGED, before Qt applies new geometry
                 self._begin_display_transition()
             elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
@@ -804,10 +807,19 @@ class MainWindow(QMainWindow):
             return
         self._resize_idle_timer.stop()
         self._interactive_resize = True
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            from .window_dpi import DpiDragGuard
+            self._dpi_drag = DpiDragGuard(self)
+
+    def _finish_dpi_drag(self) -> None:
+        guard, self._dpi_drag = self._dpi_drag, None
+        if guard is not None:
+            guard.finish()
 
     def _finish_interactive_resize(self) -> None:
         if not hasattr(self, "wall") or self._settling_resize:
             return
+        self._finish_dpi_drag()
         self._resize_idle_timer.stop()
         self._interactive_resize = False
         if self._closing or self._fullscreen_tile is not None or not self._resize_dirty:
@@ -821,7 +833,6 @@ class MainWindow(QMainWindow):
             self._root_layout.activate()
             self._content.layout().activate()
             self.wall.finish_resize()
-            self._sync_restore_geometry()
         finally:
             self._end_display_transition()
             self.wall.set_interactive_resize(False)
@@ -854,6 +865,7 @@ class MainWindow(QMainWindow):
         window_fullscreen.sync_titlebar(self)
 
     def _cancel_interactive_resize(self) -> None:
+        self._finish_dpi_drag()
         timer = getattr(self, "_resize_idle_timer", None)
         if timer is not None:
             timer.stop()
@@ -862,11 +874,6 @@ class MainWindow(QMainWindow):
         self._end_display_transition()
         if hasattr(self, "wall"):
             self.wall.set_interactive_resize(False)
-
-    def _sync_restore_geometry(self) -> None:
-        if (self.isMaximized() and sys.platform == "win32"
-                and QApplication.platformName() == "windows"):
-            window_fullscreen.orient_restore_geometry(self, self.orientation == "portrait")
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:

@@ -1,5 +1,7 @@
 """Offline DPI/maximize layout batching; --screens exercises attached monitors."""
 import argparse
+import ctypes
+from ctypes import wintypes
 from contextlib import ExitStack
 import json
 import os
@@ -60,6 +62,9 @@ def assert_settled(window):
     assert window.wall.pos() == window._content.contentsRect().topLeft()
     assert abs(window.wall.width()-window._content.width()) <= 1
     assert abs(window.wall.height()-window._content.height()) <= 1
+    for tile in window.wall.visible_tiles():
+        assert tile.video.devicePixelRatioF() == window.devicePixelRatioF()
+        assert tile.controls.devicePixelRatioF() == window.devicePixelRatioF()
     latest_geometry(window)
 
 
@@ -67,6 +72,7 @@ def check_lifecycle():
     window = make_window(6, 'corner')
     try:
         window._begin_interactive_resize()
+        guard = window._dpi_drag
         before = window.wall.geometry()
         for height in (950, 1200, 1550):
             dpi_event(window)
@@ -75,16 +81,30 @@ def check_lifecycle():
             assert window._display_transition and not window._root_layout.isEnabled()
             assert window.wall.geometry() == before, 'Intermediate screen geometry was committed'
         window._finish_interactive_resize()
+        assert window._dpi_drag is None and not guard.active
         wait_orientation(window, 'portrait')
         assert_settled(window)
 
+        window._begin_interactive_resize()
+        guard = window._dpi_drag
         dpi_event(window)
         window.hide()
+        assert window._dpi_drag is None and not guard.active
         assert not window._display_transition and window._root_layout.isEnabled()
         assert not window._resize_idle_timer.isActive()
         window.show()
         wait_orientation(window, 'portrait')
         assert_settled(window)
+
+        window._begin_interactive_resize()
+        guard = window._dpi_drag
+        rect = wintypes.RECT()
+        user32 = ctypes.windll.user32
+        assert user32.GetWindowRect(int(window.winId()), ctypes.byref(rect))
+        user32.SendMessageW(int(window.winId()), 0x0214, 1, ctypes.addressof(rect))
+        assert not guard.active, 'Native resizing must use immediate DPI handling'
+        window._finish_interactive_resize()
+        assert window._dpi_drag is None
 
         window._root_layout.setEnabled(False)
         dpi_event(window)
@@ -114,6 +134,51 @@ def check_lifecycle():
         QApplication.processEvents()
 
 
+def check_native_drag(window, target, return_to=None):
+    user32 = ctypes.windll.user32
+    user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+    user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+    user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+    user32.SendMessageW.restype = ctypes.c_ssize_t
+    hwnd = int(window.winId())
+
+    def size(handle):
+        rect = wintypes.RECT()
+        assert user32.GetWindowRect(handle, ctypes.byref(rect))
+        return rect.right-rect.left, rect.bottom-rect.top
+
+    before = size(hwnd)
+    dpr = window.devicePixelRatioF()
+    videos = {int(t.video.winId()): size(int(t.video.winId())) for t in window.wall.visible_tiles()}
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumChildWindows.argtypes = (wintypes.HWND, callback_type, wintypes.LPARAM)
+
+    @callback_type
+    def collect(handle, _unused):
+        videos[int(handle)] = size(handle)
+        return True
+
+    for handle in tuple(videos):
+        user32.EnumChildWindows(handle, collect, 0)  # Include libmpv's own rendering children.
+    user32.SendMessageW(hwnd, 0x0231, 0, 0)  # Native move loop starts before the DPI crossing.
+    try:
+        for screen in (target,) if return_to is None else (target, return_to):
+            area = screen.availableGeometry()
+            for offset in (60, 70, 80):
+                assert user32.SetWindowPos(hwnd, None, area.x()+offset, area.y()+offset,
+                                           0, 0, 0x0015)  # NOSIZE | NOZORDER | NOACTIVATE
+                settle(70)
+                assert size(hwnd) == before, ('Window scaled before release', before, size(hwnd))
+                assert window.devicePixelRatioF() == dpr, 'DPI switched while the title bar was held'
+                assert all(size(handle) == previous for handle, previous in videos.items())
+    finally:
+        user32.SendMessageW(hwnd, 0x0232, 0, 0)
+    wait_orientation(window, 'landscape')
+    assert window.devicePixelRatioF() == (return_to or target).devicePixelRatio()
+    assert_settled(window)
+
+
 def check_screens(app, player_count, source):
     screens = app.screens()
     if len(screens) < 2:
@@ -139,14 +204,21 @@ def check_screens(app, player_count, source):
                 player.play(str(source))
                 ready(app, player)
                 cores.append((player, player.player, player.play_session, player._prop('time-pos')))
+            check_native_drag(window, portrait)
+            check_native_drag(window, landscape)
+            check_native_drag(window, portrait, return_to=landscape)
             with ExitStack() as measured:
                 work = Work(window, measured)
                 for target, maximize in ((portrait, False), (portrait, True),
                                           (portrait, False), (landscape, False)):
                     work.reset()
                     started = time.perf_counter()
+                    restoring = not maximize and window.isMaximized()
                     if maximize:
+                        normal_layout = window.wall.layout_id
                         window.showMaximized()
+                    elif restoring:
+                        window.showNormal()
                     else:
                         window.showNormal()
                         area = target.availableGeometry()
@@ -155,6 +227,9 @@ def check_screens(app, player_count, source):
                     expected = 'portrait' if maximize else 'landscape'
                     wait_orientation(window, expected)
                     assert_settled(window)
+                    if restoring:
+                        assert not window.isMaximized()
+                        assert window.wall.layout_id == normal_layout
                     assert window.screen() is target
                     assert window.devicePixelRatioF() == target.devicePixelRatio()
                     assert all(int(tile.video.winId()) == hwnd for tile, hwnd in identities.items())
