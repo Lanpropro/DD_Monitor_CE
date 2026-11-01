@@ -216,10 +216,27 @@ class HlsProxy:
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._server.daemon_threads = True
+        self._server.timeout = .05
         self.url = local_url(source)
-        self._thread = threading.Thread(target=self._server.serve_forever,
-            kwargs={"poll_interval": .05}, name="live-hls-proxy", daemon=True)
+        self._thread = threading.Thread(target=self._serve, name="live-hls-proxy", daemon=True)
         self._thread.start()
+
+    def _serve(self):
+        try:
+            while not self._stopped.is_set():
+                self._server.handle_request()
+        finally:
+            # 监听和闲置连接由服务线程收尾，不让换台/预览等待网络资源关闭。
+            try:
+                with self._lock:
+                    initial, self._initial_response = self._initial_response, None
+                    sessions, self._idle_sessions = self._idle_sessions, []
+                if initial is not None:
+                    initial[0].close()
+                for session in sessions:
+                    session.close()
+            finally:
+                self._server.server_close()
 
     def network_speed(self):
         """最近 30 秒分片有效吞吐的下四分位值；包含连接等待，排除播放器背压。"""
@@ -229,18 +246,6 @@ class HlsProxy:
         return (rates[(len(rates) - 1) // 4], len(rates)) if rates else (0, 0)
 
     def stop(self):
-        if self._stopped.is_set():
-            return
+        # 只发停止信号；服务循环至多等待一次监听超时后自行清理。
+        # 活跃 response 仍由请求线程关闭，网络读取按既有超时退出。
         self._stopped.set()
-        with self._lock:
-            initial, self._initial_response = self._initial_response, None
-            sessions, self._idle_sessions = self._idle_sessions, []
-        if initial is not None:
-            initial[0].close()
-        for session in sessions:
-            session.close()
-        # 由请求线程关闭 response；跨线程 close 会等待读锁，阻塞窗口关闭。
-        # 停止后不重试/不再写数据，正在进行的网络读取由上述有界超时退出。
-        self._server.shutdown()
-        self._server.server_close()
-        self._thread.join()
