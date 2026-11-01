@@ -18,6 +18,8 @@
 
 直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
 
+房间头像、封面和横幅的加载协调及界面回填集中在 `ddm/room_images.py`；主窗口保留原入口和调用时加载器构造器，继续持有线程引用及退出等待。缓存读写与下载仍由 `ddm/images.py` 实现，图片协调器不负责账号头像和播放器。
+
 ## 已跟踪的其他文件：逐项标注
 
 ### 独立诊断工具
@@ -303,6 +305,7 @@
 - `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_room_status_controller.py`
+- `dev/selfcheck_room_images.py`
 - `dev/selfcheck_search.py`
 - `dev/selfcheck_settings_status.py`
 - `dev/selfcheck_sidebar_avatar.py`
