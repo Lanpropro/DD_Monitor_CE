@@ -86,7 +86,7 @@ class NoticeRow(QFrame):
         self.avatars = {}
         if entry.rooms:
             from .images import load_cached_avatar, load_room_avatar
-            from .widgets import Avatar
+            from .avatar_widgets import Avatar
             strip = QWidget(self)
             avatars = QHBoxLayout(strip)
             avatars.setContentsMargins(0, 0, 0, 0)

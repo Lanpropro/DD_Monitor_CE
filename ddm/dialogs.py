@@ -1958,7 +1958,7 @@ class FollowImportDialog(QDialog):
 
     def set_avatar(self, room_id: str, pixmap: QPixmap) -> None:
         """头像下好之后回填（下载是异步的）。"""
-        from .widgets import circular_pixmap
+        from .avatar_widgets import circular_pixmap
         item = self._avatar_items.get(str(room_id))
         if item is None and self._populating:
             self._pending_avatars[str(room_id)] = pixmap

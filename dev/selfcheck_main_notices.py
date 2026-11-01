@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import runpy
 import sys
+import subprocess
 import tempfile
 from unittest.mock import Mock, patch
 import unittest
@@ -25,6 +26,30 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_avatar_components_import_without_window_or_player(self):
+        subprocess.run([sys.executable, '-c',
+            'import sys; import ddm.avatar_widgets; '
+            'assert not {"ddm.widgets", "ddm.app", "ddm.player", "mpv"}.intersection(sys.modules)'],
+            cwd=ROOT, check=True, timeout=15)
+        from ddm import avatar_widgets, widgets
+        for name in ('AVATAR_COLORS', 'Avatar', 'PinnedArc', 'RoomStrip', 'circular_pixmap'):
+            self.assertIs(getattr(widgets, name), getattr(avatar_widgets, name))
+
+    def test_extracted_avatar_painting_preserves_alpha_and_resize(self):
+        from ddm.avatar_widgets import Avatar, circular_pixmap
+        source = QPixmap(80, 40)
+        source.fill(QColor('green'))
+        circle = circular_pixmap(source, 32).toImage()
+        self.assertEqual(circle.pixelColor(0, 0).alpha(), 0)
+        self.assertEqual(circle.pixelColor(16, 16), QColor('green'))
+        avatar = Avatar('Fixture', 0, size=32)
+        self.addCleanup(avatar.close)
+        avatar.set_pixmap_image(source)
+        avatar.set_size(48)
+        self.assertEqual(avatar.pixmap().size().width(), 48)
+        self.assertEqual(avatar.pixmap().toImage().pixelColor(24, 24), QColor('green'))
+        self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+
     def focused_cover(self, boxes, width=1000, height=600):
         from ddm import cover_focus
         cover = QPixmap(width, height)

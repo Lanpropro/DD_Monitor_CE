@@ -824,7 +824,7 @@ class ResultNotice(UpdateNotice):
 
     def _set_rooms(self, rooms):
         from .images import load_cached_avatar, load_room_avatar
-        from .widgets import Avatar
+        from .avatar_widgets import Avatar
         while self.avatar_layout.count():
             widget = self.avatar_layout.takeAt(0).widget()
             widget.hide()
