@@ -122,4 +122,3 @@ class RoomPlacement:
         print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",
               file=sys.stderr, flush=True)
         return True
-
