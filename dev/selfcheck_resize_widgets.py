@@ -58,6 +58,14 @@ def check_throttle(app, wall, layout_id):
         assert len(passes) == before + 1
         original()
         assert [tile.geometry() for tile in wall.tiles] != final
+        # A forced layout already consumes the pending final geometry.
+        wall.set_interactive_resize(True)
+        wall.resize(2600, 1100)
+        assert wall._resize_pending
+        wall.relayout(force=True)
+        before = len(passes)
+        wall.finish_resize()
+        assert len(passes) == before, 'Forced geometry must not run again at resize finish'
     assert list(wall.tiles) == topology
     assert [(int(tile.video.winId()), int(tile.controls.winId())) for tile in wall.tiles] == identities
 

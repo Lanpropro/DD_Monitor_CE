@@ -116,6 +116,7 @@
 - `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`
 - `dev/selfcheck_douyin_account_import.py`
+- `dev/selfcheck_display_transition.py`
 - `dev/selfcheck_douyin_follow_cache.py`
 - `dev/selfcheck_douyin_follow_resolution.py`
 - `dev/selfcheck_douyin_profile_add.py`

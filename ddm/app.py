@@ -12,7 +12,7 @@ import time
 import webbrowser
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimation,
+from PySide6.QtCore import (QByteArray, QEasingCurve, QEvent, QProcess, QPropertyAnimation,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
@@ -114,6 +114,9 @@ class MainWindow(QMainWindow):
         self._resize_dirty = False
         self._resize_on_show = False
         self._settling_resize = False
+        self._display_transition = False
+        self._display_layout_enabled = True
+        self._native_size_state = 0
         self._resize_idle_timer = QTimer(self)
         self._resize_idle_timer.setSingleShot(True)
         self._resize_idle_timer.setInterval(RESIZE_SETTLE_MS)
@@ -729,12 +732,20 @@ class MainWindow(QMainWindow):
             self.wall.set_layout(layout_id, relayout=False)
             self.sidebar.set_layout_name(layout_id)
         # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
+        if self._display_transition:
+            self.wall.set_interactive_resize(True)
+        self._end_display_transition()
         self._root_layout.activate()
         self._content.layout().activate()
         self.wall.relayout(force=True)
         self._sync_tile_playback()
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            self._begin_display_transition()
+        return super().event(event)
 
     def resizeEvent(self, event) -> None:
         if (getattr(self, "_interactive_resize", False)
@@ -758,7 +769,34 @@ class MainWindow(QMainWindow):
                 self._begin_interactive_resize()
             elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
                 self._finish_interactive_resize()
+            elif msg.message == 0x02E0:  # WM_DPICHANGED, before Qt applies new geometry
+                self._begin_display_transition()
+            elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
+                previous = self._native_size_state
+                self._native_size_state = int(msg.wParam)
+                if msg.wParam == 2 or msg.wParam == 0 and previous == 2:
+                    self._begin_display_transition()
         return super().nativeEvent(event_type, message)
+
+    def _begin_display_transition(self) -> None:
+        if (not hasattr(self, "wall") or not hasattr(self, "_root_layout")
+                or self._closing or self._settling_resize or self._fullscreen_tile is not None):
+            return
+        if not self._display_transition:
+            self._display_transition = True
+            self._display_layout_enabled = self._root_layout.isEnabled()
+            self._root_layout.setEnabled(False)
+            self.wall.set_interactive_resize(True)
+        self._resize_dirty = True
+        if not self._interactive_resize:
+            self._resize_idle_timer.start()
+
+    def _end_display_transition(self) -> None:
+        if self._display_transition:
+            self._display_transition = False
+            self._root_layout.setEnabled(self._display_layout_enabled)
+            if self._display_layout_enabled:
+                self._root_layout.invalidate()
 
     def _begin_interactive_resize(self) -> None:
         if (not hasattr(self, "wall") or self._closing
@@ -779,9 +817,14 @@ class MainWindow(QMainWindow):
             orientation = self._resize_orientation()
             if orientation != self.orientation:
                 self._apply_orientation(orientation)
+            self._end_display_transition()
+            self._root_layout.activate()
+            self._content.layout().activate()
             self.wall.finish_resize()
             self._sync_restore_geometry()
         finally:
+            self._end_display_transition()
+            self.wall.set_interactive_resize(False)
             self._resize_dirty = False
             self._settling_resize = False
             self._resize_idle_timer.stop()
@@ -816,6 +859,7 @@ class MainWindow(QMainWindow):
             timer.stop()
         self._interactive_resize = False
         self._resize_dirty = False
+        self._end_display_transition()
         if hasattr(self, "wall"):
             self.wall.set_interactive_resize(False)
 

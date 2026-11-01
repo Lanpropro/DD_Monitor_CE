@@ -53,6 +53,15 @@ Windows 冻结 EXE 另行通过启动、真实原生缩放消息、16 格几何�
 
 ## 复现检查
 
+跨 DPI 和最大化切换会先暂缓根布局，再沿用现有 150ms 静默收尾（交互拖动时等松手），在最终方向下提交布局。根布局恢复后主动失效旧几何；强制重排同时清除已经完成的缩放任务。隐藏、关闭、显式预设、全屏及异常路径均恢复布局开关和轻量模式。此过程复用现有控件和播放器，不改变缓存或解码设置。
+
+```powershell
+python dev/run_checks.py --script selfcheck_display_transition
+python dev/run_checks.py --script selfcheck_display_transition --timeout 150 -- --screens --players 3 --output work/display-transition.json
+```
+
+第二条需要两块已连接的屏幕，其中一块为竖屏；测试窗口会实际跨屏、最大化和还原，FFmpeg 临时生成本地视频，不使用用户配置或安装插件。输出为 Qt 布局调用与耗时、几何和原生身份检查，不代表 DWM 最终帧率。不同 DPI 下 Qt 本身的字体、原生窗口及遮罩换算仍有成本，需人工验收实际跟手感。
+
 在已安装项目依赖的 Windows 环境，从仓库根目录运行：
 
 ```powershell
