@@ -30,7 +30,9 @@ def main():
             first = window._retry_timers[tile]
             assert first.isActive()
             window._on_resolve_failed(tile, "CDN unavailable", requested_quality=250)
-            assert not first.isActive(), "重复失败不能留下多个重连定时器"
+            assert window._retry_timers[tile] is first and first.isActive(), \
+                "重复失败应保留原定时器，不能推迟重连"
+            assert window._retry_count[tile] == 1, "等待期间的重复通知不算新的重连尝试"
             window._on_player_state(tile, "playing")
             assert tile not in window._retry_timers
             window._on_resolve_failed(tile, "stale result", requested_quality=10000)

@@ -1,4 +1,4 @@
-"""Offline checks for embedded player audio teardown options."""
+"""Offline checks for player teardown and recovery scheduling lifetimes."""
 import os
 from pathlib import Path
 import sys
@@ -8,7 +8,9 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
+from shiboken6 import isValid
 from ddm.player import TilePlayer
 
 
@@ -162,6 +164,53 @@ class PlayerLifetimeTests(unittest.TestCase):
         self.assertIn(tile, host._retry_count)
         MainWindow._reset_stable_huya_retry(host, tile, player, 4)
         self.assertNotIn(tile, host._retry_count)
+
+    def test_all_platforms_keep_pending_recovery_without_restarting_it(self):
+        from ddm.app import MainWindow
+        for room_id in ('1001', 'huya:123', 'youtube:fixture', 'douyu:123'):
+            with self.subTest(room_id=room_id):
+                tile = Mock(room={'room_id': room_id}, paused=False)
+                host = SimpleNamespace(_resolvers={tile: object()}, _retry_timers={},
+                    _retry_count={}, _retry_now=Mock(), start_tile=Mock(), players={},
+                    _freeze_refreshed=set(), _freeze_retry_timers={}, refresh_status=Mock())
+                with patch('ddm.app.QTimer') as create:
+                    MainWindow._schedule_retry(host, tile)
+                    create.assert_not_called()
+                    MainWindow._on_picture_frozen(host, tile)
+                    host.start_tile.assert_not_called()
+                    host._resolvers.clear()
+                    MainWindow._schedule_retry(host, tile)
+                    MainWindow._schedule_retry(host, tile)
+                    MainWindow._on_picture_frozen(host, tile)
+                    create.assert_called_once_with(host)
+                    create.return_value.start.assert_called_once_with(5000)
+                    self.assertEqual(host._retry_count[tile], 1)
+                    host.start_tile.assert_not_called()
+
+    def test_completed_recovery_timers_release_qt_children(self):
+        from ddm.app import MainWindow
+        tile = Mock(room={'room_id': '1001'}, paused=False)
+        host = QObject()
+        host._resolvers, host._retry_timers, host._retry_count = {}, {}, {}
+        host._freeze_retry_timers, host._freeze_refreshed = {}, {tile}
+        host.players = {}
+        host.start_tile = Mock()
+        host._retry_now = lambda t: MainWindow._retry_now(host, t)
+        host._retry_frozen_picture = lambda t: MainWindow._retry_frozen_picture(host, t)
+        with patch('builtins.print'):
+            for schedule, pending in ((MainWindow._schedule_retry, host._retry_timers),
+                                      (MainWindow._on_picture_frozen, host._freeze_retry_timers)):
+                for _ in range(30):
+                    before = host.start_tile.call_count
+                    schedule(host, tile)
+                    timer = pending[tile]
+                    timer.start(0)
+                    self.app.processEvents()
+                    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                    self.assertEqual(host.start_tile.call_count, before + 1)
+                    self.assertFalse(pending)
+                    self.assertFalse(isValid(timer), 'Completed timer must release its Qt parent reference')
+                self.assertEqual(host.findChildren(QTimer), [])
 
 
 if __name__ == '__main__':
