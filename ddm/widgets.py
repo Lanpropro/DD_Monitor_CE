@@ -3966,6 +3966,11 @@ class Sidebar(QFrame):
         self._collapse_timer.setTimerType(Qt.PreciseTimer)
         self._collapse_timer.timeout.connect(self._step_collapse)
         self._collapse_easing = QEasingCurve(QEasingCurve.OutCubic)
+        self._collapse_settle = QTimer(self)
+        self._collapse_settle.setSingleShot(True)
+        self._collapse_settle.setInterval(80)
+        self._collapse_settle.timeout.connect(lambda: self._finish_collapse(self._collapse_target))
+        self._collapse_content_state = False
         self.collapsed = False
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
@@ -5374,15 +5379,24 @@ class Sidebar(QFrame):
 
     def set_collapsed(self, collapsed: bool, animate: bool = True) -> None:
         if collapsed == self.collapsed:
+            if not animate and self._collapse_animating:
+                self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
             return
         # 连续点击时停止旧目标，保留当前宽度，让新动画从当前位置继续。
         was_animating = self._collapse_animating
         self._collapse_timer.stop()
+        self._collapse_settle.stop()
         animate = bool(animate and self.side == "left" and self.isVisible() and motion.enabled())
         if animate and not was_animating:
             self._collapse_animating = True
             self.collapseAnimationChanged.emit(True)
-        if animate or was_animating:
+        if animate and was_animating:
+            self.collapsed = collapsed
+            self._sync_toggle_arrow()
+            self._start_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            self.collapsedChanged.emit(collapsed)
+            return
+        if animate:
             for item in self._items + list(self._smart_cards.values()):
                 item.thumb.stop()
                 item.thumb.set_cover_hold(True)
@@ -5398,6 +5412,19 @@ class Sidebar(QFrame):
             self.collapsedChanged.emit(collapsed)
             return
         target = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
+        self._apply_collapsed_controls()
+
+        if not animate:
+            self._finish_collapse(target)
+            self.collapsedChanged.emit(collapsed)
+            return
+
+        self._start_collapse(target)
+        self.collapsedChanged.emit(collapsed)
+
+    def _apply_collapsed_controls(self) -> None:
+        """一轮连续切换只准备一次，停止点击后再对齐最终显示状态。"""
+        collapsed = self.collapsed
         for widget in (self.search, self.status_row, self.normal_bar, self.batch_bar,
                        self.logo_label, self.batch_button, self.tool_row):
             widget.setVisible(not collapsed and (widget is not self.batch_bar or self.select_mode))
@@ -5417,18 +5444,14 @@ class Sidebar(QFrame):
         for item in self._items:
             item.set_compact(collapsed)
         self.list_box.relayout(animate=False)
+        self._collapse_content_state = collapsed
 
-        if not animate:
-            self._finish_collapse(target)
-            self.collapsedChanged.emit(collapsed)
-            return
-
+    def _start_collapse(self, target: int) -> None:
         self._collapse_start_width = self.width()
         self._collapse_target = target
         self._collapse_started = time.perf_counter()
         self._collapse_timer.setInterval(max(1, int(1000 / max(60, self.screen().refreshRate()))))
         self._collapse_timer.start()
-        self.collapsedChanged.emit(collapsed)
 
     def _step_collapse(self) -> None:
         progress = min(1.0, (time.perf_counter() - self._collapse_started) / .160)
@@ -5436,12 +5459,17 @@ class Sidebar(QFrame):
         self.setFixedWidth(round(self._collapse_start_width +
                                  (self._collapse_target - self._collapse_start_width) * eased))
         if progress >= 1:
-            self._finish_collapse(self._collapse_target)
+            self._collapse_timer.stop()
+            # Let an immediate reversal arrive before resizing native video surfaces.
+            self._collapse_settle.start()
 
     def _finish_collapse(self, target: int) -> None:
         """收尾只重排一次；屏外封面等真正绘制时再补。"""
         self._collapse_timer.stop()
+        self._collapse_settle.stop()
         was_animating = self._collapse_animating
+        if self._collapse_content_state != self.collapsed:
+            self._apply_collapsed_controls()
         self.setFixedWidth(target)
         if was_animating and self.parentWidget() is not None:
             layout = self.parentWidget().layout()

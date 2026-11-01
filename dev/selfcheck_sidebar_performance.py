@@ -38,11 +38,19 @@ def wait(milliseconds):
     QTimer.singleShot(milliseconds, loop.quit)
     loop.exec()
 
+
+def wait_settled(sidebar):
+    deadline = time.monotonic() + 1.5
+    while sidebar._collapse_animating and time.monotonic() < deadline:
+        wait(10)
+    assert not sidebar._collapse_animating, 'Sidebar settlement did not finish'
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--layout', default='4x4')
     parser.add_argument('--players', type=int, default=0)
     parser.add_argument('--quick', action='store_true')
+    parser.add_argument('--burst', action='store_true')
     args = parser.parse_args()
     if args.quick:
         os.environ['DDM_QTQUICK_DANMAKU'] = '1'
@@ -116,7 +124,7 @@ def main():
         wait(60)
         assert quick.resize.call_count == 0, 'Quick surface must not resize during collapse frames'
         assert quick.move_window.called, 'Quick overlay must still follow the wall position'
-        wait(240)
+        wait_settled(sidebar)
         assert quick.resize.called, 'Quick surface geometry must catch up after collapse'
         wall._quick_danmaku_layer = previous_layer
         sidebar.set_collapsed(False, animate=False)
@@ -140,6 +148,7 @@ def main():
                 assert [tile.geometry() for tile in wall.tiles] == geometry, '动画中不得调整播放器尺寸'
                 assert [item.geometry() for item in sidebar.items()] == cards, '动画中不得逐帧排版卡片'
             wait(220)
+            wait_settled(sidebar)
             print(f'{collapsed=}: list_layouts={len(calls)}, layout_ms={sum(calls):.2f}, tile_resizes={counter.count}', flush=True)
             gaps = sorted((b[0]-a[0])*1000 for a,b in zip(counter.frames,counter.frames[1:]))
             print(json.dumps(dict(collapsed=collapsed, screen_hz=sidebar.screen().refreshRate(),
@@ -161,6 +170,27 @@ def main():
                 assert max(rect.right() for rect in bounds)+1 == wall.width()-margins.right()
                 assert max(rect.bottom() for rect in bounds)+1 == wall.height()-margins.bottom()
                 assert not any(item.thumb._cover_hold for item in sidebar.items())
+        if args.burst:
+            for delay in (40, 200):
+                finishes.clear()
+                inputs = []
+                for _ in range(12):
+                    started = time.perf_counter()
+                    sidebar.toggle_collapsed()
+                    inputs.append((time.perf_counter()-started)*1000)
+                    wait(delay)
+                wait(400)
+                wait_settled(sidebar)
+                print(json.dumps(dict(burst_interval_ms=delay, clicks=12,
+                    click_median_ms=round(statistics.median(inputs),3),
+                    click_max_ms=round(max(inputs),3), settlements=len(finishes),
+                    settlement_total_ms=round(sum(finishes),3))),flush=True)
+                if not baseline:
+                    assert len(finishes) == 1, 'Continuous clicks must share one expensive settlement'
+                assert not sidebar._collapse_timer.isActive() and wall.updatesEnabled()
+                assert not sidebar._collapse_settle.isActive()
+                assert sidebar.width() == (theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                assert all(item._compact == sidebar.collapsed for item in sidebar.items())
         if not baseline:
             last = sidebar.items()[-1].thumb
             assert last._cover_dirty, "屏外封面必须延迟重裁"
@@ -173,7 +203,7 @@ def main():
             sidebar.set_collapsed(True)
             wait(40)
             sidebar.set_collapsed(False)
-            wait(240)
+            wait_settled(sidebar)
             assert sidebar.width() == theme.SIDEBAR_WIDTH and wall.grid.isEnabled() and wall.updatesEnabled()
             sidebar.set_collapsed(True)
             wait(40)
@@ -200,7 +230,7 @@ def main():
             wall.set_fullscreen_tile(wall.tiles[0])
             fullscreen = wall.fullscreen_tile
             sidebar.set_collapsed(False)
-            wait(240)
+            wait_settled(sidebar)
             assert wall.fullscreen_tile is fullscreen and wall.grid.isEnabled()
             assert len(wall.visible_tiles()) == 1
             wall.set_fullscreen_tile(None)
@@ -210,7 +240,7 @@ def main():
             sidebar.set_collapsed(True)
             wait(50)
             assert [tile.geometry() for tile in wall.tiles] == geometry
-            wait(240)
+            wait_settled(sidebar)
             assert wall.grid.isEnabled() and not wall._sidebar_animating
             # Reversals reuse one timer instead of retaining animation objects.
             before = len(sidebar.findChildren(QPropertyAnimation, options=Qt.FindDirectChildrenOnly))

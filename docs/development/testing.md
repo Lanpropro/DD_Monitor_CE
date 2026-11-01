@@ -38,9 +38,12 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 ```powershell
 python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120
 python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120 -- --layout dm_main3 --players 3 --quick
+python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120 -- --layout dm_main3 --players 3 --quick --burst
 ```
 
 默认使用 60 张合成封面和 16 格原生窗口，检查动画期间播放格子尺寸稳定、Quick 层只移动位置、结束后恢复重绘与布局、反向点击、切方向、隐藏、全屏及计时器清理。输出准备／收尾耗时、宽度更新间隔和 CPU 时间，这些回调不代表 DWM 最终呈现帧率。可选播放器参数需要 FFmpeg，只生成本地测试视频，不读取账号或访问真实直播；`--quick` 使用实际共享弹幕层。人工仍需确认动画期间视频画面、浮层和皮肤的视觉表现。
+
+`--burst` 分别以 40 ms、200 ms 间隔连续切换 12 次，断言整轮只做一次昂贵收尾并正确恢复最终宽度、卡片样式和重绘。连点时只更新动画目标；宽度运动结束后保留 80 ms 的反向切换窗口，再统一结算。显式不播放动画、隐藏或切方向时立即结算，不等待该窗口。
 
 关注栏应用内拖拽回归：
 
