@@ -72,38 +72,32 @@ def sc_card_geometry(events, base_width, scale, available_width, available_heigh
     scale = min(scale, max(1, available_width) / base_width)
     for attempt in range(8):
         width = base_width * scale
-        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed) for event in events[:2]]
-        height = heights[0] + 40 * scale if len(events) >= 3 else sum(heights) + 8 * scale * (len(heights) - 1)
+        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed) for event in events]
+        height = sum(heights) + 8 * scale * (len(heights) - 1)
         if height <= max(1, available_height) or attempt == 7:
             break
         scale *= max(1, available_height) / height * .98
     return width, height, scale, heights
 
 
-def order_super_chats(chats, selected=''):
+def order_super_chats(chats):
     ordered = sorted(chats, key=lambda item: (-_number(item.get('price')),
                      _number(item.get('start_time')), str(item.get('id') or '')))
-    if len(ordered) >= 3 and selected:
-        ordered.sort(key=lambda item: str(item.get('id')) != selected)
     return ordered
 
 
 def sc_stack_rects(width, height, count, card_height=100, scale=1.0, card_heights=None):
     if not count:
         return []
-    if count < 3:
-        if card_heights is not None:
-            rects = []
-            top = 0
-            for item_height in card_heights:
-                rects.append(QRectF(0, top, width, item_height))
-                top += item_height + 8 * scale
-            return rects
-        card_height = min(card_height * scale, max(1, (height - 8 * scale * (count - 1)) / count))
-        return [QRectF(0, i * (card_height + 8 * scale), width, card_height) for i in range(count)]
-    card_height = card_heights[0] if card_heights is not None else min(card_height * scale, max(1, height - 40 * scale))
-    return [QRectF(i * 6 * scale, (2 - i) * 20 * scale, max(1, width - i * 12 * scale), card_height)
-            for i in range(3)]
+    if card_heights is not None:
+        rects = []
+        top = 0
+        for item_height in card_heights:
+            rects.append(QRectF(0, top, width, item_height))
+            top += item_height + 8 * scale
+        return rects
+    card_height = min(card_height * scale, max(1, (height - 8 * scale * (count - 1)) / count))
+    return [QRectF(0, i * (card_height + 8 * scale), width, card_height) for i in range(count)]
 
 
 class SuperChatPresentation(QObject):

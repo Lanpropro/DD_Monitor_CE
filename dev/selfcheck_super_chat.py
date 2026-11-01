@@ -251,8 +251,9 @@ def check_widgets(app):
         panel.resize(480, 420)
         app.processEvents()
         visible = sum(card.isVisible() for card in panel.super_chats._cards)
-        assert visible == 3 and panel.super_chats._cards[0].y() > panel.super_chats._cards[1].y(), \
-            'Three or more SCs must form a selectable stack'
+        assert visible == 3, 'Every active SC must be visible'
+        for first, second in zip(panel.super_chats._cards, panel.super_chats._cards[1:]):
+            assert first.geometry().bottom() < second.y(), 'SCs must form separate rows'
         assert panel.super_chats.width() < panel.body.viewport().width() / 2
         assert panel.super_chats.x() >= panel.body.viewport().width() / 2
         assert panel.super_chats.parentWidget() is panel, "SC must not be scrolled by QTextBrowser"

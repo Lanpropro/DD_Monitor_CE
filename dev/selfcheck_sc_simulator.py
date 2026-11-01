@@ -176,7 +176,7 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(window.tier.currentData(), 500)
         self.assertEqual(window.price.value(), 999)
 
-    def test_expanded_cards_grow_for_all_text_and_reflow_after_selection(self):
+    def test_expanded_cards_grow_for_all_text_and_reflow_in_list(self):
         window = self.window
         short = window.wall.danmaku.super_chats.height()
         message = '长文本、中文与 English mixed words 应当完整显示。' * 6 + '\n末尾 END gypq'
@@ -197,22 +197,18 @@ class SimulatorTests(unittest.TestCase):
         window.number.setValue(3)
         window.price.setValue(100)
         self.click(window.add_button)
-        small_height = stack.height()
-        stack.select_chat('1')
         APP.processEvents()
-        self.assertGreater(stack.height(), small_height)
-        self.assertEqual(stack._cards[0].message.text(), message)
+        self.assertEqual(stack._cards[2].message.text(), message)
+        self.assertGreater(stack._cards[2].height(), stack._cards[0].height())
         window.layout_choice.setCurrentIndex(1)
         sc = window.tile.video_danmaku.super_chat_overlay
-        sc.select_chat('1')
-        tall = sc.card_rects()[0].height()
-        self.assertGreater(tall, 100)
-        window.sc_scale.setValue(150)
-        self.assertGreater(sc.card_rects()[0].height(), tall)
+        self.assertEqual(len(sc.card_rects()), 3)
+        self.assertGreater(sc.card_rects()[2].height(), sc.card_rects()[0].height())
         sc.presentation.collapse()
-        self.assertAlmostEqual(sc.card_rects()[0].height(), 54)
+        collapsed_height = sc.card_rects()[2].height()
+        sc.presentation.expand('1')
+        self.assertGreater(sc.card_rects()[2].height(), collapsed_height)
         sc.presentation.expand()
-        self.assertGreater(sc.card_rects()[0].height(), tall)
         for size in ((200, 120), (420, 240), (1000, 700)):
             window.tile.video_danmaku.resize(*size)
             rect = sc.card_rects()[0]
@@ -243,46 +239,32 @@ class SimulatorTests(unittest.TestCase):
         self.assertFalse(window.store.active())
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
 
-    def test_price_order_threshold_selection_and_dismiss_reveal(self):
+    def test_price_order_and_individual_dismiss_in_list(self):
         window = self.window
-        window.number.setValue(2)
-        window.price.setValue(50)
-        self.click(window.add_button)
-        stack = window.wall.danmaku.super_chats
-        self.assertEqual([chat['id'] for chat in stack._events], ['2', '1'])
-        self.assertFalse(stack._cards[0].geometry().intersects(stack._cards[1].geometry()))
-        self.assertFalse(stack.more.isVisible())
-        for number, price in ((3, 100), (4, 70)):
+        for number, price in ((2, 50), (3, 100), (4, 70), (5, 30), (6, 60)):
             window.number.setValue(number)
             window.price.setValue(price)
             self.click(window.add_button)
-        self.assertEqual([chat['id'] for chat in stack._events], ['3', '4', '2', '1'])
-        self.assertTrue(stack._cards[0].geometry().intersects(stack._cards[1].geometry()))
-        QTest.mouseClick(stack._cards[1], Qt.LeftButton, pos=QPoint(24, 8))
-        APP.processEvents()
-        self.assertEqual(stack._cards[0].chat_id, '4')
-        window.publish()
-        self.assertEqual(stack._cards[0].chat_id, '4', 'Selection must survive the next event/timer update')
-        self.click(stack.more)
-        self.assertEqual(stack._cards[0].chat_id, '2')
+        stack = window.wall.danmaku.super_chats
+        expected = ['3', '4', '6', '2', '1', '5']
+        self.assertEqual([chat['id'] for chat in stack._events], expected)
+        self.assertEqual(len(stack._cards), 6)
+        for first, second in zip(stack._cards, stack._cards[1:]):
+            self.assertLess(first.geometry().bottom(), second.y())
+            self.assertTrue(first.close_button.isVisible())
+        self.click(stack._cards[3].close_button)
+        expected.remove('2')
+        self.assertEqual([chat['id'] for chat in stack._events], expected)
         window.layout_choice.setCurrentIndex(1)
         sc = window.tile.video_danmaku.super_chat_overlay
-        self.assertEqual(sc.chats[0]['id'], '3')
-        point = sc.card_rects()[1].topLeft().toPoint() + QPoint(24, 8) - sc._content_origin
-        QTest.mouseClick(sc, Qt.LeftButton, pos=point)
-        self.assertEqual(sc.chats[0]['id'], '4')
-        self.click(sc.close_button)
-        self.assertEqual([chat['id'] for chat in sc.chats], ['3', '2', '1'])
-        self.assertEqual(sc.presentation.progress, 1.0)
-        self.assertEqual(sc.chats[0]['id'], '3')
-
-        self.click(sc.close_button)
-        QTest.qWait(300)
-        self.assertEqual([chat['id'] for chat in sc.chats], ['2', '1'])
-        self.assertFalse(sc.card_rects()[0].intersects(sc.card_rects()[1]))
-        self.click(sc.close_buttons[1])
-        QTest.qWait(300)
-        self.assertEqual([chat['id'] for chat in sc.chats], ['2'])
+        self.assertEqual([chat['id'] for chat in sc.chats], expected)
+        self.assertEqual(len(sc.card_rects()), 5)
+        self.assertTrue(all(button.isVisible() for button in sc.close_buttons[:5]))
+        for first, second in zip(sc.card_rects(), sc.card_rects()[1:]):
+            self.assertLess(first.bottom(), second.top())
+        self.click(sc.close_buttons[3])
+        expected.remove('1')
+        self.assertEqual([chat['id'] for chat in sc.chats], expected)
 
     def test_close_is_local_shared_and_survives_late_update(self):
         window = self.window
@@ -412,37 +394,33 @@ class SimulatorTests(unittest.TestCase):
         presentation.set_events([])
         self.assertFalse(presentation.timer.isActive())
 
-    def test_stack_switch_moves_cards_in_both_renderers(self):
+    def test_many_cards_expand_independently_without_reordering(self):
         window = self.window
-        for number in (2, 3):
+        for number in (2, 3, 4):
             window.number.setValue(number)
             self.click(window.add_button)
         stack = window.wall.danmaku.super_chats
+        order = [event['id'] for event in stack._events]
+        stack.presentation.collapse()
+        self.click(stack._cards[2].name)
+        self.assertFalse(stack.presentation.is_collapsed(order[2]))
+        self.assertTrue(all(stack.presentation.is_collapsed(chat_id) for chat_id in order if chat_id != order[2]))
+        self.assertEqual([event['id'] for event in stack._events], order)
+        window.layout_choice.setCurrentIndex(1)
+        sc = window.tile.video_danmaku.super_chat_overlay
+        sc.presentation.collapse()
+        sc._activate(sc.card_rects()[2].center())
+        self.assertFalse(sc.presentation.is_collapsed(order[2]))
+        self.assertTrue(all(sc.presentation.is_collapsed(chat_id) for chat_id in order if chat_id != order[2]))
+        self.assertEqual([event['id'] for event in sc.chats], order)
+        window.publish()
+        self.assertEqual([event['id'] for event in sc.chats], order)
+        # Closing a card beyond the old three-card limit still animates.
         with patch.object(motion, 'enabled', return_value=True):
-            before = {str(event['id']): card.geometry() for event, card in zip(stack._events, stack._cards)}
-            stack.select_chat('2')
-            stack.switch_animation.setCurrentTime(90)
-            middle = stack._cards[0].geometry()
-            stack.switch_animation.setCurrentTime(180)
-            self.assertNotEqual(middle, stack._cards[0].geometry())
-            self.assertNotEqual(before['2'], stack._cards[0].geometry())
-            window.layout_choice.setCurrentIndex(1)
-            sc = window.tile.video_danmaku.super_chat_overlay
-            sc.select_chat('2')
-            sc.switch_animation.setCurrentTime(90)
-            middle = sc.card_rects()[0]
-            sc.switch_animation.setCurrentTime(180)
-            self.assertNotEqual(middle, sc.card_rects()[0])
-            # A second selection during motion must start from the displayed positions.
-            sc.select_chat('3')
-            sc.switch_animation.setCurrentTime(60)
-            visible = {str(chat['id']): rect for chat, rect in zip(sc.chats, sc.card_rects())}
-            sc.select_chat('1')
-            self.assertEqual(sc.card_rects()[0], visible['1'])
-            sc.switch_animation.setCurrentTime(180)
-        with patch.object(motion, 'enabled', return_value=False):
-            stack.select_chat('3')
-            self.assertNotEqual(stack.switch_animation.state(), stack.switch_animation.State.Running)
+            sc.animate_dismiss(order[3])
+            self.assertIsNotNone(sc._paper)
+            self.assertEqual(sc._closing_index, 3)
+            sc.animation.setCurrentTime(240)
 
     def test_settings_thumbnail_edits_position_scale_and_resets(self):
         from ddm.dialogs import DanmakuSettingsPage

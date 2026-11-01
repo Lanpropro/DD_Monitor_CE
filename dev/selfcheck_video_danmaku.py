@@ -138,7 +138,9 @@ def check_super_chat_overlay(app):
         overlay.resize(1600, 900)
         app.processEvents()
         sc = overlay.super_chat_overlay
-        assert sc.width() <= 342 and sc.height() <= 210
+        assert sc.width() <= 342 and sc.height() <= overlay.height()
+        rows = sc.card_rects()
+        assert len(rows) == len(chats) and rows[0].bottom() < rows[1].top()
         card = sc.card_rects()[0].toAlignedRect()
         assert overlay.rect().contains(card)
         assert sc.geometry().contains(card.translated(overlay.pos()))
