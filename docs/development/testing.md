@@ -33,6 +33,17 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+关注栏应用内拖拽回归：
+
+```powershell
+python dev/run_checks.py --script selfcheck_drag_lifecycle
+python dev/run_checks.py --script selfcheck_folder_drag
+python dev/run_checks.py --script selfcheck_folder_card_drag
+python dev/run_checks.py --script selfcheck_drag_wheel --timeout 120
+```
+
+前三项使用合成关注数据，覆盖排序、文件夹、多选、智能副本与头像、滚轮、移动合并、松手、取消和异常清理。最后一项需要 Windows、libmpv 与 FFmpeg，在真实视频子窗口上连续执行 60 次合成鼠标拖放，断言捕获释放、落点高亮及视频持续播放，报告抓起耗时、UI 心跳和进程 CPU 时间；不证明真实桌面下所有输入均已验收。需另测实际鼠标时可追加 `-- --physical`；该模式需要交互桌面，只在确认命中自身测试窗口后注入鼠标消息，并恢复指针。高 DPI、跨屏与 Alt+Tab 仍需人工验收。
+
 预览播放器初始化回归与对照测量：
 
 ```powershell

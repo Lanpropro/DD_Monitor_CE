@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt
-from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QMouseEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import motion, theme
@@ -50,44 +50,33 @@ def main():
         before = order()
         previous = {folder["id"]: folder["collapsed"] for folder in sidebar.folders}
 
-        def execute(actions):
-            assert actions == Qt.MoveAction
+        with patch("ddm.widgets.QDrag", side_effect=AssertionError("No native sidebar drag")), \
+                patch.object(motion, "enabled", return_value=animate):
+            QApplication.sendEvent(source, move)
+            session = sidebar.drag_session
+            assert session.active
             headers_only()
-            mime = drag.return_value.setMimeData.call_args.args[0]
-            pixmap = drag.return_value.setPixmap.call_args.args[0]
-            hotspot = drag.return_value.setHotSpot.call_args.args[0]
+            pixmap = session.ghost.pixmap()
+            hotspot = session.hotspot
             if animate:
                 assert pixmap.deviceIndependentSize().width() > source.width()
-                assert pixmap.deviceIndependentSize().height() > source.height()
                 assert hotspot == QPoint(round(press.x() * 1.055) + 10,
                                          round(press.y() * 1.055) + 10)
             else:
                 assert pixmap.deviceIndependentSize().toSize() == source.size()
                 assert hotspot == press
-            assert bytes(mime.data(FOLDER_MIME)).decode() == fid
-            assert not mime.hasFormat(NAV_MIME), "文件夹拖动不能变成卡片归类"
-            if cancel:
-                return Qt.IgnoreAction
-            # 让 Qt 送真实拖入、移动和落下事件，验证按钮与空白区的接线。
-            enter = QDragEnterEvent(point(), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
-            QApplication.sendEvent(target, enter)
-            assert enter.isAccepted()
-            moving = QDragMoveEvent(point(), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
-            QApplication.sendEvent(target, moving)
-            assert moving.isAccepted() and not sidebar.list_box.folder_drop_indicator.isHidden()
-            drop = QDropEvent(QPointF(point()), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
-            QApplication.sendEvent(target, drop)
-            assert drop.isAccepted()
-            return Qt.MoveAction
-
-        with patch("ddm.widgets.QDrag") as drag, patch.object(sidebar, "begin_drag_scroll") as begin, \
-                patch.object(sidebar, "end_drag_scroll") as end, \
-                patch.object(motion, "enabled", return_value=animate):
-            drag.return_value.exec.side_effect = execute
-            QApplication.sendEvent(source, move)
-            drag.return_value.exec.assert_called_once()
-            begin.assert_called_once()
-            end.assert_called_once()
+            assert bytes(session.mime.data(FOLDER_MIME)).decode() == fid
+            assert not session.mime.hasFormat(NAV_MIME)
+            with patch.object(QApplication, 'widgetAt', return_value=target):
+                session.position = target.mapToGlobal(point())
+                session._tick()
+                assert not sidebar.list_box.folder_drop_indicator.isHidden()
+                if cancel:
+                    session.cancel()
+                else:
+                    session.finish()
+            assert not session.active
+            assert session.ghost is None and not session.timer.isActive()
         QTest.mouseRelease(source, Qt.LeftButton, pos=source.rect().center())
         assert {folder["id"]: folder["collapsed"] for folder in sidebar.folders} == previous
         assert not sidebar._folders_folded_by_drag and not sidebar._folder_drag_previous

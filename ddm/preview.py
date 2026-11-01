@@ -84,7 +84,7 @@ class HoverPreview(QObject):
     # ---- 悬停事件 ----
     def _pause_for_pointer_action(self) -> bool:
         """按住左键时不创建/销毁原生预览播放器，松手后重新判断指针目标。"""
-        if not QApplication.mouseButtons() & Qt.LeftButton:
+        if not self.sidebar.drag_session.active and not QApplication.mouseButtons() & Qt.LeftButton:
             return False
         if not self._interaction_paused:
             self._interaction_paused = True

@@ -76,14 +76,14 @@
 | [selfcheck_cover_cache](../selfcheck_cover_cache.py) | 单项执行前核对 |
 | [selfcheck_delete](../selfcheck_delete.py) | 单项执行前核对 |
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
-| [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | 单项执行前核对 |
+| [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | `native`；合成视频与 60 次应用内拖放，报告 UI 心跳与抓起耗时；`--physical` 需交互桌面 |
 | [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke` |
 | [selfcheck_duplicate_tile_controls](../selfcheck_duplicate_tile_controls.py) | 单项执行前核对 |
 | [selfcheck_encoders](../selfcheck_encoders.py) | 单项执行前核对 |
 | [selfcheck_folder_blank_menu](../selfcheck_folder_blank_menu.py) | `offline` |
-| [selfcheck_folder_card_drag](../selfcheck_folder_card_drag.py) | 单项执行前核对 |
+| [selfcheck_folder_card_drag](../selfcheck_folder_card_drag.py) | `offline` |
 | [selfcheck_folder_card_size](../selfcheck_folder_card_size.py) | `offline` |
-| [selfcheck_folder_drag](../selfcheck_folder_drag.py) | 单项执行前核对 |
+| [selfcheck_folder_drag](../selfcheck_folder_drag.py) | `offline` |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；模拟托盘、首次关闭选择及记忆、后台保持、恢复和退出；隔离配置、无真实账号或鼠标操作 |

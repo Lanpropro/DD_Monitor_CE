@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
     QStyleOption, QStyleOptionButton, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
-from . import layouts, motion, mouse_hook, resize_layout, theme
+from . import layouts, motion, resize_layout, theme
+from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 from .config import DEFAULT_VOLUME, codec_overrides
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
@@ -47,11 +48,8 @@ QUALITY_NAMES = {value: name for name, value in QUALITY_CHOICES}
 QUALITY_NAMES[20000] = "4K"
 
 TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
-ROOM_MIME = "application/x-ddm-room"
 TILE_MIME = "application/x-ddm-tile"
 DANMAKU_MIME = "application/x-ddm-danmaku"
-NAV_MIME = "application/x-ddm-nav"          # 关注列表内部排序用
-FOLDER_MIME = "application/x-ddm-folder"    # 文件夹之间排序，不改变卡片归属
 
 BADGE_HEIGHT = 24             # 左上角浮标高度
 WATCHING_TEXT = "正在获取人数"   # 还没拉到实时在线人数时的占位（不能用"人气"顶上）
@@ -3013,35 +3011,18 @@ class NavItem(QFrame):
         if host is None or self._drag_started:
             return
         self._press_pos = None
-        drag = QDrag(self)
         mime = QMimeData()
         room_id = str(self.room.get("room_id"))
         mime.setData(ROOM_MIME, room_id.encode("utf-8"))     # 落到画面墙：播放这一路
         mime.setData(NAV_MIME, room_id.encode("utf-8"))      # 落在列表里：排序
         mime.setText(room_id)
-        drag.setMimeData(mime)
         drag_ids = host.dragged_room_ids(room_id)
         self._drag_started = True
-        completed = False
-        try:
-            pixmap, hotspot = motion.lifted_drag(
-                self._drag_pixmap(len(drag_ids)),
-                QPoint(max(0, min(event.pos().x(), self.width() - 1)),
-                       max(0, min(event.pos().y(), self.height() - 1))))
-            drag.setPixmap(pixmap)
-            drag.setHotSpot(hotspot)
-            host.show_drop_indicator(room_id, self._index_in_host())
-            host.begin_drag_scroll()
-            drag.exec(Qt.CopyAction | Qt.MoveAction)
-            if self.drop_host is host and not QApplication.mouseButtons() & Qt.LeftButton:
-                # 保留松手后的落点结算；取消或异常则在 finally 中恢复占位。
-                host.finish_drag(room_id, QCursor.pos())
-                completed = True
-        finally:
-            host.end_drag_scroll()
-            if not completed:
-                host.end_drag()
-            drag.deleteLater()
+        pixmap, hotspot = motion.lifted_drag(
+            self._drag_pixmap(len(drag_ids)),
+            QPoint(max(0, min(event.pos().x(), self.width() - 1)),
+                   max(0, min(event.pos().y(), self.height() - 1))))
+        host.drag_session.start(self, mime, pixmap, hotspot, self.mapToGlobal(event.pos()))
 
     def _index_in_host(self) -> int:
         if self.drop_host is None:
@@ -3387,16 +3368,13 @@ class SmartFolderCard(QWidget):
         if (event.pos() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
             return
         self._dragged = True
-        drag = QDrag(self)
         mime = QMimeData()
         rid = str(self.room["room_id"])
         mime.setData(ROOM_MIME, rid.encode("utf-8"))
         mime.setText(rid)
-        drag.setMimeData(mime)
         pixmap, hotspot = motion.lifted_drag(self.grab(), event.pos())
-        drag.setPixmap(pixmap)
-        drag.setHotSpot(hotspot)
-        drag.exec(Qt.CopyAction)
+        self.original.drop_host.drag_session.start(
+            self, mime, pixmap, hotspot, self.mapToGlobal(event.pos()))
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and not self._dragged:
@@ -3501,26 +3479,15 @@ class FollowFolderButton(QToolButton):
         if (event.position().toPoint() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
             super().mouseMoveEvent(event)
             return
-        drag = QDrag(self)
         mime = QMimeData()
         mime.setData(FOLDER_MIME, self.folder_id.encode("utf-8"))
-        drag.setMimeData(mime)
         hotspot = QPoint(self._press_pos)
         self._press_pos = None
         self._drag_started = True
         self.setDown(False)
-        self.sidebar.start_folder_drag()
         pixmap, hotspot = motion.lifted_drag(self.grab(), hotspot)
-        drag.setPixmap(pixmap)
-        drag.setHotSpot(hotspot)
-        self.sidebar.begin_drag_scroll()
-        try:
-            drag.exec(Qt.MoveAction)
-        finally:
-            self.sidebar.end_drag_scroll()
-            self.sidebar.end_folder_drag()
-            self.setDown(False)
-            drag.deleteLater()
+        self.sidebar.drag_session.start(
+            self, mime, pixmap, hotspot, self.mapToGlobal(event.position().toPoint()))
 
     def mouseReleaseEvent(self, event):
         if self._drag_started:
@@ -3623,7 +3590,7 @@ class RoomListBox(QWidget):
     #: 刚进边缘带 / 贴死边缘（或已经拖到视口外）时，一拍各滚多少像素
     SCROLL_STEP_MIN = 4
     SCROLL_STEP_MAX = 36
-    #: 拖动期间滚轮一格滚多少像素（钩子借来的滚轮，见 ddm/mouse_hook.py）
+    #: 拖动期间滚轮一格滚多少像素。
     WHEEL_PIXELS = 80
     #: 搜索一条都没匹配上时，那句提示占多高（列表里只摆它一个）
     EMPTY_HINT_HEIGHT = 72
@@ -3952,6 +3919,7 @@ class RoomStrip(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.sidebar = parent
         self.setObjectName("RoomStrip")
         self.setFixedHeight(self.AVATAR + 2)
         self._rooms: list[dict] = []
@@ -3962,6 +3930,7 @@ class RoomStrip(QFrame):
         self._press_pos = None
         self._press_room = None
         self._hovered_room: dict | None = None
+        self._drag_started = False
         self.setMouseTracking(True)
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(2, 0, 2, 0)
@@ -4010,15 +3979,8 @@ class RoomStrip(QFrame):
     # ---- 交互 ----
     def mousePressEvent(self, event) -> None:
         self._press_pos = event.position().toPoint()
-        self._press_room = None
-        if event.button() == Qt.LeftButton:
-            widget = self.childAt(event.position().toPoint())
-            while widget is not None and widget is not self:
-                room_id = widget.property("roomId")
-                if room_id:
-                    self._press_room = str(room_id)
-                    break
-                widget = widget.parentWidget()
+        self._press_room = self._room_at(self._press_pos) if event.button() == Qt.LeftButton else None
+        self._drag_started = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
@@ -4031,27 +3993,26 @@ class RoomStrip(QFrame):
         if start is None or (event.position().toPoint() - start).manhattanLength() \
                 < QApplication.startDragDistance():
             return
-        drag = QDrag(self)
         mime = QMimeData()
         mime.setData(ROOM_MIME, self._press_room.encode("utf-8"))
         mime.setText(self._press_room)
-        drag.setMimeData(mime)
-        drag.exec(Qt.CopyAction)
+        avatar = self._avatars[self._press_room]
+        hotspot = avatar.mapFromGlobal(self.mapToGlobal(event.position().toPoint()))
+        pixmap, hotspot = motion.lifted_drag(avatar.grab(), hotspot)
+        self._press_room = None
+        self._drag_started = True
+        self.sidebar.drag_session.start(
+            self, mime, pixmap, hotspot, self.mapToGlobal(event.position().toPoint()))
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
+        if self._drag_started:
+            self._drag_started = False
+            return
         super().mouseReleaseEvent(event)
-        hit = self.childAt(event.position().toPoint())
-        # 头像上的开播小圆点 / 置顶角标是子控件，childAt 会返回它们，
-        # 所以要往上找到真正带 roomId 的那个头像，否则点圆点会被当成点头像。
-        widget = hit
-        room_id = None
-        while widget is not None and widget is not self:
-            room_id = widget.property("roomId")
-            if room_id:
-                break
-            widget = widget.parentWidget()
+        # Avatar 对鼠标透明，按已知头像几何范围命中，不能依赖 childAt。
+        room_id = self._room_at(event.position().toPoint())
         if room_id:
             self.roomClicked.emit(str(room_id))
 
@@ -4473,7 +4434,7 @@ class Sidebar(QFrame):
         self._hover_sync_timer = QTimer(self)
         self._hover_sync_timer.setInterval(30)
         self._hover_sync_timer.timeout.connect(self._sync_pointer_hover)
-        self._wheel_hook: mouse_hook.WheelHook | None = None
+        self.drag_session = SidebarDrag(self)
         for room in rooms:
             self._append_item(room)
         holder.relayout(animate=False)
@@ -6097,39 +6058,6 @@ class Sidebar(QFrame):
         local = self.list_box.mapFromGlobal(global_pos)
         return self.list_box.index_at(local.x() if self.list_box.horizontal
                                       else local.y())
-
-    # ---- 拖动期间把滚轮借过来 ----
-    def begin_drag_scroll(self) -> None:
-        """装上低级鼠标钩子，让拖动时滚轮还能滚列表。
-
-        Windows 上拖动走 OLE 的 DoDragDrop，那期间 Qt 收不到滚轮（API 级限制，
-        见 ddm/mouse_hook.py）；钩子只在拖动这一下存在，松手 / 取消立刻卸掉。
-        装不上就静默降级 —— 拖动本身和「贴边自动滚」都照常。
-        """
-        if self._wheel_hook is not None:
-            self.end_drag_scroll()
-            if self._wheel_hook is not None:
-                return
-        hook = mouse_hook.WheelHook(self._scroll_from_wheel)
-        if hook.start():
-            self._wheel_hook = hook
-
-    def end_drag_scroll(self) -> None:
-        hook = self._wheel_hook
-        if hook is not None:
-            hook.stop()
-            if not hook.active:
-                self._wheel_hook = None
-
-    def _scroll_from_wheel(self, delta: int) -> None:
-        """钩子回调（主线程）：一格滚轮滚 WHEEL_PIXELS 像素。"""
-        area = self.scroll
-        if area is None or not delta:
-            return
-        box = self.list_box
-        bar = area.horizontalScrollBar() if box.horizontal else area.verticalScrollBar()
-        steps = delta / mouse_hook.WHEEL_DELTA            # 高精度滚轮可能是小数格
-        bar.setValue(bar.value() - int(round(steps * box.WHEEL_PIXELS)))
 
     def hover_drag(self, room_id: str, global_pos) -> None:
         """拖动过程中：贴近边缘自动滚，并在落点让出一格。"""
