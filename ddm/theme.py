@@ -1324,13 +1324,12 @@ QPushButton#PrimaryButton:pressed {{
     color: {TEXT3};
     background: rgba(131, 131, 145, 0.16);
     border-radius: 9px;
-    padding: 0 8px;
+    padding: 0 4px;
     font-size: {FONT_CAPTION}px;
 }}
 #DanmakuCount[state="connected"] {{
     color: #6bd8ff;
     background: rgba(0, 174, 236, 0.16);
-    padding: 0 4px;
 }}
 #DanmakuCount[state="connecting"] {{
     color: {WARNING};

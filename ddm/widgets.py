@@ -1216,6 +1216,8 @@ class DanmakuPanel(QFrame):
         self.count = QLabel("未接入")
         self.count.setObjectName("DanmakuCount")
         self.count.setProperty("state", "idle")
+        self.count.setIndent(0)
+        self.count.setAlignment(Qt.AlignCenter)
         self.count.setFixedHeight(20)
         header_box.addWidget(dot)
         header_box.addWidget(title)

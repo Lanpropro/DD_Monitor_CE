@@ -65,6 +65,9 @@ class ActionsTests(unittest.TestCase):
             text_width = badge.fontMetrics().horizontalAdvance(badge.text())
             self.assertGreaterEqual(badge.width(), text_width + 8)
             self.assertLessEqual(badge.width(), text_width + 10)
+            self.assertGreaterEqual(badge.contentsRect().width(), text_width)
+            self.assertEqual(badge.indent(), 0)
+            self.assertEqual(badge.contentsRect().left(), 4)
 
     def choose(self, index, before=None):
         class TestMenu(danmaku_actions.CommentToolbar):
