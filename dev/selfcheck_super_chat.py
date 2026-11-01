@@ -205,8 +205,19 @@ def check_room_lifecycle():
             assert not window._super_chats["123"].active(), "Delete before the first snapshot must persist"
 
             window._stop_danmaku_client("123")
+            retired_client = client
             client = Client("123")
             window._danmaku_clients["123"] = client
+            window._danmaku, window._danmaku_room = client, "123"
+            window._danmaku_retired.append(retired_client)
+            window._on_danmaku_finished("123", retired_client)
+            assert window._danmaku_clients["123"] is client
+            assert window._danmaku is client and window._danmaku_room == "123"
+            assert retired_client not in window._danmaku_retired
+            window._on_danmaku_status(retired_client, "旧连接已断开")
+            assert "123" not in window._danmaku_status
+            window._load_super_chat_snapshot("123", retired_client)
+            assert "123" not in window._super_chat_snapshots
             window._load_super_chat_snapshot("123", client)
             current = window._super_chat_snapshots["123"]
             first.loaded.emit("123", [super_chat.normalize(chat("stale"), source="snapshot")])
@@ -218,6 +229,10 @@ def check_room_lifecycle():
             assert not window._super_chats['123'].active(), 'Local close must not delete the source event'
             window._on_super_chat_snapshot_finished("123", first)
             assert window._super_chat_snapshots["123"] is current
+            assert first not in window._super_chat_retired
+            window._closing = True
+            current.loaded.emit("123", [super_chat.normalize(chat("closing"), source="snapshot")])
+            assert "closing" not in window._super_chats["123"].items
         finally:
             window.close()
 

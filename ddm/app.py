@@ -52,6 +52,7 @@ from .recording import RecordingManager
 from .room_placement import RoomPlacement
 from .room_status import RoomStatus
 from .room_images import RoomImages
+from .danmaku_lifecycle import DanmakuLifecycle
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
@@ -109,6 +110,7 @@ class MainWindow(QMainWindow):
         self.room_placement = RoomPlacement(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
+        self.danmaku_lifecycle = DanmakuLifecycle(self)
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -3609,33 +3611,7 @@ class MainWindow(QMainWindow):
         return tile.room if tile is not None else {}
 
     def sync_danmaku(self) -> None:
-        """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
-        if self._closing or not getattr(self, "plugins", None):
-            return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
-        panel = self.wall.danmaku
-        self.wall.sync_sc_placement()
-        room = self._danmaku_target_room() if self.wall.has_danmaku else {}
-        room_id = str(room.get("room_id") or "")
-        wanted = {str(tile.room["room_id"]) for tile in self.wall.tiles
-                  if tile.isVisible() and (tile.danmaku_button.isChecked() or
-                      self.wall.has_danmaku and self.settings.get('super_chat_enabled', True))
-                  and tile.room.get("room_id") and (tile.room.get("live") or tile._player_active)}
-        if self.wall.has_danmaku and self._danmaku is None and self._danmaku_room:
-            wanted.add(self._danmaku_room)
-        if room_id:
-            wanted.add(room_id)
-        if room_id != self._danmaku_room:
-            self._danmaku, self._danmaku_room = None, ""
-        for unused in set(self._danmaku_clients) - wanted:
-            self._stop_danmaku_client(unused)
-        if room_id and self._danmaku is None:
-            self.start_danmaku(room_id, room.get("uname", ""))
-        elif not room_id:
-            panel.set_placeholder("把直播间拖到主画面，这里就会显示它的弹幕")
-        elif self._danmaku is not None:
-            self._publish_super_chats(room_id)
-        for target in wanted - set(self._danmaku_clients) - {room_id}:
-            self._ensure_danmaku_client(target)
+        return self.danmaku_lifecycle.sync_danmaku()
 
     def _on_video_danmaku_changed(self, enabled: bool) -> None:
         self.sync_danmaku()
@@ -3647,112 +3623,28 @@ class MainWindow(QMainWindow):
         self._save_timer.start()
 
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
-        panel = self.wall.danmaku
-        panel.set_placeholder(f"正在连接 {uname or room_id} 的弹幕…")
-        panel.set_status(self._danmaku_status.get(str(room_id), "连接中…"))
-        client = self._ensure_danmaku_client(str(room_id), for_panel=True)
-        if client is None:
-            panel.set_placeholder("此平台弹幕尚未接入，直播画面可正常播放")
-            panel.set_status("暂不支持")
-        else:
-            self._publish_super_chats(str(room_id))
+        return self.danmaku_lifecycle.start_danmaku(room_id, uname)
 
     def _ensure_danmaku_client(self, room_id: str, *, for_panel: bool = False):
-        client = self._danmaku_clients.get(room_id)
-        new = client is None
-        if new:
-            if room_id.isdigit():
-                client = DanmakuClient(room_id, self)
-            else:
-                platform = self.plugins.platform_for(room_id)
-                client = platform.danmaku_client(room_id, self) if platform is not None else None
-            if client is None:
-                for tile in self.wall.tiles:
-                    if str(tile.room.get("room_id") or "") == room_id:
-                        tile.danmaku_button.setToolTip("此平台弹幕尚未接入")
-                return None
-            self._danmaku_clients[room_id] = client
-            if room_id.isdigit():
-                QTimer.singleShot(0, lambda rid=room_id, source=client:
-                                  self._load_super_chat_snapshot(rid, source))
-            client.message.connect(
-                lambda event, source=client: self._on_danmaku_message(source, event))
-            client.status.connect(
-                lambda text, source=client: self._on_danmaku_status(source, text))
-            client.finished.connect(
-                lambda rid=room_id, source=client: self._on_danmaku_finished(rid, source))
-            client.finished.connect(client.deleteLater)
-        if for_panel:
-            self._danmaku, self._danmaku_room = client, room_id
-        if new:
-            client.start()
-            print(f"[弹幕] 开始接收房间 {room_id}", file=sys.stderr, flush=True)
-        return client
+        return self.danmaku_lifecycle._ensure_danmaku_client(room_id, client_type=DanmakuClient, for_panel=for_panel)
 
     def _load_super_chat_snapshot(self, room_id: str, client=None) -> None:
-        if self._danmaku_clients.get(room_id) is None:
-            return
-        if client is not None and self._danmaku_clients.get(room_id) is not client:
-            return                      # 排队期间已换台，别为旧房间发请求
-        running = self._super_chat_snapshots.get(room_id)
-        if running is not None and running.isRunning():
-            return
-        loader = SuperChatSnapshot(room_id, self)
-        loader.loaded.connect(lambda rid, events, source=loader:
-                              self._on_super_chat_snapshot(rid, events, source=source))
-        loader.finished.connect(lambda rid=room_id, source=loader:
-                                self._on_super_chat_snapshot_finished(rid, source))
-        loader.finished.connect(loader.deleteLater)
-        self._super_chat_snapshots[room_id] = loader
-        loader.start()
+        return self.danmaku_lifecycle._load_super_chat_snapshot(room_id, client, snapshot_type=SuperChatSnapshot)
 
     def _on_super_chat_snapshot(self, room_id: str, events: list, *, source=None) -> None:
-        if self._closing or self._danmaku_clients.get(room_id) is None:
-            return
-        if source is not None and self._super_chat_snapshots.get(room_id) is not source:
-            return
-        store = self._super_chats.setdefault(room_id, SuperChatStore())
-        for event in events:
-            store.upsert(event)
-        self._publish_super_chats(room_id)
+        return self.danmaku_lifecycle._on_super_chat_snapshot(room_id, events, source=source)
 
     def _on_super_chat_snapshot_finished(self, room_id: str, source) -> None:
-        if self._super_chat_snapshots.get(room_id) is source:
-            self._super_chat_snapshots.pop(room_id, None)
-        if source in self._super_chat_retired:
-            self._super_chat_retired.remove(source)
+        return self.danmaku_lifecycle._on_super_chat_snapshot_finished(room_id, source)
 
     def _on_danmaku_finished(self, room_id: str, source) -> None:
-        if source in self._danmaku_retired:
-            self._danmaku_retired.remove(source)
-        if self._danmaku_clients.get(room_id) is source:
-            self._danmaku_clients.pop(room_id)
-            if self._danmaku is source:
-                self._danmaku, self._danmaku_room = None, ""
+        return self.danmaku_lifecycle._on_danmaku_finished(room_id, source)
 
     def stop_danmaku(self) -> None:
-        self._danmaku, self._danmaku_room = None, ""
-        for room_id in list(self._danmaku_clients):
-            self._stop_danmaku_client(room_id)
-        for tile in self.wall.tiles:
-            tile.video_danmaku.clear()
+        return self.danmaku_lifecycle.stop_danmaku()
 
     def _stop_danmaku_client(self, room_id: str) -> None:
-        client = self._danmaku_clients.pop(room_id)
-        self._danmaku_status.pop(room_id, None)
-        self._super_chats.pop(room_id, None)
-        self._publish_super_chats(room_id)
-        loader = self._super_chat_snapshots.pop(room_id, None)
-        if loader is not None:
-            loader.requestInterruption()
-            self._super_chat_retired.append(loader)
-        client.stop()
-        try:
-            if client.isRunning():
-                # 取消取服务器信息时可能仍在等待 HTTP；换布局不阻塞，退出统一等待。
-                self._danmaku_retired.append(client)
-        except RuntimeError:
-            pass
+        return self.danmaku_lifecycle._stop_danmaku_client(room_id)
 
     def apply_danmaku_settings(self) -> None:
         """把设置里的弹幕字体、字号、保留条数交给弹幕格。"""
