@@ -13,7 +13,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ddm.hls_proxy import HlsProxy, retain_flv_response, take_flv_response  # noqa: E402
 
 
+def check_nonblocking_stop():
+    closing, allow_close, returned = threading.Event(), threading.Event(), threading.Event()
+    close_threads = []
+
+    class SlowResponse:
+        def close(self):
+            close_threads.append(threading.get_ident())
+            closing.set()
+            assert allow_close.wait(3), "Test did not release response cleanup"
+
+    proxy = HlsProxy("http://127.0.0.1:9/unused.flv", {},
+                     initial_response=(SlowResponse(), b"", iter(())))
+    def stop():
+        proxy.stop()
+        returned.set()
+    caller = threading.Thread(target=stop)
+    try:
+        caller.start()
+        assert closing.wait(2), "Abandoned response must be closed"
+        assert returned.wait(.25), "stop() blocked its caller on response cleanup"
+        proxy.stop()  # Repeated stop must not wait or close resources twice.
+    finally:
+        allow_close.set()
+        caller.join(3)
+        proxy._thread.join(3)
+    assert not caller.is_alive() and not proxy._thread.is_alive()
+    assert close_threads == [proxy._thread.ident], "Relay owner must perform cleanup once"
+    assert proxy._server.socket.fileno() == -1
+    # Rapid switching must also reclaim idle listeners without further stop calls.
+    proxies = [HlsProxy("http://127.0.0.1:9/unused.m3u8", {}) for _ in range(20)]
+    for relay in proxies:
+        relay.stop()
+    for relay in proxies:
+        relay._thread.join(2)
+        assert not relay._thread.is_alive() and relay._server.socket.fileno() == -1
+    print("PASS: nonblocking stop, owner cleanup, repeated stop and rapid switching")
+
+
 def main():
+    check_nonblocking_stop()
     attempts, headers, connections = [], [], []
     class Origin(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -137,6 +176,7 @@ def main():
         initial = take_flv_response(token)
         abandoned = HlsProxy(source, {}, initial_response=initial)
         abandoned.stop()
+        abandoned._thread.join(2)
         assert opened.raw.closed
         events = []
         late = HlsProxy(base + '/late.m3u8', {}, diagnostic=lambda **event: events.append(event))
@@ -158,6 +198,7 @@ def main():
     finally:
         proxy.stop()
         proxy.stop()
+        proxy._thread.join(2)
         server.shutdown()
         server.server_close()
         thread.join()
