@@ -3026,7 +3026,8 @@ class NavItem(QFrame):
         try:
             pixmap, hotspot = motion.lifted_drag(
                 self._drag_pixmap(len(drag_ids)),
-                QPoint(min(event.pos().x(), self.width() - 1), event.pos().y()))
+                QPoint(max(0, min(event.pos().x(), self.width() - 1)),
+                       max(0, min(event.pos().y(), self.height() - 1))))
             drag.setPixmap(pixmap)
             drag.setHotSpot(hotspot)
             host.show_drop_indicator(room_id, self._index_in_host())
@@ -3744,7 +3745,12 @@ class RoomListBox(QWidget):
         target = QPoint(x, y)
         previous = self._animations.get(item)
         if previous is not None:
+            if (animate and previous.state() == QPropertyAnimation.Running
+                    and previous.endValue() == target):
+                return  # 同一落点的拖动事件不能重启动画，否则卡片始终追不上目标。
             previous.stop()
+            self._animations.pop(item)
+            previous.deleteLater()
         if item.pos() == target:
             return
         if not animate:

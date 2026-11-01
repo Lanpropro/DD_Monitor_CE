@@ -204,6 +204,50 @@ class DragLifecycleTests(unittest.TestCase):
                     finally:
                         sidebar.close()
 
+    def test_repeated_drag_layout_preserves_animation_progress(self):
+        sidebar = Sidebar([{'room_id': '1', 'uname': 'Test'}])
+        try:
+            item = sidebar.items()[0]
+            box = sidebar.list_box
+            item.move(0, 0)
+            box._glide_to(item, 0, 100, True)
+            animation = box._animations[item]
+            animation.setCurrentTime(75)
+            position = item.pos()
+            for _ in range(20):
+                box._glide_to(item, 0, 100, True)
+                self.assertIs(box._animations[item], animation)
+                self.assertEqual(animation.currentTime(), 75)
+                self.assertEqual(item.pos(), position)
+            box._glide_to(item, 0, 20, True)
+            self.assertEqual(box._animations[item].endValue(), QPoint(0, 20))
+            box._glide_to(item, 0, 10, False)
+            self.assertEqual(item.pos(), QPoint(0, 10))
+        finally:
+            sidebar.close()
+
+    def test_card_drag_hotspot_stays_inside_card_when_pointer_leaves_it(self):
+        sidebar = Sidebar([{'room_id': '1', 'uname': 'Test'}])
+        sidebar.resize(250, 500)
+        sidebar.show()
+        self.app.processEvents()
+        item = sidebar.items()[0]
+        try:
+            for point in (QPoint(-40, -40), QPoint(item.width() + 40, item.height() + 40)):
+                item._press_pos = QPoint(1, 1)
+                item._drag_started = False
+                event = SimpleNamespace(buttons=lambda: Qt.LeftButton, pos=lambda: point)
+                drag = Mock()
+                with patch.object(motion, 'enabled', return_value=False), \
+                        patch('ddm.widgets.QDrag', return_value=drag), \
+                        patch.object(sidebar, 'begin_drag_scroll'), \
+                        patch.object(sidebar, 'end_drag_scroll'), \
+                        patch.object(QApplication, 'mouseButtons', return_value=Qt.LeftButton):
+                    item.mouseMoveEvent(event)
+                self.assertTrue(item.rect().contains(drag.setHotSpot.call_args.args[0]))
+        finally:
+            sidebar.close()
+
 
 if __name__ == '__main__':
     unittest.main()
