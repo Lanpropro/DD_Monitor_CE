@@ -1,4 +1,6 @@
 """关注栏内部拖拽：单张拖影、鼠标捕获与现有 Qt 落点事件。"""
+import logging
+
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
@@ -169,14 +171,21 @@ class SidebarDrag(QObject):
 
     def finish(self):
         if not self.active:
-            return
+            return False
         try:
+            hovered = type(self.target).__name__ if self.target is not None else 'none'
+            # Exclude our transparent top-level from Qt's mask-based widgetAt lookup.
+            self.ghost.hide()
             self._update_target()  # Release position wins over the last throttled move.
             target = self.target
             drop = self._event(QDropEvent, target) if target is not None else None
             self._release_input()  # Playback callbacks must not run with mouse capture held.
             if target is not None and isValid(target):
                 QApplication.sendEvent(target, drop)
+            accepted = drop is not None and drop.isAccepted()
+            logging.getLogger(__name__).info('sidebar_drop hovered=%s target=%s accepted=%s',
+                hovered, type(target).__name__ if target is not None else 'none', accepted)
+            return accepted
         finally:
             self._release_input()
             self._cleanup()

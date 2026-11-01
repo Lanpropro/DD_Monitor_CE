@@ -26,6 +26,26 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_sidebar_release_assigns_room_and_starts_target_after_ghost_removal(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Fixture'}])
+        item = window.sidebar.items()[0]
+        target = window.wall.tiles[1]
+        session = window.sidebar.drag_session
+        self.addCleanup(session.cancel)
+        window.start_tile.reset_mock()
+        QTest.mousePress(item, Qt.LeftButton, pos=QPoint(5, 5))
+        QTest.mouseMove(item, QPoint(40, 40))
+        self.assertTrue(session.active)
+        ghost = session.ghost
+        with patch.object(QApplication, 'widgetAt', side_effect=lambda _p:
+                          None if ghost.isVisible() else target.video):
+            QTest.mouseRelease(window, Qt.LeftButton,
+                pos=window.mapFromGlobal(target.video.mapToGlobal(QPoint(20, 20))))
+        self.assertFalse(session.active)
+        self.assertIsNone(QWidget.mouseGrabber())
+        self.assertEqual(target.room['room_id'], '1001')
+        window.start_tile.assert_called_once_with(target)
+
     def test_sidebar_repeated_clicks_share_preparation_and_final_layout(self):
         window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
         sidebar = window.sidebar
