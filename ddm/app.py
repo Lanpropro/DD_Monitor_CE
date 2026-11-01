@@ -2071,9 +2071,8 @@ class MainWindow(QMainWindow):
         """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
         if not tile.room.get("room_id") or tile.paused:
             return
-        if str(tile.room["room_id"]).startswith("huya:"):
-            if tile in self._resolvers or tile in self._retry_timers:
-                return
+        if tile in self._resolvers or tile in self._retry_timers:
+            return
         if tile not in self._freeze_refreshed:
             self._freeze_refreshed.add(tile)
             tile.set_status("画面停止更新，正在自动刷新…")
@@ -2092,7 +2091,10 @@ class MainWindow(QMainWindow):
         timer.start(FREEZE_RETRY_SECONDS * 1000)
 
     def _retry_frozen_picture(self, tile) -> None:
-        self._freeze_retry_timers.pop(tile, None)
+        timer = self._freeze_retry_timers.pop(tile, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
         if not tile.room.get("room_id") or tile.paused:
             return
         tile.set_status("画面仍停止更新，正在再次刷新…")
@@ -2122,9 +2124,9 @@ class MainWindow(QMainWindow):
         """断流自动重连：5 秒起，逐次翻倍，最多 60 秒。"""
         if not tile.room.get("room_id"):
             return
-        if str(tile.room["room_id"]).startswith("huya:"):
-            if tile in self._resolvers or tile in self._retry_timers:
-                return
+        # A pending source request or retry already owns this recovery attempt.
+        if tile in self._resolvers or tile in self._retry_timers:
+            return
         attempt = self._retry_count.get(tile, 0) + 1
         self._retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
@@ -2136,9 +2138,6 @@ class MainWindow(QMainWindow):
             print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
                   file=sys.stderr, flush=True)
         tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）")
-        timer = self._retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda t=tile: self._retry_now(t))
@@ -2146,7 +2145,10 @@ class MainWindow(QMainWindow):
         timer.start(delay * 1000)
 
     def _retry_now(self, tile) -> None:
-        self._retry_timers.pop(tile, None)
+        timer = self._retry_timers.pop(tile, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
         if tile.room.get("room_id"):
             print(f"[重连] {tile.room.get('uname')} 第 {self._retry_count.get(tile, 1)} 次",
                   file=sys.stderr, flush=True)
