@@ -2,7 +2,7 @@
 import ctypes
 from ctypes import wintypes
 
-from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -58,13 +58,13 @@ class WindowMove(QObject):
         self.user32 = ctypes.windll.user32
         self.user32.GetCursorPos.argtypes = (ctypes.POINTER(wintypes.POINT),)
         self.user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
-        self.user32.SetCapture.argtypes = (wintypes.HWND,)
         self.user32.GetCapture.restype = wintypes.HWND
         self.user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
                                            ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
         self.user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT,
                                            wintypes.WPARAM, wintypes.LPARAM)
         self.user32.SendMessageW.restype = ctypes.c_ssize_t
+        source.installEventFilter(self)
         source.destroyed.connect(lambda *_: self.cancel(restore=False))
 
     def cursor(self):
@@ -74,8 +74,24 @@ class WindowMove(QObject):
 
     def _release_press(self):
         self.press = None
-        if self.user32.GetCapture() == self.hwnd:
-            self.user32.ReleaseCapture()
+        if QWidget.mouseGrabber() is self.source:
+            self.source.releaseMouse()
+
+    def eventFilter(self, watched, event):
+        if self.press is None:
+            return False
+        if event.type() == QEvent.Type.MouseMove:
+            if not event.buttons() & Qt.LeftButton:
+                self._release_press()
+            elif ((self.cursor()-self.press).manhattanLength()
+                  >= QApplication.startDragDistance()*self.source.devicePixelRatioF()):
+                self._release_press()
+                self.run_move()
+            return True
+        if event.type() in (QEvent.Type.MouseButtonRelease, QEvent.Type.UngrabMouse,
+                            QEvent.Type.Hide, QEvent.Type.WindowDeactivate):
+            self._release_press()
+        return False
 
     def native_message(self, msg):
         if msg.message == 0x00A3:  # Native caption double-click retains maximize/restore.
@@ -87,9 +103,9 @@ class WindowMove(QObject):
             if self.revealing:
                 self.reveal()
             self.press = self.cursor()
-            self.user32.SetCapture(self.hwnd)
+            self.source.grabMouse()
             if self.user32.GetCapture() != self.hwnd:
-                self.press = None
+                self._release_press()
                 return False
             return True
         if self.press is None:
@@ -98,15 +114,6 @@ class WindowMove(QObject):
             self.press = None
         elif msg.message in (0x0202, 0x00A2, 0x001F):  # release or cancel mode
             self._release_press()
-            return True
-        elif msg.message == 0x0200:  # WM_MOUSEMOVE after caption capture
-            if not msg.wParam & 1:
-                self._release_press()
-                return True
-            threshold = QApplication.startDragDistance()
-            if (self.cursor()-self.press).manhattanLength() >= threshold*self.source.devicePixelRatioF():
-                self._release_press()
-                self.run_move()
             return True
         return False
 

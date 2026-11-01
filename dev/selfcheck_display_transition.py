@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QPixmap, QScreen
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QPixmap, QScreen
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
 from ddm.app import MainWindow
@@ -136,6 +136,16 @@ def check_lifecycle():
         msg.message = 0x0202
         assert controller.native_message(msg) and controller.press is None
         assert controller.user32.GetCapture() != int(window.winId())
+        msg.message = 0x00A1
+        assert controller.native_message(msg)
+        assert QWidget.mouseGrabber() is window
+        point = controller.press + QPoint(50, 0)
+        with patch.object(controller, 'cursor', return_value=point), patch.object(controller, 'run_move') as move:
+            event = QMouseEvent(QEvent.Type.MouseMove, QPointF(50, 50), QPointF(point),
+                                Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+            QCoreApplication.sendEvent(window, event)
+            move.assert_called_once()
+        assert controller.press is None and QWidget.mouseGrabber() is None
         msg.message = 0x00A3
         assert not controller.native_message(msg), 'Native double-click must remain unhandled'
         # Native double-click message checks routing, not physical mouse generation.
