@@ -3962,7 +3962,10 @@ class Sidebar(QFrame):
         self._items: list[NavItem] = []
         self.browser_url_resolver = lambda _room: ""
         self._collapse_animating = False
-        self._collapse_animations = []
+        self._collapse_timer = QTimer(self)
+        self._collapse_timer.setTimerType(Qt.PreciseTimer)
+        self._collapse_timer.timeout.connect(self._step_collapse)
+        self._collapse_easing = QEasingCurve(QEasingCurve.OutCubic)
         self.collapsed = False
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
@@ -5374,9 +5377,7 @@ class Sidebar(QFrame):
             return
         # 连续点击时停止旧目标，保留当前宽度，让新动画从当前位置继续。
         was_animating = self._collapse_animating
-        for animation in self._collapse_animations:
-            animation.stop()
-        self._collapse_animations = []
+        self._collapse_timer.stop()
         animate = bool(animate and self.side == "left" and self.isVisible() and motion.enabled())
         if animate and not was_animating:
             self._collapse_animating = True
@@ -5422,27 +5423,30 @@ class Sidebar(QFrame):
             self.collapsedChanged.emit(collapsed)
             return
 
-        group = []
-        for prop in (b"minimumWidth", b"maximumWidth"):
-            animation = QPropertyAnimation(self, prop)
-            animation.setDuration(160)
-            animation.setStartValue(self.width())
-            animation.setEndValue(target)
-            animation.setEasingCurve(QEasingCurve.OutCubic)
-            group.append(animation)
-        group[-1].finished.connect(lambda: self._finish_collapse(target))
-        for animation in group:
-            animation.start()
-        self._collapse_animations = group
+        self._collapse_start_width = self.width()
+        self._collapse_target = target
+        self._collapse_started = time.perf_counter()
+        self._collapse_timer.setInterval(max(1, int(1000 / max(60, self.screen().refreshRate()))))
+        self._collapse_timer.start()
         self.collapsedChanged.emit(collapsed)
+
+    def _step_collapse(self) -> None:
+        progress = min(1.0, (time.perf_counter() - self._collapse_started) / .160)
+        eased = self._collapse_easing.valueForProgress(progress)
+        self.setFixedWidth(round(self._collapse_start_width +
+                                 (self._collapse_target - self._collapse_start_width) * eased))
+        if progress >= 1:
+            self._finish_collapse(self._collapse_target)
 
     def _finish_collapse(self, target: int) -> None:
         """收尾只重排一次；屏外封面等真正绘制时再补。"""
-        for animation in self._collapse_animations:
-            animation.stop()
-        self._collapse_animations = []
+        self._collapse_timer.stop()
         was_animating = self._collapse_animating
         self.setFixedWidth(target)
+        if was_animating and self.parentWidget() is not None:
+            layout = self.parentWidget().layout()
+            if layout is not None:
+                layout.activate()  # Settle the wall's final width before releasing its layout hold.
         self._collapse_animating = False
         self.list_box.relayout(animate=False)
         for item in self._items + list(self._smart_cards.values()):
@@ -8011,15 +8015,21 @@ class WallGrid(QWidget):
         if active == self._sidebar_animating:
             return
         self._sidebar_animating = active
+        if active:
+            self._sidebar_updates_enabled = self.updatesEnabled()
+            self.setUpdatesEnabled(False)
         self._resize_timer.stop()
         self._resize_pending = False
         self._relayout_timer.stop()
         self.grid.setEnabled(not active)
         if not active:
-            self.relayout(force=True)
-            self.grid.activate()
-            if self._quick_danmaku_layer is not None:
-                self._quick_danmaku_layer.resize()
+            try:
+                self.relayout(force=True)
+                self.grid.activate()
+                if self._quick_danmaku_layer is not None:
+                    self._quick_danmaku_layer.resize()
+            finally:
+                self.setUpdatesEnabled(self._sidebar_updates_enabled)
 
     def relayout(self, force: bool = False) -> None:
         self.sync_sc_placement()
@@ -8583,7 +8593,7 @@ class WallGrid(QWidget):
         super().resizeEvent(event)
         if self._sidebar_animating:
             if self._quick_danmaku_layer is not None:
-                self._quick_danmaku_layer.move()
+                self._quick_danmaku_layer.move_window()
             return
         if self._quick_danmaku_layer is not None:
             self._quick_danmaku_layer.resize()

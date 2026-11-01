@@ -94,6 +94,7 @@
       "selfcheck_mpv",
       "selfcheck_mpv_com_lifetime",
       "selfcheck_drag_wheel",
+      "selfcheck_sidebar_performance",
       "selfcheck_resize_surface",
       "selfcheck_resize_widgets",
       "selfcheck_window_resize",

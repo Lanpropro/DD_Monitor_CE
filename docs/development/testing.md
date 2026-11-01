@@ -33,6 +33,15 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+侧栏收起／展开回归与本地播放：
+
+```powershell
+python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120
+python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120 -- --layout dm_main3 --players 3 --quick
+```
+
+默认使用 60 张合成封面和 16 格原生窗口，检查动画期间播放格子尺寸稳定、Quick 层只移动位置、结束后恢复重绘与布局、反向点击、切方向、隐藏、全屏及计时器清理。输出准备／收尾耗时、宽度更新间隔和 CPU 时间，这些回调不代表 DWM 最终呈现帧率。可选播放器参数需要 FFmpeg，只生成本地测试视频，不读取账号或访问真实直播；`--quick` 使用实际共享弹幕层。人工仍需确认动画期间视频画面、浮层和皮肤的视觉表现。
+
 关注栏应用内拖拽回归：
 
 ```powershell
