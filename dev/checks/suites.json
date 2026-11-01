@@ -19,6 +19,7 @@
     "scripts": [
       "selfcheck_general_settings",
       "selfcheck_drag_lifecycle",
+      "selfcheck_room_placement",
       "selfcheck_player_lifetime",
       "selfcheck_main_notices",
       "selfcheck_notification_center",
@@ -40,6 +41,7 @@
       "selfcheck_bili_cookies",
       "selfcheck_legacy_cleanup",
       "selfcheck_drag_lifecycle",
+      "selfcheck_room_placement",
       "selfcheck_folder_drag",
       "selfcheck_folder_card_drag",
       "selfcheck_player_lifetime",
@@ -93,6 +95,7 @@
       "selfcheck_account_login_reopen",
       "selfcheck_mpv",
       "selfcheck_mpv_com_lifetime",
+      "selfcheck_room_placement_native",
       "selfcheck_drag_wheel",
       "selfcheck_sidebar_performance",
       "selfcheck_resize_surface",
