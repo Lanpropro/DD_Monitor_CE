@@ -105,7 +105,7 @@
 | [selfcheck_settings_status](../selfcheck_settings_status.py) | 单项执行前核对 |
 | [selfcheck_sidebar_avatar](../selfcheck_sidebar_avatar.py) | 单项执行前核对 |
 | [selfcheck_sidebar_collapse](../selfcheck_sidebar_collapse.py) | 单项执行前核对 |
-| [selfcheck_sidebar_performance](../selfcheck_sidebar_performance.py) | 单项执行前核对 |
+| [selfcheck_sidebar_performance](../selfcheck_sidebar_performance.py) | `native`；60 张合成封面、16 格、侧栏中断恢复与宽度回调测量；`--players` 使用 FFmpeg 生成本地视频 |
 | [selfcheck_smart_folder_sources](../selfcheck_smart_folder_sources.py) | 单项执行前核对 |
 | [selfcheck_smart_folders](../selfcheck_smart_folders.py) | 单项执行前核对 |
 | [selfcheck_sort_manager](../selfcheck_sort_manager.py) | `offline` |
