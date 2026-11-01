@@ -48,7 +48,7 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
             'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
-            'selfcheck_player_lifetime',
+            'selfcheck_player_lifetime', 'selfcheck_playback_recovery',
             'selfcheck_main_notices', 'selfcheck_notification_center', 'selfcheck_layout_16',
             'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort',
             'selfcheck_system_tray'])
