@@ -232,6 +232,7 @@
 - `dev/selfcheck_mpv.py`
 - `dev/selfcheck_mpv_com_lifetime.py`
 - `dev/selfcheck_player_lifetime.py`
+- `dev/selfcheck_stream_info.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`

@@ -6116,6 +6116,7 @@ class Tile(QFrame):
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
     codecSettingsRequested = Signal()
+    streamInfoRequested = Signal()
     videoDanmakuChanged = Signal(bool)
     videoDanmakuSettingsChanged = Signal(dict)
     videoDanmakuAdvancedRequested = Signal()
@@ -7402,6 +7403,8 @@ class Tile(QFrame):
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
 
         menu.addAction("当前窗口编解码设置…", self.codecSettingsRequested.emit)
+        info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, self, self.streamInfoRequested.emit))
+        info.setEnabled(bool(self.room.get('room_id')))
 
         # 声道：0 默认、3 只左、4 只右、2 反向立体声、5 杜比。
         # 只有「只左 / 只右」能把两路画面分到两只耳朵，其余是原程序的音效档。

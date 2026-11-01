@@ -145,6 +145,7 @@ class MainWindow(QMainWindow):
         self._stats_poller = None
         self._retry_count: dict[object, int] = {}
         self._codec_dialogs: dict[Tile, CodecSettingsDialog] = {}
+        self._stream_info_dialogs = {}
         self._retry_timers: dict[object, QTimer] = {}
         self._freeze_refreshed: set[object] = set()
         self._freeze_retry_timers: dict[object, QTimer] = {}
@@ -1191,6 +1192,8 @@ class MainWindow(QMainWindow):
         t0 = time.perf_counter()
         for dialog in list(self._codec_dialogs.values()):
             dialog.close()
+        for dialog in list(self._stream_info_dialogs.values()):
+            dialog.close()
         self._clear_fullscreen_cover()
         self._fullscreen_cursor.stop()
         self.hide()
@@ -2028,6 +2031,30 @@ class MainWindow(QMainWindow):
         self._codec_dialogs[tile] = dialog
         dialog.show()
 
+    def _stream_info_snapshot(self, tile):
+        if self._closing or tile not in self.wall.tiles or not tile.room.get('room_id'):
+            return None
+        player = self.players.get(tile)
+        info = player.stream_info() if player is not None else {'state': 'idle'}
+        info['room'] = f"{tile.room.get('uname') or '直播间'} · {tile.room['room_id']}"
+        return info
+
+    def _open_tile_stream_info(self, tile):
+        if self._stream_info_snapshot(tile) is None:
+            return
+        existing = self._stream_info_dialogs.get(tile)
+        if existing is not None:
+            existing.refresh()
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        from .stream_info import StreamInfoDialog
+        dialog = StreamInfoDialog(lambda: self._stream_info_snapshot(tile), self)
+        dialog.finished.connect(lambda _result: self._stream_info_dialogs.pop(tile, None))
+        self._stream_info_dialogs[tile] = dialog
+        dialog.show()
+
     def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0,
                            *, login_required=False) -> None:
         if self._closing:
@@ -2811,6 +2838,7 @@ class MainWindow(QMainWindow):
             button.setProperty('skinIconOnly', key in ('pause', 'volume', 'danmaku_settings', 'fullscreen'))
         tile.qualityChanged.connect(self._on_quality_changed)
         tile.codecSettingsRequested.connect(lambda t=tile: self._open_tile_codecs(t))
+        tile.streamInfoRequested.connect(lambda t=tile: self._open_tile_stream_info(t))
         tile.muteToggled.connect(self._on_mute_changed)
         tile.volumeChanged.connect(self._on_volume_changed)
         tile.audioChannelChanged.connect(self._on_audio_changed)
