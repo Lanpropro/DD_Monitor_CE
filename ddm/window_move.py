@@ -3,7 +3,7 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .window_fullscreen import sync_titlebar
@@ -51,6 +51,8 @@ class WindowMove(QObject):
         self.preview = None
         self.revealing = False
         self.original_geometry = None
+        self.was_maximized = False
+        self.caption_anchor = None
         self.destination = None
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -98,11 +100,12 @@ class WindowMove(QObject):
             self._release_press()
             return False
         if msg.message == 0x00A1 and msg.wParam == 2:  # WM_NCLBUTTONDOWN / HTCAPTION
-            if self.source.isMaximized() or self.source.isFullScreen() or self.source._fullscreen_tile:
+            if self.source.isFullScreen() or self.source._fullscreen_tile:
                 return False
             if self.revealing:
                 self.reveal()
             self.press = self.cursor()
+            self.caption_anchor = QCursor.pos() - self.source.geometry().topLeft()
             self.source.grabMouse()
             if self.user32.GetCapture() != self.hwnd:
                 self._release_press()
@@ -130,13 +133,25 @@ class WindowMove(QObject):
                                   self.source.width(), self.source.height())
         if frame.isNull():
             return None
-        self.original_geometry = QRect(self.source.geometry())
+        self.was_maximized = self.source.isMaximized()
+        self.original_geometry = QRect(self.source.normalGeometry() if self.was_maximized
+                                       else self.source.geometry())
+        geometry = QRect(self.original_geometry)
+        if self.was_maximized:
+            anchor = self.caption_anchor
+            if anchor is None:
+                caption = self.source.geometry().top()-self.source.frameGeometry().top()
+                anchor = QPoint(self.source.width()//2, -caption//2)
+            fraction = max(0.0, min(1.0, anchor.x()/max(1, self.source.width())))
+            pointer = QCursor.pos()
+            geometry.moveTopLeft(QPoint(pointer.x()-round(geometry.width()*fraction),
+                                         pointer.y()-anchor.y()))
         preview = MovePreview(self, frame)
         self.preview = preview
-        preview.setGeometry(self.original_geometry)
+        preview.setGeometry(geometry)
         preview.winId()
         preview.windowHandle().setScreen(screen)
-        preview.setGeometry(self.original_geometry)
+        preview.setGeometry(geometry)
         preview.show()
         sync_titlebar(preview)
         bounds = wintypes.RECT()
@@ -217,5 +232,5 @@ class WindowMove(QObject):
         active = self.preview is not None
         self.reveal()
         if active and restore:
-            self.source.showNormal()
+            self.source.showMaximized() if self.was_maximized else self.source.showNormal()
             self.source.raise_()

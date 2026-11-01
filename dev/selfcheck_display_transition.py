@@ -194,6 +194,30 @@ def check_lifecycle():
         assert preview.size() == controller.original_geometry.size(), 'Restore cover exposed live children'
         controller._complete()
         controller.reveal()
+        normal_size = window.size()
+        window.showMaximized()
+        settle(300)
+        maximized_geometry = window.geometry()
+        point = window.frameGeometry().topLeft() + QPoint(300, 15)
+        with patch('ddm.window_move.QCursor.pos', return_value=point):
+            msg.message, msg.wParam = 0x00A1, 2
+            assert controller.native_message(msg), 'Maximized caption must use the preview'
+            controller._release_press()
+            preview = controller.begin()
+        assert controller.was_maximized and window.isMaximized()
+        assert not window.isVisible() and window.geometry() == maximized_geometry
+        assert preview.size() == normal_size
+        controller.finish(cancelled=True)
+        assert window.isVisible() and window.isMaximized()
+        assert window.geometry() == maximized_geometry, 'Escape must retain maximization'
+        with patch('ddm.window_move.QCursor.pos', return_value=point):
+            preview = controller.begin()
+        controller.finish()
+        controller._complete()
+        controller.reveal()
+        assert window.isVisible() and not window.isMaximized()
+        assert window.size() == normal_size, 'Dropping a maximized drag must retain the restore size'
+        wait_orientation(window, 'landscape')
         controller.begin()
         controller.finish()
         with patch.object(window, '_finish_interactive_resize', side_effect=RuntimeError('test')):
