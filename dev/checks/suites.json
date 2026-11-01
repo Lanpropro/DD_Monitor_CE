@@ -74,6 +74,7 @@
       "selfcheck_sc_simulator",
       "selfcheck_video_danmaku",
       "selfcheck_stream_recovery",
+      "selfcheck_hls_proxy",
       "selfcheck_mobile_share",
       "selfcheck_setup",
       "selfcheck_data_paths",
