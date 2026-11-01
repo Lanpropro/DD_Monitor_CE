@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev.sc_simulator import ScSimulator, config, theme
 from ddm import motion
 from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -19,6 +19,59 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_thumbnail_real_frame_ratio_and_opacity(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        self.addCleanup(page.close)
+        preview = page.super_chat_placement
+        preview.setParent(None)
+        self.addCleanup(preview.close)
+        preview.resize(420, 190)
+        preview.show()
+        APP.processEvents()
+        for width, height in ((480, 640), (640, 360), (640, 240)):
+            frame = QImage(width, height, QImage.Format_RGB32)
+            frame.fill(QColor('#204080'))
+            preview.set_frame(frame)
+            stage = preview.stage_rect()
+            self.assertAlmostEqual(stage.width() / stage.height(), width / height)
+            point = preview.card_rect().center().toPoint()
+            page.super_chat_opacity.setValue(100)
+            solid = preview.grab().toImage().pixelColor(point)
+            page.super_chat_opacity.setValue(35)
+            faded_image = preview.grab().toImage()
+            faded = faded_image.pixelColor(point)
+            base = QColor('#204080')
+            self.assertNotEqual(faded, solid)
+            for component in ('red', 'green', 'blue'):
+                expected = getattr(solid, component)() * .35 + getattr(base, component)() * .65
+                self.assertLessEqual(abs(getattr(faded, component)() - expected), 2)
+            self.assertEqual(faded_image.pixelColor(stage.center().toPoint()), base)
+        self.assertNotIn('sc_preview_frame', page.values())
+        page.reset()
+        self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
+        self.assertEqual(preview.frame.size(), frame.size())
+
+    def test_thumbnail_captures_decoded_frame_without_desktop(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from ddm.app import MainWindow
+        tile = object()
+        # A padded stride must not become part of the image's aspect ratio.
+        pixel = bytes((128, 64, 32, 0))
+        core = Mock()
+        core.command.return_value = dict(format='bgr0', w=3, h=4, stride=16, data=pixel * 16)
+        window = SimpleNamespace(_fullscreen_tile=None,
+            wall=SimpleNamespace(danmaku_target_tile=lambda: tile),
+            players={tile: SimpleNamespace(player=core)})
+        image = MainWindow._sc_preview_frame(window)
+        self.assertAlmostEqual(image.width() / image.height(), 3 / 4)
+        self.assertEqual(image.pixelColor(0, 0), QColor('#204080'))
+        core.command.assert_called_once_with('screenshot-raw', 'video')
+        for error in (ValueError('No frame'), SystemError('Error running mpv command', -12)):
+            core.command.side_effect = error
+            self.assertTrue(MainWindow._sc_preview_frame(window).isNull())
+
     def setUp(self):
         self.motion_patch = patch.object(motion, 'enabled', return_value=False)
         self.motion_patch.start()

@@ -709,6 +709,7 @@ class DanmakuSettingsPage(QWidget):
         grid.addLayout(scale_row, 6, 1)
         self.super_chat_placement = SuperChatPlacementPreview()
         self.super_chat_placement.apply_settings(settings)
+        self.super_chat_opacity.valueChanged.connect(self.super_chat_placement.set_opacity)
         self.super_chat_placement.changed.connect(self._sc_placement_changed)
         self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
         grid.addWidget(QLabel('SC 位置与大小（拖动摆放／右下角缩放）'), 7, 0, 1, 2)

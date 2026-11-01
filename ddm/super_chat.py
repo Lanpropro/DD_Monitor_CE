@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import bili, motion, theme
@@ -209,6 +209,8 @@ class SuperChatPlacementPreview(QWidget):
         self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
         self.position = None
         self.scale = 100
+        self.opacity = 80
+        self.frame = QImage()
         self._gesture = None
 
     def values(self):
@@ -219,11 +221,21 @@ class SuperChatPlacementPreview(QWidget):
         position = settings.get('super_chat_position')
         self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
         self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
+        self.set_opacity(settings.get('super_chat_opacity', 80))
+        self.update()
+
+    def set_frame(self, frame):
+        self.frame = QImage(frame)
+        self.update()
+
+    def set_opacity(self, value):
+        self.opacity = max(10, min(100, int(value)))
         self.update()
 
     def stage_rect(self):
-        width = min(self.width() - 12, (self.height() - 12) * 16 / 9)
-        return QRectF((self.width() - width) / 2, (self.height() - width * 9 / 16) / 2, width, width * 9 / 16)
+        ratio = self.frame.width() / self.frame.height() if not self.frame.isNull() else 16 / 9
+        width = min(self.width() - 12, (self.height() - 12) * ratio)
+        return QRectF((self.width() - width) / 2, (self.height() - width / ratio) / 2, width, width / ratio)
 
     def card_rect(self):
         stage = self.stage_rect().adjusted(5, 5, -5, -5)
@@ -240,10 +252,15 @@ class SuperChatPlacementPreview(QWidget):
         painter.setPen(QPen(QColor(theme.BORDER), 1))
         painter.setBrush(QColor('#172839'))
         painter.drawRoundedRect(stage, 7, 7)
-        painter.setPen(QColor('#b8c9d8'))
-        painter.drawText(stage.adjusted(8, 0, -8, -8), Qt.AlignLeft | Qt.AlignBottom, '直播画面 / 弹幕栏')
+        if not self.frame.isNull():
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawImage(stage, self.frame)
+        else:
+            painter.setPen(QColor('#b8c9d8'))
+            painter.drawText(stage.adjusted(8, 0, -8, -8), Qt.AlignLeft | Qt.AlignBottom, '暂无播放画面')
         rect = self.card_rect()
         palette = super_chat_palette(30)
+        painter.setOpacity(self.opacity / 100)
         paint_sc_background(painter, rect, palette['background_bottom_color'], palette['background_color'], rect.height() * .45)
         font = painter.font()
         font.setPixelSize(max(8, round(rect.height() * .25)))
