@@ -17,8 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
@@ -27,12 +28,13 @@ from dev.selfcheck_mpv import ready
 from dev.selfcheck_window_resize import Work, latest_geometry, settle, wait_orientation
 
 
-def make_window(count, layout):
+def make_window(count, layout, *, sidebar_count=None):
     rooms = [dict(room_id=str(9000+i), uname='synthetic', live=True, muted=True)
-             for i in range(count)]
-    window = MainWindow(rooms, [dict(r) for r in rooms], layout_id=layout,
+             for i in range(sidebar_count or count)]
+    window = MainWindow(rooms, [dict(r) for r in rooms[:count]], layout_id=layout,
         state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit',
             'auto_update': False, 'preview_on_hover': False, 'recording_enabled': False,
+            'sidebar_auto_compact': False,
             'recording_replay_enabled': False}})
     window.setAttribute(Qt.WA_ShowWithoutActivating)
     window.setGeometry(-9000, 40, 1420, 860)
@@ -68,6 +70,28 @@ def assert_settled(window):
     latest_geometry(window)
 
 
+def assert_native_geometry(window):
+    user32 = ctypes.windll.user32
+    user32.ClientToScreen.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.POINT))
+    user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+    for widget in window.findChildren(QWidget):
+        if not widget.isVisible() or widget.isWindow() or not widget.testAttribute(Qt.WA_NativeWindow):
+            continue
+        parent = widget.nativeParentWidget()
+        origin, actual = wintypes.POINT(), wintypes.POINT()
+        assert user32.ClientToScreen(int(parent.winId()), ctypes.byref(origin))
+        assert user32.ClientToScreen(int(widget.winId()), ctypes.byref(actual))
+        position = widget.mapTo(parent, QPoint())
+        scale = widget.devicePixelRatioF()
+        expected = origin.x+round(position.x()*scale), origin.y+round(position.y()*scale)
+        assert abs(actual.x-expected[0]) <= 2 and abs(actual.y-expected[1]) <= 2, (
+            widget.metaObject().className(), (actual.x, actual.y), expected)
+        bounds = wintypes.RECT()
+        assert user32.GetClientRect(int(widget.winId()), ctypes.byref(bounds))
+        assert abs(bounds.right-round(widget.width()*scale)) <= 1, widget.metaObject().className()
+        assert abs(bounds.bottom-round(widget.height()*scale)) <= 1, widget.metaObject().className()
+
+
 def check_lifecycle():
     window = make_window(6, 'corner')
     try:
@@ -79,11 +103,19 @@ def check_lifecycle():
             window.resize(1100, height)
             QApplication.processEvents()
             assert window._display_transition and not window._root_layout.isEnabled()
+            assert not window.updatesEnabled(), 'Do not paint mixed DPI child geometry'
             assert window.wall.geometry() == before, 'Intermediate screen geometry was committed'
         window._finish_interactive_resize()
         assert window._dpi_drag is None and not guard.active
+        assert window.updatesEnabled(), 'Final layout must restore painting'
         wait_orientation(window, 'portrait')
         assert_settled(window)
+
+        dpi_event(window)
+        window._end_display_transition()  # Layout resumes before the final paint commit.
+        dpi_event(window)
+        window._finish_interactive_resize()
+        assert window.updatesEnabled(), 'A repeated DPI event must retain the original paint state'
 
         window._begin_interactive_resize()
         guard = window._dpi_drag
@@ -91,6 +123,7 @@ def check_lifecycle():
         window.hide()
         assert window._dpi_drag is None and not guard.active
         assert not window._display_transition and window._root_layout.isEnabled()
+        assert window.updatesEnabled()
         assert not window._resize_idle_timer.isActive()
         window.show()
         wait_orientation(window, 'portrait')
@@ -114,6 +147,13 @@ def check_lifecycle():
         window._root_layout.invalidate()
         window._root_layout.activate()
 
+        window.setUpdatesEnabled(False)
+        dpi_event(window)
+        window._cancel_interactive_resize()
+        assert not window.updatesEnabled(), 'Preserve caller-disabled painting'
+        window.setUpdatesEnabled(True)
+        assert window.wall.updatesEnabled()
+
         dpi_event(window)
         window.resize(1420, 860)
         with patch.object(window, '_apply_orientation', side_effect=RuntimeError('test')):
@@ -124,6 +164,7 @@ def check_lifecycle():
                 pass
         assert not window._display_transition and window._root_layout.isEnabled()
         assert not window.wall._interactive_resize and not window._resize_idle_timer.isActive()
+        assert window.updatesEnabled(), 'Failed layout must release the repaint hold'
 
         dpi_event(window)
         window.close()
@@ -177,6 +218,7 @@ def check_native_drag(window, target, return_to=None):
     wait_orientation(window, 'landscape')
     assert window.devicePixelRatioF() == (return_to or target).devicePixelRatio()
     assert_settled(window)
+    assert_native_geometry(window)
 
 
 def check_screens(app, player_count, source):
@@ -187,8 +229,14 @@ def check_screens(app, player_count, source):
     portrait = min(screens, key=lambda s: s.availableGeometry().width()/s.availableGeometry().height())
     assert portrait.availableGeometry().height() > portrait.availableGeometry().width()
     results = []
-    for count, layout in ((6, 'corner'), (16, '4x4')):
-        window = make_window(count, layout)
+    for count, layout in ((3, 'dm_main3'), (6, 'corner'), (16, '4x4')):
+        window = make_window(count, layout, sidebar_count=123)
+        cover = QPixmap(400, 225)
+        cover.fill(Qt.darkCyan)
+        for item in window.sidebar.items():
+            item.thumb.set_cover(cover)
+        for i in range(20):
+            window.wall.danmaku.add_message(f'Test {i}', 'DPI geometry sample')
         identities = {tile: int(tile.video.winId()) for tile in window.wall.tiles}
         cores = []
         try:
@@ -227,6 +275,7 @@ def check_screens(app, player_count, source):
                     expected = 'portrait' if maximize else 'landscape'
                     wait_orientation(window, expected)
                     assert_settled(window)
+                    assert_native_geometry(window)
                     if restoring:
                         assert not window.isMaximized()
                         assert window.wall.layout_id == normal_layout

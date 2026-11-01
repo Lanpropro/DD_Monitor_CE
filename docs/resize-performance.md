@@ -59,6 +59,8 @@ Windows 标题栏移动期间由 `window_dpi.DpiDragGuard` 暂存主窗口的 `W
 
 最大化时不再按当前屏幕方向改写 Windows 的普通窗口还原矩形。竖屏最大化采用竖屏布局，还原回横向普通窗口时恢复该方向记忆的布局。跨屏测试通过 `WM_ENTERSIZEMOVE`、原生 `SetWindowPos` 和 `WM_EXITSIZEMOVE` 模拟保持按住状态，检查松手前主窗口及视频的物理尺寸和 Qt DPR 保持；同时验证一次手势往返跨屏及不额外调用 `setGeometry` 的直接还原。该测试没有注入真实鼠标输入。
 
+DPI 提交到最终布局落实期间，同时暂缓主窗口的 Qt 重绘；收尾、取消或异常后恢复调用前的重绘开关，让 Qt 完整刷新旧 DPI 的 backing store，避免侧栏、控制条和弹幕残留旧位置的像素。重复 DPI 事件沿用最初的重绘状态，不覆盖为过渡期间的禁用状态。播放器不停止、不重建。`--screens` 另覆盖 123 张合成关注封面、`dm_main3` / 六格 / 十六格，以及每个可见原生控件的物理位置和尺寸与 Qt 几何一致性；几何与状态检查不能替代真实画面验收。
+
 ```powershell
 python dev/run_checks.py --script selfcheck_display_transition
 python dev/run_checks.py --script selfcheck_display_transition --timeout 150 -- --screens --players 3 --output work/display-transition.json

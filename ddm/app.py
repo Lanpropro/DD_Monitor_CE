@@ -116,6 +116,7 @@ class MainWindow(QMainWindow):
         self._settling_resize = False
         self._display_transition = False
         self._display_layout_enabled = True
+        self._display_updates_enabled = None
         self._native_size_state = 0
         self._dpi_drag = None
         self._resize_idle_timer = QTimer(self)
@@ -788,6 +789,9 @@ class MainWindow(QMainWindow):
         if not self._display_transition:
             self._display_transition = True
             self._display_layout_enabled = self._root_layout.isEnabled()
+            if self._display_updates_enabled is None:
+                self._display_updates_enabled = self.updatesEnabled()
+                self.setUpdatesEnabled(False)
             self._root_layout.setEnabled(False)
             self.wall.set_interactive_resize(True)
         self._resize_dirty = True
@@ -810,6 +814,12 @@ class MainWindow(QMainWindow):
         if sys.platform == "win32" and QApplication.platformName() == "windows":
             from .window_dpi import DpiDragGuard
             self._dpi_drag = DpiDragGuard(self)
+
+    def _resume_display_updates(self) -> None:
+        if self._display_updates_enabled is not None:
+            enabled, self._display_updates_enabled = self._display_updates_enabled, None
+            # Re-enabling also invalidates the old DPI backing-store contents.
+            self.setUpdatesEnabled(enabled)
 
     def _finish_dpi_drag(self) -> None:
         guard, self._dpi_drag = self._dpi_drag, None
@@ -839,6 +849,7 @@ class MainWindow(QMainWindow):
             self._resize_dirty = False
             self._settling_resize = False
             self._resize_idle_timer.stop()
+            self._resume_display_updates()
 
     def _resize_orientation(self) -> str:
         ratio = self.width() / max(1, self.height())
@@ -874,6 +885,7 @@ class MainWindow(QMainWindow):
         self._end_display_transition()
         if hasattr(self, "wall"):
             self.wall.set_interactive_resize(False)
+        self._resume_display_updates()
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:
