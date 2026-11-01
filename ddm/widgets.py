@@ -8066,6 +8066,8 @@ class WallGrid(QWidget):
         QTimer.singleShot(0, self._sync_danmaku_controls)
         if force:
             self._relayout_timer.stop()
+            self._resize_timer.stop()
+            self._resize_pending = False
         self.ensure_slots()          # 按布局补空位
         if not self.tiles:
             return

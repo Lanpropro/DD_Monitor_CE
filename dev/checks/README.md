@@ -68,7 +68,7 @@
 | [selfcheck_add_room_folder](../selfcheck_add_room_folder.py) | 离屏合成数据；添加归类、并发失败提示、网络错误分类与诊断脱敏 |
 | [selfcheck_mobile_share](../selfcheck_mobile_share.py) | `offline`；手机中文分享、短链接跳转及后台查询，无账号和外网 |
 | [selfcheck_add_room_hints](../selfcheck_add_room_hints.py) | 单项执行前核对 |
-| [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | 单项执行前核对 |
+| [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | Windows 原生单项；空配置、禁用插件装载，最大化跟随屏幕，还原保留最大化前的窗口方向 |
 | [selfcheck_avatars](../selfcheck_avatars.py) | 单项执行前核对 |
 | [selfcheck_bili_2k_live](../selfcheck_bili_2k_live.py) | 单项执行前核对 |
 | [selfcheck_bili_plugin_boundary](../selfcheck_bili_plugin_boundary.py) | `offline`、`smoke` |
@@ -158,6 +158,7 @@
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
+| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；静态窗口移动预览、取消/抓图失败/关闭/异常清理及双击消息路由；`--screens --players 3` 使用两块屏幕、123 张合成关注和本地视频，检查截图视频像素、隐藏时连续播放、原生几何、跨屏/最大化及 HWND/播放器保持；无账号或真实直播，真实输入与吸附另验 |
 
 ## 弹幕与表情
 

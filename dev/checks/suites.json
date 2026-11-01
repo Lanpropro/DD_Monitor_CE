@@ -98,6 +98,7 @@
       "selfcheck_resize_surface",
       "selfcheck_resize_widgets",
       "selfcheck_window_resize",
+      "selfcheck_display_transition",
       "selfcheck_video_danmaku_quick",
       "selfcheck_danmaku_render_thread",
       "selfcheck_smooth_edges"

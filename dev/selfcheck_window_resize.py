@@ -108,6 +108,8 @@ def check(condition, message):
 def latest_geometry(window):
     wall = window.wall
     widgets = wall.visible_tiles()
+    if wall.has_danmaku and wall.danmaku.isVisible():
+        widgets.append(wall.danmaku)
     check(bool(widgets), "wall has no visible panes")
     bounds = widgets[0].geometry()
     for tile in widgets[1:]:
