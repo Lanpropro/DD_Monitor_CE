@@ -52,6 +52,7 @@ from .recording import RecordingManager
 from .room_placement import RoomPlacement
 from .room_status import RoomStatus
 from .room_images import RoomImages
+from .capture_control import CaptureControl
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
@@ -109,6 +110,7 @@ class MainWindow(QMainWindow):
         self.room_placement = RoomPlacement(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
+        self.capture_control = CaptureControl(self)
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -2475,91 +2477,25 @@ class MainWindow(QMainWindow):
         self._save_timer.start()       # 静音也是格子状态，和音量一起记住
 
     def _replay_scope(self) -> str:
-        """即时回放的适用范围：``recorded``（只跟录制走）或 ``all``（所有格子）。"""
-        scope = str(self.settings.get("recording_replay_scope", "recorded") or "")
-        return scope if scope in ("recorded", "all") else "recorded"
+        return self.capture_control.replay_scope()
 
     def _recording_enabled(self) -> bool:
-        """录制功能总开关。关掉时不起新录制，已经在录的正常收尾。"""
-        return bool(self.settings.get("recording_enabled", True))
+        return self.capture_control.recording_enabled()
 
     def _sync_recording_switch(self) -> None:
-        """按录制总开关收起「● 录制」按钮，并停掉正在录制的会话。
-
-        停的是**正常收尾**（走 recorder.stop()，已录到的分段照样导出成文件），
-        不是丢弃 —— 关开关的意图是「不想再录了」，不是「把刚才录的删掉」。
-        """
-        enabled = self._recording_enabled()
-        if not enabled:
-            self._pending_capture.clear()       # 还在等原画的那几格也别等了
-        for tile in self.wall.tiles:
-            setter = getattr(tile, "set_recording_available", None)
-            if setter is not None:
-                setter(enabled)
-            if enabled:
-                continue
-            session = self.recorder.sessions.get(tile)
-            if session is not None and session.recording:
-                self.recorder.stop(tile)
+        return self.capture_control.sync_recording_switch()
 
     def _replay_enabled(self) -> bool:
-        """即时回放总开关；关掉时既不开缓存，也不提供「保存最近 N 分钟」。"""
-        return bool(self.settings.get("recording_replay_enabled", True))
+        return self.capture_control.replay_enabled()
 
     def _replay_max_tiles(self) -> int:
-        """``all`` 时最多给几格开缓存；<= 0 表示不限制。"""
-        try:
-            return int(self.settings.get("recording_replay_max_tiles", 3))
-        except (TypeError, ValueError):
-            return 3
+        return self.capture_control.replay_max_tiles()
 
     def _drop_pure_caches(self, *, preserve_manual: bool = False) -> None:
-        """停掉所有「纯缓存」会话；录制中的留着 —— 它本来就在写分段。"""
-        for tile in self.wall.tiles:
-            session = self.recorder.sessions.get(tile)
-            if (session is not None and not session.recording and
-                    not (preserve_manual and getattr(session, "manual_replay", False))):
-                self.recorder.stop(tile)
+        return self.capture_control.drop_pure_caches(preserve_manual=preserve_manual)
 
     def _sync_replay_scope(self) -> None:
-        """按「即时回放总开关 + 范围」自动开 / 关各格的缓存。
-
-        ``recorded``：手动开启，录制时自动提供回放。保留手动缓存，停止自动缓存。
-        ``all``：所有播放中的格子都开一份缓存，随时都能「保存最近 N 分钟」，
-        但**最多开 ``recording_replay_max_tiles`` 格** —— 每开一格都是再拉一路
-        同样的流（带宽翻倍）加一个 ffmpeg 进程（约 155 MB 内存）。用户实测过
-        8 格全开：16 路同时下载、1.2 GB 常驻内存，打网游时延迟直接抖起来。
-
-        注意这里**直接调 recorder.start()**、不走 ``_start_capture()`` —— 后者会为了
-        录制把画质锁到原画，而「所有格子都锁原画」会把带宽吃光。
-        """
-        if not self._replay_enabled():
-            # 总开关关闭时，所有纯缓存都停止；完整录制继续。
-            self._drop_pure_caches()
-            return
-        if self._replay_scope() != "all":
-            self._drop_pure_caches(preserve_manual=True)
-            return
-        if not bool(str(self.settings.get("recording_dir") or "").strip()):
-            return                                  # 没配保存目录，缓存没地方写
-        limit = self._replay_max_tiles()
-        # 额度按「已经在缓存的格子」现数（用户手动录制的那些不占额度）。
-        # 每轮重数一遍，所以某个格子的缓存停掉之后，额度会自动让给后面的格子。
-        cached = sum(1 for session in self.recorder.sessions.values()
-                     if not session.recording)
-        for tile in self.wall.tiles:
-            if tile in self.recorder.sessions:
-                continue                            # 已经有会话（录制或缓存）
-            if self._replay_suppressed.get(tile) == str(tile.room.get("room_id") or ""):
-                continue
-            if limit > 0 and cached >= limit:
-                break                               # 额度用完，剩下的格子先不缓存
-            if not tile.isVisible() or not tile.room.get("live"):
-                continue
-            if not tile.room.get("room_id") or not tile.stream_url:
-                continue                            # 还没取到流，等下一轮
-            if self.recorder.start(tile, recording=False):
-                cached += 1
+        return self.capture_control.sync_replay_scope()
 
     def _audit_audio(self) -> None:
         """保持每格的独立音量、静音和声道。"""
@@ -2892,68 +2828,16 @@ class MainWindow(QMainWindow):
         tile.plugin_actions = collected
 
     def _start_replay(self, tile) -> None:
-        if not self._replay_enabled():
-            return
-        if not str(self.settings.get("recording_dir") or "").strip():
-            if not self.open_settings("recording") or self._closing or not self._replay_enabled():
-                return
-        self._replay_suppressed.pop(tile, None)
-        if self.recorder.start(tile, recording=False):
-            self.recorder.sessions[tile].manual_replay = True
+        return self.capture_control.start_replay(tile)
 
     def _stop_replay(self, tile) -> None:
-        session = self.recorder.sessions.get(tile)
-        if session is not None and not session.recording:
-            self._replay_suppressed[tile] = str(tile.room.get("room_id") or "")
-            self.recorder.stop(tile)
+        return self.capture_control.stop_replay(tile)
 
     def _toggle_recording(self, tile) -> None:
-        if tile in self._pending_capture:
-            self._pending_capture.pop(tile)
-            self._restore_capture_quality(tile)
-            return
-        session = self.recorder.sessions.get(tile)
-        if session and session.recording:
-            self.recorder.stop(tile)
-        else:
-            self._start_capture(tile, recording=True)
+        return self.capture_control.toggle_recording(tile)
 
     def _start_capture(self, tile, *, recording: bool) -> None:
-        if recording and not self._recording_enabled():
-            self._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
-            return
-        if tile in self._pending_capture:
-            return
-        if not str(self.settings.get("recording_dir") or "").strip():
-            if not self.open_settings("recording"):
-                return
-            if not str(self.settings.get("recording_dir") or "").strip():
-                self._record_notice("请先选择录制保存目录", tile.room)
-                return
-        if not self.settings.get("recording_lock_quality", True):
-            self.recorder.start(tile, recording=recording)
-            return
-        if tile in self.recorder.sessions:
-            self.recorder.start(tile, recording=recording)
-            return
-        if not tile.room.get("live") or not tile.isVisible():
-            self.recorder.start(tile, recording=recording)
-            return
-        self._capture_quality[tile] = (str(tile.room.get("room_id") or ""), int(tile.quality))
-        self._pending_capture[tile] = recording
-        tile.quality_button.setEnabled(False)
-        tile.quality_locked = True
-        if tile.quality == 10000 and tile.actual_quality == 10000 and tile.stream_url:
-            self._finish_pending_capture(tile)
-            return
-        if tile.quality != 10000:
-            blocked = tile.blockSignals(True)
-            try:
-                tile.set_quality(10000)
-            finally:
-                tile.blockSignals(blocked)
-            tile.room["quality"] = 10000
-        self.start_tile(tile)
+        return self.capture_control.start_capture(tile, recording=recording)
 
     def _refresh_recording_source(self, session) -> None:
         tile = session.tile
@@ -2989,67 +2873,16 @@ class MainWindow(QMainWindow):
         resolver.start()
 
     def _finish_pending_capture(self, tile) -> None:
-        recording = self._pending_capture.pop(tile)
-        if tile.actual_quality != 10000:
-            self._record_notice("直播源未提供原画，录制未开始", tile.room)
-            self._restore_capture_quality(tile)
-        elif not self.recorder.start(tile, recording=recording):
-            self._restore_capture_quality(tile)
+        return self.capture_control.finish_pending_capture(tile)
 
     def _restore_capture_quality(self, tile) -> None:
-        previous = self._capture_quality.pop(tile, None)
-        if previous is None:
-            return
-        tile.quality_locked = False
-        tile.quality_button.setEnabled(True)
-        room_id, before = previous
-        if str(tile.room.get("room_id") or "") != room_id:
-            return
-        if before != tile.quality:
-            blocked = tile.blockSignals(True)
-            try:
-                tile.set_quality(before)
-            finally:
-                tile.blockSignals(blocked)
-            tile.room["quality"] = before
-            if tile.room.get("live") and tile.isVisible() and not self._closing:
-                self.start_tile(tile)
+        return self.capture_control.restore_capture_quality(tile)
 
     def _record_state_changed(self, tile) -> None:
-        session = self.recorder.sessions.get(tile)
-        if tile in self._preset_retired_tiles and session is None:
-            self._preset_retired_tiles.remove(tile)
-            self._capture_quality.pop(tile, None)
-            self.wall._drop_tile(tile)
-            return
-        if session is None and tile not in self._pending_capture:
-            self._restore_capture_quality(tile)
-        recording = bool(session and session.recording and not session.stopping)
-        state = "record" if recording else (
-            "cache" if session and not session.stopping else "")
-        tile.set_recording_state(state)
-        if recording:
-            # 记下开录时刻，交给 _tick_record_clock() 每秒刷「● REC 00:12:34」
-            self._recording_since[tile] = float(
-                getattr(session, "started_at", 0.0) or time.monotonic())
-        else:
-            self._recording_since.pop(tile, None)
-            tile.set_recording_elapsed("")
-        self._tick_record_clock()
+        return self.capture_control.record_state_changed(tile)
 
     def _tick_record_clock(self) -> None:
-        """刷新每格的录制时长（REC 旁边那个）。"""
-        now = time.monotonic()
-        for tile in self.wall.tiles:
-            started = self._recording_since.get(tile)
-            if started is None:
-                continue
-            seconds = max(0, int(now - started))
-            hours, rest = divmod(seconds, 3600)
-            minutes, secs = divmod(rest, 60)
-            tile.set_recording_elapsed(
-                f"{hours:d}:{minutes:02d}:{secs:02d}" if hours
-                else f"{minutes:02d}:{secs:02d}")
+        return self.capture_control.tick_record_clock()
 
     def _record_notice(self, message: str, room=None) -> None:
         if self._closing:
