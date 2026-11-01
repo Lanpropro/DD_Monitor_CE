@@ -51,6 +51,7 @@ from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
 from .room_status import RoomStatus
+from .room_images import RoomImages
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
@@ -107,6 +108,7 @@ class MainWindow(QMainWindow):
         self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
         self.room_placement = RoomPlacement(self)
         self.room_status = RoomStatus(self)
+        self.room_images = RoomImages(self)
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -3377,127 +3379,31 @@ class MainWindow(QMainWindow):
         self._render_account()
 
     def load_cached_covers(self) -> None:
-        """先把「上次那张封面」摆上（纯本地读文件，不联网、不等状态轮询）。
-
-        启动时 ``build_rooms`` 只给占位条目、主播没开播时接口也不给封面；靠
-        ``cache/covers/room/<房间号>.png`` 里留的那张，卡片一出来就有图。等状态
-        刷新拿到真 URL，``load_room_avatars`` / ``_on_status_updated`` 会换成最新的。
-        """
-        rooms = self.sidebar.rooms()
-        room_ids = [str(room.get("room_id")) for room in rooms
-                    if room.get("room_id")]
-        if not room_ids:
-            return
-        loader = CachedCoverLoader(room_ids, self)
-        loader.loaded.connect(self._on_room_cover)
-        loader.finished.connect(loader.deleteLater)
-        self._cover_cache_loader = loader
-        loader.start()
+        return self.room_images.load_cached_covers(CachedCoverLoader)
 
     def load_cached_avatars(self) -> None:
-        """先把「上次那张头像」摆上（纯本地读文件，不联网、不等状态轮询）。
-
-        头像比封面更等不得：收起的关注栏**整条只剩一个头像**（封面本来就不显示），
-        而真实头像要等状态轮询（默认 1.2 秒）拿到 ``face`` 才开始下。这段空窗期
-        以前就是一条空白 —— 现在先用 ``cache/avatars/room/<房间号>.png`` 顶住。
-        """
-        room_ids = [str(room.get("room_id")) for room in self.sidebar.rooms()
-                    if room.get("room_id")]
-        if not room_ids:
-            return
-        loader = CachedAvatarLoader(room_ids, self)
-        loader.loaded.connect(self._on_room_avatar)
-        loader.finished.connect(loader.deleteLater)
-        self._avatar_cache_loader = loader
-        loader.start()
+        return self.room_images.load_cached_avatars(CachedAvatarLoader)
 
     def load_room_avatars(self) -> None:
-        """把关注列表里的主播头像和封面缩略图换成真实的。"""
-        rooms = self.sidebar.rooms()
-        faces = {str(room.get("room_id")): room.get("face")
-                 for room in rooms if room.get("face")}
-        covers = {str(room.get("room_id")): room.get("cover_url")
-                  for room in rooms if room.get("cover_url")}
-        hit = self._prime_cached_avatars(faces)
-        print(f"[头像] 关注栏 {len(faces)} 张待取，本地缓存命中 {hit} 张",
-              file=sys.stderr, flush=True)
-        self._room_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
-        self._cover_loader = self._start_avatar_loader(covers, self._on_room_cover,
-                                                       subdir="covers")
-        self._load_room_banners(rooms)
+        return self.room_images.load_room_avatars()
 
     def _prime_cached_avatars(self, faces: dict) -> int:
-        """把本地缓存里那张头像先摆上（纯读文件，不联网），返回命中张数。
-
-        头像以前只有「下载成功回调」这一条路：CDN 一抽风就永远空着。这里让
-        已经缓存过的 URL 立刻显示，下载只是"换成更新的那张"。
-        """
-        if not faces:
-            return 0
-        by_room = {str(item.room.get("room_id")): item for item in self.sidebar._items}  # noqa: SLF001
-        hit = 0
-        for room_id, url in faces.items():
-            item = by_room.get(str(room_id))
-            if item is None:
-                continue
-            cached = load_cached_avatar(url)
-            if cached is None:
-                continue
-            item.thumb.set_face(cached)
-            hit += 1
-        return hit
+        return self.room_images.prime_cached_avatars(faces, load_cached_avatar)
 
     def load_avatars_for(self, rooms: list) -> None:
-        """刚加进来的房间立刻取头像和封面，不用等下一轮状态刷新。"""
-        faces = {str(room.get("room_id")): room.get("face")
-                 for room in rooms if room.get("face")}
-        covers = {str(room.get("room_id")): room.get("cover_url")
-                  for room in rooms if room.get("cover_url")}
-        self._start_avatar_loader(faces, self._on_room_avatar)
-        self._start_avatar_loader(covers, self._on_room_cover, subdir="covers")
-        self._load_room_banners(rooms)
+        return self.room_images.load_avatars_for(rooms)
 
     def _load_room_banners(self, rooms):
-        from .room_artwork import supports_banner
-        requested = getattr(self, '_banner_requested', set())
-        self._banner_requested = requested
-        items = {}
-        for room in rooms:
-            identity = room.get('banner_url') or room.get('uid')
-            key = (str(room.get('room_id', '')), str(identity))
-            if identity and supports_banner(room) and key not in requested:
-                requested.add(key)
-                items[key[0]] = dict(room)
-        if items:
-            self._start_avatar_loader(items, self._on_room_banner, subdir='banners')
+        return self.room_images.load_banners(rooms)
 
     def _on_room_banner(self, room_id, pixmap):
-        self._on_room_artwork(room_id, pixmap, 'banners')
+        return self.room_images.apply_banner(room_id, pixmap)
 
     def _on_room_artwork(self, room_id, pixmap, kind):
-        for notice in getattr(self, '_notices', []):
-            if hasattr(notice, 'set_room_artwork'):
-                notice.set_room_artwork(room_id, pixmap, kind)
-        center = self.sidebar.notification_button.center
-        for row in center.rows.values():
-            row.set_room_artwork(room_id, pixmap, kind)
-        if kind == 'banners':
-            for item in self.sidebar._items:
-                if str(item.room.get('room_id')) == str(room_id):
-                    item.thumb.set_banner(pixmap)
+        return self.room_images.apply_artwork(room_id, pixmap, kind)
 
     def _start_avatar_loader(self, items: dict, slot, subdir: str = "avatars"):
-        """统一的头像下载：线程都留个引用，关窗时好等它们收尾。"""
-        if not items:
-            return None
-        loader = AvatarLoader(items, self, subdir=subdir)
-        loader.loaded.connect(slot)
-        loader.finished.connect(loader.deleteLater)
-        self._avatar_loaders = [item for item in self._avatar_loaders
-                                if self._loader_running(item)]
-        self._avatar_loaders.append(loader)
-        loader.start()
-        return loader
+        return self.room_images.start_loader(items, slot, AvatarLoader, subdir=subdir)
 
     @staticmethod
     def _loader_running(loader) -> bool:
@@ -3507,22 +3413,10 @@ class MainWindow(QMainWindow):
             return False
 
     def _on_room_avatar(self, room_id: str, pixmap) -> None:
-        for notice in getattr(self, '_notices', []):
-            if hasattr(notice, 'set_room_avatar'):
-                notice.set_room_avatar(room_id, pixmap)
-        for item in self.sidebar._items:            # noqa: SLF001
-            if str(item.room.get("room_id")) == str(room_id):
-                item.thumb.set_face(pixmap)
-                # 竖屏顶部横栏的头像排用的是同一张图（那边不走 NavItem）
-                self.sidebar.set_room_face(room_id, pixmap)
-                return
+        return self.room_images.apply_avatar(room_id, pixmap)
 
     def _on_room_cover(self, room_id: str, pixmap) -> None:
-        self._on_room_artwork(room_id, pixmap, 'covers')
-        for item in self.sidebar._items:            # noqa: SLF001
-            if str(item.room.get("room_id")) == str(room_id):
-                item.thumb.set_cover(pixmap)
-                return
+        return self.room_images.apply_cover(room_id, pixmap)
 
     def logout(self, kind=None) -> None:
         kind = kind or self.sidebar.account_row.platform or "bilibili"
