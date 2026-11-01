@@ -50,6 +50,7 @@ from .player import TilePlayer
 from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
+from .room_status import RoomStatus
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
@@ -105,6 +106,7 @@ class MainWindow(QMainWindow):
         self.layout_id = layout_id
         self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
         self.room_placement = RoomPlacement(self)
+        self.room_status = RoomStatus(self)
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -2354,187 +2356,28 @@ class MainWindow(QMainWindow):
 
     # ---- 直播状态轮询 ----
     def refresh_stats(self) -> None:
-        """取画面墙上各房间的"看过"人数（wbi 签名接口，和网页显示一致）。"""
-        if self._closing:
-            return
-        try:
-            if self._stats_poller is not None and self._stats_poller.isRunning():
-                return
-        except RuntimeError:
-            self._stats_poller = None
-        room_ids = [str(tile.room.get("room_id")) for tile in self.wall.tiles
-                    if str(tile.room.get("room_id") or "").isdigit() and tile.room.get("live")]
-        if not room_ids:
-            return
-        poller = StatsPoller(room_ids, self)
-        poller.updated.connect(self._on_stats_updated)
-        poller.finished.connect(lambda p=poller: self._on_stats_finished(p))
-        self._stats_poller = poller
-        poller.start()
+        return self.room_status.refresh_stats(StatsPoller)
 
     def _on_stats_finished(self, poller) -> None:
-        # finished 可能在下一轮启动后才送达，只清理发出信号的线程。
-        if self._stats_poller is poller:
-            self._stats_poller = None
-        poller.deleteLater()
+        return self.room_status.stats_finished(poller)
 
     def _on_stats_updated(self, stats: dict) -> None:
-        for tile in self.wall.tiles:
-            info = stats.get(str(tile.room.get("room_id") or ""))
-            if info and info.get("online_text"):
-                tile.set_watched(info["online_text"])
+        return self.room_status.apply_stats(stats)
 
     def refresh_status(self, *, force: bool = False) -> None:
-        if self._closing:
-            return
-        try:
-            if self._poller is not None and self._poller.isRunning():
-                if force:
-                    self._refresh_queued = True
-                return
-        except RuntimeError:                 # 对象已被 Qt 回收
-            self._poller = None
-        room_ids = list(dict.fromkeys(str(room.get("room_id")) for room in
-            self.sidebar.rooms() + [tile.room for tile in self.wall.tiles] if room.get("room_id")))
-        if not room_ids:
-            return
-        platform_ids = [rid for rid in room_ids if ":" in rid]
-        if platform_ids:
-            poller = StatusPoller(room_ids, self, platforms=dict(self.plugins.platforms))
-        else:
-            poller = StatusPoller(room_ids, self)
-        poller.updated.connect(self._on_status_updated)
-        if hasattr(poller, "failed"):
-            poller.failed.connect(self._on_status_failed)
-        if hasattr(poller, "status_ready"):
-            poller.status_ready.connect(lambda p=poller:
-                self.sidebar.set_refreshing(False) if self._poller is p and not self._closing else None)
-        poller.finished.connect(lambda p=poller: self._on_poller_finished(p))
-        self._poller = poller
-        poller.start()
+        return self.room_status.refresh_status(StatusPoller, force=force)
 
     def _on_poller_finished(self, poller) -> None:
-        poller.deleteLater()
-        if self._poller is not poller:
-            return
-        self._poller = None
-        if self._closing:
-            return
-        self._startup_status_complete = True
-        if self._refresh_queued:
-            self._refresh_queued = False
-            self.refresh_status()
-            self.sidebar.set_refreshing(self._poller is not None)
-            if self._poller is not None:
-                return
-        self.sidebar.set_refreshing(False)
+        return self.room_status.status_finished(poller)
 
     def _on_status_failed(self, reason: str) -> None:
-        print(f"[状态刷新失败] {reason}", file=sys.stderr, flush=True)
-        self.sidebar.count_label.setText("状态刷新失败 · 点击重试")
+        return self.room_status.status_failed(reason)
 
     def refresh_follow(self) -> None:
-        """侧栏的「刷新」：立刻拉一次直播状态，并把还没显示的头像补上。"""
-        self.sidebar.refresh_frequent_order()
-        self.sidebar.set_refreshing(True)
-        self.refresh_status(force=True)
-        self.load_room_avatars()
-        if self._poller is None:            # 列表是空的，没真的开轮询
-            self.sidebar.set_refreshing(False)
+        return self.room_status.refresh_follow()
 
     def _on_status_updated(self, status: dict) -> None:
-        preview_status = status.get(self.hover_preview._room_id())
-        if preview_status and not preview_status.get("live"):
-            self.hover_preview.cancel()
-        # 画面格可能直接持有侧栏条目的 room 字典。必须先记住两边旧状态，
-        # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
-        tile_was_live = {tile: bool(tile.room.get("live")) for tile in self.wall.tiles}
-        item_was_live = {item: bool(item.room.get("live")) for item in self.sidebar._items}
-        item_was_known = {item: bool(item.room.get("live_known", True))
-                          for item in self.sidebar._items}
-        faces: dict[str, str] = {}
-        covers: dict[str, str] = {}
-        for tile in self.wall.tiles:
-            info = status.get(str(tile.room.get("room_id") or ""))
-            if not info:
-                continue
-            was_live = tile_was_live[tile]
-            tile.room["live_known"] = info.get("live_known", True)
-            tile.set_live(info["live"], info["viewers"])
-            if info.get("uname") or info.get("title"):
-                tile.set_uname_title(info.get("uname", ""), info.get("title", ""))
-            if info.get("live_start_ts"):
-                tile.room["live_start_ts"] = info["live_start_ts"]
-            if not info["live"] and tile.room["live_known"]:
-                if (was_live or tile in self.players or tile in self._resolvers
-                        or tile in self._retry_timers or tile._status_text not in ("未开播", "已下播")):
-                    self._offline_tile(tile)
-                if was_live:
-                    self.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
-                                      room=dict(tile.room or {}))
-                else:
-                    tile.set_status("未开播")
-            elif not was_live and info["live"]:
-                print(f"[开播] {tile.room.get('uname')} 自动开始播放",
-                      file=sys.stderr, flush=True)
-                self.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile,
-                                  room=dict(tile.room or {}))
-                if tile not in self._resolvers:
-                    self.start_tile(tile)         # 已在取流的格子继续等待，不重复请求
-        just_went_live: list = []
-        for item in self.sidebar._items:            # noqa: SLF001
-            info = status.get(str(item.room.get("room_id")))
-            if not info:
-                continue
-            was_live = item_was_live[item]
-            if info["title"]:
-                item.set_title(info["title"])
-            if info.get("uname"):
-                item.set_uname(info["uname"])
-            for key in ('uid', 'banner_url'):
-                if key in info:
-                    item.room[key] = info[key]
-            cover = info.get("cover_url") or ""
-            if cover and cover != item.room.get("cover_url"):
-                item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
-                covers[str(item.room.get("room_id"))] = cover
-            if info["live"] and not was_live:
-                # 刚开播：马上置位并重排，让「开播优先」先把卡片挪上去；
-                # 动效等重排落地后再播，否则水滴会留在卡片原来的行上（两者错开）。
-                # 只有**本来就知道是没开播**的才算「刚开播」：启动时占位条目
-                # （live_known=False）第一次补上真实状态不算，否则一开软件满列表
-                # 冒气泡／弹提醒 —— 用户要的是「开播时」的提示。
-                if (self._startup_status_complete and self.settings.get("live_alert", True)
-                        and item_was_known[item] and info.get("live_known", True)):
-                    item.room["live"] = True        # 徽标由动效砸中时再换
-                    just_went_live.append(item)
-                else:
-                    item.set_live(True)
-            else:
-                # 即使数据字典已被画面格更新，也要强制刷新侧栏徽标样式和文字。
-                item.set_live(info["live"])
-            face = info.get("face")
-            if face and face != item.room.get("face"):
-                item.room["face"] = face
-                faces[str(item.room.get("room_id"))] = face
-                # 缓存命中也由 AvatarLoader 后台读取，批量状态回调不在 UI 线程解码图片。
-            item.room["live_known"] = info.get("live_known", True)
-            self.sidebar._folder_pending.discard(str(item.room.get("room_id")))
-        self.sidebar.resort()               # 「开播优先」要跟着开播状态重排
-        self._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
-        self.sync_danmaku()
-        if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
-            self.sidebar.play_live_alerts(just_went_live)
-            rooms = [dict(item.room) for item in just_went_live]
-            for room in rooms:
-                name = str(room.get("uname") or room["room_id"])
-                self._show_notice(name + " 开播了", rooms=[room], kind="live")
-        if covers:
-            self._aside_cover_loader = self._start_avatar_loader(
-                covers, self._on_room_cover, subdir="covers")
-        if faces:
-            self._status_avatar_loader = self._start_avatar_loader(faces, self._on_room_avatar)
-        self._load_room_banners(self.sidebar.rooms())
+        return self.room_status.apply_status(status)
 
     # ---- 全局操作 ----
     def _on_tile_clicked(self, room: dict) -> None:

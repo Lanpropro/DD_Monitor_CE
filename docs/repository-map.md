@@ -16,6 +16,8 @@
 
 头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
 
+直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
+
 ## 已跟踪的其他文件：逐项标注
 
 ### 独立诊断工具
@@ -299,6 +301,7 @@
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_room_status.py`
+- `dev/selfcheck_room_status_controller.py`
 - `dev/selfcheck_search.py`
 - `dev/selfcheck_settings_status.py`
 - `dev/selfcheck_sidebar_avatar.py`
