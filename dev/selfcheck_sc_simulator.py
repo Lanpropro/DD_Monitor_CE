@@ -28,10 +28,19 @@ class SimulatorTests(unittest.TestCase):
         page.show()
         APP.processEvents()
         preview = page.super_chat_placement
+        def colour_at(point):
+            image = preview.grab().toImage()
+            ratio = image.devicePixelRatio()
+            return image.pixelColor(round(point.x() * ratio), round(point.y() * ratio))
         self.assertFalse(hasattr(preview, 'frame'))
         self.assertLessEqual(page.super_chat_opacity.width(), 240)
         self.assertLessEqual(page.super_chat_scale.width(), 240)
         self.assertLessEqual(page.super_chat_collapse_delay.width(), 160)
+        self.assertEqual(page.super_chat_collapse_delay.suffix(), '')
+        self.assertNotIn('秒', page.super_chat_collapse_delay.text())
+        self.assertEqual(page.super_chat_collapse_unit.text(), '秒')
+        self.assertGreaterEqual(page.super_chat_collapse_unit.x(),
+                                page.super_chat_collapse_delay.x() + page.super_chat_collapse_delay.width())
         self.assertLess(page.super_chat_opacity.width(), preview.width())
         self.assertLess(preview.video_rect().left(), preview.width() * .2)
         for index in (0, 1):
@@ -43,11 +52,11 @@ class SimulatorTests(unittest.TestCase):
             rect = preview.card_rect()
             point = QPoint(round(rect.center().x()), round(rect.bottom()) - 2)
             preview.opacity = 0
-            base = preview.grab().toImage().pixelColor(point)
+            base = colour_at(point)
             page.super_chat_opacity.setValue(100)
-            solid = preview.grab().toImage().pixelColor(point)
+            solid = colour_at(point)
             page.super_chat_opacity.setValue(35)
-            faded = preview.grab().toImage().pixelColor(point)
+            faded = colour_at(point)
             self.assertNotEqual(faded, solid)
             for component in ('red', 'green', 'blue'):
                 expected = getattr(solid, component)() * .35 + getattr(base, component)() * .65
@@ -55,6 +64,56 @@ class SimulatorTests(unittest.TestCase):
         self.assertNotIn('sc_preview_frame', page.values())
         page.reset()
         self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
+
+    def test_preview_matches_live_renderers_at_all_scales(self):
+        from types import SimpleNamespace
+        from ddm.app import MainWindow
+        from ddm.super_chat import SuperChatPlacementPreview
+        window = self.window
+        preview = SuperChatPlacementPreview()
+        preview.resize(700, 300)
+        self.addCleanup(preview.close)
+        window.message.setPlainText('用于排版测量的多行正文。' * 8)
+        self.click(window.add_button)
+        window.number.setValue(2)
+        window.message.setPlainText('短正文')
+        self.click(window.add_button)
+        source = SimpleNamespace(wall=window.wall, _fullscreen_tile=None)
+        for window_size in ((1000, 700), (1600, 900)):
+            window.resize(*window_size)
+            for mode in (0, 1):
+                window.layout_choice.setCurrentIndex(1 if mode == 0 else 0)
+                preview.set_layout_mode(mode)
+                renderer = (window.tile.video_danmaku.super_chat_overlay if mode == 0
+                            else window.wall.danmaku.super_chats)
+                for collapsed in (False, True):
+                    renderer.presentation.collapse() if collapsed else renderer.presentation.expand()
+                    for scale in (75, 100, 150, 200):
+                        for position in (None, [0, 0], [.4, .6], [1, 1]):
+                            window.change_sc_settings({'super_chat_scale': scale, 'super_chat_position': position})
+                            APP.processEvents()
+                            context = MainWindow._sc_preview_context(source)
+                            preview.set_preview_context(context)
+                            preview.apply_settings(window.sc_settings)
+                            key = 'panel' if mode == 1 else 'video'
+                            stage = preview.stage_rect()
+                            factor = stage.width() / context[key]['size'][0]
+                            if mode == 0:
+                                actual = renderer.card_rects()
+                            else:
+                                viewport = window.wall.danmaku.body.viewport()
+                                actual = [QRectF(card.mapToGlobal(QPoint()) - viewport.mapToGlobal(QPoint()), card.size())
+                                          for card in renderer._cards[:len(renderer._events)]]
+                                self.assertAlmostEqual(preview._panel_rect().width() / preview._panel_rect().height(),
+                                                       window.wall.danmaku.width() / window.wall.danmaku.height())
+                            self.assertEqual(len(actual), len(preview.card_rects()))
+                            for real, shown in zip(actual, preview.card_rects()):
+                                restored = QRectF((shown.x() - stage.x()) / factor,
+                                    (shown.y() - stage.y()) / factor, shown.width() / factor, shown.height() / factor)
+                                for field in ('x', 'y', 'width', 'height'):
+                                    self.assertAlmostEqual(getattr(restored, field)(), getattr(real, field)(), delta=1.01,
+                                        msg=str((mode, scale, position, collapsed, field, context[key]['size'],
+                                                 renderer._video_danmaku.size() if mode == 0 else viewport.size())))
 
     def test_sc_header_and_body_opacity_do_not_overlap(self):
         from ddm.super_chat import paint_sc_background, SC_BODY_PADDING, sc_card_height, sc_message_document

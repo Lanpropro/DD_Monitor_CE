@@ -15,8 +15,8 @@ from .danmaku_content import content_runs, content_html
 from .images import AvatarLoader
 from .badge_surface import BadgeSurface
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
-                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
-                         sc_card_geometry, sc_message_document, SC_BODY_PADDING)
+                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats,
+                         sc_placement_rects, sc_message_document, SC_BODY_PADDING)
 
 
 class SuperChatOverlay(BadgeSurface):
@@ -280,25 +280,10 @@ class SuperChatOverlay(BadgeSurface):
         owner = self._video_danmaku
         if not self.chats or owner is None:
             return []
-        base_width = min(340, max(168, round(owner.width() * .30)))
-        scale = max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100))
-        width, height, scale, heights = sc_card_geometry(
-            self.chats, base_width, scale, owner.width() - 20, owner.height() - 20,
-            self.presentation.is_collapsed)
-        self._paint_scale = scale
-        spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
-        position = owner.settings.get('super_chat_position')
-        if isinstance(position, (list, tuple)) and len(position) == 2:
-            try:
-                ratios = [max(0.0, min(1.0, float(value))) for value in position]
-            except (TypeError, ValueError):
-                ratios = [1.0, 0.0]
-            left, top = [10 + ratio * span for ratio, span in zip(ratios, spans)]
-        else:
-            left = 10 + spans[0]
-            top = min(54 if owner.height() >= 320 else 10, 10 + spans[1])
-        rects = sc_stack_rects(width, height, len(self.chats), scale=scale, card_heights=heights)
-        rects = [rect.translated(left, top) for rect in rects]
+        rects, self._paint_scale = sc_placement_rects(
+            self.chats, owner.width(), owner.height(),
+            max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100)),
+            owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed)
         return rects
 
     def _refresh_quick_mask(self):

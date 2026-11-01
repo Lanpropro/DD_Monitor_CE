@@ -39,7 +39,7 @@ from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
                          remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
-                         sc_card_height, sc_card_geometry, SC_BODY_PADDING)
+                         sc_card_height, sc_placement_rects, SC_BODY_PADDING)
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -1523,18 +1523,19 @@ class DanmakuPanel(QFrame):
         if any(card._paper is not None for card in self.super_chats._cards):
             return
         viewport = self.body.viewport()
-        base_width = min(340, max(150, round(viewport.width() * .46)))
-        width, height, scale, _ = sc_card_geometry(
-            self.super_chats._events, base_width, self.super_chats._scale,
-            viewport.width() - 16, viewport.height() - 16,
-            self.super_chats.presentation.is_collapsed)
+        rects, scale = sc_placement_rects(
+            self.super_chats._events, viewport.width(), viewport.height(),
+            self.super_chats._scale, self.super_chats._position, panel=True,
+            collapsed=self.super_chats.presentation.is_collapsed)
+        if not rects:
+            return
+        bounds = QRectF(rects[0])
+        for rect in rects[1:]:
+            bounds = bounds.united(rect)
+        bounds = bounds.toAlignedRect()
         self.super_chats._effective_scale = scale
-        self.super_chats.resize(max(1, round(width)), max(1, math.ceil(height)))
-        position = self.super_chats._position
-        ratios = position if isinstance(position, (list, tuple)) and len(position) == 2 else (1.0, 0.0)
-        offset = QPoint(8 + round(max(0, viewport.width() - width - 16) * max(0, min(1, float(ratios[0])))),
-                        8 + round(max(0, viewport.height() - height - 16) * max(0, min(1, float(ratios[1])))))
-        self.super_chats.move(self.body.mapTo(self, viewport.pos()) + offset)
+        self.super_chats.resize(bounds.size())
+        self.super_chats.move(self.body.mapTo(self, viewport.pos()) + bounds.topLeft())
         self.super_chats.set_events(self.super_chats._events, self._super_chat_limit())
         self.super_chats.raise_()
 

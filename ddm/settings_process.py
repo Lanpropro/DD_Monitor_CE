@@ -78,7 +78,7 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts):
+    def open(self, settings, shortcuts, sc_preview_context=None):
         if self.closing:
             return
         if self.visible:
@@ -91,6 +91,7 @@ class SettingsProcess(QObject):
         self.pending = {'kind': 'open', 'settings': {
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
+        self.pending['sc_preview_context'] = sc_preview_context or {}
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
             self.pending['owner_hwnd'] = int(self.parent().window().winId())
@@ -200,6 +201,8 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            self.pageCreated.connect(lambda index, page: page.super_chat_placement.set_preview_context(
+                snapshot.get('sc_preview_context', {})) if index == 2 else None)
             self.owner_window = None
             if snapshot.get('owner_hwnd') and app.platformName() == 'windows':
                 # A separate process has no QWidget parent. Native ownership

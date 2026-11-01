@@ -86,6 +86,36 @@ def order_super_chats(chats):
     return ordered
 
 
+def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
+                       position=None, panel=False, collapsed=False):
+    if not events:
+        return [], scale
+    margin = 8 if panel else 10
+    base_width = min(340, max(150 if panel else 168,
+                             round(viewport_width * (.46 if panel else .30))))
+    width, height, scale, heights = sc_card_geometry(
+        events, base_width, scale, viewport_width - 2 * margin,
+        viewport_height - 2 * margin, collapsed)
+    spans = (max(0, viewport_width - 2 * margin - width),
+             max(0, viewport_height - 2 * margin - height))
+    if isinstance(position, (list, tuple)) and len(position) == 2:
+        try:
+            ratios = [max(0.0, min(1.0, float(value))) for value in position]
+        except (TypeError, ValueError):
+            ratios = [1.0, 0.0]
+        left, top = [margin + (round(ratio * span) if panel else ratio * span)
+                     for ratio, span in zip(ratios, spans)]
+    else:
+        left = margin + (round(spans[0]) if panel else spans[0])
+        top = margin if panel else min(54 if viewport_height >= 320 else 10, margin + spans[1])
+    if panel:
+        width = max(1, round(width))
+        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed)
+                   for event in events]
+    rects = sc_stack_rects(width, height, len(events), scale=scale, card_heights=heights)
+    return [rect.translated(left, top) for rect in rects], scale
+
+
 def sc_stack_rects(width, height, count, card_height=100, scale=1.0, card_heights=None):
     if not count:
         return []
@@ -210,6 +240,10 @@ class SuperChatPlacementPreview(SkinPreview):
         self.scale = 100
         self.opacity = 80
         self.layout_mode = 'video'
+        self.preview_context = {
+            'video': {'size': [1280, 720], 'cards': [{'message': '', 'collapsed': False}]},
+            'panel': {'size': [640, 400], 'outer_size': [640, 464], 'viewport_rect': [0, 32, 640, 400],
+                      'cards': [{'message': '', 'collapsed': False}]}}
         self._gesture = None
 
     def values(self):
@@ -227,6 +261,10 @@ class SuperChatPlacementPreview(SkinPreview):
         self.opacity = max(10, min(100, int(value)))
         self.update()
 
+    def set_preview_context(self, context):
+        self.preview_context.update(context)
+        self.update()
+
     def set_layout_mode(self, index):
         self._gesture = None
         self.layout_mode = 'panel' if index == 1 else 'video'
@@ -239,20 +277,44 @@ class SuperChatPlacementPreview(SkinPreview):
 
     def stage_rect(self):
         if self.layout_mode == 'panel':
-            return self._scene_rect(self.PANEL_AREA.adjusted(0, 26, 0, -20))
+            context = self.preview_context['panel']
+            panel = self._panel_rect()
+            factor = panel.width() / context.get('outer_size', context['size'])[0]
+            x, y, width, height = context.get('viewport_rect', [0, 0, *context['size']])
+            return QRectF(panel.x() + x * factor, panel.y() + y * factor, width * factor, height * factor)
         return self.video_rect()
 
     def video_rect(self):
-        return self._scene_rect(self.VIDEO_AREA)
+        return self._fit_viewport(self.VIDEO_AREA, self.preview_context['video']['size'])
+
+    def _panel_rect(self):
+        context = self.preview_context['panel']
+        return self._fit_viewport(self.PANEL_AREA, context.get('outer_size', context['size']))
+
+    def _fit_viewport(self, area, size):
+        area = self._scene_rect(area)
+        width, height = size
+        scale = min(area.width() / width, area.height() / height)
+        return QRectF(area.center().x() - width * scale / 2,
+                      area.center().y() - height * scale / 2, width * scale, height * scale)
+
+    def card_rects(self):
+        context = self.preview_context[self.layout_mode]
+        width, height = context['size']
+        rects, scale = sc_placement_rects(context['cards'], width, height,
+            self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'])
+        stage = self.stage_rect()
+        factor = stage.width() / width
+        self._card_scale = scale * factor
+        return [QRectF(stage.x() + rect.x() * factor, stage.y() + rect.y() * factor,
+                       rect.width() * factor, rect.height() * factor) for rect in rects]
 
     def card_rect(self):
-        stage = self.stage_rect().adjusted(2, 2, -2, -2)
-        fraction = .88 if self.layout_mode == 'panel' else .30
-        width = min(stage.width(), stage.width() * fraction * self.scale / 100)
-        height = width * .35
-        x, y = self.position if self.position is not None else (1.0, .08)
-        return QRectF(stage.x() + max(0, min(1, x)) * (stage.width() - width),
-                      stage.y() + max(0, min(1, y)) * (stage.height() - height), width, height)
+        rects = self.card_rects()
+        bounds = QRectF(rects[0])
+        for rect in rects[1:]:
+            bounds = bounds.united(rect)
+        return bounds
 
     def _main(self, painter):
         for index, rect in enumerate((QRectF(10, 10, 540, 500), QRectF(560, 10, 230, 151), QRectF(560, 171, 230, 151))):
@@ -265,28 +327,43 @@ class SuperChatPlacementPreview(SkinPreview):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        panel = self._scene_rect(self.PANEL_AREA)
+        panel = self._panel_rect()
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
         painter.setBrush(theme.qcolor('#EDF2F7' if self.light else '#17202B'))
         painter.drawRoundedRect(panel, 4, 4)
+        panel_context = self.preview_context['panel']
+        factor = panel.width() / panel_context.get('outer_size', panel_context['size'])[0]
+        header_height = panel_context.get('viewport_rect', [0, 0])[1] * factor
         font = painter.font()
-        font.setPixelSize(max(7, round(panel.width() * .07)))
+        font.setPixelSize(max(1, round(header_height * .6)))
         painter.setFont(font)
         painter.setPen(theme.qcolor(theme.PINK))
-        painter.drawText(panel.adjusted(5, 2, -5, -2), Qt.AlignTop, '● 弹幕')
+        painter.drawText(QRectF(panel.x() + 2, panel.y(), panel.width() - 4, header_height), Qt.AlignVCenter, '● 弹幕')
         painter.setPen(Qt.NoPen)
         painter.setBrush(theme.qcolor(theme.BORDER))
-        painter.drawRoundedRect(QRectF(panel.x() + 5, panel.bottom() - 10, panel.width() - 10, 5), 2, 2)
+        viewport_rect = panel_context.get('viewport_rect', [0, 0, *panel_context['size']])
+        bottom = panel.y() + (viewport_rect[1] + viewport_rect[3]) * factor
+        footer_height = max(0, panel.bottom() - bottom)
+        painter.drawRoundedRect(QRectF(panel.x() + 2, bottom + footer_height * .25,
+                                       panel.width() - 4, footer_height * .5), 2, 2)
         stage = self.stage_rect()
         painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(stage, 3, 3)
-        rect = self.card_rect()
         palette = super_chat_palette(30)
         painter.save()
         painter.setOpacity(self.opacity / 100)
-        paint_sc_background(painter, rect, palette['background_bottom_color'], palette['background_color'], rect.height() * .47)
+        factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
+        for rect, card in zip(self.card_rects(), self.preview_context[self.layout_mode]['cards']):
+            painter.save()
+            painter.translate(rect.topLeft())
+            painter.scale(factor, factor)
+            paint_sc_background(painter, QRectF(0, 0, rect.width() / factor, rect.height() / factor),
+                                palette['background_bottom_color'], palette['background_color'],
+                                (36 if card['collapsed'] else 56) * self._card_scale / factor)
+            painter.restore()
         painter.restore()
+        rect = self.card_rect()
         painter.setPen(QColor('white'))
         painter.drawLine(rect.bottomRight() - QPointF(8, 2), rect.bottomRight() - QPointF(2, 8))
         painter.end()
@@ -310,7 +387,10 @@ class SuperChatPlacementPreview(SkinPreview):
         if self._gesture == 'resize':
             self.scale = max(75, min(200, round(self._start_scale * (1 + delta.x() / self._start_rect.width()))))
         else:
-            stage = self.stage_rect().adjusted(2, 2, -2, -2)
+            stage = self.stage_rect()
+            factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
+            margin = (8 if self.layout_mode == 'panel' else 10) * factor
+            stage = stage.adjusted(margin, margin, -margin, -margin)
             self.position = []
             for value, span in ((self._start_rect.x() + delta.x() - stage.x(), stage.width() - self._start_rect.width()),
                                 (self._start_rect.y() + delta.y() - stage.y(), stage.height() - self._start_rect.height())):
