@@ -56,7 +56,11 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 69)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 70)])
+        drop_case = content.split('### BUG-069：', 1)[1].split('## 新案例记录规则', 1)[0]
+        self.assertIn('**状态**：已验收。', drop_case)
+        self.assertIn('根因仍未全部确认', drop_case)
+        self.assertIn('sidebar_drop', drop_case)
         speed_case = content.split('### BUG-068：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：已验收。', speed_case)
         self.assertIn('2026-10-31', speed_case)
