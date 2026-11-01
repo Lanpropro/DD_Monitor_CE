@@ -134,6 +134,7 @@
 | [selfcheck_fullscreen_audio](../selfcheck_fullscreen_audio.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、调音量解除静音、上下限、输入隔离及保存 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
+| [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline` |
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline` |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
