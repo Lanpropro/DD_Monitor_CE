@@ -1151,6 +1151,25 @@ class SuperChatStack(QWidget):
 
 
 
+class DanmakuConnectionIcon(QLabel):
+    """Keep the status text for accessibility while painting a Wi-Fi symbol."""
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setFixedSize(20, 20)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(self.palette().color(QPalette.WindowText), 1.8,
+                            Qt.SolidLine, Qt.RoundCap))
+        for radius in (5, 9):
+            painter.drawArc(QRectF(10 - radius, 15 - radius, radius * 2, radius * 2), 45 * 16, 90 * 16)
+        painter.setBrush(self.palette().color(QPalette.WindowText))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QPointF(10, 15), 1.4, 1.4)
+
+
 class DanmakuPanel(QFrame):
     """弹幕格：占画面墙里的一整格，风格和别的格子统一。
 
@@ -1213,12 +1232,9 @@ class DanmakuPanel(QFrame):
         dot.setObjectName("DanmakuDot")
         title = QLabel("弹幕")
         title.setObjectName("DanmakuTitle")
-        self.count = QLabel("未接入")
+        self.count = DanmakuConnectionIcon("未接入")
         self.count.setObjectName("DanmakuCount")
         self.count.setProperty("state", "idle")
-        self.count.setIndent(0)
-        self.count.setAlignment(Qt.AlignCenter)
-        self.count.setFixedHeight(20)
         header_box.addWidget(dot)
         header_box.addWidget(title)
         self.font_controls = QWidget(header)
@@ -1292,9 +1308,6 @@ class DanmakuPanel(QFrame):
         box = self.header.layout()
         margins = box.contentsMargins()
         minimum = self.font_slider.minimumWidth() + self.font_value.width() + 6
-        count_width = (self.count.fontMetrics().horizontalAdvance(self.count.text()) + 8
-                       if self.count.property("state") == "connected" else self.count.sizeHint().width())
-        self.count.setFixedWidth(min(count_width, max(48, self.width() // 3)))
         used = (margins.left() + margins.right() + 4 * box.spacing()
                 + sum(box.itemAt(i).widget().sizeHint().width() for i in (0, 1))
                 + self.count.width())
@@ -1409,6 +1422,8 @@ class DanmakuPanel(QFrame):
             _repolish(self.count)
         self.count.setText(text)
         self.count.setToolTip(text)
+        self.count.setAccessibleName('弹幕连接状态：' + text)
+        self.count.update()
         self._layout_header()
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
@@ -6323,6 +6338,11 @@ class Tile(QFrame):
         self._layout_areas()
 
         if empty:
+            # 平台画质编号属于房间，空格子不能把它作为分辨率显示或继续保存。
+            self.quality = 250
+            self.quality_button.setText(self._quality_text())
+            self.quality_button.setToolTip("选择这一路的画质")
+            self._layout_controls()
             self._cover_source = None
             self.title_badge.set_text("", "")
             self.title_badge.setVisible(False)
