@@ -183,6 +183,9 @@ def check_native_drag(window, target, return_to=None):
     videos = {int(t.video.winId()): size(int(t.video.winId())) for t in window.wall.visible_tiles()}
     players = [(p, p._prop('time-pos'), p._prop('audio-pts'), p.player, p.play_session)
                for p in window.players.values()]
+    # A screen capture requires an unobscured fixture. Foreground activation
+    # alone can be refused by Windows when a separately launched check starts.
+    assert user32.SetWindowPos(int(window.winId()), -1, 0, 0, 0, 0, 0x0013)
     window.raise_()
     window.activateWindow()
     settle(300)
