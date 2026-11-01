@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .super_chat import SuperChatPlacementPreview
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
@@ -706,6 +707,12 @@ class DanmakuSettingsPage(QWidget):
         scale_row.addWidget(scale_value)
         grid.addWidget(QLabel('SC 大小'), 6, 0)
         grid.addLayout(scale_row, 6, 1)
+        self.super_chat_placement = SuperChatPlacementPreview()
+        self.super_chat_placement.apply_settings(settings)
+        self.super_chat_placement.changed.connect(self._sc_placement_changed)
+        self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
+        grid.addWidget(QLabel('SC 位置与大小（拖动摆放／右下角缩放）'), 7, 0, 1, 2)
+        grid.addWidget(self.super_chat_placement, 8, 0, 1, 2)
 
         layout.addLayout(grid)
 
@@ -729,6 +736,13 @@ class DanmakuSettingsPage(QWidget):
         layout.addWidget(self.block_edit)
         layout.addStretch(1)
 
+    def _sc_placement_changed(self, values):
+        self.super_chat_scale.setValue(values['super_chat_scale'])
+
+    def _sc_scale_changed(self, value):
+        self.super_chat_placement.scale = value
+        self.super_chat_placement.update()
+
     def reset(self) -> None:
         from . import config as config_module
 
@@ -739,6 +753,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
         self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
         self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
+        self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
@@ -754,7 +769,7 @@ class DanmakuSettingsPage(QWidget):
             "super_chat_enabled": self.super_chat_enabled.isChecked(),
             "super_chat_opacity": self.super_chat_opacity.value(),
             "super_chat_collapse_delay": self.super_chat_collapse_delay.value(),
-            "super_chat_scale": self.super_chat_scale.value(),
+            **self.super_chat_placement.values(),
         }
 
 

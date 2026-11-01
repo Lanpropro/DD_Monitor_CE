@@ -8,9 +8,9 @@ from copy import deepcopy
 from urllib.parse import urlparse
 
 import requests
-from PySide6.QtCore import QEasingCurve, QObject, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from . import bili, motion, theme
 from .images import AvatarLoader, load_cached_image
@@ -70,7 +70,7 @@ def sc_card_geometry(events, base_width, scale, available_width, available_heigh
     scale = min(scale, max(1, available_width) / base_width)
     for attempt in range(8):
         width = base_width * scale
-        heights = [sc_card_height(event, width, scale, collapsed) for event in events[:2]]
+        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed) for event in events[:2]]
         height = heights[0] + 40 * scale if len(events) >= 3 else sum(heights) + 8 * scale * (len(heights) - 1)
         if height <= max(1, available_height) or attempt == 7:
             break
@@ -109,61 +109,194 @@ class SuperChatPresentation(QObject):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.collapsed = False
         self.progress = 1.0
         self.delay = 7
         self.ids = set()
+        self.collapsed_ids = set()
+        self.deadlines = {}
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self.collapse)
+        self.timer.timeout.connect(self._expire)
         self.entrance = QVariantAnimation(self)
         self.entrance.setDuration(180)
-        self.entrance.setEasingCurve(QEasingCurve.OutCubic)
+        self.entrance.setEasingCurve(motion.THEME_WAVE_EASING)
         self.entrance.setStartValue(0.0)
         self.entrance.setEndValue(1.0)
         self.entrance.valueChanged.connect(self._reveal)
+
+    @property
+    def collapsed(self):
+        return bool(self.ids) and self.ids <= self.collapsed_ids
+
+    def is_collapsed(self, event):
+        key = str(event.get('id') or event.get('super_chat_id') or '') if isinstance(event, dict) else str(event)
+        return key in self.collapsed_ids
 
     def configure(self, settings):
         delay = max(1, min(60, _number(settings.get('super_chat_collapse_delay'), 7)))
         if self.delay != delay:
             self.delay = delay
-            if self.ids and not self.collapsed:
-                self.timer.start(delay * 1000)
+            now = time.monotonic()
+            self.deadlines = {key: now + delay for key in self.deadlines}
+            self._schedule()
+
+    def _schedule(self):
+        self.timer.stop()
+        if self.deadlines:
+            self.timer.start(max(1, math.ceil((min(self.deadlines.values()) - time.monotonic()) * 1000)))
+
+    def _expire(self):
+        now = time.monotonic()
+        expired = {key for key, deadline in self.deadlines.items() if deadline <= now}
+        self.collapsed_ids.update(expired)
+        for key in expired:
+            self.deadlines.pop(key, None)
+        self._schedule()
+        if expired:
+            self.changed.emit()
 
     def set_events(self, events):
         ids = {str(item.get('id') or item.get('super_chat_id') or '') for item in events}
         added = ids - self.ids
         self.ids = ids
+        self.collapsed_ids.intersection_update(ids)
+        self.deadlines = {key: deadline for key, deadline in self.deadlines.items() if key in ids}
         if not ids:
-            self.timer.stop()
             self.entrance.stop()
-            self.collapsed = False
             self.progress = 1.0
-        elif added:
-            self.expand(animate=True)
-
-    def expand(self, *, animate=False):
-        self.collapsed = False
-        self.timer.start(self.delay * 1000)
-        if animate and motion.enabled():
+        for key in added:
+            self.deadlines[key] = time.monotonic() + self.delay
+        self._schedule()
+        if added and motion.enabled():
             self.entrance.stop()
             self.entrance.start()
-        else:
-            self.entrance.stop()
-            self.progress = 1.0
+
+    def expand(self, chat_id=None, *, animate=False):
+        keys = self.ids if chat_id is None else {str(chat_id)} & self.ids
+        self.collapsed_ids.difference_update(keys)
+        for key in keys:
+            self.deadlines[key] = time.monotonic() + self.delay
+        self._schedule()
+        self.entrance.stop()
+        self.progress = 1.0
+        if animate and motion.enabled():
+            self.entrance.start()
         self.changed.emit()
 
     def collapse(self):
-        if not self.ids:
-            return
         self.entrance.stop()
         self.progress = 1.0
-        self.collapsed = True
+        self.collapsed_ids = set(self.ids)
+        self.deadlines.clear()
+        self._schedule()
         self.changed.emit()
 
     def _reveal(self, value):
         self.progress = float(value)
         self.changed.emit()
+
+
+class SuperChatPlacementPreview(QWidget):
+    """Edit the same relative position and scale used by the live SC overlays."""
+    changed = Signal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(250, 142)
+        self.setMaximumHeight(190)
+        self.setMouseTracking(True)
+        self.setAccessibleName('SC 位置与大小预览')
+        self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
+        self.position = None
+        self.scale = 100
+        self._gesture = None
+
+    def values(self):
+        return {'super_chat_position': None if self.position is None else list(self.position),
+                'super_chat_scale': self.scale}
+
+    def apply_settings(self, settings):
+        position = settings.get('super_chat_position')
+        self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
+        self.update()
+
+    def stage_rect(self):
+        width = min(self.width() - 12, (self.height() - 12) * 16 / 9)
+        return QRectF((self.width() - width) / 2, (self.height() - width * 9 / 16) / 2, width, width * 9 / 16)
+
+    def card_rect(self):
+        stage = self.stage_rect().adjusted(5, 5, -5, -5)
+        width = stage.width() * .30 * self.scale / 100
+        height = width * .40
+        x, y = self.position if self.position is not None else (1.0, .08)
+        return QRectF(stage.x() + max(0, min(1, x)) * (stage.width() - width),
+                      stage.y() + max(0, min(1, y)) * (stage.height() - height), width, height)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        stage = self.stage_rect()
+        painter.setPen(QPen(QColor(theme.BORDER), 1))
+        painter.setBrush(QColor('#172839'))
+        painter.drawRoundedRect(stage, 7, 7)
+        painter.setPen(QColor('#b8c9d8'))
+        painter.drawText(stage.adjusted(8, 0, -8, -8), Qt.AlignLeft | Qt.AlignBottom, '直播画面 / 弹幕栏')
+        rect = self.card_rect()
+        palette = super_chat_palette(30)
+        paint_sc_background(painter, rect, palette['background_bottom_color'], palette['background_color'], rect.height() * .45)
+        font = painter.font()
+        font.setPixelSize(max(8, round(rect.height() * .25)))
+        painter.setFont(font)
+        painter.setPen(QColor(SC_USER_COLOR))
+        painter.drawText(rect.adjusted(4, 0, -3, -rect.height() * .5), Qt.AlignVCenter, 'SC · ¥30')
+        painter.setPen(QColor('white'))
+        painter.drawLine(rect.bottomRight() - QPointF(8, 2), rect.bottomRight() - QPointF(2, 8))
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton or not self.card_rect().contains(event.position()):
+            return super().mousePressEvent(event)
+        rect = self.card_rect()
+        self._gesture = 'resize' if (event.position() - rect.bottomRight()).manhattanLength() < 16 else 'move'
+        self._start_point = event.position()
+        self._start_rect = QRectF(rect)
+        self._start_scale = self.scale
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._gesture is None:
+            self.setCursor(Qt.SizeFDiagCursor if (event.position() - self.card_rect().bottomRight()).manhattanLength() < 16
+                           else Qt.OpenHandCursor if self.card_rect().contains(event.position()) else Qt.ArrowCursor)
+            return
+        delta = event.position() - self._start_point
+        if self._gesture == 'resize':
+            self.scale = max(75, min(200, round(self._start_scale * (1 + delta.x() / self._start_rect.width()))))
+        else:
+            stage = self.stage_rect().adjusted(5, 5, -5, -5)
+            self.position = []
+            for value, span in ((self._start_rect.x() + delta.x() - stage.x(), stage.width() - self._start_rect.width()),
+                                (self._start_rect.y() + delta.y() - stage.y(), stage.height() - self._start_rect.height())):
+                ratio = max(0, min(1, value / max(1, span)))
+                self.position.append(0.0 if ratio < .04 else 1.0 if ratio > .96 else round(ratio, 6))
+        self.update()
+        self.changed.emit(self.values())
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._gesture is not None:
+            self._gesture = None
+            self.changed.emit(self.values())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._gesture = None
+            self.position, self.scale = None, 100
+            self.update()
+            self.changed.emit(self.values())
 
 
 class SuperChatAvatar(QObject):

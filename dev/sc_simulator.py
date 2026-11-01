@@ -198,6 +198,8 @@ class ScSimulator(QMainWindow):
         self.status.setText(f'活动留言：{len(chats)} 条')
 
     def dismiss_chat(self, chat_id):
+        self.tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
+        self.wall.danmaku.super_chats.animate_dismiss(chat_id)
         self.store.dismiss(chat_id)
         self.publish()
 

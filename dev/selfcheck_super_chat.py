@@ -255,7 +255,7 @@ def check_widgets(app):
             'Three or more SCs must form a selectable stack'
         assert panel.super_chats.width() < panel.body.viewport().width() / 2
         assert panel.super_chats.x() >= panel.body.viewport().width() / 2
-        assert panel.super_chats.parentWidget() is panel.body.viewport()
+        assert panel.super_chats.parentWidget() is panel, "SC must not be scrolled by QTextBrowser"
         panel.set_placeholder("New room")
         assert not panel.super_chats._events and panel.super_chats.isHidden()
 

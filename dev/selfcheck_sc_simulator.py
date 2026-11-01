@@ -203,7 +203,7 @@ class SimulatorTests(unittest.TestCase):
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
 
-    def test_entrance_and_immediate_dismiss(self):
+    def test_entrance_and_animated_dismiss(self):
         window = self.window
         window.layout_choice.setCurrentIndex(1)
         sc = window.tile.video_danmaku.super_chat_overlay
@@ -217,8 +217,14 @@ class SimulatorTests(unittest.TestCase):
             sc.presentation.entrance.setCurrentTime(180)
             self.assertEqual(sc.presentation.progress, 1)
             self.click(sc.close_buttons[1])
+            self.assertIsNotNone(sc._paper)
+            sc.animation.setCurrentTime(120)
+            self.assertGreater(sc._progress, 0)
+            sc.animation.setCurrentTime(240)
+            APP.processEvents()
             self.assertEqual([chat['id'] for chat in sc.chats], ['1'])
             self.click(sc.close_button)
+            sc.animation.setCurrentTime(240)
             self.assertTrue(sc.isHidden())
             self.assertFalse(sc.presentation.timer.isActive())
         window.layout_choice.setCurrentIndex(0)
@@ -227,13 +233,143 @@ class SimulatorTests(unittest.TestCase):
         stack = window.wall.danmaku.super_chats
         self.assertEqual(stack.presentation.progress, 1)
         self.click(stack._cards[0].close_button)
+        stack._cards[0].animation.setCurrentTime(240)
         self.assertTrue(stack.isHidden())
+
+    def test_panel_sc_stays_fixed_while_messages_scroll(self):
+        window = self.window
+        panel = window.wall.danmaku
+        stack = panel.super_chats
+        self.assertIs(stack.parentWidget(), panel)
+        origin = stack.mapToGlobal(QPoint())
+        for index in range(150):
+            panel.add_event({'kind': 'danmaku', 'uname': 'fixture', 'text': str(index) * 10})
+            self.assertEqual(stack.mapToGlobal(QPoint()).y(), origin.y())
+        APP.processEvents()
+        origin = stack.mapToGlobal(QPoint())
+        bar = panel.body.verticalScrollBar()
+        self.assertGreater(bar.maximum(), 0)
+        for value in (0, bar.maximum() // 2, bar.maximum()):
+            bar.setValue(value)
+            APP.processEvents()
+            self.assertEqual(stack.mapToGlobal(QPoint()), origin)
+
+    def test_only_clicked_sc_expands_and_new_arrival_is_independent(self):
+        window = self.window
+        window.number.setValue(2)
+        self.click(window.add_button)
+        stack = window.wall.danmaku.super_chats
+        sc = window.tile.video_danmaku.super_chat_overlay
+        stack.presentation.collapse()
+        self.click(stack._cards[0].name)
+        self.assertFalse(stack._cards[0].message.isHidden())
+        self.assertTrue(stack._cards[1].message.isHidden())
+        self.assertTrue(stack.presentation.is_collapsed('2'))
+        window.layout_choice.setCurrentIndex(1)
+        sc.presentation.collapse()
+        point = sc.card_rects()[1].center().toPoint() - sc._content_origin
+        QTest.mouseClick(sc, Qt.LeftButton, pos=point)
+        self.assertTrue(sc.presentation.is_collapsed('1'))
+        self.assertFalse(sc.presentation.is_collapsed('2'))
+        self.assertLess(sc.card_rects()[0].height(), sc.card_rects()[1].height())
+        window.number.setValue(3)
+        self.click(window.add_button)
+        self.assertTrue(sc.presentation.is_collapsed('1'))
+        self.assertFalse(sc.presentation.is_collapsed('3'))
+        self.assertTrue(stack.presentation.is_collapsed('2'))
+        self.assertFalse(stack.presentation.is_collapsed('3'))
+
+    def test_independent_collapse_deadlines_do_not_restart_on_refresh(self):
+        from ddm.super_chat import SuperChatPresentation
+        from PySide6.QtCore import QObject
+        parent = QObject()
+        presentation = SuperChatPresentation(parent)
+        presentation.configure({'super_chat_collapse_delay': 1})
+        with patch('ddm.super_chat.time.monotonic', return_value=100):
+            presentation.set_events([{'id': 'a'}])
+        with patch('ddm.super_chat.time.monotonic', return_value=100.6):
+            presentation.set_events([{'id': 'a'}, {'id': 'b'}])
+        with patch('ddm.super_chat.time.monotonic', return_value=101.1):
+            presentation._expire()
+            self.assertTrue(presentation.is_collapsed('a'))
+            self.assertFalse(presentation.is_collapsed('b'))
+            presentation.expand('a')
+            self.assertEqual(presentation.deadlines['b'], 101.6)
+            presentation.set_events([{'id': 'a'}, {'id': 'b'}])
+            self.assertEqual(presentation.deadlines['a'], 102.1)
+        with patch('ddm.super_chat.time.monotonic', return_value=101.7):
+            presentation._expire()
+            self.assertFalse(presentation.is_collapsed('a'))
+            self.assertTrue(presentation.is_collapsed('b'))
+        presentation.set_events([])
+        self.assertFalse(presentation.timer.isActive())
+
+    def test_stack_switch_moves_cards_in_both_renderers(self):
+        window = self.window
+        for number in (2, 3):
+            window.number.setValue(number)
+            self.click(window.add_button)
+        stack = window.wall.danmaku.super_chats
+        with patch.object(motion, 'enabled', return_value=True):
+            before = {str(event['id']): card.geometry() for event, card in zip(stack._events, stack._cards)}
+            stack.select_chat('2')
+            stack.switch_animation.setCurrentTime(90)
+            middle = stack._cards[0].geometry()
+            stack.switch_animation.setCurrentTime(180)
+            self.assertNotEqual(middle, stack._cards[0].geometry())
+            self.assertNotEqual(before['2'], stack._cards[0].geometry())
+            window.layout_choice.setCurrentIndex(1)
+            sc = window.tile.video_danmaku.super_chat_overlay
+            sc.select_chat('2')
+            sc.switch_animation.setCurrentTime(90)
+            middle = sc.card_rects()[0]
+            sc.switch_animation.setCurrentTime(180)
+            self.assertNotEqual(middle, sc.card_rects()[0])
+            # A second selection during motion must start from the displayed positions.
+            sc.select_chat('3')
+            sc.switch_animation.setCurrentTime(60)
+            visible = {str(chat['id']): rect for chat, rect in zip(sc.chats, sc.card_rects())}
+            sc.select_chat('1')
+            self.assertEqual(sc.card_rects()[0], visible['1'])
+            sc.switch_animation.setCurrentTime(180)
+        with patch.object(motion, 'enabled', return_value=False):
+            stack.select_chat('3')
+            self.assertNotEqual(stack.switch_animation.state(), stack.switch_animation.State.Running)
+
+    def test_settings_thumbnail_edits_position_scale_and_resets(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'super_chat_position': [.8, .2], 'super_chat_scale': 100})
+        page.resize(700, 800)
+        page.show()
+        APP.processEvents()
+        try:
+            preview = page.super_chat_placement
+            rect = preview.card_rect()
+            start = rect.center().toPoint()
+            QTest.mousePress(preview, Qt.LeftButton, pos=start)
+            QTest.mouseMove(preview, start - QPoint(70, 0))
+            QTest.mouseRelease(preview, Qt.LeftButton, pos=start - QPoint(70, 0))
+            self.assertLess(page.values()['super_chat_position'][0], .8)
+            corner = preview.card_rect().bottomRight().toPoint() - QPoint(2, 2)
+            QTest.mousePress(preview, Qt.LeftButton, pos=corner)
+            QTest.mouseMove(preview, corner + QPoint(25, 0))
+            QTest.mouseRelease(preview, Qt.LeftButton, pos=corner + QPoint(25, 0))
+            self.assertGreater(page.values()['super_chat_scale'], 100)
+            self.assertEqual(page.super_chat_scale.value(), page.values()['super_chat_scale'])
+            restored = DanmakuSettingsPage(page.values())
+            self.assertEqual(restored.super_chat_placement.values(), preview.values())
+            page.reset()
+            self.assertIsNone(page.values()['super_chat_position'])
+            self.assertEqual(page.values()['super_chat_scale'], 100)
+        finally:
+            page.close()
 
     def test_collapse_timer_survives_refresh_and_click_reopens(self):
         window = self.window
         stack = window.wall.danmaku.super_chats
         sc = window.tile.video_danmaku.super_chat_overlay
-        self.assertEqual(stack.presentation.timer.interval(), 7000)
+        self.assertGreater(stack.presentation.timer.remainingTime(), 6500)
+        self.assertLessEqual(stack.presentation.timer.interval(), 7000)
         window.collapse_delay.setValue(1)
         QTest.qWait(400)
         window.publish()

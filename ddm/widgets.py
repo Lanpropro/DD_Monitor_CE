@@ -960,6 +960,7 @@ class SuperChatMessage(QTextBrowser):
 
 
 class SuperChatCard(QFrame):
+    dismissFinished = Signal()
     """One fixed Super Chat card; colors come from Bilibili with safe fallbacks."""
     dismissed = Signal(str)
 
@@ -1016,6 +1017,9 @@ class SuperChatCard(QFrame):
         self.message.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.header)
         layout.addWidget(self.message)
+        self._paper = None
+        self._progress = 0.0
+        self.animation = motion.paper_animation(self, self._dismiss_frame, self.finish_dismiss)
         self._collapsed = False
         self.configure(1.0, False)
 
@@ -1079,12 +1083,42 @@ class SuperChatCard(QFrame):
         self.message.setViewportMargins(round(11 * scale), round(3 * scale), round(11 * scale), round(2 * scale))
         self.message.setVisible(not collapsed)
 
+    def animate_dismiss(self, chat_id):
+        if self._paper is not None or self.chat_id != str(chat_id) or not self.isVisible() or not motion.enabled():
+            return
+        self._paper = self.grab()
+        self._paper_style = self.styleSheet()
+        self.setStyleSheet("QFrame#SuperChatCard {background:transparent;border:0;}")
+        for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+            child.hide()
+        self.animation.start()
+
+    def _dismiss_frame(self, progress):
+        self._progress = progress
+        self.update()
+        self.parentWidget().update()
+
+    def finish_dismiss(self):
+        self.animation.stop()
+        if self._paper is not None:
+            self.setStyleSheet(self._paper_style)
+        self._paper = None
+        self._progress = 0.0
+        for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+            child.show()
+        self.dismissFinished.emit()
+
     def paintEvent(self, event):
-        if hasattr(self, '_colours'):
-            painter = QPainter(self)
-            paint_sc_background(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
-                                *self._colours, self.header.height())
-            painter.end()
+        if self._paper is None:
+            if hasattr(self, '_colours'):
+                painter = QPainter(self)
+                paint_sc_background(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
+                                    *self._colours, self.header.height())
+                painter.end()
+            return
+        painter = QPainter(self)
+        motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
+        painter.end()
 
 
 class SuperChatStack(QWidget):
@@ -1100,12 +1134,21 @@ class SuperChatStack(QWidget):
         self._opacity = .8
         self._scale = 1.0
         self._effective_scale = 1.0
-        self._last_collapsed = False
+        self._position = None
+        self._last_collapsed = frozenset()
+        self._switch_rects = {}
+        self.switch_animation = QVariantAnimation(self)
+        self.switch_animation.setDuration(180)
+        self.switch_animation.setEasingCurve(motion.THEME_WAVE_EASING)
+        self.switch_animation.setStartValue(0.0)
+        self.switch_animation.setEndValue(1.0)
+        self.switch_animation.valueChanged.connect(self._switch_frame)
         self.presentation = SuperChatPresentation(self)
         self.presentation.changed.connect(self._presentation_changed)
         self._cards = [SuperChatCard(self) for _ in range(3)]
         for card in self._cards:
             card.dismissed.connect(self.dismissed)
+            card.dismissFinished.connect(self._dismiss_finished)
             for child in [card, *card.findChildren(QWidget)]:
                 child.installEventFilter(self)
         self.more = QPushButton(self)
@@ -1118,11 +1161,31 @@ class SuperChatStack(QWidget):
         self.hide()
 
     def select_chat(self, chat_id):
+        if not self._events or str(chat_id) == str(self._events[0]['id']):
+            return
+        old = {str(event['id']): QRectF(card.geometry()) for event, card in zip(self._events, self._cards)}
+        self.switch_animation.stop()
         self._selected_id = str(chat_id)
         self.set_events(self._events)
         self.layoutChanged.emit()
+        self._switch_rects = {str(event['id']): (old.get(str(event['id']), QRectF(card.geometry())),
+                                                QRectF(card.geometry()))
+                              for event, card in zip(self._events, self._cards)}
+        if motion.enabled() and self.isVisible():
+            self.switch_animation.start()
+
+    def _switch_frame(self, progress):
+        for event, card in zip(self._events, self._cards):
+            pair = self._switch_rects.get(str(event['id']))
+            if pair is not None:
+                old, target = pair
+                card.setGeometry(QRectF(old.x() + (target.x() - old.x()) * progress,
+                    old.y() + (target.y() - old.y()) * progress,
+                    old.width() + (target.width() - old.width()) * progress,
+                    old.height() + (target.height() - old.height()) * progress).toAlignedRect())
 
     def configure(self, settings):
+        self._position = settings.get('super_chat_position')
         self._enabled = bool(settings.get('super_chat_enabled', True))
         self._opacity = int(settings.get('super_chat_opacity', 80)) / 100
         self._scale = max(.75, min(2.0, int(settings.get('super_chat_scale', 100)) / 100))
@@ -1131,8 +1194,8 @@ class SuperChatStack(QWidget):
 
     def _presentation_changed(self):
         self.alpha.setOpacity(self._opacity * self.presentation.progress)
-        if self._last_collapsed != self.presentation.collapsed:
-            self._last_collapsed = self.presentation.collapsed
+        if self._last_collapsed != frozenset(self.presentation.collapsed_ids):
+            self._last_collapsed = frozenset(self.presentation.collapsed_ids)
             self.layoutChanged.emit()
         self.update()
 
@@ -1142,31 +1205,46 @@ class SuperChatStack(QWidget):
         self.select_chat(ordered[(index + 1) % len(ordered)]['id'])
 
     def eventFilter(self, watched, event):
-        if self.presentation.collapsed and event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            if not any(watched is card.close_button for card in self._cards):
-                self.presentation.expand()
-                return True
-        if len(self._events) >= 3 and event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            for index, card in enumerate(self._cards[1:], 1):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            for index, card in enumerate(self._cards[:len(self._events)]):
+                if watched is card.close_button:
+                    return False
                 if card is watched or card.isAncestorOf(watched):
-                    self.select_chat(self._events[index]['id'])
-                    return True
+                    if index and len(self._events) >= 3:
+                        self.select_chat(self._events[index]['id'])
+                        return True
+                    if self.presentation.is_collapsed(self._events[index]):
+                        self.presentation.expand(self._events[index]['id'])
+                        return True
         return super().eventFilter(watched, event)
+
+    def animate_dismiss(self, chat_id):
+        for card in self._cards:
+            card.animate_dismiss(chat_id)
+
+    def _dismiss_finished(self):
+        self.set_events(self._events)
+        self.layoutChanged.emit()
 
     def set_events(self, events, limit=None):
         self._events = order_super_chats(list(events), self._selected_id)
         if len(self._events) < 3 or not any(str(chat.get('id')) == self._selected_id for chat in self._events):
             self._selected_id = ''
+        closing = [card for card in self._cards if card._paper is not None]
+        if closing and self._enabled and limit != 0:
+            return
+        for card in closing:
+            card.finish_dismiss()
         self.setVisible(bool(events) and self._enabled and limit != 0)
         self.presentation.set_events(self._events)
         for card, event in zip(self._cards, self._events):
-            card.configure(self._effective_scale, self.presentation.collapsed)
+            card.configure(self._effective_scale, self.presentation.is_collapsed(event))
             card.set_event(event)
         self.arrange()
         self.update()
 
     def arrange(self):
-        heights = [sc_card_height(event, self.width(), self._effective_scale, self.presentation.collapsed)
+        heights = [sc_card_height(event, self.width(), self._effective_scale, self.presentation.is_collapsed(event))
                    for event in self._events[:2]]
         rects = sc_stack_rects(self.width(), self.height(), len(self._events),
                                scale=self._effective_scale, card_heights=heights)
@@ -1299,7 +1377,7 @@ class DanmakuPanel(QFrame):
         scroll_bar.sliderReleased.connect(self._on_scroll_released)
         scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
         layout.addWidget(self.body, 1)
-        self.super_chats = SuperChatStack(self.body.viewport())
+        self.super_chats = SuperChatStack(self)
         self.super_chats.layoutChanged.connect(self._sync_super_chat_limit)
         self.super_chats.dismissed.connect(self.superChatDismissed)
 
@@ -1491,15 +1569,21 @@ class DanmakuPanel(QFrame):
         self._sync_super_chat_limit()
 
     def _sync_super_chat_limit(self):
+        if any(card._paper is not None for card in self.super_chats._cards):
+            return
         viewport = self.body.viewport()
         base_width = min(340, max(150, round(viewport.width() * .46)))
         width, height, scale, _ = sc_card_geometry(
             self.super_chats._events, base_width, self.super_chats._scale,
             viewport.width() - 16, viewport.height() - 16,
-            self.super_chats.presentation.collapsed)
+            self.super_chats.presentation.is_collapsed)
         self.super_chats._effective_scale = scale
         self.super_chats.resize(max(1, round(width)), max(1, math.ceil(height)))
-        self.super_chats.move(max(8, viewport.width() - width - 8), 8)
+        position = self.super_chats._position
+        ratios = position if isinstance(position, (list, tuple)) and len(position) == 2 else (1.0, 0.0)
+        offset = QPoint(8 + round(max(0, viewport.width() - width - 16) * max(0, min(1, float(ratios[0])))),
+                        8 + round(max(0, viewport.height() - height - 16) * max(0, min(1, float(ratios[1])))))
+        self.super_chats.move(self.body.mapTo(self, viewport.pos()) + offset)
         self.super_chats.set_events(self.super_chats._events, self._super_chat_limit())
         self.super_chats.raise_()
 

@@ -63,6 +63,7 @@ class VideoDanmakuSettings(QMenu):
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
         self.addSeparator()
+        self.addAction("SC 位置与大小…", self.advancedRequested.emit)
         self.addAction("恢复 SC 位置", lambda: self.settingsChanged.emit({'super_chat_position': None}))
         self.addAction("更多弹幕设置", self.advancedRequested.emit)
 
