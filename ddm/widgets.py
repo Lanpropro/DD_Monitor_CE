@@ -39,7 +39,7 @@ from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
                          remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
-                         sc_card_height, sc_card_geometry)
+                         sc_card_height, sc_card_geometry, SC_BODY_PADDING)
 
 AVATAR_COLORS = ["#4c6ef5", "#12b886", "#f76707", "#ae3ec9", "#1098ad", "#e8590c", "#5f3dc4"]
 
@@ -1080,7 +1080,8 @@ class SuperChatCard(QFrame):
         self.header.layout().setSpacing(round(6 * scale))
         self.avatar.setFixedSize(round((24 if collapsed else 36) * scale), round((24 if collapsed else 36) * scale))
         self.close_button.setFixedSize(round(20 * scale), round(20 * scale))
-        self.message.setViewportMargins(round(11 * scale), round(3 * scale), round(11 * scale), round(2 * scale))
+        padding = math.ceil(SC_BODY_PADDING * scale)
+        self.message.setViewportMargins(round(11 * scale), padding, round(11 * scale), padding)
         self.message.setVisible(not collapsed)
 
     def animate_dismiss(self, chat_id):

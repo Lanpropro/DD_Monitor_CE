@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev.sc_simulator import ScSimulator, config, theme
 from ddm import motion
 from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtCore import QRectF
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -26,7 +27,7 @@ class SimulatorTests(unittest.TestCase):
         preview = page.super_chat_placement
         preview.setParent(None)
         self.addCleanup(preview.close)
-        preview.resize(420, 190)
+        preview.resize(800, 360)
         preview.show()
         APP.processEvents()
         for width, height in ((480, 640), (640, 360), (640, 240)):
@@ -35,7 +36,8 @@ class SimulatorTests(unittest.TestCase):
             preview.set_frame(frame)
             stage = preview.stage_rect()
             self.assertAlmostEqual(stage.width() / stage.height(), width / height)
-            point = preview.card_rect().center().toPoint()
+            rect = preview.card_rect()
+            point = QPoint(round(rect.center().x()), round(rect.bottom()) - 2)
             page.super_chat_opacity.setValue(100)
             solid = preview.grab().toImage().pixelColor(point)
             page.super_chat_opacity.setValue(35)
@@ -51,6 +53,59 @@ class SimulatorTests(unittest.TestCase):
         page.reset()
         self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
         self.assertEqual(preview.frame.size(), frame.size())
+
+    def test_sc_header_and_body_opacity_do_not_overlap(self):
+        from ddm.super_chat import paint_sc_background, SC_BODY_PADDING, sc_card_height, sc_message_document
+        base, header, body = QColor('#204080'), QColor('#edf5ff'), QColor('#2a60b2')
+        image = QImage(340, 160, QImage.Format_RGB32)
+        image.fill(base)
+        painter = QPainter(image)
+        painter.setOpacity(.5)
+        paint_sc_background(painter, QRectF(0, 0, 340, 160), body, header, 56)
+        painter.end()
+        for y, colour in ((20, header), (80, body)):
+            actual = image.pixelColor(170, y)
+            for component in ('red', 'green', 'blue'):
+                expected = (getattr(base, component)() + getattr(colour, component)()) / 2
+                self.assertLessEqual(abs(getattr(actual, component)() - expected), 1)
+        event = {'message': '第一行\n第二行'}
+        for scale in (.75, 1, 1.5, 2):
+            height = sc_card_height(event, 340 * scale, scale)
+            text_height = sc_message_document(event, 340 * scale, scale).size().height()
+            self.assertGreaterEqual(height, 56 * scale + 2 * SC_BODY_PADDING * scale + text_height)
+
+    def test_layout_previews_share_position_scale_and_opacity(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        self.addCleanup(page.close)
+        page.resize(700, 900)
+        page.show()
+        APP.processEvents()
+        preview = page.super_chat_placement
+        page.super_chat_preview_layout.setCurrentIndex(1)
+        self.assertEqual(preview.layout_mode, 'panel')
+        stage = preview.stage_rect()
+        main_area = preview._scene_rect(preview.VIDEO_AREA)
+        self.assertGreater(stage.left(), main_area.right())
+        self.assertGreater(stage.top(), main_area.center().y())
+        self.assertGreater(main_area.width(), stage.width() * 2)
+        rect = preview.card_rect()
+        self.assertTrue(stage.contains(rect))
+        before = preview.values()
+        start = rect.center().toPoint()
+        QTest.mousePress(preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(preview, start + QPoint(-15, 30))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=start + QPoint(-15, 30))
+        self.assertNotEqual(before['super_chat_position'], preview.position)
+        changed = preview.values()
+        page.super_chat_preview_layout.setCurrentIndex(0)
+        self.assertEqual(preview.layout_mode, 'video')
+        self.assertEqual(preview.values(), changed)
+        page.super_chat_opacity.setValue(45)
+        page.super_chat_preview_layout.setCurrentIndex(1)
+        self.assertEqual(preview.opacity, 45)
+        page.reset()
+        self.assertIsNone(preview.position)
 
     def test_thumbnail_captures_decoded_frame_without_desktop(self):
         from types import SimpleNamespace

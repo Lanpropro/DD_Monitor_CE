@@ -10,10 +10,11 @@ from urllib.parse import urlparse
 import requests
 from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 
 from . import bili, motion, theme
 from .images import AvatarLoader, load_cached_image
+from .skin_preview import SkinPreview
 
 
 SUPER_CHAT_API = "https://api.live.bilibili.com/av/v1/SuperChat/getMessageList"
@@ -29,6 +30,7 @@ SC_PRICE_TIERS = (
 SC_USER_COLOR = '#666666'
 SC_PRICE_COLOR = '#333333'
 SC_CONTENT_COLOR = '#FFFFFF'
+SC_BODY_PADDING = 12
 
 
 def super_chat_palette(price):
@@ -60,7 +62,7 @@ def sc_card_height(event, width, scale=1.0, collapsed=False):
     if collapsed:
         return round(36 * scale)
     document = sc_message_document(event, width, scale)
-    padding = max(61 * scale, round(56 * scale) + round(3 * scale) + round(2 * scale))
+    padding = round(56 * scale) + 2 * math.ceil(SC_BODY_PADDING * scale)
     return math.ceil(max(100 * scale, padding + document.size().height() + 1))
 
 
@@ -196,14 +198,17 @@ class SuperChatPresentation(QObject):
         self.changed.emit()
 
 
-class SuperChatPlacementPreview(QWidget):
+class SuperChatPlacementPreview(SkinPreview):
     """Edit the same relative position and scale used by the live SC overlays."""
     changed = Signal(dict)
+    VIDEO_AREA = QRectF(84, 10, 474, 474)
+    PANEL_AREA = QRectF(568, 332, 222, 178)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumSize(250, 142)
-        self.setMaximumHeight(190)
+        super().__init__(parent, editable_parts=frozenset())
+        self.selected = ''
+        self.setMinimumWidth(300)
+        self.setFixedHeight(300)
         self.setMouseTracking(True)
         self.setAccessibleName('SC 位置与大小预览')
         self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
@@ -211,6 +216,9 @@ class SuperChatPlacementPreview(QWidget):
         self.scale = 100
         self.opacity = 80
         self.frame = QImage()
+        self.layout_mode = 'video'
+        self.sample = {'uname': '示例用户', 'price': 30, 'end_time': time.time() + 120,
+                       'message': '这是一条醒目留言\n拖动卡片调整摆放位置'}
         self._gesture = None
 
     def values(self):
@@ -232,41 +240,91 @@ class SuperChatPlacementPreview(QWidget):
         self.opacity = max(10, min(100, int(value)))
         self.update()
 
+    def set_layout_mode(self, index):
+        self._gesture = None
+        self.layout_mode = 'panel' if index == 1 else 'video'
+        self.update()
+
+    def _scene_rect(self, rect):
+        scale, offset = self._transform()
+        return QRectF(offset.x() + rect.x() * scale, offset.y() + rect.y() * scale,
+                      rect.width() * scale, rect.height() * scale)
+
     def stage_rect(self):
+        if self.layout_mode == 'panel':
+            return self._scene_rect(self.PANEL_AREA.adjusted(0, 26, 0, -20))
+        return self.video_rect()
+
+    def video_rect(self):
+        area = self._scene_rect(self.VIDEO_AREA)
         ratio = self.frame.width() / self.frame.height() if not self.frame.isNull() else 16 / 9
-        width = min(self.width() - 12, (self.height() - 12) * ratio)
-        return QRectF((self.width() - width) / 2, (self.height() - width / ratio) / 2, width, width / ratio)
+        width = min(area.width(), area.height() * ratio)
+        return QRectF(area.center().x() - width / 2, area.center().y() - width / ratio / 2, width, width / ratio)
 
     def card_rect(self):
-        stage = self.stage_rect().adjusted(5, 5, -5, -5)
-        width = stage.width() * .30 * self.scale / 100
-        height = width * .40
+        stage = self.stage_rect().adjusted(2, 2, -2, -2)
+        fraction = .88 if self.layout_mode == 'panel' else .30
+        width = min(stage.width(), stage.width() * fraction * self.scale / 100)
+        height = sc_card_height(self.sample, 340) * width / 340
         x, y = self.position if self.position is not None else (1.0, .08)
         return QRectF(stage.x() + max(0, min(1, x)) * (stage.width() - width),
                       stage.y() + max(0, min(1, y)) * (stage.height() - height), width, height)
 
+    def _main(self, painter):
+        self._box(painter, 'sidebar', QRectF(10, 10, 64, 500))
+        font = painter.font()
+        font.setPixelSize(9)
+        painter.setFont(font)
+        self._box(painter, '', QRectF(14, 18, 56, 22), 'DD监控室CE')
+        self._box(painter, '', QRectF(14, 48, 56, 20), '搜索直播间')
+        for row in range(4):
+            self._box(painter, '', QRectF(14, 82 + row * 88, 56, 76), '关注卡片', default='#17202B')
+        self._box(painter, 'buttons.layout', QRectF(14, 450, 56, 22), '布局预设')
+        self._box(painter, 'buttons.settings', QRectF(14, 480, 56, 22), '设置')
+        font.setPixelSize(12)
+        painter.setFont(font)
+        for rect in (QRectF(84, 10, 474, 500), QRectF(568, 10, 222, 151), QRectF(568, 171, 222, 151)):
+            self._box(painter, '', rect, '直播画面', default='#D6151A22')
+            bar = QRectF(rect.x(), rect.bottom() - 24, rect.width(), 24)
+            self._box(painter, 'controls', bar, 'Ⅱ   ♪  ━━━     弹幕  ⚙')
+        self._box(painter, '', self.PANEL_AREA, default='#17202B')
+
     def paintEvent(self, event):
+        super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        panel = self._scene_rect(self.PANEL_AREA)
+        painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+        painter.setBrush(theme.qcolor('#EDF2F7' if self.light else '#17202B'))
+        painter.drawRoundedRect(panel, 4, 4)
+        font = painter.font()
+        font.setPixelSize(max(7, round(panel.width() * .07)))
+        painter.setFont(font)
+        painter.setPen(theme.qcolor(theme.PINK))
+        painter.drawText(panel.adjusted(5, 2, -5, -2), Qt.AlignTop, '● 弹幕')
+        painter.setPen(theme.qcolor(theme.TEXT3))
+        for row in range(6):
+            painter.drawText(QRectF(panel.x() + 5, panel.y() + panel.height() * (.46 + row * .08),
+                                    panel.width() - 10, panel.height() * .08), Qt.AlignVCenter,
+                             '观众：这是一条弹幕')
+        painter.drawText(QRectF(panel.x() + 5, panel.bottom() - 12, panel.width() - 10, 10),
+                         Qt.AlignVCenter, '输入弹幕，Enter 发送')
         stage = self.stage_rect()
-        painter.setPen(QPen(QColor(theme.BORDER), 1))
-        painter.setBrush(QColor('#172839'))
-        painter.drawRoundedRect(stage, 7, 7)
         if not self.frame.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            painter.drawImage(stage, self.frame)
-        else:
-            painter.setPen(QColor('#b8c9d8'))
-            painter.drawText(stage.adjusted(8, 0, -8, -8), Qt.AlignLeft | Qt.AlignBottom, '暂无播放画面')
+            painter.drawImage(self.video_rect(), self.frame)
+        painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(stage, 3, 3)
         rect = self.card_rect()
-        palette = super_chat_palette(30)
-        painter.setOpacity(self.opacity / 100)
-        paint_sc_background(painter, rect, palette['background_bottom_color'], palette['background_color'], rect.height() * .45)
-        font = painter.font()
-        font.setPixelSize(max(8, round(rect.height() * .25)))
-        painter.setFont(font)
-        painter.setPen(QColor(SC_USER_COLOR))
-        painter.drawText(rect.adjusted(4, 0, -3, -rect.height() * .5), Qt.AlignVCenter, 'SC · ¥30')
+        from .video_danmaku import VideoDanmaku
+        painter.save()
+        scale = rect.width() / 340
+        painter.translate(rect.topLeft())
+        painter.scale(scale, scale)
+        VideoDanmaku._paint_super_chat(painter, QRectF(0, 0, 340, rect.height() / scale),
+                                      self.sample, 1, self.opacity / 100)
+        painter.restore()
         painter.setPen(QColor('white'))
         painter.drawLine(rect.bottomRight() - QPointF(8, 2), rect.bottomRight() - QPointF(2, 8))
         painter.end()
@@ -290,7 +348,7 @@ class SuperChatPlacementPreview(QWidget):
         if self._gesture == 'resize':
             self.scale = max(75, min(200, round(self._start_scale * (1 + delta.x() / self._start_rect.width()))))
         else:
-            stage = self.stage_rect().adjusted(5, 5, -5, -5)
+            stage = self.stage_rect().adjusted(2, 2, -2, -2)
             self.position = []
             for value, span in ((self._start_rect.x() + delta.x() - stage.x(), stage.width() - self._start_rect.width()),
                                 (self._start_rect.y() + delta.y() - stage.y(), stage.height() - self._start_rect.height())):
@@ -375,26 +433,15 @@ def paint_sc_avatar(painter, rect, pixmap, name):
 def paint_sc_background(painter, rect, background, header, header_height):
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor(background))
-    painter.drawRoundedRect(rect, 7, 7)
-    top = QPainterPath()
-    x, y, right = rect.left(), rect.top(), rect.right()
-    bottom = min(rect.bottom(), y + header_height)
-    if header_height >= rect.height():
-        top.addRoundedRect(rect, 7, 7)
-    else:
-        top.moveTo(x, bottom)
-        top.lineTo(x, y + 7)
-        top.quadTo(x, y, x + 7, y)
-        top.lineTo(right - 7, y)
-        top.quadTo(right, y, right, y + 7)
-        top.lineTo(right, bottom)
-        top.closeSubpath()
-    painter.fillPath(top, QColor(header))
+    outline = QPainterPath()
+    outline.addRoundedRect(rect, 7, 7)
+    painter.setClipPath(outline, Qt.IntersectClip)
+    height = min(rect.height(), header_height)
+    painter.fillRect(QRectF(rect.x(), rect.y(), rect.width(), height), QColor(header))
+    painter.fillRect(QRectF(rect.x(), rect.y() + height, rect.width(), rect.height() - height), QColor(background))
     painter.setPen(QPen(QColor(background), 1))
     painter.setBrush(Qt.NoBrush)
-    painter.drawPath(top)
+    painter.drawPath(outline)
     painter.restore()
 
 

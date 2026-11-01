@@ -16,7 +16,7 @@ from .images import AvatarLoader
 from .badge_surface import BadgeSurface
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
                          remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
-                         sc_card_geometry, sc_message_document)
+                         sc_card_geometry, sc_message_document, SC_BODY_PADDING)
 
 
 class SuperChatOverlay(BadgeSurface):
@@ -1088,7 +1088,8 @@ class VideoDanmaku(QWidget):
             return
         painter.drawText(QRectF(left, top + 19 * scale, max(0, right - left), 22 * scale),
                          int(Qt.AlignLeft | Qt.AlignVCenter), price)
-        body_rect = rect.adjusted(11 * scale, 59 * scale, -11 * scale, -2 * scale)
+        padding = math.ceil(SC_BODY_PADDING * scale)
+        body_rect = rect.adjusted(11 * scale, round(56 * scale) + padding, -11 * scale, -padding)
         document = sc_message_document(chat, rect.width(), scale)
         painter.setClipRect(body_rect, Qt.IntersectClip)
         painter.translate(body_rect.topLeft())

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
-    QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QScrollArea, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -713,7 +713,13 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_placement.changed.connect(self._sc_placement_changed)
         self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
         grid.addWidget(QLabel('SC 位置与大小（拖动摆放／右下角缩放）'), 7, 0, 1, 2)
-        grid.addWidget(self.super_chat_placement, 8, 0, 1, 2)
+        self.super_chat_preview_layout = QTabBar()
+        self.super_chat_preview_layout.setDrawBase(False)
+        self.super_chat_preview_layout.addTab('画面布局')
+        self.super_chat_preview_layout.addTab('弹幕栏布局')
+        self.super_chat_preview_layout.currentChanged.connect(self.super_chat_placement.set_layout_mode)
+        grid.addWidget(self.super_chat_preview_layout, 8, 0, 1, 2)
+        grid.addWidget(self.super_chat_placement, 9, 0, 1, 2)
 
         layout.addLayout(grid)
 
