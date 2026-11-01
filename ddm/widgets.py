@@ -4001,6 +4001,9 @@ class RoomStrip(QFrame):
             return
         try:
             avatar.set_pixmap_image(pixmap)
+            signature = self._avatar_signatures.get(str(room_id))
+            if signature is not None:
+                self._avatar_signatures[str(room_id)] = (*signature[:-1], pixmap.cacheKey())
         except Exception:                      # noqa: BLE001
             pass
 
