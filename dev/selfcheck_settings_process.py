@@ -31,9 +31,12 @@ def child(action):
 
         def exercise(self):
             if action == 'preview-save':
-                frame = self.danmaku_page.super_chat_placement.frame
-                assert frame.width() == 30 and frame.height() == 40
-                assert frame.pixelColor(0, 0).name() == '#204080'
+                page = self.danmaku_page
+                assert not hasattr(page.super_chat_placement, 'frame')
+                page.super_chat_preview_layout.button(1).click()
+                assert page.super_chat_placement.layout_mode == 'panel'
+                page.super_chat_opacity.setValue(45)
+                assert page.super_chat_placement.opacity == 45
                 assert 'sc_preview_frame' not in self.settings()
             assert self.general_page._checks['sidebar_platform_logos'].isHidden(), 'Generic logo switch must stay hidden in the worker'
             if action.startswith('logos-'):
@@ -160,9 +163,6 @@ def check_worker(app, action):
     timer.timeout.connect(lambda: ticks.append(time.perf_counter()))
     timer.start()
     client = settings_process.SettingsProcess()
-    from PySide6.QtGui import QImage, QColor
-    frame = QImage(30, 40, QImage.Format_RGB32)
-    frame.fill(QColor('#204080'))
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
     client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else None)
@@ -178,7 +178,7 @@ def check_worker(app, action):
             process_pid = client.process.processId()
             assert pid != os.getpid()
             initial = dict(config.DEFAULT_SETTINGS, default_volume=42, seen_update_versions={'app': '0.5.1'})
-            client.open(initial, {}, frame)
+            client.open(initial, {})
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
             assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -200,7 +200,7 @@ def check_worker(app, action):
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
             messages.clear()
-            client.open(initial, {}, frame)
+            client.open(initial, {})
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert client.process.processId() == process_pid
             assert next(m['pid'] for m in messages if m['kind'] == 'painted') == pid

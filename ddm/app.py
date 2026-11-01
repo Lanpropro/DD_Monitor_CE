@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import (QByteArray, QEasingCurve, QProcess, QPropertyAnimation,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
-from PySide6.QtGui import QCursor, QIcon, QImage, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -843,25 +843,8 @@ class MainWindow(QMainWindow):
     def _open_sidebar_settings(self):
         if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
             return self.open_settings()
-        self._get_settings_process().open(self.settings, self.shortcuts, self._sc_preview_frame())
+        self._get_settings_process().open(self.settings, self.shortcuts)
         return False
-
-    def _sc_preview_frame(self):
-        tile = self._fullscreen_tile or self.wall.danmaku_target_tile()
-        candidates = [tile] if tile is not None else list(self.wall.tiles)
-        for tile in candidates:
-            player = self.players.get(tile)
-            if player is None or player.player is None:
-                continue
-            try:
-                frame = player.player.command('screenshot-raw', 'video')
-                if frame['format'] == 'bgr0':
-                    image = QImage(frame['data'], frame['w'], frame['h'], frame['stride'], QImage.Format_RGB32)
-                    return image.scaled(640, 640, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            except (ValueError, RuntimeError, SystemError, TypeError, KeyError):
-                # No decoded frame yet (for example while a stream is loading).
-                continue
-        return QImage()
 
     def _get_settings_process(self):
         if getattr(self, "_settings_process", None) is None:
@@ -927,9 +910,7 @@ class MainWindow(QMainWindow):
                                 plugin_manager=self.plugins, update_page_factory=self._get_update_page)
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
-            if key == 'danmaku':
-                widget.super_chat_placement.set_frame(self._sc_preview_frame())
-            elif key == 'plugins':
+            if key == 'plugins':
                 widget.store_page.offersChanged.connect(self._set_plugin_updates)
                 if self._plugin_catalog_offers:
                     widget.store_page._catalog_ready(self._plugin_catalog_offers)

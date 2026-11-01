@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
 from PySide6.QtWidgets import QApplication
 
 from . import bili, motion, theme
@@ -195,8 +195,8 @@ class SuperChatPresentation(QObject):
 class SuperChatPlacementPreview(SkinPreview):
     """Edit the same relative position and scale used by the live SC overlays."""
     changed = Signal(dict)
-    VIDEO_AREA = QRectF(84, 10, 474, 474)
-    PANEL_AREA = QRectF(568, 332, 222, 178)
+    VIDEO_AREA = QRectF(10, 10, 540, 474)
+    PANEL_AREA = QRectF(560, 332, 230, 178)
 
     def __init__(self, parent=None):
         super().__init__(parent, editable_parts=frozenset())
@@ -209,10 +209,7 @@ class SuperChatPlacementPreview(SkinPreview):
         self.position = None
         self.scale = 100
         self.opacity = 80
-        self.frame = QImage()
         self.layout_mode = 'video'
-        self.sample = {'uname': '示例用户', 'price': 30, 'end_time': time.time() + 120,
-                       'message': '这是一条醒目留言\n拖动卡片调整摆放位置'}
         self._gesture = None
 
     def values(self):
@@ -224,10 +221,6 @@ class SuperChatPlacementPreview(SkinPreview):
         self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
         self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
         self.set_opacity(settings.get('super_chat_opacity', 80))
-        self.update()
-
-    def set_frame(self, frame):
-        self.frame = QImage(frame)
         self.update()
 
     def set_opacity(self, value):
@@ -250,37 +243,22 @@ class SuperChatPlacementPreview(SkinPreview):
         return self.video_rect()
 
     def video_rect(self):
-        area = self._scene_rect(self.VIDEO_AREA)
-        ratio = self.frame.width() / self.frame.height() if not self.frame.isNull() else 16 / 9
-        width = min(area.width(), area.height() * ratio)
-        return QRectF(area.center().x() - width / 2, area.center().y() - width / ratio / 2, width, width / ratio)
+        return self._scene_rect(self.VIDEO_AREA)
 
     def card_rect(self):
         stage = self.stage_rect().adjusted(2, 2, -2, -2)
         fraction = .88 if self.layout_mode == 'panel' else .30
         width = min(stage.width(), stage.width() * fraction * self.scale / 100)
-        height = sc_card_height(self.sample, 340) * width / 340
+        height = width * .35
         x, y = self.position if self.position is not None else (1.0, .08)
         return QRectF(stage.x() + max(0, min(1, x)) * (stage.width() - width),
                       stage.y() + max(0, min(1, y)) * (stage.height() - height), width, height)
 
     def _main(self, painter):
-        self._box(painter, 'sidebar', QRectF(10, 10, 64, 500))
-        font = painter.font()
-        font.setPixelSize(9)
-        painter.setFont(font)
-        self._box(painter, '', QRectF(14, 18, 56, 22), 'DD监控室CE')
-        self._box(painter, '', QRectF(14, 48, 56, 20), '搜索直播间')
-        for row in range(4):
-            self._box(painter, '', QRectF(14, 82 + row * 88, 56, 76), '关注卡片', default='#17202B')
-        self._box(painter, 'buttons.layout', QRectF(14, 450, 56, 22), '布局预设')
-        self._box(painter, 'buttons.settings', QRectF(14, 480, 56, 22), '设置')
-        font.setPixelSize(12)
-        painter.setFont(font)
-        for rect in (QRectF(84, 10, 474, 500), QRectF(568, 10, 222, 151), QRectF(568, 171, 222, 151)):
-            self._box(painter, '', rect, '直播画面', default='#D6151A22')
+        for index, rect in enumerate((QRectF(10, 10, 540, 500), QRectF(560, 10, 230, 151), QRectF(560, 171, 230, 151))):
+            self._box(painter, '', rect, '主画面' if index == 0 else '画面', default='#D6151A22')
             bar = QRectF(rect.x(), rect.bottom() - 24, rect.width(), 24)
-            self._box(painter, 'controls', bar, 'Ⅱ   ♪  ━━━     弹幕  ⚙')
+            self._box(painter, 'controls', bar, 'Ⅱ   ♪  ━━━   ⚙')
         self._box(painter, '', self.PANEL_AREA, default='#17202B')
 
     def paintEvent(self, event):
@@ -296,28 +274,18 @@ class SuperChatPlacementPreview(SkinPreview):
         painter.setFont(font)
         painter.setPen(theme.qcolor(theme.PINK))
         painter.drawText(panel.adjusted(5, 2, -5, -2), Qt.AlignTop, '● 弹幕')
-        painter.setPen(theme.qcolor(theme.TEXT3))
-        for row in range(6):
-            painter.drawText(QRectF(panel.x() + 5, panel.y() + panel.height() * (.46 + row * .08),
-                                    panel.width() - 10, panel.height() * .08), Qt.AlignVCenter,
-                             '观众：这是一条弹幕')
-        painter.drawText(QRectF(panel.x() + 5, panel.bottom() - 12, panel.width() - 10, 10),
-                         Qt.AlignVCenter, '输入弹幕，Enter 发送')
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.qcolor(theme.BORDER))
+        painter.drawRoundedRect(QRectF(panel.x() + 5, panel.bottom() - 10, panel.width() - 10, 5), 2, 2)
         stage = self.stage_rect()
-        if not self.frame.isNull():
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            painter.drawImage(self.video_rect(), self.frame)
         painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(stage, 3, 3)
         rect = self.card_rect()
-        from .video_danmaku import VideoDanmaku
+        palette = super_chat_palette(30)
         painter.save()
-        scale = rect.width() / 340
-        painter.translate(rect.topLeft())
-        painter.scale(scale, scale)
-        VideoDanmaku._paint_super_chat(painter, QRectF(0, 0, 340, rect.height() / scale),
-                                      self.sample, 1, self.opacity / 100)
+        painter.setOpacity(self.opacity / 100)
+        paint_sc_background(painter, rect, palette['background_bottom_color'], palette['background_color'], rect.height() * .47)
         painter.restore()
         painter.setPen(QColor('white'))
         painter.drawLine(rect.bottomRight() - QPointF(8, 2), rect.bottomRight() - QPointF(2, 8))

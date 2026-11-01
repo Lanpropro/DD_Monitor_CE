@@ -78,7 +78,7 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts, preview_frame=None):
+    def open(self, settings, shortcuts):
         if self.closing:
             return
         if self.visible:
@@ -91,13 +91,6 @@ class SettingsProcess(QObject):
         self.pending = {'kind': 'open', 'settings': {
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
-        if preview_frame is not None and not preview_frame.isNull():
-            from PySide6.QtCore import QByteArray, QBuffer, QIODevice
-            data = QByteArray()
-            buffer = QBuffer(data)
-            buffer.open(QIODevice.WriteOnly)
-            preview_frame.save(buffer, 'PNG')
-            self.pending['sc_preview_frame'] = bytes(data.toBase64()).decode('ascii')
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
             self.pending['owner_hwnd'] = int(self.parent().window().winId())
@@ -207,10 +200,6 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
-            from PySide6.QtCore import QByteArray
-            from PySide6.QtGui import QImage
-            frame = QImage.fromData(QByteArray.fromBase64(snapshot.get('sc_preview_frame', '').encode('ascii')))
-            self.pageCreated.connect(lambda index, page: page.super_chat_placement.set_frame(frame) if index == 2 else None)
             self.owner_window = None
             if snapshot.get('owner_hwnd') and app.platformName() == 'windows':
                 # A separate process has no QWidget parent. Native ownership

@@ -20,39 +20,41 @@ APP = QApplication.instance() or QApplication([])
 
 
 class SimulatorTests(unittest.TestCase):
-    def test_thumbnail_real_frame_ratio_and_opacity(self):
+    def test_schematic_preview_opacity_and_compact_controls(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
         self.addCleanup(page.close)
-        preview = page.super_chat_placement
-        preview.setParent(None)
-        self.addCleanup(preview.close)
-        preview.resize(800, 360)
-        preview.show()
+        page.resize(700, 900)
+        page.show()
         APP.processEvents()
-        for width, height in ((480, 640), (640, 360), (640, 240)):
-            frame = QImage(width, height, QImage.Format_RGB32)
-            frame.fill(QColor('#204080'))
-            preview.set_frame(frame)
-            stage = preview.stage_rect()
-            self.assertAlmostEqual(stage.width() / stage.height(), width / height)
+        preview = page.super_chat_placement
+        self.assertFalse(hasattr(preview, 'frame'))
+        self.assertLessEqual(page.super_chat_opacity.width(), 240)
+        self.assertLessEqual(page.super_chat_scale.width(), 240)
+        self.assertLessEqual(page.super_chat_collapse_delay.width(), 160)
+        self.assertLess(page.super_chat_opacity.width(), preview.width())
+        self.assertLess(preview.video_rect().left(), preview.width() * .2)
+        for index in (0, 1):
+            button = page.super_chat_preview_layout.button(index)
+            self.assertEqual(button.objectName(), 'AppearanceChoice')
+            button.click()
+            self.assertTrue(button.isChecked())
+            self.assertFalse(page.super_chat_preview_layout.button(1 - index).isChecked())
             rect = preview.card_rect()
             point = QPoint(round(rect.center().x()), round(rect.bottom()) - 2)
+            preview.opacity = 0
+            base = preview.grab().toImage().pixelColor(point)
             page.super_chat_opacity.setValue(100)
             solid = preview.grab().toImage().pixelColor(point)
             page.super_chat_opacity.setValue(35)
-            faded_image = preview.grab().toImage()
-            faded = faded_image.pixelColor(point)
-            base = QColor('#204080')
+            faded = preview.grab().toImage().pixelColor(point)
             self.assertNotEqual(faded, solid)
             for component in ('red', 'green', 'blue'):
                 expected = getattr(solid, component)() * .35 + getattr(base, component)() * .65
                 self.assertLessEqual(abs(getattr(faded, component)() - expected), 2)
-            self.assertEqual(faded_image.pixelColor(stage.center().toPoint()), base)
         self.assertNotIn('sc_preview_frame', page.values())
         page.reset()
         self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
-        self.assertEqual(preview.frame.size(), frame.size())
 
     def test_sc_header_and_body_opacity_do_not_overlap(self):
         from ddm.super_chat import paint_sc_background, SC_BODY_PADDING, sc_card_height, sc_message_document
@@ -82,7 +84,7 @@ class SimulatorTests(unittest.TestCase):
         page.show()
         APP.processEvents()
         preview = page.super_chat_placement
-        page.super_chat_preview_layout.setCurrentIndex(1)
+        page.super_chat_preview_layout.button(1).click()
         self.assertEqual(preview.layout_mode, 'panel')
         stage = preview.stage_rect()
         main_area = preview._scene_rect(preview.VIDEO_AREA)
@@ -98,34 +100,14 @@ class SimulatorTests(unittest.TestCase):
         QTest.mouseRelease(preview, Qt.LeftButton, pos=start + QPoint(-15, 30))
         self.assertNotEqual(before['super_chat_position'], preview.position)
         changed = preview.values()
-        page.super_chat_preview_layout.setCurrentIndex(0)
+        page.super_chat_preview_layout.button(0).click()
         self.assertEqual(preview.layout_mode, 'video')
         self.assertEqual(preview.values(), changed)
         page.super_chat_opacity.setValue(45)
-        page.super_chat_preview_layout.setCurrentIndex(1)
+        page.super_chat_preview_layout.button(1).click()
         self.assertEqual(preview.opacity, 45)
         page.reset()
         self.assertIsNone(preview.position)
-
-    def test_thumbnail_captures_decoded_frame_without_desktop(self):
-        from types import SimpleNamespace
-        from unittest.mock import Mock
-        from ddm.app import MainWindow
-        tile = object()
-        # A padded stride must not become part of the image's aspect ratio.
-        pixel = bytes((128, 64, 32, 0))
-        core = Mock()
-        core.command.return_value = dict(format='bgr0', w=3, h=4, stride=16, data=pixel * 16)
-        window = SimpleNamespace(_fullscreen_tile=None,
-            wall=SimpleNamespace(danmaku_target_tile=lambda: tile),
-            players={tile: SimpleNamespace(player=core)})
-        image = MainWindow._sc_preview_frame(window)
-        self.assertAlmostEqual(image.width() / image.height(), 3 / 4)
-        self.assertEqual(image.pixelColor(0, 0), QColor('#204080'))
-        core.command.assert_called_once_with('screenshot-raw', 'video')
-        for error in (ValueError('No frame'), SystemError('Error running mpv command', -12)):
-            core.command.side_effect = error
-            self.assertTrue(MainWindow._sc_preview_frame(window).isNull())
 
     def setUp(self):
         self.motion_patch = patch.object(motion, 'enabled', return_value=False)
