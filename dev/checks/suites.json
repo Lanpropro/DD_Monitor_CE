@@ -34,6 +34,7 @@
     "mode": "offline",
     "description": "已核对的离屏功能回归；需要开发依赖，使用替身或本机测试服务",
     "scripts": [
+      "selfcheck_stream_info",
       "selfcheck_bili_plugin_boundary",
       "selfcheck_plugin_controls",
       "selfcheck_plugin_credentials",

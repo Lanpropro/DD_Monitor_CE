@@ -347,6 +347,37 @@ class TilePlayer(QObject):
     def actual_decoder(self) -> str:
         return str(self._prop("hwdec-current", "等待首帧"))
 
+    def stream_info(self):
+        """Sample only this stream; unavailable mpv properties remain unknown."""
+        if self._released or self.player is None or self._media is None:
+            return {'state': 'idle'}
+        info = {'state': 'paused' if self.paused else self.state}
+        parsed = urlsplit(self.url)
+        info['host'] = parsed.hostname or ('本地文件' if parsed.scheme in ('', 'file') or len(parsed.scheme) == 1 else '')
+        if self.state in ('connecting', 'error'):
+            return info
+        info.update({key: self._prop(prop) for key, prop in (
+            ('format', 'file-format'), ('video', 'video-params'), ('fps', 'container-fps'),
+            ('video_codec', 'video-format'), ('decoder', 'hwdec-current'),
+            ('audio', 'audio-params'), ('audio_codec', 'audio-codec-name'),
+            ('audio_bitrate', 'audio-bitrate'), ('video_bitrate', 'video-bitrate'),
+            ('buffer_seconds', 'demuxer-cache-duration'), ('decode_fps', 'estimated-vf-fps'),
+            ('decoder_drops', 'decoder-frame-drop-count'), ('display_drops', 'frame-drop-count'))})
+        version = self._prop('mpv-version')
+        info['core'] = f'libmpv · {version}' if version else 'libmpv'
+        metadata = self._prop('metadata', {}) or {}
+        info['encoder'] = next((value for key, value in metadata.items() if key.lower() == 'encoder'), None)
+        cache = self._prop('demuxer-cache-state', {}) or {}
+        info['buffer_bytes'] = cache.get('fw-bytes')
+        if self._hls_proxy is not None:
+            speed, samples = self._hls_proxy.network_speed()
+            info['download_bps'] = speed if samples else None
+            info['download_estimated'] = True
+        elif self._prop('demuxer-via-network', False):
+            speed = self._prop('cache-speed')
+            info['download_bps'] = speed * 8 if speed is not None else None
+        return info
+
     @property
     def actual_codec(self) -> str:
         codec = self._prop("video-format", "")
