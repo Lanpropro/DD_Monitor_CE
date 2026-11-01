@@ -111,6 +111,47 @@ class DragLifecycleTests(unittest.TestCase):
         QTest.mouseClick(item, Qt.LeftButton)
         self.assertEqual(clicked.call_count, 1)
 
+    def test_release_hides_transparent_ghost_before_final_hit_test(self):
+        self.start()
+        ghost = self.session.ghost
+        point = self.target.mapToGlobal(QPoint(20, 20))
+        self.assertTrue(ghost.isVisible())
+        # Qt widgetAt tries a one-pixel hole in a transparent top-level's mask.
+        # Model a native/DPI hit that still reports that top-level through the hole.
+        with patch.object(QApplication, 'widgetAt', side_effect=lambda _p:
+                          None if ghost.isVisible() else self.target):
+            self.assertIsNone(QApplication.widgetAt(point))
+            self.release(point)
+        self.assertEqual(self.target.received, ['0'])
+
+    def test_release_does_not_reuse_hover_target_when_final_hit_is_outside(self):
+        self.start()
+        self.hit = self.target
+        self.session.position = self.target.mapToGlobal(QPoint(20, 20))
+        self.session._tick()
+        self.assertIs(self.session.target, self.target)
+        self.hit = None
+        self.release(self.window.mapToGlobal(QPoint(-50, -50)))
+        self.assertEqual(self.target.received, [])
+
+    def test_finish_reports_acceptance_without_playing_on_rejected_drop(self):
+        for hit, accepted in ((self.target, True), (None, False)):
+            self.start()
+            self.hit = hit
+            self.session.position = self.target.mapToGlobal(QPoint(20, 20))
+            with self.assertLogs('ddm.sidebar_drag', level='INFO') as logs:
+                self.assertIs(self.session.finish(), accepted)
+            self.assertIn(f'accepted={accepted}', logs.output[0])
+        self.assertEqual(self.target.received, ['0'])
+
+        self.start()
+        self.hit = self.target
+        self.session.position = self.target.mapToGlobal(QPoint(20, 20))
+        with patch.object(self.target, 'dropEvent', side_effect=lambda event: event.ignore()):
+            self.assertFalse(self.session.finish())
+        self.assertEqual(self.target.received, ['0'])
+        self.assertFalse(self.session.finish())
+
     def test_reorder_uses_existing_drop_logic(self):
         self.start()
         self.hit = self.sidebar.list_box
