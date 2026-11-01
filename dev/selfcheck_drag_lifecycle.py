@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ['DDM_NO_SAVE'] = '1'
@@ -94,6 +95,7 @@ class DragLifecycleTests(unittest.TestCase):
         QApplication.sendEvent(self.window, event)
         self.assertFalse(self.session.active)
         self.assertFalse(self.session.timer.isActive())
+        self.assertFalse(self.session.visual_timer.isActive())
         self.assertIsNone(self.session.ghost)
         self.assertIsNone(QWidget.mouseGrabber())
         self.assertTrue(all(not i.isHidden() for i in self.sidebar.visible_items()))
@@ -164,9 +166,28 @@ class DragLifecycleTests(unittest.TestCase):
             self.assertEqual(self.target.moves, 0)
             self.session._tick()
             self.assertEqual(self.target.moves, 1)
+            self.session._move_ghost()
             self.assertEqual(self.session.ghost.pos(), self.session.position-self.session.hotspot)
         self.release(self.target.mapToGlobal(QPoint(120, 10)))
         self.assertEqual(self.target.received, ['0'])
+
+    def test_visual_updates_follow_screen_without_extra_target_work(self):
+        self.start()
+        self.hit = self.target
+        self.session.position = self.target.mapToGlobal(QPoint(20,20))
+        for rate, expected in ((60,16),(120,8),(144,6),(240,4)):
+            self.session._set_frame_interval(SimpleNamespace(refreshRate=lambda:rate))
+            self.assertEqual(self.session.visual_timer.interval(), expected)
+            self.assertEqual(self.session.timer.interval(), 16)
+        self.assertEqual(self.session.visual_timer.timerType(), Qt.PreciseTimer)
+        for x in range(100):
+            self.session.position += QPoint(1,0)
+            self.session._move_ghost()
+        self.assertEqual(self.target.moves, 0)
+        self.assertEqual(self.session.ghost.pos(), self.session.position-self.session.hotspot)
+        self.session.cancel()
+        self.assertFalse(self.session.visual_timer.isActive())
+        self.assertFalse(self.session.timer.isActive())
 
     def test_cancel_escape_deactivate_close_and_lost_capture(self):
         for kind in ('escape', 'deactivate', 'hide', 'close', 'ungrab', 'missing-button'):
@@ -185,6 +206,7 @@ class DragLifecycleTests(unittest.TestCase):
                     QApplication.sendEvent(self.window, QEvent(event))
                 self.assertFalse(self.session.active)
                 self.assertFalse(self.session.timer.isActive())
+                self.assertFalse(self.session.visual_timer.isActive())
                 self.assertEqual(self.target.received, [])
                 self.assertIsNone(QWidget.mouseGrabber())
                 self.assertFalse(self.sidebar.items()[0].isHidden())
@@ -196,6 +218,7 @@ class DragLifecycleTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertFalse(self.session.active)
         self.assertIsNone(QWidget.mouseGrabber())
+        self.assertFalse(self.session.visual_timer.isActive())
 
     def test_exception_in_target_restores_capture_and_placeholder(self):
         self.start()
@@ -205,6 +228,7 @@ class DragLifecycleTests(unittest.TestCase):
         self.assertFalse(self.session.active)
         self.assertIsNone(QWidget.mouseGrabber())
         self.assertFalse(self.session.timer.isActive())
+        self.assertFalse(self.session.visual_timer.isActive())
         self.assertFalse(self.sidebar.items()[0].isHidden())
 
     def test_outside_drop_cancels_without_changing_order(self):

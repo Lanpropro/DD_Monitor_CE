@@ -10,7 +10,7 @@ FOLDER_MIME = 'application/x-ddm-folder'
 
 
 class SidebarDrag(QObject):
-    """不用原生拖放循环；移动合并到每 16 ms 一次，松手立即结算。"""
+    """拖影随屏幕刷新率移动；落点每 16 ms 检查一次，松手立即结算。"""
 
     def __init__(self, sidebar):
         super().__init__(sidebar)
@@ -23,6 +23,9 @@ class SidebarDrag(QObject):
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
+        self.visual_timer = QTimer(self)
+        self.visual_timer.setTimerType(Qt.PreciseTimer)
+        self.visual_timer.timeout.connect(self._move_ghost)
 
     @property
     def active(self):
@@ -53,9 +56,13 @@ class SidebarDrag(QObject):
                 self.sidebar.show_drop_indicator(rid, source._index_in_host())
             self.ghost.move(self.position - self.hotspot)
             self.ghost.show()
+            handle = self.ghost.windowHandle()
+            self._set_frame_interval(handle.screen())
+            handle.screenChanged.connect(self._set_frame_interval)
             self.owner.grabMouse()
             self.owner.grabKeyboard()
             self.timer.start()
+            self.visual_timer.start()
         except BaseException:
             self.cancel()
             raise
@@ -110,11 +117,18 @@ class SidebarDrag(QObject):
                    area.verticalScrollBar().value())
             if key != self._last_update:
                 self._last_update = key
-                self.ghost.move(self.position - self.hotspot)
                 self._update_target()
         except BaseException:
             self.cancel()
             raise
+
+    def _set_frame_interval(self, screen):
+        rate = max(60, screen.refreshRate() if screen is not None else 60)
+        self.visual_timer.setInterval(max(1, int(1000 / rate)))
+
+    def _move_ghost(self):
+        if self.active:
+            self.ghost.move(self.position - self.hotspot)
 
     def _event(self, kind, target):
         point = target.mapFromGlobal(self.position)
@@ -174,6 +188,7 @@ class SidebarDrag(QObject):
 
     def _release_input(self):
         self.timer.stop()
+        self.visual_timer.stop()
         QApplication.instance().removeEventFilter(self)
         if QWidget.mouseGrabber() is self.owner:
             self.owner.releaseMouse()

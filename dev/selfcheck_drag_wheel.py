@@ -4,6 +4,7 @@ import ctypes
 from ctypes import wintypes
 import json
 import os
+import math
 from pathlib import Path
 import shutil
 import statistics
@@ -15,8 +16,8 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt, QTimer
-from PySide6.QtGui import QCursor
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
+from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.player import TilePlayer
@@ -24,9 +25,71 @@ from ddm.widgets import Sidebar, Tile
 from selfcheck_mpv import mta_lifetime, pump, ready
 
 
+def measure_motion(app, window, sidebar, video, player):
+    """Qt window-position callbacks, not DWM presentation FPS; synthetic 1 ms input."""
+    results = []
+    for region in (video, sidebar.scroll.viewport()):
+        item = sidebar.items()[0]
+        QTest.mousePress(item, Qt.LeftButton, pos=QPoint(5,5))
+        QTest.mouseMove(item, QPoint(35,35))
+        session = sidebar.drag_session
+        assert session.active
+        moves, target_calls = [], []
+        class ObserveMove(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Move:
+                    moves.append(time.perf_counter())
+                return False
+        observer = ObserveMove()
+        session.ghost.installEventFilter(observer)
+        update_target = session._update_target
+        def measured_target():
+            began = time.perf_counter()
+            update_target()
+            target_calls.append((time.perf_counter()-began)*1000)
+        inputs = []
+        started = time.perf_counter()
+        def input_move():
+            elapsed = time.perf_counter()-started
+            point = region.mapToGlobal(QPoint(region.width()//2 + round(40*math.sin(elapsed*5)),
+                                             region.height()//2 + round(60*math.sin(elapsed*7))))
+            event = QMouseEvent(QEvent.MouseMove, QPointF(window.mapFromGlobal(point)),
+                                QPointF(point), Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+            QApplication.sendEvent(window, event)
+            inputs.append(time.perf_counter())
+        timer = QTimer()
+        timer.setTimerType(Qt.PreciseTimer)
+        timer.setInterval(1)
+        timer.timeout.connect(input_move)
+        drops = player._prop('frame-drop-count',0)
+        cpu = time.process_time()
+        try:
+            with patch.object(session, '_update_target', side_effect=measured_target):
+                timer.start()
+                pump(app,2)
+                timer.stop()
+            seconds = time.perf_counter()-started
+            intervals = sorted((b-a)*1000 for a,b in zip(moves,moves[1:]))
+            assert intervals, 'Drag ghost never moved'
+            results.append(dict(region='video' if region is video else 'list',
+                screen_hz=window.screen().refreshRate(),input_events=len(inputs),
+                position_updates=len(moves),position_updates_per_second=round(len(moves)/seconds,1),
+                move_gap_median_ms=round(statistics.median(intervals),3),
+                move_gap_p95_ms=round(intervals[min(len(intervals)-1,round(len(intervals)*.95))],3),
+                target_calls=len(target_calls),target_total_ms=round(sum(target_calls),3),
+                cpu_seconds=round(time.process_time()-cpu,3),
+                video_drops=player._prop('frame-drop-count',0)-drops))
+        finally:
+            timer.stop()
+            session.cancel()
+            pump(app,.2)
+    print(json.dumps({'motion':results,'scope':'Qt move callbacks, not DWM presentation FPS'}),flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--physical', action='store_true', help='requires access to the interactive Windows desktop')
+    parser.add_argument('--motion', action='store_true', help='measure continuous synthetic input over video and list')
     args = parser.parse_args()
     with mta_lifetime():
         app = QApplication([])
@@ -104,6 +167,8 @@ def main():
                     heartbeat_max_ms=round(max((b-a)*1000 for a,b in zip(ticks,ticks[1:])),3),
                     wall_seconds=round(time.perf_counter()-started,3),
                     cpu_seconds=round(time.process_time()-cpu_start,3),pass_native_video_drop=True)),flush=True)
+                if args.motion:
+                    measure_motion(app,window,sidebar,video,player)
                 if not args.physical:
                     return
                 # Exercise Windows capture and release using actual mouse messages,
