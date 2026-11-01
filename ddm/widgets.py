@@ -1290,7 +1290,9 @@ class DanmakuPanel(QFrame):
         box = self.header.layout()
         margins = box.contentsMargins()
         minimum = self.font_slider.minimumWidth() + self.font_value.width() + 6
-        self.count.setFixedWidth(min(self.count.sizeHint().width(), max(48, self.width() // 3)))
+        count_width = (self.count.fontMetrics().horizontalAdvance(self.count.text()) + 8
+                       if self.count.property("state") == "connected" else self.count.sizeHint().width())
+        self.count.setFixedWidth(min(count_width, max(48, self.width() // 3)))
         used = (margins.left() + margins.right() + 4 * box.spacing()
                 + sum(box.itemAt(i).widget().sizeHint().width() for i in (0, 1))
                 + self.count.width())

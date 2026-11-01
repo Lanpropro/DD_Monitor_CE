@@ -1330,6 +1330,7 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuCount[state="connected"] {{
     color: #6bd8ff;
     background: rgba(0, 174, 236, 0.16);
+    padding: 0 4px;
 }}
 #DanmakuCount[state="connecting"] {{
     color: {WARNING};

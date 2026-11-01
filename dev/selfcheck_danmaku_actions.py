@@ -54,6 +54,18 @@ class ActionsTests(unittest.TestCase):
         self.wall.deleteLater()
         APP.processEvents()
 
+    def test_connected_badge_fits_text_with_small_padding(self):
+        panel = self.wall.danmaku
+        for width in (300, 600):
+            panel.resize(width, 500)
+            for status in ('连接中…', '已连接', '未接入', '已连接'):
+                panel.set_status(status)
+                APP.processEvents()
+            badge = panel.count
+            text_width = badge.fontMetrics().horizontalAdvance(badge.text())
+            self.assertGreaterEqual(badge.width(), text_width + 8)
+            self.assertLessEqual(badge.width(), text_width + 10)
+
     def choose(self, index, before=None):
         class TestMenu(danmaku_actions.CommentToolbar):
             def exec(menu, _position):
