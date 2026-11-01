@@ -138,7 +138,9 @@ def check_super_chat_overlay(app):
         overlay.resize(1600, 900)
         app.processEvents()
         sc = overlay.super_chat_overlay
-        assert sc.width() <= 342 and sc.height() <= 210
+        assert sc.width() <= 342 and sc.height() <= overlay.height()
+        rows = sc.card_rects()
+        assert len(rows) == len(chats) and rows[0].bottom() < rows[1].top()
         card = sc.card_rects()[0].toAlignedRect()
         assert overlay.rect().contains(card)
         assert sc.geometry().contains(card.translated(overlay.pos()))
@@ -675,8 +677,15 @@ def check_settings(app):
             'Global danmaku settings expose the SC switch, not the removed scale switch'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
+        page.super_chat_collapse_delay.setValue(12)
+        page.super_chat_scale.setValue(145)
         assert page.values()['super_chat_enabled'] is False
         assert page.values()['super_chat_opacity'] == 35
+        assert page.values()['super_chat_collapse_delay'] == 12
+        assert page.values()['super_chat_scale'] == 145
+        page.reset()
+        assert page.values()['super_chat_collapse_delay'] == 7
+        assert page.values()['super_chat_scale'] == 100
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()

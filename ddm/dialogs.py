@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .super_chat import SuperChatPlacementPreview
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
@@ -685,13 +686,61 @@ class DanmakuSettingsPage(QWidget):
         grid.addWidget(QLabel('SC 不透明度'), 4, 0)
         self.super_chat_opacity = QSlider(Qt.Horizontal)
         self.super_chat_opacity.setRange(10, 100)
+        self.super_chat_opacity.setMaximumWidth(240)
         self.super_chat_opacity.setValue(int(settings.get('super_chat_opacity', 80)))
         sc_value = QLabel(f'{self.super_chat_opacity.value()}%')
         self.super_chat_opacity.valueChanged.connect(lambda value: sc_value.setText(f'{value}%'))
         sc_row = QHBoxLayout()
         sc_row.addWidget(self.super_chat_opacity, 1)
         sc_row.addWidget(sc_value)
+        sc_row.addStretch(1)
         grid.addLayout(sc_row, 4, 1)
+
+        self.super_chat_collapse_delay = QSpinBox()
+        self.super_chat_collapse_delay.setRange(1, 60)
+        self.super_chat_collapse_delay.setMaximumWidth(160)
+        self.super_chat_collapse_delay.setValue(int(settings.get('super_chat_collapse_delay', 7)))
+        grid.addWidget(QLabel('SC 自动折叠'), 5, 0)
+        delay_row = QHBoxLayout()
+        delay_row.setSpacing(8)
+        delay_row.addWidget(self.super_chat_collapse_delay)
+        self.super_chat_collapse_unit = QLabel('秒')
+        delay_row.addWidget(self.super_chat_collapse_unit)
+        delay_row.addStretch(1)
+        grid.addLayout(delay_row, 5, 1)
+        self.super_chat_scale = QSlider(Qt.Horizontal)
+        self.super_chat_scale.setRange(75, 200)
+        self.super_chat_scale.setMaximumWidth(240)
+        self.super_chat_scale.setValue(int(settings.get('super_chat_scale', 100)))
+        scale_value = QLabel(f'{self.super_chat_scale.value()}%')
+        self.super_chat_scale.valueChanged.connect(lambda value: scale_value.setText(f'{value}%'))
+        scale_row = QHBoxLayout()
+        scale_row.addWidget(self.super_chat_scale, 1)
+        scale_row.addWidget(scale_value)
+        scale_row.addStretch(1)
+        grid.addWidget(QLabel('SC 大小'), 6, 0)
+        grid.addLayout(scale_row, 6, 1)
+        self.super_chat_placement = SuperChatPlacementPreview()
+        self.super_chat_placement.apply_settings(settings)
+        self.super_chat_opacity.valueChanged.connect(self.super_chat_placement.set_opacity)
+        self.super_chat_placement.changed.connect(self._sc_placement_changed)
+        self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
+        grid.addWidget(QLabel('SC 位置与大小（拖动摆放／右下角缩放）'), 7, 0, 1, 2)
+        self.super_chat_preview_layout = QButtonGroup(self)
+        preview_buttons = QHBoxLayout()
+        preview_buttons.setSpacing(8)
+        for index, text in enumerate(('画面布局', '弹幕栏布局')):
+            button = QPushButton(text)
+            button.setObjectName('AppearanceChoice')
+            button.setCheckable(True)
+            button.setMinimumHeight(36)
+            button.setCursor(Qt.PointingHandCursor)
+            self.super_chat_preview_layout.addButton(button, index)
+            preview_buttons.addWidget(button)
+        self.super_chat_preview_layout.button(0).setChecked(True)
+        self.super_chat_preview_layout.idClicked.connect(self.super_chat_placement.set_layout_mode)
+        grid.addLayout(preview_buttons, 8, 0, 1, 2)
+        grid.addWidget(self.super_chat_placement, 9, 0, 1, 2)
 
         layout.addLayout(grid)
 
@@ -715,6 +764,13 @@ class DanmakuSettingsPage(QWidget):
         layout.addWidget(self.block_edit)
         layout.addStretch(1)
 
+    def _sc_placement_changed(self, values):
+        self.super_chat_scale.setValue(values['super_chat_scale'])
+
+    def _sc_scale_changed(self, value):
+        self.super_chat_placement.scale = value
+        self.super_chat_placement.update()
+
     def reset(self) -> None:
         from . import config as config_module
 
@@ -723,6 +779,9 @@ class DanmakuSettingsPage(QWidget):
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
+        self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
+        self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
+        self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
@@ -737,6 +796,8 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_block_words": [word for word in words if word],
             "super_chat_enabled": self.super_chat_enabled.isChecked(),
             "super_chat_opacity": self.super_chat_opacity.value(),
+            "super_chat_collapse_delay": self.super_chat_collapse_delay.value(),
+            **self.super_chat_placement.values(),
         }
 
 

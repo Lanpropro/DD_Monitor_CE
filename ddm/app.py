@@ -870,8 +870,29 @@ class MainWindow(QMainWindow):
     def _open_sidebar_settings(self):
         if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
             return self.open_settings()
-        self._get_settings_process().open(self.settings, self.shortcuts)
+        self._get_settings_process().open(self.settings, self.shortcuts, self._sc_preview_context())
         return False
+
+    def _sc_preview_context(self):
+        def surface(widget, events, presentation):
+            cards = [{'message': event.get('message') or event.get('text') or '',
+                      'collapsed': presentation.is_collapsed(event)} for event in events]
+            return {'size': [max(1, widget.width()), max(1, widget.height())],
+                    'cards': cards or [{'message': '', 'collapsed': False}]}
+
+        panel = self.wall.danmaku
+        context = {'panel': surface(panel.body.viewport(), panel.super_chats._events,
+                                    panel.super_chats.presentation)}
+        viewport = panel.body.viewport()
+        origin = viewport.mapTo(panel, QPoint())
+        context['panel'].update(outer_size=[max(1, panel.width()), max(1, panel.height())],
+                                viewport_rect=[origin.x(), origin.y(), viewport.width(), viewport.height()])
+        tile = self._fullscreen_tile or self.wall.danmaku_target_tile()
+        if tile is not None:
+            video = tile.video_danmaku
+            context['video'] = surface(video, video.super_chat_overlay.chats,
+                                       video.super_chat_overlay.presentation)
+        return context
 
     def _get_settings_process(self):
         if getattr(self, "_settings_process", None) is None:
@@ -937,7 +958,9 @@ class MainWindow(QMainWindow):
                                 plugin_manager=self.plugins, update_page_factory=self._get_update_page)
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
-            if key == 'plugins':
+            if key == 'danmaku':
+                widget.super_chat_placement.set_preview_context(self._sc_preview_context())
+            elif key == 'plugins':
                 widget.store_page.offersChanged.connect(self._set_plugin_updates)
                 if self._plugin_catalog_offers:
                     widget.store_page._catalog_ready(self._plugin_catalog_offers)
@@ -2961,6 +2984,7 @@ class MainWindow(QMainWindow):
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.video_danmaku.apply_settings(self.settings)
+        tile.video_danmaku.superChatSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
         tile.videoDanmakuSettingsChanged.connect(self._on_video_danmaku_settings_changed)
