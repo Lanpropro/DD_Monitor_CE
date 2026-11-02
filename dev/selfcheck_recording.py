@@ -271,7 +271,7 @@ def check_replay_indicator(app):
             theme.apply(mode)
             app.setStyleSheet(theme.qss())
             for width in (26, 64):
-                button = RecordingButton('')
+                button = RecordingButton('●' if width == 26 else '● REC')
                 button.setObjectName('TileCtrl')
                 button.setProperty('tileButton', True)
                 button.setProperty('replayOnly', True)
@@ -279,14 +279,11 @@ def check_replay_indicator(app):
                 button.show()
                 app.processEvents()
                 image = button.grab().toImage()
-                red_columns = []
-                for x in range(image.width()):
-                    if any((color := image.pixelColor(x, y)).red() > 170 and
-                           color.green() < 140 and color.blue() < 140 for y in range(image.height())):
-                        red_columns.append(x)
-                groups = sum(index == 0 or x != red_columns[index-1] + 1
-                             for index, x in enumerate(red_columns))
-                assert groups == 2, (mode, width, red_columns)  # Separate red dot and replay symbol.
+                colors = [image.pixelColor(x, y) for x in range(image.width()) for y in range(image.height())]
+                assert any(color.blue() > 140 and color.green() > 80 and color.red() < 100
+                           for color in colors), (mode, width)
+                assert not any(color.red() > 170 and color.green() < 140 and color.blue() < 140
+                               for color in colors), (mode, width)
                 button.close()
     finally:
         theme.apply(previous)
@@ -297,7 +294,7 @@ def main():
     app = QApplication(sys.argv)
     check_replay_indicator(app)
     if '--indicator-only' in sys.argv:
-        print('PASS: red replay symbol and separate recording dot in both themes and button widths')
+        print('PASS: blue REC indicator in both themes and button widths')
         return
     check_recording_source_isolation()
     assert safe_name('A:/\\*?<>|"B').startswith("A_")
@@ -669,7 +666,7 @@ def main():
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
-        assert tile.recording_button.text() == ''
+        assert tile.recording_button.text() == '● REC'
         assert tile.recording_button.property('replayOnly') is True
         assert '即时回放' in tile.recording_button.accessibleName()
         assert tile.quality == before_quality and tile not in window._pending_capture

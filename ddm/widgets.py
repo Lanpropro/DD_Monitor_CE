@@ -297,24 +297,9 @@ class RecordingButton(TileButton):
             self._paint_button(painter, option)
         else:
             self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        color = QColor(theme.ERROR)
-        pen = QPen(color, 1.6)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        center = QRectF(self.rect()).center() + QPointF(3, 0)
-        radius = 6.8
-        painter.drawArc(QRectF(center.x()-radius, center.y()-radius, radius*2, radius*2),
-                        50*16, 260*16)
-        painter.setBrush(color)
-        _draw_arrow_head(painter, center, radius, 310, 1, 2.2)
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(center.x()-11, center.y()), 2.1, 2.1)
-        painter.drawPolygon(QPolygonF([QPointF(center.x()-2, center.y()-3),
-                                      QPointF(center.x()+3, center.y()),
-                                      QPointF(center.x()-2, center.y()+3)]))
+        painter.setPen(QColor(theme.ACCENT))
+        painter.setFont(self.font())
+        painter.drawText(self.rect(), Qt.AlignCenter, self.text())
 
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
@@ -6258,8 +6243,8 @@ class Tile(QFrame):
         self.recording_button.setAccessibleName(
             '即时回放缓存中；点击开始完整录制' if state == 'cache' else
             '停止录制这一路' if state == 'record' else '开始录制这一路')
-        labels = ({"record": "●", "cache": "", "": "●"} if narrow else
-                  {"record": "● REC", "cache": "", "": "● 录制"})
+        labels = ({"record": "●", "cache": "●", "": "●"} if narrow else
+                  {"record": "● REC", "cache": "● REC", "": "● 录制"})
         self.recording_button.setFixedWidth(26 if narrow else 64)
         self.recording_button.setText(labels.get(state, "●"))
         self.recording_button.update()
