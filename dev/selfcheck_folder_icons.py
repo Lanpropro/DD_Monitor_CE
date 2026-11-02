@@ -94,8 +94,8 @@ def main():
             with patch.object(FolderIconDialog, 'exec', save):
                 action.trigger()
             assert folder['icon'] == {'type': 'builtin', 'name': 'heart', 'color': 'pink'}
-            assert folder['name'] == (original_name if fid == '__unclassified__'
-                                      else original_name + ' renamed')
+            assert not dialog.name_edit.isReadOnly()
+            assert folder['name'] == original_name + ' renamed'
             assert folder['name'] in button.toolTip()
             assert changes and button.iconSize().width() == 18
             assert normalize_folders(sidebar.folder_state()) == sidebar.folder_state()

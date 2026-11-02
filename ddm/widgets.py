@@ -2827,10 +2827,8 @@ class NavItem(QFrame):
             menu.addAction(f"{prefix}移到最后").triggered.connect(
                 lambda _checked=False: self.drop_host.move_sort_selection(room_id, False))
             folders = menu.addMenu("移入文件夹")
-            folders.addAction("移出文件夹").triggered.connect(
-                lambda: self.drop_host.move_to_folder(self.drop_host.dragged_room_ids(room_id), ""))
             for folder in self.drop_host.folders:
-                if folder["type"] != "normal":
+                if folder["type"] == "smart":
                     continue
                 folders.addAction(folder["name"]).triggered.connect(
                     lambda _checked=False, fid=folder["id"]:
@@ -2884,7 +2882,7 @@ class SmartFolderDialog(QDialog):
                 self.sort_combo.setItemData(self.sort_combo.count() - 1, SORT_TIP, Qt.ToolTipRole)
         self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(folder.get("sort", "custom"))))
         form.addRow("文件夹名称", self.name_edit)
-        sources = rule.get("sources", [follow_folders.UNCLASSIFIED] if folder else [])
+        sources = rule.get("sources", [sidebar.default_folder()["id"]] if folder else [])
         self.source_button = QPushButton()
         self.source_button.setObjectName("IconButton")
         self.source_menu = QMenu(self.source_button)
@@ -3191,9 +3189,14 @@ class FollowFolderButton(QToolButton):
         if folder["type"] == "smart":
             menu.addAction("编辑智能文件夹…").triggered.connect(
                 lambda: self.sidebar.prompt_smart_folder(self.folder_id))
-        elif folder["type"] == "normal":
+        else:
             menu.addAction("重命名文件夹…").triggered.connect(
                 self.begin_rename)
+            default = menu.addAction("设为默认文件夹")
+            default.setCheckable(True)
+            default.setChecked(folder["type"] == "unclassified")
+            default.setEnabled(folder["type"] != "unclassified")
+            default.triggered.connect(lambda: self.sidebar.set_default_folder(self.folder_id))
         menu.addAction("修改图标…").triggered.connect(self._edit_icon)
         index = self.sidebar.folders.index(folder)
         up = menu.addAction("文件夹上移")
@@ -3202,9 +3205,12 @@ class FollowFolderButton(QToolButton):
         down = menu.addAction("文件夹下移")
         down.setEnabled(index < len(self.sidebar.folders) - 1)
         down.triggered.connect(lambda: self.sidebar.move_folder(self.folder_id, 1))
-        if folder["type"] != "unclassified":
-            menu.addAction("删除文件夹（保留关注）").triggered.connect(
-                lambda: self.sidebar.delete_folder(self.folder_id))
+        delete = menu.addAction("删除文件夹（保留关注）")
+        delete.setEnabled(folder["type"] != "unclassified" or any(
+            item["type"] == "normal" for item in self.sidebar.folders))
+        if not delete.isEnabled():
+            delete.setToolTip("至少保留一个普通文件夹，用于接收新增关注")
+        delete.triggered.connect(lambda: self.sidebar.delete_folder(self.folder_id))
         return menu
 
     def _edit_icon(self):
@@ -3212,8 +3218,7 @@ class FollowFolderButton(QToolButton):
         dialog = FolderIconDialog(folder, self, existing_names=(
             item['name'] for item in self.sidebar.folders if item['id'] != self.folder_id))
         if dialog.exec() == QDialog.Accepted:
-            if folder['type'] != 'unclassified':
-                folder['name'] = dialog.result_name
+            folder['name'] = dialog.result_name
             if dialog.result_icon is None:
                 folder.pop('icon', None)
             else:
@@ -4257,6 +4262,22 @@ class Sidebar(QFrame):
     def get_folder(self, folder_id: str):
         return next((folder for folder in self.folders if folder["id"] == folder_id), None)
 
+    def default_folder(self):
+        return follow_folders.default_folder(self.folders)
+
+    def set_default_folder(self, folder_id, *, notify=True):
+        target = self.get_folder(folder_id)
+        if target is None or target["type"] != "normal":
+            return
+        previous = self.default_folder()
+        assigned = {rid for folder in self.folders if folder["type"] != "smart"
+                    for rid in folder["rooms"]}
+        previous["rooms"].extend(str(room["room_id"]) for room in self.rooms()
+                                 if str(room["room_id"]) not in assigned)
+        previous["type"] = "normal"
+        target["type"] = "unclassified"
+        self._refresh_folders(notify=notify)
+
     def folder_for(self, room_id: str) -> str:
         return self._folder_assignments.get(room_id) or next(
             (folder["id"] for folder in self.folders if room_id in folder["rooms"]), "")
@@ -4276,7 +4297,9 @@ class Sidebar(QFrame):
             folder["rule"] = rule
         if icon is not None:
             folder['icon'] = icon
-        index = self.folders.index(self.get_folder(follow_folders.UNCLASSIFIED))
+        index = self.folders.index(self.default_folder())
+        if rule is not None:
+            folder["rule"] = dict(rule, sources=rule.get("sources", [self.default_folder()["id"]]))
         self.folders.insert(index, follow_folders.normalize_folders([folder])[0])
         self._refresh_folders()
         return folder_id
@@ -4309,8 +4332,11 @@ class Sidebar(QFrame):
         self._refresh_folders()
 
     def delete_folder(self, folder_id: str) -> None:
-        if folder_id == follow_folders.UNCLASSIFIED:
-            return
+        if folder_id == self.default_folder()["id"]:
+            replacement = next((folder for folder in self.folders if folder["type"] == "normal"), None)
+            if replacement is None:
+                return
+            self.set_default_folder(replacement["id"], notify=False)
         self.folders = [folder for folder in self.folders if folder["id"] != folder_id]
         self._refresh_folders()
 
@@ -4323,7 +4349,7 @@ class Sidebar(QFrame):
                 return
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
-        target = self.get_folder(folder_id or follow_folders.UNCLASSIFIED)
+        target = self.get_folder(folder_id or self.default_folder()["id"])
         if target is None or target["type"] == "smart":
             return
         known = {str(item.room.get("room_id")) for item in self._items}
@@ -4507,8 +4533,7 @@ class Sidebar(QFrame):
             search_match = bool(members) if copies else any(
                 self.folder_for(str(item.room.get("room_id"))) == folder["id"]
                 and self.matches(item, self.filter_text.split()) for item in self._items)
-            button.setVisible((folder["type"] != "unclassified" or count > 0)
-                              and (not self.filter_text or search_match))
+            button.setVisible(not self.filter_text or search_match)
             if not button.isHidden():
                 entries.append(button)
                 entries.extend(None if dragging_ids and str(item.room.get("room_id")) in dragging_ids
@@ -5565,7 +5590,7 @@ class Sidebar(QFrame):
             if folder["id"] in changed_folders:
                 self._remember_folder_order(folder["id"])
                 folder["sort"] = "custom"
-        self.sort_mode = self.get_folder(follow_folders.UNCLASSIFIED)["sort"]
+        self.sort_mode = self.default_folder()["sort"]
         self._sync_watch_history_mode()
         self.list_box.relayout(animate=True)
         self.refresh_strip()
@@ -5611,8 +5636,9 @@ class Sidebar(QFrame):
         menu.addAction("固定当前显示顺序").triggered.connect(
             lambda: self.freeze_current_order(folder["id"]))
 
-    def freeze_current_order(self, folder_id=follow_folders.UNCLASSIFIED) -> None:
+    def freeze_current_order(self, folder_id="") -> None:
         """把当前看到的顺序保存为自定义顺序。"""
+        folder_id = folder_id or self.default_folder()["id"]
         self._remember_folder_order(folder_id)
         self.set_folder_sort(folder_id, "custom")
 
@@ -5637,7 +5663,7 @@ class Sidebar(QFrame):
         if mode not in dict(self.SORT_MODES):
             mode = "custom"
         self.sort_mode = mode
-        self.set_folder_sort(follow_folders.UNCLASSIFIED, mode, notify=False)
+        self.set_folder_sort(self.default_folder()["id"], mode, notify=False)
         if notify:
             self.sortChanged.emit(mode)
 
@@ -5664,7 +5690,7 @@ class Sidebar(QFrame):
 
     def resort(self, animate: bool = False, *, duration=150, revealing=()) -> None:
         """每个文件夹独立排序，置顶只作用于所在文件夹。"""
-        self.sort_mode = self.get_folder(follow_folders.UNCLASSIFIED)["sort"]
+        self.sort_mode = self.default_folder()["sort"]
         self._folder_assignments = follow_folders.assign_folders(
             self.rooms(), self.folders, self._folder_pending)
         pinned_ids = list(self.pinned)

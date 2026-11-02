@@ -95,15 +95,15 @@ def main():
     assert ids(sidebar, manual) == ["1", "2"]
     sidebar.toggle_pin(entries["2"].room)
     assert ids(sidebar, manual)[0] == "2" and ids(sidebar, live) == before[0]
-    # 全部归类后隐藏未分类；删除普通文件夹不删关注，并交由智能规则接收。
+    # 默认文件夹为空也保留；删除普通文件夹不删关注，并交由智能规则接收。
     sidebar.move_to_folder(["douyu:x"], manual)
-    assert unclassified.isHidden()
+    assert not unclassified.isHidden()
     sidebar.delete_folder(manual)
     assert sidebar.folder_for("2") == live and sidebar.folder_for("1") == groups.UNCLASSIFIED
     assert not unclassified.isHidden() and len(sidebar.items()) == 5
     # 多条智能规则匹配时只出现一次；文件夹顺序决定优先级。
     all_platforms = sidebar.create_folder("全部平台", rule={"status": "any", "platforms": []})
-    assert unclassified.isHidden()
+    assert not unclassified.isHidden()
     while sidebar.folders[0]["id"] != all_platforms:
         sidebar.move_folder(all_platforms, -1)
     assert ids(sidebar, all_platforms) == ["2", "1", "huya:a", "huya:b", "douyu:x"]
@@ -162,7 +162,7 @@ def main():
         assert window.sidebar.folder_for("99") == all_platforms
         window._on_status_updated({"99": {"live": True, "viewers": "", "title": ""}})
         assert window.sidebar.folder_for("99") == all_platforms
-        assert window.sidebar._folder_buttons[groups.UNCLASSIFIED].isHidden()
+        assert not window.sidebar._folder_buttons[groups.UNCLASSIFIED].isHidden()
         saved = window.current_state()
         assert saved["follow_folders"] == snapshot
         window.close()

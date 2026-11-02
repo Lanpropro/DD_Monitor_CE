@@ -144,7 +144,7 @@ def main():
     before = order()
     sidebar.finish_folder_drag(first, sidebar.list_box.mapToGlobal(QPoint(-30, -30)))
     assert order() == before
-    # 顺序与折叠状态均可恢复，未分类为空时仍不显示。
+    # 顺序与折叠状态均可恢复，默认文件夹为空时也和普通文件夹一样显示。
     snapshot = sidebar.folder_state()
     restored = Sidebar(rooms)
     restored.set_folders(snapshot)
@@ -152,8 +152,8 @@ def main():
     assert {item.room["room_id"] for item in restored.visible_items()} == {
         item.room["room_id"] for item in sidebar.visible_items()}
     sidebar.move_to_folder(["3"], first)
-    assert sidebar._folder_buttons[UNCLASSIFIED].isHidden()
-    assert UNCLASSIFIED in order(), "隐藏的未分类仍需保留其保存的位置"
+    assert not sidebar._folder_buttons[UNCLASSIFIED].isHidden()
+    assert UNCLASSIFIED in order(), "默认文件夹保留其保存的位置"
     assert changes
     restored.close()
     sidebar.close()
