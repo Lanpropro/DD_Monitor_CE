@@ -37,12 +37,15 @@ def sync_titlebar(widget) -> None:
             or not widget.testAttribute(Qt.WA_WState_Created)
             or getattr(widget, "_fullscreen_tile", None) is not None):
         return
+    transition = getattr(widget, "_theme_transition", None)
+    light, background, text = (getattr(transition, "_titlebar_theme", None)
+                              or (theme.is_light(), theme.BG, theme.TEXT1))
     hwnd = int(widget.winId())
-    background = theme.qcolor(theme.BG)
-    text = theme.qcolor(theme.TEXT1)
+    background = theme.qcolor(background)
+    text = theme.qcolor(text)
     colorref = lambda color: color.red() | color.green() << 8 | color.blue() << 16
     # Unsupported DWM attributes are ignored by older Windows versions.
-    _dwm_set(hwnd, 20, int(not theme.is_light()))  # Immersive dark mode / buttons.
+    _dwm_set(hwnd, 20, int(not light))            # Immersive dark mode / buttons.
     _dwm_set(hwnd, 35, colorref(background))      # DWMWA_CAPTION_COLOR.
     _dwm_set(hwnd, 36, colorref(text))            # DWMWA_TEXT_COLOR.
     _dwm_set(hwnd, 34, colorref(background))      # DWMWA_BORDER_COLOR.
