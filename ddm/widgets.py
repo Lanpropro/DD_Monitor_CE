@@ -298,19 +298,20 @@ class RecordingButton(TileButton):
         else:
             self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
         painter.setRenderHint(QPainter.Antialiasing)
-        color = _icon_color(self)
+        color = QColor(theme.ERROR)
         pen = QPen(color, 1.6)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        center = QRectF(self.rect()).center()
+        center = QRectF(self.rect()).center() + QPointF(3, 0)
         radius = 6.8
         painter.drawArc(QRectF(center.x()-radius, center.y()-radius, radius*2, radius*2),
                         50*16, 260*16)
         painter.setBrush(color)
         _draw_arrow_head(painter, center, radius, 310, 1, 2.2)
         painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QPointF(center.x()-11, center.y()), 2.1, 2.1)
         painter.drawPolygon(QPolygonF([QPointF(center.x()-2, center.y()-3),
                                       QPointF(center.x()+3, center.y()),
                                       QPointF(center.x()-2, center.y()+3)]))

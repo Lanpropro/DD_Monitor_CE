@@ -262,8 +262,43 @@ def check_expired_http_source(app, root, ffmpeg):
         server.server_close()
 
 
+def check_replay_indicator(app):
+    from ddm import theme
+    from ddm.widgets import RecordingButton
+    previous = theme.mode()
+    try:
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            app.setStyleSheet(theme.qss())
+            for width in (26, 64):
+                button = RecordingButton('')
+                button.setObjectName('TileCtrl')
+                button.setProperty('tileButton', True)
+                button.setProperty('replayOnly', True)
+                button.setFixedSize(width, 26)
+                button.show()
+                app.processEvents()
+                image = button.grab().toImage()
+                red_columns = []
+                for x in range(image.width()):
+                    if any((color := image.pixelColor(x, y)).red() > 170 and
+                           color.green() < 140 and color.blue() < 140 for y in range(image.height())):
+                        red_columns.append(x)
+                groups = sum(index == 0 or x != red_columns[index-1] + 1
+                             for index, x in enumerate(red_columns))
+                assert groups == 2, (mode, width, red_columns)  # Separate red dot and replay symbol.
+                button.close()
+    finally:
+        theme.apply(previous)
+        app.setStyleSheet(theme.qss())
+
+
 def main():
     app = QApplication(sys.argv)
+    check_replay_indicator(app)
+    if '--indicator-only' in sys.argv:
+        print('PASS: red replay symbol and separate recording dot in both themes and button widths')
+        return
     check_recording_source_isolation()
     assert safe_name('A:/\\*?<>|"B').startswith("A_")
     assert all(char not in safe_name('A:/\\*?<>|"B') for char in ':/*?<>|"\\')
