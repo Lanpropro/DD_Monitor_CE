@@ -172,6 +172,36 @@ class Probe:
         self.handler.close()
 
 
+def install_theme_capture(path):
+    """Measure actual theme changes without a continuous sampler."""
+    from PySide6.QtWidgets import QApplication
+    from .theme_transition import ThemeTransition
+    from . import theme
+
+    probe = Probe(path)
+    original = ThemeTransition.change
+
+    @functools.wraps(original)
+    def change(transition, mode, *args, **kwargs):
+        if probe.stopped.is_set():
+            return original(transition, mode, *args, **kwargs)
+        profile = cProfile.Profile()
+        started = time.perf_counter()
+        profile.enable()
+        try:
+            return original(transition, mode, *args, **kwargs)
+        finally:
+            profile.disable()
+            probe.write('theme-switch', mode=theme.normalize_mode(mode),
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                functions=profile_functions(profile))
+
+    ThemeTransition.change = change
+    QApplication.instance().aboutToQuit.connect(probe.stop)
+    probe.write('start', mode='theme-switches-only')
+    return probe
+
+
 def install(path):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication

@@ -34,8 +34,6 @@ class SettingsHost(QObject):
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self.stack)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
-        self.dialog.appearanceChanged.connect(
-            lambda mode: client._send({'kind': 'host-theme', 'mode': mode}))
         self.dialog.pageCreated.connect(self._page_created)
         self.last_state = None
         self.timer = QTimer(self)

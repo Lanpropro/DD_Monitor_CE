@@ -6,6 +6,7 @@ rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 r
 setlocal
 set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
+set "DDM_THEME_CAPTURE=1"
 set "PROJ=%~dp0"
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 

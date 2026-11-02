@@ -105,6 +105,39 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn('after-stop', self.probe.calls)
         self.assertEqual([row['phase'] for row in self.records()], ['start', 'stop'])
 
+    def test_theme_capture_preserves_calls_and_bounds_function_records(self):
+        from PySide6.QtWidgets import QApplication
+        from ddm import theme_transition
+        app = QApplication.instance() or QApplication([])
+        token = object()
+
+        class Transition:
+            def change(self, mode, origin=None):
+                if mode == 'error':
+                    raise ValueError('private-theme-error')
+                return origin
+
+        path = Path(self.directory.name) / 'themes.jsonl'
+        with patch.object(theme_transition, 'ThemeTransition', Transition):
+            probe = diag.install_theme_capture(path)
+            try:
+                transition = Transition()
+                self.assertIs(transition.change('light', token), token)
+                with self.assertRaises(ValueError):
+                    transition.change('error')
+                rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+                switches = [row for row in rows if row['phase'] == 'theme-switch']
+                self.assertEqual(len(switches), 2)
+                self.assertTrue(all(0 < len(row['functions']) <= 30 for row in switches))
+                self.assertNotIn('private-theme-error', json.dumps(rows))
+                self.assertIsNone(sys.getprofile())
+                self.assertIsNone(probe.thread)
+                probe.stop()
+                transition.change('dark')
+                self.assertEqual(len(path.read_text(encoding='utf-8').splitlines()), len(rows) + 1)
+            finally:
+                probe.stop()
+
     def test_log_rotation_is_bounded(self):
         self.probe.handler.maxBytes = 300
         for index in range(30):
