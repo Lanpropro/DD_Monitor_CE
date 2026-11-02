@@ -1,6 +1,9 @@
 """Interactive bottom bar with per-pixel alpha above native video on Windows."""
 import ctypes
+import logging
+import os
 import sys
+import time
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QPoint, QTimer, Qt
@@ -15,6 +18,27 @@ class FullscreenBar(BadgeSurface):
         super().__init__(parent)
         self.setProperty('fullscreen', False)
         self._masked_labels = set()
+        self._input_trace_until = 0.0
+        self._input_trace_count = 0
+
+    def _trace_input(self, stage, watched=None, event=None):
+        if os.environ.get('DDM_FULLSCREEN_INPUT_CAPTURE') != '1' or not self.property('fullscreen'):
+            return
+        now = time.monotonic()
+        if event is not None and event.type() in (QEvent.KeyPress, QEvent.InputMethod):
+            if not self._input_trace_until:
+                self._input_trace_until = now + 20
+        if now > self._input_trace_until or self._input_trace_count >= 300:
+            return
+        self._input_trace_count += 1
+        focus = QApplication.focusWidget()
+        logging.getLogger(__name__).info(
+            'fullscreen-input stage=%s event=%s widget=%s native=%s focus=%s visible=%s pending=%s',
+            stage, event.type().name if event is not None else '',
+            type(watched).__name__ if watched is not None else '',
+            watched.testAttribute(Qt.WA_NativeWindow) if isinstance(watched, QWidget) else False,
+            type(focus).__name__ if focus is not None else '', self.isVisible(),
+            getattr(self, '_layered_paint_pending', False))
 
     def set_fullscreen(self, enabled):
         if enabled == self.property('fullscreen'):
@@ -51,12 +75,18 @@ class FullscreenBar(BadgeSurface):
         painter.fillRect(self.rect(), shade)
 
     def _render_layered(self, painter):
-        # Capture actual controls too, preserving text, hover, focus and editor caret.
-        # This runs after Qt's paint stack, under BadgeSurface's coalescing guard.
-        self.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+        # Interactive controls paint in their own native surfaces. Capturing them
+        # again here duplicates the editor/caret and repaints the whole bar on input.
+        self._render_badge(painter)
+        for label in self.findChildren(QLabel):
+            if (label.isVisibleTo(self) and label.testAttribute(Qt.WA_NativeWindow)
+                    and label.testAttribute(Qt.WA_TransparentForMouseEvents)):
+                label.render(painter, label.mapTo(self, QPoint()), QRegion(), QWidget.DrawChildren)
 
     def _paint_layered(self):
+        self._trace_input('upload-start')
         super()._paint_layered()
+        self._trace_input('upload-end')
         # Read-only native labels otherwise draw opaque rectangles above the
         # composited bar. Their text is already included in the uploaded frame.
         self._mask_label_windows(True)
@@ -86,6 +116,7 @@ class FullscreenBar(BadgeSurface):
             self._masked_labels.clear()
 
     def paintEvent(self, event):
+        self._trace_input('bar-paint', self, event)
         if not self.property('fullscreen'):
             QWidget.paintEvent(self, event)
             return
@@ -103,8 +134,10 @@ class FullscreenBar(BadgeSurface):
         return result
 
     def eventFilter(self, watched, event):
+        self._trace_input('child-event', watched, event)
         if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
             event.child().installEventFilter(self)
-        if event.type() in (QEvent.Paint, QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize):
+        if (isinstance(watched, QLabel) and watched.testAttribute(Qt.WA_TransparentForMouseEvents)
+                and event.type() in (QEvent.Paint, QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize)):
             self._schedule_layered_paint_if_native()
         return super().eventFilter(watched, event)

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QImage, QKeyEvent, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 from ddm import app as app_module, theme
@@ -17,9 +17,30 @@ from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
 
+class PaintProbeEdit(QLineEdit):
+    paints = 0
+
+    def paintEvent(self, event):
+        self.paints += 1
+        super().paintEvent(event)
+
+
 def check_transparent_bar(app, tile):
     from ddm.widgets import _icon_color
-    editor = QLineEdit(tile.bottom)
+    from ddm import fullscreen_bar
+    secret = 'private-danmaku-fixture'
+    key = QKeyEvent(QEvent.KeyPress, Qt.Key_A, Qt.NoModifier, secret)
+    with patch.dict(os.environ, DDM_FULLSCREEN_INPUT_CAPTURE='1'), \
+            patch.object(fullscreen_bar.logging.getLogger(fullscreen_bar.__name__), 'info') as log:
+        for _ in range(310):
+            tile.bottom._trace_input('child-event', tile.bottom, key)
+        assert log.call_count == 300, 'Input diagnostics must remain bounded'
+        assert secret not in str(log.call_args_list), 'Input diagnostics must not record typed text'
+        with patch.object(fullscreen_bar.time, 'monotonic', return_value=tile.bottom._input_trace_until + 1):
+            tile.bottom._trace_input('expired', tile.bottom, key)
+            assert log.call_count == 300
+    tile.bottom._input_trace_until = tile.bottom._input_trace_count = 0
+    editor = PaintProbeEdit(tile.bottom)
     editor.setGeometry(tile.bottom.width() // 2 - 90, 4, 180, 24)
     editor.show()
     try:
@@ -29,9 +50,11 @@ def check_transparent_bar(app, tile):
             QTest.qWait(30)
             image = QImage(tile.bottom.size(), QImage.Format_ARGB32_Premultiplied)
             image.fill(Qt.transparent)
+            editor.paints = 0
             painter = QPainter(image)
             tile.bottom._render_layered(painter)
             painter.end()
+            assert editor.paints == 0, 'Alpha upload must not repaint or capture the live editor'
             sample_x = tile.bottom.width() // 2 + 120
             assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
             assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
@@ -43,6 +66,11 @@ def check_transparent_bar(app, tile):
             editor.setFocus()
             QTest.keyClicks(editor, 'local-only')
             assert editor.text().endswith('local-only'), 'Embedded editors must retain keyboard input'
+            QTest.qWait(30)
+            assert editor.paints > 0, 'Typing still needs the ordinary live editor paint path'
+            with patch.object(tile.bottom, '_schedule_layered_paint_if_native') as schedule:
+                tile.bottom.eventFilter(editor, QEvent(QEvent.Paint))
+                schedule.assert_not_called()
             if app.platformName() == 'windows':
                 assert tile.bottom._alpha_uploaded, 'Native video needs a real per-pixel layered bar'
                 with patch.object(tile.bottom, '_paint_layered', wraps=tile.bottom._paint_layered) as upload:

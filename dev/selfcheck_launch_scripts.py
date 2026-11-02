@@ -9,9 +9,9 @@ import time
 REPO = Path(__file__).resolve().parent.parent
 
 
-def invoke(script, env):
+def invoke(script, env, args=()):
     return subprocess.run([os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c",
-                           script.name], input=b"\r\n", capture_output=True,
+                           script.name, *args], input=b"\r\n", capture_output=True,
                           cwd=script.parent, env=env, timeout=15)
 
 
@@ -34,6 +34,7 @@ def main():
             'Path(__file__).with_name("settings.txt").write_text(os.environ.get("DDM_SETTINGS_PROCESS", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
+            'Path(__file__).with_name("fullscreen-input.txt").write_text(os.environ.get("DDM_FULLSCREEN_INPUT_CAPTURE", ""), encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
         result = invoke(root / "run-console.cmd", env)
         text = result.stdout.decode("utf-8")
@@ -57,6 +58,13 @@ def main():
             "run.cmd must enable Quick in the launched Python process"
         assert (root / 'pythonpath.txt').read_text(encoding='utf-8').startswith(str(deps.parent)), \
             'Daily launcher must select the same work/deps used by freezing'
+        (root / 'fullscreen-input.txt').unlink()
+        result = invoke(root / 'run.cmd', env, ('--diagnose-fullscreen-input',))
+        assert result.returncode == 0
+        deadline = time.monotonic() + 10
+        while not (root / 'fullscreen-input.txt').exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert (root / 'fullscreen-input.txt').read_text() == '1'
         # Missing interpreter errors must also be readable and report failure.
         for name in ("run.cmd", "run-console.cmd"):
             text = (root / name).read_text(encoding="utf-8").replace(

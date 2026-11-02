@@ -16,6 +16,7 @@ if not exist "%PY%" goto nopy
 
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
+if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
 start "" "%PY%" "%PROJ%main.py"
 exit /b 0
 
