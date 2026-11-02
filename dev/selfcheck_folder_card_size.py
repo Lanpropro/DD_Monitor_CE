@@ -24,7 +24,8 @@ def main():
     sidebar.show()
     QTest.qWait(50)
     sidebar.toggle_folder('f0')
-    for card_mode, height in ((True, 950), (False, 650)):
+    # 留出默认文件夹标题的空间；再展开三条时仍须跨过滚动阈值。
+    for card_mode, height in ((True, 950), (False, 700)):
         sidebar.set_compact_policy(card_mode, False, 18)
         sidebar.resize(theme.SIDEBAR_WIDTH, height)
         # 经历横竖屏切换、侧栏收起再展开后也应保持稳定。
