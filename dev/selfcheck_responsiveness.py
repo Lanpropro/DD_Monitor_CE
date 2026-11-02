@@ -119,7 +119,8 @@ class ProbeTests(unittest.TestCase):
 
         path = Path(self.directory.name) / 'themes.jsonl'
         with patch.object(theme_transition, 'ThemeTransition', Transition):
-            probe = diag.install_theme_capture(path)
+            with patch.object(QApplication, 'instance', return_value=None):
+                probe = diag.install_theme_capture(path)
             try:
                 transition = Transition()
                 self.assertIs(transition.change('light', token), token)

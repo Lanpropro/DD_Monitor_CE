@@ -174,7 +174,7 @@ class Probe:
 
 def install_theme_capture(path):
     """Measure actual theme changes without a continuous sampler."""
-    from PySide6.QtWidgets import QApplication
+    import atexit
     from .theme_transition import ThemeTransition
     from . import theme
 
@@ -197,7 +197,7 @@ def install_theme_capture(path):
                 functions=profile_functions(profile))
 
     ThemeTransition.change = change
-    QApplication.instance().aboutToQuit.connect(probe.stop)
+    atexit.register(probe.stop)
     probe.write('start', mode='theme-switches-only')
     return probe
 
