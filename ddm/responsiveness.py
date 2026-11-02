@@ -204,6 +204,60 @@ def install_theme_capture(path, *, profile_calls=False):
     return probe
 
 
+def install_theme_animation_capture(probe):
+    """Bounded GUI-thread frame timings, separate from preparation costs."""
+    from .theme_transition import ThemeTransition, WaveOverlay
+
+    original_change = ThemeTransition.change
+    original_frame = ThemeTransition._frame
+    original_finish = ThemeTransition.finish
+    original_paint = WaveOverlay.paintEvent
+
+    def change(transition, *args, **kwargs):
+        result = original_change(transition, *args, **kwargs)
+        if not probe.stopped.is_set() and transition.animation.state().name == 'Running':
+            record = {'started': time.perf_counter(), 'frames': [], 'bitmap_paints': 0}
+            transition._motion_capture = record
+            for overlay in transition.overlays:
+                overlay._motion_capture = record
+        return result
+
+    def frame(transition, progress):
+        record = getattr(transition, '_motion_capture', None)
+        started = time.perf_counter()
+        try:
+            return original_frame(transition, progress)
+        finally:
+            if record is not None and len(record['frames']) < 40:
+                record['frames'].append({'at_ms': round((started - record['started']) * 1000, 3),
+                    'work_ms': round((time.perf_counter() - started) * 1000, 3),
+                    'progress': round(float(progress), 5), 'overlays': len(transition.overlays),
+                    'native_overlays': sum(overlay._native_clip for overlay in transition.overlays)})
+
+    def paint(overlay, event):
+        record = getattr(overlay, '_motion_capture', None)
+        if record is not None:
+            record['bitmap_paints'] += 1
+        return original_paint(overlay, event)
+
+    def finish(transition):
+        record = getattr(transition, '_motion_capture', None)
+        transition._motion_capture = None
+        progress = transition.progress
+        try:
+            return original_finish(transition)
+        finally:
+            if record is not None and not probe.stopped.is_set():
+                probe.write('theme-animation', reason='complete' if progress >= 1 else 'interrupted',
+                    duration_ms=round((time.perf_counter() - record['started']) * 1000, 3),
+                    frames=record['frames'], bitmap_paints=record['bitmap_paints'])
+
+    ThemeTransition.change = change
+    ThemeTransition._frame = frame
+    ThemeTransition.finish = finish
+    WaveOverlay.paintEvent = paint
+
+
 def install(path):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication

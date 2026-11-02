@@ -95,6 +95,44 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.state['danmaku_clients'], 1)
         self.assertNotIn('private-room', json.dumps(self.probe.state))
 
+    def test_theme_animation_capture_bounds_frames_and_records_interruptions(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QApplication, QWidget
+        from ddm import motion, theme, theme_transition as module
+        app = QApplication.instance() or QApplication([])
+        window = QWidget()
+        window.resize(320, 200)
+        window.show()
+        app.processEvents()
+        transition_type = type('CaptureTransition', (module.ThemeTransition,), {})
+        overlay_type = type('CaptureOverlay', (module.WaveOverlay,), {})
+        with patch.object(module, 'ThemeTransition', transition_type), \
+                patch.object(module, 'WaveOverlay', overlay_type), \
+                patch.object(motion, 'enabled', return_value=True):
+            theme.apply('dark')
+            diag.install_theme_animation_capture(self.probe)
+            transition = transition_type(window)
+            try:
+                transition.change('light', window.mapToGlobal(QPoint()))
+                for index in range(60):
+                    transition._frame(index / 100)
+                transition.finish()
+                row = self.records()[-1]
+                self.assertEqual(row['phase'], 'theme-animation')
+                self.assertEqual(row['reason'], 'interrupted')
+                self.assertEqual(len(row['frames']), 40)
+                self.assertTrue(all(frame['work_ms'] >= 0 for frame in row['frames']))
+                transition.change('dark', window.mapToGlobal(QPoint()))
+                transition._frame(1.0)
+                transition.finish()
+                self.assertEqual(self.records()[-1]['reason'], 'complete')
+                self.assertLessEqual(len(self.records()[-1]['frames']), 40)
+            finally:
+                transition.finish()
+                window.close()
+                window.deleteLater()
+                app.processEvents()
+
     def test_thread_stop_is_idempotent_and_wrappers_stop_recording(self):
         self.probe.start()
         self.assertTrue(self.probe.thread.is_alive())
