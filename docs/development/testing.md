@@ -104,3 +104,5 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 ## 久用卡顿的真实采集
 
 `run.cmd --diagnose-responsiveness` 开启默认关闭的专项采集，步骤及字段说明见[真实复现采集](responsiveness-capture.md)。采集器回归不代表 BUG-070 已定位或性能改善。
+
+2026-11-02 的真实侧栏展开/收起采样中，123 个关注条目下 `Sidebar.set_collapsed` 多次耗时约 200–373 ms，主线程栈反复落在 `Avatar.set_pixmap_image` 的样式设置。针对这条路径，头像已有透明样式时不重复设置，更新图片直接交给 QLabel，不先清空已有图片。`selfcheck_main_notices` 覆盖图片替换、尺寸切换、透明圆角及不重复设置样式/文本；这些断言仅为功能回归。展开黑区和实际响应改善仍需相同操作的真实对照采样确认，不能据此宣布 BUG-070 已解决。

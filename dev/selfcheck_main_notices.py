@@ -125,6 +125,30 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(avatar.pixmap().toImage().pixelColor(24, 24), QColor('green'))
         self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
 
+    def test_avatar_image_updates_do_not_clear_or_repolish_existing_image(self):
+        from ddm.avatar_widgets import Avatar
+        avatar = Avatar('Fixture', 0, size=28)
+        self.addCleanup(avatar.close)
+        source = QPixmap(64, 64)
+        source.fill(QColor('green'))
+        avatar.set_pixmap_image(source)
+        self.assertEqual(avatar.text(), '')
+        self.assertEqual(avatar.styleSheet(), 'background: transparent;')
+        with patch.object(avatar, 'setStyleSheet', wraps=avatar.setStyleSheet) as style, \
+                patch.object(avatar, 'setText', wraps=avatar.setText) as clear:
+            for size in (32, 28, 48, 28):
+                avatar.set_size(size)
+                avatar.set_pixmap_image(source)
+                self.assertEqual(avatar.pixmap().width(), size)
+                self.assertEqual(avatar.pixmap().toImage().pixelColor(size // 2, size // 2), QColor('green'))
+                self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+            changed = QPixmap(64, 64)
+            changed.fill(QColor('blue'))
+            avatar.set_pixmap_image(changed)
+            self.assertEqual(avatar.pixmap().toImage().pixelColor(14, 14), QColor('blue'))
+            style.assert_not_called()
+            clear.assert_not_called()
+
     def focused_cover(self, boxes, width=1000, height=600):
         from ddm import cover_focus
         cover = QPixmap(width, height)

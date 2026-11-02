@@ -79,8 +79,8 @@ class Avatar(QLabel):
         painter.drawPixmap((self._size - scaled.width()) // 2,
                            (self._size - scaled.height()) // 2, scaled)
         painter.end()
-        self.setStyleSheet("background: transparent;")
-        self.setText("")
+        if self.styleSheet() != "background: transparent;":
+            self.setStyleSheet("background: transparent;")
         super().setPixmap(rounded)
 
 
