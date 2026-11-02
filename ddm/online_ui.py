@@ -72,6 +72,25 @@ def plugin_update_notes(manager, offers):
             for offer in plugin_update_offers(manager, offers)}
 
 
+_retired_online_tasks = set()
+
+
+def _release_online_task(task):
+    if task not in _retired_online_tasks:
+        return
+    _retired_online_tasks.remove(task)
+    if task.result_cleanup is not None:
+        task.result_cleanup(task.result)
+    task.deleteLater()
+
+
+def _wait_online_tasks_on_exit():
+    # Only final application exit waits; closing a settings page never does.
+    for task in tuple(_retired_online_tasks):
+        task.wait()
+        _release_online_task(task)
+
+
 class OnlineTask(QThread):
     succeeded = Signal(object)
     failed = Signal(object)
@@ -82,6 +101,7 @@ class OnlineTask(QThread):
         self.operation = operation
         self.callback = callback
         self.result = None
+        self.result_cleanup = None
 
     def run(self):
         try:
@@ -139,18 +159,34 @@ class OnlinePage(QWidget):
             self.status.setText(f'正在下载并校验… {percent}%')
 
     def _finished(self):
+        if self.stopping:
+            return
         task = self.sender()
         if task in self.jobs:
             self.jobs.remove(task)
         task.deleteLater()
         self.busyChanged.emit(bool(self.jobs))
 
-    def stop(self):
+    def stop(self, result_cleanup=None):
         self.stopping = True
-        for task in self.jobs:
+        app = QApplication.instance()
+        if not getattr(app, '_online_task_cleanup_connected', False):
+            app.aboutToQuit.connect(_wait_online_tasks_on_exit)
+            app._online_task_cleanup_connected = True
+        tasks, self.jobs = self.jobs, []
+        for task in tasks:
             task.requestInterruption()
-        for task in self.jobs:
-            task.wait()
+            task.succeeded.disconnect(self._succeeded)
+            task.failed.disconnect(self._failed)
+            task.progress.disconnect(self._progress)
+            task.finished.disconnect(self._finished)
+            task.callback = None
+            task.result_cleanup = result_cleanup
+            task.setParent(None)
+            _retired_online_tasks.add(task)
+            task.finished.connect(lambda t=task: _release_online_task(t))
+            if not task.isRunning():
+                _release_online_task(task)
 
 
 class PluginStorePage(OnlinePage):
@@ -458,12 +494,14 @@ class AppUpdatePage(OnlinePage):
         self.notes.setMarkdown(notes)
 
     def stop(self):
-        tasks = list(self.jobs)
-        super().stop()
+        cleanup = None
         if not self.install_requested:
-            for path in [self.plan_path] + [task.result for task in tasks if isinstance(task.result, str)]:
-                if path:
-                    update_install.discard_plan(path, config.REPO)
+            root = config.REPO
+            cleanup = lambda result: update_install.discard_plan(result, root) if isinstance(result, str) and result else None
+        super().stop(result_cleanup=cleanup)
+        if not self.install_requested:
+            if self.plan_path:
+                update_install.discard_plan(self.plan_path, config.REPO)
             self.plan_path = ''
 
     def check_update(self):
