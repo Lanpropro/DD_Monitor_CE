@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from . import theme
 from .super_chat import SuperChatPlacementPreview
+from .follow_folders import default_folder
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
@@ -1647,11 +1648,11 @@ class AddRoomDialog(AnimatedDialog):
 
         folder_row = QHBoxLayout()
         folder_row.addWidget(QLabel("添加到文件夹"))
-        self.folder_button = QPushButton("未分类")
+        self.folder_button = QPushButton(default_folder(folders)["name"])
         self.folder_button.setObjectName("IconButton")
         self.folder_button.setToolTip("选择普通文件夹；智能文件夹会按规则自动归类")
         folder_menu = QMenu(self.folder_button)
-        options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
+        options = [("", default_folder(folders)["name"])] + [(folder["id"], folder["name"]) for folder in folders or []
                                        if folder.get("type", "normal") == "normal"]
         for folder_id, name in options:
             _add_folder_option(self, folder_menu, folder_id, name)
@@ -1760,12 +1761,12 @@ class FollowImportDialog(QDialog):
 
         folder_row = QHBoxLayout()
         folder_row.addWidget(QLabel("放入文件夹"))
-        self.folder_button = QPushButton("未分类")
+        self.folder_button = QPushButton(default_folder(folders)["name"])
         self.folder_button.setObjectName("IconButton")
         self.folder_button.setAutoDefault(False)
         self.folder_button.setToolTip("仅调整新增或主动勾选的主播；默认勾选的已有关注保留原归属")
         folder_menu = QMenu(self.folder_button)
-        options = [("", "未分类")] + [(folder["id"], folder["name"]) for folder in folders or []
+        options = [("", default_folder(folders)["name"])] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
         for folder_id, name in options:
             _add_folder_option(self, folder_menu, folder_id, name)

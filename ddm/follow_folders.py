@@ -27,18 +27,21 @@ def normalize_icon(value):
 
 
 def normalize_folders(folders, default_sort="custom"):
+    default_id = next((str(source.get("id")) for source in folders or []
+                       if source.get("type") == "unclassified" and source.get("id")), None)
     result, ids, assigned = [], set(), set()
     for source in folders or []:
         fid, name = str(source.get("id") or ""), str(source.get("name") or "").strip()
         if not fid or not name or fid in ids:
             continue
-        kind = "unclassified" if fid == UNCLASSIFIED else (
+        kind = "unclassified" if fid == default_id or (
+            default_id is None and fid == UNCLASSIFIED and source.get("type") != "normal") else (
             "smart" if source.get("type") == "smart" else "normal")
         rooms = list(dict.fromkeys(str(key) for key in source.get("rooms", [])
-                                   if str(key) and str(key) not in assigned)) if kind == "normal" else []
+                                   if str(key) and str(key) not in assigned)) if kind != "smart" else []
         assigned.update(rooms)
         mode = source.get("sort", default_sort)
-        folder = {"id": fid, "name": "未分类" if fid == UNCLASSIFIED else name,
+        folder = {"id": fid, "name": name,
                   "type": kind, "collapsed": bool(source.get("collapsed")), "rooms": rooms,
                   "sort": mode if mode in dict(SORT_MODES) else "custom"}
         icon = normalize_icon(source.get("icon"))
@@ -55,10 +58,22 @@ def normalize_folders(folders, default_sort="custom"):
                 folder["rule"]["display"] = "copy" if rule["display"] == "copy" else "move"
         result.append(folder)
         ids.add(fid)
-    if UNCLASSIFIED not in ids:
-        result.append({"id": UNCLASSIFIED, "name": "未分类", "type": "unclassified",
-                       "collapsed": False, "rooms": [], "sort": default_sort})
+    if not any(folder["type"] == "unclassified" for folder in result):
+        fallback = next((folder for folder in result if folder["id"] == UNCLASSIFIED), None)
+        if fallback is not None:
+            fallback["type"] = "unclassified"
+        else:
+            result.append({"id": UNCLASSIFIED, "name": "未分类", "type": "unclassified",
+                           "collapsed": False, "rooms": [], "sort": default_sort})
+    for folder in result:
+        if folder["type"] == "smart":
+            folder["rule"].setdefault("sources", [default_folder(result)["id"]])
     return result
+
+
+def default_folder(folders):
+    return next((folder for folder in folders or [] if folder.get("type") == "unclassified"),
+                {"id": UNCLASSIFIED, "name": "未分类", "type": "unclassified"})
 
 
 def room_platform(room):
@@ -83,27 +98,29 @@ def matches_rule(room, rule):
 
 def smart_members(rooms, folders, folder, pending=()):
     """来源是原来的普通文件夹；空来源表示全部，旧规则沿用未分类范围。"""
-    manual = {rid: folder["id"] for folder in folders if folder["type"] == "normal"
+    manual = {rid: folder["id"] for folder in folders if folder["type"] != "smart"
               for rid in folder["rooms"]}
     rule = folder["rule"]
-    sources = rule.get("sources", [UNCLASSIFIED])
+    default_id = default_folder(folders)["id"]
+    sources = rule.get("sources", [default_id])
     # 平台和来源在导入时已知，只有直播状态条件需要等待状态刷新。
     return {str(room["room_id"]) for room in rooms
             if (rule.get("status", "any") == "any" or str(room["room_id"]) not in pending)
-            and (not sources or manual.get(str(room["room_id"]), UNCLASSIFIED) in sources)
+            and (not sources or manual.get(str(room["room_id"]), default_id) in sources)
             and matches_rule(room, rule)}
 
 
 def assign_folders(rooms, folders, pending=()):
-    manual = {rid: folder["id"] for folder in folders if folder["type"] == "normal"
+    manual = {rid: folder["id"] for folder in folders if folder["type"] != "smart"
               for rid in folder["rooms"]}
     smart = [(folder, smart_members(rooms, folders, folder, pending)) for folder in folders
              if folder["type"] == "smart" and folder["rule"].get("display") != "copy"]
+    default_id = default_folder(folders)["id"]
     result = {}
     for room in rooms:
         rid = str(room.get("room_id"))
         result[rid] = next((folder["id"] for folder, members in smart if rid in members),
-                           manual.get(rid, UNCLASSIFIED))
+                           manual.get(rid, default_id))
     return result
 
 
