@@ -58,6 +58,35 @@ class PlayerLifetimeTests(unittest.TestCase):
             finally:
                 player.release()
 
+    def test_destroy_does_not_reconfigure_the_native_window(self):
+        class Core:
+            command = Mock()
+            terminate = Mock()
+
+            @property
+            def force_window(self):
+                return 'immediate'
+
+            @force_window.setter
+            def force_window(self, _value):
+                raise AssertionError('Teardown must not synchronously reconfigure the native video window')
+
+        widget = QWidget()
+        player = TilePlayer(widget)
+        core = player.player = Core()
+        player._bound, player._bound_hwnd = True, 100
+        try:
+            player._destroy_core()
+            core.command.assert_called_once_with('stop')
+            core.terminate.assert_called_once_with()
+            self.assertIsNone(player.player)
+            self.assertFalse(player._bound)
+            self.assertEqual(player._bound_hwnd, 0)
+        finally:
+            player.player = None
+            player.release()
+            widget.close()
+
     def test_shared_popup_keeps_one_idle_core_but_releases_media_and_watchers(self):
         widget = QWidget()
         with patch('ddm.player.mpv.MPV') as create:

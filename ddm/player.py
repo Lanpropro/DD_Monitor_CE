@@ -272,7 +272,7 @@ class TilePlayer(QObject):
 
     def _destroy_core(self):
         if self.player is not None:
-            self.player.force_window = False
+            # terminate() destroys the native output; avoid reconfiguring it first.
             self.player.command("stop")
             self.player.terminate()
             self.player = None
