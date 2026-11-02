@@ -881,6 +881,7 @@ class ResultNotice(UpdateNotice):
 
     def show_message(self, message, rooms=(), *, kind='info', on_click=None, persistent=False,
                      file_path=None, pending=False):
+        from .notification_center import live_notice_action
         self._file_path = str(file_path or '')
         self._file_message = message + Path(self._file_path).name if self._file_path else message
         self._on_click = None if pending else self._open_file_location if self._file_path else on_click
@@ -897,7 +898,7 @@ class ResultNotice(UpdateNotice):
         self.action.setVisible(pending or self._on_click is not None)
         self.action.setEnabled(not pending)
         self.action.setText('正在导出…' if pending else '打开文件位置' if self._file_path else
-                            ('放入画面墙' if kind == 'live' else
+                            (live_notice_action(self.parentWidget()) if kind == 'live' else
                              ('前往登录' if '登录' in message else '查看详情')))
         self._set_rooms(rooms)
         symbol, colour = {'live': ('●', theme.PINK),
