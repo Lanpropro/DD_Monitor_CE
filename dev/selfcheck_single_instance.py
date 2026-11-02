@@ -151,7 +151,8 @@ class SingleInstanceTests(unittest.TestCase):
 
     def test_secondary_main_does_not_load_state_or_create_window(self):
         from ddm import app as host
-        with (patch.object(host, 'QApplication', return_value=self.app),
+        with (patch.object(sys, 'frozen', True, create=True),
+              patch.object(host, 'QApplication', return_value=self.app),
               patch.object(host, 'SingleInstance') as guard,
               patch.object(host.config_module, 'load') as load,
               patch.object(host, 'MainWindow') as window,
@@ -161,6 +162,24 @@ class SingleInstanceTests(unittest.TestCase):
             load.assert_not_called()
             window.assert_not_called()
             log.assert_not_called()
+
+    def test_source_main_allows_repeated_startup_without_an_instance_lock(self):
+        from ddm import app as host
+
+        class ReachedStateLoad(Exception):
+            pass
+
+        with (patch.object(sys, 'frozen', False, create=True),
+              patch.object(host, 'QApplication', return_value=self.app),
+              patch.object(host, 'SingleInstance') as guard,
+              patch.object(host, 'setup_file_log'),
+              patch.object(host.config_module, 'load', side_effect=ReachedStateLoad) as load):
+            # Stop at synthetic state loading, before any user data or windows.
+            for _ in range(2):
+                with self.assertRaises(ReachedStateLoad):
+                    host.main(['main.py'])
+            self.assertEqual(load.call_count, 2)
+            guard.assert_not_called()
 
 
 if __name__ == '__main__':
