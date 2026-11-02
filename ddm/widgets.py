@@ -1954,8 +1954,10 @@ class NavThumb(QFrame):
                             platform: QWidget) -> None:
         self._overlay_widgets = (name, title, badge, platform)
         for widget in self._overlay_widgets:
-            widget.setParent(self)
+            widget.setParent(self.face.parentWidget() if widget is platform else self)
             widget.raise_()
+        self.face.raise_()
+        platform.raise_()
         self._layout_overlay()
 
     def _layout_overlay(self) -> None:
@@ -1966,24 +1968,24 @@ class NavThumb(QFrame):
         if hasattr(card, '_layout_selection_marker'):
             card._layout_selection_marker()
         compact = self._compact_thumb()
-        parent = self.face if compact else self
-        if platform.parentWidget() is not parent:
-            platform.setParent(parent)
-            platform.setVisible(not self.video.isVisible() and
-                                platform.property("showPlatform") is not False)
-        platform.setFixedSize(14 if compact else 24, 14 if compact else 22)
-        platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
+        platform.setVisible(not self.video.isVisible() and
+                            platform.property("showPlatform") is not False)
+        icon_size = QSize(14, 14) if compact else QSize(24, 22)
+        if platform.size() != icon_size:
+            platform.setFixedSize(icon_size)
+            platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
         if compact:
-            platform.move(0, max(0, self.face.height() - platform.height()))
+            platform.move(self.face.pos() + QPoint(0, max(0, self.face.height() - platform.height())))
             platform.setVisible(platform.property("showPlatform") is not False)
             platform.raise_()
             return
         width, height = self._size
-        platform.move(8 if self._card_mode and not self._portrait_strip else
-                      max(4, width - platform.width() - 8),
-                      height - 24 if self._card_mode and not self._portrait_strip else 4)
+        platform_pos = QPoint(8 if self._card_mode and not self._portrait_strip else
+                              max(4, width - platform.width() - 8),
+                              height - 24 if self._card_mode and not self._portrait_strip else 4)
         if getattr(card, 'select_mode', False) and (not self._card_mode or self._portrait_strip):
-            platform.move(max(4, platform.x() - 28), platform.y())
+            platform_pos.setX(max(4, platform_pos.x() - 28))
+        platform.move(self.mapTo(platform.parentWidget(), platform_pos))
         if self._portrait_strip:
             name.setGeometry(4, 67, max(0, width - 8), 20)
             name.setAlignment(Qt.AlignCenter)
@@ -2063,27 +2065,16 @@ class NavThumb(QFrame):
         位置都不更新，收起后条目的留白也全是错的。
         """
         size = self._avatar_size()
-        self.face.set_size(size)
         pixmap = self._face_source
         if pixmap is not None and not pixmap.isNull():
-            # 圆环直接画进头像图里：QLabel 的边框会缩小内容区，圆形会被裁成圆角方
-            disc = circular_pixmap(pixmap, size)
-            painter = QPainter(disc)
-            painter.setRenderHint(QPainter.Antialiasing, True)
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(255, 255, 255, 70), 1.4))
-            inset = 1.0
-            painter.drawEllipse(QRectF(inset, inset,
-                                       size - inset * 2,
-                                       size - inset * 2))
-            painter.end()
-            self.face.set_pixmap_image(disc)
+            # 尺寸和图片一次更新，圆形裁切与圆环只绘制一遍。
+            self.face.set_pixmap_image(pixmap, size=size, ring=True)
         else:
             # 还没下到头像：用名字首字顶着，别让条目空着
+            self.face.set_size(size)
             self.face.setText(self._face_letter())
             self.face.set_color(None)
         self._place_face()
-        self.face.raise_()
         # 紧凑条目只有头像可认，所以一定要露；卡片模式封面才是主体，头像还没下到
         # 就先别占那一块。视频预览占着整块时两者都让位。
         self.face.setVisible(not self.video.isVisible() and
@@ -2111,11 +2102,13 @@ class NavThumb(QFrame):
             self.face.move(rect.topLeft())
         else:
             self.face.move(self.pos() + rect.topLeft())
-        self.face.raise_()
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
         self._place_face()               # 缩略图被布局挪动时，头像要跟着走
+        if self._overlay_widgets is not None:
+            platform = self._overlay_widgets[3]
+            platform.move(platform.pos() + event.pos() - event.oldPos())
 
     def refresh_cover(self) -> None:
         """按收起/展开后的最终尺寸重裁封面。"""
@@ -2338,6 +2331,8 @@ class NavThumb(QFrame):
 
     def stop(self) -> None:
         """收掉预览，回到封面（播放器留着复用，下回悬停直接 play）。"""
+        if self._player is None and self.video.isHidden() and self.hint.isHidden():
+            return
         if self._player is not None:
             self._player.stop()
         self.video.setVisible(False)

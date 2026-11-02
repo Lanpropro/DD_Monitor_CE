@@ -194,6 +194,76 @@ class MainNoticesTests(unittest.TestCase):
             style.assert_not_called()
             clear.assert_not_called()
 
+    def test_sidebar_platform_badge_keeps_parent_and_avatar_corner(self):
+        window = self.window([dict(room_id='1001', uname='Fixture', live=True)])
+        sidebar = window.sidebar
+        item = sidebar.items()[0]
+        badge = item.platform_badge
+        badge.setProperty('showPlatform', True)
+        parent = badge.parentWidget()
+        with patch.object(badge, 'setParent', wraps=badge.setParent) as reparent:
+            for card_mode in (True, False):
+                sidebar.set_card_mode(card_mode)
+                sidebar.set_collapsed(True)
+                self.assertIs(badge.parentWidget(), parent)
+                self.assertEqual(badge.mapToGlobal(QPoint()),
+                                 item.thumb.face.mapToGlobal(QPoint(0, item.thumb.face.height() - badge.height())))
+                self.assertTrue(badge.isVisible())
+                sidebar.set_collapsed(False)
+                self.assertIs(badge.parentWidget(), parent)
+                self.assertTrue(badge.isVisible())
+                self.assertTrue(item.rect().contains(badge.geometry()))
+                if not card_mode:
+                    self.assertLess(item.name_label.mapToGlobal(item.name_label.rect().topRight()).x(),
+                                    badge.mapToGlobal(QPoint()).x())
+            reparent.assert_not_called()
+        badge.setProperty('showPlatform', False)
+        sidebar.set_collapsed(True)
+        self.assertTrue(badge.isHidden())
+        sidebar.set_collapsed(False)
+        self.assertTrue(badge.isHidden())
+        badge.setProperty('showPlatform', True)
+        sidebar.set_side('top')
+        self.app.processEvents()
+        self.assertTrue(badge.isVisible())
+        sidebar.set_side('left')
+        self.app.processEvents()
+        self.assertTrue(item.rect().contains(badge.geometry()))
+
+    def test_sidebar_avatar_replacement_renders_once_at_target_size(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        item = window.sidebar.items()[0]
+        source = QPixmap(80, 40)
+        source.fill(QColor('green'))
+        item.thumb.set_face(source)
+        with patch.object(item.thumb.face, 'set_pixmap_image', wraps=item.thumb.face.set_pixmap_image) as render:
+            for compact in (True, False):
+                render.reset_mock()
+                item.set_compact(compact)
+                render.assert_called_once()
+                size = item.thumb._avatar_size()
+                bitmap = item.thumb.face.pixmap().toImage()
+                self.assertEqual(bitmap.width(), size)
+                self.assertEqual(bitmap.pixelColor(size // 2, size // 2), QColor('green'))
+                self.assertEqual(bitmap.pixelColor(0, 0).alpha(), 0)
+                self.assertGreater(bitmap.pixelColor(size // 2, 1).red(), 0)
+
+    def test_idle_thumbnail_stop_does_no_visual_work_but_clears_pending_hint(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        thumb = window.sidebar.items()[0].thumb
+        with patch.object(thumb, '_set_overlay_visible', wraps=thumb._set_overlay_visible) as restore:
+            thumb.stop()
+            restore.assert_not_called()
+            thumb.set_hint('Fixture loading')
+            thumb.stop()
+            self.assertTrue(thumb.hint.isHidden())
+            restore.assert_called_once_with(True)
+        player = Mock()
+        thumb._player = player
+        thumb.stop()
+        player.stop.assert_called_once_with()
+        thumb._player = None
+
     def focused_cover(self, boxes, width=1000, height=600):
         from ddm import cover_focus
         cover = QPixmap(width, height)
