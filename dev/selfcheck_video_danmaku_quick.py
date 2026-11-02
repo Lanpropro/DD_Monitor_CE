@@ -315,6 +315,8 @@ def main():
         if "--surface-only" in sys.argv:
             window.setWindowFlag(Qt.WindowStaysOnTopHint)
         window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)
+        if not visible:
+            window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
         window.setGeometry(40 if visible else -20000, 60 if visible else -20000, 1200, 800)
         window.show()
         if visible:
