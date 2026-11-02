@@ -87,7 +87,7 @@ def child(action):
             if action.startswith('embed-'):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
-                self.sequence = iter((6,) if action.startswith('embed-restart-') else (1, 0, 6, 2, 7, 5, 1, 0))
+                self.sequence = iter((7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action in ('focus', 'zorder'):
@@ -102,8 +102,10 @@ def child(action):
             self.general_page._checks['preview_on_hover'].setChecked(False)
             self.general_page._checks['volume_normalization'].setChecked(True)
             if action.startswith('tray-'):
-                combo = self.general_page.close_behavior_combo
-                combo.setCurrentIndex(combo.findData('tray'))
+                self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
+                page = self._loaded_pages[self.PAGE_INDEX['tray']]
+                page.close_behavior_combo.setCurrentIndex(page.close_behavior_combo.findData('tray'))
+                page.pause_playback.setChecked(False)
             if 'sidebar_platform_logos' in self.general_page._checks:
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
             if action in ('cancel', 'tray-cancel'):
@@ -209,9 +211,10 @@ def check_worker(app, action):
                 assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
+                    assert saves[0]['settings']['tray_pause_playback'] is False
                 assert 'appearance_mode' not in saves[0]['settings']
                 assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
-            assert pages == ([{'appearance': 1, 'plugins': 6, 'updates': 7}[action.split('-')[1]]] if clean else [])
+            assert pages == ([{'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]] if clean else [])
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
                 assert maximum < 0.15, maximum
@@ -497,7 +500,7 @@ def check_host_save_validation():
     dialog.confirm_button.isEnabled.return_value = True
     dialog.result.return_value = SettingsDialog.Accepted
     dialog.enabled_plugins.return_value = {'fixture'}
-    dialog._loaded_pages = {7: SimpleNamespace(install_requested=False)}
+    dialog._loaded_pages = {8: SimpleNamespace(install_requested=False)}
     dialog.restart_requested = True
     applied = []
     client = SimpleNamespace(_send=Mock(), closing=False)
@@ -626,7 +629,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     output = ROOT / 'work/test-artifacts/host/settings-pages'
                     output.mkdir(parents=True, exist_ok=True)
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
-                if message['index'] == 7:
+                if message['index'] == 8:
                     session.dialog.update_page.auto.setChecked(True)
                     if action == 'embed-install':
                         page = session.dialog.update_page
@@ -653,7 +656,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == [1, 0, 6, 2, 7, 5, 1, 0]
+                assert [message['index'] for message in shells] == [1, 0, 6, 7, 2, 8, 5, 1, 0]
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'

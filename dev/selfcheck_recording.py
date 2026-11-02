@@ -262,8 +262,40 @@ def check_expired_http_source(app, root, ffmpeg):
         server.server_close()
 
 
+def check_replay_indicator(app):
+    from ddm import theme
+    from ddm.widgets import RecordingButton
+    previous = theme.mode()
+    try:
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            app.setStyleSheet(theme.qss())
+            for width in (26, 64):
+                button = RecordingButton('●' if width == 26 else '● REC')
+                button.setObjectName('TileCtrl')
+                button.setProperty('tileButton', True)
+                button.setProperty('replayOnly', True)
+                button.setFixedSize(width, 26)
+                button.show()
+                app.processEvents()
+                image = button.grab().toImage()
+                colors = [image.pixelColor(x, y) for x in range(image.width()) for y in range(image.height())]
+                assert any(color.blue() > 140 and color.green() > 80 and color.red() < 100
+                           for color in colors), (mode, width)
+                assert not any(color.red() > 170 and color.green() < 140 and color.blue() < 140
+                               for color in colors), (mode, width)
+                button.close()
+    finally:
+        theme.apply(previous)
+        app.setStyleSheet(theme.qss())
+
+
 def main():
     app = QApplication(sys.argv)
+    check_replay_indicator(app)
+    if '--indicator-only' in sys.argv:
+        print('PASS: blue REC indicator in both themes and button widths')
+        return
     check_recording_source_isolation()
     assert safe_name('A:/\\*?<>|"B').startswith("A_")
     assert all(char not in safe_name('A:/\\*?<>|"B') for char in ':/*?<>|"\\')
@@ -634,6 +666,9 @@ def main():
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
+        assert tile.recording_button.text() == '● REC'
+        assert tile.recording_button.property('replayOnly') is True
+        assert '即时回放' in tile.recording_button.accessibleName()
         assert tile.quality == before_quality and tile not in window._pending_capture
         window._sync_replay_scope()
         assert window.recorder.sessions[tile] is cached_session
@@ -653,6 +688,7 @@ def main():
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
         assert tile.recording_button.text() == "● REC"
+        assert tile.recording_button.property('replayOnly') is False
         assert tile.recording_button.property("recording") is True
         assert tile.recording_time.text(), "Recording status signal must update the duration label"
         window._fill_plugin_menu(tile)

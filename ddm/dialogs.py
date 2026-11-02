@@ -291,14 +291,6 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
-        grid.addWidget(QLabel("关闭窗口时"), row, 0)
-        self.close_behavior_combo = QComboBox()
-        for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
-            self.close_behavior_combo.addItem(label, value)
-        self.close_behavior_combo.setCurrentIndex(max(
-            0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
-        grid.addWidget(self.close_behavior_combo, row, 1)
-        row += 1
         grid.addWidget(QLabel("编解码设置"), row, 0)
         self._codec_values = codec_settings(settings)
         self.codec_button = QPushButton()
@@ -351,8 +343,6 @@ class GeneralSettingsPage(QWidget):
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self._codec_values = codec_settings(config_module.DEFAULT_SETTINGS)
-        self.close_behavior_combo.setCurrentIndex(
-            self.close_behavior_combo.findData(config_module.DEFAULT_SETTINGS["close_behavior"]))
         self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
@@ -361,13 +351,53 @@ class GeneralSettingsPage(QWidget):
             **self._hidden_values,
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
-            "close_behavior": self.close_behavior_combo.currentData(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             **self._codec_values,
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())
         return result
+
+
+class TraySettingsPage(QWidget):
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        layout.addLayout(_page_head("托盘行为", "设置关闭窗口的方式及隐藏到系统托盘后的行为"))
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.addWidget(QLabel("关闭窗口时"))
+        self.close_behavior_combo = QComboBox()
+        self.close_behavior_combo.setAccessibleName("关闭窗口时")
+        for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
+            self.close_behavior_combo.addItem(label, value)
+        self.close_behavior_combo.setCurrentIndex(max(
+            0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
+        self.close_behavior_combo.setMinimumWidth(180)
+        row.addWidget(self.close_behavior_combo)
+        row.addStretch(1)
+        layout.addLayout(row)
+        self.pause_playback = QCheckBox("进入托盘后暂停播放")
+        self.pause_playback.setChecked(bool(settings.get("tray_pause_playback", True)))
+        layout.addWidget(self.pause_playback)
+        hint = QLabel("暂停时停止观看取流；恢复主窗口后重新连接直播。原本手动暂停的格子保持暂停，录制继续运行。\n普通最小化或切换到其他软件不受影响。")
+        hint.setObjectName("SettingsHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+
+    def values(self):
+        return {"close_behavior": self.close_behavior_combo.currentData(),
+                "tray_pause_playback": self.pause_playback.isChecked()}
+
+    def reset(self):
+        from .config import DEFAULT_SETTINGS
+        self.pause_playback.setChecked(DEFAULT_SETTINGS["tray_pause_playback"])
+        self.close_behavior_combo.setCurrentIndex(
+            self.close_behavior_combo.findData(DEFAULT_SETTINGS["close_behavior"]))
 
 
 class NotificationSwitch(QCheckBox):
@@ -1358,7 +1388,7 @@ class SettingsDialog(QDialog):
 
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
              ("recording", "录制"), ("notifications", "通知"), ("shortcuts", "快捷键"),
-             ("plugins", "插件"), ("updates", "软件更新")]
+             ("tray", "托盘行为"), ("plugins", "插件"), ("updates", "软件更新")]
     PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
@@ -1411,15 +1441,16 @@ class SettingsDialog(QDialog):
             3: lambda: RecordingSettingsPage(settings),
             4: lambda: NotificationSettingsPage(settings),
             5: lambda: ShortcutSettingsPage(shortcuts),
-            6: lambda: PluginSettingsPage(plugin_manager),
-            7: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
+            6: lambda: TraySettingsPage(settings),
+            7: lambda: PluginSettingsPage(plugin_manager),
+            8: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
         }
         self._loaded_pages = {}
         if preview:
             # The appearance thumbnail needs the real controls, without creating
             # update/download workers or reading an installation result.
-            self._page_factories[6] = QWidget
             self._page_factories[7] = QWidget
+            self._page_factories[8] = QWidget
         self.stack.addWidget(self.general_page)
         for _index in range(len(self.PAGES) - 1):
             self.stack.addWidget(QWidget())
@@ -1472,7 +1503,7 @@ class SettingsDialog(QDialog):
             placeholder.deleteLater()
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
-            elif index == 6 and not self._preview_only:
+            elif index == 7 and not self._preview_only:
                 from .online_ui import UpdateDot
                 from PySide6.QtWidgets import QTabBar
                 page.store_page.seen_versions = self.seen_versions
@@ -1482,7 +1513,7 @@ class SettingsDialog(QDialog):
                 page.store_page.busyChanged.connect(self._update_save_button)
                 page.store_page.offersChanged.connect(self._mark_plugin_updates)
                 self._mark_plugin_updates(page.store_page.offers)
-            elif index == 7 and not self._preview_only:
+            elif index == 8 and not self._preview_only:
                 page.saveRequested.connect(self._save)
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
@@ -1498,8 +1529,8 @@ class SettingsDialog(QDialog):
     recording_page = property(lambda self: self._page(3))
     notification_page = property(lambda self: self._page(4))
     shortcut_page = property(lambda self: self._page(5))
-    plugin_page = property(lambda self: self._page(6))
-    update_page = property(lambda self: self._page(7))
+    plugin_page = property(lambda self: self._page(7))
+    update_page = property(lambda self: self._page(8))
 
     def _remember_versions(self, versions):
         if any(self.seen_versions.get(key) != value for key, value in versions.items()):
@@ -1507,7 +1538,7 @@ class SettingsDialog(QDialog):
             self.updatesViewed.emit(dict(self.seen_versions))
 
     def _mark_app_update(self, offer):
-        if offer and self.nav.currentRow() == 7:
+        if offer and self.nav.currentRow() == 8:
             self._remember_versions({'app': offer['version']})
         active = bool(offer and self.seen_versions.get('app') != offer['version'])
         self._mark_update_page('updates', active)
@@ -1515,7 +1546,7 @@ class SettingsDialog(QDialog):
     def _mark_plugin_updates(self, offers):
         from .online_ui import plugin_update_offers
         updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
-        if self.nav.currentRow() == 6:
+        if self.nav.currentRow() == 7:
             self._remember_versions({offer['id']: offer['version'] for offer in updates})
         active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
         self._mark_update_page('plugins', active)
@@ -1523,7 +1554,7 @@ class SettingsDialog(QDialog):
         self.plugin_page.store_page.update_dots()
 
     def _update_save_button(self, *_args) -> None:
-        plugin, update = self._loaded_pages.get(6), self._loaded_pages.get(7)
+        plugin, update = self._loaded_pages.get(7), self._loaded_pages.get(8)
         data = getattr(update, 'data_page', None)
         restart = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
         self.confirm_button.setText("保存并重启" if restart else "保存")
@@ -1537,10 +1568,10 @@ class SettingsDialog(QDialog):
                 self.nav.setCurrentRow(1)
                 appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
                 return
-        plugin = self._loaded_pages.get(6)
-        data = getattr(self._loaded_pages.get(7), 'data_page', None)
+        plugin = self._loaded_pages.get(7)
+        data = getattr(self._loaded_pages.get(8), 'data_page', None)
         if data is not None and not data.prepare():
-            self.nav.setCurrentRow(7)
+            self.nav.setCurrentRow(8)
             self.update_page.scroll.ensureWidgetVisible(data.status)
             return
         self.restart_requested = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
@@ -1550,10 +1581,10 @@ class SettingsDialog(QDialog):
         if self._preview_only:
             return super().done(result)
         self.stack.finish_transition()
-        if 6 in self._loaded_pages:
-            self._loaded_pages[6].store_page.stop()
         if 7 in self._loaded_pages:
-            page = self._loaded_pages[7]
+            self._loaded_pages[7].store_page.stop()
+        if 8 in self._loaded_pages:
+            page = self._loaded_pages[8]
             if result != QDialog.Accepted:
                 page.data_page.cancel_target()
             if self._update_page_factory is None:
@@ -1574,10 +1605,10 @@ class SettingsDialog(QDialog):
                 self._page(index)
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
-            self.reset_button.setVisible(index not in (6, 7))
-            if index == 6 and not self._preview_only:
+            self.reset_button.setVisible(index not in (7, 8))
+            if index == 7 and not self._preview_only:
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
-            elif index == 7 and not self._preview_only:
+            elif index == 8 and not self._preview_only:
                 self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
@@ -1588,11 +1619,11 @@ class SettingsDialog(QDialog):
     def settings(self) -> dict:
         values = dict(self._initial_settings)
         values.update(self.general_page.values())
-        for index in (1, 2, 3, 4):
+        for index in (1, 2, 3, 4, 6):
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
-        if 7 in self._loaded_pages:
-            values.update(self._loaded_pages[7].values())
+        if 8 in self._loaded_pages:
+            values.update(self._loaded_pages[8].values())
         values['seen_update_versions'] = dict(self.seen_versions)
         return values
 
@@ -1600,8 +1631,8 @@ class SettingsDialog(QDialog):
         return self._loaded_pages[5].values() if 5 in self._loaded_pages else dict(self._initial_shortcuts)
 
     def enabled_plugins(self):
-        if 6 in self._loaded_pages:
-            return self._loaded_pages[6].enabled_plugins()
+        if 7 in self._loaded_pages:
+            return self._loaded_pages[7].enabled_plugins()
         enabled = self._plugin_manager.enabled if self._plugin_manager is not None else None
         return None if enabled is None else set(enabled)
 

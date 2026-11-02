@@ -284,6 +284,24 @@ class VolumePopup(QFrame):
         self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
 
 
+class RecordingButton(TileButton):
+    def paintEvent(self, event):
+        if not self.property('replayOnly'):
+            return super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.text = ''
+        option.icon = QIcon()
+        painter = QPainter(self)
+        if self.property('tileButton'):
+            self._paint_button(painter, option)
+        else:
+            self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
+        painter.setPen(QColor(theme.ACCENT))
+        painter.setFont(self.font())
+        painter.drawText(self.rect(), Qt.AlignCenter, self.text())
+
+
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
     if button.property('fullscreen'):
@@ -5887,7 +5905,7 @@ class Tile(QFrame):
         self.fullscreen_button.setFixedSize(28, 26)
         self.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self.fullscreen_button.clicked.connect(lambda: self.fullscreenRequested.emit(self))
-        self.recording_button = TileButton("● 录制")
+        self.recording_button = RecordingButton("● 录制")
         self.recording_button.setObjectName("TileCtrl")
         self.recording_button.setFixedSize(64, 26)
         self.recording_button.setToolTip("开始录制这一路（右键可保存即时回放）")
@@ -6220,10 +6238,16 @@ class Tile(QFrame):
                 self._layout_bottom_controls()
             return
         narrow = self.width() < 320
-        labels = ({"record": "●", "cache": "◉", "": "●"} if narrow else
-                  {"record": "● REC", "cache": "◉ 缓存", "": "● 录制"})
+        state = getattr(self, "_recording_state", "")
+        self.recording_button.setProperty('replayOnly', state == 'cache')
+        self.recording_button.setAccessibleName(
+            '即时回放缓存中；点击开始完整录制' if state == 'cache' else
+            '停止录制这一路' if state == 'record' else '开始录制这一路')
+        labels = ({"record": "●", "cache": "●", "": "●"} if narrow else
+                  {"record": "● REC", "cache": "● REC", "": "● 录制"})
         self.recording_button.setFixedWidth(26 if narrow else 64)
-        self.recording_button.setText(labels.get(getattr(self, "_recording_state", ""), "●"))
+        self.recording_button.setText(labels.get(state, "●"))
+        self.recording_button.update()
         if layout:
             self._layout_bottom_controls()
 
