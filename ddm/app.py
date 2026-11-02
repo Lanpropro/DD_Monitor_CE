@@ -5,6 +5,7 @@
 """
 import faulthandler
 from copy import deepcopy
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import sys
@@ -12,9 +13,9 @@ import time
 import webbrowser
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import (QByteArray, QEasingCurve, QEvent, QProcess, QPropertyAnimation,
+from PySide6.QtCore import (QByteArray, QEvent, QProcess,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
-from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QCursor, QIcon, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -162,12 +163,6 @@ class MainWindow(QMainWindow):
         self._fullscreen_was_maximized = False
         self._native_fullscreen_state = None
         self._fullscreen_saved_geometry = None
-        self._fullscreen_cover: QLabel | None = None
-        self._fullscreen_cover_started = 0.0
-        self._fullscreen_fading = False
-        self._fullscreen_cover_timer = QTimer(self)
-        self._fullscreen_cover_timer.setSingleShot(True)
-        self._fullscreen_cover_timer.timeout.connect(self._start_fullscreen_fade)
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
         self._danmaku_clients: dict[str, object] = {}
@@ -1201,7 +1196,6 @@ class MainWindow(QMainWindow):
             dialog.close()
         for dialog in list(self._stream_info_dialogs.values()):
             dialog.close()
-        self._clear_fullscreen_cover()
         self._fullscreen_cursor.stop()
         self.hide()
         if self._native_fullscreen_state is not None:
@@ -2545,101 +2539,39 @@ class MainWindow(QMainWindow):
         print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
               file=sys.stderr, flush=True)
 
-    def _grab_fullscreen_frame(self) -> tuple[QPixmap, object] | None:
-        if sys.platform != "win32" or QApplication.platformName() != "windows":
-            return None
-        screen = self.screen()
-        frame = screen.grabWindow(0)
-        if frame.isNull():
-            return None
-        image = frame.toImage()
-        samples = ((0, 0), (image.width() // 2, image.height() // 2),
-                   (image.width() - 1, image.height() - 1))
-        if all(image.pixelColor(x, y).value() < 4 for x, y in samples):
-            return None  # 没有交互桌面时，Qt 截屏可能只返回黑图
-        return frame, screen.geometry()
-
-    #: 遮盖图完全盖住这么久之后才开始淡出 —— 这段留给窗口样式切换和布局就位。
-    FULLSCREEN_COVER_HOLD_MS = 120
-    #: 遮盖图淡出的时长。以前是到点直接关：画面「静止一会儿然后突然一跳」，
-    #: 4K 上那一下就接近三百毫秒，看起来就是卡住。改成淡走，期间下面的画面
-    #: （格子的 播放器 一直没停）逐渐透出来，视觉上是一次过渡而不是一次跳变。
-    FULLSCREEN_COVER_FADE_MS = 160
-
-    def _hold_fullscreen_frame(self) -> None:
-        self._fullscreen_cover_timer.stop()
-        self._fullscreen_cover_started = time.perf_counter()
-        if self._fullscreen_cover is not None:
-            return
-        captured = self._grab_fullscreen_frame()
-        if captured is None:
-            return
-        frame, geometry = captured
-        # 过渡用的一张底图，不需要 4K 原分辨率：实测 4K 下往 QLabel 里塞一张全屏
-        # 位图要 40 ms 上下，缩一半降到 16 ms；setScaledContents 会拉回去，
-        # 这点模糊只在过渡的一百多毫秒里看得见。
-        frame = frame.scaled(max(1, frame.width() // 2), max(1, frame.height() // 2),
-                             Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        cover = QLabel()
-        cover.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint |
-                             Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
-        cover.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        cover.setScaledContents(True)
-        cover.setPixmap(frame)
-        cover.setGeometry(geometry)
-        self._fullscreen_cover = cover
-        cover.show()
-        QApplication.processEvents()
-
-    def _release_fullscreen_frame(self) -> None:
-        if self._fullscreen_cover is None:
-            return
-        self._fullscreen_cover_timer.stop()
-        elapsed_ms = int((time.perf_counter() - self._fullscreen_cover_started) * 1000)
-        self._fullscreen_cover_timer.start(
-            max(16, self.FULLSCREEN_COVER_HOLD_MS - elapsed_ms))
-
-    def _start_fullscreen_fade(self) -> None:
-        """遮盖图淡出，淡完再收掉。
-
-        同一个槽兼两件事：第一次进来是「开始淡出」；`_fullscreen_cover_timer`
-        再响一次就是**兜底** —— 淡出期间定时器一直挂着（对外也就看得出「遮挡层
-        还在回收中」），动画万一被打断，到点直接收掉，不会漏一层图在屏幕上。
-        """
-        cover = self._fullscreen_cover
-        if cover is None:
-            return
-        if self._fullscreen_fading:
-            self._clear_fullscreen_cover()
-            return
-        self._fullscreen_fading = True
-        fade = QPropertyAnimation(cover, b"windowOpacity", self)
-        fade.setDuration(self.FULLSCREEN_COVER_FADE_MS)
-        fade.setStartValue(1.0)
-        fade.setEndValue(0.0)
-        fade.setEasingCurve(QEasingCurve.OutCubic)
-        fade.finished.connect(self._clear_fullscreen_cover)
-        fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-        self._fullscreen_cover_timer.start(self.FULLSCREEN_COVER_FADE_MS + 200)
-
-    def _clear_fullscreen_cover(self) -> None:
-        self._fullscreen_cover_timer.stop()
-        self._fullscreen_fading = False
-        cover = self._fullscreen_cover
-        self._fullscreen_cover = None
-        if cover is not None:
-            cover.close()
-            cover.deleteLater()
+    @contextmanager
+    def _fullscreen_layout_change(self, tile):
+        central = self.centralWidget()
+        layout = central.layout()
+        central.setUpdatesEnabled(False)
+        layout.setEnabled(False)
+        self.wall.grid.setEnabled(False)
+        self.wall._fullscreen_layout_pending = True
+        try:
+            yield
+        finally:
+            try:
+                layout.setEnabled(True)
+                layout.activate()
+                self.wall._fullscreen_layout_pending = False
+                self.wall.relayout(force=True)
+                self.wall.grid.setEnabled(True)
+                self.wall.grid.activate()
+                tile._layout_areas()
+            finally:
+                self.wall._fullscreen_layout_pending = False
+                self.wall.grid.setEnabled(True)
+                central.setUpdatesEnabled(True)
 
     def _report_fullscreen_cost(self, action: str, started: float, covered: float,
                                 switched: float, done: float) -> None:
         """打一行分段耗时。
 
-        4K 上这套切换本来就贵（抓屏、窗口样式、9 个格子的 播放器 窗口重配），
+        记录窗口样式与格子布局的耗时；实时视频在切换期间保持播放。
         有这几个数，下次再觉得卡就知道该动哪一段，而不是从头猜。
         """
         print(f"[全屏] {action} {(done - started) * 1000:.0f} ms"
-              f"（遮盖 {(covered - started) * 1000:.0f}"
+              f"（准备 {(covered - started) * 1000:.0f}"
               f" / 切换 {(switched - covered) * 1000:.0f}"
               f" / 布局 {(done - switched) * 1000:.0f}）",
               file=sys.stderr, flush=True)
@@ -2681,7 +2613,6 @@ class MainWindow(QMainWindow):
         if self._fullscreen_tile is not None:
             return
         started = time.perf_counter()
-        self._hold_fullscreen_frame()
         covered = time.perf_counter()
         self._fullscreen_was_maximized = self.isMaximized()
         self._fullscreen_saved_geometry = self.saveGeometry()
@@ -2694,20 +2625,16 @@ class MainWindow(QMainWindow):
                 notice.dismiss(animate=False)
         self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
-        self.centralWidget().setUpdatesEnabled(False)
-        try:
+        with self._fullscreen_layout_change(tile):
             self.sidebar.hide()
             self.empty_hint.hide()
             self.wall.set_fullscreen_tile(tile)
-            self.sync_danmaku()
             tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
             if sys.platform == "win32" and QApplication.platformName() == "windows":
                 self._native_fullscreen_state = window_fullscreen.enter(self)
             else:
                 self.showFullScreen()
-        finally:
-            self.centralWidget().setUpdatesEnabled(True)
-            self._release_fullscreen_frame()
+        self.sync_danmaku()
         finished = time.perf_counter()
         self._fullscreen_cursor.start()
         self._upgrade_fullscreen_quality(tile)
@@ -2721,11 +2648,8 @@ class MainWindow(QMainWindow):
         if tile is None:
             return
         started = time.perf_counter()
-        self._hold_fullscreen_frame()
         covered = time.perf_counter()
-        stagger = self._fullscreen_cover is not None
-        self.centralWidget().setUpdatesEnabled(False)
-        try:
+        with self._fullscreen_layout_change(tile):
             if self._native_fullscreen_state is not None:
                 window_fullscreen.exit(self, self._native_fullscreen_state)
                 self._native_fullscreen_state = None
@@ -2740,16 +2664,7 @@ class MainWindow(QMainWindow):
             self._sync_fullscreen_audio()
             self._fullscreen_saved_geometry = None
             self.sidebar.show()
-            # 有遮盖图挡着才敢拆帧：让其余格子一帧两格地露面，给淡出动画腾出
-            # 帧间隙；刚退出来那一格马上显示 —— 视线就在它身上。
-            # 抓不到图（离屏 / 没有交互桌面）时不拆，否则用户会看到格子一个个
-            # 蹦出来。
-            self.wall.set_fullscreen_tile(None, stagger=stagger, first=tile)
-        finally:
-            self.centralWidget().setUpdatesEnabled(True)
-            self._release_fullscreen_frame()
-        if stagger:
-            self.wall.reveal_tiles_staggered()
+            self.wall.set_fullscreen_tile(None)
         laid_out = time.perf_counter()
         self._resize_dirty = True
         self._resize_idle_timer.start()

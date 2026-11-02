@@ -61,7 +61,7 @@ class Window(QWidget):
         self.wall = self.wall_type(self)
         self.players = {tile: SimpleNamespace(player=Core(), play_session='private-session',
             url='private-url', _released=False) for tile in self.wall.tiles}
-        self._fullscreen_tile = self._fullscreen_cover = None
+        self._fullscreen_tile = None
         self._resize_idle_timer = QTimer(self)
         self.fail = False
 
@@ -81,8 +81,7 @@ class Window(QWidget):
     def noop(self, *args):
         return None
 
-    _grab_fullscreen_frame = _hold_fullscreen_frame = _release_fullscreen_frame = noop
-    _start_fullscreen_fade = _clear_fullscreen_cover = sync_danmaku = noop
+    sync_danmaku = noop
     refresh_theme = _refresh_meta = _upgrade_fullscreen_quality = noop
 
 

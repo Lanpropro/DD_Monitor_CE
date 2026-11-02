@@ -85,18 +85,21 @@ class FullscreenCapture:
             return
         now = time.perf_counter()
         window = self.window
-        cover = window._fullscreen_cover
         pending = len(window.wall._pending_reveal)
+        overlays = [getattr(tile, 'video_danmaku', None) for tile in window.wall.tiles]
+        raster_pending = sum(overlay is not None and (overlay._comment_raster_job is not None
+                             or overlay._comment_resize_timer.isActive()) for overlay in overlays)
         if len(record['frames']) < 80:
             record['frames'].append({'at_ms': round((now-self.started)*1000, 3),
-                'cover': cover is not None, 'cover_opacity': round(cover.windowOpacity(), 3) if cover is not None else None,
+                'cover': False, 'cover_opacity': None,  # Retain the previous capture schema for comparison.
                 'fullscreen': window._fullscreen_tile is not None, 'pending_reveal': pending,
+                'raster_pending': raster_pending,
                 'resize_pending': window._resize_idle_timer.isActive(),
                 'window_size': [window.width(), window.height()]})
         if now-self.started >= 8:
             self.finish('limit')
-        elif (self.returned is not None and now-self.returned >= .5 and cover is None
-                and not pending and not window._resize_idle_timer.isActive()):
+        elif (self.returned is not None and now-self.returned >= .5
+                and not pending and not raster_pending and not window._resize_idle_timer.isActive()):
             self.finish('settled')
 
     def finish(self, reason='exit'):
@@ -195,11 +198,9 @@ def install(path, *, profile_calls=False):
                 capture.stage(measured, started)
         return wrapped
 
-    for owner, names in ((MainWindow, ('_grab_fullscreen_frame', '_hold_fullscreen_frame',
-            '_release_fullscreen_frame', '_start_fullscreen_fade', '_clear_fullscreen_cover',
-            'sync_danmaku', 'refresh_theme', '_refresh_meta', '_upgrade_fullscreen_quality')),
+    for owner, names in ((MainWindow, ('sync_danmaku', 'refresh_theme', '_refresh_meta', '_upgrade_fullscreen_quality')),
             (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered')),
-            (VideoDanmaku, ('_resize_comments',))):
+            (VideoDanmaku, ('_resize_comments', '_queue_comment_raster', '_apply_comment_rasters'))):
         for name in names:
             setattr(owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))
     for name in ('enter', 'exit'):

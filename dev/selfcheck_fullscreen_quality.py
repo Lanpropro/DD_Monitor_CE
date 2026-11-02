@@ -30,7 +30,6 @@ def check_resolver(app, state):
         return "https://cdn.test/live.flv", quality, "app", {}
     with patch("ddm.app.QTimer.singleShot"), patch.object(MainWindow, "sync_danmaku"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
-            patch.object(MainWindow, "_grab_fullscreen_frame", return_value=None), \
             patch.object(bili, "play_url", side_effect=source) as get, \
             patch.object(bili, "room_quality_options", return_value=BILI_OPTIONS), \
             patch.object(TilePlayer, "play") as play:
@@ -72,7 +71,6 @@ def main():
     requests = []
     with patch("ddm.app.QTimer.singleShot"), patch.object(MainWindow, "sync_danmaku"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
-            patch.object(MainWindow, "_grab_fullscreen_frame", return_value=None), \
             patch.object(MainWindow, "start_tile", side_effect=lambda tile:
                          requests.append((tile, tile.quality))), patch.object(TilePlayer, "play") as play:
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2", state=state)
@@ -82,6 +80,7 @@ def main():
         target, other, *_ = window.wall.tiles
         target.room["live"] = True
         target.set_volume(37)
+        target.set_muted(True)  # Changing volume unmutes; explicitly prepare the muted restoration case.
         audio_channels = []
         target.audioChannelChanged.connect(lambda _room, value: audio_channels.append(value))
         original_tiles = list(window.wall.tiles)

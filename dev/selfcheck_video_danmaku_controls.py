@@ -203,7 +203,6 @@ def check_controls(app):
             with patch("ddm.app.SettingsDialog.exec", inspect_settings):
                 assert window.open_settings("danmaku") is False
             window._on_fullscreen(first)
-            window._clear_fullscreen_cover()
             app.processEvents()
             assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
             first.set_fullscreen_controls_hidden(True)
@@ -213,7 +212,6 @@ def check_controls(app):
             assert menu.isVisible(), "全屏时仍可打开右下角观看设置"
             menu.hide()
             window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             app.processEvents()
             assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
         finally:

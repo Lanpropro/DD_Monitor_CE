@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from types import MethodType, SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QRegion, QWindowStateChangeEvent
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontInfo, QImage, QPaintEvent, QPixmap, QRawFont, QRegion, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QDialog, QWidget
 
@@ -353,7 +353,15 @@ def check_quick_surface_recovery(app):
     assert not layer.items, 'Deleting the last tile must not leave an opaque shared window'
 
 
+def wait_comment_raster(app, overlay):
+    deadline = time.monotonic() + 5
+    while (overlay._comment_resize_timer.isActive() or overlay._comment_raster_job is not None):
+        assert time.monotonic() < deadline, 'Resized comment painting did not finish'
+        QTest.qWait(10)
+
+
 def check_resize_rebuild_coalescing(app):
+    from ddm.danmaku_raster import CommentRaster
     overlay = VideoDanmaku()
     overlay._quick_requested = False
     overlay.resize(640, 360)
@@ -366,42 +374,114 @@ def check_resize_rebuild_coalescing(app):
         app.processEvents()
         assert overlay.add_event({'text': '最终尺寸描边弹幕 ABC 123', 'color': '#aaccff', 'self_sent': True})
         overlay.set_paused(True)
-        app.processEvents()
+        wait_comment_raster(app, overlay)
         comment = overlay.comments[0]
         comment.x = 200
         progress = (overlay.width()-comment.x)/(overlay.width()+comment.image.width()/comment.image.devicePixelRatioF())
-        with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
+        threads = []
+        original = CommentRaster._render_content
+        def paint(renderer, *args):
+            threads.append(QThread.currentThread())
+            return original(renderer, *args)
+        with patch.object(CommentRaster, '_render_content', paint), \
+                patch.object(overlay, '_render_content', wraps=overlay._render_content) as gui_render:
             for width, height in ((720, 420), (1200, 800), (1000, 700), (960, 540)):
                 overlay.resize(width, height)
-            assert render.call_count == 0, 'Intermediate fullscreen geometries must not rebuild every glyph'
-            app.processEvents()
-            assert render.call_count == 1, 'Rebuild each surviving comment once at the final size'
+            assert gui_render.call_count == 0
+            wait_comment_raster(app, overlay)
+            assert gui_render.call_count == 0, 'Fullscreen resize must never rasterize on the GUI thread'
+            assert len(threads) == 1 and threads[0] != app.thread()
         expected = overlay._render_content(comment.text, comment.color, comment.runs, comment.self_sent)
-        assert comment.image.toImage() == expected.toImage(), 'Final text/outline/colour must retain the reference rendering'
+        assert comment.image.toImage() == expected.toImage(), 'Final pixels must retain the reference rendering'
         final_progress = (overlay.width()-comment.x)/(overlay.width()+comment.image.width()/comment.image.devicePixelRatioF())
-        assert abs(final_progress-progress) < 1e-6, 'Queued resize must preserve relative progress'
+        assert abs(final_progress-progress) < 1e-6
+        # Each live comment retains at most two size variants, including the original size.
+        with patch.object(CommentRaster, '_render_content', wraps=original) as cached_render:
+            for size in ((640, 360), (960, 540), (980, 540)):
+                overlay.resize(*size)
+                wait_comment_raster(app, overlay)
+            assert cached_render.call_count == 0, 'Cached sizes must reuse their raster'
+        assert len(comment.rasters) == 2
         overlay.resize(1000, 600)
         with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
             overlay.apply_settings(dict(overlay.settings, video_danmaku_size=40))
             assert render.call_count == 1
+            wait_comment_raster(app, overlay)
+            assert render.call_count == 1, 'Explicit settings must consume pending resize work'
+        # A completed old job must not overwrite a newer size or block GUI events.
+        entered, release = threading.Event(), threading.Event()
+        def blocked(renderer, *args):
+            entered.set()
+            assert release.wait(5), 'Worker release timed out'
+            return original(renderer, *args)
+        with patch.object(CommentRaster, '_render_content', blocked):
+            overlay.resize(1100, 650)
             app.processEvents()
-            assert render.call_count == 1, 'An explicit settings rebuild must consume the queued resize'
-        overlay.resize(1100, 650)
-        overlay.clear_comments()
-        with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
+            deadline = time.monotonic() + 3
+            while not entered.is_set():
+                assert time.monotonic() < deadline
+                QTest.qWait(5)
+            delivered = []
+            QTimer.singleShot(0, lambda: delivered.append(True))
+            overlay.resize(900, 500)
             app.processEvents()
-            assert render.call_count == 0 and not overlay.comments
+            assert delivered and overlay._comment_raster_job is not None
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_size=42))
+            newer = comment.image.toImage()
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert comment.image.toImage() == newer, 'Stale painting must not replace updated settings'
+        # Clearing during a batch must not revive deleted comments or old textures.
+        with patch.object(CommentRaster, '_render_content', blocked):
+            entered.clear()
+            release.clear()
+            overlay.resize(1200, 700)
+            app.processEvents()
+            overlay.clear_comments()
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert not overlay.comments
         overlay.set_paused(False)
         overlay.resize(900, 500)
         assert overlay.add_event({'text': 'arrives before the queued resize'})
         overlay.set_paused(True)
-        app.processEvents()
+        wait_comment_raster(app, overlay)
         assert overlay._comment_width == overlay.width()
-        assert overlay.comments[0].x == overlay.width(), 'A newly arrived comment must not inherit the old geometry'
+        assert overlay.comments[0].x == overlay.width()
+        overlay.clear_comments()
+        overlay.set_paused(False)
+        image = QImage(24, 20, QImage.Format_ARGB32_Premultiplied)
+        image.fill(QColor(255, 80, 40, 180))
+        overlay._images['local-emote'] = image
+        with patch.object(overlay, '_ensure_emoticon'):
+            assert overlay.add_event({'text': 'mixed [emote] ABC', 'emoticons': {'[emote]': 'local-emote'}})
+        overlay.set_paused(True)
+        entered.clear()
+        release.clear()
+        def blocked_rich(renderer, *args):
+            if QThread.currentThread() != app.thread():
+                entered.set()
+                assert release.wait(5)
+            return original(renderer, *args)
+        with patch.object(CommentRaster, '_render_content', blocked_rich):
+            overlay.resize(1200, 700)
+            app.processEvents()
+            deadline = time.monotonic() + 3
+            while not entered.is_set():
+                assert time.monotonic() < deadline
+                QTest.qWait(5)
+            updated = QPixmap(24, 20)
+            updated.fill(QColor(40, 80, 255, 160))
+            overlay._on_emoticon_loaded('local-emote', updated)
+            expected = overlay.comments[0].image.toImage()
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert overlay.comments[0].image.toImage() == expected, 'Late emoticons invalidate old rich-text jobs'
     finally:
         overlay.clear()
+        wait_comment_raster(app, overlay)
         overlay.close()
-    print('PASS: coalesced fullscreen comment resize, final pixels/progress, immediate settings and cancellation')
+    print('PASS: background resize raster, exact final pixels/progress, bounded cache, stale results and GUI delivery')
 
 
 def check_fonts(app):
@@ -695,11 +775,9 @@ def check_routing(app):
                 window.wall.set_fullscreen_tile(None)
                 assert quick.reset_surface.call_count == 2, 'Native fullscreen must restore transparency both ways'
             window._on_fullscreen(first)
-            window._clear_fullscreen_cover()
             assert first.video_danmaku.isVisible()
             assert "1002" not in window._danmaku_clients, "全屏时停止隐藏格子的订阅"
             window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             app.processEvents()
             window.sync_danmaku()
             assert "1002" in window._danmaku_clients

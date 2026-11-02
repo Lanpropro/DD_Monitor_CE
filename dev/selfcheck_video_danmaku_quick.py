@@ -92,7 +92,6 @@ def check_screen_surfaces(app, window, layer, players):
                 window._on_fullscreen(target)
             else:
                 window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
             settle(app, .6)
@@ -624,7 +623,6 @@ def main():
                 window._on_fullscreen(target)
             else:
                 window.wall.set_fullscreen_tile(target)
-            window._clear_fullscreen_cover()
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
             settle(app)
@@ -645,7 +643,6 @@ def main():
                 window._exit_fullscreen()
             else:
                 window.wall.set_fullscreen_tile(None)
-            window._clear_fullscreen_cover()
             settle(app)
             assert layer.groups[group].property("rounded")
 
