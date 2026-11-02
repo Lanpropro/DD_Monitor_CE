@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
@@ -1107,6 +1107,7 @@ class MainNoticesTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.addCleanup(theme.signals().changed.disconnect)
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
@@ -1122,8 +1123,13 @@ class MainNoticesTests(unittest.TestCase):
         window.resize(1000, 700)
         window.show()
         self.app.processEvents()
-        self.addCleanup(window.close)
+        self.addCleanup(self.close_window, window)
         return window
+
+    def close_window(self, window):
+        window.close()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
