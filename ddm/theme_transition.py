@@ -182,7 +182,13 @@ class ThemeTransition(QObject):
             return
         self.progress = 0.0
         for window, old in before:
-            overlay = WaveOverlay(window, old, origin)
+            overlay_type = WaveOverlay
+            if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+                from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
+                if QQuickWindow.graphicsApi() != QSGRendererInterface.Software:
+                    from .theme_wave_quick import QuickWaveOverlay
+                    overlay_type = QuickWaveOverlay
+            overlay = overlay_type(window, old, origin)
             self.overlays.append(overlay)
             self._watched.extend([window] + window.findChildren(VideoSurface))
             overlay.show()

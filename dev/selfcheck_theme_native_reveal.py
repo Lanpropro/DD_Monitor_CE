@@ -4,21 +4,94 @@ from ctypes import wintypes
 import os
 from pathlib import Path
 import sys
+import threading
+import time
 from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.theme_transition import WaveOverlay
+
+
+def check_render_thread(app):
+    from ddm.theme_wave_quick import QuickWaveOverlay
+    window = QWidget()
+    window.setAttribute(Qt.WA_ShowWithoutActivating)
+    window.setGeometry(-20000, -20000, 640, 360)
+    window.show()
+    QTest.qWait(20)
+    snapshot = QPixmap(window.size())
+    snapshot.fill(QColor('#123456'))
+    painter = QPainter(snapshot)
+    painter.setCompositionMode(QPainter.CompositionMode_Source)
+    painter.fillRect(QRect(560, 100, 40, 40), Qt.transparent)
+    painter.end()
+    overlay = QuickWaveOverlay(window, snapshot, window.mapToGlobal(QPoint()))
+    overlay.stage.setProperty('milliseconds', 2000)
+    samples = []
+    gui_thread = threading.get_ident()
+    def frame():
+        samples.append((time.perf_counter(), threading.get_ident()))
+    try:
+        overlay.show()
+        QTest.qWait(80)
+        assert overlay.view.isExposed()
+        user32 = ctypes.windll.user32
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        assert user32.GetWindowLongW(int(overlay.view.winId()), -20) & 0x20, 'Native wave must pass input through'
+        before = overlay.grab().toImage()
+        scale = before.devicePixelRatio()
+        assert before.pixelColor(round(400*scale), round(300*scale)).alpha() > 200
+        assert before.pixelColor(round(580*scale), round(120*scale)).alpha() == 0, 'Live-video holes must remain transparent'
+        samples.clear()
+        overlay.view.afterRendering.connect(frame, Qt.DirectConnection)
+        time.sleep(.4)  # No GUI event processing; render-thread Animator must continue.
+        blocked_frames = list(samples)
+        overlay.view.afterRendering.disconnect(frame)
+        after = overlay.grab().toImage()
+        assert after.pixelColor(round(400*scale), round(300*scale)).alpha() < 10
+        assert len(blocked_frames) >= 3, len(blocked_frames)
+        assert all(thread != gui_thread for _, thread in blocked_frames)
+        assert window.geometry().right() < 0
+        print('PASS: circular shader reveal, GUI blocked 400ms, render frames', len(blocked_frames),
+              'backend', overlay.view.rendererInterface().graphicsApi().name,
+              '; off-screen functionality, not live performance')
+        overlay.hide()
+        from ddm import motion, theme
+        from ddm.theme_transition import ThemeTransition
+        transition = ThemeTransition(window)
+        with patch.object(motion, 'enabled', return_value=True):
+            theme.apply('dark')
+            transition.change('light', window.mapToGlobal(QPoint()))
+            assert isinstance(transition.overlays[0], QuickWaveOverlay)
+            QTest.qWait(50)
+            transition.change('dark', window.mapToGlobal(QPoint()))
+            assert isinstance(transition.overlays[0], QuickWaveOverlay)
+            QTest.qWait(400)
+            assert not transition.overlays
+            transition.change('light', window.mapToGlobal(QPoint()))
+            quick_window = transition.overlays[0].view
+            window.move(-19000, -19000)
+            assert not transition.overlays and not quick_window.isVisible()
+        print('PASS: actual theme entry, reverse click snapshot, completion and move cancellation')
+    finally:
+        overlay.hide()
+        overlay.deleteLater()
+        window.close()
+        app.processEvents()
 
 
 def main():
     app = QApplication([])
     if sys.platform != 'win32' or app.platformName() != 'windows':
         print('SKIP: native Windows compositor test')
+        return
+    if '--render-thread' in sys.argv:
+        check_render_thread(app)
         return
     window = QWidget()
     window.setAttribute(Qt.WA_ShowWithoutActivating)

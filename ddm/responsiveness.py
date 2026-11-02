@@ -232,6 +232,7 @@ def install_theme_animation_capture(probe):
                 record['frames'].append({'at_ms': round((started - record['started']) * 1000, 3),
                     'work_ms': round((time.perf_counter() - started) * 1000, 3),
                     'progress': round(float(progress), 5), 'overlays': len(transition.overlays),
+                    'quick_overlays': sum(getattr(overlay, 'render_thread', False) for overlay in transition.overlays),
                     'native_overlays': sum(overlay._native_clip for overlay in transition.overlays)})
 
     def paint(overlay, event):

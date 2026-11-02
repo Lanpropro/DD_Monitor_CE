@@ -39,7 +39,7 @@
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |
 | [selfcheck_theme_latency](../selfcheck_theme_latency.py) | `offline` |
-| [selfcheck_theme_native_reveal](../selfcheck_theme_native_reveal.py) | 单项执行前核对 |
+| [selfcheck_theme_native_reveal](../selfcheck_theme_native_reveal.py) | Windows屏幕外单项；默认检查原生裁剪和软件回退，`--render-thread` 检查圆形shader、视频透明孔、GUI暂停时继续渲染、反向切换及移动取消；不移动鼠标或激活窗口，不作为真实直播性能证据 |
 | [selfcheck_theme_palette](../selfcheck_theme_palette.py) | 单项执行前核对 |
 | [selfcheck_theme_wave](../selfcheck_theme_wave.py) | 单项执行前核对 |
 | [selfcheck_ui_motion](../selfcheck_ui_motion.py) | 单项执行前核对 |
