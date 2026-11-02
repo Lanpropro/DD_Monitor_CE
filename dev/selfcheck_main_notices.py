@@ -1,5 +1,6 @@
 """Offline checks for per-tile D shortcut, compact notices and startup live baseline."""
 from contextlib import ExitStack
+import faulthandler
 import os
 import json
 from pathlib import Path
@@ -1739,4 +1740,8 @@ class MainNoticesTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    faulthandler.dump_traceback_later(60, repeat=True)
+    try:
+        unittest.main(verbosity=2)
+    finally:
+        faulthandler.cancel_dump_traceback_later()
