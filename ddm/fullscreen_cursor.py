@@ -9,6 +9,31 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication
 
 
+def set_native_cursor(shape, widget=None):
+    if sys.platform != "win32" or QApplication.platformName() != "windows":
+        return
+    user32 = ctypes.windll.user32
+    if widget is not None:
+        user32.GetCursorPos.argtypes = (ctypes.POINTER(wintypes.POINT),)
+        user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+        user32.WindowFromPoint.restype = wintypes.HWND
+        user32.IsChild.argtypes = (wintypes.HWND, wintypes.HWND)
+        point = wintypes.POINT()
+        if not user32.GetCursorPos(ctypes.byref(point)):
+            return
+        target, owner = user32.WindowFromPoint(point), int(widget.winId())
+        if target != owner and not user32.IsChild(owner, target):
+            return
+    user32.SetCursor.argtypes = (ctypes.c_void_p,)
+    if shape == Qt.BlankCursor:
+        user32.SetCursor(None)
+    else:
+        resource = {Qt.PointingHandCursor: 32649, Qt.IBeamCursor: 32513,
+                    Qt.CrossCursor: 32515}.get(shape, 32512)
+        user32.LoadCursorW.restype = ctypes.c_void_p
+        user32.SetCursor(user32.LoadCursorW(None, resource))
+
+
 class FullscreenCursor(QObject):
     IDLE_SECONDS = 3.0
 
@@ -49,11 +74,7 @@ class FullscreenCursor(QObject):
             if sys.platform == "win32" and QApplication.platformName() == "windows":
                 widget = QApplication.widgetAt(QCursor.pos())
                 shape = widget.cursor().shape() if widget else Qt.ArrowCursor
-                resource = {Qt.PointingHandCursor: 32649, Qt.IBeamCursor: 32513}.get(shape, 32512)
-                user32 = ctypes.windll.user32
-                user32.LoadCursorW.restype = ctypes.c_void_p
-                user32.SetCursor.argtypes = (ctypes.c_void_p,)
-                user32.SetCursor(user32.LoadCursorW(None, resource))
+                set_native_cursor(shape)
 
     def update_cursor(self):
         tile = self.window._fullscreen_tile
@@ -115,4 +136,4 @@ class FullscreenCursor(QObject):
             self.window.settings.get("fullscreen_auto_hide_controls", True)))
         if sys.platform == "win32" and QApplication.platformName() == "windows":
             # Qt's override alone cannot change VLC's native child cursor.
-            ctypes.windll.user32.SetCursor(None)
+            set_native_cursor(Qt.BlankCursor)
