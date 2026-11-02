@@ -10,7 +10,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QScrollArea
 from ddm import theme
 
 
@@ -87,6 +87,30 @@ def main():
     assert theme.mode() == 'system' and not theme.is_light()
     theme.apply('dark')
     assert new.styleSheet() == cached_style and new.property('appearanceLight') is False, 'Dark mode must disable the cached light rules without resetting the stylesheet'
+    area = QScrollArea()
+    content = QWidget()
+    content.setFixedSize(180, 1200)
+    badge = QLabel('Offline', content)
+    badge.setObjectName('BadgeOff')
+    badge.setGeometry(0, 900, 120, 30)
+    name = QLabel('Account', content)
+    name.setStyleSheet('font-size: 11px;')
+    name.setGeometry(0, 950, 120, 30)
+    area.setWidget(content)
+    area.resize(200, 200)
+    area.show()
+    QTest.qWait(20)
+    for mode in ('light', 'dark', 'light'):
+        theme.apply(mode)
+        assert badge.visibleRegion().isEmpty()
+        assert badge in theme._pending_palette, 'Clipped rows must defer costly palette polishing'
+    area.verticalScrollBar().setValue(850)
+    QTest.qWait(20)
+    assert not badge.visibleRegion().isEmpty()
+    assert badge not in theme._pending_palette and name not in theme._pending_palette
+    assert badge.palette().color(QPalette.WindowText) == QColor('#F1F2F5')
+    assert name.palette().color(QPalette.WindowText) == QColor('#202630'), 'First paint must use the latest theme'
+    area.close()
     window.close()
     print('PASS: identical rendered dark/light designs, stable global QSS, new controls, synchronous idle palette repair, custom roles and genuine system changes')
 
