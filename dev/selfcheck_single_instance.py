@@ -105,6 +105,17 @@ class SingleInstanceTests(unittest.TestCase):
         owner.set_restore(restore)
         restore.assert_called_once()
 
+    def test_fast_peer_acknowledges_repeated_requests(self):
+        process = self.spawn()
+        self.wait(lambda: (self.root / 'owners.txt').exists())
+        for _ in range(10):
+            self.assertFalse(self.instance().start())
+        self.assertIsNone(process.poll())
+        (self.root / 'stop').touch()
+        output, errors = process.communicate(timeout=8)
+        self.assertEqual(process.returncode, 0, errors)
+        self.assertEqual(output.strip(), 'primary')
+
     def test_release_allows_restart_before_old_process_exits(self):
         previous = self.instance()
         self.assertTrue(previous.start())

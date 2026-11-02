@@ -48,8 +48,9 @@ class SingleInstance(QObject):
                     import ctypes
                     ctypes.windll.user32.AllowSetForegroundWindow(int(info[0]))
                 socket.write(b'activate\n')
-                if socket.bytesToWrite() and not socket.waitForBytesWritten(5000):
-                    raise RuntimeError('无法通知已运行的软件，请稍后重试。')
+                socket.flush()
+                # A fast peer may have drained the write already. Its reply,
+                # rather than waitForBytesWritten(), confirms delivery.
                 if not socket.bytesAvailable() and not socket.waitForReadyRead(5000):
                     raise RuntimeError('已运行的软件暂时未响应，请稍后重试。')
                 socket.disconnectFromServer()
