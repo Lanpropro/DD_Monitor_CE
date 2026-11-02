@@ -63,7 +63,7 @@ def normalize_folders(folders, default_sort="custom"):
         if fallback is not None:
             fallback["type"] = "unclassified"
         else:
-            result.append({"id": UNCLASSIFIED, "name": "未分类", "type": "unclassified",
+            result.append({"id": UNCLASSIFIED, "name": "默认关注", "type": "unclassified",
                            "collapsed": False, "rooms": [], "sort": default_sort})
     for folder in result:
         if folder["type"] == "smart":
@@ -73,7 +73,7 @@ def normalize_folders(folders, default_sort="custom"):
 
 def default_folder(folders):
     return next((folder for folder in folders or [] if folder.get("type") == "unclassified"),
-                {"id": UNCLASSIFIED, "name": "未分类", "type": "unclassified"})
+                {"id": UNCLASSIFIED, "name": "默认关注", "type": "unclassified"})
 
 
 def room_platform(room):

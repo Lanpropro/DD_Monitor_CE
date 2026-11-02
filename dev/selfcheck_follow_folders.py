@@ -18,6 +18,13 @@ from ddm.follow_folders import UNCLASSIFIED, normalize_folders
 
 def check_default_folder(app):
     from ddm.dialogs import AddRoomDialog, FollowImportDialog
+    assert normalize_folders([])[0]['name'] == '默认关注'
+    for saved_name in ('未分类', '我的收藏'):
+        saved = [{'id': UNCLASSIFIED, 'name': saved_name, 'type': 'unclassified'}]
+        assert normalize_folders(saved)[0]['name'] == saved_name
+    for dialog in (AddRoomDialog(), FollowImportDialog([], set())):
+        assert dialog.folder_button.text() == '默认关注'
+        dialog.close()
     rooms = [{'room_id': str(index), 'uname': str(index), 'live': bool(index % 2),
               'live_known': True} for index in range(1, 4)]
     sidebar = Sidebar(rooms, auto_compact=False)
@@ -25,6 +32,7 @@ def check_default_folder(app):
     sidebar.show()
     app.processEvents()
     original = sidebar.default_folder()
+    assert original['name'] == '默认关注'
     header = sidebar._folder_buttons[original['id']]
     next(action for action in header._context_menu().actions()
          if action.text() == '重命名文件夹…').trigger()
@@ -135,7 +143,7 @@ def main():
         assert not header._name_edit.isVisible()
         assert sidebar.get_folder(folder_id)['collapsed'] == collapsed
     assert sidebar.folders[0]["name"] == "比赛直播"
-    for invalid in ('   ', '未分类'):
+    for invalid in ('   ', '默认关注'):
         header.begin_rename()
         header._name_edit.setText(invalid)
         QTest.keyClick(header._name_edit, Qt.Key_Return)
