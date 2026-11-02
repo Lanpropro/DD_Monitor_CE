@@ -95,6 +95,7 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.state['danmaku_clients'], 1)
         self.assertNotIn('private-room', json.dumps(self.probe.state))
 
+    @patch('ddm.motion.enabled', lambda: True)
     def test_folder_capture_records_bounded_positions_and_layout_interruptions(self):
         from PySide6.QtWidgets import QApplication
         from ddm.widgets import Sidebar
@@ -110,6 +111,7 @@ class ProbeTests(unittest.TestCase):
         self.addCleanup(capture.finish)
         sidebar.toggle_folder('private-folder', animate=True)
         self.assertFalse(sidebar.get_folder('private-folder')['collapsed'])
+        self.assertGreater(capture.running_animations(), 0)
         sidebar.list_box.relayout(animate=False)
         for _ in range(45):
             capture.frame()

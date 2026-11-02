@@ -12,6 +12,7 @@ from ddm import theme
 from ddm.widgets import Sidebar
 
 
+@patch('ddm.motion.enabled', lambda: True)
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
