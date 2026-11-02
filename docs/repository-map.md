@@ -460,6 +460,7 @@
 - `docs/releases/RELEASE-v0.5.2-super-chat.md`
 - `docs/releases/RELEASE-v0.5.2.md`
 - `docs/releases/RELEASE-v0.6.md`
+- `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 独立网站原型

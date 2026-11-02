@@ -89,7 +89,7 @@ $snapshot = Join-Path $OutDir "source-snapshot.zip"
 if ($LASTEXITCODE -ne 0) { throw "无法导出当前开发提交" }
 $extractSource = @'
 import fnmatch, sys, zipfile
-excluded = ('plugins/*', 'plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*',
+excluded = ('AGENTS.md', 'plugins/*', 'plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*',
             'dev/*highlight*', 'dev/*videotogether*', 'docs/*VIDEO*', 'docs/*PROMO*', 'HANDOFF-*')
 with zipfile.ZipFile(sys.argv[1]) as archive:
     for item in archive.infolist():

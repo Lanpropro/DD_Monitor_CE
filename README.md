@@ -67,11 +67,9 @@
 
 ## 下载
 
-本地候选版本 **0.6** 正在进行 Windows 10 最终验收，尚未上传。
+当前已发布版本 **0.7**，支持 **Windows 10 / 11 64 位**。
 
-当前已发布版本 **0.5.2**，支持 **Windows 10 / 11 64 位**。
-
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorCE-v0.5.2-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
+[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7/DDMonitorCE-v0.7-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
 安装版与便携版均无需安装 Python。官方下载与更新请认准本仓库 Releases。
 
