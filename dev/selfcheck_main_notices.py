@@ -26,11 +26,29 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_native_idle_cursor_only_targets_the_video_window_or_its_children(self):
+        from ddm import fullscreen_cursor as module
+        user32 = Mock()
+        video = Mock()
+        video.winId.return_value = 123
+        user32.GetCursorPos.return_value = True
+        user32.WindowFromPoint.return_value = 456
+        user32.IsChild.return_value = False
+        with patch.object(module.sys, 'platform', 'win32'), \
+                patch.object(QApplication, 'platformName', return_value='windows'), \
+                patch.object(module.ctypes, 'windll', Mock(user32=user32), create=True):
+            module.set_native_cursor(Qt.BlankCursor, video)
+            user32.SetCursor.assert_not_called()
+            user32.IsChild.return_value = True
+            module.set_native_cursor(Qt.BlankCursor, video)
+            user32.SetCursor.assert_called_once_with(None)
+
     def test_normal_tile_hides_top_overlays_when_idle_and_wakes_on_native_pointer_move(self):
         window = self.window([{'room_id': '1001', 'uname': 'Fixture'}])
         tile = window.wall.tiles[0]
         position = [tile.video.mapToGlobal(tile.video.rect().center())]
         clock = [100.0]
+        cursor = tile.video.cursor().shape()
         with patch('ddm.widgets.QCursor.pos', side_effect=lambda: position[0]), \
                 patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]):
             tile._poll_control_hover()
@@ -39,6 +57,8 @@ class MainNoticesTests(unittest.TestCase):
             tile._poll_control_hover()
             self.assertFalse(tile.controls.isVisible())
             self.assertFalse(tile.title_badge.isVisible())
+            self.assertEqual(tile.video.cursor().shape(), Qt.BlankCursor)
+            self.assertIsNone(QApplication.overrideCursor())
             self.assertTrue(tile.bottom.isVisible())
             self.assertTrue(tile._control_hover_timer.isActive())
             position[0] = position[0] + QPoint(1, 0)
@@ -46,6 +66,7 @@ class MainNoticesTests(unittest.TestCase):
             self.assertTrue(tile.controls.isVisible())
             self.assertTrue(tile.bottom.isVisible())
             position[0] = tile.mapToGlobal(QPoint(-30, -30))
+            self.assertEqual(tile.video.cursor().shape(), cursor)
             tile._poll_control_hover()
             self.assertFalse(tile.controls.isVisible())
             self.assertFalse(tile._control_hover_timer.isActive())
@@ -53,6 +74,49 @@ class MainNoticesTests(unittest.TestCase):
             tile._poll_control_hover()
             self.assertFalse(tile._normal_hover_active)
             self.assertFalse(tile._control_hover_timer.isActive())
+
+    def test_normal_cursor_restores_for_menu_hide_and_fullscreen_without_a_global_override(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        position = tile.video.mapToGlobal(tile.video.rect().center())
+        tile.video.setCursor(Qt.CrossCursor)
+        clock = [100.0]
+        with patch('ddm.widgets.QCursor.pos', return_value=position) as pointer, \
+                patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('ddm.widgets.set_native_cursor') as native:
+            tile._poll_control_hover()
+            for reason in ('menu', 'outside', 'override', 'fullscreen', 'hide'):
+                clock[0] += 4
+                tile._poll_control_hover()
+                self.assertTrue(tile._normal_cursor_hidden)
+                native.assert_called_with(Qt.BlankCursor, tile.video)
+                if reason == 'menu':
+                    with patch.object(QApplication, 'activePopupWidget', return_value=object()):
+                        tile._poll_control_hover()
+                elif reason == 'outside':
+                    pointer.return_value = tile.mapToGlobal(QPoint(-30, -30))
+                    tile._poll_control_hover()
+                    pointer.return_value = position
+                    tile._poll_control_hover()
+                elif reason == 'override':
+                    QApplication.setOverrideCursor(Qt.CrossCursor)
+                    try:
+                        native.reset_mock()
+                        tile._poll_control_hover()
+                        native.assert_not_called()
+                        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CrossCursor)
+                    finally:
+                        QApplication.restoreOverrideCursor()
+                elif reason == 'fullscreen':
+                    tile.setProperty('fullscreen', True)
+                    tile._poll_control_hover()
+                    tile.setProperty('fullscreen', False)
+                    tile._poll_control_hover()
+                else:
+                    tile.hide()
+                self.assertFalse(tile._normal_cursor_hidden)
+                self.assertEqual(tile.video.cursor().shape(), Qt.CrossCursor)
+                self.assertIsNone(QApplication.overrideCursor())
 
     def test_normal_tile_keeps_overlays_during_control_and_menu_interaction(self):
         window = self.window([{'room_id': '1001'}])

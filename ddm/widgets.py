@@ -42,6 +42,7 @@ from .playback_badges import (ASSETS_DIR, BADGE_HEIGHT, HOLE_MARGIN, HOLE_SIZE,
                               LoadingIndicator, LoadingLabel, StreamBadge, TimeBadge,
                               TitleBadge, _badge_font)
 from .fullscreen_bar import FullscreenBar
+from .fullscreen_cursor import set_native_cursor
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
@@ -6018,6 +6019,8 @@ class Tile(QFrame):
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
         self._overlay_visible = False
         self._normal_hover_active = False
+        self._normal_cursor_hidden = False
+        self._normal_cursor = None
         self._control_pointer = None
         self._control_last_move = time.monotonic()
         self._control_hover_timer = QTimer(self)
@@ -6637,20 +6640,25 @@ class Tile(QFrame):
 
     def _poll_control_hover(self) -> None:
         if not self.isVisible():
+            self._restore_normal_cursor()
             self._normal_hover_active = False
             self._control_hover_timer.stop()
             return
         if self.property("fullscreen"):
+            self._restore_normal_cursor()
             self._normal_hover_active = False
             self._sync_control_hover()
             return
         position, now = QCursor.pos(), time.monotonic()
         protected = (self.plugin_interaction_active() or QApplication.activePopupWidget() is not None
-                     or QApplication.activeModalWidget() is not None or bool(QApplication.mouseButtons()))
+                     or QApplication.activeModalWidget() is not None or bool(QApplication.mouseButtons())
+                     or QApplication.overrideCursor() is not None)
         if protected:
+            self._restore_normal_cursor()
             self._control_last_move = now
             return
         if not self.rect().contains(self.mapFromGlobal(position)):
+            self._restore_normal_cursor()
             self._normal_hover_active = False
             self.set_controls_visible(False)
             return
@@ -6660,13 +6668,34 @@ class Tile(QFrame):
         over_controls = any(widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(position))
                             for widget in (self.controls, self.stream_badge, self.title_badge, self.bottom))
         if moved or over_controls:
+            self._restore_normal_cursor()
             self._control_last_move = now
             if not self._overlay_visible:
                 self.set_controls_visible(True)
-        elif now - self._control_last_move >= self.CONTROL_IDLE_SECONDS and self._overlay_visible:
-            self.set_controls_visible(False)
+        elif now - self._control_last_move >= self.CONTROL_IDLE_SECONDS:
+            if self._overlay_visible:
+                self.set_controls_visible(False)
+            if self.video.rect().contains(self.video.mapFromGlobal(position)):
+                if not self._normal_cursor_hidden:
+                    self._normal_cursor = self.video.cursor() if self.video.testAttribute(Qt.WA_SetCursor) else None
+                    self.video.setCursor(Qt.BlankCursor)
+                    self._normal_cursor_hidden = True
+                set_native_cursor(Qt.BlankCursor, self.video)
         if self._overlay_visible:
             self._sync_control_hover(position)
+
+    def _restore_normal_cursor(self) -> None:
+        if not self._normal_cursor_hidden:
+            return
+        if self._normal_cursor is None:
+            self.video.unsetCursor()
+        else:
+            self.video.setCursor(self._normal_cursor)
+        self._normal_cursor_hidden = False
+        self._normal_cursor = None
+        if (self.isVisible() and QApplication.overrideCursor() is None
+                and self.video.rect().contains(self.video.mapFromGlobal(QCursor.pos()))):
+            set_native_cursor(self.video.cursor().shape(), self.video)
 
     def _hide_controls_if_outside(self) -> None:
         if (self.plugin_interaction_active() or QApplication.activePopupWidget() is not None
@@ -6979,6 +7008,7 @@ class Tile(QFrame):
         self._volume_hide_timer.stop()
         self._control_hover_timer.stop()
         self._normal_hover_active = False
+        self._restore_normal_cursor()
         self.volume_menu.hide()
         super().hideEvent(event)
 
