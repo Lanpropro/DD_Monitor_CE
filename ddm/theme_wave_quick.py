@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault('QSG_USE_SIMPLE_ANIMATION_DRIVER', '1')
 
-from PySide6.QtCore import QObject, QPoint, QRect, Qt, QUrl, Signal
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QPixmap, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
@@ -118,17 +118,20 @@ class QuickWaveOverlay(WaveOverlay):
         self._synced = False
         self.snapshot = snapshot
         window = self.parentWidget()
-        self.origin = window.mapFromGlobal(origin)
+        top = round(snapshot.height()/snapshot.devicePixelRatio()-window.height())
+        self.caption_height = top
+        self.origin = window.mapFromGlobal(origin) + QPoint(0, top)
         self.stage.hold()
         self.images.image = snapshot.toImage()
         self.stage.setProperty('snapshotSource', QUrl(f'image://theme/snapshot-{revision}'))
         self.stage.setProperty('origin', self.origin)
         self.stage.setProperty('radius', max(((x-self.origin.x())**2 + (y-self.origin.y())**2)**.5
-            for x in (0, window.width()) for y in (0, window.height())))
+            for x in (0, window.width()) for y in (0, window.height()+top)))
         self.stage.setWidth(window.width())
-        self.stage.setHeight(window.height())
+        self.stage.setHeight(window.height()+top)
         self.view.setScreen(window.windowHandle().screen())
-        self.view.setGeometry(QRect(window.mapToGlobal(QPoint()), window.size()))
+        self.view.setGeometry(QRect(window.mapToGlobal(QPoint(0, -top)),
+                                   QSize(window.width(), window.height()+top)))
         self._ready_connections = [
             self.view.afterSynchronizing.connect(lambda: self._after_sync(revision), Qt.QueuedConnection),
             self.view.frameSwapped.connect(lambda: self._after_frame(revision), Qt.QueuedConnection)]
