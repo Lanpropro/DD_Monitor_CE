@@ -634,6 +634,9 @@ def main():
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
+        assert tile.recording_button.text() == ''
+        assert tile.recording_button.property('replayOnly') is True
+        assert '即时回放' in tile.recording_button.accessibleName()
         assert tile.quality == before_quality and tile not in window._pending_capture
         window._sync_replay_scope()
         assert window.recorder.sessions[tile] is cached_session
@@ -653,6 +656,7 @@ def main():
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
         assert tile.recording_button.text() == "● REC"
+        assert tile.recording_button.property('replayOnly') is False
         assert tile.recording_button.property("recording") is True
         assert tile.recording_time.text(), "Recording status signal must update the duration label"
         window._fill_plugin_menu(tile)

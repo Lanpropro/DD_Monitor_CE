@@ -8,7 +8,7 @@ import sys
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
-HOST_PAGES = {1: 'appearance', 6: 'plugins', 7: 'updates'}
+HOST_PAGES = {1: 'appearance', 7: 'plugins', 8: 'updates'}
 
 
 def _allow_foreground(pid):

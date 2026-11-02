@@ -72,10 +72,10 @@ def main():
         pages = []
         dialog.pageCreated.connect(lambda index, page: pages.append(index))
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
-        assert pages == [6] and set(dialog._loaded_pages) == {6}
+        assert pages == [7] and set(dialog._loaded_pages) == {7}
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['updates'])
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
-        assert pages == [6, 7] and set(dialog._loaded_pages) == {6, 7}
+        assert pages == [7, 8] and set(dialog._loaded_pages) == {7, 8}
         dialog.close()
         print(f'PASS: settings save preserves unopened pages and custom keys without building controls ({elapsed:.1f}ms)')
 
