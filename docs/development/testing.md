@@ -106,3 +106,7 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 `run.cmd --diagnose-responsiveness` 开启默认关闭的专项采集，步骤及字段说明见[真实复现采集](responsiveness-capture.md)。采集器回归不代表 BUG-070 已定位或性能改善。
 
 2026-11-02 的真实侧栏展开/收起采样中，123 个关注条目下 `Sidebar.set_collapsed` 多次耗时约 200–373 ms，主线程栈反复落在 `Avatar.set_pixmap_image` 的样式设置。针对这条路径，头像已有透明样式时不重复设置，更新图片直接交给 QLabel，不先清空已有图片。`selfcheck_main_notices` 覆盖图片替换、尺寸切换、透明圆角及不重复设置样式/文本；这些断言仅为功能回归。展开黑区和实际响应改善仍需相同操作的真实对照采样确认，不能据此宣布 BUG-070 已解决。
+
+头像修正后的真实对照仍出现黑块，侧栏切换约 103–363 ms，收尾栈还采到弹幕重排。经用户同意，左侧关注栏改为一次切换完整布局：暂停侧栏绘制，准备最终控件、宽度与可见封面，并统一调整播放区后再恢复显示；取消逐帧宽度动画和延迟收尾。`selfcheck_main_notices` 检查卡片/列表模式、连续切换、智能文件夹副本、隐藏恢复及异常时释放绘制；`selfcheck_sidebar_performance` 检查最终尺寸、无后续宽度变化、屏外封面和本地播放器，可用 `--background` 将原生测试窗口置于屏幕外。合成功能检查不作为真实流畅度证据。
+
+人工对照：退出旧实例，从根目录 `run.cmd --diagnose-responsiveness` 重启；以相同关注数量和播放布局反复收起/展开。预期直接呈现头像栏或完整关注栏，不经历窄条封面拉伸；滚动后封面正常，播放与弹幕位置正确。若黑块或停顿仍出现，记录到秒的时间以及展开结束后是否残留，再核对新会话日志。

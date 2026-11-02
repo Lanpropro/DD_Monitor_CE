@@ -46,39 +46,84 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(target.room['room_id'], '1001')
         window.start_tile.assert_called_once_with(target)
 
-    def test_sidebar_repeated_clicks_share_preparation_and_final_layout(self):
-        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
-        sidebar = window.sidebar
-        with patch.object(motion, 'enabled', return_value=True), \
-                patch.object(sidebar, '_apply_collapsed_controls', wraps=sidebar._apply_collapsed_controls) as prepare, \
-                patch.object(sidebar.items()[0].thumb, 'stop', wraps=sidebar.items()[0].thumb.stop) as stop, \
-                patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as layout, \
-                patch.object(window.wall, '_clear', wraps=window.wall._clear) as clear, \
-                patch.object(window.wall, '_relayout_preset', wraps=window.wall._relayout_preset) as geometry:
-            for _ in range(10):
-                sidebar.toggle_collapsed()
-            self.assertEqual(prepare.call_count, 1)
-            self.assertEqual(stop.call_count, 1)
-            self.assertFalse(sidebar.collapsed)
-            sidebar._collapse_started -= 1  # Reach the end of width motion without sleeping.
-            sidebar._step_collapse()
-            self.assertTrue(sidebar._collapse_settle.isActive())
-            self.assertTrue(sidebar._collapse_animating)
-            layout.assert_not_called()
-            sidebar.toggle_collapsed()
-            self.assertFalse(sidebar._collapse_settle.isActive())
-            self.assertEqual(prepare.call_count, 1)
-            sidebar.set_collapsed(True, animate=False)  # Explicit immediate calls flush pending work.
-            self.assertFalse(sidebar._collapse_animating)
-            self.assertFalse(sidebar._collapse_timer.isActive())
-            self.assertFalse(sidebar._collapse_settle.isActive())
-            self.assertTrue(window.wall.updatesEnabled())
-            self.assertTrue(all(item._compact for item in sidebar.items()))
-            layout.assert_not_called()
-            clear.assert_not_called()
-            geometry.assert_called_once_with()
+    def test_sidebar_switch_is_complete_before_return_and_repaint(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        sidebar, wall = window.sidebar, window.wall
+        source = QPixmap(400, 225)
+        source.fill(QColor('green'))
+        for item in sidebar.items():
+            item.thumb.set_cover(source)
+        self.app.processEvents()
+        original_updates = sidebar.setUpdatesEnabled
+        revealed = []
 
-    def test_sidebar_layout_change_during_animation_still_rebuilds_visibility(self):
+        def check_updates(enabled):
+            if enabled:
+                self.assertFalse(sidebar._collapse_animating)
+                self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+                self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                for item in sidebar.items():
+                    self.assertEqual(item._compact, sidebar.collapsed)
+                    self.assertFalse(item.thumb._cover_hold)
+                    if not sidebar.collapsed and not item.thumb.visibleRegion().isEmpty():
+                        self.assertEqual(item.thumb.cover.pixmap().size(), item.thumb.size())
+                        self.assertFalse(item.thumb._cover_dirty)
+                revealed.append(sidebar.collapsed)
+            original_updates(enabled)
+
+        with patch.object(motion, 'enabled', return_value=True), \
+                patch.object(sidebar, 'setUpdatesEnabled', side_effect=check_updates), \
+                patch.object(wall, '_clear', wraps=wall._clear) as clear, \
+                patch.object(wall, '_relayout_preset', wraps=wall._relayout_preset) as geometry:
+            for card_mode in (True, False):
+                sidebar.set_card_mode(card_mode)
+                for collapsed in (True, False) * 5:
+                    sidebar.set_collapsed(collapsed)
+                    self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+                    self.assertFalse(sidebar._collapse_animating)
+                    self.assertTrue(sidebar.updatesEnabled())
+            clear.assert_not_called()
+            self.assertEqual(geometry.call_count, 20)
+        self.assertEqual(revealed, [True, False] * 10)
+        width = sidebar.width()
+        QTest.qWait(300)
+        self.assertEqual(sidebar.width(), width)
+        self.assertFalse(sidebar._collapse_animating)
+
+    def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        sidebar, wall = window.sidebar, window.wall
+        with patch.object(sidebar, '_apply_collapsed_controls', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError):
+                sidebar.set_collapsed(True)
+        self.assertTrue(sidebar.updatesEnabled() and wall.updatesEnabled() and wall.grid.isEnabled())
+        self.assertFalse(sidebar._collapse_animating or wall._sidebar_animating)
+        self.assertFalse(any(item.thumb._cover_hold for item in sidebar.items()))
+        sidebar.set_collapsed(False)
+        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        sidebar.setUpdatesEnabled(False)
+        sidebar.set_collapsed(True)
+        self.assertFalse(sidebar.updatesEnabled())
+        sidebar.setUpdatesEnabled(True)
+
+    def test_sidebar_switch_preserves_smart_copies_and_hidden_state(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        sidebar = window.sidebar
+        sidebar.create_folder('Copies', rule={'display': 'copy', 'status': 'any', 'sources': []})
+        self.app.processEvents()
+        self.assertTrue(sidebar._smart_cards)
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(False)
+        self.assertTrue(all(card.original in sidebar.items() for card in sidebar._smart_cards.values()))
+        sidebar.hide()
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(False)
+        sidebar.show()
+        self.app.processEvents()
+        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertTrue(sidebar.updatesEnabled() and window.wall.grid.isEnabled())
+
+    def test_sidebar_layout_change_during_hold_still_rebuilds_visibility(self):
         window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
         wall = window.wall
         wall.set_sidebar_animating(True)

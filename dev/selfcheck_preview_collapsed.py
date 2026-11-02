@@ -38,19 +38,6 @@ class FakePlayer:
         FakePlayer.releases += 1
 
 
-class FakeDrag:
-    started = False
-
-    def __init__(self, _parent):
-        pass
-
-    def setMimeData(self, _mime):
-        pass
-
-    def exec(self, _action):
-        FakeDrag.started = True
-
-
 def resolved(preview, item):
     # This geometry fixture injects a result after the hover delay; cursor races
     # are exercised with real coordinate ownership in selfcheck_preview_scroll.
@@ -159,9 +146,11 @@ def main():
         strip._press_room = str(item.room["room_id"])
         strip._press_pos = QPoint(0, 0)
         point = avatar.geometry().center()
-        with patch("ddm.widgets.QDrag", FakeDrag):
+        with patch.object(sidebar.drag_session, "start") as start_drag:
             move_mouse(strip, point, Qt.LeftButton)
-        assert FakeDrag.started, "头像排原有的拖到画面墙行为必须保留"
+        start_drag.assert_called_once()
+        assert start_drag.call_args.args[1].text() == str(item.room["room_id"]), \
+            "头像排拖动仍应携带当前房间"
 
         sidebar.set_collapsed(False, animate=False)
         app.processEvents()
