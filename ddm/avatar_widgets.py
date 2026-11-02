@@ -34,6 +34,7 @@ class Avatar(QLabel):
         self._index = index
         self._color = AVATAR_COLORS[index % len(AVATAR_COLORS)]
         self._source: QPixmap | None = None
+        self._ring = False
         self.setFixedSize(size, size)
         self.setAlignment(Qt.AlignCenter)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -47,7 +48,7 @@ class Avatar(QLabel):
         self._size = size
         self.setFixedSize(size, size)
         if self._source is not None:
-            self.set_pixmap_image(self._source)
+            self.set_pixmap_image(self._source, ring=self._ring)
         else:
             self.setStyleSheet(f"background: {self._color}; border-radius: {size // 2}px;")
 
@@ -62,11 +63,15 @@ class Avatar(QLabel):
             self.setStyleSheet(f"background: {self._color}; "
                                f"border-radius: {self._size // 2}px;")
 
-    def set_pixmap_image(self, pixmap: QPixmap) -> None:
+    def set_pixmap_image(self, pixmap: QPixmap, *, size: int | None = None, ring: bool = False) -> None:
         """换成真实头像（圆形裁切）。"""
         if pixmap is None or pixmap.isNull():
             return
+        if size is not None and size != self._size:
+            self._size = size
+            self.setFixedSize(size, size)
         self._source = pixmap
+        self._ring = ring
         scaled = pixmap.scaled(self._size, self._size, Qt.KeepAspectRatioByExpanding,
                                Qt.SmoothTransformation)
         rounded = QPixmap(self._size, self._size)
@@ -78,9 +83,14 @@ class Avatar(QLabel):
         painter.setClipPath(path)
         painter.drawPixmap((self._size - scaled.width()) // 2,
                            (self._size - scaled.height()) // 2, scaled)
+        if ring:
+            painter.setClipping(False)
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor(255, 255, 255, 70), 1.4))
+            painter.drawEllipse(QRectF(1, 1, self._size - 2, self._size - 2))
         painter.end()
-        self.setStyleSheet("background: transparent;")
-        self.setText("")
+        if self.styleSheet() != "background: transparent;":
+            self.setStyleSheet("background: transparent;")
         super().setPixmap(rounded)
 
 

@@ -13,7 +13,84 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import config, theme
 from ddm.widgets import NAV_MIME, Sidebar
-from ddm.follow_folders import UNCLASSIFIED
+from ddm.follow_folders import UNCLASSIFIED, normalize_folders
+
+
+def check_default_folder(app):
+    from ddm.dialogs import AddRoomDialog, FollowImportDialog
+    assert normalize_folders([])[0]['name'] == '默认关注'
+    for saved_name in ('未分类', '我的收藏'):
+        saved = [{'id': UNCLASSIFIED, 'name': saved_name, 'type': 'unclassified'}]
+        assert normalize_folders(saved)[0]['name'] == saved_name
+    for dialog in (AddRoomDialog(), FollowImportDialog([], set())):
+        assert dialog.folder_button.text() == '默认关注'
+        dialog.close()
+    rooms = [{'room_id': str(index), 'uname': str(index), 'live': bool(index % 2),
+              'live_known': True} for index in range(1, 4)]
+    sidebar = Sidebar(rooms, auto_compact=False)
+    sidebar.resize(248, 900)
+    sidebar.show()
+    app.processEvents()
+    original = sidebar.default_folder()
+    assert original['name'] == '默认关注'
+    header = sidebar._folder_buttons[original['id']]
+    next(action for action in header._context_menu().actions()
+         if action.text() == '重命名文件夹…').trigger()
+    header._name_edit.setText('  默认收藏  ')
+    QTest.keyClick(header._name_edit, Qt.Key_Return)
+    assert original['name'] == '默认收藏'
+    assert normalize_folders(sidebar.folder_state()) == sidebar.folder_state()
+    first, second = sidebar.create_folder('游戏'), sidebar.create_folder('音乐')
+    sidebar.move_to_folder(['2'], first)
+    smart = sidebar.create_folder('默认中的开播', rule={'status': 'live'})
+    assert sidebar.get_folder(smart)['rule']['sources'] == [original['id']]
+    before = {room['room_id']: sidebar.folder_for(room['room_id']) for room in rooms}
+    changes = []
+    sidebar.foldersChanged.connect(lambda: changes.append(True))
+    target = sidebar._folder_buttons[first]
+    next(action for action in target._context_menu().actions()
+         if action.text() == '设为默认文件夹').trigger()
+    assert changes and sidebar.default_folder()['id'] == first
+    assert original['type'] == 'normal'
+    assert set(original['rooms']) == {'1', '3'}
+    assert before == {room['room_id']: sidebar.folder_for(room['room_id']) for room in rooms}
+    assert sidebar.get_folder(smart)['rule']['sources'] == [original['id']]
+    assert not any(action.text() == '设为默认文件夹'
+                   for action in sidebar._folder_buttons[smart]._context_menu().actions())
+    sidebar.add_room({'room_id': '4', 'uname': '新关注'})
+    assert sidebar.folder_for('4') == first
+    sidebar.move_to_folder(['2'], second)
+    sidebar.move_to_folder(['2'], '')
+    assert sidebar.folder_for('2') == first
+    sidebar.set_sort_mode('name')
+    assert sidebar.default_folder()['sort'] == 'name' and original['sort'] == 'custom'
+    for dialog in (AddRoomDialog(folders=sidebar.folder_state()),
+                   FollowImportDialog([], set(), folders=sidebar.folder_state())):
+        assert dialog.folder_button.text() == '游戏'
+        names = [action.text() for action in dialog.folder_button.menu().actions()]
+        assert names.count('游戏') == 1 and '默认收藏' in names
+        dialog.close()
+    snapshot = sidebar.folder_state()
+    restored = Sidebar(sidebar.rooms())
+    restored.set_folders(snapshot)
+    assert restored.folder_state() == snapshot
+    assert restored.default_folder()['id'] == first
+    assert restored.get_folder(UNCLASSIFIED)['type'] == 'normal'
+    assert restored.folder_for('4') == first
+    restored.set_default_folder(second)
+    assert restored.default_folder()['id'] == second
+    assert restored.folder_for('4') == first, 'Switching again must preserve former default members'
+    restored.delete_folder(UNCLASSIFIED)
+    assert restored.get_folder(UNCLASSIFIED) is None
+    reloaded = normalize_folders(restored.folder_state())
+    assert not any(folder['id'] == UNCLASSIFIED for folder in reloaded), 'Do not recreate the old default'
+    restored.delete_folder(second)
+    assert restored.default_folder()['id'] == first
+    restored.delete_folder(first)
+    assert restored.default_folder()['id'] == first, 'Keep a destination when only smart folders remain'
+    assert len(restored.rooms()) == 4
+    restored.close()
+    sidebar.close()
 
 
 def main():
@@ -66,7 +143,7 @@ def main():
         assert not header._name_edit.isVisible()
         assert sidebar.get_folder(folder_id)['collapsed'] == collapsed
     assert sidebar.folders[0]["name"] == "比赛直播"
-    for invalid in ('   ', '未分类'):
+    for invalid in ('   ', '默认关注'):
         header.begin_rename()
         header._name_edit.setText(invalid)
         QTest.keyClick(header._name_edit, Qt.Key_Return)
@@ -159,7 +236,8 @@ def main():
             config.save(saved)
             assert config.load()["follow_folders"] == snapshot
     window.close()
-    print("PASS: follow folders, mixed platforms, menus, collapse/search, geometry and persistence")
+    check_default_folder(app)
+    print("PASS: follow folders, default switching, mixed platforms, menus, collapse/search, geometry and persistence")
 
 
 if __name__ == "__main__":

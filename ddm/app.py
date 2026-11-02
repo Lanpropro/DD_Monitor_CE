@@ -57,6 +57,7 @@ from .danmaku_lifecycle import DanmakuLifecycle
 from .widgets import Sidebar, Tile, VolumeButton, WallGrid
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
+from .single_instance import SingleInstance, restore_main_window
 
 #: 音频巡检间隔（毫秒）：格子记的静音 / 音量和播放器**实际**的值走散了就按格子重下发
 AUDIO_AUDIT_MS = 2_000
@@ -3796,8 +3797,15 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(errors="replace")
     except Exception:  # noqa: BLE001
         pass
-    log_path = setup_file_log()
     app = QApplication(argv)
+    try:
+        instance = SingleInstance(app)
+        if not instance.start():
+            return 0
+    except (OSError, RuntimeError) as error:
+        QMessageBox.critical(None, "无法启动软件", str(error))
+        return 1
+    log_path = setup_file_log()
     from .localization import install_chinese_translations
     install_chinese_translations(app)
     app.setApplicationName(version_module.DISPLAY_NAME)
@@ -3852,6 +3860,7 @@ def main(argv: list[str] | None = None) -> int:
     ticker.start()
     window.resize(1600, 900)
     window.showMaximized()
+    instance.set_restore(lambda: restore_main_window(window))
     if config_module.DATA_MIGRATION_ERROR:
         QMessageBox.warning(window, '数据迁移未完成', config_module.DATA_MIGRATION_ERROR)
     t_show = time.perf_counter()
@@ -3864,6 +3873,7 @@ def main(argv: list[str] | None = None) -> int:
     watchdog.stop()
     if session is not None:
         faulthandler.enable(file=session.crash_handle, all_threads=True)
+    instance.close()  # A settings restart must acquire a new instance lock.
     if window._update_plan:
         try:
             launched = _launch_update(window._update_plan)

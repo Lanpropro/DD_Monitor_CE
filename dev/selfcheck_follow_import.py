@@ -130,7 +130,7 @@ def main():
         page = account.page
         assert {room["room_id"] for room in page.selected()} == {
             room["room_id"] for room in window.sidebar.rooms()}
-        assert [a.text() for a in page.folder_button.menu().actions()] == ["未分类", "已有分类", "导入分类"]
+        assert [a.text() for a in page.folder_button.menu().actions()] == ["默认关注", "已有分类", "导入分类"]
         select_folder(page, target)
         page.search_edit.setText("测试主播")
         page._check_all(True)

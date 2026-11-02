@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
@@ -46,33 +46,136 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(target.room['room_id'], '1001')
         window.start_tile.assert_called_once_with(target)
 
-    def test_sidebar_repeated_clicks_share_preparation_and_final_layout(self):
-        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
-        sidebar = window.sidebar
+    def test_sidebar_switch_is_complete_before_return_and_repaint(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        sidebar, wall = window.sidebar, window.wall
+        source = QPixmap(400, 225)
+        source.fill(QColor('green'))
+        for item in sidebar.items():
+            item.thumb.set_cover(source)
+        self.app.processEvents()
+        original_updates = sidebar.setUpdatesEnabled
+        revealed = []
+
+        def check_updates(enabled):
+            if enabled:
+                self.assertFalse(sidebar._collapse_animating)
+                self.assertTrue(wall._sidebar_animating)
+                self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                for item in sidebar.items():
+                    self.assertEqual(item._compact, sidebar.collapsed)
+                    self.assertFalse(item.thumb._cover_hold)
+                    if not sidebar.collapsed and not item.thumb.visibleRegion().isEmpty():
+                        self.assertEqual(item.thumb.cover.pixmap().size(), item.thumb.size())
+                        self.assertFalse(item.thumb._cover_dirty)
+                revealed.append(sidebar.collapsed)
+            original_updates(enabled)
+
         with patch.object(motion, 'enabled', return_value=True), \
-                patch.object(sidebar, '_apply_collapsed_controls', wraps=sidebar._apply_collapsed_controls) as prepare, \
-                patch.object(sidebar.items()[0].thumb, 'stop', wraps=sidebar.items()[0].thumb.stop) as stop, \
-                patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as layout:
-            for _ in range(10):
-                sidebar.toggle_collapsed()
-            self.assertEqual(prepare.call_count, 1)
-            self.assertEqual(stop.call_count, 1)
-            self.assertFalse(sidebar.collapsed)
-            sidebar._collapse_started -= 1  # Reach the end of width motion without sleeping.
-            sidebar._step_collapse()
-            self.assertTrue(sidebar._collapse_settle.isActive())
-            self.assertTrue(sidebar._collapse_animating)
-            layout.assert_not_called()
-            sidebar.toggle_collapsed()
-            self.assertFalse(sidebar._collapse_settle.isActive())
-            self.assertEqual(prepare.call_count, 1)
-            sidebar.set_collapsed(True, animate=False)  # Explicit immediate calls flush pending work.
-            self.assertFalse(sidebar._collapse_animating)
-            self.assertFalse(sidebar._collapse_timer.isActive())
-            self.assertFalse(sidebar._collapse_settle.isActive())
-            self.assertTrue(window.wall.updatesEnabled())
-            self.assertTrue(all(item._compact for item in sidebar.items()))
-            layout.assert_called_once_with(force=True)
+                patch.object(sidebar, 'setUpdatesEnabled', side_effect=check_updates), \
+                patch.object(wall, '_clear', wraps=wall._clear) as clear, \
+                patch.object(wall, '_relayout_preset', wraps=wall._relayout_preset) as geometry:
+            for card_mode in (True, False):
+                sidebar.set_card_mode(card_mode)
+                for collapsed in (True, False) * 5:
+                    sidebar.set_collapsed(collapsed)
+                    self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+                    self.assertFalse(sidebar._collapse_animating)
+                    self.assertTrue(sidebar.updatesEnabled())
+            clear.assert_not_called()
+            self.assertEqual(geometry.call_count, 20)
+        self.assertEqual(revealed, [True, False] * 10)
+        width = sidebar.width()
+        QTest.qWait(300)
+        self.assertEqual(sidebar.width(), width)
+        self.assertFalse(sidebar._collapse_animating)
+
+    def test_sidebar_final_paint_precedes_player_resize(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        sidebar, wall = window.sidebar, window.wall
+        paints = []
+
+        class PaintRecorder(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Paint:
+                    paints.append((sidebar.collapsed, sidebar.width()))
+                return False
+
+        recorder = PaintRecorder(sidebar)
+        sidebar.installEventFilter(recorder)
+        original = wall._relayout_preset
+        observations = []
+        def resize_after_paint():
+            expected = (sidebar.collapsed,
+                        theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+            observations.append((expected in paints, sidebar.updatesEnabled()))
+            return original()
+
+        with patch.object(wall, '_relayout_preset', side_effect=resize_after_paint) as resize:
+            for collapsed in (True, False) * 3:
+                paints.clear()
+                sidebar.set_collapsed(collapsed)
+                self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+                self.assertFalse(wall._sidebar_animating)
+            self.assertEqual(resize.call_count, 6)
+        self.assertEqual(observations, [(True, True)] * 6,
+                         'Final sidebar paint must precede native player resize')
+
+    def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        sidebar, wall = window.sidebar, window.wall
+        with patch.object(sidebar, '_apply_collapsed_controls', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError):
+                sidebar.set_collapsed(True)
+        self.assertTrue(sidebar.updatesEnabled() and wall.updatesEnabled() and wall.grid.isEnabled())
+        self.assertFalse(sidebar._collapse_animating or wall._sidebar_animating)
+        self.assertFalse(any(item.thumb._cover_hold for item in sidebar.items()))
+        sidebar.set_collapsed(False)
+        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        sidebar.setUpdatesEnabled(False)
+        sidebar.set_collapsed(True)
+        self.assertFalse(sidebar.updatesEnabled())
+        sidebar.setUpdatesEnabled(True)
+
+    def test_sidebar_switch_preserves_smart_copies_and_hidden_state(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        sidebar = window.sidebar
+        sidebar.create_folder('Copies', rule={'display': 'copy', 'status': 'any', 'sources': []})
+        self.app.processEvents()
+        self.assertTrue(sidebar._smart_cards)
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(False)
+        self.assertTrue(all(card.original in sidebar.items() for card in sidebar._smart_cards.values()))
+        sidebar.hide()
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(False)
+        sidebar.show()
+        self.app.processEvents()
+        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertTrue(sidebar.updatesEnabled() and window.wall.grid.isEnabled())
+
+    def test_sidebar_layout_change_during_hold_still_rebuilds_visibility(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        wall = window.wall
+        wall.set_sidebar_animating(True)
+        wall.set_layout('dm_main3')
+        with patch.object(wall, '_clear', wraps=wall._clear) as clear:
+            wall.set_sidebar_animating(False)
+        clear.assert_called_once_with()
+        self.assertEqual(len(wall.visible_tiles()), 3)
+        self.assertTrue(wall.danmaku.isVisible())
+        self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+
+    def test_sidebar_geometry_failure_restores_repaint_and_layout(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        wall = window.wall
+        wall.set_sidebar_animating(True)
+        with patch.object(wall, '_relayout_preset', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError):
+                wall.set_sidebar_animating(False)
+        self.assertFalse(wall._sidebar_animating)
+        self.assertFalse(wall._resize_pending)
+        self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
 
     def test_avatar_components_import_without_window_or_player(self):
         subprocess.run([sys.executable, '-c',
@@ -97,6 +200,100 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(avatar.pixmap().size().width(), 48)
         self.assertEqual(avatar.pixmap().toImage().pixelColor(24, 24), QColor('green'))
         self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+
+    def test_avatar_image_updates_do_not_clear_or_repolish_existing_image(self):
+        from ddm.avatar_widgets import Avatar
+        avatar = Avatar('Fixture', 0, size=28)
+        self.addCleanup(avatar.close)
+        source = QPixmap(64, 64)
+        source.fill(QColor('green'))
+        avatar.set_pixmap_image(source)
+        self.assertEqual(avatar.text(), '')
+        self.assertEqual(avatar.styleSheet(), 'background: transparent;')
+        with patch.object(avatar, 'setStyleSheet', wraps=avatar.setStyleSheet) as style, \
+                patch.object(avatar, 'setText', wraps=avatar.setText) as clear:
+            for size in (32, 28, 48, 28):
+                avatar.set_size(size)
+                avatar.set_pixmap_image(source)
+                self.assertEqual(avatar.pixmap().width(), size)
+                self.assertEqual(avatar.pixmap().toImage().pixelColor(size // 2, size // 2), QColor('green'))
+                self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+            changed = QPixmap(64, 64)
+            changed.fill(QColor('blue'))
+            avatar.set_pixmap_image(changed)
+            self.assertEqual(avatar.pixmap().toImage().pixelColor(14, 14), QColor('blue'))
+            style.assert_not_called()
+            clear.assert_not_called()
+
+    def test_sidebar_platform_badge_keeps_parent_and_avatar_corner(self):
+        window = self.window([dict(room_id='1001', uname='Fixture', live=True)])
+        sidebar = window.sidebar
+        item = sidebar.items()[0]
+        badge = item.platform_badge
+        badge.setProperty('showPlatform', True)
+        parent = badge.parentWidget()
+        with patch.object(badge, 'setParent', wraps=badge.setParent) as reparent:
+            for card_mode in (True, False):
+                sidebar.set_card_mode(card_mode)
+                sidebar.set_collapsed(True)
+                self.assertIs(badge.parentWidget(), parent)
+                self.assertEqual(badge.mapToGlobal(QPoint()),
+                                 item.thumb.face.mapToGlobal(QPoint(0, item.thumb.face.height() - badge.height())))
+                self.assertTrue(badge.isVisible())
+                sidebar.set_collapsed(False)
+                self.assertIs(badge.parentWidget(), parent)
+                self.assertTrue(badge.isVisible())
+                self.assertTrue(item.rect().contains(badge.geometry()))
+                if not card_mode:
+                    self.assertLess(item.name_label.mapToGlobal(item.name_label.rect().topRight()).x(),
+                                    badge.mapToGlobal(QPoint()).x())
+            reparent.assert_not_called()
+        badge.setProperty('showPlatform', False)
+        sidebar.set_collapsed(True)
+        self.assertTrue(badge.isHidden())
+        sidebar.set_collapsed(False)
+        self.assertTrue(badge.isHidden())
+        badge.setProperty('showPlatform', True)
+        sidebar.set_side('top')
+        self.app.processEvents()
+        self.assertTrue(badge.isVisible())
+        sidebar.set_side('left')
+        self.app.processEvents()
+        self.assertTrue(item.rect().contains(badge.geometry()))
+
+    def test_sidebar_avatar_replacement_renders_once_at_target_size(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        item = window.sidebar.items()[0]
+        source = QPixmap(80, 40)
+        source.fill(QColor('green'))
+        item.thumb.set_face(source)
+        with patch.object(item.thumb.face, 'set_pixmap_image', wraps=item.thumb.face.set_pixmap_image) as render:
+            for compact in (True, False):
+                render.reset_mock()
+                item.set_compact(compact)
+                render.assert_called_once()
+                size = item.thumb._avatar_size()
+                bitmap = item.thumb.face.pixmap().toImage()
+                self.assertEqual(bitmap.width(), size)
+                self.assertEqual(bitmap.pixelColor(size // 2, size // 2), QColor('green'))
+                self.assertEqual(bitmap.pixelColor(0, 0).alpha(), 0)
+                self.assertGreater(bitmap.pixelColor(size // 2, 1).red(), 0)
+
+    def test_idle_thumbnail_stop_does_no_visual_work_but_clears_pending_hint(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        thumb = window.sidebar.items()[0].thumb
+        with patch.object(thumb, '_set_overlay_visible', wraps=thumb._set_overlay_visible) as restore:
+            thumb.stop()
+            restore.assert_not_called()
+            thumb.set_hint('Fixture loading')
+            thumb.stop()
+            self.assertTrue(thumb.hint.isHidden())
+            restore.assert_called_once_with(True)
+        player = Mock()
+        thumb._player = player
+        thumb.stop()
+        player.stop.assert_called_once_with()
+        thumb._player = None
 
     def focused_cover(self, boxes, width=1000, height=600):
         from ddm import cover_focus

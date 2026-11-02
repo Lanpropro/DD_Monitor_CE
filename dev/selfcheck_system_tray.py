@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QSystemTrayIcon
 from ddm import config, system_tray
 from ddm.app import MainWindow
 from ddm.dialogs import GeneralSettingsPage, SettingsDialog, TraySettingsPage
+from ddm.single_instance import restore_main_window
 
 
 class FakeTray(QObject):
@@ -291,6 +292,19 @@ class SystemTrayTests(unittest.TestCase):
         self.assertFalse(window.isMinimized())
         self.assertTrue(window.isMaximized())
         self.assertTrue(window.isVisible())
+
+    def test_duplicate_launch_restores_tray_and_minimized_windows(self):
+        window = self.window('tray')
+        window._tray.hide()
+        self.assertFalse(window.isVisible())
+        restore_main_window(window)
+        self.assertTrue(window.isVisible())
+        window.showMinimized()
+        restore_main_window(window)
+        self.assertFalse(window.isMinimized())
+        window._tray.request_exit()
+        restore_main_window(window)
+        self.assertFalse(window.isVisible())
 
     def test_no_tray_or_update_and_restart_can_still_exit(self):
         FakeTray.supported = False

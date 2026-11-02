@@ -128,7 +128,7 @@ def main():
             patch.object(window, "_normalize_room_input", side_effect=lambda value: value):
         # 实际添加窗口传递选中的文件夹；两个异步请求反向完成仍进入各自目标。
         def choose(dialog):
-            assert [action.text() for action in dialog.folder_button.menu().actions()] == ["未分类", "赛事", "娱乐"]
+            assert [action.text() for action in dialog.folder_button.menu().actions()] == ["默认关注", "赛事", "娱乐"]
             select(dialog, first)
             dialog.edit.setText("101")
             dialog.accept()
