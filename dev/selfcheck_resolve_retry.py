@@ -10,13 +10,14 @@ sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm.app import MainWindow  # noqa: E402
+from ddm.plugins import PluginManager
 
 
 def main():
     app = QApplication(sys.argv)
     room = {"room_id": "1001", "uname": "retry-test", "live": True,
             "quality": 250, "muted": True, "volume": 42}
-    with patch.object(MainWindow, "start_tile"), \
+    with patch.object(PluginManager, "load"), patch.object(MainWindow, "start_tile"), \
             patch.object(MainWindow, "refresh_status"), \
             patch.object(MainWindow, "refresh_stats"), \
             patch.object(MainWindow, "sync_danmaku"), \

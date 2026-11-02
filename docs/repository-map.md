@@ -28,6 +28,8 @@
 
 播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
+播放恢复调度集中在 `ddm/playback_recovery.py`，独立持有重连与冻结恢复状态及定时器；主窗口负责播放器操作、界面和插件事件，并保留原有内部入口的委托。
+
 ## 已跟踪的其他文件：逐项标注
 
 ### 独立诊断工具
@@ -247,6 +249,7 @@
 - `dev/selfcheck_player_lifetime.py`
 - `dev/selfcheck_stream_info.py`
 - `dev/selfcheck_single_instance.py`
+- `dev/selfcheck_playback_recovery.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`

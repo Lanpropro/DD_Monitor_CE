@@ -108,7 +108,7 @@
 | [selfcheck_overseas_playback_live](../selfcheck_overseas_playback_live.py) | 单项执行前核对 |
 | [selfcheck_overseas_stability](../selfcheck_overseas_stability.py) | 单项执行前核对 |
 | [selfcheck_poller_lifecycle](../selfcheck_poller_lifecycle.py) | `offline`；受控 QThread、延迟完成回调与下一轮归属，退出不再起轮询，无账号或外网 |
-| [selfcheck_resolve_retry](../selfcheck_resolve_retry.py) | 单项执行前核对 |
+| [selfcheck_resolve_retry](../selfcheck_resolve_retry.py) | `offline`；取流失败、恢复、下播、清格和隐藏后的重连清理，使用替身和空插件 |
 | [selfcheck_search](../selfcheck_search.py) | 单项执行前核对 |
 | [selfcheck_settings_status](../selfcheck_settings_status.py) | 单项执行前核对 |
 | [selfcheck_sidebar_avatar](../selfcheck_sidebar_avatar.py) | 单项执行前核对 |
@@ -242,6 +242,7 @@
 | [selfcheck_audio_cycle_shortcut](../selfcheck_audio_cycle_shortcut.py) | 单项执行前核对 |
 | [selfcheck_audio_hotplug](../selfcheck_audio_hotplug.py) | 单项执行前核对 |
 | [selfcheck_audio_owner](../selfcheck_audio_owner.py) | 单项执行前核对 |
+| [selfcheck_playback_recovery](../selfcheck_playback_recovery.py) | `offline` / `smoke`；恢复控制器的退避、冻结、稳定播放、关闭收尾及主窗口兼容/插件事件，使用本地替身 |
 | [selfcheck_player_lifetime](../selfcheck_player_lifetime.py) | `offline` / `smoke`；构造、重绑、释放参数、各平台恢复任务去重与定时器回收，不调用原生音频 |
 | [selfcheck_mpv_com_lifetime](../selfcheck_mpv_com_lifetime.py) | `native`；Windows 本地静音 WAV、真实 WASAPI，反复终止/释放及预览清理，检查 COM apartment 不变；不执行 OLE 拖动 |
 | [selfcheck_audio_routing](../selfcheck_audio_routing.py) | 合成 PCM 验证音量、路由及均衡后的响度差/静音/关闭还原；需 FFmpeg、libmpv、numpy |
