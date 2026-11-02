@@ -8,6 +8,9 @@ set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
 set "DDM_THEME_CAPTURE=1"
 set "DDM_FULLSCREEN_CAPTURE=1"
+
+
+set "DDM_FOLDER_MOTION_CAPTURE=1"
 set "PROJ=%~dp0"
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 

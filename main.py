@@ -83,4 +83,7 @@ if __name__ == "__main__":
     if '--diagnose-responsiveness' in sys.argv:
         from ddm.responsiveness import install
         install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))
+    elif os.environ.get('DDM_FOLDER_MOTION_CAPTURE') == '1':
+        from ddm.responsiveness import install_folder_capture
+        install_folder_capture(os.path.join(config.data_root(), 'logs', 'folder-motion.jsonl'))
     raise SystemExit(main())
