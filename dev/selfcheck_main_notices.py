@@ -493,6 +493,7 @@ class MainNoticesTests(unittest.TestCase):
             self.assertIsNone(RoomArtwork([room, {'room_id': 'huya:2'}]).source)
             notice = ResultNotice(owner)
             notice.show_message('示例主播 开播了', [room], kind='live')
+            notice.timer.stop()  # Keep the visual fixture alive while slow CI compares both themes.
             row = NoticeRow(NoticeEntry('示例主播 开播了', 'live', '20:36', rooms=(room,)), owner)
             row.resize(360, row.sizeHint().height())
             row.show()
