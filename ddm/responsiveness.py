@@ -254,6 +254,7 @@ class FolderMotionCapture:
         viewport = sidebar.scroll.viewport()
         # Numbers are capture-local row indexes, never room IDs or folder names.
         rows = []
+        stacking = {child: index for index, child in enumerate(sidebar.list_box.children())}
         for index, entry in enumerate(self.entries):
             try:
                 if entry.isHidden():
@@ -264,7 +265,12 @@ class FolderMotionCapture:
                 span = viewport.width() if sidebar.side == 'top' else viewport.height()
                 if along + extent < bar.value() or along > bar.value() + span:
                     continue
-                rows.append({'row': index, 'rect': list(rect.getRect())})
+                animation = sidebar.list_box._animations.get(entry)
+                target = animation.endValue() if animation is not None else entry.pos()
+                rows.append({'row': index, 'rect': list(rect.getRect()),
+                    'stack': stacking.get(entry), 'target': [target.x(), target.y()],
+                    'animation_ms': [animation.currentTime(), animation.duration()]
+                        if animation is not None else None})
             except RuntimeError:  # A smart-folder copy can be deleted during refresh.
                 continue
             if len(rows) == 16:

@@ -112,6 +112,15 @@ class ProbeTests(unittest.TestCase):
         sidebar.toggle_folder('private-folder', animate=True)
         self.assertFalse(sidebar.get_folder('private-folder')['collapsed'])
         self.assertGreater(capture.running_animations(), 0)
+        capture.frame()
+        active_rows = capture.record['frames'][-1]['rows']
+        self.assertTrue(any(row['animation_ms'] is not None for row in active_rows))
+        for item in active_rows:
+            entry = capture.entries[item['row']]
+            self.assertEqual(item['stack'], sidebar.list_box.children().index(entry))
+            animation = sidebar.list_box._animations.get(entry)
+            target = animation.endValue() if animation is not None else entry.pos()
+            self.assertEqual(item['target'], [target.x(), target.y()])
         sidebar.list_box.relayout(animate=False)
         for _ in range(45):
             capture.frame()
