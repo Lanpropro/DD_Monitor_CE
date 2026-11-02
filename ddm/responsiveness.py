@@ -187,6 +187,7 @@ def install_theme_capture(path, *, profile_calls=False):
             return original(transition, mode, *args, **kwargs)
         profile = cProfile.Profile() if profile_calls else None
         started = time.perf_counter()
+        transition._theme_request_started = started
         if profile is not None:
             profile.enable()
         try:
@@ -208,15 +209,18 @@ def install_theme_animation_capture(probe):
     """Bounded GUI-thread frame timings, separate from preparation costs."""
     from .theme_transition import ThemeTransition, WaveOverlay
 
-    original_change = ThemeTransition.change
+    original_start = ThemeTransition._start_animation
     original_frame = ThemeTransition._frame
     original_finish = ThemeTransition.finish
     original_paint = WaveOverlay.paintEvent
 
-    def change(transition, *args, **kwargs):
-        result = original_change(transition, *args, **kwargs)
+    def start(transition):
+        result = original_start(transition)
         if not probe.stopped.is_set() and transition.animation.state().name == 'Running':
-            record = {'started': time.perf_counter(), 'frames': [], 'bitmap_paints': 0}
+            started = time.perf_counter()
+            requested = getattr(transition, '_theme_request_started', None)
+            record = {'started': started, 'frames': [], 'bitmap_paints': 0,
+                'ready_ms': round((started - requested) * 1000, 3) if requested is not None else None}
             transition._motion_capture = record
             for overlay in transition.overlays:
                 overlay._motion_capture = record
@@ -251,9 +255,9 @@ def install_theme_animation_capture(probe):
             if record is not None and not probe.stopped.is_set():
                 probe.write('theme-animation', reason='complete' if progress >= 1 else 'interrupted',
                     duration_ms=round((time.perf_counter() - record['started']) * 1000, 3),
-                    frames=record['frames'], bitmap_paints=record['bitmap_paints'])
+                    ready_ms=record['ready_ms'], frames=record['frames'], bitmap_paints=record['bitmap_paints'])
 
-    ThemeTransition.change = change
+    ThemeTransition._start_animation = start
     ThemeTransition._frame = frame
     ThemeTransition.finish = finish
     WaveOverlay.paintEvent = paint

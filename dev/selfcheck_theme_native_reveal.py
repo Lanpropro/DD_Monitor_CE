@@ -38,15 +38,23 @@ def check_render_thread(app):
         samples.append((time.perf_counter(), threading.get_ident()))
     try:
         overlay.show()
+        time.sleep(.25)  # Delay first presentation; the animation must remain held at zero.
         QTest.qWait(80)
         assert overlay.view.isExposed()
+        deadline = time.perf_counter() + 2
+        while not overlay.ready_to_reveal and time.perf_counter() < deadline:
+            QTest.qWait(10)
+        assert overlay.ready_to_reveal, (overlay._synced, len(overlay._ready_connections))
         user32 = ctypes.windll.user32
         user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
         assert user32.GetWindowLongW(int(overlay.view.winId()), -20) & 0x20, 'Native wave must pass input through'
         before = overlay.grab().toImage()
         scale = before.devicePixelRatio()
+        assert before.pixelColor(round(20*scale), round(20*scale)).alpha() > 200, 'The first presented cover must be complete'
         assert before.pixelColor(round(400*scale), round(300*scale)).alpha() > 200
         assert before.pixelColor(round(580*scale), round(120*scale)).alpha() == 0, 'Live-video holes must remain transparent'
+        overlay.start_reveal()
+        QTest.qWait(80)
         samples.clear()
         overlay.view.afterRendering.connect(frame, Qt.DirectConnection)
         time.sleep(.4)  # No GUI event processing; render-thread Animator must continue.
@@ -64,19 +72,33 @@ def check_render_thread(app):
         from ddm import motion, theme
         from ddm.theme_transition import ThemeTransition
         transition = ThemeTransition(window)
-        with patch.object(motion, 'enabled', return_value=True):
+        starts = []
+        original_start = QuickWaveOverlay.start_reveal
+        def start_after_cover(item):
+            cover = item.grab().toImage()
+            ratio = cover.devicePixelRatio()
+            starts.append((cover.pixelColor(round(20*ratio), round(20*ratio)).alpha(),
+                           item.ready_to_reveal, item.parentWidget().updatesEnabled(), item._revision))
+            original_start(item)
+        with patch.object(motion, 'enabled', return_value=True), \
+                patch.object(QuickWaveOverlay, 'start_reveal', start_after_cover):
             theme.apply('dark')
             transition.change('light', window.mapToGlobal(QPoint()))
             assert isinstance(transition.overlays[0], QuickWaveOverlay)
+            cached = transition.overlays[0]
+            assert not window.updatesEnabled() and not transition.animation.state().name == 'Running'
             QTest.qWait(50)
             transition.change('dark', window.mapToGlobal(QPoint()))
             assert isinstance(transition.overlays[0], QuickWaveOverlay)
-            QTest.qWait(400)
+            assert transition.overlays[0] is cached, 'The shader scene must be reused'
+            QTest.qWait(600)
             assert not transition.overlays
+            assert window.updatesEnabled()
             transition.change('light', window.mapToGlobal(QPoint()))
             quick_window = transition.overlays[0].view
             window.move(-19000, -19000)
-            assert not transition.overlays and not quick_window.isVisible()
+            assert not transition.overlays and not quick_window.isVisible() and window.updatesEnabled()
+        assert starts and all(alpha > 200 and ready and enabled for alpha, ready, enabled, _ in starts), ('A complete presented cover must precede each reveal', starts)
         print('PASS: actual theme entry, reverse click snapshot, completion and move cancellation')
     finally:
         overlay.hide()
