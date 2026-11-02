@@ -6552,23 +6552,31 @@ class Tile(QFrame):
         target = 1.0 if hidden and hide_bar and self.property("fullscreen") else 0.0
         if hidden == getattr(self, "_fullscreen_controls_hidden", False) and target == self._bar_target:
             return
-        self._fullscreen_controls_hidden = hidden
-        self.set_controls_visible(not hidden)
         self._bar_animation.stop()
+        self._fullscreen_controls_hidden = hidden
         self._bar_target = target
+        self.set_controls_visible(not hidden)
         if self.property("fullscreen") and motion.enabled():
             self.bottom.show()
+            self._layout_areas()
+            self._bar_animation.blockSignals(True)
+            self._bar_animation.setCurrentTime(0)
             self._bar_animation.setStartValue(self._bar_progress)
             self._bar_animation.setEndValue(target)
+            self._bar_animation.blockSignals(False)
             self._bar_animation.start()
         else:
             self._slide_fullscreen_bar(target)
-        self._layout_areas()
+            self._layout_areas()
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
-        self.bottom.move(self.bottom.x(), self.height() - TILE_BAR_HEIGHT
-                         + round(TILE_BAR_HEIGHT * self._bar_progress))
+        offset = 0 if self.bottom.qt_composited else round(TILE_BAR_HEIGHT * self._bar_progress)
+        self.bottom.set_tile_geometry(0, self.height() - TILE_BAR_HEIGHT
+                                      + offset,
+                                      self.bottom.width(), self.bottom.height())
+        if self.bottom.qt_composited:
+            self.bottom.setWindowOpacity(1.0 - self._bar_progress)
         self.bottom.setVisible(self._bar_progress < 1.0 or self._bar_target == 0.0)
         self._layout_time_badge()
         self.bottom.raise_()
@@ -6769,10 +6777,11 @@ class Tile(QFrame):
         self.pause_overlay.move(
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
-        bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * self._bar_progress)
+        bar_y = (height - TILE_BAR_HEIGHT + (0 if self.bottom.qt_composited else
+                                           round(TILE_BAR_HEIGHT * self._bar_progress))
                  if fullscreen else video_height)
         bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
-        self.bottom.setGeometry(inset, bar_y, max(1, width - inset * 2), bar_height)
+        self.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         self._layout_time_badge()
         self.video_danmaku.setGeometry(self.video.geometry())
         self._layout_bottom_controls()
@@ -6781,7 +6790,7 @@ class Tile(QFrame):
 
     def _layout_time_badge(self) -> None:
         video_right = self.video.geometry().right() + 1
-        bottom = min(self.video.geometry().bottom() + 1, self.bottom.y())
+        bottom = min(self.video.geometry().bottom() + 1, self.bottom.tile_y())
         self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
                              max(8, bottom - self.time_badge.height() - 10))
 

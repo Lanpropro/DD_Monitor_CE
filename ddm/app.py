@@ -2812,13 +2812,7 @@ class MainWindow(QMainWindow):
                     notice_key=notice_key, pending=pending)
 
     def _place_live_notice_rooms(self, rooms):
-        for room in rooms:
-            room_id = str(room.get('room_id') or '')
-            if not room_id or self._tile_of(room_id) is not None:
-                continue
-            current = next((item.room for item in self.sidebar._items
-                            if str(item.room.get('room_id')) == room_id), room)
-            self.add_to_wall(dict(current), empty_only=True)
+        self.room_placement.place_live_notice_rooms(rooms)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:

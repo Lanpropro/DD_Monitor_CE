@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
@@ -1044,18 +1044,60 @@ class MainNoticesTests(unittest.TestCase):
         window._show_notice('警告', kind='warning')
         self.assertFalse(window._result_notice.timer.isActive())
 
-    def test_live_notice_dismisses_without_expanding_or_replacing_full_wall(self):
+    def test_live_notice_selects_one_replacement_without_expanding_full_wall(self):
         window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
         original = [dict(tile.room) for tile in window.wall.tiles]
         with patch.object(window.wall, 'add_room') as add, \
                 patch.object(window, '_open_room_browser') as browser:
             window._show_notice('新主播开播了', rooms=[{'room_id': '999'}], kind='live')
             notice = window._result_notice
+            self.assertEqual(notice.action.text(), '替换')
             QTest.mouseClick(notice.title, Qt.LeftButton)
             self.assertFalse(notice.isVisible())
             self.assertEqual([tile.room for tile in window.wall.tiles], original)
+            target = window.wall.tiles[2]
+            window.start_tile.reset_mock()
+            with patch.object(window, '_room_dict', side_effect=AssertionError('No network lookup')), \
+                    patch.object(window.recorder, 'stop') as stop:
+                QTest.mouseClick(target.video, Qt.LeftButton, pos=target.video.rect().center())
+                self.app.processEvents()
+                stop.assert_called_once_with(target)
+            self.assertEqual(target.room['room_id'], '999')
+            self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles], ['1', '2', '999', '4'])
+            window.start_tile.assert_called_once_with(target)
+            self.assertFalse(window.room_placement.replacement.replacement_rooms)
             add.assert_not_called()
             browser.assert_not_called()
+
+    def test_live_replacement_can_cancel_and_does_not_accept_sidebar_clicks(self):
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
+        original = [dict(tile.room) for tile in window.wall.tiles]
+        window._place_live_notice_rooms([{'room_id': '999'}])
+        selection = window.room_placement.replacement
+        window.sidebar.roomSelected.emit(window.sidebar.items()[0].room)
+        self.assertTrue(selection.replacement_rooms)
+        QTest.keyClick(window, Qt.Key_Escape)
+        self.assertFalse(selection.replacement_rooms)
+        self.assertEqual([tile.room for tile in window.wall.tiles], original)
+        self.assertIsNone(QApplication.overrideCursor())
+        window._place_live_notice_rooms([{'room_id': '998'}])
+        window.hide()
+        self.assertFalse(selection.replacement_rooms)
+        self.assertIsNone(QApplication.overrideCursor())
+
+    def test_live_notice_uses_visible_empty_slot_before_replacement_and_skips_duplicates(self):
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
+        window.wall.tiles[1].set_room(None)
+        window._show_notice('开播了', rooms=[{'room_id': '999'}], kind='live')
+        self.assertEqual(window._result_notice.action.text(), '放入画面墙')
+        window._place_live_notice_rooms([{'room_id': '999'}, {'room_id': '999'}])
+        self.assertEqual(window.wall.tiles[1].room['room_id'], '999')
+        self.assertFalse(window.room_placement.replacement.replacement_rooms)
+        window.wall.set_layout('1x1')
+        window.wall.tiles[-1].set_room(None)
+        window._place_live_notice_rooms([{'room_id': '998'}])
+        self.assertTrue(window.room_placement.replacement.replacement_rooms)
+        window.room_placement.replacement.cancel_replacement()
 
     @classmethod
     def setUpClass(cls):
@@ -1065,6 +1107,7 @@ class MainNoticesTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.addCleanup(theme.signals().changed.disconnect)
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
@@ -1080,8 +1123,13 @@ class MainNoticesTests(unittest.TestCase):
         window.resize(1000, 700)
         window.show()
         self.app.processEvents()
-        self.addCleanup(window.close)
+        self.addCleanup(self.close_window, window)
         return window
+
+    def close_window(self, window):
+        window.close()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)

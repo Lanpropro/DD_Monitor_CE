@@ -5,10 +5,17 @@ import sys
 class RoomPlacement:
     def __init__(self, host):
         self.host = host
+        self.replacement = None
 
-    def drop_room(self, tile, room_id: str) -> None:
+    def place_live_notice_rooms(self, rooms):
+        from .wall_replacement import WallReplacement
+        if self.replacement is None:
+            self.replacement = WallReplacement(self)
+        self.replacement.place(rooms)
+
+    def drop_room(self, tile, room_id: str, *, room=None) -> None:
         host = self.host
-        room = host._room_dict(room_id)
+        room = room if room is not None else host._room_dict(room_id)
         if not room:
             print(f"拖入的直播间 {room_id} 查询失败")
             return
