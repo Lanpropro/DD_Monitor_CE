@@ -598,6 +598,10 @@ def check_routing(app):
                 QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
             assert len(window._danmaku_clients) == 2, "同直播间的两格应共用连接"
             client = window._danmaku_clients["1001"]
+            assert client.parent() is window, "主窗口继续拥有连接的 Qt 生命周期"
+            with patch.object(client, "start") as restart:
+                assert window._ensure_danmaku_client("1001") is client
+                restart.assert_not_called()
             client.message.emit({"text": "房间一"})
             assert len(first.video_danmaku.comments) == len(duplicate.video_danmaku.comments) == 1
             assert not second.video_danmaku.comments and not disabled.video_danmaku.comments

@@ -254,8 +254,8 @@
 | [selfcheck_preview_popup](../selfcheck_preview_popup.py) | 单项执行前核对 |
 | [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；65行紧凑关注栏，滚轮取流竞态、漏发离开事件与悬停重绘 |
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
-| [selfcheck_recording](../selfcheck_recording.py) | 合成视频与本机HTTP，含过期地址分片续录、403重新取流与停止／切房隔离；单项执行前核对 |
-| [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | 单项执行前核对 |
+| [selfcheck_recording](../selfcheck_recording.py) | `offline`；FFmpeg 与临时合成视频、本机 HTTP 的功能回归，含手动回放停止/恢复、缓存升级、录制计时、画质请求取消及过期源恢复；不能作为真实性能改善依据 |
+| [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | `offline`；FFmpeg 功能回归：退出保存完整录制、等待重连的分段和主动导出的回放，清理未保存缓存；隔离账号和安装插件 |
 | [selfcheck_replay_scope](../selfcheck_replay_scope.py) | 单项执行前核对 |
 | [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | `offline` |
 | [selfcheck_stream_relay](../selfcheck_stream_relay.py) | 单项执行前核对 |

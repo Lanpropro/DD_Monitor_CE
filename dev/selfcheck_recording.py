@@ -1,4 +1,5 @@
 """FFmpeg 本体录制：双格独立、格式/请求头、设置、回放及收尾。"""
+from contextlib import contextmanager, ExitStack
 import os
 import shutil
 import subprocess
@@ -29,6 +30,21 @@ from ddm.recording import (RecordingManager, ffmpeg_path, input_args, output_pat
 
 #: 硬件编码器名字集合；断言不能写死 libx264 —— 本机可能真的用上显卡。
 ENCODER_NAMES = {encoder for encoder, _args in HARDWARE_ENCODERS.values()} | {SOFTWARE_ENCODER}
+
+
+@contextmanager
+def isolated_window_tasks():
+    """Keep recording regressions offline and away from installed plugins/accounts."""
+    with tempfile.TemporaryDirectory(prefix="ddm-record-window-") as temp, ExitStack() as stack:
+        stack.enter_context(patch("ddm.config.DATA_ROOT", temp))
+        stack.enter_context(patch("ddm.images.REPO", temp))
+        stack.enter_context(patch("ddm.plugins.PluginManager.load"))
+        stack.enter_context(patch.dict(os.environ, DDM_SETTINGS_PROCESS="0"))
+        for name in ("start_all", "start_tile", "refresh_status", "refresh_stats", "refresh_account",
+                     "sync_danmaku", "load_room_avatars", "load_avatars_for", "load_cached_covers",
+                     "load_cached_avatars", "_check_startup_update", "_check_startup_plugins"):
+            stack.enter_context(patch.object(MainWindow, name))
+        yield
 
 
 class FakeTile:
@@ -621,12 +637,24 @@ def main():
         assert tile.quality == before_quality and tile not in window._pending_capture
         window._sync_replay_scope()
         assert window.recorder.sessions[tile] is cached_session
+        # A manual stop suppresses automatic caching until the user explicitly starts it again.
+        window._stop_replay(tile)
+        assert until(app, lambda: tile not in window.recorder.sessions and not window.recorder.exports)
+        window.settings["recording_replay_scope"] = "all"
+        window._sync_replay_scope()
+        assert tile not in window.recorder.sessions
+        window.settings["recording_replay_scope"] = "recorded"
+        window._start_replay(tile)
+        cached_session = window.recorder.sessions[tile]
+        cached_process = cached_session.process
+        assert cached_session.manual_replay and not cached_session.recording
         tile.recording_button.click()
         assert tile in window.recorder.sessions
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
         assert tile.recording_button.text() == "● REC"
         assert tile.recording_button.property("recording") is True
+        assert tile.recording_time.text(), "Recording status signal must update the duration label"
         window._fill_plugin_menu(tile)
         labels = [label for label, _callback in tile.plugin_actions]
         assert any("停止录制" in label for label in labels)
@@ -635,6 +663,7 @@ def main():
         assert until(app, lambda: tile not in window.recorder.sessions and
                      not window.recorder.exports)
         assert tile.recording_button.property("recording") is False
+        assert not tile.recording_time.text(), "Stopping must clear the duration label"
         hidden = window.wall.tiles[1]
         hidden.set_room({"uname": "隐藏格子", "room_id": "60007", "live": False})
         hidden.room["live"] = True
@@ -695,6 +724,13 @@ def main():
         assert tile not in window.recorder.sessions
         assert tile.quality == 250 and tile.quality_button.isEnabled()
         assert "未提供原画" in notice.call_args.args[0]
+        # A second button click cancels the original-quality request and unlocks the tile.
+        with patch.object(window, "start_tile"):
+            tile.recording_button.click()
+            assert tile in window._pending_capture
+            tile.recording_button.click()
+        assert tile not in window._pending_capture and tile not in window.recorder.sessions
+        assert tile.quality == 250 and not tile.quality_locked and tile.quality_button.isEnabled()
         with patch.object(window, "start_tile"):
             window._start_capture(tile, recording=True)
             assert tile in window._pending_capture
@@ -707,7 +743,5 @@ def main():
 
 
 if __name__ == "__main__":
-    with patch.object(MainWindow, 'refresh_status'), \
-            patch.object(MainWindow, '_check_startup_update'), \
-            patch.object(MainWindow, '_check_startup_plugins'):
+    with isolated_window_tasks():
         main()

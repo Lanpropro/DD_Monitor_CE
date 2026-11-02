@@ -17,7 +17,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.app import MainWindow  # noqa: E402
 from ddm.config import DEFAULT_SETTINGS  # noqa: E402
 from ddm.recording import RecordingManager, _Session, ffmpeg_path  # noqa: E402
-from selfcheck_recording import FakeTile, until  # noqa: E402
+from selfcheck_recording import FakeTile, until, isolated_window_tasks  # noqa: E402
 
 
 def verify_outputs(folder, *, saved):
@@ -140,4 +140,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with isolated_window_tasks():
+        main()
