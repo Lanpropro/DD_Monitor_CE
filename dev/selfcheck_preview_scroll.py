@@ -37,6 +37,7 @@ class Resolver(QObject):
 
 class Player:
     def __init__(self, *_args, **_kwargs):
+        self.stateChanged = Mock()
         self.play = Mock()
         self.stop = Mock()
         self.release = Mock()
@@ -54,10 +55,75 @@ def settle(app, seconds=.03):
         time.sleep(.001)
 
 
+def check_drag_preview(app):
+    for card_mode in (False, True):
+        host = QWidget()
+        host.setGeometry(-20000, -20000, 1100, 760)
+        rooms = [dict(room_id=str(i), uname='Fixture', live=True) for i in (1, 2)]
+        sidebar = Sidebar(rooms, host, card_mode=card_mode, auto_compact=False)
+        sidebar.setGeometry(0, 0, sidebar.width(), 700)
+        preview = HoverPreview(sidebar, host)
+        players = []
+        def create_player(*args, **kwargs):
+            player = Player()
+            players.append(player)
+            return player
+        pointer, buttons = [QPoint()], [Qt.NoButton]
+        with patch('ddm.preview.StreamResolver', wraps=Resolver) as resolve, \
+                patch('ddm.preview.TilePlayer', side_effect=create_player), \
+                patch('ddm.widgets.TilePlayer', side_effect=create_player), \
+                patch.object(QCursor, 'pos', side_effect=lambda: pointer[0]), \
+                patch.object(QApplication, 'mouseButtons', side_effect=lambda: buttons[0]):
+            host.show()
+            app.processEvents()
+            try:
+                pointer[0] = sidebar.items()[0].mapToGlobal(QPoint(20, 20))
+                preview.on_hover(rooms[0])
+                preview._begin_resolve()
+                pending = preview._resolver
+                assert pending is not None
+                preview._ready_to_show = True
+                buttons[0] = Qt.LeftButton
+                pending.resolved.emit('1', 'fixture.flv', 80, 'web', [])
+                assert not any(player.play.called for player in players), \
+                    'A queued response started playback while dragging'
+                assert pending.cancelled, 'Drag must invalidate the outstanding preview request'
+                count = resolve.call_count
+                player_count = len(players)
+                pointer[0] = sidebar.items()[1].mapToGlobal(QPoint(20, 20))
+                preview.on_hover(rooms[1])
+                preview._begin_resolve()
+                preview._show_now()
+                preview._check_hover()
+                assert resolve.call_count == count and len(players) == player_count
+                assert not any(player.stop.called for player in players), \
+                    'Drag must defer native player teardown until release'
+                buttons[0] = Qt.NoButton
+                preview._check_hover()
+                preview._begin_resolve()
+                current = preview._resolver
+                assert current is not None and current.room_id == '2', \
+                    'Release must resume preview for the current pointer target'
+                preview._show_now()
+                current.resolved.emit('2', 'fixture.flv', 80, 'web', [])
+                assert sum(player.play.call_count for player in players) == 1
+                buttons[0] = Qt.LeftButton
+                preview._check_hover()
+                preview.cancel()  # Closing/disabling previews must cancel automatic resume.
+                buttons[0] = Qt.NoButton
+                preview._check_hover()
+                assert not preview._hover_watch.isActive()
+            finally:
+                preview.stop()
+                host.close()
+    print('PASS: drag suppresses queued/new previews, defers teardown and resumes at current pointer')
+
+
 def main():
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_drag_preview(app)
     host = QWidget()
     host.setAttribute(Qt.WA_ShowWithoutActivating)
     host.setGeometry(-20000, -20000, 1100, 760)

@@ -13,7 +13,8 @@ from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, Qt, Signal
 from PySide6.QtWidgets import QApplication, QDialog, QSystemTrayIcon
 from ddm import config, system_tray
 from ddm.app import MainWindow
-from ddm.dialogs import GeneralSettingsPage
+from ddm.dialogs import GeneralSettingsPage, SettingsDialog, TraySettingsPage
+from ddm.single_instance import restore_main_window
 
 
 class FakeTray(QObject):
@@ -99,6 +100,10 @@ class SystemTrayTests(unittest.TestCase):
             self.assertEqual(dialog.result(), QDialog.Accepted)
             dialog.deleteLater()
         page = GeneralSettingsPage({})
+        self.assertFalse(hasattr(page, 'close_behavior_combo'))
+        self.assertNotIn('close_behavior', page.values())
+        page.deleteLater()
+        page = TraySettingsPage({})
         self.assertEqual(page.values()['close_behavior'], 'ask')
         for action in ('tray', 'exit'):
             page.close_behavior_combo.setCurrentIndex(page.close_behavior_combo.findData(action))
@@ -106,6 +111,108 @@ class SystemTrayTests(unittest.TestCase):
         page.reset()
         self.assertEqual(page.values()['close_behavior'], 'ask')
         page.deleteLater()
+
+    def test_tray_settings_save_cancel_and_reset(self):
+        self.assertTrue(config.DEFAULT_SETTINGS['tray_pause_playback'])
+        page = TraySettingsPage({})
+        self.assertTrue(page.values()['tray_pause_playback'])
+        page.pause_playback.setChecked(False)
+        self.assertFalse(page.values()['tray_pause_playback'])
+        page.reset()
+        self.assertTrue(page.values()['tray_pause_playback'])
+        page.deleteLater()
+        original = {'tray_pause_playback': False}
+        dialog = SettingsDialog(original, {}, preview=True)
+        index = dialog.PAGE_INDEX['tray']
+        dialog.nav.setCurrentRow(index)
+        self.assertEqual(dialog.nav.item(index).text(), '托盘行为')
+        self.assertFalse(dialog.settings()['tray_pause_playback'])
+        dialog._reset_current()
+        self.assertTrue(dialog.settings()['tray_pause_playback'])
+        self.assertEqual(dialog.settings()['close_behavior'], 'ask')
+        dialog.reject()
+        self.assertEqual(original, {'tray_pause_playback': False})
+        dialog.deleteLater()
+
+    def test_default_hide_releases_watching_and_restore_reconnects(self):
+        window = self.window('tray')
+        tile = window.wall.tiles[0]
+        tile.set_room({'room_id': '123', 'uname': 'Fixture', 'live': True})
+        player, resolver = Mock(), Mock()
+        window.players[tile] = player
+        window._resolvers[tile] = resolver
+        with patch.object(window.recorder, 'stop') as stop_recording:
+            window._tray.hide()
+            player.release.assert_called_once()
+            resolver.cancel.assert_called_once()
+            self.assertTrue(tile.paused)
+            self.assertNotIn(tile, window.players)
+            self.assertNotIn(tile, window._resolvers)
+            window._sync_tile_playback(start_visible=True)
+            stop_recording.assert_not_called()
+        # Poll/retry and late stream results must not reopen watching in tray.
+        window.start_tile(tile)
+        window._play_on(tile, 'http://127.0.0.1:9/unused')
+        self.assertNotIn(tile, window.players)
+        self.assertNotIn(tile, window._resolvers)
+        window._tray.hide()  # Do not overwrite the original pause state.
+        with patch.object(window, 'start_tile') as start:
+            window._tray.restore()
+            start.assert_called_once_with(tile)
+            self.assertFalse(tile.paused)
+            window._tray.restore()
+            start.assert_called_once()
+
+    def test_disabled_and_minimized_keep_playback(self):
+        window = self.window('tray')
+        tile = window.wall.tiles[0]
+        tile.set_room({'room_id': '123', 'live': True})
+        player = Mock()
+        window.players[tile] = player
+        window.showMinimized()
+        self.app.processEvents()
+        player.release.assert_not_called()
+        self.assertFalse(window._tray.playback_suspended)
+        window.settings['tray_pause_playback'] = False
+        window._tray.hide()
+        window._tray.restore()
+        player.release.assert_not_called()
+        self.assertFalse(tile.paused)
+
+    def test_manual_pause_and_changed_room_are_not_resumed(self):
+        window = self.window('tray')
+        tile = window.wall.tiles[0]
+        tile.set_room({'room_id': '123', 'live': True})
+        tile.set_paused(True)
+        window._tray.hide()
+        with patch.object(window, 'start_tile') as start:
+            window._tray.restore()
+            start.assert_not_called()
+            self.assertTrue(tile.paused)
+        window._tray.hide()
+        tile.set_room({'room_id': '456', 'live': True})
+        with patch.object(window, 'start_tile') as start:
+            window._tray.restore()
+            start.assert_not_called()
+
+    def test_recording_and_pending_capture_are_preserved(self):
+        window = self.window('tray')
+        tile = window.wall.tiles[0]
+        tile.set_room({'room_id': '123', 'live': True})
+        player = Mock()
+        window.players[tile] = player
+        window._pending_capture[tile] = {'fixture': True}
+        window._tray.hide()
+        player.release.assert_not_called()
+        self.assertFalse(window._tray.hold_playback(tile))
+        with (patch.object(window.recorder, 'stop') as stop,
+              patch.object(window, '_finish_pending_capture',
+                           side_effect=lambda current: window._pending_capture.pop(current)) as finish):
+            window._play_on(tile, 'http://127.0.0.1:9/unused')
+            finish.assert_called_once_with(tile)
+            player.release.assert_called_once()
+            stop.assert_not_called()
+            self.assertNotIn(tile, window.players)
 
     def test_unremembered_choice_hides_without_teardown_and_asks_again(self):
         window = self.window()
@@ -185,6 +292,19 @@ class SystemTrayTests(unittest.TestCase):
         self.assertFalse(window.isMinimized())
         self.assertTrue(window.isMaximized())
         self.assertTrue(window.isVisible())
+
+    def test_duplicate_launch_restores_tray_and_minimized_windows(self):
+        window = self.window('tray')
+        window._tray.hide()
+        self.assertFalse(window.isVisible())
+        restore_main_window(window)
+        self.assertTrue(window.isVisible())
+        window.showMinimized()
+        restore_main_window(window)
+        self.assertFalse(window.isMinimized())
+        window._tray.request_exit()
+        restore_main_window(window)
+        self.assertFalse(window.isVisible())
 
     def test_no_tray_or_update_and_restart_can_still_exit(self):
         FakeTray.supported = False

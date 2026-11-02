@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QProcess, QTimer, qVersion
+from PySide6.QtCore import QCoreApplication, QEvent, QProcess, QTimer, qVersion
 from PySide6.QtWidgets import QApplication
 from ddm import config, settings_process
 
@@ -30,6 +31,30 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            if action == 'theme':
+                from ddm import theme
+                def report(mode):
+                    print(settings_process.PREFIX + json.dumps({'kind': 'theme-state',
+                        'mode': mode, 'light': theme.is_light(),
+                        'volume': self.general_page.volume_slider.value()}), flush=True)
+                if not getattr(self, '_theme_report_connected', False):
+                    self._theme_report_connected = True
+                    self.general_page.volume_slider.setValue(17)
+                    theme.signals().changed.connect(report)
+                report(theme.mode())
+                return
+            if action == 'preview-save':
+                page = self.danmaku_page
+                assert not hasattr(page.super_chat_placement, 'frame')
+                page.super_chat_preview_layout.button(1).click()
+                assert page.super_chat_placement.layout_mode == 'panel'
+                assert page.super_chat_placement.preview_context['panel']['size'] == [800, 450]
+                assert page.super_chat_collapse_delay.suffix() == ''
+                assert page.super_chat_collapse_unit.text() == '秒'
+                page.super_chat_opacity.setValue(45)
+                assert page.super_chat_placement.opacity == 45
+                assert 'sc_preview_frame' not in self.settings()
+                assert 'sc_preview_context' not in self.settings()
             assert self.general_page._checks['sidebar_platform_logos'].isHidden(), 'Generic logo switch must stay hidden in the worker'
             if action.startswith('logos-'):
                 if len(self.plugin_checks) != 2:
@@ -63,7 +88,7 @@ def child(action):
             if action.startswith('embed-'):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
-                self.sequence = iter((6,) if action.startswith('embed-restart-') else (1, 0, 6, 2, 7, 5, 1, 0))
+                self.sequence = iter((7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action in ('focus', 'zorder'):
@@ -76,9 +101,12 @@ def child(action):
                     pass  # Deliberately hold this process's GUI thread and GIL.
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
+            self.general_page._checks['volume_normalization'].setChecked(True)
             if action.startswith('tray-'):
-                combo = self.general_page.close_behavior_combo
-                combo.setCurrentIndex(combo.findData('tray'))
+                self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
+                page = self._loaded_pages[self.PAGE_INDEX['tray']]
+                page.close_behavior_combo.setCurrentIndex(page.close_behavior_combo.findData('tray'))
+                page.pause_playback.setChecked(False)
             if 'sidebar_platform_logos' in self.general_page._checks:
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
             if action in ('cancel', 'tray-cancel'):
@@ -170,7 +198,8 @@ def check_worker(app, action):
             process_pid = client.process.processId()
             assert pid != os.getpid()
             initial = dict(config.DEFAULT_SETTINGS, default_volume=42, seen_update_versions={'app': '0.5.1'})
-            client.open(initial, {})
+            context = {'panel': {'size': [800, 450], 'cards': [{'message': '', 'collapsed': False}]}}
+            client.open(initial, {}, context)
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
             assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -180,11 +209,13 @@ def check_worker(app, action):
             assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
+                assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
+                    assert saves[0]['settings']['tray_pause_playback'] is False
                 assert 'appearance_mode' not in saves[0]['settings']
                 assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
-            assert pages == ([{'appearance': 1, 'plugins': 6, 'updates': 7}[action.split('-')[1]]] if clean else [])
+            assert pages == ([{'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]] if clean else [])
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
                 assert maximum < 0.15, maximum
@@ -192,7 +223,7 @@ def check_worker(app, action):
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
             messages.clear()
-            client.open(initial, {})
+            client.open(initial, {}, context)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert client.process.processId() == process_pid
             assert next(m['pid'] for m in messages if m['kind'] == 'painted') == pid
@@ -201,6 +232,38 @@ def check_worker(app, action):
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
             timer.stop()
     assert not failures
+
+
+def check_theme_sync(app):
+    from ddm import theme
+    messages = []
+    client = settings_process.SettingsProcess()
+    client.received.connect(messages.append)
+    command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'theme'])
+    with patch.object(settings_process, 'worker_command', return_value=command), \
+            patch.object(settings_process, '_allow_foreground'):
+        try:
+            theme.apply('dark')
+            client.open(dict(config.DEFAULT_SETTINGS, appearance_mode='dark'), {})
+            theme.apply('light')  # Also sync a change while startup is still pending.
+            wait(app, lambda: any(m['kind'] == 'theme-state' for m in messages))
+            row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
+            assert row['mode'] == 'light' and row['light'] and row['volume'] == 17, row
+            messages.clear()
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                wait(app, lambda: any(m['kind'] == 'theme-state' and m['mode'] == mode for m in messages))
+                row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
+                assert row['light'] == (mode == 'light') and row['volume'] == 17, row
+                messages.clear()
+            client._send({'kind': 'host-cancel'})
+            wait(app, lambda: not client.visible)
+        finally:
+            client.stop()
+            wait(app, lambda: client.process.state() == QProcess.NotRunning)
+            client.deleteLater()
+            theme.apply('dark')
+    print('PASS: pending and visible settings follow host themes and preserve unsaved controls')
 
 
 def check_native_zorder(app):
@@ -438,7 +501,7 @@ def check_host_save_validation():
     dialog.confirm_button.isEnabled.return_value = True
     dialog.result.return_value = SettingsDialog.Accepted
     dialog.enabled_plugins.return_value = {'fixture'}
-    dialog._loaded_pages = {7: SimpleNamespace(install_requested=False)}
+    dialog._loaded_pages = {8: SimpleNamespace(install_requested=False)}
     dialog.restart_requested = True
     applied = []
     client = SimpleNamespace(_send=Mock(), closing=False)
@@ -567,7 +630,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     output = ROOT / 'work/test-artifacts/host/settings-pages'
                     output.mkdir(parents=True, exist_ok=True)
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
-                if message['index'] == 7:
+                if message['index'] == 8:
                     session.dialog.update_page.auto.setChecked(True)
                     if action == 'embed-install':
                         page = session.dialog.update_page
@@ -594,7 +657,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == [1, 0, 6, 2, 7, 5, 1, 0]
+                assert [message['index'] for message in shells] == [1, 0, 6, 7, 2, 8, 5, 1, 0]
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
@@ -756,6 +819,63 @@ def check_restart_native():
     print('PASS: install/delete restart releases foreign pages before host exit; no settings process remains')
 
 
+def check_nonblocking_online_close(app):
+    from unittest.mock import Mock
+    from ddm.dialogs import SettingsDialog
+    from ddm import online_ui
+    from shiboken6 import isValid
+    for update in (False, True):
+        entered, release = threading.Event(), threading.Event()
+        callback = Mock()
+        dialog = SettingsDialog(config.DEFAULT_SETTINGS, {})
+        page = online_ui.AppUpdatePage(config.DEFAULT_SETTINGS, dialog) if update else online_ui.OnlinePage(dialog)
+        if not update:
+            dialog._loaded_pages[7] = SimpleNamespace(store_page=page)
+        def operation(cancelled, progress):
+            entered.set()
+            release.wait(3)
+            progress(1, 1)
+            return '/fixture/late-update-plan.json' if update else ['late-catalog']
+        ticks = []
+        heartbeat = QTimer()
+        heartbeat.setInterval(10)
+        heartbeat.timeout.connect(lambda: ticks.append(1))
+        heartbeat.start()
+        fallback = threading.Timer(1.5, release.set)
+        fallback.daemon = True
+        fallback.start()
+        with patch.object(online_ui.update_install, 'discard_plan') as discard:
+            page.start(operation, callback)
+            task = page.jobs[0]
+            assert entered.wait(1)
+            try:
+                started = time.monotonic()
+                page.stop() if update else dialog.reject()
+                assert time.monotonic() - started < .2, 'Closing settings must not wait for a network response'
+                assert task.isInterruptionRequested() and task.parent() is None
+                assert task in online_ui._retired_online_tasks
+                dialog.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                assert not isValid(page), 'Settings page must be releasable while the request is pending'
+                wait(app, lambda: len(ticks) >= 3)
+                assert not callback.called
+                release.set()
+                wait(app, lambda: task not in online_ui._retired_online_tasks)
+                assert not callback.called, 'Cancelled results must not touch destroyed settings pages'
+                if update:
+                    discard.assert_called_once_with('/fixture/late-update-plan.json', config.REPO)
+                else:
+                    discard.assert_not_called()
+            finally:
+                release.set()
+                fallback.cancel()
+                heartbeat.stop()
+                if isValid(task):
+                    task.wait(3000)
+                app.processEvents()
+    print('PASS: slow online settings close immediately, GUI heartbeat continues, late results cleaned safely')
+
+
 def main():
     if sys.argv[1:2] == ['--worker-check']:
         return child(sys.argv[2])
@@ -766,6 +886,10 @@ def main():
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
+    if sys.argv[1:] == ['--theme-sync-only']:
+        check_theme_sync(app)
+        return 0
+    check_nonblocking_online_close(app)
     if sys.argv[1:] == ['--native-zorder']:
         assert app.platformName() == 'windows'
         check_native_zorder(app)
@@ -786,7 +910,7 @@ def main():
         print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
         return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
+                   'save', 'preview-save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)

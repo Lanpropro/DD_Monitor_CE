@@ -1,16 +1,21 @@
 """FFmpeg 本体录制：双格独立、格式/请求头、设置、回放及收尾。"""
+from contextlib import contextmanager, ExitStack
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from concurrent.futures import Future
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, Signal
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -25,6 +30,21 @@ from ddm.recording import (RecordingManager, ffmpeg_path, input_args, output_pat
 
 #: 硬件编码器名字集合；断言不能写死 libx264 —— 本机可能真的用上显卡。
 ENCODER_NAMES = {encoder for encoder, _args in HARDWARE_ENCODERS.values()} | {SOFTWARE_ENCODER}
+
+
+@contextmanager
+def isolated_window_tasks():
+    """Keep recording regressions offline and away from installed plugins/accounts."""
+    with tempfile.TemporaryDirectory(prefix="ddm-record-window-") as temp, ExitStack() as stack:
+        stack.enter_context(patch("ddm.config.DATA_ROOT", temp))
+        stack.enter_context(patch("ddm.images.REPO", temp))
+        stack.enter_context(patch("ddm.plugins.PluginManager.load"))
+        stack.enter_context(patch.dict(os.environ, DDM_SETTINGS_PROCESS="0"))
+        for name in ("start_all", "start_tile", "refresh_status", "refresh_stats", "refresh_account",
+                     "sync_danmaku", "load_room_avatars", "load_avatars_for", "load_cached_covers",
+                     "load_cached_avatars", "_check_startup_update", "_check_startup_plugins"):
+            stack.enter_context(patch.object(MainWindow, name))
+        yield
 
 
 class FakeTile:
@@ -121,8 +141,162 @@ def check_codec_switch_queue():
         manager.timer.stop()
 
 
+def check_recording_source_isolation():
+    class Resolver(QObject):
+        resolved = Signal(str, str, int, str, list)
+        failed = Signal(str, str)
+        finished = Signal()
+        def __init__(self, room, quality, parent, **kwargs):
+            super().__init__()
+            self.headers = {'X-Test': 'fresh'}
+            self.source_codec = 'avc'
+            self.cancelled = False
+        def start(self):
+            pass
+        def cancel(self):
+            self.cancelled = True
+    tile = FakeTile('isolated', '123', 'https://cdn.test/old')
+    tile.quality = tile.actual_quality = 250
+    manager = RecordingManager(dict(DEFAULT_SETTINGS))
+    manager.timer.stop()
+    owner = SimpleNamespace(_closing=False, recorder=manager,
+        plugins=SimpleNamespace(platform_for=lambda _rid: None), wall=SimpleNamespace(tiles=[tile]),
+        _codec_settings=lambda _tile: {'bili_codec': 'avc'}, _resolvers_running=set())
+    manager.source_resolver = lambda session: MainWindow._refresh_recording_source(owner, session)
+    session = _Session(tile, DEFAULT_SETTINGS, True, Path.cwd(), 'avc')
+    manager.sessions[tile] = session
+    with patch('ddm.app.StreamResolver', Resolver), patch.object(manager, '_launch') as launch:
+        manager._continue(session, tile.stream_url, {})
+        resolver = session.resolver
+        manager._continue(session, tile.stream_url, {})
+        assert session.resolver is resolver and len(owner._resolvers_running) == 1
+        resolver.resolved.emit('123', 'https://cdn.test/fresh', 250, 'app', [])
+        launch.assert_called_once_with(session, 'https://cdn.test/fresh', {'X-Test': 'fresh'})
+        assert resolver.cancelled and tile.stream_url == 'https://cdn.test/old'
+        resolver.finished.emit()
+        assert not owner._resolvers_running
+        manager._continue(session, tile.stream_url, {})
+        resolver = session.resolver
+        resolver.failed.emit('123', 'fixture temporary failure')
+        assert not session.refreshing and session.retry_at > 0
+        manager._continue(session, tile.stream_url, {})
+        resolver = session.resolver
+        tile.room = dict(tile.room, room_id='456')
+        resolver.resolved.emit('123', 'https://cdn.test/stale-room', 250, 'app', [])
+        assert launch.call_count == 1, 'Room changes must invalidate recording resolution'
+        manager.stop(tile)
+        assert resolver.cancelled
+        resolver.resolved.emit('123', 'https://cdn.test/late', 250, 'app', [])
+        assert launch.call_count == 1, 'Stopped session must ignore late resolution results'
+
+
+def check_expired_http_source(app, root, ffmpeg):
+    """A split and a 403 retry must resolve independently of the watching player."""
+    source = root / 'http-source.ts'
+    _run_text([ffmpeg, '-y', '-f', 'lavfi', '-i', 'color=c=blue:s=160x90:r=10',
+               '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '30',
+               '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '10', '-c:a', 'aac',
+               '-f', 'mpegts', str(source)])
+    data = source.read_bytes()
+    requests = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+        def do_GET(self):
+            allowed = self.path == '/fresh.ts' or self.path == '/old.ts' and '/old.ts' not in requests
+            requests.append(self.path)
+            if not allowed:
+                self.send_error(403)
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'video/mp2t')
+            self.end_headers()
+            try:
+                for index in range(0, len(data), 1024):
+                    self.wfile.write(data[index:index + 1024])
+                    self.wfile.flush()
+                    time.sleep(.03)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{server.server_port}'
+    tile = FakeTile('HTTP expiry', '123', base + '/old.ts')
+    tile.stream_codec = 'avc'
+    calls = []
+    def resolve(session):
+        calls.append(session)
+        manager.source_resolved(session, base + ('/denied.ts' if len(calls) == 2 else '/fresh.ts'),
+                                {'X-Test': 'fresh-header'}, 'avc')
+    settings = dict(DEFAULT_SETTINGS, recording_dir=str(root / 'http-output'),
+                    recording_format='mkv', recording_min_free_mb=256, recording_replay_enabled=False)
+    manager = RecordingManager(settings, source_resolver=resolve)
+    manager.timer.setInterval(50)
+    try:
+        assert manager.start(tile, recording=True)
+        session = manager.sessions[tile]
+        assert until(app, lambda: bool(list((root / 'http-output/.ddm-parts').glob('*.mkv'))))
+        time.sleep(.5)
+        for count in (1, 2):
+            with patch('ddm.recording.time.monotonic', return_value=session.output_started_at + 3601):
+                manager._poll()
+            assert until(app, lambda: len(calls) >= count), 'Split must request a fresh recording source'
+            if count == 1:
+                assert until(app, lambda: '/fresh.ts' in requests)
+                time.sleep(.5)
+        assert until(app, lambda: session.process is None and session.retry_at > 0)
+        session.retry_at = time.monotonic() - 1
+        assert until(app, lambda: len(calls) == 3 and requests.count('/fresh.ts') == 2)
+        assert session.process.poll() is None
+        assert requests.count('/old.ts') == 1, 'Expired input must not be reused after splitting'
+        assert tile.stream_url == base + '/old.ts', 'Recording refresh must not replace the watching source'
+        manager.stop(tile)
+        assert until(app, lambda: tile not in manager.sessions and not manager.exports)
+        count = session.chunk
+        manager.source_resolved(session, base + '/fresh.ts', {}, 'avc')
+        assert session.chunk == count, 'Late results must not restart stopped recordings'
+        assert len(list((root / 'http-output').glob('*.mkv'))) >= 2
+    finally:
+        manager.shutdown()
+        server.shutdown()
+        server.server_close()
+
+
+def check_replay_indicator(app):
+    from ddm import theme
+    from ddm.widgets import RecordingButton
+    previous = theme.mode()
+    try:
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            app.setStyleSheet(theme.qss())
+            for width in (26, 64):
+                button = RecordingButton('●' if width == 26 else '● REC')
+                button.setObjectName('TileCtrl')
+                button.setProperty('tileButton', True)
+                button.setProperty('replayOnly', True)
+                button.setFixedSize(width, 26)
+                button.show()
+                app.processEvents()
+                image = button.grab().toImage()
+                colors = [image.pixelColor(x, y) for x in range(image.width()) for y in range(image.height())]
+                assert any(color.blue() > 140 and color.green() > 80 and color.red() < 100
+                           for color in colors), (mode, width)
+                assert not any(color.red() > 170 and color.green() < 140 and color.blue() < 140
+                               for color in colors), (mode, width)
+                button.close()
+    finally:
+        theme.apply(previous)
+        app.setStyleSheet(theme.qss())
+
+
 def main():
     app = QApplication(sys.argv)
+    check_replay_indicator(app)
+    if '--indicator-only' in sys.argv:
+        print('PASS: blue REC indicator in both themes and button widths')
+        return
+    check_recording_source_isolation()
     assert safe_name('A:/\\*?<>|"B').startswith("A_")
     assert all(char not in safe_name('A:/\\*?<>|"B') for char in ':/*?<>|"\\')
     assert "12345" not in output_path(Path.cwd(), "主播", "mp4").name
@@ -202,6 +376,7 @@ def main():
     assert ffmpeg, "本机需有 FFmpeg 才能完成录制自检"
     with tempfile.TemporaryDirectory(prefix="ddm-record-check-") as temp:
         root = Path(temp)
+        check_expired_http_source(app, root, ffmpeg)
         source = root / "source.mp4"
         command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
                    "-f", "lavfi", "-i", "color=c=blue:s=160x90:r=10",
@@ -487,19 +662,57 @@ def main():
         tile.stream_headers = {}
         window.settings["recording_lock_quality"] = True
         before_quality = tile.quality
+        replay_before = set((root / 'out' / 'replays').glob('格子录制*.mp4'))
+        with patch('ddm.recording.SEGMENT_SECONDS', 30), patch(
+                'ddm.recording.input_args', side_effect=lambda url, _headers:
+                ['-re', '-stream_loop', '-1', '-i', url]):
+            window._start_replay(tile)
+        cached_session = window.recorder.sessions[tile]
+        cached_process = cached_session.process
+        assert cached_session.manual_replay and not cached_session.recording
+        assert tile.recording_button.text() == '● REC'
+        assert tile.recording_button.property('replayOnly') is True
+        assert '即时回放' in tile.recording_button.accessibleName()
+        assert tile.quality == before_quality and tile not in window._pending_capture
+        window._sync_replay_scope()
+        assert window.recorder.sessions[tile] is cached_session
+        assert until(app, lambda: time.monotonic() - cached_session.started_at > 1.2, 4)
+        assert cached_session.process.poll() is None and not cached_session.finished_parts(), \
+            'This stop must save the still-open first segment'
+        # A manual stop suppresses automatic caching until the user explicitly starts it again.
+        window._stop_replay(tile)
+        window._stop_replay(tile)  # Repeated clicks must not export twice.
+        assert until(app, lambda: tile not in window.recorder.sessions and not window.recorder.exports)
+        replay_after = set((root / 'out' / 'replays').glob('格子录制*.mp4'))
+        saved_cache = replay_after - replay_before
+        assert len(saved_cache) == 1, 'Stopping the manual cache must save one replay'
+        saved_path = saved_cache.pop()
+        decoded = _run_text([ffmpeg, '-v', 'error', '-i', str(saved_path),
+                             '-progress', 'pipe:1', '-f', 'null', '-'])
+        frames = [int(line.split('=')[1]) for line in decoded.stdout.splitlines() if line.startswith('frame=')]
+        assert frames and frames[-1] > 0 and not decoded.stderr, 'Saved cache must decode usable video'
+        probe = ffprobe_path(ffmpeg)
+        if probe:
+            streams = _run_text([probe, '-v', 'error', '-show_entries', 'stream=codec_type',
+                                 '-of', 'csv=p=0', str(saved_path)]).stdout
+            assert 'video' in streams and 'audio' in streams, 'Saved cache must preserve both tracks'
+        assert not cached_session.finished_parts(), 'Successful replay export must clean temporary cache parts'
+        window.settings["recording_replay_scope"] = "all"
+        window._sync_replay_scope()
+        assert tile not in window.recorder.sessions
+        window.settings["recording_replay_scope"] = "recorded"
         window._start_replay(tile)
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
-        assert tile.quality == before_quality and tile not in window._pending_capture
-        window._sync_replay_scope()
-        assert window.recorder.sessions[tile] is cached_session
         tile.recording_button.click()
         assert tile in window.recorder.sessions
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
         assert tile.recording_button.text() == "● REC"
+        assert tile.recording_button.property('replayOnly') is False
         assert tile.recording_button.property("recording") is True
+        assert tile.recording_time.text(), "Recording status signal must update the duration label"
         window._fill_plugin_menu(tile)
         labels = [label for label, _callback in tile.plugin_actions]
         assert any("停止录制" in label for label in labels)
@@ -508,6 +721,7 @@ def main():
         assert until(app, lambda: tile not in window.recorder.sessions and
                      not window.recorder.exports)
         assert tile.recording_button.property("recording") is False
+        assert not tile.recording_time.text(), "Stopping must clear the duration label"
         hidden = window.wall.tiles[1]
         hidden.set_room({"uname": "隐藏格子", "room_id": "60007", "live": False})
         hidden.room["live"] = True
@@ -568,6 +782,13 @@ def main():
         assert tile not in window.recorder.sessions
         assert tile.quality == 250 and tile.quality_button.isEnabled()
         assert "未提供原画" in notice.call_args.args[0]
+        # A second button click cancels the original-quality request and unlocks the tile.
+        with patch.object(window, "start_tile"):
+            tile.recording_button.click()
+            assert tile in window._pending_capture
+            tile.recording_button.click()
+        assert tile not in window._pending_capture and tile not in window.recorder.sessions
+        assert tile.quality == 250 and not tile.quality_locked and tile.quality_button.isEnabled()
         with patch.object(window, "start_tile"):
             window._start_capture(tile, recording=True)
             assert tile in window._pending_capture
@@ -580,7 +801,5 @@ def main():
 
 
 if __name__ == "__main__":
-    with patch.object(MainWindow, 'refresh_status'), \
-            patch.object(MainWindow, '_check_startup_update'), \
-            patch.object(MainWindow, '_check_startup_plugins'):
+    with isolated_window_tasks():
         main()

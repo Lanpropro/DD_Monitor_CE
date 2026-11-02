@@ -10,7 +10,7 @@ from typing import ClassVar
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .audio_output import channel_filters, linear_volume
+from .audio_output import audio_filters, linear_volume
 from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
@@ -69,6 +69,7 @@ class TilePlayer(QObject):
         self.muted = self.silent
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
+        self.volume_normalization = False
         self.paused = False
         self.state = "idle"
         self.url = ""
@@ -126,7 +127,7 @@ class TilePlayer(QObject):
             setattr(self.player, name.replace("-", "_"), value)
 
     def _log(self, level, prefix, message):
-        if level in ("error", "fatal") and self.stream_profile == "huya":
+        if level in ("error", "fatal") and self.stream_profile in ("huya", "douyu"):
             status = re.search(r"HTTP(?:/\d(?:\.\d)?| error)?\s+([45]\d\d)", message, re.I)
             if status and not self.source_failure:
                 self.source_failure = "HTTP_" + status[1]
@@ -148,7 +149,9 @@ class TilePlayer(QObject):
         if self.player is None:
             self.player = mpv.MPV(
                 wid=str(hwnd), vo="gpu", gpu_api="d3d11", gpu_context="d3d11",
-                force_window="immediate", hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
+                # Preview prepares only the core; mpv opens GPU output when media is ready.
+                force_window=False if self.silent else "immediate",
+                hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
                 audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
                 **EMBEDDED_OPTIONS,
@@ -195,7 +198,7 @@ class TilePlayer(QObject):
         self._decode_stall_ticks = 0
         overseas = profile in ("twitch", "youtube")
         hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas
-        self._picture_limit = 20 if overseas else 8 if hls else self.FROZEN_TICKS
+        self._picture_limit = 20 if overseas else 8 if hls and profile != "douyu" else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas else 6
         default_profile = "app" if profile.startswith("app") else "web"
         request_headers = dict(headers) if headers else dict(self.PROFILE_HEADERS[default_profile])
@@ -269,7 +272,7 @@ class TilePlayer(QObject):
 
     def _destroy_core(self):
         if self.player is not None:
-            self.player.force_window = False
+            # terminate() destroys the native output; avoid reconfiguring it first.
             self.player.command("stop")
             self.player.terminate()
             self.player = None
@@ -294,7 +297,16 @@ class TilePlayer(QObject):
 
     def set_audio_channel(self, channel: int) -> None:
         self.audio_channel = int(channel)
-        self._set("af", ",".join(channel_filters(self.audio_channel)))
+        self._apply_audio_filters()
+
+    def set_volume_normalization(self, enabled: bool) -> None:
+        enabled = bool(enabled) and not self.silent
+        if self.volume_normalization != enabled:
+            self.volume_normalization = enabled
+            self._apply_audio_filters()
+
+    def _apply_audio_filters(self) -> None:
+        self._set("af", ",".join(audio_filters(self.audio_channel, self.volume_normalization)))
 
     def reapply_audio_channel(self) -> None:
         self.set_audio_channel(self.audio_channel)
@@ -334,6 +346,37 @@ class TilePlayer(QObject):
     @property
     def actual_decoder(self) -> str:
         return str(self._prop("hwdec-current", "等待首帧"))
+
+    def stream_info(self):
+        """Sample only this stream; unavailable mpv properties remain unknown."""
+        if self._released or self.player is None or self._media is None:
+            return {'state': 'idle'}
+        info = {'state': 'paused' if self.paused else self.state}
+        parsed = urlsplit(self.url)
+        info['host'] = parsed.hostname or ('本地文件' if parsed.scheme in ('', 'file') or len(parsed.scheme) == 1 else '')
+        if self.state in ('connecting', 'error'):
+            return info
+        info.update({key: self._prop(prop) for key, prop in (
+            ('format', 'file-format'), ('video', 'video-params'), ('fps', 'container-fps'),
+            ('video_codec', 'video-format'), ('decoder', 'hwdec-current'),
+            ('audio', 'audio-params'), ('audio_codec', 'audio-codec-name'),
+            ('audio_bitrate', 'audio-bitrate'), ('video_bitrate', 'video-bitrate'),
+            ('buffer_seconds', 'demuxer-cache-duration'), ('decode_fps', 'estimated-vf-fps'),
+            ('decoder_drops', 'decoder-frame-drop-count'), ('display_drops', 'frame-drop-count'))})
+        version = self._prop('mpv-version')
+        info['core'] = f'libmpv · {version}' if version else 'libmpv'
+        metadata = self._prop('metadata', {}) or {}
+        info['encoder'] = next((value for key, value in metadata.items() if key.lower() == 'encoder'), None)
+        cache = self._prop('demuxer-cache-state', {}) or {}
+        info['buffer_bytes'] = cache.get('fw-bytes')
+        if self._hls_proxy is not None:
+            speed, samples = self._hls_proxy.network_speed()
+            info['download_bps'] = speed if samples else None
+            info['download_estimated'] = True
+        elif self._prop('demuxer-via-network', False):
+            speed = self._prop('cache-speed')
+            info['download_bps'] = speed * 8 if speed is not None else None
+        return info
 
     @property
     def actual_codec(self) -> str:
@@ -422,6 +465,11 @@ class TilePlayer(QObject):
             return
         playing = (self.state in ("playing", "frozen") and not self.paused
                    and not self._prop("paused-for-cache", False))
+        if (self.stream_profile == "douyu" and self.state == "buffering" and not self.paused
+                and not self._prop("paused-for-cache", False)):
+            video, audio = self._prop("time-pos"), self._prop("audio-pts")
+            # Video stalls can mark the tile buffering while audio keeps advancing.
+            playing = video is not None and audio is not None and audio - video > 0.5
         if self._check_picture(playing) and not self._recover_decoder(frozen=True):
             self._set_state("frozen")
 
@@ -443,6 +491,12 @@ class TilePlayer(QObject):
         advanced = current is not None and (self._last_time is None or current > self._last_time)
         self._last_time = current
         ended = self._prop("eof-reached", False) or self._prop("idle-active", False)
+        if (self._prop("eof-reached", False) and current is not None
+                and getattr(self, "stream_profile", "") == "douyu"):
+            if not self.source_failure:
+                self.source_failure = "LIVE_EOF"
+            self._set_state("error")
+            return
         if advanced and not ended and self._prop("vo-configured", False):
             self._stall_ticks = 0
             if self.state != "frozen":

@@ -1,4 +1,4 @@
-"""Offline checks for embedded player audio teardown options."""
+"""Offline checks for player teardown and recovery scheduling lifetimes."""
 import os
 from pathlib import Path
 import sys
@@ -8,8 +8,11 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
+from shiboken6 import isValid
 from ddm.player import TilePlayer
+from ddm.playback_recovery import PlaybackRecovery
 
 
 class PlayerLifetimeTests(unittest.TestCase):
@@ -28,6 +31,7 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(options.get('gapless_audio'), False)
                     self.assertEqual(options['ao'], 'null' if silent else 'wasapi')
                     self.assertEqual(options['audio'], 'no' if silent else 'auto')
+                    self.assertEqual(options['force_window'], False if silent else 'immediate')
                     self.assertTrue(options['idle'])
                     self.assertTrue(options['keep_open'])
                     player.bind()
@@ -54,6 +58,35 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(call.kwargs.get('gapless_audio'), False)
             finally:
                 player.release()
+
+    def test_destroy_does_not_reconfigure_the_native_window(self):
+        class Core:
+            command = Mock()
+            terminate = Mock()
+
+            @property
+            def force_window(self):
+                return 'immediate'
+
+            @force_window.setter
+            def force_window(self, _value):
+                raise AssertionError('Teardown must not synchronously reconfigure the native video window')
+
+        widget = QWidget()
+        player = TilePlayer(widget)
+        core = player.player = Core()
+        player._bound, player._bound_hwnd = True, 100
+        try:
+            player._destroy_core()
+            core.command.assert_called_once_with('stop')
+            core.terminate.assert_called_once_with()
+            self.assertIsNone(player.player)
+            self.assertFalse(player._bound)
+            self.assertEqual(player._bound_hwnd, 0)
+        finally:
+            player.player = None
+            player.release()
+            widget.close()
 
     def test_shared_popup_keeps_one_idle_core_but_releases_media_and_watchers(self):
         widget = QWidget()
@@ -140,27 +173,73 @@ class PlayerLifetimeTests(unittest.TestCase):
             player.release()
 
     def test_huya_recovery_has_one_timer_and_resets_only_after_stable_generation(self):
-        from ddm.app import MainWindow
         tile = Mock(room={'room_id': 'huya:123'}, paused=False)
-        host = SimpleNamespace(_resolvers={tile: object()}, _retry_timers={}, _retry_count={},
-            _retry_now=Mock(), start_tile=Mock(), _closing=False, players={})
-        MainWindow._schedule_retry(host, tile)
-        MainWindow._on_picture_frozen(host, tile)
-        self.assertFalse(host._retry_timers)
+        host = QObject()
+        host._resolvers, host.players = {tile: object()}, {}
+        host.start_tile, host.refresh_status, host._closing = Mock(), Mock(), False
+        recovery = PlaybackRecovery(host)
+        recovery.schedule_retry(tile)
+        recovery.picture_frozen(tile)
+        self.assertFalse(recovery.retry_timers)
         host._resolvers.clear()
-        with patch('ddm.app.QTimer') as timer:
-            MainWindow._schedule_retry(host, tile)
-            MainWindow._schedule_retry(host, tile)
-            MainWindow._on_picture_frozen(host, tile)
-            timer.assert_called_once_with(host)
-            self.assertEqual(host._retry_count[tile], 1)
+        with patch('ddm.playback_recovery.QTimer') as timer:
+            recovery.schedule_retry(tile)
+            recovery.schedule_retry(tile)
+            recovery.picture_frozen(tile)
+            timer.assert_called_once_with(recovery)
+            self.assertEqual(recovery.retry_count[tile], 1)
             host.start_tile.assert_not_called()
         player = SimpleNamespace(state='playing', state_generation=4)
         host.players[tile] = player
-        MainWindow._reset_stable_huya_retry(host, tile, player, 3)
-        self.assertIn(tile, host._retry_count)
-        MainWindow._reset_stable_huya_retry(host, tile, player, 4)
-        self.assertNotIn(tile, host._retry_count)
+        recovery.reset_stable_retry(tile, player, 3)
+        self.assertIn(tile, recovery.retry_count)
+        recovery.reset_stable_retry(tile, player, 4)
+        self.assertNotIn(tile, recovery.retry_count)
+
+    def test_all_platforms_keep_pending_recovery_without_restarting_it(self):
+        for room_id in ('1001', 'huya:123', 'youtube:fixture', 'douyu:123'):
+            with self.subTest(room_id=room_id):
+                tile = Mock(room={'room_id': room_id}, paused=False)
+                host = QObject()
+                host._resolvers, host.players = {tile: object()}, {}
+                host.start_tile, host.refresh_status = Mock(), Mock()
+                recovery = PlaybackRecovery(host)
+                with patch('ddm.playback_recovery.QTimer') as create:
+                    recovery.schedule_retry(tile)
+                    create.assert_not_called()
+                    recovery.picture_frozen(tile)
+                    host.start_tile.assert_not_called()
+                    host._resolvers.clear()
+                    recovery.schedule_retry(tile)
+                    recovery.schedule_retry(tile)
+                    recovery.picture_frozen(tile)
+                    create.assert_called_once_with(recovery)
+                    create.return_value.start.assert_called_once_with(5000)
+                    self.assertEqual(recovery.retry_count[tile], 1)
+                    host.start_tile.assert_not_called()
+
+    def test_completed_recovery_timers_release_qt_children(self):
+        tile = Mock(room={'room_id': '1001'}, paused=False)
+        host = QObject()
+        host._resolvers, host.players = {}, {}
+        host.start_tile = Mock()
+        recovery = PlaybackRecovery(host)
+        recovery.freeze_refreshed.add(tile)
+        with patch('builtins.print'):
+            for schedule, pending in ((recovery.schedule_retry, recovery.retry_timers),
+                                      (recovery.picture_frozen, recovery.freeze_retry_timers)):
+                for _ in range(30):
+                    before = host.start_tile.call_count
+                    schedule(tile)
+                    timer = pending[tile]
+                    self.assertIs(timer.parent(), recovery)
+                    timer.start(0)
+                    self.app.processEvents()
+                    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                    self.assertEqual(host.start_tile.call_count, before + 1)
+                    self.assertFalse(pending)
+                    self.assertFalse(isValid(timer), 'Completed timer must release its Qt parent reference')
+                self.assertEqual(host.findChildren(QTimer), [])
 
 
 if __name__ == '__main__':

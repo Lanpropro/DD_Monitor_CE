@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 import uuid
 
-from PySide6.QtCore import QEvent, QObject, QRunnable, QRectF, Qt, QThread, QThreadPool, QUrl, Signal
+from PySide6.QtCore import QEvent, QObject, QRunnable, QRectF, Qt, QThread, QThreadPool, QUrl, Signal, Slot
 from PySide6.QtGui import QImage, QImageReader, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
@@ -131,10 +131,14 @@ class BackgroundLayer(QWidget):
         self.error = ''
         root.installEventFilter(self)
         window.installEventFilter(self)
-        theme.signals().changed.connect(lambda _mode: self.update())
+        theme.signals().changed.connect(self._theme_changed)
         self.setGeometry(root.rect())
         self.lower()
         self.hide()
+
+    @Slot(str)
+    def _theme_changed(self, _mode):
+        self.update()
 
     def load(self, path, *, video_enabled=True):
         if path == self.path and video_enabled == self.video_enabled:

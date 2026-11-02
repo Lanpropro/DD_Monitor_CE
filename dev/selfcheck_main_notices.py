@@ -1,10 +1,12 @@
 """Offline checks for per-tile D shortcut, compact notices and startup live baseline."""
 from contextlib import ExitStack
+import faulthandler
 import os
 import json
 from pathlib import Path
 import runpy
 import sys
+import subprocess
 import tempfile
 from unittest.mock import Mock, patch
 import unittest
@@ -14,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
@@ -25,6 +27,390 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_native_idle_cursor_only_targets_the_video_window_or_its_children(self):
+        from ddm import fullscreen_cursor as module
+        user32 = Mock()
+        video = Mock()
+        video.winId.return_value = 123
+        user32.GetCursorPos.return_value = True
+        user32.WindowFromPoint.return_value = 456
+        user32.IsChild.return_value = False
+        with patch.object(module.sys, 'platform', 'win32'), \
+                patch.object(QApplication, 'platformName', return_value='windows'), \
+                patch.object(module.ctypes, 'windll', Mock(user32=user32), create=True):
+            module.set_native_cursor(Qt.BlankCursor, video)
+            user32.SetCursor.assert_not_called()
+            user32.IsChild.return_value = True
+            module.set_native_cursor(Qt.BlankCursor, video)
+            user32.SetCursor.assert_called_once_with(None)
+
+    def test_normal_tile_hides_top_overlays_when_idle_and_wakes_on_native_pointer_move(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Fixture'}])
+        tile = window.wall.tiles[0]
+        position = [tile.video.mapToGlobal(tile.video.rect().center())]
+        clock = [100.0]
+        cursor = tile.video.cursor().shape()
+        with patch('ddm.widgets.QCursor.pos', side_effect=lambda: position[0]), \
+                patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]):
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            clock[0] += tile.CONTROL_IDLE_SECONDS + .1
+            tile._poll_control_hover()
+            self.assertFalse(tile.controls.isVisible())
+            self.assertFalse(tile.title_badge.isVisible())
+            self.assertEqual(tile.video.cursor().shape(), Qt.BlankCursor)
+            self.assertIsNone(QApplication.overrideCursor())
+            self.assertTrue(tile.bottom.isVisible())
+            self.assertTrue(tile._control_hover_timer.isActive())
+            position[0] = position[0] + QPoint(1, 0)
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            self.assertTrue(tile.bottom.isVisible())
+            position[0] = tile.mapToGlobal(QPoint(-30, -30))
+            self.assertEqual(tile.video.cursor().shape(), cursor)
+            tile._poll_control_hover()
+            self.assertFalse(tile.controls.isVisible())
+            self.assertFalse(tile._control_hover_timer.isActive())
+            tile.hide()
+            tile._poll_control_hover()
+            self.assertFalse(tile._normal_hover_active)
+            self.assertFalse(tile._control_hover_timer.isActive())
+
+    def test_normal_cursor_restores_for_menu_hide_and_fullscreen_without_a_global_override(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        position = tile.video.mapToGlobal(tile.video.rect().center())
+        tile.video.setCursor(Qt.CrossCursor)
+        clock = [100.0]
+        with patch('ddm.widgets.QCursor.pos', return_value=position) as pointer, \
+                patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('ddm.widgets.set_native_cursor') as native:
+            tile._poll_control_hover()
+            for reason in ('menu', 'outside', 'override', 'fullscreen', 'hide'):
+                clock[0] += 4
+                tile._poll_control_hover()
+                self.assertTrue(tile._normal_cursor_hidden)
+                native.assert_called_with(Qt.BlankCursor, tile.video)
+                if reason == 'menu':
+                    with patch.object(QApplication, 'activePopupWidget', return_value=object()):
+                        tile._poll_control_hover()
+                elif reason == 'outside':
+                    pointer.return_value = tile.mapToGlobal(QPoint(-30, -30))
+                    tile._poll_control_hover()
+                    pointer.return_value = position
+                    tile._poll_control_hover()
+                elif reason == 'override':
+                    QApplication.setOverrideCursor(Qt.CrossCursor)
+                    try:
+                        native.reset_mock()
+                        tile._poll_control_hover()
+                        native.assert_not_called()
+                        self.assertEqual(QApplication.overrideCursor().shape(), Qt.CrossCursor)
+                    finally:
+                        QApplication.restoreOverrideCursor()
+                elif reason == 'fullscreen':
+                    tile.setProperty('fullscreen', True)
+                    tile._poll_control_hover()
+                    tile.setProperty('fullscreen', False)
+                    tile._poll_control_hover()
+                else:
+                    tile.hide()
+                self.assertFalse(tile._normal_cursor_hidden)
+                self.assertEqual(tile.video.cursor().shape(), Qt.CrossCursor)
+                self.assertIsNone(QApplication.overrideCursor())
+
+    def test_normal_tile_keeps_overlays_during_control_and_menu_interaction(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        position = [tile.video.mapToGlobal(tile.video.rect().center())]
+        clock = [100.0]
+        with patch('ddm.widgets.QCursor.pos', side_effect=lambda: position[0]), \
+                patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]):
+            tile._poll_control_hover()
+            position[0] = tile.close_button.mapToGlobal(tile.close_button.rect().center())
+            tile._poll_control_hover()
+            clock[0] += 10
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            position[0] = tile.mapToGlobal(QPoint(-30, -30))
+            with patch.object(QApplication, 'activePopupWidget', return_value=object()):
+                tile._poll_control_hover()
+                tile._hide_controls_if_outside()
+                self.assertTrue(tile.controls.isVisible())
+            tile.setProperty('fullscreen', True)
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            tile.setProperty('fullscreen', False)
+
+    def test_sidebar_release_assigns_room_and_starts_target_after_ghost_removal(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Fixture'}])
+        item = window.sidebar.items()[0]
+        target = window.wall.tiles[1]
+        session = window.sidebar.drag_session
+        self.addCleanup(session.cancel)
+        window.start_tile.reset_mock()
+        QTest.mousePress(item, Qt.LeftButton, pos=QPoint(5, 5))
+        QTest.mouseMove(item, QPoint(40, 40))
+        self.assertTrue(session.active)
+        ghost = session.ghost
+        with patch.object(QApplication, 'widgetAt', side_effect=lambda _p:
+                          None if ghost.isVisible() else target.video):
+            QTest.mouseRelease(window, Qt.LeftButton,
+                pos=window.mapFromGlobal(target.video.mapToGlobal(QPoint(20, 20))))
+        self.assertFalse(session.active)
+        self.assertIsNone(QWidget.mouseGrabber())
+        self.assertEqual(target.room['room_id'], '1001')
+        window.start_tile.assert_called_once_with(target)
+
+    def test_sidebar_switch_is_complete_before_return_and_repaint(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        sidebar, wall = window.sidebar, window.wall
+        source = QPixmap(400, 225)
+        source.fill(QColor('green'))
+        for item in sidebar.items():
+            item.thumb.set_cover(source)
+        self.app.processEvents()
+        original_updates = sidebar.setUpdatesEnabled
+        revealed = []
+
+        def check_updates(enabled):
+            if enabled:
+                self.assertFalse(sidebar._collapse_animating)
+                self.assertTrue(wall._sidebar_animating)
+                self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                for item in sidebar.items():
+                    self.assertEqual(item._compact, sidebar.collapsed)
+                    self.assertFalse(item.thumb._cover_hold)
+                    if not sidebar.collapsed and not item.thumb.visibleRegion().isEmpty():
+                        self.assertEqual(item.thumb.cover.pixmap().size(), item.thumb.size())
+                        self.assertFalse(item.thumb._cover_dirty)
+                revealed.append(sidebar.collapsed)
+            original_updates(enabled)
+
+        with patch.object(motion, 'enabled', return_value=True), \
+                patch.object(sidebar, 'setUpdatesEnabled', side_effect=check_updates), \
+                patch.object(wall, '_clear', wraps=wall._clear) as clear, \
+                patch.object(wall, '_relayout_preset', wraps=wall._relayout_preset) as geometry:
+            for card_mode in (True, False):
+                sidebar.set_card_mode(card_mode)
+                for collapsed in (True, False) * 5:
+                    sidebar.set_collapsed(collapsed)
+                    self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+                    self.assertFalse(sidebar._collapse_animating)
+                    self.assertTrue(sidebar.updatesEnabled())
+            clear.assert_not_called()
+            self.assertEqual(geometry.call_count, 20)
+        self.assertEqual(revealed, [True, False] * 10)
+        width = sidebar.width()
+        QTest.qWait(300)
+        self.assertEqual(sidebar.width(), width)
+        self.assertFalse(sidebar._collapse_animating)
+
+    def test_sidebar_final_paint_precedes_player_resize(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        sidebar, wall = window.sidebar, window.wall
+        paints = []
+
+        class PaintRecorder(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Paint:
+                    paints.append((sidebar.collapsed, sidebar.width()))
+                return False
+
+        recorder = PaintRecorder(sidebar)
+        sidebar.installEventFilter(recorder)
+        original = wall._relayout_preset
+        observations = []
+        def resize_after_paint():
+            expected = (sidebar.collapsed,
+                        theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+            observations.append((expected in paints, sidebar.updatesEnabled()))
+            return original()
+
+        with patch.object(wall, '_relayout_preset', side_effect=resize_after_paint) as resize:
+            for collapsed in (True, False) * 3:
+                paints.clear()
+                sidebar.set_collapsed(collapsed)
+                self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+                self.assertFalse(wall._sidebar_animating)
+            self.assertEqual(resize.call_count, 6)
+        self.assertEqual(observations, [(True, True)] * 6,
+                         'Final sidebar paint must precede native player resize')
+
+    def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        sidebar, wall = window.sidebar, window.wall
+        with patch.object(sidebar, '_apply_collapsed_controls', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError):
+                sidebar.set_collapsed(True)
+        self.assertTrue(sidebar.updatesEnabled() and wall.updatesEnabled() and wall.grid.isEnabled())
+        self.assertFalse(sidebar._collapse_animating or wall._sidebar_animating)
+        self.assertFalse(any(item.thumb._cover_hold for item in sidebar.items()))
+        sidebar.set_collapsed(False)
+        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        sidebar.setUpdatesEnabled(False)
+        sidebar.set_collapsed(True)
+        self.assertFalse(sidebar.updatesEnabled())
+        sidebar.setUpdatesEnabled(True)
+
+    def test_sidebar_switch_preserves_smart_copies_and_hidden_state(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        sidebar = window.sidebar
+        sidebar.create_folder('Copies', rule={'display': 'copy', 'status': 'any', 'sources': []})
+        self.app.processEvents()
+        self.assertTrue(sidebar._smart_cards)
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(False)
+        self.assertTrue(all(card.original in sidebar.items() for card in sidebar._smart_cards.values()))
+        sidebar.hide()
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(False)
+        sidebar.show()
+        self.app.processEvents()
+        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertTrue(sidebar.updatesEnabled() and window.wall.grid.isEnabled())
+
+    def test_sidebar_layout_change_during_hold_still_rebuilds_visibility(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        wall = window.wall
+        wall.set_sidebar_animating(True)
+        wall.set_layout('dm_main3')
+        with patch.object(wall, '_clear', wraps=wall._clear) as clear:
+            wall.set_sidebar_animating(False)
+        clear.assert_called_once_with()
+        self.assertEqual(len(wall.visible_tiles()), 3)
+        self.assertTrue(wall.danmaku.isVisible())
+        self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+
+    def test_sidebar_geometry_failure_restores_repaint_and_layout(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        wall = window.wall
+        wall.set_sidebar_animating(True)
+        with patch.object(wall, '_relayout_preset', side_effect=RuntimeError('fixture')):
+            with self.assertRaises(RuntimeError):
+                wall.set_sidebar_animating(False)
+        self.assertFalse(wall._sidebar_animating)
+        self.assertFalse(wall._resize_pending)
+        self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+
+    def test_avatar_components_import_without_window_or_player(self):
+        subprocess.run([sys.executable, '-c',
+            'import sys; import ddm.avatar_widgets; '
+            'assert not {"ddm.widgets", "ddm.app", "ddm.player", "mpv"}.intersection(sys.modules)'],
+            cwd=ROOT, check=True, timeout=15)
+        from ddm import avatar_widgets, widgets
+        for name in ('AVATAR_COLORS', 'Avatar', 'PinnedArc', 'RoomStrip', 'circular_pixmap'):
+            self.assertIs(getattr(widgets, name), getattr(avatar_widgets, name))
+
+    def test_extracted_avatar_painting_preserves_alpha_and_resize(self):
+        from ddm.avatar_widgets import Avatar, circular_pixmap
+        source = QPixmap(80, 40)
+        source.fill(QColor('green'))
+        circle = circular_pixmap(source, 32).toImage()
+        self.assertEqual(circle.pixelColor(0, 0).alpha(), 0)
+        self.assertEqual(circle.pixelColor(16, 16), QColor('green'))
+        avatar = Avatar('Fixture', 0, size=32)
+        self.addCleanup(avatar.close)
+        avatar.set_pixmap_image(source)
+        avatar.set_size(48)
+        self.assertEqual(avatar.pixmap().size().width(), 48)
+        self.assertEqual(avatar.pixmap().toImage().pixelColor(24, 24), QColor('green'))
+        self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+
+    def test_avatar_image_updates_do_not_clear_or_repolish_existing_image(self):
+        from ddm.avatar_widgets import Avatar
+        avatar = Avatar('Fixture', 0, size=28)
+        self.addCleanup(avatar.close)
+        source = QPixmap(64, 64)
+        source.fill(QColor('green'))
+        avatar.set_pixmap_image(source)
+        self.assertEqual(avatar.text(), '')
+        self.assertEqual(avatar.styleSheet(), 'background: transparent;')
+        with patch.object(avatar, 'setStyleSheet', wraps=avatar.setStyleSheet) as style, \
+                patch.object(avatar, 'setText', wraps=avatar.setText) as clear:
+            for size in (32, 28, 48, 28):
+                avatar.set_size(size)
+                avatar.set_pixmap_image(source)
+                self.assertEqual(avatar.pixmap().width(), size)
+                self.assertEqual(avatar.pixmap().toImage().pixelColor(size // 2, size // 2), QColor('green'))
+                self.assertEqual(avatar.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+            changed = QPixmap(64, 64)
+            changed.fill(QColor('blue'))
+            avatar.set_pixmap_image(changed)
+            self.assertEqual(avatar.pixmap().toImage().pixelColor(14, 14), QColor('blue'))
+            style.assert_not_called()
+            clear.assert_not_called()
+
+    def test_sidebar_platform_badge_keeps_parent_and_avatar_corner(self):
+        window = self.window([dict(room_id='1001', uname='Fixture', live=True)])
+        sidebar = window.sidebar
+        item = sidebar.items()[0]
+        badge = item.platform_badge
+        badge.setProperty('showPlatform', True)
+        parent = badge.parentWidget()
+        with patch.object(badge, 'setParent', wraps=badge.setParent) as reparent:
+            for card_mode in (True, False):
+                sidebar.set_card_mode(card_mode)
+                sidebar.set_collapsed(True)
+                self.assertIs(badge.parentWidget(), parent)
+                self.assertEqual(badge.mapToGlobal(QPoint()),
+                                 item.thumb.face.mapToGlobal(QPoint(0, item.thumb.face.height() - badge.height())))
+                self.assertTrue(badge.isVisible())
+                sidebar.set_collapsed(False)
+                self.assertIs(badge.parentWidget(), parent)
+                self.assertTrue(badge.isVisible())
+                self.assertTrue(item.rect().contains(badge.geometry()))
+                if not card_mode:
+                    self.assertLess(item.name_label.mapToGlobal(item.name_label.rect().topRight()).x(),
+                                    badge.mapToGlobal(QPoint()).x())
+            reparent.assert_not_called()
+        badge.setProperty('showPlatform', False)
+        sidebar.set_collapsed(True)
+        self.assertTrue(badge.isHidden())
+        sidebar.set_collapsed(False)
+        self.assertTrue(badge.isHidden())
+        badge.setProperty('showPlatform', True)
+        sidebar.set_side('top')
+        self.app.processEvents()
+        self.assertTrue(badge.isVisible())
+        sidebar.set_side('left')
+        self.app.processEvents()
+        self.assertTrue(item.rect().contains(badge.geometry()))
+
+    def test_sidebar_avatar_replacement_renders_once_at_target_size(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        item = window.sidebar.items()[0]
+        source = QPixmap(80, 40)
+        source.fill(QColor('green'))
+        item.thumb.set_face(source)
+        with patch.object(item.thumb.face, 'set_pixmap_image', wraps=item.thumb.face.set_pixmap_image) as render:
+            for compact in (True, False):
+                render.reset_mock()
+                item.set_compact(compact)
+                render.assert_called_once()
+                size = item.thumb._avatar_size()
+                bitmap = item.thumb.face.pixmap().toImage()
+                self.assertEqual(bitmap.width(), size)
+                self.assertEqual(bitmap.pixelColor(size // 2, size // 2), QColor('green'))
+                self.assertEqual(bitmap.pixelColor(0, 0).alpha(), 0)
+                self.assertGreater(bitmap.pixelColor(size // 2, 1).red(), 0)
+
+    def test_idle_thumbnail_stop_does_no_visual_work_but_clears_pending_hint(self):
+        window = self.window([dict(room_id='1001', uname='Fixture')])
+        thumb = window.sidebar.items()[0].thumb
+        with patch.object(thumb, '_set_overlay_visible', wraps=thumb._set_overlay_visible) as restore:
+            thumb.stop()
+            restore.assert_not_called()
+            thumb.set_hint('Fixture loading')
+            thumb.stop()
+            self.assertTrue(thumb.hint.isHidden())
+            restore.assert_called_once_with(True)
+        player = Mock()
+        thumb._player = player
+        thumb.stop()
+        player.stop.assert_called_once_with()
+        thumb._player = None
+
     def focused_cover(self, boxes, width=1000, height=600):
         from ddm import cover_focus
         cover = QPixmap(width, height)
@@ -223,6 +609,7 @@ class MainNoticesTests(unittest.TestCase):
             self.assertIsNone(RoomArtwork([room, {'room_id': 'huya:2'}]).source)
             notice = ResultNotice(owner)
             notice.show_message('示例主播 开播了', [room], kind='live')
+            notice.timer.stop()  # Keep the visual fixture alive while slow CI compares both themes.
             row = NoticeRow(NoticeEntry('示例主播 开播了', 'live', '20:36', rooms=(room,)), owner)
             row.resize(360, row.sizeHint().height())
             row.show()
@@ -661,6 +1048,34 @@ class MainNoticesTests(unittest.TestCase):
                 notice._open_file_location()
                 self.assertEqual(Path(folder.call_args.args[0].toLocalFile()), path.parent)
 
+    def test_recording_reconnect_progress_updates_one_notice_per_room(self):
+        room = {'room_id': '1001', 'uname': '主播甲'}
+        other = {'room_id': '1002', 'uname': '主播乙'}
+        window = self.window([room, other])
+        messages = ('开始录制', '已录制 60 分钟，正在保存分段', '正在重新获取录制地址',
+                    '分段已保存，正在获取新录制地址', '取到新流，继续录制')
+        notice = None
+        for text in messages:
+            window.recorder._say('主播甲 ' + text, room)
+            if notice is None:
+                notice = window._result_notice
+            self.assertIs(window._result_notice, notice)
+        center = window.sidebar.notification_button.center
+        self.assertEqual(len(center.entries), 1)
+        self.assertEqual(center.entries[0].message, '主播甲 取到新流，继续录制')
+        window.recorder._say('主播乙 正在重新获取录制地址', other)
+        self.assertEqual(len(center.entries), 2)
+        window.recorder._say('主播甲 的 FFmpeg 意外退出（3436169992）；详见 .ddm-parts 日志', room)
+        self.assertEqual(center.entries[0].kind, 'warning')
+        window.recorder._say('主播甲 等待 3 秒续录', room)
+        window.recorder._say('主播甲 正在重新获取录制地址', room)
+        window.recorder._say('主播甲 取到新流，继续录制', room)
+        self.assertEqual(len(center.entries), 2)
+        window.recorder._say('正在导出录制：/synthetic/record.mkv', room)
+        self.assertEqual(len(center.entries), 3)
+        window.recorder._say('已保存录制：/synthetic/record.mkv', room)
+        self.assertEqual(len(center.entries), 3)
+
     def test_room_notices_include_room_and_update_all_avatars(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
         window = self.window([room])
@@ -745,18 +1160,60 @@ class MainNoticesTests(unittest.TestCase):
         window._show_notice('警告', kind='warning')
         self.assertFalse(window._result_notice.timer.isActive())
 
-    def test_live_notice_dismisses_without_expanding_or_replacing_full_wall(self):
+    def test_live_notice_selects_one_replacement_without_expanding_full_wall(self):
         window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
         original = [dict(tile.room) for tile in window.wall.tiles]
         with patch.object(window.wall, 'add_room') as add, \
                 patch.object(window, '_open_room_browser') as browser:
             window._show_notice('新主播开播了', rooms=[{'room_id': '999'}], kind='live')
             notice = window._result_notice
+            self.assertEqual(notice.action.text(), '替换')
             QTest.mouseClick(notice.title, Qt.LeftButton)
             self.assertFalse(notice.isVisible())
             self.assertEqual([tile.room for tile in window.wall.tiles], original)
+            target = window.wall.tiles[2]
+            window.start_tile.reset_mock()
+            with patch.object(window, '_room_dict', side_effect=AssertionError('No network lookup')), \
+                    patch.object(window.recorder, 'stop') as stop:
+                QTest.mouseClick(target.video, Qt.LeftButton, pos=target.video.rect().center())
+                self.app.processEvents()
+                stop.assert_called_once_with(target)
+            self.assertEqual(target.room['room_id'], '999')
+            self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles], ['1', '2', '999', '4'])
+            window.start_tile.assert_called_once_with(target)
+            self.assertFalse(window.room_placement.replacement.replacement_rooms)
             add.assert_not_called()
             browser.assert_not_called()
+
+    def test_live_replacement_can_cancel_and_does_not_accept_sidebar_clicks(self):
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
+        original = [dict(tile.room) for tile in window.wall.tiles]
+        window._place_live_notice_rooms([{'room_id': '999'}])
+        selection = window.room_placement.replacement
+        window.sidebar.roomSelected.emit(window.sidebar.items()[0].room)
+        self.assertTrue(selection.replacement_rooms)
+        QTest.keyClick(window, Qt.Key_Escape)
+        self.assertFalse(selection.replacement_rooms)
+        self.assertEqual([tile.room for tile in window.wall.tiles], original)
+        self.assertIsNone(QApplication.overrideCursor())
+        window._place_live_notice_rooms([{'room_id': '998'}])
+        window.hide()
+        self.assertFalse(selection.replacement_rooms)
+        self.assertIsNone(QApplication.overrideCursor())
+
+    def test_live_notice_uses_visible_empty_slot_before_replacement_and_skips_duplicates(self):
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
+        window.wall.tiles[1].set_room(None)
+        window._show_notice('开播了', rooms=[{'room_id': '999'}], kind='live')
+        self.assertEqual(window._result_notice.action.text(), '放入画面墙')
+        window._place_live_notice_rooms([{'room_id': '999'}, {'room_id': '999'}])
+        self.assertEqual(window.wall.tiles[1].room['room_id'], '999')
+        self.assertFalse(window.room_placement.replacement.replacement_rooms)
+        window.wall.set_layout('1x1')
+        window.wall.tiles[-1].set_room(None)
+        window._place_live_notice_rooms([{'room_id': '998'}])
+        self.assertTrue(window.room_placement.replacement.replacement_rooms)
+        window.room_placement.replacement.cancel_replacement()
 
     @classmethod
     def setUpClass(cls):
@@ -766,9 +1223,11 @@ class MainNoticesTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.addCleanup(theme.signals().changed.disconnect)
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader'):
+                       'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
+                       '_check_startup_update'):
             self.stack.enter_context(patch.object(MainWindow, method))
         self.stack.enter_context(patch.object(motion, 'enabled', return_value=False))
         self.stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))
@@ -780,8 +1239,13 @@ class MainNoticesTests(unittest.TestCase):
         window.resize(1000, 700)
         window.show()
         self.app.processEvents()
-        self.addCleanup(window.close)
+        self.addCleanup(self.close_window, window)
         return window
+
+    def close_window(self, window):
+        window.close()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
@@ -906,6 +1370,41 @@ class MainNoticesTests(unittest.TestCase):
         window.apply_preview_settings()
         self.app.processEvents()
         self.assertFalse(thumb.cover.isHidden(), 'Re-enabling restores the cached cover')
+
+    def test_preview_stop_respects_compact_background_switch(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Preview background'}])
+        window.settings['sidebar_card_mode'] = False
+        window.apply_preview_settings()
+        thumb = window.sidebar._items[0].thumb
+        cover, banner = QPixmap(400, 200), QPixmap(800, 80)
+        cover.fill(QColor('green'))
+        banner.fill(QColor('red'))
+        thumb.set_cover(cover)
+        thumb.set_face(cover)
+        for artwork in (banner, None):
+            with self.subTest(banner=artwork is not None):
+                thumb.set_banner(artwork)
+                thumb.set_compact_background(True)
+                self.app.processEvents()
+                self.assertFalse(thumb.cover.isHidden())
+                thumb.set_compact_background(False)
+                for hold in (False, True):
+                    thumb.set_cover_hold(hold)
+                    # Popup previews finish here without an embedded tile player.
+                    thumb.stop()
+                    self.assertTrue(thumb.cover.isHidden())
+                    self.assertFalse(thumb.face.isHidden())
+                    self.assertFalse(thumb._overlay_widgets[0].isHidden())
+                    self.assertFalse(thumb._overlay_widgets[0].property('roomBackdrop'))
+                thumb.set_cover_hold(False)
+                thumb.set_compact_background(True)
+                thumb.stop()
+                self.assertFalse(thumb.cover.isHidden())
+        window.settings['sidebar_card_mode'] = True
+        window.apply_preview_settings()
+        thumb.set_compact_background(False)
+        thumb.stop()
+        self.assertFalse(thumb.cover.isHidden(), 'Large cards retain the cover')
 
     def test_tile_selection_does_not_change_border_in_dark_or_light_theme(self):
         window = self.window([{'room_id': '1001'}])
@@ -1136,6 +1635,69 @@ class MainNoticesTests(unittest.TestCase):
             alerts.assert_not_called()
             self.assertTrue(all(item.room['live'] for item in window.sidebar._items))
 
+    def test_status_avatar_changes_use_background_cache_loading(self):
+        window = self.window([{'room_id': '1001', 'live': False}])
+        url = 'https://example.invalid/avatar.png'
+        item = window.sidebar.items()[0]
+        with patch('ddm.app.load_cached_avatar',
+                          side_effect=AssertionError('UI status callback must not decode avatar files')), \
+                patch.object(window, '_start_avatar_loader') as load:
+            window._on_status_updated({'1001': dict(self.status(False), face=url)})
+            load.assert_called_once_with({'1001': url}, window._on_room_avatar)
+            window._on_status_updated({'1001': dict(self.status(False), face=url)})
+            self.assertEqual(load.call_count, 1, 'Unchanged avatar must not reload')
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(QColor('green'))
+        window._on_room_avatar('1001', pixmap)
+        self.assertEqual(item.thumb.face_pixmap().cacheKey(), pixmap.cacheKey())
+
+    def test_strip_face_updates_do_not_recreate_unrelated_avatars_on_drop(self):
+        from ddm.widgets import RoomStrip
+        strip = RoomStrip()
+        self.addCleanup(strip.close)
+        rooms = [dict(room_id=str(i), uname='Fixture', live=True) for i in range(1, 5)]
+        strip.set_rooms(rooms)
+        previous = dict(strip._avatars)
+        image = QPixmap(24, 24)
+        image.fill(QColor('green'))
+        faces = {room['room_id']: image for room in rooms}
+        for room_id in faces:
+            strip.set_room_face(room_id, image)
+        with patch.object(strip, '_add_avatar', wraps=strip._add_avatar) as create:
+            strip.set_rooms(rooms, faces, {'1'})
+            self.assertEqual(create.call_count, 1, 'Only the dropped room wall badge changed')
+        for room_id in ('2', '3', '4'):
+            self.assertIs(strip._avatars[room_id], previous[room_id])
+        changed = dict(rooms[1], live=False)
+        strip.set_rooms([rooms[0], changed, *rooms[2:]], faces, {'1'})
+        self.assertIsNot(strip._avatars['2'], previous['2'], 'Live badge changes must still update')
+
+    def test_background_avatar_loader_uses_disk_cache_without_network(self):
+        import threading
+        from ddm import images
+        with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
+            url = 'https://example.invalid/avatar.png'
+            path = Path(images._cache_path(url, 'avatars'))
+            path.parent.mkdir(parents=True)
+            image = QPixmap(24, 24)
+            image.fill(QColor('green'))
+            image.save(str(path))
+            loaded, threads = [], []
+            original = images.load_pixmap
+            def read(*args, **kwargs):
+                threads.append(threading.get_ident())
+                return original(*args, **kwargs)
+            loader = images.AvatarLoader({'1001': url})
+            loader.loaded.connect(lambda rid, pixmap: loaded.append((rid, pixmap)))
+            with patch.object(images, 'load_pixmap', side_effect=read), \
+                    patch.object(images.requests, 'get', side_effect=AssertionError('Cache hit must not use network')):
+                loader.start()
+                self.assertTrue(loader.wait(3000))
+                self.app.processEvents()
+            self.assertEqual([rid for rid, _ in loaded], ['1001'])
+            self.assertFalse(loaded[0][1].isNull())
+            self.assertTrue(threads and all(t != threading.get_ident() for t in threads))
+
     def test_simultaneous_live_rooms_receive_independent_notices(self):
         window = self.window([{'room_id': str(index), 'uname': '主播' + str(index),
                                'live': False, 'live_known': True} for index in range(1, 5)])
@@ -1178,4 +1740,8 @@ class MainNoticesTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    faulthandler.dump_traceback_later(60, repeat=True)
+    try:
+        unittest.main(verbosity=2)
+    finally:
+        faulthandler.cancel_dump_traceback_later()

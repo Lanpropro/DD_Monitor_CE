@@ -150,12 +150,12 @@ def main():
         app.processEvents()
         assert item.platform_badge.isVisible()
         item.set_compact(True)
-        assert item.platform_badge.isVisible() and item.platform_badge.parentWidget() is item.thumb.face
+        assert item.platform_badge.isVisible() and item.platform_badge.parentWidget() is item
         item.set_compact(False)
         item.set_card_mode(False)
         item.thumb._layout_overlay()
-        assert item.platform_badge.parentWidget() is item.thumb
-        assert item.name_label.geometry().right() < item.platform_badge.x()
+        assert item.platform_badge.parentWidget() is item
+        assert item.name_label.mapTo(item, item.name_label.rect().topRight()).x() < item.platform_badge.x()
         item.set_portrait_strip(True)
         app.processEvents()
         assert item.platform_badge.isVisible() and item.badge.isHidden()

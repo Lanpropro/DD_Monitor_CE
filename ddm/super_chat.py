@@ -2,40 +2,418 @@
 from __future__ import annotations
 
 import time
+import math
 from dataclasses import dataclass, field
 from copy import deepcopy
 from urllib.parse import urlparse
 
 import requests
-from PySide6.QtCore import QObject, QRectF, QThread, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QTransform
+from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
 from PySide6.QtWidgets import QApplication
 
-from . import bili
+from . import bili, motion, theme
 from .images import AvatarLoader, load_cached_image
+from .skin_preview import SkinPreview
 
 
 SUPER_CHAT_API = "https://api.live.bilibili.com/av/v1/SuperChat/getMessageList"
 DEFAULT_DURATION = 60
+SC_PRICE_TIERS = (
+    (30, '#EDF5FF', '#2A60B2', '#7497CD'),
+    (50, '#DBFFFD', '#427D9E', '#7DA4BD'),
+    (100, '#FFF1C5', '#E2B52B', '#ECCF75'),
+    (500, '#FFEAD2', '#E09443', '#E8AF79'),
+    (1000, '#FFE7E4', '#E54D4D', '#EE8B8B'),
+    (2000, '#FFD8D8', '#AB1A32', '#C86A7A'),
+)
+SC_USER_COLOR = '#666666'
+SC_PRICE_COLOR = '#333333'
+SC_CONTENT_COLOR = '#FFFFFF'
+SC_BODY_PADDING = 12
 
 
-def order_super_chats(chats, selected=''):
+def super_chat_palette(price):
+    amount = _number(price)
+    tier = next((tier for tier in reversed(SC_PRICE_TIERS) if amount >= tier[0]), SC_PRICE_TIERS[0])
+    return dict(zip(('background_color', 'background_bottom_color', 'background_price_color'), tier[1:]))
+
+
+def sc_message_document(event, width, scale=1.0):
+    font = QFont(theme.FONT_DEFAULT)
+    font.setPixelSize(max(1, round(14 * scale)))
+    document = QTextDocument()
+    document.setDocumentMargin(0)
+    document.setDefaultFont(font)
+    option = document.defaultTextOption()
+    option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+    document.setDefaultTextOption(option)
+    document.setPlainText(str(event.get('message') or event.get('text') or ''))
+    cursor = QTextCursor(document)
+    cursor.select(QTextCursor.Document)
+    style = QTextCharFormat()
+    style.setForeground(QColor(SC_CONTENT_COLOR))
+    cursor.mergeCharFormat(style)
+    document.setTextWidth(max(1, math.floor(width) - 2 * math.ceil(11 * scale)))
+    return document
+
+
+def sc_card_height(event, width, scale=1.0, collapsed=False):
+    if collapsed:
+        return round(36 * scale)
+    document = sc_message_document(event, width, scale)
+    padding = round(56 * scale) + 2 * math.ceil(SC_BODY_PADDING * scale)
+    return math.ceil(max(100 * scale, padding + document.size().height() + 1))
+
+
+def sc_card_geometry(events, base_width, scale, available_width, available_height, collapsed=False):
+    if not events:
+        return 1, 1, scale, []
+    scale = min(scale, max(1, available_width) / base_width)
+    for attempt in range(8):
+        width = base_width * scale
+        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed) for event in events]
+        height = sum(heights) + 8 * scale * (len(heights) - 1)
+        if height <= max(1, available_height) or attempt == 7:
+            break
+        scale *= max(1, available_height) / height * .98
+    return width, height, scale, heights
+
+
+def order_super_chats(chats):
     ordered = sorted(chats, key=lambda item: (-_number(item.get('price')),
                      _number(item.get('start_time')), str(item.get('id') or '')))
-    if len(ordered) >= 3 and selected:
-        ordered.sort(key=lambda item: str(item.get('id')) != selected)
     return ordered
 
 
-def sc_stack_rects(width, height, count):
+def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
+                       position=None, panel=False, collapsed=False):
+    if not events:
+        return [], scale
+    margin = 8 if panel else 10
+    base_width = min(340, max(150 if panel else 168,
+                             round(viewport_width * (.46 if panel else .30))))
+    width, height, scale, heights = sc_card_geometry(
+        events, base_width, scale, viewport_width - 2 * margin,
+        viewport_height - 2 * margin, collapsed)
+    spans = (max(0, viewport_width - 2 * margin - width),
+             max(0, viewport_height - 2 * margin - height))
+    if isinstance(position, (list, tuple)) and len(position) == 2:
+        try:
+            ratios = [max(0.0, min(1.0, float(value))) for value in position]
+        except (TypeError, ValueError):
+            ratios = [1.0, 0.0]
+        left, top = [margin + (round(ratio * span) if panel else ratio * span)
+                     for ratio, span in zip(ratios, spans)]
+    else:
+        left = margin + (round(spans[0]) if panel else spans[0])
+        top = margin if panel else min(54 if viewport_height >= 320 else 10, margin + spans[1])
+    if panel:
+        width = max(1, round(width))
+        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed)
+                   for event in events]
+    rects = sc_stack_rects(width, height, len(events), scale=scale, card_heights=heights)
+    return [rect.translated(left, top) for rect in rects], scale
+
+
+def sc_stack_rects(width, height, count, card_height=100, scale=1.0, card_heights=None):
     if not count:
         return []
-    if count < 3:
-        card_height = min(100, max(1, (height - 8 * (count - 1)) / count))
-        return [QRectF(0, i * (card_height + 8), width, card_height) for i in range(count)]
-    card_height = min(100, max(1, height - 40))
-    return [QRectF(i * 6, (2 - i) * 20, max(1, width - i * 12), card_height)
-            for i in range(3)]
+    if card_heights is not None:
+        rects = []
+        top = 0
+        for item_height in card_heights:
+            rects.append(QRectF(0, top, width, item_height))
+            top += item_height + 8 * scale
+        return rects
+    card_height = min(card_height * scale, max(1, (height - 8 * scale * (count - 1)) / count))
+    return [QRectF(0, i * (card_height + 8 * scale), width, card_height) for i in range(count)]
+
+
+class SuperChatPresentation(QObject):
+    changed = Signal()
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.progress = 1.0
+        self.delay = 7
+        self.ids = set()
+        self.collapsed_ids = set()
+        self.deadlines = {}
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._expire)
+        self.entrance = QVariantAnimation(self)
+        self.entrance.setDuration(180)
+        self.entrance.setEasingCurve(motion.THEME_WAVE_EASING)
+        self.entrance.setStartValue(0.0)
+        self.entrance.setEndValue(1.0)
+        self.entrance.valueChanged.connect(self._reveal)
+
+    @property
+    def collapsed(self):
+        return bool(self.ids) and self.ids <= self.collapsed_ids
+
+    def is_collapsed(self, event):
+        key = str(event.get('id') or event.get('super_chat_id') or '') if isinstance(event, dict) else str(event)
+        return key in self.collapsed_ids
+
+    def configure(self, settings):
+        delay = max(1, min(60, _number(settings.get('super_chat_collapse_delay'), 7)))
+        if self.delay != delay:
+            self.delay = delay
+            now = time.monotonic()
+            self.deadlines = {key: now + delay for key in self.deadlines}
+            self._schedule()
+
+    def _schedule(self):
+        self.timer.stop()
+        if self.deadlines:
+            self.timer.start(max(1, math.ceil((min(self.deadlines.values()) - time.monotonic()) * 1000)))
+
+    def _expire(self):
+        now = time.monotonic()
+        expired = {key for key, deadline in self.deadlines.items() if deadline <= now}
+        self.collapsed_ids.update(expired)
+        for key in expired:
+            self.deadlines.pop(key, None)
+        self._schedule()
+        if expired:
+            self.changed.emit()
+
+    def set_events(self, events):
+        ids = {str(item.get('id') or item.get('super_chat_id') or '') for item in events}
+        added = ids - self.ids
+        self.ids = ids
+        self.collapsed_ids.intersection_update(ids)
+        self.deadlines = {key: deadline for key, deadline in self.deadlines.items() if key in ids}
+        if not ids:
+            self.entrance.stop()
+            self.progress = 1.0
+        for key in added:
+            self.deadlines[key] = time.monotonic() + self.delay
+        self._schedule()
+        if added and motion.enabled():
+            self.entrance.stop()
+            self.entrance.start()
+
+    def expand(self, chat_id=None, *, animate=False):
+        keys = self.ids if chat_id is None else {str(chat_id)} & self.ids
+        self.collapsed_ids.difference_update(keys)
+        for key in keys:
+            self.deadlines[key] = time.monotonic() + self.delay
+        self._schedule()
+        self.entrance.stop()
+        self.progress = 1.0
+        if animate and motion.enabled():
+            self.entrance.start()
+        self.changed.emit()
+
+    def collapse(self):
+        self.entrance.stop()
+        self.progress = 1.0
+        self.collapsed_ids = set(self.ids)
+        self.deadlines.clear()
+        self._schedule()
+        self.changed.emit()
+
+    def _reveal(self, value):
+        self.progress = float(value)
+        self.changed.emit()
+
+
+class SuperChatPlacementPreview(SkinPreview):
+    """Edit the same relative position and scale used by the live SC overlays."""
+    changed = Signal(dict)
+    VIDEO_AREA = QRectF(10, 10, 540, 474)
+    PANEL_AREA = QRectF(560, 332, 230, 178)
+
+    def __init__(self, parent=None):
+        super().__init__(parent, editable_parts=frozenset())
+        self.selected = ''
+        self.setMinimumWidth(300)
+        self.setFixedHeight(300)
+        self.setMouseTracking(True)
+        self.setAccessibleName('SC 位置与大小预览')
+        self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
+        self.position = None
+        self.scale = 100
+        self.opacity = 80
+        self.layout_mode = 'video'
+        self.preview_context = {
+            'video': {'size': [1280, 720], 'cards': [{'message': '', 'collapsed': False}]},
+            'panel': {'size': [640, 400], 'outer_size': [640, 464], 'viewport_rect': [0, 32, 640, 400],
+                      'cards': [{'message': '', 'collapsed': False}]}}
+        self._gesture = None
+
+    def values(self):
+        return {'super_chat_position': None if self.position is None else list(self.position),
+                'super_chat_scale': self.scale}
+
+    def apply_settings(self, settings):
+        position = settings.get('super_chat_position')
+        self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
+        self.set_opacity(settings.get('super_chat_opacity', 80))
+        self.update()
+
+    def set_opacity(self, value):
+        self.opacity = max(10, min(100, int(value)))
+        self.update()
+
+    def set_preview_context(self, context):
+        self.preview_context.update(context)
+        self.update()
+
+    def set_layout_mode(self, index):
+        self._gesture = None
+        self.layout_mode = 'panel' if index == 1 else 'video'
+        self.update()
+
+    def _scene_rect(self, rect):
+        scale, offset = self._transform()
+        return QRectF(offset.x() + rect.x() * scale, offset.y() + rect.y() * scale,
+                      rect.width() * scale, rect.height() * scale)
+
+    def stage_rect(self):
+        if self.layout_mode == 'panel':
+            context = self.preview_context['panel']
+            panel = self._panel_rect()
+            factor = panel.width() / context.get('outer_size', context['size'])[0]
+            x, y, width, height = context.get('viewport_rect', [0, 0, *context['size']])
+            return QRectF(panel.x() + x * factor, panel.y() + y * factor, width * factor, height * factor)
+        return self.video_rect()
+
+    def video_rect(self):
+        return self._fit_viewport(self.VIDEO_AREA, self.preview_context['video']['size'])
+
+    def _panel_rect(self):
+        context = self.preview_context['panel']
+        return self._fit_viewport(self.PANEL_AREA, context.get('outer_size', context['size']))
+
+    def _fit_viewport(self, area, size):
+        area = self._scene_rect(area)
+        width, height = size
+        scale = min(area.width() / width, area.height() / height)
+        return QRectF(area.center().x() - width * scale / 2,
+                      area.center().y() - height * scale / 2, width * scale, height * scale)
+
+    def card_rects(self):
+        context = self.preview_context[self.layout_mode]
+        width, height = context['size']
+        rects, scale = sc_placement_rects(context['cards'], width, height,
+            self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'])
+        stage = self.stage_rect()
+        factor = stage.width() / width
+        self._card_scale = scale * factor
+        return [QRectF(stage.x() + rect.x() * factor, stage.y() + rect.y() * factor,
+                       rect.width() * factor, rect.height() * factor) for rect in rects]
+
+    def card_rect(self):
+        rects = self.card_rects()
+        bounds = QRectF(rects[0])
+        for rect in rects[1:]:
+            bounds = bounds.united(rect)
+        return bounds
+
+    def _main(self, painter):
+        for index, rect in enumerate((QRectF(10, 10, 540, 500), QRectF(560, 10, 230, 151), QRectF(560, 171, 230, 151))):
+            self._box(painter, '', rect, '主画面' if index == 0 else '画面', default='#D6151A22')
+            bar = QRectF(rect.x(), rect.bottom() - 24, rect.width(), 24)
+            self._box(painter, 'controls', bar, 'Ⅱ   ♪  ━━━   ⚙')
+        self._box(painter, '', self.PANEL_AREA, default='#17202B')
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        panel = self._panel_rect()
+        painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+        painter.setBrush(theme.qcolor('#EDF2F7' if self.light else '#17202B'))
+        painter.drawRoundedRect(panel, 4, 4)
+        panel_context = self.preview_context['panel']
+        factor = panel.width() / panel_context.get('outer_size', panel_context['size'])[0]
+        header_height = panel_context.get('viewport_rect', [0, 0])[1] * factor
+        font = painter.font()
+        font.setPixelSize(max(1, round(header_height * .6)))
+        painter.setFont(font)
+        painter.setPen(theme.qcolor(theme.PINK))
+        painter.drawText(QRectF(panel.x() + 2, panel.y(), panel.width() - 4, header_height), Qt.AlignVCenter, '● 弹幕')
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.qcolor(theme.BORDER))
+        viewport_rect = panel_context.get('viewport_rect', [0, 0, *panel_context['size']])
+        bottom = panel.y() + (viewport_rect[1] + viewport_rect[3]) * factor
+        footer_height = max(0, panel.bottom() - bottom)
+        painter.drawRoundedRect(QRectF(panel.x() + 2, bottom + footer_height * .25,
+                                       panel.width() - 4, footer_height * .5), 2, 2)
+        stage = self.stage_rect()
+        painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(stage, 3, 3)
+        palette = super_chat_palette(30)
+        painter.save()
+        painter.setOpacity(self.opacity / 100)
+        factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
+        for rect, card in zip(self.card_rects(), self.preview_context[self.layout_mode]['cards']):
+            painter.save()
+            painter.translate(rect.topLeft())
+            painter.scale(factor, factor)
+            paint_sc_background(painter, QRectF(0, 0, rect.width() / factor, rect.height() / factor),
+                                palette['background_bottom_color'], palette['background_color'],
+                                (36 if card['collapsed'] else 56) * self._card_scale / factor)
+            painter.restore()
+        painter.restore()
+        rect = self.card_rect()
+        painter.setPen(QColor('white'))
+        painter.drawLine(rect.bottomRight() - QPointF(8, 2), rect.bottomRight() - QPointF(2, 8))
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton or not self.card_rect().contains(event.position()):
+            return super().mousePressEvent(event)
+        rect = self.card_rect()
+        self._gesture = 'resize' if (event.position() - rect.bottomRight()).manhattanLength() < 16 else 'move'
+        self._start_point = event.position()
+        self._start_rect = QRectF(rect)
+        self._start_scale = self.scale
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._gesture is None:
+            self.setCursor(Qt.SizeFDiagCursor if (event.position() - self.card_rect().bottomRight()).manhattanLength() < 16
+                           else Qt.OpenHandCursor if self.card_rect().contains(event.position()) else Qt.ArrowCursor)
+            return
+        delta = event.position() - self._start_point
+        if self._gesture == 'resize':
+            self.scale = max(75, min(200, round(self._start_scale * (1 + delta.x() / self._start_rect.width()))))
+        else:
+            stage = self.stage_rect()
+            factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
+            margin = (8 if self.layout_mode == 'panel' else 10) * factor
+            stage = stage.adjusted(margin, margin, -margin, -margin)
+            self.position = []
+            for value, span in ((self._start_rect.x() + delta.x() - stage.x(), stage.width() - self._start_rect.width()),
+                                (self._start_rect.y() + delta.y() - stage.y(), stage.height() - self._start_rect.height())):
+                ratio = max(0, min(1, value / max(1, span)))
+                self.position.append(0.0 if ratio < .04 else 1.0 if ratio > .96 else round(ratio, 6))
+        self.update()
+        self.changed.emit(self.values())
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._gesture is not None:
+            self._gesture = None
+            self.changed.emit(self.values())
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._gesture = None
+            self.position, self.scale = None, 100
+            self.update()
+            self.changed.emit(self.values())
 
 
 class SuperChatAvatar(QObject):
@@ -94,25 +472,18 @@ def paint_sc_avatar(painter, rect, pixmap, name):
     painter.restore()
 
 
-def paint_sc_background(painter, rect, background, header, accent, header_height):
+def paint_sc_background(painter, rect, background, header, header_height):
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor(background))
-    painter.drawRoundedRect(rect, 7, 7)
-    top = QPainterPath()
-    x, y, right = rect.left(), rect.top(), rect.right()
-    bottom = min(rect.bottom(), y + header_height)
-    top.moveTo(x, bottom)
-    top.lineTo(x, y + 7)
-    top.quadTo(x, y, x + 7, y)
-    top.lineTo(right - 7, y)
-    top.quadTo(right, y, right, y + 7)
-    top.lineTo(right, bottom)
-    top.closeSubpath()
-    painter.fillPath(top, QColor(header))
-    painter.setBrush(QColor(accent))
-    painter.drawRoundedRect(QRectF(x, y + 7, 3, max(0, rect.height() - 14)), 1.5, 1.5)
+    outline = QPainterPath()
+    outline.addRoundedRect(rect, 7, 7)
+    painter.setClipPath(outline, Qt.IntersectClip)
+    height = min(rect.height(), header_height)
+    painter.fillRect(QRectF(rect.x(), rect.y(), rect.width(), height), QColor(header))
+    painter.fillRect(QRectF(rect.x(), rect.y() + height, rect.width(), rect.height() - height), QColor(background))
+    painter.setPen(QPen(QColor(background), 1))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawPath(outline)
     painter.restore()
 
 
@@ -125,14 +496,6 @@ def _number(value, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _color(value, fallback: str) -> str:
-    text = _text(value)
-    if len(text) == 7 and text.startswith("#") and all(
-            char in "0123456789abcdefABCDEF" for char in text[1:]):
-        return text
-    return fallback
 
 
 def readable_text_color(background) -> QColor:
@@ -177,9 +540,6 @@ def normalize(event: dict, *, source: str = "websocket") -> dict:
         end = int(time.time()) + duration
     if end <= start:
         end = start + DEFAULT_DURATION if start else int(time.time()) + DEFAULT_DURATION
-    background = _color(event.get('background_color'), '#f59e0b')
-    header = _color(event.get('background_bottom_color'), background)
-    price_color = _color(event.get('background_price_color'), header)
     return {
         "kind": "super_chat",
         "super_chat_id": chat_id,
@@ -195,9 +555,7 @@ def normalize(event: dict, *, source: str = "websocket") -> dict:
         "face": _text(event.get("face") or user.get("face")),
         "guard_level": _number(event.get("guard_level") or user.get("guard_level")),
         "user_level": _number(event.get("user_level") or user.get("user_level")),
-        "background_color": background,
-        "background_bottom_color": header,
-        "background_price_color": price_color,
+        **super_chat_palette(price),
         "background_image": _hosted_asset_url(event.get("background_image")),
         "background_icon": _hosted_asset_url(event.get("background_icon")),
         "message_trans": _text(event.get("message_trans")),

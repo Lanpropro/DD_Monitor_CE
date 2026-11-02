@@ -108,6 +108,8 @@ def check(condition, message):
 def latest_geometry(window):
     wall = window.wall
     widgets = wall.visible_tiles()
+    if wall.has_danmaku and wall.danmaku.isVisible():
+        widgets.append(wall.danmaku)
     check(bool(widgets), "wall has no visible panes")
     bounds = widgets[0].geometry()
     for tile in widgets[1:]:
@@ -435,7 +437,7 @@ def main():
     with ExitStack() as stack:
         for method in ("start_tile", "refresh_status", "refresh_stats", "refresh_account",
                        "sync_danmaku", "load_avatars_for", "load_room_avatars",
-                       "load_cached_covers", "load_cached_avatars", "_hold_fullscreen_frame",
+                       "load_cached_covers", "load_cached_avatars",
                        "_check_startup_update"):
             stack.enter_context(patch.object(MainWindow, method))
         stack.enter_context(patch.object(app_module, "StatusPoller", SilentPoller))

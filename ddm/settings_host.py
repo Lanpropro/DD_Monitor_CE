@@ -34,8 +34,6 @@ class SettingsHost(QObject):
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self.stack)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
-        self.dialog.appearanceChanged.connect(
-            lambda mode: client._send({'kind': 'host-theme', 'mode': mode}))
         self.dialog.pageCreated.connect(self._page_created)
         self.last_state = None
         self.timer = QTimer(self)
@@ -44,7 +42,7 @@ class SettingsHost(QObject):
         self.timer.start()
 
     def _page_created(self, index, page):
-        if index == 7:
+        if index == 8:
             page.saveRequested.disconnect(self.dialog._save)
             page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
 
@@ -85,7 +83,7 @@ class SettingsHost(QObject):
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
-        for index in (1, 7):
+        for index in (1, 8):
             page = self.dialog._loaded_pages.get(index)
             if page is not None:
                 values.update(page.values())
@@ -118,14 +116,14 @@ class SettingsHost(QObject):
         values = {**changes.get('settings', {}), **self.values()}
         shortcuts = {**self.window.shortcuts, **changes.get('shortcuts', {})}
         enabled = self.dialog.enabled_plugins()
-        update = self.dialog._loaded_pages.get(7)
+        update = self.dialog._loaded_pages.get(8)
         update = SimpleNamespace(install_requested=bool(getattr(update, 'install_requested', False)),
                                  plan_path=getattr(update, 'plan_path', ''))
         self.pending_apply = SimpleNamespace(
             settings=lambda: values,
             shortcuts=lambda: shortcuts,
             enabled_plugins=lambda: enabled,
-            _loaded_pages={7: update},
+            _loaded_pages={8: update},
             update_page=update,
             restart_requested=self.dialog.restart_requested)
         # The worker must unembed and close its shell before the host can exit.

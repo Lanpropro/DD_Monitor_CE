@@ -16,7 +16,7 @@ from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -163,6 +163,7 @@ _LIGHT = dict(BG="#F4F6F9", SIDEBAR="#EBEEF3", CONTENT="#FFFFFF",
 _mode = "dark"
 _light = False
 _styles = WeakKeyDictionary()
+_pending_palette = WeakKeyDictionary()
 _signals = None
 _skin_active = False
 _skin_sidebar = False
@@ -228,16 +229,25 @@ def _apply_palette(app, colors):
         palette.setColor(roles[name.replace('-', '')], parsed)
     palette.setColor(QPalette.PlaceholderText, qcolor(colors['TEXT3']))
     app.setPalette(palette.resolve(app.palette()))
-    for widget in app.allWidgets():
-        widget.setPalette(palette.resolve(widget.palette()))
-        refresh_theme_properties(widget)
+    # Qt propagates this palette; local QSS and explicit widget roles take
+    # precedence (e.g. SC close colours and custom placeholder text).
     # Clear cached palette-dependent paint rules once, without re-polishing
     # every widget or resetting its geometry and fonts.
     app.style().unpolish(app)
     app.style().polish(app)
 
 
-def refresh_theme_properties(widget):
+def _refresh_widget_palette(widget, *, invalidate=False, defer=False):
+    if defer and widget.visibleRegion().isEmpty():
+        _pending_palette[widget] = invalidate or _pending_palette.get(widget, False)
+        return
+    invalidate = _pending_palette.pop(widget, False) or invalidate
+    if invalidate:
+        widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def refresh_theme_properties(widget, *, defer=False):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
@@ -247,8 +257,9 @@ def refresh_theme_properties(widget):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
+        _refresh_widget_palette(widget, invalidate=True, defer=defer)
+        return True
+    return False
 
 
 @lru_cache(maxsize=32)
@@ -286,7 +297,6 @@ def _light_style(widget):
         'PauseOverlay': '#PauseOverlay QLabel {color: #F1F2F5;}',
         'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
-        'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
     }.get(name, '')) + (FULLSCREEN_BAR_STYLE if name == 'TileBottom' else '')
 
@@ -321,6 +331,8 @@ class ThemeSignals(QObject):
 
     def eventFilter(self, widget, event):
         if event.type() == QEvent.Paint and isinstance(widget, QWidget):
+            if widget in _pending_palette:
+                _refresh_widget_palette(widget)
             from .skin_parts import paint_button
             if paint_button(widget):
                 return True
@@ -409,13 +421,17 @@ def apply(value):
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         if extra:
             styled += '\n' + extra
+        properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
+        elif isinstance(widget, QLineEdit) and not properties_changed:
+            _refresh_widget_palette(widget, invalidate=True, defer=True)
+        elif styled and not properties_changed:
+            _refresh_widget_palette(widget, defer=True)
         _styles[widget] = (source, colors, styled)
         refresh = getattr(widget, "refresh_theme", None)
         if callable(refresh):
             refresh()
-        refresh_theme_properties(widget)
         QWidget.update(widget)
     signals().changed.emit(value)
 
@@ -1307,6 +1323,8 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuHeader {{
     background: rgba(255, 255, 255, 0.025);
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
 }}
 #DanmakuDot {{
     color: {PINK};
@@ -1320,26 +1338,10 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #DanmakuCount {{
     color: {TEXT3};
-    background: rgba(131, 131, 145, 0.16);
-    border-radius: 9px;
-    padding: 0 8px;
-    font-size: {FONT_CAPTION}px;
+    background: transparent;
 }}
 #DanmakuCount[state="connected"] {{
-    color: #6bd8ff;
-    background: rgba(0, 174, 236, 0.16);
-}}
-#DanmakuCount[state="connecting"] {{
-    color: {WARNING};
-    background: rgba(251, 191, 36, 0.14);
-}}
-#DanmakuCount[state="error"] {{
-    color: #ff9abb;
-    background: rgba(251, 114, 153, 0.15);
-}}
-#DanmakuCount[state="idle"] {{
-    color: {TEXT4};
-    background: rgba(131, 131, 145, 0.13);
+    color: {PINK};
 }}
 #DanmakuBody {{
     background: transparent;
@@ -1566,8 +1568,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
         #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
         #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}
-        #DanmakuCount[state="connected"] {color: #007BA8;}
-        #DanmakuCount[state="error"] {color: #B93665;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
     return style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE

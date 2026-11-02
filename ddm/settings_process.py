@@ -8,7 +8,7 @@ import sys
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
-HOST_PAGES = {1: 'appearance', 6: 'plugins', 7: 'updates'}
+HOST_PAGES = {1: 'appearance', 7: 'plugins', 8: 'updates'}
 
 
 def _allow_foreground(pid):
@@ -64,6 +64,16 @@ class SettingsProcess(QObject):
         self.kill_timer = QTimer(self)
         self.kill_timer.setSingleShot(True)
         self.kill_timer.timeout.connect(self.process.kill)
+        from . import theme
+        theme.signals().changed.connect(self._theme_changed)
+
+    def _theme_changed(self, mode):
+        if self.closing:
+            return
+        if self.pending is not None:
+            self.pending['settings']['appearance_mode'] = mode
+        if self.ready and self.visible:
+            self._send({'kind': 'host-theme', 'mode': mode})
 
     def warm(self):
         if self.closing or self.process.state() != QProcess.NotRunning:
@@ -78,7 +88,7 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts):
+    def open(self, settings, shortcuts, sc_preview_context=None):
         if self.closing:
             return
         if self.visible:
@@ -91,6 +101,7 @@ class SettingsProcess(QObject):
         self.pending = {'kind': 'open', 'settings': {
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
+        self.pending['sc_preview_context'] = sc_preview_context or {}
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
             self.pending['owner_hwnd'] = int(self.parent().window().winId())
@@ -200,6 +211,8 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            self.pageCreated.connect(lambda index, page: page.super_chat_placement.set_preview_context(
+                snapshot.get('sc_preview_context', {})) if index == 2 else None)
             self.owner_window = None
             if snapshot.get('owner_hwnd') and app.platformName() == 'windows':
                 # A separate process has no QWidget parent. Native ownership

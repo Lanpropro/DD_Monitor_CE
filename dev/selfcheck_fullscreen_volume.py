@@ -19,7 +19,7 @@ def main():
     with ExitStack() as stack:
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars', '_grab_fullscreen_frame'):
+                       'load_cached_covers', 'load_cached_avatars'):
             stack.enter_context(patch.object(MainWindow, method, return_value=None))
         rooms = [dict(room_id=str(1001 + i), uname='test', live=False,
                       volume=42, muted=True) for i in range(2)]

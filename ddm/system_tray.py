@@ -19,7 +19,7 @@ class CloseWindowDialog(QDialog):
         layout.setSpacing(18)
         label = QLabel("关闭窗口后，你希望程序如何运行？")
         layout.addWidget(label)
-        detail = QLabel("隐藏到托盘会继续播放和录制，双击托盘图标可恢复窗口。")
+        detail = QLabel("隐藏后的播放行为可在设置 → 托盘行为中调整，录制会继续运行。双击托盘图标可恢复窗口。")
         detail.setWordWrap(True)
         detail.setObjectName("NavSub")
         layout.addWidget(detail)
@@ -55,6 +55,8 @@ class SystemTray(QObject):
         self.window = window
         self.icon = None
         self.exit_requested = False
+        self.playback_suspended = False
+        self._saved_playback = {}
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
         icon = window.windowIcon()
@@ -95,6 +97,11 @@ class SystemTray(QObject):
             return
         self.window.hover_preview.stop()
         self.window._fullscreen_cursor.stop()
+        if not self.playback_suspended and self.window.settings.get("tray_pause_playback", True):
+            self.playback_suspended = True
+            for tile in self.window.wall.tiles:
+                if self.hold_playback(tile):
+                    self.window._stop_tile(tile)
         self.window.hide()
         if not self.window._tray_hint_shown:
             self.window._tray_hint_shown = True
@@ -103,15 +110,41 @@ class SystemTray(QObject):
                                   QSystemTrayIcon.MessageIcon.Information, 3000)
         config.save(self.window.current_state())
 
+    def hold_playback(self, tile):
+        # Pending recordings still need their initial stream resolution. Once
+        # recording starts, its independent session survives the watching stop.
+        if not self.playback_suspended or tile in self.window._pending_capture:
+            return False
+        room_id = str(tile.room.get("room_id") or "")
+        if not room_id:
+            return False
+        saved = self._saved_playback.get(tile)
+        if saved is None or saved[0] != room_id:
+            self._saved_playback[tile] = (room_id, tile.paused)
+        tile.set_paused(True)
+        tile.codec_reconnect_pending = True
+        return True
+
     def restore(self):
         if self.window._closing:
             return
         if self.window.isMinimized():
             self.window.setWindowState(self.window.windowState() & ~Qt.WindowState.WindowMinimized)
         self.window.show()
+        self.playback_suspended = False
+        saved, self._saved_playback = self._saved_playback, {}
+        for tile, (room_id, paused) in saved.items():
+            if tile not in self.window.wall.tiles or room_id != str(tile.room.get("room_id") or ""):
+                continue
+            tile.set_paused(paused)
+            if not paused and tile.isVisible() and tile.room.get("live"):
+                self.window.start_tile(tile)
         self.window.raise_()
         self.window.activateWindow()
         if self.window._fullscreen_tile is not None:
+            owner = self.window._fullscreen_tile.window()
+            owner.raise_()
+            owner.activateWindow()
             self.window._fullscreen_cursor.start()
 
     def request_exit(self):

@@ -38,6 +38,7 @@ DEFAULT_VOLUME = 40
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 DEFAULT_SETTINGS = {
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
+    "tray_pause_playback": True,
     "appearance_mode": "dark",
     "skin_background": "",
     "skin_sidebar": True,
@@ -61,6 +62,7 @@ DEFAULT_SETTINGS = {
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
+    "volume_normalization": False,  # 播放时减小不同直播间与片段的音量差异。
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
@@ -124,6 +126,9 @@ DEFAULT_SETTINGS = {
     "video_danmaku_opacity": 80,
     "super_chat_enabled": True,
     "super_chat_opacity": 80,
+    "super_chat_collapse_delay": 7,
+    "super_chat_scale": 100,
+    "super_chat_position": None,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
     "video_danmaku_outline_width": 0,

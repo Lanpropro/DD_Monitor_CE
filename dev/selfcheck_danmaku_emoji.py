@@ -49,9 +49,11 @@ def main():
     for malformed in (None, [], "{", "null", '{"emots": []}'):
         event_bad = event_for(DanmakuMessage(msg=text, mode_info={"extra": malformed}))
         assert event_bad["text"] == text and not event_bad["emoticons"]
-    for encoded in ({"url": URL}, json.dumps({"url": URL})):
+    for encoded in ({"url": URL, "emoticon_unique": "official_13"},
+                    json.dumps({"url": URL, "emoticon_unique": "official_13"})):
         single = event_for(DanmakuMessage(msg="[emoji]", dm_type=1, emoticon_options=encoded))
         assert content_runs(single) == [("[emoji]", URL)]
+        assert single["dm_type"] == 1 and single["emoticon_unique"] == "official_13"
     assert content_runs({"text": "😀👍🏽👨‍👩‍👧‍👦"}) == [("😀👍🏽👨‍👩‍👧‍👦", "")]
 
     # Use a non-square image to verify that both renderers preserve its full aspect ratio.

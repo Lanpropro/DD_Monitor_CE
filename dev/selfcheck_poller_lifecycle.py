@@ -15,6 +15,7 @@ from PySide6.QtCore import (QCoreApplication, QEvent, QObject, QThread, Signal,
                            qInstallMessageHandler)
 from shiboken6 import isValid
 from ddm import app as app_module
+from ddm.room_status import RoomStatus
 
 
 class ControlledPoller(QThread):
@@ -49,6 +50,7 @@ class Window(QObject):
         self._poller = None
         self._refresh_queued = False
         self.plugins = SimpleNamespace(platforms={})
+        self.room_status = RoomStatus(self)
         room = {"room_id": "7001", "live": True}
         self.wall = SimpleNamespace(tiles=[SimpleNamespace(room=room)])
         self.refreshing = True

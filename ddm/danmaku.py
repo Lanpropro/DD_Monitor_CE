@@ -244,6 +244,8 @@ class _Handler(_HandlerBase):
             "kind": "danmaku",
             "uname": message.uname,
             "text": message.msg,
+            "dm_type": message.dm_type,
+            "emoticon_unique": emoticon.get("emoticon_unique", "") if isinstance(emoticon, dict) else "",
             "self_sent": bool(getattr(client, "uid", 0)) and str(client.uid) == str(
                 getattr(message, "uid", "")),
             "medal": _medal_info(message),

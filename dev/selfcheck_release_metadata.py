@@ -13,7 +13,7 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.6'
+    assert version.VERSION == '0.7'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
@@ -71,7 +71,7 @@ def main():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         archive = root / 'snapshot.zip'
-        files = {'main.py': b'entry', 'ddm/new_feature.py': b'feature',
+        files = {'main.py': b'entry', 'ddm/new_feature.py': b'feature', 'AGENTS.md': b'local instructions',
                  'utils/config.json': b'private', 'plugins_user/local/data.bin': b'private',
                  'videos/private.mp4': b'private'}
         with zipfile.ZipFile(archive, 'w') as package:
@@ -82,6 +82,7 @@ def main():
         assert (root / 'out/ddm/new_feature.py').read_bytes() == b'feature'
         assert (root / 'out/main.py').read_bytes() == b'entry'
         assert not (root / 'out/utils').exists()
+        assert not (root / 'out/AGENTS.md').exists()
         assert not (root / 'out/plugins_user').exists()
         assert not (root / 'out/videos').exists()
     assert 'user_notice_accepted = $true' in source

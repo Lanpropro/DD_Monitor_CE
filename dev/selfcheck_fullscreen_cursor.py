@@ -62,7 +62,6 @@ def main():
             tile.room.update(live=True, live_start_ts=int(time.time()) - 60)
             tile.start_elapsed_timer()
             window._on_fullscreen(tile)
-            window._clear_fullscreen_cover()
             window.activateWindow()
             app.processEvents()
             video_point = tile.video.mapToGlobal(tile.video.rect().center())
@@ -134,7 +133,6 @@ def main():
             assert tile.bottom.isVisible()
             assert not tile._fullscreen_controls_hidden
             window._on_fullscreen(tile)
-            window._clear_fullscreen_cover()
             window.activateWindow()
             app.processEvents()
             QCursor.setPos(tile.video.mapToGlobal(tile.video.rect().center()))

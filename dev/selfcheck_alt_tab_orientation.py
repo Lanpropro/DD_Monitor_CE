@@ -1,8 +1,9 @@
-"""最大化窗口跨横竖屏时，Windows 还原矩形应与当前屏幕方向一致。"""
+"""最大化跟随屏幕方向，还原保留最大化前的窗口方向。"""
 import ctypes
 import os
 import sys
-import time
+from unittest.mock import patch
+from ctypes import wintypes
 
 from PySide6.QtWidgets import QApplication
 
@@ -11,10 +12,18 @@ sys.path.insert(0, repo)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm.app import MainWindow
-from ddm.window_fullscreen import _WindowPlacement
+from ddm.plugins import PluginManager
+from dev.selfcheck_window_resize import wait_orientation
+
+
+class _WindowPlacement(ctypes.Structure):
+    _fields_ = [("length", wintypes.UINT), ("flags", wintypes.UINT),
+                ("showCmd", wintypes.UINT), ("ptMinPosition", wintypes.POINT),
+                ("ptMaxPosition", wintypes.POINT), ("rcNormalPosition", wintypes.RECT)]
 
 
 def restore_size(window):
+    ctypes.windll.user32.GetWindowPlacement.argtypes = (wintypes.HWND, ctypes.POINTER(_WindowPlacement))
     placement = _WindowPlacement()
     placement.length = ctypes.sizeof(placement)
     assert ctypes.windll.user32.GetWindowPlacement(
@@ -23,19 +32,14 @@ def restore_size(window):
     return rect.right - rect.left, rect.bottom - rect.top
 
 
-def settle(app):
-    end = time.monotonic() + 0.2
-    while time.monotonic() < end:
-        app.processEvents()
-        time.sleep(0.02)
-
-
 def main():
     app = QApplication([])
     if sys.platform != "win32" or app.platformName() != "windows":
         print("SKIP: Windows Alt+Tab 窗口位置自检仅在 Windows 桌面运行")
         return
-    window = MainWindow([], [], state={})
+    with patch.object(PluginManager, 'load'):
+        window = MainWindow([], [], state={'plugins_enabled': [],
+            'settings': {'close_behavior': 'exit'}})
     window.setWindowOpacity(0)
     screens = sorted(app.screens(), key=lambda screen: screen.geometry().width()
                      > screen.geometry().height())
@@ -47,21 +51,24 @@ def main():
             width, height = ((min(area.width() - 50, 850), 500) if portrait
                              else (500, min(area.height() - 50, 1000)))
             window.showNormal()
+            window._on_layout_changed('3x2' if portrait else 'portrait_main2')
             window.setGeometry(area.left() + 25, area.top() + 25, width, height)
+            wait_orientation(window, 'landscape' if portrait else 'portrait')
+            normal_portrait = window.orientation == 'portrait'
             window.showMaximized()
-            settle(app)
+            wait_orientation(window, 'portrait' if portrait else 'landscape')
             restored_width, restored_height = restore_size(window)
             assert window.isMaximized() and window.screen() is screen
-            assert (restored_width <= restored_height * 0.9) == portrait, \
+            assert (restored_width <= restored_height * 0.9) == normal_portrait, \
                 f"{screen.name()} 还原尺寸方向错误：{restored_width}x{restored_height}"
             assert window.orientation == ("portrait" if portrait else "landscape")
             window.showNormal()
-            settle(app)
-            assert (window.width() <= window.height() * 0.9) == portrait, \
-                "退出最大化后也应恢复成当前方向的窗口"
+            wait_orientation(window, 'portrait' if normal_portrait else 'landscape')
+            assert (window.width() <= window.height() * 0.9) == normal_portrait, \
+                "退出最大化后应恢复成最大化前的窗口方向"
     finally:
         window.close()
-    print("OK: 最大化窗口在横屏/竖屏上的还原尺寸方向正确")
+    print("OK: 最大化跟随屏幕，还原保留原窗口方向")
 
 
 if __name__ == "__main__":

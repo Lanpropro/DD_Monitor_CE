@@ -41,7 +41,8 @@ def take_flv_response(token):
 
 
 class HlsProxy:
-    def __init__(self, source, headers, proxy=None, *, diagnostic=None, forward_range=True, initial_response=None):
+    def __init__(self, source, headers, proxy=None, *, diagnostic=None, forward_range=True,
+                 initial_response=None, stream_observer=None, session_factory=None):
         self._initial_response = initial_response
         self._stopped = threading.Event()
         self._lock = threading.Lock()
@@ -98,13 +99,30 @@ class HlsProxy:
                     request_headers["Range"] = self.headers["Range"]
                 response = None
                 session = None
+                observer = None
+                outcome = 'closed'
+                def observe(event, **values):
+                    nonlocal observer
+                    if observer is not None:
+                        try:
+                            observer(event, **values)
+                        except Exception as error:
+                            observer = None  # Diagnostic failure must not alter forwarded bytes.
+                            report(url, 0, started, 0, error='Observer_' + type(error).__name__)
                 try:
                     # 每个并行请求独占 Session；完成后归还，跨分片复用代理/TLS 连接。
                     with relay._lock:
                         if relay._stopped.is_set():
                             return
-                        session = relay._idle_sessions.pop() if relay._idle_sessions else requests.Session()
+                        session = (relay._idle_sessions.pop() if relay._idle_sessions else
+                                   session_factory() if session_factory is not None else requests.Session())
                     started = time.monotonic()
+                    observed_start = time.perf_counter()
+                    if stream_observer is not None:
+                        observer = stream_observer(url)
+                        observe('request', range=request_headers.get('Range'),
+                                user_agent_present=bool(request_headers.get('User-Agent')),
+                                referer_present=bool(request_headers.get('Referer')))
                     initial = None
                     with relay._lock:
                         if url == source and relay._initial_response is not None:
@@ -114,8 +132,31 @@ class HlsProxy:
                             response = initial[0] if initial is not None else session.get(
                                 url, headers=request_headers, proxies=proxies, stream=True, timeout=(4, 8))
                             response.raise_for_status()
+                            peer = tls_version = cipher = None
+                            if observer is not None:
+                                connection = getattr(response.raw, '_connection', None)
+                                sock = getattr(connection, 'sock', None)
+                                if sock is not None:
+                                    try:
+                                        peer = sock.getpeername()
+                                        tls_version = sock.version() if hasattr(sock, 'version') else None
+                                        cipher_info = sock.cipher() if hasattr(sock, 'cipher') else None
+                                        cipher = cipher_info[0] if cipher_info else None
+                                    except OSError:
+                                        pass  # Some HTTP backends do not expose a live socket.
+                            observe('response', status=response.status_code, attempt=attempt + 1,
+                                    elapsed_ms=(time.perf_counter() - observed_start) * 1000,
+                                    peer=peer, tls_version=tls_version, cipher=cipher,
+                                    redirects=[dict(status=item.status_code, host=urlsplit(item.url).hostname)
+                                               for item in response.history] if observer is not None else [],
+                                    headers={key: response.headers.get(key) for key in
+                                             ('Content-Type', 'Content-Length', 'Content-Range',
+                                              'Transfer-Encoding', 'Content-Encoding', 'Accept-Ranges', 'Date')})
                             break
                         except requests.RequestException as error:
+                            observe('request-error', error=type(error).__name__, exception=error, attempt=attempt + 1,
+                                    status=response.status_code if response is not None else 0,
+                                    elapsed_ms=(time.perf_counter() - observed_start) * 1000)
                             status = response.status_code if response is not None else 0
                             report(url, status, started, attempt + 1, error=type(error).__name__)
                             playlist = (urlsplit(url).path.endswith(".m3u8") or response is not None and
@@ -179,10 +220,12 @@ class HlsProxy:
                         chunks = (itertools.chain([initial[1]], initial[2]) if initial is not None
                                   else response.iter_content(65536))
                         while True:
-                            reading = time.monotonic()
+                            reading = time.perf_counter()
                             chunk = next(chunks, None)
-                            elapsed += time.monotonic() - reading
+                            read_ms = (time.perf_counter() - reading) * 1000
+                            elapsed += read_ms / 1000
                             if chunk is None:
+                                outcome = 'eof'
                                 if initial is not None and not relay._stopped.is_set():
                                     relay.live_ended.set()
                                     report(url, 0, started, 1, error="LIVE_EOF", received_bytes=size,
@@ -193,15 +236,24 @@ class HlsProxy:
                             if chunk:
                                 last_data = time.monotonic()
                                 size += len(chunk)
+                                observed = time.perf_counter()
+                                observe('chunk', data=chunk, read_ms=read_ms)
+                                inspection_ms = (time.perf_counter() - observed) * 1000
+                                writing = time.perf_counter()
                                 self.wfile.write((f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n") if chunked else chunk)
+                                observe('delivered', bytes=len(chunk), inspection_ms=inspection_ms,
+                                        write_ms=(time.perf_counter() - writing) * 1000)
                         if chunked and not relay._stopped.is_set():
                             self.wfile.write(b"0\r\n\r\n")
                         if size >= 32768 and not relay._stopped.is_set():
                             with relay._lock:
                                 relay._samples.append((time.monotonic(), size * 8 / max(elapsed, .001)))
-                except (requests.RequestException, OSError, ValueError):
+                except (requests.RequestException, OSError, ValueError) as error:
+                    outcome = type(error).__name__
+                    observe('read-error', error=outcome, exception=error)
                     self.close_connection = True  # FFmpeg 在清单/分片层重试
                 finally:
+                    observe('end', outcome=outcome, stopped=relay._stopped.is_set())
                     if response is not None:
                         with relay._lock:
                             relay._responses.discard(response)
@@ -216,10 +268,27 @@ class HlsProxy:
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._server.daemon_threads = True
+        self._server.timeout = .05
         self.url = local_url(source)
-        self._thread = threading.Thread(target=self._server.serve_forever,
-            kwargs={"poll_interval": .05}, name="live-hls-proxy", daemon=True)
+        self._thread = threading.Thread(target=self._serve, name="live-hls-proxy", daemon=True)
         self._thread.start()
+
+    def _serve(self):
+        try:
+            while not self._stopped.is_set():
+                self._server.handle_request()
+        finally:
+            # 监听和闲置连接由服务线程收尾，不让换台/预览等待网络资源关闭。
+            try:
+                with self._lock:
+                    initial, self._initial_response = self._initial_response, None
+                    sessions, self._idle_sessions = self._idle_sessions, []
+                if initial is not None:
+                    initial[0].close()
+                for session in sessions:
+                    session.close()
+            finally:
+                self._server.server_close()
 
     def network_speed(self):
         """最近 30 秒分片有效吞吐的下四分位值；包含连接等待，排除播放器背压。"""
@@ -229,18 +298,6 @@ class HlsProxy:
         return (rates[(len(rates) - 1) // 4], len(rates)) if rates else (0, 0)
 
     def stop(self):
-        if self._stopped.is_set():
-            return
+        # 只发停止信号；服务循环至多等待一次监听超时后自行清理。
+        # 活跃 response 仍由请求线程关闭，网络读取按既有超时退出。
         self._stopped.set()
-        with self._lock:
-            initial, self._initial_response = self._initial_response, None
-            sessions, self._idle_sessions = self._idle_sessions, []
-        if initial is not None:
-            initial[0].close()
-        for session in sessions:
-            session.close()
-        # 由请求线程关闭 response；跨线程 close 会等待读锁，阻塞窗口关闭。
-        # 停止后不重试/不再写数据，正在进行的网络读取由上述有界超时退出。
-        self._server.shutdown()
-        self._server.server_close()
-        self._thread.join()

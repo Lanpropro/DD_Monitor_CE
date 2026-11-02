@@ -159,7 +159,7 @@ def check_download_reopen(app, root):
                 dialog = window._settings_host.dialog
             else:
                 dialog = window._create_settings_dialog()
-            dialog.nav.setCurrentRow(7)
+            dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['updates'])
             return dialog
 
         def close_dialog(dialog):

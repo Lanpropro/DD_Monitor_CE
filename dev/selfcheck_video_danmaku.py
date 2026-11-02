@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from types import MethodType, SimpleNamespace
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QPaintEvent, QRawFont, QRegion, QWindowStateChangeEvent
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontInfo, QImage, QPaintEvent, QPixmap, QRawFont, QRegion, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QDialog, QWidget
 
@@ -138,7 +138,9 @@ def check_super_chat_overlay(app):
         overlay.resize(1600, 900)
         app.processEvents()
         sc = overlay.super_chat_overlay
-        assert sc.width() <= 342 and sc.height() <= 210
+        assert sc.width() <= 342 and sc.height() <= overlay.height()
+        rows = sc.card_rects()
+        assert len(rows) == len(chats) and rows[0].bottom() < rows[1].top()
         card = sc.card_rects()[0].toAlignedRect()
         assert overlay.rect().contains(card)
         assert sc.geometry().contains(card.translated(overlay.pos()))
@@ -208,9 +210,17 @@ def check_moved_overlay_refresh(app):
     app.processEvents()
     assert wall._quick_danmaku_layer is None, 'Caption refresh cannot depend on enabled Quick danmaku'
     try:
-        with patch.object(tile.stream_badge, 'repaint', wraps=tile.stream_badge.repaint) as live, \
+        with patch('ddm.widgets.QCursor.pos', return_value=tile.video.mapToGlobal(tile.video.rect().center())), \
+                patch.object(tile.stream_badge, 'repaint', wraps=tile.stream_badge.repaint) as live, \
                 patch.object(tile.title_badge, 'repaint', wraps=tile.title_badge.repaint) as title, \
                 patch.object(tile.controls, 'repaint', wraps=tile.controls.repaint) as controls:
+            tile.set_controls_visible(True)
+            tile._control_hover_timer.stop()
+            app.processEvents()
+            assert tile.controls.isVisible() and tile.stream_badge.isVisible() and tile.title_badge.isVisible()
+            live.reset_mock()
+            title.reset_mock()
+            controls.reset_mock()
             for _ in range(3):
                 tile.move(tile.x() + 5, tile.y() + 5)
             assert not live.called and not title.called and not controls.called
@@ -237,7 +247,7 @@ def check_quick_occlusion(app):
     unrelated = QWidget()
     unrelated.setGeometry(400, 400, 100, 100)
     unrelated.show()
-    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock())
+    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(), _presentation_window=None)
     try:
         for widget in (dialog, notice):
             widget.show()
@@ -273,7 +283,7 @@ def check_quick_surface_recovery(app):
     parent.mapToGlobal.return_value = QPoint(120, 80)
     parent.isVisible.return_value = True
     parent.window.return_value.isMinimized.return_value = False
-    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(),
+    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(), _presentation_window=None,
                             _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
                             _update_occlusion=Mock(return_value=True),
                             _occlusion_timer=Mock(),
@@ -349,6 +359,137 @@ def check_quick_surface_recovery(app):
     QuickDanmakuLayer.remove(layer, 1)
     layer._empty_hide.start.assert_called_once_with(0)
     assert not layer.items, 'Deleting the last tile must not leave an opaque shared window'
+
+
+def wait_comment_raster(app, overlay):
+    deadline = time.monotonic() + 5
+    while (overlay._comment_resize_timer.isActive() or overlay._comment_raster_job is not None):
+        assert time.monotonic() < deadline, 'Resized comment painting did not finish'
+        QTest.qWait(10)
+
+
+def check_resize_rebuild_coalescing(app):
+    from ddm.danmaku_raster import CommentRaster
+    overlay = VideoDanmaku()
+    overlay._quick_requested = False
+    overlay.resize(640, 360)
+    overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=True,
+                                video_danmaku_size=36, video_danmaku_outline_width=2))
+    try:
+        overlay.set_active(True)
+        overlay.set_enabled(True)
+        overlay.show()
+        app.processEvents()
+        assert overlay.add_event({'text': '最终尺寸描边弹幕 ABC 123', 'color': '#aaccff', 'self_sent': True})
+        overlay.set_paused(True)
+        wait_comment_raster(app, overlay)
+        comment = overlay.comments[0]
+        comment.x = 200
+        progress = (overlay.width()-comment.x)/(overlay.width()+comment.image.width()/comment.image.devicePixelRatioF())
+        threads = []
+        original = CommentRaster._render_content
+        def paint(renderer, *args):
+            threads.append(QThread.currentThread())
+            return original(renderer, *args)
+        with patch.object(CommentRaster, '_render_content', paint), \
+                patch.object(overlay, '_render_content', wraps=overlay._render_content) as gui_render:
+            for width, height in ((720, 420), (1200, 800), (1000, 700), (960, 540)):
+                overlay.resize(width, height)
+            assert gui_render.call_count == 0
+            wait_comment_raster(app, overlay)
+            assert gui_render.call_count == 0, 'Fullscreen resize must never rasterize on the GUI thread'
+            assert len(threads) == 1 and threads[0] != app.thread()
+        expected = overlay._render_content(comment.text, comment.color, comment.runs, comment.self_sent)
+        assert comment.image.toImage() == expected.toImage(), 'Final pixels must retain the reference rendering'
+        final_progress = (overlay.width()-comment.x)/(overlay.width()+comment.image.width()/comment.image.devicePixelRatioF())
+        assert abs(final_progress-progress) < 1e-6
+        # Each live comment retains at most two size variants, including the original size.
+        with patch.object(CommentRaster, '_render_content', wraps=original) as cached_render:
+            for size in ((640, 360), (960, 540), (980, 540)):
+                overlay.resize(*size)
+                wait_comment_raster(app, overlay)
+            assert cached_render.call_count == 0, 'Cached sizes must reuse their raster'
+        assert len(comment.rasters) == 2
+        overlay.resize(1000, 600)
+        with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_size=40))
+            assert render.call_count == 1
+            wait_comment_raster(app, overlay)
+            assert render.call_count == 1, 'Explicit settings must consume pending resize work'
+        # A completed old job must not overwrite a newer size or block GUI events.
+        entered, release = threading.Event(), threading.Event()
+        def blocked(renderer, *args):
+            entered.set()
+            assert release.wait(5), 'Worker release timed out'
+            return original(renderer, *args)
+        with patch.object(CommentRaster, '_render_content', blocked):
+            overlay.resize(1100, 650)
+            app.processEvents()
+            deadline = time.monotonic() + 3
+            while not entered.is_set():
+                assert time.monotonic() < deadline
+                QTest.qWait(5)
+            delivered = []
+            QTimer.singleShot(0, lambda: delivered.append(True))
+            overlay.resize(900, 500)
+            app.processEvents()
+            assert delivered and overlay._comment_raster_job is not None
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_size=42))
+            newer = comment.image.toImage()
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert comment.image.toImage() == newer, 'Stale painting must not replace updated settings'
+        # Clearing during a batch must not revive deleted comments or old textures.
+        with patch.object(CommentRaster, '_render_content', blocked):
+            entered.clear()
+            release.clear()
+            overlay.resize(1200, 700)
+            app.processEvents()
+            overlay.clear_comments()
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert not overlay.comments
+        overlay.set_paused(False)
+        overlay.resize(900, 500)
+        assert overlay.add_event({'text': 'arrives before the queued resize'})
+        overlay.set_paused(True)
+        wait_comment_raster(app, overlay)
+        assert overlay._comment_width == overlay.width()
+        assert overlay.comments[0].x == overlay.width()
+        overlay.clear_comments()
+        overlay.set_paused(False)
+        image = QImage(24, 20, QImage.Format_ARGB32_Premultiplied)
+        image.fill(QColor(255, 80, 40, 180))
+        overlay._images['local-emote'] = image
+        with patch.object(overlay, '_ensure_emoticon'):
+            assert overlay.add_event({'text': 'mixed [emote] ABC', 'emoticons': {'[emote]': 'local-emote'}})
+        overlay.set_paused(True)
+        entered.clear()
+        release.clear()
+        def blocked_rich(renderer, *args):
+            if QThread.currentThread() != app.thread():
+                entered.set()
+                assert release.wait(5)
+            return original(renderer, *args)
+        with patch.object(CommentRaster, '_render_content', blocked_rich):
+            overlay.resize(1200, 700)
+            app.processEvents()
+            deadline = time.monotonic() + 3
+            while not entered.is_set():
+                assert time.monotonic() < deadline
+                QTest.qWait(5)
+            updated = QPixmap(24, 20)
+            updated.fill(QColor(40, 80, 255, 160))
+            overlay._on_emoticon_loaded('local-emote', updated)
+            expected = overlay.comments[0].image.toImage()
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert overlay.comments[0].image.toImage() == expected, 'Late emoticons invalidate old rich-text jobs'
+    finally:
+        overlay.clear()
+        wait_comment_raster(app, overlay)
+        overlay.close()
+    print('PASS: background resize raster, exact final pixels/progress, bounded cache, stale results and GUI delivery')
 
 
 def check_fonts(app):
@@ -596,6 +737,10 @@ def check_routing(app):
                 QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
             assert len(window._danmaku_clients) == 2, "同直播间的两格应共用连接"
             client = window._danmaku_clients["1001"]
+            assert client.parent() is window, "主窗口继续拥有连接的 Qt 生命周期"
+            with patch.object(client, "start") as restart:
+                assert window._ensure_danmaku_client("1001") is client
+                restart.assert_not_called()
             client.message.emit({"text": "房间一"})
             assert len(first.video_danmaku.comments) == len(duplicate.video_danmaku.comments) == 1
             assert not second.video_danmaku.comments and not disabled.video_danmaku.comments
@@ -638,11 +783,9 @@ def check_routing(app):
                 window.wall.set_fullscreen_tile(None)
                 assert quick.reset_surface.call_count == 2, 'Native fullscreen must restore transparency both ways'
             window._on_fullscreen(first)
-            window._clear_fullscreen_cover()
             assert first.video_danmaku.isVisible()
             assert "1002" not in window._danmaku_clients, "全屏时停止隐藏格子的订阅"
             window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             app.processEvents()
             window.sync_danmaku()
             assert "1002" in window._danmaku_clients
@@ -675,8 +818,15 @@ def check_settings(app):
             'Global danmaku settings expose the SC switch, not the removed scale switch'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
+        page.super_chat_collapse_delay.setValue(12)
+        page.super_chat_scale.setValue(145)
         assert page.values()['super_chat_enabled'] is False
         assert page.values()['super_chat_opacity'] == 35
+        assert page.values()['super_chat_collapse_delay'] == 12
+        assert page.values()['super_chat_scale'] == 145
+        page.reset()
+        assert page.values()['super_chat_collapse_delay'] == 7
+        assert page.values()['super_chat_scale'] == 100
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()
@@ -792,6 +942,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_resize_rebuild_coalescing(app)
     check_qt_picture_surface(app)
     check_quick_occlusion(app)
     check_quick_controller_mask()

@@ -47,9 +47,13 @@ class CheckRunnerTests(unittest.TestCase):
         suite = runner.load_suites()['smoke']
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
-            'selfcheck_general_settings', 'selfcheck_drag_lifecycle',
-            'selfcheck_player_lifetime',
-            'selfcheck_main_notices', 'selfcheck_notification_center', 'selfcheck_layout_16',
+            'selfcheck_general_settings', 'selfcheck_single_instance', 'selfcheck_drag_lifecycle',
+            'selfcheck_room_placement',
+            'selfcheck_room_status_controller', 'selfcheck_room_images',
+            'selfcheck_playback_badges', 'selfcheck_responsiveness',
+            'selfcheck_player_lifetime', 'selfcheck_playback_recovery',
+            'selfcheck_main_notices', 'selfcheck_widget_lifetime',
+            'selfcheck_notification_center', 'selfcheck_layout_16',
             'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort',
             'selfcheck_system_tray'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')

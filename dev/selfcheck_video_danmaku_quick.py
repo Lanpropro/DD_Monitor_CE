@@ -14,7 +14,7 @@ os.environ["DDM_QTQUICK_DANMAKU"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QCursor, QImage, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from PySide6.QtTest import QTest
@@ -92,7 +92,6 @@ def check_screen_surfaces(app, window, layer, players):
                 window._on_fullscreen(target)
             else:
                 window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
             settle(app, .6)
@@ -315,6 +314,8 @@ def main():
         if "--surface-only" in sys.argv:
             window.setWindowFlag(Qt.WindowStaysOnTopHint)
         window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)
+        if not visible:
+            window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
         window.setGeometry(40 if visible else -20000, 60 if visible else -20000, 1200, 800)
         window.show()
         if visible:
@@ -362,6 +363,15 @@ def main():
                 assert overlay.add_event(event)
                 layer = window.wall._quick_danmaku_layer
                 assert layer is not None, "首条弹幕应建立共享 Qt Quick 窗口"
+                with patch.object(layer, 'move', wraps=layer.move) as move_comment:
+                    window.wall.set_sidebar_animating(True)
+                    try:
+                        from PySide6.QtGui import QResizeEvent
+                        window.wall.resizeEvent(QResizeEvent(window.wall.size(), window.wall.size()))
+                        assert layer.window.position() == window.wall.mapToGlobal(QPoint())
+                        move_comment.assert_not_called()
+                    finally:
+                        window.wall.set_sidebar_animating(False)
                 overlay.set_paused(True)
                 comment = overlay.comments[0]
                 comment.x = 36
@@ -384,7 +394,9 @@ def main():
                 assert held.x == before, 'Hovered Quick comment must remain still'
                 overlay._set_hover(None)
                 settle(app, .15)
-                assert held.x < before and not layer.items[held.render_id].get('held')
+                assert held.x < before and not layer.items[held.render_id].get('held'), (
+                    held.x, before, overlay.timer.isActive(), overlay.paused,
+                    overlay._last_tick, len(overlay.comments), layer._presentation_window)
                 overlay.set_paused(True)
                 held.x = 36
                 layer.move(held.render_id, held.x, held.lane * overlay.lane_height())
@@ -397,7 +409,7 @@ def main():
                     held.image.size(), held.image.devicePixelRatioF(), len(overlay.comments))
                 QTest.mouseClick(target.video, Qt.LeftButton, pos=point)
                 toolbar.assert_called_once()
-                assert toolbar.call_args.args[1] == held.message, 'Native video click must target the comment'
+                assert toolbar.call_args.args[1] == held.event, 'Native video click must target the comment'
             assert layer.window.rendererInterface().graphicsApi().name == "Direct3D11"
             assert len(layer.groups) == 4
             assert all(tile.video_danmaku._quick_layer is layer for tile in window.wall.tiles)
@@ -485,7 +497,9 @@ def main():
             assert layer.groups[target.video_danmaku._quick_group].property("rounded") is True
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
-            settle(app)
+            with patch('ddm.widgets.QCursor.pos', return_value=target.close_button.mapToGlobal(target.close_button.rect().center())):
+                settle(app)
+            assert target.controls.isVisible(), 'Control mask probe requires visible controls'
             mask_key = layer.group_masks[target.video_danmaku._quick_group]
             mask_image = layer.images.images[mask_key]
             control_origin = target.controls.pos() - target.video_danmaku.pos()
@@ -518,7 +532,9 @@ def main():
             image_key, render_id = comment.image.cacheKey(), comment.render_id
             for _ in range(3):
                 target.set_controls_visible(True)
-                settle(app)
+                with patch('ddm.widgets.QCursor.pos', return_value=target.close_button.mapToGlobal(target.close_button.rect().center())):
+                    settle(app)
+                assert target.controls.isVisible()
                 assert layer.window.grabWindow().copy(area) != baseline, \
                     "显示按钮时应只遮住按钮位置的弹幕"
                 target.set_controls_visible(False)
@@ -609,31 +625,50 @@ def main():
             assert not target.paused and not target.pause_button.paused, "暂停按钮必须恢复播放"
 
             group = overlay._quick_group
+            saved_geometry = QRect(window.geometry())
+            pane_geometries = [QRect(tile.geometry()) for tile in window.wall.tiles]
+            video_hwnd = int(target.video.winId())
+            cores = [player.player for player in players]
+            sessions = [player.play_session for player in players]
+            enter = window._fullscreen_presentation.enter
             if visible:
                 window._on_fullscreen(target)
             else:
-                window.wall.set_fullscreen_tile(target)
-            window._clear_fullscreen_cover()
+                with patch.object(window._fullscreen_presentation, 'enter',
+                                  side_effect=lambda tile: enter(tile, QRect(-20000, -20000, 1600, 900))):
+                    window._on_fullscreen(target)
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
             settle(app)
             assert overlay._quick_group == group and not layer.groups[group].property("rounded")
+            assert window.geometry() == saved_geometry
+            assert target.isWindow() and int(target.video.winId()) == video_hwnd
+            assert [player.player for player in players] == cores and [player.play_session for player in players] == sessions
+            assert all(tile.geometry() == saved for tile, saved in zip(window.wall.tiles, pane_geometries) if tile is not target)
+            assert layer._presentation_window is target
+            assert layer.window.size() == target.size()
+            expected = target.video_danmaku.mapToGlobal(QPoint()) - layer.window.position()
+            actual = layer.groups[group].mapToScene(QPointF())
+            assert abs(actual.x()-expected.x()) < 1 and abs(actual.y()-expected.y()) < 1
+            assert layer._update_occlusion(), 'The independent video window must not clip away its own comments'
             mask_key = layer.group_masks[group]
             mask_image = layer.images.images[mask_key]
-            pause_point = (target.bottom.pos() - overlay.pos() + target.pause_button.pos()
-                           + QPoint(target.pause_button.width() // 2,
-                                    target.pause_button.height() // 2))
+            pause_global = target.pause_button.mapToGlobal(target.pause_button.rect().center())
+            pause_point = overlay.mapFromGlobal(pause_global)
             scale = mask_image.devicePixelRatioF()
-            assert mask_image.pixelColor(round(pause_point.x() * scale),
-                                         round(pause_point.y() * scale)).alpha() == 0, \
+            sample = QPoint(round(pause_point.x()*scale), round(pause_point.y()*scale))
+            texture_hole = mask_image.rect().contains(sample) and mask_image.pixelColor(sample).alpha() == 0
+            native_mask = layer.window.mask()
+            native_hole = (not native_mask.isEmpty()
+                           and not native_mask.contains(layer.window.mapFromGlobal(pause_global)))
+            assert texture_hole or native_hole, \
                 "Quick 遮罩必须给全屏暂停按钮留透明区域"
-            if visible:
-                window._exit_fullscreen()
-            else:
-                window.wall.set_fullscreen_tile(None)
-            window._clear_fullscreen_cover()
+            window._exit_fullscreen()
             settle(app)
             assert layer.groups[group].property("rounded")
+            assert layer._presentation_window is None and int(target.video.winId()) == video_hwnd
+            assert [tile.geometry() for tile in window.wall.tiles] == pane_geometries
+            assert window.geometry() == saved_geometry
 
             for tile in window.wall.tiles:
                 tile.video_danmaku.clear()

@@ -59,6 +59,8 @@ def settle(app, seconds):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=("animator", "timer"), default="animator")
+    parser.add_argument("--unthrottled", action="store_true",
+                        help="Disable swap throttling to verify wall-clock animation speed")
     args = parser.parse_args()
     os.environ["DDM_QTQUICK_DANMAKU"] = "1"
     os.environ["DDM_QTQUICK_ANIMATOR"] = "0" if args.backend == "timer" else "1"
@@ -82,6 +84,10 @@ def main():
     overlay.set_enabled(True)
     overlay.set_active(True)
     layer = QuickDanmakuLayer(parent)
+    if args.unthrottled:
+        surface = layer.window.format()
+        surface.setSwapInterval(0)
+        layer.window.setFormat(surface)
     overlay.attach_quick_layer(layer)
     layer.show()
     assert overlay.add_event({"text": "render thread motion"})
@@ -102,8 +108,15 @@ def main():
     layer.window.afterRendering.connect(sample, Qt.DirectConnection)
     try:
         overlay.set_paused(False)
+        settle(app, .08)  # Let initial scene-graph synchronization finish before measuring.
+        samples.clear()
         settle(app, .25)
         assert samples and layer.window.isExposed()
+        initial = list(samples)
+        elapsed = initial[-1][0] - initial[0][0]
+        measured_speed = (initial[0][1] - initial[-1][1]) / elapsed
+        assert .8 < measured_speed / comment.speed < 1.2, \
+            ("render animation must follow elapsed time", measured_speed, comment.speed)
         assert parent.geometry().right() < 0, "Test window must remain off-screen"
         before = samples[-1][1]
         samples.clear()
@@ -154,6 +167,9 @@ def main():
         settle(app, .2)
         assert not samples, "Empty scene must stop continuously rendering"
         print(json.dumps({"backend": args.backend, "blocked_gui_ms": round(blocked * 1000),
+                          "unthrottled": args.unthrottled,
+                          "measured_speed_px_s": round(measured_speed, 2),
+                          "configured_speed_px_s": 100,
                           "render_frames_during_block": len(stalled_samples),
                           "unique_scene_positions": unique,
                           "distance_during_block_px": round(distance, 2),

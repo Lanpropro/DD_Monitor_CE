@@ -5,7 +5,7 @@ import time
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QCursor, QPixmap
+from PySide6.QtGui import QCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -26,22 +26,6 @@ class SilentPoller(QThread):
 
     def run(self) -> None:
         return
-
-
-def wait_cover_released(window, app, timeout: float = 3.0) -> bool:
-    """等遮挡层自己走掉。
-
-    它现在是「保持 → 淡出 → 释放」三段，总时长还取决于抓屏耗时（4K 上抓一张
-    全屏就要 40 ms 上下），所以不能钉死等某个毫秒数。这里要的是它**一定会**
-    自己释放，而不是漏在那里不走。
-    """
-    end = time.time() + timeout
-    while time.time() < end:
-        if window._fullscreen_cover is None:
-            return True
-        app.processEvents()
-        time.sleep(0.02)
-    return window._fullscreen_cover is None
 
 
 def wait_tiles_revealed(window, app, timeout: float = 3.0) -> bool:
@@ -74,15 +58,6 @@ def main() -> None:
     window.resize(1400, 900)
     window.show()
     app.processEvents()
-    if app.platformName() == "windows":
-        # 本地 CI 没有可截取的交互桌面；用一张有效画面检查遮挡与释放时序。
-        frame = QPixmap(32, 32)
-        frame.fill(Qt.darkGray)
-        captures = []
-        def grab_frame():
-            captures.append(True)
-            return frame, window.screen().geometry()
-        window._grab_fullscreen_frame = grab_frame
     tiles = list(window.wall.tiles)
     room_ids = [tile.room["room_id"] for tile in tiles]
     assert len(tiles) == 6 and all(tile.fullscreen_button.isVisible() for tile in tiles)
@@ -100,17 +75,14 @@ def main() -> None:
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
     assert window._fullscreen_tile is target
-    if app.platformName() == "windows":
-        assert captures
-        assert window._fullscreen_cover is None or window._fullscreen_cover_timer.isActive()
-    assert window.isFullScreen() or window._native_fullscreen_state is not None
+    assert target.isWindow() and window._fullscreen_presentation.tile is target
     assert int(window.winId()) == window_hwnd
     assert int(target.video.winId()) == video_hwnd
     assert window.current_state()["geometry"] == saved_geometry
     assert window.centralWidget().updatesEnabled()
     assert not window.wall._relayout_timer.isActive()
     if app.platformName() == "windows":
-        assert window.size() == app.primaryScreen().geometry().size()
+        assert target.size() == window.screen().geometry().size() and window.size() == normal_size
     assert window.wall.fullscreen_tile is target
     assert target.property("fullscreen") is True
     assert target.property("focused") is True
@@ -118,19 +90,14 @@ def main() -> None:
     assert not hasattr(target, "fullscreen_danmaku")
     assert not hasattr(target, "fullscreen_danmaku_button")
     assert window._danmaku is None, "普通布局全屏时不应额外连接弹幕"
-    assert not window.sidebar.isVisible()
+    assert window.sidebar.isVisible(), "The original sidebar stays in place behind the independent presentation"
     assert window.wall.layout_id == "corner"
-    if app.platformName() == "windows":
-        assert wait_cover_released(window, app), "切换后旧画面的遮挡层必须自动释放"
 
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
     assert window._fullscreen_tile is None and window.wall.fullscreen_tile is None, \
         "全屏时再按 F 应与 Esc 一样退出"
-    if app.platformName() == "windows":
-        assert len(captures) >= 2
-        assert window._fullscreen_cover is None or window._fullscreen_cover_timer.isActive()
-    assert window._native_fullscreen_state is None
+    assert window._fullscreen_presentation.tile is None
     assert target.property("fullscreen") is False
     assert target.property("focused") is True
     assert window.centralWidget().updatesEnabled()
@@ -183,9 +150,6 @@ def main() -> None:
     QTest.keyClick(window, Qt.Key_Escape)
     app.processEvents()
     assert window.isMaximized(), "Esc 后应回到进入全屏前的最大化状态"
-    window._clear_fullscreen_cover()
-    assert window._fullscreen_cover is None
-    assert not window._fullscreen_cover_timer.isActive()
     window.close()
     print("1+5 全屏快捷键、格子按钮和 Esc 退出：通过")
 

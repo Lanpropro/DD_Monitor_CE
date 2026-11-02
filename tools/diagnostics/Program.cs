@@ -477,7 +477,7 @@ namespace DDMonitorDiagnostics
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,
-                Text = "收集范围\r\n系统与显卡驱动、软件版本与关键文件校验、libmpv 加载与依赖检查、脱敏配置、插件版本、近期日志、相关崩溃事件和手动添加的图片。\r\n\r\nDLL 检测在独立子进程中加载所选目录的播放器库，最长等待10秒。不读取账号文件、插件私有设置、聊天记录、录制或内存转储。不联网，不修改配置，也不启动或关闭主软件。图片会去除元数据，但不会遮挡画面。请检查诊断包后再手动发送。"
+                Text = "收集范围\r\n系统与显卡驱动、软件版本与关键文件校验、libmpv 加载与依赖检查、脱敏配置、插件版本、近期日志、相关崩溃事件和手动添加的图片。录制目录的 .ddm-parts 中最多收集5份FFmpeg日志，每份末尾2MB，链接和凭据脱敏。\r\n\r\nDLL 检测在独立子进程中加载所选目录的播放器库，最长等待10秒。不读取账号文件、插件私有设置、聊天记录、录制视频或内存转储。不联网，不修改配置，也不启动或关闭主软件。图片会去除元数据，但不会遮挡画面。请检查诊断包后再手动发送。"
             };
             var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
             layout.Controls.Add(contentArea, 0, 2);

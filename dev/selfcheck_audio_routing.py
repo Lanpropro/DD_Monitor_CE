@@ -16,6 +16,60 @@ from PySide6.QtWidgets import QApplication, QWidget
 from ddm.player import EMBEDDED_OPTIONS, TilePlayer, mpv
 
 
+def check_normalization(widget, root, ffmpeg):
+    source = root / 'levels.wav'
+    # Quiet, loud, silence and near-silence; use real PCM rather than filter strings.
+    subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i',
+        "aevalsrc='if(lt(t,3),0.05,if(lt(t,6),0.7,if(lt(t,9),0,0.0001)))*sin(2*PI*440*t)':s=48000:d=12",
+        '-ac', '2', str(source)], check=True, capture_output=True)
+    results = []
+    for name, enabled, channel, muted, volume in (
+            ('original', False, 0, False, 100), ('balanced', True, 0, False, 100),
+            ('balanced-left', True, 3, False, 100), ('balanced-right', True, 4, False, 100),
+            ('balanced-muted', True, 0, True, 100), ('balanced-zero', True, 0, False, 0),
+            ('disabled-again', False, 0, False, 100)):
+        output = root / (name + '.wav')
+        player = TilePlayer(widget)
+        player.player = mpv.MPV(vo='null', vid='no', ao='pcm', ao_pcm_file=str(output),
+            audio_format='s16', audio_samplerate=48000, audio_channels='stereo', **EMBEDDED_OPTIONS)
+        try:
+            player.set_volume(volume)
+            player.set_muted(muted)
+            player.set_volume_normalization(True)
+            player.set_audio_channel(channel)
+            player.set_volume_normalization(enabled)
+            with player.player.prepare_and_wait_for_event('end-file', timeout=15):
+                player.player.play(str(source))
+        finally:
+            player.release()
+        raw = subprocess.check_output([ffmpeg, '-v', 'error', '-i', str(output),
+            '-f', 'f32le', '-ac', '2', '-'], timeout=10)
+        pcm = np.frombuffer(raw, dtype='<f4').reshape(-1, 2).astype(np.float64)
+        assert len(pcm) >= 11.9 * 48000, 'Normalization must preserve audio duration'
+        rms = lambda start, end: np.sqrt(np.mean(pcm[int(start*48000):int(end*48000)] ** 2, axis=0))
+        quiet, loud = rms(1, 2), rms(4, 5)
+        if name == 'original':
+            reference = pcm
+            original_ratio = loud[0] / quiet[0]
+            assert original_ratio > 12
+        elif name == 'balanced':
+            assert loud[0] / quiet[0] < original_ratio / 2
+            assert quiet[0] > rms(10, 11)[0] * 100
+            assert max(rms(7, 8)) < 1e-6
+            assert np.max(np.abs(pcm)) < 0.95
+        elif name in ('balanced-left', 'balanced-right'):
+            active = 0 if name.endswith('left') else 1
+            assert quiet[active] > 0.02 and loud[active] > 0.02
+            assert rms(1, 5)[1-active] < 1e-6
+        elif name in ('balanced-muted', 'balanced-zero'):
+            assert np.max(np.abs(pcm)) < 1e-6
+        elif name == 'disabled-again':
+            assert pcm.shape == reference.shape and np.max(np.abs(pcm - reference)) < 1e-4
+        results.append({'case': name, 'quiet_rms': quiet.tolist(), 'loud_rms': loud.tolist(), 'pass': True})
+        print(name, 'PASS', quiet, loud, flush=True)
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
@@ -67,6 +121,7 @@ def main():
                 assert max(rms) < 1e-6
             records.append({"case": name, "rms": rms.tolist(), "pass": True})
             print(name, "PASS", flush=True)
+        records.extend(check_normalization(widget, root, ffmpeg))
     if args.output:
         args.output.write_text(json.dumps(records, indent=2), encoding="utf-8")
     widget.close()

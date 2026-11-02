@@ -4,7 +4,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
 
-from . import motion, theme
+from . import motion, theme, window_fullscreen
 from .video_surface import VideoSurface
 
 
@@ -35,6 +35,23 @@ def ui_snapshot(window):
         for badge in (tile.stream_badge, tile.title_badge, tile.time_badge, tile.controls):
             if badge.isVisible():
                 painter.drawPixmap(badge.mapTo(window, QPoint()), badge.grab())
+    painter.end()
+    return snapshot
+
+
+def framed_snapshot(window):
+    content = ui_snapshot(window)
+    caption = window_fullscreen.caption_snapshot(window)
+    if caption.isNull():
+        return content
+    scale = content.devicePixelRatio()
+    top = round(caption.height()/caption.devicePixelRatio())
+    snapshot = QPixmap(content.width(), round((window.height()+top)*scale))
+    snapshot.setDevicePixelRatio(scale)
+    snapshot.fill(Qt.transparent)
+    painter = QPainter(snapshot)
+    painter.drawPixmap(0, 0, caption)
+    painter.drawPixmap(0, top, content)
     painter.end()
     return snapshot
 
@@ -133,6 +150,10 @@ class ThemeTransition(QObject):
         super().__init__(window)
         self.window = window
         self.overlays = []
+        self._quick_cache = {}
+        self._held_updates = []
+        self._waiting_for_cover = False
+        self._titlebar_theme = None
         self._watched = []
         self._changing = False
         self._keyboard = False
@@ -162,12 +183,20 @@ class ThemeTransition(QObject):
             self._apply(mode)
             return
         previous_light = theme.is_light()
+        titlebar_theme = self._titlebar_theme or (previous_light, theme.BG, theme.TEXT1)
+        overlay_type = WaveOverlay
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
+            if QQuickWindow.graphicsApi() != QSGRendererInterface.Software:
+                from .theme_wave_quick import QuickWaveOverlay
+                overlay_type = QuickWaveOverlay
         windows = self._windows()
         if origin is None:
             origin = self.window.sidebar.appearance_button.mapToGlobal(QPoint())
         before = []
         for window in windows:
-            snapshot = ui_snapshot(window)
+            snapshot = (framed_snapshot(window) if getattr(overlay_type, 'render_thread', False)
+                        else ui_snapshot(window))
             # Preserve the visible mixture when another click interrupts a reveal.
             # The next colour still flows from its button, without a full-frame flash.
             for overlay in self.overlays:
@@ -176,17 +205,72 @@ class ThemeTransition(QObject):
                     painter.drawPixmap(0, 0, overlay.grab())
                     painter.end()
             before.append((window, snapshot))
+        self._titlebar_theme = None
         self.finish()
+        if getattr(overlay_type, 'render_thread', False):
+            self._held_updates = [(window, window.updatesEnabled()) for window, _ in before]
+            for window, _ in self._held_updates:
+                window.setUpdatesEnabled(False)
+            try:
+                self._titlebar_theme = titlebar_theme
+                self._apply(mode)
+                if theme.is_light() == previous_light:
+                    self.finish()
+                    return
+                self.progress = 0.0
+                self._waiting_for_cover = True
+                self._show_overlays(before, origin, overlay_type)
+            except BaseException:
+                self.finish()
+                raise
+            return
         self._apply(mode)
         if theme.is_light() == previous_light:
             return
         self.progress = 0.0
+        self._show_overlays(before, origin, overlay_type)
+        self._start_animation()
+
+    def _show_overlays(self, before, origin, overlay_type):
         for window, old in before:
-            overlay = WaveOverlay(window, old, origin)
+            if getattr(overlay_type, 'render_thread', False):
+                overlay = self._quick_cache.get(window)
+                if overlay is None:
+                    overlay = overlay_type(window, old, origin)
+                    self._quick_cache[window] = overlay
+                    window.destroyed.connect(lambda _object=None, window=window: self._quick_cache.pop(window, None))
+                    overlay.ready.connect(self._cover_ready)
+                else:
+                    overlay.prepare(old, origin)
+            else:
+                overlay = overlay_type(window, old, origin)
             self.overlays.append(overlay)
             self._watched.extend([window] + window.findChildren(VideoSurface))
+        for overlay in self.overlays:
             overlay.show()
             overlay.raise_()
+
+    def _release_updates(self):
+        held, self._held_updates = self._held_updates, []
+        for window, enabled in held:
+            window.setUpdatesEnabled(enabled)
+        return [window for window, enabled in held if enabled]
+
+    def _cover_ready(self):
+        if not self._waiting_for_cover or not all(overlay.ready_to_reveal for overlay in self.overlays):
+            return
+        self._waiting_for_cover = False
+        overlays = tuple(self.overlays)
+        self._release_titlebar()
+        for window in self._release_updates():
+            window.repaint()  # Flush the new palette while the old snapshot is still opaque.
+        if tuple(self.overlays) != overlays:
+            return
+        for overlay in overlays:
+            overlay.start_reveal()
+        self._start_animation()
+
+    def _start_animation(self):
         self.animation.blockSignals(True)
         self.animation.setDuration(motion.THEME_WAVE_MS)
         self.animation.setStartValue(0.0)
@@ -215,13 +299,22 @@ class ThemeTransition(QObject):
 
     def finish(self):
         self.animation.stop()
+        self._waiting_for_cover = False
+        self._release_updates()
+        self._release_titlebar()
         for overlay in self.overlays:
             overlay.hide()
             overlay.snapshot = QPixmap()
-            overlay.deleteLater()
+            if not getattr(overlay, 'render_thread', False):
+                overlay.deleteLater()
         self.overlays.clear()
         self._watched.clear()
         self.progress = float(theme.is_light())
+
+    def _release_titlebar(self):
+        held, self._titlebar_theme = self._titlebar_theme, None
+        if held is not None:
+            window_fullscreen.sync_titlebar(self.window)
 
     def _external_change(self, _mode):
         if not self._changing:
@@ -229,6 +322,9 @@ class ThemeTransition(QObject):
 
     def eventFilter(self, watched, event):
         kind = event.type()
+        if (self._titlebar_theme is not None and watched is self.window.windowHandle()
+                and kind == QEvent.ApplicationPaletteChange):
+            window_fullscreen.sync_titlebar(self.window)
         if kind == QEvent.KeyPress:
             self._keyboard = True
         elif kind == QEvent.MouseButtonPress:
