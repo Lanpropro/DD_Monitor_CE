@@ -172,6 +172,109 @@ class Probe:
         self.handler.close()
 
 
+class FolderMotionCapture:
+    """Record bounded layout/position evidence only around a real folder click."""
+    def __init__(self, probe, sidebar):
+        from PySide6.QtCore import QTimer
+        self.probe, self.sidebar = probe, sidebar
+        self.record = None
+        self.timer = QTimer(sidebar)
+        self.timer.setInterval(16)
+        self.timer.timeout.connect(self.frame)
+        self.toggle = sidebar.toggle_folder
+        self.relayout = sidebar.list_box.relayout
+        sidebar.toggle_folder = self.toggle_folder
+        sidebar.list_box.relayout = self.layout
+
+    def toggle_folder(self, folder_id, *, animate=False):
+        if self.probe.stopped.is_set():
+            return self.toggle(folder_id, animate=animate)
+        self.finish('superseded')
+        folder = self.sidebar.get_folder(folder_id)
+        if folder is None:
+            return self.toggle(folder_id, animate=animate)
+        self.started = time.perf_counter()
+        self.record = {'folder_index': self.sidebar.folders.index(folder),
+            'opening': bool(folder['collapsed']), 'animate_requested': bool(animate),
+            'side': self.sidebar.side, 'card_mode': self.sidebar.card_mode,
+            'frames': [], 'layouts': []}
+        self.entries = list(self.sidebar._items) + list(self.sidebar._folder_buttons.values())
+        self.entries += list(self.sidebar._smart_cards.values())
+        self.frame()
+        try:
+            result = self.toggle(folder_id, animate=animate)
+        except BaseException:
+            self.finish('error')
+            raise
+        self.record['toggle_ms'] = round((time.perf_counter() - self.started) * 1000, 3)
+        for entry in self.sidebar._smart_cards.values():
+            if entry not in self.entries:
+                self.entries.append(entry)
+        self.frame()
+        if self.record is not None:
+            self.timer.start()
+        return result
+
+    def layout(self, *args, **kwargs):
+        record = self.record
+        if record is None or self.probe.stopped.is_set():
+            return self.relayout(*args, **kwargs)
+        box = self.sidebar.list_box
+        running = sum(a.state().name == 'Running' for a in box._animations.values())
+        started = time.perf_counter()
+        callers = stack_locations(sys._getframe(1))[:6]
+        try:
+            return self.relayout(*args, **kwargs)
+        finally:
+            if len(record['layouts']) < 24:
+                record['layouts'].append({'at_ms': round((started - self.started) * 1000, 3),
+                    'duration_ms': round((time.perf_counter() - started) * 1000, 3),
+                    'animate': bool(kwargs.get('animate', args[0] if args else False)),
+                    'running_before': running, 'callers': callers})
+
+    def frame(self):
+        record = self.record
+        if record is None:
+            return
+        if self.probe.stopped.is_set():
+            self.timer.stop()
+            self.record = None
+            return
+        sidebar = self.sidebar
+        elapsed = (time.perf_counter() - self.started) * 1000
+        bar = sidebar.scroll.horizontalScrollBar() if sidebar.side == 'top' else sidebar.scroll.verticalScrollBar()
+        viewport = sidebar.scroll.viewport()
+        # Numbers are capture-local row indexes, never room IDs or folder names.
+        rows = []
+        for index, entry in enumerate(self.entries):
+            try:
+                if entry.isHidden():
+                    continue
+                rect = entry.geometry()
+                along = rect.x() if sidebar.side == 'top' else rect.y()
+                extent = rect.width() if sidebar.side == 'top' else rect.height()
+                span = viewport.width() if sidebar.side == 'top' else viewport.height()
+                if along + extent < bar.value() or along > bar.value() + span:
+                    continue
+                rows.append({'row': index, 'rect': list(rect.getRect())})
+            except RuntimeError:  # A smart-folder copy can be deleted during refresh.
+                continue
+            if len(rows) == 16:
+                break
+        record['frames'].append({'at_ms': round(elapsed, 3), 'scroll': bar.value(),
+            'scroll_max': bar.maximum(), 'content': [sidebar.list_box.width(), sidebar.list_box.height()],
+            'running': sum(a.state().name == 'Running' for a in sidebar.list_box._animations.values()),
+            'rows': rows})
+        if elapsed >= 600 or len(record['frames']) >= 40:
+            self.finish('complete')
+
+    def finish(self, reason='closing'):
+        self.timer.stop()
+        record, self.record = self.record, None
+        if record is not None and not self.probe.stopped.is_set():
+            self.probe.write('folder-motion', reason=reason, **record)
+
+
 def install(path):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
@@ -196,9 +299,11 @@ def install(path):
     def initialize(window, *args, **kwargs):
         original(window, *args, **kwargs)
         window._responsiveness_probe = probe
+        window._folder_motion_probe = FolderMotionCapture(probe, window.sidebar)
         timer = QTimer(window)
         timer.setInterval(100)
         timer.timeout.connect(lambda: probe.pulse(window))
+        QApplication.instance().aboutToQuit.connect(window._folder_motion_probe.finish)
         QApplication.instance().aboutToQuit.connect(probe.stop)
         window.destroyed.connect(probe.stop)
         probe.pulse(window)

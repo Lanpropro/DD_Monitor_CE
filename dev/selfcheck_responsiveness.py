@@ -95,6 +95,45 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.state['danmaku_clients'], 1)
         self.assertNotIn('private-room', json.dumps(self.probe.state))
 
+    def test_folder_capture_records_bounded_positions_and_layout_interruptions(self):
+        from PySide6.QtWidgets import QApplication
+        from ddm.widgets import Sidebar
+        app = QApplication.instance() or QApplication([])
+        sidebar = Sidebar([{'room_id': 'private-room', 'uname': 'private-name'}], auto_compact=False)
+        self.addCleanup(sidebar.deleteLater)
+        sidebar.set_folders([{'id': 'private-folder', 'name': 'private-title', 'type': 'normal',
+                             'rooms': ['private-room'], 'collapsed': True}])
+        sidebar.resize(248, 700)
+        sidebar.show()
+        app.processEvents()
+        capture = diag.FolderMotionCapture(self.probe, sidebar)
+        self.addCleanup(capture.finish)
+        sidebar.toggle_folder('private-folder', animate=True)
+        self.assertFalse(sidebar.get_folder('private-folder')['collapsed'])
+        sidebar.list_box.relayout(animate=False)
+        for _ in range(45):
+            capture.frame()
+        row = next(r for r in self.records() if r['phase'] == 'folder-motion')
+        self.assertEqual(row['reason'], 'complete')
+        self.assertTrue(row['opening'] and row['animate_requested'])
+        self.assertLessEqual(len(row['frames']), 40)
+        self.assertTrue(any(layout['running_before'] and not layout['animate'] for layout in row['layouts']))
+        self.assertTrue(all(len(frame['rows']) <= 16 for frame in row['frames']))
+        self.assertFalse(capture.timer.isActive())
+        self.assertNotIn('private-', json.dumps(row))
+        sidebar.toggle_folder('private-folder', animate=True)
+        sidebar.toggle_folder('private-folder', animate=True)
+        self.assertEqual(self.records()[-1]['reason'], 'superseded')
+        capture.finish()
+        with patch.object(capture, 'toggle', side_effect=ValueError('private-error')):
+            with self.assertRaises(ValueError):
+                sidebar.toggle_folder('private-folder')
+        self.assertEqual(self.records()[-1]['reason'], 'error')
+        self.assertIsNone(capture.record)
+        self.assertFalse(capture.timer.isActive())
+        self.assertNotIn('private-error', json.dumps(self.records()))
+        sidebar.close()
+
     def test_thread_stop_is_idempotent_and_wrappers_stop_recording(self):
         self.probe.start()
         self.assertTrue(self.probe.thread.is_alive())
@@ -152,6 +191,7 @@ class ProbeTests(unittest.TestCase):
         with patch.object(app_module, 'MainWindow', Window), \
                 patch.object(widgets, 'Sidebar', Component), patch.object(widgets, 'WallGrid', Component), \
                 patch.object(preview, 'HoverPreview', Component), \
+                patch.object(diag, 'FolderMotionCapture'), \
                 patch.object(diag.time, 'perf_counter', side_effect=[0, .02, .03, .05]):
             diag.install(path)
             window = Window()
