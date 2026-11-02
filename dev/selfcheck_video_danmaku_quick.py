@@ -631,12 +631,15 @@ def main():
             assert overlay._quick_group == group and not layer.groups[group].property("rounded")
             mask_key = layer.group_masks[group]
             mask_image = layer.images.images[mask_key]
-            pause_point = (target.bottom.pos() - overlay.pos() + target.pause_button.pos()
-                           + QPoint(target.pause_button.width() // 2,
-                                    target.pause_button.height() // 2))
+            pause_global = target.pause_button.mapToGlobal(target.pause_button.rect().center())
+            pause_point = overlay.mapFromGlobal(pause_global)
             scale = mask_image.devicePixelRatioF()
-            assert mask_image.pixelColor(round(pause_point.x() * scale),
-                                         round(pause_point.y() * scale)).alpha() == 0, \
+            sample = QPoint(round(pause_point.x()*scale), round(pause_point.y()*scale))
+            texture_hole = mask_image.rect().contains(sample) and mask_image.pixelColor(sample).alpha() == 0
+            native_mask = layer.window.mask()
+            native_hole = (not native_mask.isEmpty()
+                           and not native_mask.contains(layer.window.mapFromGlobal(pause_global)))
+            assert texture_hole or native_hole, \
                 "Quick 遮罩必须给全屏暂停按钮留透明区域"
             if visible:
                 window._exit_fullscreen()
