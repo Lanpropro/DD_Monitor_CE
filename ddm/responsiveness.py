@@ -172,7 +172,7 @@ class Probe:
         self.handler.close()
 
 
-def install_theme_capture(path):
+def install_theme_capture(path, *, profile_calls=False):
     """Measure actual theme changes without a continuous sampler."""
     import atexit
     from .theme_transition import ThemeTransition
@@ -185,16 +185,18 @@ def install_theme_capture(path):
     def change(transition, mode, *args, **kwargs):
         if probe.stopped.is_set():
             return original(transition, mode, *args, **kwargs)
-        profile = cProfile.Profile()
+        profile = cProfile.Profile() if profile_calls else None
         started = time.perf_counter()
-        profile.enable()
+        if profile is not None:
+            profile.enable()
         try:
             return original(transition, mode, *args, **kwargs)
         finally:
-            profile.disable()
+            if profile is not None:
+                profile.disable()
             probe.write('theme-switch', mode=theme.normalize_mode(mode),
                 duration_ms=round((time.perf_counter() - started) * 1000, 3),
-                functions=profile_functions(profile))
+                functions=profile_functions(profile) if profile is not None else [])
 
     ThemeTransition.change = change
     atexit.register(probe.stop)

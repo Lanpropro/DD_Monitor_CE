@@ -120,7 +120,7 @@ class ProbeTests(unittest.TestCase):
         path = Path(self.directory.name) / 'themes.jsonl'
         with patch.object(theme_transition, 'ThemeTransition', Transition):
             with patch.object(QApplication, 'instance', return_value=None):
-                probe = diag.install_theme_capture(path)
+                probe = diag.install_theme_capture(path, profile_calls=True)
             try:
                 transition = Transition()
                 self.assertIs(transition.change('light', token), token)
@@ -136,6 +136,16 @@ class ProbeTests(unittest.TestCase):
                 probe.stop()
                 transition.change('dark')
                 self.assertEqual(len(path.read_text(encoding='utf-8').splitlines()), len(rows) + 1)
+                light_path = Path(self.directory.name) / 'theme-timing.jsonl'
+                timing = diag.install_theme_capture(light_path)
+                try:
+                    with patch.object(diag.cProfile, 'Profile', side_effect=AssertionError('Ordinary capture must not profile calls')):
+                        self.assertIs(transition.change('light', token), token)
+                    row = json.loads(light_path.read_text(encoding='utf-8').splitlines()[-1])
+                    self.assertEqual(row['phase'], 'theme-switch')
+                    self.assertEqual(row['functions'], [])
+                finally:
+                    timing.stop()
             finally:
                 probe.stop()
 
