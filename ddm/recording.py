@@ -254,6 +254,7 @@ class _Session:
         self.url = ""
         self.chunk = 0
         self.stopping = False
+        self.save_cache_on_stop = False
         self.next_url = ""
         self.next_headers: dict = {}
         self.next_video_codec: str | None = None
@@ -416,11 +417,12 @@ class RecordingManager(QObject):
             except OSError:
                 pass
 
-    def stop(self, tile) -> None:
+    def stop(self, tile, *, save_cache: bool = False) -> None:
         session = self.sessions.get(tile)
         if session is None or session.stopping:
             return
         session.stopping = True
+        session.save_cache_on_stop = bool(save_cache)
         self._cancel_source(session)
         self._end_process(session)
         self.changed.emit(tile)
@@ -477,18 +479,23 @@ class RecordingManager(QObject):
             if save_replay and bool(self.settings.get("recording_replay_enabled", True)):
                 self._export_replay(session, session.replay_parts + parts)
             self._export(session, parts, full=True)
+        elif session.save_cache_on_stop:
+            parts = session.finished_parts()
+            if not parts:
+                self._say(f"{session.name} 缓存中暂无可保存的视频片段", session.room)
+            elif self._export_replay(session, parts):
+                self._discard_cache(session)
         else:
             self._discard_cache(session)
 
-    def _export_replay(self, session: _Session, parts: list[Path]) -> None:
+    def _export_replay(self, session: _Session, parts: list[Path]) -> bool:
         """单独存一份「最近 N 分钟」（即时回放），完整录制照旧另外导出。"""
         if not parts:
-            return
+            return False
         count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
                           * 60 / SEGMENT_SECONDS)
         recent = parts[-count:]
-        if recent:
-            self._export(session, recent, full=False)
+        return self._export(session, recent, full=False)
 
     def on_resolved(self, tile) -> None:
         session = self.sessions.get(tile)
@@ -797,8 +804,8 @@ class RecordingManager(QObject):
                         session.process.kill()
                         session.process.wait()
             session.close_chunk()
-            # 退出只保存完整录制；等待重连时没有进程，也要收尾已有分段。
-            # 用户主动发起的回放导出保留在 exports 中，下面照常等待完成。
+            # 退出不自动保存回放；明确请求的缓存停止保存仍完成导出。
+            # 等待重连时没有进程，也要收尾已有分段。
             self._finalize(session, save_replay=False)
         self.sessions.clear()
         # 导出进程不能在应用退出后悬空；最多等 10 秒，失败时保留原始分段。

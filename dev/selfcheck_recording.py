@@ -662,7 +662,11 @@ def main():
         tile.stream_headers = {}
         window.settings["recording_lock_quality"] = True
         before_quality = tile.quality
-        window._start_replay(tile)
+        replay_before = set((root / 'out' / 'replays').glob('格子录制*.mp4'))
+        with patch('ddm.recording.SEGMENT_SECONDS', 30), patch(
+                'ddm.recording.input_args', side_effect=lambda url, _headers:
+                ['-re', '-stream_loop', '-1', '-i', url]):
+            window._start_replay(tile)
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
@@ -672,9 +676,27 @@ def main():
         assert tile.quality == before_quality and tile not in window._pending_capture
         window._sync_replay_scope()
         assert window.recorder.sessions[tile] is cached_session
+        assert until(app, lambda: time.monotonic() - cached_session.started_at > 1.2, 4)
+        assert cached_session.process.poll() is None and not cached_session.finished_parts(), \
+            'This stop must save the still-open first segment'
         # A manual stop suppresses automatic caching until the user explicitly starts it again.
         window._stop_replay(tile)
+        window._stop_replay(tile)  # Repeated clicks must not export twice.
         assert until(app, lambda: tile not in window.recorder.sessions and not window.recorder.exports)
+        replay_after = set((root / 'out' / 'replays').glob('格子录制*.mp4'))
+        saved_cache = replay_after - replay_before
+        assert len(saved_cache) == 1, 'Stopping the manual cache must save one replay'
+        saved_path = saved_cache.pop()
+        decoded = _run_text([ffmpeg, '-v', 'error', '-i', str(saved_path),
+                             '-progress', 'pipe:1', '-f', 'null', '-'])
+        frames = [int(line.split('=')[1]) for line in decoded.stdout.splitlines() if line.startswith('frame=')]
+        assert frames and frames[-1] > 0 and not decoded.stderr, 'Saved cache must decode usable video'
+        probe = ffprobe_path(ffmpeg)
+        if probe:
+            streams = _run_text([probe, '-v', 'error', '-show_entries', 'stream=codec_type',
+                                 '-of', 'csv=p=0', str(saved_path)]).stdout
+            assert 'video' in streams and 'audio' in streams, 'Saved cache must preserve both tracks'
+        assert not cached_session.finished_parts(), 'Successful replay export must clean temporary cache parts'
         window.settings["recording_replay_scope"] = "all"
         window._sync_replay_scope()
         assert tile not in window.recorder.sessions

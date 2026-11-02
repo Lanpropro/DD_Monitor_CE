@@ -62,6 +62,23 @@ def main():
                     assert result.with_suffix(suffix).exists() == bool(code)
                 assert part.exists() == (not full or bool(code))
         manager.shutdown()
+    # Stopping a cache selects recent parts and preserves them if export fails.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        manager = RecordingManager(dict(DEFAULT_SETTINGS, recording_replay_minutes=1))
+        tile = FakeTile('停止缓存', 'cache-stop', '')
+        session = _Session(tile, manager.settings, False, root)
+        parts = [root / f'part-{index}.mp4' for index in range(3)]
+        for part in parts:
+            part.write_bytes(b'cache part')
+        session.parts.extend(parts)
+        manager.sessions[tile] = session
+        with patch('ddm.recording.SEGMENT_SECONDS', 30), \
+                patch.object(manager, '_export', return_value=False) as export:
+            manager.stop(tile, save_cache=True)
+            export.assert_called_once_with(session, parts[-2:], full=False)
+        assert all(part.exists() for part in parts), 'Failed cache export must retain source parts'
+        manager.shutdown()
     ffmpeg = ffmpeg_path(DEFAULT_SETTINGS)
     assert ffmpeg, "本机需有 FFmpeg"
     with tempfile.TemporaryDirectory(prefix="ddm-shutdown-check-") as temp:
@@ -109,6 +126,21 @@ def main():
                 assert completed and completed[0]['room_id'] == '1', "导出应保留原主播头像上下文"
             finally:
                 manager.shutdown()
+
+        folder = root / 'manual-cache-stop'
+        settings = dict(DEFAULT_SETTINGS, recording_dir=str(folder), recording_min_free_mb=256)
+        manager = RecordingManager(settings)
+        cache = FakeTile('明确停止缓存', 'manual-cache', str(source))
+        with patch('ddm.recording.SEGMENT_SECONDS', 1), patch(
+                'ddm.recording.input_args', side_effect=lambda url, _headers:
+                ['-re', '-stream_loop', '-1', '-i', url]):
+            assert manager.start(cache, recording=False)
+        assert until(app, lambda: bool(manager.sessions[cache].finished_parts()), 8)
+        manager.stop(cache, save_cache=True)
+        manager.shutdown()
+        assert not manager.sessions and not manager.exports
+        assert len(list((folder / 'replays').glob('*.mp4'))) == 1
+        assert not list(folder.glob('*.mp4')) and not list((folder / '.ddm-parts').glob('*.mp4'))
 
         # 真正走主窗口关闭事件，检查正在录制时不会额外保存回放。
         folder = root / "window"

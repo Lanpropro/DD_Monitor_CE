@@ -116,7 +116,7 @@ class CaptureControl:
         session = host.recorder.sessions.get(tile)
         if session is not None and not session.recording:
             host._replay_suppressed[tile] = str(tile.room.get("room_id") or "")
-            host.recorder.stop(tile)
+            host.recorder.stop(tile, save_cache=True)
 
     def toggle_recording(self, tile) -> None:
         host = self.host
