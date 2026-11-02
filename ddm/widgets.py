@@ -6499,7 +6499,10 @@ class Tile(QFrame):
             action.setChecked(value == self.quality)
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
             menu.addAction(action)
-        menu.exec(self.quality_button.mapToGlobal(self.quality_button.rect().bottomLeft()))
+        try:
+            menu.exec(self.quality_button.mapToGlobal(self.quality_button.rect().bottomLeft()))
+        finally:
+            menu.deleteLater()
 
     def set_quality(self, value: int) -> None:
         if getattr(self, "quality_locked", False) and value != 10000:
@@ -7079,7 +7082,11 @@ class Tile(QFrame):
             return
         # 插件要先把自己那一组菜单项登记进来（本体不认识它们）
         self.pluginMenuRequested.emit()
-        self.build_menu().exec(event.globalPos())
+        menu = self.build_menu()
+        try:
+            menu.exec(event.globalPos())
+        finally:
+            menu.deleteLater()
 
     def build_menu(self) -> QMenu:
         """右键菜单：音量滑条 + 画质 + 声道 + 常规操作。"""

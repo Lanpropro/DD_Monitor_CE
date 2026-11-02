@@ -16,11 +16,17 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 if /i "%~1"=="--sc-simulator" goto scsimulator
+if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
 start "" "%PY%" "%PROJ%main.py"
 exit /b 0
+
+:widgetLifetimeCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
+exit /b %errorlevel%
 
 :responsiveness
 start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness
