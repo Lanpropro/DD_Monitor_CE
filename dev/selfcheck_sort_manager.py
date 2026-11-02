@@ -2,7 +2,7 @@
 import os
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -86,9 +86,10 @@ def main() -> None:
         app.processEvents()
         for card in sidebar.items():
             assert card.thumb.rect().contains(card.check.geometry())
-            assert not card.name_label.geometry().intersects(card.check.geometry())
+            check_rect = QRect(card.check.mapTo(card, QPoint()), card.check.size())
+            assert not card.name_label.geometry().intersects(check_rect)
             if not card_mode:
-                assert not card.platform_badge.geometry().intersects(card.check.geometry())
+                assert not card.platform_badge.geometry().intersects(check_rect)
     sidebar.set_select_mode(False)
     sidebar.apply_pins(["p1", "p2"])
 
