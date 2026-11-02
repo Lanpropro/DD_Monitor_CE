@@ -228,9 +228,8 @@ def _apply_palette(app, colors):
         palette.setColor(roles[name.replace('-', '')], parsed)
     palette.setColor(QPalette.PlaceholderText, qcolor(colors['TEXT3']))
     app.setPalette(palette.resolve(app.palette()))
-    for widget in app.allWidgets():
-        widget.setPalette(palette.resolve(widget.palette()))
-        refresh_theme_properties(widget)
+    # Qt propagates this palette; local QSS and explicit widget roles take
+    # precedence (e.g. SC close colours and custom placeholder text).
     # Clear cached palette-dependent paint rules once, without re-polishing
     # every widget or resetting its geometry and fonts.
     app.style().unpolish(app)
@@ -411,6 +410,8 @@ def apply(value):
             styled += '\n' + extra
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
+        elif styled:
+            widget.style().polish(widget)
         _styles[widget] = (source, colors, styled)
         refresh = getattr(widget, "refresh_theme", None)
         if callable(refresh):

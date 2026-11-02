@@ -37,7 +37,8 @@ def main():
     QTest.qWait(20)
     stable = app.styleSheet()
     for mode in ('light', 'dark', 'light'):
-        with patch.object(app, 'setStyleSheet', side_effect=AssertionError('Global stylesheet changed')):
+        with patch.object(app, 'setStyleSheet', side_effect=AssertionError('Global stylesheet changed')), \
+                patch.object(QWidget, 'setPalette', side_effect=AssertionError('Theme must preserve inherited/local widget palettes')):
             theme.apply(mode)
         QTest.qWait(20)
         fast = window.grab().toImage()
