@@ -206,6 +206,7 @@ class ControlsTests(unittest.TestCase):
         panel._on_user_scroll()
         composer = panel._tile_controls.entries[0].control.widget
         edit = composer.findChild(QLineEdit)
+        self.assertTrue(edit.isVisible())
         for mode in ('light', 'dark', 'light'):
             theme.apply(mode)
             APP.processEvents()

@@ -56,7 +56,18 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 71)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 72)])
+        douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
+        self.assertIn('**状态**：暂缓定位。', douyu_case)
+        for evidence in ('暂时无法复现', '6657', '6979222', 'hwdec=no',
+                         'Packet corrupt', '2018d1d', '不是播放故障修复',
+                         '普通开发入口和诊断入口均已复现', '12:53:22', 'ReadTimeout',
+                         '6988a31e', '12:58:04', '此前 FLV/H.264 错误不是本次复发的已确认必要条件',
+                         '75b5a61c976d', '3183ms', '4167ms', '没有中间视频 tag', '采集开销证据',
+                         '14:43:42', 'not JSON serializable', '这修复的是采集器',
+                         'c88cff8d', '2350ms', 'douyu-control.json',
+                         '1a0f6b2802cb', 'AES256-GCM-SHA384', '不禁用证书或主机名校验'):
+            self.assertIn(evidence, douyu_case)
         long_run = content.split('### BUG-070：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：待定位。', long_run)
         self.assertIn('不构成长时间使用性能的验收', long_run)

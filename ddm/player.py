@@ -127,7 +127,7 @@ class TilePlayer(QObject):
             setattr(self.player, name.replace("-", "_"), value)
 
     def _log(self, level, prefix, message):
-        if level in ("error", "fatal") and self.stream_profile == "huya":
+        if level in ("error", "fatal") and self.stream_profile in ("huya", "douyu"):
             status = re.search(r"HTTP(?:/\d(?:\.\d)?| error)?\s+([45]\d\d)", message, re.I)
             if status and not self.source_failure:
                 self.source_failure = "HTTP_" + status[1]
@@ -198,7 +198,7 @@ class TilePlayer(QObject):
         self._decode_stall_ticks = 0
         overseas = profile in ("twitch", "youtube")
         hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas
-        self._picture_limit = 20 if overseas else 8 if hls else self.FROZEN_TICKS
+        self._picture_limit = 20 if overseas else 8 if hls and profile != "douyu" else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas else 6
         default_profile = "app" if profile.startswith("app") else "web"
         request_headers = dict(headers) if headers else dict(self.PROFILE_HEADERS[default_profile])
@@ -465,6 +465,11 @@ class TilePlayer(QObject):
             return
         playing = (self.state in ("playing", "frozen") and not self.paused
                    and not self._prop("paused-for-cache", False))
+        if (self.stream_profile == "douyu" and self.state == "buffering" and not self.paused
+                and not self._prop("paused-for-cache", False)):
+            video, audio = self._prop("time-pos"), self._prop("audio-pts")
+            # Video stalls can mark the tile buffering while audio keeps advancing.
+            playing = video is not None and audio is not None and audio - video > 0.5
         if self._check_picture(playing) and not self._recover_decoder(frozen=True):
             self._set_state("frozen")
 
@@ -486,6 +491,12 @@ class TilePlayer(QObject):
         advanced = current is not None and (self._last_time is None or current > self._last_time)
         self._last_time = current
         ended = self._prop("eof-reached", False) or self._prop("idle-active", False)
+        if (self._prop("eof-reached", False) and current is not None
+                and getattr(self, "stream_profile", "") == "douyu"):
+            if not self.source_failure:
+                self.source_failure = "LIVE_EOF"
+            self._set_state("error")
+            return
         if advanced and not ended and self._prop("vo-configured", False):
             self._stall_ticks = 0
             if self.state != "frozen":

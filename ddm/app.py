@@ -47,6 +47,7 @@ from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
 from . import player as player_module
 from .player import TilePlayer
+from .playback_recovery import PlaybackRecovery
 from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
@@ -69,9 +70,6 @@ PORTRAIT_MAX_RATIO = 0.9
 PORTRAIT_ENTER_RATIO = PORTRAIT_MAX_RATIO
 PORTRAIT_EXIT_RATIO = 1.0
 RESIZE_SETTLE_MS = 150
-RETRY_BASE_SECONDS = 5           # 断流后的重连间隔（指数退避）
-RETRY_MAX_SECONDS = 60
-FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
 from .fullscreen_presentation import FullscreenPresentation
 
 DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
@@ -152,12 +150,14 @@ class MainWindow(QMainWindow):
         self._startup_status_complete = False
         self._refresh_queued = False
         self._stats_poller = None
-        self._retry_count: dict[object, int] = {}
         self._codec_dialogs: dict[Tile, CodecSettingsDialog] = {}
         self._stream_info_dialogs = {}
-        self._retry_timers: dict[object, QTimer] = {}
-        self._freeze_refreshed: set[object] = set()
-        self._freeze_retry_timers: dict[object, QTimer] = {}
+        self.playback_recovery = PlaybackRecovery(self)
+        # Compatibility views; all recovery state is owned by the controller.
+        self._retry_count = self.playback_recovery.retry_count
+        self._retry_timers = self.playback_recovery.retry_timers
+        self._freeze_refreshed = self.playback_recovery.freeze_refreshed
+        self._freeze_retry_timers = self.playback_recovery.freeze_retry_timers
         self._fullscreen_tile: Tile | None = None
         self._fullscreen_cursor = FullscreenCursor(self)
         self._fullscreen_presentation = FullscreenPresentation(self)
@@ -1233,9 +1233,7 @@ class MainWindow(QMainWindow):
         config_module.save(self.current_state())
         self.stop_danmaku()
         self.hover_preview.stop()
-        for timer in self._freeze_retry_timers.values():
-            timer.stop()
-        self._freeze_retry_timers.clear()
+        self.playback_recovery.shutdown()
         players = list(self.players.values())
         self.players.clear()
         for player in players:
@@ -1713,10 +1711,7 @@ class MainWindow(QMainWindow):
             self._offline_tile(tile)
             tile.set_status("未开播")
             return
-        timer = self._retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()              # 已通过其他路径重取流，旧的断流定时器不能再打断新流
-            timer.deleteLater()
+        self.playback_recovery.cancel_retry(tile)
         previous = self._resolvers.get(tile)
         if previous is not None:
             previous.cancel()
@@ -2106,21 +2101,12 @@ class MainWindow(QMainWindow):
         if not tile.room.get("room_id"):
             return
         if state == "playing":
-            timer = self._retry_timers.pop(tile, None)
-            if timer is not None:
-                timer.stop()          # 缓冲后自行恢复，取消尚未执行的断流重连
-                timer.deleteLater()
+            self.playback_recovery.cancel_retry(tile)
             tile.set_video_active(True)
             tile.set_buffering(False)
             tile.set_status("")
             tile.start_elapsed_timer()
-            if str(tile.room.get("room_id", "")).startswith("huya:"):
-                player = self.players.get(tile)
-                if player is not None:
-                    generation = player.state_generation
-                    QTimer.singleShot(15000, lambda: self._reset_stable_huya_retry(tile, player, generation))
-            else:
-                self._retry_count.pop(tile, None)
+            self.playback_recovery.reset_retry_after_playing(tile)
             player = self.players.get(tile)
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
@@ -2133,13 +2119,17 @@ class MainWindow(QMainWindow):
         elif state == "buffering":
             tile.set_buffering(True)         # 卡顿时也显示缓冲动画
         elif state == "frozen":
+            player = self.players.get(tile)
+            if str(tile.room.get("room_id", "")).startswith("douyu:") and player is not None:
+                self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
+                    source_url=player.stream_url, reason="STALL")
             self._on_picture_frozen(tile)
         elif state == "error":
             self._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
             player = self.players.get(tile)
-            if str(tile.room.get("room_id", "")).startswith("huya:") and player is not None:
+            if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")) and player is not None:
                 self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
                     source_url=player.stream_url, reason=player.source_failure or "STALL")
             self.refresh_status()           # 断流可能来自下播，立即向接口确认
@@ -2150,108 +2140,32 @@ class MainWindow(QMainWindow):
         tile.raise_overlays()
 
     def _reset_stable_huya_retry(self, tile, player, generation):
-        if (not self._closing and self.players.get(tile) is player and player.state == "playing"
-                and player.state_generation == generation):
-            self._retry_count.pop(tile, None)
+        return self.playback_recovery.reset_stable_retry(tile, player, generation)
 
     def _on_picture_frozen(self, tile) -> None:
-        """静止约 2 秒先立即刷新；仍静止则提示，并每 5 秒再次刷新。"""
-        if not tile.room.get("room_id") or tile.paused:
-            return
-        if tile in self._resolvers or tile in self._retry_timers:
-            return
-        if tile not in self._freeze_refreshed:
-            self._freeze_refreshed.add(tile)
-            tile.set_status("画面停止更新，正在自动刷新…")
-            print(f"[画面静止] {tile.room.get('uname')} 自动刷新",
-                  file=sys.stderr, flush=True)
-            self.refresh_status()           # 静止可能来自下播；接口确认后会同步清屏和侧栏
-            self.start_tile(tile)
-            return
-        if tile in self._freeze_retry_timers:
-            return
-        tile.set_status(f"画面仍停止更新，{FREEZE_RETRY_SECONDS} 秒后再次刷新…")
-        timer = QTimer(self)
-        timer.setSingleShot(True)
-        timer.timeout.connect(lambda t=tile: self._retry_frozen_picture(t))
-        self._freeze_retry_timers[tile] = timer
-        timer.start(FREEZE_RETRY_SECONDS * 1000)
+        return self.playback_recovery.picture_frozen(tile)
 
     def _retry_frozen_picture(self, tile) -> None:
-        timer = self._freeze_retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()
-            timer.deleteLater()
-        if not tile.room.get("room_id") or tile.paused:
-            return
-        tile.set_status("画面仍停止更新，正在再次刷新…")
-        print(f"[画面静止] {tile.room.get('uname')} 5 秒后再次刷新",
-              file=sys.stderr, flush=True)
-        self.start_tile(tile)
+        return self.playback_recovery.retry_frozen_picture(tile)
 
     def _on_picture_activity(self, tile) -> None:
-        """画面重新变化后结束静止恢复流程，不再执行排队中的刷新。"""
-        if tile is None:
-            return                        # 播放器已经不在任何格子上
-        was_recovering = tile in self._freeze_refreshed
-        self._clear_freeze_recovery(tile)
-        if was_recovering:
-            tile.set_status("")
-            print(f"[画面恢复] {tile.room.get('uname')} 已恢复更新",
-                  file=sys.stderr, flush=True)
+        return self.playback_recovery.picture_activity(tile)
 
     def _clear_freeze_recovery(self, tile) -> None:
-        timer = self._freeze_retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()
-            timer.deleteLater()
-        self._freeze_refreshed.discard(tile)
+        return self.playback_recovery.clear_freeze(tile)
 
     def _schedule_retry(self, tile) -> None:
-        """断流自动重连：5 秒起，逐次翻倍，最多 60 秒。"""
-        if not tile.room.get("room_id"):
-            return
-        # A pending source request or retry already owns this recovery attempt.
-        if tile in self._resolvers or tile in self._retry_timers:
-            return
-        attempt = self._retry_count.get(tile, 0) + 1
-        self._retry_count[tile] = attempt
-        delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
-        player = self.players.get(tile)
-        if (str(tile.room.get("room_id", "")).startswith("huya:") and
-                getattr(player, "source_failure", "") == "LIVE_EOF"):
-            delay = min(attempt, 5)
-        if str(tile.room.get("room_id", "")).startswith("huya:"):
-            print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
-                  file=sys.stderr, flush=True)
-        tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）")
-        timer = QTimer(self)
-        timer.setSingleShot(True)
-        timer.timeout.connect(lambda t=tile: self._retry_now(t))
-        self._retry_timers[tile] = timer
-        timer.start(delay * 1000)
+        return self.playback_recovery.schedule_retry(tile)
 
     def _retry_now(self, tile) -> None:
-        timer = self._retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()
-            timer.deleteLater()
-        if tile.room.get("room_id"):
-            print(f"[重连] {tile.room.get('uname')} 第 {self._retry_count.get(tile, 1)} 次",
-                  file=sys.stderr, flush=True)
-            self.start_tile(tile)
+        return self.playback_recovery.retry_now(tile)
 
     def _stop_tile(self, tile) -> None:
         dialog = self._codec_dialogs.get(tile)
         if dialog is not None:
             dialog.close()
         self._replay_suppressed.pop(tile, None)
-        timer = self._retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()
-            timer.deleteLater()
-        self._retry_count.pop(tile, None)
-        self._clear_freeze_recovery(tile)
+        self.playback_recovery.clear_tile(tile)
         self._stream_attempts.pop(tile, None)
         player = self.players.pop(tile, None)
         if player is not None:
@@ -2325,10 +2239,7 @@ class MainWindow(QMainWindow):
 
     def _offline_tile(self, tile) -> None:
         """这一路下播：停掉播放（画面变黑），格子继续留给它，等重新开播自动接上。"""
-        timer = self._retry_timers.pop(tile, None)
-        if timer is not None:
-            timer.stop()
-        self._retry_count.pop(tile, None)
+        self.playback_recovery.cancel_retry(tile, reset_attempts=True)
         self._pending_capture.pop(tile, None)
         self.recorder.stop(tile)
         self._stop_tile(tile)
@@ -3663,13 +3574,15 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:  # noqa: BLE001
         pass
     app = QApplication(argv)
-    try:
-        instance = SingleInstance(app)
-        if not instance.start():
-            return 0
-    except (OSError, RuntimeError) as error:
-        QMessageBox.critical(None, "无法启动软件", str(error))
-        return 1
+    instance = None
+    if getattr(sys, "frozen", False):
+        try:
+            instance = SingleInstance(app)
+            if not instance.start():
+                return 0
+        except (OSError, RuntimeError) as error:
+            QMessageBox.critical(None, "无法启动软件", str(error))
+            return 1
     log_path = setup_file_log()
     from .localization import install_chinese_translations
     install_chinese_translations(app)
@@ -3725,7 +3638,8 @@ def main(argv: list[str] | None = None) -> int:
     ticker.start()
     window.resize(1600, 900)
     window.showMaximized()
-    instance.set_restore(lambda: restore_main_window(window))
+    if instance is not None:
+        instance.set_restore(lambda: restore_main_window(window))
     if config_module.DATA_MIGRATION_ERROR:
         QMessageBox.warning(window, '数据迁移未完成', config_module.DATA_MIGRATION_ERROR)
     t_show = time.perf_counter()
@@ -3738,7 +3652,8 @@ def main(argv: list[str] | None = None) -> int:
     watchdog.stop()
     if session is not None:
         faulthandler.enable(file=session.crash_handle, all_threads=True)
-    instance.close()  # A settings restart must acquire a new instance lock.
+    if instance is not None:
+        instance.close()  # A settings restart must acquire a new instance lock.
     if window._update_plan:
         try:
             launched = _launch_update(window._update_plan)

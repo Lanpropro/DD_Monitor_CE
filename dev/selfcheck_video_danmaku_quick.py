@@ -497,7 +497,9 @@ def main():
             assert layer.groups[target.video_danmaku._quick_group].property("rounded") is True
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
-            settle(app)
+            with patch('ddm.widgets.QCursor.pos', return_value=target.close_button.mapToGlobal(target.close_button.rect().center())):
+                settle(app)
+            assert target.controls.isVisible(), 'Control mask probe requires visible controls'
             mask_key = layer.group_masks[target.video_danmaku._quick_group]
             mask_image = layer.images.images[mask_key]
             control_origin = target.controls.pos() - target.video_danmaku.pos()
@@ -530,7 +532,9 @@ def main():
             image_key, render_id = comment.image.cacheKey(), comment.render_id
             for _ in range(3):
                 target.set_controls_visible(True)
-                settle(app)
+                with patch('ddm.widgets.QCursor.pos', return_value=target.close_button.mapToGlobal(target.close_button.rect().center())):
+                    settle(app)
+                assert target.controls.isVisible()
                 assert layer.window.grabWindow().copy(area) != baseline, \
                     "显示按钮时应只遮住按钮位置的弹幕"
                 target.set_controls_visible(False)

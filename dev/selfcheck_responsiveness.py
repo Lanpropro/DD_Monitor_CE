@@ -95,6 +95,65 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.state['danmaku_clients'], 1)
         self.assertNotIn('private-room', json.dumps(self.probe.state))
 
+    @patch('ddm.motion.enabled', lambda: True)
+    def test_folder_capture_records_bounded_positions_and_layout_interruptions(self):
+        from PySide6.QtWidgets import QApplication
+        from ddm.widgets import Sidebar
+        app = QApplication.instance() or QApplication([])
+        sidebar = Sidebar([{'room_id': 'private-room', 'uname': 'private-name'}], auto_compact=False)
+        self.addCleanup(sidebar.deleteLater)
+        sidebar.set_folders([{'id': 'private-folder', 'name': 'private-title', 'type': 'normal',
+                             'rooms': ['private-room'], 'collapsed': True}])
+        sidebar.resize(248, 700)
+        sidebar.show()
+        app.processEvents()
+        capture = diag.FolderMotionCapture(self.probe, sidebar)
+        self.addCleanup(capture.finish)
+        sidebar.toggle_folder('private-folder', animate=True)
+        self.assertFalse(sidebar.get_folder('private-folder')['collapsed'])
+        self.assertGreater(capture.running_animations(), 0)
+        capture.frame()
+        active_rows = capture.record['frames'][-1]['rows']
+        self.assertTrue(any(row['animation_ms'] is not None for row in active_rows))
+        for item in active_rows:
+            entry = capture.entries[item['row']]
+            self.assertEqual(item['stack'], sidebar.list_box.children().index(entry))
+            animation = sidebar.list_box._animations.get(entry)
+            target = animation.endValue() if animation is not None else entry.pos()
+            self.assertEqual(item['target'], [target.x(), target.y()])
+        sidebar.list_box.relayout(animate=False)
+        for _ in range(45):
+            capture.frame()
+        row = next(r for r in self.records() if r['phase'] == 'folder-motion')
+        self.assertEqual(row['reason'], 'complete')
+        self.assertTrue(row['opening'] and row['animate_requested'])
+        self.assertLessEqual(len(row['frames']), 40)
+        self.assertTrue(any(layout['running_before'] and not layout['animate'] for layout in row['layouts']))
+        self.assertTrue(all(len(frame['rows']) <= 16 for frame in row['frames']))
+        self.assertFalse(capture.timer.isActive())
+        self.assertNotIn('private-', json.dumps(row))
+        sidebar.toggle_folder('private-folder', animate=True)
+        sidebar.toggle_folder('private-folder', animate=True)
+        self.assertEqual(self.records()[-1]['reason'], 'superseded')
+        capture.finish()
+        with patch.object(capture, 'toggle', side_effect=ValueError('private-error')):
+            with self.assertRaises(ValueError):
+                sidebar.toggle_folder('private-folder')
+        self.assertEqual(self.records()[-1]['reason'], 'error')
+        self.assertIsNone(capture.record)
+        self.assertFalse(capture.timer.isActive())
+        self.assertNotIn('private-error', json.dumps(self.records()))
+        from PySide6.QtCore import QEvent, QPropertyAnimation, QPoint
+        from PySide6.QtWidgets import QWidget
+        target = QWidget(sidebar.list_box)
+        animation = QPropertyAnimation(target, b'pos', target)
+        animation.setEndValue(QPoint(0, 30))
+        sidebar.list_box._animations[target] = animation
+        target.deleteLater()
+        app.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertIsInstance(capture.running_animations(), int)
+        sidebar.close()
+
     def test_theme_animation_capture_bounds_frames_and_records_interruptions(self):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QApplication, QWidget
@@ -142,6 +201,33 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.timed(lambda: 42, 'after-stop')(), 42)
         self.assertNotIn('after-stop', self.probe.calls)
         self.assertEqual([row['phase'] for row in self.records()], ['start', 'stop'])
+
+    def test_folder_only_install_does_not_start_full_profiler(self):
+        from PySide6.QtCore import QObject
+        from PySide6.QtWidgets import QApplication
+        from ddm import app as host
+        app = QApplication.instance() or QApplication([])
+
+        class Window(QObject):
+            def __init__(self):
+                super().__init__()
+                self.sidebar = object()
+
+        path = Path(self.directory.name) / 'folders.jsonl'
+        with patch.object(host, 'MainWindow', Window), patch.object(diag, 'FolderMotionCapture') as capture:
+            diag.install_folder_capture(path)
+            window = Window()
+            probe = capture.call_args.args[0]
+            try:
+                self.assertIs(capture.call_args.args[1], window.sidebar)
+                self.assertIsNone(probe.thread)
+                self.assertFalse(hasattr(window, '_responsiveness_probe'))
+                self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['mode'], 'folders-only')
+            finally:
+                probe.stop()
+                window.deleteLater()
+                app.processEvents()
+
 
     def test_theme_capture_preserves_calls_and_bounds_function_records(self):
         from PySide6.QtWidgets import QApplication
@@ -234,6 +320,7 @@ class ProbeTests(unittest.TestCase):
         with patch.object(app_module, 'MainWindow', Window), \
                 patch.object(widgets, 'Sidebar', Component), patch.object(widgets, 'WallGrid', Component), \
                 patch.object(preview, 'HoverPreview', Component), \
+                patch.object(diag, 'FolderMotionCapture'), \
                 patch.object(diag.time, 'perf_counter', side_effect=[0, .02, .03, .05]):
             diag.install(path)
             window = Window()

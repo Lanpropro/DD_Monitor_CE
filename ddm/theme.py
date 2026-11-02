@@ -16,7 +16,7 @@ from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -297,7 +297,6 @@ def _light_style(widget):
         'PauseOverlay': '#PauseOverlay QLabel {color: #F1F2F5;}',
         'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
-        'DanmakuCount': '#DanmakuCount[state="connected"] {color: #007BA8;} #DanmakuCount[state="error"] {color: #B93665;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
     }.get(name, '')) + (FULLSCREEN_BAR_STYLE if name == 'TileBottom' else '')
 
@@ -425,6 +424,8 @@ def apply(value):
         properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
+        elif isinstance(widget, QLineEdit) and not properties_changed:
+            _refresh_widget_palette(widget, invalidate=True, defer=True)
         elif styled and not properties_changed:
             _refresh_widget_palette(widget, defer=True)
         _styles[widget] = (source, colors, styled)
@@ -1337,26 +1338,10 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #DanmakuCount {{
     color: {TEXT3};
-    background: rgba(131, 131, 145, 0.16);
-    border-radius: 9px;
-    padding: 0 8px;
-    font-size: {FONT_CAPTION}px;
+    background: transparent;
 }}
 #DanmakuCount[state="connected"] {{
-    color: #6bd8ff;
-    background: rgba(0, 174, 236, 0.16);
-}}
-#DanmakuCount[state="connecting"] {{
-    color: {WARNING};
-    background: rgba(251, 191, 36, 0.14);
-}}
-#DanmakuCount[state="error"] {{
-    color: #ff9abb;
-    background: rgba(251, 114, 153, 0.15);
-}}
-#DanmakuCount[state="idle"] {{
-    color: {TEXT4};
-    background: rgba(131, 131, 145, 0.13);
+    color: {PINK};
 }}
 #DanmakuBody {{
     background: transparent;
@@ -1583,8 +1568,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #NavThumbCover, #NavThumbHint, #PauseOverlay QLabel {color: #F1F2F5;}
         #DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}
         #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}
-        #DanmakuCount[state="connected"] {color: #007BA8;}
-        #DanmakuCount[state="error"] {color: #B93665;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
     return style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE

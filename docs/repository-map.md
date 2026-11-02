@@ -14,7 +14,7 @@
 | `plugins_user/` | 插件源码、模板、本机安装副本与更新暂存；不能整体当杂项 |
 | `libmpv-2.dll` | 本机播放运行库；使用 `dev/fetch_mpv.py` 下载并按来源清单校验，不进入 Git |
 
-头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
+头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。播放恢复调度集中在 `ddm/playback_recovery.py`，独立持有重连与冻结恢复状态及定时器；主窗口负责播放器操作、界面和插件事件，并保留原有内部入口的委托。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
 
 开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
 
@@ -142,6 +142,8 @@
 - `dev/selfcheck_download_retry.py`
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_lifecycle.py`
+- `dev/selfcheck_drag_diagnostics.py`
+- `dev/diagnose_drag_windows.py`
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`
@@ -157,6 +159,13 @@
 - `dev/selfcheck_follow_folders.py`
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_failed_stream_quality.py`
+- `dev/selfcheck_empty_tile_quality.py`
+- `dev/selfcheck_douyu_diagnostics.py`
+- `dev/selfcheck_douyu_deep_capture.py`
+- `dev/selfcheck_douyu_cdn_control.py`
+- `dev/selfcheck_douyu_transport.py`
+- `dev/selfcheck_douyu_recovery.py`
+- `dev/selfcheck_douyu_quality_order.py`
 - `dev/selfcheck_follow_stress.py`
 - `dev/selfcheck_pinyin_search.py`
 - `dev/selfcheck_follow_refresh.py`
@@ -247,6 +256,7 @@
 - `dev/selfcheck_player_lifetime.py`
 - `dev/selfcheck_stream_info.py`
 - `dev/selfcheck_single_instance.py`
+- `dev/selfcheck_playback_recovery.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`

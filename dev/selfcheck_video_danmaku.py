@@ -210,9 +210,17 @@ def check_moved_overlay_refresh(app):
     app.processEvents()
     assert wall._quick_danmaku_layer is None, 'Caption refresh cannot depend on enabled Quick danmaku'
     try:
-        with patch.object(tile.stream_badge, 'repaint', wraps=tile.stream_badge.repaint) as live, \
+        with patch('ddm.widgets.QCursor.pos', return_value=tile.video.mapToGlobal(tile.video.rect().center())), \
+                patch.object(tile.stream_badge, 'repaint', wraps=tile.stream_badge.repaint) as live, \
                 patch.object(tile.title_badge, 'repaint', wraps=tile.title_badge.repaint) as title, \
                 patch.object(tile.controls, 'repaint', wraps=tile.controls.repaint) as controls:
+            tile.set_controls_visible(True)
+            tile._control_hover_timer.stop()
+            app.processEvents()
+            assert tile.controls.isVisible() and tile.stream_badge.isVisible() and tile.title_badge.isVisible()
+            live.reset_mock()
+            title.reset_mock()
+            controls.reset_mock()
             for _ in range(3):
                 tile.move(tile.x() + 5, tile.y() + 5)
             assert not live.called and not title.called and not controls.called
