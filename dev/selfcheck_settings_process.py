@@ -90,8 +90,10 @@ def child(action):
             self.general_page._checks['preview_on_hover'].setChecked(False)
             self.general_page._checks['volume_normalization'].setChecked(True)
             if action.startswith('tray-'):
-                combo = self.general_page.close_behavior_combo
-                combo.setCurrentIndex(combo.findData('tray'))
+                self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
+                page = self._loaded_pages[self.PAGE_INDEX['tray']]
+                page.close_behavior_combo.setCurrentIndex(page.close_behavior_combo.findData('tray'))
+                page.pause_playback.setChecked(False)
             if 'sidebar_platform_logos' in self.general_page._checks:
                 self.general_page._checks['sidebar_platform_logos'].setChecked(False)
             if action in ('cancel', 'tray-cancel'):
@@ -197,6 +199,7 @@ def check_worker(app, action):
                 assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
+                    assert saves[0]['settings']['tray_pause_playback'] is False
                 assert 'appearance_mode' not in saves[0]['settings']
                 assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
             assert pages == ([{'appearance': 1, 'plugins': 6, 'updates': 7}[action.split('-')[1]]] if clean else [])

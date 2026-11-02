@@ -1698,6 +1698,8 @@ class MainWindow(QMainWindow):
         return changed
 
     def start_tile(self, tile, *, stream_quality: int | None = None) -> None:
+        if getattr(self, "_tray", None) is not None and self._tray.hold_playback(tile):
+            return
         if self._match_sync_holds(tile):
             self._match_sync_saved.setdefault(tile, (str(tile.room.get("room_id") or ""), tile.paused))
             return
@@ -1821,6 +1823,8 @@ class MainWindow(QMainWindow):
             return
         if self._match_sync_holds(tile):
             return
+        if getattr(self, "_tray", None) is not None and self._tray.hold_playback(tile):
+            return
         if room_id and str(tile.room.get("room_id") or "") != str(room_id):
             return                    # 迟到的取流结果（格子已经换台/被换走了）
         if requested_quality and int(tile.quality) != requested_quality:
@@ -1889,6 +1893,9 @@ class MainWindow(QMainWindow):
         if tile in self._pending_capture:
             self._finish_pending_capture(tile)
         self._emit_stream_resolved(tile, quality)
+        if getattr(self, "_tray", None) is not None and self._tray.hold_playback(tile):
+            self._stop_tile(tile)
+            return
         resume = getattr(self, "_match_sync_resume_pause", {}).pop(tile, None)
         if resume == str(tile.room.get("room_id") or ""):
             tile.set_paused(True)
@@ -2299,6 +2306,8 @@ class MainWindow(QMainWindow):
         一步没停，还在解码、**还在出声**（用户报「没显示出来的格子也在响」）。这里
         把当前布局放不下的停掉；已选择的可见房间按需起播，新增位置保持空白。
         """
+        if getattr(self, "_tray", None) is not None and self._tray.playback_suspended:
+            return
         if not getattr(self, "plugins", None):
             start_visible = False       # 构造期间插件还没装好，不能在这里起流
         for tile in self.wall.tiles:

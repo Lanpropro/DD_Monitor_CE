@@ -290,14 +290,6 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
-        grid.addWidget(QLabel("关闭窗口时"), row, 0)
-        self.close_behavior_combo = QComboBox()
-        for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
-            self.close_behavior_combo.addItem(label, value)
-        self.close_behavior_combo.setCurrentIndex(max(
-            0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
-        grid.addWidget(self.close_behavior_combo, row, 1)
-        row += 1
         grid.addWidget(QLabel("编解码设置"), row, 0)
         self._codec_values = codec_settings(settings)
         self.codec_button = QPushButton()
@@ -350,8 +342,6 @@ class GeneralSettingsPage(QWidget):
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self._codec_values = codec_settings(config_module.DEFAULT_SETTINGS)
-        self.close_behavior_combo.setCurrentIndex(
-            self.close_behavior_combo.findData(config_module.DEFAULT_SETTINGS["close_behavior"]))
         self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
@@ -360,13 +350,53 @@ class GeneralSettingsPage(QWidget):
             **self._hidden_values,
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
-            "close_behavior": self.close_behavior_combo.currentData(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             **self._codec_values,
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())
         return result
+
+
+class TraySettingsPage(QWidget):
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SettingsPage")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        layout.addLayout(_page_head("托盘行为", "设置关闭窗口的方式及隐藏到系统托盘后的行为"))
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.addWidget(QLabel("关闭窗口时"))
+        self.close_behavior_combo = QComboBox()
+        self.close_behavior_combo.setAccessibleName("关闭窗口时")
+        for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
+            self.close_behavior_combo.addItem(label, value)
+        self.close_behavior_combo.setCurrentIndex(max(
+            0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
+        self.close_behavior_combo.setMinimumWidth(180)
+        row.addWidget(self.close_behavior_combo)
+        row.addStretch(1)
+        layout.addLayout(row)
+        self.pause_playback = QCheckBox("进入托盘后暂停播放")
+        self.pause_playback.setChecked(bool(settings.get("tray_pause_playback", True)))
+        layout.addWidget(self.pause_playback)
+        hint = QLabel("暂停时停止观看取流；恢复主窗口后重新连接直播。原本手动暂停的格子保持暂停，录制继续运行。\n普通最小化或切换到其他软件不受影响。")
+        hint.setObjectName("SettingsHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+
+    def values(self):
+        return {"close_behavior": self.close_behavior_combo.currentData(),
+                "tray_pause_playback": self.pause_playback.isChecked()}
+
+    def reset(self):
+        from .config import DEFAULT_SETTINGS
+        self.pause_playback.setChecked(DEFAULT_SETTINGS["tray_pause_playback"])
+        self.close_behavior_combo.setCurrentIndex(
+            self.close_behavior_combo.findData(DEFAULT_SETTINGS["close_behavior"]))
 
 
 class NotificationSwitch(QCheckBox):
@@ -1357,7 +1387,7 @@ class SettingsDialog(QDialog):
 
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
              ("recording", "录制"), ("notifications", "通知"), ("shortcuts", "快捷键"),
-             ("plugins", "插件"), ("updates", "软件更新")]
+             ("plugins", "插件"), ("updates", "软件更新"), ("tray", "托盘行为")]
     PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
@@ -1412,6 +1442,7 @@ class SettingsDialog(QDialog):
             5: lambda: ShortcutSettingsPage(shortcuts),
             6: lambda: PluginSettingsPage(plugin_manager),
             7: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
+            8: lambda: TraySettingsPage(settings),
         }
         self._loaded_pages = {}
         if preview:
@@ -1587,7 +1618,7 @@ class SettingsDialog(QDialog):
     def settings(self) -> dict:
         values = dict(self._initial_settings)
         values.update(self.general_page.values())
-        for index in (1, 2, 3, 4):
+        for index in (1, 2, 3, 4, 8):
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
         if 7 in self._loaded_pages:
