@@ -83,6 +83,7 @@
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | `native`；合成视频与 60 次应用内拖放，报告 UI 心跳与抓起耗时；`--physical` 需交互桌面 |
 | [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke` |
+| [selfcheck_drag_diagnostics](../selfcheck_drag_diagnostics.py) | `native`；合成拖放、COM 变化、阶段耗时、左键状态与模拟主线程停顿，不执行真实 OLE 拖动 |
 | [selfcheck_room_placement](../selfcheck_room_placement.py) | `offline` / `smoke`；纯 Python 替身检查房间分配、换格、音频位置归属和启动去重，不导入 UI 或播放器 |
 | [selfcheck_room_placement_native](../selfcheck_room_placement_native.py) | `native`；屏外合成窗口、双路本地视频，检查换格时 libmpv/HWND 保留、进度连续、位置音频和退出释放，无账号或外网 |
 | [selfcheck_duplicate_tile_controls](../selfcheck_duplicate_tile_controls.py) | 单项执行前核对 |
@@ -145,6 +146,12 @@
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline`；全屏底栏动画、Qt 透明窗口、输入期间原生像素可见性、窗口跟随及隐藏／恢复回归；原生 Windows 下可用 `python dev/checks/bootstrap.py dev/selfcheck_fullscreen_controls.py --desktop` 检查实际桌面合成，会短暂显示测试窗口 |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
+| [selfcheck_empty_tile_quality](../selfcheck_empty_tile_quality.py) | 离线替身；关闭平台房间、空格子旧画质编号及重启恢复 |
+| [selfcheck_douyu_diagnostics](../selfcheck_douyu_diagnostics.py) | 离线替身；采集器功能回归，不作为真实故障定位依据 |
+| [selfcheck_douyu_deep_capture](../selfcheck_douyu_deep_capture.py) | 本机 HTTP／分段 FLV；逐包解析、单连接转发和采集失败不改字节 |
+| [selfcheck_douyu_cdn_control](../selfcheck_douyu_cdn_control.py) | 离线替身；自动／指定线路的请求与实际 CDN、失败映射脱敏采样、原生画质不变及恢复默认线路策略 |
+| [selfcheck_douyu_transport](../selfcheck_douyu_transport.py) | 本机 HTTP；边缘源 TLS 密码套件兼容范围、证书校验及转发会话注入 |
+| [selfcheck_douyu_quality_order](../selfcheck_douyu_quality_order.py) | 离线替身；斗鱼 2K 菜单顺序和原生取流档位映射 |
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 离屏纯画质／取流逻辑；隔离原生呈现，窗口生命周期另见下项 |
 | [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | Windows 原生单项；固定屏幕外且不接受焦点，验证独立呈现、零画面墙重排、原位置恢复、快捷键归属与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
 | [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
@@ -383,3 +390,4 @@
 | [selfcheck_diagnostics](../selfcheck_diagnostics.py) | 单项执行前核对；Windows .NET Framework，临时模拟目录，不读取真实账号配置，不启动主软件 |
 
 | [selfcheck_huya_live_eof](../selfcheck_huya_live_eof.py) | 离线验证虎牙实时流结束后的缓存播放与自动恢复 |
+| [selfcheck_douyu_recovery](../selfcheck_douyu_recovery.py) | `offline`；验证失败反馈、EOF恢复、正常进度／暂停等静帧排除、2与8检查阈值差异及稳定后重置退避；不代表真实播放稳定性 |

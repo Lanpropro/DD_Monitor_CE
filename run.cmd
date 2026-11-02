@@ -6,11 +6,9 @@ rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 r
 setlocal
 set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
+set "DDM_FOLDER_MOTION_CAPTURE=1"
 set "DDM_THEME_CAPTURE=1"
 set "DDM_FULLSCREEN_CAPTURE=1"
-
-
-set "DDM_FOLDER_MOTION_CAPTURE=1"
 set "PROJ=%~dp0"
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 
@@ -22,8 +20,11 @@ if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
+if /i "%~1"=="--diagnose-douyu" goto douyu
+if /i "%~1"=="--diagnose-douyu-deep" goto douyuDeep
 if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
-start "" "%PY%" "%PROJ%main.py"
+rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
+start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
 
 :widgetLifetimeCheck
@@ -33,6 +34,14 @@ exit /b %errorlevel%
 
 :responsiveness
 start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness
+exit /b 0
+
+:douyu
+start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-douyu
+exit /b 0
+
+:douyuDeep
+start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-douyu-deep
 exit /b 0
 
 :fullscreen

@@ -95,45 +95,6 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.state['danmaku_clients'], 1)
         self.assertNotIn('private-room', json.dumps(self.probe.state))
 
-    def test_theme_animation_capture_bounds_frames_and_records_interruptions(self):
-        from PySide6.QtCore import QPoint
-        from PySide6.QtWidgets import QApplication, QWidget
-        from ddm import motion, theme, theme_transition as module
-        app = QApplication.instance() or QApplication([])
-        window = QWidget()
-        window.resize(320, 200)
-        window.show()
-        app.processEvents()
-        transition_type = type('CaptureTransition', (module.ThemeTransition,), {})
-        overlay_type = type('CaptureOverlay', (module.WaveOverlay,), {})
-        with patch.object(module, 'ThemeTransition', transition_type), \
-                patch.object(module, 'WaveOverlay', overlay_type), \
-                patch.object(motion, 'enabled', return_value=True):
-            theme.apply('dark')
-            diag.install_theme_animation_capture(self.probe)
-            transition = transition_type(window)
-            try:
-                transition.change('light', window.mapToGlobal(QPoint()))
-                for index in range(60):
-                    transition._frame(index / 100)
-                transition.finish()
-                row = self.records()[-1]
-                self.assertEqual(row['phase'], 'theme-animation')
-                self.assertEqual(row['reason'], 'interrupted')
-                self.assertEqual(len(row['frames']), 40)
-                self.assertTrue(all(frame['work_ms'] >= 0 for frame in row['frames']))
-                transition.change('dark', window.mapToGlobal(QPoint()))
-                transition._frame(1.0)
-                transition.finish()
-                self.assertEqual(self.records()[-1]['reason'], 'complete')
-                self.assertLessEqual(len(self.records()[-1]['frames']), 40)
-            finally:
-                transition.finish()
-                window.close()
-                window.deleteLater()
-                app.processEvents()
-
-
     @patch('ddm.motion.enabled', lambda: True)
     def test_folder_capture_records_bounded_positions_and_layout_interruptions(self):
         from PySide6.QtWidgets import QApplication
@@ -193,6 +154,44 @@ class ProbeTests(unittest.TestCase):
         self.assertIsInstance(capture.running_animations(), int)
         sidebar.close()
 
+    def test_theme_animation_capture_bounds_frames_and_records_interruptions(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QApplication, QWidget
+        from ddm import motion, theme, theme_transition as module
+        app = QApplication.instance() or QApplication([])
+        window = QWidget()
+        window.resize(320, 200)
+        window.show()
+        app.processEvents()
+        transition_type = type('CaptureTransition', (module.ThemeTransition,), {})
+        overlay_type = type('CaptureOverlay', (module.WaveOverlay,), {})
+        with patch.object(module, 'ThemeTransition', transition_type), \
+                patch.object(module, 'WaveOverlay', overlay_type), \
+                patch.object(motion, 'enabled', return_value=True):
+            theme.apply('dark')
+            diag.install_theme_animation_capture(self.probe)
+            transition = transition_type(window)
+            try:
+                transition.change('light', window.mapToGlobal(QPoint()))
+                for index in range(60):
+                    transition._frame(index / 100)
+                transition.finish()
+                row = self.records()[-1]
+                self.assertEqual(row['phase'], 'theme-animation')
+                self.assertEqual(row['reason'], 'interrupted')
+                self.assertEqual(len(row['frames']), 40)
+                self.assertTrue(all(frame['work_ms'] >= 0 for frame in row['frames']))
+                transition.change('dark', window.mapToGlobal(QPoint()))
+                transition._frame(1.0)
+                transition.finish()
+                self.assertEqual(self.records()[-1]['reason'], 'complete')
+                self.assertLessEqual(len(self.records()[-1]['frames']), 40)
+            finally:
+                transition.finish()
+                window.close()
+                window.deleteLater()
+                app.processEvents()
+
     def test_thread_stop_is_idempotent_and_wrappers_stop_recording(self):
         self.probe.start()
         self.assertTrue(self.probe.thread.is_alive())
@@ -202,6 +201,33 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.probe.timed(lambda: 42, 'after-stop')(), 42)
         self.assertNotIn('after-stop', self.probe.calls)
         self.assertEqual([row['phase'] for row in self.records()], ['start', 'stop'])
+
+    def test_folder_only_install_does_not_start_full_profiler(self):
+        from PySide6.QtCore import QObject
+        from PySide6.QtWidgets import QApplication
+        from ddm import app as host
+        app = QApplication.instance() or QApplication([])
+
+        class Window(QObject):
+            def __init__(self):
+                super().__init__()
+                self.sidebar = object()
+
+        path = Path(self.directory.name) / 'folders.jsonl'
+        with patch.object(host, 'MainWindow', Window), patch.object(diag, 'FolderMotionCapture') as capture:
+            diag.install_folder_capture(path)
+            window = Window()
+            probe = capture.call_args.args[0]
+            try:
+                self.assertIs(capture.call_args.args[1], window.sidebar)
+                self.assertIsNone(probe.thread)
+                self.assertFalse(hasattr(window, '_responsiveness_probe'))
+                self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['mode'], 'folders-only')
+            finally:
+                probe.stop()
+                window.deleteLater()
+                app.processEvents()
+
 
     def test_theme_capture_preserves_calls_and_bounds_function_records(self):
         from PySide6.QtWidgets import QApplication
@@ -246,33 +272,6 @@ class ProbeTests(unittest.TestCase):
                     timing.stop()
             finally:
                 probe.stop()
-
-
-    def test_folder_only_install_does_not_start_full_profiler(self):
-        from PySide6.QtCore import QObject
-        from PySide6.QtWidgets import QApplication
-        from ddm import app as host
-        app = QApplication.instance() or QApplication([])
-
-        class Window(QObject):
-            def __init__(self):
-                super().__init__()
-                self.sidebar = object()
-
-        path = Path(self.directory.name) / 'folders.jsonl'
-        with patch.object(host, 'MainWindow', Window), patch.object(diag, 'FolderMotionCapture') as capture:
-            diag.install_folder_capture(path)
-            window = Window()
-            probe = capture.call_args.args[0]
-            try:
-                self.assertIs(capture.call_args.args[1], window.sidebar)
-                self.assertIsNone(probe.thread)
-                self.assertFalse(hasattr(window, '_responsiveness_probe'))
-                self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['mode'], 'folders-only')
-            finally:
-                probe.stop()
-                window.deleteLater()
-                app.processEvents()
 
     def test_log_rotation_is_bounded(self):
         self.probe.handler.maxBytes = 300

@@ -2119,13 +2119,17 @@ class MainWindow(QMainWindow):
         elif state == "buffering":
             tile.set_buffering(True)         # 卡顿时也显示缓冲动画
         elif state == "frozen":
+            player = self.players.get(tile)
+            if str(tile.room.get("room_id", "")).startswith("douyu:") and player is not None:
+                self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
+                    source_url=player.stream_url, reason="STALL")
             self._on_picture_frozen(tile)
         elif state == "error":
             self._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
             player = self.players.get(tile)
-            if str(tile.room.get("room_id", "")).startswith("huya:") and player is not None:
+            if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")) and player is not None:
                 self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
                     source_url=player.stream_url, reason=player.source_failure or "STALL")
             self.refresh_status()           # 断流可能来自下播，立即向接口确认

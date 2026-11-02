@@ -71,6 +71,10 @@ from ddm.app import main         # noqa: E402
 
 
 if __name__ == "__main__":
+    if '--diagnose-douyu' in sys.argv or '--diagnose-douyu-deep' in sys.argv:
+        from ddm.douyu_diagnostics import install as install_douyu_diagnostics
+        install_douyu_diagnostics(os.path.join(config.data_root(), 'logs', 'douyu-playback.jsonl'),
+                                 deep='--diagnose-douyu-deep' in sys.argv)
     if os.environ.get('DDM_THEME_CAPTURE') == '1':
         from ddm.responsiveness import install_theme_capture, install_theme_animation_capture
         theme_probe = install_theme_capture(os.path.join(config.data_root(), 'logs', 'theme-switch.jsonl'),

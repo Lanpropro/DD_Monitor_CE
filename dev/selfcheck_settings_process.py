@@ -830,7 +830,7 @@ def check_nonblocking_online_close(app):
         dialog = SettingsDialog(config.DEFAULT_SETTINGS, {})
         page = online_ui.AppUpdatePage(config.DEFAULT_SETTINGS, dialog) if update else online_ui.OnlinePage(dialog)
         if not update:
-            dialog._loaded_pages[6] = SimpleNamespace(store_page=page)
+            dialog._loaded_pages[7] = SimpleNamespace(store_page=page)
         def operation(cancelled, progress):
             entered.set()
             release.wait(3)

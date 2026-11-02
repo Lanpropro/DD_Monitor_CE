@@ -26,7 +26,7 @@ class PlaybackRecovery(QObject):
             self.retry_count.pop(tile, None)
 
     def reset_retry_after_playing(self, tile):
-        if str(tile.room.get("room_id", "")).startswith("huya:"):
+        if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")):
             player = self.host.players.get(tile)
             if player is not None:
                 generation = player.state_generation
@@ -115,10 +115,10 @@ class PlaybackRecovery(QObject):
         self.retry_count[tile] = attempt
         delay = min(RETRY_BASE_SECONDS * (2 ** (attempt - 1)), RETRY_MAX_SECONDS)
         player = self.host.players.get(tile)
-        if (str(tile.room.get("room_id", "")).startswith("huya:") and
+        if (str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")) and
                 getattr(player, "source_failure", "") == "LIVE_EOF"):
             delay = min(attempt, 5)
-        if str(tile.room.get("room_id", "")).startswith("huya:"):
+        if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")):
             print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
                   file=sys.stderr, flush=True)
         tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）")
