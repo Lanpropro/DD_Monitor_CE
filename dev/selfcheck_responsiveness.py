@@ -55,6 +55,37 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(set(frame), {'file', 'function', 'line'})
             self.assertFalse(Path(frame['file']).is_absolute())
 
+    def test_sidebar_profile_records_nested_costs_and_preserves_exceptions(self):
+        token = object()
+        def inner(value):
+            return value
+        def outer(value):
+            for _ in range(5):
+                inner(value)
+            return value
+        wrapped = self.probe.timed(outer, 'sidebar', profile_sidebar=True)
+        self.assertIs(wrapped(token), token)
+        rows = [r for r in self.records() if r['phase'] == 'sidebar-profile']
+        self.assertEqual(len(rows), 1)
+        functions = rows[0]['functions']
+        self.assertLessEqual(len(functions), 30)
+        nested = next(row for row in functions if row['function'] == 'inner')
+        self.assertEqual(nested['calls'], 5)
+        self.assertGreaterEqual(nested['total_ms'], nested['self_ms'])
+        self.assertTrue(all(not Path(row['file']).is_absolute() for row in functions))
+        self.assertNotIn(str(token), json.dumps(rows))
+        def fail():
+            raise ValueError('private fixture')
+        with self.assertRaisesRegex(ValueError, 'private fixture'):
+            self.probe.timed(fail, 'sidebar', profile_sidebar=True)()
+        self.assertEqual(self.probe.active, [])
+        self.assertIsNone(sys.getprofile())
+        self.assertEqual(len([r for r in self.records() if r['phase'] == 'sidebar-profile']), 2)
+        self.assertNotIn('private fixture', self.path.read_text(encoding='utf-8'))
+        self.probe.stop()
+        self.assertIs(wrapped(token), token)
+        self.assertEqual(len([r for r in self.records() if r['phase'] == 'sidebar-profile']), 2)
+
     def test_snapshot_has_counts_without_account_or_room_payloads(self):
         window = SimpleNamespace(wall=SimpleNamespace(tiles=[1, 2]), players={1: object()},
             sidebar=SimpleNamespace(_items=[1, 2, 3]), layout_id='2x2',

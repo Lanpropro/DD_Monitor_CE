@@ -39,9 +39,12 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120
 python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120 -- --layout dm_main3 --players 3 --quick
 python dev/run_checks.py --script selfcheck_sidebar_performance --timeout 120 -- --layout dm_main3 --players 3 --quick --burst
+python dev/run_checks.py --script selfcheck_sidebar_performance -- --layout dm_main3 --players 3 --quick --size 2300 1250
 ```
 
 默认使用 60 张合成封面和 16 格原生窗口，检查动画期间播放格子尺寸稳定、Quick 层只移动位置、结束后恢复重绘与布局、反向点击、切方向、隐藏、全屏及计时器清理。输出准备／收尾耗时、宽度更新间隔和 CPU 时间，这些回调不代表 DWM 最终呈现帧率。可选播放器参数需要 FFmpeg，只生成本地测试视频，不读取账号或访问真实直播；`--quick` 使用实际共享弹幕层。人工仍需确认动画期间视频画面、浮层和皮肤的视觉表现。
+
+`--players` 同时设置合成房间和真实播放中的格子状态；配合 `--quick` 注入本地合成弹幕，确保共享层确实创建。`--size` 指定测试窗口的 Qt 逻辑尺寸，便于复查大窗口下填满画面后的收尾开销。收尾在布局、格子顺序、全屏目标和弹幕格均未变化时只更新几何；发生结构变化仍完整重排。离屏主窗口检查另覆盖这一分支、连点和异常后的重绘恢复。
 
 `--burst` 分别以 40 ms、200 ms 间隔连续切换 12 次，断言整轮只做一次昂贵收尾并正确恢复最终宽度、卡片样式和重绘。连点时只更新动画目标；宽度运动结束后保留 80 ms 的反向切换窗口，再统一结算。显式不播放动画、隐藏或切方向时立即结算，不等待该窗口。
 
@@ -101,3 +104,13 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 ## 久用卡顿的真实采集
 
 `run.cmd --diagnose-responsiveness` 开启默认关闭的专项采集，步骤及字段说明见[真实复现采集](responsiveness-capture.md)。采集器回归不代表 BUG-070 已定位或性能改善。
+
+2026-11-02 的真实侧栏展开/收起采样中，123 个关注条目下 `Sidebar.set_collapsed` 多次耗时约 200–373 ms，主线程栈反复落在 `Avatar.set_pixmap_image` 的样式设置。针对这条路径，头像已有透明样式时不重复设置，更新图片直接交给 QLabel，不先清空已有图片。`selfcheck_main_notices` 覆盖图片替换、尺寸切换、透明圆角及不重复设置样式/文本；这些断言仅为功能回归。展开黑区和实际响应改善仍需相同操作的真实对照采样确认，不能据此宣布 BUG-070 已解决。
+
+头像修正后的真实对照仍出现黑块，侧栏切换约 103–363 ms，收尾栈还采到弹幕重排。经用户同意，左侧关注栏改为一次切换完整布局：暂停侧栏绘制，准备最终控件、宽度与可见封面，并统一调整播放区后再恢复显示；取消逐帧宽度动画和延迟收尾。`selfcheck_main_notices` 检查卡片/列表模式、连续切换、智能文件夹副本、隐藏恢复及异常时释放绘制；`selfcheck_sidebar_performance` 检查最终尺寸、无后续宽度变化、屏外封面和本地播放器，可用 `--background` 将原生测试窗口置于屏幕外。合成功能检查不作为真实流畅度证据。
+
+人工对照：退出旧实例，从根目录 `run.cmd --diagnose-responsiveness` 重启；以相同关注数量和播放布局反复收起/展开。预期直接呈现头像栏或完整关注栏，不经历窄条封面拉伸；滚动后封面正常，播放与弹幕位置正确。若黑块或停顿仍出现，记录到秒的时间以及展开结束后是否残留，再核对新会话日志。
+
+12:24 的真实函数明细（123 个关注）显示，每次切换有 123 次 `setParent`、约 370 次图片缩放，以及大量显隐/置顶事件。对应修正：空闲缩略图停止直接返回；头像在目标尺寸下一次完成裁切与圆环，不先重裁旧图；平台图标固定挂在条目上，用坐标定位到头像角落或展开位置，不再随模式切换换父级。回归覆盖图标显隐、横竖屏位置、头像透明角与圆环、预览提示清理和播放器停止。函数分析增加耗时；这些回归及合成测试不代表真实流畅度改善，仍需用户同场景录屏和明细对照。
+
+12:40 录屏反馈明确允许右侧格子随后缩放，但要求左侧一次显示完整内容。切换收尾因此先恢复侧栏绘制并同步提交完整侧栏的绘制，再释放播放区尺寸保持；不增加固定等待或新的宽度动画。回归记录实际 `QEvent.Paint`，检查侧栏在最终宽度下的绘制先于播放区几何更新，并保留隐藏、原有绘制暂停、异常恢复和连续切换检查。该顺序检查覆盖 Qt 绘制调用，不等同于 Windows 桌面合成器实际呈现的录像验证。

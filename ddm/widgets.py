@@ -1943,7 +1943,7 @@ class NavThumb(QFrame):
         self._place_face()
         self.face.setVisible(False)
         self._cover_dirty = False
-        self._cover_hold = False         # 宽度动画期间挂起封面重裁，见 set_cover_hold()
+        self._cover_hold = False         # 布局切换期间挂起封面重裁，见 set_cover_hold()
         self._cover_source: QPixmap | None = None
         self._banner_source: QPixmap | None = None
         self._compact_background = True
@@ -1954,8 +1954,10 @@ class NavThumb(QFrame):
                             platform: QWidget) -> None:
         self._overlay_widgets = (name, title, badge, platform)
         for widget in self._overlay_widgets:
-            widget.setParent(self)
+            widget.setParent(self.face.parentWidget() if widget is platform else self)
             widget.raise_()
+        self.face.raise_()
+        platform.raise_()
         self._layout_overlay()
 
     def _layout_overlay(self) -> None:
@@ -1966,24 +1968,24 @@ class NavThumb(QFrame):
         if hasattr(card, '_layout_selection_marker'):
             card._layout_selection_marker()
         compact = self._compact_thumb()
-        parent = self.face if compact else self
-        if platform.parentWidget() is not parent:
-            platform.setParent(parent)
-            platform.setVisible(not self.video.isVisible() and
-                                platform.property("showPlatform") is not False)
-        platform.setFixedSize(14 if compact else 24, 14 if compact else 22)
-        platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
+        platform.setVisible(not self.video.isVisible() and
+                            platform.property("showPlatform") is not False)
+        icon_size = QSize(14, 14) if compact else QSize(24, 22)
+        if platform.size() != icon_size:
+            platform.setFixedSize(icon_size)
+            platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
         if compact:
-            platform.move(0, max(0, self.face.height() - platform.height()))
+            platform.move(self.face.pos() + QPoint(0, max(0, self.face.height() - platform.height())))
             platform.setVisible(platform.property("showPlatform") is not False)
             platform.raise_()
             return
         width, height = self._size
-        platform.move(8 if self._card_mode and not self._portrait_strip else
-                      max(4, width - platform.width() - 8),
-                      height - 24 if self._card_mode and not self._portrait_strip else 4)
+        platform_pos = QPoint(8 if self._card_mode and not self._portrait_strip else
+                              max(4, width - platform.width() - 8),
+                              height - 24 if self._card_mode and not self._portrait_strip else 4)
         if getattr(card, 'select_mode', False) and (not self._card_mode or self._portrait_strip):
-            platform.move(max(4, platform.x() - 28), platform.y())
+            platform_pos.setX(max(4, platform_pos.x() - 28))
+        platform.move(self.mapTo(platform.parentWidget(), platform_pos))
         if self._portrait_strip:
             name.setGeometry(4, 67, max(0, width - 8), 20)
             name.setAlignment(Qt.AlignCenter)
@@ -2063,27 +2065,16 @@ class NavThumb(QFrame):
         位置都不更新，收起后条目的留白也全是错的。
         """
         size = self._avatar_size()
-        self.face.set_size(size)
         pixmap = self._face_source
         if pixmap is not None and not pixmap.isNull():
-            # 圆环直接画进头像图里：QLabel 的边框会缩小内容区，圆形会被裁成圆角方
-            disc = circular_pixmap(pixmap, size)
-            painter = QPainter(disc)
-            painter.setRenderHint(QPainter.Antialiasing, True)
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(255, 255, 255, 70), 1.4))
-            inset = 1.0
-            painter.drawEllipse(QRectF(inset, inset,
-                                       size - inset * 2,
-                                       size - inset * 2))
-            painter.end()
-            self.face.set_pixmap_image(disc)
+            # 尺寸和图片一次更新，圆形裁切与圆环只绘制一遍。
+            self.face.set_pixmap_image(pixmap, size=size, ring=True)
         else:
             # 还没下到头像：用名字首字顶着，别让条目空着
+            self.face.set_size(size)
             self.face.setText(self._face_letter())
             self.face.set_color(None)
         self._place_face()
-        self.face.raise_()
         # 紧凑条目只有头像可认，所以一定要露；卡片模式封面才是主体，头像还没下到
         # 就先别占那一块。视频预览占着整块时两者都让位。
         self.face.setVisible(not self.video.isVisible() and
@@ -2111,24 +2102,20 @@ class NavThumb(QFrame):
             self.face.move(rect.topLeft())
         else:
             self.face.move(self.pos() + rect.topLeft())
-        self.face.raise_()
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
         self._place_face()               # 缩略图被布局挪动时，头像要跟着走
+        if self._overlay_widgets is not None:
+            platform = self._overlay_widgets[3]
+            platform.move(platform.pos() + event.pos() - event.oldPos())
 
     def refresh_cover(self) -> None:
-        """强制重裁一次封面（收起/展开动画结束后补账用）。"""
+        """按收起/展开后的最终尺寸重裁封面。"""
         self._render_cover()
 
     def set_cover_hold(self, hold: bool) -> None:
-        """宽度动画期间挂起封面重裁。
-
-        侧栏收起/展开是改宽度的动画，**每一帧**都会让每个条目收到 resizeEvent，
-        而 `_render_cover()` 每次都要做一次平滑缩放 + 圆角裁剪 + 两段渐变填充 ——
-        36 个关注就是每帧 36 次，动画自然卡。挂起期间让 QLabel 先拉伸旧图顶着
-        （`setScaledContents`），动画结束再补一次精确的。
-        """
+        """切换布局时暂缓封面重裁，最终尺寸确定后只补可见条目。"""
         hold = bool(hold)
         if hold == self._cover_hold:
             return
@@ -2165,7 +2152,7 @@ class NavThumb(QFrame):
     def _render_cover(self) -> None:
         """把封面裁成圆角，并加深色渐变供叠加文字阅读。"""
         if self._cover_hold:
-            return                       # 宽度动画期间不重裁，见 set_cover_hold()
+            return                       # 布局切换期间不重裁，见 set_cover_hold()
         if self._compact_thumb():
             return                       # 收起后封面隐藏，展开时再裁切即可
         source = getattr(self, "_cover_source", None)
@@ -2344,6 +2331,8 @@ class NavThumb(QFrame):
 
     def stop(self) -> None:
         """收掉预览，回到封面（播放器留着复用，下回悬停直接 play）。"""
+        if self._player is None and self.video.isHidden() and self.hint.isHidden():
+            return
         if self._player is not None:
             self._player.stop()
         self.video.setVisible(False)
@@ -3715,15 +3704,6 @@ class Sidebar(QFrame):
         self._items: list[NavItem] = []
         self.browser_url_resolver = lambda _room: ""
         self._collapse_animating = False
-        self._collapse_timer = QTimer(self)
-        self._collapse_timer.setTimerType(Qt.PreciseTimer)
-        self._collapse_timer.timeout.connect(self._step_collapse)
-        self._collapse_easing = QEasingCurve(QEasingCurve.OutCubic)
-        self._collapse_settle = QTimer(self)
-        self._collapse_settle.setSingleShot(True)
-        self._collapse_settle.setInterval(80)
-        self._collapse_settle.timeout.connect(lambda: self._finish_collapse(self._collapse_target))
-        self._collapse_content_state = False
         self.collapsed = False
         self.preferred_card_mode = bool(card_mode)
         self.auto_compact = bool(auto_compact)
@@ -4595,8 +4575,6 @@ class Sidebar(QFrame):
         竖屏下侧栏变成一条顶部横栏：宽度撑满、搜索框变宽、列表只留一行头像
         （收起时只剩头像，展开时多一行按钮），逻辑和横屏的收起/展开一致。
         """
-        if self._collapse_animating:
-            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
         side = "top" if side == "top" else "left"
         # 无论走哪个分支，先把约束解掉：
         # - 滚动区的高度上限（竖屏那条「只占一条」的限制留着，切回左栏就只剩一条）
@@ -5131,31 +5109,12 @@ class Sidebar(QFrame):
             toggle.set_orientation(self.side == "top", self.collapsed)
 
     def set_collapsed(self, collapsed: bool, animate: bool = True) -> None:
+        """一次提交完整布局；保留 animate 参数供既有调用方使用。"""
         if collapsed == self.collapsed:
-            if not animate and self._collapse_animating:
-                self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
             return
-        # 连续点击时停止旧目标，保留当前宽度，让新动画从当前位置继续。
-        was_animating = self._collapse_animating
-        self._collapse_timer.stop()
-        self._collapse_settle.stop()
-        animate = bool(animate and self.side == "left" and self.isVisible() and motion.enabled())
-        if animate and not was_animating:
-            self._collapse_animating = True
-            self.collapseAnimationChanged.emit(True)
-        if animate and was_animating:
-            self.collapsed = collapsed
-            self._sync_toggle_arrow()
-            self._start_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
-            self.collapsedChanged.emit(collapsed)
-            return
-        if animate:
-            for item in self._items + list(self._smart_cards.values()):
-                item.thumb.stop()
-                item.thumb.set_cover_hold(True)
-        self.collapsed = collapsed
         if self.side == "top":
-            # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件
+            self.collapsed = collapsed
+            # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件。
             self._layout.setContentsMargins(10, 8, 10, 8)
             self._sync_top_mode()
             if not collapsed:
@@ -5164,19 +5123,36 @@ class Sidebar(QFrame):
                 self.list_box.relayout(animate=False)
             self.collapsedChanged.emit(collapsed)
             return
-        target = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
-        self._apply_collapsed_controls()
 
-        if not animate:
-            self._finish_collapse(target)
-            self.collapsedChanged.emit(collapsed)
-            return
-
-        self._start_collapse(target)
+        updates_enabled = self.updatesEnabled()
+        items = self._items
+        self.setUpdatesEnabled(False)
+        self._collapse_animating = True
+        self.collapseAnimationChanged.emit(True)
+        prepared = False
+        try:
+            for item in items:
+                item.thumb.stop()
+                item.thumb.set_cover_hold(True)
+            self.collapsed = collapsed
+            self._apply_collapsed_controls()
+            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            prepared = True
+        finally:
+            self._collapse_animating = False
+            for item in items:
+                item.thumb.set_cover_hold(False)
+            try:
+                self.setUpdatesEnabled(updates_enabled)
+                if prepared and updates_enabled and self.isVisible():
+                    # 左栏完整绘制后才调整原生视频窗口，避免缩放开销卡住左栏显示。
+                    self.repaint()
+            finally:
+                self.collapseAnimationChanged.emit(False)
         self.collapsedChanged.emit(collapsed)
 
     def _apply_collapsed_controls(self) -> None:
-        """一轮连续切换只准备一次，停止点击后再对齐最终显示状态。"""
+        """在暂停绘制期间对齐控件与条目的最终显示状态。"""
         collapsed = self.collapsed
         for widget in (self.search, self.status_row, self.normal_bar, self.batch_bar,
                        self.logo_label, self.batch_button, self.tool_row):
@@ -5197,51 +5173,30 @@ class Sidebar(QFrame):
         for item in self._items:
             item.set_compact(collapsed)
         self.list_box.relayout(animate=False)
-        self._collapse_content_state = collapsed
-
-    def _start_collapse(self, target: int) -> None:
-        self._collapse_start_width = self.width()
-        self._collapse_target = target
-        self._collapse_started = time.perf_counter()
-        self._collapse_timer.setInterval(max(1, int(1000 / max(60, self.screen().refreshRate()))))
-        self._collapse_timer.start()
-
-    def _step_collapse(self) -> None:
-        progress = min(1.0, (time.perf_counter() - self._collapse_started) / .160)
-        eased = self._collapse_easing.valueForProgress(progress)
-        self.setFixedWidth(round(self._collapse_start_width +
-                                 (self._collapse_target - self._collapse_start_width) * eased))
-        if progress >= 1:
-            self._collapse_timer.stop()
-            # Let an immediate reversal arrive before resizing native video surfaces.
-            self._collapse_settle.start()
 
     def _finish_collapse(self, target: int) -> None:
-        """收尾只重排一次；屏外封面等真正绘制时再补。"""
-        self._collapse_timer.stop()
-        self._collapse_settle.stop()
-        was_animating = self._collapse_animating
-        if self._collapse_content_state != self.collapsed:
-            self._apply_collapsed_controls()
+        """恢复绘制前完成最终几何与可见封面，屏外封面滚入时再补。"""
         self.setFixedWidth(target)
-        if was_animating and self.parentWidget() is not None:
+        if self.parentWidget() is not None:
             layout = self.parentWidget().layout()
             if layout is not None:
-                layout.activate()  # Settle the wall's final width before releasing its layout hold.
+                layout.activate()
+        self._layout.activate()
         self._collapse_animating = False
         self.list_box.relayout(animate=False)
-        for item in self._items + list(self._smart_cards.values()):
+        for item in self._items:
+            item.layout().activate()
             item.thumb.set_cover_hold(False)
             if not item.thumb.visibleRegion().isEmpty():
                 item.thumb.refresh_cover()
             item.thumb.update()
-        if was_animating:
-            self.collapseAnimationChanged.emit(False)
+        for card in self._smart_cards.values():
+            card.update()
 
     def _refresh_visible_covers(self) -> None:
         if self._collapse_animating:
             return
-        for item in self._items + list(self._smart_cards.values()):
+        for item in self._items:
             if item.thumb._cover_dirty and not item.thumb.visibleRegion().isEmpty():
                 item.thumb.refresh_cover()
 
@@ -5286,8 +5241,6 @@ class Sidebar(QFrame):
     def hideEvent(self, event) -> None:
         self._hover_sync_timer.stop()
         self._set_pointer_hover(None)
-        if self._collapse_animating:
-            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
         super().hideEvent(event)
 
     def set_card_mode(self, enabled: bool) -> None:
@@ -7444,6 +7397,7 @@ class WallGrid(QWidget):
         self._pending_reveal: list[Tile] = []
         self._stagger_first: Tile | None = None
         self._sidebar_animating = False
+        self._sidebar_layout = None
         self._interactive_resize = False
         self._resize_pending = False
         self._resize_on_show = False
@@ -7800,6 +7754,8 @@ class WallGrid(QWidget):
             return
         self._sidebar_animating = active
         if active:
+            self._sidebar_layout = (self.layout_id, tuple(self.tiles),
+                                    self.fullscreen_tile, self._danmaku_cell)
             self._sidebar_updates_enabled = self.updatesEnabled()
             self.setUpdatesEnabled(False)
         self._resize_timer.stop()
@@ -7808,11 +7764,21 @@ class WallGrid(QWidget):
         self.grid.setEnabled(not active)
         if not active:
             try:
-                self.relayout(force=True)
+                layout_state = (self.layout_id, tuple(self.tiles),
+                                self.fullscreen_tile, self._danmaku_cell)
+                if (layout_state == self._sidebar_layout and self.fullscreen_tile is None
+                        and (self.layout_id == 'corner' or self.layout_id in self._partitions)):
+                    # Width-only settlement keeps pane visibility and native stacking intact.
+                    self._resize_pending = True
+                    self._flush_resize()
+                    QTimer.singleShot(0, self._sync_danmaku_controls)
+                else:
+                    self.relayout(force=True)
                 self.grid.activate()
                 if self._quick_danmaku_layer is not None:
                     self._quick_danmaku_layer.resize()
             finally:
+                self._sidebar_layout = None
                 self.setUpdatesEnabled(self._sidebar_updates_enabled)
 
     def relayout(self, force: bool = False) -> None:

@@ -1,4 +1,5 @@
 """Opt-in BUG-070 capture: GUI heartbeat, selected calls and process counters."""
+import cProfile
 import ctypes
 import functools
 import json
@@ -51,6 +52,32 @@ def stack_locations(frame):
     return locations
 
 
+def profile_functions(profile):
+    """只保留最耗时的函数位置和计数，不记录调用参数或局部变量。"""
+    entries = profile.getstats()
+    selected = sorted(entries, key=lambda entry: entry.totaltime, reverse=True)[:15]
+    for entry in sorted(entries, key=lambda entry: entry.inlinetime, reverse=True)[:15]:
+        if entry not in selected:
+            selected.append(entry)
+    result = []
+    for entry in selected:
+        code = entry.code
+        if isinstance(code, str):
+            filename, name, line = '<built-in>', code, 0
+        else:
+            path = Path(code.co_filename)
+            try:
+                filename = path.resolve().relative_to(ROOT).as_posix()
+            except ValueError:
+                filename = path.name
+            name, line = code.co_name, code.co_firstlineno
+        result.append({'file': filename, 'function': name, 'line': line,
+                       'calls': entry.callcount, 'recursive_calls': entry.reccallcount,
+                       'self_ms': round(entry.inlinetime * 1000, 3),
+                       'total_ms': round(entry.totaltime * 1000, 3)})
+    return result
+
+
 class Probe:
     def __init__(self, path):
         path = Path(path)
@@ -81,16 +108,21 @@ class Probe:
             'retired_clients': len(window._danmaku_retired),
             'snapshot_workers': len(window._super_chat_snapshots)}
 
-    def timed(self, method, label):
+    def timed(self, method, label, *, profile_sidebar=False):
         @functools.wraps(method)
         def wrapped(*args, **kwargs):
             if self.stopped.is_set():
                 return method(*args, **kwargs)
             started = time.perf_counter()
             self.active.append(label)
+            profile = cProfile.Profile() if profile_sidebar else None
+            if profile is not None:
+                profile.enable()
             try:
                 return method(*args, **kwargs)
             finally:
+                if profile is not None:
+                    profile.disable()
                 elapsed = (time.perf_counter() - started) * 1000
                 self.active.pop()
                 with self.lock:
@@ -100,6 +132,9 @@ class Probe:
                     item['max_ms'] = max(item['max_ms'], elapsed)
                 if elapsed >= 16:
                     self.write('slow-call', function=label, duration_ms=round(elapsed, 3))
+                if profile is not None:
+                    self.write('sidebar-profile', duration_ms=round(elapsed, 3),
+                               functions=profile_functions(profile))
         return wrapped
 
     def sample(self, now, last_report, last_stack):
@@ -154,7 +189,8 @@ def install(path):
         for name in names:
             method = getattr(owner, name)
             label = f'{method.__module__}.{owner.__name__}.{name}'
-            setattr(owner, name, probe.timed(method, label))
+            setattr(owner, name, probe.timed(method, label,
+                    profile_sidebar=owner is Sidebar and name == 'set_collapsed'))
 
     @functools.wraps(original)
     def initialize(window, *args, **kwargs):
