@@ -2707,6 +2707,8 @@ class MainWindow(QMainWindow):
                 self.showFullScreen()
         finally:
             self.centralWidget().setUpdatesEnabled(True)
+            if tile.bottom.qt_composited:
+                tile.bottom.setUpdatesEnabled(True)
             self._release_fullscreen_frame()
         finished = time.perf_counter()
         self._fullscreen_cursor.start()

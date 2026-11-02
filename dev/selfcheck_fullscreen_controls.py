@@ -1,16 +1,18 @@
 """Offline fullscreen bar animation, interruption, settings and corner alpha."""
+import ctypes
+from ctypes import wintypes
 import os
 from pathlib import Path
 import sys
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QImage, QKeyEvent, QPainter
+from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 from ddm import app as app_module, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
@@ -23,6 +25,47 @@ class PaintProbeEdit(QLineEdit):
     def paintEvent(self, event):
         self.paints += 1
         super().paintEvent(event)
+
+
+def native_bar_image(widget):
+    from ddm.badge_surface import BitmapInfo
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    if '--desktop' in sys.argv:
+        user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+        for target in (widget.parentWidget().window(), widget):
+            user32.SetWindowPos(int(target.winId()), wintypes.HWND(-1), 0, 0, 0, 0, 0x13)
+        QTest.qWait(20)
+        point = widget.mapToGlobal(QPoint())
+        return widget.screen().grabWindow(0, point.x(), point.y(), widget.width(), widget.height()).toImage()
+    user32.PrintWindow.argtypes = (wintypes.HWND, wintypes.HDC, wintypes.UINT)
+    gdi32.CreateCompatibleDC.argtypes = (wintypes.HDC,)
+    gdi32.CreateCompatibleDC.restype = wintypes.HDC
+    gdi32.CreateDIBSection.argtypes = (wintypes.HDC, ctypes.POINTER(BitmapInfo),
+        wintypes.UINT, ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD)
+    gdi32.CreateDIBSection.restype = wintypes.HANDLE
+    gdi32.SelectObject.argtypes = (wintypes.HDC, wintypes.HANDLE)
+    gdi32.SelectObject.restype = wintypes.HANDLE
+    gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+    gdi32.DeleteDC.argtypes = (wintypes.HDC,)
+    scale = widget.devicePixelRatioF()
+    width, height = round(widget.width()*scale), round(widget.height()*scale)
+    memory = gdi32.CreateCompatibleDC(None)
+    bits = ctypes.c_void_p()
+    info = BitmapInfo(40, width, -height, 1, 32, 0, 0, 0, 0, 0, 0)
+    bitmap = gdi32.CreateDIBSection(memory, ctypes.byref(info), 0, ctypes.byref(bits), None, 0)
+    assert memory and bitmap, 'Native capture allocation failed'
+    previous = gdi32.SelectObject(memory, bitmap)
+    try:
+        assert user32.PrintWindow(int(widget.winId()), memory, 2), 'Native capture failed'
+        image = QImage(ctypes.string_at(bits, width*height*4), width, height,
+                       width*4, QImage.Format_RGB32).copy()
+        image.setDevicePixelRatio(scale)
+        return image
+    finally:
+        gdi32.SelectObject(memory, previous)
+        gdi32.DeleteObject(bitmap)
+        gdi32.DeleteDC(memory)
 
 
 def check_transparent_bar(app, tile):
@@ -42,6 +85,7 @@ def check_transparent_bar(app, tile):
     tile.bottom._input_trace_until = tile.bottom._input_trace_count = 0
     editor = PaintProbeEdit(tile.bottom)
     editor.setGeometry(tile.bottom.width() // 2 - 90, 4, 180, 24)
+    editor.setStyleSheet("QLineEdit {background: #236343; color: white; border: none;}")
     editor.show()
     try:
         for mode in ('dark', 'light'):
@@ -52,9 +96,9 @@ def check_transparent_bar(app, tile):
             image.fill(Qt.transparent)
             editor.paints = 0
             painter = QPainter(image)
-            tile.bottom._render_layered(painter)
+            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
             painter.end()
-            assert editor.paints == 0, 'Alpha upload must not repaint or capture the live editor'
+            assert editor.paints > 0, 'Transparent composition must include the live editor'
             sample_x = tile.bottom.width() // 2 + 120
             assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
             assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
@@ -68,28 +112,37 @@ def check_transparent_bar(app, tile):
             assert editor.text().endswith('local-only'), 'Embedded editors must retain keyboard input'
             QTest.qWait(30)
             assert editor.paints > 0, 'Typing still needs the ordinary live editor paint path'
-            with patch.object(tile.bottom, '_schedule_layered_paint_if_native') as schedule:
-                tile.bottom.eventFilter(editor, QEvent(QEvent.Paint))
-                schedule.assert_not_called()
+            centre = editor.mapTo(tile.bottom, QPoint(editor.width()//2, 2))
+            assert image.pixelColor(centre).name() == '#236343', 'Composited frame lost the input control'
+            origin = tile.pause_button.mapTo(tile.bottom, QPoint())
+            pixels = [image.pixelColor(origin.x()+x, origin.y()+y)
+                      for y in range(tile.pause_button.height()) for x in range(tile.pause_button.width())]
+            assert sum(c.red()>220 and c.green()>220 and c.blue()>220 for c in pixels) > 4, 'Composited frame lost the pause icon'
             if app.platformName() == 'windows':
-                assert tile.bottom._alpha_uploaded, 'Native video needs a real per-pixel layered bar'
-                with patch.object(tile.bottom, '_paint_layered', wraps=tile.bottom._paint_layered) as upload:
-                    tile.volume_label.setText('77' if mode == 'dark' else '42')
-                    QTest.qWait(30)
-                    assert upload.called, 'Changing label text must refresh the native composite'
-                import ctypes
-                from ctypes import wintypes
-                gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
-                gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
-                gdi32.CreateRectRgn.restype = wintypes.HRGN
-                gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
-                user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
-                region = gdi32.CreateRectRgn(0, 0, 0, 0)
-                try:
-                    assert user32.GetWindowRgn(int(tile.status_label.winId()), region) == 1, 'Native status backing must not obscure video'
-                    assert user32.GetWindowRgn(int(tile.volume_label.winId()), region) == 1, 'Native volume backing must not obscure video'
-                finally:
-                    gdi32.DeleteObject(region)
+                assert tile.bottom.qt_composited and tile.bottom.isWindow()
+                assert tile.bottom.testAttribute(Qt.WA_TranslucentBackground)
+                assert tile.bottom.windowHandle().format().alphaBufferSize() > 0, 'Qt must own an alpha backing store'
+                assert not getattr(tile.bottom, '_layered_hwnd', None), 'Do not mix manual and Qt alpha uploads'
+                for _ in range(3):
+                    QTest.keyClicks(editor, 'a')
+                    QTest.qWait(20)
+                    native = native_bar_image(tile.bottom)
+                    scale = native.devicePixelRatioF()
+                    point = editor.mapTo(tile.bottom, QPoint(editor.width()//2, 2))
+                    assert native.pixelColor(round(point.x()*scale), round(point.y()*scale)).name() == '#236343', 'Native window lost the editor during typing'
+                    colours = [native.pixelColor(round((origin.x()+x)*scale), round((origin.y()+y)*scale))
+                               for y in range(tile.pause_button.height()) for x in range(tile.pause_button.width())]
+                    assert sum(c.red()>220 and c.green()>220 and c.blue()>220 for c in colours) > 4, 'Native window lost the pause icon'
+                label_origin = tile.volume_label.mapTo(tile.bottom, QPoint())
+                area = tile.volume_label.rect().translated(label_origin)
+                before = native_bar_image(tile.bottom)
+                tile.volume_label.setText('77' if mode == 'dark' else '42')
+                QTest.qWait(30)
+                after = native_bar_image(tile.bottom)
+                x, y = round(area.x()*scale), round(area.y()*scale)
+                width, height = round(area.width()*scale), round(area.height()*scale)
+                assert before.copy(x, y, width, height) != after.copy(x, y, width, height), 'Native volume text must refresh under its mask'
+
         editor.hide()
     finally:
         editor.deleteLater()
@@ -112,7 +165,7 @@ def main():
             state={'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
     window._startup_update_timer.stop()
     window.setAttribute(Qt.WA_ShowWithoutActivating)
-    window.move(-10000, -10000)
+    window.move(40, 40) if '--desktop' in sys.argv else window.move(-10000, -10000)
     window.resize(900, 650)
     window.show()
     window.isActiveWindow = lambda: True
@@ -138,21 +191,48 @@ def main():
                     QTest.qWait(30)
                     assert corner._alpha_uploaded, 'Corner must use per-pixel alpha in both themes'
             assert all(corner.isVisible() for corner in tile.video_corners)
-        window._fullscreen_tile = tile
-        window.wall.set_fullscreen_tile(tile)
+        with patch.object(window, '_grab_fullscreen_frame', return_value=None), \
+                patch.object(window, '_upgrade_fullscreen_quality'), \
+                patch('ddm.app.window_fullscreen.enter', wraps=app_module.window_fullscreen.enter) if '--desktop' in sys.argv else \
+                patch('ddm.app.window_fullscreen.enter', side_effect=lambda owner: owner.resize(1100, 800)):
+            window._on_fullscreen(tile)
+        cursor.stop()
+        assert tile.bottom.updatesEnabled(), 'Real fullscreen entry must restore bottom-bar painting'
         app.processEvents()
         assert all(not corner.isVisible() for corner in tile.video_corners)
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
         check_transparent_bar(app, tile)
+        if '--desktop' in sys.argv:
+            print('PASS: real fullscreen desktop pixels retain input and controls during typing')
+            return
+        if app.platformName() == 'windows':
+            before = tile.bottom.mapToGlobal(QPoint())
+            old = window.pos()
+            window.move(old + QPoint(70, 40))
+            app.processEvents()
+            assert tile.bottom.mapToGlobal(QPoint()) == before + QPoint(70, 40), 'Native bar must follow its owner'
+            layer = tile.video_danmaku
+            with patch.object(layer, '_quick_layer', Mock()), patch.object(layer, '_quick_group', 1):
+                layer._quick_mask_signature = None
+                layer.update_quick_mask([tile.bottom])
+                holes = layer._quick_mask_signature[-2]
+                centre = layer.mapFromGlobal(tile.bottom.mapToGlobal(tile.bottom.rect().center()))
+                assert holes.contains(centre), 'Comments must leave room for the bar on offset monitors'
+            window.hide()
+            app.processEvents()
+            assert not tile.bottom.isVisible(), 'Hidden owner must not leave a floating bar'
+            window.show()
+            app.processEvents()
+            assert tile.bottom.isVisible(), 'Restoring the owner must restore its bar'
         tile.time_badge.set_text('12:34:56')
         tile._layout_areas()
-        assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps fullscreen bar'
+        assert tile.time_badge.geometry().bottom() < tile.bottom.tile_y() - 8, 'Time overlaps fullscreen bar'
         for progress in (0.25, 0.5, 0.75, 1.0, 0.5, 0.0):
             tile._slide_fullscreen_bar(progress)
-            assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps sliding bar'
+            assert tile.time_badge.geometry().bottom() < tile.bottom.tile_y() - 8, 'Time overlaps sliding bar'
         tile._layout_areas()
-        normal_y = tile.bottom.y()
+        normal_y = tile.bottom.tile_y()
         point = tile.video.mapToGlobal(tile.video.rect().center())
         with patch('ddm.fullscreen_cursor.QCursor.pos', return_value=point), \
                 patch('ddm.motion.enabled', return_value=True):
@@ -161,13 +241,13 @@ def main():
             cursor.update_cursor()
             assert cursor.hidden
             QTest.qWait(60)
-            assert normal_y < tile.bottom.y() < tile.height(), 'Bar must slide down'
-            halfway = tile.bottom.y()
+            assert normal_y < tile.bottom.tile_y() < tile.height(), 'Bar must slide down'
+            halfway = tile.bottom.tile_y()
             cursor._position = point - QPoint(1, 0)
             cursor.update_cursor()
-            assert not cursor.hidden and abs(tile.bottom.y() - halfway) <= 1, 'Reversal jumped'
+            assert not cursor.hidden and abs(tile.bottom.tile_y() - halfway) <= 1, 'Reversal jumped'
             QTest.qWait(220)
-            assert tile.bottom.y() == normal_y and tile.bottom.isVisible()
+            assert tile.bottom.tile_y() == normal_y and tile.bottom.isVisible()
             assert tile.video.geometry() == geometry, 'Animation resized native video'
             cursor._last_move = 0
             cursor.update_cursor()
@@ -176,7 +256,7 @@ def main():
             window.settings['fullscreen_auto_hide_controls'] = False
             cursor.update_cursor()
             QTest.qWait(220)
-            assert tile.bottom.isVisible() and tile.bottom.y() == normal_y, 'Switch-off must restore bar'
+            assert tile.bottom.isVisible() and tile.bottom.tile_y() == normal_y, 'Switch-off must restore bar'
             assert tile.video.geometry() == geometry
             with patch.object(QApplication, 'activePopupWidget', return_value=object()):
                 cursor.update_cursor()
@@ -218,10 +298,11 @@ def main():
         window.wall.set_fullscreen_tile(None)
         assert not tile.bottom.property('fullscreen')
         assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
+        assert not tile.bottom.isWindow(), 'Leaving fullscreen must restore the ordinary child bar'
         assert not tile.bottom._masked_labels, 'Leaving fullscreen must restore native label regions'
         assert not tile.pause_button.property('fullscreen')
         assert tile._bar_progress == 0 and tile.bottom.isVisible()
-        assert tile.time_badge.geometry().bottom() < tile.bottom.y() - 8, 'Time overlaps normal bar'
+        assert tile.time_badge.geometry().bottom() < tile.bottom.tile_y() - 8, 'Time overlaps normal bar'
         assert all(corner.isVisible() for corner in tile.video_corners)
         page = GeneralSettingsPage({'fullscreen_auto_hide_controls': False})
         assert not page.values()['fullscreen_auto_hide_controls']

@@ -1141,7 +1141,7 @@ class VideoDanmaku(QWidget):
         holes = QRegion()
         for widget in widgets:
             if widget.isVisible():
-                origin = widget.pos() - self.pos()
+                origin = self.mapFromGlobal(widget.mapToGlobal(QPoint()))
                 region = widget.mask()
                 if region.isEmpty():
                     region = QRegion(widget.rect())

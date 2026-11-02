@@ -6567,8 +6567,9 @@ class Tile(QFrame):
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
-        self.bottom.move(self.bottom.x(), self.height() - TILE_BAR_HEIGHT
-                         + round(TILE_BAR_HEIGHT * self._bar_progress))
+        self.bottom.set_tile_geometry(0, self.height() - TILE_BAR_HEIGHT
+                                      + round(TILE_BAR_HEIGHT * self._bar_progress),
+                                      self.bottom.width(), self.bottom.height())
         self.bottom.setVisible(self._bar_progress < 1.0 or self._bar_target == 0.0)
         self._layout_time_badge()
         self.bottom.raise_()
@@ -6770,7 +6771,7 @@ class Tile(QFrame):
         bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * self._bar_progress)
                  if fullscreen else video_height)
         bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
-        self.bottom.setGeometry(inset, bar_y, max(1, width - inset * 2), bar_height)
+        self.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         self._layout_time_badge()
         self.video_danmaku.setGeometry(self.video.geometry())
         self._layout_bottom_controls()
@@ -6779,7 +6780,7 @@ class Tile(QFrame):
 
     def _layout_time_badge(self) -> None:
         video_right = self.video.geometry().right() + 1
-        bottom = min(self.video.geometry().bottom() + 1, self.bottom.y())
+        bottom = min(self.video.geometry().bottom() + 1, self.bottom.tile_y())
         self.time_badge.move(max(10, video_right - self.time_badge.width() - 10),
                              max(8, bottom - self.time_badge.height() - 10))
 
