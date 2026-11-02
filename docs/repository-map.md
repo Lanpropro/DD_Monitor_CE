@@ -360,6 +360,7 @@
 - `dev/selfcheck_volume_channel.py`
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
+- `dev/selfcheck_widget_lifetime.py`
 - `dev/selfcheck_website_plan.py`
 - `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
