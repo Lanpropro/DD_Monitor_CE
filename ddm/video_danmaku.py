@@ -425,6 +425,9 @@ class VideoDanmaku(QWidget):
         self.settings = {}
         self._comment_width = self.width()
         self.comments: list[_Comment] = []
+        self._comment_resize_timer = QTimer(self)
+        self._comment_resize_timer.setSingleShot(True)
+        self._comment_resize_timer.timeout.connect(self._resize_comments)
         self.super_chats: list[dict] = []
         self.super_chat_overlay = SuperChatOverlay(parent)
         self.super_chat_overlay.bind(self)
@@ -660,6 +663,8 @@ class VideoDanmaku(QWidget):
                 or kind != "danmaku"
                 or len(self.comments) >= self.MAX_COMMENTS):
             return False
+        if self._comment_resize_timer.isActive():
+            self._resize_comments()  # New arrivals must share the resized coordinate space.
         text = " ".join(str(event.get("text") or "").split())[:300]
         lanes = self.lane_count()
         if (not text and not event.get("emoticon")) or not lanes:
@@ -729,6 +734,7 @@ class VideoDanmaku(QWidget):
         self.update()
 
     def clear_comments(self) -> None:
+        self._comment_resize_timer.stop()
         self._stop_timer()
         self.comments.clear()
         self.super_chat_overlay.hide()
@@ -858,14 +864,17 @@ class VideoDanmaku(QWidget):
         painter.end()
         return image
 
-    def _resize_comments(self) -> None:
+    def _resize_comments(self, *, redraw=True) -> None:
+        if redraw:
+            self._comment_resize_timer.stop()
         if self._quick_animated() and self.timer.isActive():
             self._tick()
         for comment in self.comments:
             old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
             progress = (self._comment_width - comment.x) / max(1, old_distance)
-            comment.image = self._render_content(comment.text, comment.color, comment.runs,
-                                                 comment.self_sent)
+            if redraw:
+                comment.image = self._render_content(comment.text, comment.color, comment.runs,
+                                                     comment.self_sent)
             distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
             comment.x = self.width() - progress * distance
             comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
@@ -873,11 +882,15 @@ class VideoDanmaku(QWidget):
         self._prune_lanes()
         if self._quick_layer is not None and self._quick_group is not None:
             for comment in self.comments:
-                self._quick_layer.update(
-                    comment.render_id, comment.image.toImage(), comment.x,
-                    comment.lane * self.lane_height(),
-                    comment.image.width() / comment.image.devicePixelRatioF(),
-                    comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+                if redraw:
+                    self._quick_layer.update(
+                        comment.render_id, comment.image.toImage(), comment.x,
+                        comment.lane * self.lane_height(),
+                        comment.image.width() / comment.image.devicePixelRatioF(),
+                        comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+                else:
+                    self._quick_layer.move(comment.render_id, comment.x,
+                        comment.lane * self.lane_height(), comment.speed)
         else:
             self.update()
 
@@ -1211,7 +1224,10 @@ class VideoDanmaku(QWidget):
         super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:
-        self._resize_comments()
+        # Fullscreen changes several geometries in one turn. Rasterize glyphs
+        # once at the final size, outside synchronous native window resizing.
+        self._resize_comments(redraw=False)
+        self._comment_resize_timer.start(0)
         self.super_chat_overlay.sync(self)
         self.schedule_quick_geometry()
         super().resizeEvent(event)

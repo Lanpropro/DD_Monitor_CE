@@ -353,6 +353,57 @@ def check_quick_surface_recovery(app):
     assert not layer.items, 'Deleting the last tile must not leave an opaque shared window'
 
 
+def check_resize_rebuild_coalescing(app):
+    overlay = VideoDanmaku()
+    overlay._quick_requested = False
+    overlay.resize(640, 360)
+    overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=True,
+                                video_danmaku_size=36, video_danmaku_outline_width=2))
+    try:
+        overlay.set_active(True)
+        overlay.set_enabled(True)
+        overlay.show()
+        app.processEvents()
+        assert overlay.add_event({'text': '最终尺寸描边弹幕 ABC 123', 'color': '#aaccff', 'self_sent': True})
+        overlay.set_paused(True)
+        app.processEvents()
+        comment = overlay.comments[0]
+        comment.x = 200
+        progress = (overlay.width()-comment.x)/(overlay.width()+comment.image.width()/comment.image.devicePixelRatioF())
+        with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
+            for width, height in ((720, 420), (1200, 800), (1000, 700), (960, 540)):
+                overlay.resize(width, height)
+            assert render.call_count == 0, 'Intermediate fullscreen geometries must not rebuild every glyph'
+            app.processEvents()
+            assert render.call_count == 1, 'Rebuild each surviving comment once at the final size'
+        expected = overlay._render_content(comment.text, comment.color, comment.runs, comment.self_sent)
+        assert comment.image.toImage() == expected.toImage(), 'Final text/outline/colour must retain the reference rendering'
+        final_progress = (overlay.width()-comment.x)/(overlay.width()+comment.image.width()/comment.image.devicePixelRatioF())
+        assert abs(final_progress-progress) < 1e-6, 'Queued resize must preserve relative progress'
+        overlay.resize(1000, 600)
+        with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_size=40))
+            assert render.call_count == 1
+            app.processEvents()
+            assert render.call_count == 1, 'An explicit settings rebuild must consume the queued resize'
+        overlay.resize(1100, 650)
+        overlay.clear_comments()
+        with patch.object(overlay, '_render_content', wraps=overlay._render_content) as render:
+            app.processEvents()
+            assert render.call_count == 0 and not overlay.comments
+        overlay.set_paused(False)
+        overlay.resize(900, 500)
+        assert overlay.add_event({'text': 'arrives before the queued resize'})
+        overlay.set_paused(True)
+        app.processEvents()
+        assert overlay._comment_width == overlay.width()
+        assert overlay.comments[0].x == overlay.width(), 'A newly arrived comment must not inherit the old geometry'
+    finally:
+        overlay.clear()
+        overlay.close()
+    print('PASS: coalesced fullscreen comment resize, final pixels/progress, immediate settings and cancellation')
+
+
 def check_fonts(app):
     assets = Path(theme.ASSETS_DIR)
     source = json.loads((assets / "licenses/source-han-sans-SOURCE.json").read_text(encoding="utf-8"))
@@ -805,6 +856,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_resize_rebuild_coalescing(app)
     check_qt_picture_surface(app)
     check_quick_occlusion(app)
     check_quick_controller_mask()

@@ -123,6 +123,7 @@ def install(path, *, profile_calls=False):
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
     from .widgets import WallGrid
+    from .video_danmaku import VideoDanmaku
     from . import window_fullscreen
 
     probe = Probe(path)
@@ -178,7 +179,9 @@ def install(path, *, profile_calls=False):
     def stage(method, label):
         @functools.wraps(method)
         def wrapped(owner, *args, **kwargs):
-            window = owner if isinstance(owner, MainWindow) else owner.window()
+            window = owner
+            while window is not None and not isinstance(window, MainWindow):
+                window = window.parentWidget()
             capture = getattr(window, '_fullscreen_probe', None)
             if capture is None or capture.record is None:
                 return method(owner, *args, **kwargs)
@@ -186,13 +189,17 @@ def install(path, *, profile_calls=False):
             try:
                 return method(owner, *args, **kwargs)
             finally:
-                capture.stage(label, started)
+                measured = label
+                if label == 'VideoDanmaku._resize_comments' and kwargs.get('redraw') is False:
+                    measured += '.geometry'
+                capture.stage(measured, started)
         return wrapped
 
     for owner, names in ((MainWindow, ('_grab_fullscreen_frame', '_hold_fullscreen_frame',
             '_release_fullscreen_frame', '_start_fullscreen_fade', '_clear_fullscreen_cover',
             'sync_danmaku', 'refresh_theme', '_refresh_meta', '_upgrade_fullscreen_quality')),
-            (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered'))):
+            (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered')),
+            (VideoDanmaku, ('_resize_comments',))):
         for name in names:
             setattr(owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))
     for name in ('enter', 'exit'):
