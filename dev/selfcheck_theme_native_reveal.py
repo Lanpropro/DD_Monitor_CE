@@ -70,35 +70,18 @@ def check_render_thread(app):
               '; off-screen functionality, not live performance')
         overlay.hide()
         from ddm import motion, theme
-        from ddm import window_fullscreen
         from ddm.theme_transition import ThemeTransition
         transition = ThemeTransition(window)
-        window._theme_transition = transition
-        window.refresh_theme = lambda: window_fullscreen.sync_titlebar(window)
-        def caption_state():
-            return tuple(window_fullscreen._dwm_get(int(window.winId()), attribute)
-                         for attribute in (20, 35, 36, 34))
         starts = []
         original_start = QuickWaveOverlay.start_reveal
         def start_after_cover(item):
             cover = item.grab().toImage()
             ratio = cover.devicePixelRatio()
             starts.append((cover.pixelColor(round(20*ratio), round(20*ratio)).alpha(),
-                           item.ready_to_reveal, item.parentWidget().updatesEnabled(), item._revision,
-                           caption_state()))
+                           item.ready_to_reveal, item.parentWidget().updatesEnabled(), item._revision))
             original_start(item)
         with patch.object(motion, 'enabled', return_value=True), \
                 patch.object(QuickWaveOverlay, 'start_reveal', start_after_cover):
-            theme.apply('dark')
-            dark_caption = caption_state()
-            transition.change('light', window.mapToGlobal(QPoint()))
-            assert caption_state() == dark_caption, 'Native caption must not change while the cover is preparing'
-            QTest.qWait(70)
-            assert transition.overlays and caption_state() == dark_caption, 'Caption must retain its old theme during the reveal'
-            QTest.qWait(530)
-            assert starts and starts[-1][-1] == dark_caption, ('Caption must retain its old theme when the reveal starts', dark_caption, starts)
-            light_caption = caption_state()
-            assert light_caption != dark_caption, 'Caption must use the final theme after completion'
             theme.apply('dark')
             transition.change('light', window.mapToGlobal(QPoint()))
             assert isinstance(transition.overlays[0], QuickWaveOverlay)
@@ -106,26 +89,17 @@ def check_render_thread(app):
             assert not window.updatesEnabled() and not transition.animation.state().name == 'Running'
             QTest.qWait(50)
             transition.change('dark', window.mapToGlobal(QPoint()))
-            assert caption_state() == dark_caption, 'A reverse click must not flash the interrupted target caption'
             assert isinstance(transition.overlays[0], QuickWaveOverlay)
             assert transition.overlays[0] is cached, 'The shader scene must be reused'
             QTest.qWait(600)
             assert not transition.overlays
             assert window.updatesEnabled()
-            assert caption_state() == dark_caption
             transition.change('light', window.mapToGlobal(QPoint()))
             quick_window = transition.overlays[0].view
             window.move(-19000, -19000)
             assert not transition.overlays and not quick_window.isVisible() and window.updatesEnabled()
-            assert caption_state() == light_caption, 'Cancellation must settle the native caption to the current theme'
-            transition.change('light', window.mapToGlobal(QPoint()))
-            assert not transition.overlays and transition._titlebar_theme is None, 'A no-op must release the caption hold'
-        assert starts and all(alpha > 200 and ready and enabled for alpha, ready, enabled, _, _ in starts), ('A complete presented cover must precede each reveal', starts)
-        with patch.object(motion, 'enabled', return_value=False):
-            transition.change('dark', window.mapToGlobal(QPoint()))
-            assert caption_state() == dark_caption and not transition.overlays, 'Reduced motion must update the caption immediately'
+        assert starts and all(alpha > 200 and ready and enabled for alpha, ready, enabled, _ in starts), ('A complete presented cover must precede each reveal', starts)
         print('PASS: actual theme entry, reverse click snapshot, completion and move cancellation')
-        print('PASS: native caption held until completion, reversal without flash, cancellation and reduced motion')
     finally:
         overlay.hide()
         overlay.deleteLater()

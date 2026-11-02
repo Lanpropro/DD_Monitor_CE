@@ -4,7 +4,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
 
-from . import motion, theme, window_fullscreen
+from . import motion, theme
 from .video_surface import VideoSurface
 
 
@@ -136,7 +136,6 @@ class ThemeTransition(QObject):
         self._quick_cache = {}
         self._held_updates = []
         self._waiting_for_cover = False
-        self._titlebar_theme = None
         self._watched = []
         self._changing = False
         self._keyboard = False
@@ -180,9 +179,6 @@ class ThemeTransition(QObject):
                     painter.drawPixmap(0, 0, overlay.grab())
                     painter.end()
             before.append((window, snapshot))
-        # A reverse click must not briefly apply the interrupted target caption.
-        titlebar_theme = self._titlebar_theme or (theme.is_light(), theme.BG, theme.TEXT1)
-        self._titlebar_theme = None
         self.finish()
         overlay_type = WaveOverlay
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
@@ -195,7 +191,6 @@ class ThemeTransition(QObject):
             for window, _ in self._held_updates:
                 window.setUpdatesEnabled(False)
             try:
-                self._titlebar_theme = titlebar_theme
                 self._apply(mode)
                 if theme.is_light() == previous_light:
                     self.finish()
@@ -207,14 +202,8 @@ class ThemeTransition(QObject):
                 self.finish()
                 raise
             return
-        self._titlebar_theme = titlebar_theme
-        try:
-            self._apply(mode)
-        except BaseException:
-            self.finish()
-            raise
+        self._apply(mode)
         if theme.is_light() == previous_light:
-            self.finish()
             return
         self.progress = 0.0
         self._show_overlays(before, origin, overlay_type)
@@ -287,7 +276,6 @@ class ThemeTransition(QObject):
 
     def finish(self):
         self.animation.stop()
-        deferred, self._titlebar_theme = self._titlebar_theme, None
         self._waiting_for_cover = False
         self._release_updates()
         for overlay in self.overlays:
@@ -298,8 +286,6 @@ class ThemeTransition(QObject):
         self.overlays.clear()
         self._watched.clear()
         self.progress = float(theme.is_light())
-        if deferred is not None:
-            window_fullscreen.sync_titlebar(self.window)
 
     def _external_change(self, _mode):
         if not self._changing:
@@ -307,10 +293,6 @@ class ThemeTransition(QObject):
 
     def eventFilter(self, watched, event):
         kind = event.type()
-        if (self._titlebar_theme is not None and watched is self.window.windowHandle()
-                and kind == QEvent.ApplicationPaletteChange):
-            # Qt updates the native frame before application event filters run.
-            window_fullscreen.sync_titlebar(self.window)
         if kind == QEvent.KeyPress:
             self._keyboard = True
         elif kind == QEvent.MouseButtonPress:
