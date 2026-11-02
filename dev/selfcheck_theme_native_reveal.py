@@ -70,15 +70,20 @@ def check_render_thread(app):
               '; off-screen functionality, not live performance')
         overlay.hide()
         from ddm import motion, theme
+        from ddm import window_fullscreen
         from ddm.theme_transition import ThemeTransition
         transition = ThemeTransition(window)
+        window._theme_transition = transition
+        window.refresh_theme = lambda: window_fullscreen.sync_titlebar(window)
         starts = []
         original_start = QuickWaveOverlay.start_reveal
         def start_after_cover(item):
             cover = item.grab().toImage()
             ratio = cover.devicePixelRatio()
             starts.append((cover.pixelColor(round(20*ratio), round(20*ratio)).alpha(),
-                           item.ready_to_reveal, item.parentWidget().updatesEnabled(), item._revision))
+                           item.ready_to_reveal, item.parentWidget().updatesEnabled(), item._revision,
+                           window_fullscreen._dwm_get(int(window.winId()), 20), int(not theme.is_light()),
+                           item.caption_height))
             original_start(item)
         with patch.object(motion, 'enabled', return_value=True), \
                 patch.object(QuickWaveOverlay, 'start_reveal', start_after_cover):
@@ -98,13 +103,95 @@ def check_render_thread(app):
             quick_window = transition.overlays[0].view
             window.move(-19000, -19000)
             assert not transition.overlays and not quick_window.isVisible() and window.updatesEnabled()
-        assert starts and all(alpha > 200 and ready and enabled for alpha, ready, enabled, _ in starts), ('A complete presented cover must precede each reveal', starts)
+        assert starts and all(alpha > 200 and ready and enabled and native == target and top > 0
+            for alpha, ready, enabled, _, native, target, top in starts), ('A full cover must precede revealing the already updated native frame', starts)
         print('PASS: actual theme entry, reverse click snapshot, completion and move cancellation')
     finally:
         overlay.hide()
         overlay.deleteLater()
         window.close()
         app.processEvents()
+
+
+def check_caption_wave(app):
+    from ddm import theme, window_fullscreen
+    from ddm.theme_transition import framed_snapshot
+    from ddm.theme_wave_quick import QuickWaveOverlay
+    from ddm.video_surface import VideoSurface
+    window = QWidget()
+    window.setAttribute(Qt.WA_ShowWithoutActivating)
+    window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+    window.setWindowTitle('Native caption wave fixture')
+    window.setGeometry(-6000, -6000, 640, 360)
+    surface = VideoSurface(window)
+    surface.setGeometry(500, 150, 100, 80)
+    window._player_active = True
+    window.show()
+    QTest.qWait(40)
+    hwnd = int(window.winId())
+    style = ctypes.windll.user32.GetWindowLongW(hwnd, -16)
+    theme.apply('light')
+    window_fullscreen.sync_titlebar(window)
+    QTest.qWait(30)
+    light = window_fullscreen.caption_snapshot(window).toImage()
+    theme.apply('dark')
+    window_fullscreen.sync_titlebar(window)
+    QTest.qWait(30)
+    dark = window_fullscreen.caption_snapshot(window).toImage()
+    assert not light.isNull() and not dark.isNull()
+    assert light.pixelColor(light.width()//2, light.height()//2) != dark.pixelColor(dark.width()//2, dark.height()//2), 'Capture must contain DWM colours, not the legacy WM_PRINT caption'
+    snapshot = framed_snapshot(window)
+    overlay = QuickWaveOverlay(window, snapshot, window.mapToGlobal(QPoint(10, 40)))
+    try:
+        overlay.show()
+        deadline = time.perf_counter()+2
+        while not overlay.ready_to_reveal and time.perf_counter() < deadline:
+            QTest.qWait(10)
+        assert overlay.ready_to_reveal
+        top = overlay.caption_height
+        assert top > 0 and overlay.origin == QPoint(10, 40+top)
+        assert overlay.view.geometry().topLeft() == window.mapToGlobal(QPoint(0, -top))
+        scale = snapshot.devicePixelRatio()
+        before = overlay.grab().toImage()
+        assert before.pixelColor(round(300*scale), round(top/2*scale)).alpha() > 200
+        assert before.pixelColor(round(550*scale), round((top+190)*scale)).alpha() == 0, 'Video holes must move with the client offset'
+        theme.apply('light')
+        window_fullscreen.sync_titlebar(window)
+        effect = next(child for child in overlay.stage.childItems() if child.property('maxRadius') is not None)
+        overlay.stage.hold()
+        effect.setProperty('progress', 160/overlay.stage.property('radius'))
+        QTest.qWait(40)
+        frame = overlay.grab().toImage()
+        pixel = lambda x, y: frame.pixelColor(round(x*scale), round(y*scale))
+        assert pixel(20, top/2).alpha() < 10 and pixel(600, top/2).alpha() > 200, 'The circle must reveal part of the native titlebar while retaining its far end'
+        assert pixel(110, top+80).alpha() < 10 and pixel(580, top+320).alpha() > 200
+        assert pixel(100, top-1).alpha() < 10 and pixel(100, top+1).alpha() < 10, 'The same circle must cross the caption/client boundary'
+        assert int(window.winId()) == hwnd and ctypes.windll.user32.GetWindowLongW(hwnd, -16) == style
+        output = Path(__file__).resolve().parents[1]/'work/theme-frame-wave'
+        output.mkdir(parents=True, exist_ok=True)
+        dark.save(str(output/'native-dark-caption.png'))
+        light.save(str(output/'native-light-caption.png'))
+        frame.save(str(output/'caption-and-client-circle.png'))
+        composite = framed_snapshot(window)
+        painter = QPainter(composite)
+        painter.drawImage(0, 0, frame)
+        painter.end()
+        composite.save(str(output/'caption-and-client-composite.png'))
+        print('PASS: real native caption capture, shared circular shader across caption/client, video holes and stable native HWND/style')
+    finally:
+        overlay.hide()
+        overlay.deleteLater()
+        window.close()
+        app.processEvents()
+    borderless = QWidget(None, Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+    borderless.setGeometry(-6000, -6000, 320, 200)
+    borderless.setAttribute(Qt.WA_ShowWithoutActivating)
+    borderless.show()
+    try:
+        QTest.qWait(20)
+        assert window_fullscreen.caption_snapshot(borderless).isNull(), 'Borderless/fullscreen windows must not gain a fake titlebar'
+    finally:
+        borderless.close()
 
 
 def main():
@@ -114,6 +201,7 @@ def main():
         return
     if '--render-thread' in sys.argv:
         check_render_thread(app)
+        check_caption_wave(app)
         return
     window = QWidget()
     window.setAttribute(Qt.WA_ShowWithoutActivating)
