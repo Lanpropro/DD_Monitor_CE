@@ -7,6 +7,7 @@ setlocal
 set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
 set "DDM_THEME_CAPTURE=1"
+set "DDM_FULLSCREEN_CAPTURE=1"
 set "PROJ=%~dp0"
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 
@@ -16,11 +17,16 @@ if not exist "%PY%" goto nopy
 
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
+if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 start "" "%PY%" "%PROJ%main.py"
 exit /b 0
 
 :responsiveness
 start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness
+exit /b 0
+
+:fullscreen
+start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-fullscreen
 exit /b 0
 
 :scsimulator

@@ -38,6 +38,7 @@
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_responsiveness.py`
+- `dev/selfcheck_fullscreen_capture.py`
 
 ### GitHub 协作与检查
 
