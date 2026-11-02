@@ -164,6 +164,32 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn('after-stop', self.probe.calls)
         self.assertEqual([row['phase'] for row in self.records()], ['start', 'stop'])
 
+    def test_folder_only_install_does_not_start_full_profiler(self):
+        from PySide6.QtCore import QObject
+        from PySide6.QtWidgets import QApplication
+        from ddm import app as host
+        app = QApplication.instance() or QApplication([])
+
+        class Window(QObject):
+            def __init__(self):
+                super().__init__()
+                self.sidebar = object()
+
+        path = Path(self.directory.name) / 'folders.jsonl'
+        with patch.object(host, 'MainWindow', Window), patch.object(diag, 'FolderMotionCapture') as capture:
+            diag.install_folder_capture(path)
+            window = Window()
+            probe = capture.call_args.args[0]
+            try:
+                self.assertIs(capture.call_args.args[1], window.sidebar)
+                self.assertIsNone(probe.thread)
+                self.assertFalse(hasattr(window, '_responsiveness_probe'))
+                self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['mode'], 'folders-only')
+            finally:
+                probe.stop()
+                window.deleteLater()
+                app.processEvents()
+
     def test_log_rotation_is_bounded(self):
         self.probe.handler.maxBytes = 300
         for index in range(30):

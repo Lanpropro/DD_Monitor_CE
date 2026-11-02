@@ -289,6 +289,26 @@ class FolderMotionCapture:
             self.probe.write('folder-motion', reason=reason, **record)
 
 
+def install_folder_capture(path):
+    """Source launcher: capture folder clicks without the full responsiveness profiler."""
+    from PySide6.QtWidgets import QApplication
+    from .app import MainWindow
+
+    original = MainWindow.__init__
+
+    @functools.wraps(original)
+    def initialize(window, *args, **kwargs):
+        original(window, *args, **kwargs)
+        probe = Probe(path)
+        window._folder_motion_probe = FolderMotionCapture(probe, window.sidebar)
+        QApplication.instance().aboutToQuit.connect(window._folder_motion_probe.finish)
+        QApplication.instance().aboutToQuit.connect(probe.stop)
+        window.destroyed.connect(probe.stop)
+        probe.write('start', mode='folders-only')
+
+    MainWindow.__init__ = initialize
+
+
 def install(path):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
