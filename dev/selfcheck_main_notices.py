@@ -26,6 +26,57 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    def test_normal_tile_hides_top_overlays_when_idle_and_wakes_on_native_pointer_move(self):
+        window = self.window([{'room_id': '1001', 'uname': 'Fixture'}])
+        tile = window.wall.tiles[0]
+        position = [tile.video.mapToGlobal(tile.video.rect().center())]
+        clock = [100.0]
+        with patch('ddm.widgets.QCursor.pos', side_effect=lambda: position[0]), \
+                patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]):
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            clock[0] += tile.CONTROL_IDLE_SECONDS + .1
+            tile._poll_control_hover()
+            self.assertFalse(tile.controls.isVisible())
+            self.assertFalse(tile.title_badge.isVisible())
+            self.assertTrue(tile.bottom.isVisible())
+            self.assertTrue(tile._control_hover_timer.isActive())
+            position[0] = position[0] + QPoint(1, 0)
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            self.assertTrue(tile.bottom.isVisible())
+            position[0] = tile.mapToGlobal(QPoint(-30, -30))
+            tile._poll_control_hover()
+            self.assertFalse(tile.controls.isVisible())
+            self.assertFalse(tile._control_hover_timer.isActive())
+            tile.hide()
+            tile._poll_control_hover()
+            self.assertFalse(tile._normal_hover_active)
+            self.assertFalse(tile._control_hover_timer.isActive())
+
+    def test_normal_tile_keeps_overlays_during_control_and_menu_interaction(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        position = [tile.video.mapToGlobal(tile.video.rect().center())]
+        clock = [100.0]
+        with patch('ddm.widgets.QCursor.pos', side_effect=lambda: position[0]), \
+                patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]):
+            tile._poll_control_hover()
+            position[0] = tile.close_button.mapToGlobal(tile.close_button.rect().center())
+            tile._poll_control_hover()
+            clock[0] += 10
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            position[0] = tile.mapToGlobal(QPoint(-30, -30))
+            with patch.object(QApplication, 'activePopupWidget', return_value=object()):
+                tile._poll_control_hover()
+                tile._hide_controls_if_outside()
+                self.assertTrue(tile.controls.isVisible())
+            tile.setProperty('fullscreen', True)
+            tile._poll_control_hover()
+            self.assertTrue(tile.controls.isVisible())
+            tile.setProperty('fullscreen', False)
+
     def test_sidebar_release_assigns_room_and_starts_target_after_ghost_removal(self):
         window = self.window([{'room_id': '1001', 'uname': 'Fixture'}])
         item = window.sidebar.items()[0]

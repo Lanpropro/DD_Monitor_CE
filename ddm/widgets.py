@@ -5795,6 +5795,8 @@ class Sidebar(QFrame):
 class Tile(QFrame):
     """一个播放格子：画面 + 底部信息条 + 独立控制。"""
 
+    CONTROL_IDLE_SECONDS = 3.0
+
     clicked = Signal(dict)
     qualityChanged = Signal(dict, int)
     muteToggled = Signal(dict, bool)
@@ -6015,9 +6017,12 @@ class Tile(QFrame):
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
         self._overlay_visible = False
+        self._normal_hover_active = False
+        self._control_pointer = None
+        self._control_last_move = time.monotonic()
         self._control_hover_timer = QTimer(self)
         self._control_hover_timer.setInterval(35)
-        self._control_hover_timer.timeout.connect(self._sync_control_hover)
+        self._control_hover_timer.timeout.connect(self._poll_control_hover)
         self._controls_hide_timer = QTimer(self)
         self._controls_hide_timer.setSingleShot(True)
         self._controls_hide_timer.setInterval(90)
@@ -6604,7 +6609,8 @@ class Tile(QFrame):
             self._sync_control_hover()
             self._control_hover_timer.start()
         else:
-            self._control_hover_timer.stop()
+            if self.property("fullscreen") or not self._normal_hover_active:
+                self._control_hover_timer.stop()
             self._set_control_hover(None)
             self.title_badge.setVisible(False)   # 收起时标题一起收
             self._round_video()                  # 收起来就把视频遮罩补回圆角
@@ -6629,8 +6635,42 @@ class Tile(QFrame):
                 break
         self._set_control_hover(hovered)
 
+    def _poll_control_hover(self) -> None:
+        if not self.isVisible():
+            self._normal_hover_active = False
+            self._control_hover_timer.stop()
+            return
+        if self.property("fullscreen"):
+            self._normal_hover_active = False
+            self._sync_control_hover()
+            return
+        position, now = QCursor.pos(), time.monotonic()
+        protected = (self.plugin_interaction_active() or QApplication.activePopupWidget() is not None
+                     or QApplication.activeModalWidget() is not None or bool(QApplication.mouseButtons()))
+        if protected:
+            self._control_last_move = now
+            return
+        if not self.rect().contains(self.mapFromGlobal(position)):
+            self._normal_hover_active = False
+            self.set_controls_visible(False)
+            return
+        moved = not self._normal_hover_active or position != self._control_pointer
+        self._normal_hover_active = True
+        self._control_pointer = position
+        over_controls = any(widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(position))
+                            for widget in (self.controls, self.stream_badge, self.title_badge, self.bottom))
+        if moved or over_controls:
+            self._control_last_move = now
+            if not self._overlay_visible:
+                self.set_controls_visible(True)
+        elif now - self._control_last_move >= self.CONTROL_IDLE_SECONDS and self._overlay_visible:
+            self.set_controls_visible(False)
+        if self._overlay_visible:
+            self._sync_control_hover(position)
+
     def _hide_controls_if_outside(self) -> None:
-        if self.plugin_interaction_active():
+        if (self.plugin_interaction_active() or QApplication.activePopupWidget() is not None
+                or QApplication.activeModalWidget() is not None or QApplication.mouseButtons()):
             return
         local = self.mapFromGlobal(QCursor.pos())
         if self.rect().contains(local):
@@ -6655,7 +6695,11 @@ class Tile(QFrame):
 
     def enterEvent(self, event) -> None:
         super().enterEvent(event)
-        self.set_controls_visible(True)
+        if self.property("fullscreen"):
+            self.set_controls_visible(True)
+        else:
+            self._poll_control_hover()
+            self._control_hover_timer.start()
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
@@ -6933,6 +6977,8 @@ class Tile(QFrame):
         self._mask_refresh_timer.stop()
         self._move_repaint_timer.stop()
         self._volume_hide_timer.stop()
+        self._control_hover_timer.stop()
+        self._normal_hover_active = False
         self.volume_menu.hide()
         super().hideEvent(event)
 
