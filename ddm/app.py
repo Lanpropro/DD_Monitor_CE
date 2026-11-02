@@ -2562,6 +2562,7 @@ class MainWindow(QMainWindow):
                 self.wall._fullscreen_layout_pending = False
                 self.wall.grid.setEnabled(True)
                 central.setUpdatesEnabled(True)
+                tile.bottom.setUpdatesEnabled(True)
 
     def _report_fullscreen_cost(self, action: str, started: float, covered: float,
                                 switched: float, done: float) -> None:

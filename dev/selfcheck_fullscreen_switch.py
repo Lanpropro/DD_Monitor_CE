@@ -59,6 +59,7 @@ def main():
                 assert not window.wall._pending_reveal and not window.wall._defer_show
                 assert not window.wall._fullscreen_layout_pending
                 assert window.centralWidget().updatesEnabled()
+                assert target.bottom.updatesEnabled()
                 assert window.centralWidget().layout().isEnabled() and window.wall.grid.isEnabled()
                 assert window.sidebar.isVisible() and window.wall.layout_id == '3x3'
                 assert window.wall.tiles == tiles and window.players == players
