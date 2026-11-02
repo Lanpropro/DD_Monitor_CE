@@ -27,6 +27,25 @@ class PaintProbeEdit(QLineEdit):
         super().paintEvent(event)
 
 
+def check_reveal_start(tile, wake):
+    values = []
+    animation = tile._bar_animation
+    animation.valueChanged.connect(values.append)
+    layout = tile._layout_areas
+
+    def prepare_layout():
+        assert animation.state() == QAbstractAnimation.Stopped, 'Reveal clock started before layout finished'
+        return layout()
+
+    try:
+        with patch.object(tile, '_layout_areas', side_effect=prepare_layout):
+            wake()
+        assert all(float(value) >= .999 for value in values), 'Reveal flashed a visible frame while configuring its range'
+        assert animation.state() == QAbstractAnimation.Running and animation.currentTime() == 0
+    finally:
+        animation.valueChanged.disconnect(values.append)
+
+
 def native_bar_image(widget):
     from ddm.badge_surface import BitmapInfo
     user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
@@ -206,9 +225,12 @@ def main():
         if '--desktop' in sys.argv:
             with patch('ddm.motion.enabled', return_value=True):
                 tile.set_fullscreen_controls_hidden(True)
-                QTest.qWait(220)
+                for _ in range(50):
+                    if tile._bar_animation.state() == QAbstractAnimation.Stopped:
+                        break
+                    QTest.qWait(20)
                 assert not tile.bottom.isVisible()
-                tile.set_fullscreen_controls_hidden(False)
+                check_reveal_start(tile, lambda: tile.set_fullscreen_controls_hidden(False))
                 anchor = tile.bottom.geometry()
                 middle = []
                 for _ in range(6):
@@ -274,6 +296,8 @@ def main():
             cursor.update_cursor()
             QTest.qWait(220)
             assert cursor.hidden and not tile.bottom.isVisible()
+            cursor._position = point - QPoint(1, 0)
+            check_reveal_start(tile, cursor.update_cursor)
             window.settings['fullscreen_auto_hide_controls'] = False
             cursor.update_cursor()
             QTest.qWait(220)

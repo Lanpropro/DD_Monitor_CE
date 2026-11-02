@@ -6552,18 +6552,22 @@ class Tile(QFrame):
         target = 1.0 if hidden and hide_bar and self.property("fullscreen") else 0.0
         if hidden == getattr(self, "_fullscreen_controls_hidden", False) and target == self._bar_target:
             return
-        self._fullscreen_controls_hidden = hidden
-        self.set_controls_visible(not hidden)
         self._bar_animation.stop()
+        self._fullscreen_controls_hidden = hidden
         self._bar_target = target
+        self.set_controls_visible(not hidden)
         if self.property("fullscreen") and motion.enabled():
             self.bottom.show()
+            self._layout_areas()
+            self._bar_animation.blockSignals(True)
+            self._bar_animation.setCurrentTime(0)
             self._bar_animation.setStartValue(self._bar_progress)
             self._bar_animation.setEndValue(target)
+            self._bar_animation.blockSignals(False)
             self._bar_animation.start()
         else:
             self._slide_fullscreen_bar(target)
-        self._layout_areas()
+            self._layout_areas()
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
