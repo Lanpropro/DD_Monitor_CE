@@ -22,6 +22,7 @@
       "selfcheck_room_placement",
       "selfcheck_room_status_controller",
       "selfcheck_room_images",
+      "selfcheck_playback_badges",
       "selfcheck_responsiveness",
       "selfcheck_player_lifetime",
       "selfcheck_main_notices",
@@ -35,9 +36,11 @@
   },
   "offline": {
     "mode": "offline",
-    "description": "已核对的离屏功能回归；需要开发依赖，使用替身或本机测试服务",
+    "description": "已核对的离屏功能回归；需要开发依赖，录制专项另需 FFmpeg；使用替身或本机测试服务",
     "scripts": [
       "selfcheck_stream_info",
+      "selfcheck_recording",
+      "selfcheck_recording_shutdown",
       "selfcheck_bili_plugin_boundary",
       "selfcheck_plugin_controls",
       "selfcheck_plugin_credentials",
@@ -69,6 +72,7 @@
       "selfcheck_pinyin_search",
       "selfcheck_main_notices",
       "selfcheck_notification_center",
+      "selfcheck_playback_badges",
       "selfcheck_fullscreen_controls",
       "selfcheck_layout_16",
       "selfcheck_layout_growth_empty",
