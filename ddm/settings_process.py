@@ -64,6 +64,16 @@ class SettingsProcess(QObject):
         self.kill_timer = QTimer(self)
         self.kill_timer.setSingleShot(True)
         self.kill_timer.timeout.connect(self.process.kill)
+        from . import theme
+        theme.signals().changed.connect(self._theme_changed)
+
+    def _theme_changed(self, mode):
+        if self.closing:
+            return
+        if self.pending is not None:
+            self.pending['settings']['appearance_mode'] = mode
+        if self.ready and self.visible:
+            self._send({'kind': 'host-theme', 'mode': mode})
 
     def warm(self):
         if self.closing or self.process.state() != QProcess.NotRunning:

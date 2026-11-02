@@ -30,6 +30,18 @@ def child(action):
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
+            if action == 'theme':
+                from ddm import theme
+                def report(mode):
+                    print(settings_process.PREFIX + json.dumps({'kind': 'theme-state',
+                        'mode': mode, 'light': theme.is_light(),
+                        'volume': self.general_page.volume_slider.value()}), flush=True)
+                if not getattr(self, '_theme_report_connected', False):
+                    self._theme_report_connected = True
+                    self.general_page.volume_slider.setValue(17)
+                    theme.signals().changed.connect(report)
+                report(theme.mode())
+                return
             if action == 'preview-save':
                 page = self.danmaku_page
                 assert not hasattr(page.super_chat_placement, 'frame')
@@ -216,6 +228,38 @@ def check_worker(app, action):
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
             timer.stop()
     assert not failures
+
+
+def check_theme_sync(app):
+    from ddm import theme
+    messages = []
+    client = settings_process.SettingsProcess()
+    client.received.connect(messages.append)
+    command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'theme'])
+    with patch.object(settings_process, 'worker_command', return_value=command), \
+            patch.object(settings_process, '_allow_foreground'):
+        try:
+            theme.apply('dark')
+            client.open(dict(config.DEFAULT_SETTINGS, appearance_mode='dark'), {})
+            theme.apply('light')  # Also sync a change while startup is still pending.
+            wait(app, lambda: any(m['kind'] == 'theme-state' for m in messages))
+            row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
+            assert row['mode'] == 'light' and row['light'] and row['volume'] == 17, row
+            messages.clear()
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                wait(app, lambda: any(m['kind'] == 'theme-state' and m['mode'] == mode for m in messages))
+                row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
+                assert row['light'] == (mode == 'light') and row['volume'] == 17, row
+                messages.clear()
+            client._send({'kind': 'host-cancel'})
+            wait(app, lambda: not client.visible)
+        finally:
+            client.stop()
+            wait(app, lambda: client.process.state() == QProcess.NotRunning)
+            client.deleteLater()
+            theme.apply('dark')
+    print('PASS: pending and visible settings follow host themes and preserve unsaved controls')
 
 
 def check_native_zorder(app):
@@ -781,6 +825,9 @@ def main():
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
+    if sys.argv[1:] == ['--theme-sync-only']:
+        check_theme_sync(app)
+        return 0
     if sys.argv[1:] == ['--native-zorder']:
         assert app.platformName() == 'windows'
         check_native_zorder(app)

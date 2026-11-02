@@ -71,6 +71,11 @@ from ddm.app import main         # noqa: E402
 
 
 if __name__ == "__main__":
+    if os.environ.get('DDM_THEME_CAPTURE') == '1':
+        from ddm.responsiveness import install_theme_capture, install_theme_animation_capture
+        theme_probe = install_theme_capture(os.path.join(config.data_root(), 'logs', 'theme-switch.jsonl'),
+                                           profile_calls='--diagnose-responsiveness' in sys.argv)
+        install_theme_animation_capture(theme_probe)
     if '--diagnose-responsiveness' in sys.argv:
         from ddm.responsiveness import install
         install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))

@@ -163,6 +163,7 @@ _LIGHT = dict(BG="#F4F6F9", SIDEBAR="#EBEEF3", CONTENT="#FFFFFF",
 _mode = "dark"
 _light = False
 _styles = WeakKeyDictionary()
+_pending_palette = WeakKeyDictionary()
 _signals = None
 _skin_active = False
 _skin_sidebar = False
@@ -228,16 +229,25 @@ def _apply_palette(app, colors):
         palette.setColor(roles[name.replace('-', '')], parsed)
     palette.setColor(QPalette.PlaceholderText, qcolor(colors['TEXT3']))
     app.setPalette(palette.resolve(app.palette()))
-    for widget in app.allWidgets():
-        widget.setPalette(palette.resolve(widget.palette()))
-        refresh_theme_properties(widget)
+    # Qt propagates this palette; local QSS and explicit widget roles take
+    # precedence (e.g. SC close colours and custom placeholder text).
     # Clear cached palette-dependent paint rules once, without re-polishing
     # every widget or resetting its geometry and fonts.
     app.style().unpolish(app)
     app.style().polish(app)
 
 
-def refresh_theme_properties(widget):
+def _refresh_widget_palette(widget, *, invalidate=False, defer=False):
+    if defer and widget.visibleRegion().isEmpty():
+        _pending_palette[widget] = invalidate or _pending_palette.get(widget, False)
+        return
+    invalidate = _pending_palette.pop(widget, False) or invalidate
+    if invalidate:
+        widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def refresh_theme_properties(widget, *, defer=False):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
@@ -247,8 +257,9 @@ def refresh_theme_properties(widget):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
+        _refresh_widget_palette(widget, invalidate=True, defer=defer)
+        return True
+    return False
 
 
 @lru_cache(maxsize=32)
@@ -321,6 +332,8 @@ class ThemeSignals(QObject):
 
     def eventFilter(self, widget, event):
         if event.type() == QEvent.Paint and isinstance(widget, QWidget):
+            if widget in _pending_palette:
+                _refresh_widget_palette(widget)
             from .skin_parts import paint_button
             if paint_button(widget):
                 return True
@@ -409,13 +422,15 @@ def apply(value):
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         if extra:
             styled += '\n' + extra
+        properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
+        elif styled and not properties_changed:
+            _refresh_widget_palette(widget, defer=True)
         _styles[widget] = (source, colors, styled)
         refresh = getattr(widget, "refresh_theme", None)
         if callable(refresh):
             refresh()
-        refresh_theme_properties(widget)
         QWidget.update(widget)
     signals().changed.emit(value)
 

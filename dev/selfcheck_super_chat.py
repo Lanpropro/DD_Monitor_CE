@@ -535,9 +535,43 @@ def check_settings_persistence():
             restored.close()
 
 
+def check_theme_stability(app):
+    theme.apply('dark')
+    card = SuperChatCard()
+    overlay = VideoDanmaku()
+    try:
+        with patch('ddm.super_chat.motion.enabled', return_value=False):
+            card.resize(340, 120)
+            card.set_event(chat('theme'))
+            card.show()
+            overlay.resize(800, 450)
+            overlay.set_enabled(True)
+            overlay.set_active(True)
+            overlay.show()
+            overlay.set_super_chats([super_chat.normalize(chat('theme'))])
+            app.processEvents()
+        buttons = [card.close_button, overlay.super_chat_overlay.close_button]
+        baseline = [button.grab().toImage() for button in buttons]
+        geometry = [button.geometry() for button in buttons]
+        for mode in ('light', 'dark', 'light', 'dark'):
+            theme.apply(mode)
+            app.processEvents()
+            assert [button.geometry() for button in buttons] == geometry
+            for index, button in enumerate(buttons):
+                assert button.grab().toImage() == baseline[index], (mode, index, 'SC close appearance changed')
+    finally:
+        card.close()
+        overlay.close()
+    print('PASS: panel and video SC close controls retain pixels and geometry across theme changes')
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    if sys.argv[1:] == ['--theme-only']:
+        check_theme_stability(app)
+        return
+    check_theme_stability(app)
     check_official_palette(app)
     check_adaptive_content(app)
     check_store()
