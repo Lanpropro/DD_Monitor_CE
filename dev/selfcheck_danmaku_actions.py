@@ -11,6 +11,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QLineEdit
 from ddm import danmaku_actions, plugins, theme
 from ddm.widgets import WallGrid
@@ -53,6 +54,30 @@ class ActionsTests(unittest.TestCase):
         self.wall.close()
         self.wall.deleteLater()
         APP.processEvents()
+
+    def test_connection_icon_colour_size_and_status_hint(self):
+        panel = self.wall.danmaku
+        for width in (300, 600):
+            panel.resize(width, 500)
+            for status in ('连接中…', '已连接', '未接入', '连接失败', '重连中…（第 10 次）', '已连接'):
+                panel.set_status(status)
+                APP.processEvents()
+                badge = panel.count
+                self.assertEqual((badge.width(), badge.height()), (20, 20))
+                self.assertEqual(badge.toolTip(), status)
+                self.assertIn(status, badge.accessibleName())
+                colour = theme.PINK if status == '已连接' else theme.TEXT3
+                self.assertEqual(badge.palette().color(QPalette.WindowText), theme.qcolor(colour))
+            panel.set_status('未接入')
+            idle = panel.count.grab().toImage()
+            panel.set_status('连接失败')
+            self.assertEqual(idle, panel.count.grab().toImage())
+            panel.set_status('已连接')
+            connected = panel.count.grab().toImage()
+            self.assertNotEqual(idle, connected)
+            ratio = connected.devicePixelRatio()
+            self.assertEqual(connected.pixelColor(round(5 * ratio), round(10 * ratio)),
+                             theme.qcolor(theme.PINK), 'The Wi-Fi dot must face left')
 
     def choose(self, index, before=None):
         class TestMenu(danmaku_actions.CommentToolbar):
