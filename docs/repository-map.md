@@ -14,7 +14,17 @@
 | `plugins_user/` | 插件源码、模板、本机安装副本与更新暂存；不能整体当杂项 |
 | `libmpv-2.dll` | 本机播放运行库；使用 `dev/fetch_mpv.py` 下载并按来源清单校验，不进入 Git |
 
-头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。
+头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
+
+直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
+
+房间头像、封面和横幅的加载协调及界面回填集中在 `ddm/room_images.py`；主窗口保留原入口和调用时加载器构造器，继续持有线程引用及退出等待。缓存读写与下载仍由 `ddm/images.py` 实现，图片协调器不负责账号头像和播放器。
+
+录制开关、即时回放范围与额度、录制前画质锁定/恢复及录制计时集中在 `ddm/capture_control.py`；主窗口保留原方法入口，继续持有会话、待开始任务、画质记录和退出流程。FFmpeg 执行仍在 `ddm/recording.py`，录制源解析及通知入口保留在主窗口。
+
+弹幕连接共享、按需订阅及连接/SC 快照线程退役集中在 `ddm/danmaku_lifecycle.py`。主窗口保留旧入口与回调、按调用时构造器创建线程，继续拥有 Qt 对象、连接状态和退出等待；消息分发、账号凭据与 SC 展示策略保持原归属。
+
+播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
 ## 已跟踪的其他文件：逐项标注
 
@@ -27,6 +37,7 @@
 - `dev/build_diagnostics.ps1`
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
+- `dev/selfcheck_responsiveness.py`
 
 ### GitHub 协作与检查
 
@@ -128,6 +139,8 @@
 - `dev/selfcheck_download_retry.py`
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_lifecycle.py`
+- `dev/selfcheck_room_placement.py`
+- `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`
 - `dev/selfcheck_duplicate_tile_controls.py`
 - `dev/selfcheck_encoders.py`
@@ -147,6 +160,7 @@
 - `dev/selfcheck_fullscreen_audio.py`
 - `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
+- `dev/selfcheck_playback_badges.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
 - `dev/selfcheck_fullscreen_native_focus.py`
@@ -228,6 +242,7 @@
 - `dev/selfcheck_mpv.py`
 - `dev/selfcheck_mpv_com_lifetime.py`
 - `dev/selfcheck_player_lifetime.py`
+- `dev/selfcheck_stream_info.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
@@ -297,6 +312,8 @@
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_room_status.py`
+- `dev/selfcheck_room_status_controller.py`
+- `dev/selfcheck_room_images.py`
 - `dev/selfcheck_search.py`
 - `dev/selfcheck_settings_status.py`
 - `dev/selfcheck_sidebar_avatar.py`
@@ -360,6 +377,7 @@
 ### 开发指南
 
 - `docs/development/testing.md`
+- `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
 

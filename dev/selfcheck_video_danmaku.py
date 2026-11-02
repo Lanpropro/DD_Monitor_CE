@@ -138,7 +138,9 @@ def check_super_chat_overlay(app):
         overlay.resize(1600, 900)
         app.processEvents()
         sc = overlay.super_chat_overlay
-        assert sc.width() <= 342 and sc.height() <= 210
+        assert sc.width() <= 342 and sc.height() <= overlay.height()
+        rows = sc.card_rects()
+        assert len(rows) == len(chats) and rows[0].bottom() < rows[1].top()
         card = sc.card_rects()[0].toAlignedRect()
         assert overlay.rect().contains(card)
         assert sc.geometry().contains(card.translated(overlay.pos()))
@@ -596,6 +598,10 @@ def check_routing(app):
                 QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
             assert len(window._danmaku_clients) == 2, "同直播间的两格应共用连接"
             client = window._danmaku_clients["1001"]
+            assert client.parent() is window, "主窗口继续拥有连接的 Qt 生命周期"
+            with patch.object(client, "start") as restart:
+                assert window._ensure_danmaku_client("1001") is client
+                restart.assert_not_called()
             client.message.emit({"text": "房间一"})
             assert len(first.video_danmaku.comments) == len(duplicate.video_danmaku.comments) == 1
             assert not second.video_danmaku.comments and not disabled.video_danmaku.comments
@@ -675,8 +681,15 @@ def check_settings(app):
             'Global danmaku settings expose the SC switch, not the removed scale switch'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
+        page.super_chat_collapse_delay.setValue(12)
+        page.super_chat_scale.setValue(145)
         assert page.values()['super_chat_enabled'] is False
         assert page.values()['super_chat_opacity'] == 35
+        assert page.values()['super_chat_collapse_delay'] == 12
+        assert page.values()['super_chat_scale'] == 145
+        page.reset()
+        assert page.values()['super_chat_collapse_delay'] == 7
+        assert page.values()['super_chat_scale'] == 100
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()

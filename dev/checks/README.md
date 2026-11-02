@@ -9,6 +9,10 @@
 
 ## 当前回归与历史诊断
 
+| 脚本 | 执行分类 |
+| --- | --- |
+| [selfcheck_responsiveness](../selfcheck_responsiveness.py) | `smoke` / `offline` |
+
 - 当前回归：`repository`、`smoke`、`offline`、`native`、`live` 中明确登记的脚本；其中 smoke 复用离屏回归并增加临时插件接口检查，每个 PR 自动运行。
 - 待复核／历史诊断：下表标记“单项执行前核对”的脚本。这个标记表示尚未批准批量执行，不代表已废弃；再次使用前核对当前断言和隔离条件，通过后再纳入套件。
 - 文件继续保留现有位置；分类依据套件元数据和本索引，不通过移动脚本改变导入路径。
@@ -78,6 +82,8 @@
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | `native`；合成视频与 60 次应用内拖放，报告 UI 心跳与抓起耗时；`--physical` 需交互桌面 |
 | [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke` |
+| [selfcheck_room_placement](../selfcheck_room_placement.py) | `offline` / `smoke`；纯 Python 替身检查房间分配、换格、音频位置归属和启动去重，不导入 UI 或播放器 |
+| [selfcheck_room_placement_native](../selfcheck_room_placement_native.py) | `native`；屏外合成窗口、双路本地视频，检查换格时 libmpv/HWND 保留、进度连续、位置音频和退出释放，无账号或外网 |
 | [selfcheck_duplicate_tile_controls](../selfcheck_duplicate_tile_controls.py) | 单项执行前核对 |
 | [selfcheck_encoders](../selfcheck_encoders.py) | 单项执行前核对 |
 | [selfcheck_folder_blank_menu](../selfcheck_folder_blank_menu.py) | `offline` |
@@ -99,7 +105,7 @@
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
 | [selfcheck_overseas_playback_live](../selfcheck_overseas_playback_live.py) | 单项执行前核对 |
 | [selfcheck_overseas_stability](../selfcheck_overseas_stability.py) | 单项执行前核对 |
-| [selfcheck_poller_lifecycle](../selfcheck_poller_lifecycle.py) | 单项执行前核对 |
+| [selfcheck_poller_lifecycle](../selfcheck_poller_lifecycle.py) | `offline`；受控 QThread、延迟完成回调与下一轮归属，退出不再起轮询，无账号或外网 |
 | [selfcheck_resolve_retry](../selfcheck_resolve_retry.py) | 单项执行前核对 |
 | [selfcheck_search](../selfcheck_search.py) | 单项执行前核对 |
 | [selfcheck_settings_status](../selfcheck_settings_status.py) | 单项执行前核对 |
@@ -121,6 +127,7 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
+| [selfcheck_stream_info](../selfcheck_stream_info.py) | `offline`；合成播放器属性、格子右键入口、单位换算、逐格刷新及窗口清理，不连接直播或读取账号 |
 | [check_live_restore](../check_live_restore.py) | `live` |
 | [selfcheck_corner_drag_updates](../selfcheck_corner_drag_updates.py) | 单项执行前核对 |
 | [selfcheck_corner_resize](../selfcheck_corner_resize.py) | 单项执行前核对 |
@@ -131,6 +138,7 @@
 | [selfcheck_fullscreen_audio](../selfcheck_fullscreen_audio.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、调音量解除静音、上下限、输入隔离及保存 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
+| [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline` |
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline` |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
@@ -182,8 +190,8 @@
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
-| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline` |
-| [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；虚拟 SC 控制台按钮、倒计时与临时数据隔离 |
+| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行 |
+| [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、两种预览与实际尺寸位置对照、紧凑控件及外置单位、透明度、正文留白与背景混色；合成消息、隔离数据 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline` |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline` |
 | [selfcheck_video_danmaku_native](../selfcheck_video_danmaku_native.py) | 单项执行前核对 |
@@ -250,8 +258,8 @@
 | [selfcheck_preview_popup](../selfcheck_preview_popup.py) | 单项执行前核对 |
 | [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；65行紧凑关注栏，滚轮取流竞态、漏发离开事件与悬停重绘 |
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
-| [selfcheck_recording](../selfcheck_recording.py) | 合成视频与本机HTTP，含过期地址分片续录、403重新取流与停止／切房隔离；单项执行前核对 |
-| [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | 单项执行前核对 |
+| [selfcheck_recording](../selfcheck_recording.py) | `offline`；FFmpeg 与临时合成视频、本机 HTTP 的功能回归，含手动回放停止/恢复、缓存升级、录制计时、画质请求取消及过期源恢复；不能作为真实性能改善依据 |
+| [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | `offline`；FFmpeg 功能回归：退出保存完整录制、等待重连的分段和主动导出的回放，清理未保存缓存；隔离账号和安装插件 |
 | [selfcheck_replay_scope](../selfcheck_replay_scope.py) | 单项执行前核对 |
 | [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | `offline` |
 | [selfcheck_stream_relay](../selfcheck_stream_relay.py) | 单项执行前核对 |
@@ -330,6 +338,8 @@
 | [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | `offline` |
 | [selfcheck_platform_storage](../selfcheck_platform_storage.py) | 单项执行前核对 |
 | [selfcheck_room_status](../selfcheck_room_status.py) | `offline` |
+| [selfcheck_room_status_controller](../selfcheck_room_status_controller.py) | `offline` / `smoke`；合成信号检查轮询父对象、请求去重、平台参数、刷新排队、旧回调和关闭清理 |
+| [selfcheck_room_images](../selfcheck_room_images.py) | `offline` / `smoke`；合成加载器检查图片分流、横幅去重、回填和线程引用清理；临时缓存与真实 Qt 线程检查主线程回填及关闭，无账号或外网 |
 
 ## 账号、登录与关注导入
 
@@ -351,7 +361,7 @@
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32/33位原关注＋1位新增的归类隔离、结果提示与头像范围、主动勾选归类、取消勾选与保存 |
 | [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
-| [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | 单项执行前核对 |
+| [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | `offline`；合成关注列表、替身轮询器，检查刷新连点、头像补充阶段、失败与空列表恢复 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |
 | [selfcheck_oauth_accounts](../selfcheck_oauth_accounts.py) | 单项执行前核对 |
 | [selfcheck_oauth_guide](../selfcheck_oauth_guide.py) | 单项执行前核对 |

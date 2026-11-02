@@ -11,8 +11,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QLinearGradient, QMovie, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
-    QShortcut, QTextDocument,
+    QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
+    QShortcut, QTextDocument, QTextOption,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
@@ -37,11 +37,16 @@ from .search import matches_text
 from .player import TilePlayer
 from .video_surface import VideoCorner, VideoSurface
 from .badge_surface import BadgeSurface
+# Preserve existing badge imports while keeping these components independent.
+from .playback_badges import (ASSETS_DIR, BADGE_HEIGHT, HOLE_MARGIN, HOLE_SIZE,
+                              LoadingIndicator, LoadingLabel, StreamBadge, TimeBadge,
+                              TitleBadge, _badge_font)
 from .fullscreen_bar import FullscreenBar
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
-from .super_chat import (SuperChatAvatar, format_price, format_remaining, readable_text_color,
-                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects)
+from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
+                         remaining_seconds, paint_sc_avatar, paint_sc_background, order_super_chats, sc_stack_rects,
+                         sc_card_height, sc_placement_rects, SC_BODY_PADDING)
 
 QUALITY_CHOICES = [("原画", 10000), ("蓝光", 400), ("超清 720P", 250), ("流畅", 80)]
 QUALITY_NAMES = {value: name for name, value in QUALITY_CHOICES}
@@ -51,7 +56,6 @@ TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
 TILE_MIME = "application/x-ddm-tile"
 DANMAKU_MIME = "application/x-ddm-danmaku"
 
-BADGE_HEIGHT = 24             # 左上角浮标高度
 WATCHING_TEXT = "正在获取人数"   # 还没拉到实时在线人数时的占位（不能用"人气"顶上）
 NAV_ITEM_HEIGHT = 128         # 展开时：206x116 左右，接近 16:9，悬停预览才看得清
 NAV_LIST_ITEM_HEIGHT = 60     # 简洁模式：头像 + 两行文字
@@ -60,9 +64,6 @@ NAV_ITEM_GAP = 2              # 项与项之间的间距
 CAROUSEL_WIDTH = 206          # 竖屏顶部横栏里横向卡片的宽度（和侧栏展开时一样宽）
 PORTRAIT_LIST_WIDTH = 100     # 竖屏简洁模式：窄竖条，仍横向滚动
 PORTRAIT_LIST_HEIGHT = NAV_ITEM_HEIGHT  # 竖屏展开栏恢复原 196px 高度
-HOLE_SIZE = 16                # 浮标左侧圆形镂空直径
-HOLE_MARGIN = 4
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 BRAND_ASSETS_DIR = os.path.join(
     os.path.dirname(os.path.abspath(sys.executable))
     if getattr(sys, "frozen", False)
@@ -117,243 +118,6 @@ def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
     painter.drawText(QRectF(0, 0, width, height), int(Qt.AlignCenter), text)
     painter.end()
     return pixmap
-
-
-def _badge_font() -> QFont:
-    """画面浮标用的字体。
-
-    量文字宽度和画文字都必须用它，**不能用 `widget.fontMetrics()`**：
-    QSS 里的 font-size 是 polish 之后才落到控件上的，构造时量出来的宽度会偏小，
-    等真正画的时候字变大，人数就被自己的遮罩截掉了（用户报的「人数被遮挡」）。
-    """
-    font = QFont(theme.FONT_DEFAULT)
-    font.setPixelSize(theme.FONT_CONTROL)
-    return font
-
-
-class StreamBadge(BadgeSurface):
-    """画面左上角的浮标：左侧同心圆环，右边是 LIVE 和直播间人数。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.live = True
-        self.offline = False
-        self.viewers = ""
-        self._mask_path = QPainterPath()
-        self._rebuild()
-
-    def set_state(self, live: bool, viewers: str = "") -> None:
-        changed = ((live != self.live) or ((viewers or "") != self.viewers)
-                   or self.offline)
-        self.offline = False
-        self.live = live
-        self.viewers = viewers or ""
-        if changed:
-            self._rebuild()
-            self.update()
-
-    def set_offline(self) -> None:
-        """这一路刚下播：浮标显示"已下播"。"""
-        self.offline = True
-        self.live = False
-        self.viewers = ""
-        self._rebuild()
-        self.update()
-
-    def set_compact(self, compact: bool) -> None:
-        """格子窄的时候只留 LIVE，不显示人数。"""
-        compact = bool(compact)
-        if compact == getattr(self, "_compact", False):
-            return
-        self._compact = compact
-        self._rebuild()
-        self.update()
-
-    def full_width(self) -> int:
-        """不压缩时（带人数）需要的宽度，用来判断放不放得下。"""
-        metrics = QFontMetrics(_badge_font())
-        meta = self.viewers if (self.live and self.viewers) else ""
-        width = HOLE_MARGIN * 2 + HOLE_SIZE + 6 + metrics.horizontalAdvance("LIVE")
-        if meta:
-            width += 8 + metrics.horizontalAdvance(meta)
-        return width + 10
-
-    def _text(self) -> str:
-        if self.offline:
-            return "已下播"
-        return "LIVE" if self.live else "未开播"
-
-    def _rebuild(self) -> None:
-        metrics = QFontMetrics(_badge_font())
-        meta = ""
-        if self.live and self.viewers and not getattr(self, "_compact", False):
-            meta = self.viewers
-        width = HOLE_MARGIN * 2 + HOLE_SIZE + 6 + metrics.horizontalAdvance(self._text())
-        if meta:
-            width += 8 + metrics.horizontalAdvance(meta)
-        width += 10
-        self.resize(width, BADGE_HEIGHT)
-
-        pill = QPainterPath()
-        pill.addRoundedRect(QRectF(0, 0, width, BADGE_HEIGHT),
-                            BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
-        # 圆环和圆点在 paintEvent 里用同一个中心画；不再把圆孔做成遮罩，
-        # 避免路径转整数 QRegion 后圆孔边缘与抗锯齿圆点错开 1px。
-        self._mask_path = pill
-        self.refresh_theme()
-
-    def paint_badge(self, painter) -> None:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillPath(self.badge_path, theme.overlay_color("#15171c", "#F7F9FC"))
-        dot = HOLE_MARGIN + HOLE_SIZE / 2
-        center = QPointF(dot, BADGE_HEIGHT / 2)
-        painter.setPen(QPen(QColor("#7b828c"), 2))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(center, HOLE_SIZE / 2 - 1, HOLE_SIZE / 2 - 1)
-        painter.setBrush(theme.overlay_color("#fb7299", "#B93665") if self.live else QColor("#7b828c"))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(center, 4.5, 4.5)
-        font = _badge_font()
-        painter.setFont(font)
-        metrics = QFontMetrics(font)
-        x = float(HOLE_MARGIN * 2 + HOLE_SIZE + 6)
-        painter.setPen(theme.overlay_color("#fb7299", "#B93665"))
-        painter.drawText(QRectF(x, 0, 120, BADGE_HEIGHT),
-                         int(Qt.AlignVCenter | Qt.AlignLeft), self._text())
-        if self.live and self.viewers:
-            x += metrics.horizontalAdvance(self._text()) + 8
-            painter.setPen(theme.overlay_color("#e6e9ef", "#202630"))
-            painter.drawText(QRectF(x, 0, 120, BADGE_HEIGHT),
-                             int(Qt.AlignVCenter | Qt.AlignLeft), self.viewers)
-
-
-class TimeBadge(BadgeSurface):
-    """画面右下角的直播时长浮标（和 LIVE 浮标同款样式）。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.text = ""
-        self._mask_path = QPainterPath()
-        self._rebuild()
-
-    def set_text(self, text: str) -> None:
-        text = text or ""
-        if text == self.text:
-            return
-        self.text = text
-        self._rebuild()
-        self.update()
-
-    def _rebuild(self) -> None:
-        metrics = QFontMetrics(_badge_font())
-        width = metrics.horizontalAdvance(self.text or "0:00:00") + 20
-        self.resize(width, BADGE_HEIGHT)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, BADGE_HEIGHT),
-                            BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
-        self._mask_path = path
-        self.refresh_theme()
-
-    def paint_badge(self, painter) -> None:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillPath(self.badge_path, theme.overlay_color("#15171c", "#F7F9FC"))
-        painter.setPen(theme.overlay_color("#d7dbe2", "#4A5565"))
-        painter.setFont(_badge_font())
-        painter.drawText(self.rect(), int(Qt.AlignCenter), self.text)
-
-
-class LoadingLabel(QLabel):
-    """保留布局和字体信息，由浮层统一绘制到带 Alpha 的画布。"""
-
-    def paintEvent(self, event):
-        pass
-
-
-class LoadingIndicator(BadgeSurface):
-    """缓冲动画：沿用 BewlyCat 的 loading.gif + 文案，样式与整体一致。"""
-
-    def __init__(self, parent=None, text: str = "连接中…", icon: bool = True):
-        super().__init__(parent)
-        self.setObjectName("LoadingIndicator")
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self._mask_path = QPainterPath()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12 if icon else 14, 7, 16 if icon else 14, 7)
-        layout.setSpacing(8)
-        self._icon = LoadingLabel(self) if icon else None
-        self._movie = None
-        if self._icon is not None:
-            self._movie = QMovie(os.path.join(ASSETS_DIR, "loading.gif"))
-            self._icon.setFixedSize(32, 32)
-            self._movie.setScaledSize(QSize(32, 32))
-            self._icon.setMovie(self._movie)
-            self._movie.frameChanged.connect(self.update)
-            layout.addWidget(self._icon)
-        self._text = LoadingLabel(text)
-        self._text.setObjectName("LoadingText")
-        layout.addWidget(self._text)
-        self.setVisible(False)
-
-    def start(self) -> None:
-        if self._movie is not None:
-            scale = self.devicePixelRatioF()
-            self._movie.setScaledSize(QSize(round(32 * scale), round(32 * scale)))
-        if self._movie is not None and self._movie.isValid():
-            self._movie.start()
-        self.adjustSize()
-        self._apply_mask()
-        self.setVisible(True)
-        self.raise_()
-
-    def stop(self) -> None:
-        if self._movie is not None:
-            self._movie.stop()
-        self.setVisible(False)
-
-    def _apply_mask(self) -> None:
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), self.height()),
-                            self.height() / 2, self.height() / 2)
-        self._mask_path = path
-        self.clearMask()
-
-    def refresh_theme(self):
-        self.clearMask()
-        if getattr(self, '_movie', None) is not None:
-            scale = self.devicePixelRatioF()
-            self._movie.setScaledSize(QSize(round(32 * scale), round(32 * scale)))
-        self.update()
-
-    def _render_badge(self, painter):
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        painter.setOpacity(205 / 255)
-        painter.fillPath(self._mask_path, theme.overlay_color('#1b1e24', '#F7F9FC'))
-        if self._movie is not None:
-            pixmap = self._movie.currentPixmap()
-            painter.drawPixmap(self._icon.geometry(), pixmap, pixmap.rect())
-        painter.setFont(self._text.font())
-        painter.setPen(theme.qcolor(theme.TEXT2))
-        painter.drawText(self._text.geometry(), Qt.AlignCenter, self._text.text())
-
-    def paintEvent(self, event):
-        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._schedule_layered_paint()
-        else:
-            painter = QPainter(self)
-            self._render_badge(painter)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._apply_mask()
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if not self.testAttribute(Qt.WA_NativeWindow):
-            self.setAttribute(Qt.WA_NativeWindow, True)
-        self.update()
 
 
 class TileButton(QPushButton):
@@ -722,73 +486,6 @@ def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,
     painter.drawPolygon(QPolygonF([tip, left, right]))
 
 
-class TitleBadge(BadgeSurface):
-    """浮在画面上的标题条：主播名 + 直播间标题，摆在 LIVE 浮标右侧。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.uname = ""
-        self.title = ""
-        self._name_text = ""
-        self._title_text = ""
-        self._max_width = 320
-        self._mask_path = QPainterPath()
-        self.setVisible(False)
-
-    def set_text(self, uname: str, title: str) -> None:
-        uname = uname or ""
-        title = title or ""
-        if (uname, title) == (self.uname, self.title):
-            return
-        self.uname, self.title = uname, title
-        self._rebuild()
-
-    def set_max_width(self, width: int) -> None:
-        if width == self._max_width:
-            return
-        self._max_width = max(60, int(width))
-        self._rebuild()
-
-    def _rebuild(self) -> None:
-        metrics = self.fontMetrics()
-        limit = self._max_width - 20
-        name = self.uname
-        if metrics.horizontalAdvance(name) > limit * 0.5:
-            name = metrics.elidedText(name, Qt.ElideRight, int(limit * 0.5))
-        self._name_text = name
-        self._title_text = ""
-        if self.title:
-            used = metrics.horizontalAdvance(name + " · ")
-            room = limit - used
-            if room > 24:
-                self._title_text = metrics.elidedText(self.title, Qt.ElideRight, int(room))
-        text = self._name_text + (" · " + self._title_text if self._title_text else "")
-        width = min(self._max_width, metrics.horizontalAdvance(text) + 20)
-        self.resize(max(60, width), BADGE_HEIGHT)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), BADGE_HEIGHT),
-                            BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
-        self._mask_path = path
-        self.refresh_theme()
-        self.update()
-
-    def paint_badge(self, painter) -> None:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillPath(self.badge_path, theme.overlay_color("#15171c", "#F7F9FC"))
-        metrics = self.fontMetrics()
-        x = 10
-        painter.setPen(theme.overlay_color("#eef1f5", "#202630"))
-        painter.drawText(QRectF(x, 0, self.width(), BADGE_HEIGHT),
-                         int(Qt.AlignVCenter | Qt.AlignLeft), self._name_text)
-        if self._title_text:
-            x += metrics.horizontalAdvance(self._name_text)
-            painter.setPen(theme.overlay_color("#98a0ab", "#4A5565"))
-            painter.drawText(QRectF(x, 0, self.width() - x, BADGE_HEIGHT),
-                             int(Qt.AlignVCenter | Qt.AlignLeft),
-                             " · " + self._title_text)
-
-
 class DanmakuTextBrowser(QTextBrowser):
     """能告诉面板“用户正在查看旧弹幕”的文本区。"""
 
@@ -923,18 +620,34 @@ class SuperChatAvatarView(QWidget):
         painter.end()
 
 
+class SuperChatMessage(QTextBrowser):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setOpenLinks(False)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDocumentMargin(0)
+        self.viewport().setAutoFillBackground(False)
+
+    def text(self):
+        return self.toPlainText()
+
+    def textFormat(self):
+        return Qt.PlainText
+
+
 class SuperChatCard(QFrame):
+    dismissFinished = Signal()
     """One fixed Super Chat card; colors come from Bilibili with safe fallbacks."""
     dismissed = Signal(str)
-    dismissFinished = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SuperChatCard")
         self.chat_id = ""
-        self._paper = None
-        self._progress = 0.0
-        self.animation = motion.paper_animation(self, self._dismiss_frame, self.finish_dismiss)
+        self._scale = 1.0
         self.setMinimumHeight(64)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout = QVBoxLayout(self)
@@ -958,10 +671,18 @@ class SuperChatCard(QFrame):
         self.price.setObjectName("SuperChatPrice")
         self.left = QLabel()
         self.left.setObjectName("SuperChatTime")
-        top.addWidget(self.name)
-        top.addWidget(self.left)
-        top.addStretch(1)
-        top.addWidget(self.price, 0, Qt.AlignRight | Qt.AlignVCenter)
+        self.user_details = QWidget(self.header)
+        info = QVBoxLayout(self.user_details)
+        info.setContentsMargins(0, 0, 0, 0)
+        info.setSpacing(0)
+        self.name_row = QHBoxLayout()
+        self.name_row.setContentsMargins(0, 0, 0, 0)
+        self.name_row.setSpacing(6)
+        self.name_row.addWidget(self.name, 1)
+        self.name_row.addWidget(self.left)
+        info.addLayout(self.name_row)
+        info.addWidget(self.price)
+        top.addWidget(self.user_details, 1)
         self.close_button = QPushButton('×', self)
         self.close_button.setFixedSize(20, 20)
         self.close_button.setCursor(Qt.PointingHandCursor)
@@ -969,26 +690,27 @@ class SuperChatCard(QFrame):
         self.close_button.setAccessibleName('关闭当前醒目留言')
         self.close_button.clicked.connect(lambda: self.dismissed.emit(self.chat_id))
         top.addWidget(self.close_button)
-        self.message = QLabel()
+        self.message = SuperChatMessage()
         self.message.setObjectName("SuperChatMessage")
-        self.message.setTextFormat(Qt.PlainText)
-        self.message.setWordWrap(True)
         self.message.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.message.setFixedHeight(44)
-        self.message.setContentsMargins(10, 6, 10, 4)
+        self.message.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.header)
         layout.addWidget(self.message)
+        self._paper = None
+        self._progress = 0.0
+        self.animation = motion.paper_animation(self, self._dismiss_frame, self.finish_dismiss)
+        self._collapsed = False
+        self.configure(1.0, False)
 
     def set_event(self, event: dict) -> None:
         self.chat_id = str(event.get("super_chat_id") or event.get("id") or "")
         uname = str(event.get("uname") or "匿名用户")
         message = str(event.get("message") or event.get("text") or "")
         price = format_price(event.get("price"))
-        background = event.get("background_color") or "#f59e0b"
-        text_color = readable_text_color(background).name()
-        header = event.get('background_bottom_color') or background
-        header_text = readable_text_color(header).name()
-        self._colours = (background, header, event.get('background_price_color') or header)
+        palette = super_chat_palette(event.get('price'))
+        self._colours = (palette['background_bottom_color'], palette['background_color'])
+        text_color = SC_CONTENT_COLOR
+        header_text = SC_USER_COLOR
         remaining = format_remaining(remaining_seconds(event.get("end_time")))
         self.name.setText(uname)
         self.avatar_image.set_url(event.get('face'))
@@ -996,30 +718,50 @@ class SuperChatCard(QFrame):
         self.name.setToolTip(uname)
         self.name.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.price.setText(price)
-        self.message.setText(message)
+        self.message.setPlainText(message)
         self.message.setToolTip(message)
         self.left.setText(f"剩 {remaining}")
         self.ensurePolished()
-        desired = self.layout().sizeHint().height()
-        self.setFixedHeight(desired)
+        self.setFixedHeight(sc_card_height(event, self.width(), self._scale, self._collapsed))
         self.setStyleSheet(
             "QFrame#SuperChatCard {"
             "background:transparent;border:0;"
             "}"
             f"QFrame#SuperChatCard QLabel {{background:transparent;color:{text_color};}}"
-            f"QFrame#SuperChatCard QPushButton {{background:transparent;color:{text_color};border:0;padding:0;font-size:18px;}}"
+            f"QFrame#SuperChatCard QPushButton {{background:transparent;color:{text_color};border:0;padding:0;font-size:{round(18 * self._scale)}px;}}"
             "QWidget#SuperChatHeader {background:transparent;}"
-            f"QFrame#SuperChatCard QLabel#SuperChatName {{font-weight:700;color:{header_text};}}"
-            f"QFrame#SuperChatCard QLabel#SuperChatPrice {{font-weight:700;color:{header_text};}}"
+            f"QFrame#SuperChatCard QLabel#SuperChatName {{color:{header_text};font-size:{round(13 * self._scale)}px;}}"
+            f"QFrame#SuperChatCard QLabel#SuperChatPrice {{color:{SC_PRICE_COLOR};font-size:{round((13 if self._collapsed else 15) * self._scale)}px;}}"
             f"QFrame#SuperChatCard QPushButton {{color:{header_text};}}"
-            f"QFrame#SuperChatCard QLabel#SuperChatTime {{font-size:11px;color:{header_text};}}"
-            "QFrame#SuperChatCard QLabel#SuperChatMessage {font-size:14px;}")
+            f"QFrame#SuperChatCard QLabel#SuperChatTime {{font-size:{round(11 * self._scale)}px;color:{header_text};}}"
+            f"QFrame#SuperChatCard QTextBrowser#SuperChatMessage {{background:transparent;border:0;padding:0;color:{SC_CONTENT_COLOR};font-size:{max(1, round(14 * self._scale))}px;}}")
 
     def _refresh_avatar(self):
         self.avatar.update()
 
     def tick(self, event: dict) -> None:
         self.left.setText(f"剩 {format_remaining(remaining_seconds(event.get('end_time')))}")
+
+    def configure(self, scale, collapsed):
+        self._scale = scale
+        self.setMinimumHeight(round((36 if collapsed else 64) * scale))
+        self.header.setFixedHeight(round((36 if collapsed else 56) * scale))
+        if self._collapsed != collapsed:
+            if collapsed:
+                self.user_details.layout().removeWidget(self.price)
+                self.name_row.addWidget(self.price)
+            else:
+                self.name_row.removeWidget(self.price)
+                self.user_details.layout().addWidget(self.price)
+            self._collapsed = collapsed
+        margin = round((6 if collapsed else 8) * scale)
+        self.header.layout().setContentsMargins(round(10 * scale), margin, round(6 * scale), margin)
+        self.header.layout().setSpacing(round(6 * scale))
+        self.avatar.setFixedSize(round((24 if collapsed else 36) * scale), round((24 if collapsed else 36) * scale))
+        self.close_button.setFixedSize(round(20 * scale), round(20 * scale))
+        padding = math.ceil(SC_BODY_PADDING * scale)
+        self.message.setViewportMargins(round(11 * scale), padding, round(11 * scale), padding)
+        self.message.setVisible(not collapsed)
 
     def animate_dismiss(self, chat_id):
         if self._paper is not None or self.chat_id != str(chat_id) or not self.isVisible() or not motion.enabled():
@@ -1060,94 +802,101 @@ class SuperChatCard(QFrame):
 
 
 class SuperChatStack(QWidget):
-    """Two expanded SC cards, or a selectable stack for three or more."""
+    """Independently collapsible SC cards arranged in a vertical list."""
     dismissed = Signal(str)
     layoutChanged = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._events = []
-        self._selected_id = ''
         self._enabled = True
-        self._cards = [SuperChatCard(self) for _ in range(3)]
-        for card in self._cards:
-            card.dismissed.connect(self.dismissed)
-            card.dismissFinished.connect(self._dismiss_finished)
-            for child in [card, *card.findChildren(QWidget)]:
-                child.installEventFilter(self)
-        self.more = QPushButton(self)
-        self.more.setToolTip('切换下一条醒目留言')
-        self.more.setCursor(Qt.PointingHandCursor)
-        self.more.setStyleSheet('background:rgba(0,0,0,160);color:white;border:0;border-radius:4px;padding:1px 4px;')
-        self.more.clicked.connect(self._cycle)
+        self._opacity = .8
+        self._scale = 1.0
+        self._effective_scale = 1.0
+        self._position = None
+        self._last_collapsed = frozenset()
+        self.presentation = SuperChatPresentation(self)
+        self.presentation.changed.connect(self._presentation_changed)
+        self._cards = []
         self.alpha = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.alpha)
         self.hide()
 
-    def select_chat(self, chat_id):
-        if any(card._paper is not None for card in self._cards):
-            return
-        self._selected_id = str(chat_id)
-        self.set_events(self._events)
+    def configure(self, settings):
+        self._position = settings.get('super_chat_position')
+        self._enabled = bool(settings.get('super_chat_enabled', True))
+        self._opacity = int(settings.get('super_chat_opacity', 80)) / 100
+        self._scale = max(.75, min(2.0, int(settings.get('super_chat_scale', 100)) / 100))
+        self.presentation.configure(settings)
+        self._presentation_changed()
 
-    def _dismiss_finished(self):
-        self.set_events(self._events)
-        self.layoutChanged.emit()
-
-    def _cycle(self):
-        ordered = order_super_chats(self._events)
-        index = next((i for i, chat in enumerate(ordered) if str(chat.get('id')) == self._selected_id), 0)
-        self.select_chat(ordered[(index + 1) % len(ordered)]['id'])
+    def _presentation_changed(self):
+        self.alpha.setOpacity(self._opacity * self.presentation.progress)
+        if self._last_collapsed != frozenset(self.presentation.collapsed_ids):
+            self._last_collapsed = frozenset(self.presentation.collapsed_ids)
+            self.layoutChanged.emit()
+        self.update()
 
     def eventFilter(self, watched, event):
-        if len(self._events) >= 3 and event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            for index, card in enumerate(self._cards[1:], 1):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            for index, card in enumerate(self._cards[:len(self._events)]):
+                if watched is card.close_button:
+                    return False
                 if card is watched or card.isAncestorOf(watched):
-                    self.select_chat(self._events[index]['id'])
-                    return True
+                    if self.presentation.is_collapsed(self._events[index]):
+                        self.presentation.expand(self._events[index]['id'])
+                        return True
         return super().eventFilter(watched, event)
 
     def animate_dismiss(self, chat_id):
         for card in self._cards:
             card.animate_dismiss(chat_id)
 
+    def _dismiss_finished(self):
+        self.set_events(self._events)
+        self.layoutChanged.emit()
+
     def set_events(self, events, limit=None):
-        self._events = order_super_chats(list(events), self._selected_id)
-        if len(self._events) < 3 or not any(str(chat.get('id')) == self._selected_id for chat in self._events):
-            self._selected_id = ''
+        self._events = order_super_chats(list(events))
         closing = [card for card in self._cards if card._paper is not None]
-        if closing:
-            if self._enabled and limit != 0:
-                return
-            for card in closing:
-                card.finish_dismiss()
+        if closing and self._enabled and limit != 0:
+            return
+        for card in closing:
+            card.finish_dismiss()
         self.setVisible(bool(events) and self._enabled and limit != 0)
+        self.presentation.set_events(self._events)
+        while len(self._cards) < len(self._events):
+            card = SuperChatCard(self)
+            card.dismissed.connect(self.dismissed)
+            card.dismissFinished.connect(self._dismiss_finished)
+            for child in [card, *card.findChildren(QWidget)]:
+                child.installEventFilter(self)
+            self._cards.append(card)
         for card, event in zip(self._cards, self._events):
+            card.configure(self._effective_scale, self.presentation.is_collapsed(event))
             card.set_event(event)
         self.arrange()
         self.update()
 
     def arrange(self):
-        rects = sc_stack_rects(self.width(), self.height(), len(self._events))
-        for index in reversed(range(3)):
+        heights = [sc_card_height(event, self.width(), self._effective_scale, self.presentation.is_collapsed(event))
+                   for event in self._events]
+        rects = sc_stack_rects(self.width(), self.height(), len(self._events),
+                               scale=self._effective_scale, card_heights=heights)
+        for index in reversed(range(len(self._cards))):
             card = self._cards[index]
             card.setVisible(index < len(rects))
             if index < len(rects):
                 card.setFixedHeight(round(rects[index].height()))
                 card.setGeometry(rects[index].toAlignedRect())
-                card.close_button.setVisible(len(self._events) < 3 or index == 0)
-                card.setCursor(Qt.PointingHandCursor if index and len(self._events) >= 3 else Qt.ArrowCursor)
+                card.close_button.show()
+                card.setCursor(Qt.PointingHandCursor if self.presentation.is_collapsed(self._events[index]) else Qt.ArrowCursor)
+                card.setToolTip('点击展开醒目留言' if self.presentation.is_collapsed(self._events[index]) else '')
                 card.raise_()
-        self.more.setText(f'共 {len(self._events)} 条')
-        self.more.adjustSize()
-        self.more.move(max(0, self.width() - self.more.width() - 8), max(0, self.height() - self.more.height() - 4))
-        self.more.setVisible(len(self._events) >= 3)
-        self.more.raise_()
 
     def tick(self):
-        if not any(card._paper is not None for card in self._cards):
-            for card, event in zip(self._cards, self._events):
-                card.tick(event)
+        for card, event in zip(self._cards, self._events):
+            card.tick(event)
 
 
 
@@ -1258,7 +1007,7 @@ class DanmakuPanel(QFrame):
         scroll_bar.sliderReleased.connect(self._on_scroll_released)
         scroll_bar.valueChanged.connect(self._on_scroll_value_changed)
         layout.addWidget(self.body, 1)
-        self.super_chats = SuperChatStack(self.body.viewport())
+        self.super_chats = SuperChatStack(self)
         self.super_chats.layoutChanged.connect(self._sync_super_chat_limit)
         self.super_chats.dismissed.connect(self.superChatDismissed)
 
@@ -1361,9 +1110,6 @@ class DanmakuPanel(QFrame):
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
 
     def set_placeholder(self, text: str) -> None:
-        for card in self.super_chats._cards:
-            if card._paper is not None:
-                card.finish_dismiss()
         self.set_super_chats([])
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
@@ -1451,19 +1197,26 @@ class DanmakuPanel(QFrame):
         return 1 if self.body.viewport().height() >= 76 else 0
 
     def apply_super_chat_settings(self, settings):
-        self.super_chats._enabled = bool(settings.get('super_chat_enabled', True))
-        self.super_chats.alpha.setOpacity(int(settings.get('super_chat_opacity', 80)) / 100)
+        self.super_chats.configure(settings)
         self._sync_super_chat_limit()
 
     def _sync_super_chat_limit(self):
         if any(card._paper is not None for card in self.super_chats._cards):
             return
         viewport = self.body.viewport()
-        width = max(1, min(340, max(150, round(viewport.width() * .46)), viewport.width() - 16))
-        count = len(self.super_chats._events)
-        height = 140 if count >= 3 else 208 if count == 2 else 100
-        self.super_chats.resize(width, min(height, max(1, viewport.height() - 16)))
-        self.super_chats.move(max(8, viewport.width() - width - 8), 8)
+        rects, scale = sc_placement_rects(
+            self.super_chats._events, viewport.width(), viewport.height(),
+            self.super_chats._scale, self.super_chats._position, panel=True,
+            collapsed=self.super_chats.presentation.is_collapsed)
+        if not rects:
+            return
+        bounds = QRectF(rects[0])
+        for rect in rects[1:]:
+            bounds = bounds.united(rect)
+        bounds = bounds.toAlignedRect()
+        self.super_chats._effective_scale = scale
+        self.super_chats.resize(bounds.size())
+        self.super_chats.move(self.body.mapTo(self, viewport.pos()) + bounds.topLeft())
         self.super_chats.set_events(self.super_chats._events, self._super_chat_limit())
         self.super_chats.raise_()
 
@@ -6059,6 +5812,7 @@ class Tile(QFrame):
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
     codecSettingsRequested = Signal()
+    streamInfoRequested = Signal()
     videoDanmakuChanged = Signal(bool)
     videoDanmakuSettingsChanged = Signal(dict)
     videoDanmakuAdvancedRequested = Signal()
@@ -7345,6 +7099,8 @@ class Tile(QFrame):
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
 
         menu.addAction("当前窗口编解码设置…", self.codecSettingsRequested.emit)
+        info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, self, self.streamInfoRequested.emit))
+        info.setEnabled(bool(self.room.get('room_id')))
 
         # 声道：0 默认、3 只左、4 只右、2 反向立体声、5 杜比。
         # 只有「只左 / 只右」能把两路画面分到两只耳朵，其余是原程序的音效档。

@@ -159,11 +159,16 @@ def check_controls(app):
             QTest.keyClick(slider, Qt.Key_Right)
             assert window.settings["video_danmaku_size"] == config.DEFAULT_SETTINGS["video_danmaku_size"] + 1
             for key, value in (("video_danmaku_area", 25), ("video_danmaku_opacity", 45),
-                               ("video_danmaku_speed", 150)):
+                               ("video_danmaku_speed", 150), ("super_chat_collapse_delay", 12),
+                               ("super_chat_scale", 135)):
                 menu.controls[key].setValue(value)
                 assert window.settings[key] == value
                 assert second.video_danmaku.settings[key] == value
                 assert second.danmaku_settings_menu.controls[key].value() == value
+                assert window.current_state()['settings'][key] == value
+            first.video_danmaku.superChatSettingsChanged.emit({'super_chat_position': [0.0, 1.0]})
+            assert window.current_state()['settings']['super_chat_position'] == [0.0, 1.0]
+            assert second.video_danmaku.settings['super_chat_position'] == [0.0, 1.0]
             QTest.mouseClick(menu.scale, Qt.LeftButton, pos=QPoint(8, menu.scale.height() // 2))
             assert window.settings["video_danmaku_scale"] is False
             assert second.video_danmaku.settings["video_danmaku_scale"] is False
