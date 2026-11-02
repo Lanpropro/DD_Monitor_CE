@@ -72,7 +72,7 @@ python dev/run_checks.py --script selfcheck_mpv --timeout 120 -- --preview-start
 临时菜单与背景主题订阅的对象回收检查：
 
 ```powershell
-run.cmd --check-widget-lifetime
+.\run.cmd --check-widget-lifetime
 ```
 
 该离屏专项不读取账号、不加载插件、不播放媒体。真实 Qt 右键和画质菜单各进退 30 次后，格子下菜单与滑条数量必须回到初始值，临时菜单的 Python 弱引用也必须清空；音量、画质及插件菜单回调仍有效，执行异常时同样回收。创建并销毁 20 个背景层后，弱引用应全部清空，主题信号不再访问已销毁控件。检查已加入 `smoke` / `offline`，验证对象生命周期，不代表真实直播长期内存或 GPU 内存均无泄漏。
