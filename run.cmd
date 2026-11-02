@@ -14,7 +14,12 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 if /i "%~1"=="--sc-simulator" goto scsimulator
+if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 start "" "%PY%" "%PROJ%main.py"
+exit /b 0
+
+:responsiveness
+start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness
 exit /b 0
 
 :scsimulator

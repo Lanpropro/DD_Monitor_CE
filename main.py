@@ -71,4 +71,7 @@ from ddm.app import main         # noqa: E402
 
 
 if __name__ == "__main__":
+    if '--diagnose-responsiveness' in sys.argv:
+        from ddm.responsiveness import install
+        install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))
     raise SystemExit(main())
